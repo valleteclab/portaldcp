@@ -124,8 +124,7 @@ export default function NovaLicitacaoFaseInternaPage() {
   const [conteudoDoc, setConteudoDoc] = useState('')
   const [objetoLicitacao, setObjetoLicitacao] = useState('')
 
-  // Modo estruturado (Lei 14.133/2021) — formulário tipado por inciso
-  const [modoEstruturado, setModoEstruturado] = useState(false)
+  // Dados estruturados para formulários ETP/TR/PP/MR
   const [dadosEstruturados, setDadosEstruturados] = useState<any>(null)
 
   // IA
@@ -307,7 +306,6 @@ export default function NovaLicitacaoFaseInternaPage() {
     setTipoDoc('')
     setTituloDoc('')
     setConteudoDoc('')
-    setModoEstruturado(false)
     setDadosEstruturados(null)
   }
 
@@ -318,7 +316,6 @@ export default function NovaLicitacaoFaseInternaPage() {
     setConteudoDoc(doc.conteudo)
     setShowForm(true)
     // Tenta recuperar dados estruturados se o conteúdo for JSON válido
-    setModoEstruturado(false)
     try {
       const parsed = JSON.parse(doc.conteudo)
       if (parsed && typeof parsed === 'object') setDadosEstruturados(parsed)
@@ -492,150 +489,108 @@ export default function NovaLicitacaoFaseInternaPage() {
             })}
           </div>
 
-          {/* Formulário de elaboração com IA */}
+          {/* Formulário de elaboração */}
           {showForm && (
             <div className="mt-6 grid grid-cols-2 gap-4">
-              {/* Coluna Esquerda - Formulário */}
+              {/* Coluna Esquerda */}
               <div className="p-4 border-2 border-blue-200 rounded-lg bg-blue-50">
-                <h4 className="font-medium mb-4 flex items-center gap-2">
-                  <PenLine className="h-5 w-5 text-blue-600" />
-                  {docEditando ? 'Editar Documento' : 'Elaborar Documento'}
-                </h4>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Tipo</Label>
-                      <Input value={etapaAtual.documentos.find(d => d.tipo === tipoDoc)?.label || tipoDoc} disabled className="bg-white" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Título *</Label>
-                      <Input value={tituloDoc} onChange={e => setTituloDoc(e.target.value)} placeholder="Título do documento" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Objeto da Licitação (para contexto da IA)</Label>
-                    <Input 
-                      value={objetoLicitacao} 
-                      onChange={e => setObjetoLicitacao(e.target.value)} 
-                      placeholder="Ex: Aquisição de computadores para o setor administrativo"
-                      className="bg-white"
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <PenLine className="h-5 w-5 text-blue-600" />
+                    {docEditando ? 'Editar' : 'Elaborar'}: {tituloDoc}
+                  </h4>
+                  {/* Botão IA — sempre visível no topo */}
+                  <Button
+                    size="sm"
+                    onClick={isEstruturado(tipoDoc) ? gerarEstruturadoComIA : () => gerarComIA(tipoDoc, `Gere um modelo completo de ${tituloDoc} para uma licitação.`)}
+                    disabled={iaLoading || !objetoLicitacao.trim()}
+                    className="bg-purple-600 hover:bg-purple-700 text-white"
+                  >
+                    {iaLoading
+                      ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Gerando...</>
+                      : <><Wand2 className="mr-2 h-4 w-4" />Gerar com IA</>
+                    }
+                  </Button>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Objeto da Licitação (contexto para a IA) */}
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Objeto da Licitação <span className="text-purple-600">(necessário para a IA)</span></Label>
+                    <Input
+                      value={objetoLicitacao}
+                      onChange={e => setObjetoLicitacao(e.target.value)}
+                      placeholder="Ex: Reforma dos banheiros externos da Câmara Municipal..."
+                      className="bg-white text-sm"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <Label>Conteúdo *</Label>
-                      <div className="flex gap-2 flex-wrap">
-                        {isEstruturado(tipoDoc) && (
-                          <Button
-                            size="sm"
-                            variant={modoEstruturado ? 'default' : 'outline'}
-                            onClick={() => setModoEstruturado(v => !v)}
-                            className={modoEstruturado
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                              : 'text-emerald-700 border-emerald-300 hover:bg-emerald-50'}
-                          >
-                            <ClipboardList className="mr-1 h-4 w-4" />
-                            {modoEstruturado ? 'Modo Estruturado (Lei 14.133)' : 'Usar Modo Estruturado'}
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={modoEstruturado
-                            ? gerarEstruturadoComIA
-                            : () => gerarComIA(tipoDoc, `Gere um modelo completo de ${tituloDoc} para uma licitação.`)
-                          }
-                          disabled={iaLoading}
-                          className="text-purple-600 border-purple-300 hover:bg-purple-50"
-                        >
-                          {iaLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Wand2 className="mr-1 h-4 w-4" />}
-                          {modoEstruturado ? 'Preencher campos com IA' : 'Gerar com IA'}
-                        </Button>
-                        {conteudoDoc && !modoEstruturado && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={sugerirMelhorias}
-                            disabled={iaLoading}
-                            className="text-amber-600 border-amber-300 hover:bg-amber-50"
-                          >
-                            <Sparkles className="mr-1 h-4 w-4" />
-                            Revisar
-                          </Button>
-                        )}
-                      </div>
-                    </div>
 
-                    {modoEstruturado && isEstruturado(tipoDoc) ? (
-                      <div className="bg-white rounded-lg border p-3 max-h-[600px] overflow-y-auto">
-                        {tipoDoc === 'ETP' && (
-                          <EtpForm
-                            value={dadosEstruturados ?? defaultEtp()}
-                            onChange={setDadosEstruturados}
-                            onSubmit={() => {
-                              setConteudoDoc(JSON.stringify(dadosEstruturados ?? defaultEtp(), null, 2))
-                              salvarDocumento()
-                            }}
-                          />
-                        )}
-                        {tipoDoc === 'TR' && (
-                          <TrForm
-                            documentoId=""
-                            dadosIniciais={dadosEstruturados ?? undefined}
-                            onSalvo={(d) => {
-                              setDadosEstruturados(d)
-                              setConteudoDoc(JSON.stringify(d, null, 2))
-                              salvarDocumento()
-                            }}
-                          />
-                        )}
-                        {tipoDoc === 'PP' && (
-                          <PesquisaPrecosForm
-                            documentoId=""
-                            dadosIniciais={dadosEstruturados ?? undefined}
-                            onSalvo={(d) => {
-                              setDadosEstruturados(d)
-                              setConteudoDoc(JSON.stringify(d, null, 2))
-                              salvarDocumento()
-                            }}
-                          />
-                        )}
-                        {tipoDoc === 'MR' && (
-                          <MatrizRiscosForm
-                            documentoId=""
-                            dadosIniciais={dadosEstruturados ?? undefined}
-                            onSalvo={(d) => {
-                              setDadosEstruturados(d)
-                              setConteudoDoc(JSON.stringify(d, null, 2))
-                              salvarDocumento()
-                            }}
-                          />
-                        )}
+                  {/* Formulário estruturado OU textarea conforme o tipo */}
+                  {isEstruturado(tipoDoc) ? (
+                    <div className="bg-white rounded-lg border max-h-[600px] overflow-y-auto">
+                      {tipoDoc === 'ETP' && (
+                        <EtpForm
+                          value={dadosEstruturados ?? defaultEtp()}
+                          onChange={setDadosEstruturados}
+                          onSubmit={() => {
+                            setConteudoDoc(JSON.stringify(dadosEstruturados ?? defaultEtp(), null, 2))
+                            salvarDocumento()
+                          }}
+                        />
+                      )}
+                      {tipoDoc === 'TR' && (
+                        <TrForm
+                          documentoId=""
+                          dadosIniciais={dadosEstruturados ?? undefined}
+                          onSalvo={(d) => {
+                            setDadosEstruturados(d)
+                            setConteudoDoc(JSON.stringify(d, null, 2))
+                            salvarDocumento()
+                          }}
+                        />
+                      )}
+                      {tipoDoc === 'PP' && (
+                        <PesquisaPrecosForm
+                          documentoId=""
+                          dadosIniciais={dadosEstruturados ?? undefined}
+                          onSalvo={(d) => {
+                            setDadosEstruturados(d)
+                            setConteudoDoc(JSON.stringify(d, null, 2))
+                            salvarDocumento()
+                          }}
+                        />
+                      )}
+                      {tipoDoc === 'MR' && (
+                        <MatrizRiscosForm
+                          documentoId=""
+                          dadosIniciais={dadosEstruturados ?? undefined}
+                          onSalvo={(d) => {
+                            setDadosEstruturados(d)
+                            setConteudoDoc(JSON.stringify(d, null, 2))
+                            salvarDocumento()
+                          }}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-1">
+                        <Label>Conteúdo *</Label>
+                        <Textarea
+                          value={conteudoDoc}
+                          onChange={e => setConteudoDoc(e.target.value)}
+                          placeholder="Elabore o conteúdo ou clique em 'Gerar com IA'..."
+                          rows={14}
+                          className="bg-white"
+                        />
                       </div>
-                    ) : (
-                      <Textarea
-                        value={conteudoDoc}
-                        onChange={e => setConteudoDoc(e.target.value)}
-                        placeholder="Elabore o conteúdo do documento aqui ou use a IA para gerar..."
-                        rows={12}
-                        className="bg-white"
-                      />
-                    )}
-                  </div>
-                  {!modoEstruturado && (
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={limparForm}>Cancelar</Button>
-                      <Button onClick={salvarDocumento} disabled={!tituloDoc || !conteudoDoc}>
-                        <Save className="mr-2 h-4 w-4" />Salvar Documento
-                      </Button>
-                    </div>
-                  )}
-                  {modoEstruturado && (
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={() => { setModoEstruturado(false); limparForm() }}>
-                        Cancelar
-                      </Button>
-                    </div>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={limparForm}>Cancelar</Button>
+                        <Button onClick={salvarDocumento} disabled={!tituloDoc || !conteudoDoc}>
+                          <Save className="mr-2 h-4 w-4" />Salvar
+                        </Button>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
