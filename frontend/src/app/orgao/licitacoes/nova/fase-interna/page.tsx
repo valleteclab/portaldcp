@@ -136,7 +136,34 @@ export default function NovaLicitacaoFaseInternaPage() {
 
   const etapaAtual = ETAPAS[etapaAtiva]
 
-  // Função para gerar conteúdo com IA
+  // Gera documento estruturado (JSON tipado) via IA — usado no Modo Estruturado
+  const gerarEstruturadoComIA = async () => {
+    if (!objetoLicitacao.trim() && !tipoDoc) return
+    setIaLoading(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/ia/gerar-estruturado`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo: tipoDoc,
+          objeto: objetoLicitacao,
+          contexto: `Elaborar ${tituloDoc} para: ${objetoLicitacao}`,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.dados) {
+          setDadosEstruturados(data.dados)
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao gerar estruturado:', e)
+    } finally {
+      setIaLoading(false)
+    }
+  }
+
+  // Função para gerar conteúdo com IA (modo texto livre)
   const gerarComIA = async (tipo: string, contexto: string) => {
     setIaLoading(true)
     try {
@@ -514,12 +541,15 @@ export default function NovaLicitacaoFaseInternaPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => gerarComIA(tipoDoc, `Gere um modelo completo de ${tituloDoc} para uma licitação.`)}
-                          disabled={iaLoading || modoEstruturado}
+                          onClick={modoEstruturado
+                            ? gerarEstruturadoComIA
+                            : () => gerarComIA(tipoDoc, `Gere um modelo completo de ${tituloDoc} para uma licitação.`)
+                          }
+                          disabled={iaLoading}
                           className="text-purple-600 border-purple-300 hover:bg-purple-50"
                         >
                           {iaLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Wand2 className="mr-1 h-4 w-4" />}
-                          Gerar com IA
+                          {modoEstruturado ? 'Preencher campos com IA' : 'Gerar com IA'}
                         </Button>
                         {conteudoDoc && !modoEstruturado && (
                           <Button
