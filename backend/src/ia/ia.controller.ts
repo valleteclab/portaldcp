@@ -25,6 +25,12 @@ interface AnalisarContratoDto {
   historico?: Array<{ role: string; content: string }>;
 }
 
+interface GerarEstruturadoDto {
+  tipo: 'ETP' | 'TR' | 'PP' | 'MR';
+  objeto: string;
+  contexto?: string;
+}
+
 @Controller('ia')
 export class IaController {
   constructor(private readonly iaService: IaService) {}
@@ -131,6 +137,43 @@ export class IaController {
       console.error('Erro ao analisar contrato:', error);
       throw new HttpException(
         'Erro ao analisar contrato',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Gera documento estruturado (JSON tipado) via IA.
+   * Usado pelo frontend quando "Modo Estruturado" está ativo + "Gerar com IA".
+   * Retorna { dados } com o JSON tipado conforme EtpDados / TrDados / etc.
+   */
+  @Post('gerar-estruturado')
+  async gerarEstruturado(@Body() dto: GerarEstruturadoDto) {
+    const contexto = [dto.objeto, dto.contexto].filter(Boolean).join('\n\n');
+    try {
+      let dados: any;
+      switch (dto.tipo) {
+        case 'ETP':
+          dados = await this.iaService.gerarEtpEstruturado(contexto);
+          break;
+        case 'TR':
+          dados = await this.iaService.gerarTrEstruturado(contexto);
+          break;
+        case 'PP':
+          dados = await this.iaService.gerarPesquisaPrecosEstruturada(contexto);
+          break;
+        case 'MR':
+          dados = await this.iaService.gerarMatrizRiscosEstruturada(contexto);
+          break;
+        default:
+          throw new HttpException(`Tipo '${dto.tipo}' não suportado`, HttpStatus.BAD_REQUEST);
+      }
+      return { sucesso: true, dados };
+    } catch (error: any) {
+      console.error('Erro ao gerar estruturado:', error);
+      if (error instanceof HttpException) throw error;
+      throw new HttpException(
+        error?.message || 'Erro ao gerar documento estruturado com IA',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

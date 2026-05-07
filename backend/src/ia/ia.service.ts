@@ -269,35 +269,87 @@ export class IaService {
   async gerarConteudo(tipoDocumento: string, contexto: string, objeto?: string): Promise<string> {
     const apiKey = await this.getApiKey();
     const model = await this.getModel();
-    
-    // Prompt específico para GERAÇÃO de documento (botão "Gerar com IA")
-    const promptGeracao = `Você é um especialista em documentos de licitação conforme a Lei 14.133/2021.
 
-Gere um ${tipoDocumento} COMPLETO e PROFISSIONAL com base nas informações fornecidas pelo usuário.
+    // Contexto técnico por tipo de documento
+    const CONTEXTO_TECNICO: Record<string, string> = {
+      ETP: `
+NORMAS APLICÁVEIS AO ETP:
+- Lei 14.133/2021 Art. 18, §1º (13 incisos obrigatórios)
+- IN SEGES/ME 81/2022 (ETP digital)
+- Para obras/engenharia: SINAPI como referência de custo
+- NBR 9050 (acessibilidade) quando aplicável
+- NR-18 (segurança em obras)
 
-REGRAS:
-1. Gere APENAS o documento, sem introduções como "Aqui está", "Segue abaixo", etc.
-2. Use formatação profissional com seções numeradas
-3. Preencha todos os campos obrigatórios do ${tipoDocumento}
-4. Use as informações fornecidas pelo usuário
-5. Para campos não informados, use marcadores como [INFORMAR] para o usuário completar depois
-6. O documento deve estar pronto para uso oficial
+ESTRUTURA OBRIGATÓRIA (Art. 18, §1º):
+I — Descrição da necessidade (problema a resolver, demanda existente)
+II — Previsão no Plano de Contratações Anual (PCA)
+III — Requisitos da contratação (técnicos, de sustentabilidade, acessibilidade)
+IV — Estimativa das quantidades (memória de cálculo)
+V — Levantamento de mercado (alternativas, benchmarking)
+VI — Estimativa do valor (referências SINAPI/CATMAT/cotações)
+VII — Descrição da solução e ciclo de vida do objeto
+VIII — Justificativa do parcelamento ou não parcelamento
+IX — Resultados pretendidos (indicadores de desempenho)
+X — Providências para adequação (estrutura, equipe, sistemas)
+XI — Contratações correlatas ou interdependentes
+XII — Impactos ambientais e medidas mitigadoras
+XIII — Posicionamento conclusivo sobre viabilidade`,
 
-Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
-1. DESCRIÇÃO DA NECESSIDADE
-2. ÁREA REQUISITANTE
-3. REQUISITOS DA CONTRATAÇÃO
-4. ESTIMATIVA DE QUANTIDADES
-5. LEVANTAMENTO DE MERCADO
-6. ESTIMATIVA DE VALOR
-7. DESCRIÇÃO DA SOLUÇÃO
-8. JUSTIFICATIVA DO PARCELAMENTO
-9. RESULTADOS PRETENDIDOS
-10. ANÁLISE DE RISCOS
-11. PROVIDÊNCIAS PARA ADEQUAÇÃO`;
-    
-    const mensagemUsuario = objeto 
-      ? `Objeto da licitação: ${objeto}\n\nInformações fornecidas: ${contexto}`
+      TR: `
+NORMAS APLICÁVEIS AO TR:
+- Lei 14.133/2021 Art. 6º, XXIII (11 elementos)
+- Para serviços contínuos: vigência máx. 5 anos prorrogáveis (Art. 106)
+- Para obras: prazo conforme cronograma físico-financeiro
+- Habilitação técnica: atestados compatíveis com 50% do objeto (Súmula TCU 247)`,
+
+      PP: `
+NORMAS APLICÁVEIS À PP:
+- Lei 14.133/2021 Art. 23
+- IN SEGES/ME 65/2021 (metodologia de pesquisa)
+- Mínimo 3 fontes distintas: SINAPI/CATMAT/Painel de Preços + fornecedores
+- Metodologia preferencial: mediana (evita distorções por outliers)`,
+
+      MR: `
+NORMAS APLICÁVEIS À MATRIZ DE RISCOS:
+- Lei 14.133/2021 Art. 6º, XXVII e Art. 22
+- Para obras >R$200mi: obrigatória (Art. 22 §3º)
+- Grau de risco = Probabilidade × Impacto (1-5 cada)`,
+    };
+
+    const DOMINIOS_ESPECIFICOS: Record<string, string> = {
+      ENGENHARIA: `
+Conhecimento de domínio — Obras e Serviços de Engenharia:
+- Fases típicas: demolição → instalações prediais → impermeabilização → revestimentos → louças/acessórios → acabamentos
+- Normas: NBR 5626 (água fria), NBR 8160 (esgoto), NBR 9050 (acessibilidade), NBR 13818 (cerâmica), NR-18
+- Referência de custo: SINAPI (publicado pela CEF/IBGE, atualizado mensalmente)
+- Prazo típico de obra pequena/média: 60-120 dias corridos
+- BDI padrão para reforma: 20-28%
+- Índices de qualificação: CREA do responsável técnico, atestados de acervo técnico (CAT/CREA)`,
+    };
+
+    // Detecta domínio pela descrição do objeto
+    const dominioAtivo = (objeto || contexto || '').toLowerCase().match(
+      /engenhar|obra|reform|constru|demoliç|instalaç|revestim|hidráulic|esgoto|banheiro|paviment|pintura/
+    ) ? DOMINIOS_ESPECIFICOS.ENGENHARIA : '';
+
+    const promptGeracao = `Você é um especialista sênior em licitações públicas (Lei 14.133/2021) e em documentos técnicos do setor público brasileiro.
+
+MISSÃO: Gerar um ${tipoDocumento} COMPLETO e SUBSTANCIAL. O documento deve conter conteúdo técnico REAL, não modelos com lacunas.
+${CONTEXTO_TECNICO[tipoDocumento] || ''}
+${dominioAtivo}
+
+REGRAS ABSOLUTAS:
+1. Gere APENAS o documento — sem "Aqui está", "Segue abaixo", preâmbulos ou conclusões externas.
+2. NUNCA use [INFORMAR], [PREENCHER], [INSERIR] ou qualquer placeholder vazio.
+3. Se um valor específico (ex: m², quantidade exata, preço) não foi informado, ESTIME com base no objeto descrito e indique "(estimativa técnica — confirmar antes da assinatura)" uma única vez por seção.
+4. Use conteúdo técnico real: cite normas corretas, descreva processos específicos do objeto, liste requisitos reais.
+5. Dados do órgão/servidor (nome, matrícula, dotação orçamentária): substitua por "(a ser preenchido pelo servidor)" apenas quando for dado pessoal/institucional impossível de inferir.
+6. Escreva parágrafos completos e fundamentados — não bullet points genéricos.
+7. Linguagem: português brasileiro formal e técnico.
+8. Temperatura intelectual: profissional experiente que conhece o objeto, não um modelo genérico.`;
+
+    const mensagemUsuario = objeto
+      ? `Objeto da licitação: ${objeto}\n\nContexto adicional: ${contexto}`
       : contexto;
 
     try {
@@ -316,8 +368,8 @@ Estrutura do ETP conforme Art. 18, §1º da Lei 14.133/2021:
             { role: 'system', content: promptGeracao },
             { role: 'user', content: mensagemUsuario },
           ],
-          temperature: 0.7,
-          max_tokens: 4000,
+          temperature: 0.4,
+          max_tokens: 6000,
         }),
       });
 
@@ -1271,15 +1323,18 @@ INSTRUÇÕES:
    * Gera ETP estruturado (JSON tipado conforme EtpDados — 13 incisos do Art. 18, §1º).
    */
   async gerarEtpEstruturado(contexto: string): Promise<EtpDados> {
-    const systemPrompt = `Você é um especialista em Estudos Técnicos Preliminares (ETP) conforme a Lei 14.133/2021 (Art. 18, §1º) e IN SEGES/ME 81/2022.
+    const systemPrompt = `Você é um especialista sênior em Estudos Técnicos Preliminares (ETP) conforme a Lei 14.133/2021 (Art. 18, §1º) e IN SEGES/ME 81/2022.
 
-Sua tarefa é PREENCHER um JSON estruturado contendo TODOS os 13 incisos do ETP.
+Sua tarefa é PREENCHER um JSON estruturado contendo TODOS os 13 incisos do ETP com conteúdo técnico REAL e SUBSTANCIAL.
 
-REGRAS OBRIGATÓRIAS:
-1. Retorne APENAS um objeto JSON válido, SEM markdown, SEM cercas \`\`\`, SEM explicações.
-2. Não invente dados sensíveis (CNPJ, valores reais): se faltar informação, escreva "[INFORMAR]" no campo string ou use 0 em campos numéricos.
-3. Use português brasileiro técnico, em todos os campos textuais com no mínimo 30 caracteres quando aplicável.
-4. Cite artigos da Lei 14.133/2021 quando relevante.
+REGRAS ABSOLUTAS:
+1. Retorne APENAS um objeto JSON válido — SEM markdown, SEM cercas \`\`\`, SEM texto antes ou depois do JSON.
+2. NUNCA use "[INFORMAR]", "[PREENCHER]" ou qualquer placeholder. Gere conteúdo técnico real baseado no objeto.
+3. Para valores numéricos desconhecidos (valor total, quantidades exatas): use estimativa técnica razoável; o campo "metodo_calculo" deve mencionar "estimativa baseada em referências SINAPI/mercado — confirmar na pesquisa de preços".
+4. Para dados pessoais/institucionais (nome, matrícula, dotação): use string vazia "" — o formulário tem campos separados para isso.
+5. Para textos: mínimo 80 caracteres por campo, conteúdo específico ao objeto (cite normas, processos, requisitos reais).
+6. Cite artigos da Lei 14.133/2021 e normas técnicas aplicáveis (ex: SINAPI, NBR 9050, NR-18).
+7. Se o objeto envolve engenharia/obras: aplique conhecimento técnico de engenharia civil (NBR 5626, NBR 8160, CREA, BDI, fases de obra).
 
 SCHEMA EXATO (chaves obrigatórias):
 {
@@ -1348,15 +1403,18 @@ Retorne APENAS o JSON. Sem markdown. Sem texto fora do JSON.`;
    * Gera TR estruturado (JSON tipado conforme TrDados — 11 elementos do Art. 6º, XXIII).
    */
   async gerarTrEstruturado(contexto: string): Promise<TrDados> {
-    const systemPrompt = `Você é um especialista em Termo de Referência (TR) conforme a Lei 14.133/2021 (Art. 6º, XXIII).
+    const systemPrompt = `Você é um especialista sênior em Termo de Referência (TR) conforme a Lei 14.133/2021 (Art. 6º, XXIII).
 
-Sua tarefa é PREENCHER um JSON estruturado contendo TODOS os 11 elementos do TR.
+Sua tarefa é PREENCHER um JSON estruturado com conteúdo técnico REAL e SUBSTANCIAL para todos os 11 elementos do TR.
 
-REGRAS OBRIGATÓRIAS:
-1. Retorne APENAS um objeto JSON válido, SEM markdown, SEM cercas \`\`\`, SEM explicações.
-2. Se faltar informação, use "[INFORMAR]" em strings ou 0 em números.
-3. Português brasileiro técnico, mínimo 30 caracteres em campos textuais relevantes.
-4. Cite artigos da Lei 14.133/2021 onde couber.
+REGRAS ABSOLUTAS:
+1. Retorne APENAS um objeto JSON válido — SEM markdown, SEM cercas \`\`\`, SEM texto antes/depois.
+2. NUNCA use "[INFORMAR]", "[PREENCHER]" ou placeholders. Gere conteúdo específico ao objeto.
+3. Para dados pessoais (nome do fiscal, gestor): use string vazia "" — são preenchidos pelo servidor.
+4. Para dotação orçamentária, elemento de despesa: use valores típicos da natureza do objeto (ex: obras=44905139, serviços=33903900).
+5. Textos: mínimo 80 caracteres, específicos ao domínio do objeto. Cite normas reais.
+6. Prazo de pagamento: 30 dias após medição (padrão mercado público).
+7. Se objeto é obra/serviço de engenharia: use modalidade CONCORRENCIA ou DISPENSA_ELETRONICA conforme valor, periodicidade POR_ETAPA.
 
 SCHEMA EXATO:
 {
@@ -1435,14 +1493,16 @@ Retorne APENAS o JSON. Sem markdown. Sem texto fora do JSON.`;
   async gerarPesquisaPrecosEstruturada(contexto: string): Promise<PesquisaPrecosDados> {
     const systemPrompt = `Você é um especialista em Pesquisa de Preços para licitações conforme Art. 23 da Lei 14.133/2021 e IN SEGES/ME 65/2021.
 
-Sua tarefa é PREENCHER um JSON estruturado contendo os itens da pesquisa, cada um com cotações de FONTES DISTINTAS (mínimo 3 fontes diferentes por item).
+Sua tarefa é PREENCHER um JSON estruturado com itens e cotações REAIS de mercado para o objeto descrito.
 
-REGRAS OBRIGATÓRIAS:
-1. Retorne APENAS um objeto JSON válido, SEM markdown, SEM cercas \`\`\`, SEM explicações.
-2. Cada item deve ter pelo menos 3 cotações de fontes DIFERENTES (campo "fonte" distinto).
-3. Não invente CNPJs reais; se desconhecidos, use "[INFORMAR]".
-4. Datas em formato ISO (YYYY-MM-DD).
-5. Valores numéricos como números (não strings).
+REGRAS ABSOLUTAS:
+1. Retorne APENAS um objeto JSON válido — SEM markdown, SEM cercas \`\`\`, SEM texto fora do JSON.
+2. Cada item deve ter EXATAMENTE 3 cotações de fontes DISTINTAS — obrigatório.
+3. Para CNPJs: use "" (vazio) — o usuário preencherá após pesquisa real.
+4. Para valores: estime com base em referências SINAPI ou preços típicos de mercado para o objeto; registre a fonte em "descricao_fonte".
+5. Use data_pesquisa = data atual aproximada (formato YYYY-MM-DD).
+6. Metodologia padrão: MEDIANA (mais robusta que média em contratos públicos).
+7. Gere itens que façam sentido para o objeto — não gere itens genéricos.
 
 Tipos válidos para "fonte":
 PAINEL_DE_PRECOS, PNCP, CONTRATO_VIGENTE_SISTEMA, MIDIA_ESPECIALIZADA, FORNECEDOR_DIRETO, NOTA_FISCAL_ELETRONICA, OUTRA
@@ -1492,15 +1552,17 @@ Retorne APENAS o JSON. Sem markdown. Sem texto fora do JSON.`;
    * Gera Matriz de Riscos estruturada (JSON tipado conforme MatrizRiscosDados — Art. 22 da Lei 14.133/2021).
    */
   async gerarMatrizRiscosEstruturada(contexto: string): Promise<MatrizRiscosDados> {
-    const systemPrompt = `Você é um especialista em Análise de Riscos / Matriz de Riscos conforme Art. 22 da Lei 14.133/2021.
+    const systemPrompt = `Você é um especialista em Gestão de Riscos em Contratos Públicos conforme Art. 22 da Lei 14.133/2021.
 
-Sua tarefa é PREENCHER um JSON estruturado contendo os riscos identificados, com probabilidade (1-5), impacto (1-5) e tratamento.
+Sua tarefa é PREENCHER um JSON estruturado com riscos ESPECÍFICOS ao objeto descrito, com probabilidade e impacto fundamentados.
 
-REGRAS OBRIGATÓRIAS:
-1. Retorne APENAS um objeto JSON válido, SEM markdown, SEM cercas \`\`\`, SEM explicações.
-2. Numere os riscos sequencialmente (numero: 1, 2, 3...).
-3. Use no mínimo 2 categorias diferentes.
-4. probabilidade e impacto: inteiros de 1 a 5 (1=muito baixa/o, 5=muito alta/o).
+REGRAS ABSOLUTAS:
+1. Retorne APENAS um objeto JSON válido — SEM markdown, SEM cercas \`\`\`, SEM texto fora do JSON.
+2. Gere mínimo 6 riscos realistas e específicos ao domínio do objeto.
+3. Cubra pelo menos 4 categorias distintas de risco.
+4. probabilidade e impacto: inteiros de 1 a 5 (1=muito baixa/o, 5=muito alta/o). Calcule grau = P×I.
+5. Ações preventivas e de contingência: conteúdo técnico real, não genérico.
+6. Para obras: inclua riscos de segurança do trabalho (NR-18), prazo, custo de materiais, interferência de terceiros.
 5. Cada risco deve ter descricao, causa, consequencia, acoes_preventivas e acoes_contingencia preenchidos.
 
 Categorias válidas:
