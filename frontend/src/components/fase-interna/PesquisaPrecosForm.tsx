@@ -595,6 +595,11 @@ export default function PesquisaPrecosForm({ documentoId, dadosIniciais, onSalvo
     setSalvando(true)
     setErrors([])
     try {
+      // Modo local: sem documentoId, devolve os dados ao parent sem chamar API
+      if (!documentoId) {
+        onSalvo?.(dados)
+        return
+      }
       const res = await fetch(`/api/fase-interna/estruturado/${documentoId}/dados`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

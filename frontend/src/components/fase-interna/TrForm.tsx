@@ -306,6 +306,13 @@ export default function TrForm({ documentoId, dadosIniciais, onSalvo }: Props) {
     setErros([])
     setSucesso(false)
     try {
+      // Modo local: sem documentoId, apenas devolve os dados ao parent
+      if (!documentoId) {
+        setSucesso(true)
+        onSalvo?.(dados)
+        setTimeout(() => setSucesso(false), 3000)
+        return
+      }
       const res = await fetch(`/api/fase-interna/estruturado/${documentoId}/dados`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
