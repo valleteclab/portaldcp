@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
   ChevronRight, Home, Check, Eye, X, Filter, History,
-  AlertCircle, Loader2
+  AlertCircle, Loader2,
 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -234,7 +234,7 @@ function AprovacaoCard({
 
             <h3 className="text-sm font-semibold text-gray-900 mb-2 leading-snug">{item.objeto}</h3>
 
-            <div className="flex items-center gap-4 text-xs text-gray-500 mb-0">
+            <div className="flex items-center gap-4 text-xs text-gray-500">
               <span>Prazo: <strong className="text-gray-700">{item.prazo}</strong></span>
               <span>Em: <strong className="text-gray-700">{item.etapaAtual}</strong></span>
             </div>

@@ -50,21 +50,21 @@ const MOCK: Licitacao[] = [
 
 // Maps fase → { sigla, nome, progresso (1-8), status }
 const FASE_MAP: Record<string, { sigla: string; nome: string; progresso: number; status: string }> = {
-  PLANEJAMENTO:      { sigla: "DFD", nome: "Formalização da Demanda",  progresso: 1, status: "rascunho" },
-  TERMO_REFERENCIA:  { sigla: "ETP", nome: "Estudo Técnico Preliminar", progresso: 2, status: "andamento" },
-  PESQUISA_PRECOS:   { sigla: "PP",  nome: "Pesquisa de Preços",        progresso: 3, status: "andamento" },
-  ANALISE_JURIDICA:  { sigla: "TR",  nome: "Termo de Referência",       progresso: 5, status: "juridico" },
-  APROVACAO_INTERNA: { sigla: "PJ",  nome: "Parecer Jurídico",          progresso: 7, status: "revisao" },
+  PLANEJAMENTO:      { sigla: "DFD", nome: "Formalização da Demanda",   progresso: 1, status: "rascunho" },
+  TERMO_REFERENCIA:  { sigla: "ETP", nome: "Estudo Técnico Preliminar",  progresso: 2, status: "andamento" },
+  PESQUISA_PRECOS:   { sigla: "PP",  nome: "Pesquisa de Preços",         progresso: 3, status: "andamento" },
+  ANALISE_JURIDICA:  { sigla: "TR",  nome: "Termo de Referência",        progresso: 5, status: "juridico" },
+  APROVACAO_INTERNA: { sigla: "PJ",  nome: "Parecer Jurídico",           progresso: 7, status: "revisao" },
 }
 
 // Status chip colors
 const STATUS_CHIP: Record<string, { bg: string; text: string }> = {
-  rascunho:  { bg: "bg-[#f3f4f6]",  text: "text-gray-600" },
-  andamento: { bg: "bg-[#dbe8fb]",  text: "text-[#1351b4]" },
-  juridico:  { bg: "bg-[#efe7fd]",  text: "text-purple-700" },
-  revisao:   { bg: "bg-[#fff5d9]",  text: "text-yellow-700" },
-  aprovado:  { bg: "bg-[#e3f5e1]",  text: "text-[#168821]" },
-  concluido: { bg: "bg-[#e3f5e1]",  text: "text-[#168821]" },
+  rascunho:  { bg: "bg-[#f3f4f6]", text: "text-gray-600" },
+  andamento: { bg: "bg-[#dbe8fb]", text: "text-[#1351b4]" },
+  juridico:  { bg: "bg-[#efe7fd]", text: "text-purple-700" },
+  revisao:   { bg: "bg-[#fff5d9]", text: "text-yellow-700" },
+  aprovado:  { bg: "bg-[#e3f5e1]", text: "text-[#168821]" },
+  concluido: { bg: "bg-[#e3f5e1]", text: "text-[#168821]" },
 }
 
 // IA alert styles
@@ -79,10 +79,10 @@ const ALERTA_STYLE: Record<AlertaIA["tipo"], {
 
 // Recent activity (static)
 const ATIVIDADES = [
-  { acao: "Você editou",          alvo: "TR — seção 4. Requisitos",              tempo: "agora" },
-  { acao: "Procuradoria aprovou", alvo: "Parecer jurídico — 2026/0138",          tempo: "2h" },
-  { acao: "Procura+ AI gerou",    alvo: "Mapa de Riscos — rascunho",             tempo: "4h" },
-  { acao: "Ricardo T. comentou em", alvo: "ETP — 2026/0151",                    tempo: "ontem" },
+  { acao: "Você editou",            alvo: "TR — seção 4. Requisitos",        tempo: "agora" },
+  { acao: "Procuradoria aprovou",   alvo: "Parecer jurídico — 2026/0138",    tempo: "2h" },
+  { acao: "Procura+ AI gerou",      alvo: "Mapa de Riscos — rascunho",       tempo: "4h" },
+  { acao: "Ricardo T. comentou em", alvo: "ETP — 2026/0151",                 tempo: "ontem" },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -175,7 +175,6 @@ export default function FaseInternaDashboard() {
     // fallback to mock
     setLicitacoes(MOCK)
     gerarAlertasIA(MOCK)
-    setCarregando(false)
   }, [gerarAlertasIA])
 
   useEffect(() => {
@@ -185,14 +184,19 @@ export default function FaseInternaDashboard() {
   // ── Derived stats ─────────────────────────────────────────────────────────────
 
   const total = licitacoes.length
-  const emAndamento = licitacoes.filter((l) => ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS"].includes(l.fase)).length
+  const emAndamento = licitacoes.filter((l) =>
+    ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS"].includes(l.fase)
+  ).length
   const pendentes = licitacoes.filter((l) => {
     const dias = diasRestantes(l.prazo)
     return dias !== null && dias <= 7
   }).length
   const aprovadosMes = licitacoes.filter((l) => l.fase === "APROVACAO_INTERNA").length
-  const valorTotal = licitacoes.reduce((acc, l) => acc + (parseFloat(String(l.valor_total_estimado)) || 0), 0)
-  const prioritarios = [...licitacoes].slice(0, 5)
+  const valorTotal = licitacoes.reduce(
+    (acc, l) => acc + (parseFloat(String(l.valor_total_estimado)) || 0),
+    0
+  )
+  const prioritarios = licitacoes.slice(0, 5)
   const prazosCriticos = licitacoes.filter((l) => {
     const d = diasRestantes(l.prazo)
     return d !== null && d < 14
@@ -264,7 +268,7 @@ export default function FaseInternaDashboard() {
                   )}
                 </p>
                 <p className="text-xs text-gray-400 mt-1.5">
-                  {carregando ? "" : `${prazosCriticos} com prazo crítico`}
+                  {!carregando && `${prazosCriticos} com prazo crítico`}
                 </p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-[#fff5d9] flex items-center justify-center shrink-0">
@@ -364,7 +368,7 @@ export default function FaseInternaDashboard() {
                           <p className="text-[11px] text-gray-500 truncate">{l.objeto}</p>
                         </div>
 
-                        {/* Etapa */}
+                        {/* Etapa atual */}
                         <div>
                           <p className="text-[11px] font-bold text-gray-800">{m.sigla}</p>
                           <p className="text-[11px] text-gray-400">{m.nome}</p>
@@ -399,8 +403,8 @@ export default function FaseInternaDashboard() {
           </CardContent>
         </Card>
 
-        {/* RIGHT: stack */}
-        <div className="flex flex-col gap-4">
+        {/* RIGHT: vstack gap-16 */}
+        <div className="flex flex-col gap-16">
 
           {/* Alertas da IA */}
           <Card className="border-0 shadow-sm">
