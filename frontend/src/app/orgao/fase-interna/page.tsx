@@ -100,24 +100,22 @@ export default function FaseInternaDashboard() {
         `- Processo ${l.numero_processo || l.id.slice(0, 8)}: "${l.objeto}" — fase: ${FASE_LABELS[l.fase] || l.fase}`
       ).join("\n")
 
+      const prompt = processos.length > 0
+        ? `Analise os processos licitatórios abaixo e gere 3 alertas relevantes para o gestor, conforme a Lei 14.133/2021. Para cada alerta, classifique como "aviso", "sugestao" ou "risco". Retorne APENAS JSON: [{tipo, titulo, descricao}]\n\nProcessos:\n${resumo}`
+        : `Gere 3 alertas gerais para um gestor de licitações que está iniciando a fase interna, conforme a Lei 14.133/2021. Para cada alerta, classifique como "aviso", "sugestao" ou "risco". Retorne APENAS JSON: [{tipo, titulo, descricao}]`
+
       const res = await authFetch(`${API_URL}/api/ia/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{
-            role: "user",
-            content: processos.length > 0
-              ? `Analise os processos licitatórios abaixo e gere 3 alertas relevantes para o gestor, conforme a Lei 14.133/2021. Para cada alerta, classifique como "aviso", "sugestao" ou "risco". Retorne JSON: [{tipo, titulo, descricao}]\n\nProcessos:\n${resumo}`
-              : `Gere 3 alertas gerais para um gestor de licitações que está iniciando a fase interna, conforme a Lei 14.133/2021. Para cada alerta, classifique como "aviso", "sugestao" ou "risco". Retorne JSON: [{tipo, titulo, descricao}]`,
-          }],
-          system: "Você é o Procura+ AI, especialista na Lei nº 14.133/2021. Responda apenas com o JSON solicitado, sem texto adicional.",
-          max_tokens: 600,
+          mensagens: [{ role: "user", content: prompt }],
+          tipoDocumento: "alertas_dashboard",
         }),
       })
 
       if (res.ok) {
         const data = await res.json()
-        const texto = data.content?.[0]?.text || ""
+        const texto = data.resposta || ""
         const jsonMatch = texto.match(/\[[\s\S]*\]/)
         if (jsonMatch) {
           const parsed: AlertaIA[] = JSON.parse(jsonMatch[0])

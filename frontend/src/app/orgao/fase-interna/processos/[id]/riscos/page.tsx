@@ -68,17 +68,16 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{
+          mensagens: [{
             role: "user",
-            content: `Liste 3 riscos adicionais típicos para processos licitatórios de serviços de TI, conforme a Lei 14.133/2021 (Art. 18, X). Para cada risco, informe: descrição, categoria e medida de mitigação. Formato JSON: [{descricao, categoria, mitigacao}]`
+            content: `Liste 3 riscos adicionais típicos para processos licitatórios de serviços de TI, conforme a Lei 14.133/2021 (Art. 18, X). Para cada risco, informe: descrição, categoria e medida de mitigação. Retorne APENAS JSON: [{descricao, categoria, mitigacao}]`
           }],
-          system: "Especialista em gestão de riscos em licitações públicas (Lei 14.133/2021). Responda apenas com o JSON solicitado.",
-          max_tokens: 600,
+          tipoDocumento: "mapa_riscos",
         }),
       })
       if (res.ok) {
         const data = await res.json()
-        const texto = data.content?.[0]?.text || ""
+        const texto = data.resposta || ""
         const jsonMatch = texto.match(/\[[\s\S]*\]/)
         if (jsonMatch) {
           const novos = JSON.parse(jsonMatch[0])

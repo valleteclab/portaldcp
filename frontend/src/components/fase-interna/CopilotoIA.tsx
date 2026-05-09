@@ -48,19 +48,23 @@ Auxilia servidores públicos na elaboração da fase interna de licitações, re
 sugerindo cláusulas e verificando conformidade legal. Responda sempre em português, de forma clara,
 objetiva e fundamentada nos artigos da lei.${contexto ? `\n\nContexto atual: ${contexto}` : ""}`
 
+      const mensagensComSistema = [
+        { role: "user", content: system + "\n\n" + novasMensagens[0]?.content },
+        ...novasMensagens.slice(1),
+      ]
+
       const res = await authFetch(`${API_URL}/api/ia/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: novasMensagens,
-          system,
-          max_tokens: 1024,
+          mensagens: novasMensagens.map(m => ({ role: m.role, content: m.content })),
+          tipoDocumento: "assistente_fase_interna",
         }),
       })
 
       if (res.ok) {
         const data = await res.json()
-        const resposta = data.content?.[0]?.text || data.message || data.response || "Não foi possível obter resposta."
+        const resposta = data.resposta || data.sucesso && data.resposta || "Não foi possível obter resposta."
         setMensagens([...novasMensagens, { role: "assistant", content: resposta }])
       } else {
         setMensagens([...novasMensagens, { role: "assistant", content: "Erro ao conectar com a IA. Tente novamente." }])
