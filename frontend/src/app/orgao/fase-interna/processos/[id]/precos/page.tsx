@@ -1,96 +1,159 @@
 "use client"
 
-import { useState, use } from "react"
+import { useState, use, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
-  ChevronRight, Home, Plus, Search, ExternalLink, Sparkles, Loader2, Trash2,
-  TrendingUp, AlertTriangle, Check
+  ChevronRight, Home, Plus, Search, Loader2, Trash2,
+  AlertTriangle, Check
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
 import { API_URL, authFetch } from "@/lib/api"
 
 interface FontePreco {
-  id: string
   fonte: string
-  tipo: "PNCP" | "PAINEL" | "COTACAO" | "CATALOGO"
-  valor: number
-  data: string
+  tipo: "PNCP" | "PAINEL_PRECOS" | "COTACAO_DIRETA" | "CATALOGO" | "ORCAMENTO"
+  valor_unitario: number
+  data_pesquisa: string
   fornecedor?: string
-  valido: boolean
+  url_referencia?: string
+  valida?: boolean
 }
 
-const FONTES_EXEMPLO: FontePreco[] = [
-  { id: "1", fonte: "PNCP — PE 2025/0412 — Prefeitura de SP", tipo: "PNCP", valor: 4200, data: "2025-03-15", valido: true },
-  { id: "2", fonte: "PNCP — PE 2025/0287 — Governo do Estado RJ", tipo: "PNCP", valor: 4350, data: "2025-02-20", valido: true },
-  { id: "3", fonte: "Painel de Preços Gov — GED Enterprise", tipo: "PAINEL", valor: 4480, data: "2025-01-10", valido: true },
-  { id: "4", fonte: "Cotação direta — Fornecedor A", tipo: "COTACAO", valor: 3900, data: "2025-04-01", fornecedor: "TechSoft Ltda.", valido: true },
-  { id: "5", fonte: "Cotação direta — Fornecedor B", tipo: "COTACAO", valor: 4100, data: "2025-04-02", fornecedor: "DocSystem S.A.", valido: true },
-  { id: "6", fonte: "Catálogo de preços INDE", tipo: "CATALOGO", valor: 6800, data: "2024-12-01", valido: false },
-]
+interface ItemPreco {
+  numero: number
+  descricao: string
+  unidade: string
+  quantidade: number
+  cotacoes: FontePreco[]
+  valor_estimado_unitario?: number
+}
+
+interface DadosPrecos {
+  itens: ItemPreco[]
+  metodologia: string
+}
+
+interface Estatisticas {
+  media: number
+  mediana: number
+  min: number
+  max: number
+  n: number
+}
+
+const TIPO_LABEL: Record<string, string> = {
+  PNCP: "PNCP",
+  PAINEL_PRECOS: "PAINEL",
+  COTACAO_DIRETA: "COTAÇÃO",
+  CATALOGO: "CATÁLOGO",
+  ORCAMENTO: "ORÇAMENTO",
+}
 
 const TIPO_COR: Record<string, { bg: string; text: string }> = {
   PNCP: { bg: "bg-blue-50", text: "text-blue-700" },
-  PAINEL: { bg: "bg-purple-50", text: "text-purple-700" },
-  COTACAO: { bg: "bg-green-50", text: "text-green-700" },
+  PAINEL_PRECOS: { bg: "bg-purple-50", text: "text-purple-700" },
+  COTACAO_DIRETA: { bg: "bg-green-50", text: "text-green-700" },
   CATALOGO: { bg: "bg-gray-100", text: "text-gray-600" },
+  ORCAMENTO: { bg: "bg-orange-50", text: "text-orange-700" },
 }
 
 function fmtMoeda(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 })
 }
 
-function calcEstatisticas(fontes: FontePreco[]) {
-  const validas = fontes.filter((f) => f.valido).map((f) => f.valor)
-  if (validas.length === 0) return null
-  const sorted = [...validas].sort((a, b) => a - b)
-  const media = validas.reduce((a, b) => a + b, 0) / validas.length
-  const mediana = sorted.length % 2 === 0
-    ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
-    : sorted[Math.floor(sorted.length / 2)]
-  const min = sorted[0]
-  const max = sorted[sorted.length - 1]
-  return { media, mediana, min, max, n: validas.length }
-}
-
 export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const [fontes, setFontes] = useState<FontePreco[]>(FONTES_EXEMPLO)
+  const [dados, setDados] = useState<DadosPrecos | null>(null)
+  const [estatisticas, setEstatisticas] = useState<Record<number, Estatisticas>>({})
+  const [loading, setLoading] = useState(true)
   const [adicionando, setAdicionando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
   const [buscandoPNCP, setBuscandoPNCP] = useState(false)
-  const [novaFonte, setNovaFonte] = useState({ fonte: "", tipo: "COTACAO", valor: "", fornecedor: "" })
+  const [itemSelecionado, setItemSelecionado] = useState(1)
+  const [novaFonte, setNovaFonte] = useState({ fonte: "", tipo: "COTACAO_DIRETA", valor: "", fornecedor: "" })
 
-  const stats = calcEstatisticas(fontes)
-  const fontesPNCP = fontes.filter((f) => f.tipo === "PNCP" || f.tipo === "PAINEL")
-  const fontesCotacao = fontes.filter((f) => f.tipo === "COTACAO")
+  const carregarPrecos = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos`)
+      if (res.ok) {
+        const data = await res.json()
+        setDados(data.dados || null)
+        setEstatisticas(data.estatisticas || {})
+        if (data.dados?.itens?.length > 0) {
+          setItemSelecionado(data.dados.itens[0].numero)
+        }
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }, [id])
+
+  useEffect(() => { carregarPrecos() }, [carregarPrecos])
+
+  const itemAtual = dados?.itens.find((i) => i.numero === itemSelecionado)
+  const statsAtual = estatisticas[itemSelecionado]
+  const fontesValidas = itemAtual?.cotacoes.filter((c) => c.valida !== false) ?? []
 
   const buscarNoPNCP = async () => {
     setBuscandoPNCP(true)
+    await new Promise((r) => setTimeout(r, 1500))
+    setBuscandoPNCP(false)
+  }
+
+  const adicionarFonte = async () => {
+    setSalvando(true)
     try {
-      await new Promise((r) => setTimeout(r, 1500)) // simula busca
+      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/fonte`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemNumero: itemSelecionado,
+          cotacao: {
+            fonte: novaFonte.fonte,
+            tipo: novaFonte.tipo,
+            valor_unitario: parseFloat(novaFonte.valor.replace(",", ".")) || 0,
+            data_pesquisa: new Date().toISOString().split("T")[0],
+            fornecedor: novaFonte.fornecedor || undefined,
+            valida: true,
+          },
+        }),
+      })
+      await carregarPrecos()
+      setNovaFonte({ fonte: "", tipo: "COTACAO_DIRETA", valor: "", fornecedor: "" })
+      setAdicionando(false)
+    } catch (e) {
+      console.error(e)
     } finally {
-      setBuscandoPNCP(false)
+      setSalvando(false)
     }
   }
 
-  const adicionarFonte = () => {
-    setFontes((prev) => [...prev, {
-      id: `manual-${Date.now()}`,
-      fonte: novaFonte.fonte,
-      tipo: novaFonte.tipo as FontePreco["tipo"],
-      valor: parseFloat(novaFonte.valor.replace(",", ".")) || 0,
-      data: new Date().toISOString().split("T")[0],
-      fornecedor: novaFonte.fornecedor,
-      valido: true,
-    }])
-    setNovaFonte({ fonte: "", tipo: "COTACAO", valor: "", fornecedor: "" })
-    setAdicionando(false)
+  const removerFonte = async (index: number) => {
+    try {
+      await authFetch(
+        `${API_URL}/api/fase-interna/${id}/precos/fonte?item=${itemSelecionado}&index=${index}`,
+        { method: "DELETE" }
+      )
+      await carregarPrecos()
+    } catch (e) {
+      console.error(e)
+    }
   }
 
-  const removerFonte = (fid: string) => setFontes((prev) => prev.filter((f) => f.id !== fid))
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center gap-2 text-gray-500">
+        <Loader2 className="w-4 h-4 animate-spin" /> Carregando pesquisa de preços…
+      </div>
+    )
+  }
+
+  const fontes = itemAtual?.cotacoes ?? []
 
   return (
     <div className="p-6 pb-10 max-w-6xl">
@@ -120,14 +183,33 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
         </div>
       </div>
 
+      {/* Seletor de item (se houver múltiplos) */}
+      {dados && dados.itens.length > 1 && (
+        <div className="flex gap-2 mb-4">
+          {dados.itens.map((item) => (
+            <button
+              key={item.numero}
+              onClick={() => setItemSelecionado(item.numero)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                itemSelecionado === item.numero
+                  ? "bg-[#1351b4] text-white"
+                  : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              Item {item.numero} — {item.descricao}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Estatísticas */}
-      {stats && (
+      {statsAtual && (
         <div className="grid grid-cols-4 gap-4 mb-5">
           {[
-            { label: "Mediana (referência)", valor: stats.mediana, destaque: true },
-            { label: "Média", valor: stats.media, destaque: false },
-            { label: "Menor preço", valor: stats.min, destaque: false },
-            { label: "Maior preço", valor: stats.max, destaque: false },
+            { label: "Mediana (referência)", valor: statsAtual.mediana, destaque: true },
+            { label: "Média", valor: statsAtual.media, destaque: false },
+            { label: "Menor preço", valor: statsAtual.min, destaque: false },
+            { label: "Maior preço", valor: statsAtual.max, destaque: false },
           ].map((s) => (
             <Card key={s.label} className={`border-0 shadow-sm ${s.destaque ? "ring-2 ring-[#1351b4] ring-offset-1" : ""}`}>
               <CardContent className="p-4">
@@ -146,23 +228,22 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
 
       {/* Conformidade */}
       <div className={`mb-5 p-4 rounded-xl border flex items-start gap-3 ${
-        fontes.filter((f) => f.valido).length >= 3
-          ? "bg-green-50 border-green-200"
-          : "bg-yellow-50 border-yellow-200"
+        fontesValidas.length >= 3 ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200"
       }`}>
-        {fontes.filter((f) => f.valido).length >= 3 ? (
+        {fontesValidas.length >= 3 ? (
           <Check className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
         ) : (
           <AlertTriangle className="w-4 h-4 text-yellow-600 mt-0.5 shrink-0" />
         )}
         <div>
-          <p className={`text-sm font-semibold ${fontes.filter((f) => f.valido).length >= 3 ? "text-green-700" : "text-yellow-700"}`}>
-            {fontes.filter((f) => f.valido).length >= 3
-              ? `${fontes.filter((f) => f.valido).length} fontes válidas — Conformidade com Art. 23`
-              : `Apenas ${fontes.filter((f) => f.valido).length} fonte(s) válida(s) — Art. 23, §1º requer pelo menos 3`}
+          <p className={`text-sm font-semibold ${fontesValidas.length >= 3 ? "text-green-700" : "text-yellow-700"}`}>
+            {fontesValidas.length >= 3
+              ? `${fontesValidas.length} fontes válidas — Conformidade com Art. 23`
+              : `Apenas ${fontesValidas.length} fonte(s) válida(s) — Art. 23, §1º requer pelo menos 3`}
           </p>
           <p className="text-xs text-gray-500 mt-0.5">
-            PNCP: {fontesPNCP.length} · Cotações diretas: {fontesCotacao.length}
+            PNCP/Painel: {fontes.filter((f) => f.tipo === "PNCP" || f.tipo === "PAINEL_PRECOS").length} ·
+            Cotações diretas: {fontes.filter((f) => f.tipo === "COTACAO_DIRETA").length}
           </p>
         </div>
       </div>
@@ -188,9 +269,10 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                   <SelectTrigger><SelectValue placeholder="Tipo" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="PNCP">PNCP</SelectItem>
-                    <SelectItem value="PAINEL">Painel de Preços Gov</SelectItem>
-                    <SelectItem value="COTACAO">Cotação direta</SelectItem>
+                    <SelectItem value="PAINEL_PRECOS">Painel de Preços Gov</SelectItem>
+                    <SelectItem value="COTACAO_DIRETA">Cotação direta</SelectItem>
                     <SelectItem value="CATALOGO">Catálogo</SelectItem>
+                    <SelectItem value="ORCAMENTO">Orçamento</SelectItem>
                   </SelectContent>
                 </Select>
                 <Input
@@ -198,7 +280,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                   value={novaFonte.valor}
                   onChange={(e) => setNovaFonte((p) => ({ ...p, valor: e.target.value }))}
                 />
-                {novaFonte.tipo === "COTACAO" && (
+                {novaFonte.tipo === "COTACAO_DIRETA" && (
                   <div className="col-span-2">
                     <Input
                       placeholder="Nome do fornecedor…"
@@ -209,62 +291,75 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                 )}
               </div>
               <div className="flex gap-2">
-                <Button size="sm" onClick={adicionarFonte} disabled={!novaFonte.fonte || !novaFonte.valor} className="bg-[#1351b4] hover:bg-[#0c326f]">Salvar fonte</Button>
+                <Button size="sm" onClick={adicionarFonte} disabled={!novaFonte.fonte || !novaFonte.valor || salvando} className="bg-[#1351b4] hover:bg-[#0c326f]">
+                  {salvando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Salvar fonte"}
+                </Button>
                 <Button size="sm" variant="ghost" onClick={() => setAdicionando(false)}>Cancelar</Button>
               </div>
             </div>
           )}
 
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Fonte</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Tipo</th>
-                <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3">Valor unit.</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Data</th>
-                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Status</th>
-                <th className="w-10" />
-              </tr>
-            </thead>
-            <tbody>
-              {fontes.map((f) => {
-                const cor = TIPO_COR[f.tipo]
-                return (
-                  <tr key={f.id} className="border-b border-gray-50 hover:bg-gray-50/70">
-                    <td className="px-5 py-3.5">
-                      <div className="text-sm font-medium text-gray-800">{f.fonte}</div>
-                      {f.fornecedor && <div className="text-xs text-gray-400 mt-0.5">{f.fornecedor}</div>}
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cor.bg} ${cor.text}`}>{f.tipo}</span>
-                    </td>
-                    <td className="px-3 py-3.5 text-right">
-                      <span className="text-sm font-bold text-gray-800">{fmtMoeda(f.valor)}</span>
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <span className="text-xs text-gray-500">{new Date(f.data).toLocaleDateString("pt-BR")}</span>
-                    </td>
-                    <td className="px-3 py-3.5">
-                      {f.valido ? (
-                        <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                          <Check className="w-3 h-3" /> Válida
+          {fontes.length === 0 && !adicionando && (
+            <div className="py-12 text-center text-sm text-gray-400">
+              Nenhuma fonte cadastrada. Adicione manualmente ou busque no PNCP.
+            </div>
+          )}
+
+          {fontes.length > 0 && (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Fonte</th>
+                  <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Tipo</th>
+                  <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3">Valor unit.</th>
+                  <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Data</th>
+                  <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Status</th>
+                  <th className="w-10" />
+                </tr>
+              </thead>
+              <tbody>
+                {fontes.map((f, idx) => {
+                  const cor = TIPO_COR[f.tipo] ?? { bg: "bg-gray-100", text: "text-gray-600" }
+                  const valida = f.valida !== false
+                  return (
+                    <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50/70">
+                      <td className="px-5 py-3.5">
+                        <div className="text-sm font-medium text-gray-800">{f.fonte}</div>
+                        {f.fornecedor && <div className="text-xs text-gray-400 mt-0.5">{f.fornecedor}</div>}
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cor.bg} ${cor.text}`}>
+                          {TIPO_LABEL[f.tipo] ?? f.tipo}
                         </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-xs text-red-500 font-medium">
-                          <AlertTriangle className="w-3 h-3" /> Desconsiderada
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3.5">
-                      <button onClick={() => removerFonte(f.id)} className="text-gray-300 hover:text-red-400 transition-colors">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td className="px-3 py-3.5 text-right">
+                        <span className="text-sm font-bold text-gray-800">{fmtMoeda(f.valor_unitario)}</span>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <span className="text-xs text-gray-500">{new Date(f.data_pesquisa).toLocaleDateString("pt-BR")}</span>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        {valida ? (
+                          <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                            <Check className="w-3 h-3" /> Válida
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-red-500 font-medium">
+                            <AlertTriangle className="w-3 h-3" /> Desconsiderada
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <button onClick={() => removerFonte(idx)} className="text-gray-300 hover:text-red-400 transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { FaseInternaService } from './fase-interna.service';
 import { TipoDocumentoFaseInterna, OrigemDocumento } from './entities/documento-fase-interna.entity';
 
@@ -142,5 +142,129 @@ export class FaseInternaController {
   @Put(':licitacaoId/avancar')
   async avancarFaseInterna(@Param('licitacaoId') licitacaoId: string) {
     return this.faseInternaService.avancarFaseInterna(licitacaoId);
+  }
+
+  // === DASHBOARD ===
+
+  @Get('dashboard')
+  async getDashboard(@Query('orgao_id') orgaoId: string) {
+    return this.faseInternaService.getDashboard(orgaoId);
+  }
+
+  // === RISCOS ===
+
+  @Get(':licitacaoId/riscos')
+  async getRiscos(@Param('licitacaoId') licitacaoId: string) {
+    return this.faseInternaService.getRiscos(licitacaoId);
+  }
+
+  @Post(':licitacaoId/riscos')
+  async adicionarRisco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      descricao: string;
+      categoria: string;
+      probabilidade: 1 | 2 | 3 | 4 | 5;
+      impacto: 1 | 2 | 3 | 4 | 5;
+      mitigacao: string;
+      responsavel?: string;
+      prazo?: string;
+    }
+  ) {
+    return this.faseInternaService.adicionarRisco(licitacaoId, body);
+  }
+
+  @Put(':licitacaoId/riscos/:riscoId')
+  async atualizarRisco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('riscoId') riscoId: string,
+    @Body() body: Partial<{
+      descricao: string;
+      categoria: string;
+      probabilidade: 1 | 2 | 3 | 4 | 5;
+      impacto: 1 | 2 | 3 | 4 | 5;
+      mitigacao: string;
+      responsavel: string;
+      prazo: string;
+      status: 'identificado' | 'mitigado' | 'aceito';
+    }>
+  ) {
+    return this.faseInternaService.atualizarRisco(licitacaoId, riscoId, body);
+  }
+
+  @Delete(':licitacaoId/riscos/:riscoId')
+  async removerRisco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('riscoId') riscoId: string
+  ) {
+    return this.faseInternaService.removerRisco(licitacaoId, riscoId);
+  }
+
+  // === PESQUISA DE PRECOS ===
+
+  @Get(':licitacaoId/precos')
+  async getPrecos(@Param('licitacaoId') licitacaoId: string) {
+    return this.faseInternaService.getPrecos(licitacaoId);
+  }
+
+  @Post(':licitacaoId/precos/fonte')
+  async adicionarFontePreco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      itemNumero: number;
+      cotacao: {
+        fonte: string;
+        tipo: 'PNCP' | 'PAINEL_PRECOS' | 'COTACAO_DIRETA' | 'CATALOGO' | 'ORCAMENTO';
+        valor_unitario: number;
+        data_pesquisa: string;
+        fornecedor?: string;
+        url_referencia?: string;
+        observacao?: string;
+        valida?: boolean;
+      };
+    }
+  ) {
+    return this.faseInternaService.adicionarFontePreco(licitacaoId, body.itemNumero, body.cotacao);
+  }
+
+  @Delete(':licitacaoId/precos/fonte')
+  async removerFontePreco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Query('item') itemNumero: string,
+    @Query('index') cotacaoIndex: string
+  ) {
+    return this.faseInternaService.removerFontePreco(
+      licitacaoId,
+      parseInt(itemNumero),
+      parseInt(cotacaoIndex)
+    );
+  }
+
+  // === APROVACOES AGREGADAS ===
+
+  @Get('aprovacoes')
+  async getAprovacoes(@Query('orgao_id') orgaoId: string) {
+    return this.faseInternaService.getAprovacoesOrgao(orgaoId);
+  }
+
+  // === WIZARD ===
+
+  @Post(':licitacaoId/wizard')
+  async salvarWizard(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      dfd?: string;
+      etp?: Record<string, any>;
+      riscos?: Array<any>;
+      pesquisaPrecos?: Array<any>;
+      tr?: Record<string, any>;
+      autorizacao?: string;
+      edital?: string;
+      parecerJuridico?: string;
+      criadorId?: string;
+      criadorNome?: string;
+    }
+  ) {
+    return this.faseInternaService.salvarWizard(licitacaoId, body);
   }
 }

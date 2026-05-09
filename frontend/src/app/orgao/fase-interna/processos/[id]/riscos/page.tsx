@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, use } from "react"
+import { useState, use, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { ChevronRight, Home, Plus, AlertTriangle, Sparkles, Loader2, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,14 +16,9 @@ interface Risco {
   impacto: 1 | 2 | 3 | 4 | 5
   categoria: string
   mitigacao: string
+  grau?: number
+  nivel?: string
 }
-
-const RISCOS_EXEMPLO: Risco[] = [
-  { id: "1", descricao: "Direcionamento técnico na especificação do objeto", probabilidade: 3, impacto: 5, categoria: "Juridico", mitigacao: "Revisar especificações para garantir neutralidade tecnológica (Art. 42)" },
-  { id: "2", descricao: "Pesquisa de preços com fontes insuficientes", probabilidade: 4, impacto: 3, categoria: "Financeiro", mitigacao: "Diversificar fontes conforme Art. 23, §1º (PNCP, Painel, cotações diretas)" },
-  { id: "3", descricao: "Prazo insuficiente para análise jurídica", probabilidade: 2, impacto: 4, categoria: "Cronograma", mitigacao: "Encaminhar documentos à procuradoria com antecedência mínima de 15 dias" },
-  { id: "4", descricao: "Recurso orçamentário não disponível no exercício", probabilidade: 2, impacto: 5, categoria: "Financeiro", mitigacao: "Confirmar dotação orçamentária antes de publicar o edital (Art. 18, §1º, VI)" },
-]
 
 const NIVEL = (p: number, i: number) => {
   const score = p * i
@@ -43,10 +38,28 @@ const CELL_COLOR = (p: number, i: number) => {
 
 export default function MapaRiscosPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const [riscos, setRiscos] = useState<Risco[]>(RISCOS_EXEMPLO)
+  const [riscos, setRiscos] = useState<Risco[]>([])
+  const [loading, setLoading] = useState(true)
   const [novoRisco, setNovoRisco] = useState({ descricao: "", probabilidade: "3", impacto: "3", categoria: "Geral", mitigacao: "" })
   const [adicionando, setAdicionando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
   const [gerandoIA, setGerandoIA] = useState(false)
+
+  const carregarRiscos = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/riscos`)
+      if (res.ok) {
+        const data = await res.json()
+        setRiscos(data.riscos || [])
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }, [id])
+
+  useEffect(() => { carregarRiscos() }, [carregarRiscos])
 
   const gerarRiscosIA = async () => {
     setGerandoIA(true)
@@ -69,17 +82,16 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
         const jsonMatch = texto.match(/\[[\s\S]*\]/)
         if (jsonMatch) {
           const novos = JSON.parse(jsonMatch[0])
-          setRiscos((prev) => [
-            ...prev,
-            ...novos.map((r: any, i: number) => ({
-              id: `ia-${Date.now()}-${i}`,
+          for (const r of novos) {
+            await adicionarRiscoAPI({
               descricao: r.descricao,
-              probabilidade: 3 as const,
-              impacto: 3 as const,
+              probabilidade: 3,
+              impacto: 3,
               categoria: r.categoria,
               mitigacao: r.mitigacao,
-            })),
-          ])
+            })
+          }
+          await carregarRiscos()
         }
       }
     } catch (e) {
@@ -89,19 +101,52 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
     }
   }
 
-  const removerRisco = (rid: string) => setRiscos((prev) => prev.filter((r) => r.id !== rid))
+  const adicionarRiscoAPI = async (risco: Omit<Risco, "id">) => {
+    const res = await authFetch(`${API_URL}/api/fase-interna/${id}/riscos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(risco),
+    })
+    if (!res.ok) throw new Error("Erro ao adicionar risco")
+    return res.json()
+  }
 
-  const adicionarRisco = () => {
-    setRiscos((prev) => [...prev, {
-      id: `manual-${Date.now()}`,
-      descricao: novoRisco.descricao,
-      probabilidade: parseInt(novoRisco.probabilidade) as 1 | 2 | 3 | 4 | 5,
-      impacto: parseInt(novoRisco.impacto) as 1 | 2 | 3 | 4 | 5,
-      categoria: novoRisco.categoria,
-      mitigacao: novoRisco.mitigacao,
-    }])
-    setNovoRisco({ descricao: "", probabilidade: "3", impacto: "3", categoria: "Geral", mitigacao: "" })
-    setAdicionando(false)
+  const removerRisco = async (riscoId: string) => {
+    setRiscos((prev) => prev.filter((r) => r.id !== riscoId))
+    try {
+      await authFetch(`${API_URL}/api/fase-interna/${id}/riscos/${riscoId}`, { method: "DELETE" })
+    } catch (e) {
+      console.error(e)
+      carregarRiscos()
+    }
+  }
+
+  const adicionarRisco = async () => {
+    setSalvando(true)
+    try {
+      await adicionarRiscoAPI({
+        descricao: novoRisco.descricao,
+        probabilidade: parseInt(novoRisco.probabilidade) as 1 | 2 | 3 | 4 | 5,
+        impacto: parseInt(novoRisco.impacto) as 1 | 2 | 3 | 4 | 5,
+        categoria: novoRisco.categoria,
+        mitigacao: novoRisco.mitigacao,
+      })
+      await carregarRiscos()
+      setNovoRisco({ descricao: "", probabilidade: "3", impacto: "3", categoria: "Geral", mitigacao: "" })
+      setAdicionando(false)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center gap-2 text-gray-500">
+        <Loader2 className="w-4 h-4 animate-spin" /> Carregando mapa de riscos…
+      </div>
+    )
   }
 
   return (
@@ -247,9 +292,17 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button size="sm" onClick={adicionarRisco} disabled={!novoRisco.descricao} className="bg-[#1351b4] hover:bg-[#0c326f]">Salvar risco</Button>
+                <Button size="sm" onClick={adicionarRisco} disabled={!novoRisco.descricao || salvando} className="bg-[#1351b4] hover:bg-[#0c326f]">
+                  {salvando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Salvar risco"}
+                </Button>
                 <Button size="sm" variant="ghost" onClick={() => setAdicionando(false)}>Cancelar</Button>
               </div>
+            </div>
+          )}
+
+          {riscos.length === 0 && !adicionando && (
+            <div className="py-12 text-center text-sm text-gray-400">
+              Nenhum risco identificado. Adicione manualmente ou use a IA.
             </div>
           )}
 
