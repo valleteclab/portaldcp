@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useEffect, useCallback, type ReactElement } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
   FileText, Clock, CheckCircle2, DollarSign,
   Sparkles, Plus, ArrowRight, AlertTriangle, Flag, TrendingUp,
   Home, ChevronRight, Loader2, RefreshCw,
+  type LucideIcon,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -67,10 +68,8 @@ const STATUS_CHIP: Record<string, { bg: string; text: string }> = {
   concluido: { bg: "bg-[#e3f5e1]", text: "text-[#168821]" },
 }
 
-// IA alert styles
-type IconComponent = (props: { className?: string }) => ReactElement | null
 const ALERTA_STYLE: Record<AlertaIA["tipo"], {
-  bg: string; border: string; icon: IconComponent; iconColor: string; titleColor: string
+  bg: string; border: string; icon: LucideIcon; iconColor: string; titleColor: string
 }> = {
   warn:   { bg: "bg-yellow-50", border: "border-yellow-100", icon: AlertTriangle, iconColor: "text-yellow-600", titleColor: "text-yellow-800" },
   info:   { bg: "bg-blue-50",   border: "border-blue-100",   icon: Sparkles,      iconColor: "text-[#1351b4]",  titleColor: "text-blue-900" },
