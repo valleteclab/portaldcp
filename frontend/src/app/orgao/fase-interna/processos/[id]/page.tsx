@@ -41,14 +41,14 @@ interface Documento {
 
 /** 8 steps of fase interna per Lei 14.133/2021 */
 const ETAPAS = [
-  { id: "DFD", nome: "Documento de Formalização de Demanda",  art: "Art. 18, I",     route: "editor?tipo=DFD" },
-  { id: "ETP", nome: "Estudo Técnico Preliminar",             art: "Art. 18, §1º",  route: "editor?tipo=ETP" },
+  { id: "DFD", nome: "Documento de Formalização de Demanda",  art: "Art. 18, I",     route: "/orgao/fase-interna/processos/novo?id=:id&step=dfd" },
+  { id: "ETP", nome: "Estudo Técnico Preliminar",             art: "Art. 18, §1º",  route: "/orgao/fase-interna/processos/novo?id=:id&step=etp" },
   { id: "MR",  nome: "Mapa de Riscos",                        art: "Art. 18, X",    route: "riscos"  },
   { id: "PP",  nome: "Pesquisa de Preços",                    art: "Art. 23",       route: "precos"  },
-  { id: "TR",  nome: "Termo de Referência",                   art: "Art. 6º, XXIII", route: "editor?tipo=TR" },
-  { id: "AUT", nome: "Autorização para abertura",             art: "Art. 18, II",   route: "editor?tipo=AUT" },
-  { id: "ED",  nome: "Elaboração do Edital",                  art: "Art. 25",       route: "editor?tipo=ED" },
-  { id: "PJ",  nome: "Parecer Jurídico",                      art: "Art. 53",       route: "editor?tipo=PJ" },
+  { id: "TR",  nome: "Termo de Referência",                   art: "Art. 6º, XXIII", route: "/orgao/fase-interna/processos/novo?id=:id&step=tr" },
+  { id: "AUT", nome: "Autorização para abertura",             art: "Art. 18, II",   route: "/orgao/fase-interna/processos/novo?id=:id&step=autorizacao" },
+  { id: "ED",  nome: "Elaboração do Edital",                  art: "Art. 25",       route: "/orgao/fase-interna/processos/novo?id=:id&step=edital" },
+  { id: "PJ",  nome: "Parecer Jurídico",                      art: "Art. 53",       route: "/orgao/fase-interna/processos/novo?id=:id&step=juridico" },
 ]
 
 /**
@@ -210,7 +210,11 @@ function EtapaRow({
               variant="outline"
               className="h-7 text-xs shrink-0"
               onClick={() =>
-                router.push(`/orgao/fase-interna/processos/${processoId}/${etapa.route}`)
+                router.push(
+                  etapa.route.startsWith("/")
+                    ? etapa.route.replace(":id", processoId)
+                    : `/orgao/fase-interna/processos/${processoId}/${etapa.route}`
+                )
               }
             >
               Abrir

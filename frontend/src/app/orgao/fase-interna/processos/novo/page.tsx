@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useCallback, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, ArrowRight, Check, Sparkles, Home, ChevronRight, Loader2, AlertCircle, Plus, Trash2, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -51,6 +51,27 @@ function mapearCategoria(frontend: string): string {
     "Outros": "SERVICO",
   }
   return map[frontend] || "SERVICO"
+}
+
+function desmapearModalidade(backend: string): string {
+  const map: Record<string, string> = {
+    PREGAO_ELETRONICO: "Pregão Eletrônico",
+    CONCORRENCIA: "Concorrência",
+    DISPENSA: "Dispensa de Licitação",
+    INEXIGIBILIDADE: "Inexigibilidade",
+    CONCURSO: "Concurso",
+    LEILAO: "Leilão",
+  }
+  return map[backend] || backend || ""
+}
+
+function desmapearCategoria(backend: string): string {
+  const map: Record<string, string> = {
+    SERVICO: "Serviços Comuns",
+    COMPRA: "Bens de TI",
+    OBRA: "Obras e Engenharia",
+  }
+  return map[backend] || backend || ""
 }
 
 // ─── Etapas do wizard ──────────────────────────────────────────────
@@ -803,7 +824,10 @@ function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => voi
 // ─── Página principal ──────────────────────────────────────────────
 export default function NovoProcessoPage() {
   const router = useRouter()
-  const [step, setStep] = useState("dados")
+  const searchParams = useSearchParams()
+  const processoId = searchParams.get("id")
+  const stepParam = searchParams.get("step")
+  const [step, setStep] = useState(stepParam || "dados")
   const [completed, setCompleted] = useState<string[]>([])
   const [criando, setCriando] = useState(false)
   const [salvandoRascunho, setSalvandoRascunho] = useState(false)
@@ -816,6 +840,56 @@ export default function NovoProcessoPage() {
   const [fontes, setFontes] = useState<any[]>([{ fonte: "", valor: 0 }, { fonte: "", valor: 0 }, { fonte: "", valor: 0 }])
   const [autorizacao, setAutorizacao] = useState("")
   const [parecer, setParecer] = useState("")
+
+  useEffect(() => {
+    if (!processoId) return
+
+    const aplicarTextoNasSecoes = (stepKey: string, texto?: string) => {
+      if (!texto) return {}
+      const secoes = TEMPLATES[stepKey]?.secoes || []
+      const partes = texto.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+      return Object.fromEntries(secoes.map((secao, index) => [secao.id, partes[index] || ""]))
+    }
+
+    const carregarRascunho = async () => {
+      try {
+        const [licitacaoRes, documentosRes] = await Promise.all([
+          authFetch(`${API_URL}/api/licitacoes/${processoId}`),
+          authFetch(`${API_URL}/api/fase-interna/${processoId}/documentos`),
+        ])
+
+        if (licitacaoRes.ok) {
+          const licitacao = await licitacaoRes.json()
+          setDados({
+            objeto: licitacao.objeto || "",
+            modalidade: desmapearModalidade(licitacao.modalidade),
+            categoria: desmapearCategoria(licitacao.tipo_contratacao),
+            valor: licitacao.valor_total_estimado ? String(licitacao.valor_total_estimado) : "",
+          })
+        }
+
+        if (documentosRes.ok) {
+          const documentos = await documentosRes.json()
+          const porTipo = Object.fromEntries(documentos.map((doc: any) => [doc.tipo, doc]))
+
+          setDocs((prev) => ({
+            ...prev,
+            dfd: aplicarTextoNasSecoes("dfd", porTipo.DFD?.descricao),
+            etp: porTipo.ETP?.dados_estruturados || aplicarTextoNasSecoes("etp", porTipo.ETP?.descricao),
+            tr: porTipo.TR?.dados_estruturados || aplicarTextoNasSecoes("tr", porTipo.TR?.descricao),
+            edital: aplicarTextoNasSecoes("edital", porTipo.ME?.descricao),
+          }))
+          setAutorizacao(porTipo.AA?.descricao || "")
+          setParecer(porTipo.PJ?.descricao || "")
+        }
+      } catch (e) {
+        console.error("Erro ao carregar rascunho:", e)
+      }
+    }
+
+    setStep(stepParam || "dfd")
+    carregarRascunho()
+  }, [processoId, stepParam])
 
   const ctx = {
     ...dados,
@@ -899,26 +973,31 @@ export default function NovoProcessoPage() {
     
     setSalvandoRascunho(true)
     try {
-      const res = await authFetch(`${API_URL}/api/licitacoes`, {
-        method: "POST",
+      const payloadLicitacao = {
+        numero_processo: gerarNumeroProcesso(),
+        orgao_id: orgaoId,
+        objeto: dados.objeto,
+        modalidade: mapearModalidade(dados.modalidade),
+        tipo_contratacao: mapearCategoria(dados.categoria),
+        criterio_julgamento: "MENOR_PRECO",
+        valor_total_estimado: valorEstimado > 0 ? valorEstimado : undefined,
+      }
+      const res = await authFetch(
+        processoId ? `${API_URL}/api/licitacoes/${processoId}` : `${API_URL}/api/licitacoes`,
+        {
+        method: processoId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          numero_processo: gerarNumeroProcesso(),
-          orgao_id: orgaoId,
-          objeto: dados.objeto,
-          modalidade: mapearModalidade(dados.modalidade),
-          tipo_contratacao: mapearCategoria(dados.categoria),
-          criterio_julgamento: "MENOR_PRECO",
-          valor_total_estimado: valorEstimado > 0 ? valorEstimado : undefined,
-        }),
-      })
+        body: JSON.stringify(payloadLicitacao),
+        }
+      )
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         const msg = err.message || err.errors?.[0]?.message || "Erro ao criar processo"
         throw new Error(msg)
       }
       const licitacao = await res.json()
-      await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
+      const licitacaoId = processoId || licitacao.id
+      await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -932,8 +1011,7 @@ export default function NovoProcessoPage() {
           parecerJuridico: parecer,
         }),
       })
-      // Redirecionar para a etapa DFD do processo
-      router.push(`/orgao/fase-interna/processos/${licitacao.id}/editor?tipo=DFD`)
+      router.push(`/orgao/fase-interna/processos/novo?id=${licitacaoId}&step=${step}`)
     } catch (e: any) {
       console.error(e)
       alert(e.message || "Erro ao salvar rascunho")
