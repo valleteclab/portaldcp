@@ -1,14 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
   ChevronRight, Home, Check, Clock, AlertCircle, FileText,
-  User, Calendar, MessageSquare, ExternalLink, CheckCircle2
+  User, Calendar, MessageSquare, ExternalLink, CheckCircle2, Loader2
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { API_URL, authFetch } from "@/lib/api"
 
 interface ItemAprovacao {
@@ -20,38 +19,9 @@ interface ItemAprovacao {
   data_limite: string
   status: "pendente" | "aprovado" | "rejeitado" | "aguardando"
   observacoes?: string
+  licitacaoId: string
+  documentoId: string
 }
-
-const ITENS_EXEMPLO: ItemAprovacao[] = [
-  {
-    id: "1",
-    processo: "2026/0142",
-    objeto: "Aquisição de licenças de GED",
-    tipo_aprovacao: "Aprovação do Termo de Referência",
-    responsavel: "Coordenadora Adm.",
-    data_limite: "2026-05-15",
-    status: "pendente",
-  },
-  {
-    id: "2",
-    processo: "2026/0138",
-    objeto: "Contratação de serviços de manutenção predial",
-    tipo_aprovacao: "Parecer Jurídico",
-    responsavel: "Procuradoria Geral",
-    data_limite: "2026-05-10",
-    status: "aprovado",
-    observacoes: "Processo aprovado sem ressalvas. Pode prosseguir com a publicação do edital.",
-  },
-  {
-    id: "3",
-    processo: "2026/0151",
-    objeto: "Fornecimento de combustível — frota municipal",
-    tipo_aprovacao: "Autorização da Autoridade",
-    responsavel: "Secretário de Adm.",
-    data_limite: "2026-05-12",
-    status: "aguardando",
-  },
-]
 
 const FLUXO_APROVACAO = [
   { id: "elaboracao", label: "Elaboração", icon: FileText, descricao: "Área técnica elabora documentos" },
@@ -70,22 +40,113 @@ const STATUS_INFO: Record<string, { label: string; bg: string; text: string; ico
 
 function fmtData(d: string) {
   const dt = new Date(d)
-  const hoje = new Date("2026-05-09")
+  const hoje = new Date()
   const diff = Math.ceil((dt.getTime() - hoje.getTime()) / 86400000)
   const fmt = dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
   return { fmt, diff, vencido: diff < 0, urgente: diff >= 0 && diff <= 3 }
 }
 
+function mapStatusBackend(status: string): "pendente" | "aprovado" | "rejeitado" | "aguardando" {
+  if (status === "APROVADO") return "aprovado"
+  if (status === "REPROVADO") return "rejeitado"
+  if (status === "AGUARDANDO_APROVACAO") return "aguardando"
+  return "pendente"
+}
+
 export default function AprovacoesPage() {
-  const [itens, setItens] = useState<ItemAprovacao[]>(ITENS_EXEMPLO)
+  const [itens, setItens] = useState<ItemAprovacao[]>([])
+  const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<"todos" | "pendente" | "aprovado">("todos")
+  const [aprovando, setAprovando] = useState<string | null>(null)
+
+  const carregarAprovacoes = useCallback(async () => {
+    try {
+      const meRes = await authFetch(`${API_URL}/api/auth/me`)
+      if (!meRes.ok) return
+      const me = await meRes.json()
+      const orgaoId = me.orgao?.id || me.orgaoId
+      if (!orgaoId) return
+
+      const res = await authFetch(`${API_URL}/api/fase-interna/aprovacoes?orgao_id=${orgaoId}`)
+      if (res.ok) {
+        const data = await res.json()
+        const mapped: ItemAprovacao[] = (data || []).map((doc: any) => ({
+          id: doc.id,
+          processo: doc.licitacao?.numero_processo || doc.licitacaoId,
+          objeto: doc.licitacao?.objeto || "—",
+          tipo_aprovacao: doc.titulo || doc.tipo,
+          responsavel: doc.aprovadorNome || "Aguardando",
+          data_limite: doc.prazoAprovacao || doc.updatedAt || new Date().toISOString(),
+          status: mapStatusBackend(doc.status),
+          observacoes: doc.observacaoAprovacao,
+          licitacaoId: doc.licitacaoId,
+          documentoId: doc.id,
+        }))
+        setItens(mapped)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { carregarAprovacoes() }, [carregarAprovacoes])
+
+  const aprovar = async (item: ItemAprovacao) => {
+    setAprovando(item.id)
+    try {
+      const meRes = await authFetch(`${API_URL}/api/auth/me`)
+      const me = await meRes.json()
+      await authFetch(`${API_URL}/api/fase-interna/documento/${item.documentoId}/aprovar`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aprovadorId: me.id,
+          aprovadorNome: me.nome || me.email,
+          observacao: "Aprovado via Portal DCP",
+        }),
+      })
+      setItens((prev) => prev.map((i) => i.id === item.id ? { ...i, status: "aprovado" } : i))
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setAprovando(null)
+    }
+  }
+
+  const rejeitar = async (item: ItemAprovacao) => {
+    setAprovando(item.id)
+    try {
+      const meRes = await authFetch(`${API_URL}/api/auth/me`)
+      const me = await meRes.json()
+      await authFetch(`${API_URL}/api/fase-interna/documento/${item.documentoId}/reprovar`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aprovadorId: me.id,
+          aprovadorNome: me.nome || me.email,
+          observacao: "Rejeitado via Portal DCP",
+        }),
+      })
+      setItens((prev) => prev.map((i) => i.id === item.id ? { ...i, status: "rejeitado" } : i))
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setAprovando(null)
+    }
+  }
 
   const filtrados = filtro === "todos" ? itens : itens.filter((i) => i.status === filtro)
   const pendentes = itens.filter((i) => i.status === "pendente" || i.status === "aguardando").length
   const aprovados = itens.filter((i) => i.status === "aprovado").length
 
-  const aprovar = (id: string) => {
-    setItens((prev) => prev.map((i) => i.id === id ? { ...i, status: "aprovado" } : i))
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center gap-2 text-gray-500">
+        <Loader2 className="w-4 h-4 animate-spin" /> Carregando aprovações…
+      </div>
+    )
   }
 
   return (
@@ -177,7 +238,7 @@ export default function AprovacoesPage() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <Link href={`/orgao/fase-interna/processos/${item.id}`} className="text-sm font-bold text-gray-900 hover:text-[#1351b4]">
+                      <Link href={`/orgao/fase-interna/processos/${item.licitacaoId}`} className="text-sm font-bold text-gray-900 hover:text-[#1351b4]">
                         {item.processo}
                       </Link>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusInfo.bg} ${statusInfo.text}`}>
@@ -211,16 +272,19 @@ export default function AprovacoesPage() {
                       <Button
                         size="sm"
                         variant="outline"
+                        disabled={aprovando === item.id}
+                        onClick={() => rejeitar(item)}
                         className="text-red-600 border-red-200 hover:bg-red-50 h-8"
                       >
-                        Rejeitar
+                        {aprovando === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Rejeitar"}
                       </Button>
                       <Button
                         size="sm"
-                        onClick={() => aprovar(item.id)}
+                        disabled={aprovando === item.id}
+                        onClick={() => aprovar(item)}
                         className="bg-[#168821] hover:bg-[#126b1a] text-white h-8"
                       >
-                        <Check className="w-3.5 h-3.5 mr-1" /> Aprovar
+                        {aprovando === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Check className="w-3.5 h-3.5 mr-1" /> Aprovar</>}
                       </Button>
                     </div>
                   )}
