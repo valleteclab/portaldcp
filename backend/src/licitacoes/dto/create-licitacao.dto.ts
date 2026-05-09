@@ -47,7 +47,6 @@ export class CreateLicitacaoDto {
   regime_execucao?: RegimeExecucao;
 
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
   @IsOptional()
   valor_total_estimado?: number;
 

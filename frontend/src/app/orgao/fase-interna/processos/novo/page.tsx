@@ -890,6 +890,13 @@ export default function NovoProcessoPage() {
       alert("Erro: órgão não identificado. Faça login novamente.")
       return
     }
+    
+    let valorEstimado = 0
+    if (dados.valor) {
+      const valorLimpo = dados.valor.replace(/[R$\s.,]/g, "").replace(",", ".")
+      valorEstimado = parseFloat(valorLimpo) || 0
+    }
+    
     setSalvandoRascunho(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes`, {
@@ -902,12 +909,13 @@ export default function NovoProcessoPage() {
           modalidade: mapearModalidade(dados.modalidade),
           tipo_contratacao: mapearCategoria(dados.categoria),
           criterio_julgamento: "MENOR_PRECO",
-          valor_total_estimado: dados.valor ? Number(dados.valor.replace(/\D/g, "")) / 100 : 0,
+          valor_total_estimado: valorEstimado > 0 ? valorEstimado : undefined,
         }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.message || "Erro ao criar processo")
+        const msg = err.message || err.errors?.[0]?.message || "Erro ao criar processo"
+        throw new Error(msg)
       }
       const licitacao = await res.json()
       await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
