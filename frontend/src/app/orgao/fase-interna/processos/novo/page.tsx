@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, ArrowRight, Check, Sparkles, Home, ChevronRight, Loader2, AlertCircle, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, ArrowRight, Check, Sparkles, Home, ChevronRight, Loader2, AlertCircle, Plus, Trash2, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -764,6 +764,7 @@ export default function NovoProcessoPage() {
   const [step, setStep] = useState("dados")
   const [completed, setCompleted] = useState<string[]>([])
   const [criando, setCriando] = useState(false)
+  const [salvandoRascunho, setSalvandoRascunho] = useState(false)
 
   const [dados, setDados] = useState<Record<string, string>>({})
   const [docs, setDocs] = useState<Record<string, Record<string, string>>>({
@@ -837,6 +838,50 @@ export default function NovoProcessoPage() {
     }
   }
 
+  const salvarRascunho = async () => {
+    if (!dados.objeto || !dados.modalidade || !dados.categoria) {
+      alert("Preencha os dados básicos primeiro (objeto, modalidade e categoria)")
+      return
+    }
+    setSalvandoRascunho(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          objeto: dados.objeto,
+          modalidade: dados.modalidade,
+          categoria: dados.categoria,
+          valor_total_estimado: dados.valor || 0,
+          fase: "PLANEJAMENTO",
+        }),
+      })
+      if (res.ok) {
+        const licitacao = await res.json()
+        await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dfd: Object.values(docs.dfd).join("\n\n"),
+            etp: docs.etp,
+            riscos,
+            pesquisaPrecos: fontes.filter((f) => f.valor > 0),
+            tr: docs.tr,
+            autorizacao,
+            edital: Object.values(docs.edital).join("\n\n"),
+            parecerJuridico: parecer,
+          }),
+        })
+        router.push(`/orgao/fase-interna/processos/${licitacao.id}/editor`)
+      }
+    } catch (e) {
+      console.error(e)
+      alert("Erro ao salvar rascunho")
+    } finally {
+      setSalvandoRascunho(false)
+    }
+  }
+
   const etapaAtual = WIZARD_ETAPAS.find((e) => e.id === step)
   const idxAtual = WIZARD_ETAPAS.findIndex((e) => e.id === step)
 
@@ -867,12 +912,27 @@ export default function NovoProcessoPage() {
 
       {/* Header da etapa */}
       {step !== "concluido" && (
-        <div className="px-6 py-2.5 border-b border-gray-100 bg-[#f6f9fd] shrink-0 flex items-center gap-3">
-          <span className="text-xs font-bold bg-[#1351b4] text-white px-2.5 py-1 rounded-full">
-            Fase interna · {idxAtual + 1} de {WIZARD_ETAPAS.length - 1}
-          </span>
-          <span className="text-xs font-bold text-gray-800">{etapaAtual?.nome}</span>
-          {etapaAtual?.art && <span className="text-xs text-gray-400">{etapaAtual.art}</span>}
+        <div className="px-6 py-2.5 border-b border-gray-100 bg-[#f6f9fd] shrink-0 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold bg-[#1351b4] text-white px-2.5 py-1 rounded-full">
+              Fase interna · {idxAtual + 1} de {WIZARD_ETAPAS.length - 1}
+            </span>
+            <span className="text-xs font-bold text-gray-800">{etapaAtual?.nome}</span>
+            {etapaAtual?.art && <span className="text-xs text-gray-400">{etapaAtual.art}</span>}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={salvarRascunho}
+            disabled={salvandoRascunho}
+            className="text-[#1351b4] border-[#c5d4eb] hover:bg-[#f6f9fd]"
+          >
+            {salvandoRascunho ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Salvando...</>
+            ) : (
+              <><Save className="w-3.5 h-3.5 mr-1.5" /> Salvar rascunho</>
+            )}
+          </Button>
         </div>
       )}
 
