@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
@@ -599,6 +600,7 @@ export default function TabMedicao({
     observacoes: "",
     quantidade_medida: "", // Apenas para admin (ajuste migração)
     valor_medida_reais: "", // Para itens MENSAL: entrada alternativa em R$
+    preservar_valor_total: false,
   });
   /** Layout espelhando cláusula de preço (m² × R$/m² × execuções por frequência) */
   const [modoClausulaContrato, setModoClausulaContrato] = useState(false);
@@ -1426,6 +1428,21 @@ export default function TabMedicao({
       setUnidadeClausulaBase(
         item.unidade_medida === "LITROS" ? "LITROS" : "METROS",
       );
+      const itemQtd = Number(item.quantidade) || 0;
+      const itemValorUnitario = Number(item.valor_unitario) || 0;
+      const itemMeses =
+        item.unidade_medida !== "MENSAL" && item.quantidade_meses != null
+          ? Number(item.quantidade_meses)
+          : null;
+      const totalCalculadoItem =
+        item.unidade_medida === "MENSAL"
+          ? aplicarRegraMoedaContrato(itemQtd * itemValorUnitario)
+          : itemMeses
+            ? aplicarRegraMoedaContrato(itemQtd * itemValorUnitario * itemMeses)
+            : aplicarRegraMoedaContrato(itemQtd * itemValorUnitario);
+      const preservarValorTotal =
+        Math.abs(Number(item.valor_total) - totalCalculadoItem) > 0.01 &&
+        Math.abs(Number(item.valor_total) - totalCalculadoItem) <= 1;
       setFormItemCronograma({
         numero_item: String(item.numero_item),
         descricao: item.descricao,
@@ -1453,6 +1470,7 @@ export default function TabMedicao({
                 ),
               )
             : "",
+        preservar_valor_total: preservarValorTotal,
       });
     } else {
       setEditandoItemCronograma(null);
@@ -1471,6 +1489,7 @@ export default function TabMedicao({
         observacoes: "",
         quantidade_medida: "",
         valor_medida_reais: "",
+        preservar_valor_total: false,
       });
     }
     setModalItemCronograma(true);
@@ -1593,6 +1612,16 @@ export default function TabMedicao({
     : saldoValorItens;
   const valorTotalFormItemCronograma =
     parseFloat(formItemCronograma.valor_total) || 0;
+  const diferencaValorItemCronograma = aplicarRegraMoedaContrato(
+    valorDisponivelEdicaoItemCronograma - valorTotalFormItemCronograma,
+  );
+  const podePreservarTotalJuridicoItem =
+    quantidadeFormItemCronograma > 0 &&
+    valorUnitarioFormItemCronograma > 0 &&
+    valorDisponivelEdicaoItemCronograma > 0 &&
+    valorTotalFormItemCronograma > 0 &&
+    Math.abs(diferencaValorItemCronograma) > 0.01 &&
+    Math.abs(diferencaValorItemCronograma) <= 1;
   const diferencaValorItemMensal =
     unidadeFormItemCronograma === "MENSAL" && quantidadeFormItemCronograma > 0
       ? aplicarRegraMoedaContrato(
@@ -1618,6 +1647,10 @@ export default function TabMedicao({
     diferencaMensalApenasCentavos
       ? valorDisponivelEdicaoItemCronograma
       : valorTotalFormItemCronograma;
+  const valorTotalConsideradoItemCronograma =
+    podePreservarTotalJuridicoItem && formItemCronograma.preservar_valor_total
+      ? valorDisponivelEdicaoItemCronograma
+      : valorTotalConsideradoItemMensal;
 
   const aplicarValorMensalPeloDisponivel = () => {
     if (!quantidadeFormItemCronograma || valorMensalSugeridoPeloDisponivel <= 0) {
@@ -1670,6 +1703,16 @@ export default function TabMedicao({
         valorGlobalCronograma - somaOutras,
       );
     }
+    const valorDisponivelParaItem = aplicarRegraMoedaContrato(
+      valorGlobalCronograma - somaOutras,
+    );
+    if (
+      formItemCronograma.preservar_valor_total &&
+      Math.abs(valorDisponivelParaItem - novoValorTotal) > 0.01 &&
+      Math.abs(valorDisponivelParaItem - novoValorTotal) <= 1
+    ) {
+      novoValorTotal = valorDisponivelParaItem;
+    }
     if (somaOutras + novoValorTotal > valorGlobalCronograma + 0.01) {
       const disp = Math.max(0, valorGlobalCronograma - somaOutras);
       alert(
@@ -1692,6 +1735,8 @@ export default function TabMedicao({
         quantidade: qtd,
         valor_unitario: vlUnit,
         quantidade_meses: meses,
+        valor_total: novoValorTotal,
+        preservar_valor_total: formItemCronograma.preservar_valor_total,
         frequencia_execucao: modoClausulaContrato ? frequenciaContrato : null,
         numero_execucoes: !isMensalUnit ? meses : null,
         observacoes: formItemCronograma.observacoes || null,
@@ -4274,12 +4319,45 @@ export default function TabMedicao({
                       className="bg-gray-50 font-medium text-blue-700"
                       value={
                         formItemCronograma.valor_total
-                          ? formatarMoeda(valorTotalConsideradoItemMensal)
+                          ? formatarMoeda(valorTotalConsideradoItemCronograma)
                           : "0,00"
                       }
                     />
                   </div>
                 </div>
+                {podePreservarTotalJuridicoItem && (
+                  <div className="rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id="preservar-total-cronograma"
+                        checked={formItemCronograma.preservar_valor_total}
+                        onCheckedChange={(checked) =>
+                          setFormItemCronograma((prev) => ({
+                            ...prev,
+                            preservar_valor_total: checked === true,
+                          }))
+                        }
+                        className="mt-0.5"
+                      />
+                      <div className="space-y-1">
+                        <Label
+                          htmlFor="preservar-total-cronograma"
+                          className="font-medium"
+                        >
+                          Manter total do contrato/ciclo
+                        </Label>
+                        <p className="text-xs leading-relaxed">
+                          Calculado pelo unitário:{" "}
+                          <strong>{formatarMoeda(valorTotalFormItemCronograma)}</strong>.
+                          Disponível para este item:{" "}
+                          <strong>{formatarMoeda(valorDisponivelEdicaoItemCronograma)}</strong>.
+                          Diferença:{" "}
+                          <strong>{formatarMoeda(Math.abs(diferencaValorItemCronograma))}</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {deveAvisarDiferencaMensal && (
                   <div className={`rounded-lg border p-3 text-sm ${
                     diferencaMensalApenasCentavos

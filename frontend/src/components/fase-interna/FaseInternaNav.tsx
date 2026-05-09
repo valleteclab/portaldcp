@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -15,6 +16,7 @@ import {
   ChevronRight,
   type LucideIcon,
 } from "lucide-react"
+import { API_URL, authFetch } from "@/lib/api"
 
 type NavItem = {
   href: string
@@ -24,10 +26,12 @@ type NavItem = {
   badge?: number
 }
 
-const WORK_NAV: NavItem[] = [
-  { href: "/orgao/fase-interna", label: "Painel", icon: LayoutDashboard, exact: true },
-  { href: "/orgao/fase-interna/processos", label: "Processos", icon: ListChecks, badge: 6 },
-  { href: "/orgao/fase-interna/aprovacoes", label: "Aprovações", icon: CheckSquare, badge: 2 },
+const FASES_INTERNAS = [
+  "PLANEJAMENTO",
+  "TERMO_REFERENCIA",
+  "PESQUISA_PRECOS",
+  "ANALISE_JURIDICA",
+  "APROVACAO_INTERNA",
 ]
 
 const SUPPORT_NAV: NavItem[] = [
@@ -90,10 +94,57 @@ function NavGroup({
 
 export function FaseInternaNav() {
   const pathname = usePathname()
+  const [procCount, setProcCount] = useState<number | undefined>(undefined)
+  const [aprovCount, setAprovCount] = useState<number | undefined>(undefined)
   const processoId = pathname.match(/\/orgao\/fase-interna\/processos\/([^/]+)/)?.[1]
   const processoBase = processoId
     ? `/orgao/fase-interna/processos/${processoId}`
     : "/orgao/fase-interna/processos"
+
+  useEffect(() => {
+    let isMounted = true
+    const carregar = async () => {
+      try {
+        const licRes = await authFetch(`${API_URL}/api/licitacoes?limit=100`)
+        if (licRes.ok) {
+          const data = await licRes.json()
+          const lista: any[] = Array.isArray(data) ? data : (data.data || data.items || [])
+          const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
+          if (isMounted) setProcCount(internas.length)
+        } else {
+          if (isMounted) setProcCount(0)
+        }
+
+        const meRes = await authFetch(`${API_URL}/api/auth/me`)
+        let orgaoId: string | undefined
+        if (meRes.ok) {
+          const meData = await meRes.json()
+          orgaoId = meData?.orgao?.id || meData?.orgaoId
+        }
+        if (!orgaoId) {
+          if (isMounted) setAprovCount(0)
+        } else {
+          const apRes = await authFetch(`${API_URL}/api/fase-interna/aprovacoes?orgao_id=${orgaoId}`)
+          if (apRes.ok) {
+            const apData = await apRes.json()
+            const len = Array.isArray(apData) ? apData.length : (apData?.data?.length || apData?.items?.length || 0)
+            if (isMounted) setAprovCount(len)
+          } else {
+            if (isMounted) setAprovCount(0)
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setProcCount(0)
+          setAprovCount(0)
+        }
+      }
+    }
+    carregar()
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const documentNav: NavItem[] = [
     {
@@ -118,6 +169,12 @@ export function FaseInternaNav() {
     if (exact) return pathname === href
     return pathname === href || pathname.startsWith(`${href}/`)
   }
+
+  const WORK_NAV: NavItem[] = [
+    { href: "/orgao/fase-interna", label: "Painel", icon: LayoutDashboard, exact: true },
+    { href: "/orgao/fase-interna/processos", label: "Processos", icon: ListChecks, badge: typeof procCount === "number" ? procCount : undefined },
+    { href: "/orgao/fase-interna/aprovacoes", label: "Aprovações", icon: CheckSquare, badge: typeof aprovCount === "number" ? aprovCount : undefined },
+  ]
 
   return (
     <aside className="w-56 shrink-0 bg-white border-r border-gray-100 flex flex-col py-4 overflow-y-auto">
