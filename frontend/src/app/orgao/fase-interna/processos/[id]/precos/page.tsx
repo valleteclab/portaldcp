@@ -183,6 +183,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   const [adicionando, setAdicionando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [buscandoPNCP, setBuscandoPNCP] = useState(false)
+  const [agenteProgresso, setAgenteProgresso] = useState<string[]>([])
   const [execucaoAgente, setExecucaoAgente] = useState<AgenteExecucao | null>(null)
   const [rejeitandoId, setRejeitandoId] = useState<string | null>(null)
   const [iaAnalise, setIaAnalise] = useState<string | null>(null)
@@ -208,7 +209,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           setDados(data.dados)
           setEstatisticas(data.estatisticas || {})
         } else {
-          setDados(null)
+          setDados(data.dados || null)
         }
       } else {
         setDados(null)
@@ -271,7 +272,15 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   }, [loading])
 
   const executarAgentePrecos = async () => {
+    // Verificar se há itens primeiro
+    const itens = dados?.itens
+    if (!itens || !Array.isArray(itens) || itens.length === 0) {
+      alert("Adicione itens ao processo primeiro usando o botão 'Adicionar fonte' ou adicione itens na aba de Itens do processo.")
+      return
+    }
+    
     setBuscandoPNCP(true)
+    setAgenteProgresso(["Iniciando agente de pesquisa de preços..."])
     try {
       const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/executar`, {
         method: "POST",
@@ -289,11 +298,28 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           usarBrowserFallback: false,
         }),
       })
+      
       if (res.ok) {
-        setExecucaoAgente(await res.json())
+        const data = await res.json()
+        setExecucaoAgente(data)
+        setAgenteProgresso([])
+        
+        if (data.candidatos?.length === 0 && data.erro) {
+          setAgenteProgresso([`Concluído: ${data.erro}`])
+        } else if (data.candidatos?.length === 0) {
+          setAgenteProgresso(["Nenhum candidato encontrado. Tente adicionar fontes manualmente."])
+        } else {
+          setAgenteProgresso([`Encontrados ${data.candidatos?.length || 0} candidatos`])
+        }
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setAgenteProgresso([`Erro: ${err.message || 'Falha ao executar agente'}`])
       }
+    } catch (e: any) {
+      setAgenteProgresso([`Erro: ${e.message || 'Falha na comunicação'}`])
     } finally {
       setBuscandoPNCP(false)
+      setTimeout(() => setAgenteProgresso([]), 5000)
     }
   }
 
@@ -440,6 +466,28 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           </Button>
         </div>
       </div>
+
+      {/* Progresso do Agente */}
+      {agenteProgresso.length > 0 && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <Bot className="w-4 h-4 text-[#1351b4]" />
+            <span className="text-sm font-medium text-[#1351b4]">Agente de Pesquisa</span>
+          </div>
+          <ul className="space-y-1">
+            {agenteProgresso.map((msg, i) => (
+              <li key={i} className="text-xs text-gray-600 flex items-center gap-2">
+                {buscandoPNCP && i === agenteProgresso.length - 1 ? (
+                  <Loader2 className="w-3 h-3 animate-spin text-[#1351b4]" />
+                ) : (
+                  <Check className="w-3 h-3 text-green-500" />
+                )}
+                {msg}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {execucaoAgente && (
         <Card className="border border-[#c5d4eb] shadow-sm mb-6">
