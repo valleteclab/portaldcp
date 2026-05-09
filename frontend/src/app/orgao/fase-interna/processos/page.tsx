@@ -2,14 +2,14 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Search, Plus, FileText, ChevronRight, Home, Filter } from "lucide-react"
+import { Search, Plus, ChevronRight, Filter, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { API_URL, authFetch } from "@/lib/api"
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Licitacao {
   id: string
@@ -18,34 +18,96 @@ interface Licitacao {
   fase: string
   modalidade: string
   valor_total_estimado: number | string
-  created_at: string
+  responsavel?: string
+  area?: string
+  created_at?: string
 }
 
-const FASES_INTERNAS = ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS", "ANALISE_JURIDICA", "APROVACAO_INTERNA"]
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const FASE_LABELS: Record<string, string> = {
-  PLANEJAMENTO: "Planejamento",
-  TERMO_REFERENCIA: "Termo de Referência",
-  PESQUISA_PRECOS: "Pesquisa de Preços",
-  ANALISE_JURIDICA: "Análise Jurídica",
-  APROVACAO_INTERNA: "Aprovação Interna",
+const FASES_INTERNAS = [
+  "PLANEJAMENTO",
+  "TERMO_REFERENCIA",
+  "PESQUISA_PRECOS",
+  "ANALISE_JURIDICA",
+  "APROVACAO_INTERNA",
+]
+
+/** Map fase → status display slug */
+const FASE_STATUS: Record<string, string> = {
+  PLANEJAMENTO:       "rascunho",
+  TERMO_REFERENCIA:   "andamento",
+  PESQUISA_PRECOS:    "andamento",
+  ANALISE_JURIDICA:   "juridico",
+  APROVACAO_INTERNA:  "revisao",
 }
 
-const FASE_PROGRESSO: Record<string, number> = {
-  PLANEJAMENTO: 1,
-  TERMO_REFERENCIA: 2,
-  PESQUISA_PRECOS: 3,
-  ANALISE_JURIDICA: 4,
-  APROVACAO_INTERNA: 5,
+/** Map fase → etapa sigla e art */
+const FASE_ETAPA: Record<string, { sigla: string; art: string; progresso: number }> = {
+  PLANEJAMENTO:      { sigla: "DFD", art: "Art. 18, I",      progresso: 1 },
+  TERMO_REFERENCIA:  { sigla: "ETP", art: "Art. 18, §1º",   progresso: 2 },
+  PESQUISA_PRECOS:   { sigla: "PP",  art: "Art. 23",         progresso: 3 },
+  ANALISE_JURIDICA:  { sigla: "TR",  art: "Art. 6º, XXIII",  progresso: 5 },
+  APROVACAO_INTERNA: { sigla: "PJ",  art: "Art. 53",         progresso: 7 },
 }
 
-const FASE_VARIANT: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
-  PLANEJAMENTO: "secondary",
-  TERMO_REFERENCIA: "secondary",
-  PESQUISA_PRECOS: "secondary",
-  ANALISE_JURIDICA: "secondary",
-  APROVACAO_INTERNA: "default",
+/** Status filter tabs */
+type FilterTab = "todos" | "rascunho" | "andamento" | "revisao" | "juridico" | "aprovado"
+
+const FILTER_TABS: { key: FilterTab; label: string }[] = [
+  { key: "todos",     label: "Todos" },
+  { key: "rascunho",  label: "Rascunho" },
+  { key: "andamento", label: "Em andamento" },
+  { key: "revisao",   label: "Em revisão" },
+  { key: "juridico",  label: "Jurídico" },
+  { key: "aprovado",  label: "Aprovado" },
+]
+
+/** Status chip styles */
+const STATUS_CHIP: Record<string, { bg: string; text: string; label: string }> = {
+  rascunho:  { bg: "bg-gray-100",    text: "text-gray-600",    label: "Rascunho" },
+  andamento: { bg: "bg-blue-100",    text: "text-[#1351b4]",   label: "Em andamento" },
+  revisao:   { bg: "bg-yellow-100",  text: "text-yellow-700",  label: "Em revisão" },
+  juridico:  { bg: "bg-purple-100",  text: "text-purple-700",  label: "Jurídico" },
+  aprovado:  { bg: "bg-green-100",   text: "text-[#168821]",   label: "Aprovado" },
 }
+
+// ─── Mock data ────────────────────────────────────────────────────────────────
+
+const MOCK_PROCESSOS: Licitacao[] = [
+  {
+    id: "1",
+    numero_processo: "2026/0142",
+    objeto: "Aquisição de 250 licenças de software de Gestão Eletrônica de Documentos (GED)",
+    modalidade: "Pregão Eletrônico",
+    fase: "ANALISE_JURIDICA",
+    valor_total_estimado: 1095000,
+    responsavel: "Ana Carolina M.",
+    area: "SETIC",
+  },
+  {
+    id: "2",
+    numero_processo: "2026/0138",
+    objeto: "Contratação de serviços de limpeza e conservação predial",
+    modalidade: "Pregão Eletrônico",
+    fase: "APROVACAO_INTERNA",
+    valor_total_estimado: 480000,
+    responsavel: "Ricardo Tavares",
+    area: "GABIN",
+  },
+  {
+    id: "3",
+    numero_processo: "2026/0151",
+    objeto: "Fornecimento de combustível para frota municipal",
+    modalidade: "Pregão Eletrônico",
+    fase: "PESQUISA_PRECOS",
+    valor_total_estimado: 320000,
+    responsavel: "Juliana Prado",
+    area: "SEMOB",
+  },
+]
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtMoeda(v: number | string) {
   const n = typeof v === "string" ? parseFloat(v) : v
@@ -53,158 +115,221 @@ function fmtMoeda(v: number | string) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
-function fmtData(d: string) {
-  return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
-}
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProcessosPage() {
-  const [licitacoes, setLicitacoes] = useState<Licitacao[]>([])
-  const [carregando, setCarregando] = useState(true)
+  const [processos, setProcessos] = useState<Licitacao[]>([])
+  const [loading, setLoading] = useState(true)
+  const [isMock, setIsMock] = useState(false)
   const [busca, setBusca] = useState("")
-  const [filtroFase, setFiltroFase] = useState("todas")
+  const [filtroTab, setFiltroTab] = useState<FilterTab>("todos")
 
   useEffect(() => {
-    carregarDados()
+    carregar()
   }, [])
 
-  const carregarDados = async () => {
-    setCarregando(true)
+  const carregar = async () => {
+    setLoading(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes?limit=100`)
       if (res.ok) {
-        const dados = await res.json()
-        const lista = Array.isArray(dados) ? dados : (dados.data || dados.items || [])
-        setLicitacoes(lista.filter((l: Licitacao) => FASES_INTERNAS.includes(l.fase)))
+        const data = await res.json()
+        const lista: Licitacao[] = Array.isArray(data) ? data : (data.data || data.items || [])
+        const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
+        if (internas.length === 0) {
+          setProcessos(MOCK_PROCESSOS)
+          setIsMock(true)
+        } else {
+          setProcessos(internas)
+          setIsMock(false)
+        }
+      } else {
+        setProcessos(MOCK_PROCESSOS)
+        setIsMock(true)
       }
     } catch (e) {
       console.error(e)
+      setProcessos(MOCK_PROCESSOS)
+      setIsMock(true)
     } finally {
-      setCarregando(false)
+      setLoading(false)
     }
   }
 
-  const filtradas = licitacoes.filter((l) => {
+  const filtrados = processos.filter((p) => {
+    const status = FASE_STATUS[p.fase] || "rascunho"
     const matchBusca =
       !busca ||
-      l.numero_processo?.toLowerCase().includes(busca.toLowerCase()) ||
-      l.objeto?.toLowerCase().includes(busca.toLowerCase())
-    const matchFase = filtroFase === "todas" || l.fase === filtroFase
-    return matchBusca && matchFase
+      p.numero_processo?.toLowerCase().includes(busca.toLowerCase()) ||
+      p.objeto?.toLowerCase().includes(busca.toLowerCase())
+    const matchTab = filtroTab === "todos" || status === filtroTab
+    return matchBusca && matchTab
   })
 
   return (
     <div className="p-6 pb-10 max-w-6xl">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-4">
+        <span>Processos</span>
+      </div>
+
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-2">
-            <Home className="w-3.5 h-3.5" />
-            <ChevronRight className="w-3 h-3" />
-            <Link href="/orgao/fase-interna" className="hover:text-[#1351b4]">Fase Interna</Link>
-            <ChevronRight className="w-3 h-3" />
-            <span className="text-[#1351b4] font-medium">Processos</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Processos em fase interna</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Processos licitatórios</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {carregando ? "Carregando..." : `${filtradas.length} processos encontrados`}
+            {loading
+              ? "Carregando…"
+              : `${filtrados.length} processo${filtrados.length !== 1 ? "s" : ""} · Fase interna em curso`}
+            {isMock && !loading && (
+              <span className="text-gray-400 ml-1">(dados de exemplo)</span>
+            )}
           </p>
         </div>
         <Link href="/orgao/fase-interna/processos/novo">
-          <Button className="bg-[#1351b4] hover:bg-[#0c326f] rounded-full">
-            <Plus className="w-4 h-4 mr-2" />
+          <Button className="bg-[#1351b4] hover:bg-[#0c326f] text-white gap-1.5">
+            <Plus className="w-4 h-4" />
             Novo processo
           </Button>
         </Link>
       </div>
 
-      {/* Filtros */}
-      <div className="flex gap-3 mb-5">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input
-            placeholder="Buscar por número ou objeto…"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            className="pl-9 bg-white"
-          />
-        </div>
-        <Select value={filtroFase} onValueChange={setFiltroFase}>
-          <SelectTrigger className="w-52 bg-white">
-            <Filter className="w-4 h-4 mr-2 text-gray-400" />
-            <SelectValue placeholder="Filtrar por etapa" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todas">Todas as etapas</SelectItem>
-            {FASES_INTERNAS.map((f) => (
-              <SelectItem key={f} value={f}>{FASE_LABELS[f]}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {/* Filter card */}
+      <Card className="border-0 shadow-sm mb-5">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Search */}
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input
+                placeholder="Buscar por nº ou objeto…"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                className="pl-9 bg-white h-9 text-sm"
+              />
+            </div>
 
-      {/* Tabela */}
-      <Card className="border-0 shadow-sm">
+            {/* Filter pills */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {FILTER_TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setFiltroTab(tab.key)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    filtroTab === tab.key
+                      ? "bg-[#1351b4] text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Mais filtros */}
+            <Button variant="ghost" size="sm" className="gap-1.5 ml-auto text-gray-500">
+              <Filter className="w-3.5 h-3.5" />
+              Mais filtros
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Table */}
+      <Card className="border-0 shadow-sm overflow-hidden">
         <CardContent className="p-0">
-          {carregando ? (
-            <div className="py-16 text-center text-gray-400 text-sm">Carregando processos...</div>
-          ) : filtradas.length === 0 ? (
-            <div className="py-16 text-center">
-              <FileText className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-              <p className="text-sm font-medium text-gray-500">Nenhum processo encontrado</p>
-              <p className="text-xs text-gray-400 mt-1">
-                {busca || filtroFase !== "todas"
-                  ? "Tente ajustar os filtros de busca"
-                  : "Inicie criando um novo processo de licitação"}
-              </p>
-              {!busca && filtroFase === "todas" && (
-                <Link href="/orgao/fase-interna/processos/novo" className="mt-4 inline-block">
-                  <Button className="bg-[#1351b4] hover:bg-[#0c326f]">
-                    <Plus className="w-4 h-4 mr-2" /> Novo processo
-                  </Button>
-                </Link>
-              )}
+          {loading ? (
+            <div className="py-16 flex items-center justify-center gap-2 text-gray-400 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" /> Carregando processos…
+            </div>
+          ) : filtrados.length === 0 ? (
+            <div className="py-16 text-center text-gray-400 text-sm">
+              Nenhum processo encontrado. Ajuste os filtros ou crie um novo processo.
             </div>
           ) : (
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Processo</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Etapa atual</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3 w-44">Progresso</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Valor estimado</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Criado em</th>
+                <tr className="border-b border-gray-100 bg-gray-50/60">
+                  <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">
+                    Nº / Objeto
+                  </th>
+                  <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3">
+                    Modalidade
+                  </th>
+                  <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3">
+                    Etapa atual
+                  </th>
+                  <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3 w-36">
+                    Progresso
+                  </th>
+                  <th className="text-right text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3">
+                    Valor estimado
+                  </th>
+                  <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3">
+                    Responsável
+                  </th>
+                  <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3">
+                    Status
+                  </th>
                   <th className="w-10" />
                 </tr>
               </thead>
               <tbody>
-                {filtradas.map((l) => {
-                  const progresso = FASE_PROGRESSO[l.fase] || 1
+                {filtrados.map((p) => {
+                  const etapa = FASE_ETAPA[p.fase] || { sigla: "—", art: "—", progresso: 0 }
+                  const status = FASE_STATUS[p.fase] || "rascunho"
+                  const chip = STATUS_CHIP[status] || STATUS_CHIP.rascunho
                   return (
-                    <tr key={l.id} className="border-b border-gray-50 hover:bg-gray-50/70 transition-colors">
+                    <tr
+                      key={p.id}
+                      className="border-b border-gray-50 hover:bg-gray-50/70 transition-colors cursor-pointer"
+                    >
+                      {/* Nº / Objeto */}
                       <td className="px-5 py-4">
-                        <div className="font-semibold text-sm text-gray-900">
-                          {l.numero_processo || `#${l.id.slice(0, 8)}`}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-0.5 max-w-xs truncate">{l.objeto}</div>
+                        <div className="font-bold text-sm text-gray-900">{p.numero_processo || `#${p.id.slice(0, 8)}`}</div>
+                        <div className="text-xs text-gray-500 mt-0.5 max-w-xs truncate">{p.objeto}</div>
                       </td>
+
+                      {/* Modalidade */}
+                      <td className="px-3 py-4 text-xs text-gray-700 whitespace-nowrap">
+                        {p.modalidade?.replace(/_/g, " ") || "—"}
+                      </td>
+
+                      {/* Etapa atual */}
                       <td className="px-3 py-4">
-                        <div className="text-xs font-semibold text-gray-700">{FASE_LABELS[l.fase]}</div>
-                        <div className="text-[10px] text-gray-400 mt-0.5">{progresso}ª etapa de 5</div>
+                        <span className="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-[#ecf3fc] text-[#1351b4] mb-0.5">
+                          {etapa.sigla}
+                        </span>
+                        <div className="text-[10px] text-gray-400">{etapa.art}</div>
                       </td>
-                      <td className="px-3 py-4 w-44">
-                        <Progress value={(progresso / 5) * 100} className="h-2 mb-1" />
-                        <div className="text-[10px] text-gray-400">{progresso}/5 etapas</div>
+
+                      {/* Progresso */}
+                      <td className="px-3 py-4 w-36">
+                        <Progress value={(etapa.progresso / 8) * 100} className="h-1.5 mb-1" />
+                        <div className="text-[10px] text-gray-400">{etapa.progresso}/8</div>
                       </td>
+
+                      {/* Valor estimado */}
+                      <td className="px-3 py-4 text-right">
+                        <div className="text-sm font-bold text-gray-800">{fmtMoeda(p.valor_total_estimado)}</div>
+                      </td>
+
+                      {/* Responsável */}
                       <td className="px-3 py-4">
-                        <div className="text-sm font-medium text-gray-800">
-                          {fmtMoeda(l.valor_total_estimado)}
-                        </div>
+                        <div className="text-xs font-medium text-gray-700">{p.responsavel || "—"}</div>
+                        {p.area && <div className="text-[10px] text-gray-400">{p.area}</div>}
                       </td>
+
+                      {/* Status chip */}
                       <td className="px-3 py-4">
-                        <div className="text-xs text-gray-500">{fmtData(l.created_at)}</div>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${chip.bg} ${chip.text}`}>
+                          {chip.label}
+                        </span>
                       </td>
+
+                      {/* Chevron */}
                       <td className="px-3 py-4">
-                        <Link href={`/orgao/fase-interna/processos/${l.id}`}>
+                        <Link href={`/orgao/fase-interna/processos/${p.id}`}>
                           <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-[#ecf3fc] hover:text-[#1351b4]">
                             <ChevronRight className="w-4 h-4" />
                           </Button>

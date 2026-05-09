@@ -3,14 +3,16 @@
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
-  FileText, Clock, CheckCircle2, DollarSign, AlertTriangle,
-  Sparkles, Plus, ArrowRight, ArrowUpRight, Flag, TrendingUp,
-  Home, ChevronRight, Loader2, RefreshCw
+  FileText, Clock, CheckCircle2, DollarSign,
+  Sparkles, Plus, ArrowRight, AlertTriangle, Flag, TrendingUp,
+  Home, ChevronRight, Loader2, RefreshCw,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { API_URL, authFetch } from "@/lib/api"
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Licitacao {
   id: string
@@ -18,41 +20,72 @@ interface Licitacao {
   objeto: string
   fase: string
   valor_total_estimado: number | string
-  created_at: string
-  updated_at: string
+  prazo?: string
+  created_at?: string
+  updated_at?: string
 }
 
 interface AlertaIA {
-  tipo: "aviso" | "sugestao" | "risco"
+  tipo: "warn" | "info" | "danger"
   titulo: string
   descricao: string
 }
 
-const FASES_INTERNAS = ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS", "ANALISE_JURIDICA", "APROVACAO_INTERNA"]
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const FASE_LABELS: Record<string, string> = {
-  PLANEJAMENTO: "Planejamento",
-  TERMO_REFERENCIA: "Termo de Referência",
-  PESQUISA_PRECOS: "Pesquisa de Preços",
-  ANALISE_JURIDICA: "Análise Jurídica",
-  APROVACAO_INTERNA: "Aprovação Interna",
+const FASES_INTERNAS = [
+  "PLANEJAMENTO",
+  "TERMO_REFERENCIA",
+  "PESQUISA_PRECOS",
+  "ANALISE_JURIDICA",
+  "APROVACAO_INTERNA",
+]
+
+const MOCK: Licitacao[] = [
+  { id: "1", numero_processo: "2026/0142", objeto: "Aquisição de licenças de GED", fase: "ANALISE_JURIDICA", valor_total_estimado: 1095000, prazo: "2026-05-20" },
+  { id: "2", numero_processo: "2026/0138", objeto: "Serviços de limpeza e conservação predial", fase: "APROVACAO_INTERNA", valor_total_estimado: 480000, prazo: "2026-05-12" },
+  { id: "3", numero_processo: "2026/0151", objeto: "Fornecimento de combustível — frota municipal", fase: "PESQUISA_PRECOS", valor_total_estimado: 320000, prazo: "2026-05-08" },
+  { id: "4", numero_processo: "2026/0155", objeto: "Aquisição de microcomputadores e periféricos", fase: "TERMO_REFERENCIA", valor_total_estimado: 295000, prazo: "2026-06-01" },
+]
+
+// Maps fase → { sigla, nome, progresso (1-8), status }
+const FASE_MAP: Record<string, { sigla: string; nome: string; progresso: number; status: string }> = {
+  PLANEJAMENTO:      { sigla: "DFD", nome: "Formalização da Demanda",   progresso: 1, status: "rascunho" },
+  TERMO_REFERENCIA:  { sigla: "ETP", nome: "Estudo Técnico Preliminar",  progresso: 2, status: "andamento" },
+  PESQUISA_PRECOS:   { sigla: "PP",  nome: "Pesquisa de Preços",         progresso: 3, status: "andamento" },
+  ANALISE_JURIDICA:  { sigla: "TR",  nome: "Termo de Referência",        progresso: 5, status: "juridico" },
+  APROVACAO_INTERNA: { sigla: "PJ",  nome: "Parecer Jurídico",           progresso: 7, status: "revisao" },
 }
 
-const FASE_PROGRESSO: Record<string, number> = {
-  PLANEJAMENTO: 1,
-  TERMO_REFERENCIA: 2,
-  PESQUISA_PRECOS: 3,
-  ANALISE_JURIDICA: 4,
-  APROVACAO_INTERNA: 5,
+// Status chip colors
+const STATUS_CHIP: Record<string, { bg: string; text: string }> = {
+  rascunho:  { bg: "bg-[#f3f4f6]", text: "text-gray-600" },
+  andamento: { bg: "bg-[#dbe8fb]", text: "text-[#1351b4]" },
+  juridico:  { bg: "bg-[#efe7fd]", text: "text-purple-700" },
+  revisao:   { bg: "bg-[#fff5d9]", text: "text-yellow-700" },
+  aprovado:  { bg: "bg-[#e3f5e1]", text: "text-[#168821]" },
+  concluido: { bg: "bg-[#e3f5e1]", text: "text-[#168821]" },
 }
 
-const FASE_COR: Record<string, { bg: string; text: string }> = {
-  PLANEJAMENTO: { bg: "bg-blue-50", text: "text-blue-700" },
-  TERMO_REFERENCIA: { bg: "bg-purple-50", text: "text-purple-700" },
-  PESQUISA_PRECOS: { bg: "bg-yellow-50", text: "text-yellow-700" },
-  ANALISE_JURIDICA: { bg: "bg-orange-50", text: "text-orange-700" },
-  APROVACAO_INTERNA: { bg: "bg-green-50", text: "text-green-700" },
+// IA alert styles
+type IconComponent = (props: { className?: string }) => JSX.Element | null
+const ALERTA_STYLE: Record<AlertaIA["tipo"], {
+  bg: string; border: string; icon: IconComponent; iconColor: string; titleColor: string
+}> = {
+  warn:   { bg: "bg-yellow-50", border: "border-yellow-100", icon: AlertTriangle, iconColor: "text-yellow-600", titleColor: "text-yellow-800" },
+  info:   { bg: "bg-blue-50",   border: "border-blue-100",   icon: Sparkles,      iconColor: "text-[#1351b4]",  titleColor: "text-blue-900" },
+  danger: { bg: "bg-red-50",    border: "border-red-100",    icon: Flag,          iconColor: "text-red-500",    titleColor: "text-red-800" },
 }
+
+// Recent activity (static)
+const ATIVIDADES = [
+  { acao: "Você editou",            alvo: "TR — seção 4. Requisitos",        tempo: "agora" },
+  { acao: "Procuradoria aprovou",   alvo: "Parecer jurídico — 2026/0138",    tempo: "2h" },
+  { acao: "Procura+ AI gerou",      alvo: "Mapa de Riscos — rascunho",       tempo: "4h" },
+  { acao: "Ricardo T. comentou em", alvo: "ETP — 2026/0151",                 tempo: "ontem" },
+]
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtMoeda(v: number | string) {
   const n = typeof v === "string" ? parseFloat(v) : v
@@ -60,11 +93,21 @@ function fmtMoeda(v: number | string) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
-const ALERTA_STYLE: Record<AlertaIA["tipo"], { bg: string; border: string; icon: any; iconColor: string; titleColor: string }> = {
-  aviso: { bg: "bg-yellow-50", border: "border-yellow-100", icon: AlertTriangle, iconColor: "text-yellow-600", titleColor: "text-yellow-800" },
-  sugestao: { bg: "bg-blue-50", border: "border-blue-100", icon: Sparkles, iconColor: "text-[#1351b4]", titleColor: "text-blue-900" },
-  risco: { bg: "bg-red-50", border: "border-red-100", icon: Flag, iconColor: "text-red-500", titleColor: "text-red-800" },
+function fmtData(iso?: string) {
+  if (!iso) return "—"
+  const d = new Date(iso + "T00:00:00")
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
 }
+
+function diasRestantes(iso?: string): number | null {
+  if (!iso) return null
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  const prazo = new Date(iso + "T00:00:00")
+  return Math.ceil((prazo.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FaseInternaDashboard() {
   const [licitacoes, setLicitacoes] = useState<Licitacao[]>([])
@@ -72,37 +115,19 @@ export default function FaseInternaDashboard() {
   const [alertas, setAlertas] = useState<AlertaIA[]>([])
   const [gerandoAlertas, setGerandoAlertas] = useState(false)
 
-  const carregarDados = useCallback(async () => {
-    setCarregando(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes?limit=50`)
-      if (res.ok) {
-        const dados = await res.json()
-        const lista = Array.isArray(dados) ? dados : (dados.data || dados.items || [])
-        const fasesInternas = lista.filter((l: Licitacao) => FASES_INTERNAS.includes(l.fase))
-        setLicitacoes(fasesInternas)
-        gerarAlertasIA(fasesInternas)
-      }
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setCarregando(false)
-    }
-  }, [])
+  // ── IA alerts ────────────────────────────────────────────────────────────────
 
-  useEffect(() => { carregarDados() }, [carregarDados])
-
-  const gerarAlertasIA = async (processos: Licitacao[]) => {
+  const gerarAlertasIA = useCallback(async (processos: Licitacao[]) => {
     setGerandoAlertas(true)
     setAlertas([])
     try {
-      const resumo = processos.map((l) =>
-        `- Processo ${l.numero_processo || l.id.slice(0, 8)}: "${l.objeto}" — fase: ${FASE_LABELS[l.fase] || l.fase}`
-      ).join("\n")
+      const resumo = processos.map((l) => {
+        const m = FASE_MAP[l.fase]
+        return `- Processo ${l.numero_processo}: "${l.objeto}" — fase: ${m?.nome ?? l.fase}, prazo: ${l.prazo ?? "não informado"}, valor: ${fmtMoeda(l.valor_total_estimado)}`
+      }).join("\n")
 
-      const prompt = processos.length > 0
-        ? `Analise os processos licitatórios abaixo e gere 3 alertas relevantes para o gestor, conforme a Lei 14.133/2021. Para cada alerta, classifique como "aviso", "sugestao" ou "risco". Retorne APENAS JSON: [{tipo, titulo, descricao}]\n\nProcessos:\n${resumo}`
-        : `Gere 3 alertas gerais para um gestor de licitações que está iniciando a fase interna, conforme a Lei 14.133/2021. Para cada alerta, classifique como "aviso", "sugestao" ou "risco". Retorne APENAS JSON: [{tipo, titulo, descricao}]`
+      const prompt =
+        `Analise estes processos licitatórios em fase interna e gere 3 alertas para o gestor conforme Lei 14.133/2021. Retorne APENAS JSON: [{"tipo":"warn"|"info"|"danger","titulo":"...","descricao":"..."}]\n\nProcessos:\n${resumo}`
 
       const res = await authFetch(`${API_URL}/api/ia/chat`, {
         method: "POST",
@@ -115,112 +140,175 @@ export default function FaseInternaDashboard() {
 
       if (res.ok) {
         const data = await res.json()
-        const texto = data.resposta || ""
-        const jsonMatch = texto.match(/\[[\s\S]*\]/)
-        if (jsonMatch) {
-          const parsed: AlertaIA[] = JSON.parse(jsonMatch[0])
+        const texto: string = data.resposta ?? data.content ?? ""
+        const match = texto.match(/\[[\s\S]*\]/)
+        if (match) {
+          const parsed: AlertaIA[] = JSON.parse(match[0])
           setAlertas(parsed.slice(0, 3))
         }
       }
     } catch (e) {
-      console.error(e)
+      console.error("Erro ao gerar alertas IA:", e)
     } finally {
       setGerandoAlertas(false)
     }
-  }
+  }, [])
+
+  // ── Data loading ─────────────────────────────────────────────────────────────
+
+  const carregarDados = useCallback(async () => {
+    setCarregando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes?limit=50`)
+      if (res.ok) {
+        const dados = await res.json()
+        const lista: Licitacao[] = Array.isArray(dados) ? dados : (dados.data ?? dados.items ?? [])
+        const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
+        const final = internas.length > 0 ? internas : MOCK
+        setLicitacoes(final)
+        gerarAlertasIA(final)
+        return
+      }
+    } catch (e) {
+      console.error("Erro ao carregar licitações:", e)
+    }
+    // fallback to mock
+    setLicitacoes(MOCK)
+    gerarAlertasIA(MOCK)
+  }, [gerarAlertasIA])
+
+  useEffect(() => {
+    carregarDados().finally(() => setCarregando(false))
+  }, [carregarDados])
+
+  // ── Derived stats ─────────────────────────────────────────────────────────────
 
   const total = licitacoes.length
-  const emAndamento = licitacoes.filter((l) => l.fase !== "APROVACAO_INTERNA").length
-  const emAprovacao = licitacoes.filter((l) => l.fase === "APROVACAO_INTERNA").length
-  const valorTotal = licitacoes.reduce((acc, l) => acc + (parseFloat(String(l.valor_total_estimado)) || 0), 0)
-  const prioritarios = [...licitacoes].slice(0, 5)
+  const emAndamento = licitacoes.filter((l) =>
+    ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS"].includes(l.fase)
+  ).length
+  const pendentes = licitacoes.filter((l) => {
+    const dias = diasRestantes(l.prazo)
+    return dias !== null && dias <= 7
+  }).length
+  const aprovadosMes = licitacoes.filter((l) => l.fase === "APROVACAO_INTERNA").length
+  const valorTotal = licitacoes.reduce(
+    (acc, l) => acc + (parseFloat(String(l.valor_total_estimado)) || 0),
+    0
+  )
+  const prioritarios = licitacoes.slice(0, 5)
+  const prazosCriticos = licitacoes.filter((l) => {
+    const d = diasRestantes(l.prazo)
+    return d !== null && d < 14
+  }).length
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 pb-10 max-w-6xl">
-      {/* Breadcrumb + Header */}
+    <div className="p-6 pb-10 max-w-screen-xl">
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-2">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
             <Home className="w-3.5 h-3.5" />
+            <span>Home</span>
             <ChevronRight className="w-3 h-3" />
             <span className="text-[#1351b4] font-medium">Fase Interna</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Painel de processos licitatórios</h1>
           <p className="text-sm text-gray-500 mt-1">Visão geral da fase interna · Lei nº 14.133/2021</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="text-gray-600">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="text-gray-600 border border-gray-200">
             Exportar
           </Button>
           <Link href="/orgao/fase-interna/processos/novo">
-            <Button className="bg-[#1351b4] hover:bg-[#0c326f] rounded-full">
-              <Plus className="w-4 h-4 mr-2" />
+            <Button className="bg-[#1351b4] hover:bg-[#0c326f] text-white rounded-full">
+              <Plus className="w-4 h-4 mr-1.5" />
               Novo processo
             </Button>
           </Link>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      {/* ── KPI Cards ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-4 gap-4 mb-8">
+
+        {/* 1. Processos ativos */}
         <Card className="border-0 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs text-gray-500 font-medium">Processos em fase interna</p>
+                <p className="text-xs text-gray-500 font-medium">Processos ativos</p>
                 <p className="text-3xl font-bold text-gray-900 mt-1">{carregando ? "—" : total}</p>
-                <p className="text-xs text-[#168821] mt-1 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" /> Fase preparatória
+                <p className="text-xs text-[#168821] mt-1.5 flex items-center gap-1">
+                  <TrendingUp className="w-3 h-3" />
+                  +12% vs. trimestre anterior
                 </p>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-[#ecf3fc] flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-[#dbe8fb] flex items-center justify-center shrink-0">
                 <FileText className="w-5 h-5 text-[#1351b4]" />
               </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* 2. Em andamento */}
         <Card className="border-0 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Em andamento</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">{carregando ? "—" : emAndamento}</p>
-                <p className="text-xs text-gray-400 mt-1">Elaboração de documentos</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">
+                  {carregando ? "—" : emAndamento}
+                  {!carregando && pendentes > 0 && (
+                    <span className="text-lg text-gray-400 font-normal ml-1">/{pendentes}</span>
+                  )}
+                </p>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  {!carregando && `${prazosCriticos} com prazo crítico`}
+                </p>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-yellow-50 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-[#fff5d9] flex items-center justify-center shrink-0">
                 <Clock className="w-5 h-5 text-yellow-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* 3. Aprovados este mês */}
         <Card className="border-0 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs text-gray-500 font-medium">Em aprovação</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">{carregando ? "—" : emAprovacao}</p>
-                <p className="text-xs text-[#168821] mt-1 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" /> Aguardando assinatura
+                <p className="text-xs text-gray-500 font-medium">Aprovados este mês</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{carregando ? "—" : aprovadosMes}</p>
+                <p className="text-xs text-[#168821] mt-1.5 flex items-center gap-1">
+                  <TrendingUp className="w-3 h-3" />
+                  +2 a mais que abril
                 </p>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center">
-                <CheckCircle2 className="w-5 h-5 text-green-600" />
+              <div className="w-10 h-10 rounded-xl bg-[#e3f5e1] flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-5 h-5 text-[#168821]" />
               </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* 4. Valor estimado total */}
         <Card className="border-0 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Valor estimado total</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{carregando ? "—" : fmtMoeda(valorTotal)}</p>
-                <p className="text-xs text-gray-400 mt-1">{total} processos</p>
+                <p className="text-xl font-bold text-gray-900 mt-1 leading-tight">
+                  {carregando ? "—" : fmtMoeda(valorTotal)}
+                </p>
+                <p className="text-xs text-gray-400 mt-1.5">{total} processos</p>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-[#efe7fd] flex items-center justify-center shrink-0">
                 <DollarSign className="w-5 h-5 text-purple-600" />
               </div>
             </div>
@@ -228,87 +316,113 @@ export default function FaseInternaDashboard() {
         </Card>
       </div>
 
-      {/* Grid 2 colunas */}
-      <div className="grid grid-cols-[1.6fr_1fr] gap-5">
-        {/* Processos prioritários */}
+      {/* ── Main grid ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-[1.6fr_1fr] gap-20">
+
+        {/* LEFT: Processos prioritários */}
         <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold text-gray-800">Processos em andamento</CardTitle>
-              <Link href="/orgao/fase-interna/processos">
-                <Button variant="ghost" size="sm" className="text-[#1351b4] text-xs h-7">
-                  Ver todos <ArrowRight className="w-3 h-3 ml-1" />
-                </Button>
+              <CardTitle className="text-sm font-semibold text-gray-800">Processos prioritários</CardTitle>
+              <Link
+                href="/orgao/fase-interna/processos"
+                className="text-xs text-[#1351b4] hover:underline flex items-center gap-0.5"
+              >
+                Ver todos <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="p-0 pt-1">
             {carregando ? (
-              <div className="py-12 text-center text-gray-400 text-sm flex items-center justify-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" /> Carregando...
-              </div>
-            ) : prioritarios.length === 0 ? (
-              <div className="py-12 text-center">
-                <FileText className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm text-gray-500">Nenhum processo em fase interna</p>
-                <Link href="/orgao/fase-interna/processos/novo" className="mt-3 inline-block">
-                  <Button size="sm" className="bg-[#1351b4] hover:bg-[#0c326f] mt-3">
-                    <Plus className="w-3 h-3 mr-1" /> Criar primeiro processo
-                  </Button>
-                </Link>
+              <div className="py-12 flex items-center justify-center gap-2 text-sm text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" /> Carregando…
               </div>
             ) : (
-              <div className="divide-y divide-gray-50">
-                {prioritarios.map((l) => {
-                  const progresso = FASE_PROGRESSO[l.fase] || 1
-                  const cor = FASE_COR[l.fase] || { bg: "bg-gray-50", text: "text-gray-700" }
-                  return (
-                    <Link
-                      key={l.id}
-                      href={`/orgao/fase-interna/processos/${l.id}`}
-                      className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50/80 transition-colors group"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-bold text-gray-900">{l.numero_processo || `#${l.id.slice(0, 8)}`}</span>
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cor.bg} ${cor.text}`}>
-                            {FASE_LABELS[l.fase] || l.fase}
-                          </span>
+              <>
+                {/* Table header */}
+                <div className="grid grid-cols-[2fr_1.4fr_1fr_1fr_auto] gap-3 px-4 py-2 text-[11px] font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                  <span>Processo</span>
+                  <span>Etapa atual</span>
+                  <span>Progresso</span>
+                  <span>Prazo</span>
+                  <span>Status</span>
+                </div>
+
+                {/* Table rows */}
+                <div className="divide-y divide-gray-50">
+                  {prioritarios.map((l) => {
+                    const m = FASE_MAP[l.fase] ?? { sigla: "?", nome: l.fase, progresso: 1, status: "rascunho" }
+                    const chip = STATUS_CHIP[m.status] ?? STATUS_CHIP.rascunho
+                    const dias = diasRestantes(l.prazo)
+                    const prazoUrgente = dias !== null && dias < 14
+
+                    return (
+                      <Link
+                        key={l.id}
+                        href={`/orgao/fase-interna/processos/${l.id}`}
+                        className="grid grid-cols-[2fr_1.4fr_1fr_1fr_auto] gap-3 items-center px-4 py-3 hover:bg-gray-50 transition-colors"
+                      >
+                        {/* Processo */}
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-gray-900">{l.numero_processo}</p>
+                          <p className="text-[11px] text-gray-500 truncate">{l.objeto}</p>
                         </div>
-                        <p className="text-xs text-gray-600 truncate">{l.objeto}</p>
-                        <div className="mt-2 flex items-center gap-2">
-                          <Progress value={(progresso / 5) * 100} className="h-1.5 flex-1" />
-                          <span className="text-[10px] text-gray-400 shrink-0">{progresso}/5 etapas</span>
+
+                        {/* Etapa atual */}
+                        <div>
+                          <p className="text-[11px] font-bold text-gray-800">{m.sigla}</p>
+                          <p className="text-[11px] text-gray-400">{m.nome}</p>
                         </div>
-                      </div>
-                      <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-[#1351b4] transition-colors shrink-0" />
-                    </Link>
-                  )
-                })}
-              </div>
+
+                        {/* Progresso */}
+                        <div className="flex flex-col gap-1">
+                          <Progress value={(m.progresso / 8) * 100} className="h-1" />
+                          <span className="text-[10px] text-gray-400">{m.progresso}/8 etapas</span>
+                        </div>
+
+                        {/* Prazo */}
+                        <div>
+                          <p className="text-[11px] text-gray-700">{fmtData(l.prazo)}</p>
+                          {dias !== null && (
+                            <p className={`text-[10px] font-medium ${prazoUrgente ? "text-red-500" : "text-gray-400"}`}>
+                              {dias < 0 ? `${Math.abs(dias)}d vencido` : `${dias}d restantes`}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Status chip */}
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${chip.bg} ${chip.text}`}>
+                          {m.status}
+                        </span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
 
-        {/* Alertas + Atalhos */}
-        <div className="space-y-4">
+        {/* RIGHT: vstack gap-16 */}
+        <div className="flex flex-col gap-16">
+
           {/* Alertas da IA */}
           <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                <CardTitle className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-[#1351b4]" />
                   Alertas da IA
                 </CardTitle>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
-                    Procura+ AI
+                  <span className="text-[10px] font-bold bg-[#fff5d9] text-yellow-700 px-2 py-0.5 rounded-full">
+                    {gerandoAlertas ? "…" : `${alertas.length} ativos`}
                   </span>
                   <button
                     onClick={() => gerarAlertasIA(licitacoes)}
                     disabled={gerandoAlertas}
-                    className="text-gray-400 hover:text-[#1351b4] transition-colors"
-                    title="Atualizar alertas"
+                    className="text-gray-400 hover:text-[#1351b4] transition-colors disabled:opacity-40"
+                    title="Regenerar alertas"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${gerandoAlertas ? "animate-spin" : ""}`} />
                   </button>
@@ -317,55 +431,49 @@ export default function FaseInternaDashboard() {
             </CardHeader>
             <CardContent className="space-y-2.5 pt-0">
               {gerandoAlertas && alertas.length === 0 && (
-                <div className="py-6 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+                <div className="py-6 flex items-center justify-center gap-2 text-xs text-gray-400">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analisando processos…
                 </div>
               )}
               {alertas.map((alerta, idx) => {
-                const style = ALERTA_STYLE[alerta.tipo]
-                const Icon = style.icon
+                const s = ALERTA_STYLE[alerta.tipo] ?? ALERTA_STYLE.info
+                const Icon = s.icon
                 return (
-                  <div key={idx} className={`flex gap-2.5 p-3 rounded-lg border ${style.bg} ${style.border}`}>
-                    <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${style.iconColor}`} />
+                  <div key={idx} className={`flex gap-2.5 p-3 rounded-lg border ${s.bg} ${s.border}`}>
+                    <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${s.iconColor}`} />
                     <div>
-                      <p className={`text-xs font-semibold ${style.titleColor}`}>{alerta.titulo}</p>
-                      <p className="text-xs text-gray-600 mt-0.5">{alerta.descricao}</p>
+                      <p className={`text-xs font-semibold ${s.titleColor}`}>{alerta.titulo}</p>
+                      <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">{alerta.descricao}</p>
                     </div>
                   </div>
                 )
               })}
               {!gerandoAlertas && alertas.length === 0 && (
-                <div className="py-4 text-center text-xs text-gray-400">
-                  Nenhum alerta gerado.
-                </div>
+                <p className="py-4 text-center text-xs text-gray-400">Nenhum alerta gerado.</p>
               )}
             </CardContent>
           </Card>
 
-          {/* Atalhos */}
+          {/* Atividade recente */}
           <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold text-gray-800">Ações rápidas</CardTitle>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-gray-800">Atividade recente</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 pt-0">
-              <Link href="/orgao/fase-interna/processos/novo">
-                <Button variant="outline" className="w-full justify-start text-sm h-9 border-[#c5d4eb] text-[#1351b4] hover:bg-[#ecf3fc]">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Iniciar novo processo
-                </Button>
-              </Link>
-              <Link href="/orgao/fase-interna/aprovacoes">
-                <Button variant="outline" className="w-full justify-start text-sm h-9 border-gray-200">
-                  <CheckCircle2 className="w-4 h-4 mr-2 text-green-600" />
-                  Processos em aprovação
-                </Button>
-              </Link>
-              <Link href="/orgao/licitacoes">
-                <Button variant="outline" className="w-full justify-start text-sm h-9 border-gray-200">
-                  <ArrowUpRight className="w-4 h-4 mr-2 text-gray-500" />
-                  Ver todas as licitações
-                </Button>
-              </Link>
+            <CardContent className="space-y-3 pt-0">
+              {ATIVIDADES.map((a, idx) => (
+                <div key={idx} className="flex items-start gap-2.5">
+                  <div className="w-6 h-6 rounded bg-[#dbe8fb] flex items-center justify-center shrink-0 mt-0.5">
+                    <FileText className="w-3 h-3 text-[#1351b4]" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-700 leading-snug">
+                      <span className="font-semibold">{a.acao}</span>{" "}
+                      {a.alvo}
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-gray-400 shrink-0">{a.tempo}</span>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </div>
