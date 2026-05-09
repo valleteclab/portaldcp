@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Search, Plus, ChevronRight, Filter, Loader2 } from "lucide-react"
+import { Search, Plus, ChevronRight, Filter, Loader2, Trash2 } from "lucide-react"
+import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -85,6 +86,7 @@ function fmtMoeda(v: number | string) {
 export default function ProcessosPage() {
   const [processos, setProcessos] = useState<Licitacao[]>([])
   const [loading, setLoading] = useState(true)
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
   const [busca, setBusca] = useState("")
   const [filtroTab, setFiltroTab] = useState<FilterTab>("todos")
 
@@ -121,6 +123,34 @@ export default function ProcessosPage() {
     const matchTab = filtroTab === "todos" || status === filtroTab
     return matchBusca && matchTab
   })
+
+  const excluirProcesso = async (processo: Licitacao) => {
+    const identificador = processo.numero_processo || processo.objeto || processo.id
+    const confirmado = window.confirm(
+      `Excluir o processo ${identificador}?\n\nEsta ação remove o processo e não pode ser desfeita.`
+    )
+
+    if (!confirmado) return
+
+    setExcluindoId(processo.id)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${processo.id}`, {
+        method: "DELETE",
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.message || "Erro ao excluir processo")
+      }
+
+      setProcessos((prev) => prev.filter((p) => p.id !== processo.id))
+      toast.success("Processo excluído com sucesso")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao excluir processo")
+    } finally {
+      setExcluindoId(null)
+    }
+  }
 
   return (
     <div className="p-6 pb-10 max-w-6xl">
@@ -224,7 +254,7 @@ export default function ProcessosPage() {
                   <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3">
                     Status
                   </th>
-                  <th className="w-10" />
+                  <th className="w-20" />
                 </tr>
               </thead>
               <tbody>
@@ -280,13 +310,29 @@ export default function ProcessosPage() {
                         </span>
                       </td>
 
-                      {/* Chevron */}
+                      {/* Actions */}
                       <td className="px-3 py-4">
-                        <Link href={`/orgao/fase-interna/processos/${p.id}`}>
-                          <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-[#ecf3fc] hover:text-[#1351b4]">
-                            <ChevronRight className="w-4 h-4" />
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-7 h-7 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                            onClick={() => excluirProcesso(p)}
+                            disabled={excluindoId === p.id}
+                            title="Excluir processo"
+                          >
+                            {excluindoId === p.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
                           </Button>
-                        </Link>
+                          <Link href={`/orgao/fase-interna/processos/${p.id}`}>
+                            <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-[#ecf3fc] hover:text-[#1351b4]">
+                              <ChevronRight className="w-4 h-4" />
+                            </Button>
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   )
