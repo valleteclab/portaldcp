@@ -932,7 +932,8 @@ export default function NovoProcessoPage() {
           parecerJuridico: parecer,
         }),
       })
-      router.push(`/orgao/fase-interna/processos/${licitacao.id}`)
+      // Redirecionar para a etapa DFD do processo
+      router.push(`/orgao/fase-interna/processos/${licitacao.id}/editor?tipo=DFD`)
     } catch (e: any) {
       console.error(e)
       alert(e.message || "Erro ao salvar rascunho")
