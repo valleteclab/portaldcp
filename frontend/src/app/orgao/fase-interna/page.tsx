@@ -1,16 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import {
   FileText, Clock, CheckCircle2, DollarSign, AlertTriangle,
   Sparkles, Plus, ArrowRight, ArrowUpRight, Flag, TrendingUp,
-  Home, ChevronRight
+  Home, ChevronRight, Loader2, RefreshCw
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { API_URL, authFetch } from "@/lib/api"
 
@@ -22,7 +20,12 @@ interface Licitacao {
   valor_total_estimado: number | string
   created_at: string
   updated_at: string
-  fase_interna_concluida?: boolean
+}
+
+interface AlertaIA {
+  tipo: "aviso" | "sugestao" | "risco"
+  titulo: string
+  descricao: string
 }
 
 const FASES_INTERNAS = ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS", "ANALISE_JURIDICA", "APROVACAO_INTERNA"]
@@ -57,16 +60,19 @@ function fmtMoeda(v: number | string) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
+const ALERTA_STYLE: Record<AlertaIA["tipo"], { bg: string; border: string; icon: any; iconColor: string; titleColor: string }> = {
+  aviso: { bg: "bg-yellow-50", border: "border-yellow-100", icon: AlertTriangle, iconColor: "text-yellow-600", titleColor: "text-yellow-800" },
+  sugestao: { bg: "bg-blue-50", border: "border-blue-100", icon: Sparkles, iconColor: "text-[#1351b4]", titleColor: "text-blue-900" },
+  risco: { bg: "bg-red-50", border: "border-red-100", icon: Flag, iconColor: "text-red-500", titleColor: "text-red-800" },
+}
+
 export default function FaseInternaDashboard() {
-  const router = useRouter()
   const [licitacoes, setLicitacoes] = useState<Licitacao[]>([])
   const [carregando, setCarregando] = useState(true)
+  const [alertas, setAlertas] = useState<AlertaIA[]>([])
+  const [gerandoAlertas, setGerandoAlertas] = useState(false)
 
-  useEffect(() => {
-    carregarDados()
-  }, [])
-
-  const carregarDados = async () => {
+  const carregarDados = useCallback(async () => {
     setCarregando(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes?limit=50`)
@@ -75,11 +81,53 @@ export default function FaseInternaDashboard() {
         const lista = Array.isArray(dados) ? dados : (dados.data || dados.items || [])
         const fasesInternas = lista.filter((l: Licitacao) => FASES_INTERNAS.includes(l.fase))
         setLicitacoes(fasesInternas)
+        gerarAlertasIA(fasesInternas)
       }
     } catch (e) {
       console.error(e)
     } finally {
       setCarregando(false)
+    }
+  }, [])
+
+  useEffect(() => { carregarDados() }, [carregarDados])
+
+  const gerarAlertasIA = async (processos: Licitacao[]) => {
+    setGerandoAlertas(true)
+    setAlertas([])
+    try {
+      const resumo = processos.map((l) =>
+        `- Processo ${l.numero_processo || l.id.slice(0, 8)}: "${l.objeto}" — fase: ${FASE_LABELS[l.fase] || l.fase}`
+      ).join("\n")
+
+      const res = await authFetch(`${API_URL}/api/ia/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [{
+            role: "user",
+            content: processos.length > 0
+              ? `Analise os processos licitatórios abaixo e gere 3 alertas relevantes para o gestor, conforme a Lei 14.133/2021. Para cada alerta, classifique como "aviso", "sugestao" ou "risco". Retorne JSON: [{tipo, titulo, descricao}]\n\nProcessos:\n${resumo}`
+              : `Gere 3 alertas gerais para um gestor de licitações que está iniciando a fase interna, conforme a Lei 14.133/2021. Para cada alerta, classifique como "aviso", "sugestao" ou "risco". Retorne JSON: [{tipo, titulo, descricao}]`,
+          }],
+          system: "Você é o Procura+ AI, especialista na Lei nº 14.133/2021. Responda apenas com o JSON solicitado, sem texto adicional.",
+          max_tokens: 600,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const texto = data.content?.[0]?.text || ""
+        const jsonMatch = texto.match(/\[[\s\S]*\]/)
+        if (jsonMatch) {
+          const parsed: AlertaIA[] = JSON.parse(jsonMatch[0])
+          setAlertas(parsed.slice(0, 3))
+        }
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setGerandoAlertas(false)
     }
   }
 
@@ -198,7 +246,9 @@ export default function FaseInternaDashboard() {
           </CardHeader>
           <CardContent className="p-0">
             {carregando ? (
-              <div className="py-12 text-center text-gray-400 text-sm">Carregando...</div>
+              <div className="py-12 text-center text-gray-400 text-sm flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Carregando...
+              </div>
             ) : prioritarios.length === 0 ? (
               <div className="py-12 text-center">
                 <FileText className="w-8 h-8 text-gray-300 mx-auto mb-3" />
@@ -242,7 +292,7 @@ export default function FaseInternaDashboard() {
           </CardContent>
         </Card>
 
-        {/* Alertas + Atividade */}
+        {/* Alertas + Atalhos */}
         <div className="space-y-4">
           {/* Alertas da IA */}
           <Card className="border-0 shadow-sm">
@@ -252,33 +302,45 @@ export default function FaseInternaDashboard() {
                   <Sparkles className="w-4 h-4 text-[#1351b4]" />
                   Alertas da IA
                 </CardTitle>
-                <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
-                  Procura+ AI
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
+                    Procura+ AI
+                  </span>
+                  <button
+                    onClick={() => gerarAlertasIA(licitacoes)}
+                    disabled={gerandoAlertas}
+                    className="text-gray-400 hover:text-[#1351b4] transition-colors"
+                    title="Atualizar alertas"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${gerandoAlertas ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-2.5 pt-0">
-              <div className="flex gap-2.5 p-3 bg-yellow-50 rounded-lg border border-yellow-100">
-                <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-xs font-semibold text-gray-800">Diversificar fontes de pesquisa</p>
-                  <p className="text-xs text-gray-600 mt-0.5">Art. 23, §1º exige pelo menos 3 fontes válidas de pesquisa de preços.</p>
+              {gerandoAlertas && alertas.length === 0 && (
+                <div className="py-6 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analisando processos…
                 </div>
-              </div>
-              <div className="flex gap-2.5 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                <Sparkles className="w-4 h-4 text-[#1351b4] shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-xs font-semibold text-gray-800">Sugestão de cláusula no TR</p>
-                  <p className="text-xs text-gray-600 mt-0.5">Padronizar SLA conforme IN SGD/ME 1/2019 para continuidade de serviço.</p>
+              )}
+              {alertas.map((alerta, idx) => {
+                const style = ALERTA_STYLE[alerta.tipo]
+                const Icon = style.icon
+                return (
+                  <div key={idx} className={`flex gap-2.5 p-3 rounded-lg border ${style.bg} ${style.border}`}>
+                    <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${style.iconColor}`} />
+                    <div>
+                      <p className={`text-xs font-semibold ${style.titleColor}`}>{alerta.titulo}</p>
+                      <p className="text-xs text-gray-600 mt-0.5">{alerta.descricao}</p>
+                    </div>
+                  </div>
+                )
+              })}
+              {!gerandoAlertas && alertas.length === 0 && (
+                <div className="py-4 text-center text-xs text-gray-400">
+                  Nenhum alerta gerado.
                 </div>
-              </div>
-              <div className="flex gap-2.5 p-3 bg-red-50 rounded-lg border border-red-100">
-                <Flag className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-xs font-semibold text-gray-800">Risco alto não tratado</p>
-                  <p className="text-xs text-gray-600 mt-0.5">Possível direcionamento técnico identificado em 2 cláusulas do TR.</p>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
