@@ -3,20 +3,18 @@
 import { useState, use } from "react"
 import Link from "next/link"
 import {
-  ArrowLeft, FileText, Check, AlertTriangle, Sparkles,
-  ChevronRight, Home, Eye, Download, Clock, Loader2
+  Check, Sparkles, ChevronRight, Home, Eye, Loader2
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
 
 const SECOES = [
-  { id: "objeto", titulo: "1. Objeto", status: "aprovado", art: "Art. 6º, XXIII" },
-  { id: "justificativa", titulo: "2. Justificativa", status: "aprovado", art: "Art. 18, II" },
-  { id: "fundamentacao", titulo: "3. Fundamentação Legal", status: "aprovado", art: "Art. 18" },
-  { id: "requisitos", titulo: "4. Requisitos da Contratação", status: "revisao", art: "Art. 40, I" },
+  { id: "objeto", titulo: "1. Objeto", status: "rascunho", art: "Art. 6º, XXIII" },
+  { id: "justificativa", titulo: "2. Justificativa", status: "rascunho", art: "Art. 18, II" },
+  { id: "fundamentacao", titulo: "3. Fundamentação Legal", status: "rascunho", art: "Art. 18" },
+  { id: "requisitos", titulo: "4. Requisitos da Contratação", status: "rascunho", art: "Art. 40, I" },
   { id: "execucao", titulo: "5. Modelo de Execução", status: "rascunho", art: "Art. 40, §1º" },
   { id: "pagamento", titulo: "6. Condições de Pagamento", status: "rascunho", art: "Art. 40, XI" },
   { id: "prazo", titulo: "7. Prazo de Vigência", status: "rascunho", art: "Art. 40, III" },
@@ -28,15 +26,9 @@ const STATUS_COR: Record<string, { label: string; bg: string; text: string }> = 
   rascunho: { label: "Rascunho", bg: "bg-gray-100", text: "text-gray-600" },
 }
 
-const CONTEUDO_INICIAL: Record<string, string> = {
-  objeto: "Contratação de empresa especializada para fornecimento de solução de Gestão Eletrônica de Documentos (GED), compreendendo licenças de uso, implantação, configuração e suporte técnico, conforme especificações constantes neste Termo de Referência.",
-  justificativa: "A presente contratação justifica-se pela necessidade de modernizar os processos de gestão documental do órgão, reduzindo o uso de papel, aumentando a eficiência operacional e garantindo a preservação digital dos documentos institucionais, em conformidade com a Política Nacional de Segurança da Informação.",
-  fundamentacao: "A contratação está fundamentada na Lei nº 14.133/2021 (Nova Lei de Licitações e Contratos Administrativos), especialmente nos artigos 6º, XXIII; 18; 23; 25 e 40, bem como na Instrução Normativa SGD/ME nº 1/2019.",
-  requisitos: "4.1. A solução deverá contemplar:\na) Gestão eletrônica de documentos com controle de versões;\nb) Fluxo de trabalho (workflow) configurável;\nc) Indexação e busca full-text;\nd) Integração com sistemas legados via API REST;\ne) Módulo de assinaturas digitais conforme ICP-Brasil;\nf) Backup automático e alta disponibilidade (SLA mínimo 99,5%).\n\n[IA sugere incluir cláusula de SLA conforme IN SGD/ME 1/2019]",
-  execucao: "",
-  pagamento: "",
-  prazo: "",
-}
+const CONTEUDO_INICIAL: Record<string, string> = Object.fromEntries(
+  SECOES.map((secao) => [secao.id, ""])
+)
 
 export default function EditorDocumentoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -99,13 +91,7 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
         <div>
           <h1 className="text-xl font-bold text-gray-900">Termo de Referência</h1>
           <div className="flex items-center gap-3 mt-1.5">
-            <span className="text-xs text-gray-500">TR-2026/0001</span>
-            <span className="flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">
-              <Clock className="w-3 h-3" /> Auto-salvo
-            </span>
-            <span className="flex items-center gap-1 text-xs bg-[#ecf3fc] text-[#1351b4] px-2 py-0.5 rounded-full">
-              <Sparkles className="w-3 h-3" /> 3 sugestões da IA
-            </span>
+            <span className="text-xs text-gray-500">Processo #{id.slice(0, 8)}</span>
           </div>
         </div>
         <div className="flex gap-2">
@@ -151,24 +137,9 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Conformidade</p>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-gray-600">Lei 14.133/2021</span>
-                <span className="text-sm font-bold text-[#168821]">92%</span>
-              </div>
-              <div className="w-full h-2 bg-gray-100 rounded-full mb-3">
-                <div className="h-2 bg-[#168821] rounded-full" style={{ width: "92%" }} />
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                  <Check className="w-3 h-3 text-green-500" /> Objeto (Art. 6º, XXIII)
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-gray-600">
-                  <Check className="w-3 h-3 text-green-500" /> Justificativa (Art. 18, II)
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-yellow-600">
-                  <AlertTriangle className="w-3 h-3" /> SLA pode ser aprimorado
-                </div>
-              </div>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Nenhuma análise de conformidade disponível para este documento.
+              </p>
             </CardContent>
           </Card>
         </div>

@@ -74,7 +74,7 @@ Responda APENAS com JSON válido:
 Objeto: ${ctx.objeto}
 Categoria: ${ctx.categoria}
 Quantidade: ${ctx.quantidade || "a definir"}
-Modalidade: ${ctx.modalidade || "Pregão Eletrônico"}
+Modalidade: ${ctx.modalidade || "não informada"}
 
 Gere 8 seções do ETP em JSON. 2-3 frases técnicas por seção. Cite normas: LGPD, IN SGD/ME 1/2019 para TI quando pertinente.
 
@@ -120,11 +120,11 @@ Responda APENAS com JSON válido:
       { id: "recursos",      titulo: "6. Dos recursos",            placeholder: "Prazos e procedimentos recursais…" },
       { id: "contratacao",   titulo: "7. Da contratação",          placeholder: "Condições e prazos de contratação…" },
     ],
-    buildPrompt: (ctx) => `Você redige trechos de minuta de Edital de Pregão Eletrônico conforme Lei 14.133/2021, Art. 25.
+    buildPrompt: (ctx) => `Você redige trechos de minuta de Edital conforme Lei 14.133/2021, Art. 25.
 
 Objeto: ${ctx.objeto}
-Modalidade: ${ctx.modalidade || "Pregão Eletrônico"}
-Critério: Menor preço
+Modalidade: ${ctx.modalidade || "não informada"}
+Critério: ${ctx.criterio_julgamento || "não informado"}
 
 Gere as 7 seções em JSON. 2-3 frases em linguagem editalícia formal.
 
@@ -573,7 +573,7 @@ function StepAutorizacao({ autorizacao, setAutorizacao, onNext, onBack, ctx }: a
     setBusy(true)
     try {
       const r = await chamarIA(
-        `Redija um parágrafo de autorização para início da fase externa de uma licitação conforme Art. 18, II da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "Pregão Eletrônico"}\n\nSeja formal, conciso, em primeira pessoa do plural.`,
+        `Redija um parágrafo de autorização para início da fase externa de uma licitação conforme Art. 18, II da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "não informada"}\n\nSeja formal, conciso, em primeira pessoa do plural.`,
         "autorizacao"
       )
       setAutorizacao(r.replace(/^["']|["']$/g, ""))
@@ -610,7 +610,7 @@ function StepJuridico({ parecer, setParecer, onNext, onBack, ctx }: any) {
     setBusy(true)
     try {
       const r = await chamarIA(
-        `Redija um parecer jurídico favorável para a fase interna de uma licitação, conforme Art. 53 da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "Pregão Eletrônico"}\n\nIncluir: análise formal, material, verificação dos documentos (DFD, ETP, MR, PP, TR) e conclusão. Linguagem jurídica formal.`,
+        `Redija um parecer jurídico favorável para a fase interna de uma licitação, conforme Art. 53 da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "não informada"}\n\nIncluir: análise formal, material, verificação dos documentos (DFD, ETP, MR, PP, TR) e conclusão. Linguagem jurídica formal.`,
         "parecer_juridico"
       )
       setParecer(r.replace(/^["']|["']$/g, ""))

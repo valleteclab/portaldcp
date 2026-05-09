@@ -3,7 +3,7 @@
 import { useState, use, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
-  ChevronRight, Home, Plus, Search, Loader2, Eye, AlertTriangle, Check, Sparkles
+  ChevronRight, Home, Plus, Search, Loader2, Trash2, AlertTriangle, Check, Sparkles
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -43,15 +43,6 @@ interface Estatisticas {
   max: number
   n: number
 }
-
-const FONTES_MOCK: FontePreco[] = [
-  { fonte: "PNCP", orgao: "Min. da Saúde", data_pesquisa: "2026-03-11", qtd: 250, valor_unitario: 4250, tipo: "PNCP" },
-  { fonte: "Painel Preços", orgao: "TRT 4ª Região", data_pesquisa: "2026-02-17", qtd: 180, valor_unitario: 4180, tipo: "PAINEL_PRECOS" },
-  { fonte: "PNCP", orgao: "Pref. de São Bernardo", data_pesquisa: "2026-01-29", qtd: 320, valor_unitario: 4380, tipo: "PNCP" },
-  { fonte: "Cotação direta", orgao: "TechCorp Soluções", data_pesquisa: "2026-04-21", qtd: 250, valor_unitario: 4500, tipo: "COTACAO_DIRETA" },
-  { fonte: "Cotação direta", orgao: "DocFlow Sistemas", data_pesquisa: "2026-04-24", qtd: 250, valor_unitario: 4150, tipo: "COTACAO_DIRETA" },
-  { fonte: "Site oficial", orgao: "Catálogo do fabricante", data_pesquisa: "2026-04-27", qtd: 250, valor_unitario: 4690, tipo: "CATALOGO" },
-]
 
 function calcMedia(fontes: FontePreco[]) {
   if (!fontes.length) return 0
@@ -126,7 +117,6 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   const [adicionando, setAdicionando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [buscandoPNCP, setBuscandoPNCP] = useState(false)
-  const [isMock, setIsMock] = useState(false)
   const [iaAnalise, setIaAnalise] = useState<string | null>(null)
   const [gerandoIA, setGerandoIA] = useState(false)
   const [novaFonte, setNovaFonte] = useState({
@@ -149,17 +139,13 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
         if (temDados) {
           setDados(data.dados)
           setEstatisticas(data.estatisticas || {})
-          setIsMock(false)
         } else {
-          setIsMock(true)
           setDados(null)
         }
       } else {
-        setIsMock(true)
         setDados(null)
       }
     } catch {
-      setIsMock(true)
       setDados(null)
     } finally {
       setLoading(false)
@@ -170,7 +156,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
     carregarPrecos()
   }, [carregarPrecos])
 
-  const fontes: FontePreco[] = isMock ? FONTES_MOCK : (dados?.itens?.[0]?.cotacoes ?? [])
+  const fontes: FontePreco[] = dados?.itens?.[0]?.cotacoes ?? []
 
   const media = calcMedia(fontes)
   const mediana = calcMediana(fontes)
@@ -386,15 +372,6 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
             </span>
           </CardHeader>
           <CardContent className="p-0">
-            {/* Mock badge */}
-            {isMock && (
-              <div className="mx-5 mb-3">
-                <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
-                  dados de exemplo
-                </span>
-              </div>
-            )}
-
             {/* Formulário de nova fonte */}
             {adicionando && (
               <div className="mx-5 mb-4 p-4 bg-[#f6f9fd] border border-[#dbe8fb] rounded-lg">
@@ -525,11 +502,11 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                           </td>
                           <td className="px-3 py-3.5 text-center">
                             <button
-                              onClick={() => !isMock && removerFonte(idx)}
+                              onClick={() => removerFonte(idx)}
                               className="text-gray-300 hover:text-gray-500 transition-colors"
-                              title={isMock ? "Dado de exemplo" : "Visualizar"}
+                              title="Remover fonte"
                             >
-                              <Eye className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </td>
                         </tr>

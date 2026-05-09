@@ -72,41 +72,6 @@ const STATUS_CHIP: Record<string, { bg: string; text: string; label: string }> =
   aprovado:  { bg: "bg-green-100",   text: "text-[#168821]",   label: "Aprovado" },
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_PROCESSOS: Licitacao[] = [
-  {
-    id: "1",
-    numero_processo: "2026/0142",
-    objeto: "Aquisição de 250 licenças de software de Gestão Eletrônica de Documentos (GED)",
-    modalidade: "Pregão Eletrônico",
-    fase: "ANALISE_JURIDICA",
-    valor_total_estimado: 1095000,
-    responsavel: "Ana Carolina M.",
-    area: "SETIC",
-  },
-  {
-    id: "2",
-    numero_processo: "2026/0138",
-    objeto: "Contratação de serviços de limpeza e conservação predial",
-    modalidade: "Pregão Eletrônico",
-    fase: "APROVACAO_INTERNA",
-    valor_total_estimado: 480000,
-    responsavel: "Ricardo Tavares",
-    area: "GABIN",
-  },
-  {
-    id: "3",
-    numero_processo: "2026/0151",
-    objeto: "Fornecimento de combustível para frota municipal",
-    modalidade: "Pregão Eletrônico",
-    fase: "PESQUISA_PRECOS",
-    valor_total_estimado: 320000,
-    responsavel: "Juliana Prado",
-    area: "SEMOB",
-  },
-]
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtMoeda(v: number | string) {
@@ -120,7 +85,6 @@ function fmtMoeda(v: number | string) {
 export default function ProcessosPage() {
   const [processos, setProcessos] = useState<Licitacao[]>([])
   const [loading, setLoading] = useState(true)
-  const [isMock, setIsMock] = useState(false)
   const [busca, setBusca] = useState("")
   const [filtroTab, setFiltroTab] = useState<FilterTab>("todos")
 
@@ -136,21 +100,13 @@ export default function ProcessosPage() {
         const data = await res.json()
         const lista: Licitacao[] = Array.isArray(data) ? data : (data.data || data.items || [])
         const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
-        if (internas.length === 0) {
-          setProcessos(MOCK_PROCESSOS)
-          setIsMock(true)
-        } else {
-          setProcessos(internas)
-          setIsMock(false)
-        }
+        setProcessos(internas)
       } else {
-        setProcessos(MOCK_PROCESSOS)
-        setIsMock(true)
+        setProcessos([])
       }
     } catch (e) {
       console.error(e)
-      setProcessos(MOCK_PROCESSOS)
-      setIsMock(true)
+      setProcessos([])
     } finally {
       setLoading(false)
     }
@@ -181,9 +137,6 @@ export default function ProcessosPage() {
             {loading
               ? "Carregando…"
               : `${filtrados.length} processo${filtrados.length !== 1 ? "s" : ""} · Fase interna em curso`}
-            {isMock && !loading && (
-              <span className="text-gray-400 ml-1">(dados de exemplo)</span>
-            )}
           </p>
         </div>
         <Link href="/orgao/fase-interna/processos/novo">

@@ -20,49 +20,6 @@ interface Risco {
   nivel?: string
 }
 
-const RISCOS_MOCK: Risco[] = [
-  {
-    id: "R-001",
-    descricao: "Direcionamento técnico na especificação",
-    categoria: "Jurídico",
-    probabilidade: 2,
-    impacto: 3,
-    mitigacao: "Revisão multidisciplinar das especificações técnicas",
-    responsavel: "Pregoeiro",
-    nivel: "Alto",
-  },
-  {
-    id: "R-002",
-    descricao: "Pesquisa de preços com fontes insuficientes",
-    categoria: "Financeiro",
-    probabilidade: 3,
-    impacto: 2,
-    mitigacao: "Diversificar fontes conforme Art. 23, §1º",
-    responsavel: "Requisitante",
-    nivel: "Médio",
-  },
-  {
-    id: "R-003",
-    descricao: "Prazo insuficiente para análise jurídica",
-    categoria: "Cronograma",
-    probabilidade: 1,
-    impacto: 2,
-    mitigacao: "Encaminhar com antecedência mínima de 15 dias",
-    responsavel: "Pregoeiro",
-    nivel: "Baixo",
-  },
-  {
-    id: "R-004",
-    descricao: "Recurso orçamentário não disponível no exercício",
-    categoria: "Financeiro",
-    probabilidade: 1,
-    impacto: 3,
-    mitigacao: "Confirmar dotação antes de publicar (Art. 18, §1º, VI)",
-    responsavel: "Autoridade",
-    nivel: "Alto",
-  },
-]
-
 // 3×3 matrix: score = (impacto) × (probabilidade), row_idx 0-2 = impact 1-3, col_idx 0-2 = prob 1-3
 function cellColor(rowIdx: number, colIdx: number): string {
   const score = (rowIdx + 1) * (colIdx + 1)
@@ -91,7 +48,6 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
   const { id } = use(params)
   const [riscos, setRiscos] = useState<Risco[]>([])
   const [loading, setLoading] = useState(true)
-  const [isMock, setIsMock] = useState(false)
   const [adicionando, setAdicionando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [gerandoIA, setGerandoIA] = useState(false)
@@ -112,18 +68,14 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
         const lista = data.riscos || []
         if (lista.length > 0) {
           setRiscos(lista)
-          setIsMock(false)
         } else {
-          setRiscos(RISCOS_MOCK)
-          setIsMock(true)
+          setRiscos([])
         }
       } else {
-        setRiscos(RISCOS_MOCK)
-        setIsMock(true)
+        setRiscos([])
       }
     } catch {
-      setRiscos(RISCOS_MOCK)
-      setIsMock(true)
+      setRiscos([])
     } finally {
       setLoading(false)
     }
@@ -163,7 +115,6 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
             nivel: "Médio",
           }))
           setRiscos((prev) => [...prev, ...gerados])
-          setIsMock(false)
           // Persist each generated risk
           for (const r of gerados) {
             try {
@@ -217,7 +168,6 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
           ...prev,
           { ...body, id: id_local, nivel: nivelLabel(body.probabilidade, body.impacto) },
         ])
-        setIsMock(false)
       }
       setNovoRisco({
         descricao: "",
@@ -542,15 +492,13 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
                             <span className="text-xs text-gray-500">{risco.responsavel ?? "—"}</span>
                           </td>
                           <td className="px-3 py-3.5 text-center">
-                            {!isMock && (
-                              <button
-                                onClick={() => removerRisco(risco.id)}
-                                className="text-gray-300 hover:text-red-400 transition-colors"
-                                title="Remover risco"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                            <button
+                              onClick={() => removerRisco(risco.id)}
+                              className="text-gray-300 hover:text-red-400 transition-colors"
+                              title="Remover risco"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </td>
                         </tr>
                       )

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
   FileText, Clock, CheckCircle2, DollarSign,
-  Sparkles, Plus, ArrowRight, AlertTriangle, Flag, TrendingUp,
+  Sparkles, Plus, ArrowRight, AlertTriangle, Flag,
   Home, ChevronRight, Loader2, RefreshCw,
   type LucideIcon,
 } from "lucide-react"
@@ -42,13 +42,6 @@ const FASES_INTERNAS = [
   "APROVACAO_INTERNA",
 ]
 
-const MOCK: Licitacao[] = [
-  { id: "1", numero_processo: "2026/0142", objeto: "Aquisição de licenças de GED", fase: "ANALISE_JURIDICA", valor_total_estimado: 1095000, prazo: "2026-05-20" },
-  { id: "2", numero_processo: "2026/0138", objeto: "Serviços de limpeza e conservação predial", fase: "APROVACAO_INTERNA", valor_total_estimado: 480000, prazo: "2026-05-12" },
-  { id: "3", numero_processo: "2026/0151", objeto: "Fornecimento de combustível — frota municipal", fase: "PESQUISA_PRECOS", valor_total_estimado: 320000, prazo: "2026-05-08" },
-  { id: "4", numero_processo: "2026/0155", objeto: "Aquisição de microcomputadores e periféricos", fase: "TERMO_REFERENCIA", valor_total_estimado: 295000, prazo: "2026-06-01" },
-]
-
 // Maps fase → { sigla, nome, progresso (1-8), status }
 const FASE_MAP: Record<string, { sigla: string; nome: string; progresso: number; status: string }> = {
   PLANEJAMENTO:      { sigla: "DFD", nome: "Formalização da Demanda",   progresso: 1, status: "rascunho" },
@@ -75,14 +68,6 @@ const ALERTA_STYLE: Record<AlertaIA["tipo"], {
   info:   { bg: "bg-blue-50",   border: "border-blue-100",   icon: Sparkles,      iconColor: "text-[#1351b4]",  titleColor: "text-blue-900" },
   danger: { bg: "bg-red-50",    border: "border-red-100",    icon: Flag,          iconColor: "text-red-500",    titleColor: "text-red-800" },
 }
-
-// Recent activity (static)
-const ATIVIDADES = [
-  { acao: "Você editou",            alvo: "TR — seção 4. Requisitos",        tempo: "agora" },
-  { acao: "Procuradoria aprovou",   alvo: "Parecer jurídico — 2026/0138",    tempo: "2h" },
-  { acao: "Procura+ AI gerou",      alvo: "Mapa de Riscos — rascunho",       tempo: "4h" },
-  { acao: "Ricardo T. comentou em", alvo: "ETP — 2026/0151",                 tempo: "ontem" },
-]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -117,6 +102,10 @@ export default function FaseInternaDashboard() {
   // ── IA alerts ────────────────────────────────────────────────────────────────
 
   const gerarAlertasIA = useCallback(async (processos: Licitacao[]) => {
+    if (processos.length === 0) {
+      setAlertas([])
+      return
+    }
     setGerandoAlertas(true)
     setAlertas([])
     try {
@@ -163,17 +152,15 @@ export default function FaseInternaDashboard() {
         const dados = await res.json()
         const lista: Licitacao[] = Array.isArray(dados) ? dados : (dados.data ?? dados.items ?? [])
         const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
-        const final = internas.length > 0 ? internas : MOCK
-        setLicitacoes(final)
-        gerarAlertasIA(final)
+        setLicitacoes(internas)
+        gerarAlertasIA(internas)
         return
       }
     } catch (e) {
       console.error("Erro ao carregar licitações:", e)
     }
-    // fallback to mock
-    setLicitacoes(MOCK)
-    gerarAlertasIA(MOCK)
+    setLicitacoes([])
+    setAlertas([])
   }, [gerarAlertasIA])
 
   useEffect(() => {
@@ -242,10 +229,7 @@ export default function FaseInternaDashboard() {
               <div>
                 <p className="text-xs text-gray-500 font-medium">Processos ativos</p>
                 <p className="text-3xl font-bold text-gray-900 mt-1">{carregando ? "—" : total}</p>
-                <p className="text-xs text-[#168821] mt-1.5 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />
-                  +12% vs. trimestre anterior
-                </p>
+                <p className="text-xs text-gray-400 mt-1.5">Fase interna</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-[#dbe8fb] flex items-center justify-center shrink-0">
                 <FileText className="w-5 h-5 text-[#1351b4]" />
@@ -284,10 +268,7 @@ export default function FaseInternaDashboard() {
               <div>
                 <p className="text-xs text-gray-500 font-medium">Aprovados este mês</p>
                 <p className="text-3xl font-bold text-gray-900 mt-1">{carregando ? "—" : aprovadosMes}</p>
-                <p className="text-xs text-[#168821] mt-1.5 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />
-                  +2 a mais que abril
-                </p>
+                <p className="text-xs text-gray-400 mt-1.5">Com base nos dados reais</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-[#e3f5e1] flex items-center justify-center shrink-0">
                 <CheckCircle2 className="w-5 h-5 text-[#168821]" />
@@ -348,8 +329,13 @@ export default function FaseInternaDashboard() {
                 </div>
 
                 {/* Table rows */}
-                <div className="divide-y divide-gray-50">
-                  {prioritarios.map((l) => {
+                {prioritarios.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-gray-400">
+                    Nenhum processo em fase interna encontrado.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {prioritarios.map((l) => {
                     const m = FASE_MAP[l.fase] ?? { sigla: "?", nome: l.fase, progresso: 1, status: "rascunho" }
                     const chip = STATUS_CHIP[m.status] ?? STATUS_CHIP.rascunho
                     const dias = diasRestantes(l.prazo)
@@ -395,8 +381,9 @@ export default function FaseInternaDashboard() {
                         </span>
                       </Link>
                     )
-                  })}
-                </div>
+                    })}
+                  </div>
+                )}
               </>
             )}
           </CardContent>
@@ -459,20 +446,9 @@ export default function FaseInternaDashboard() {
               <CardTitle className="text-sm font-semibold text-gray-800">Atividade recente</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
-              {ATIVIDADES.map((a, idx) => (
-                <div key={idx} className="flex items-start gap-2.5">
-                  <div className="w-6 h-6 rounded bg-[#dbe8fb] flex items-center justify-center shrink-0 mt-0.5">
-                    <FileText className="w-3 h-3 text-[#1351b4]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-gray-700 leading-snug">
-                      <span className="font-semibold">{a.acao}</span>{" "}
-                      {a.alvo}
-                    </p>
-                  </div>
-                  <span className="text-[11px] text-gray-400 shrink-0">{a.tempo}</span>
-                </div>
-              ))}
+              <p className="py-4 text-center text-xs text-gray-400">
+                Nenhuma atividade recente encontrada.
+              </p>
             </CardContent>
           </Card>
         </div>
