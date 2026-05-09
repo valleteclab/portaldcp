@@ -57,6 +57,17 @@ function getTituloPagina(tipo?: string | null) {
   }
 }
 
+function getPromptSistema(tipo?: string | null): string {
+  switch (tipo) {
+    case "DFD": 
+      return "Você é especialista em Documento de Formalização de Demanda (DFD) conforme Art. 18, I da Lei 14.133/2021. O DFD identifica a necessidade de contratação, seu objeto, quantidade e motivação. Forneça texto direto, objetivo e em linguagem administrativa formal."
+    case "ETP":
+      return "Você é especialista em Estudo Técnico Preliminar (ETP) conforme Art. 18, §1º da Lei 14.133/2021. O ETP demonstra a necessidade da contratação, estudando alternativas técnicas, resultados esperados e benefícios. Forneça texto técnico objetivo."
+    default:
+      return "Você é especialista em Termos de Referência conforme a Lei 14.133/2021. Forneça texto direto e objetivo em linguagem administrativa formal."
+  }
+}
+
 export default function EditorDocumentoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const searchParams = useSearchParams()
@@ -80,14 +91,18 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
     setGerandoIA(true)
     setSugestaoIA(null)
     try {
+      const promptSistema = getPromptSistema(tipo)
       const res = await authFetch(`${API_URL}/api/ia/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mensagens: [{
-            role: "user",
-            content: `Sugira uma melhoria para a seguinte seção "${secao?.titulo}" de ${tituloPagina}, baseada na Lei 14.133/2021:\n\n${conteudos[secaoAtiva] || "(seção vazia)"}\n\nApenas o texto da seção melhorada, sem explicações adicionais.`
-          }],
+          mensagens: [
+            { role: "system", content: promptSistema },
+            {
+              role: "user",
+              content: `Sugira uma melhoria para a seção "${secao?.titulo}" (${secao?.art || ''}) do ${tituloPagina}.\n\nConteúdo atual:\n${conteudos[secaoAtiva] || "(seção vazia)"}\n\nRetorne apenas o texto melhorado, sem explicações.`
+            }
+          ],
           tipoDocumento: tipo || "TR",
         }),
       })
