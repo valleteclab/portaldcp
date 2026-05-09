@@ -915,6 +915,17 @@ export default function NovoProcessoPage() {
     setDocs((prev) => ({ ...prev, [docKey]: { ...prev[docKey], [secId]: val } }))
   }
 
+  const buildWizardPayload = () => ({
+    dfd: Object.values(docs.dfd).join("\n\n"),
+    etp_necessidade: Object.values(docs.etp).join("\n\n"),
+    riscos: JSON.stringify(riscos),
+    precos_fontes: JSON.stringify(fontes.filter((f) => f.valor > 0)),
+    tr_requisitos: Object.values(docs.tr).join("\n\n"),
+    autorizacao_autoridade: autorizacao,
+    edital_notas: Object.values(docs.edital).join("\n\n"),
+    juridico_obs: parecer,
+  })
+
   const criarProcesso = async () => {
     setCriando(true)
     try {
@@ -934,16 +945,7 @@ export default function NovoProcessoPage() {
         await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            dfd: Object.values(docs.dfd).join("\n\n"),
-            etp: docs.etp,
-            riscos,
-            pesquisaPrecos: fontes.filter((f) => f.valor > 0),
-            tr: docs.tr,
-            autorizacao,
-            edital: Object.values(docs.edital).join("\n\n"),
-            parecerJuridico: parecer,
-          }),
+          body: JSON.stringify(buildWizardPayload()),
         })
         router.push(`/orgao/fase-interna/processos/${licitacao.id}`)
       }
@@ -1000,16 +1002,7 @@ export default function NovoProcessoPage() {
       await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dfd: Object.values(docs.dfd).join("\n\n"),
-          etp: docs.etp,
-          riscos,
-          pesquisaPrecos: fontes.filter((f) => f.valor > 0),
-          tr: docs.tr,
-          autorizacao,
-          edital: Object.values(docs.edital).join("\n\n"),
-          parecerJuridico: parecer,
-        }),
+        body: JSON.stringify(buildWizardPayload()),
       })
       router.push(`/orgao/fase-interna/processos/novo?id=${licitacaoId}&step=${step}`)
     } catch (e: any) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
   LayoutDashboard,
   ListChecks,
@@ -94,9 +94,12 @@ function NavGroup({
 
 export function FaseInternaNav() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [procCount, setProcCount] = useState<number | undefined>(undefined)
   const [aprovCount, setAprovCount] = useState<number | undefined>(undefined)
-  const processoId = pathname.match(/\/orgao\/fase-interna\/processos\/([^/]+)/)?.[1]
+  const processoPathId = pathname.match(/\/orgao\/fase-interna\/processos\/([^/]+)/)?.[1]
+  const processoQueryId = searchParams.get("id")
+  const processoId = processoPathId === "novo" ? processoQueryId : processoPathId
   const processoBase = processoId
     ? `/orgao/fase-interna/processos/${processoId}`
     : "/orgao/fase-interna/processos"
@@ -148,7 +151,7 @@ export function FaseInternaNav() {
 
   const documentNav: NavItem[] = [
     {
-      href: processoId ? `${processoBase}/editor` : processoBase,
+      href: processoId ? `/orgao/fase-interna/processos/novo?id=${processoId}&step=dfd` : processoBase,
       label: "Editor de TR / DFD / ETP",
       icon: FileText,
     },
