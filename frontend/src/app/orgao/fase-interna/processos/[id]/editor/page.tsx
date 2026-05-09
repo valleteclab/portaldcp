@@ -84,20 +84,24 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{
+          mensagens: [{
             role: "user",
-            content: `Sugira uma melhoria para a seguinte seção "${secao?.titulo}" de um Termo de Referência, baseada na Lei 14.133/2021:\n\n${conteudos[secaoAtiva] || "(seção vazia)"}\n\nApenas o texto da seção melhorada, sem explicações adicionais.`
+            content: `Sugira uma melhoria para a seguinte seção "${secao?.titulo}" de ${tituloPagina}, baseada na Lei 14.133/2021:\n\n${conteudos[secaoAtiva] || "(seção vazia)"}\n\nApenas o texto da seção melhorada, sem explicações adicionais.`
           }],
-          system: "Você é especialista em Termos de Referência conforme a Lei 14.133/2021. Forneça texto direto e objetivo.",
-          max_tokens: 500,
+          tipoDocumento: tipo || "TR",
         }),
       })
       if (res.ok) {
         const data = await res.json()
-        setSugestaoIA(data.content?.[0]?.text || data.message || "")
+        setSugestaoIA(data.resposta || data.content?.[0]?.text || "")
+      } else {
+        const err = await res.json().catch(() => ({}))
+        console.error("Erro IA:", err)
+        alert("Erro ao gerar sugestão. Tente novamente.")
       }
     } catch (e) {
       console.error(e)
+      alert("Erro ao comunicar com a IA.")
     } finally {
       setGerandoIA(false)
     }
