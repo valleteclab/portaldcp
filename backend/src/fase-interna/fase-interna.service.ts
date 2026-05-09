@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { DocumentoFaseInterna, TipoDocumentoFaseInterna, StatusDocumento, OrigemDocumento } from './entities/documento-fase-interna.entity';
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
+import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { RiscoIdentificado, MatrizRiscosDados, calcularGrauRisco } from './types/matriz-riscos.type';
 import { CotacaoPorFonte, PesquisaPrecosDados, calcularEstatisticasItem } from './types/pesquisa-precos.type';
 
@@ -17,6 +18,8 @@ export class FaseInternaService {
     private readonly documentoRepository: Repository<DocumentoFaseInterna>,
     @InjectRepository(Licitacao)
     private readonly licitacaoRepository: Repository<Licitacao>,
+    @InjectRepository(ItemLicitacao)
+    private readonly itemRepository: Repository<ItemLicitacao>,
   ) {}
 
   // ========================================
@@ -500,7 +503,7 @@ export class FaseInternaService {
   // PESQUISA DE PREÇOS — via dados_estruturados do doc PP
   // ========================================
 
-  private async getOuCriarDocPP(licitacaoId: string): Promise<DocumentoFaseInterna> {
+  async getOuCriarDocPP(licitacaoId: string): Promise<DocumentoFaseInterna> {
     const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
 
@@ -509,6 +512,22 @@ export class FaseInternaService {
     });
 
     if (!doc) {
+      const itens = await this.itemRepository.find({
+        where: { licitacao_id: licitacaoId },
+        order: { numero_item: 'ASC' },
+      });
+      const itensPesquisa = itens.length
+        ? itens.map((item) => ({
+            item_numero: item.numero_item,
+            descricao: item.descricao_resumida || item.descricao_detalhada || licitacao.objeto,
+            quantidade: Number(item.quantidade) || 1,
+            unidade: String(item.unidade_medida || 'UN'),
+            cotacoes: [],
+            metodologia: 'MEDIANA' as const,
+            valor_referencial: Number(item.valor_unitario_estimado) || 0,
+          }))
+        : [{ item_numero: 1, descricao: licitacao.objeto || '', quantidade: 1, unidade: 'UN', cotacoes: [], metodologia: 'MEDIANA' as const, valor_referencial: 0 }];
+
       doc = this.documentoRepository.create({
         licitacao_id: licitacaoId,
         tipo: TipoDocumentoFaseInterna.PESQUISA_PRECOS,
@@ -517,7 +536,7 @@ export class FaseInternaService {
         origem: OrigemDocumento.INTERNO,
         versao: 1,
         versao_atual: true,
-        dados_estruturados: { itens: [{ item_numero: 1, descricao: '', quantidade: 1, unidade: 'UN', cotacoes: [], metodologia: 'MEDIANA', valor_referencial: 0 }] } as PesquisaPrecosDados,
+        dados_estruturados: { itens: itensPesquisa } as PesquisaPrecosDados,
       });
       doc = await this.documentoRepository.save(doc);
     }
@@ -556,7 +575,8 @@ export class FaseInternaService {
     const itemIdx = dados.itens.findIndex((i) => i.item_numero === itemNumero);
     if (itemIdx === -1) throw new NotFoundException(`Item ${itemNumero} nao encontrado na pesquisa`);
 
-    dados.itens[itemIdx].cotacoes = [...(dados.itens[itemIdx].cotacoes || []), cotacao];
+    const normalizada = this.normalizarCotacao(cotacao);
+    dados.itens[itemIdx].cotacoes = [...(dados.itens[itemIdx].cotacoes || []), normalizada];
     // Recalcula estatísticas
     const stats = calcularEstatisticasItem(dados.itens[itemIdx]);
     dados.itens[itemIdx] = { ...dados.itens[itemIdx], ...stats };
@@ -564,6 +584,37 @@ export class FaseInternaService {
     doc.dados_estruturados = dados;
     await this.documentoRepository.save(doc);
     return dados;
+  }
+
+  private normalizarCotacao(cotacao: CotacaoPorFonte | any): CotacaoPorFonte {
+    const tipoLegado = cotacao.tipo || cotacao.fonte;
+    const mapaTipo: Record<string, CotacaoPorFonte['fonte']> = {
+      PNCP: 'PNCP',
+      PAINEL_PRECOS: 'PAINEL_DE_PRECOS',
+      PAINEL_DE_PRECOS: 'PAINEL_DE_PRECOS',
+      COTACAO_DIRETA: 'FORNECEDOR_DIRETO',
+      FORNECEDOR_DIRETO: 'FORNECEDOR_DIRETO',
+      CATALOGO: 'MIDIA_ESPECIALIZADA',
+      SITE_OFICIAL: 'MIDIA_ESPECIALIZADA',
+      ORCAMENTO: 'OUTRA',
+      OUTRA: 'OUTRA',
+      CONTRATO_VIGENTE_SISTEMA: 'CONTRATO_VIGENTE_SISTEMA',
+      MIDIA_ESPECIALIZADA: 'MIDIA_ESPECIALIZADA',
+      NOTA_FISCAL_ELETRONICA: 'NOTA_FISCAL_ELETRONICA',
+    };
+
+    return {
+      fonte: mapaTipo[String(tipoLegado)] || 'OUTRA',
+      descricao_fonte: cotacao.descricao_fonte || cotacao.fonte || cotacao.fornecedor || 'Fonte informada',
+      url_referencia: cotacao.url_referencia,
+      data_pesquisa: cotacao.data_pesquisa || new Date().toISOString().split('T')[0],
+      fornecedor_cnpj: cotacao.fornecedor_cnpj,
+      fornecedor_razao_social: cotacao.fornecedor_razao_social || cotacao.fornecedor,
+      valor_unitario: Number(cotacao.valor_unitario) || 0,
+      observacao: cotacao.observacao,
+      documento_comprobatorio_path: cotacao.documento_comprobatorio_path,
+      documento_hash: cotacao.documento_hash,
+    };
   }
 
   async removerFontePreco(licitacaoId: string, itemNumero: number, cotacaoIndex: number): Promise<PesquisaPrecosDados> {

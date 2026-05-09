@@ -12,10 +12,32 @@ import { PncpPublicacaoService } from './pncp-publicacao.service';
 import { AnaliseContratosService } from './analise-contratos.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
+import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { PesquisaPrecoExecucao } from './entities/pesquisa-preco-execucao.entity';
+import { PesquisaPrecoCandidato } from './entities/pesquisa-preco-candidato.entity';
+import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
+import { PesquisaPrecosComplianceService } from './pesquisa-precos-compliance.service';
+import {
+  BrowserFallbackProvider,
+  ContratosVigentesProvider,
+  FornecedorDiretoProvider,
+  NfeProvider,
+  PainelComprasGovProvider,
+  PncpPriceProvider,
+  WebEspecializadaProvider,
+} from './pesquisa-precos-providers.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DocumentoFaseInterna, LogFaseInterna, Licitacao, Contrato]),
+    TypeOrmModule.forFeature([
+      DocumentoFaseInterna,
+      LogFaseInterna,
+      Licitacao,
+      Contrato,
+      ItemLicitacao,
+      PesquisaPrecoExecucao,
+      PesquisaPrecoCandidato,
+    ]),
   ],
   controllers: [FaseInternaController, DocumentoEstruturadoController],
   providers: [
@@ -25,7 +47,16 @@ import { Contrato } from '../contratos/entities/contrato.entity';
     GeradorDocumentoService,
     PncpPublicacaoService,
     AnaliseContratosService,
+    PesquisaPrecosAgentService,
+    PesquisaPrecosComplianceService,
+    PncpPriceProvider,
+    PainelComprasGovProvider,
+    ContratosVigentesProvider,
+    WebEspecializadaProvider,
+    FornecedorDiretoProvider,
+    NfeProvider,
+    BrowserFallbackProvider,
   ],
-  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService],
+  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgentService],
 })
 export class FaseInternaModule {}

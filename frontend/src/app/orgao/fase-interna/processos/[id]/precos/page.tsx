@@ -3,7 +3,7 @@
 import { useState, use, useEffect, useCallback } from "react"
 import Link from "next/link"
 import {
-  ChevronRight, Home, Plus, Search, Loader2, Trash2, AlertTriangle, Check, Sparkles
+  ChevronRight, Home, Plus, Search, Loader2, Trash2, AlertTriangle, Check, Sparkles, Bot, X, ExternalLink
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,9 +13,12 @@ import { API_URL, authFetch } from "@/lib/api"
 
 interface FontePreco {
   fonte: string
+  descricao_fonte?: string
+  url_referencia?: string
   orgao?: string
   fornecedor?: string
-  tipo: "PNCP" | "PAINEL_PRECOS" | "COTACAO_DIRETA" | "CATALOGO" | "SITE_OFICIAL"
+  fornecedor_razao_social?: string
+  tipo?: "PNCP" | "PAINEL_PRECOS" | "COTACAO_DIRETA" | "CATALOGO" | "SITE_OFICIAL"
   valor_unitario: number
   data_pesquisa: string
   qtd?: number
@@ -44,6 +47,40 @@ interface Estatisticas {
   n: number
 }
 
+interface AgenteCandidato {
+  id: string
+  item_numero: number
+  fonte_tipo: string
+  descricao_fonte: string
+  url_referencia?: string
+  data_pesquisa: string
+  fornecedor_cnpj?: string
+  fornecedor_razao_social?: string
+  valor_unitario: number
+  unidade?: string
+  score: number
+  flags?: string[]
+  status: "CANDIDATO" | "APROVADO" | "REJEITADO"
+}
+
+interface AgenteExecucao {
+  id: string
+  status: "PENDENTE" | "RODANDO" | "CONCLUIDA" | "FALHOU" | "CANCELADA"
+  erro?: string
+  resumo?: {
+    totalCandidatos?: number
+    conforme?: boolean
+    itens?: Array<{
+      itemNumero: number
+      totalCandidatos: number
+      fontesDistintas: number
+      cvPercent: number
+      alertas: string[]
+    }>
+  }
+  candidatos: AgenteCandidato[]
+}
+
 function calcMedia(fontes: FontePreco[]) {
   if (!fontes.length) return 0
   return fontes.reduce((s, f) => s + f.valor_unitario, 0) / fontes.length
@@ -68,6 +105,12 @@ function calcMax(fontes: FontePreco[]) {
 
 const TIPO_LABEL: Record<string, string> = {
   PNCP: "PNCP",
+  PAINEL_DE_PRECOS: "Painel Precos",
+  FORNECEDOR_DIRETO: "Fornecedor",
+  CONTRATO_VIGENTE_SISTEMA: "Contrato vigente",
+  MIDIA_ESPECIALIZADA: "Internet",
+  NOTA_FISCAL_ELETRONICA: "NF-e",
+  OUTRA: "Outra",
   PAINEL_PRECOS: "Painel Preços",
   COTACAO_DIRETA: "Cotação direta",
   CATALOGO: "Catálogo",
@@ -76,6 +119,12 @@ const TIPO_LABEL: Record<string, string> = {
 
 const TIPO_BADGE: Record<string, string> = {
   PNCP: "bg-blue-100 text-blue-700",
+  PAINEL_DE_PRECOS: "bg-green-100 text-green-700",
+  FORNECEDOR_DIRETO: "bg-gray-100 text-gray-600",
+  CONTRATO_VIGENTE_SISTEMA: "bg-indigo-100 text-indigo-700",
+  MIDIA_ESPECIALIZADA: "bg-orange-100 text-orange-700",
+  NOTA_FISCAL_ELETRONICA: "bg-teal-100 text-teal-700",
+  OUTRA: "bg-gray-100 text-gray-600",
   PAINEL_PRECOS: "bg-green-100 text-green-700",
   COTACAO_DIRETA: "bg-gray-100 text-gray-600",
   CATALOGO: "bg-gray-100 text-gray-600",
@@ -89,6 +138,14 @@ function fmtMoeda(v: number) {
 function fmtData(d: string) {
   const date = new Date(d + "T12:00:00")
   return date.toLocaleDateString("pt-BR")
+}
+
+function getFonteTipo(fonte: FontePreco) {
+  return fonte.tipo || fonte.fonte || "OUTRA"
+}
+
+function getFonteDescricao(fonte: FontePreco) {
+  return fonte.descricao_fonte || fonte.fonte || fonte.fornecedor || "Fonte informada"
 }
 
 function buildHistogram(fontes: FontePreco[], buckets = 6) {
@@ -117,6 +174,8 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   const [adicionando, setAdicionando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [buscandoPNCP, setBuscandoPNCP] = useState(false)
+  const [execucaoAgente, setExecucaoAgente] = useState<AgenteExecucao | null>(null)
+  const [rejeitandoId, setRejeitandoId] = useState<string | null>(null)
   const [iaAnalise, setIaAnalise] = useState<string | null>(null)
   const [gerandoIA, setGerandoIA] = useState(false)
   const [novaFonte, setNovaFonte] = useState({
@@ -166,7 +225,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   const valorEstimado = mediana * quantidade
   const diff = maxVal - minVal
   const pct = media > 0 ? ((diff / media) * 100).toFixed(1) : "0"
-  const fontesPublicas = fontes.filter((f) => f.tipo === "PNCP" || f.tipo === "PAINEL_PRECOS").length
+  const fontesPublicas = fontes.filter((f) => ["PNCP", "PAINEL_PRECOS", "PAINEL_DE_PRECOS"].includes(getFonteTipo(f))).length
 
   const gerarAnaliseIA = useCallback(
     async (fontesParam: FontePreco[]) => {
@@ -202,10 +261,67 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading])
 
-  const buscarNoPNCP = async () => {
+  const executarAgentePrecos = async () => {
     setBuscandoPNCP(true)
-    await new Promise((r) => setTimeout(r, 1500))
-    setBuscandoPNCP(false)
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/executar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fontes: [
+            "PNCP",
+            "PAINEL_DE_PRECOS",
+            "CONTRATO_VIGENTE_SISTEMA",
+            "MIDIA_ESPECIALIZADA",
+            "FORNECEDOR_DIRETO",
+            "NOTA_FISCAL_ELETRONICA",
+          ],
+          maxPorFonte: 5,
+          usarBrowserFallback: false,
+        }),
+      })
+      if (res.ok) {
+        setExecucaoAgente(await res.json())
+      }
+    } finally {
+      setBuscandoPNCP(false)
+    }
+  }
+
+  const aprovarCandidato = async (candidateId: string) => {
+    const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos/${candidateId}/aprovar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    if (res.ok) {
+      setExecucaoAgente((prev) =>
+        prev
+          ? { ...prev, candidatos: prev.candidatos.map((c) => (c.id === candidateId ? { ...c, status: "APROVADO" } : c)) }
+          : prev
+      )
+      await carregarPrecos()
+    }
+  }
+
+  const rejeitarCandidato = async (candidateId: string) => {
+    setRejeitandoId(candidateId)
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos/${candidateId}/rejeitar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo: "Nao aderente ao item ou sem evidencia suficiente" }),
+      })
+      if (res.ok) {
+        setExecucaoAgente((prev) =>
+          prev
+            ? { ...prev, candidatos: prev.candidatos.map((c) => (c.id === candidateId ? { ...c, status: "REJEITADO" } : c)) }
+            : prev
+        )
+      }
+    } finally {
+      setRejeitandoId(null)
+    }
   }
 
   const adicionarFonte = async () => {
@@ -292,7 +408,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           <Button
             variant="outline"
             size="sm"
-            onClick={buscarNoPNCP}
+            onClick={executarAgentePrecos}
             disabled={buscandoPNCP}
             className="text-[#1351b4] border-[#c5d4eb]"
           >
@@ -302,7 +418,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
               </>
             ) : (
               <>
-                <Search className="w-3.5 h-3.5 mr-1.5" /> Buscar no PNCP
+                <Bot className="w-3.5 h-3.5 mr-1.5" /> Agente de precos
               </>
             )}
           </Button>
@@ -315,6 +431,107 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           </Button>
         </div>
       </div>
+
+      {execucaoAgente && (
+        <Card className="border border-[#c5d4eb] shadow-sm mb-6">
+          <CardHeader className="pb-3 flex-row items-center justify-between">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Bot className="w-4 h-4 text-[#1351b4]" />
+              Agente de pesquisa de precos
+            </CardTitle>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+              {execucaoAgente.status}
+            </span>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {execucaoAgente.resumo?.itens?.length ? (
+              <div className="grid grid-cols-3 gap-3">
+                {execucaoAgente.resumo.itens.map((item) => (
+                  <div key={item.itemNumero} className="rounded-lg border border-gray-100 p-3">
+                    <p className="text-xs font-semibold text-gray-700">Item {item.itemNumero}</p>
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      {item.totalCandidatos} candidatos · {item.fontesDistintas} fontes · CV {item.cvPercent}%
+                    </p>
+                    {item.alertas?.[0] && (
+                      <p className="text-[11px] text-yellow-700 mt-1">{item.alertas[0]}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {execucaoAgente.erro && (
+              <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-3">
+                {execucaoAgente.erro}
+              </div>
+            )}
+
+            <div className="overflow-x-auto border border-gray-100 rounded-lg">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="text-left text-xs font-semibold text-gray-500 px-4 py-2.5">Fonte</th>
+                    <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5">Descricao</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5">Valor</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5">Score</th>
+                    <th className="text-right text-xs font-semibold text-gray-500 px-4 py-2.5">Acao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {execucaoAgente.candidatos.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-xs text-gray-400">
+                        Nenhum candidato encontrado nesta execucao.
+                      </td>
+                    </tr>
+                  )}
+                  {execucaoAgente.candidatos.map((candidato) => (
+                    <tr key={candidato.id} className="border-b border-gray-50 last:border-0">
+                      <td className="px-4 py-3">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TIPO_BADGE[candidato.fonte_tipo] ?? TIPO_BADGE.OUTRA}`}>
+                          {TIPO_LABEL[candidato.fonte_tipo] ?? candidato.fonte_tipo}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="text-xs font-medium text-gray-700 line-clamp-1">{candidato.descricao_fonte}</div>
+                        <div className="text-[11px] text-gray-400 flex items-center gap-2 mt-0.5">
+                          Item {candidato.item_numero}
+                          {candidato.url_referencia && (
+                            <a href={candidato.url_referencia} target="_blank" rel="noreferrer" className="text-[#1351b4] inline-flex items-center gap-1">
+                              evidencia <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                        {candidato.flags?.[0] && <p className="text-[11px] text-yellow-700 mt-1">{candidato.flags[0]}</p>}
+                      </td>
+                      <td className="px-3 py-3 text-right text-sm font-bold text-gray-800">
+                        {fmtMoeda(Number(candidato.valor_unitario))}
+                      </td>
+                      <td className="px-3 py-3 text-right text-xs text-gray-500">{Number(candidato.score).toFixed(0)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1.5">
+                          {candidato.status === "CANDIDATO" ? (
+                            <>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-green-700 border-green-200" onClick={() => aprovarCandidato(candidato.id)}>
+                                <Check className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-gray-500" onClick={() => rejeitarCandidato(candidato.id)} disabled={rejeitandoId === candidato.id}>
+                                {rejeitandoId === candidato.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="text-xs text-gray-500">{candidato.status}</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
@@ -467,7 +684,8 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                   </thead>
                   <tbody>
                     {fontes.map((f, idx) => {
-                      const badge = TIPO_BADGE[f.tipo] ?? "bg-gray-100 text-gray-600"
+                      const tipoFonte = getFonteTipo(f)
+                      const badge = TIPO_BADGE[tipoFonte] ?? "bg-gray-100 text-gray-600"
                       const isOutlier =
                         f.valor_unitario > media * 1.05 || f.valor_unitario < media * 0.95
                       const qtdF = f.qtd ?? 1
@@ -475,8 +693,9 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                         <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50/70">
                           <td className="px-5 py-3.5">
                             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${badge}`}>
-                              {TIPO_LABEL[f.tipo] ?? f.tipo}
+                              {TIPO_LABEL[tipoFonte] ?? tipoFonte}
                             </span>
+                            <div className="text-[11px] text-gray-500 mt-1 line-clamp-1">{getFonteDescricao(f)}</div>
                           </td>
                           <td className="px-3 py-3.5">
                             <div className="text-xs text-gray-700">{f.orgao ?? f.fornecedor ?? "—"}</div>

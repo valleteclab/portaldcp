@@ -1,10 +1,15 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { FaseInternaService } from './fase-interna.service';
 import { TipoDocumentoFaseInterna, OrigemDocumento } from './entities/documento-fase-interna.entity';
+import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
+import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 
 @Controller('fase-interna')
 export class FaseInternaController {
-  constructor(private readonly faseInternaService: FaseInternaService) {}
+  constructor(
+    private readonly faseInternaService: FaseInternaService,
+    private readonly pesquisaPrecosAgentService: PesquisaPrecosAgentService,
+  ) {}
 
   // === DOCUMENTOS ===
 
@@ -212,7 +217,7 @@ export class FaseInternaController {
     @Param('licitacaoId') licitacaoId: string,
     @Body() body: {
       itemNumero: number;
-      cotacao: {
+      cotacao: any & {
         fonte: string;
         tipo: 'PNCP' | 'PAINEL_PRECOS' | 'COTACAO_DIRETA' | 'CATALOGO' | 'ORCAMENTO';
         valor_unitario: number;
@@ -238,6 +243,78 @@ export class FaseInternaController {
       parseInt(itemNumero),
       parseInt(cotacaoIndex)
     );
+  }
+
+  @Post(':licitacaoId/precos/agente/executar')
+  async executarAgentePrecos(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      itemNumeros?: number[];
+      fontes?: FontePesquisaTipo[];
+      maxPorFonte?: number;
+      usarBrowserFallback?: boolean;
+      iniciadoPorId?: string;
+      iniciadoPorNome?: string;
+    }
+  ) {
+    return this.pesquisaPrecosAgentService.executar(licitacaoId, body || {});
+  }
+
+  @Get(':licitacaoId/precos/agente/execucoes')
+  async listarExecucoesAgentePrecos(@Param('licitacaoId') licitacaoId: string) {
+    return this.pesquisaPrecosAgentService.listarExecucoes(licitacaoId);
+  }
+
+  @Get(':licitacaoId/precos/agente/execucoes/:execucaoId')
+  async obterExecucaoAgentePrecos(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('execucaoId') execucaoId: string
+  ) {
+    return this.pesquisaPrecosAgentService.obterExecucao(licitacaoId, execucaoId);
+  }
+
+  @Post(':licitacaoId/precos/agente/candidatos/:candidateId/aprovar')
+  async aprovarCandidatoPreco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('candidateId') candidateId: string,
+    @Body() body: { decisorId?: string; decisorNome?: string }
+  ) {
+    return this.pesquisaPrecosAgentService.aprovarCandidato(licitacaoId, candidateId, {
+      id: body?.decisorId,
+      nome: body?.decisorNome,
+    });
+  }
+
+  @Post(':licitacaoId/precos/agente/candidatos/:candidateId/rejeitar')
+  async rejeitarCandidatoPreco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('candidateId') candidateId: string,
+    @Body() body: { motivo?: string; decisorId?: string; decisorNome?: string }
+  ) {
+    return this.pesquisaPrecosAgentService.rejeitarCandidato(
+      licitacaoId,
+      candidateId,
+      body?.motivo || 'Rejeitado pelo usuario',
+      { id: body?.decisorId, nome: body?.decisorNome },
+    );
+  }
+
+  @Post(':licitacaoId/precos/agente/nfe/importar')
+  async importarNfeAgentePrecos(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      itemNumero: number;
+      descricaoFonte?: string;
+      urlReferencia?: string;
+      fornecedorCnpj?: string;
+      fornecedorRazaoSocial?: string;
+      valorUnitario: number;
+      dataPesquisa?: string;
+      documentoPath?: string;
+      documentoHash?: string;
+    }
+  ) {
+    return this.pesquisaPrecosAgentService.importarNfe(licitacaoId, body);
   }
 
   // === APROVACOES AGREGADAS ===
