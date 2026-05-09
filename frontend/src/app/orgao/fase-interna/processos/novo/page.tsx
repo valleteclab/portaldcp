@@ -1,173 +1,767 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import {
-  ArrowLeft, ArrowRight, Check, Sparkles, ChevronRight,
-  Home, Send, Loader2, FileText
-} from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link"
+import { ArrowLeft, ArrowRight, Check, Sparkles, Home, ChevronRight, Loader2, AlertCircle, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Progress } from "@/components/ui/progress"
-import Link from "next/link"
 import { API_URL, authFetch } from "@/lib/api"
 
+// ─── Etapas do wizard ──────────────────────────────────────────────
 const WIZARD_ETAPAS = [
-  { id: "dados", sigla: "INI", nome: "Dados básicos", art: "Configuração inicial" },
-  { id: "dfd", sigla: "DFD", nome: "Formalização da Demanda", art: "Art. 18, I" },
-  { id: "etp", sigla: "ETP", nome: "Estudo Técnico Preliminar", art: "Art. 18, §1º" },
-  { id: "riscos", sigla: "MR", nome: "Análise de Riscos", art: "Art. 18, X" },
-  { id: "pesquisa", sigla: "PP", nome: "Pesquisa de Preços", art: "Art. 23" },
-  { id: "tr", sigla: "TR", nome: "Termo de Referência", art: "Art. 6º, XXIII" },
-  { id: "autorizacao", sigla: "AUT", nome: "Autorização", art: "Art. 18, II" },
-  { id: "edital", sigla: "ED", nome: "Minuta do Edital", art: "Art. 25" },
-  { id: "juridico", sigla: "PJ", nome: "Parecer Jurídico", art: "Art. 53" },
-  { id: "concluido", sigla: "OK", nome: "Fase interna concluída", art: "" },
+  { id: "dados",      sigla: "INI", nome: "Dados básicos",           art: "Configuração inicial" },
+  { id: "dfd",        sigla: "DFD", nome: "Formalização da Demanda", art: "Art. 18, I" },
+  { id: "etp",        sigla: "ETP", nome: "Estudo Técnico Preliminar",art: "Art. 18, §1º" },
+  { id: "riscos",     sigla: "MR",  nome: "Análise de Riscos",       art: "Art. 18, X" },
+  { id: "pesquisa",   sigla: "PP",  nome: "Pesquisa de Preços",      art: "Art. 23" },
+  { id: "tr",         sigla: "TR",  nome: "Termo de Referência",     art: "Art. 6º, XXIII" },
+  { id: "autorizacao",sigla: "AUT", nome: "Autorização",             art: "Art. 18, II" },
+  { id: "edital",     sigla: "ED",  nome: "Minuta do Edital",        art: "Art. 25" },
+  { id: "juridico",   sigla: "PJ",  nome: "Parecer Jurídico",        art: "Art. 53" },
+  { id: "concluido",  sigla: "OK",  nome: "Fase interna concluída",  art: "" },
 ]
 
-interface FormData {
-  objeto: string
-  categoria: string
-  modalidade: string
-  valor: string
-  quantidade: string
-  area: string
-  dfd: string
-  etp_necessidade: string
-  etp_solucao: string
-  riscos: string
-  precos_fontes: string
-  tr_requisitos: string
-  tr_prazo: string
-  autorizacao_autoridade: string
-  edital_notas: string
-  juridico_obs: string
+// ─── Templates dos documentos ──────────────────────────────────────
+const TEMPLATES: Record<string, {
+  titulo: string
+  intro: string
+  artigo: string
+  secoes: { id: string; titulo: string; placeholder: string; rows?: number }[]
+  buildPrompt: (ctx: any) => string
+}> = {
+  dfd: {
+    titulo: "Documento de Formalização da Demanda (DFD)",
+    intro: "Formaliza a necessidade da contratação. Deve identificar a demanda, justificar e vincular ao planejamento institucional.",
+    artigo: "Art. 18, I · Lei 14.133/2021",
+    secoes: [
+      { id: "demanda",    titulo: "1. Descrição da necessidade",   placeholder: "Descreva o problema ou demanda institucional que justifica a contratação…" },
+      { id: "quantidade", titulo: "2. Quantidade estimada",        placeholder: "Volume estimado, unidade de medida e justificativa do quantitativo…" },
+      { id: "previsao",   titulo: "3. Previsão no PCA",            placeholder: "Vinculação ao Plano de Contratações Anual (Art. 12, §1º)…" },
+      { id: "data",       titulo: "4. Data prevista de conclusão", placeholder: "Prazo estimado para conclusão da contratação…" },
+    ],
+    buildPrompt: (ctx) => `Você é técnico do setor público elaborando um DFD conforme Lei 14.133/2021.
+
+Objeto: ${ctx.objeto}
+Categoria: ${ctx.categoria}
+Quantidade: ${ctx.quantidade || "a definir"}
+Área demandante: ${ctx.area || "não informada"}
+
+Gere as 4 seções do DFD em JSON. Seja conciso, formal, técnico, em português brasileiro. Cada seção: 2-4 frases. Cite artigos quando pertinente.
+
+Responda APENAS com JSON válido:
+{"demanda":"...","quantidade":"...","previsao":"...","data":"..."}`,
+  },
+  etp: {
+    titulo: "Estudo Técnico Preliminar (ETP)",
+    intro: "Analisa a viabilidade técnica e econômica da contratação, fundamentando o Termo de Referência.",
+    artigo: "Art. 18, §1º · Lei 14.133/2021",
+    secoes: [
+      { id: "necessidade",  titulo: "1. Descrição da necessidade",        placeholder: "Necessidade fundamentada em estudos…" },
+      { id: "requisitos",   titulo: "2. Requisitos da contratação",       placeholder: "Requisitos técnicos, de sustentabilidade, qualidade…" },
+      { id: "estimativa",   titulo: "3. Estimativa de quantidades",       placeholder: "Memória de cálculo e parâmetros…" },
+      { id: "levantamento", titulo: "4. Levantamento de mercado",         placeholder: "Soluções disponíveis no mercado…" },
+      { id: "solucao",      titulo: "5. Descrição da solução escolhida",  placeholder: "Justificativa da solução selecionada…" },
+      { id: "beneficios",   titulo: "6. Benefícios esperados",            placeholder: "Resultados pretendidos com a contratação…" },
+      { id: "parcelamento", titulo: "7. Parcelamento",                    placeholder: "Justificativa para parcelar ou não o objeto…" },
+      { id: "viabilidade",  titulo: "8. Posicionamento conclusivo",       placeholder: "Conclusão sobre a viabilidade da contratação…" },
+    ],
+    buildPrompt: (ctx) => `Você é analista técnico elaborando um ETP conforme Art. 18 §1º da Lei 14.133/2021.
+
+Objeto: ${ctx.objeto}
+Categoria: ${ctx.categoria}
+Quantidade: ${ctx.quantidade || "a definir"}
+Modalidade: ${ctx.modalidade || "Pregão Eletrônico"}
+
+Gere 8 seções do ETP em JSON. 2-3 frases técnicas por seção. Cite normas: LGPD, IN SGD/ME 1/2019 para TI quando pertinente.
+
+Responda APENAS com JSON válido:
+{"necessidade":"...","requisitos":"...","estimativa":"...","levantamento":"...","solucao":"...","beneficios":"...","parcelamento":"...","viabilidade":"..."}`,
+  },
+  tr: {
+    titulo: "Termo de Referência (TR)",
+    intro: "Consolida tudo o que foi estudado e define com precisão o objeto, requisitos, modelo de execução e fiscalização.",
+    artigo: "Art. 6º, XXIII · Art. 40 · Lei 14.133/2021",
+    secoes: [
+      { id: "objeto",          titulo: "1. Objeto",                          placeholder: "Descrição precisa do objeto da contratação…" },
+      { id: "fundamentacao",   titulo: "2. Fundamentação",                   placeholder: "Base legal e justificativa da contratação…" },
+      { id: "descricao",       titulo: "3. Descrição da solução",            placeholder: "Solução técnica completa adotada…" },
+      { id: "requisitos",      titulo: "4. Requisitos da contratação",       placeholder: "Requisitos técnicos detalhados e específicos…" },
+      { id: "modelo_execucao", titulo: "5. Modelo de execução",              placeholder: "Como o objeto será entregue e fiscalizado…" },
+      { id: "modelo_gestao",   titulo: "6. Gestão e fiscalização",           placeholder: "Estrutura de gestão e fiscalização do contrato…" },
+      { id: "pagamento",       titulo: "7. Forma de pagamento",              placeholder: "Forma, condições e prazos de pagamento…" },
+    ],
+    buildPrompt: (ctx) => `Você elabora um Termo de Referência conforme Art. 6º, XXIII e Art. 40 da Lei 14.133/2021.
+
+Objeto: ${ctx.objeto}
+Categoria: ${ctx.categoria}
+Quantidade: ${ctx.quantidade || "a definir"}
+Valor estimado mediano: R$ ${(ctx.valorMediano || 0).toLocaleString("pt-BR")}
+ETP concluído: SIM
+
+Gere as 7 seções do TR em JSON. 3-4 frases formais, técnicas, com citações legais.
+
+Responda APENAS com JSON válido:
+{"objeto":"...","fundamentacao":"...","descricao":"...","requisitos":"...","modelo_execucao":"...","modelo_gestao":"...","pagamento":"..."}`,
+  },
+  edital: {
+    titulo: "Minuta do Edital",
+    intro: "A minuta consolida as regras da licitação, vinculada ao TR e aos demais documentos da fase interna.",
+    artigo: "Art. 25 · Lei 14.133/2021",
+    secoes: [
+      { id: "preambulo",     titulo: "1. Preâmbulo",                placeholder: "Identificação do órgão, objeto, modalidade…" },
+      { id: "objeto_edital", titulo: "2. Do objeto",               placeholder: "Objeto da licitação…" },
+      { id: "participacao",  titulo: "3. Da participação",         placeholder: "Quem pode participar e vedações…" },
+      { id: "habilitacao",   titulo: "4. Da habilitação",          placeholder: "Documentação necessária para habilitação…" },
+      { id: "julgamento",    titulo: "5. Critério de julgamento",  placeholder: "Critério aplicado e justificativa…" },
+      { id: "recursos",      titulo: "6. Dos recursos",            placeholder: "Prazos e procedimentos recursais…" },
+      { id: "contratacao",   titulo: "7. Da contratação",          placeholder: "Condições e prazos de contratação…" },
+    ],
+    buildPrompt: (ctx) => `Você redige trechos de minuta de Edital de Pregão Eletrônico conforme Lei 14.133/2021, Art. 25.
+
+Objeto: ${ctx.objeto}
+Modalidade: ${ctx.modalidade || "Pregão Eletrônico"}
+Critério: Menor preço
+
+Gere as 7 seções em JSON. 2-3 frases em linguagem editalícia formal.
+
+Responda APENAS com JSON válido:
+{"preambulo":"...","objeto_edital":"...","participacao":"...","habilitacao":"...","julgamento":"...","recursos":"...","contratacao":"..."}`,
+  },
 }
 
-function useTypewriter() {
-  const [texto, setTexto] = useState("")
-  const [ocupado, setOcupado] = useState(false)
-
-  const animar = (content: string) => {
-    setOcupado(true)
-    setTexto("")
-    let i = 0
-    const interval = setInterval(() => {
-      i += Math.max(3, Math.round(content.length / 60))
-      setTexto(content.slice(0, i))
-      if (i >= content.length) {
-        clearInterval(interval)
-        setTexto(content)
-        setOcupado(false)
-      }
-    }, 20)
-  }
-
-  return { texto, ocupado, animar, set: setTexto }
+// ─── Helpers ───────────────────────────────────────────────────────
+async function chamarIA(prompt: string, tipo: string): Promise<string> {
+  const res = await authFetch(`${API_URL}/api/ia/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mensagens: [{ role: "user", content: prompt }],
+      tipoDocumento: tipo,
+    }),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return data.resposta || ""
 }
 
-function GerarComIA({ label, campo, contexto, onGerar }: { label: string; campo: string; contexto: string; onGerar: (texto: string) => void }) {
-  const [carregando, setCarregando] = useState(false)
-
-  const gerar = async () => {
-    setCarregando(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/ia/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: `Gere um ${label} para a seguinte contratação:\n${contexto}\n\nEscreva de forma clara, objetiva e fundamentada na Lei 14.133/2021. Máximo 300 palavras.` }],
-          system: "Você é especialista em fase interna de licitações (Lei 14.133/2021). Gere documentos precisos e bem fundamentados.",
-          max_tokens: 600,
-        }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        const texto = data.content?.[0]?.text || data.message || data.response || ""
-        onGerar(texto)
+async function typewriterFill(
+  text: string,
+  setter: (v: string) => void,
+  onDone?: () => void
+) {
+  let i = 0
+  const step = Math.max(3, Math.round(text.length / 50))
+  return new Promise<void>((resolve) => {
+    const tick = setInterval(() => {
+      i += step
+      setter(text.slice(0, i))
+      if (i >= text.length) {
+        clearInterval(tick)
+        setter(text)
+        onDone?.()
+        resolve()
       }
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setCarregando(false)
-    }
-  }
+    }, 16)
+  })
+}
+
+// ─── Sidebar ───────────────────────────────────────────────────────
+function WizardSidebar({ etapas, current, completed, onJump }: {
+  etapas: typeof WIZARD_ETAPAS
+  current: string
+  completed: string[]
+  onJump: (id: string) => void
+}) {
+  const visivel = etapas.slice(0, -1)
+  const progresso = (completed.length / visivel.length) * 100
 
   return (
-    <Button variant="outline" size="sm" onClick={gerar} disabled={carregando} className="text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc]">
-      {carregando ? (
-        <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Gerando…</>
-      ) : (
-        <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Gerar com IA</>
-      )}
-    </Button>
+    <div className="w-[220px] shrink-0 border-r border-gray-100 bg-white flex flex-col">
+      <div className="px-4 pt-5 pb-3">
+        <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-2">
+          Fase interna · {completed.length}/{visivel.length}
+        </div>
+        <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-full bg-[#1351b4] rounded-full transition-all duration-500" style={{ width: `${progresso}%` }} />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto pb-4">
+        {visivel.map((e) => {
+          const isActive = e.id === current
+          const isDone = completed.includes(e.id)
+          return (
+            <button
+              key={e.id}
+              onClick={() => (isDone || isActive) && onJump(e.id)}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                isActive ? "bg-[#ecf3fc]" : isDone ? "hover:bg-gray-50 cursor-pointer" : "cursor-default opacity-50"
+              }`}
+            >
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${
+                isDone ? "bg-[#168821] text-white" : isActive ? "bg-[#1351b4] text-white" : "bg-gray-100 text-gray-400"
+              }`}>
+                {isDone ? <Check className="w-3.5 h-3.5" /> : e.sigla}
+              </div>
+              <div className="min-w-0">
+                <div className={`text-xs font-semibold leading-tight truncate ${isActive ? "text-[#1351b4]" : isDone ? "text-gray-700" : "text-gray-400"}`}>
+                  {e.nome}
+                </div>
+                <div className="text-[10px] text-gray-400 mt-0.5">{e.art}</div>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
-export default function NovoProcessoPage() {
-  const router = useRouter()
-  const [etapaAtual, setEtapaAtual] = useState(0)
-  const [concluidas, setConcluidas] = useState<string[]>([])
-  const [salvando, setSalvando] = useState(false)
-  const [form, setForm] = useState<FormData>({
-    objeto: "", categoria: "servicos", modalidade: "pregao", valor: "", quantidade: "", area: "",
-    dfd: "", etp_necessidade: "", etp_solucao: "", riscos: "", precos_fontes: "",
-    tr_requisitos: "", tr_prazo: "", autorizacao_autoridade: "", edital_notas: "", juridico_obs: "",
-  })
+// ─── Step: Dados básicos ───────────────────────────────────────────
+function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: string, v: string) => void; onNext: () => void }) {
+  const valido = dados.objeto && dados.categoria && dados.modalidade
 
-  const set = (campo: keyof FormData, valor: string) =>
-    setForm((prev) => ({ ...prev, [campo]: valor }))
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-gray-900">Dados básicos do processo</h2>
+        <p className="text-sm text-gray-500 mt-1">Informações iniciais que guiarão a elaboração de todos os documentos.</p>
+      </div>
+      <div className="space-y-5">
+        <div>
+          <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Objeto da contratação *</Label>
+          <Textarea
+            value={dados.objeto || ""}
+            onChange={(e) => onChange("objeto", e.target.value)}
+            placeholder="Descreva o objeto de forma clara e objetiva…"
+            className="resize-none"
+            rows={3}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Categoria *</Label>
+            <Select value={dados.categoria || ""} onValueChange={(v) => onChange("categoria", v)}>
+              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Serviços de TI">Serviços de TI</SelectItem>
+                <SelectItem value="Bens de TI">Bens de TI</SelectItem>
+                <SelectItem value="Serviços Comuns">Serviços Comuns</SelectItem>
+                <SelectItem value="Obras e Engenharia">Obras e Engenharia</SelectItem>
+                <SelectItem value="Outros Serviços">Outros Serviços</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Modalidade *</Label>
+            <Select value={dados.modalidade || ""} onValueChange={(v) => onChange("modalidade", v)}>
+              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Pregão Eletrônico">Pregão Eletrônico</SelectItem>
+                <SelectItem value="Concorrência">Concorrência</SelectItem>
+                <SelectItem value="Dispensa de Licitação">Dispensa de Licitação</SelectItem>
+                <SelectItem value="Inexigibilidade">Inexigibilidade</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Quantidade estimada</Label>
+            <Input value={dados.quantidade || ""} onChange={(e) => onChange("quantidade", e.target.value)} placeholder="Ex: 100 licenças" />
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Área demandante</Label>
+            <Input value={dados.area || ""} onChange={(e) => onChange("area", e.target.value)} placeholder="Ex: SETIC, GABIN…" />
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Valor estimado (R$)</Label>
+          <Input value={dados.valor || ""} onChange={(e) => onChange("valor", e.target.value)} placeholder="Ex: 150000.00" />
+        </div>
+      </div>
+      <div className="mt-8 flex justify-end">
+        <Button onClick={onNext} disabled={!valido} className="bg-[#1351b4] hover:bg-[#0c326f]">
+          Próxima etapa <ArrowRight className="w-4 h-4 ml-2" />
+        </Button>
+      </div>
+    </div>
+  )
+}
 
-  const contextoIA = `Objeto: ${form.objeto || "(não informado)"}\nModalidade: ${form.modalidade}\nCategoria: ${form.categoria}\nÁrea: ${form.area || "(não informado)"}\nValor estimado: ${form.valor || "(não informado)"}`
+// ─── Step: Documento genérico (DFD / ETP / TR / Edital) ──────────
+function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx }: {
+  stepKey: string
+  secoes: Record<string, string>
+  onChangeSec: (id: string, val: string) => void
+  onNext: () => void
+  onBack: () => void
+  ctx: any
+}) {
+  const tpl = TEMPLATES[stepKey]
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [animando, setAnimando] = useState<string | null>(null)
 
-  const avancar = () => {
-    const etapa = WIZARD_ETAPAS[etapaAtual]
-    if (!concluidas.includes(etapa.id)) {
-      setConcluidas((prev) => [...prev, etapa.id])
+  const gerarComIA = async () => {
+    setBusy(true)
+    setErro(null)
+    try {
+      const resposta = await chamarIA(tpl.buildPrompt(ctx), stepKey)
+      const jsonMatch = resposta.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error("JSON não encontrado na resposta")
+      const parsed = JSON.parse(jsonMatch[0])
+      for (const sec of tpl.secoes) {
+        if (parsed[sec.id]) {
+          setAnimando(sec.id)
+          await typewriterFill(parsed[sec.id], (v) => onChangeSec(sec.id, v))
+        }
+      }
+      setAnimando(null)
+    } catch (e: any) {
+      setErro("Erro ao gerar com IA. Você pode preencher manualmente.")
+      console.error(e)
+    } finally {
+      setBusy(false)
+      setAnimando(null)
     }
-    setEtapaAtual((prev) => Math.min(prev + 1, WIZARD_ETAPAS.length - 1))
   }
 
-  const voltar = () => setEtapaAtual((prev) => Math.max(prev - 1, 0))
+  const preenchidas = tpl.secoes.filter((s) => (secoes[s.id] || "").length > 10).length
+  const todasPreenchidas = preenchidas === tpl.secoes.length
 
-  const salvarProcesso = async () => {
-    if (!form.objeto || !form.area) return
-    setSalvando(true)
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      {/* Header do documento */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">{tpl.titulo}</h2>
+          <p className="text-sm text-gray-500 mt-1">{tpl.intro}</p>
+          <a className="text-xs text-[#1351b4] font-medium mt-1 inline-block">{tpl.artigo}</a>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={gerarComIA}
+          disabled={busy}
+          className="shrink-0 ml-4 text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc]"
+        >
+          {busy
+            ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Gerando…</>
+            : <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Gerar com IA</>
+          }
+        </Button>
+      </div>
+
+      {/* Erro */}
+      {erro && (
+        <div className="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          {erro}
+        </div>
+      )}
+
+      {/* Seções */}
+      <div className="space-y-5">
+        {tpl.secoes.map((sec) => {
+          const val = secoes[sec.id] || ""
+          const isAnimando = animando === sec.id
+          const preenchida = val.length > 10
+          return (
+            <div
+              key={sec.id}
+              className={`rounded-xl p-4 border transition-all duration-300 ${
+                isAnimando ? "bg-[#f0f5fe] border-[#1351b4]/30" : "bg-white border-gray-100"
+              }`}
+            >
+              <label className="text-xs font-semibold text-gray-700 flex items-center gap-1.5 mb-2">
+                {sec.titulo}
+                {preenchida && !isAnimando && <Check className="w-3 h-3 text-[#168821]" />}
+                {isAnimando && (
+                  <span className="text-[10px] text-[#1351b4] font-bold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 animate-pulse" /> escrevendo…
+                  </span>
+                )}
+              </label>
+              <Textarea
+                value={val}
+                onChange={(e) => onChangeSec(sec.id, e.target.value)}
+                placeholder={sec.placeholder}
+                rows={sec.rows || Math.max(2, val.split("\n").length + 1)}
+                className="resize-none text-sm bg-transparent border-gray-200"
+              />
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Conformidade */}
+      <div className={`mt-5 p-3 rounded-xl border flex items-start gap-3 text-xs ${
+        todasPreenchidas ? "bg-green-50 border-green-200" : "bg-[#f6f9fd] border-[#dbe8fb]"
+      }`}>
+        {todasPreenchidas
+          ? <Check className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+          : <AlertCircle className="w-4 h-4 text-[#1351b4] shrink-0 mt-0.5" />
+        }
+        <div>
+          <span className={`font-semibold ${todasPreenchidas ? "text-green-700" : "text-[#1351b4]"}`}>
+            Conformidade: {preenchidas}/{tpl.secoes.length} seções preenchidas.
+          </span>{" "}
+          <span className="text-gray-500">Texto gerado por IA deve ser revisado pelo servidor responsável.</span>
+        </div>
+      </div>
+
+      {/* Navegação */}
+      <div className="mt-6 flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack} className="text-gray-600">
+          <ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior
+        </Button>
+        <Button onClick={onNext} disabled={!todasPreenchidas} className="bg-[#1351b4] hover:bg-[#0c326f]">
+          Próxima etapa <ArrowRight className="w-4 h-4 ml-2" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Step: Riscos ──────────────────────────────────────────────────
+function StepRiscos({ riscos, setRiscos, onNext, onBack, ctx }: any) {
+  const [busy, setBusy] = useState(false)
+
+  const NIVEL = (p: number, i: number) => {
+    const s = p * i
+    if (s >= 15) return { label: "Crítico", color: "text-red-600 bg-red-50" }
+    if (s >= 8)  return { label: "Alto",    color: "text-orange-600 bg-orange-50" }
+    if (s >= 4)  return { label: "Médio",   color: "text-yellow-700 bg-yellow-50" }
+    return               { label: "Baixo",  color: "text-green-700 bg-green-50" }
+  }
+
+  const sugerirComIA = async () => {
+    setBusy(true)
+    try {
+      const resposta = await chamarIA(
+        `Sugira 4 riscos típicos para a seguinte contratação pública, conforme Art. 18, X da Lei 14.133/2021:
+Objeto: ${ctx.objeto}
+Categoria: ${ctx.categoria}
+
+Retorne APENAS JSON: [{"descricao":"...","categoria":"...","probabilidade":1-5,"impacto":1-5,"mitigacao":"..."}]`,
+        "mapa_riscos"
+      )
+      const m = resposta.match(/\[[\s\S]*\]/)
+      if (m) {
+        const novos = JSON.parse(m[0])
+        setRiscos((prev: any[]) => [...prev, ...novos.map((r: any, i: number) => ({
+          id: `ia-${Date.now()}-${i}`,
+          ...r,
+          probabilidade: Math.min(5, Math.max(1, r.probabilidade || 3)),
+          impacto: Math.min(5, Math.max(1, r.impacto || 3)),
+        }))])
+      }
+    } catch (e) { console.error(e) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Análise de Riscos</h2>
+          <p className="text-sm text-gray-500 mt-1">Identifique e avalie os riscos da contratação.</p>
+          <span className="text-xs text-[#1351b4] font-medium">Art. 18, X · Lei 14.133/2021</span>
+        </div>
+        <Button variant="outline" size="sm" onClick={sugerirComIA} disabled={busy} className="text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc] shrink-0 ml-4">
+          {busy ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Gerando…</> : <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Sugerir com IA</>}
+        </Button>
+      </div>
+
+      <div className="space-y-3 mb-4">
+        {riscos.map((r: any) => {
+          const n = NIVEL(r.probabilidade, r.impacto)
+          return (
+            <div key={r.id} className="border border-gray-100 rounded-xl p-4 bg-white">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${n.color}`}>{n.label}</span>
+                    <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{r.categoria}</span>
+                    <span className="text-[10px] text-gray-400">P{r.probabilidade}×I{r.impacto}</span>
+                  </div>
+                  <p className="text-sm text-gray-800 font-medium">{r.descricao}</p>
+                  <p className="text-xs text-gray-500 mt-1">{r.mitigacao}</p>
+                </div>
+                <button onClick={() => setRiscos((p: any[]) => p.filter((x: any) => x.id !== r.id))} className="text-gray-300 hover:text-red-400 shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <Button variant="outline" size="sm" onClick={() => setRiscos((p: any[]) => [...p, { id: `m-${Date.now()}`, descricao: "", categoria: "Geral", probabilidade: 3, impacto: 3, mitigacao: "" }])} className="w-full border-dashed border-gray-300 text-gray-500 h-9">
+        <Plus className="w-4 h-4 mr-2" /> Adicionar risco manualmente
+      </Button>
+
+      <div className="mt-6 flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
+        <Button onClick={onNext} disabled={riscos.length === 0} className="bg-[#1351b4] hover:bg-[#0c326f]">Próxima etapa <ArrowRight className="w-4 h-4 ml-2" /></Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Step: Pesquisa de Preços ──────────────────────────────────────
+function StepPesquisa({ fontes, setFontes, onNext, onBack }: any) {
+  const validas = fontes.filter((f: any) => f.valor > 0)
+  const media = validas.length ? validas.reduce((a: number, b: any) => a + b.valor, 0) / validas.length : 0
+
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-gray-900">Pesquisa de Preços</h2>
+        <p className="text-sm text-gray-500 mt-1">Inclua pelo menos 3 fontes válidas (PNCP, Painel de Preços ou cotações diretas).</p>
+        <span className="text-xs text-[#1351b4] font-medium">Art. 23 · IN SEGES/ME 65/2021</span>
+      </div>
+
+      {validas.length >= 3 && (
+        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700 flex items-center gap-2">
+          <Check className="w-4 h-4 shrink-0" />
+          <span><strong>{validas.length} fontes válidas</strong> — Conformidade com Art. 23, §1º</span>
+        </div>
+      )}
+
+      {media > 0 && (
+        <div className="mb-4 p-3 bg-[#ecf3fc] border border-[#c5d4eb] rounded-xl text-xs text-[#1351b4] font-semibold">
+          Valor médio das fontes: {media.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+        </div>
+      )}
+
+      <div className="space-y-3 mb-4">
+        {fontes.map((f: any, idx: number) => (
+          <div key={idx} className="border border-gray-100 rounded-xl p-3 bg-white flex items-center gap-3">
+            <div className="flex-1 grid grid-cols-2 gap-2">
+              <Input value={f.fonte} onChange={(e) => setFontes((p: any[]) => p.map((x, i) => i === idx ? { ...x, fonte: e.target.value } : x))} placeholder="Descrição da fonte…" className="text-xs h-8" />
+              <Input value={f.valor || ""} onChange={(e) => setFontes((p: any[]) => p.map((x, i) => i === idx ? { ...x, valor: parseFloat(e.target.value) || 0 } : x))} placeholder="Valor unitário (R$)" type="number" className="text-xs h-8" />
+            </div>
+            <button onClick={() => setFontes((p: any[]) => p.filter((_: any, i: number) => i !== idx))} className="text-gray-300 hover:text-red-400">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <Button variant="outline" size="sm" onClick={() => setFontes((p: any[]) => [...p, { fonte: "", valor: 0 }])} className="w-full border-dashed border-gray-300 text-gray-500 h-9">
+        <Plus className="w-4 h-4 mr-2" /> Adicionar fonte de preço
+      </Button>
+
+      <div className="mt-6 flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
+        <Button onClick={onNext} disabled={validas.length < 3} className="bg-[#1351b4] hover:bg-[#0c326f]">Próxima etapa <ArrowRight className="w-4 h-4 ml-2" /></Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Step: Autorização ────────────────────────────────────────────
+function StepAutorizacao({ autorizacao, setAutorizacao, onNext, onBack, ctx }: any) {
+  const [busy, setBusy] = useState(false)
+
+  const gerarComIA = async () => {
+    setBusy(true)
+    try {
+      const r = await chamarIA(
+        `Redija um parágrafo de autorização para início da fase externa de uma licitação conforme Art. 18, II da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "Pregão Eletrônico"}\n\nSeja formal, conciso, em primeira pessoa do plural.`,
+        "autorizacao"
+      )
+      setAutorizacao(r.replace(/^["']|["']$/g, ""))
+    } catch (e) { console.error(e) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Autorização da Autoridade Competente</h2>
+          <p className="text-sm text-gray-500 mt-1">A autoridade competente autoriza o início do processo licitatório.</p>
+          <span className="text-xs text-[#1351b4] font-medium">Art. 18, II · Lei 14.133/2021</span>
+        </div>
+        <Button variant="outline" size="sm" onClick={gerarComIA} disabled={busy} className="text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc] shrink-0 ml-4">
+          {busy ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Gerando…</> : <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Gerar rascunho</>}
+        </Button>
+      </div>
+      <Textarea value={autorizacao} onChange={(e) => setAutorizacao(e.target.value)} placeholder="Rascunho da autorização…" rows={8} className="resize-none" />
+      <div className="mt-6 flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
+        <Button onClick={onNext} disabled={!autorizacao} className="bg-[#1351b4] hover:bg-[#0c326f]">Próxima etapa <ArrowRight className="w-4 h-4 ml-2" /></Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Step: Parecer Jurídico ────────────────────────────────────────
+function StepJuridico({ parecer, setParecer, onNext, onBack, ctx }: any) {
+  const [busy, setBusy] = useState(false)
+
+  const gerarComIA = async () => {
+    setBusy(true)
+    try {
+      const r = await chamarIA(
+        `Redija um parecer jurídico favorável para a fase interna de uma licitação, conforme Art. 53 da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "Pregão Eletrônico"}\n\nIncluir: análise formal, material, verificação dos documentos (DFD, ETP, MR, PP, TR) e conclusão. Linguagem jurídica formal.`,
+        "parecer_juridico"
+      )
+      setParecer(r.replace(/^["']|["']$/g, ""))
+    } catch (e) { console.error(e) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Parecer Jurídico</h2>
+          <p className="text-sm text-gray-500 mt-1">A Procuradoria emite parecer sobre a regularidade formal e material dos documentos.</p>
+          <span className="text-xs text-[#1351b4] font-medium">Art. 53 · Lei 14.133/2021</span>
+        </div>
+        <Button variant="outline" size="sm" onClick={gerarComIA} disabled={busy} className="text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc] shrink-0 ml-4">
+          {busy ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Gerando…</> : <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Gerar minuta</>}
+        </Button>
+      </div>
+      <Textarea value={parecer} onChange={(e) => setParecer(e.target.value)} placeholder="Minuta do parecer jurídico…" rows={10} className="resize-none" />
+      <div className="mt-6 flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
+        <Button onClick={onNext} disabled={!parecer} className="bg-[#1351b4] hover:bg-[#0c326f]">Concluir fase interna <ArrowRight className="w-4 h-4 ml-2" /></Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Step: Conclusão ───────────────────────────────────────────────
+function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => void; criando: boolean }) {
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full flex flex-col items-center justify-center text-center">
+      <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mb-6">
+        <Check className="w-8 h-8 text-green-600" />
+      </div>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">Fase interna concluída!</h2>
+      <p className="text-sm text-gray-500 mb-6 max-w-md">
+        Todos os documentos foram elaborados: DFD, ETP, Mapa de Riscos, Pesquisa de Preços, TR, Autorização, Minuta do Edital e Parecer Jurídico — em conformidade com a Lei 14.133/2021.
+      </p>
+      <div className="grid grid-cols-2 gap-3 text-xs mb-8 text-left w-full max-w-sm">
+        {["DFD", "ETP", "Mapa de Riscos", "Pesquisa de Preços", "Termo de Referência", "Autorização", "Minuta do Edital", "Parecer Jurídico"].map((doc) => (
+          <div key={doc} className="flex items-center gap-2 text-green-700">
+            <Check className="w-3.5 h-3.5 text-green-500 shrink-0" /> {doc}
+          </div>
+        ))}
+      </div>
+      <Button onClick={onCriar} disabled={criando} className="bg-[#1351b4] hover:bg-[#0c326f] px-8">
+        {criando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Criando processo…</> : "Criar processo no sistema →"}
+      </Button>
+    </div>
+  )
+}
+
+// ─── Página principal ──────────────────────────────────────────────
+export default function NovoProcessoPage() {
+  const router = useRouter()
+  const [step, setStep] = useState("dados")
+  const [completed, setCompleted] = useState<string[]>([])
+  const [criando, setCriando] = useState(false)
+
+  const [dados, setDados] = useState<Record<string, string>>({})
+  const [docs, setDocs] = useState<Record<string, Record<string, string>>>({
+    dfd: {}, etp: {}, tr: {}, edital: {}
+  })
+  const [riscos, setRiscos] = useState<any[]>([])
+  const [fontes, setFontes] = useState<any[]>([{ fonte: "", valor: 0 }, { fonte: "", valor: 0 }, { fonte: "", valor: 0 }])
+  const [autorizacao, setAutorizacao] = useState("")
+  const [parecer, setParecer] = useState("")
+
+  const ctx = {
+    ...dados,
+    valorMediano: fontes.filter((f) => f.valor > 0).length
+      ? [...fontes.filter((f) => f.valor > 0)].sort((a, b) => a.valor - b.valor)[Math.floor(fontes.filter((f) => f.valor > 0).length / 2)]?.valor
+      : 0,
+  }
+
+  const advance = useCallback(() => {
+    setCompleted((prev) => prev.includes(step) ? prev : [...prev, step])
+    const idx = WIZARD_ETAPAS.findIndex((e) => e.id === step)
+    if (idx < WIZARD_ETAPAS.length - 1) setStep(WIZARD_ETAPAS[idx + 1].id)
+  }, [step])
+
+  const back = useCallback(() => {
+    const idx = WIZARD_ETAPAS.findIndex((e) => e.id === step)
+    if (idx > 0) setStep(WIZARD_ETAPAS[idx - 1].id)
+  }, [step])
+
+  const jump = useCallback((id: string) => setStep(id), [])
+
+  const updateDoc = (docKey: string, secId: string, val: string) => {
+    setDocs((prev) => ({ ...prev, [docKey]: { ...prev[docKey], [secId]: val } }))
+  }
+
+  const criarProcesso = async () => {
+    setCriando(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          objeto: form.objeto,
-          modalidade: form.modalidade.toUpperCase(),
-          categoria_bem_servico: form.categoria.toUpperCase(),
-          valor_total_estimado: parseFloat(form.valor) || 0,
+          objeto: dados.objeto,
+          modalidade: dados.modalidade,
+          categoria: dados.categoria,
+          valor_total_estimado: dados.valor || 0,
           fase: "PLANEJAMENTO",
         }),
       })
       if (res.ok) {
-        const data = await res.json()
-        router.push(`/orgao/fase-interna/processos/${data.id}`)
+        const licitacao = await res.json()
+        await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dfd: Object.values(docs.dfd).join("\n\n"),
+            etp: docs.etp,
+            riscos,
+            pesquisaPrecos: fontes.filter((f) => f.valor > 0),
+            tr: docs.tr,
+            autorizacao,
+            edital: Object.values(docs.edital).join("\n\n"),
+            parecerJuridico: parecer,
+          }),
+        })
+        router.push(`/orgao/fase-interna/processos/${licitacao.id}`)
       }
     } catch (e) {
       console.error(e)
     } finally {
-      setSalvando(false)
+      setCriando(false)
     }
   }
 
-  const etapa = WIZARD_ETAPAS[etapaAtual]
-  const progresso = (concluidas.length / (WIZARD_ETAPAS.length - 1)) * 100
-  const isConcluido = etapa.id === "concluido"
+  const etapaAtual = WIZARD_ETAPAS.find((e) => e.id === step)
+  const idxAtual = WIZARD_ETAPAS.findIndex((e) => e.id === step)
+
+  let content: React.ReactNode
+  if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} />
+  else if (step === "dfd")    content = <StepDocumento stepKey="dfd" secoes={docs.dfd} onChangeSec={(s, v) => updateDoc("dfd", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "etp")    content = <StepDocumento stepKey="etp" secoes={docs.etp} onChangeSec={(s, v) => updateDoc("etp", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "riscos") content = <StepRiscos riscos={riscos} setRiscos={setRiscos} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "pesquisa") content = <StepPesquisa fontes={fontes} setFontes={setFontes} onNext={advance} onBack={back} />
+  else if (step === "tr")     content = <StepDocumento stepKey="tr" secoes={docs.tr} onChangeSec={(s, v) => updateDoc("tr", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "autorizacao") content = <StepAutorizacao autorizacao={autorizacao} setAutorizacao={setAutorizacao} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "edital") content = <StepDocumento stepKey="edital" secoes={docs.edital} onChangeSec={(s, v) => updateDoc("edital", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "juridico") content = <StepJuridico parecer={parecer} setParecer={setParecer} onNext={advance} onBack={back} ctx={ctx} />
+  else content = <StepConcluido ctx={ctx} onCriar={criarProcesso} criando={criando} />
 
   return (
-    <div className="p-6 pb-10 max-w-6xl">
+    <div className="h-full flex flex-col">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-6">
+      <div className="flex items-center gap-1.5 text-xs text-gray-500 px-6 py-3 border-b border-gray-100 shrink-0">
         <Home className="w-3.5 h-3.5" />
         <ChevronRight className="w-3 h-3" />
         <Link href="/orgao/fase-interna" className="hover:text-[#1351b4]">Fase Interna</Link>
@@ -177,364 +771,24 @@ export default function NovoProcessoPage() {
         <span className="text-[#1351b4] font-medium">Novo processo</span>
       </div>
 
-      <div className="grid grid-cols-[220px_1fr] gap-6">
-        {/* Sidebar do wizard */}
-        <div className="space-y-3">
-          <Card className="border-0 shadow-sm sticky top-4">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                Fase interna · {concluidas.length}/{WIZARD_ETAPAS.length - 1}
-              </p>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <Progress value={progresso} className="h-1.5 mb-4" />
-              <div className="space-y-0.5">
-                {WIZARD_ETAPAS.slice(0, -1).map((e, idx) => {
-                  const done = concluidas.includes(e.id)
-                  const atual = etapaAtual === idx
-                  return (
-                    <button
-                      key={e.id}
-                      onClick={() => done || atual ? setEtapaAtual(idx) : null}
-                      className={`w-full flex items-center gap-2.5 py-2 px-2 rounded-lg text-left transition-colors ${
-                        atual ? "bg-[#ecf3fc]" : "hover:bg-gray-50"
-                      } ${!done && !atual ? "opacity-50" : ""}`}
-                    >
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold border ${
-                        done ? "bg-[#168821] border-[#168821] text-white" : atual ? "bg-[#1351b4] border-[#1351b4] text-white" : "bg-white border-gray-200 text-gray-500"
-                      }`}>
-                        {done ? <Check className="w-3 h-3" /> : idx + 1}
-                      </div>
-                      <div>
-                        <div className={`text-xs font-semibold leading-tight ${atual ? "text-[#1351b4]" : "text-gray-700"}`}>
-                          <span className="text-[9px] font-bold mr-1 bg-gray-100 px-1 py-0.5 rounded">{e.sigla}</span>
-                          {e.nome}
-                        </div>
-                        <div className="text-[9px] text-gray-400">{e.art}</div>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            </CardContent>
-          </Card>
+      {/* Header da etapa */}
+      {step !== "concluido" && (
+        <div className="px-6 py-2.5 border-b border-gray-100 bg-[#f6f9fd] shrink-0 flex items-center gap-3">
+          <span className="text-xs font-bold bg-[#1351b4] text-white px-2.5 py-1 rounded-full">
+            Fase interna · {idxAtual + 1} de {WIZARD_ETAPAS.length - 1}
+          </span>
+          <span className="text-xs font-bold text-gray-800">{etapaAtual?.nome}</span>
+          {etapaAtual?.art && <span className="text-xs text-gray-400">{etapaAtual.art}</span>}
         </div>
+      )}
 
-        {/* Conteúdo da etapa */}
-        <div className="space-y-4">
-          {isConcluido ? (
-            <ConclusaoStep onSalvar={salvarProcesso} salvando={salvando} />
-          ) : etapa.id === "dados" ? (
-            <DadosBasicosStep form={form} set={set} />
-          ) : etapa.id === "dfd" ? (
-            <TextoStep
-              titulo="Documento de Formalização da Demanda (DFD)"
-              descricao="Formaliza a necessidade da contratação. Deve identificar a demanda, justificar e vincular ao planejamento institucional."
-              art="Art. 18, I · Lei 14.133/2021"
-              campo="dfd"
-              valor={form.dfd}
-              onChange={(v) => set("dfd", v)}
-              label="DFD completo"
-              contextoIA={contextoIA}
-            />
-          ) : etapa.id === "etp" ? (
-            <ETPStep form={form} set={set} contextoIA={contextoIA} />
-          ) : etapa.id === "riscos" ? (
-            <TextoStep
-              titulo="Análise de Riscos"
-              descricao="Identifica os principais riscos do processo e define medidas de mitigação."
-              art="Art. 18, X · Art. 22 · Lei 14.133/2021"
-              campo="riscos"
-              valor={form.riscos}
-              onChange={(v) => set("riscos", v)}
-              label="Mapa de riscos"
-              contextoIA={contextoIA}
-            />
-          ) : etapa.id === "pesquisa" ? (
-            <TextoStep
-              titulo="Pesquisa de Preços"
-              descricao="Levantamento de preços de mercado para estimativa do valor da contratação."
-              art="Art. 23 · IN 65/2021"
-              campo="precos_fontes"
-              valor={form.precos_fontes}
-              onChange={(v) => set("precos_fontes", v)}
-              label="Fontes e resultados da pesquisa"
-              contextoIA={contextoIA}
-            />
-          ) : etapa.id === "tr" ? (
-            <TRStep form={form} set={set} contextoIA={contextoIA} />
-          ) : etapa.id === "autorizacao" ? (
-            <TextoStep
-              titulo="Autorização da Autoridade Competente"
-              descricao="Registro da autorização da autoridade competente para abertura do processo."
-              art="Art. 18, II · Lei 14.133/2021"
-              campo="autorizacao_autoridade"
-              valor={form.autorizacao_autoridade}
-              onChange={(v) => set("autorizacao_autoridade", v)}
-              label="Dados da autorização"
-              contextoIA={contextoIA}
-            />
-          ) : etapa.id === "edital" ? (
-            <TextoStep
-              titulo="Minuta do Edital"
-              descricao="Elaboração da minuta do edital de licitação com todas as cláusulas obrigatórias."
-              art="Art. 25 · Lei 14.133/2021"
-              campo="edital_notas"
-              valor={form.edital_notas}
-              onChange={(v) => set("edital_notas", v)}
-              label="Notas sobre o edital"
-              contextoIA={contextoIA}
-            />
-          ) : etapa.id === "juridico" ? (
-            <TextoStep
-              titulo="Parecer Jurídico"
-              descricao="Análise jurídica do processo para validação da legalidade da contratação."
-              art="Art. 53 · Lei 14.133/2021"
-              campo="juridico_obs"
-              valor={form.juridico_obs}
-              onChange={(v) => set("juridico_obs", v)}
-              label="Observações para a procuradoria"
-              contextoIA={contextoIA}
-            />
-          ) : null}
-
-          {/* Navegação */}
-          {!isConcluido && (
-            <div className="flex justify-between pt-4 border-t border-gray-100">
-              <Button variant="outline" onClick={voltar} disabled={etapaAtual === 0}>
-                <ArrowLeft className="w-4 h-4 mr-2" /> Anterior
-              </Button>
-              <Button onClick={avancar} className="bg-[#1351b4] hover:bg-[#0c326f]">
-                {etapaAtual === WIZARD_ETAPAS.length - 2 ? (
-                  <><Check className="w-4 h-4 mr-2" /> Concluir fase interna</>
-                ) : (
-                  <>Próxima etapa <ArrowRight className="w-4 h-4 ml-2" /></>
-                )}
-              </Button>
-            </div>
-          )}
-        </div>
+      {/* Corpo: sidebar + conteúdo */}
+      <div className="flex flex-1 min-h-0">
+        {step !== "concluido" && (
+          <WizardSidebar etapas={WIZARD_ETAPAS} current={step} completed={completed} onJump={jump} />
+        )}
+        {content}
       </div>
     </div>
-  )
-}
-
-// ─── Sub-componentes das etapas ──────────────────────────────────
-
-function DadosBasicosStep({ form, set }: { form: FormData; set: (k: keyof FormData, v: string) => void }) {
-  return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-base">Dados básicos do processo</CardTitle>
-        <p className="text-sm text-gray-500">A IA usará essas informações para preencher os documentos seguintes.</p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label>Objeto da contratação <span className="text-red-500">*</span></Label>
-          <Input
-            value={form.objeto}
-            onChange={(e) => set("objeto", e.target.value)}
-            placeholder="Ex.: Aquisição de licenças de software de gestão de protocolo eletrônico"
-          />
-          <p className="text-xs text-gray-400">Descreva de forma objetiva o que será contratado (Art. 6º, XXIII).</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label>Categoria</Label>
-            <Select value={form.categoria} onValueChange={(v) => set("categoria", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="bens">Bens</SelectItem>
-                <SelectItem value="servicos">Serviços</SelectItem>
-                <SelectItem value="servicos_continuados">Serviços continuados</SelectItem>
-                <SelectItem value="obras">Obras de engenharia</SelectItem>
-                <SelectItem value="ti">Soluções de TI</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Modalidade sugerida <span className="text-red-500">*</span></Label>
-            <Select value={form.modalidade} onValueChange={(v) => set("modalidade", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pregao">Pregão Eletrônico</SelectItem>
-                <SelectItem value="concorrencia">Concorrência</SelectItem>
-                <SelectItem value="dispensa">Dispensa Eletrônica</SelectItem>
-                <SelectItem value="inexigibilidade">Inexigibilidade</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Valor estimado preliminar (R$)</Label>
-            <Input
-              value={form.valor}
-              onChange={(e) => set("valor", e.target.value)}
-              placeholder="Será refinado na pesquisa de preços"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Quantidade</Label>
-            <Input
-              value={form.quantidade}
-              onChange={(e) => set("quantidade", e.target.value)}
-              placeholder="Ex.: 250 licenças"
-            />
-          </div>
-          <div className="col-span-2 space-y-1.5">
-            <Label>Área demandante <span className="text-red-500">*</span></Label>
-            <Select value={form.area} onValueChange={(v) => set("area", v)}>
-              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sec_adm">Secretaria de Administração</SelectItem>
-                <SelectItem value="sec_inf">Secretaria de Infraestrutura</SelectItem>
-                <SelectItem value="sec_ti">Secretaria de Tecnologia</SelectItem>
-                <SelectItem value="sec_saude">Secretaria de Saúde</SelectItem>
-                <SelectItem value="procuradoria">Procuradoria Geral</SelectItem>
-                <SelectItem value="outro">Outro</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function TextoStep({
-  titulo, descricao, art, campo, valor, onChange, label, contextoIA,
-}: {
-  titulo: string; descricao: string; art: string; campo: string;
-  valor: string; onChange: (v: string) => void; label: string; contextoIA: string
-}) {
-  return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base">{titulo}</CardTitle>
-            <p className="text-sm text-gray-500 mt-1">{descricao}</p>
-            <span className="inline-block mt-2 text-xs bg-[#ecf3fc] text-[#1351b4] font-medium px-2 py-0.5 rounded">
-              {art}
-            </span>
-          </div>
-          <GerarComIA label={label} campo={campo} contexto={contextoIA} onGerar={onChange} />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <Textarea
-          value={valor}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={`Descreva o ${label.toLowerCase()} conforme exigido pela Lei 14.133/2021…`}
-          className="min-h-48 resize-none text-sm"
-        />
-      </CardContent>
-    </Card>
-  )
-}
-
-function ETPStep({ form, set, contextoIA }: { form: FormData; set: (k: keyof FormData, v: string) => void; contextoIA: string }) {
-  return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base">Estudo Técnico Preliminar (ETP)</CardTitle>
-            <p className="text-sm text-gray-500 mt-1">
-              Análise das alternativas e justificativa técnica da solução escolhida.
-            </p>
-            <span className="inline-block mt-2 text-xs bg-[#ecf3fc] text-[#1351b4] font-medium px-2 py-0.5 rounded">
-              Art. 18, §1º · Lei 14.133/2021
-            </span>
-          </div>
-          <GerarComIA label="ETP completo" campo="etp" contexto={contextoIA} onGerar={(v) => { set("etp_necessidade", v); set("etp_solucao", v) }} />
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label>Descrição da necessidade</Label>
-          <Textarea
-            value={form.etp_necessidade}
-            onChange={(e) => set("etp_necessidade", e.target.value)}
-            placeholder="Descreva a necessidade que motivou esta contratação…"
-            className="min-h-28 resize-none text-sm"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Solução proposta e justificativa técnica</Label>
-          <Textarea
-            value={form.etp_solucao}
-            onChange={(e) => set("etp_solucao", e.target.value)}
-            placeholder="Descreva a solução escolhida e justifique tecnicamente…"
-            className="min-h-28 resize-none text-sm"
-          />
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function TRStep({ form, set, contextoIA }: { form: FormData; set: (k: keyof FormData, v: string) => void; contextoIA: string }) {
-  return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base">Termo de Referência (TR)</CardTitle>
-            <p className="text-sm text-gray-500 mt-1">
-              Especificação detalhada do objeto, requisitos e condições de execução.
-            </p>
-            <span className="inline-block mt-2 text-xs bg-[#ecf3fc] text-[#1351b4] font-medium px-2 py-0.5 rounded">
-              Art. 6º, XXIII · Art. 40 · Lei 14.133/2021
-            </span>
-          </div>
-          <GerarComIA label="TR completo" campo="tr" contexto={contextoIA} onGerar={(v) => set("tr_requisitos", v)} />
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label>Requisitos da contratação</Label>
-          <Textarea
-            value={form.tr_requisitos}
-            onChange={(e) => set("tr_requisitos", e.target.value)}
-            placeholder="Liste todos os requisitos técnicos, habilitação e condições de execução…"
-            className="min-h-36 resize-none text-sm"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Prazo de execução / vigência</Label>
-          <Input
-            value={form.tr_prazo}
-            onChange={(e) => set("tr_prazo", e.target.value)}
-            placeholder="Ex.: 12 meses, prorrogáveis por igual período"
-          />
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function ConclusaoStep({ onSalvar, salvando }: { onSalvar: () => void; salvando: boolean }) {
-  return (
-    <Card className="border-0 shadow-sm">
-      <CardContent className="py-16 text-center">
-        <div className="w-20 h-20 rounded-full bg-[#e3f5e1] flex items-center justify-center mx-auto mb-4">
-          <Check className="w-10 h-10 text-[#168821]" />
-        </div>
-        <h2 className="text-xl font-bold text-gray-900 mb-2">Fase interna concluída!</h2>
-        <p className="text-sm text-gray-500 max-w-sm mx-auto mb-8">
-          Todos os documentos da fase interna foram preenchidos. O processo será registrado e
-          ficará disponível para revisão e aprovação.
-        </p>
-        <div className="flex gap-3 justify-center">
-          <Button variant="outline" asChild>
-            <Link href="/orgao/fase-interna/processos">Ver todos os processos</Link>
-          </Button>
-          <Button onClick={onSalvar} disabled={salvando} className="bg-[#1351b4] hover:bg-[#0c326f]">
-            {salvando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando…</> : <><FileText className="w-4 h-4 mr-2" /> Salvar processo</>}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   )
 }
