@@ -11,6 +11,48 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { API_URL, authFetch } from "@/lib/api"
 
+function getOrgaoId(): string {
+  if (typeof window === "undefined") return ""
+  try {
+    const orgao = JSON.parse(localStorage.getItem("orgao") || "{}")
+    return orgao.id || ""
+  } catch {
+    return ""
+  }
+}
+
+function gerarNumeroProcesso(): string {
+  const now = new Date()
+  const ano = now.getFullYear()
+  const mes = String(now.getMonth() + 1).padStart(2, "0")
+  const random = Math.floor(Math.random() * 99999).toString().padStart(5, "0")
+  return `${ano}${mes}.${random}`
+}
+
+function mapearModalidade(frontend: string): string {
+  const map: Record<string, string> = {
+    "Pregão Eletrônico": "PREGAO_ELETRONICO",
+    "Concorrência": "CONCORRENCIA",
+    "Dispensa de Licitação": "DISPENSA",
+    "Inexigibilidade": "INEXIGIBILIDADE",
+    "Concurso": "CONCURSO",
+    "Leilão": "LEILAO",
+  }
+  return map[frontend] || "PREGAO_ELETRONICO"
+}
+
+function mapearCategoria(frontend: string): string {
+  const map: Record<string, string> = {
+    "Serviços de TI": "SERVICO",
+    "Bens de TI": "COMPRA",
+    "Serviços Comuns": "SERVICO",
+    "Obras e Engenharia": "OBRA",
+    "Outros Serviços": "SERVICO",
+    "Outros": "SERVICO",
+  }
+  return map[frontend] || "SERVICO"
+}
+
 // ─── Etapas do wizard ──────────────────────────────────────────────
 const WIZARD_ETAPAS = [
   { id: "dados",      sigla: "INI", nome: "Dados básicos",           art: "Configuração inicial" },
@@ -843,40 +885,49 @@ export default function NovoProcessoPage() {
       alert("Preencha os dados básicos primeiro (objeto, modalidade e categoria)")
       return
     }
+    const orgaoId = getOrgaoId()
+    if (!orgaoId) {
+      alert("Erro: órgão não identificado. Faça login novamente.")
+      return
+    }
     setSalvandoRascunho(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          numero_processo: gerarNumeroProcesso(),
+          orgao_id: orgaoId,
           objeto: dados.objeto,
-          modalidade: dados.modalidade,
-          categoria: dados.categoria,
-          valor_total_estimado: dados.valor || 0,
-          fase: "PLANEJAMENTO",
+          modalidade: mapearModalidade(dados.modalidade),
+          tipo_contratacao: mapearCategoria(dados.categoria),
+          criterio_julgamento: "MENOR_PRECO",
+          valor_total_estimado: dados.valor ? Number(dados.valor.replace(/\D/g, "")) / 100 : 0,
         }),
       })
-      if (res.ok) {
-        const licitacao = await res.json()
-        await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            dfd: Object.values(docs.dfd).join("\n\n"),
-            etp: docs.etp,
-            riscos,
-            pesquisaPrecos: fontes.filter((f) => f.valor > 0),
-            tr: docs.tr,
-            autorizacao,
-            edital: Object.values(docs.edital).join("\n\n"),
-            parecerJuridico: parecer,
-          }),
-        })
-        router.push(`/orgao/fase-interna/processos/${licitacao.id}/editor`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || "Erro ao criar processo")
       }
-    } catch (e) {
+      const licitacao = await res.json()
+      await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dfd: Object.values(docs.dfd).join("\n\n"),
+          etp: docs.etp,
+          riscos,
+          pesquisaPrecos: fontes.filter((f) => f.valor > 0),
+          tr: docs.tr,
+          autorizacao,
+          edital: Object.values(docs.edital).join("\n\n"),
+          parecerJuridico: parecer,
+        }),
+      })
+      router.push(`/orgao/fase-interna/processos/${licitacao.id}`)
+    } catch (e: any) {
       console.error(e)
-      alert("Erro ao salvar rascunho")
+      alert(e.message || "Erro ao salvar rascunho")
     } finally {
       setSalvandoRascunho(false)
     }

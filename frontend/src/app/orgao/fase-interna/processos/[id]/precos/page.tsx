@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, use, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import {
   ChevronRight, Home, Plus, Search, Loader2, Trash2, AlertTriangle, Check, Sparkles, Bot, X, ExternalLink
@@ -167,6 +168,14 @@ function buildHistogram(fontes: FontePreco[], buckets = 6) {
 
 export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const router = useRouter()
+
+  useEffect(() => {
+    if (id === "novo") {
+      router.replace("/orgao/fase-interna/processos/novo")
+    }
+  }, [id, router])
+
   const [dados, setDados] = useState<DadosPrecos | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [estatisticas, setEstatisticas] = useState<Record<number, Estatisticas>>({})
