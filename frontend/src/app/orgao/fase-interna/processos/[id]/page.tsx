@@ -41,14 +41,14 @@ interface Documento {
 
 /** 8 steps of fase interna per Lei 14.133/2021 */
 const ETAPAS = [
-  { id: "DFD", nome: "Documento de Formalização de Demanda",  art: "Art. 18, I",     route: "editor" },
-  { id: "ETP", nome: "Estudo Técnico Preliminar",             art: "Art. 18, §1º",  route: "editor" },
+  { id: "DFD", nome: "Documento de Formalização de Demanda",  art: "Art. 18, I",     route: "editor?tipo=DFD" },
+  { id: "ETP", nome: "Estudo Técnico Preliminar",             art: "Art. 18, §1º",  route: "editor?tipo=ETP" },
   { id: "MR",  nome: "Mapa de Riscos",                        art: "Art. 18, X",    route: "riscos"  },
   { id: "PP",  nome: "Pesquisa de Preços",                    art: "Art. 23",       route: "precos"  },
-  { id: "TR",  nome: "Termo de Referência",                   art: "Art. 6º, XXIII", route: "editor" },
-  { id: "AUT", nome: "Autorização para abertura",             art: "Art. 18, II",   route: "editor" },
-  { id: "ED",  nome: "Elaboração do Edital",                  art: "Art. 25",       route: "editor" },
-  { id: "PJ",  nome: "Parecer Jurídico",                      art: "Art. 53",       route: "editor" },
+  { id: "TR",  nome: "Termo de Referência",                   art: "Art. 6º, XXIII", route: "editor?tipo=TR" },
+  { id: "AUT", nome: "Autorização para abertura",             art: "Art. 18, II",   route: "editor?tipo=AUT" },
+  { id: "ED",  nome: "Elaboração do Edital",                  art: "Art. 25",       route: "editor?tipo=ED" },
+  { id: "PJ",  nome: "Parecer Jurídico",                      art: "Art. 53",       route: "editor?tipo=PJ" },
 ]
 
 /**

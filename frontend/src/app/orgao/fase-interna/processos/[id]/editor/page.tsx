@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, use } from "react"
+import { useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
   Check, Sparkles, ChevronRight, Home, Eye, Loader2
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
 
-const SECOES = [
+const SECOES_TR = [
   { id: "objeto", titulo: "1. Objeto", status: "rascunho", art: "Art. 6º, XXIII" },
   { id: "justificativa", titulo: "2. Justificativa", status: "rascunho", art: "Art. 18, II" },
   { id: "fundamentacao", titulo: "3. Fundamentação Legal", status: "rascunho", art: "Art. 18" },
@@ -20,24 +21,60 @@ const SECOES = [
   { id: "prazo", titulo: "7. Prazo de Vigência", status: "rascunho", art: "Art. 40, III" },
 ]
 
+const SECOES_DFD = [
+  { id: "demanda", titulo: "1. Demanda", status: "rascunho", art: "Art. 18, I" },
+  { id: "necessidade", titulo: "2. Necessidade", status: "rascunho", art: "Art. 18, I" },
+  { id: "escopo", titulo: "3. Escopo", status: "rascunho", art: "Art. 18, I" },
+  { id: "restricoes", titulo: "4. Restrições", status: "rascunho", art: "Art. 18, I" },
+]
+
+const SECOES_ETP = [
+  { id: "descricao", titulo: "1. Descrição da Necessidade", status: "rascunho", art: "Art. 18, §1º" },
+  { id: "alternativas", titulo: "2. Alternativas", status: "rascunho", art: "Art. 18, §1º" },
+  { id: "resultados", titulo: "3. Resultados Esperados", status: "rascunho", art: "Art. 18, §1º" },
+  { id: "beneficios", titulo: "4. Benefícios", status: "rascunho", art: "Art. 18, §1º" },
+]
+
 const STATUS_COR: Record<string, { label: string; bg: string; text: string }> = {
   aprovado: { label: "Aprovado", bg: "bg-green-50", text: "text-green-700" },
   revisao: { label: "Em revisão", bg: "bg-yellow-50", text: "text-yellow-700" },
   rascunho: { label: "Rascunho", bg: "bg-gray-100", text: "text-gray-600" },
 }
 
-const CONTEUDO_INICIAL: Record<string, string> = Object.fromEntries(
-  SECOES.map((secao) => [secao.id, ""])
-)
+function getSecoes(tipo?: string | null) {
+  switch (tipo) {
+    case "DFD": return SECOES_DFD
+    case "ETP": return SECOES_ETP
+    default: return SECOES_TR
+  }
+}
+
+function getTituloPagina(tipo?: string | null) {
+  switch (tipo) {
+    case "DFD": return "Documento de Formalização de Demanda"
+    case "ETP": return "Estudo Técnico Preliminar"
+    default: return "Termo de Referência"
+  }
+}
 
 export default function EditorDocumentoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const [secaoAtiva, setSecaoAtiva] = useState("requisitos")
+  const searchParams = useSearchParams()
+  const tipo = searchParams.get("tipo")
+  
+  const secoes = getSecoes(tipo)
+  const tituloPagina = getTituloPagina(tipo)
+  
+  const CONTEUDO_INICIAL: Record<string, string> = Object.fromEntries(
+    secoes.map((secao) => [secao.id, ""])
+  )
+  
+  const [secaoAtiva, setSecaoAtiva] = useState(secoes[0]?.id || "objeto")
   const [conteudos, setConteudos] = useState(CONTEUDO_INICIAL)
   const [gerandoIA, setGerandoIA] = useState(false)
   const [sugestaoIA, setSugestaoIA] = useState<string | null>(null)
 
-  const secao = SECOES.find((s) => s.id === secaoAtiva)
+  const secao = secoes.find((s) => s.id === secaoAtiva)
 
   const gerarComIA = async () => {
     setGerandoIA(true)
@@ -89,7 +126,7 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Termo de Referência</h1>
+          <h1 className="text-xl font-bold text-gray-900">{tituloPagina}</h1>
           <div className="flex items-center gap-3 mt-1.5">
             <span className="text-xs text-gray-500">Processo #{id.slice(0, 8)}</span>
           </div>
@@ -112,7 +149,7 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Sumário</p>
             </CardHeader>
             <CardContent className="px-2 pb-4">
-              {SECOES.map((s) => {
+              {secoes.map((s: { id: string; titulo: string; status: string }) => {
                 const cor = STATUS_COR[s.status]
                 return (
                   <button
