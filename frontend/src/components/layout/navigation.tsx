@@ -139,6 +139,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/pca", label: "PCA", icon: Calendar, modulo: ModuloSistema.PCA },
     { href: "/orgao/licitacoes", label: "Licitações", icon: FileText, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },
+    { href: "/orgao/fase-interna", label: "Fase Interna IA", icon: ClipboardList, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/disputa-v3", label: "Sala de Disputa V3", icon: Search, modulo: ModuloSistema.DISPUTA },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/medicoes-v2", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
