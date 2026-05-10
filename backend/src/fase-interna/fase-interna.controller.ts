@@ -299,15 +299,41 @@ export class FaseInternaController {
   async executarAgentePrecos(
     @Param('licitacaoId') licitacaoId: string,
     @Body() body: {
+      itemNumero?: number;
       itemNumeros?: number[];
       fontes?: FontePesquisaTipo[];
       maxPorFonte?: number;
       usarBrowserFallback?: boolean;
+      autoAprovar?: boolean;
       iniciadoPorId?: string;
       iniciadoPorNome?: string;
     }
   ) {
-    return this.pesquisaPrecosAgentService.executar(licitacaoId, body || {});
+    const b = body || {};
+    // aceita itemNumero singular como alias
+    const itemNumeros = b.itemNumeros?.length
+      ? b.itemNumeros
+      : b.itemNumero != null
+        ? [b.itemNumero]
+        : undefined;
+
+    const execucao = await this.pesquisaPrecosAgentService.executar(licitacaoId, { ...b, itemNumeros });
+
+    if (b.autoAprovar && execucao.candidatos?.length) {
+      for (const candidato of execucao.candidatos) {
+        try {
+          await this.pesquisaPrecosAgentService.aprovarCandidato(
+            licitacaoId,
+            candidato.id,
+            { id: b.iniciadoPorId, nome: b.iniciadoPorNome },
+          );
+        } catch {
+          // candidato inválido ou duplicado — ignora
+        }
+      }
+    }
+
+    return this.faseInternaService.getPrecos(licitacaoId);
   }
 
   @Get(':licitacaoId/precos/agente/execucoes')

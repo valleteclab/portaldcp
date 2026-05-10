@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SystemConfigModule } from '../system-config/system-config.module';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
 import { FaseInternaService } from './fase-interna.service';
@@ -39,6 +40,7 @@ import {
       PesquisaPrecoExecucao,
       PesquisaPrecoCandidato,
     ]),
+    SystemConfigModule,
   ],
   controllers: [FaseInternaController, DocumentoEstruturadoController],
   providers: [
