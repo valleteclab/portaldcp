@@ -22,6 +22,20 @@ interface Licitacao {
   responsavel?: string
   area?: string
   created_at?: string
+  etapaAtual?: EtapaInfo
+}
+
+interface Documento {
+  tipo: string
+  descricao?: string
+  dados_estruturados?: Record<string, unknown>
+}
+
+interface EtapaInfo {
+  sigla: string
+  art: string
+  progresso: number
+  step?: string
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -44,12 +58,23 @@ const FASE_STATUS: Record<string, string> = {
 }
 
 /** Map fase → etapa sigla e art */
-const FASE_ETAPA: Record<string, { sigla: string; art: string; progresso: number }> = {
-  PLANEJAMENTO:      { sigla: "DFD", art: "Art. 18, I",      progresso: 1 },
-  TERMO_REFERENCIA:  { sigla: "ETP", art: "Art. 18, §1º",   progresso: 2 },
-  PESQUISA_PRECOS:   { sigla: "PP",  art: "Art. 23",         progresso: 3 },
-  ANALISE_JURIDICA:  { sigla: "TR",  art: "Art. 6º, XXIII",  progresso: 5 },
-  APROVACAO_INTERNA: { sigla: "PJ",  art: "Art. 53",         progresso: 7 },
+const FASE_ETAPA: Record<string, EtapaInfo> = {
+  PLANEJAMENTO:      { sigla: "DFD", art: "Art. 18, I",      progresso: 1, step: "dfd" },
+  TERMO_REFERENCIA:  { sigla: "ETP", art: "Art. 18, §1º",   progresso: 2, step: "etp" },
+  PESQUISA_PRECOS:   { sigla: "PP",  art: "Art. 23",         progresso: 4, step: "pesquisa" },
+  ANALISE_JURIDICA:  { sigla: "TR",  art: "Art. 6º, XXIII",  progresso: 5, step: "tr" },
+  APROVACAO_INTERNA: { sigla: "PJ",  art: "Art. 53",         progresso: 8, step: "juridico" },
+}
+
+const DOCUMENTO_ETAPA: Record<string, EtapaInfo> = {
+  DFD: { sigla: "DFD", art: "Art. 18, I", progresso: 1, step: "dfd" },
+  ETP: { sigla: "ETP", art: "Art. 18, §1º", progresso: 2, step: "etp" },
+  MR: { sigla: "MR", art: "Art. 18, X", progresso: 3, step: "riscos" },
+  PP: { sigla: "PP", art: "Art. 23", progresso: 4, step: "pesquisa" },
+  TR: { sigla: "TR", art: "Art. 6º, XXIII", progresso: 5, step: "tr" },
+  AA: { sigla: "AUT", art: "Art. 18, II", progresso: 6, step: "autorizacao" },
+  ME: { sigla: "ED", art: "Art. 25", progresso: 7, step: "edital" },
+  PJ: { sigla: "PJ", art: "Art. 53", progresso: 8, step: "juridico" },
 }
 
 /** Status filter tabs */
@@ -81,6 +106,22 @@ function fmtMoeda(v: number | string) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
+function documentoTemConteudo(doc?: Documento) {
+  if (!doc) return false
+  if (doc.descricao?.trim()) return true
+  return !!doc.dados_estruturados && Object.keys(doc.dados_estruturados).length > 0
+}
+
+function calcularEtapaAtual(documentos: Documento[]): EtapaInfo | undefined {
+  return documentos.reduce<EtapaInfo | undefined>((ultima, doc) => {
+    if (!documentoTemConteudo(doc)) return ultima
+    const etapa = DOCUMENTO_ETAPA[doc.tipo]
+    if (!etapa) return ultima
+    if (!ultima || etapa.progresso > ultima.progresso) return etapa
+    return ultima
+  }, undefined)
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProcessosPage() {
@@ -102,7 +143,17 @@ export default function ProcessosPage() {
         const data = await res.json()
         const lista: Licitacao[] = Array.isArray(data) ? data : (data.data || data.items || [])
         const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
-        setProcessos(internas)
+        const enriquecidas = await Promise.all(internas.map(async (processo) => {
+          try {
+            const documentosRes = await authFetch(`${API_URL}/api/fase-interna/${processo.id}/documentos`)
+            if (!documentosRes.ok) return processo
+            const documentos = await documentosRes.json()
+            return { ...processo, etapaAtual: calcularEtapaAtual(documentos) || undefined }
+          } catch {
+            return processo
+          }
+        }))
+        setProcessos(enriquecidas)
       } else {
         setProcessos([])
       }
@@ -259,7 +310,7 @@ export default function ProcessosPage() {
               </thead>
               <tbody>
                 {filtrados.map((p) => {
-                  const etapa = FASE_ETAPA[p.fase] || { sigla: "—", art: "—", progresso: 0 }
+                  const etapa = p.etapaAtual || FASE_ETAPA[p.fase] || { sigla: "—", art: "—", progresso: 0 }
                   const status = FASE_STATUS[p.fase] || "rascunho"
                   const chip = STATUS_CHIP[status] || STATUS_CHIP.rascunho
                   return (
@@ -327,7 +378,7 @@ export default function ProcessosPage() {
                               <Trash2 className="w-4 h-4" />
                             )}
                           </Button>
-                          <Link href={`/orgao/fase-interna/processos/${p.id}`}>
+                          <Link href={`/orgao/fase-interna/processos/novo?id=${p.id}&step=${etapa.step || "dfd"}`}>
                             <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-[#ecf3fc] hover:text-[#1351b4]">
                               <ChevronRight className="w-4 h-4" />
                             </Button>

@@ -35,6 +35,8 @@ interface Documento {
   titulo: string
   status: string
   created_at: string
+  descricao?: string
+  dados_estruturados?: Record<string, unknown>
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -43,8 +45,8 @@ interface Documento {
 const ETAPAS = [
   { id: "DFD", nome: "Documento de Formalização de Demanda",  art: "Art. 18, I",     route: "/orgao/fase-interna/processos/novo?id=:id&step=dfd" },
   { id: "ETP", nome: "Estudo Técnico Preliminar",             art: "Art. 18, §1º",  route: "/orgao/fase-interna/processos/novo?id=:id&step=etp" },
-  { id: "MR",  nome: "Mapa de Riscos",                        art: "Art. 18, X",    route: "riscos"  },
-  { id: "PP",  nome: "Pesquisa de Preços",                    art: "Art. 23",       route: "precos"  },
+  { id: "MR",  nome: "Mapa de Riscos",                        art: "Art. 18, X",    route: "/orgao/fase-interna/processos/novo?id=:id&step=riscos" },
+  { id: "PP",  nome: "Pesquisa de Preços",                    art: "Art. 23",       route: "/orgao/fase-interna/processos/novo?id=:id&step=pesquisa" },
   { id: "TR",  nome: "Termo de Referência",                   art: "Art. 6º, XXIII", route: "/orgao/fase-interna/processos/novo?id=:id&step=tr" },
   { id: "AUT", nome: "Autorização para abertura",             art: "Art. 18, II",   route: "/orgao/fase-interna/processos/novo?id=:id&step=autorizacao" },
   { id: "ED",  nome: "Elaboração do Edital",                  art: "Art. 25",       route: "/orgao/fase-interna/processos/novo?id=:id&step=edital" },
@@ -100,6 +102,28 @@ function fmtData(d?: string) {
 
 function buildEtapas(fase: string): EtapaComStatus[] {
   const currentIdx = FASE_STEP_INDEX[fase] ?? 0
+  return ETAPAS.map((e, i) => ({
+    ...e,
+    status:
+      i < currentIdx ? "concluida" :
+      i === currentIdx ? "andamento" : "pendente",
+  }))
+}
+
+function documentoTemConteudo(doc?: Documento) {
+  if (!doc) return false
+  if (doc.descricao?.trim()) return true
+  return !!doc.dados_estruturados && Object.keys(doc.dados_estruturados).length > 0
+}
+
+function buildEtapasPorDocumentos(documentos: Documento[], fase: string): EtapaComStatus[] {
+  const fallbackIdx = FASE_STEP_INDEX[fase] ?? 0
+  const currentIdx = documentos.reduce((ultimo, doc) => {
+    if (!documentoTemConteudo(doc)) return ultimo
+    const idx = ETAPAS.findIndex((etapa) => etapa.id === doc.tipo)
+    return idx > ultimo ? idx : ultimo
+  }, fallbackIdx)
+
   return ETAPAS.map((e, i) => ({
     ...e,
     status:
@@ -235,6 +259,7 @@ export default function ProcessoDetailPage({
 }) {
   const { id } = use(params)
   const [licitacao, setLicitacao] = useState<Licitacao | null>(null)
+  const [documentos, setDocumentos] = useState<Documento[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -244,9 +269,15 @@ export default function ProcessoDetailPage({
   const carregar = async () => {
     setLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}`)
-      if (res.ok) {
-        setLicitacao(await res.json())
+      const [licitacaoRes, documentosRes] = await Promise.all([
+        authFetch(`${API_URL}/api/licitacoes/${id}`),
+        authFetch(`${API_URL}/api/fase-interna/${id}/documentos`),
+      ])
+      if (licitacaoRes.ok) {
+        setLicitacao(await licitacaoRes.json())
+      }
+      if (documentosRes.ok) {
+        setDocumentos(await documentosRes.json())
       }
     } catch (e) {
       console.error(e)
@@ -274,7 +305,7 @@ export default function ProcessoDetailPage({
     )
   }
 
-  const etapas = buildEtapas(licitacao.fase)
+  const etapas = buildEtapasPorDocumentos(documentos, licitacao.fase)
   const concluidas = etapas.filter((e) => e.status === "concluida").length
   const statusChip = STATUS_CHIP_FASE[licitacao.fase] || STATUS_CHIP_FASE.PLANEJAMENTO
   const equipe = licitacao.responsavel
