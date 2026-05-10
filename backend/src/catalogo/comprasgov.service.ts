@@ -5,8 +5,11 @@ export interface ItemComprasGov {
   codigo: number;
   descricao: string;
   classe?: number;
+  grupo?: number;
+  pdm?: string;
   unidade_fornecimento?: string;
   status?: boolean;
+  sustentavel?: boolean;
   tipo?: 'MATERIAL' | 'SERVICO';
 }
 
@@ -39,19 +42,21 @@ export class ComprasGovService {
       const offset = (pagina - 1) * limite;
       const response = await this.axiosInstance.get('/materiais/v1/materiais.json', {
         params: {
-          descricao: termo,
+          descricao_item: termo,
           offset,
-          limit: limite,
         },
       });
 
       const materiais = response.data?._embedded?.materiais || [];
-      return materiais.map((m: any) => ({
+      return materiais.slice(0, limite).map((m: any) => ({
         codigo: m.codigo,
         descricao: m.descricao,
-        classe: m.classe,
+        classe: m.id_classe ?? m.classe,
+        grupo: m.id_grupo ?? m.grupo,
+        pdm: m.id_pdm ?? m.pdm,
         unidade_fornecimento: m.unidade_fornecimento,
         status: m.status,
+        sustentavel: m.sustentavel,
         tipo: 'MATERIAL' as const,
       }));
     } catch (error) {
@@ -62,14 +67,17 @@ export class ComprasGovService {
 
   async buscarMaterialPorCodigo(codigo: string): Promise<ItemComprasGov | null> {
     try {
-      const response = await this.axiosInstance.get(`/materiais/v1/materiais/${codigo}.json`);
+      const response = await this.axiosInstance.get(`/materiais/id/material/${codigo}.json`);
       const m = response.data;
       return {
         codigo: m.codigo,
         descricao: m.descricao,
-        classe: m.classe,
+        classe: m.id_classe ?? m.classe,
+        grupo: m.id_grupo ?? m.grupo,
+        pdm: m.id_pdm ?? m.pdm,
         unidade_fornecimento: m.unidade_fornecimento,
         status: m.status,
+        sustentavel: m.sustentavel,
         tipo: 'MATERIAL',
       };
     } catch (error) {
@@ -87,16 +95,16 @@ export class ComprasGovService {
         params: {
           descricao: termo,
           offset,
-          limit: limite,
         },
       });
 
       const servicos = response.data?._embedded?.servicos || [];
-      return servicos.map((s: any) => ({
+      return servicos.slice(0, limite).map((s: any) => ({
         codigo: s.codigo,
         descricao: s.descricao,
-        classe: s.classe,
-        unidade_fornecimento: s.unidade_fornecimento,
+        classe: s.codigo_classe ?? s.classe,
+        grupo: s.codigo_grupo ?? s.grupo,
+        unidade_fornecimento: s.unidade_medida ?? s.unidade_fornecimento,
         status: s.status,
         tipo: 'SERVICO' as const,
       }));
@@ -108,13 +116,14 @@ export class ComprasGovService {
 
   async buscarServicoPorCodigo(codigo: string): Promise<ItemComprasGov | null> {
     try {
-      const response = await this.axiosInstance.get(`/servicos/v1/servicos/${codigo}.json`);
+      const response = await this.axiosInstance.get(`/servicos/id/servico/${codigo}.json`);
       const s = response.data;
       return {
         codigo: s.codigo,
         descricao: s.descricao,
-        classe: s.classe,
-        unidade_fornecimento: s.unidade_fornecimento,
+        classe: s.codigo_classe ?? s.classe,
+        grupo: s.codigo_grupo ?? s.grupo,
+        unidade_fornecimento: s.unidade_medida ?? s.unidade_fornecimento,
         status: s.status,
         tipo: 'SERVICO',
       };

@@ -223,15 +223,28 @@ export class FaseInternaController {
   @Post(':licitacaoId/precos/item')
   async adicionarItemPesquisa(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: { descricao: string; quantidade: number; unidade: string; codigo_catmat?: string },
+    @Body() body: {
+      descricao: string;
+      quantidade: number;
+      unidade: string;
+      codigo_catalogo?: string;
+      codigo_catmat?: string;
+      codigo_catser?: string;
+      tipo_catalogo?: 'MATERIAL' | 'SERVICO';
+    },
   ) {
     const dados = await this.faseInternaService.getPrecos(licitacaoId);
     const proximoNumero = (dados.dados?.itens?.length ?? 0) + 1;
+    const codigoCatalogo = body.codigo_catalogo || body.codigo_catmat || body.codigo_catser;
     return this.faseInternaService.adicionarItemPesquisa(licitacaoId, {
       item_numero: proximoNumero,
       descricao: body.descricao,
       quantidade: body.quantidade || 1,
       unidade: body.unidade || 'UN',
+      codigo_catalogo: codigoCatalogo,
+      codigo_catmat: body.codigo_catmat || (body.tipo_catalogo === 'MATERIAL' ? codigoCatalogo : undefined),
+      codigo_catser: body.codigo_catser || (body.tipo_catalogo === 'SERVICO' ? codigoCatalogo : undefined),
+      tipo_catalogo: body.tipo_catalogo,
       cotacoes: [],
       metodologia: 'MEDIANA',
       valor_referencial: 0,

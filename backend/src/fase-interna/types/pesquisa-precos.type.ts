@@ -41,6 +41,10 @@ export interface ItemPesquisaPrecos {
   descricao: string;
   quantidade: number;
   unidade: string;
+  codigo_catalogo?: string;
+  codigo_catmat?: string;
+  codigo_catser?: string;
+  tipo_catalogo?: 'MATERIAL' | 'SERVICO';
 
   cotacoes: CotacaoPorFonte[];
 

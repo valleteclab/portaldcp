@@ -245,7 +245,10 @@ export class CatalogoService {
         descricao: itemApi.descricao,
         tipo: itemApi.tipo || 'MATERIAL',
         codigo_classe: itemApi.classe ? String(itemApi.classe) : undefined,
+        codigo_grupo: itemApi.grupo ? String(itemApi.grupo) : undefined,
+        codigo_pdm: itemApi.pdm ? String(itemApi.pdm) : undefined,
         unidade_padrao: itemApi.unidade_fornecimento || 'UN',
+        sustentavel: Boolean(itemApi.sustentavel),
         origem: 'COMPRASGOV',
         ultima_sincronizacao: new Date(),
       });

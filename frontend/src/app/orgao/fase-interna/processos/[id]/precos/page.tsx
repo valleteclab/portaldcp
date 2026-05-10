@@ -33,6 +33,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
+import { CatalogoBusca } from "@/components/catalogo"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -75,7 +76,18 @@ interface ItemPesquisaPrecos {
   justificativa_metodologia?: string
   valor_referencial: number
   outliers_descartados?: Array<{ cotacao_index: number; motivo: string }>
+  codigo_catalogo?: string
   codigo_catmat?: string
+  codigo_catser?: string
+  tipo_catalogo?: "MATERIAL" | "SERVICO"
+}
+
+interface ItemCatalogoSelecionado {
+  id: string
+  codigo: string
+  descricao: string
+  tipo: "MATERIAL" | "SERVICO"
+  unidade_padrao?: string
 }
 
 interface Responsavel {
@@ -213,8 +225,12 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
     descricao: "",
     quantidade: "1",
     unidade: "UN",
+    codigo_catalogo: "",
     codigo_catmat: "",
+    codigo_catser: "",
+    tipo_catalogo: "" as "" | "MATERIAL" | "SERVICO",
   })
+  const [catalogoSelecionado, setCatalogoSelecionado] = useState<ItemCatalogoSelecionado | null>(null)
   const [salvandoItem, setSalvandoItem] = useState(false)
   const [removendoItem, setRemovendoItem] = useState<number | null>(null)
 
@@ -303,11 +319,23 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           descricao: novoItem.descricao,
           quantidade: parseFloat(novoItem.quantidade) || 1,
           unidade: novoItem.unidade,
+          codigo_catalogo: novoItem.codigo_catalogo || undefined,
           codigo_catmat: novoItem.codigo_catmat || undefined,
+          codigo_catser: novoItem.codigo_catser || undefined,
+          tipo_catalogo: novoItem.tipo_catalogo || undefined,
         }),
       })
       await carregarDados()
-      setNovoItem({ descricao: "", quantidade: "1", unidade: "UN", codigo_catmat: "" })
+      setNovoItem({
+        descricao: "",
+        quantidade: "1",
+        unidade: "UN",
+        codigo_catalogo: "",
+        codigo_catmat: "",
+        codigo_catser: "",
+        tipo_catalogo: "",
+      })
+      setCatalogoSelecionado(null)
       setAdicionandoItem(false)
     } catch (e) {
       console.error(e)
@@ -407,6 +435,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA", "MIDIA_ESPECIALIZADA"],
           maxPorFonte: 5,
           autoAprovar: true,
+          usarBrowserFallback: true,
         }),
       })
       if (res.ok) {
@@ -605,6 +634,37 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                   <p className="text-xs font-semibold text-gray-700 mb-3">Novo item</p>
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div className="col-span-2">
+                      <label className="text-xs text-gray-600 mb-1 block">
+                        Buscar no CATMAT/CATSER
+                      </label>
+                      <CatalogoBusca
+                        value={catalogoSelecionado}
+                        onChange={(item) => {
+                          setCatalogoSelecionado(item)
+                          if (!item) {
+                            setNovoItem((p) => ({
+                              ...p,
+                              codigo_catalogo: "",
+                              codigo_catmat: "",
+                              codigo_catser: "",
+                              tipo_catalogo: "",
+                            }))
+                            return
+                          }
+                          setNovoItem((p) => ({
+                            ...p,
+                            descricao: item.descricao || p.descricao,
+                            unidade: item.unidade_padrao || p.unidade,
+                            codigo_catalogo: item.codigo,
+                            codigo_catmat: item.tipo === "MATERIAL" ? item.codigo : "",
+                            codigo_catser: item.tipo === "SERVICO" ? item.codigo : "",
+                            tipo_catalogo: item.tipo,
+                          }))
+                        }}
+                        placeholder="Pesquisar material ou serviço no catálogo federal"
+                      />
+                    </div>
+                    <div className="col-span-2">
                       <label className="text-xs text-gray-600 mb-1 block">Descrição *</label>
                       <Input
                         placeholder="Ex: Serviço de limpeza predial"
@@ -637,8 +697,16 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                       </label>
                       <Input
                         placeholder="Ex: 20117"
-                        value={novoItem.codigo_catmat}
-                        onChange={(e) => setNovoItem((p) => ({ ...p, codigo_catmat: e.target.value }))}
+                        value={novoItem.codigo_catalogo || novoItem.codigo_catmat || novoItem.codigo_catser}
+                        onChange={(e) => {
+                          const codigo = e.target.value
+                          setNovoItem((p) => ({
+                            ...p,
+                            codigo_catalogo: codigo,
+                            codigo_catmat: p.tipo_catalogo === "SERVICO" ? "" : codigo,
+                            codigo_catser: p.tipo_catalogo === "SERVICO" ? codigo : "",
+                          }))
+                        }}
                       />
                     </div>
                   </div>
@@ -658,7 +726,10 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => setAdicionandoItem(false)}
+                      onClick={() => {
+                        setAdicionandoItem(false)
+                        setCatalogoSelecionado(null)
+                      }}
                     >
                       Cancelar
                     </Button>
@@ -705,7 +776,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                           <td className="px-3 py-3 text-sm text-gray-700 text-right">{item.quantidade}</td>
                           <td className="px-3 py-3 text-sm text-gray-700">{item.unidade}</td>
                           <td className="px-3 py-3 text-xs text-gray-500">
-                            {item.codigo_catmat ?? "—"}
+                            {item.codigo_catmat || item.codigo_catser || item.codigo_catalogo || "—"}
                           </td>
                           <td className="px-3 py-3 text-center">
                             <button
