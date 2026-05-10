@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { ILike, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Contrato, StatusContrato } from '../contratos/entities/contrato.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { SystemConfigService } from '../system-config/system-config.service';
 import { PesquisaPrecoAgentContext, PesquisaPrecoCandidateInput, PesquisaPrecoProvider } from './pesquisa-precos-agent.types';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 
@@ -13,6 +15,8 @@ const HTTP_HEADERS = {
   Accept: 'application/json',
   'User-Agent': 'PortalDCP/1.0 (pesquisa-precos; contato=suporte@portaldcp.com.br)',
 };
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const WEB_SEARCH_MODEL = 'perplexity/sonar-pro';
 
 function termoItem(item: ItemLicitacao): string {
   return [
@@ -104,7 +108,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
           });
         }
       } catch (error) {
-        this.logger.warn(`Falha ao consultar PNCP para item ${item.numero_item}: ${(error as Error).message}`);
+        this.logger.debug(`Consulta direta PNCP indisponível para item ${item.numero_item}: ${(error as Error).message}`);
       }
     }
 
@@ -112,21 +116,13 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
   }
 
   private async consultarPncp(termo: string, limite: number): Promise<any[]> {
-    const descricao = termo.substring(0, 100);
     const consultas = [
-      {
-        url: `${PNCP_CONSULTA_BASE}/itens/resultado`,
-        params: { descricao, pagina: 1, tamanhoPagina: limite },
-      },
-      {
-        url: `${PNCP_CONSULTA_BASE}/contratacoes/proposta`,
-        params: { q: termo.substring(0, 80), pagina: 1, tamanhoPagina: limite },
-      },
       {
         url: `${PNCP_CONSULTA_BASE}/contratacoes/publicacao`,
         params: {
           dataInicial: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0].replace(/-/g, ''),
           dataFinal: new Date().toISOString().split('T')[0].replace(/-/g, ''),
+          codigoModalidadeContratacao: 6,
           pagina: 1,
           tamanhoPagina: limite,
         },
@@ -239,43 +235,41 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
   readonly fonte: FontePesquisaTipo = 'MIDIA_ESPECIALIZADA';
   private readonly logger = new Logger(WebEspecializadaProvider.name);
 
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly systemConfigService: SystemConfigService,
+  ) {}
+
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
-    if (!context.scope.usarBrowserFallback) return candidatos;
 
     for (const item of context.itens) {
       const termo = termoItem(item);
       if (!termo) continue;
 
       try {
-        const res = await axios.get('https://api.mercadolibre.com/sites/MLB/search', {
-          params: { q: termo, limit: context.scope.maxPorFonte || 5 },
-          timeout: REQUEST_TIMEOUT_MS,
-          headers: HTTP_HEADERS,
-        });
-        const results = Array.isArray(res.data?.results) ? res.data.results : [];
-
+        const results = await this.buscarComIaWeb(item, context.scope.maxPorFonte || 5);
         for (const produto of results) {
-          const valor = Number(produto.price || 0);
+          const valor = Number(produto.valor_unitario || 0);
           if (valor <= 0) continue;
           candidatos.push({
             item_numero: item.numero_item,
-            fonte_tipo: 'MIDIA_ESPECIALIZADA',
-            descricao_fonte: `Internet - ${produto.title || 'produto encontrado'}`,
-            url_referencia: produto.permalink,
-            data_pesquisa: hojeISO(),
-            fornecedor_razao_social: produto.seller?.nickname,
+            fonte_tipo: this.classificarFontePelaUrl(produto.url || produto.url_referencia),
+            descricao_fonte: produto.descricao_fonte || produto.fonte || 'Fonte web verificada',
+            url_referencia: produto.url || produto.url_referencia,
+            data_pesquisa: produto.data || produto.data_pesquisa || hojeISO(),
+            fornecedor_razao_social: produto.fornecedor,
             valor_unitario: valor,
             quantidade_base: 1,
             unidade: String(item.unidade_medida || 'UN'),
             evidencia: {
               tipo: 'api',
-              origem: 'Mercado Livre API publica',
+              origem: 'Busca web via Perplexity Sonar/OpenRouter',
               coletado_em: new Date().toISOString(),
-              titulo: produto.title,
+              titulo: produto.observacao || termo,
             },
-            score: 70,
-            flags: ['Preco de marketplace: conferir frete, marca, especificacao e disponibilidade.'],
+            score: 82,
+            flags: ['Fonte encontrada por busca web: validar aderência técnica antes de aprovar.'],
           });
         }
       } catch (error) {
@@ -284,6 +278,93 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
     }
 
     return candidatos;
+  }
+
+  private async getOpenRouterKey(): Promise<string | null> {
+    const fromEnv = this.configService.get<string>('OPENROUTER_API_KEY');
+    if (fromEnv) return fromEnv;
+    const cfg = await this.systemConfigService.getIaConfig().catch(() => null);
+    return cfg?.apiKey || null;
+  }
+
+  private async buscarComIaWeb(item: ItemLicitacao, limite: number): Promise<any[]> {
+    const apiKey = await this.getOpenRouterKey();
+    if (!apiKey) {
+      this.logger.warn('Busca web indisponível: configure a API Key OpenRouter em Admin → Configurações de IA.');
+      return [];
+    }
+
+    const termo = termoItem(item);
+    const prompt = `Pesquise preços reais publicados na internet para pesquisa de preços de contratação pública brasileira.
+
+Item: ${termo}
+Quantidade: ${Number(item.quantidade) || 1}
+Unidade: ${item.unidade_medida || 'UN'}
+
+Priorize fontes verificáveis:
+1. PNCP em pncp.gov.br
+2. Compras.gov.br / Painel de Preços
+3. portais oficiais .gov.br
+4. fornecedores/distribuidores com página pública de preço
+
+Retorne somente JSON array válido, sem markdown:
+[
+  {
+    "valor_unitario": 123.45,
+    "descricao_fonte": "nome do órgão, fornecedor ou portal",
+    "url": "https://url-real-verificavel",
+    "data": "YYYY-MM-DD",
+    "fornecedor": "nome se houver",
+    "observacao": "descrição breve do contexto encontrado"
+  }
+]
+
+Regras:
+- Não invente preço.
+- Inclua apenas itens com URL real começando com http.
+- Se não encontrar preço verificável, retorne [].`;
+
+    const response = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://portaldcp.gov.br',
+        'X-Title': 'Portal DCP — Pesquisa de Preços',
+      },
+      body: JSON.stringify({
+        model: WEB_SEARCH_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      this.logger.warn(`Busca web OpenRouter ${response.status}: ${err.substring(0, 200)}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((r) => Number(r.valor_unitario) > 0 && String(r.url || r.url_referencia || '').startsWith('http'))
+          .slice(0, limite)
+      : [];
+  }
+
+  private classificarFontePelaUrl(url?: string): FontePesquisaTipo {
+    if (!url) return 'MIDIA_ESPECIALIZADA';
+    if (url.includes('pncp.gov.br')) return 'PNCP';
+    if (url.includes('paineldeprecos') || url.includes('compras.gov.br') || url.includes('comprasnet')) return 'PAINEL_DE_PRECOS';
+    if (url.includes('.gov.br')) return 'CONTRATO_VIGENTE_SISTEMA';
+    return 'MIDIA_ESPECIALIZADA';
   }
 }
 
