@@ -106,7 +106,7 @@ export class CatalogoService {
       if (palavras.length > 1) {
         // Busca com múltiplas palavras: todas devem estar presentes
         const conditions = palavras.map((_, i) => 
-          `(unaccent(LOWER(item.descricao)) LIKE unaccent(:palavra${i}) OR unaccent(LOWER(item.palavras_chave)) LIKE unaccent(:palavra${i}))`
+          `(LOWER(item.descricao) LIKE :palavra${i} OR LOWER(COALESCE(item.palavras_chave, '')) LIKE :palavra${i})`
         ).join(' AND ');
         
         const params: any = {};
@@ -118,7 +118,7 @@ export class CatalogoService {
       } else {
         // Busca simples: termo único
         queryBuilder.andWhere(
-          '(unaccent(LOWER(item.descricao)) LIKE unaccent(LOWER(:termo)) OR item.codigo ILIKE :termo OR unaccent(LOWER(item.palavras_chave)) LIKE unaccent(LOWER(:termo)))',
+          "(LOWER(item.descricao) LIKE :termo OR item.codigo ILIKE :termo OR LOWER(COALESCE(item.palavras_chave, '')) LIKE :termo)",
           { termo: `%${termoNormalizado}%` }
         );
       }
@@ -142,7 +142,7 @@ export class CatalogoService {
     if (termo) {
       queryBuilder
         .addSelect(
-          'CASE WHEN unaccent(LOWER(item.descricao)) LIKE unaccent(LOWER(:termoInicio)) THEN 0 ELSE 1 END',
+          'CASE WHEN LOWER(item.descricao) LIKE LOWER(:termoInicio) THEN 0 ELSE 1 END',
           'prioridade_busca',
         )
         .setParameter('termoInicio', `${termo.trim()}%`)
