@@ -60,6 +60,32 @@ function dataDentroDosUltimosDias(dataIso: string, dias: number): boolean {
   return data >= limite;
 }
 
+function extrairJsonArray(texto: string): any[] {
+  const limpo = (texto || '')
+    .replace(/```json/gi, '```')
+    .replace(/```/g, '')
+    .trim();
+
+  const inicio = limpo.indexOf('[');
+  const fim = limpo.lastIndexOf(']');
+  if (inicio === -1 || fim === -1 || fim <= inicio) return [];
+
+  const trecho = limpo.slice(inicio, fim + 1);
+  try {
+    const parsed = JSON.parse(trecho);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    const objetos = trecho.match(/\{[\s\S]*?\}/g) || [];
+    return objetos.flatMap((objeto) => {
+      try {
+        return [JSON.parse(objeto)];
+      } catch {
+        return [];
+      }
+    });
+  }
+}
+
 function asArray(data: any): any[] {
   if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.itens)) return data.itens;
@@ -385,10 +411,7 @@ Regras:
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return [];
-
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = extrairJsonArray(content);
     return Array.isArray(parsed)
       ? parsed
           .filter((r) => Number(r.valor_unitario) > 0 && String(r.url || r.url_referencia || '').startsWith('http'))
