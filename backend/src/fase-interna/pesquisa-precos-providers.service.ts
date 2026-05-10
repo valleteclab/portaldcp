@@ -65,6 +65,8 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
+    if (!context.scope.usarBrowserFallback) return candidatos;
+
     for (const item of context.itens) {
       const termo = termoItem(item);
       if (!termo) continue;
@@ -330,7 +332,7 @@ Regras:
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://portaldcp.gov.br',
-        'X-Title': 'Portal DCP — Pesquisa de Preços',
+        'X-Title': 'Portal DCP - Pesquisa de Precos',
       },
       body: JSON.stringify({
         model: WEB_SEARCH_MODEL,
