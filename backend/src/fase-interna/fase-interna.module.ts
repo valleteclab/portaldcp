@@ -10,12 +10,15 @@ import { DocumentoEstruturadoController } from './documento-estruturado.controll
 import { GeradorDocumentoService } from './gerador-documento.service';
 import { PncpPublicacaoService } from './pncp-publicacao.service';
 import { AnaliseContratosService } from './analise-contratos.service';
+import { PesquisaPrecosAgenteService } from './pesquisa-precos-agente.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
+import { IaModule } from '../ia/ia.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DocumentoFaseInterna, LogFaseInterna, Licitacao, Contrato]),
+    IaModule,
   ],
   controllers: [FaseInternaController, DocumentoEstruturadoController],
   providers: [
@@ -25,7 +28,8 @@ import { Contrato } from '../contratos/entities/contrato.entity';
     GeradorDocumentoService,
     PncpPublicacaoService,
     AnaliseContratosService,
+    PesquisaPrecosAgenteService,
   ],
-  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService],
+  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgenteService],
 })
 export class FaseInternaModule {}

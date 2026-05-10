@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, type ReactElement } from "react"
+import { useState, useEffect, useCallback, type FC } from "react"
 import Link from "next/link"
 import {
   FileText, Clock, CheckCircle2, DollarSign,
@@ -68,7 +68,7 @@ const STATUS_CHIP: Record<string, { bg: string; text: string }> = {
 }
 
 // IA alert styles
-type IconComponent = (props: { className?: string }) => ReactElement | null
+type IconComponent = FC<{ className?: string }>
 const ALERTA_STYLE: Record<AlertaIA["tipo"], {
   bg: string; border: string; icon: IconComponent; iconColor: string; titleColor: string
 }> = {

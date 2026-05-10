@@ -1,10 +1,14 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
 import { FaseInternaService } from './fase-interna.service';
+import { PesquisaPrecosAgenteService, BuscaPrecoInput } from './pesquisa-precos-agente.service';
 import { TipoDocumentoFaseInterna, OrigemDocumento } from './entities/documento-fase-interna.entity';
 
 @Controller('fase-interna')
 export class FaseInternaController {
-  constructor(private readonly faseInternaService: FaseInternaService) {}
+  constructor(
+    private readonly faseInternaService: FaseInternaService,
+    private readonly pesquisaPrecosAgente: PesquisaPrecosAgenteService,
+  ) {}
 
   // === DOCUMENTOS ===
 
@@ -266,5 +270,66 @@ export class FaseInternaController {
     }
   ) {
     return this.faseInternaService.salvarWizard(licitacaoId, body);
+  }
+
+  // === PESQUISA DE PREÇOS AUTOMÁTICA (PNCP + Painel de Preços + IA) ===
+
+  /**
+   * Pesquisa preços de um item nas fontes governamentais (PNCP, Painel de Preços) e IA.
+   * POST /fase-interna/precos/pesquisar
+   */
+  @Post('precos/pesquisar')
+  async pesquisarPrecoItem(@Body() body: BuscaPrecoInput) {
+    return this.pesquisaPrecosAgente.pesquisarPrecos(body);
+  }
+
+  /**
+   * Pesquisa preços de múltiplos itens em batch.
+   * POST /fase-interna/precos/pesquisar-batch
+   */
+  @Post('precos/pesquisar-batch')
+  async pesquisarPrecosBatch(@Body() body: { itens: BuscaPrecoInput[] }) {
+    return this.pesquisaPrecosAgente.pesquisarItens(body.itens);
+  }
+
+  /**
+   * Pesquisa preços para os itens de uma licitação e salva no documento de PP.
+   * POST /fase-interna/:licitacaoId/precos/pesquisar-e-salvar
+   */
+  @Post(':licitacaoId/precos/pesquisar-e-salvar')
+  async pesquisarESalvar(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: { itens: BuscaPrecoInput[] },
+  ) {
+    const { itens: itensResultado, resumo } = await this.pesquisaPrecosAgente.pesquisarItens(body.itens);
+
+    // Salva cada cotação encontrada no documento de PP da licitação
+    for (let idx = 0; idx < itensResultado.length; idx++) {
+      const item = itensResultado[idx];
+      const itemNumero = idx + 1;
+
+      // Cria o item se ainda não existe
+      try {
+        await this.faseInternaService.adicionarItemPesquisa(licitacaoId, {
+          item_numero: itemNumero,
+          descricao: item.descricao || body.itens[idx]?.descricao || '',
+          quantidade: item.quantidade || 1,
+          unidade: item.unidade || 'UN',
+          cotacoes: item.cotacoes || [],
+          metodologia: 'MEDIANA',
+          valor_referencial: item.valor_referencial || 0,
+        });
+      } catch {
+        // Item pode já existir — adiciona cotações individualmente
+        for (const cotacao of item.cotacoes || []) {
+          try {
+            await this.faseInternaService.adicionarFontePreco(licitacaoId, itemNumero, cotacao);
+          } catch { /* ignora duplicatas */ }
+        }
+      }
+    }
+
+    const dadosAtualizados = await this.faseInternaService.getPrecos(licitacaoId);
+    return { ...dadosAtualizados, resumo };
   }
 }

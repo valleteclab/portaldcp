@@ -4,7 +4,7 @@ import { In, Repository } from 'typeorm';
 import { DocumentoFaseInterna, TipoDocumentoFaseInterna, StatusDocumento, OrigemDocumento } from './entities/documento-fase-interna.entity';
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { RiscoIdentificado, MatrizRiscosDados, calcularGrauRisco } from './types/matriz-riscos.type';
-import { CotacaoPorFonte, PesquisaPrecosDados, calcularEstatisticasItem } from './types/pesquisa-precos.type';
+import { CotacaoPorFonte, ItemPesquisaPrecos, PesquisaPrecosDados, calcularEstatisticasItem } from './types/pesquisa-precos.type';
 
 /**
  * Servico para gerenciamento da Fase Interna (Preparatoria)
@@ -547,6 +547,21 @@ export class FaseInternaService {
         conformeArt23: totalFontes >= 3,
       },
     };
+  }
+
+  async adicionarItemPesquisa(licitacaoId: string, item: ItemPesquisaPrecos): Promise<PesquisaPrecosDados> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+
+    const existe = dados.itens.some(i => i.item_numero === item.item_numero);
+    if (existe) throw new Error(`Item ${item.item_numero} já existe`);
+
+    const itemComStats = calcularEstatisticasItem(item);
+    dados.itens.push(itemComStats);
+
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+    return dados;
   }
 
   async adicionarFontePreco(licitacaoId: string, itemNumero: number, cotacao: CotacaoPorFonte): Promise<PesquisaPrecosDados> {

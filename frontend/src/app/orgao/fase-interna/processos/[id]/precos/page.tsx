@@ -218,8 +218,30 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
 
   const buscarNoPNCP = async () => {
     setBuscandoPNCP(true)
-    await new Promise((r) => setTimeout(r, 1500))
-    setBuscandoPNCP(false)
+    try {
+      // Determina o objeto/descrição da pesquisa a partir dos itens já carregados
+      const descricao = dados?.itens?.[0]?.descricao || "Licença de software"
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/pesquisar-e-salvar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itens: [
+            {
+              descricao,
+              quantidade: dados?.itens?.[0]?.quantidade ?? 1,
+              unidade: dados?.itens?.[0]?.unidade ?? "UN",
+            },
+          ],
+        }),
+      })
+      if (res.ok) {
+        await carregarPrecos()
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setBuscandoPNCP(false)
+    }
   }
 
   const adicionarFonte = async () => {
