@@ -597,6 +597,31 @@ export class FaseInternaService {
     return dados;
   }
 
+  async salvarComprovanteCotacao(
+    licitacaoId: string,
+    itemNumero: number,
+    cotacaoIndex: number,
+    path: string,
+  ): Promise<PesquisaPrecosDados> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+
+    const itemIdx = dados.itens.findIndex((i) => i.item_numero === itemNumero);
+    if (itemIdx === -1) throw new NotFoundException(`Item ${itemNumero} nao encontrado`);
+
+    const cotacoes = dados.itens[itemIdx].cotacoes || [];
+    if (cotacaoIndex < 0 || cotacaoIndex >= cotacoes.length) {
+      throw new BadRequestException(`Cotacao index ${cotacaoIndex} invalido`);
+    }
+
+    cotacoes[cotacaoIndex] = { ...cotacoes[cotacaoIndex], documento_comprobatorio_path: path };
+    dados.itens[itemIdx].cotacoes = cotacoes;
+
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+    return dados;
+  }
+
   // ========================================
   // APROVAÇÕES AGREGADAS
   // ========================================
