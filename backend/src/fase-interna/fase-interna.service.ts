@@ -606,6 +606,34 @@ export class FaseInternaService {
     return dados;
   }
 
+  async removerCotacoesEstimadasDoAgente(licitacaoId: string): Promise<PesquisaPrecosDados> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+    let alterou = false;
+
+    dados.itens = (dados.itens || []).map((item) => {
+      const cotacoes = item.cotacoes || [];
+      const filtradas = cotacoes.filter((cotacao) => {
+        const descricao = this.normalizarTextoCotacao(cotacao.descricao_fonte);
+        const observacao = this.normalizarTextoCotacao(cotacao.observacao);
+        const fallbackEstimado =
+          descricao.includes('valor estimado do item') &&
+          observacao.includes('incluida por agente de pesquisa de precos');
+        if (fallbackEstimado) alterou = true;
+        return !fallbackEstimado;
+      });
+
+      if (filtradas.length === cotacoes.length) return item;
+      return calcularEstatisticasItem({ ...item, cotacoes: filtradas });
+    });
+
+    if (!alterou) return dados;
+
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+    return dados;
+  }
+
   private normalizarCotacao(cotacao: CotacaoPorFonte | any): CotacaoPorFonte {
     const tipoLegado = cotacao.tipo || cotacao.fonte;
     const mapaTipo: Record<string, CotacaoPorFonte['fonte']> = {

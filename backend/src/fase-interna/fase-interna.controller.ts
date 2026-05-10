@@ -346,6 +346,7 @@ export class FaseInternaController {
       }
     }
 
+    await this.faseInternaService.removerCotacoesEstimadasDoAgente(licitacaoId);
     return this.faseInternaService.getPrecos(licitacaoId);
   }
 

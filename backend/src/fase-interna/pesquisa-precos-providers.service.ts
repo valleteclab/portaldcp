@@ -40,6 +40,15 @@ function codigoCatalogoItem(item: ItemLicitacao): string {
   return String(item.codigo_catmat || item.codigo_catser || item.codigo_catalogo || '').replace(/\D/g, '');
 }
 
+function endpointsPesquisaPreco(item: ItemLicitacao): Array<{ tipo: 'material' | 'servico'; path: string }> {
+  const material = { tipo: 'material' as const, path: '/modulo-pesquisa-preco/1_consultarMaterial' };
+  const servico = { tipo: 'servico' as const, path: '/modulo-pesquisa-preco/3_consultarServico' };
+
+  if (item.codigo_catser) return [servico, material];
+  if (item.codigo_catmat) return [material, servico];
+  return [material, servico];
+}
+
 function hojeISO(): string {
   return new Date().toISOString().split('T')[0];
 }
@@ -56,6 +65,17 @@ function normalizarDataPesquisa(valor: unknown): string {
   if (matchBr) return `${matchBr[3]}-${matchBr[2]}-${matchBr[1]}`;
   const data = new Date(texto);
   return Number.isNaN(data.getTime()) ? hoje : data.toISOString().split('T')[0];
+}
+
+function dataRegistroPreco(registro: any): string {
+  const valor =
+    registro?.dataResultado ||
+    registro?.dataCompra ||
+    registro?.dataHomologacao ||
+    registro?.dataPublicacaoPncp ||
+    registro?.dataInclusao ||
+    registro?.dataAtualizacao;
+  return valor ? normalizarDataPesquisa(valor) : '';
 }
 
 function dataDentroDosUltimosDias(dataIso: string, dias: number): boolean {
@@ -233,12 +253,14 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
           for (const registro of registros) {
             const valor = Number(registro.precoUnitario || registro.valorUnitario || 0);
             if (valor <= 0) continue;
+            const dataPreco = dataRegistroPreco(registro);
+            if (!dataPreco) continue;
             candidatos.push({
               item_numero: item.numero_item,
               fonte_tipo: 'PAINEL_DE_PRECOS',
               descricao_fonte: `Pesquisa de Precos Compras.gov.br - ${registro.nomeUasg || registro.nomeOrgao || 'Dados Abertos'}`,
               url_referencia: registro.urlConsulta,
-              data_pesquisa: String(registro.dataResultado || registro.dataCompra || hojeISO()).split('T')[0],
+              data_pesquisa: dataPreco,
               fornecedor_cnpj: registro.niFornecedor,
               fornecedor_razao_social: registro.nomeFornecedor,
               valor_unitario: Number(valor.toFixed(4)),
@@ -260,53 +282,49 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
         }
       }
 
-      const valorEstimado = Number(item.valor_unitario_estimado);
-      if (valorEstimado > 0) {
-        candidatos.push({
-          item_numero: item.numero_item,
-          fonte_tipo: 'PAINEL_DE_PRECOS',
-          descricao_fonte: 'Pesquisa de Precos Compras.gov.br - valor estimado do item',
-          url_referencia: PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL,
-          data_pesquisa: hojeISO(),
-          valor_unitario: valorEstimado,
-          quantidade_base: Number(item.quantidade) || 1,
-          unidade: String(item.unidade_medida || 'UN'),
-          evidencia: {
-            tipo: 'manual',
-            origem: 'Valor estimado cadastrado no processo para conferencia no Pesquisa de Precos Compras.gov.br',
-            coletado_em: new Date().toISOString(),
-          },
-          score: 78,
-          flags: ['Validar no Pesquisa de Precos Compras.gov.br antes de aprovar como fonte oficial.'],
-        });
-      }
+      this.logger.debug(`Pesquisa de Precos Compras.gov.br sem resultado oficial para item ${item.numero_item}.`);
     }
 
     return candidatos;
   }
 
   private async consultarPesquisaPreco(item: ItemLicitacao, codigo: string, limite: number): Promise<any[]> {
-    const endpoint = item.codigo_catser
-      ? '/modulo-pesquisa-preco/3_consultarServico'
-      : '/modulo-pesquisa-preco/1_consultarMaterial';
     const tamanhoPagina = Math.min(500, Math.max(10, limite * 4));
-    const res = await axios.get(`${DADOS_ABERTOS_COMPRAS_BASE}${endpoint}`, {
-      timeout: REQUEST_TIMEOUT_MS,
-      headers: HTTP_HEADERS,
-      params: {
-        codigoItemCatalogo: codigo,
-        pagina: 1,
-        tamanhoPagina,
-      },
-    });
-    return asArray(res.data)
-      .filter((registro) => Number(registro.precoUnitario || registro.valorUnitario || 0) > 0)
-      .map((registro) => ({
-        ...registro,
-        urlConsulta: `${DADOS_ABERTOS_COMPRAS_BASE}${endpoint}?codigoItemCatalogo=${encodeURIComponent(codigo)}&pagina=1&tamanhoPagina=${tamanhoPagina}`,
-        urlFerramenta: PESQUISA_PRECOS_DADOS_ABERTOS_URL,
-      }))
-      .slice(0, limite);
+    let ultimoErro: unknown;
+
+    for (const endpoint of endpointsPesquisaPreco(item)) {
+      try {
+        const res = await axios.get(`${DADOS_ABERTOS_COMPRAS_BASE}${endpoint.path}`, {
+          timeout: REQUEST_TIMEOUT_MS,
+          headers: HTTP_HEADERS,
+          params: {
+            codigoItemCatalogo: codigo,
+            pagina: 1,
+            tamanhoPagina,
+          },
+        });
+        const registros = asArray(res.data)
+          .filter((registro) => Number(registro.precoUnitario || registro.valorUnitario || 0) > 0)
+          .map((registro) => ({
+            ...registro,
+            tipoCatalogoConsultado: endpoint.tipo,
+            urlConsulta: `${DADOS_ABERTOS_COMPRAS_BASE}${endpoint.path}?codigoItemCatalogo=${encodeURIComponent(codigo)}&pagina=1&tamanhoPagina=${tamanhoPagina}`,
+            urlFerramenta: PESQUISA_PRECOS_DADOS_ABERTOS_URL,
+          }))
+          .slice(0, limite);
+
+        if (registros.length) return registros;
+      } catch (error) {
+        ultimoErro = error;
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        this.logger.debug(
+          `Pesquisa de Precos Compras.gov.br ${endpoint.tipo} falhou para codigo ${codigo}${status ? ` (HTTP ${status})` : ''}: ${(error as Error).message}`,
+        );
+      }
+    }
+
+    if (ultimoErro) throw ultimoErro;
+    return [];
   }
 }
 
