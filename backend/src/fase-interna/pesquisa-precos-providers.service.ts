@@ -7,7 +7,12 @@ import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { PesquisaPrecoAgentContext, PesquisaPrecoCandidateInput, PesquisaPrecoProvider } from './pesquisa-precos-agent.types';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 
-const REQUEST_TIMEOUT_MS = 4500;
+const REQUEST_TIMEOUT_MS = 15000;
+const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
+const HTTP_HEADERS = {
+  Accept: 'application/json',
+  'User-Agent': 'PortalDCP/1.0 (pesquisa-precos; contato=suporte@portaldcp.com.br)',
+};
 
 function termoItem(item: ItemLicitacao): string {
   return [
@@ -27,6 +32,22 @@ function hojeISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+function asArray(data: any): any[] {
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.itens)) return data.itens;
+  if (Array.isArray(data?.resultado)) return data.resultado;
+  if (Array.isArray(data)) return data;
+  return [];
+}
+
+function montarUrlPncp(registro: any): string {
+  const cnpj = String(registro.orgaoEntidade?.cnpj || registro.cnpjOrgao || registro.cnpj || '').replace(/\D/g, '');
+  const ano = registro.anoCompra || registro.ano || registro.anoContratacao || '';
+  const sequencial = registro.sequencialCompra || registro.sequencial || registro.numeroCompra || '';
+  if (cnpj && ano && sequencial) return `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${sequencial}`;
+  return registro.linkSistemaOrigem || registro.linkProcessoEletronico || 'https://pncp.gov.br/app/editais';
+}
+
 function valorUnitarioContrato(contrato: Contrato, item: ItemLicitacao): number {
   const quantidade = Number(item.quantidade) || 1;
   const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
@@ -40,49 +61,44 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
-    const hoje = new Date();
-    const dataFinal = hoje.toISOString().split('T')[0].replace(/-/g, '');
-    const dataInicial = new Date(hoje.getTime() - 365 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split('T')[0]
-      .replace(/-/g, '');
-
     for (const item of context.itens) {
       const termo = termoItem(item);
       if (!termo) continue;
 
       try {
-        const res = await axios.get('https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao', {
-          params: {
-            dataInicial,
-            dataFinal,
-            pagina: 1,
-            tamanhoPagina: context.scope.maxPorFonte || 5,
-            termo,
-          },
-          timeout: REQUEST_TIMEOUT_MS,
-        });
-
-        const registros = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+        const registros = await this.consultarPncp(termo, context.scope.maxPorFonte || 5);
         for (const registro of registros.slice(0, context.scope.maxPorFonte || 5)) {
-          const valor = Number(registro.valorTotalEstimado || registro.valorTotalHomologado || registro.valorTotal || 0);
+          const valor = Number(
+            registro.valorUnitarioHomologado ||
+            registro.valorUnitarioEstimado ||
+            registro.valorUnitario ||
+            registro.valorHomologado ||
+            registro.valorTotalEstimado ||
+            registro.valorTotalHomologado ||
+            registro.valorTotal ||
+            registro.valor ||
+            0,
+          );
           const quantidade = Number(item.quantidade) || 1;
           if (valor <= 0) continue;
+          const valorUnitario = registro.valorUnitario || registro.valorUnitarioHomologado || registro.valorUnitarioEstimado
+            ? valor
+            : Number((valor / quantidade).toFixed(4));
 
           candidatos.push({
             item_numero: item.numero_item,
             fonte_tipo: 'PNCP',
             descricao_fonte: `PNCP - ${registro.orgaoEntidade?.razaoSocial || registro.nomeOrgao || 'Contratacao publica'}`,
-            url_referencia: registro.linkSistemaOrigem || registro.linkProcessoEletronico || 'https://pncp.gov.br/app/editais',
-            data_pesquisa: hojeISO(),
-            valor_unitario: Number((valor / quantidade).toFixed(4)),
+            url_referencia: montarUrlPncp(registro),
+            data_pesquisa: (registro.dataResultado || registro.dataHomologacao || registro.dataPublicacaoPncp || hojeISO()).toString().split('T')[0],
+            valor_unitario: Number(valorUnitario.toFixed(4)),
             quantidade_base: quantidade,
             unidade: String(item.unidade_medida || 'UN'),
             evidencia: {
               tipo: 'api',
               origem: 'PNCP consulta publica',
               coletado_em: new Date().toISOString(),
-              titulo: registro.objetoCompra || registro.objeto || termo,
+              titulo: registro.descricao || registro.descricaoItem || registro.objetoCompra || registro.objeto || termo,
             },
             score: 92,
           });
@@ -93,6 +109,48 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
     }
 
     return candidatos;
+  }
+
+  private async consultarPncp(termo: string, limite: number): Promise<any[]> {
+    const descricao = termo.substring(0, 100);
+    const consultas = [
+      {
+        url: `${PNCP_CONSULTA_BASE}/itens/resultado`,
+        params: { descricao, pagina: 1, tamanhoPagina: limite },
+      },
+      {
+        url: `${PNCP_CONSULTA_BASE}/contratacoes/proposta`,
+        params: { q: termo.substring(0, 80), pagina: 1, tamanhoPagina: limite },
+      },
+      {
+        url: `${PNCP_CONSULTA_BASE}/contratacoes/publicacao`,
+        params: {
+          dataInicial: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0].replace(/-/g, ''),
+          dataFinal: new Date().toISOString().split('T')[0].replace(/-/g, ''),
+          pagina: 1,
+          tamanhoPagina: limite,
+        },
+      },
+    ];
+
+    let ultimoErro: any;
+    for (const consulta of consultas) {
+      try {
+        const res = await axios.get(consulta.url, {
+          params: consulta.params,
+          timeout: REQUEST_TIMEOUT_MS,
+          headers: HTTP_HEADERS,
+        });
+        const registros = asArray(res.data);
+        if (registros.length) return registros;
+      } catch (error) {
+        ultimoErro = error;
+        this.logger.debug(`Fallback PNCP falhou em ${consulta.url}: ${(error as Error).message}`);
+      }
+    }
+
+    if (ultimoErro) throw ultimoErro;
+    return [];
   }
 }
 
@@ -183,6 +241,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
+    if (!context.scope.usarBrowserFallback) return candidatos;
 
     for (const item of context.itens) {
       const termo = termoItem(item);
@@ -192,6 +251,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
         const res = await axios.get('https://api.mercadolibre.com/sites/MLB/search', {
           params: { q: termo, limit: context.scope.maxPorFonte || 5 },
           timeout: REQUEST_TIMEOUT_MS,
+          headers: HTTP_HEADERS,
         });
         const results = Array.isArray(res.data?.results) ? res.data.results : [];
 
@@ -219,7 +279,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
           });
         }
       } catch (error) {
-        this.logger.warn(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
+        this.logger.debug(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
       }
     }
 
