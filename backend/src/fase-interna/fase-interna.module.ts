@@ -12,6 +12,7 @@ import { GeradorDocumentoService } from './gerador-documento.service';
 import { PncpPublicacaoService } from './pncp-publicacao.service';
 import { AnaliseContratosService } from './analise-contratos.service';
 import { GeradorPpService } from './gerador-pp.service';
+import { SystemConfigModule } from '../system-config/system-config.module';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
@@ -31,6 +32,7 @@ import {
 
 @Module({
   imports: [
+    SystemConfigModule,
     TypeOrmModule.forFeature([
       DocumentoFaseInterna,
       LogFaseInterna,

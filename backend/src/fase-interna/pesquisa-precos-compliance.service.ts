@@ -3,6 +3,8 @@ import { PesquisaPrecoCandidato } from './entities/pesquisa-preco-candidato.enti
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 import { PesquisaPrecoCandidateInput } from './pesquisa-precos-agent.types';
 
+const MAX_IDADE_PRECO_DIAS = 90;
+
 @Injectable()
 export class PesquisaPrecosComplianceService {
   normalizarValor(valor: unknown): number {
@@ -10,9 +12,37 @@ export class PesquisaPrecosComplianceService {
     return Number.isFinite(n) ? Number(n.toFixed(4)) : 0;
   }
 
+  normalizarData(valor: unknown): string {
+    const hoje = new Date().toISOString().split('T')[0];
+    if (!valor) return hoje;
+    const texto = String(valor).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+    if (/^\d{4}$/.test(texto)) return `${texto}-01-01`;
+    const matchAnoMes = texto.match(/^(\d{4})-(\d{2})$/);
+    if (matchAnoMes) return `${matchAnoMes[1]}-${matchAnoMes[2]}-01`;
+    const matchBr = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (matchBr) return `${matchBr[3]}-${matchBr[2]}-${matchBr[1]}`;
+    const data = new Date(texto);
+    if (!Number.isNaN(data.getTime())) return data.toISOString().split('T')[0];
+    return hoje;
+  }
+
+  dataDentroDosUltimosDias(dataIso: string, dias: number): boolean {
+    const data = new Date(`${dataIso}T00:00:00.000Z`);
+    if (Number.isNaN(data.getTime())) return false;
+    const limite = new Date();
+    limite.setUTCHours(0, 0, 0, 0);
+    limite.setUTCDate(limite.getUTCDate() - dias);
+    return data >= limite;
+  }
+
   prepararCandidato(candidato: PesquisaPrecoCandidateInput): PesquisaPrecoCandidateInput | null {
     const valor = this.normalizarValor(candidato.valor_unitario);
-    if (valor <= 0 || !candidato.item_numero || !candidato.fonte_tipo || !candidato.data_pesquisa) {
+    if (valor <= 0 || !candidato.item_numero || !candidato.fonte_tipo) {
+      return null;
+    }
+    const dataPesquisa = this.normalizarData(candidato.data_pesquisa);
+    if (!this.dataDentroDosUltimosDias(dataPesquisa, MAX_IDADE_PRECO_DIAS)) {
       return null;
     }
 
@@ -26,6 +56,7 @@ export class PesquisaPrecosComplianceService {
 
     return {
       ...candidato,
+      data_pesquisa: dataPesquisa,
       valor_unitario: valor,
       score: Number((candidato.score ?? this.scorePorFonte(candidato.fonte_tipo, flags.size)).toFixed(2)),
       flags: [...flags],

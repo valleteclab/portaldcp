@@ -1,15 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { ILike, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ConfigService } from '@nestjs/config';
 import { Contrato, StatusContrato } from '../contratos/entities/contrato.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { SystemConfigService } from '../system-config/system-config.service';
 import { PesquisaPrecoAgentContext, PesquisaPrecoCandidateInput, PesquisaPrecoProvider } from './pesquisa-precos-agent.types';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
-import { SystemConfigService } from '../system-config/system-config.service';
 
-const REQUEST_TIMEOUT_MS = 4500;
+const REQUEST_TIMEOUT_MS = 15000;
+const MAX_IDADE_PRECO_DIAS = 90;
+const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
+const HTTP_HEADERS = {
+  Accept: 'application/json',
+  'User-Agent': 'PortalDCP/1.0 (pesquisa-precos; contato=suporte@portaldcp.com.br)',
+};
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const WEB_SEARCH_MODEL = 'perplexity/sonar-pro';
 
 function termoItem(item: ItemLicitacao): string {
   return [
@@ -29,6 +37,71 @@ function hojeISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+function normalizarDataPesquisa(valor: unknown): string {
+  const hoje = hojeISO();
+  if (!valor) return hoje;
+  const texto = String(valor).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+  if (/^\d{4}$/.test(texto)) return `${texto}-01-01`;
+  const matchAnoMes = texto.match(/^(\d{4})-(\d{2})$/);
+  if (matchAnoMes) return `${matchAnoMes[1]}-${matchAnoMes[2]}-01`;
+  const matchBr = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (matchBr) return `${matchBr[3]}-${matchBr[2]}-${matchBr[1]}`;
+  const data = new Date(texto);
+  return Number.isNaN(data.getTime()) ? hoje : data.toISOString().split('T')[0];
+}
+
+function dataDentroDosUltimosDias(dataIso: string, dias: number): boolean {
+  const data = new Date(`${dataIso}T00:00:00.000Z`);
+  if (Number.isNaN(data.getTime())) return false;
+  const limite = new Date();
+  limite.setUTCHours(0, 0, 0, 0);
+  limite.setUTCDate(limite.getUTCDate() - dias);
+  return data >= limite;
+}
+
+function extrairJsonArray(texto: string): any[] {
+  const limpo = (texto || '')
+    .replace(/```json/gi, '```')
+    .replace(/```/g, '')
+    .trim();
+
+  const inicio = limpo.indexOf('[');
+  const fim = limpo.lastIndexOf(']');
+  if (inicio === -1 || fim === -1 || fim <= inicio) return [];
+
+  const trecho = limpo.slice(inicio, fim + 1);
+  try {
+    const parsed = JSON.parse(trecho);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    const objetos = trecho.match(/\{[\s\S]*?\}/g) || [];
+    return objetos.flatMap((objeto) => {
+      try {
+        return [JSON.parse(objeto)];
+      } catch {
+        return [];
+      }
+    });
+  }
+}
+
+function asArray(data: any): any[] {
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.itens)) return data.itens;
+  if (Array.isArray(data?.resultado)) return data.resultado;
+  if (Array.isArray(data)) return data;
+  return [];
+}
+
+function montarUrlPncp(registro: any): string {
+  const cnpj = String(registro.orgaoEntidade?.cnpj || registro.cnpjOrgao || registro.cnpj || '').replace(/\D/g, '');
+  const ano = registro.anoCompra || registro.ano || registro.anoContratacao || '';
+  const sequencial = registro.sequencialCompra || registro.sequencial || registro.numeroCompra || '';
+  if (cnpj && ano && sequencial) return `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${sequencial}`;
+  return registro.linkSistemaOrigem || registro.linkProcessoEletronico || 'https://pncp.gov.br/app/editais';
+}
+
 function valorUnitarioContrato(contrato: Contrato, item: ItemLicitacao): number {
   const quantidade = Number(item.quantidade) || 1;
   const valorGlobal = Number(contrato.valor_global) || Number(contrato.valor_inicial) || 0;
@@ -42,66 +115,90 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
-    const limite6meses = new Date();
-    limite6meses.setMonth(limite6meses.getMonth() - 6);
+    if (!context.scope.usarBrowserFallback) return candidatos;
 
     for (const item of context.itens) {
-      const descricao = (item.descricao_resumida || item.descricao_detalhada || '').substring(0, 100);
-      if (!descricao) continue;
+      const termo = termoItem(item);
+      if (!termo) continue;
 
       try {
-        // Endpoint correto: itens com resultado de licitação por descrição
-        const res = await axios.get('https://pncp.gov.br/api/consulta/v1/itens/resultado', {
-          params: {
-            descricao,
-            pagina: 1,
-            tamanhoPagina: context.scope.maxPorFonte || 5,
-          },
-          timeout: REQUEST_TIMEOUT_MS,
-          headers: { Accept: 'application/json' },
-        });
-
-        const itens: any[] = res.data?.data || res.data?.itens || [];
-        for (const registro of itens.slice(0, context.scope.maxPorFonte || 5)) {
-          const valor = Number(registro.valorUnitario || registro.valorHomologado || 0);
+        const registros = await this.consultarPncp(termo, context.scope.maxPorFonte || 5);
+        for (const registro of registros.slice(0, context.scope.maxPorFonte || 5)) {
+          const valor = Number(
+            registro.valorUnitarioHomologado ||
+            registro.valorUnitarioEstimado ||
+            registro.valorUnitario ||
+            registro.valorHomologado ||
+            registro.valorTotalEstimado ||
+            registro.valorTotalHomologado ||
+            registro.valorTotal ||
+            registro.valor ||
+            0,
+          );
+          const quantidade = Number(item.quantidade) || 1;
           if (valor <= 0) continue;
-
-          const dataRef = registro.dataResultado || registro.dataAbertura || registro.dataHomologacao;
-          const dataParsed = dataRef ? new Date(dataRef) : null;
-          if (dataParsed && dataParsed < limite6meses) continue;
-
-          const cnpj = (registro.orgaoEntidade?.cnpj || '').replace(/\D/g, '');
-          const ano = registro.anoCompra || '';
-          const seq = registro.sequencialCompra || '';
-          const url = cnpj && ano && seq
-            ? `https://pncp.gov.br/app/editais/${cnpj}/${ano}/${seq}`
-            : 'https://pncp.gov.br';
+          const valorUnitario = registro.valorUnitario || registro.valorUnitarioHomologado || registro.valorUnitarioEstimado
+            ? valor
+            : Number((valor / quantidade).toFixed(4));
 
           candidatos.push({
             item_numero: item.numero_item,
             fonte_tipo: 'PNCP',
-            descricao_fonte: `PNCP — ${registro.orgaoEntidade?.razaoSocial || 'Órgão público'}`,
-            url_referencia: url,
-            data_pesquisa: dataParsed ? dataParsed.toISOString().split('T')[0] : hojeISO(),
-            fornecedor_razao_social: registro.nomeFantasia || registro.razaoSocialFornecedor,
-            valor_unitario: valor,
-            quantidade_base: Number(item.quantidade) || 1,
+            descricao_fonte: `PNCP - ${registro.orgaoEntidade?.razaoSocial || registro.nomeOrgao || 'Contratacao publica'}`,
+            url_referencia: montarUrlPncp(registro),
+            data_pesquisa: (registro.dataResultado || registro.dataHomologacao || registro.dataPublicacaoPncp || hojeISO()).toString().split('T')[0],
+            valor_unitario: Number(valorUnitario.toFixed(4)),
+            quantidade_base: quantidade,
             unidade: String(item.unidade_medida || 'UN'),
             evidencia: {
               tipo: 'api',
-              origem: 'PNCP itens/resultado',
+              origem: 'PNCP consulta publica',
               coletado_em: new Date().toISOString(),
-              titulo: registro.descricao || registro.descricaoItem || descricao,
+              titulo: registro.descricao || registro.descricaoItem || registro.objetoCompra || registro.objeto || termo,
             },
             score: 92,
           });
         }
       } catch (error) {
-        this.logger.warn(`PNCP item ${item.numero_item}: ${(error as Error).message}`);
+        this.logger.debug(`Consulta direta PNCP indisponível para item ${item.numero_item}: ${(error as Error).message}`);
       }
     }
 
     return candidatos;
+  }
+
+  private async consultarPncp(termo: string, limite: number): Promise<any[]> {
+    const consultas = [
+      {
+        url: `${PNCP_CONSULTA_BASE}/contratacoes/publicacao`,
+        params: {
+          dataInicial: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0].replace(/-/g, ''),
+          dataFinal: new Date().toISOString().split('T')[0].replace(/-/g, ''),
+          codigoModalidadeContratacao: 6,
+          pagina: 1,
+          tamanhoPagina: limite,
+        },
+      },
+    ];
+
+    let ultimoErro: any;
+    for (const consulta of consultas) {
+      try {
+        const res = await axios.get(consulta.url, {
+          params: consulta.params,
+          timeout: REQUEST_TIMEOUT_MS,
+          headers: HTTP_HEADERS,
+        });
+        const registros = asArray(res.data);
+        if (registros.length) return registros;
+      } catch (error) {
+        ultimoErro = error;
+        this.logger.debug(`Fallback PNCP falhou em ${consulta.url}: ${(error as Error).message}`);
+      }
+    }
+
+    if (ultimoErro) throw ultimoErro;
+    return [];
   }
 }
 
@@ -189,145 +286,155 @@ export class ContratosVigentesProvider implements PesquisaPrecoProvider {
 export class WebEspecializadaProvider implements PesquisaPrecoProvider {
   readonly fonte: FontePesquisaTipo = 'MIDIA_ESPECIALIZADA';
   private readonly logger = new Logger(WebEspecializadaProvider.name);
-  private readonly openrouterUrl = 'https://openrouter.ai/api/v1/chat/completions';
-  private readonly model = 'perplexity/sonar-pro';
 
   constructor(
     private readonly configService: ConfigService,
     private readonly systemConfigService: SystemConfigService,
   ) {}
 
-  private async getApiKey(): Promise<string> {
-    const fromEnv = this.configService.get<string>('OPENROUTER_API_KEY');
-    if (fromEnv) return fromEnv;
-    const cfg = await this.systemConfigService.getIaConfig().catch(() => null);
-    if (cfg?.apiKey) return cfg.apiKey;
-    throw new Error('OPENROUTER_API_KEY nao configurada');
-  }
-
-  private classificarFonte(url: string): FontePesquisaTipo {
-    if (url.includes('pncp.gov.br')) return 'PNCP';
-    if (url.includes('paineldeprecos') || url.includes('compras.gov.br') || url.includes('comprasnet')) return 'PAINEL_DE_PRECOS';
-    if (url.includes('.gov.br')) return 'CONTRATO_VIGENTE_SISTEMA';
-    return 'MIDIA_ESPECIALIZADA';
-  }
-
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
-    const maxPorFonte = context.scope.maxPorFonte || 5;
-    const limite6meses = new Date();
-    limite6meses.setMonth(limite6meses.getMonth() - 6);
-
-    this.logger.log(`Iniciando busca web de precos para ${context.itens.length} item(ns), maxPorFonte=${maxPorFonte}`);
-
-    let apiKey: string;
-    try {
-      apiKey = await this.getApiKey();
-    } catch {
-      this.logger.warn('OpenRouter nao configurado — WebEspecializadaProvider desativado');
-      return [];
-    }
+    this.logger.log(`Iniciando busca web de precos para ${context.itens.length} item(ns), maxPorFonte=${context.scope.maxPorFonte || 5}`);
 
     for (const item of context.itens) {
-      const descricao = termoItem(item);
-      if (!descricao) continue;
-
-      const prompt = `Pesquise preços reais de licitação/compra pública brasileira para o item abaixo.
-
-ITEM: ${descricao}
-QUANTIDADE: ${item.quantidade || 1} ${item.unidade_medida || 'UN'}
-
-Busque no PNCP (pncp.gov.br), Painel de Preços (paineldeprecos.planejamento.gov.br), sites de fornecedores e distribuidores.
-
-Retorne SOMENTE um JSON array, sem texto fora do JSON:
-[{"valor_unitario":1234.56,"descricao_fonte":"Órgão/portal","url":"https://url-real.gov.br","data":"YYYY-MM-DD","fornecedor":"nome se disponível","observacao":"contexto breve"}]
-
-REGRAS: inclua apenas preços com URL real verificável. NÃO invente valores. Se não encontrar, retorne [].`;
+      const termo = termoItem(item);
+      if (!termo) continue;
 
       try {
-        const response = await fetch(this.openrouterUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://portaldcp.gov.br',
-            'X-Title': 'Portal DCP — Pesquisa de Preços',
-          },
-          body: JSON.stringify({
-            model: this.model,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1,
-            max_tokens: 1500,
-          }),
-          signal: AbortSignal.timeout(15000),
-        });
-
-        if (!response.ok) {
-          this.logger.warn(`OpenRouter erro ${response.status} para item ${item.numero_item}`);
-          continue;
-        }
-
-        const data = await response.json();
-        const content: string = data.choices?.[0]?.message?.content || '';
-
-        this.logger.log(`OpenRouter retornou ${content.length} caractere(s), ` +
-          `${(content.match(/valor_unitario/g) || []).length} item(ns) JSON parseado(s). ` +
-          `Prévia: ${content.substring(0, 200)}`);
-
-        const jsonMatch = content.match(/\[[\s\S]*\]/);
-        if (!jsonMatch) continue;
-
-        const parsed: any[] = JSON.parse(jsonMatch[0]);
-        let aceitos = 0;
-        let descartados = 0;
-
-        for (const p of parsed.slice(0, maxPorFonte)) {
-          const valor = Number(p.valor_unitario || 0);
-          const url = String(p.url || '');
-          if (valor <= 0 || !url.startsWith('http')) continue;
-
-          const dataStr = p.data || '';
-          const dataParsed = dataStr ? new Date(dataStr) : null;
-          if (dataParsed && !isNaN(dataParsed.getTime()) && dataParsed < limite6meses) {
-            descartados++;
+        const results = await this.buscarComIaWeb(item, context.scope.maxPorFonte || 5);
+        let descartadosPorData = 0;
+        for (const produto of results) {
+          const valor = Number(produto.valor_unitario || 0);
+          if (valor <= 0) continue;
+          const dataPesquisa = normalizarDataPesquisa(produto.data || produto.data_pesquisa);
+          if (!dataDentroDosUltimosDias(dataPesquisa, MAX_IDADE_PRECO_DIAS)) {
+            descartadosPorData += 1;
             continue;
           }
-
-          aceitos++;
-          const fonte = this.classificarFonte(url);
           candidatos.push({
             item_numero: item.numero_item,
-            fonte_tipo: fonte,
-            descricao_fonte: p.descricao_fonte || p.fornecedor || url,
-            url_referencia: url,
-            data_pesquisa: dataParsed && !isNaN(dataParsed.getTime())
-              ? dataParsed.toISOString().split('T')[0]
-              : hojeISO(),
-            fornecedor_razao_social: p.fornecedor || undefined,
+            fonte_tipo: this.classificarFontePelaUrl(produto.url || produto.url_referencia),
+            descricao_fonte: produto.descricao_fonte || produto.fonte || 'Fonte web verificada',
+            url_referencia: produto.url || produto.url_referencia,
+            data_pesquisa: dataPesquisa,
+            fornecedor_razao_social: produto.fornecedor,
             valor_unitario: valor,
-            quantidade_base: Number(item.quantidade) || 1,
+            quantidade_base: 1,
             unidade: String(item.unidade_medida || 'UN'),
-            observacao: p.observacao || descricao,
             evidencia: {
               tipo: 'api',
-              origem: 'Perplexity Sonar via OpenRouter',
+              origem: 'Busca web via Perplexity Sonar/OpenRouter',
               coletado_em: new Date().toISOString(),
-              titulo: p.descricao_fonte || descricao,
+              titulo: produto.observacao || termo,
             },
-            score: fonte === 'PNCP' ? 92 : fonte === 'PAINEL_DE_PRECOS' ? 88 : 72,
-            flags: fonte === 'MIDIA_ESPECIALIZADA'
-              ? ['Conferir especificacao, frete e disponibilidade antes de aprovar.']
-              : undefined,
+            score: 82,
+            flags: ['Fonte encontrada por busca web: validar aderência técnica antes de aprovar.'],
           });
         }
-
-        this.logger.log(`Busca web item ${item.numero_item}: ${parsed.length} resultado(s) parseado(s), ${descartados} descartado(s) por data, ${aceitos} candidato(s) aceito(s)`);
+        this.logger.log(
+          `Busca web item ${item.numero_item}: ${results.length} resultado(s) parseado(s), ${descartadosPorData} descartado(s) por data, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
+        );
       } catch (error) {
-        this.logger.warn(`Busca web item ${item.numero_item}: ${(error as Error).message}`);
+        this.logger.warn(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
       }
     }
 
     return candidatos;
+  }
+
+  private async getOpenRouterKey(): Promise<string | null> {
+    const cfg = await this.systemConfigService.getIaConfig().catch(() => null);
+    if (cfg?.apiKey) return cfg.apiKey;
+    return this.configService.get<string>('OPENROUTER_API_KEY') || null;
+  }
+
+  private async buscarComIaWeb(item: ItemLicitacao, limite: number): Promise<any[]> {
+    const apiKey = await this.getOpenRouterKey();
+    if (!apiKey) {
+      this.logger.warn('Busca web indisponível: configure a API Key OpenRouter em Admin → Configurações de IA.');
+      return [];
+    }
+
+    const termo = termoItem(item);
+    const dataMinima = new Date();
+    dataMinima.setUTCDate(dataMinima.getUTCDate() - MAX_IDADE_PRECO_DIAS);
+    const dataMinimaIso = dataMinima.toISOString().split('T')[0];
+
+    const prompt = `Pesquise preços reais atuais no Brasil para pesquisa de preços de contratação pública brasileira.
+
+Item: ${termo}
+Quantidade: ${Number(item.quantidade) || 1}
+Unidade: ${item.unidade_medida || 'UN'}
+País/mercado: Brasil
+Período obrigatório: somente preços publicados ou vigentes entre ${dataMinimaIso} e ${hojeISO()}.
+
+Priorize fontes verificáveis:
+1. PNCP em pncp.gov.br
+2. Compras.gov.br / Painel de Preços
+3. portais oficiais .gov.br
+4. fornecedores/distribuidores com página pública de preço
+
+Retorne somente JSON array válido, sem markdown:
+[
+  {
+    "valor_unitario": 123.45,
+    "descricao_fonte": "nome do órgão, fornecedor ou portal",
+    "url": "https://url-real-verificavel",
+    "data": "YYYY-MM-DD",
+    "fornecedor": "nome se houver",
+    "observacao": "descrição breve do contexto encontrado"
+  }
+]
+
+Regras:
+- Não invente preço.
+- Não retorne preços internacionais, em dólar, ou indisponíveis no mercado brasileiro.
+- Não retorne atas, contratos, páginas ou tabelas com data anterior a ${dataMinimaIso}.
+- Inclua apenas itens com URL real começando com http.
+- A data deve estar sempre no formato completo YYYY-MM-DD; se só souber o ano, use YYYY-01-01.
+- Se não encontrar preço brasileiro verificável dos últimos ${MAX_IDADE_PRECO_DIAS} dias, retorne [].`;
+
+    const response = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://portaldcp.gov.br',
+        'X-Title': 'Portal DCP - Pesquisa de Precos',
+      },
+      body: JSON.stringify({
+        model: WEB_SEARCH_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 2000,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      this.logger.warn(`Busca web OpenRouter ${response.status}: ${err.substring(0, 200)}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const parsed = extrairJsonArray(content);
+    this.logger.log(
+      `OpenRouter retornou ${content.length} caractere(s), ${parsed.length} item(ns) JSON parseado(s). Prévia: ${content.substring(0, 300).replace(/\s+/g, ' ')}`,
+    );
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((r) => Number(r.valor_unitario) > 0 && String(r.url || r.url_referencia || '').startsWith('http'))
+          .slice(0, limite)
+      : [];
+  }
+
+  private classificarFontePelaUrl(url?: string): FontePesquisaTipo {
+    if (!url) return 'MIDIA_ESPECIALIZADA';
+    if (url.includes('pncp.gov.br')) return 'PNCP';
+    if (url.includes('paineldeprecos') || url.includes('compras.gov.br') || url.includes('comprasnet')) return 'PAINEL_DE_PRECOS';
+    if (url.includes('.gov.br')) return 'CONTRATO_VIGENTE_SISTEMA';
+    return 'MIDIA_ESPECIALIZADA';
   }
 }
 
