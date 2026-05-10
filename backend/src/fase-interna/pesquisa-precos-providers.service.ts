@@ -419,7 +419,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
           });
         }
         this.logger.log(
-          `Busca web item ${item.numero_item}: ${results.length} resultado(s) parseado(s), ${descartadosPorData} descartado(s) por data, ${descartadosPorAderencia} descartado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
+          `Busca web item ${item.numero_item}: ${results.length} resultado(s) aderente(s) recebidos, ${descartadosPorData} descartado(s) por data, ${descartadosPorAderencia} descartado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
         );
       } catch (error) {
         this.logger.warn(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);

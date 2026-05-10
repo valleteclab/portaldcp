@@ -591,7 +591,12 @@ export class FaseInternaService {
     if (itemIdx === -1) throw new NotFoundException(`Item ${itemNumero} nao encontrado na pesquisa`);
 
     const normalizada = this.normalizarCotacao(cotacao);
-    dados.itens[itemIdx].cotacoes = [...(dados.itens[itemIdx].cotacoes || []), normalizada];
+    const cotacoesAtuais = dados.itens[itemIdx].cotacoes || [];
+    if (cotacoesAtuais.some((existente) => this.cotacaoDuplicada(existente, normalizada))) {
+      return dados;
+    }
+
+    dados.itens[itemIdx].cotacoes = [...cotacoesAtuais, normalizada];
     // Recalcula estatísticas
     const stats = calcularEstatisticasItem(dados.itens[itemIdx]);
     dados.itens[itemIdx] = { ...dados.itens[itemIdx], ...stats };
@@ -630,6 +635,47 @@ export class FaseInternaService {
       documento_comprobatorio_path: cotacao.documento_comprobatorio_path,
       documento_hash: cotacao.documento_hash,
     };
+  }
+
+  private cotacaoDuplicada(a: CotacaoPorFonte, b: CotacaoPorFonte): boolean {
+    const urlA = this.normalizarUrlCotacao(a.url_referencia);
+    const urlB = this.normalizarUrlCotacao(b.url_referencia);
+    const valorA = Number(Number(a.valor_unitario || 0).toFixed(4));
+    const valorB = Number(Number(b.valor_unitario || 0).toFixed(4));
+
+    if (urlA && urlB) {
+      return urlA === urlB && valorA === valorB;
+    }
+
+    return (
+      a.fonte === b.fonte &&
+      this.normalizarTextoCotacao(a.descricao_fonte) === this.normalizarTextoCotacao(b.descricao_fonte) &&
+      valorA === valorB &&
+      this.normalizarTextoCotacao(a.data_pesquisa) === this.normalizarTextoCotacao(b.data_pesquisa)
+    );
+  }
+
+  private normalizarUrlCotacao(url?: string): string {
+    if (!url) return '';
+    try {
+      const parsed = new URL(url);
+      parsed.hash = '';
+      const params = [...parsed.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
+      parsed.search = '';
+      for (const [key, value] of params) parsed.searchParams.append(key, value);
+      return parsed.toString().replace(/\/$/, '').toLowerCase();
+    } catch {
+      return String(url).trim().replace(/\/$/, '').toLowerCase();
+    }
+  }
+
+  private normalizarTextoCotacao(valor?: string): string {
+    return (valor || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   async removerFontePreco(licitacaoId: string, itemNumero: number, cotacaoIndex: number): Promise<PesquisaPrecosDados> {
