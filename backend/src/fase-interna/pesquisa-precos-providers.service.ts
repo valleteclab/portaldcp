@@ -294,6 +294,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
+    this.logger.log(`Iniciando busca web de precos para ${context.itens.length} item(ns), maxPorFonte=${context.scope.maxPorFonte || 5}`);
 
     for (const item of context.itens) {
       const termo = termoItem(item);
@@ -301,11 +302,15 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
 
       try {
         const results = await this.buscarComIaWeb(item, context.scope.maxPorFonte || 5);
+        let descartadosPorData = 0;
         for (const produto of results) {
           const valor = Number(produto.valor_unitario || 0);
           if (valor <= 0) continue;
           const dataPesquisa = normalizarDataPesquisa(produto.data || produto.data_pesquisa);
-          if (!dataDentroDosUltimosDias(dataPesquisa, MAX_IDADE_PRECO_DIAS)) continue;
+          if (!dataDentroDosUltimosDias(dataPesquisa, MAX_IDADE_PRECO_DIAS)) {
+            descartadosPorData += 1;
+            continue;
+          }
           candidatos.push({
             item_numero: item.numero_item,
             fonte_tipo: this.classificarFontePelaUrl(produto.url || produto.url_referencia),
@@ -326,8 +331,11 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             flags: ['Fonte encontrada por busca web: validar aderência técnica antes de aprovar.'],
           });
         }
+        this.logger.log(
+          `Busca web item ${item.numero_item}: ${results.length} resultado(s) parseado(s), ${descartadosPorData} descartado(s) por data, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
+        );
       } catch (error) {
-        this.logger.debug(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
+        this.logger.warn(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
       }
     }
 
@@ -335,10 +343,9 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
   }
 
   private async getOpenRouterKey(): Promise<string | null> {
-    const fromEnv = this.configService.get<string>('OPENROUTER_API_KEY');
-    if (fromEnv) return fromEnv;
     const cfg = await this.systemConfigService.getIaConfig().catch(() => null);
-    return cfg?.apiKey || null;
+    if (cfg?.apiKey) return cfg.apiKey;
+    return this.configService.get<string>('OPENROUTER_API_KEY') || null;
   }
 
   private async buscarComIaWeb(item: ItemLicitacao, limite: number): Promise<any[]> {
@@ -412,6 +419,9 @@ Regras:
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
     const parsed = extrairJsonArray(content);
+    this.logger.log(
+      `OpenRouter retornou ${content.length} caractere(s), ${parsed.length} item(ns) JSON parseado(s). Prévia: ${content.substring(0, 300).replace(/\s+/g, ' ')}`,
+    );
     return Array.isArray(parsed)
       ? parsed
           .filter((r) => Number(r.valor_unitario) > 0 && String(r.url || r.url_referencia || '').startsWith('http'))
