@@ -1,13 +1,48 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
 import { FaseInternaService } from './fase-interna.service';
 import { PesquisaPrecosAgenteService, BuscaPrecoInput } from './pesquisa-precos-agente.service';
+import { GeradorPpService } from './gerador-pp.service';
 import { TipoDocumentoFaseInterna, OrigemDocumento } from './entities/documento-fase-interna.entity';
+
+// Configuração de storage para comprovantes de pesquisa de preços
+const comprovanteStorage = (licitacaoId: string) =>
+  diskStorage({
+    destination: (req, file, cb) => {
+      const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+      const destPath = join(uploadPath, 'pesquisa-precos', req.params.licitacaoId || licitacaoId);
+      const fs = require('fs');
+      if (!fs.existsSync(destPath)) {
+        fs.mkdirSync(destPath, { recursive: true });
+      }
+      cb(null, destPath);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      cb(null, `comprovante-${uniqueSuffix}${extname(file.originalname)}`);
+    },
+  });
 
 @Controller('fase-interna')
 export class FaseInternaController {
   constructor(
     private readonly faseInternaService: FaseInternaService,
     private readonly pesquisaPrecosAgente: PesquisaPrecosAgenteService,
+    private readonly geradorPpService: GeradorPpService,
   ) {}
 
   // === DOCUMENTOS ===
@@ -331,5 +366,96 @@ export class FaseInternaController {
 
     const dadosAtualizados = await this.faseInternaService.getPrecos(licitacaoId);
     return { ...dadosAtualizados, resumo };
+  }
+
+  /**
+   * Upload de comprovante para uma cotação específica.
+   * POST /fase-interna/:licitacaoId/precos/comprovante
+   */
+  @Post(':licitacaoId/precos/comprovante')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: comprovanteStorage(''),
+      fileFilter: (req, file, cb) => {
+        const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+        if (!allowed.includes(file.mimetype)) {
+          return cb(new BadRequestException('Apenas PDF, JPG e PNG são permitidos!'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    }),
+  )
+  async uploadComprovante(
+    @Param('licitacaoId') licitacaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('itemNumero') itemNumeroStr: string,
+    @Body('cotacaoIndex') cotacaoIndexStr: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('O arquivo é obrigatório.');
+    }
+    if (!itemNumeroStr || !cotacaoIndexStr) {
+      throw new BadRequestException('itemNumero e cotacaoIndex são obrigatórios.');
+    }
+
+    const itemNumero = parseInt(itemNumeroStr, 10);
+    const cotacaoIndex = parseInt(cotacaoIndexStr, 10);
+
+    if (isNaN(itemNumero) || isNaN(cotacaoIndex)) {
+      throw new BadRequestException('itemNumero e cotacaoIndex devem ser números inteiros.');
+    }
+
+    // Caminho relativo a partir de uploads/
+    const relativePath = `pesquisa-precos/${licitacaoId}/${file.filename}`;
+
+    await this.faseInternaService.salvarComprovanteCotacao(
+      licitacaoId,
+      itemNumero,
+      cotacaoIndex,
+      relativePath,
+    );
+
+    return {
+      url: `/api/uploads/${relativePath}`,
+      path: relativePath,
+    };
+  }
+
+  /**
+   * Gera o PDF formal da Pesquisa de Preços.
+   * POST /fase-interna/:licitacaoId/precos/gerar-documento
+   */
+  @Post(':licitacaoId/precos/gerar-documento')
+  async gerarDocumentoPP(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      responsavel: { nome: string; cargo: string; matricula?: string };
+      metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA';
+      justificativaMetodologia?: string;
+    },
+  ) {
+    // Carrega dados da pesquisa de preços
+    const { dados, estatisticas } = await this.faseInternaService.getPrecos(licitacaoId);
+
+    const dataAssinatura = new Date().toLocaleDateString('pt-BR');
+
+    const relativePath = await this.geradorPpService.gerarDocumentoPP(licitacaoId, {
+      // Os dados de processo/objeto/orgão são carregados dentro do GeradorPpService via licitacaoRepository
+      numeroProcesso: licitacaoId, // será sobrescrito dentro do gerador
+      objeto: '',
+      orgao: '',
+      itens: dados.itens,
+      metodologia: body.metodologia,
+      justificativaMetodologia: body.justificativaMetodologia,
+      valorTotalEstimado: estatisticas?.valorTotal || 0,
+      responsavel: body.responsavel,
+      dataAssinatura,
+    });
+
+    return {
+      url: `/api/uploads/${relativePath}`,
+      path: relativePath,
+    };
   }
 }

@@ -11,6 +11,7 @@ import { GeradorDocumentoService } from './gerador-documento.service';
 import { PncpPublicacaoService } from './pncp-publicacao.service';
 import { AnaliseContratosService } from './analise-contratos.service';
 import { PesquisaPrecosAgenteService } from './pesquisa-precos-agente.service';
+import { GeradorPpService } from './gerador-pp.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { IaModule } from '../ia/ia.module';
@@ -31,7 +32,8 @@ import { SystemConfigModule } from '../system-config/system-config.module';
     PncpPublicacaoService,
     AnaliseContratosService,
     PesquisaPrecosAgenteService,
+    GeradorPpService,
   ],
-  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgenteService],
+  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgenteService, GeradorPpService],
 })
 export class FaseInternaModule {}
