@@ -109,7 +109,7 @@ interface DadosPrecos {
 
 const FONTE_LABELS: Record<FontePesquisaTipo, string> = {
   PNCP: "PNCP",
-  PAINEL_DE_PRECOS: "Painel de Preços",
+  PAINEL_DE_PRECOS: "Pesquisa de Precos Compras.gov.br",
   CONTRATO_VIGENTE_SISTEMA: "Contrato Vigente",
   MIDIA_ESPECIALIZADA: "Mídia Especializada",
   FORNECEDOR_DIRETO: "Fornecedor Direto",
@@ -429,7 +429,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
     setBuscandoAuto((prev) => ({ ...prev, [item.item_numero]: true }))
     setStatusBuscaAuto((prev) => ({
       ...prev,
-      [item.item_numero]: "Consultando Compras.gov.br, PNCP, contratos vigentes e fontes web aderentes ao item...",
+      [item.item_numero]: "Consultando Pesquisa de Precos Compras.gov.br, PNCP, contratos vigentes e fontes web aderentes ao item...",
     }))
     try {
       const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/item/${item.item_numero}/agente/executar`, {

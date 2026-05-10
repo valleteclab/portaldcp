@@ -679,7 +679,7 @@ function StepPesquisa({ fontes, setFontes, onNext, onBack }: any) {
     <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
       <div className="mb-6">
         <h2 className="text-lg font-bold text-gray-900">Pesquisa de Preços</h2>
-        <p className="text-sm text-gray-500 mt-1">Inclua pelo menos 3 fontes válidas (PNCP, Painel de Preços ou cotações diretas).</p>
+        <p className="text-sm text-gray-500 mt-1">Inclua pelo menos 3 fontes válidas (PNCP, Pesquisa de Precos Compras.gov.br ou cotações diretas).</p>
         <span className="text-xs text-[#1351b4] font-medium">Art. 23 · IN SEGES/ME 65/2021</span>
       </div>
 

@@ -23,7 +23,8 @@ export interface ResultadoBuscaPreco {
 }
 
 const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
-const PAINEL_PRECOS_BASE = 'https://paineldeprecos.planejamento.gov.br/api';
+const DADOS_ABERTOS_COMPRAS_BASE = 'https://dadosabertos.compras.gov.br';
+const PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL = 'https://www.gov.br/compras/pt-br/sistemas/conheca-o-compras/pesquisa-de-precos';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 // Modelo Perplexity Sonar — busca web com citações reais
@@ -57,7 +58,7 @@ export class PesquisaPrecosAgenteService {
   }> {
     const fontes: ResultadoBuscaPreco[] = [];
 
-    // Busca em paralelo: PNCP oficial + Painel de Preços + Busca Web
+    // Busca em paralelo: PNCP oficial + Pesquisa de Precos Compras.gov.br + Busca Web
     const [pncpRes, painelRes, webRes] = await Promise.allSettled([
       this.buscarNoPNCP(input),
       this.buscarNoPainelDePrecos(input),
@@ -68,7 +69,7 @@ export class PesquisaPrecosAgenteService {
     else this.logger.warn(`PNCP: ${pncpRes.reason?.message}`);
 
     if (painelRes.status === 'fulfilled') fontes.push(...painelRes.value);
-    else this.logger.warn(`Painel de Preços: ${painelRes.reason?.message}`);
+    else this.logger.warn(`Pesquisa de Precos Compras.gov.br: ${painelRes.reason?.message}`);
 
     if (webRes.status === 'fulfilled') fontes.push(...webRes.value);
     else this.logger.warn(`Busca web: ${webRes.reason?.message}`);
@@ -78,8 +79,8 @@ export class PesquisaPrecosAgenteService {
     const fontesWeb = fontes.filter(f => f.fonte === 'MIDIA_ESPECIALIZADA').length;
 
     const resumo = fontes.length > 0
-      ? `${fontes.length} cotação(ões) com fontes reais: ${fontesPNCP} PNCP, ${fontesPainel} Painel de Preços, ${fontesWeb} web.`
-      : 'Nenhuma cotação encontrada nas fontes governamentais. Verifique se o PNCP e Painel de Preços estão acessíveis ou pesquise manualmente.';
+      ? `${fontes.length} cotação(ões) com fontes reais: ${fontesPNCP} PNCP, ${fontesPainel} Pesquisa de Precos Compras.gov.br, ${fontesWeb} web.`
+      : 'Nenhuma cotação encontrada nas fontes governamentais. Verifique se o PNCP e o Pesquisa de Precos Compras.gov.br estão acessíveis ou pesquise manualmente.';
 
     const cotacoes: CotacaoPorFonte[] = fontes.map(f => ({
       fonte: f.fonte,
@@ -184,18 +185,19 @@ export class PesquisaPrecosAgenteService {
   }
 
   /**
-   * Busca no Painel de Preços do Governo Federal (API pública).
+   * Busca no Pesquisa de Precos Compras.gov.br via Dados Abertos.
    */
   private async buscarNoPainelDePrecos(input: BuscaPrecoInput): Promise<ResultadoBuscaPreco[]> {
     const resultados: ResultadoBuscaPreco[] = [];
+    const codigo = String(input.codigoMaterial || '').replace(/\D/g, '');
+    if (!codigo) return resultados;
 
     try {
-      const resp = await axios.get(`${PAINEL_PRECOS_BASE}/preco_painel`, {
+      const resp = await axios.get(`${DADOS_ABERTOS_COMPRAS_BASE}/modulo-pesquisa-preco/1_consultarMaterial`, {
         params: {
-          descricao_item: input.descricao.substring(0, 80),
-          quantidade: 10,
+          codigoItemCatalogo: codigo,
           pagina: 1,
-          ...(input.uf ? { uf: input.uf } : {}),
+          tamanhoPagina: 10,
         },
         timeout: 8000,
         headers: {
@@ -204,48 +206,25 @@ export class PesquisaPrecosAgenteService {
         },
       });
 
-      const lista: any[] = resp.data?.resultado || resp.data?.data || (Array.isArray(resp.data) ? resp.data : []);
+      const lista: any[] = resp.data?.resultado || resp.data?.data || resp.data?.content || (Array.isArray(resp.data) ? resp.data : []);
 
       for (const item of lista.slice(0, 5)) {
-        const valor = parseFloat(item.preco_unitario || item.valorUnitario || item.preco || 0);
+        const valor = parseFloat(item.precoUnitario || item.valorUnitario || item.preco_unitario || item.preco || 0);
         if (!valor || valor <= 0) continue;
 
-        const data = item.data_compra || item.dataCompra || '';
+        const data = item.dataResultado || item.data_compra || item.dataCompra || '';
 
         resultados.push({
           fonte: 'PAINEL_DE_PRECOS',
-          descricao_fonte: `Painel de Preços — ${item.nome_orgao || item.orgao || 'Governo Federal'}`,
-          url_referencia: 'https://paineldeprecos.planejamento.gov.br',
+          descricao_fonte: `Pesquisa de Precos Compras.gov.br - ${item.nomeUasg || item.nomeOrgao || item.nome_orgao || item.orgao || 'Governo Federal'}`,
+          url_referencia: `${DADOS_ABERTOS_COMPRAS_BASE}/modulo-pesquisa-preco/1_consultarMaterial?codigoItemCatalogo=${encodeURIComponent(codigo)}&pagina=1&tamanhoPagina=10`,
           data_pesquisa: data ? data.toString().split('T')[0] : new Date().toISOString().split('T')[0],
           valor_unitario: valor,
-          observacao: item.descricao_item || item.descricao || input.descricao,
+          observacao: `${item.descricaoItem || item.descricao_item || item.descricao || input.descricao} | Fonte oficial: ${PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL}`,
         });
       }
     } catch (err: any) {
-      this.logger.warn(`Painel de Preços: ${err.message}`);
-
-      // Fallback: compras.dados.gov.br
-      try {
-        const resp2 = await axios.get('https://compras.dados.gov.br/licitacoes/v1/itens_participantes.json', {
-          params: { descricao_item: input.descricao.substring(0, 60), _limit: 5 },
-          timeout: 8000,
-        });
-
-        const itens2: any[] = resp2.data?._embedded?.itens_participantes || [];
-        for (const item of itens2.slice(0, 3)) {
-          const valor = parseFloat(item.preco_unitario || 0);
-          if (!valor || valor <= 0) continue;
-
-          resultados.push({
-            fonte: 'PAINEL_DE_PRECOS',
-            descricao_fonte: 'Painel de Preços Gov.br (compras.dados.gov.br)',
-            url_referencia: 'https://compras.dados.gov.br',
-            data_pesquisa: new Date().toISOString().split('T')[0],
-            valor_unitario: valor,
-            observacao: item.descricao_item || input.descricao,
-          });
-        }
-      } catch { /* sem dados */ }
+      this.logger.warn(`Pesquisa de Precos Compras.gov.br: ${err.message}`);
     }
 
     return resultados;
@@ -268,7 +247,7 @@ UF: ${input.uf || 'Brasil (nacional)'}
 
 Busque em:
 1. PNCP (pncp.gov.br) — resultado de licitações
-2. Painel de Preços (paineldeprecos.planejamento.gov.br)
+2. Pesquisa de Precos Compras.gov.br por CATMAT/CATSER
 3. Sites de fornecedores ou distribuidores
 4. Tabelas oficiais (SINAPI, SICRO, ANS, ANVISA) se aplicável
 
@@ -384,7 +363,7 @@ REGRAS CRÍTICAS:
 
     return {
       itens: itensResultado,
-      resumo: `Pesquisa concluída: ${totalFontes} cotações com fontes reais (${fontesPNCP} PNCP, ${fontesPainel} Painel de Preços, ${fontesWeb} web) para ${itens.length} item(ns).`,
+      resumo: `Pesquisa concluída: ${totalFontes} cotações com fontes reais (${fontesPNCP} PNCP, ${fontesPainel} Pesquisa de Precos Compras.gov.br, ${fontesWeb} web) para ${itens.length} item(ns).`,
       fontesPorItem: resultados.map((r, i) => ({ descricao: itens[i].descricao, fontes: r.fontes })),
     };
   }

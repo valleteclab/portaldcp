@@ -3,7 +3,7 @@
  * Conforme Art. 23 da Lei 14.133/2021 e IN SEGES/ME 65/2021.
  *
  * Exige no mínimo 3 fontes de pesquisa entre:
- *  I — Painel de Preços (paineldeprecos.planejamento.gov.br)
+ *  I — Pesquisa de Precos Compras.gov.br por CATMAT/CATSER
  *  II — contratações similares (PNCP / contratos vigentes)
  *  III — mídias e sítios eletrônicos especializados
  *  IV — pesquisa direta com fornecedores (mín. 3 fornecedores)
@@ -20,7 +20,7 @@ export type FontePesquisaTipo =
 
 export interface CotacaoPorFonte {
   fonte: FontePesquisaTipo;
-  descricao_fonte: string; // Ex: "Painel de Preços", "Loja XPTO", "Contrato CT-2024/0023"
+  descricao_fonte: string; // Ex: "Pesquisa de Precos Compras.gov.br", "Loja XPTO", "Contrato CT-2024/0023"
   url_referencia?: string;
   data_pesquisa: string; // ISO date
 

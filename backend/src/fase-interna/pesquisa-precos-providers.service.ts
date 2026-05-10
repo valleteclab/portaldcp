@@ -13,6 +13,8 @@ const REQUEST_TIMEOUT_MS = 15000;
 const MAX_IDADE_PRECO_DIAS = 90;
 const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
 const DADOS_ABERTOS_COMPRAS_BASE = 'https://dadosabertos.compras.gov.br';
+const PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL = 'https://www.gov.br/compras/pt-br/sistemas/conheca-o-compras/pesquisa-de-precos';
+const PESQUISA_PRECOS_DADOS_ABERTOS_URL = 'https://suportedadoslivres.streamlit.app/';
 const HTTP_HEADERS = {
   Accept: 'application/json',
   'User-Agent': 'PortalDCP/1.0 (pesquisa-precos; contato=suporte@portaldcp.com.br)',
@@ -234,7 +236,7 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
             candidatos.push({
               item_numero: item.numero_item,
               fonte_tipo: 'PAINEL_DE_PRECOS',
-              descricao_fonte: `Compras.gov.br - ${registro.nomeUasg || registro.nomeOrgao || 'Pesquisa de Precos'}`,
+              descricao_fonte: `Pesquisa de Precos Compras.gov.br - ${registro.nomeUasg || registro.nomeOrgao || 'Dados Abertos'}`,
               url_referencia: registro.urlConsulta,
               data_pesquisa: String(registro.dataResultado || registro.dataCompra || hojeISO()).split('T')[0],
               fornecedor_cnpj: registro.niFornecedor,
@@ -244,11 +246,12 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
               unidade: String(registro.siglaUnidadeFornecimento || registro.siglaUnidadeMedida || item.unidade_medida || 'UN'),
               evidencia: {
                 tipo: 'api',
-                origem: 'Dados Abertos Compras.gov.br - modulo pesquisa de preco',
+                origem: `Pesquisa de Precos Compras.gov.br por CATMAT/CATSER - ${PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL}`,
                 coletado_em: new Date().toISOString(),
                 titulo: registro.descricaoItem || registro.objetoCompra || termoItem(item),
               },
               score: 95,
+              flags: [`Fonte oficial: ${PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL}`],
             });
           }
           if (registros.length) continue;
@@ -262,19 +265,19 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
         candidatos.push({
           item_numero: item.numero_item,
           fonte_tipo: 'PAINEL_DE_PRECOS',
-          descricao_fonte: 'Painel de Precos / ComprasGov - valor estimado do item',
-          url_referencia: 'https://paineldeprecos.planejamento.gov.br/',
+          descricao_fonte: 'Pesquisa de Precos Compras.gov.br - valor estimado do item',
+          url_referencia: PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL,
           data_pesquisa: hojeISO(),
           valor_unitario: valorEstimado,
           quantidade_base: Number(item.quantidade) || 1,
           unidade: String(item.unidade_medida || 'UN'),
           evidencia: {
             tipo: 'manual',
-            origem: 'Valor estimado cadastrado no processo para conferencia no Painel de Precos',
+            origem: 'Valor estimado cadastrado no processo para conferencia no Pesquisa de Precos Compras.gov.br',
             coletado_em: new Date().toISOString(),
           },
           score: 78,
-          flags: ['Validar no Painel de Precos antes de aprovar como fonte oficial.'],
+          flags: ['Validar no Pesquisa de Precos Compras.gov.br antes de aprovar como fonte oficial.'],
         });
       }
     }
@@ -301,6 +304,7 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
       .map((registro) => ({
         ...registro,
         urlConsulta: `${DADOS_ABERTOS_COMPRAS_BASE}${endpoint}?codigoItemCatalogo=${encodeURIComponent(codigo)}&pagina=1&tamanhoPagina=${tamanhoPagina}`,
+        urlFerramenta: PESQUISA_PRECOS_DADOS_ABERTOS_URL,
       }))
       .slice(0, limite);
   }
@@ -459,7 +463,7 @@ Período obrigatório: somente preços publicados ou vigentes entre ${dataMinima
 
 Priorize fontes verificáveis:
 1. PNCP em pncp.gov.br
-2. Compras.gov.br / Painel de Preços
+2. Pesquisa de Precos Compras.gov.br por CATMAT/CATSER
 3. portais oficiais .gov.br
 4. fornecedores/distribuidores com página pública de preço
 

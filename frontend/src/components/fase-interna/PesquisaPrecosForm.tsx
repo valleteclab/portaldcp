@@ -74,7 +74,7 @@ export interface PesquisaPrecosDados {
 // Helpers
 // =============================================================================
 const FONTE_LABELS: Record<FontePesquisaTipo, string> = {
-  PAINEL_DE_PRECOS: "Painel de Preços (paineldeprecos.planejamento.gov.br)",
+  PAINEL_DE_PRECOS: "Pesquisa de Precos Compras.gov.br (CATMAT/CATSER)",
   PNCP: "PNCP — Portal Nacional de Contratações Públicas",
   CONTRATO_VIGENTE_SISTEMA: "Contrato Vigente no Sistema",
   MIDIA_ESPECIALIZADA: "Mídia / Sítio Eletrônico Especializado",
@@ -206,7 +206,7 @@ function CotacaoCard({
           <Label className="text-xs">Descrição da fonte *</Label>
           <Input
             className="mt-1"
-            placeholder='Ex: "Painel de Preços", "Loja XPTO"'
+            placeholder='Ex: "Pesquisa de Precos Compras.gov.br", "Loja XPTO"'
             value={cotacao.descricao_fonte}
             onChange={(e) => onChange({ descricao_fonte: e.target.value })}
           />
