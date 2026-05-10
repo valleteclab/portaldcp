@@ -399,21 +399,23 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   const buscarAutomatico = async (item: ItemPesquisaPrecos) => {
     setBuscandoAuto((prev) => ({ ...prev, [item.item_numero]: true }))
     try {
-      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/pesquisar-e-salvar`, {
+      // Executa o agente de pesquisa de preços com todas as fontes disponíveis
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/executar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          itens: [
-            {
-              item_numero: item.item_numero,
-              descricao: item.descricao,
-              quantidade: item.quantidade,
-              unidade: item.unidade,
-            },
-          ],
+          itemNumero: item.item_numero,
+          descricao: item.descricao,
+          quantidade: item.quantidade,
+          unidade: item.unidade,
+          fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA", "MIDIA_ESPECIALIZADA"],
+          maxPorFonte: 5,
+          autoAprovar: true, // aprova automaticamente candidatos com URL verificável
         }),
       })
-      await carregarDados()
+      if (res.ok) {
+        await carregarDados()
+      }
     } catch (e) {
       console.error(e)
     } finally {

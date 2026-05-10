@@ -673,6 +673,54 @@ export class FaseInternaService {
     return dados;
   }
 
+  async removerItemPesquisa(licitacaoId: string, itemNumero: number): Promise<PesquisaPrecosDados> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+    dados.itens = dados.itens.filter(i => i.item_numero !== itemNumero);
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+    return dados;
+  }
+
+  async salvarMetodologiaPP(
+    licitacaoId: string,
+    metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA',
+    justificativa?: string,
+  ): Promise<PesquisaPrecosDados> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+    dados.metodologia_geral = metodologia;
+    dados.observacoes = justificativa || dados.observacoes;
+    // Recalcula valor_referencial de cada item com a nova metodologia
+    dados.itens = dados.itens.map(item => {
+      const vals = (item.cotacoes || []).map(c => c.valor_unitario).filter(v => v > 0).sort((a, b) => a - b);
+      if (!vals.length) return item;
+      const mid = Math.floor(vals.length / 2);
+      const mediana = vals.length % 2 !== 0 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+      const media = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const ref = metodologia === 'MEDIANA' ? mediana : metodologia === 'MENOR_VALOR' ? vals[0] : media;
+      return { ...item, metodologia, valor_referencial: ref };
+    });
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+    return dados;
+  }
+
+  async salvarResponsavelPP(
+    licitacaoId: string,
+    responsavel: { nome: string; cargo: string; matricula?: string },
+    observacoes?: string,
+    dataPesquisa?: string,
+  ): Promise<PesquisaPrecosDados> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+    dados.responsavel_pesquisa = { nome: responsavel.nome, cargo: responsavel.cargo, matricula: responsavel.matricula };
+    if (observacoes) dados.observacoes = observacoes;
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+    return dados;
+  }
+
   // ========================================
   // APROVAÇÕES AGREGADAS
   // ========================================

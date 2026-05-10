@@ -220,6 +220,48 @@ export class FaseInternaController {
     return this.faseInternaService.getPrecos(licitacaoId);
   }
 
+  @Post(':licitacaoId/precos/item')
+  async adicionarItemPesquisa(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: { descricao: string; quantidade: number; unidade: string; codigo_catmat?: string },
+  ) {
+    const dados = await this.faseInternaService.getPrecos(licitacaoId);
+    const proximoNumero = (dados.dados?.itens?.length ?? 0) + 1;
+    return this.faseInternaService.adicionarItemPesquisa(licitacaoId, {
+      item_numero: proximoNumero,
+      descricao: body.descricao,
+      quantidade: body.quantidade || 1,
+      unidade: body.unidade || 'UN',
+      cotacoes: [],
+      metodologia: 'MEDIANA',
+      valor_referencial: 0,
+    });
+  }
+
+  @Delete(':licitacaoId/precos/item/:itemNumero')
+  async removerItemPesquisa(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('itemNumero') itemNumero: string,
+  ) {
+    return this.faseInternaService.removerItemPesquisa(licitacaoId, parseInt(itemNumero));
+  }
+
+  @Put(':licitacaoId/precos/metodologia')
+  async salvarMetodologia(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: { metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA'; justificativa?: string },
+  ) {
+    return this.faseInternaService.salvarMetodologiaPP(licitacaoId, body.metodologia, body.justificativa);
+  }
+
+  @Put(':licitacaoId/precos/responsavel')
+  async salvarResponsavel(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: { nome: string; cargo: string; matricula?: string; observacoes?: string; data_pesquisa?: string },
+  ) {
+    return this.faseInternaService.salvarResponsavelPP(licitacaoId, body, body.observacoes, body.data_pesquisa);
+  }
+
   @Post(':licitacaoId/precos/fonte')
   async adicionarFontePreco(
     @Param('licitacaoId') licitacaoId: string,
