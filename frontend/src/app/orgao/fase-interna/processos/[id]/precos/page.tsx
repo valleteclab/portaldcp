@@ -254,6 +254,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   const [removendoCotacao, setRemovendoCotacao] = useState<string | null>(null)
   const [uploadingComprovante, setUploadingComprovante] = useState<string | null>(null)
   const [buscandoAuto, setBuscandoAuto] = useState<Record<number, boolean>>({})
+  const [statusBuscaAuto, setStatusBuscaAuto] = useState<Record<number, string>>({})
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   // Aba 3 — Estatísticas
@@ -426,18 +427,26 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
 
   const buscarAutomatico = async (item: ItemPesquisaPrecos) => {
     setBuscandoAuto((prev) => ({ ...prev, [item.item_numero]: true }))
+    setStatusBuscaAuto((prev) => ({
+      ...prev,
+      [item.item_numero]: "Consultando Compras.gov.br, PNCP, contratos vigentes e fontes web aderentes ao item...",
+    }))
     try {
       const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/item/${item.item_numero}/agente/executar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA", "MIDIA_ESPECIALIZADA"],
-          maxPorFonte: 5,
+          maxPorFonte: 8,
           autoAprovar: true,
           usarBrowserFallback: true,
         }),
       })
       if (res.ok) {
+        setStatusBuscaAuto((prev) => ({
+          ...prev,
+          [item.item_numero]: "Consolidando candidatos encontrados e atualizando a pesquisa...",
+        }))
         const data = await res.json()
         // resposta agora é getPrecos() — atualiza state direto
         const d: DadosPrecos = data.dados ?? { itens: [] }
@@ -449,6 +458,11 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
       console.error(e)
     } finally {
       setBuscandoAuto((prev) => ({ ...prev, [item.item_numero]: false }))
+      setStatusBuscaAuto((prev) => {
+        const next = { ...prev }
+        delete next[item.item_numero]
+        return next
+      })
     }
   }
 
@@ -815,6 +829,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
             {itens.map((item) => {
               const expandido = expandidosCards[item.item_numero] ?? true
               const buscando = buscandoAuto[item.item_numero] ?? false
+              const statusBusca = statusBuscaAuto[item.item_numero]
 
               return (
                 <Card key={item.item_numero} className="border border-gray-100 shadow-sm">
@@ -856,6 +871,11 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
 
                   {expandido && (
                     <CardContent className="pt-0 pb-4">
+                      {statusBusca && (
+                        <div className="mb-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                          {statusBusca}
+                        </div>
+                      )}
                       {/* Tabela de cotações */}
                       {item.cotacoes.length > 0 ? (
                         <div className="overflow-x-auto mb-4">

@@ -65,6 +65,14 @@ function dataDentroDosUltimosDias(dataIso: string, dias: number): boolean {
   return data >= limite;
 }
 
+function especificacaoObrigatoria(item: ItemLicitacao): string {
+  return [item.descricao_resumida, item.descricao_detalhada]
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function extrairJsonArray(texto: string): any[] {
   const limpo = (texto || '')
     .replace(/```json/gi, '```')
@@ -219,7 +227,7 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
       const codigo = codigoCatalogoItem(item);
       if (codigo) {
         try {
-          const registros = await this.consultarPesquisaPreco(item, codigo, context.scope.maxPorFonte || 5);
+          const registros = await this.consultarPesquisaPreco(item, codigo, Math.max(5, context.scope.maxPorFonte || 5));
           for (const registro of registros) {
             const valor = Number(registro.precoUnitario || registro.valorUnitario || 0);
             if (valor <= 0) continue;
@@ -370,11 +378,16 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
       if (!termo) continue;
 
       try {
-        const results = await this.buscarComIaWeb(item, context.scope.maxPorFonte || 5);
+        const results = await this.buscarComIaWeb(item, Math.max(5, context.scope.maxPorFonte || 5));
         let descartadosPorData = 0;
+        let descartadosPorAderencia = 0;
         for (const produto of results) {
           const valor = Number(produto.valor_unitario || 0);
           if (valor <= 0) continue;
+          if (produto.aderente === false) {
+            descartadosPorAderencia += 1;
+            continue;
+          }
           const dataPesquisa = normalizarDataPesquisa(produto.data || produto.data_pesquisa);
           if (!dataDentroDosUltimosDias(dataPesquisa, MAX_IDADE_PRECO_DIAS)) {
             descartadosPorData += 1;
@@ -397,11 +410,16 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
               titulo: produto.observacao || termo,
             },
             score: 82,
-            flags: ['Fonte encontrada por busca web: validar aderência técnica antes de aprovar.'],
+            flags: [
+              'Fonte encontrada por busca web: validar aderencia tecnica antes de aprovar.',
+              ...(Array.isArray(produto.criterios_confirmados) && produto.criterios_confirmados.length
+                ? [`Criterios confirmados: ${produto.criterios_confirmados.join('; ')}`]
+                : []),
+            ],
           });
         }
         this.logger.log(
-          `Busca web item ${item.numero_item}: ${results.length} resultado(s) parseado(s), ${descartadosPorData} descartado(s) por data, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
+          `Busca web item ${item.numero_item}: ${results.length} resultado(s) parseado(s), ${descartadosPorData} descartado(s) por data, ${descartadosPorAderencia} descartado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
         );
       } catch (error) {
         this.logger.warn(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
@@ -425,13 +443,15 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
     }
 
     const termo = termoItem(item);
+    const especificacao = especificacaoObrigatoria(item) || termo;
     const dataMinima = new Date();
     dataMinima.setUTCDate(dataMinima.getUTCDate() - MAX_IDADE_PRECO_DIAS);
     const dataMinimaIso = dataMinima.toISOString().split('T')[0];
 
-    const prompt = `Pesquise preços reais atuais no Brasil para pesquisa de preços de contratação pública brasileira.
+    const prompt = `Pesquise no mínimo ${limite} preços reais atuais no Brasil para pesquisa de preços de contratação pública brasileira.
 
 Item: ${termo}
+Especificação técnica obrigatória: ${especificacao}
 Quantidade: ${Number(item.quantidade) || 1}
 Unidade: ${item.unidade_medida || 'UN'}
 País/mercado: Brasil
@@ -443,6 +463,12 @@ Priorize fontes verificáveis:
 3. portais oficiais .gov.br
 4. fornecedores/distribuidores com página pública de preço
 
+Critério de aderência:
+- Retorne apenas produtos/serviços que atendam integralmente à especificação técnica obrigatória.
+- Para notebook, confira explicitamente tela, interatividade da tela, memória RAM, núcleos do processador, ausência de HDD quando exigida, faixa do SSD, bateria, alimentação, sistema operacional e garantia on site.
+- Se a fonte não comprovar uma característica obrigatória, descarte o resultado.
+- Não substitua por item parecido, inferior ou sem garantia/SSD/memória/processador compatíveis.
+
 Retorne somente JSON array válido, sem markdown:
 [
   {
@@ -451,17 +477,20 @@ Retorne somente JSON array válido, sem markdown:
     "url": "https://url-real-verificavel",
     "data": "YYYY-MM-DD",
     "fornecedor": "nome se houver",
-    "observacao": "descrição breve do contexto encontrado"
+    "observacao": "descrição breve do contexto encontrado",
+    "aderente": true,
+    "criterios_confirmados": ["critério técnico verificado 1", "critério técnico verificado 2"]
   }
 ]
 
 Regras:
 - Não invente preço.
+- Retorne até ${limite} resultados aderentes; tente preencher pelo menos 5 resultados quando houver fontes verificáveis suficientes.
 - Não retorne preços internacionais, em dólar, ou indisponíveis no mercado brasileiro.
 - Não retorne atas, contratos, páginas ou tabelas com data anterior a ${dataMinimaIso}.
 - Inclua apenas itens com URL real começando com http.
 - A data deve estar sempre no formato completo YYYY-MM-DD; se só souber o ano, use YYYY-01-01.
-- Se não encontrar preço brasileiro verificável dos últimos ${MAX_IDADE_PRECO_DIAS} dias, retorne [].`;
+- Se não encontrar preço brasileiro verificável e tecnicamente aderente dos últimos ${MAX_IDADE_PRECO_DIAS} dias, retorne [].`;
 
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
@@ -475,7 +504,7 @@ Regras:
         model: WEB_SEARCH_MODEL,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
-        max_tokens: 2000,
+        max_tokens: 3500,
       }),
     });
 
@@ -493,7 +522,7 @@ Regras:
     );
     return Array.isArray(parsed)
       ? parsed
-          .filter((r) => Number(r.valor_unitario) > 0 && String(r.url || r.url_referencia || '').startsWith('http'))
+          .filter((r) => r.aderente !== false && Number(r.valor_unitario) > 0 && String(r.url || r.url_referencia || '').startsWith('http'))
           .slice(0, limite)
       : [];
   }
