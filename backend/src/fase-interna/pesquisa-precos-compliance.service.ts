@@ -3,6 +3,8 @@ import { PesquisaPrecoCandidato } from './entities/pesquisa-preco-candidato.enti
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 import { PesquisaPrecoCandidateInput } from './pesquisa-precos-agent.types';
 
+const MAX_IDADE_PRECO_DIAS = 90;
+
 @Injectable()
 export class PesquisaPrecosComplianceService {
   normalizarValor(valor: unknown): number {
@@ -25,9 +27,22 @@ export class PesquisaPrecosComplianceService {
     return hoje;
   }
 
+  dataDentroDosUltimosDias(dataIso: string, dias: number): boolean {
+    const data = new Date(`${dataIso}T00:00:00.000Z`);
+    if (Number.isNaN(data.getTime())) return false;
+    const limite = new Date();
+    limite.setUTCHours(0, 0, 0, 0);
+    limite.setUTCDate(limite.getUTCDate() - dias);
+    return data >= limite;
+  }
+
   prepararCandidato(candidato: PesquisaPrecoCandidateInput): PesquisaPrecoCandidateInput | null {
     const valor = this.normalizarValor(candidato.valor_unitario);
     if (valor <= 0 || !candidato.item_numero || !candidato.fonte_tipo) {
+      return null;
+    }
+    const dataPesquisa = this.normalizarData(candidato.data_pesquisa);
+    if (!this.dataDentroDosUltimosDias(dataPesquisa, MAX_IDADE_PRECO_DIAS)) {
       return null;
     }
 
@@ -41,7 +56,7 @@ export class PesquisaPrecosComplianceService {
 
     return {
       ...candidato,
-      data_pesquisa: this.normalizarData(candidato.data_pesquisa),
+      data_pesquisa: dataPesquisa,
       valor_unitario: valor,
       score: Number((candidato.score ?? this.scorePorFonte(candidato.fonte_tipo, flags.size)).toFixed(2)),
       flags: [...flags],

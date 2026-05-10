@@ -10,6 +10,7 @@ import { PesquisaPrecoAgentContext, PesquisaPrecoCandidateInput, PesquisaPrecoPr
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 
 const REQUEST_TIMEOUT_MS = 15000;
+const MAX_IDADE_PRECO_DIAS = 90;
 const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
 const HTTP_HEADERS = {
   Accept: 'application/json',
@@ -48,6 +49,15 @@ function normalizarDataPesquisa(valor: unknown): string {
   if (matchBr) return `${matchBr[3]}-${matchBr[2]}-${matchBr[1]}`;
   const data = new Date(texto);
   return Number.isNaN(data.getTime()) ? hoje : data.toISOString().split('T')[0];
+}
+
+function dataDentroDosUltimosDias(dataIso: string, dias: number): boolean {
+  const data = new Date(`${dataIso}T00:00:00.000Z`);
+  if (Number.isNaN(data.getTime())) return false;
+  const limite = new Date();
+  limite.setUTCHours(0, 0, 0, 0);
+  limite.setUTCDate(limite.getUTCDate() - dias);
+  return data >= limite;
 }
 
 function asArray(data: any): any[] {
@@ -268,12 +278,14 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
         for (const produto of results) {
           const valor = Number(produto.valor_unitario || 0);
           if (valor <= 0) continue;
+          const dataPesquisa = normalizarDataPesquisa(produto.data || produto.data_pesquisa);
+          if (!dataDentroDosUltimosDias(dataPesquisa, MAX_IDADE_PRECO_DIAS)) continue;
           candidatos.push({
             item_numero: item.numero_item,
             fonte_tipo: this.classificarFontePelaUrl(produto.url || produto.url_referencia),
             descricao_fonte: produto.descricao_fonte || produto.fonte || 'Fonte web verificada',
             url_referencia: produto.url || produto.url_referencia,
-            data_pesquisa: normalizarDataPesquisa(produto.data || produto.data_pesquisa),
+            data_pesquisa: dataPesquisa,
             fornecedor_razao_social: produto.fornecedor,
             valor_unitario: valor,
             quantidade_base: 1,
@@ -311,11 +323,17 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
     }
 
     const termo = termoItem(item);
-    const prompt = `Pesquise preços reais publicados na internet para pesquisa de preços de contratação pública brasileira.
+    const dataMinima = new Date();
+    dataMinima.setUTCDate(dataMinima.getUTCDate() - MAX_IDADE_PRECO_DIAS);
+    const dataMinimaIso = dataMinima.toISOString().split('T')[0];
+
+    const prompt = `Pesquise preços reais atuais no Brasil para pesquisa de preços de contratação pública brasileira.
 
 Item: ${termo}
 Quantidade: ${Number(item.quantidade) || 1}
 Unidade: ${item.unidade_medida || 'UN'}
+País/mercado: Brasil
+Período obrigatório: somente preços publicados ou vigentes entre ${dataMinimaIso} e ${hojeISO()}.
 
 Priorize fontes verificáveis:
 1. PNCP em pncp.gov.br
@@ -337,9 +355,11 @@ Retorne somente JSON array válido, sem markdown:
 
 Regras:
 - Não invente preço.
+- Não retorne preços internacionais, em dólar, ou indisponíveis no mercado brasileiro.
+- Não retorne atas, contratos, páginas ou tabelas com data anterior a ${dataMinimaIso}.
 - Inclua apenas itens com URL real começando com http.
 - A data deve estar sempre no formato completo YYYY-MM-DD; se só souber o ano, use YYYY-01-01.
-- Se não encontrar preço verificável, retorne [].`;
+- Se não encontrar preço brasileiro verificável dos últimos ${MAX_IDADE_PRECO_DIAS} dias, retorne [].`;
 
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
