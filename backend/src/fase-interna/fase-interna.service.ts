@@ -694,14 +694,20 @@ export class FaseInternaService {
 
   async salvarWizard(licitacaoId: string, dados: {
     dfd?: string;
+    etp?: Record<string, any>;
     etp_necessidade?: string;
     etp_solucao?: string;
-    riscos?: string;
+    riscos?: string | Array<any>;
+    pesquisaPrecos?: Array<any>;
     precos_fontes?: string;
+    tr?: Record<string, any>;
     tr_requisitos?: string;
     tr_prazo?: string;
+    autorizacao?: string;
     autorizacao_autoridade?: string;
+    edital?: string;
     edital_notas?: string;
+    parecerJuridico?: string;
     juridico_obs?: string;
   }): Promise<DocumentoFaseInterna[]> {
     const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
@@ -727,20 +733,25 @@ export class FaseInternaService {
       }
     };
 
+    const etpTexto = dados.etp_necessidade || (dados.etp ? Object.values(dados.etp).join('\n\n') : undefined);
+    const trTexto = dados.tr_requisitos || (dados.tr ? Object.values(dados.tr).join('\n\n') : undefined);
+    const riscosTexto = Array.isArray(dados.riscos) ? JSON.stringify(dados.riscos) : dados.riscos;
+    const precosTexto = dados.precos_fontes || (dados.pesquisaPrecos ? JSON.stringify(dados.pesquisaPrecos) : undefined);
+
     await salvarDoc(TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'Formalização da Demanda (DFD)', dados.dfd);
-    await salvarDoc(TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR, 'Estudo Técnico Preliminar (ETP)', dados.etp_necessidade, {
-      descricao_necessidade: dados.etp_necessidade,
+    await salvarDoc(TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR, 'Estudo Técnico Preliminar (ETP)', etpTexto, dados.etp || {
+      descricao_necessidade: etpTexto,
       descricao_solucao: dados.etp_solucao,
     });
-    await salvarDoc(TipoDocumentoFaseInterna.ANALISE_RISCOS, 'Mapa de Riscos', dados.riscos);
-    await salvarDoc(TipoDocumentoFaseInterna.PESQUISA_PRECOS, 'Pesquisa de Preços', dados.precos_fontes);
-    await salvarDoc(TipoDocumentoFaseInterna.TERMO_REFERENCIA, 'Termo de Referência (TR)', dados.tr_requisitos, {
-      requisitos_contratacao: dados.tr_requisitos,
+    await salvarDoc(TipoDocumentoFaseInterna.ANALISE_RISCOS, 'Mapa de Riscos', riscosTexto);
+    await salvarDoc(TipoDocumentoFaseInterna.PESQUISA_PRECOS, 'Pesquisa de Preços', precosTexto);
+    await salvarDoc(TipoDocumentoFaseInterna.TERMO_REFERENCIA, 'Termo de Referência (TR)', trTexto, dados.tr || {
+      requisitos_contratacao: trTexto,
       prazo_vigencia: dados.tr_prazo,
     });
-    await salvarDoc(TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Autorização da Autoridade', dados.autorizacao_autoridade);
-    await salvarDoc(TipoDocumentoFaseInterna.MINUTA_EDITAL, 'Minuta do Edital', dados.edital_notas);
-    await salvarDoc(TipoDocumentoFaseInterna.PARECER_JURIDICO, 'Parecer Jurídico', dados.juridico_obs);
+    await salvarDoc(TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Autorização da Autoridade', dados.autorizacao_autoridade || dados.autorizacao);
+    await salvarDoc(TipoDocumentoFaseInterna.MINUTA_EDITAL, 'Minuta do Edital', dados.edital_notas || dados.edital);
+    await salvarDoc(TipoDocumentoFaseInterna.PARECER_JURIDICO, 'Parecer Jurídico', dados.juridico_obs || dados.parecerJuridico);
 
     return salvos;
   }

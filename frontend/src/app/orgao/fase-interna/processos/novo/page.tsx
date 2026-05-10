@@ -851,6 +851,13 @@ export default function NovoProcessoPage() {
       return Object.fromEntries(secoes.map((secao, index) => [secao.id, partes[index] || ""]))
     }
 
+    const aplicarDocumentoNasSecoes = (stepKey: string, documento?: any) => {
+      const estruturado = documento?.dados_estruturados
+      const secoes = TEMPLATES[stepKey]?.secoes || []
+      const temChavesDoFormulario = estruturado && secoes.some((secao) => typeof estruturado[secao.id] === "string")
+      return temChavesDoFormulario ? estruturado : aplicarTextoNasSecoes(stepKey, documento?.descricao)
+    }
+
     const carregarRascunho = async () => {
       try {
         const [licitacaoRes, documentosRes] = await Promise.all([
@@ -874,10 +881,10 @@ export default function NovoProcessoPage() {
 
           setDocs((prev) => ({
             ...prev,
-            dfd: aplicarTextoNasSecoes("dfd", porTipo.DFD?.descricao),
-            etp: porTipo.ETP?.dados_estruturados || aplicarTextoNasSecoes("etp", porTipo.ETP?.descricao),
-            tr: porTipo.TR?.dados_estruturados || aplicarTextoNasSecoes("tr", porTipo.TR?.descricao),
-            edital: aplicarTextoNasSecoes("edital", porTipo.ME?.descricao),
+            dfd: aplicarDocumentoNasSecoes("dfd", porTipo.DFD),
+            etp: aplicarDocumentoNasSecoes("etp", porTipo.ETP),
+            tr: aplicarDocumentoNasSecoes("tr", porTipo.TR),
+            edital: aplicarDocumentoNasSecoes("edital", porTipo.ME),
           }))
           setAutorizacao(porTipo.AA?.descricao || "")
           setParecer(porTipo.PJ?.descricao || "")
@@ -917,9 +924,11 @@ export default function NovoProcessoPage() {
 
   const buildWizardPayload = () => ({
     dfd: Object.values(docs.dfd).join("\n\n"),
+    etp: docs.etp,
     etp_necessidade: Object.values(docs.etp).join("\n\n"),
     riscos: JSON.stringify(riscos),
     precos_fontes: JSON.stringify(fontes.filter((f) => f.valor > 0)),
+    tr: docs.tr,
     tr_requisitos: Object.values(docs.tr).join("\n\n"),
     autorizacao_autoridade: autorizacao,
     edital_notas: Object.values(docs.edital).join("\n\n"),
@@ -999,11 +1008,15 @@ export default function NovoProcessoPage() {
       }
       const licitacao = await res.json()
       const licitacaoId = processoId || licitacao.id
-      await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
+      const wizardRes = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildWizardPayload()),
       })
+      if (!wizardRes.ok) {
+        const err = await wizardRes.json().catch(() => ({}))
+        throw new Error(err.message || "Erro ao salvar documentos do rascunho")
+      }
       router.push(`/orgao/fase-interna/processos/novo?id=${licitacaoId}&step=${step}`)
     } catch (e: any) {
       console.error(e)
