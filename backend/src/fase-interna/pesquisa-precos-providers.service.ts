@@ -36,6 +36,20 @@ function hojeISO(): string {
   return new Date().toISOString().split('T')[0];
 }
 
+function normalizarDataPesquisa(valor: unknown): string {
+  const hoje = hojeISO();
+  if (!valor) return hoje;
+  const texto = String(valor).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+  if (/^\d{4}$/.test(texto)) return `${texto}-01-01`;
+  const matchAnoMes = texto.match(/^(\d{4})-(\d{2})$/);
+  if (matchAnoMes) return `${matchAnoMes[1]}-${matchAnoMes[2]}-01`;
+  const matchBr = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (matchBr) return `${matchBr[3]}-${matchBr[2]}-${matchBr[1]}`;
+  const data = new Date(texto);
+  return Number.isNaN(data.getTime()) ? hoje : data.toISOString().split('T')[0];
+}
+
 function asArray(data: any): any[] {
   if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.itens)) return data.itens;
@@ -259,7 +273,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             fonte_tipo: this.classificarFontePelaUrl(produto.url || produto.url_referencia),
             descricao_fonte: produto.descricao_fonte || produto.fonte || 'Fonte web verificada',
             url_referencia: produto.url || produto.url_referencia,
-            data_pesquisa: produto.data || produto.data_pesquisa || hojeISO(),
+            data_pesquisa: normalizarDataPesquisa(produto.data || produto.data_pesquisa),
             fornecedor_razao_social: produto.fornecedor,
             valor_unitario: valor,
             quantidade_base: 1,
@@ -324,6 +338,7 @@ Retorne somente JSON array válido, sem markdown:
 Regras:
 - Não invente preço.
 - Inclua apenas itens com URL real começando com http.
+- A data deve estar sempre no formato completo YYYY-MM-DD; se só souber o ano, use YYYY-01-01.
 - Se não encontrar preço verificável, retorne [].`;
 
     const response = await fetch(OPENROUTER_URL, {
