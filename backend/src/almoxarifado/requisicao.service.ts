@@ -1923,30 +1923,35 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
 
     const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
 
-    const usuario = await this.usuarioRepository.findOne({ where: { id: usuarioId } });
-    const cargo = usuario?.cargo || 'Gestor / Ordenador de Despesa';
-    const assinatura = await this.assinaturasService.registrarAssinatura({
-      orgao_id: requisicao.orgao_id,
-      entidade_tipo: EntidadeTipo.ORDEM_SERVICO,
-      entidade_id: id,
-      papel_assinante: PapelAssinante.GESTOR,
-      usuario_id: usuarioId,
-      usuario_nome: usuario?.nome || usuarioNome,
-      usuario_cpf_cnpj: '',
-      usuario_cargo: cargo,
-      usuario_telefone: undefined,
-      ip_address: undefined,
-      user_agent: undefined,
-    });
+    let assinaturas = await this.assinaturasService.buscarPorEntidade(id, EntidadeTipo.ORDEM_SERVICO);
+
+    if (assinaturas.length === 0) {
+      const usuario = await this.usuarioRepository.findOne({ where: { id: usuarioId } });
+      const cargo = usuario?.cargo || 'Gestor / Ordenador de Despesa';
+      const assinatura = await this.assinaturasService.registrarAssinatura({
+        orgao_id: requisicao.orgao_id,
+        entidade_tipo: EntidadeTipo.ORDEM_SERVICO,
+        entidade_id: id,
+        papel_assinante: PapelAssinante.GESTOR,
+        usuario_id: usuarioId,
+        usuario_nome: usuario?.nome || usuarioNome,
+        usuario_cpf_cnpj: '',
+        usuario_cargo: cargo,
+        usuario_telefone: undefined,
+        ip_address: undefined,
+        user_agent: undefined,
+      });
+      assinaturas = [assinatura];
+    }
 
     const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
       requisicao,
-      [assinatura],
+      assinaturas,
       `${urlBase}/validar-documento`,
     );
 
     requisicao.pdf_assinado_url = pdfPath;
-    requisicao.codigo_validacao = assinatura.codigo_validacao;
+    requisicao.codigo_validacao = assinaturas[0]?.codigo_validacao || requisicao.codigo_validacao;
     await this.requisicaoRepository.save(requisicao);
 
     this.logger.log(`PDF regenerado para OS ${requisicao.numero} por ${usuarioNome}`);

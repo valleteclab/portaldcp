@@ -44,66 +44,6 @@ interface MeInfo {
   orgaoId?: string
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_APROVACOES: Aprovacao[] = [
-  {
-    id: "A001",
-    tipo: "Termo de Referência",
-    proc: "2026/0142",
-    objeto: "Aquisição de licenças de GED",
-    status: "andamento",
-    etapaAtual: "Procuradoria",
-    fluxo: [
-      { papel: "Requisitante", nome: "Ana C. Mendes", status: "aprovado", data: "02/05/2026" },
-      { papel: "Pregoeiro", nome: "Ricardo Tavares", status: "aprovado", data: "04/05/2026" },
-      { papel: "Procuradoria", nome: "Juliana Prado", status: "andamento", data: null },
-      { papel: "Autoridade", nome: "Marcelo Souza", status: "pendente", data: null },
-    ],
-    prazo: "08/05/2026",
-    minha: true,
-    documentoId: null,
-    licitacaoId: null,
-  },
-  {
-    id: "A002",
-    tipo: "Parecer Jurídico",
-    proc: "2026/0138",
-    objeto: "Contratação de serviços de limpeza e conservação",
-    status: "andamento",
-    etapaAtual: "Autoridade",
-    fluxo: [
-      { papel: "Requisitante", nome: "Ricardo T.", status: "aprovado", data: "20/04/2026" },
-      { papel: "Pregoeiro", nome: "Ricardo T.", status: "aprovado", data: "22/04/2026" },
-      { papel: "Procuradoria", nome: "Juliana P.", status: "aprovado", data: "02/05/2026" },
-      { papel: "Autoridade", nome: "Marcelo S.", status: "andamento", data: null },
-    ],
-    prazo: "12/05/2026",
-    minha: false,
-    documentoId: null,
-    licitacaoId: null,
-  },
-  {
-    id: "A003",
-    tipo: "ETP",
-    proc: "2026/0151",
-    objeto: "Reforma da sede da Procuradoria",
-    status: "devolvido",
-    etapaAtual: "Requisitante",
-    fluxo: [
-      { papel: "Requisitante", nome: "Juliana P.", status: "andamento", data: null },
-      { papel: "Pregoeiro", nome: "Ricardo T.", status: "devolvido", data: "03/05/2026" },
-      { papel: "Procuradoria", nome: "Juliana P.", status: "pendente", data: null },
-      { papel: "Autoridade", nome: "Marcelo S.", status: "pendente", data: null },
-    ],
-    prazo: "15/05/2026",
-    minha: true,
-    motivo: "Cotações antigas; refazer pesquisa de preços.",
-    documentoId: null,
-    licitacaoId: null,
-  },
-]
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function mapBackendToAprovacao(doc: any): Aprovacao {
@@ -316,7 +256,6 @@ export default function AprovacoesPage() {
   const [me, setMe] = useState<MeInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [isMock, setIsMock] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -330,8 +269,7 @@ export default function AprovacoesPage() {
 
       const orgaoId = meData?.orgao?.id || meData?.orgaoId
       if (!orgaoId) {
-        setItens(MOCK_APROVACOES)
-        setIsMock(true)
+        setItens([])
         return
       }
 
@@ -339,21 +277,13 @@ export default function AprovacoesPage() {
       if (res.ok) {
         const data = await res.json()
         const lista: Aprovacao[] = Array.isArray(data) ? data.map(mapBackendToAprovacao) : []
-        if (lista.length === 0) {
-          setItens(MOCK_APROVACOES)
-          setIsMock(true)
-        } else {
-          setItens(lista)
-          setIsMock(false)
-        }
+        setItens(lista)
       } else {
-        setItens(MOCK_APROVACOES)
-        setIsMock(true)
+        setItens([])
       }
     } catch (e) {
       console.error(e)
-      setItens(MOCK_APROVACOES)
-      setIsMock(true)
+      setItens([])
     } finally {
       setLoading(false)
     }
@@ -430,7 +360,6 @@ export default function AprovacoesPage() {
           <h1 className="text-xl font-bold text-gray-900">Aprovações e assinaturas</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             Workflow de tramitação interna · {aguardando} {aguardando === 1 ? "item aguardando" : "itens aguardando"} você
-            {isMock && <span className="text-gray-400 ml-1">(dados de exemplo)</span>}
           </p>
         </div>
         <div className="flex gap-2">

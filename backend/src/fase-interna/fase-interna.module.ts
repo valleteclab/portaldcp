@@ -10,18 +10,35 @@ import { DocumentoEstruturadoController } from './documento-estruturado.controll
 import { GeradorDocumentoService } from './gerador-documento.service';
 import { PncpPublicacaoService } from './pncp-publicacao.service';
 import { AnaliseContratosService } from './analise-contratos.service';
-import { PesquisaPrecosAgenteService } from './pesquisa-precos-agente.service';
 import { GeradorPpService } from './gerador-pp.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
-import { IaModule } from '../ia/ia.module';
-import { SystemConfigModule } from '../system-config/system-config.module';
+import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { PesquisaPrecoExecucao } from './entities/pesquisa-preco-execucao.entity';
+import { PesquisaPrecoCandidato } from './entities/pesquisa-preco-candidato.entity';
+import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
+import { PesquisaPrecosComplianceService } from './pesquisa-precos-compliance.service';
+import {
+  BrowserFallbackProvider,
+  ContratosVigentesProvider,
+  FornecedorDiretoProvider,
+  NfeProvider,
+  PainelComprasGovProvider,
+  PncpPriceProvider,
+  WebEspecializadaProvider,
+} from './pesquisa-precos-providers.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DocumentoFaseInterna, LogFaseInterna, Licitacao, Contrato]),
-    IaModule,
-    SystemConfigModule,
+    TypeOrmModule.forFeature([
+      DocumentoFaseInterna,
+      LogFaseInterna,
+      Licitacao,
+      Contrato,
+      ItemLicitacao,
+      PesquisaPrecoExecucao,
+      PesquisaPrecoCandidato,
+    ]),
   ],
   controllers: [FaseInternaController, DocumentoEstruturadoController],
   providers: [
@@ -31,9 +48,17 @@ import { SystemConfigModule } from '../system-config/system-config.module';
     GeradorDocumentoService,
     PncpPublicacaoService,
     AnaliseContratosService,
-    PesquisaPrecosAgenteService,
     GeradorPpService,
+    PesquisaPrecosAgentService,
+    PesquisaPrecosComplianceService,
+    PncpPriceProvider,
+    PainelComprasGovProvider,
+    ContratosVigentesProvider,
+    WebEspecializadaProvider,
+    FornecedorDiretoProvider,
+    NfeProvider,
+    BrowserFallbackProvider,
   ],
-  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgenteService, GeradorPpService],
+  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgentService, GeradorPpService],
 })
 export class FaseInternaModule {}

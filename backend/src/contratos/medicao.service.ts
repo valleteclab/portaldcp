@@ -146,6 +146,35 @@ export class MedicaoService {
     return Math.abs(saldo - calculado) <= 0.05 ? saldo : calculado;
   }
 
+  private valorTotalCronogramaComAjusteManual(
+    dados: Partial<ItemCronograma>,
+    valorCalculado: number,
+    valorGlobal: number,
+    valorJaAlocado: number,
+  ): number {
+    const dadosComAjuste = dados as Partial<ItemCronograma> & {
+      preservar_valor_total?: boolean;
+      valor_total?: number | string;
+    };
+    const preservarTotal = dadosComAjuste.preservar_valor_total === true;
+    const valorManual = Number(dadosComAjuste.valor_total);
+    if (!preservarTotal || !Number.isFinite(valorManual) || valorManual <= 0) {
+      return valorCalculado;
+    }
+
+    const saldo =
+      Math.round(
+        (Number(valorGlobal || 0) - Number(valorJaAlocado || 0)) * 100,
+      ) / 100;
+    if (saldo <= 0 || Math.abs(valorManual - saldo) > 0.01) {
+      return valorCalculado;
+    }
+
+    // Alguns contratos continuados recebem NF mensal em centavos fixos, mas o total
+    // juridico do item precisa fechar no valor do contrato/ciclo.
+    return valorManual;
+  }
+
   private calcularValorItemCronogramaMedicao(
     contrato: Contrato,
     itemCron: ItemCronograma,
@@ -439,11 +468,23 @@ export class MedicaoService {
   }
 
   async listarItensCronograma(contratoId: string): Promise<ItemCronograma[]> {
-    await this.validarContratoMedicao(contratoId);
-    return this.itemCronogramaRepository.find({
+    const contrato = await this.validarContratoMedicao(contratoId);
+    const itens = await this.itemCronogramaRepository.find({
       where: { contrato_id: contratoId },
       order: { numero_item: 'ASC' },
     });
+
+    const dataRenovacao = this.obterDataRenovacaoCiclo(contrato);
+    if (!dataRenovacao) return itens;
+
+    const quantidadesCiclo =
+      await this.calcularQuantidadeAprovadaPorItem(contratoId, dataRenovacao);
+
+    return itens.map((item) => ({
+      ...item,
+      quantidade_medida: quantidadesCiclo.get(item.id) || 0,
+      valor_migracao_reais: 0,
+    }));
   }
 
   async criarItemCronograma(
@@ -504,6 +545,12 @@ export class MedicaoService {
         somaValorExistente,
       );
     }
+    valorTotal = this.valorTotalCronogramaComAjusteManual(
+      dados,
+      valorTotal,
+      valorGlobal,
+      somaValorExistente,
+    );
 
     if (somaValorExistente + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorExistente);
@@ -625,6 +672,12 @@ export class MedicaoService {
         somaValorOutros,
       );
     }
+    valorTotal = this.valorTotalCronogramaComAjusteManual(
+      dados,
+      valorTotal,
+      valorGlobal,
+      somaValorOutros,
+    );
     if (somaValorOutros + valorTotal > valorGlobal + 0.01) {
       const saldoDisponivel = Math.max(0, valorGlobal - somaValorOutros);
       throw new BadRequestException(
@@ -637,6 +690,8 @@ export class MedicaoService {
     const {
       frequencia_execucao: feRaw,
       numero_execucoes: neRaw,
+      valor_total: _valorTotalRaw,
+      preservar_valor_total: _preservarValorTotalRaw,
       ...dadosSemFreq
     } = raw as any;
     Object.assign(item, {
@@ -1279,7 +1334,17 @@ export class MedicaoService {
       );
 
       const quantidadeEmTransitoPorItem =
-        await this.calcularQuantidadeComprometidaPorItem(contratoId);
+        await this.calcularQuantidadeComprometidaPorItem(
+          contratoId,
+          undefined,
+          dataCorteCiclo,
+        );
+      const quantidadeAprovadaCicloPorItem = dataCorteCiclo
+        ? await this.calcularQuantidadeAprovadaPorItem(
+            contratoId,
+            dataCorteCiclo,
+          )
+        : null;
 
       const unidadesAtivas: string[] = []; // para validar homogeneidade no final
 
@@ -1298,7 +1363,9 @@ export class MedicaoService {
         unidadesAtivas.push(itemCron.unidade_medida);
 
         const quantidadeTotal = Number(itemCron.quantidade);
-        const quantidadeAprovada = Number(itemCron.quantidade_medida) || 0;
+        const quantidadeAprovada = quantidadeAprovadaCicloPorItem
+          ? quantidadeAprovadaCicloPorItem.get(itemCron.id) || 0
+          : Number(itemCron.quantidade_medida) || 0;
         const quantidadeEmTransito =
           quantidadeEmTransitoPorItem.get(item.item_cronograma_id!) || 0;
         const saldoDisponivel =
@@ -1702,7 +1769,14 @@ export class MedicaoService {
         await this.calcularQuantidadeComprometidaPorItem(
           medicao.contrato_id,
           medicao.id,
+          dataCorteCiclo,
         );
+      const quantidadeAprovadaCicloPorItem = dataCorteCiclo
+        ? await this.calcularQuantidadeAprovadaPorItem(
+            medicao.contrato_id,
+            dataCorteCiclo,
+          )
+        : null;
       const unidadesAtivas: string[] = [];
 
       for (const item of itensComItemCronograma) {
@@ -1720,7 +1794,9 @@ export class MedicaoService {
         unidadesAtivas.push(itemCron.unidade_medida);
 
         const quantidadeTotal = Number(itemCron.quantidade);
-        const quantidadeAprovada = Number(itemCron.quantidade_medida) || 0;
+        const quantidadeAprovada = quantidadeAprovadaCicloPorItem
+          ? quantidadeAprovadaCicloPorItem.get(itemCron.id) || 0
+          : Number(itemCron.quantidade_medida) || 0;
         const quantidadeEmTransito =
           quantidadeEmTransitoPorItem.get(item.item_cronograma_id!) || 0;
         const saldoDisponivel =
@@ -3044,6 +3120,36 @@ export class MedicaoService {
     return `/api/uploads/boletins/${this.getBoletimPdfFilename(medicaoId)}`;
   }
 
+  private unidadeExecucaoFiscalPdf(
+    itemCronograma: Partial<ItemCronograma> | null | undefined,
+    unidadePadrao: string,
+  ): string {
+    const unidade = String(unidadePadrao || '').toUpperCase();
+    if (unidade !== 'SERVICO') return unidadePadrao;
+
+    const observacoes = String(itemCronograma?.observacoes || '').toLowerCase();
+    if (
+      observacoes.includes('unidade_execucao_fiscal=m2') ||
+      observacoes.includes('unidade_execucao_fiscal=m²') ||
+      observacoes.includes('execução fiscal: m2') ||
+      observacoes.includes('execução fiscal: m²') ||
+      observacoes.includes('execucao fiscal: m2') ||
+      observacoes.includes('execucao fiscal: m²')
+    ) {
+      return 'm²';
+    }
+    if (
+      observacoes.includes('unidade_execucao_fiscal=litro') ||
+      observacoes.includes('unidade_execucao_fiscal=l') ||
+      observacoes.includes('execução fiscal: litro') ||
+      observacoes.includes('execucao fiscal: litro')
+    ) {
+      return 'l';
+    }
+
+    return unidadePadrao;
+  }
+
   private normalizarBoletimPdfUrl(
     pdfUrl: string | null | undefined,
     medicaoId: string,
@@ -3310,7 +3416,10 @@ export class MedicaoService {
         const base: any = {
           numero: Number(item.etapa_numero || item.item_numero || 0),
           descricao: item.item_descricao || item.etapa_descricao || '',
-          unidade: item.item_unidade || '',
+          unidade: this.unidadeExecucaoFiscalPdf(
+            icPdf,
+            item.item_unidade || '',
+          ),
           quantidade_no_periodo: qtdMedida,
           quantidade_acumulada_aprovada: qtdAcumulada,
           quantidade_total_contrato: qtdTotal,
@@ -3479,8 +3588,8 @@ export class MedicaoService {
         ? Number(medicao.nota_fiscal_valor)
         : undefined,
       execucao_fiscal:
-        execucaoFinanceiraAtual?.execucao_fiscal ||
         medicao.execucao_fiscal ||
+        execucaoFinanceiraAtual?.execucao_fiscal ||
         undefined,
       // Usa quantidade se o contrato tem a flag OU se qualquer item tem unidade não-MENSAL
       // (espelha a lógica do frontend: tipoMedicaoAtual = 'quantidade' quando unidade != 'MENSAL')
@@ -4088,7 +4197,11 @@ export class MedicaoService {
     const usarItens = await this.usarItensCronograma(contratoId);
     let itensComprometidos: Record<string, number> = {};
     if (usarItens) {
-      const mapa = await this.calcularQuantidadeComprometidaPorItem(contratoId);
+      const mapa = await this.calcularQuantidadeComprometidaPorItem(
+        contratoId,
+        undefined,
+        dataRenovacao,
+      );
       mapa.forEach((qtd, itemId) => {
         itensComprometidos[itemId] = qtd;
       });
@@ -4117,19 +4230,22 @@ export class MedicaoService {
         }
       }
 
-      valorMigracaoPorItem = itensCronograma.reduce((sum, ic) => {
-        if (
-          ic.unidade_medida === 'MENSAL' &&
-          Number(ic.valor_migracao_reais || 0) > 0
-        ) {
-          return sum + Number(ic.valor_migracao_reais || 0);
-        }
+      valorMigracaoPorItem = dataRenovacao
+        ? 0
+        : itensCronograma.reduce((sum, ic) => {
+            if (
+              ic.unidade_medida === 'MENSAL' &&
+              Number(ic.valor_migracao_reais || 0) > 0
+            ) {
+              return sum + Number(ic.valor_migracao_reais || 0);
+            }
 
-        const valorAcumuladoItem =
-          Number(ic.quantidade_medida || 0) * Number(ic.valor_unitario || 0);
-        const valorAprovadoItem = valoresAprovadosPorItem.get(ic.id) || 0;
-        return sum + Math.max(0, valorAcumuladoItem - valorAprovadoItem);
-      }, 0);
+            const valorAcumuladoItem =
+              Number(ic.quantidade_medida || 0) *
+              Number(ic.valor_unitario || 0);
+            const valorAprovadoItem = valoresAprovadosPorItem.get(ic.id) || 0;
+            return sum + Math.max(0, valorAcumuladoItem - valorAprovadoItem);
+          }, 0);
     }
 
     const valorMedidoTotalExibicao = valorMedidoTotal + valorMigracaoPorItem;
@@ -4705,6 +4821,7 @@ export class MedicaoService {
   private async calcularQuantidadeComprometidaPorItem(
     contratoId: string,
     excludeMedicaoId?: string,
+    dataCorteCiclo?: Date | null,
   ): Promise<Map<string, number>> {
     const statusEmTransito = [
       StatusMedicao.SUBMETIDA,
@@ -4724,6 +4841,38 @@ export class MedicaoService {
 
     if (excludeMedicaoId) {
       qb.andWhere('m.id != :excludeId', { excludeId: excludeMedicaoId });
+    }
+    if (dataCorteCiclo) {
+      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', { dataCorteCiclo });
+    }
+
+    const results = await qb.getRawMany<{
+      item_cronograma_id: string;
+      total_quantidade: string;
+    }>();
+
+    const mapa = new Map<string, number>();
+    for (const row of results) {
+      mapa.set(row.item_cronograma_id, Number(row.total_quantidade));
+    }
+    return mapa;
+  }
+
+  private async calcularQuantidadeAprovadaPorItem(
+    contratoId: string,
+    dataCorteCiclo?: Date | null,
+  ): Promise<Map<string, number>> {
+    const qb = this.itemMedicaoItemRepository
+      .createQueryBuilder('imi')
+      .select('imi.item_cronograma_id', 'item_cronograma_id')
+      .addSelect('COALESCE(SUM(imi.quantidade_medida), 0)', 'total_quantidade')
+      .innerJoin('imi.medicao', 'm')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+      .groupBy('imi.item_cronograma_id');
+
+    if (dataCorteCiclo) {
+      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', { dataCorteCiclo });
     }
 
     const results = await qb.getRawMany<{
@@ -6111,6 +6260,13 @@ export class MedicaoService {
     if (!medicaoAtual && medicoesAprovadas.length > 0) {
       medicaoAtual = medicoesAprovadas[medicoesAprovadas.length - 1];
     }
+    const possuiMedicaoAprovadaPosteriorReferencia =
+      !!medicaoAtual &&
+      medicoesAprovadas.some(
+        (m) =>
+          m.id !== medicaoAtual?.id &&
+          !this.medicaoAteReferencia(m, medicaoAtual),
+      );
     if (medicaoAtual) {
       medicoesAprovadas = medicoesAprovadas.filter((m) =>
         this.medicaoAteReferencia(m, medicaoAtual),
@@ -6264,6 +6420,8 @@ export class MedicaoService {
                 ? Number((item as any).valor_migracao_reais || 0) /
                   Number(item.valor_unitario)
                 : 0
+              : possuiMedicaoAprovadaPosteriorReferencia
+                ? 0
               : Math.max(
                   0,
                   (Number(item.quantidade_medida) || 0) -
@@ -6470,6 +6628,12 @@ export class MedicaoService {
         ? itensCronograma
             .filter((item) => item.unidade_medida === 'MENSAL')
             .reduce((maxDias, item) => {
+              if (
+                possuiMedicaoAprovadaPosteriorReferencia &&
+                !(Number(item.valor_migracao_reais || 0) > 0)
+              ) {
+                return maxDias;
+              }
               const valorUnit =
                 Number(item.valor_unitario) || Number(item.valor_mensal) || 0;
               const mesesMigracao = Number(item.quantidade_medida || 0);

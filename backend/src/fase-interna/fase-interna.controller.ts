@@ -1,47 +1,21 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Param,
-  Body,
-  Query,
-  UseInterceptors,
-  UploadedFile,
-  BadRequestException,
+  Controller, Get, Post, Put, Delete, Param, Body, Query,
+  UseInterceptors, UploadedFile, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { FaseInternaService } from './fase-interna.service';
-import { PesquisaPrecosAgenteService, BuscaPrecoInput } from './pesquisa-precos-agente.service';
-import { GeradorPpService } from './gerador-pp.service';
 import { TipoDocumentoFaseInterna, OrigemDocumento } from './entities/documento-fase-interna.entity';
-
-// Configuração de storage para comprovantes de pesquisa de preços
-const comprovanteStorage = (licitacaoId: string) =>
-  diskStorage({
-    destination: (req, file, cb) => {
-      const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
-      const destPath = join(uploadPath, 'pesquisa-precos', req.params.licitacaoId || licitacaoId);
-      const fs = require('fs');
-      if (!fs.existsSync(destPath)) {
-        fs.mkdirSync(destPath, { recursive: true });
-      }
-      cb(null, destPath);
-    },
-    filename: (req, file, cb) => {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-      cb(null, `comprovante-${uniqueSuffix}${extname(file.originalname)}`);
-    },
-  });
+import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
+import { GeradorPpService } from './gerador-pp.service';
+import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 
 @Controller('fase-interna')
 export class FaseInternaController {
   constructor(
     private readonly faseInternaService: FaseInternaService,
-    private readonly pesquisaPrecosAgente: PesquisaPrecosAgenteService,
+    private readonly pesquisaPrecosAgentService: PesquisaPrecosAgentService,
     private readonly geradorPpService: GeradorPpService,
   ) {}
 
@@ -251,7 +225,7 @@ export class FaseInternaController {
     @Param('licitacaoId') licitacaoId: string,
     @Body() body: {
       itemNumero: number;
-      cotacao: {
+      cotacao: any & {
         fonte: string;
         tipo: 'PNCP' | 'PAINEL_PRECOS' | 'COTACAO_DIRETA' | 'CATALOGO' | 'ORCAMENTO';
         valor_unitario: number;
@@ -277,6 +251,78 @@ export class FaseInternaController {
       parseInt(itemNumero),
       parseInt(cotacaoIndex)
     );
+  }
+
+  @Post(':licitacaoId/precos/agente/executar')
+  async executarAgentePrecos(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      itemNumeros?: number[];
+      fontes?: FontePesquisaTipo[];
+      maxPorFonte?: number;
+      usarBrowserFallback?: boolean;
+      iniciadoPorId?: string;
+      iniciadoPorNome?: string;
+    }
+  ) {
+    return this.pesquisaPrecosAgentService.executar(licitacaoId, body || {});
+  }
+
+  @Get(':licitacaoId/precos/agente/execucoes')
+  async listarExecucoesAgentePrecos(@Param('licitacaoId') licitacaoId: string) {
+    return this.pesquisaPrecosAgentService.listarExecucoes(licitacaoId);
+  }
+
+  @Get(':licitacaoId/precos/agente/execucoes/:execucaoId')
+  async obterExecucaoAgentePrecos(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('execucaoId') execucaoId: string
+  ) {
+    return this.pesquisaPrecosAgentService.obterExecucao(licitacaoId, execucaoId);
+  }
+
+  @Post(':licitacaoId/precos/agente/candidatos/:candidateId/aprovar')
+  async aprovarCandidatoPreco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('candidateId') candidateId: string,
+    @Body() body: { decisorId?: string; decisorNome?: string }
+  ) {
+    return this.pesquisaPrecosAgentService.aprovarCandidato(licitacaoId, candidateId, {
+      id: body?.decisorId,
+      nome: body?.decisorNome,
+    });
+  }
+
+  @Post(':licitacaoId/precos/agente/candidatos/:candidateId/rejeitar')
+  async rejeitarCandidatoPreco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('candidateId') candidateId: string,
+    @Body() body: { motivo?: string; decisorId?: string; decisorNome?: string }
+  ) {
+    return this.pesquisaPrecosAgentService.rejeitarCandidato(
+      licitacaoId,
+      candidateId,
+      body?.motivo || 'Rejeitado pelo usuario',
+      { id: body?.decisorId, nome: body?.decisorNome },
+    );
+  }
+
+  @Post(':licitacaoId/precos/agente/nfe/importar')
+  async importarNfeAgentePrecos(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      itemNumero: number;
+      descricaoFonte?: string;
+      urlReferencia?: string;
+      fornecedorCnpj?: string;
+      fornecedorRazaoSocial?: string;
+      valorUnitario: number;
+      dataPesquisa?: string;
+      documentoPath?: string;
+      documentoHash?: string;
+    }
+  ) {
+    return this.pesquisaPrecosAgentService.importarNfe(licitacaoId, body);
   }
 
   // === APROVACOES AGREGADAS ===
@@ -307,125 +353,53 @@ export class FaseInternaController {
     return this.faseInternaService.salvarWizard(licitacaoId, body);
   }
 
-  // === PESQUISA DE PREÇOS AUTOMÁTICA (PNCP + Painel de Preços + IA) ===
+  // === UPLOAD DE COMPROVANTE POR COTAÇÃO ===
 
-  /**
-   * Pesquisa preços de um item nas fontes governamentais (PNCP, Painel de Preços) e IA.
-   * POST /fase-interna/precos/pesquisar
-   */
-  @Post('precos/pesquisar')
-  async pesquisarPrecoItem(@Body() body: BuscaPrecoInput) {
-    return this.pesquisaPrecosAgente.pesquisarPrecos(body);
-  }
-
-  /**
-   * Pesquisa preços de múltiplos itens em batch.
-   * POST /fase-interna/precos/pesquisar-batch
-   */
-  @Post('precos/pesquisar-batch')
-  async pesquisarPrecosBatch(@Body() body: { itens: BuscaPrecoInput[] }) {
-    return this.pesquisaPrecosAgente.pesquisarItens(body.itens);
-  }
-
-  /**
-   * Pesquisa preços para os itens de uma licitação e salva no documento de PP.
-   * POST /fase-interna/:licitacaoId/precos/pesquisar-e-salvar
-   */
-  @Post(':licitacaoId/precos/pesquisar-e-salvar')
-  async pesquisarESalvar(
-    @Param('licitacaoId') licitacaoId: string,
-    @Body() body: { itens: BuscaPrecoInput[] },
-  ) {
-    const { itens: itensResultado, resumo } = await this.pesquisaPrecosAgente.pesquisarItens(body.itens);
-
-    // Salva cada cotação encontrada no documento de PP da licitação
-    for (let idx = 0; idx < itensResultado.length; idx++) {
-      const item = itensResultado[idx];
-      const itemNumero = idx + 1;
-
-      // Cria o item se ainda não existe
-      try {
-        await this.faseInternaService.adicionarItemPesquisa(licitacaoId, {
-          item_numero: itemNumero,
-          descricao: item.descricao || body.itens[idx]?.descricao || '',
-          quantidade: item.quantidade || 1,
-          unidade: item.unidade || 'UN',
-          cotacoes: item.cotacoes || [],
-          metodologia: 'MEDIANA',
-          valor_referencial: item.valor_referencial || 0,
-        });
-      } catch {
-        // Item pode já existir — adiciona cotações individualmente
-        for (const cotacao of item.cotacoes || []) {
-          try {
-            await this.faseInternaService.adicionarFontePreco(licitacaoId, itemNumero, cotacao);
-          } catch { /* ignora duplicatas */ }
-        }
-      }
-    }
-
-    const dadosAtualizados = await this.faseInternaService.getPrecos(licitacaoId);
-    return { ...dadosAtualizados, resumo };
-  }
-
-  /**
-   * Upload de comprovante para uma cotação específica.
-   * POST /fase-interna/:licitacaoId/precos/comprovante
-   */
   @Post(':licitacaoId/precos/comprovante')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: comprovanteStorage(''),
-      fileFilter: (req, file, cb) => {
-        const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+      storage: diskStorage({
+        destination: (req, _file, cb) => {
+          const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+          const destPath = join(uploadPath, 'pesquisa-precos', req.params.licitacaoId);
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const fs = require('fs');
+          if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+          cb(null, destPath);
+        },
+        filename: (_req, file, cb) => {
+          const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+          cb(null, `comprovante-${unique}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
         if (!allowed.includes(file.mimetype)) {
-          return cb(new BadRequestException('Apenas PDF, JPG e PNG são permitidos!'), false);
+          return cb(new BadRequestException('Apenas PDF, JPG e PNG são aceitos'), false);
         }
         cb(null, true);
       },
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+      limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
   async uploadComprovante(
     @Param('licitacaoId') licitacaoId: string,
     @UploadedFile() file: Express.Multer.File,
-    @Body('itemNumero') itemNumeroStr: string,
-    @Body('cotacaoIndex') cotacaoIndexStr: string,
+    @Body() body: { itemNumero: string; cotacaoIndex: string },
   ) {
-    if (!file) {
-      throw new BadRequestException('O arquivo é obrigatório.');
-    }
-    if (!itemNumeroStr || !cotacaoIndexStr) {
-      throw new BadRequestException('itemNumero e cotacaoIndex são obrigatórios.');
-    }
-
-    const itemNumero = parseInt(itemNumeroStr, 10);
-    const cotacaoIndex = parseInt(cotacaoIndexStr, 10);
-
-    if (isNaN(itemNumero) || isNaN(cotacaoIndex)) {
-      throw new BadRequestException('itemNumero e cotacaoIndex devem ser números inteiros.');
-    }
-
-    // Caminho relativo a partir de uploads/
-    const relativePath = `pesquisa-precos/${licitacaoId}/${file.filename}`;
-
+    if (!file) throw new BadRequestException('Arquivo não enviado');
+    const relPath = join('pesquisa-precos', licitacaoId, file.filename);
     await this.faseInternaService.salvarComprovanteCotacao(
       licitacaoId,
-      itemNumero,
-      cotacaoIndex,
-      relativePath,
+      parseInt(body.itemNumero),
+      parseInt(body.cotacaoIndex),
+      relPath,
     );
-
-    return {
-      url: `/api/uploads/${relativePath}`,
-      path: relativePath,
-    };
+    return { url: `/uploads/${relPath}`, path: relPath };
   }
 
-  /**
-   * Gera o PDF formal da Pesquisa de Preços.
-   * POST /fase-interna/:licitacaoId/precos/gerar-documento
-   */
+  // === GERAÇÃO DO DOCUMENTO PP (PDF FORMAL) ===
+
   @Post(':licitacaoId/precos/gerar-documento')
   async gerarDocumentoPP(
     @Param('licitacaoId') licitacaoId: string,
@@ -435,27 +409,18 @@ export class FaseInternaController {
       justificativaMetodologia?: string;
     },
   ) {
-    // Carrega dados da pesquisa de preços
-    const { dados, estatisticas } = await this.faseInternaService.getPrecos(licitacaoId);
-
-    const dataAssinatura = new Date().toLocaleDateString('pt-BR');
-
-    const relativePath = await this.geradorPpService.gerarDocumentoPP(licitacaoId, {
-      // Os dados de processo/objeto/orgão são carregados dentro do GeradorPpService via licitacaoRepository
-      numeroProcesso: licitacaoId, // será sobrescrito dentro do gerador
+    const precosData = await this.faseInternaService.getPrecos(licitacaoId);
+    const path = await this.geradorPpService.gerarDocumentoPP(licitacaoId, {
+      numeroProcesso: '',
       objeto: '',
       orgao: '',
-      itens: dados.itens,
+      itens: precosData.dados?.itens || [],
       metodologia: body.metodologia,
       justificativaMetodologia: body.justificativaMetodologia,
-      valorTotalEstimado: estatisticas?.valorTotal || 0,
+      valorTotalEstimado: precosData.estatisticas?.valorTotal || 0,
       responsavel: body.responsavel,
-      dataAssinatura,
+      dataAssinatura: new Date().toISOString().split('T')[0],
     });
-
-    return {
-      url: `/api/uploads/${relativePath}`,
-      path: relativePath,
-    };
+    return { url: `/uploads/${path}`, path };
   }
 }

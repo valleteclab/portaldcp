@@ -35,20 +35,22 @@ interface Documento {
   titulo: string
   status: string
   created_at: string
+  descricao?: string
+  dados_estruturados?: Record<string, unknown>
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** 8 steps of fase interna per Lei 14.133/2021 */
 const ETAPAS = [
-  { id: "DFD", nome: "Documento de Formalização de Demanda",  art: "Art. 18, I",     route: "editor" },
-  { id: "ETP", nome: "Estudo Técnico Preliminar",             art: "Art. 18, §1º",  route: "editor" },
-  { id: "MR",  nome: "Mapa de Riscos",                        art: "Art. 18, X",    route: "riscos"  },
-  { id: "PP",  nome: "Pesquisa de Preços",                    art: "Art. 23",       route: "precos"  },
-  { id: "TR",  nome: "Termo de Referência",                   art: "Art. 6º, XXIII", route: "editor" },
-  { id: "AUT", nome: "Autorização para abertura",             art: "Art. 18, II",   route: "editor" },
-  { id: "ED",  nome: "Elaboração do Edital",                  art: "Art. 25",       route: "editor" },
-  { id: "PJ",  nome: "Parecer Jurídico",                      art: "Art. 53",       route: "editor" },
+  { id: "DFD", nome: "Documento de Formalização de Demanda",  art: "Art. 18, I",     route: "/orgao/fase-interna/processos/novo?id=:id&step=dfd" },
+  { id: "ETP", nome: "Estudo Técnico Preliminar",             art: "Art. 18, §1º",  route: "/orgao/fase-interna/processos/novo?id=:id&step=etp" },
+  { id: "MR",  nome: "Mapa de Riscos",                        art: "Art. 18, X",    route: "/orgao/fase-interna/processos/novo?id=:id&step=riscos" },
+  { id: "PP",  nome: "Pesquisa de Preços",                    art: "Art. 23",       route: "/orgao/fase-interna/processos/novo?id=:id&step=pesquisa" },
+  { id: "TR",  nome: "Termo de Referência",                   art: "Art. 6º, XXIII", route: "/orgao/fase-interna/processos/novo?id=:id&step=tr" },
+  { id: "AUT", nome: "Autorização para abertura",             art: "Art. 18, II",   route: "/orgao/fase-interna/processos/novo?id=:id&step=autorizacao" },
+  { id: "ED",  nome: "Elaboração do Edital",                  art: "Art. 25",       route: "/orgao/fase-interna/processos/novo?id=:id&step=edital" },
+  { id: "PJ",  nome: "Parecer Jurídico",                      art: "Art. 53",       route: "/orgao/fase-interna/processos/novo?id=:id&step=juridico" },
 ]
 
 /**
@@ -81,21 +83,6 @@ const STATUS_CHIP_FASE: Record<string, { bg: string; text: string; label: string
   APROVACAO_INTERNA:  { bg: "bg-yellow-100", text: "text-yellow-700", label: "Aprovação interna" },
 }
 
-const MOCK_TEAM = [
-  { nome: "Ana Carolina M.", papel: "Requisitante",   initials: "AC", color: "bg-blue-500" },
-  { nome: "Ricardo Tavares", papel: "Pregoeiro",      initials: "RT", color: "bg-green-600" },
-  { nome: "Juliana Prado",   papel: "Procuradoria",   initials: "JP", color: "bg-purple-600" },
-  { nome: "Marcelo Souza",   papel: "Autoridade",     initials: "MS", color: "bg-orange-500" },
-]
-
-const IA_ITEMS = [
-  { label: "Documentação obrigatória",           pct: 100, color: "bg-green-500" },
-  { label: "Pesquisa de preços (Art. 23)",        pct: 85,  color: "bg-[#1351b4]" },
-  { label: "Análise de riscos (Art. 18, X)",      pct: 90,  color: "bg-[#1351b4]" },
-  { label: "Justificativas técnicas",             pct: 100, color: "bg-green-500" },
-  { label: "Conformidade jurídica",               pct: 75,  color: "bg-yellow-500" },
-]
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtMoeda(v: number | string) {
@@ -121,6 +108,37 @@ function buildEtapas(fase: string): EtapaComStatus[] {
       i < currentIdx ? "concluida" :
       i === currentIdx ? "andamento" : "pendente",
   }))
+}
+
+function documentoTemConteudo(doc?: Documento) {
+  if (!doc) return false
+  if (doc.descricao?.trim()) return true
+  return !!doc.dados_estruturados && Object.keys(doc.dados_estruturados).length > 0
+}
+
+function buildEtapasPorDocumentos(documentos: Documento[], fase: string): EtapaComStatus[] {
+  const fallbackIdx = FASE_STEP_INDEX[fase] ?? 0
+  const currentIdx = documentos.reduce((ultimo, doc) => {
+    if (!documentoTemConteudo(doc)) return ultimo
+    const idx = ETAPAS.findIndex((etapa) => etapa.id === doc.tipo)
+    return idx > ultimo ? idx : ultimo
+  }, fallbackIdx)
+
+  return ETAPAS.map((e, i) => ({
+    ...e,
+    status:
+      i < currentIdx ? "concluida" :
+      i === currentIdx ? "andamento" : "pendente",
+  }))
+}
+
+function initialsFromName(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("")
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -216,7 +234,11 @@ function EtapaRow({
               variant="outline"
               className="h-7 text-xs shrink-0"
               onClick={() =>
-                router.push(`/orgao/fase-interna/processos/${processoId}/${etapa.route}`)
+                router.push(
+                  etapa.route.startsWith("/")
+                    ? etapa.route.replace(":id", processoId)
+                    : `/orgao/fase-interna/processos/${processoId}/${etapa.route}`
+                )
               }
             >
               Abrir
@@ -237,6 +259,7 @@ export default function ProcessoDetailPage({
 }) {
   const { id } = use(params)
   const [licitacao, setLicitacao] = useState<Licitacao | null>(null)
+  const [documentos, setDocumentos] = useState<Documento[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -246,9 +269,15 @@ export default function ProcessoDetailPage({
   const carregar = async () => {
     setLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}`)
-      if (res.ok) {
-        setLicitacao(await res.json())
+      const [licitacaoRes, documentosRes] = await Promise.all([
+        authFetch(`${API_URL}/api/licitacoes/${id}`),
+        authFetch(`${API_URL}/api/fase-interna/${id}/documentos`),
+      ])
+      if (licitacaoRes.ok) {
+        setLicitacao(await licitacaoRes.json())
+      }
+      if (documentosRes.ok) {
+        setDocumentos(await documentosRes.json())
       }
     } catch (e) {
       console.error(e)
@@ -276,9 +305,12 @@ export default function ProcessoDetailPage({
     )
   }
 
-  const etapas = buildEtapas(licitacao.fase)
+  const etapas = buildEtapasPorDocumentos(documentos, licitacao.fase)
   const concluidas = etapas.filter((e) => e.status === "concluida").length
   const statusChip = STATUS_CHIP_FASE[licitacao.fase] || STATUS_CHIP_FASE.PLANEJAMENTO
+  const equipe = licitacao.responsavel
+    ? [{ nome: licitacao.responsavel, papel: "Responsável", initials: initialsFromName(licitacao.responsavel) }]
+    : []
 
   return (
     <div className="p-6 pb-12 max-w-6xl">
@@ -404,8 +436,8 @@ export default function ProcessoDetailPage({
                   {[
                     { label: "Nº SEI", value: licitacao.numero_sei || licitacao.numero_processo || "—" },
                     { label: "Modalidade", value: licitacao.modalidade?.replace(/_/g, " ") || "—" },
-                    { label: "Critério de julgamento", value: licitacao.criterio_julgamento?.replace(/_/g, " ") || "Menor preço" },
-                    { label: "Forma", value: "Eletrônica" },
+                    { label: "Critério de julgamento", value: licitacao.criterio_julgamento?.replace(/_/g, " ") || "—" },
+                    { label: "Forma", value: "—" },
                     { label: "Criado em", value: fmtData(licitacao.created_at) },
                   ].map((row) => (
                     <div key={row.label} className="flex items-start justify-between gap-2 text-xs">
@@ -424,29 +456,12 @@ export default function ProcessoDetailPage({
                       <Sparkles className="w-4 h-4 text-[#1351b4]" />
                       Conformidade IA
                     </CardTitle>
-                    <span className="text-sm font-bold px-2 py-0.5 rounded-full bg-green-100 text-[#168821]">
-                      92%
-                    </span>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  {IA_ITEMS.map((item) => (
-                    <div key={item.label}>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-gray-600">{item.label}</span>
-                        <span className="font-semibold text-gray-700">{item.pct}%</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${item.color}`}
-                          style={{ width: `${item.pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  <Button variant="outline" size="sm" className="w-full mt-2 text-xs">
-                    Análise detalhada
-                  </Button>
+                <CardContent>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    Nenhuma análise de conformidade disponível para este processo.
+                  </p>
                 </CardContent>
               </Card>
 
@@ -459,11 +474,12 @@ export default function ProcessoDetailPage({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {MOCK_TEAM.map((m) => (
+                  {equipe.length === 0 && (
+                    <p className="text-xs text-gray-400">Nenhuma equipe vinculada.</p>
+                  )}
+                  {equipe.map((m) => (
                     <div key={m.nome} className="flex items-center gap-2.5">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold ${m.color}`}
-                      >
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold bg-[#1351b4]">
                         {m.initials}
                       </div>
                       <div className="flex-1 min-w-0">

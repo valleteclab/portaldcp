@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Search, Plus, ChevronRight, Filter, Loader2 } from "lucide-react"
+import { Search, Plus, ChevronRight, Filter, Loader2, Trash2 } from "lucide-react"
+import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,6 +22,20 @@ interface Licitacao {
   responsavel?: string
   area?: string
   created_at?: string
+  etapaAtual?: EtapaInfo
+}
+
+interface Documento {
+  tipo: string
+  descricao?: string
+  dados_estruturados?: Record<string, unknown>
+}
+
+interface EtapaInfo {
+  sigla: string
+  art: string
+  progresso: number
+  step?: string
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -43,12 +58,23 @@ const FASE_STATUS: Record<string, string> = {
 }
 
 /** Map fase → etapa sigla e art */
-const FASE_ETAPA: Record<string, { sigla: string; art: string; progresso: number }> = {
-  PLANEJAMENTO:      { sigla: "DFD", art: "Art. 18, I",      progresso: 1 },
-  TERMO_REFERENCIA:  { sigla: "ETP", art: "Art. 18, §1º",   progresso: 2 },
-  PESQUISA_PRECOS:   { sigla: "PP",  art: "Art. 23",         progresso: 3 },
-  ANALISE_JURIDICA:  { sigla: "TR",  art: "Art. 6º, XXIII",  progresso: 5 },
-  APROVACAO_INTERNA: { sigla: "PJ",  art: "Art. 53",         progresso: 7 },
+const FASE_ETAPA: Record<string, EtapaInfo> = {
+  PLANEJAMENTO:      { sigla: "DFD", art: "Art. 18, I",      progresso: 1, step: "dfd" },
+  TERMO_REFERENCIA:  { sigla: "ETP", art: "Art. 18, §1º",   progresso: 2, step: "etp" },
+  PESQUISA_PRECOS:   { sigla: "PP",  art: "Art. 23",         progresso: 4, step: "pesquisa" },
+  ANALISE_JURIDICA:  { sigla: "TR",  art: "Art. 6º, XXIII",  progresso: 5, step: "tr" },
+  APROVACAO_INTERNA: { sigla: "PJ",  art: "Art. 53",         progresso: 8, step: "juridico" },
+}
+
+const DOCUMENTO_ETAPA: Record<string, EtapaInfo> = {
+  DFD: { sigla: "DFD", art: "Art. 18, I", progresso: 1, step: "dfd" },
+  ETP: { sigla: "ETP", art: "Art. 18, §1º", progresso: 2, step: "etp" },
+  MR: { sigla: "MR", art: "Art. 18, X", progresso: 3, step: "riscos" },
+  PP: { sigla: "PP", art: "Art. 23", progresso: 4, step: "pesquisa" },
+  TR: { sigla: "TR", art: "Art. 6º, XXIII", progresso: 5, step: "tr" },
+  AA: { sigla: "AUT", art: "Art. 18, II", progresso: 6, step: "autorizacao" },
+  ME: { sigla: "ED", art: "Art. 25", progresso: 7, step: "edital" },
+  PJ: { sigla: "PJ", art: "Art. 53", progresso: 8, step: "juridico" },
 }
 
 /** Status filter tabs */
@@ -72,41 +98,6 @@ const STATUS_CHIP: Record<string, { bg: string; text: string; label: string }> =
   aprovado:  { bg: "bg-green-100",   text: "text-[#168821]",   label: "Aprovado" },
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_PROCESSOS: Licitacao[] = [
-  {
-    id: "1",
-    numero_processo: "2026/0142",
-    objeto: "Aquisição de 250 licenças de software de Gestão Eletrônica de Documentos (GED)",
-    modalidade: "Pregão Eletrônico",
-    fase: "ANALISE_JURIDICA",
-    valor_total_estimado: 1095000,
-    responsavel: "Ana Carolina M.",
-    area: "SETIC",
-  },
-  {
-    id: "2",
-    numero_processo: "2026/0138",
-    objeto: "Contratação de serviços de limpeza e conservação predial",
-    modalidade: "Pregão Eletrônico",
-    fase: "APROVACAO_INTERNA",
-    valor_total_estimado: 480000,
-    responsavel: "Ricardo Tavares",
-    area: "GABIN",
-  },
-  {
-    id: "3",
-    numero_processo: "2026/0151",
-    objeto: "Fornecimento de combustível para frota municipal",
-    modalidade: "Pregão Eletrônico",
-    fase: "PESQUISA_PRECOS",
-    valor_total_estimado: 320000,
-    responsavel: "Juliana Prado",
-    area: "SEMOB",
-  },
-]
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtMoeda(v: number | string) {
@@ -115,12 +106,28 @@ function fmtMoeda(v: number | string) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
+function documentoTemConteudo(doc?: Documento) {
+  if (!doc) return false
+  if (doc.descricao?.trim()) return true
+  return !!doc.dados_estruturados && Object.keys(doc.dados_estruturados).length > 0
+}
+
+function calcularEtapaAtual(documentos: Documento[]): EtapaInfo | undefined {
+  return documentos.reduce<EtapaInfo | undefined>((ultima, doc) => {
+    if (!documentoTemConteudo(doc)) return ultima
+    const etapa = DOCUMENTO_ETAPA[doc.tipo]
+    if (!etapa) return ultima
+    if (!ultima || etapa.progresso > ultima.progresso) return etapa
+    return ultima
+  }, undefined)
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProcessosPage() {
   const [processos, setProcessos] = useState<Licitacao[]>([])
   const [loading, setLoading] = useState(true)
-  const [isMock, setIsMock] = useState(false)
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
   const [busca, setBusca] = useState("")
   const [filtroTab, setFiltroTab] = useState<FilterTab>("todos")
 
@@ -136,21 +143,23 @@ export default function ProcessosPage() {
         const data = await res.json()
         const lista: Licitacao[] = Array.isArray(data) ? data : (data.data || data.items || [])
         const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
-        if (internas.length === 0) {
-          setProcessos(MOCK_PROCESSOS)
-          setIsMock(true)
-        } else {
-          setProcessos(internas)
-          setIsMock(false)
-        }
+        const enriquecidas = await Promise.all(internas.map(async (processo) => {
+          try {
+            const documentosRes = await authFetch(`${API_URL}/api/fase-interna/${processo.id}/documentos`)
+            if (!documentosRes.ok) return processo
+            const documentos = await documentosRes.json()
+            return { ...processo, etapaAtual: calcularEtapaAtual(documentos) || undefined }
+          } catch {
+            return processo
+          }
+        }))
+        setProcessos(enriquecidas)
       } else {
-        setProcessos(MOCK_PROCESSOS)
-        setIsMock(true)
+        setProcessos([])
       }
     } catch (e) {
       console.error(e)
-      setProcessos(MOCK_PROCESSOS)
-      setIsMock(true)
+      setProcessos([])
     } finally {
       setLoading(false)
     }
@@ -165,6 +174,34 @@ export default function ProcessosPage() {
     const matchTab = filtroTab === "todos" || status === filtroTab
     return matchBusca && matchTab
   })
+
+  const excluirProcesso = async (processo: Licitacao) => {
+    const identificador = processo.numero_processo || processo.objeto || processo.id
+    const confirmado = window.confirm(
+      `Excluir o processo ${identificador}?\n\nEsta ação remove o processo e não pode ser desfeita.`
+    )
+
+    if (!confirmado) return
+
+    setExcluindoId(processo.id)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${processo.id}`, {
+        method: "DELETE",
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null)
+        throw new Error(data?.message || "Erro ao excluir processo")
+      }
+
+      setProcessos((prev) => prev.filter((p) => p.id !== processo.id))
+      toast.success("Processo excluído com sucesso")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao excluir processo")
+    } finally {
+      setExcluindoId(null)
+    }
+  }
 
   return (
     <div className="p-6 pb-10 max-w-6xl">
@@ -181,9 +218,6 @@ export default function ProcessosPage() {
             {loading
               ? "Carregando…"
               : `${filtrados.length} processo${filtrados.length !== 1 ? "s" : ""} · Fase interna em curso`}
-            {isMock && !loading && (
-              <span className="text-gray-400 ml-1">(dados de exemplo)</span>
-            )}
           </p>
         </div>
         <Link href="/orgao/fase-interna/processos/novo">
@@ -271,12 +305,12 @@ export default function ProcessosPage() {
                   <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3">
                     Status
                   </th>
-                  <th className="w-10" />
+                  <th className="w-20" />
                 </tr>
               </thead>
               <tbody>
                 {filtrados.map((p) => {
-                  const etapa = FASE_ETAPA[p.fase] || { sigla: "—", art: "—", progresso: 0 }
+                  const etapa = p.etapaAtual || FASE_ETAPA[p.fase] || { sigla: "—", art: "—", progresso: 0 }
                   const status = FASE_STATUS[p.fase] || "rascunho"
                   const chip = STATUS_CHIP[status] || STATUS_CHIP.rascunho
                   return (
@@ -327,13 +361,29 @@ export default function ProcessosPage() {
                         </span>
                       </td>
 
-                      {/* Chevron */}
+                      {/* Actions */}
                       <td className="px-3 py-4">
-                        <Link href={`/orgao/fase-interna/processos/${p.id}`}>
-                          <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-[#ecf3fc] hover:text-[#1351b4]">
-                            <ChevronRight className="w-4 h-4" />
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-7 h-7 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                            onClick={() => excluirProcesso(p)}
+                            disabled={excluindoId === p.id}
+                            title="Excluir processo"
+                          >
+                            {excluindoId === p.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
                           </Button>
-                        </Link>
+                          <Link href={`/orgao/fase-interna/processos/novo?id=${p.id}&step=${etapa.step || "dfd"}`}>
+                            <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-[#ecf3fc] hover:text-[#1351b4]">
+                              <ChevronRight className="w-4 h-4" />
+                            </Button>
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                   )

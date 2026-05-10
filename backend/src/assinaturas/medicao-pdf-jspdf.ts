@@ -473,6 +473,34 @@ export async function gerarBoletimMedicaoPdf(
       margin: { left: mX, right: mX },
     });
     y = (doc as any).lastAutoTable.finalY + 4;
+
+    const contratoNumero = textoSeguro(dados.numero_contrato ?? dados.contrato_numero).trim();
+    const fornecedorCnpj = String(dados.fornecedor_cnpj || '').replace(/\D/g, '');
+    const observacaoDmnewsFevereiro =
+      contratoNumero === '002/2026' && fornecedorCnpj === '13772522000153'
+        ? 'Não houve sustentação de software no mês de fevereiro.'
+        : '';
+
+    if (observacaoDmnewsFevereiro) {
+      const linhasObs = doc.splitTextToSize(observacaoDmnewsFevereiro, W - 2 * mX - 8);
+      const hObs = Math.max(12, linhasObs.length * 4 + 8);
+      if (y + hObs > H - 30) {
+        doc.addPage();
+        y = 12;
+      }
+      doc.setDrawColor(190, 190, 190);
+      doc.setFillColor(245, 248, 252);
+      doc.rect(mX, y, W - 2 * mX, hObs, 'FD');
+      doc.setTextColor(22, 60, 100);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.text('OBSERVAÇÃO', mX + 4, y + 4.5);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.text(linhasObs, mX + 4, y + 9);
+      y += hObs + 4;
+    }
   }
 
   // =========================================================

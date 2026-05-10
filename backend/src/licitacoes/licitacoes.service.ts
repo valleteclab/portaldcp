@@ -494,7 +494,10 @@ export class LicitacoesService {
   }
 
   async delete(id: string): Promise<void> {
-    const licitacao = await this.findOne(id);
+    const licitacao = await this.licitacaoRepository.findOne({ where: { id } });
+    if (!licitacao) {
+      throw new NotFoundException(`Licitação com ID ${id} não encontrada`);
+    }
     
     // Regras de exclusão conforme Lei 14.133/2021
     // Só pode excluir se estiver em fase interna (antes da publicação)
@@ -512,7 +515,17 @@ export class LicitacoesService {
       );
     }
 
-    await this.licitacaoRepository.remove(licitacao);
+    await this.licitacaoRepository.manager.transaction(async (manager) => {
+      // Registros da fase interna podem ter FKs sem cascade em bancos existentes.
+      // Remover filhos primeiro evita erro 500 por violação de constraint.
+      await manager.delete('logs_fase_interna', { licitacao_id: id });
+      await manager.delete('documentos_fase_interna', { licitacao_id: id });
+      await manager.delete('documentos_licitacao', { licitacao_id: id });
+      await manager.delete('pncp_sync', { licitacao_id: id });
+      await manager.delete(ItemLicitacao, { licitacao_id: id });
+      await manager.delete(LoteLicitacao, { licitacao_id: id });
+      await manager.delete(Licitacao, id);
+    });
   }
 
   // === HELPERS ===

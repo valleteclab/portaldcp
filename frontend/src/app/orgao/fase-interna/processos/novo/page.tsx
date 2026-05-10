@@ -1,15 +1,78 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useCallback, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, ArrowRight, Check, Sparkles, Home, ChevronRight, Loader2, AlertCircle, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, ArrowRight, Check, Sparkles, Home, ChevronRight, Loader2, AlertCircle, Plus, Trash2, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { API_URL, authFetch } from "@/lib/api"
+
+function getOrgaoId(): string {
+  if (typeof window === "undefined") return ""
+  try {
+    const orgao = JSON.parse(localStorage.getItem("orgao") || "{}")
+    return orgao.id || ""
+  } catch {
+    return ""
+  }
+}
+
+function gerarNumeroProcesso(): string {
+  const now = new Date()
+  const ano = now.getFullYear()
+  const mes = String(now.getMonth() + 1).padStart(2, "0")
+  const random = Math.floor(Math.random() * 99999).toString().padStart(5, "0")
+  return `${ano}${mes}.${random}`
+}
+
+function mapearModalidade(frontend: string): string {
+  const map: Record<string, string> = {
+    "Pregão Eletrônico": "PREGAO_ELETRONICO",
+    "Concorrência": "CONCORRENCIA",
+    "Dispensa de Licitação": "DISPENSA",
+    "Inexigibilidade": "INEXIGIBILIDADE",
+    "Concurso": "CONCURSO",
+    "Leilão": "LEILAO",
+  }
+  return map[frontend] || "PREGAO_ELETRONICO"
+}
+
+function mapearCategoria(frontend: string): string {
+  const map: Record<string, string> = {
+    "Serviços de TI": "SERVICO",
+    "Bens de TI": "COMPRA",
+    "Serviços Comuns": "SERVICO",
+    "Obras e Engenharia": "OBRA",
+    "Outros Serviços": "SERVICO",
+    "Outros": "SERVICO",
+  }
+  return map[frontend] || "SERVICO"
+}
+
+function desmapearModalidade(backend: string): string {
+  const map: Record<string, string> = {
+    PREGAO_ELETRONICO: "Pregão Eletrônico",
+    CONCORRENCIA: "Concorrência",
+    DISPENSA: "Dispensa de Licitação",
+    INEXIGIBILIDADE: "Inexigibilidade",
+    CONCURSO: "Concurso",
+    LEILAO: "Leilão",
+  }
+  return map[backend] || backend || ""
+}
+
+function desmapearCategoria(backend: string): string {
+  const map: Record<string, string> = {
+    SERVICO: "Serviços Comuns",
+    COMPRA: "Bens de TI",
+    OBRA: "Obras e Engenharia",
+  }
+  return map[backend] || backend || ""
+}
 
 // ─── Etapas do wizard ──────────────────────────────────────────────
 const WIZARD_ETAPAS = [
@@ -74,7 +137,7 @@ Responda APENAS com JSON válido:
 Objeto: ${ctx.objeto}
 Categoria: ${ctx.categoria}
 Quantidade: ${ctx.quantidade || "a definir"}
-Modalidade: ${ctx.modalidade || "Pregão Eletrônico"}
+Modalidade: ${ctx.modalidade || "não informada"}
 
 Gere 8 seções do ETP em JSON. 2-3 frases técnicas por seção. Cite normas: LGPD, IN SGD/ME 1/2019 para TI quando pertinente.
 
@@ -120,11 +183,11 @@ Responda APENAS com JSON válido:
       { id: "recursos",      titulo: "6. Dos recursos",            placeholder: "Prazos e procedimentos recursais…" },
       { id: "contratacao",   titulo: "7. Da contratação",          placeholder: "Condições e prazos de contratação…" },
     ],
-    buildPrompt: (ctx) => `Você redige trechos de minuta de Edital de Pregão Eletrônico conforme Lei 14.133/2021, Art. 25.
+    buildPrompt: (ctx) => `Você redige trechos de minuta de Edital conforme Lei 14.133/2021, Art. 25.
 
 Objeto: ${ctx.objeto}
-Modalidade: ${ctx.modalidade || "Pregão Eletrônico"}
-Critério: Menor preço
+Modalidade: ${ctx.modalidade || "não informada"}
+Critério: ${ctx.criterio_julgamento || "não informado"}
 
 Gere as 7 seções em JSON. 2-3 frases em linguagem editalícia formal.
 
@@ -223,16 +286,95 @@ function WizardSidebar({ etapas, current, completed, onJump }: {
 // ─── Step: Dados básicos ───────────────────────────────────────────
 function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: string, v: string) => void; onNext: () => void }) {
   const valido = dados.objeto && dados.categoria && dados.modalidade
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [animando, setAnimando] = useState<string | null>(null)
+
+  const gerarComIA = async () => {
+    if (!dados.objeto || dados.objeto.trim().length < 10) {
+      setErro("Informe ao menos uma descrição inicial do objeto para a IA completar os dados.")
+      return
+    }
+
+    setBusy(true)
+    setErro(null)
+    try {
+      const resposta = await chamarIA(
+        `Você é especialista em fase interna de licitações conforme a Lei 14.133/2021.
+
+A partir da descrição inicial abaixo, complete os dados básicos do processo com sugestões plausíveis e objetivas.
+
+Descrição inicial do objeto: ${dados.objeto}
+Categoria atual: ${dados.categoria || "não informada"}
+Modalidade atual: ${dados.modalidade || "não informada"}
+Quantidade atual: ${dados.quantidade || "não informada"}
+Área demandante atual: ${dados.area || "não informada"}
+Valor estimado atual: ${dados.valor || "não informado"}
+
+Regras:
+- mantenha linguagem formal e administrativa;
+- escolha apenas uma categoria compatível com estas opções: Serviços de TI, Bens de TI, Serviços Comuns, Obras e Engenharia, Outros Serviços;
+- escolha apenas uma modalidade compatível com estas opções: Pregão Eletrônico, Concorrência, Dispensa de Licitação, Inexigibilidade;
+- se não houver base para estimar valor, retorne string vazia em "valor";
+- responda APENAS com JSON válido.
+
+Formato:
+{"objeto":"...","categoria":"...","modalidade":"...","quantidade":"...","area":"...","valor":"..."}`,
+        "dados_basicos_fase_interna"
+      )
+      const jsonMatch = resposta.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error("JSON não encontrado na resposta")
+
+      const parsed = JSON.parse(jsonMatch[0])
+      const campos = ["objeto", "categoria", "modalidade", "quantidade", "area", "valor"]
+      for (const campo of campos) {
+        if (typeof parsed[campo] === "string" && parsed[campo].trim()) {
+          setAnimando(campo)
+          await typewriterFill(parsed[campo].trim(), (v) => onChange(campo, v))
+        }
+      }
+    } catch (e) {
+      setErro("Erro ao gerar com IA. Você pode preencher manualmente.")
+      console.error(e)
+    } finally {
+      setBusy(false)
+      setAnimando(null)
+    }
+  }
 
   return (
     <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
-      <div className="mb-6">
-        <h2 className="text-lg font-bold text-gray-900">Dados básicos do processo</h2>
-        <p className="text-sm text-gray-500 mt-1">Informações iniciais que guiarão a elaboração de todos os documentos.</p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Dados básicos do processo</h2>
+          <p className="text-sm text-gray-500 mt-1">Informações iniciais que guiarão a elaboração de todos os documentos.</p>
+          <span className="text-xs text-[#1351b4] font-medium">Configuração inicial</span>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={gerarComIA}
+          disabled={busy}
+          className="shrink-0 ml-4 text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc]"
+        >
+          {busy
+            ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Gerando…</>
+            : <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Gerar com IA</>
+          }
+        </Button>
       </div>
+      {erro && (
+        <div className="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          {erro}
+        </div>
+      )}
       <div className="space-y-5">
         <div>
-          <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Objeto da contratação *</Label>
+          <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+            Objeto da contratação *
+            {animando === "objeto" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+          </Label>
           <Textarea
             value={dados.objeto || ""}
             onChange={(e) => onChange("objeto", e.target.value)}
@@ -243,7 +385,10 @@ function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: stri
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Categoria *</Label>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+              Categoria *
+              {animando === "categoria" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+            </Label>
             <Select value={dados.categoria || ""} onValueChange={(v) => onChange("categoria", v)}>
               <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
               <SelectContent>
@@ -256,7 +401,10 @@ function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: stri
             </Select>
           </div>
           <div>
-            <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Modalidade *</Label>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+              Modalidade *
+              {animando === "modalidade" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+            </Label>
             <Select value={dados.modalidade || ""} onValueChange={(v) => onChange("modalidade", v)}>
               <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
               <SelectContent>
@@ -270,16 +418,25 @@ function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: stri
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Quantidade estimada</Label>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+              Quantidade estimada
+              {animando === "quantidade" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+            </Label>
             <Input value={dados.quantidade || ""} onChange={(e) => onChange("quantidade", e.target.value)} placeholder="Ex: 100 licenças" />
           </div>
           <div>
-            <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Área demandante</Label>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+              Área demandante
+              {animando === "area" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+            </Label>
             <Input value={dados.area || ""} onChange={(e) => onChange("area", e.target.value)} placeholder="Ex: SETIC, GABIN…" />
           </div>
         </div>
         <div>
-          <Label className="text-xs font-semibold text-gray-700 mb-1.5 block">Valor estimado (R$)</Label>
+          <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+            Valor estimado (R$)
+            {animando === "valor" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+          </Label>
           <Input value={dados.valor || ""} onChange={(e) => onChange("valor", e.target.value)} placeholder="Ex: 150000.00" />
         </div>
       </div>
@@ -573,7 +730,7 @@ function StepAutorizacao({ autorizacao, setAutorizacao, onNext, onBack, ctx }: a
     setBusy(true)
     try {
       const r = await chamarIA(
-        `Redija um parágrafo de autorização para início da fase externa de uma licitação conforme Art. 18, II da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "Pregão Eletrônico"}\n\nSeja formal, conciso, em primeira pessoa do plural.`,
+        `Redija um parágrafo de autorização para início da fase externa de uma licitação conforme Art. 18, II da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "não informada"}\n\nSeja formal, conciso, em primeira pessoa do plural.`,
         "autorizacao"
       )
       setAutorizacao(r.replace(/^["']|["']$/g, ""))
@@ -610,7 +767,7 @@ function StepJuridico({ parecer, setParecer, onNext, onBack, ctx }: any) {
     setBusy(true)
     try {
       const r = await chamarIA(
-        `Redija um parecer jurídico favorável para a fase interna de uma licitação, conforme Art. 53 da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "Pregão Eletrônico"}\n\nIncluir: análise formal, material, verificação dos documentos (DFD, ETP, MR, PP, TR) e conclusão. Linguagem jurídica formal.`,
+        `Redija um parecer jurídico favorável para a fase interna de uma licitação, conforme Art. 53 da Lei 14.133/2021.\n\nObjeto: ${ctx.objeto}\nModalidade: ${ctx.modalidade || "não informada"}\n\nIncluir: análise formal, material, verificação dos documentos (DFD, ETP, MR, PP, TR) e conclusão. Linguagem jurídica formal.`,
         "parecer_juridico"
       )
       setParecer(r.replace(/^["']|["']$/g, ""))
@@ -667,9 +824,13 @@ function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => voi
 // ─── Página principal ──────────────────────────────────────────────
 export default function NovoProcessoPage() {
   const router = useRouter()
-  const [step, setStep] = useState("dados")
+  const searchParams = useSearchParams()
+  const processoId = searchParams.get("id")
+  const stepParam = searchParams.get("step")
+  const [step, setStep] = useState(stepParam || "dados")
   const [completed, setCompleted] = useState<string[]>([])
   const [criando, setCriando] = useState(false)
+  const [salvandoRascunho, setSalvandoRascunho] = useState(false)
 
   const [dados, setDados] = useState<Record<string, string>>({})
   const [docs, setDocs] = useState<Record<string, Record<string, string>>>({
@@ -679,6 +840,63 @@ export default function NovoProcessoPage() {
   const [fontes, setFontes] = useState<any[]>([{ fonte: "", valor: 0 }, { fonte: "", valor: 0 }, { fonte: "", valor: 0 }])
   const [autorizacao, setAutorizacao] = useState("")
   const [parecer, setParecer] = useState("")
+
+  useEffect(() => {
+    if (!processoId) return
+
+    const aplicarTextoNasSecoes = (stepKey: string, texto?: string) => {
+      if (!texto) return {}
+      const secoes = TEMPLATES[stepKey]?.secoes || []
+      const partes = texto.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+      return Object.fromEntries(secoes.map((secao, index) => [secao.id, partes[index] || ""]))
+    }
+
+    const aplicarDocumentoNasSecoes = (stepKey: string, documento?: any) => {
+      const estruturado = documento?.dados_estruturados
+      const secoes = TEMPLATES[stepKey]?.secoes || []
+      const temChavesDoFormulario = estruturado && secoes.some((secao) => typeof estruturado[secao.id] === "string")
+      return temChavesDoFormulario ? estruturado : aplicarTextoNasSecoes(stepKey, documento?.descricao)
+    }
+
+    const carregarRascunho = async () => {
+      try {
+        const [licitacaoRes, documentosRes] = await Promise.all([
+          authFetch(`${API_URL}/api/licitacoes/${processoId}`),
+          authFetch(`${API_URL}/api/fase-interna/${processoId}/documentos`),
+        ])
+
+        if (licitacaoRes.ok) {
+          const licitacao = await licitacaoRes.json()
+          setDados({
+            objeto: licitacao.objeto || "",
+            modalidade: desmapearModalidade(licitacao.modalidade),
+            categoria: desmapearCategoria(licitacao.tipo_contratacao),
+            valor: licitacao.valor_total_estimado ? String(licitacao.valor_total_estimado) : "",
+          })
+        }
+
+        if (documentosRes.ok) {
+          const documentos = await documentosRes.json()
+          const porTipo = Object.fromEntries(documentos.map((doc: any) => [doc.tipo, doc]))
+
+          setDocs((prev) => ({
+            ...prev,
+            dfd: aplicarDocumentoNasSecoes("dfd", porTipo.DFD),
+            etp: aplicarDocumentoNasSecoes("etp", porTipo.ETP),
+            tr: aplicarDocumentoNasSecoes("tr", porTipo.TR),
+            edital: aplicarDocumentoNasSecoes("edital", porTipo.ME),
+          }))
+          setAutorizacao(porTipo.AA?.descricao || "")
+          setParecer(porTipo.PJ?.descricao || "")
+        }
+      } catch (e) {
+        console.error("Erro ao carregar rascunho:", e)
+      }
+    }
+
+    setStep(stepParam || "dfd")
+    carregarRascunho()
+  }, [processoId, stepParam])
 
   const ctx = {
     ...dados,
@@ -704,6 +922,19 @@ export default function NovoProcessoPage() {
     setDocs((prev) => ({ ...prev, [docKey]: { ...prev[docKey], [secId]: val } }))
   }
 
+  const buildWizardPayload = () => ({
+    dfd: Object.values(docs.dfd).join("\n\n"),
+    etp: docs.etp,
+    etp_necessidade: Object.values(docs.etp).join("\n\n"),
+    riscos: JSON.stringify(riscos),
+    precos_fontes: JSON.stringify(fontes.filter((f) => f.valor > 0)),
+    tr: docs.tr,
+    tr_requisitos: Object.values(docs.tr).join("\n\n"),
+    autorizacao_autoridade: autorizacao,
+    edital_notas: Object.values(docs.edital).join("\n\n"),
+    juridico_obs: parecer,
+  })
+
   const criarProcesso = async () => {
     setCriando(true)
     try {
@@ -723,16 +954,7 @@ export default function NovoProcessoPage() {
         await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            dfd: Object.values(docs.dfd).join("\n\n"),
-            etp: docs.etp,
-            riscos,
-            pesquisaPrecos: fontes.filter((f) => f.valor > 0),
-            tr: docs.tr,
-            autorizacao,
-            edital: Object.values(docs.edital).join("\n\n"),
-            parecerJuridico: parecer,
-          }),
+          body: JSON.stringify(buildWizardPayload()),
         })
         router.push(`/orgao/fase-interna/processos/${licitacao.id}`)
       }
@@ -740,6 +962,67 @@ export default function NovoProcessoPage() {
       console.error(e)
     } finally {
       setCriando(false)
+    }
+  }
+
+  const salvarRascunho = async () => {
+    if (!dados.objeto || !dados.modalidade || !dados.categoria) {
+      alert("Preencha os dados básicos primeiro (objeto, modalidade e categoria)")
+      return
+    }
+    const orgaoId = getOrgaoId()
+    if (!orgaoId) {
+      alert("Erro: órgão não identificado. Faça login novamente.")
+      return
+    }
+    
+    let valorEstimado = 0
+    if (dados.valor) {
+      const valorLimpo = dados.valor.replace(/[R$\s.,]/g, "").replace(",", ".")
+      valorEstimado = parseFloat(valorLimpo) || 0
+    }
+    
+    setSalvandoRascunho(true)
+    try {
+      const payloadLicitacao = {
+        numero_processo: gerarNumeroProcesso(),
+        orgao_id: orgaoId,
+        objeto: dados.objeto,
+        modalidade: mapearModalidade(dados.modalidade),
+        tipo_contratacao: mapearCategoria(dados.categoria),
+        criterio_julgamento: "MENOR_PRECO",
+        valor_total_estimado: valorEstimado > 0 ? valorEstimado : undefined,
+      }
+      const res = await authFetch(
+        processoId ? `${API_URL}/api/licitacoes/${processoId}` : `${API_URL}/api/licitacoes`,
+        {
+        method: processoId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadLicitacao),
+        }
+      )
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        const msg = err.message || err.errors?.[0]?.message || "Erro ao criar processo"
+        throw new Error(msg)
+      }
+      const licitacao = await res.json()
+      const licitacaoId = processoId || licitacao.id
+      const wizardRes = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildWizardPayload()),
+      })
+      if (!wizardRes.ok) {
+        const err = await wizardRes.json().catch(() => ({}))
+        throw new Error(err.message || "Erro ao salvar documentos do rascunho")
+      }
+      router.push(`/orgao/fase-interna/processos/novo?id=${licitacaoId}&step=${step}`)
+    } catch (e: any) {
+      console.error(e)
+      alert(e.message || "Erro ao salvar rascunho")
+    } finally {
+      setSalvandoRascunho(false)
     }
   }
 
@@ -773,12 +1056,27 @@ export default function NovoProcessoPage() {
 
       {/* Header da etapa */}
       {step !== "concluido" && (
-        <div className="px-6 py-2.5 border-b border-gray-100 bg-[#f6f9fd] shrink-0 flex items-center gap-3">
-          <span className="text-xs font-bold bg-[#1351b4] text-white px-2.5 py-1 rounded-full">
-            Fase interna · {idxAtual + 1} de {WIZARD_ETAPAS.length - 1}
-          </span>
-          <span className="text-xs font-bold text-gray-800">{etapaAtual?.nome}</span>
-          {etapaAtual?.art && <span className="text-xs text-gray-400">{etapaAtual.art}</span>}
+        <div className="px-6 py-2.5 border-b border-gray-100 bg-[#f6f9fd] shrink-0 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold bg-[#1351b4] text-white px-2.5 py-1 rounded-full">
+              Fase interna · {idxAtual + 1} de {WIZARD_ETAPAS.length - 1}
+            </span>
+            <span className="text-xs font-bold text-gray-800">{etapaAtual?.nome}</span>
+            {etapaAtual?.art && <span className="text-xs text-gray-400">{etapaAtual.art}</span>}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={salvarRascunho}
+            disabled={salvandoRascunho}
+            className="text-[#1351b4] border-[#c5d4eb] hover:bg-[#f6f9fd]"
+          >
+            {salvandoRascunho ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Salvando...</>
+            ) : (
+              <><Save className="w-3.5 h-3.5 mr-1.5" /> Salvar rascunho</>
+            )}
+          </Button>
         </div>
       )}
 
