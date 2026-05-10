@@ -12,6 +12,7 @@ import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 const REQUEST_TIMEOUT_MS = 15000;
 const MAX_IDADE_PRECO_DIAS = 90;
 const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
+const DADOS_ABERTOS_COMPRAS_BASE = 'https://dadosabertos.compras.gov.br';
 const HTTP_HEADERS = {
   Accept: 'application/json',
   'User-Agent': 'PortalDCP/1.0 (pesquisa-precos; contato=suporte@portaldcp.com.br)',
@@ -31,6 +32,10 @@ function termoItem(item: ItemLicitacao): string {
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function codigoCatalogoItem(item: ItemLicitacao): string {
+  return String(item.codigo_catmat || item.codigo_catser || item.codigo_catalogo || '').replace(/\D/g, '');
 }
 
 function hojeISO(): string {
@@ -205,27 +210,86 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
 @Injectable()
 export class PainelComprasGovProvider implements PesquisaPrecoProvider {
   readonly fonte: FontePesquisaTipo = 'PAINEL_DE_PRECOS';
+  private readonly logger = new Logger(PainelComprasGovProvider.name);
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
-    return context.itens
-      .filter((item) => Number(item.valor_unitario_estimado) > 0)
-      .map((item) => ({
-        item_numero: item.numero_item,
-        fonte_tipo: 'PAINEL_DE_PRECOS',
-        descricao_fonte: 'Painel de Precos / ComprasGov - valor estimado do item',
-        url_referencia: 'https://paineldeprecos.planejamento.gov.br/',
-        data_pesquisa: hojeISO(),
-        valor_unitario: Number(item.valor_unitario_estimado),
-        quantidade_base: Number(item.quantidade) || 1,
-        unidade: String(item.unidade_medida || 'UN'),
-        evidencia: {
-          tipo: 'manual',
-          origem: 'Valor estimado cadastrado no processo para conferencia no Painel de Precos',
-          coletado_em: new Date().toISOString(),
-        },
-        score: 78,
-        flags: ['Validar no Painel de Precos antes de aprovar como fonte oficial.'],
-      }));
+    const candidatos: PesquisaPrecoCandidateInput[] = [];
+
+    for (const item of context.itens) {
+      const codigo = codigoCatalogoItem(item);
+      if (codigo) {
+        try {
+          const registros = await this.consultarPesquisaPreco(item, codigo, context.scope.maxPorFonte || 5);
+          for (const registro of registros) {
+            const valor = Number(registro.precoUnitario || registro.valorUnitario || 0);
+            if (valor <= 0) continue;
+            candidatos.push({
+              item_numero: item.numero_item,
+              fonte_tipo: 'PAINEL_DE_PRECOS',
+              descricao_fonte: `Compras.gov.br - ${registro.nomeUasg || registro.nomeOrgao || 'Pesquisa de Precos'}`,
+              url_referencia: 'https://dadosabertos.compras.gov.br/swagger-ui/index.html',
+              data_pesquisa: String(registro.dataResultado || registro.dataCompra || hojeISO()).split('T')[0],
+              fornecedor_cnpj: registro.niFornecedor,
+              fornecedor_razao_social: registro.nomeFornecedor,
+              valor_unitario: Number(valor.toFixed(4)),
+              quantidade_base: Number(registro.quantidade) || Number(item.quantidade) || 1,
+              unidade: String(registro.siglaUnidadeFornecimento || registro.siglaUnidadeMedida || item.unidade_medida || 'UN'),
+              evidencia: {
+                tipo: 'api',
+                origem: 'Dados Abertos Compras.gov.br - modulo pesquisa de preco',
+                coletado_em: new Date().toISOString(),
+                titulo: registro.descricaoItem || registro.objetoCompra || termoItem(item),
+              },
+              score: 95,
+            });
+          }
+          if (registros.length) continue;
+        } catch (error) {
+          this.logger.warn(`Falha ao consultar Compras.gov.br para item ${item.numero_item}: ${(error as Error).message}`);
+        }
+      }
+
+      const valorEstimado = Number(item.valor_unitario_estimado);
+      if (valorEstimado > 0) {
+        candidatos.push({
+          item_numero: item.numero_item,
+          fonte_tipo: 'PAINEL_DE_PRECOS',
+          descricao_fonte: 'Painel de Precos / ComprasGov - valor estimado do item',
+          url_referencia: 'https://paineldeprecos.planejamento.gov.br/',
+          data_pesquisa: hojeISO(),
+          valor_unitario: valorEstimado,
+          quantidade_base: Number(item.quantidade) || 1,
+          unidade: String(item.unidade_medida || 'UN'),
+          evidencia: {
+            tipo: 'manual',
+            origem: 'Valor estimado cadastrado no processo para conferencia no Painel de Precos',
+            coletado_em: new Date().toISOString(),
+          },
+          score: 78,
+          flags: ['Validar no Painel de Precos antes de aprovar como fonte oficial.'],
+        });
+      }
+    }
+
+    return candidatos;
+  }
+
+  private async consultarPesquisaPreco(item: ItemLicitacao, codigo: string, limite: number): Promise<any[]> {
+    const endpoint = item.codigo_catser
+      ? '/modulo-pesquisa-preco/3_consultarServico'
+      : '/modulo-pesquisa-preco/1_consultarMaterial';
+    const res = await axios.get(`${DADOS_ABERTOS_COMPRAS_BASE}${endpoint}`, {
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: HTTP_HEADERS,
+      params: {
+        codigoItemCatalogo: codigo,
+        pagina: 1,
+        tamanhoPagina: Math.min(500, Math.max(10, limite * 4)),
+      },
+    });
+    return asArray(res.data)
+      .filter((registro) => Number(registro.precoUnitario || registro.valorUnitario || 0) > 0)
+      .slice(0, limite);
   }
 }
 
