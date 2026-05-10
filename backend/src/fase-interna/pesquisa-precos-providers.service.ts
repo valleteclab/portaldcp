@@ -227,7 +227,7 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
               item_numero: item.numero_item,
               fonte_tipo: 'PAINEL_DE_PRECOS',
               descricao_fonte: `Compras.gov.br - ${registro.nomeUasg || registro.nomeOrgao || 'Pesquisa de Precos'}`,
-              url_referencia: 'https://dadosabertos.compras.gov.br/swagger-ui/index.html',
+              url_referencia: registro.urlConsulta,
               data_pesquisa: String(registro.dataResultado || registro.dataCompra || hojeISO()).split('T')[0],
               fornecedor_cnpj: registro.niFornecedor,
               fornecedor_razao_social: registro.nomeFornecedor,
@@ -278,17 +278,22 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
     const endpoint = item.codigo_catser
       ? '/modulo-pesquisa-preco/3_consultarServico'
       : '/modulo-pesquisa-preco/1_consultarMaterial';
+    const tamanhoPagina = Math.min(500, Math.max(10, limite * 4));
     const res = await axios.get(`${DADOS_ABERTOS_COMPRAS_BASE}${endpoint}`, {
       timeout: REQUEST_TIMEOUT_MS,
       headers: HTTP_HEADERS,
       params: {
         codigoItemCatalogo: codigo,
         pagina: 1,
-        tamanhoPagina: Math.min(500, Math.max(10, limite * 4)),
+        tamanhoPagina,
       },
     });
     return asArray(res.data)
       .filter((registro) => Number(registro.precoUnitario || registro.valorUnitario || 0) > 0)
+      .map((registro) => ({
+        ...registro,
+        urlConsulta: `${DADOS_ABERTOS_COMPRAS_BASE}${endpoint}?codigoItemCatalogo=${encodeURIComponent(codigo)}&pagina=1&tamanhoPagina=${tamanhoPagina}`,
+      }))
       .slice(0, limite);
   }
 }

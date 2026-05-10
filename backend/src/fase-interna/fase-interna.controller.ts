@@ -349,6 +349,25 @@ export class FaseInternaController {
     return this.faseInternaService.getPrecos(licitacaoId);
   }
 
+  @Post(':licitacaoId/precos/item/:itemNumero/agente/executar')
+  async executarAgentePrecosItem(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('itemNumero') itemNumero: string,
+    @Body() body: {
+      fontes?: FontePesquisaTipo[];
+      maxPorFonte?: number;
+      usarBrowserFallback?: boolean;
+      autoAprovar?: boolean;
+      iniciadoPorId?: string;
+      iniciadoPorNome?: string;
+    }
+  ) {
+    return this.executarAgentePrecos(licitacaoId, {
+      ...(body || {}),
+      itemNumeros: [parseInt(itemNumero)],
+    });
+  }
+
   @Get(':licitacaoId/precos/agente/execucoes')
   async listarExecucoesAgentePrecos(@Param('licitacaoId') licitacaoId: string) {
     return this.pesquisaPrecosAgentService.listarExecucoes(licitacaoId);
