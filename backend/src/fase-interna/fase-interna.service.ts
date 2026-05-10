@@ -5,7 +5,7 @@ import { DocumentoFaseInterna, TipoDocumentoFaseInterna, StatusDocumento, Origem
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { RiscoIdentificado, MatrizRiscosDados, calcularGrauRisco } from './types/matriz-riscos.type';
-import { CotacaoPorFonte, PesquisaPrecosDados, calcularEstatisticasItem } from './types/pesquisa-precos.type';
+import { CotacaoPorFonte, ItemPesquisaPrecos, PesquisaPrecosDados, calcularEstatisticasItem } from './types/pesquisa-precos.type';
 
 /**
  * Servico para gerenciamento da Fase Interna (Preparatoria)
@@ -568,6 +568,21 @@ export class FaseInternaService {
     };
   }
 
+  async adicionarItemPesquisa(licitacaoId: string, item: ItemPesquisaPrecos): Promise<PesquisaPrecosDados> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+
+    const existe = dados.itens.some(i => i.item_numero === item.item_numero);
+    if (existe) throw new Error(`Item ${item.item_numero} já existe`);
+
+    const itemComStats = calcularEstatisticasItem(item);
+    dados.itens.push(itemComStats);
+
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+    return dados;
+  }
+
   async adicionarFontePreco(licitacaoId: string, itemNumero: number, cotacao: CotacaoPorFonte): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
@@ -627,6 +642,31 @@ export class FaseInternaService {
     dados.itens[itemIdx].cotacoes = (dados.itens[itemIdx].cotacoes || []).filter((_, i) => i !== cotacaoIndex);
     const stats = calcularEstatisticasItem(dados.itens[itemIdx]);
     dados.itens[itemIdx] = { ...dados.itens[itemIdx], ...stats };
+
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+    return dados;
+  }
+
+  async salvarComprovanteCotacao(
+    licitacaoId: string,
+    itemNumero: number,
+    cotacaoIndex: number,
+    path: string,
+  ): Promise<PesquisaPrecosDados> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+
+    const itemIdx = dados.itens.findIndex((i) => i.item_numero === itemNumero);
+    if (itemIdx === -1) throw new NotFoundException(`Item ${itemNumero} nao encontrado`);
+
+    const cotacoes = dados.itens[itemIdx].cotacoes || [];
+    if (cotacaoIndex < 0 || cotacaoIndex >= cotacoes.length) {
+      throw new BadRequestException(`Cotacao index ${cotacaoIndex} invalido`);
+    }
+
+    cotacoes[cotacaoIndex] = { ...cotacoes[cotacaoIndex], documento_comprobatorio_path: path };
+    dados.itens[itemIdx].cotacoes = cotacoes;
 
     doc.dados_estruturados = dados;
     await this.documentoRepository.save(doc);

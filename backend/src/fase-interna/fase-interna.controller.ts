@@ -1,7 +1,14 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query } from '@nestjs/common';
+import {
+  Controller, Get, Post, Put, Delete, Param, Body, Query,
+  UseInterceptors, UploadedFile, BadRequestException,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
 import { FaseInternaService } from './fase-interna.service';
 import { TipoDocumentoFaseInterna, OrigemDocumento } from './entities/documento-fase-interna.entity';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
+import { GeradorPpService } from './gerador-pp.service';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 
 @Controller('fase-interna')
@@ -9,6 +16,7 @@ export class FaseInternaController {
   constructor(
     private readonly faseInternaService: FaseInternaService,
     private readonly pesquisaPrecosAgentService: PesquisaPrecosAgentService,
+    private readonly geradorPpService: GeradorPpService,
   ) {}
 
   // === DOCUMENTOS ===
@@ -343,5 +351,76 @@ export class FaseInternaController {
     }
   ) {
     return this.faseInternaService.salvarWizard(licitacaoId, body);
+  }
+
+  // === UPLOAD DE COMPROVANTE POR COTAÇÃO ===
+
+  @Post(':licitacaoId/precos/comprovante')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (req, _file, cb) => {
+          const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+          const destPath = join(uploadPath, 'pesquisa-precos', req.params.licitacaoId);
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const fs = require('fs');
+          if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+          cb(null, destPath);
+        },
+        filename: (_req, file, cb) => {
+          const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+          cb(null, `comprovante-${unique}${extname(file.originalname)}`);
+        },
+      }),
+      fileFilter: (_req, file, cb) => {
+        const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+        if (!allowed.includes(file.mimetype)) {
+          return cb(new BadRequestException('Apenas PDF, JPG e PNG são aceitos'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async uploadComprovante(
+    @Param('licitacaoId') licitacaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { itemNumero: string; cotacaoIndex: string },
+  ) {
+    if (!file) throw new BadRequestException('Arquivo não enviado');
+    const relPath = join('pesquisa-precos', licitacaoId, file.filename);
+    await this.faseInternaService.salvarComprovanteCotacao(
+      licitacaoId,
+      parseInt(body.itemNumero),
+      parseInt(body.cotacaoIndex),
+      relPath,
+    );
+    return { url: `/uploads/${relPath}`, path: relPath };
+  }
+
+  // === GERAÇÃO DO DOCUMENTO PP (PDF FORMAL) ===
+
+  @Post(':licitacaoId/precos/gerar-documento')
+  async gerarDocumentoPP(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: {
+      responsavel: { nome: string; cargo: string; matricula?: string };
+      metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA';
+      justificativaMetodologia?: string;
+    },
+  ) {
+    const precosData = await this.faseInternaService.getPrecos(licitacaoId);
+    const path = await this.geradorPpService.gerarDocumentoPP(licitacaoId, {
+      numeroProcesso: '',
+      objeto: '',
+      orgao: '',
+      itens: precosData.dados?.itens || [],
+      metodologia: body.metodologia,
+      justificativaMetodologia: body.justificativaMetodologia,
+      valorTotalEstimado: precosData.estatisticas?.valorTotal || 0,
+      responsavel: body.responsavel,
+      dataAssinatura: new Date().toISOString().split('T')[0],
+    });
+    return { url: `/uploads/${path}`, path };
   }
 }

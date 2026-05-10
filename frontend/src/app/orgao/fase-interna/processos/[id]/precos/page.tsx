@@ -1,160 +1,154 @@
 "use client"
 
-import { useState, use, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import React, { useState, use, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import {
-  ChevronRight, Home, Plus, Search, Loader2, Trash2, AlertTriangle, Check, Sparkles, Bot, X, ExternalLink
+  ChevronRight,
+  Home,
+  Plus,
+  Loader2,
+  Trash2,
+  ExternalLink,
+  FileCheck,
+  Upload,
+  FileDown,
+  Check,
+  X,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Search,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
 
-interface FontePreco {
-  fonte: string
-  descricao_fonte?: string
-  url_referencia?: string
-  orgao?: string
-  fornecedor?: string
-  fornecedor_razao_social?: string
-  tipo?: "PNCP" | "PAINEL_PRECOS" | "COTACAO_DIRETA" | "CATALOGO" | "SITE_OFICIAL"
-  valor_unitario: number
-  data_pesquisa: string
-  qtd?: number
-  valida?: boolean
-}
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
-interface ItemPreco {
-  numero: number
-  descricao: string
-  unidade: string
-  quantidade: number
-  cotacoes: FontePreco[]
-  valor_estimado_unitario?: number
-}
+type FontePesquisaTipo =
+  | "PAINEL_DE_PRECOS"
+  | "PNCP"
+  | "CONTRATO_VIGENTE_SISTEMA"
+  | "MIDIA_ESPECIALIZADA"
+  | "FORNECEDOR_DIRETO"
+  | "NOTA_FISCAL_ELETRONICA"
+  | "OUTRA"
 
-interface DadosPrecos {
-  itens: ItemPreco[]
-  metodologia: string
-}
+type Metodologia = "MEDIA" | "MEDIANA" | "MENOR_VALOR" | "OUTRA"
 
-interface Estatisticas {
-  media: number
-  mediana: number
-  min: number
-  max: number
-  n: number
-}
-
-interface AgenteCandidato {
-  id: string
-  item_numero: number
-  fonte_tipo: string
+interface CotacaoPorFonte {
+  fonte: FontePesquisaTipo
   descricao_fonte: string
   url_referencia?: string
   data_pesquisa: string
   fornecedor_cnpj?: string
   fornecedor_razao_social?: string
   valor_unitario: number
-  unidade?: string
-  score: number
-  flags?: string[]
-  status: "CANDIDATO" | "APROVADO" | "REJEITADO"
+  observacao?: string
+  documento_comprobatorio_path?: string
 }
 
-interface AgenteExecucao {
-  id: string
-  status: "PENDENTE" | "RODANDO" | "CONCLUIDA" | "FALHOU" | "CANCELADA"
-  erro?: string
-  resumo?: {
-    totalCandidatos?: number
-    conforme?: boolean
-    itens?: Array<{
-      itemNumero: number
-      totalCandidatos: number
-      fontesDistintas: number
-      cvPercent: number
-      alertas: string[]
-    }>
-  }
-  candidatos: AgenteCandidato[]
+interface ItemPesquisaPrecos {
+  item_numero: number
+  descricao: string
+  quantidade: number
+  unidade: string
+  cotacoes: CotacaoPorFonte[]
+  valor_minimo?: number
+  valor_maximo?: number
+  valor_medio?: number
+  valor_mediano?: number
+  desvio_padrao?: number
+  cv_percent?: number
+  metodologia: Metodologia
+  justificativa_metodologia?: string
+  valor_referencial: number
+  outliers_descartados?: Array<{ cotacao_index: number; motivo: string }>
+  codigo_catmat?: string
 }
 
-function calcMedia(fontes: FontePreco[]) {
-  if (!fontes.length) return 0
-  return fontes.reduce((s, f) => s + f.valor_unitario, 0) / fontes.length
+interface Responsavel {
+  nome: string
+  cargo: string
+  matricula?: string
+  data_pesquisa: string
+  observacoes?: string
 }
 
-function calcMediana(fontes: FontePreco[]) {
-  if (!fontes.length) return 0
-  const sorted = [...fontes].map((f) => f.valor_unitario).sort((a, b) => a - b)
+interface DadosPrecos {
+  itens: ItemPesquisaPrecos[]
+  responsavel?: Responsavel
+  metodologia_global?: Metodologia
+  justificativa_metodologia_global?: string
+}
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+
+const FONTE_LABELS: Record<FontePesquisaTipo, string> = {
+  PNCP: "PNCP",
+  PAINEL_DE_PRECOS: "Painel de Preços",
+  CONTRATO_VIGENTE_SISTEMA: "Contrato Vigente",
+  MIDIA_ESPECIALIZADA: "Mídia Especializada",
+  FORNECEDOR_DIRETO: "Fornecedor Direto",
+  NOTA_FISCAL_ELETRONICA: "NF-e",
+  OUTRA: "Outra",
+}
+
+const FONTE_BADGE_CLASS: Record<FontePesquisaTipo, string> = {
+  PNCP: "bg-blue-100 text-blue-700 border-blue-200",
+  PAINEL_DE_PRECOS: "bg-green-100 text-green-700 border-green-200",
+  MIDIA_ESPECIALIZADA: "bg-purple-100 text-purple-700 border-purple-200",
+  FORNECEDOR_DIRETO: "bg-orange-100 text-orange-700 border-orange-200",
+  CONTRATO_VIGENTE_SISTEMA: "bg-teal-100 text-teal-700 border-teal-200",
+  NOTA_FISCAL_ELETRONICA: "bg-pink-100 text-pink-700 border-pink-200",
+  OUTRA: "bg-gray-100 text-gray-600 border-gray-200",
+}
+
+// ─── Utilitários ──────────────────────────────────────────────────────────────
+
+function fmtMoeda(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+}
+
+function fmtData(d: string) {
+  if (!d) return "—"
+  return new Date(d + "T12:00:00").toLocaleDateString("pt-BR")
+}
+
+function calcMedia(vals: number[]) {
+  if (!vals.length) return 0
+  return vals.reduce((a, b) => a + b, 0) / vals.length
+}
+
+function calcMediana(vals: number[]) {
+  if (!vals.length) return 0
+  const sorted = [...vals].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
   return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-function calcMin(fontes: FontePreco[]) {
-  if (!fontes.length) return 0
-  return Math.min(...fontes.map((f) => f.valor_unitario))
+function calcDesvio(vals: number[], media: number) {
+  if (vals.length < 2) return 0
+  const variancia = vals.reduce((acc, v) => acc + Math.pow(v - media, 2), 0) / vals.length
+  return Math.sqrt(variancia)
 }
 
-function calcMax(fontes: FontePreco[]) {
-  if (!fontes.length) return 0
-  return Math.max(...fontes.map((f) => f.valor_unitario))
-}
-
-const TIPO_LABEL: Record<string, string> = {
-  PNCP: "PNCP",
-  PAINEL_DE_PRECOS: "Painel Precos",
-  FORNECEDOR_DIRETO: "Fornecedor",
-  CONTRATO_VIGENTE_SISTEMA: "Contrato vigente",
-  MIDIA_ESPECIALIZADA: "Internet",
-  NOTA_FISCAL_ELETRONICA: "NF-e",
-  OUTRA: "Outra",
-  PAINEL_PRECOS: "Painel Preços",
-  COTACAO_DIRETA: "Cotação direta",
-  CATALOGO: "Catálogo",
-  SITE_OFICIAL: "Site oficial",
-}
-
-const TIPO_BADGE: Record<string, string> = {
-  PNCP: "bg-blue-100 text-blue-700",
-  PAINEL_DE_PRECOS: "bg-green-100 text-green-700",
-  FORNECEDOR_DIRETO: "bg-gray-100 text-gray-600",
-  CONTRATO_VIGENTE_SISTEMA: "bg-indigo-100 text-indigo-700",
-  MIDIA_ESPECIALIZADA: "bg-orange-100 text-orange-700",
-  NOTA_FISCAL_ELETRONICA: "bg-teal-100 text-teal-700",
-  OUTRA: "bg-gray-100 text-gray-600",
-  PAINEL_PRECOS: "bg-green-100 text-green-700",
-  COTACAO_DIRETA: "bg-gray-100 text-gray-600",
-  CATALOGO: "bg-gray-100 text-gray-600",
-  SITE_OFICIAL: "bg-gray-100 text-gray-600",
-}
-
-function fmtMoeda(v: number) {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 })
-}
-
-function fmtData(d: string) {
-  const date = new Date(d + "T12:00:00")
-  return date.toLocaleDateString("pt-BR")
-}
-
-function getFonteTipo(fonte: FontePreco) {
-  return fonte.tipo || fonte.fonte || "OUTRA"
-}
-
-function getFonteDescricao(fonte: FontePreco) {
-  return fonte.descricao_fonte || fonte.fonte || fonte.fornecedor || "Fonte informada"
-}
-
-function buildHistogram(fontes: FontePreco[], buckets = 6) {
-  if (!fontes.length) return []
-  const vals = fontes.map((f) => f.valor_unitario)
+function buildHistogram(vals: number[], buckets = 6) {
+  if (!vals.length) return []
   const min = Math.min(...vals)
   const max = Math.max(...vals)
-  if (min === max) return [{ count: fontes.length, label: fmtMoeda(min) }]
+  if (min === max) return [{ count: vals.length, label: fmtMoeda(min) }]
   const size = (max - min) / buckets
   return Array.from({ length: buckets }, (_, i) => {
     const lo = min + i * size
@@ -166,249 +160,379 @@ function buildHistogram(fontes: FontePreco[], buckets = 6) {
   })
 }
 
+function statsItem(item: ItemPesquisaPrecos) {
+  const vals = item.cotacoes.map((c) => c.valor_unitario)
+  const media = calcMedia(vals)
+  const mediana = calcMediana(vals)
+  const desvio = calcDesvio(vals, media)
+  const cv = media > 0 ? (desvio / media) * 100 : 0
+  const min = vals.length ? Math.min(...vals) : 0
+  const max = vals.length ? Math.max(...vals) : 0
+  const ref =
+    item.metodologia === "MEDIANA"
+      ? mediana
+      : item.metodologia === "MENOR_VALOR"
+      ? min
+      : media
+  return { media, mediana, desvio, cv, min, max, ref }
+}
+
+// ─── Sub-componentes ──────────────────────────────────────────────────────────
+
+function StatusBadge({ count }: { count: number }) {
+  if (count >= 3)
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+        <Check className="w-3 h-3" /> {count}/3 fontes
+      </span>
+    )
+  if (count > 0)
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
+        <AlertTriangle className="w-3 h-3" /> {count}/3 fontes
+      </span>
+    )
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+      <X className="w-3 h-3" /> 0/3 fontes
+    </span>
+  )
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
 export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const router = useRouter()
-
-  useEffect(() => {
-    if (id === "novo") {
-      router.replace("/orgao/fase-interna/processos/novo")
-    }
-  }, [id, router])
 
   const [dados, setDados] = useState<DadosPrecos | null>(null)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [estatisticas, setEstatisticas] = useState<Record<number, Estatisticas>>({})
   const [loading, setLoading] = useState(true)
-  const [adicionando, setAdicionando] = useState(false)
-  const [salvando, setSalvando] = useState(false)
-  const [buscandoPNCP, setBuscandoPNCP] = useState(false)
-  const [agenteProgresso, setAgenteProgresso] = useState<string[]>([])
-  const [execucaoAgente, setExecucaoAgente] = useState<AgenteExecucao | null>(null)
-  const [rejeitandoId, setRejeitandoId] = useState<string | null>(null)
-  const [iaAnalise, setIaAnalise] = useState<string | null>(null)
-  const [gerandoIA, setGerandoIA] = useState(false)
-  const [novaFonte, setNovaFonte] = useState({
-    fonte: "",
-    tipo: "COTACAO_DIRETA",
-    valor: "",
-    fornecedor: "",
-    data: new Date().toISOString().split("T")[0],
-    qtd: "1",
-  })
 
-  const carregarPrecos = useCallback(async () => {
+  // Aba 1 — Itens
+  const [adicionandoItem, setAdicionandoItem] = useState(false)
+  const [novoItem, setNovoItem] = useState({
+    descricao: "",
+    quantidade: "1",
+    unidade: "UN",
+    codigo_catmat: "",
+  })
+  const [salvandoItem, setSalvandoItem] = useState(false)
+  const [removendoItem, setRemovendoItem] = useState<number | null>(null)
+
+  // Aba 2 — Cotações
+  const [expandidosCards, setExpandidosCards] = useState<Record<number, boolean>>({})
+  const [adicionandoCotacao, setAdicionandoCotacao] = useState<Record<number, boolean>>({})
+  const [novaCotacao, setNovaCotacao] = useState<
+    Record<
+      number,
+      {
+        fonte: FontePesquisaTipo
+        descricao_fonte: string
+        valor_unitario: string
+        data_pesquisa: string
+        url_referencia: string
+        observacao: string
+      }
+    >
+  >({})
+  const [salvandoCotacao, setSalvandoCotacao] = useState<Record<number, boolean>>({})
+  const [removendoCotacao, setRemovendoCotacao] = useState<string | null>(null)
+  const [uploadingComprovante, setUploadingComprovante] = useState<string | null>(null)
+  const [buscandoAuto, setBuscandoAuto] = useState<Record<number, boolean>>({})
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  // Aba 3 — Estatísticas
+  const [metodologia, setMetodologia] = useState<Metodologia>("MEDIANA")
+  const [justMetodologia, setJustMetodologia] = useState("")
+  const [justCv, setJustCv] = useState("")
+  const [outliersDescartados, setOutliersDescartados] = useState<
+    Record<string, { marcado: boolean; motivo: string }>
+  >({})
+  const [salvandoMetodologia, setSalvandoMetodologia] = useState(false)
+
+  // Aba 4 — Responsável
+  const [responsavel, setResponsavel] = useState<Responsavel>({
+    nome: "",
+    cargo: "",
+    matricula: "",
+    data_pesquisa: new Date().toISOString().split("T")[0],
+    observacoes: "",
+  })
+  const [salvandoResponsavel, setSalvandoResponsavel] = useState(false)
+
+  // Aba 5 — Documento
+  const [gerandoDoc, setGerandoDoc] = useState(false)
+  const [urlDocumento, setUrlDocumento] = useState<string | null>(null)
+
+  // ─── Carregar dados ──────────────────────────────────────────────────────
+
+  const carregarDados = useCallback(async () => {
     try {
       const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos`)
       if (res.ok) {
         const data = await res.json()
-        const temDados =
-          data.dados?.itens?.length > 0 &&
-          data.dados.itens.some((i: ItemPreco) => i.cotacoes?.length > 0)
-        if (temDados) {
-          setDados(data.dados)
-          setEstatisticas(data.estatisticas || {})
-        } else {
-          setDados(data.dados || null)
-        }
+        const d: DadosPrecos = data.dados ?? { itens: [] }
+        setDados(d)
+        if (d.responsavel) setResponsavel(d.responsavel)
+        if (d.metodologia_global) setMetodologia(d.metodologia_global)
+        if (d.justificativa_metodologia_global) setJustMetodologia(d.justificativa_metodologia_global)
       } else {
-        setDados(null)
+        setDados({ itens: [] })
       }
     } catch {
-      setDados(null)
+      setDados({ itens: [] })
     } finally {
       setLoading(false)
     }
   }, [id])
 
   useEffect(() => {
-    carregarPrecos()
-  }, [carregarPrecos])
+    carregarDados()
+  }, [carregarDados])
 
-  const fontes: FontePreco[] = dados?.itens?.[0]?.cotacoes ?? []
+  const itens = dados?.itens ?? []
 
-  const media = calcMedia(fontes)
-  const mediana = calcMediana(fontes)
-  const minVal = calcMin(fontes)
-  const maxVal = calcMax(fontes)
-  const quantidade = dados?.itens?.[0]?.quantidade ?? 1
-  const valorEstimado = mediana * quantidade
-  const diff = maxVal - minVal
-  const pct = media > 0 ? ((diff / media) * 100).toFixed(1) : "0"
-  const fontesPublicas = fontes.filter((f) => ["PNCP", "PAINEL_PRECOS", "PAINEL_DE_PRECOS"].includes(getFonteTipo(f))).length
+  // ─── Aba 1 — Itens ───────────────────────────────────────────────────────
 
-  const gerarAnaliseIA = useCallback(
-    async (fontesParam: FontePreco[]) => {
-      setGerandoIA(true)
-      setIaAnalise(null)
-      try {
-        const prompt = `Analise a pesquisa de preços a seguir e gere: (1) avaliação de conformidade com IN 65/2021, (2) recomendação do método (média ou mediana), (3) lista de 3 recomendações. Fontes: ${JSON.stringify(fontesParam)}. Responda em texto corrido, máximo 150 palavras.`
-        const res = await authFetch(API_URL + "/api/ia/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mensagens: [{ role: "user", content: prompt }],
-            tipoDocumento: "pesquisa_precos",
-          }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setIaAnalise(data.resposta || null)
-        }
-      } catch {
-        // silencia
-      } finally {
-        setGerandoIA(false)
-      }
-    },
-    []
-  )
-
-  useEffect(() => {
-    if (!loading && fontes.length > 0 && !iaAnalise && !gerandoIA) {
-      gerarAnaliseIA(fontes)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading])
-
-  const executarAgentePrecos = async () => {
-    // Verificar se há itens primeiro
-    const itens = dados?.itens
-    if (!itens || !Array.isArray(itens) || itens.length === 0) {
-      alert("Adicione itens ao processo primeiro usando o botão 'Adicionar fonte' ou adicione itens na aba de Itens do processo.")
-      return
-    }
-    
-    setBuscandoPNCP(true)
-    setAgenteProgresso(["Iniciando agente de pesquisa de preços..."])
+  const adicionarItem = async () => {
+    setSalvandoItem(true)
     try {
-      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/executar`, {
+      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/item`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fontes: [
-            "PNCP",
-            "PAINEL_DE_PRECOS",
-            "CONTRATO_VIGENTE_SISTEMA",
-            "MIDIA_ESPECIALIZADA",
-            "FORNECEDOR_DIRETO",
-            "NOTA_FISCAL_ELETRONICA",
-          ],
-          maxPorFonte: 5,
-          usarBrowserFallback: false,
+          descricao: novoItem.descricao,
+          quantidade: parseFloat(novoItem.quantidade) || 1,
+          unidade: novoItem.unidade,
+          codigo_catmat: novoItem.codigo_catmat || undefined,
         }),
       })
-      
-      if (res.ok) {
-        const data = await res.json()
-        setExecucaoAgente(data)
-        setAgenteProgresso([])
-        
-        if (data.candidatos?.length === 0 && data.erro) {
-          setAgenteProgresso([`Concluído: ${data.erro}`])
-        } else if (data.candidatos?.length === 0) {
-          setAgenteProgresso(["Nenhum candidato encontrado. Tente adicionar fontes manualmente."])
-        } else {
-          setAgenteProgresso([`Encontrados ${data.candidatos?.length || 0} candidatos`])
-        }
-      } else {
-        const err = await res.json().catch(() => ({}))
-        setAgenteProgresso([`Erro: ${err.message || 'Falha ao executar agente'}`])
-      }
-    } catch (e: any) {
-      setAgenteProgresso([`Erro: ${e.message || 'Falha na comunicação'}`])
+      await carregarDados()
+      setNovoItem({ descricao: "", quantidade: "1", unidade: "UN", codigo_catmat: "" })
+      setAdicionandoItem(false)
+    } catch (e) {
+      console.error(e)
     } finally {
-      setBuscandoPNCP(false)
-      setTimeout(() => setAgenteProgresso([]), 5000)
+      setSalvandoItem(false)
     }
   }
 
-  const aprovarCandidato = async (candidateId: string) => {
-    const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos/${candidateId}/aprovar`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    })
-    if (res.ok) {
-      setExecucaoAgente((prev) =>
-        prev
-          ? { ...prev, candidatos: prev.candidatos.map((c) => (c.id === candidateId ? { ...c, status: "APROVADO" } : c)) }
-          : prev
-      )
-      await carregarPrecos()
-    }
-  }
-
-  const rejeitarCandidato = async (candidateId: string) => {
-    setRejeitandoId(candidateId)
+  const removerItem = async (itemNumero: number) => {
+    setRemovendoItem(itemNumero)
     try {
-      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos/${candidateId}/rejeitar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ motivo: "Nao aderente ao item ou sem evidencia suficiente" }),
+      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/item/${itemNumero}`, {
+        method: "DELETE",
       })
-      if (res.ok) {
-        setExecucaoAgente((prev) =>
-          prev
-            ? { ...prev, candidatos: prev.candidatos.map((c) => (c.id === candidateId ? { ...c, status: "REJEITADO" } : c)) }
-            : prev
-        )
-      }
+      await carregarDados()
+    } catch (e) {
+      console.error(e)
     } finally {
-      setRejeitandoId(null)
+      setRemovendoItem(null)
     }
   }
 
-  const adicionarFonte = async () => {
-    setSalvando(true)
+  // ─── Aba 2 — Cotações ────────────────────────────────────────────────────
+
+  const toggleCard = (itemNumero: number) => {
+    setExpandidosCards((prev) => ({ ...prev, [itemNumero]: !prev[itemNumero] }))
+  }
+
+  const initNovaCotacao = (itemNumero: number) => {
+    setNovaCotacao((prev) => ({
+      ...prev,
+      [itemNumero]: {
+        fonte: "PNCP",
+        descricao_fonte: "",
+        valor_unitario: "",
+        data_pesquisa: new Date().toISOString().split("T")[0],
+        url_referencia: "",
+        observacao: "",
+      },
+    }))
+    setAdicionandoCotacao((prev) => ({ ...prev, [itemNumero]: true }))
+  }
+
+  const salvarCotacao = async (itemNumero: number) => {
+    const c = novaCotacao[itemNumero]
+    if (!c) return
+    setSalvandoCotacao((prev) => ({ ...prev, [itemNumero]: true }))
     try {
       await authFetch(`${API_URL}/api/fase-interna/${id}/precos/fonte`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          itemNumero: 1,
+          itemNumero,
           cotacao: {
-            fonte: novaFonte.fonte,
-            tipo: novaFonte.tipo,
-            valor_unitario: parseFloat(novaFonte.valor.replace(",", ".")) || 0,
-            data_pesquisa: novaFonte.data,
-            fornecedor: novaFonte.fornecedor || undefined,
-            qtd: parseInt(novaFonte.qtd) || 1,
-            valida: true,
+            fonte: c.fonte,
+            descricao_fonte: c.descricao_fonte,
+            valor_unitario: parseFloat(c.valor_unitario.replace(",", ".")) || 0,
+            data_pesquisa: c.data_pesquisa,
+            url_referencia: c.url_referencia || undefined,
+            observacao: c.observacao || undefined,
           },
         }),
       })
-      await carregarPrecos()
-      setNovaFonte({
-        fonte: "",
-        tipo: "COTACAO_DIRETA",
-        valor: "",
-        fornecedor: "",
-        data: new Date().toISOString().split("T")[0],
-        qtd: "1",
-      })
-      setAdicionando(false)
+      await carregarDados()
+      setAdicionandoCotacao((prev) => ({ ...prev, [itemNumero]: false }))
     } catch (e) {
       console.error(e)
     } finally {
-      setSalvando(false)
+      setSalvandoCotacao((prev) => ({ ...prev, [itemNumero]: false }))
     }
   }
 
-  const removerFonte = async (index: number) => {
+  const removerCotacao = async (itemNumero: number, cotacaoIndex: number) => {
+    const key = `${itemNumero}-${cotacaoIndex}`
+    setRemovendoCotacao(key)
     try {
       await authFetch(
-        `${API_URL}/api/fase-interna/${id}/precos/fonte?item=1&index=${index}`,
+        `${API_URL}/api/fase-interna/${id}/precos/fonte?item=${itemNumero}&index=${cotacaoIndex}`,
         { method: "DELETE" }
       )
-      await carregarPrecos()
+      await carregarDados()
     } catch (e) {
       console.error(e)
+    } finally {
+      setRemovendoCotacao(null)
     }
   }
 
-  const histBars = buildHistogram(fontes)
-  const maxCount = Math.max(...histBars.map((b) => b.count), 1)
+  const buscarAutomatico = async (item: ItemPesquisaPrecos) => {
+    setBuscandoAuto((prev) => ({ ...prev, [item.item_numero]: true }))
+    try {
+      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/pesquisar-e-salvar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itens: [
+            {
+              item_numero: item.item_numero,
+              descricao: item.descricao,
+              quantidade: item.quantidade,
+              unidade: item.unidade,
+            },
+          ],
+        }),
+      })
+      await carregarDados()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setBuscandoAuto((prev) => ({ ...prev, [item.item_numero]: false }))
+    }
+  }
+
+  const uploadComprovante = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    itemNumero: number,
+    cotacaoIndex: number
+  ) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const key = `${itemNumero}-${cotacaoIndex}`
+    setUploadingComprovante(key)
+    try {
+      const form = new FormData()
+      form.append("file", file)
+      form.append("itemNumero", String(itemNumero))
+      form.append("cotacaoIndex", String(cotacaoIndex))
+      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/comprovante`, {
+        method: "POST",
+        body: form,
+      })
+      await carregarDados()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setUploadingComprovante(null)
+    }
+  }
+
+  // ─── Aba 3 — Estatísticas ────────────────────────────────────────────────
+
+  const salvarMetodologia = async () => {
+    setSalvandoMetodologia(true)
+    try {
+      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/metodologia`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          metodologia,
+          justificativa: justMetodologia || undefined,
+        }),
+      })
+      await carregarDados()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSalvandoMetodologia(false)
+    }
+  }
+
+  // ─── Aba 4 — Responsável ─────────────────────────────────────────────────
+
+  const salvarResponsavel = async () => {
+    setSalvandoResponsavel(true)
+    try {
+      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/responsavel`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(responsavel),
+      })
+      await carregarDados()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSalvandoResponsavel(false)
+    }
+  }
+
+  // ─── Aba 5 — Documento ───────────────────────────────────────────────────
+
+  const gerarDocumento = async () => {
+    setGerandoDoc(true)
+    setUrlDocumento(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/gerar-documento`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responsavel,
+          metodologia,
+          justificativaMetodologia: justMetodologia || undefined,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setUrlDocumento(data.url || data.path || null)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setGerandoDoc(false)
+    }
+  }
+
+  // ─── Checklist de conformidade ───────────────────────────────────────────
+
+  const minFontes = itens.every((i) => i.cotacoes.length >= 3)
+  const todasStats = itens.map((i) => statsItem(i))
+  const cvOk = todasStats.every((s) => s.cv <= 25) || justCv.trim().length > 0
+  const metOk = !!metodologia
+  const respOk = !!(responsavel.nome && responsavel.cargo)
+  const urlOuComprovante = itens.every((item) =>
+    item.cotacoes.every((c) => c.url_referencia || c.documento_comprobatorio_path)
+  )
+
+  const conformidade = [
+    { label: "Mínimo 3 fontes por item", ok: minFontes },
+    { label: "CV ≤ 25% ou justificativa registrada", ok: cvOk },
+    { label: "Metodologia selecionada", ok: metOk },
+    { label: "Responsável identificado", ok: respOk },
+    { label: "URL ou comprovante em cada cotação", ok: urlOuComprovante },
+  ]
+  const prontoParaGerar = conformidade.every((c) => c.ok) && itens.length > 0
+
+  // ─── Loading state ────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -418,480 +542,954 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
     )
   }
 
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
-    <div className="p-6 pb-10 max-w-7xl">
+    <div className="p-6 pb-16 max-w-7xl">
       {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-4">
         <Home className="w-3.5 h-3.5" />
         <ChevronRight className="w-3 h-3" />
-        <Link href="/orgao/fase-interna" className="hover:text-[#1351b4]">Fase Interna</Link>
+        <Link href="/orgao/fase-interna" className="hover:text-[#1351b4]">
+          Fase Interna
+        </Link>
         <ChevronRight className="w-3 h-3" />
-        <Link href={`/orgao/fase-interna/processos/${id}`} className="hover:text-[#1351b4]">Processo</Link>
+        <Link href={`/orgao/fase-interna/processos/${id}`} className="hover:text-[#1351b4]">
+          Processo
+        </Link>
         <ChevronRight className="w-3 h-3" />
         <span className="text-[#1351b4] font-medium">Pesquisa de Preços</span>
       </div>
 
       {/* Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Pesquisa de preços</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Estimativa do valor da contratação · Art. 23 da Lei 14.133/2021 · IN SEGES/ME 65/2021
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={executarAgentePrecos}
-            disabled={buscandoPNCP}
-            className="text-[#1351b4] border-[#c5d4eb]"
-          >
-            {buscandoPNCP ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Buscando…
-              </>
-            ) : (
-              <>
-                <Bot className="w-3.5 h-3.5 mr-1.5" /> Agente de precos
-              </>
-            )}
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => setAdicionando(true)}
-            className="bg-[#1351b4] hover:bg-[#0c326f]"
-          >
-            <Plus className="w-3.5 h-3.5 mr-1.5" /> Adicionar fonte
-          </Button>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-xl font-bold text-gray-900">Pesquisa de Preços</h1>
+        <p className="text-sm text-gray-500 mt-0.5">
+          Estimativa do valor da contratação · Art. 23 da Lei 14.133/2021 · IN SEGES/ME nº 65/2021
+        </p>
       </div>
 
-      {/* Progresso do Agente */}
-      {agenteProgresso.length > 0 && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg">
-          <div className="flex items-center gap-2 mb-2">
-            <Bot className="w-4 h-4 text-[#1351b4]" />
-            <span className="text-sm font-medium text-[#1351b4]">Agente de Pesquisa</span>
-          </div>
-          <ul className="space-y-1">
-            {agenteProgresso.map((msg, i) => (
-              <li key={i} className="text-xs text-gray-600 flex items-center gap-2">
-                {buscandoPNCP && i === agenteProgresso.length - 1 ? (
-                  <Loader2 className="w-3 h-3 animate-spin text-[#1351b4]" />
-                ) : (
-                  <Check className="w-3 h-3 text-green-500" />
-                )}
-                {msg}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Tabs */}
+      <Tabs defaultValue="itens">
+        <TabsList className="mb-6 bg-gray-100">
+          <TabsTrigger value="itens">Itens</TabsTrigger>
+          <TabsTrigger value="cotacoes">Cotações</TabsTrigger>
+          <TabsTrigger value="estatisticas">Estatísticas</TabsTrigger>
+          <TabsTrigger value="responsavel">Responsável</TabsTrigger>
+          <TabsTrigger value="documento">Documento PP</TabsTrigger>
+        </TabsList>
 
-      {execucaoAgente && (
-        <Card className="border border-[#c5d4eb] shadow-sm mb-6">
-          <CardHeader className="pb-3 flex-row items-center justify-between">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Bot className="w-4 h-4 text-[#1351b4]" />
-              Agente de pesquisa de precos
-            </CardTitle>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-              {execucaoAgente.status}
-            </span>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {execucaoAgente.resumo?.itens?.length ? (
-              <div className="grid grid-cols-3 gap-3">
-                {execucaoAgente.resumo.itens.map((item) => (
-                  <div key={item.itemNumero} className="rounded-lg border border-gray-100 p-3">
-                    <p className="text-xs font-semibold text-gray-700">Item {item.itemNumero}</p>
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      {item.totalCandidatos} candidatos · {item.fontesDistintas} fontes · CV {item.cvPercent}%
-                    </p>
-                    {item.alertas?.[0] && (
-                      <p className="text-[11px] text-yellow-700 mt-1">{item.alertas[0]}</p>
-                    )}
+        {/* ═══════════════════════════════════════════════════════════════════
+            ABA 1 — ITENS
+        ═══════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="itens">
+          <Card className="border border-gray-100 shadow-sm">
+            <CardHeader className="pb-3 flex-row items-center justify-between">
+              <CardTitle className="text-sm font-semibold">Itens da pesquisa</CardTitle>
+              <Button
+                size="sm"
+                onClick={() => setAdicionandoItem(true)}
+                disabled={adicionandoItem}
+                className="bg-[#1351b4] hover:bg-[#0c326f]"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" /> Adicionar item
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {/* Formulário inline */}
+              {adicionandoItem && (
+                <div className="mb-5 p-4 bg-[#f6f9fd] border border-[#dbe8fb] rounded-lg">
+                  <p className="text-xs font-semibold text-gray-700 mb-3">Novo item</p>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-600 mb-1 block">Descrição *</label>
+                      <Input
+                        placeholder="Ex: Serviço de limpeza predial"
+                        value={novoItem.descricao}
+                        onChange={(e) => setNovoItem((p) => ({ ...p, descricao: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600 mb-1 block">Quantidade *</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="1"
+                        value={novoItem.quantidade}
+                        onChange={(e) => setNovoItem((p) => ({ ...p, quantidade: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600 mb-1 block">Unidade *</label>
+                      <Input
+                        placeholder="UN, M², KG, SV…"
+                        value={novoItem.unidade}
+                        onChange={(e) => setNovoItem((p) => ({ ...p, unidade: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs text-gray-600 mb-1 block">
+                        Código CATMAT/CATSER (opcional)
+                      </label>
+                      <Input
+                        placeholder="Ex: 20117"
+                        value={novoItem.codigo_catmat}
+                        onChange={(e) => setNovoItem((p) => ({ ...p, codigo_catmat: e.target.value }))}
+                      />
+                    </div>
                   </div>
-                ))}
-              </div>
-            ) : null}
-
-            {execucaoAgente.erro && (
-              <div className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg p-3">
-                {execucaoAgente.erro}
-              </div>
-            )}
-
-            <div className="overflow-x-auto border border-gray-100 rounded-lg">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left text-xs font-semibold text-gray-500 px-4 py-2.5">Fonte</th>
-                    <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5">Descricao</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5">Valor</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5">Score</th>
-                    <th className="text-right text-xs font-semibold text-gray-500 px-4 py-2.5">Acao</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {execucaoAgente.candidatos.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center text-xs text-gray-400">
-                        Nenhum candidato encontrado nesta execucao.
-                      </td>
-                    </tr>
-                  )}
-                  {execucaoAgente.candidatos.map((candidato) => (
-                    <tr key={candidato.id} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-3">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TIPO_BADGE[candidato.fonte_tipo] ?? TIPO_BADGE.OUTRA}`}>
-                          {TIPO_LABEL[candidato.fonte_tipo] ?? candidato.fonte_tipo}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="text-xs font-medium text-gray-700 line-clamp-1">{candidato.descricao_fonte}</div>
-                        <div className="text-[11px] text-gray-400 flex items-center gap-2 mt-0.5">
-                          Item {candidato.item_numero}
-                          {candidato.url_referencia && (
-                            <a href={candidato.url_referencia} target="_blank" rel="noreferrer" className="text-[#1351b4] inline-flex items-center gap-1">
-                              evidencia <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
-                        {candidato.flags?.[0] && <p className="text-[11px] text-yellow-700 mt-1">{candidato.flags[0]}</p>}
-                      </td>
-                      <td className="px-3 py-3 text-right text-sm font-bold text-gray-800">
-                        {fmtMoeda(Number(candidato.valor_unitario))}
-                      </td>
-                      <td className="px-3 py-3 text-right text-xs text-gray-500">{Number(candidato.score).toFixed(0)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex justify-end gap-1.5">
-                          {candidato.status === "CANDIDATO" ? (
-                            <>
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-green-700 border-green-200" onClick={() => aprovarCandidato(candidato.id)}>
-                                <Check className="w-3.5 h-3.5" />
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-gray-500" onClick={() => rejeitarCandidato(candidato.id)} disabled={rejeitandoId === candidato.id}>
-                                {rejeitandoId === candidato.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
-                              </Button>
-                            </>
-                          ) : (
-                            <span className="text-xs text-gray-500">{candidato.status}</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* KPI cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <Card className="border border-gray-100 shadow-sm">
-          <CardContent className="p-4">
-            <p className="text-xs text-gray-500 mb-1">Valor unitário médio</p>
-            <p className="text-xl font-bold text-gray-900">{fmtMoeda(media)}</p>
-            <p className="text-[10px] text-gray-400 mt-1">Aritmético simples · {fontes.length} fontes</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-gray-100 shadow-sm">
-          <CardContent className="p-4">
-            <p className="text-xs text-gray-500 mb-1">Valor unitário mediano</p>
-            <p className="text-xl font-bold text-gray-900">{fmtMoeda(mediana)}</p>
-            <p className="text-[10px] text-gray-400 mt-1">Recomendado pela IN 65</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-gray-100 shadow-sm">
-          <CardContent className="p-4">
-            <p className="text-xs text-gray-500 mb-1">Variação (mín–máx)</p>
-            <p className="text-xl font-bold text-gray-900">
-              {fmtMoeda(minVal)} – {fmtMoeda(maxVal)}
-            </p>
-            <p className="text-[10px] text-gray-400 mt-1">
-              Δ {fmtMoeda(diff)} ({pct}%)
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm bg-gradient-to-br from-[#1351b4] to-[#0c326f] text-white">
-          <CardContent className="p-4">
-            <p className="text-xs text-blue-200 mb-1">Valor estimado total</p>
-            <p className="text-xl font-bold">{fmtMoeda(valorEstimado)}</p>
-            <p className="text-[10px] text-blue-200 mt-1">Mediana × {quantidade} un.</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Main grid */}
-      <div className="grid grid-cols-[1fr_360px] gap-5">
-        {/* Left: Fontes consultadas */}
-        <Card className="border border-gray-100 shadow-sm">
-          <CardHeader className="pb-3 flex-row items-center justify-between">
-            <CardTitle className="text-sm font-semibold">Fontes consultadas</CardTitle>
-            <span
-              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                fontes.length >= 3
-                  ? "bg-green-100 text-green-700"
-                  : "bg-yellow-100 text-yellow-700"
-              }`}
-            >
-              {fontes.length >= 3 ? "✓" : "!"} {fontes.length} fontes (mín. 3, IN 65)
-            </span>
-          </CardHeader>
-          <CardContent className="p-0">
-            {/* Formulário de nova fonte */}
-            {adicionando && (
-              <div className="mx-5 mb-4 p-4 bg-[#f6f9fd] border border-[#dbe8fb] rounded-lg">
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div className="col-span-2">
-                    <Input
-                      placeholder="Fonte / descrição…"
-                      value={novaFonte.fonte}
-                      onChange={(e) => setNovaFonte((p) => ({ ...p, fonte: e.target.value }))}
-                    />
-                  </div>
-                  <Input
-                    placeholder="Órgão / Fornecedor"
-                    value={novaFonte.fornecedor}
-                    onChange={(e) => setNovaFonte((p) => ({ ...p, fornecedor: e.target.value }))}
-                  />
-                  <Input
-                    type="date"
-                    value={novaFonte.data}
-                    onChange={(e) => setNovaFonte((p) => ({ ...p, data: e.target.value }))}
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Qtd"
-                    value={novaFonte.qtd}
-                    onChange={(e) => setNovaFonte((p) => ({ ...p, qtd: e.target.value }))}
-                  />
-                  <Input
-                    placeholder="Valor unitário (R$)"
-                    value={novaFonte.valor}
-                    onChange={(e) => setNovaFonte((p) => ({ ...p, valor: e.target.value }))}
-                  />
-                  <div className="col-span-2">
-                    <Select
-                      value={novaFonte.tipo}
-                      onValueChange={(v) => setNovaFonte((p) => ({ ...p, tipo: v }))}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={adicionarItem}
+                      disabled={!novoItem.descricao || !novoItem.unidade || salvandoItem}
+                      className="bg-[#1351b4] hover:bg-[#0c326f]"
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Tipo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="PNCP">PNCP</SelectItem>
-                        <SelectItem value="PAINEL_PRECOS">Painel Preços</SelectItem>
-                        <SelectItem value="COTACAO_DIRETA">Cotação direta</SelectItem>
-                        <SelectItem value="SITE_OFICIAL">Site oficial</SelectItem>
-                        <SelectItem value="CATALOGO">Catálogo</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      {salvandoItem ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        "Salvar item"
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setAdicionandoItem(false)}
+                    >
+                      Cancelar
+                    </Button>
                   </div>
                 </div>
-                <div className="flex gap-2">
+              )}
+
+              {/* Estado vazio */}
+              {itens.length === 0 && !adicionandoItem && (
+                <div className="py-16 text-center">
+                  <p className="text-sm text-gray-400 mb-1">Nenhum item definido ainda.</p>
+                  <p className="text-xs text-gray-400 mb-4">
+                    Adicione os itens que precisam ter seus preços pesquisados.
+                  </p>
                   <Button
                     size="sm"
-                    onClick={adicionarFonte}
-                    disabled={!novaFonte.fonte || !novaFonte.valor || salvando}
+                    onClick={() => setAdicionandoItem(true)}
                     className="bg-[#1351b4] hover:bg-[#0c326f]"
                   >
-                    {salvando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Salvar"}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setAdicionando(false)}>
-                    Cancelar
+                    <Plus className="w-3.5 h-3.5 mr-1.5" /> Adicionar primeiro item
                   </Button>
                 </div>
-              </div>
-            )}
+              )}
 
-            {fontes.length === 0 && !adicionando && (
-              <div className="py-12 text-center">
-                <p className="text-sm text-gray-400 mb-3">Nenhuma fonte cadastrada ainda.</p>
-                <Button
-                  size="sm"
-                  onClick={() => setAdicionando(true)}
-                  className="bg-[#1351b4] hover:bg-[#0c326f]"
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1.5" /> Adicionar primeira fonte
-                </Button>
-              </div>
-            )}
-
-            {fontes.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="text-left text-xs font-semibold text-gray-500 px-5 py-3">Fonte</th>
-                      <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Órgão / Fornecedor</th>
-                      <th className="text-left text-xs font-semibold text-gray-500 px-3 py-3">Data</th>
-                      <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3">Qtd.</th>
-                      <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3">Unitário</th>
-                      <th className="text-right text-xs font-semibold text-gray-500 px-3 py-3">Total</th>
-                      <th className="w-10" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fontes.map((f, idx) => {
-                      const tipoFonte = getFonteTipo(f)
-                      const badge = TIPO_BADGE[tipoFonte] ?? "bg-gray-100 text-gray-600"
-                      const isOutlier =
-                        f.valor_unitario > media * 1.05 || f.valor_unitario < media * 0.95
-                      const qtdF = f.qtd ?? 1
-                      return (
-                        <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50/70">
-                          <td className="px-5 py-3.5">
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${badge}`}>
-                              {TIPO_LABEL[tipoFonte] ?? tipoFonte}
-                            </span>
-                            <div className="text-[11px] text-gray-500 mt-1 line-clamp-1">{getFonteDescricao(f)}</div>
+              {/* Lista de itens */}
+              {itens.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5 w-10">Nº</th>
+                        <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5">Descrição</th>
+                        <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2.5">Quantidade</th>
+                        <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5">Unidade</th>
+                        <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5">CATMAT/CATSER</th>
+                        <th className="w-10" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itens.map((item) => (
+                        <tr key={item.item_numero} className="border-b border-gray-50 hover:bg-gray-50/60">
+                          <td className="px-3 py-3 text-xs text-gray-500">{item.item_numero}</td>
+                          <td className="px-3 py-3 text-sm text-gray-800">{item.descricao}</td>
+                          <td className="px-3 py-3 text-sm text-gray-700 text-right">{item.quantidade}</td>
+                          <td className="px-3 py-3 text-sm text-gray-700">{item.unidade}</td>
+                          <td className="px-3 py-3 text-xs text-gray-500">
+                            {item.codigo_catmat ?? "—"}
                           </td>
-                          <td className="px-3 py-3.5">
-                            <div className="text-xs text-gray-700">{f.orgao ?? f.fornecedor ?? "—"}</div>
-                          </td>
-                          <td className="px-3 py-3.5">
-                            <span className="text-xs text-gray-500">{fmtData(f.data_pesquisa)}</span>
-                          </td>
-                          <td className="px-3 py-3.5 text-right">
-                            <span className="text-xs text-gray-600">{qtdF}</span>
-                          </td>
-                          <td className="px-3 py-3.5 text-right">
-                            <span className="text-sm font-bold text-gray-800">
-                              {fmtMoeda(f.valor_unitario)}
-                            </span>
-                            {isOutlier && (
-                              <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 inline ml-1.5" />
-                            )}
-                          </td>
-                          <td className="px-3 py-3.5 text-right">
-                            <span className="text-xs text-gray-600">
-                              {fmtMoeda(f.valor_unitario * qtdF)}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3.5 text-center">
+                          <td className="px-3 py-3 text-center">
                             <button
-                              onClick={() => removerFonte(idx)}
-                              className="text-gray-300 hover:text-gray-500 transition-colors"
-                              title="Remover fonte"
+                              onClick={() => removerItem(item.item_numero)}
+                              disabled={removendoItem === item.item_numero}
+                              className="text-gray-300 hover:text-red-500 transition-colors"
+                              title="Remover item"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {removendoItem === item.item_numero ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
                             </button>
                           </td>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-        {/* Right sidebar */}
-        <div className="flex flex-col gap-4">
-          {/* Análise da IA */}
-          <Card className="border border-gray-100 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-[#1351b4]" />
-                Análise da IA
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* Conformidade */}
-              {fontes.length >= 3 && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Check className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                    <p className="text-xs font-semibold text-green-700">Pesquisa em conformidade</p>
+        {/* ═══════════════════════════════════════════════════════════════════
+            ABA 2 — COTAÇÕES
+        ═══════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="cotacoes">
+          {itens.length === 0 && (
+            <div className="py-16 text-center text-sm text-gray-400">
+              Nenhum item definido. Vá à aba <strong>Itens</strong> para adicionar itens à pesquisa.
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {itens.map((item) => {
+              const expandido = expandidosCards[item.item_numero] ?? true
+              const buscando = buscandoAuto[item.item_numero] ?? false
+
+              return (
+                <Card key={item.item_numero} className="border border-gray-100 shadow-sm">
+                  {/* Header do card */}
+                  <div
+                    className="flex items-center justify-between px-5 py-3.5 cursor-pointer select-none"
+                    onClick={() => toggleCard(item.item_numero)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-gray-400 font-mono">#{item.item_numero}</span>
+                      <span className="text-sm font-semibold text-gray-800">{item.descricao}</span>
+                      <StatusBadge count={item.cotacoes.length} />
+                    </div>
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => buscarAutomatico(item)}
+                        disabled={buscando}
+                        className="text-[#1351b4] border-[#c5d4eb] text-xs"
+                      >
+                        {buscando ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Buscando…
+                          </>
+                        ) : (
+                          <>
+                            <Search className="w-3.5 h-3.5 mr-1.5" /> Buscar automaticamente
+                          </>
+                        )}
+                      </Button>
+                      {expandido ? (
+                        <ChevronUp className="w-4 h-4 text-gray-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-gray-400" />
+                      )}
+                    </div>
                   </div>
-                  <p className="text-[11px] text-green-600 leading-snug">
-                    {fontes.length} fontes válidas · {fontesPublicas} fontes públicas (PNCP/Painel) atendem IN 65/2021.
-                  </p>
-                </div>
-              )}
 
-              {/* Texto da IA */}
-              {gerandoIA && (
-                <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Gerando análise…
-                </div>
-              )}
-              {iaAnalise && !gerandoIA && (
-                <p className="text-xs text-gray-600 leading-relaxed">{iaAnalise}</p>
-              )}
-              {!iaAnalise && !gerandoIA && (
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  A mediana é o método recomendado pela IN 65/2021 pois é mais robusta a valores extremos,
-                  representando com maior fidelidade o preço de mercado praticado.
-                </p>
-              )}
+                  {expandido && (
+                    <CardContent className="pt-0 pb-4">
+                      {/* Tabela de cotações */}
+                      {item.cotacoes.length > 0 ? (
+                        <div className="overflow-x-auto mb-4">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b border-gray-100">
+                                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2 w-8">Nº</th>
+                                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2">Tipo</th>
+                                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2">Fonte / Descrição</th>
+                                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2">Data</th>
+                                <th className="text-right text-xs font-semibold text-gray-500 px-3 py-2">Valor Unit.</th>
+                                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2">URL</th>
+                                <th className="text-left text-xs font-semibold text-gray-500 px-3 py-2">Comprovante</th>
+                                <th className="w-10" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {item.cotacoes.map((cot, idx) => {
+                                const removeKey = `${item.item_numero}-${idx}`
+                                const uploadKey = `${item.item_numero}-${idx}`
+                                return (
+                                  <tr
+                                    key={idx}
+                                    className="border-b border-gray-50 hover:bg-gray-50/60"
+                                  >
+                                    <td className="px-3 py-3 text-xs text-gray-400">{idx + 1}</td>
+                                    <td className="px-3 py-3">
+                                      <span
+                                        className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                                          FONTE_BADGE_CLASS[cot.fonte] ?? FONTE_BADGE_CLASS.OUTRA
+                                        }`}
+                                      >
+                                        {FONTE_LABELS[cot.fonte] ?? cot.fonte}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-3">
+                                      <p className="text-xs text-gray-700 max-w-[180px] truncate" title={cot.descricao_fonte}>
+                                        {cot.descricao_fonte || "—"}
+                                      </p>
+                                      {cot.observacao && (
+                                        <p className="text-[10px] text-gray-400 mt-0.5 max-w-[180px] truncate">
+                                          {cot.observacao}
+                                        </p>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-3">
+                                      <span className="text-xs text-gray-500">
+                                        {fmtData(cot.data_pesquisa)}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-3 text-right">
+                                      <span className="text-sm font-bold text-gray-800">
+                                        {fmtMoeda(cot.valor_unitario)}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-3">
+                                      {cot.url_referencia ? (
+                                        <a
+                                          href={cot.url_referencia}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 text-[#1351b4] hover:underline text-xs"
+                                        >
+                                          <ExternalLink className="w-3 h-3" /> Ver
+                                        </a>
+                                      ) : (
+                                        <span className="text-xs text-gray-300">—</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-3">
+                                      {cot.documento_comprobatorio_path ? (
+                                        <a
+                                          href={`${API_URL}/${cot.documento_comprobatorio_path}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 text-green-600 hover:underline text-xs"
+                                        >
+                                          <FileCheck className="w-3.5 h-3.5" /> Ver arquivo
+                                        </a>
+                                      ) : (
+                                        <>
+                                          <input
+                                            type="file"
+                                            accept="application/pdf,image/jpeg,image/png"
+                                            className="hidden"
+                                            ref={(el) => {
+                                              fileInputRefs.current[uploadKey] = el
+                                            }}
+                                            onChange={(e) =>
+                                              uploadComprovante(e, item.item_numero, idx)
+                                            }
+                                          />
+                                          <button
+                                            onClick={() =>
+                                              fileInputRefs.current[uploadKey]?.click()
+                                            }
+                                            disabled={uploadingComprovante === uploadKey}
+                                            className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-[#1351b4] transition-colors"
+                                          >
+                                            {uploadingComprovante === uploadKey ? (
+                                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            ) : (
+                                              <Upload className="w-3.5 h-3.5" />
+                                            )}
+                                            Enviar
+                                          </button>
+                                        </>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-3 text-center">
+                                      <button
+                                        onClick={() => removerCotacao(item.item_numero, idx)}
+                                        disabled={removendoCotacao === removeKey}
+                                        className="text-gray-300 hover:text-red-500 transition-colors"
+                                        title="Remover cotação"
+                                      >
+                                        {removendoCotacao === removeKey ? (
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="w-4 h-4" />
+                                        )}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="py-6 text-center text-xs text-gray-400 mb-3">
+                          Nenhuma cotação registrada. Busque automaticamente ou adicione manualmente.
+                        </div>
+                      )}
 
-              <hr className="border-gray-100" />
+                      {/* Formulário de nova cotação */}
+                      {adicionandoCotacao[item.item_numero] ? (
+                        <div className="p-4 bg-[#f6f9fd] border border-[#dbe8fb] rounded-lg">
+                          <p className="text-xs font-semibold text-gray-700 mb-3">Nova cotação</p>
+                          <div className="grid grid-cols-2 gap-3 mb-3">
+                            <div>
+                              <label className="text-xs text-gray-600 mb-1 block">Tipo *</label>
+                              <Select
+                                value={novaCotacao[item.item_numero]?.fonte ?? "PNCP"}
+                                onValueChange={(v) =>
+                                  setNovaCotacao((prev) => ({
+                                    ...prev,
+                                    [item.item_numero]: {
+                                      ...prev[item.item_numero],
+                                      fonte: v as FontePesquisaTipo,
+                                    },
+                                  }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(Object.keys(FONTE_LABELS) as FontePesquisaTipo[]).map((k) => (
+                                    <SelectItem key={k} value={k}>
+                                      {FONTE_LABELS[k]}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-600 mb-1 block">
+                                Descrição da fonte *
+                              </label>
+                              <Input
+                                placeholder="Ex: PNCP — Prefeitura de SP"
+                                value={novaCotacao[item.item_numero]?.descricao_fonte ?? ""}
+                                onChange={(e) =>
+                                  setNovaCotacao((prev) => ({
+                                    ...prev,
+                                    [item.item_numero]: {
+                                      ...prev[item.item_numero],
+                                      descricao_fonte: e.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-600 mb-1 block">
+                                Valor unitário (R$) *
+                              </label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="any"
+                                placeholder="0,00"
+                                value={novaCotacao[item.item_numero]?.valor_unitario ?? ""}
+                                onChange={(e) =>
+                                  setNovaCotacao((prev) => ({
+                                    ...prev,
+                                    [item.item_numero]: {
+                                      ...prev[item.item_numero],
+                                      valor_unitario: e.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-600 mb-1 block">
+                                Data da pesquisa *
+                              </label>
+                              <Input
+                                type="date"
+                                value={
+                                  novaCotacao[item.item_numero]?.data_pesquisa ??
+                                  new Date().toISOString().split("T")[0]
+                                }
+                                onChange={(e) =>
+                                  setNovaCotacao((prev) => ({
+                                    ...prev,
+                                    [item.item_numero]: {
+                                      ...prev[item.item_numero],
+                                      data_pesquisa: e.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <label className="text-xs text-gray-600 mb-1 block">
+                                URL de referência
+                              </label>
+                              <Input
+                                type="url"
+                                placeholder="https://…"
+                                value={novaCotacao[item.item_numero]?.url_referencia ?? ""}
+                                onChange={(e) =>
+                                  setNovaCotacao((prev) => ({
+                                    ...prev,
+                                    [item.item_numero]: {
+                                      ...prev[item.item_numero],
+                                      url_referencia: e.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="col-span-2">
+                              <label className="text-xs text-gray-600 mb-1 block">Observação</label>
+                              <Input
+                                placeholder="Observação opcional"
+                                value={novaCotacao[item.item_numero]?.observacao ?? ""}
+                                onChange={(e) =>
+                                  setNovaCotacao((prev) => ({
+                                    ...prev,
+                                    [item.item_numero]: {
+                                      ...prev[item.item_numero],
+                                      observacao: e.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => salvarCotacao(item.item_numero)}
+                              disabled={
+                                !novaCotacao[item.item_numero]?.descricao_fonte ||
+                                !novaCotacao[item.item_numero]?.valor_unitario ||
+                                salvandoCotacao[item.item_numero]
+                              }
+                              className="bg-[#1351b4] hover:bg-[#0c326f]"
+                            >
+                              {salvandoCotacao[item.item_numero] ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                "Salvar"
+                              )}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() =>
+                                setAdicionandoCotacao((prev) => ({
+                                  ...prev,
+                                  [item.item_numero]: false,
+                                }))
+                              }
+                            >
+                              Cancelar
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => initNovaCotacao(item.item_numero)}
+                          className="text-[#1351b4] border-[#c5d4eb]"
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1.5" /> Adicionar cotação manualmente
+                        </Button>
+                      )}
+                    </CardContent>
+                  )}
+                </Card>
+              )
+            })}
+          </div>
+        </TabsContent>
 
+        {/* ═══════════════════════════════════════════════════════════════════
+            ABA 3 — ESTATÍSTICAS
+        ═══════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="estatisticas">
+          {itens.length === 0 ? (
+            <div className="py-16 text-center text-sm text-gray-400">
+              Nenhum item com cotações. Preencha as abas anteriores primeiro.
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {itens.map((item) => {
+                const s = statsItem(item)
+                const histVals = item.cotacoes.map((c) => c.valor_unitario)
+                const bars = buildHistogram(histVals)
+                const maxCount = Math.max(...bars.map((b) => b.count), 1)
+                const cvAlto = s.cv > 25
+
+                return (
+                  <Card key={item.item_numero} className="border border-gray-100 shadow-sm">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400 font-mono">#{item.item_numero}</span>
+                        <CardTitle className="text-sm font-semibold">{item.descricao}</CardTitle>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {item.cotacoes.length < 2 ? (
+                        <p className="text-xs text-gray-400">
+                          Mínimo 2 cotações para calcular estatísticas.
+                        </p>
+                      ) : (
+                        <>
+                          {/* KPI cards */}
+                          <div className="grid grid-cols-4 gap-3 mb-5">
+                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                              <p className="text-[10px] text-gray-500 mb-0.5">Valor médio</p>
+                              <p className="text-base font-bold text-gray-800">{fmtMoeda(s.media)}</p>
+                              <p className="text-[10px] text-gray-400">Aritmético simples</p>
+                            </div>
+                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                              <p className="text-[10px] text-gray-500 mb-0.5">Mediana</p>
+                              <p className="text-base font-bold text-gray-800">{fmtMoeda(s.mediana)}</p>
+                              <p className="text-[10px] text-gray-400">Recomendado IN 65</p>
+                            </div>
+                            <div className={`p-3 rounded-lg border ${cvAlto ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-100"}`}>
+                              <p className="text-[10px] text-gray-500 mb-0.5">CV%</p>
+                              <p className={`text-base font-bold ${cvAlto ? "text-red-600" : "text-gray-800"}`}>
+                                {s.cv.toFixed(1)}%
+                              </p>
+                              <p className="text-[10px] text-gray-400">Coef. variação</p>
+                            </div>
+                            <div className="p-3 bg-[#1351b4]/5 rounded-lg border border-[#1351b4]/20">
+                              <p className="text-[10px] text-gray-500 mb-0.5">Valor referencial</p>
+                              <p className="text-base font-bold text-[#1351b4]">
+                                {fmtMoeda(item.valor_referencial || s.mediana)}
+                              </p>
+                              <p className="text-[10px] text-gray-400">Unitário estimado</p>
+                            </div>
+                          </div>
+
+                          {/* Mini tabela de stats */}
+                          <div className="overflow-x-auto mb-4">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b border-gray-100">
+                                  {["Mín.", "Máx.", "Média", "Mediana", "Desvio", "CV%"].map((h) => (
+                                    <th key={h} className="text-left font-semibold text-gray-500 px-2 py-1.5">
+                                      {h}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr>
+                                  <td className="px-2 py-2 text-gray-700">{fmtMoeda(s.min)}</td>
+                                  <td className="px-2 py-2 text-gray-700">{fmtMoeda(s.max)}</td>
+                                  <td className="px-2 py-2 text-gray-700">{fmtMoeda(s.media)}</td>
+                                  <td className="px-2 py-2 text-gray-700">{fmtMoeda(s.mediana)}</td>
+                                  <td className="px-2 py-2 text-gray-700">{fmtMoeda(s.desvio)}</td>
+                                  <td className={`px-2 py-2 font-semibold ${cvAlto ? "text-red-600" : "text-gray-700"}`}>
+                                    {s.cv.toFixed(1)}%
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Alerta CV > 25% */}
+                          {cvAlto && (
+                            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                                <div className="flex-1">
+                                  <p className="text-xs font-semibold text-red-700 mb-1">
+                                    Coeficiente de variação acima de 25%
+                                  </p>
+                                  <p className="text-xs text-red-600 mb-2">
+                                    IN 65/2021 recomenda buscar mais fontes ou justificar formalmente.
+                                  </p>
+                                  <label className="text-xs text-gray-600 mb-1 block">
+                                    Justificativa *
+                                  </label>
+                                  <Textarea
+                                    placeholder="Justifique formalmente a dispersão dos preços…"
+                                    value={justCv}
+                                    onChange={(e) => setJustCv(e.target.value)}
+                                    className="text-xs min-h-[60px]"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Outliers */}
+                          <div className="mb-4">
+                            <p className="text-xs font-semibold text-gray-700 mb-2">
+                              Outliers (marque para descartar)
+                            </p>
+                            <div className="space-y-1.5">
+                              {item.cotacoes.map((cot, idx) => {
+                                const key = `${item.item_numero}-${idx}`
+                                const state = outliersDescartados[key] ?? { marcado: false, motivo: "" }
+                                return (
+                                  <div key={idx} className="flex items-start gap-2">
+                                    <input
+                                      type="checkbox"
+                                      id={`outlier-${key}`}
+                                      checked={state.marcado}
+                                      onChange={(e) =>
+                                        setOutliersDescartados((prev) => ({
+                                          ...prev,
+                                          [key]: { ...prev[key], marcado: e.target.checked, motivo: prev[key]?.motivo ?? "" },
+                                        }))
+                                      }
+                                      className="mt-0.5 accent-[#1351b4]"
+                                    />
+                                    <label htmlFor={`outlier-${key}`} className="text-xs text-gray-700 flex-1">
+                                      <span className="font-medium">{fmtMoeda(cot.valor_unitario)}</span>{" "}
+                                      — {cot.descricao_fonte || FONTE_LABELS[cot.fonte]}
+                                      {state.marcado && (
+                                        <Input
+                                          placeholder="Motivo do descarte *"
+                                          className="mt-1 text-xs h-7"
+                                          value={state.motivo}
+                                          onChange={(e) =>
+                                            setOutliersDescartados((prev) => ({
+                                              ...prev,
+                                              [key]: { ...prev[key], motivo: e.target.value },
+                                            }))
+                                          }
+                                        />
+                                      )}
+                                    </label>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Histograma */}
+                          {bars.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold text-gray-700 mb-2">Histograma</p>
+                              <div className="flex items-end gap-1.5 h-20">
+                                {bars.map((bar, i) => (
+                                  <div key={i} className="flex-1 flex flex-col items-center justify-end">
+                                    <div
+                                      className="w-full bg-[#1351b4] rounded-t opacity-75"
+                                      style={{
+                                        height: `${(bar.count / maxCount) * 100}%`,
+                                        minHeight: bar.count > 0 ? 4 : 0,
+                                      }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex justify-between mt-1">
+                                <span className="text-[10px] text-gray-400">{fmtMoeda(s.min)}</span>
+                                <span className="text-[10px] text-gray-400">{fmtMoeda(s.max)}</span>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              })}
+
+              {/* Metodologia */}
+              <Card className="border border-gray-100 shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold">Metodologia</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <label className="text-xs text-gray-600 mb-1 block">Método de referência *</label>
+                    <Select
+                      value={metodologia}
+                      onValueChange={(v) => setMetodologia(v as Metodologia)}
+                    >
+                      <SelectTrigger className="max-w-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MEDIANA">Mediana (recomendada — IN 65/2021)</SelectItem>
+                        <SelectItem value="MEDIA">Média aritmética</SelectItem>
+                        <SelectItem value="MENOR_VALOR">Menor valor</SelectItem>
+                        <SelectItem value="OUTRA">Outra (justificar)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {metodologia === "OUTRA" && (
+                    <div>
+                      <label className="text-xs text-gray-600 mb-1 block">Justificativa *</label>
+                      <Textarea
+                        placeholder="Descreva e justifique a metodologia adotada…"
+                        value={justMetodologia}
+                        onChange={(e) => setJustMetodologia(e.target.value)}
+                        className="text-xs min-h-[80px]"
+                      />
+                    </div>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={salvarMetodologia}
+                    disabled={salvandoMetodologia || (metodologia === "OUTRA" && !justMetodologia.trim())}
+                    className="bg-[#1351b4] hover:bg-[#0c326f]"
+                  >
+                    {salvandoMetodologia ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      "Salvar configurações"
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            ABA 4 — RESPONSÁVEL
+        ═══════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="responsavel">
+          <Card className="border border-gray-100 shadow-sm max-w-2xl">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Responsável pela pesquisa</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div>
-                <p className="text-xs font-semibold text-gray-700 mb-2">Recomendações:</p>
-                <ul className="text-xs text-gray-500 space-y-1.5 list-disc list-inside">
-                  <li>Usar o valor mediano como referência para o orçamento</li>
-                  <li>Manter a pesquisa válida por até 12 meses (IN 65, art. 5º)</li>
-                  <li>Anexar pareceres e comprovantes das fontes consultadas</li>
-                </ul>
+                <label className="text-xs text-gray-600 mb-1 block">Nome completo *</label>
+                <Input
+                  placeholder="Nome do servidor responsável"
+                  value={responsavel.nome}
+                  onChange={(e) => setResponsavel((p) => ({ ...p, nome: e.target.value }))}
+                />
               </div>
-
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Cargo / Função *</label>
+                <Input
+                  placeholder="Ex: Analista de Licitações"
+                  value={responsavel.cargo}
+                  onChange={(e) => setResponsavel((p) => ({ ...p, cargo: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Matrícula (opcional)</label>
+                <Input
+                  placeholder="Nº de matrícula"
+                  value={responsavel.matricula ?? ""}
+                  onChange={(e) => setResponsavel((p) => ({ ...p, matricula: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Data da pesquisa *</label>
+                <Input
+                  type="date"
+                  value={responsavel.data_pesquisa}
+                  onChange={(e) =>
+                    setResponsavel((p) => ({ ...p, data_pesquisa: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Observações gerais</label>
+                <Textarea
+                  placeholder="Informações adicionais sobre a condução da pesquisa…"
+                  value={responsavel.observacoes ?? ""}
+                  onChange={(e) => setResponsavel((p) => ({ ...p, observacoes: e.target.value }))}
+                  className="text-xs min-h-[90px]"
+                />
+              </div>
               <Button
-                variant="outline"
                 size="sm"
-                className="w-full text-[#1351b4] border-[#c5d4eb]"
-                onClick={() => gerarAnaliseIA(fontes)}
-                disabled={gerandoIA}
+                onClick={salvarResponsavel}
+                disabled={
+                  !responsavel.nome || !responsavel.cargo || !responsavel.data_pesquisa || salvandoResponsavel
+                }
+                className="bg-[#1351b4] hover:bg-[#0c326f]"
               >
-                <Sparkles className="w-3.5 h-3.5 mr-1.5" />
-                Gerar relatório justificativo
+                {salvandoResponsavel ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  "Salvar responsável"
+                )}
               </Button>
             </CardContent>
           </Card>
+        </TabsContent>
 
-          {/* Histograma */}
-          <Card className="border border-gray-100 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">Histograma</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {histBars.length === 0 ? (
-                <p className="text-xs text-gray-400">Sem dados suficientes.</p>
-              ) : (
-                <div>
-                  <div className="flex items-end gap-1.5 h-24">
-                    {histBars.map((bar, i) => (
-                      <div key={i} className="flex-1 flex flex-col items-center justify-end">
-                        <div
-                          className="w-full bg-[#1351b4] rounded-t opacity-80"
-                          style={{
-                            height: `${(bar.count / maxCount) * 100}%`,
-                            minHeight: bar.count > 0 ? 4 : 0,
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between mt-1.5">
-                    <span className="text-[10px] text-gray-400">{fmtMoeda(minVal)}</span>
-                    <span className="text-[10px] text-gray-400">{fmtMoeda(maxVal)}</span>
-                  </div>
+        {/* ═══════════════════════════════════════════════════════════════════
+            ABA 5 — DOCUMENTO PP
+        ═══════════════════════════════════════════════════════════════════ */}
+        <TabsContent value="documento">
+          <div className="max-w-2xl space-y-5">
+            {/* Checklist */}
+            <Card className="border border-gray-100 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">Checklist de conformidade</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2.5">
+                  {conformidade.map((item, i) => (
+                    <li key={i} className="flex items-center gap-2.5">
+                      <span
+                        className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${
+                          item.ok ? "bg-green-100 text-green-600" : "bg-red-100 text-red-500"
+                        }`}
+                      >
+                        {item.ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                      </span>
+                      <span className={`text-sm ${item.ok ? "text-gray-700" : "text-gray-500"}`}>
+                        {item.label}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div
+                  className={`mt-4 px-3 py-2 rounded-lg border text-xs font-semibold ${
+                    prontoParaGerar
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "bg-yellow-50 border-yellow-200 text-yellow-700"
+                  }`}
+                >
+                  {prontoParaGerar ? "Pronto para gerar o documento" : "Pendências encontradas — resolva os itens acima"}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+              </CardContent>
+            </Card>
+
+            {/* Gerar documento */}
+            <Card className="border border-gray-100 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">Gerar Documento PP</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Button
+                  size="lg"
+                  onClick={gerarDocumento}
+                  disabled={!prontoParaGerar || gerandoDoc}
+                  className="w-full bg-[#1351b4] hover:bg-[#0c326f] text-white font-semibold"
+                >
+                  {gerandoDoc ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando documento…
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="w-4 h-4 mr-2" /> Gerar Documento PP (PDF)
+                    </>
+                  )}
+                </Button>
+
+                {urlDocumento && (
+                  <a
+                    href={urlDocumento.startsWith("http") ? urlDocumento : `${API_URL}/${urlDocumento}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-[#1351b4] hover:underline text-sm font-medium"
+                  >
+                    <FileDown className="w-4 h-4" /> Baixar documento gerado
+                  </a>
+                )}
+
+                <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                  <p className="text-xs text-blue-700 leading-relaxed">
+                    O documento gerado deve ser assinado pelo responsável e anexado ao processo.
+                    A pesquisa de preços tem validade de 6 meses (IN 65/2021, Art. 5º).
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

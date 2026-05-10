@@ -10,6 +10,7 @@ import { DocumentoEstruturadoController } from './documento-estruturado.controll
 import { GeradorDocumentoService } from './gerador-documento.service';
 import { PncpPublicacaoService } from './pncp-publicacao.service';
 import { AnaliseContratosService } from './analise-contratos.service';
+import { GeradorPpService } from './gerador-pp.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
@@ -47,6 +48,7 @@ import {
     GeradorDocumentoService,
     PncpPublicacaoService,
     AnaliseContratosService,
+    GeradorPpService,
     PesquisaPrecosAgentService,
     PesquisaPrecosComplianceService,
     PncpPriceProvider,
@@ -57,6 +59,6 @@ import {
     NfeProvider,
     BrowserFallbackProvider,
   ],
-  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgentService],
+  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgentService, GeradorPpService],
 })
 export class FaseInternaModule {}
