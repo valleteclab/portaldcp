@@ -136,15 +136,23 @@ export class CatalogoService {
       queryBuilder.andWhere('item.codigo_classe = :codigo_classe', { codigo_classe });
     }
 
-    // Ordenação inteligente: prioriza itens que começam com o termo
+    // Ordenação inteligente: prioriza itens que começam com o termo.
+    // O TypeORM não aceita expressão CASE direta no orderBy com getManyAndCount(),
+    // então selecionamos a expressão como alias e ordenamos por esse alias.
+    if (termo) {
+      queryBuilder
+        .addSelect(
+          'CASE WHEN unaccent(LOWER(item.descricao)) LIKE unaccent(LOWER(:termoInicio)) THEN 0 ELSE 1 END',
+          'prioridade_busca',
+        )
+        .setParameter('termoInicio', `${termo.trim()}%`)
+        .orderBy('prioridade_busca', 'ASC')
+        .addOrderBy('item.descricao', 'ASC');
+    } else {
+      queryBuilder.orderBy('item.descricao', 'ASC');
+    }
+
     const [dados, total] = await queryBuilder
-      .orderBy(
-        termo 
-          ? `CASE WHEN unaccent(LOWER(item.descricao)) LIKE unaccent(LOWER('${termo.trim()}%')) THEN 0 ELSE 1 END`
-          : 'item.descricao',
-        'ASC'
-      )
-      .addOrderBy('item.descricao', 'ASC')
       .skip((pagina - 1) * limite)
       .take(limite)
       .getManyAndCount();
