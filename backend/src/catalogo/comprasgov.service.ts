@@ -6,7 +6,7 @@ export interface ItemComprasGov {
   descricao: string;
   classe?: number;
   grupo?: number;
-  pdm?: string;
+  pdm?: string | number;
   unidade_fornecimento?: string;
   status?: boolean;
   sustentavel?: boolean;
@@ -23,7 +23,9 @@ export interface ClasseComprasGov {
 export class ComprasGovService {
   private readonly logger = new Logger(ComprasGovService.name);
   private readonly axiosInstance: AxiosInstance;
-  private readonly baseUrl = 'https://compras.dados.gov.br';
+  private readonly cnbsInstance: AxiosInstance;
+  private readonly baseUrl = 'https://dadosabertos.compras.gov.br';
+  private readonly cnbsBaseUrl = 'https://cnbs.estaleiro.serpro.gov.br/cnbs-api';
 
   constructor() {
     this.axiosInstance = axios.create({
@@ -33,32 +35,62 @@ export class ComprasGovService {
         'Accept': 'application/json',
       },
     });
+    this.cnbsInstance = axios.create({
+      baseURL: this.cnbsBaseUrl,
+      timeout: 15000,
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+  }
+
+  private montarDescricaoMaterial(item: any): string {
+    const caracteristicas = (item.buscaItemCaracteristica || [])
+      .map((c: any) => `${c.nomeCaracteristica}: ${c.nomeValorCaracteristica}`)
+      .filter(Boolean)
+      .join(', ');
+    return [item.nomePdm || item.descricaoPDM || item.descricaoItem, caracteristicas]
+      .filter(Boolean)
+      .join(' - ');
   }
 
   // ============ MATERIAIS (CATMAT) ============
 
   async buscarMateriais(termo: string, pagina = 1, limite = 50): Promise<ItemComprasGov[]> {
     try {
-      const offset = (pagina - 1) * limite;
-      const response = await this.axiosInstance.get('/materiais/v1/materiais.json', {
-        params: {
-          descricao_item: termo,
-          offset,
-        },
+      const response = await this.cnbsInstance.get('/material/v1/palavra', {
+        params: { palavra: termo },
       });
 
-      const materiais = response.data?._embedded?.materiais || [];
-      return materiais.slice(0, limite).map((m: any) => ({
-        codigo: m.codigo,
-        descricao: m.descricao,
-        classe: m.id_classe ?? m.classe,
-        grupo: m.id_grupo ?? m.grupo,
-        pdm: m.id_pdm ?? m.pdm,
-        unidade_fornecimento: m.unidade_fornecimento,
-        status: m.status,
-        sustentavel: m.sustentavel,
-        tipo: 'MATERIAL' as const,
-      }));
+      const pdms = Array.isArray(response.data) ? response.data : [];
+      const inicio = Math.max(0, (pagina - 1) * limite);
+      const materiais: ItemComprasGov[] = [];
+      const pdmsPagina = pdms.slice(inicio, inicio + Math.min(8, limite));
+      const itensPorPdm = Math.max(1, Math.ceil(limite / Math.max(1, pdmsPagina.length)));
+
+      for (const pdm of pdmsPagina) {
+        const codigoPdm = pdm.codigoPdm ?? pdm.codigoPDM;
+        if (!codigoPdm) continue;
+        const itensResponse = await this.cnbsInstance.get('/material/v1/materialCaracteristicaValorPdmSemFiltro', {
+          params: { codigo_pdm: codigoPdm },
+        });
+        const itens = Array.isArray(itensResponse.data) ? itensResponse.data : [];
+        for (const item of itens.slice(0, itensPorPdm)) {
+          materiais.push({
+            codigo: item.codigoItem,
+            descricao: this.montarDescricaoMaterial(item),
+            classe: item.codigoClasse ?? pdm.codigoClasse,
+            grupo: pdm.codigoGrupo,
+            pdm: item.codigoPdm ?? codigoPdm,
+            status: item.statusItem,
+            sustentavel: item.itemSustentavel,
+            tipo: 'MATERIAL',
+          });
+          if (materiais.length >= limite) return materiais;
+        }
+      }
+
+      return materiais;
     } catch (error) {
       this.logger.error(`Erro ao buscar materiais: ${error.message}`);
       return [];
@@ -67,17 +99,20 @@ export class ComprasGovService {
 
   async buscarMaterialPorCodigo(codigo: string): Promise<ItemComprasGov | null> {
     try {
-      const response = await this.axiosInstance.get(`/materiais/id/material/${codigo}.json`);
-      const m = response.data;
+      const response = await this.axiosInstance.get('/modulo-material/4_consultarItemMaterial', {
+        params: { codigoItem: codigo, pagina: 1, tamanhoPagina: 10 },
+      });
+      const m = response.data?.resultado?.[0];
+      if (!m) return null;
       return {
-        codigo: m.codigo,
-        descricao: m.descricao,
-        classe: m.id_classe ?? m.classe,
-        grupo: m.id_grupo ?? m.grupo,
-        pdm: m.id_pdm ?? m.pdm,
+        codigo: m.codigoItem,
+        descricao: m.descricaoItem,
+        classe: m.codigoClasse,
+        grupo: m.codigoGrupo,
+        pdm: m.codigoPdm,
         unidade_fornecimento: m.unidade_fornecimento,
-        status: m.status,
-        sustentavel: m.sustentavel,
+        status: m.statusItem,
+        sustentavel: m.itemSustentavel,
         tipo: 'MATERIAL',
       };
     } catch (error) {
@@ -90,22 +125,18 @@ export class ComprasGovService {
 
   async buscarServicos(termo: string, pagina = 1, limite = 50): Promise<ItemComprasGov[]> {
     try {
-      const offset = (pagina - 1) * limite;
-      const response = await this.axiosInstance.get('/servicos/v1/servicos.json', {
-        params: {
-          descricao: termo,
-          offset,
-        },
+      const response = await this.cnbsInstance.get('/servico/v1/palavra', {
+        params: { palavra: termo },
       });
 
-      const servicos = response.data?._embedded?.servicos || [];
-      return servicos.slice(0, limite).map((s: any) => ({
-        codigo: s.codigo,
-        descricao: s.descricao,
-        classe: s.codigo_classe ?? s.classe,
-        grupo: s.codigo_grupo ?? s.grupo,
-        unidade_fornecimento: s.unidade_medida ?? s.unidade_fornecimento,
-        status: s.status,
+      const servicos = Array.isArray(response.data) ? response.data : [];
+      const inicio = Math.max(0, (pagina - 1) * limite);
+      return servicos.slice(inicio, inicio + limite).map((s: any) => ({
+        codigo: s.codigoServico ?? s.codigo,
+        descricao: s.descricaoServicoAcentuado || s.nomeServicoAcentuado || s.nomeServico,
+        classe: s.codigoClasse,
+        grupo: s.codigoGrupo,
+        status: s.statusServico ?? s.status,
         tipo: 'SERVICO' as const,
       }));
     } catch (error) {
@@ -116,15 +147,17 @@ export class ComprasGovService {
 
   async buscarServicoPorCodigo(codigo: string): Promise<ItemComprasGov | null> {
     try {
-      const response = await this.axiosInstance.get(`/servicos/id/servico/${codigo}.json`);
-      const s = response.data;
+      const response = await this.axiosInstance.get('/modulo-servico/6_consultarItemServico', {
+        params: { codigoServico: codigo, pagina: 1, tamanhoPagina: 10 },
+      });
+      const s = response.data?.resultado?.[0];
+      if (!s) return null;
       return {
-        codigo: s.codigo,
-        descricao: s.descricao,
-        classe: s.codigo_classe ?? s.classe,
-        grupo: s.codigo_grupo ?? s.grupo,
-        unidade_fornecimento: s.unidade_medida ?? s.unidade_fornecimento,
-        status: s.status,
+        codigo: s.codigoServico,
+        descricao: s.nomeServico || s.descricaoServicoAcentuado,
+        classe: s.codigoClasse,
+        grupo: s.codigoGrupo,
+        status: s.statusServico,
         tipo: 'SERVICO',
       };
     } catch (error) {
