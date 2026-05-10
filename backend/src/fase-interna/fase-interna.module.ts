@@ -14,11 +14,13 @@ import { PesquisaPrecosAgenteService } from './pesquisa-precos-agente.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { IaModule } from '../ia/ia.module';
+import { SystemConfigModule } from '../system-config/system-config.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DocumentoFaseInterna, LogFaseInterna, Licitacao, Contrato]),
     IaModule,
+    SystemConfigModule,
   ],
   controllers: [FaseInternaController, DocumentoEstruturadoController],
   providers: [
