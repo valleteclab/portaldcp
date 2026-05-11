@@ -78,6 +78,15 @@ function dataRegistroPreco(registro: any): string {
   return valor ? normalizarDataPesquisa(valor) : '';
 }
 
+function tamanhoPaginaPesquisaPreco(limite: number): number {
+  const desejado = Math.max(10, limite * 4);
+  if (desejado <= 10) return 10;
+  if (desejado <= 20) return 20;
+  if (desejado <= 50) return 50;
+  if (desejado <= 100) return 100;
+  return 500;
+}
+
 function dataDentroDosUltimosDias(dataIso: string, dias: number): boolean {
   const data = new Date(`${dataIso}T00:00:00.000Z`);
   if (Number.isNaN(data.getTime())) return false;
@@ -289,7 +298,7 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
   }
 
   private async consultarPesquisaPreco(item: ItemLicitacao, codigo: string, limite: number): Promise<any[]> {
-    const tamanhoPagina = Math.min(500, Math.max(10, limite * 4));
+    const tamanhoPagina = tamanhoPaginaPesquisaPreco(limite);
     let ultimoErro: unknown;
 
     for (const endpoint of endpointsPesquisaPreco(item)) {
