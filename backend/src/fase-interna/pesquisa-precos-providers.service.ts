@@ -601,6 +601,7 @@ Retorne somente JSON array válido, sem markdown:
 
 Regras:
 - Não invente preço.
+- Nunca retorne valor_unitario 0. Se a fonte não tiver preço unitário real, ignore a fonte.
 - Retorne até ${limite} resultados aderentes; tente preencher pelo menos 5 resultados quando houver fontes verificáveis suficientes.
 - Não retorne preços internacionais, em dólar, ou indisponíveis no mercado brasileiro.
 - Pode retornar atas, contratos, homologações, adjudicações, editais e PDFs, desde que tragam preço unitário real e data dentro do período obrigatório.
@@ -647,7 +648,76 @@ Regras:
     if (removidos > 0) {
       this.logger.debug(`Busca web removeu ${removidos} item(ns) sem preco/url antes de montar candidatos.`);
     }
-    return validos.slice(0, limite);
+    if (validos.length > 0) return validos.slice(0, limite);
+
+    const promptComplementar = `Use busca web em tempo real. A busca oficial não encontrou preços complementares com aderência integral.
+
+Faça uma busca complementar de mercado brasileiro para o item abaixo e retorne SOMENTE páginas com preço unitário real maior que zero.
+
+Item: ${termo}
+Especificação desejada: ${especificacao}
+Código CATMAT/CATSER: ${codigoCatalogo || 'não informado'}
+Período: entre ${dataMinimaIso} e ${hojeISO()}.
+
+Busque em lojas, marketplaces e distribuidores brasileiros conhecidos, além de páginas oficiais de fornecedores.
+Para notebook, priorize produtos com tela superior a 14, RAM superior a 8GB, SSD entre 480GB e 1TB, Windows ou sistema proprietário, processador com mais de 8 núcleos e garantia informada.
+Se não conseguir comprovar garantia on site superior a 36 meses ou outro requisito, ainda retorne o preço, mas marque "aderente": false e explique o que falta na observação.
+
+Retorne somente JSON array válido, sem markdown:
+[
+  {
+    "valor_unitario": 123.45,
+    "descricao_fonte": "nome da loja/fornecedor",
+    "url": "https://url-da-pagina-com-preco",
+    "data": "YYYY-MM-DD",
+    "fornecedor": "nome se houver",
+    "observacao": "modelo e critérios atendidos/faltantes",
+    "aderente": false,
+    "criterios_confirmados": ["critério confirmado"]
+  }
+]
+
+Regras:
+- Nunca retorne valor_unitario 0.
+- Não retorne páginas sem preço visível.
+- Não invente preço.
+- Não retorne produto claramente incompatível, como desktop, monitor, tablet, veículo ou acessório.
+- Retorne até ${limite} resultados com preço real em reais brasileiros.`;
+
+    const responseComplementar = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://portaldcp.gov.br',
+        'X-Title': 'Portal DCP - Pesquisa de Precos',
+      },
+      body: JSON.stringify({
+        model: WEB_SEARCH_MODEL,
+        messages: [{ role: 'user', content: promptComplementar }],
+        temperature: 0.1,
+        max_tokens: 3500,
+      }),
+    });
+
+    if (!responseComplementar.ok) {
+      const err = await responseComplementar.text();
+      this.logger.warn(`Busca web complementar OpenRouter ${responseComplementar.status}: ${err.substring(0, 200)}`);
+      return [];
+    }
+
+    const dataComplementar = await responseComplementar.json();
+    const contentComplementar = dataComplementar.choices?.[0]?.message?.content || '';
+    const parsedComplementar = extrairJsonArray(contentComplementar);
+    const validosComplementares = parsedComplementar.filter((r) => {
+      const valor = normalizarValorPreco(r.valor_unitario || r.valorUnitario || r.preco || r.valor);
+      const url = String(r.url || r.url_referencia || r.urlReferencia || '');
+      return valor > 0 && url.startsWith('http');
+    });
+    this.logger.log(
+      `OpenRouter complementar retornou ${contentComplementar.length} caractere(s), ${parsedComplementar.length} item(ns) JSON parseado(s), ${validosComplementares.length} com preco/url. Prévia: ${contentComplementar.substring(0, 300).replace(/\s+/g, ' ')}`,
+    );
+    return validosComplementares.slice(0, limite);
   }
 
   private classificarFontePelaUrl(url?: string): FontePesquisaTipo {
