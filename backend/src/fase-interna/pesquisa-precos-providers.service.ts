@@ -20,6 +20,10 @@ const HTTP_HEADERS = {
   Accept: 'application/json',
   'User-Agent': 'PortalDCP/1.0 (pesquisa-precos; contato=suporte@portaldcp.com.br)',
 };
+const HTTP_BROWSER_HEADERS = {
+  ...HTTP_HEADERS,
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36 PortalDCP/1.0',
+};
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const WEB_SEARCH_MODEL = 'perplexity/sonar-pro';
 
@@ -182,6 +186,18 @@ function aderenteMarcadoComoFalso(valor: unknown): boolean {
   if (valor === false) return true;
   const texto = normalizarBusca(valor);
   return ['false', 'falso', 'nao', 'não', 'no', '0'].includes(texto);
+}
+
+function urlValida(url: unknown): string {
+  const texto = String(url || '').trim();
+  if (!texto.startsWith('http')) return '';
+  try {
+    const parsed = new URL(texto);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
 }
 
 function extrairJsonArray(texto: string): any[] {
@@ -547,11 +563,18 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
         let descartadosPorData = 0;
         let sinalizadosPorAderencia = 0;
         let descartadosInvalidos = 0;
+        let descartadosUrlIndisponivel = 0;
         for (const produto of results) {
           const valor = normalizarValorPreco(produto.valor_unitario || produto.valorUnitario || produto.preco || produto.valor);
-          const url = produto.url || produto.url_referencia || produto.urlReferencia;
-          if (valor <= 0 || !String(url || '').startsWith('http')) {
+          const url = urlValida(produto.url || produto.url_referencia || produto.urlReferencia);
+          if (valor <= 0 || !url) {
             descartadosInvalidos += 1;
+            continue;
+          }
+          const verificacaoUrl = await this.verificarUrlWeb(url);
+          if (!verificacaoUrl.ok) {
+            descartadosUrlIndisponivel += 1;
+            this.logger.debug(`Busca web descartou URL indisponivel (${verificacaoUrl.status || 'sem status'}) para item ${item.numero_item}: ${url}`);
             continue;
           }
           const aderenciaNaoComprovada = aderenteMarcadoComoFalso(produto.aderente);
@@ -588,7 +611,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
           });
         }
         this.logger.log(
-          `Busca web item ${item.numero_item}: ${results.length} resultado(s) recebidos, ${descartadosInvalidos} descartado(s) sem preco/url, ${descartadosPorData} descartado(s) por data, ${sinalizadosPorAderencia} sinalizado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
+          `Busca web item ${item.numero_item}: ${results.length} resultado(s) recebidos, ${descartadosInvalidos} descartado(s) sem preco/url, ${descartadosUrlIndisponivel} descartado(s) por URL indisponivel, ${descartadosPorData} descartado(s) por data, ${sinalizadosPorAderencia} sinalizado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
         );
       } catch (error) {
         this.logger.warn(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
@@ -602,6 +625,35 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
     const cfg = await this.systemConfigService.getIaConfig().catch(() => null);
     if (cfg?.apiKey) return cfg.apiKey;
     return this.configService.get<string>('OPENROUTER_API_KEY') || null;
+  }
+
+  private async verificarUrlWeb(url: string): Promise<{ ok: boolean; status?: number }> {
+    try {
+      const head = await axios.head(url, {
+        timeout: 8000,
+        maxRedirects: 5,
+        validateStatus: () => true,
+        headers: HTTP_BROWSER_HEADERS,
+      });
+      if (head.status >= 200 && head.status < 400) return { ok: true, status: head.status };
+      if (![403, 405, 406].includes(head.status)) return { ok: false, status: head.status };
+    } catch {
+      // Alguns sites bloqueiam HEAD; tenta GET leve abaixo.
+    }
+
+    try {
+      const get = await axios.get(url, {
+        timeout: 10000,
+        maxRedirects: 5,
+        responseType: 'text',
+        validateStatus: () => true,
+        headers: HTTP_BROWSER_HEADERS,
+      });
+      return { ok: get.status >= 200 && get.status < 400, status: get.status };
+    } catch (error) {
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      return { ok: false, status };
+    }
   }
 
   private async buscarComIaWeb(item: ItemLicitacao, limite: number): Promise<any[]> {
@@ -709,8 +761,8 @@ Regras:
     if (!Array.isArray(parsed)) return [];
     const validos = parsed.filter((r) => {
       const valor = normalizarValorPreco(r.valor_unitario || r.valorUnitario || r.preco || r.valor);
-      const url = String(r.url || r.url_referencia || r.urlReferencia || '');
-      return valor > 0 && url.startsWith('http');
+      const url = urlValida(r.url || r.url_referencia || r.urlReferencia);
+      return valor > 0 && Boolean(url);
     });
     const removidos = parsed.length - validos.length;
     if (removidos > 0) {
@@ -779,8 +831,8 @@ Regras:
     const parsedComplementar = extrairJsonArray(contentComplementar);
     const validosComplementares = parsedComplementar.filter((r) => {
       const valor = normalizarValorPreco(r.valor_unitario || r.valorUnitario || r.preco || r.valor);
-      const url = String(r.url || r.url_referencia || r.urlReferencia || '');
-      return valor > 0 && url.startsWith('http');
+      const url = urlValida(r.url || r.url_referencia || r.urlReferencia);
+      return valor > 0 && Boolean(url);
     });
     this.logger.log(
       `OpenRouter complementar retornou ${contentComplementar.length} caractere(s), ${parsedComplementar.length} item(ns) JSON parseado(s), ${validosComplementares.length} com preco/url. Prévia: ${contentComplementar.substring(0, 300).replace(/\s+/g, ' ')}`,
