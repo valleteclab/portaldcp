@@ -104,6 +104,60 @@ function especificacaoObrigatoria(item: ItemLicitacao): string {
     .trim();
 }
 
+function normalizarBusca(valor: unknown): string {
+  return String(valor || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function textoRegistroPncp(registro: any): string {
+  return [
+    registro?.codigoItemCatalogo,
+    registro?.descricao,
+    registro?.descricaoItem,
+    registro?.descricaoDetalhadaItem,
+    registro?.objetoCompra,
+    registro?.objeto,
+    registro?.informacaoComplementar,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function registroPncpAderente(registro: any, item: ItemLicitacao): boolean {
+  const texto = normalizarBusca(textoRegistroPncp(registro));
+  const codigo = codigoCatalogoItem(item);
+  if (codigo && texto.includes(codigo)) return true;
+
+  const descricao = normalizarBusca(especificacaoObrigatoria(item) || termoItem(item));
+  const termosEssenciais = [
+    'notebook',
+    'memoria ram',
+    'superior a 8',
+    'armazenamento ssd',
+    '480 a 1.000',
+    'garantia on site',
+    'superior a 36',
+  ];
+  const precisaNotebook = descricao.includes('notebook');
+  if (precisaNotebook) {
+    return termosEssenciais.filter((termo) => texto.includes(termo)).length >= 4;
+  }
+
+  const tokens = descricao
+    .split(' ')
+    .filter((token) => token.length > 3)
+    .slice(0, 8);
+  return tokens.length > 0 && tokens.filter((token) => texto.includes(token)).length >= Math.min(3, tokens.length);
+}
+
+function valorUnitarioPncp(registro: any): number {
+  return Number(registro?.valorUnitarioHomologado || registro?.valorUnitarioEstimado || registro?.valorUnitario || 0);
+}
+
 function extrairJsonArray(texto: string): any[] {
   const limpo = (texto || '')
     .replace(/```json/gi, '```')
@@ -168,22 +222,16 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
       try {
         const registros = await this.consultarPncp(termo, context.scope.maxPorFonte || 5);
         for (const registro of registros.slice(0, context.scope.maxPorFonte || 5)) {
-          const valor = Number(
-            registro.valorUnitarioHomologado ||
-            registro.valorUnitarioEstimado ||
-            registro.valorUnitario ||
-            registro.valorHomologado ||
-            registro.valorTotalEstimado ||
-            registro.valorTotalHomologado ||
-            registro.valorTotal ||
-            registro.valor ||
-            0,
-          );
-          const quantidade = Number(item.quantidade) || 1;
-          if (valor <= 0) continue;
-          const valorUnitario = registro.valorUnitario || registro.valorUnitarioHomologado || registro.valorUnitarioEstimado
-            ? valor
-            : Number((valor / quantidade).toFixed(4));
+          if (!registroPncpAderente(registro, item)) {
+            this.logger.debug(`PNCP descartado por baixa aderencia ao item ${item.numero_item}: ${String(registro.objetoCompra || registro.objeto || '').slice(0, 120)}`);
+            continue;
+          }
+          const valorUnitario = valorUnitarioPncp(registro);
+          const quantidade = Number(registro.quantidade) || Number(item.quantidade) || 1;
+          if (valorUnitario <= 0) {
+            this.logger.debug(`PNCP descartado sem valor unitario de item para item ${item.numero_item}: ${String(registro.objetoCompra || registro.objeto || '').slice(0, 120)}`);
+            continue;
+          }
 
           candidatos.push({
             item_numero: item.numero_item,
