@@ -158,6 +158,24 @@ function valorUnitarioPncp(registro: any): number {
   return Number(registro?.valorUnitarioHomologado || registro?.valorUnitarioEstimado || registro?.valorUnitario || 0);
 }
 
+function normalizarValorPreco(valor: unknown): number {
+  if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0;
+  const texto = String(valor || '').trim();
+  if (!texto) return 0;
+  const limpo = texto
+    .replace(/[^\d,.-]/g, '')
+    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+    .replace(',', '.');
+  const numero = Number(limpo);
+  return Number.isFinite(numero) ? numero : 0;
+}
+
+function aderenteMarcadoComoFalso(valor: unknown): boolean {
+  if (valor === false) return true;
+  const texto = normalizarBusca(valor);
+  return ['false', 'falso', 'nao', 'não', 'no', '0'].includes(texto);
+}
+
 function extrairJsonArray(texto: string): any[] {
   const limpo = (texto || '')
     .replace(/```json/gi, '```')
@@ -459,14 +477,17 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
       try {
         const results = await this.buscarComIaWeb(item, Math.max(5, context.scope.maxPorFonte || 5));
         let descartadosPorData = 0;
-        let descartadosPorAderencia = 0;
+        let sinalizadosPorAderencia = 0;
+        let descartadosInvalidos = 0;
         for (const produto of results) {
-          const valor = Number(produto.valor_unitario || 0);
-          if (valor <= 0) continue;
-          if (produto.aderente === false) {
-            descartadosPorAderencia += 1;
+          const valor = normalizarValorPreco(produto.valor_unitario || produto.valorUnitario || produto.preco || produto.valor);
+          const url = produto.url || produto.url_referencia || produto.urlReferencia;
+          if (valor <= 0 || !String(url || '').startsWith('http')) {
+            descartadosInvalidos += 1;
             continue;
           }
+          const aderenciaNaoComprovada = aderenteMarcadoComoFalso(produto.aderente);
+          if (aderenciaNaoComprovada) sinalizadosPorAderencia += 1;
           const dataPesquisa = normalizarDataPesquisa(produto.data || produto.data_pesquisa);
           if (!dataDentroDosUltimosDias(dataPesquisa, MAX_IDADE_PRECO_DIAS)) {
             descartadosPorData += 1;
@@ -474,9 +495,9 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
           }
           candidatos.push({
             item_numero: item.numero_item,
-            fonte_tipo: this.classificarFontePelaUrl(produto.url || produto.url_referencia),
+            fonte_tipo: this.classificarFontePelaUrl(url),
             descricao_fonte: produto.descricao_fonte || produto.fonte || 'Fonte web verificada',
-            url_referencia: produto.url || produto.url_referencia,
+            url_referencia: url,
             data_pesquisa: dataPesquisa,
             fornecedor_razao_social: produto.fornecedor,
             valor_unitario: valor,
@@ -488,9 +509,10 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
               coletado_em: new Date().toISOString(),
               titulo: produto.observacao || termo,
             },
-            score: 82,
+            score: aderenciaNaoComprovada ? 58 : 82,
             flags: [
               'Fonte encontrada por busca web: validar aderencia tecnica antes de aprovar.',
+              ...(aderenciaNaoComprovada ? ['A IA nao comprovou aderencia integral a especificacao; revisar antes de usar como referencia.'] : []),
               ...(Array.isArray(produto.criterios_confirmados) && produto.criterios_confirmados.length
                 ? [`Criterios confirmados: ${produto.criterios_confirmados.join('; ')}`]
                 : []),
@@ -498,7 +520,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
           });
         }
         this.logger.log(
-          `Busca web item ${item.numero_item}: ${results.length} resultado(s) aderente(s) recebidos, ${descartadosPorData} descartado(s) por data, ${descartadosPorAderencia} descartado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
+          `Busca web item ${item.numero_item}: ${results.length} resultado(s) recebidos, ${descartadosInvalidos} descartado(s) sem preco/url, ${descartadosPorData} descartado(s) por data, ${sinalizadosPorAderencia} sinalizado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
         );
       } catch (error) {
         this.logger.warn(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
@@ -615,11 +637,17 @@ Regras:
     this.logger.log(
       `OpenRouter retornou ${content.length} caractere(s), ${parsed.length} item(ns) JSON parseado(s). Prévia: ${content.substring(0, 300).replace(/\s+/g, ' ')}`,
     );
-    return Array.isArray(parsed)
-      ? parsed
-          .filter((r) => r.aderente !== false && Number(r.valor_unitario) > 0 && String(r.url || r.url_referencia || '').startsWith('http'))
-          .slice(0, limite)
-      : [];
+    if (!Array.isArray(parsed)) return [];
+    const validos = parsed.filter((r) => {
+      const valor = normalizarValorPreco(r.valor_unitario || r.valorUnitario || r.preco || r.valor);
+      const url = String(r.url || r.url_referencia || r.urlReferencia || '');
+      return valor > 0 && url.startsWith('http');
+    });
+    const removidos = parsed.length - validos.length;
+    if (removidos > 0) {
+      this.logger.debug(`Busca web removeu ${removidos} item(ns) sem preco/url antes de montar candidatos.`);
+    }
+    return validos.slice(0, limite);
   }
 
   private classificarFontePelaUrl(url?: string): FontePesquisaTipo {
