@@ -3,7 +3,7 @@ import { PesquisaPrecoCandidato } from './entities/pesquisa-preco-candidato.enti
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 import { PesquisaPrecoCandidateInput } from './pesquisa-precos-agent.types';
 
-const MAX_IDADE_PRECO_DIAS = 90;
+const MAX_IDADE_PRECO_DIAS = 365;
 
 @Injectable()
 export class PesquisaPrecosComplianceService {

@@ -10,7 +10,7 @@ import { PesquisaPrecoAgentContext, PesquisaPrecoCandidateInput, PesquisaPrecoPr
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 
 const REQUEST_TIMEOUT_MS = 15000;
-const MAX_IDADE_PRECO_DIAS = 90;
+const MAX_IDADE_PRECO_DIAS = 365;
 const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
 const DADOS_ABERTOS_COMPRAS_BASE = 'https://dadosabertos.compras.gov.br';
 const PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL = 'https://www.gov.br/compras/pt-br/sistemas/conheca-o-compras/pesquisa-de-precos';
@@ -220,7 +220,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
           dataFinal: new Date().toISOString().split('T')[0].replace(/-/g, ''),
           codigoModalidadeContratacao: 6,
           pagina: 1,
-          tamanhoPagina: limite,
+          tamanhoPagina: tamanhoPaginaPesquisaPreco(limite),
         },
       },
     ];
@@ -479,25 +479,40 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
     dataMinima.setUTCDate(dataMinima.getUTCDate() - MAX_IDADE_PRECO_DIAS);
     const dataMinimaIso = dataMinima.toISOString().split('T')[0];
 
-    const prompt = `Pesquise no mínimo ${limite} preços reais atuais no Brasil para pesquisa de preços de contratação pública brasileira.
+    const codigoCatalogo = codigoCatalogoItem(item);
+    const consultasSugeridas = [
+      codigoCatalogo ? `"${codigoCatalogo}" "precoUnitario" notebook` : '',
+      codigoCatalogo ? `"codigoItemCatalogo" "${codigoCatalogo}"` : '',
+      `"${especificacao}"`,
+      `"Notebook" "garantia on site" "superior a 36" "480 a 1.000"`,
+      `"Notebook" "núcleos por processador" "superior a 8" "PNCP"`,
+    ].filter(Boolean);
+
+    const prompt = `Use busca web em tempo real. Pesquise no mínimo ${limite} preços reais atuais no Brasil para pesquisa de preços de contratação pública brasileira.
 
 Item: ${termo}
 Especificação técnica obrigatória: ${especificacao}
+Código CATMAT/CATSER se houver: ${codigoCatalogo || 'não informado'}
 Quantidade: ${Number(item.quantidade) || 1}
 Unidade: ${item.unidade_medida || 'UN'}
 País/mercado: Brasil
 Período obrigatório: somente preços publicados ou vigentes entre ${dataMinimaIso} e ${hojeISO()}.
 
+Pesquise explicitamente estas consultas, além de variações equivalentes:
+${consultasSugeridas.map((consulta, index) => `${index + 1}. ${consulta}`).join('\n')}
+
 Priorize fontes verificáveis:
 1. PNCP em pncp.gov.br
 2. Pesquisa de Precos Compras.gov.br por CATMAT/CATSER
-3. portais oficiais .gov.br
-4. fornecedores/distribuidores com página pública de preço
+3. portais oficiais .gov.br com editais, atas, termos de referência, adjudicações ou homologações
+4. diários oficiais, câmaras, prefeituras, universidades e conselhos profissionais
+5. fornecedores/distribuidores com página pública de preço
 
 Critério de aderência:
 - Retorne apenas produtos/serviços que atendam integralmente à especificação técnica obrigatória.
 - Para notebook, confira explicitamente tela, interatividade da tela, memória RAM, núcleos do processador, ausência de HDD quando exigida, faixa do SSD, bateria, alimentação, sistema operacional e garantia on site.
-- Se a fonte não comprovar uma característica obrigatória, descarte o resultado.
+- Se a fonte pública usa o mesmo código CATMAT/CATSER ou reproduz a mesma descrição técnica do item, considere aderente mesmo que a página esteja em edital, ata, homologação, termo de referência ou PDF.
+- Se a fonte não comprovar o código ou as características obrigatórias, descarte o resultado.
 - Não substitua por item parecido, inferior ou sem garantia/SSD/memória/processador compatíveis.
 
 Retorne somente JSON array válido, sem markdown:
@@ -518,7 +533,8 @@ Regras:
 - Não invente preço.
 - Retorne até ${limite} resultados aderentes; tente preencher pelo menos 5 resultados quando houver fontes verificáveis suficientes.
 - Não retorne preços internacionais, em dólar, ou indisponíveis no mercado brasileiro.
-- Não retorne atas, contratos, páginas ou tabelas com data anterior a ${dataMinimaIso}.
+- Pode retornar atas, contratos, homologações, adjudicações, editais e PDFs, desde que tragam preço unitário real e data dentro do período obrigatório.
+- Não retorne páginas ou tabelas com data anterior a ${dataMinimaIso}.
 - Inclua apenas itens com URL real começando com http.
 - A data deve estar sempre no formato completo YYYY-MM-DD; se só souber o ano, use YYYY-01-01.
 - Se não encontrar preço brasileiro verificável e tecnicamente aderente dos últimos ${MAX_IDADE_PRECO_DIAS} dias, retorne [].`;
