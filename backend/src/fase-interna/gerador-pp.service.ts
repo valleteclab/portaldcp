@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { join } from 'path';
@@ -23,7 +23,8 @@ export interface DadosGeradorPP {
 @Injectable()
 export class GeradorPpService {
   private readonly logger = new Logger(GeradorPpService.name);
-  private readonly uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+  private readonly uploadDir =
+    process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
   constructor(
     @InjectRepository(Licitacao)
@@ -32,22 +33,34 @@ export class GeradorPpService {
     this.logger.log('GeradorPpService inicializado (pdfkit)');
   }
 
-  async gerarDocumentoPP(licitacaoId: string, dados: DadosGeradorPP): Promise<string> {
+  async gerarDocumentoPP(
+    licitacaoId: string,
+    dados: DadosGeradorPP,
+  ): Promise<string> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['orgao'],
+    });
+    const orgaoDetalhes = (licitacao as any)?.orgao;
+
     // Enriquece com dados da licitação se não fornecidos
-    if (!dados.numeroProcesso || dados.numeroProcesso === licitacaoId || !dados.objeto) {
-      const licitacao = await this.licitacaoRepository.findOne({
-        where: { id: licitacaoId },
-        relations: ['orgao'],
-      });
+    if (
+      !dados.numeroProcesso ||
+      dados.numeroProcesso === licitacaoId ||
+      !dados.objeto
+    ) {
       if (licitacao) {
         if (!dados.numeroProcesso || dados.numeroProcesso === licitacaoId) {
-          dados = { ...dados, numeroProcesso: licitacao.numero_processo || licitacaoId };
+          dados = {
+            ...dados,
+            numeroProcesso: licitacao.numero_processo || licitacaoId,
+          };
         }
         if (!dados.objeto) {
           dados = { ...dados, objeto: licitacao.objeto || '' };
         }
         if (!dados.orgao) {
-          dados = { ...dados, orgao: (licitacao as any).orgao?.nome || '' };
+          dados = { ...dados, orgao: orgaoDetalhes?.nome || '' };
         }
       }
     }
@@ -64,7 +77,11 @@ export class GeradorPpService {
 
     return new Promise((resolve, reject) => {
       try {
-        const doc = new PDFDocument({ margin: 50, size: 'A4', bufferPages: true });
+        const doc = new PDFDocument({
+          margin: 50,
+          size: 'A4',
+          bufferPages: true,
+        });
         const writeStream = createWriteStream(filePath);
         doc.pipe(writeStream);
 
@@ -76,12 +93,24 @@ export class GeradorPpService {
         // ─── Helpers ──────────────────────────────────────────────────────────
 
         const addPageHeader = () => {
-          doc.fontSize(7).font('Helvetica').fillColor('#6b7280')
-            .text(`PESQUISA DE PREÇOS  —  ${dados.numeroProcesso}`, marginL, 20, {
-              width: contentW,
-              align: 'left',
-            });
-          doc.moveTo(marginL, 35).lineTo(pageW - marginR, 35).lineWidth(0.5).stroke('#d1d5db');
+          doc
+            .fontSize(7)
+            .font('Helvetica')
+            .fillColor('#6b7280')
+            .text(
+              `PESQUISA DE PREÇOS  —  ${dados.numeroProcesso}`,
+              marginL,
+              20,
+              {
+                width: contentW,
+                align: 'left',
+              },
+            );
+          doc
+            .moveTo(marginL, 35)
+            .lineTo(pageW - marginR, 35)
+            .lineWidth(0.5)
+            .stroke('#d1d5db');
         };
 
         const formatCurrency = (val: number) =>
@@ -95,43 +124,172 @@ export class GeradorPpService {
         };
 
         // ─── CABEÇALHO ────────────────────────────────────────────────────────
-        doc.fontSize(16).font('Helvetica-Bold').fillColor('#111827')
-          .text('PESQUISA DE PREÇOS', marginL, 60, { width: contentW, align: 'center' });
-        doc.moveDown(0.3);
-        doc.fontSize(10).font('Helvetica').fillColor('#374151')
-          .text(`Art. 23 da Lei 14.133/2021  ·  IN SEGES/ME 65/2021`, marginL, doc.y, {
+        let logoWidth = 0;
+        const logoPath = this.resolverLogoPath(orgaoDetalhes?.logo_url);
+        if (logoPath && existsSync(logoPath)) {
+          try {
+            doc.image(logoPath, marginL, 40, {
+              fit: [62, 62],
+              align: 'center',
+              valign: 'center',
+            });
+            logoWidth = 76;
+          } catch (err) {
+            this.logger.warn(
+              `Nao foi possivel inserir a logo do orgao no PP: ${(err as Error).message}`,
+            );
+          }
+        }
+
+        const cabecalhoX = marginL + logoWidth;
+        const cabecalhoW = contentW - logoWidth;
+        const nomeOrgao = (
+          dados.orgao ||
+          orgaoDetalhes?.nome ||
+          'ORGAO'
+        ).toUpperCase();
+        doc
+          .fontSize(12)
+          .font('Helvetica-Bold')
+          .fillColor('#111827')
+          .text(nomeOrgao, cabecalhoX, 42, {
+            width: cabecalhoW,
+            align: 'center',
+          });
+        const endereco = [
+          [orgaoDetalhes?.logradouro, orgaoDetalhes?.numero]
+            .filter(Boolean)
+            .join(', '),
+          orgaoDetalhes?.bairro,
+          [orgaoDetalhes?.cidade, orgaoDetalhes?.uf]
+            .filter(Boolean)
+            .join(' - '),
+          orgaoDetalhes?.cep ? `CEP ${orgaoDetalhes.cep}` : '',
+        ]
+          .filter(Boolean)
+          .join(' | ');
+
+        if (orgaoDetalhes?.cnpj) {
+          doc.moveDown(0.15);
+          doc
+            .fontSize(8)
+            .font('Helvetica')
+            .fillColor('#374151')
+            .text(`CNPJ: ${orgaoDetalhes.cnpj}`, cabecalhoX, doc.y, {
+              width: cabecalhoW,
+              align: 'center',
+            });
+        }
+        if (endereco) {
+          doc.moveDown(0.15);
+          doc
+            .fontSize(8)
+            .font('Helvetica')
+            .fillColor('#374151')
+            .text(endereco, cabecalhoX, doc.y, {
+              width: cabecalhoW,
+              align: 'center',
+            });
+        }
+        if (orgaoDetalhes?.telefone || orgaoDetalhes?.email) {
+          doc.moveDown(0.15);
+          doc
+            .fontSize(8)
+            .font('Helvetica')
+            .fillColor('#374151')
+            .text(
+              [orgaoDetalhes.telefone, orgaoDetalhes.email]
+                .filter(Boolean)
+                .join(' | '),
+              cabecalhoX,
+              doc.y,
+              {
+                width: cabecalhoW,
+                align: 'center',
+              },
+            );
+        }
+
+        const headerBottom = Math.max(doc.y + 12, 112);
+        doc
+          .moveTo(marginL, headerBottom)
+          .lineTo(pageW - marginR, headerBottom)
+          .lineWidth(0.8)
+          .stroke('#111827');
+        doc.y = headerBottom + 16;
+
+        doc
+          .fontSize(15)
+          .font('Helvetica-Bold')
+          .fillColor('#111827')
+          .text('PESQUISA DE PREÇOS', marginL, doc.y, {
             width: contentW,
             align: 'center',
           });
+        doc.moveDown(0.25);
+        doc
+          .fontSize(9)
+          .font('Helvetica')
+          .fillColor('#374151')
+          .text(
+            'Estimativa do valor da contratação - Art. 23 da Lei 14.133/2021 - IN SEGES/ME 65/2021',
+            marginL,
+            doc.y,
+            {
+              width: contentW,
+              align: 'center',
+            },
+          );
 
-        doc.moveDown(0.8);
-        doc.moveTo(marginL, doc.y).lineTo(pageW - marginR, doc.y).lineWidth(1).stroke('#374151');
-        doc.moveDown(0.5);
-
-        // Dados do processo
+        doc.moveDown(0.9);
+        const infoY = doc.y;
+        const infoColW = contentW / 3;
         const dadosProcesso = [
-          ['Processo:', dados.numeroProcesso],
-          ['Órgão:', dados.orgao],
-          ['Data:', dados.dataAssinatura],
+          ['Processo', dados.numeroProcesso || '-'],
+          ['Órgão', dados.orgao || orgaoDetalhes?.nome || '-'],
+          ['Data', dados.dataAssinatura || '-'],
         ];
-        for (const [label, value] of dadosProcesso) {
-          const y = doc.y;
-          doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151')
-            .text(label, marginL, y, { width: 80, continued: false });
-          doc.fontSize(9).font('Helvetica').fillColor('#111827')
-            .text(value, marginL + 85, y, { width: contentW - 85 });
+        for (let i = 0; i < dadosProcesso.length; i++) {
+          const x = marginL + i * infoColW;
+          doc
+            .fontSize(8)
+            .font('Helvetica-Bold')
+            .fillColor('#374151')
+            .text(dadosProcesso[i][0], x, infoY, { width: infoColW - 8 });
+          doc
+            .fontSize(9)
+            .font('Helvetica')
+            .fillColor('#111827')
+            .text(dadosProcesso[i][1], x, infoY + 12, { width: infoColW - 8 });
         }
+        doc.y = infoY + 36;
 
-        doc.moveDown(0.4);
-        const objY = doc.y;
-        doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151')
-          .text('Objeto:', marginL, objY, { width: 80, continued: false });
-        doc.fontSize(9).font('Helvetica').fillColor('#111827')
-          .text(dados.objeto, marginL + 85, objY, { width: contentW - 85 });
+        const objetoTexto = dados.objeto || licitacao?.objeto || '-';
+        const objetoAltura = Math.max(
+          52,
+          doc.heightOfString(objetoTexto, { width: contentW - 24 }) + 32,
+        );
+        const objetoY = doc.y;
+        doc
+          .roundedRect(marginL, objetoY, contentW, objetoAltura, 4)
+          .lineWidth(0.5)
+          .stroke('#d1d5db');
+        doc
+          .fontSize(8)
+          .font('Helvetica-Bold')
+          .fillColor('#374151')
+          .text('OBJETO DA LICITAÇÃO', marginL + 12, objetoY + 10, {
+            width: contentW - 24,
+          });
+        doc
+          .fontSize(9)
+          .font('Helvetica')
+          .fillColor('#111827')
+          .text(objetoTexto, marginL + 12, objetoY + 24, {
+            width: contentW - 24,
+          });
 
-        doc.moveDown(0.8);
-        doc.moveTo(marginL, doc.y).lineTo(pageW - marginR, doc.y).lineWidth(0.5).stroke('#9ca3af');
-        doc.moveDown(0.5);
+        doc.y = objetoY + objetoAltura + 16;
 
         // ─── ITENS ────────────────────────────────────────────────────────────
         for (let i = 0; i < dados.itens.length; i++) {
@@ -145,17 +303,40 @@ export class GeradorPpService {
           }
 
           // Cabeçalho do item
-          doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e40af')
-            .text(`ITEM ${item.item_numero} — ${item.descricao}`, marginL, doc.y, { width: contentW });
+          doc
+            .fontSize(11)
+            .font('Helvetica-Bold')
+            .fillColor('#1e40af')
+            .text(
+              `ITEM ${item.item_numero} — ${item.descricao}`,
+              marginL,
+              doc.y,
+              { width: contentW },
+            );
           doc.moveDown(0.2);
-          doc.fontSize(9).font('Helvetica').fillColor('#374151')
-            .text(`Quantidade: ${item.quantidade} ${item.unidade}`, marginL, doc.y);
+          doc
+            .fontSize(9)
+            .font('Helvetica')
+            .fillColor('#374151')
+            .text(
+              `Quantidade: ${item.quantidade} ${item.unidade}`,
+              marginL,
+              doc.y,
+            );
           doc.moveDown(0.4);
 
           // Tabela de cotações
           if (item.cotacoes && item.cotacoes.length > 0) {
             const colWidths = [25, 70, 110, 55, 70, 90, 40];
-            const headers = ['Nº', 'Fonte', 'Descrição', 'Data', 'Vl. Unit.', 'URL', 'Válida'];
+            const headers = [
+              'Nº',
+              'Fonte',
+              'Descrição',
+              'Data',
+              'Vl. Unit.',
+              'URL',
+              'Válida',
+            ];
             const tableX = marginL;
             let tableY = doc.y;
 
@@ -164,10 +345,12 @@ export class GeradorPpService {
             doc.rect(tableX, tableY, contentW, 15).fill('#374151');
             let colX = tableX;
             for (let col = 0; col < headers.length; col++) {
-              doc.fillColor('#ffffff').text(headers[col], colX + 3, tableY + 4, {
-                width: colWidths[col] - 6,
-                lineBreak: false,
-              });
+              doc
+                .fillColor('#ffffff')
+                .text(headers[col], colX + 3, tableY + 4, {
+                  width: colWidths[col] - 6,
+                  lineBreak: false,
+                });
               colX += colWidths[col];
             }
             tableY += 15;
@@ -180,7 +363,9 @@ export class GeradorPpService {
               // Calcular altura necessária para a linha (descrição pode ser longa)
               const descText = cot.descricao_fonte || '-';
               doc.fontSize(7).font('Helvetica');
-              const descH = doc.heightOfString(descText, { width: colWidths[2] - 6 });
+              const descH = doc.heightOfString(descText, {
+                width: colWidths[2] - 6,
+              });
               const rowH = Math.max(15, descH + 4);
 
               if (tableY + rowH > doc.page.height - 60) {
@@ -190,7 +375,11 @@ export class GeradorPpService {
               }
 
               doc.rect(tableX, tableY, contentW, rowH).fill(rowBg);
-              doc.moveTo(tableX, tableY).lineTo(tableX + contentW, tableY).lineWidth(0.3).stroke('#e5e7eb');
+              doc
+                .moveTo(tableX, tableY)
+                .lineTo(tableX + contentW, tableY)
+                .lineWidth(0.3)
+                .stroke('#e5e7eb');
 
               colX = tableX;
               const rowData = [
@@ -204,7 +393,10 @@ export class GeradorPpService {
               ];
 
               for (let col = 0; col < rowData.length; col++) {
-                doc.fontSize(7).font('Helvetica').fillColor('#111827')
+                doc
+                  .fontSize(7)
+                  .font('Helvetica')
+                  .fillColor('#111827')
                   .text(rowData[col], colX + 3, tableY + 3, {
                     width: colWidths[col] - 6,
                     height: rowH - 4,
@@ -217,7 +409,11 @@ export class GeradorPpService {
             }
 
             // Linha final da tabela
-            doc.moveTo(tableX, tableY).lineTo(tableX + contentW, tableY).lineWidth(0.3).stroke('#e5e7eb');
+            doc
+              .moveTo(tableX, tableY)
+              .lineTo(tableX + contentW, tableY)
+              .lineWidth(0.3)
+              .stroke('#e5e7eb');
             doc.y = tableY + 6;
           }
 
@@ -234,20 +430,35 @@ export class GeradorPpService {
           const statColW = contentW / statsCols.length;
           for (let s = 0; s < statsCols.length; s++) {
             const sx = marginL + s * statColW;
-            doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#374151')
-              .text(statsCols[s][0], sx, statsY, { width: statColW, align: 'center' });
-            doc.fontSize(8).font('Helvetica').fillColor('#111827')
-              .text(statsCols[s][1], sx, statsY + 11, { width: statColW, align: 'center' });
+            doc
+              .fontSize(7.5)
+              .font('Helvetica-Bold')
+              .fillColor('#374151')
+              .text(statsCols[s][0], sx, statsY, {
+                width: statColW,
+                align: 'center',
+              });
+            doc
+              .fontSize(8)
+              .font('Helvetica')
+              .fillColor('#111827')
+              .text(statsCols[s][1], sx, statsY + 11, {
+                width: statColW,
+                align: 'center',
+              });
           }
           doc.y = statsY + 26;
 
           // Alerta de CV elevado
           if ((item.cv_percent || 0) > 25) {
             doc.moveDown(0.2);
-            doc.fontSize(8).font('Helvetica-Bold').fillColor('#b91c1c')
+            doc
+              .fontSize(8)
+              .font('Helvetica-Bold')
+              .fillColor('#b91c1c')
               .text(
                 `⚠  Coeficiente de Variação elevado (${(item.cv_percent || 0).toFixed(2)}% > 25%). ` +
-                `Recomenda-se revisar as cotações ou justificar formalmente a dispersão dos preços.`,
+                  `Recomenda-se revisar as cotações ou justificar formalmente a dispersão dos preços.`,
                 marginL,
                 doc.y,
                 { width: contentW },
@@ -257,10 +468,13 @@ export class GeradorPpService {
 
           // Valor referencial
           doc.moveDown(0.2);
-          doc.fontSize(9).font('Helvetica-Bold').fillColor('#065f46')
+          doc
+            .fontSize(9)
+            .font('Helvetica-Bold')
+            .fillColor('#065f46')
             .text(
               `Valor referencial adotado (${metodologiaLabel[item.metodologia] || item.metodologia}): ` +
-              `${formatCurrency(item.valor_referencial)}`,
+                `${formatCurrency(item.valor_referencial)}`,
               marginL,
               doc.y,
               { width: contentW },
@@ -268,12 +482,24 @@ export class GeradorPpService {
 
           if (item.justificativa_metodologia) {
             doc.moveDown(0.2);
-            doc.fontSize(8).font('Helvetica').fillColor('#374151')
-              .text(`Justificativa: ${item.justificativa_metodologia}`, marginL, doc.y, { width: contentW });
+            doc
+              .fontSize(8)
+              .font('Helvetica')
+              .fillColor('#374151')
+              .text(
+                `Justificativa: ${item.justificativa_metodologia}`,
+                marginL,
+                doc.y,
+                { width: contentW },
+              );
           }
 
           doc.moveDown(0.6);
-          doc.moveTo(marginL, doc.y).lineTo(pageW - marginR, doc.y).lineWidth(0.5).stroke('#e5e7eb');
+          doc
+            .moveTo(marginL, doc.y)
+            .lineTo(pageW - marginR, doc.y)
+            .lineWidth(0.5)
+            .stroke('#e5e7eb');
           doc.moveDown(0.5);
         }
 
@@ -284,68 +510,129 @@ export class GeradorPpService {
           doc.y = 55;
         }
 
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#111827')
+        doc
+          .fontSize(11)
+          .font('Helvetica-Bold')
+          .fillColor('#111827')
           .text('METODOLOGIA ADOTADA', marginL, doc.y, { width: contentW });
         doc.moveDown(0.3);
-        doc.fontSize(9).font('Helvetica').fillColor('#374151')
-          .text(`Método: ${metodologiaLabel[dados.metodologia] || dados.metodologia}`, marginL, doc.y, { width: contentW });
+        doc
+          .fontSize(9)
+          .font('Helvetica')
+          .fillColor('#374151')
+          .text(
+            `Método: ${metodologiaLabel[dados.metodologia] || dados.metodologia}`,
+            marginL,
+            doc.y,
+            { width: contentW },
+          );
 
         if (dados.justificativaMetodologia) {
           doc.moveDown(0.2);
-          doc.fontSize(9).font('Helvetica').fillColor('#374151')
-            .text(`Justificativa: ${dados.justificativaMetodologia}`, marginL, doc.y, { width: contentW });
+          doc
+            .fontSize(9)
+            .font('Helvetica')
+            .fillColor('#374151')
+            .text(
+              `Justificativa: ${dados.justificativaMetodologia}`,
+              marginL,
+              doc.y,
+              { width: contentW },
+            );
         }
 
         // ─── VALOR TOTAL ESTIMADO ─────────────────────────────────────────────
         doc.moveDown(0.8);
-        doc.moveTo(marginL, doc.y).lineTo(pageW - marginR, doc.y).lineWidth(0.5).stroke('#9ca3af');
+        doc
+          .moveTo(marginL, doc.y)
+          .lineTo(pageW - marginR, doc.y)
+          .lineWidth(0.5)
+          .stroke('#9ca3af');
         doc.moveDown(0.4);
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#111827')
-          .text(`VALOR TOTAL ESTIMADO: ${formatCurrency(dados.valorTotalEstimado)}`, marginL, doc.y, {
-            width: contentW,
-            align: 'right',
-          });
+        doc
+          .fontSize(11)
+          .font('Helvetica-Bold')
+          .fillColor('#111827')
+          .text(
+            `VALOR TOTAL ESTIMADO: ${formatCurrency(dados.valorTotalEstimado)}`,
+            marginL,
+            doc.y,
+            {
+              width: contentW,
+              align: 'right',
+            },
+          );
 
         // ─── RESPONSÁVEL ──────────────────────────────────────────────────────
         doc.moveDown(1);
-        doc.moveTo(marginL, doc.y).lineTo(pageW - marginR, doc.y).lineWidth(0.5).stroke('#9ca3af');
+        doc
+          .moveTo(marginL, doc.y)
+          .lineTo(pageW - marginR, doc.y)
+          .lineWidth(0.5)
+          .stroke('#9ca3af');
         doc.moveDown(0.5);
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#111827')
-          .text('RESPONSÁVEL PELA PESQUISA', marginL, doc.y, { width: contentW });
+        doc
+          .fontSize(10)
+          .font('Helvetica-Bold')
+          .fillColor('#111827')
+          .text('RESPONSÁVEL PELA PESQUISA', marginL, doc.y, {
+            width: contentW,
+          });
         doc.moveDown(0.4);
 
         const resp = dados.responsavel;
-        doc.fontSize(9).font('Helvetica').fillColor('#374151')
+        doc
+          .fontSize(9)
+          .font('Helvetica')
+          .fillColor('#374151')
           .text(`Nome: ${resp.nome}`, marginL, doc.y, { width: contentW });
         doc.moveDown(0.2);
         doc.text(`Cargo: ${resp.cargo}`, marginL, doc.y, { width: contentW });
         if (resp.matricula) {
           doc.moveDown(0.2);
-          doc.text(`Matrícula: ${resp.matricula}`, marginL, doc.y, { width: contentW });
+          doc.text(`Matrícula: ${resp.matricula}`, marginL, doc.y, {
+            width: contentW,
+          });
         }
         doc.moveDown(0.2);
-        doc.text(`Data: ${dados.dataAssinatura}`, marginL, doc.y, { width: contentW });
+        doc.text(`Data: ${dados.dataAssinatura}`, marginL, doc.y, {
+          width: contentW,
+        });
 
         // Linha para assinatura
         doc.moveDown(1.5);
         const assinaturaX = marginL + contentW / 2 - 100;
-        doc.moveTo(assinaturaX, doc.y).lineTo(assinaturaX + 200, doc.y).lineWidth(0.7).stroke('#111827');
+        doc
+          .moveTo(assinaturaX, doc.y)
+          .lineTo(assinaturaX + 200, doc.y)
+          .lineWidth(0.7)
+          .stroke('#111827');
         doc.moveDown(0.2);
-        doc.fontSize(8).font('Helvetica').fillColor('#374151')
+        doc
+          .fontSize(8)
+          .font('Helvetica')
+          .fillColor('#374151')
           .text(resp.nome, assinaturaX, doc.y, { width: 200, align: 'center' });
         doc.moveDown(0.15);
-        doc.text(resp.cargo, assinaturaX, doc.y, { width: 200, align: 'center' });
+        doc.text(resp.cargo, assinaturaX, doc.y, {
+          width: 200,
+          align: 'center',
+        });
 
         // ─── RODAPÉS ──────────────────────────────────────────────────────────
         const totalPages = doc.bufferedPageRange().count;
         for (let p = 0; p < totalPages; p++) {
           doc.switchToPage(p);
           const footerY = doc.page.height - 30;
-          doc.moveTo(marginL, footerY - 5)
+          doc
+            .moveTo(marginL, footerY - 5)
             .lineTo(pageW - marginR, footerY - 5)
             .lineWidth(0.5)
             .stroke('#d1d5db');
-          doc.fontSize(7).font('Helvetica').fillColor('#6b7280')
+          doc
+            .fontSize(7)
+            .font('Helvetica')
+            .fillColor('#6b7280')
             .text(
               `Pesquisa de Preços  —  ${dados.numeroProcesso}  —  Página ${p + 1} de ${totalPages}`,
               marginL,
@@ -362,5 +649,19 @@ export class GeradorPpService {
         reject(err);
       }
     });
+  }
+
+  private resolverLogoPath(logoUrl?: string | null): string | null {
+    if (!logoUrl || /^https?:\/\//i.test(logoUrl)) {
+      return null;
+    }
+
+    const caminhoRelativo = logoUrl
+      .replace(/^\/api\/uploads\//, '')
+      .replace(/^\/uploads\//, '')
+      .replace(/^uploads\//, '')
+      .replace(/^\/+/, '');
+
+    return caminhoRelativo ? join(this.uploadDir, caminhoRelativo) : null;
   }
 }
