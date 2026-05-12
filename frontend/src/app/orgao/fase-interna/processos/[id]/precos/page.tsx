@@ -138,6 +138,15 @@ function fmtData(d: string) {
   return new Date(d + "T12:00:00").toLocaleDateString("pt-BR")
 }
 
+function arquivoUrl(path?: string | null) {
+  if (!path) return ""
+  if (path.startsWith("http")) return path
+  const api = API_URL.replace(/\/+$/, "")
+  const clean = path.replace(/^\/+/, "")
+  if (clean.startsWith("uploads/")) return `${api}/${clean}`
+  return `${api}/uploads/${clean}`
+}
+
 function calcMedia(vals: number[]) {
   if (!vals.length) return 0
   return vals.reduce((a, b) => a + b, 0) / vals.length
@@ -1018,7 +1027,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                                     <td className="px-3 py-3">
                                       {cot.documento_comprobatorio_path ? (
                                         <a
-                                          href={`${API_URL}/${cot.documento_comprobatorio_path}`}
+                                          href={arquivoUrl(cot.documento_comprobatorio_path)}
                                           target="_blank"
                                           rel="noopener noreferrer"
                                           className="inline-flex items-center gap-1 text-green-600 hover:underline text-xs"
@@ -1633,7 +1642,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
 
                 {urlDocumento && (
                   <a
-                    href={urlDocumento.startsWith("http") ? urlDocumento : `${API_URL}/${urlDocumento}`}
+                    href={arquivoUrl(urlDocumento)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 text-[#1351b4] hover:underline text-sm font-medium"
