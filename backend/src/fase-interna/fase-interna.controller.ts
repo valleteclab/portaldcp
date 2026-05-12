@@ -262,9 +262,13 @@ export class FaseInternaController {
   @Put(':licitacaoId/precos/metodologia')
   async salvarMetodologia(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: { metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA'; justificativa?: string },
+    @Body() body: {
+      metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA';
+      justificativa?: string;
+      outliers?: Array<{ item_numero: number; cotacao_index: number; motivo: string }>;
+    },
   ) {
-    return this.faseInternaService.salvarMetodologiaPP(licitacaoId, body.metodologia, body.justificativa);
+    return this.faseInternaService.salvarMetodologiaPP(licitacaoId, body.metodologia, body.justificativa, body.outliers);
   }
 
   @Put(':licitacaoId/precos/responsavel')

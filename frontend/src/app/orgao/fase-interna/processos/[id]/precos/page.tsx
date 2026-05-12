@@ -181,8 +181,10 @@ function buildHistogram(vals: number[], buckets = 6) {
   })
 }
 
-function statsItem(item: ItemPesquisaPrecos) {
-  const vals = item.cotacoes.map((c) => c.valor_unitario)
+function statsItem(item: ItemPesquisaPrecos, descartados: Record<string, { marcado: boolean; motivo: string }> = {}) {
+  const vals = item.cotacoes
+    .filter((_, idx) => !descartados[`${item.item_numero}-${idx}`]?.marcado)
+    .map((c) => c.valor_unitario)
   const media = calcMedia(vals)
   const mediana = calcMediana(vals)
   const desvio = calcDesvio(vals, media)
@@ -195,7 +197,7 @@ function statsItem(item: ItemPesquisaPrecos) {
       : item.metodologia === "MENOR_VALOR"
       ? min
       : media
-  return { media, mediana, desvio, cv, min, max, ref }
+  return { media, mediana, desvio, cv, min, max, ref, totalConsiderado: vals.length }
 }
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
@@ -541,20 +543,36 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   const salvarMetodologia = async () => {
     setSalvandoMetodologia(true)
     try {
-      await authFetch(`${API_URL}/api/fase-interna/${id}/precos/metodologia`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          metodologia,
-          justificativa: justMetodologia || undefined,
-        }),
-      })
+      await salvarMetodologiaComOutliers()
       await carregarDados()
     } catch (e) {
       console.error(e)
     } finally {
       setSalvandoMetodologia(false)
     }
+  }
+
+  const salvarMetodologiaComOutliers = async () => {
+    const outliers = Object.entries(outliersDescartados)
+      .filter(([, state]) => state.marcado)
+      .map(([key, state]) => {
+        const [itemNumero, cotacaoIndex] = key.split("-").map(Number)
+        return {
+          item_numero: itemNumero,
+          cotacao_index: cotacaoIndex,
+          motivo: state.motivo || "Descartado como outlier pelo responsavel pela pesquisa.",
+        }
+      })
+
+    await authFetch(`${API_URL}/api/fase-interna/${id}/precos/metodologia`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        metodologia,
+        justificativa: [justMetodologia, justCv ? `Justificativa CV: ${justCv}` : ""].filter(Boolean).join("\n\n") || undefined,
+        outliers,
+      }),
+    })
   }
 
   // ─── Aba 4 — Responsável ─────────────────────────────────────────────────
@@ -581,6 +599,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
     setGerandoDoc(true)
     setUrlDocumento(null)
     try {
+      await salvarMetodologiaComOutliers()
       const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/gerar-documento`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -604,7 +623,7 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   // ─── Checklist de conformidade ───────────────────────────────────────────
 
   const minFontes = itens.every((i) => i.cotacoes.length >= 3)
-  const todasStats = itens.map((i) => statsItem(i))
+  const todasStats = itens.map((i) => statsItem(i, outliersDescartados))
   const cvOk = todasStats.every((s) => s.cv <= 25) || justCv.trim().length > 0
   const metOk = !!metodologia
   const respOk = !!(responsavel.nome && responsavel.cargo)
@@ -1277,8 +1296,10 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           ) : (
             <div className="space-y-6">
               {itens.map((item) => {
-                const s = statsItem(item)
-                const histVals = item.cotacoes.map((c) => c.valor_unitario)
+                const s = statsItem(item, outliersDescartados)
+                const histVals = item.cotacoes
+                  .filter((_, idx) => !outliersDescartados[`${item.item_numero}-${idx}`]?.marcado)
+                  .map((c) => c.valor_unitario)
                 const bars = buildHistogram(histVals)
                 const maxCount = Math.max(...bars.map((b) => b.count), 1)
                 const cvAlto = s.cv > 25
@@ -1298,6 +1319,9 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                         </p>
                       ) : (
                         <>
+                          <p className="mb-3 text-xs text-gray-500">
+                            Cálculo considerando {s.totalConsiderado} de {item.cotacoes.length} cotações.
+                          </p>
                           {/* KPI cards */}
                           <div className="grid grid-cols-4 gap-3 mb-5">
                             <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">

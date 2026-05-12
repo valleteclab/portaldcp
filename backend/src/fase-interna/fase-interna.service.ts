@@ -1000,6 +1000,7 @@ export class FaseInternaService {
     licitacaoId: string,
     metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA',
     justificativa?: string,
+    outliers?: Array<{ item_numero: number; cotacao_index: number; motivo: string }>,
   ): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
@@ -1007,13 +1008,28 @@ export class FaseInternaService {
     dados.observacoes = justificativa || dados.observacoes;
     // Recalcula valor_referencial de cada item com a nova metodologia
     dados.itens = dados.itens.map(item => {
-      const vals = (item.cotacoes || []).map(c => c.valor_unitario).filter(v => v > 0).sort((a, b) => a - b);
-      if (!vals.length) return item;
+      const outliersItem = (outliers || []).filter((o) => Number(o.item_numero) === Number(item.item_numero));
+      const itemComOutliers = {
+        ...item,
+        outliers_descartados: outliersItem.length
+          ? outliersItem.map((o) => ({
+              cotacao_index: Number(o.cotacao_index),
+              motivo: o.motivo || 'Descartado como outlier pelo responsavel pela pesquisa.',
+            }))
+          : undefined,
+        justificativa_metodologia: justificativa || item.justificativa_metodologia,
+      };
+      const vals = (itemComOutliers.cotacoes || [])
+        .filter((_, idx) => !itemComOutliers.outliers_descartados?.some((o) => o.cotacao_index === idx))
+        .map(c => c.valor_unitario)
+        .filter(v => v > 0)
+        .sort((a, b) => a - b);
+      if (!vals.length) return calcularEstatisticasItem({ ...itemComOutliers, metodologia, valor_referencial: 0 });
       const mid = Math.floor(vals.length / 2);
       const mediana = vals.length % 2 !== 0 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
       const media = vals.reduce((a, b) => a + b, 0) / vals.length;
       const ref = metodologia === 'MEDIANA' ? mediana : metodologia === 'MENOR_VALOR' ? vals[0] : media;
-      return { ...item, metodologia, valor_referencial: ref };
+      return calcularEstatisticasItem({ ...itemComOutliers, metodologia, valor_referencial: ref });
     });
     doc.dados_estruturados = dados;
     await this.documentoRepository.save(doc);
