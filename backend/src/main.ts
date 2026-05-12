@@ -48,6 +48,13 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   
   // Servir arquivos estáticos da pasta uploads
+  app.use((req, _res, next) => {
+    if (req.url.startsWith('//uploads/')) {
+      req.url = req.url.replace(/^\/+uploads\//, '/uploads/');
+    }
+    next();
+  });
+
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
