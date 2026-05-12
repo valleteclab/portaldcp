@@ -165,4 +165,46 @@ describe('FontePrecosProvider helpers', () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(get.mock.calls.some(([url]) => String(url).endsWith('/api/expressa/search/page1'))).toBe(true);
   });
+
+  it('normaliza URL base configurada com /login antes de autenticar', async () => {
+    const get = jest.spyOn(axios, 'get').mockImplementation(async (url: string) => {
+      if (url === 'https://fonte.example/login') {
+        return {
+          data: '<input type="hidden" name="csrfmiddlewaretoken" value="csrf-123">',
+          headers: { 'set-cookie': ['csrftoken=csrf-cookie; Path=/'] },
+          status: 200,
+        } as any;
+      }
+      if (url === 'https://fonte.example/api/check-session') {
+        return { data: { user: 'Teste' }, headers: {}, status: 200 } as any;
+      }
+      if (String(url).startsWith('https://fonte.example/api/expressa/search/page')) {
+        return { data: { result: {} }, headers: {}, status: 200 } as any;
+      }
+      throw new Error(`URL inesperada: ${url}`);
+    });
+    jest.spyOn(axios, 'post').mockResolvedValue({
+      data: '',
+      headers: { 'set-cookie': ['sessionid=session-123; Path=/'] },
+      status: 302,
+    } as any);
+
+    const provider = new FontePrecosProvider({
+      get: (key: string) =>
+        ({
+          FONTE_PRECOS_BASE_URL: 'https://fonte.example/login',
+          FONTE_PRECOS_EMAIL: 'user@example.com',
+          FONTE_PRECOS_PASSWORD: 'secret',
+        })[key],
+    } as any);
+
+    await provider.buscar({
+      licitacao: {} as any,
+      itens: [itemNotebook()],
+      scope: { maxPorFonte: 1 },
+    });
+
+    expect(get.mock.calls.map(([url]) => url)).toContain('https://fonte.example/login');
+    expect(get.mock.calls.map(([url]) => url)).not.toContain('https://fonte.example/login/login');
+  });
 });

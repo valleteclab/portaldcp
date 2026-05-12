@@ -778,12 +778,25 @@ export class FontePrecosProvider implements PesquisaPrecoProvider {
     const password = this.configService.get<string>('FONTE_PRECOS_PASSWORD') || this.configService.get<string>('FONTEPRECOS_PASSWORD') || '';
     const periodo = Number(this.configService.get<string>('FONTE_PRECOS_PERIODO_DIAS') || FONTE_PRECOS_DEFAULT_PERIOD_DIAS);
     if (!baseUrl || !email || !password) return null;
+    const normalizedBaseUrl = this.normalizarBaseUrl(baseUrl);
+    if (!normalizedBaseUrl) return null;
     return {
-      baseUrl: baseUrl.replace(/\/+$/, ''),
+      baseUrl: normalizedBaseUrl,
       email,
       password,
       periodo: Number.isFinite(periodo) && periodo > 0 ? periodo : FONTE_PRECOS_DEFAULT_PERIOD_DIAS,
     };
+  }
+
+  private normalizarBaseUrl(baseUrl: string): string {
+    const texto = String(baseUrl || '').trim();
+    if (!texto) return '';
+    try {
+      const parsed = new URL(texto.startsWith('http') ? texto : `https://${texto}`);
+      return parsed.origin;
+    } catch {
+      return texto.replace(/\/(?:login|v2\/.*|api\/.*)?$/i, '').replace(/\/+$/, '');
+    }
   }
 
   private montarConsultas(item: ItemLicitacao, periodo: number): Array<Record<string, string | number | boolean>> {
@@ -842,7 +855,7 @@ export class FontePrecosProvider implements PesquisaPrecoProvider {
         throw new Error(`sessao Fonte de Precos expirada ou negada (HTTP ${res.status})`);
       }
       if (res.status >= 400) {
-        throw new Error(`Pesquisa Expressa Fonte de Precos HTTP ${res.status}`);
+        throw new Error(`Pesquisa Expressa Fonte de Precos HTTP ${res.status} em ${config.baseUrl}/api/expressa/search/page${page}`);
       }
 
       registros.push(...asFontePrecosArray(res.data));
@@ -874,11 +887,16 @@ export class FontePrecosProvider implements PesquisaPrecoProvider {
   }
 
   private async login(config: FontePrecosConfig): Promise<FontePrecosSession> {
-    const loginPage = await axios.get(`${config.baseUrl}/login`, {
+    const loginUrl = `${config.baseUrl}/login`;
+    const loginPage = await axios.get(loginUrl, {
       timeout: REQUEST_TIMEOUT_MS,
       headers: HTTP_BROWSER_HEADERS,
       responseType: 'text',
+      validateStatus: () => true,
     });
+    if (loginPage.status >= 400) {
+      throw new Error(`Login Fonte de Precos HTTP ${loginPage.status} em ${loginUrl}. Configure FONTE_PRECOS_BASE_URL apenas com o dominio do tenant, ex: https://cmlem-ba.fontedeprecos.com.br`);
+    }
     const csrf = String(loginPage.data || '').match(/name=["']csrfmiddlewaretoken["']\s+value=["']([^"']+)["']/i)?.[1];
     if (!csrf) throw new Error('CSRF da Fonte de Precos nao encontrado');
 
