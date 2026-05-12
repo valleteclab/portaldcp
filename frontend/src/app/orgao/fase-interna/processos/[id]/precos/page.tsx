@@ -253,9 +253,12 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   const [salvandoCotacao, setSalvandoCotacao] = useState<Record<number, boolean>>({})
   const [removendoCotacao, setRemovendoCotacao] = useState<string | null>(null)
   const [uploadingComprovante, setUploadingComprovante] = useState<string | null>(null)
+  const [importandoCsvFontePrecos, setImportandoCsvFontePrecos] = useState(false)
+  const [statusImportacaoCsv, setStatusImportacaoCsv] = useState<string | null>(null)
   const [buscandoAuto, setBuscandoAuto] = useState<Record<number, boolean>>({})
   const [statusBuscaAuto, setStatusBuscaAuto] = useState<Record<number, string>>({})
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const csvFontePrecosInputRef = useRef<HTMLInputElement | null>(null)
 
   // Aba 3 — Estatísticas
   const [metodologia, setMetodologia] = useState<Metodologia>("MEDIANA")
@@ -493,6 +496,38 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
   }
 
   // ─── Aba 3 — Estatísticas ────────────────────────────────────────────────
+
+  const importarCsvFontePrecos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportandoCsvFontePrecos(true)
+    setStatusImportacaoCsv("Importando relatorio CSV da Fonte de Precos...")
+    try {
+      const form = new FormData()
+      form.append("file", file)
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/fonte-precos/csv`, {
+        method: "POST",
+        body: form,
+      })
+      if (!res.ok) {
+        const erro = await res.text()
+        throw new Error(erro || "Falha ao importar CSV")
+      }
+      const data = await res.json()
+      const d: DadosPrecos = data.dados ?? { itens: [] }
+      setDados(d)
+      const resumo = data.resumo
+      setStatusImportacaoCsv(
+        `CSV importado: ${resumo?.cotacoesImportadas ?? 0} cotacao(oes) adicionada(s), ${resumo?.cotacoesDuplicadas ?? 0} duplicada(s) ignorada(s).`
+      )
+    } catch (error) {
+      console.error(error)
+      setStatusImportacaoCsv("Nao foi possivel importar o CSV da Fonte de Precos.")
+    } finally {
+      setImportandoCsvFontePrecos(false)
+      if (csvFontePrecosInputRef.current) csvFontePrecosInputRef.current.value = ""
+    }
+  }
 
   const salvarMetodologia = async () => {
     setSalvandoMetodologia(true)
@@ -822,6 +857,41 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
           {itens.length === 0 && (
             <div className="py-16 text-center text-sm text-gray-400">
               Nenhum item definido. Vá à aba <strong>Itens</strong> para adicionar itens à pesquisa.
+            </div>
+          )}
+
+          {itens.length > 0 && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#dbe8fb] bg-[#f6f9fd] px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Importar relatório da Fonte de Preços</p>
+                <p className="text-xs text-gray-500">
+                  Use o CSV exportado pela Fonte de Preços para anexar o relatório e registrar as cotações por item.
+                </p>
+                {statusImportacaoCsv && (
+                  <p className="mt-1 text-xs text-[#1351b4]">{statusImportacaoCsv}</p>
+                )}
+              </div>
+              <input
+                ref={csvFontePrecosInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={importarCsvFontePrecos}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => csvFontePrecosInputRef.current?.click()}
+                disabled={importandoCsvFontePrecos}
+                className="text-[#1351b4] border-[#c5d4eb]"
+              >
+                {importandoCsvFontePrecos ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                Importar CSV
+              </Button>
             </div>
           )}
 

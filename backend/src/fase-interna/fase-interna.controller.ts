@@ -426,6 +426,46 @@ export class FaseInternaController {
     return this.pesquisaPrecosAgentService.importarNfe(licitacaoId, body);
   }
 
+  @Post(':licitacaoId/precos/fonte-precos/csv')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (req, _file, cb) => {
+          const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+          const destPath = join(uploadPath, 'pesquisa-precos', req.params.licitacaoId);
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const fs = require('fs');
+          if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+          cb(null, destPath);
+        },
+        filename: (_req, file, cb) => {
+          const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+          cb(null, `fonte-precos-${unique}${extname(file.originalname) || '.csv'}`);
+        },
+      }),
+      fileFilter: (_req, file, cb) => {
+        const nome = file.originalname.toLowerCase();
+        const allowed = ['text/csv', 'application/csv', 'application/vnd.ms-excel', 'text/plain'];
+        if (!nome.endsWith('.csv') && !allowed.includes(file.mimetype)) {
+          return cb(new BadRequestException('Apenas arquivos CSV da Fonte de Precos sao aceitos'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 15 * 1024 * 1024 },
+    }),
+  )
+  async importarCsvFontePrecos(
+    @Param('licitacaoId') licitacaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('Arquivo CSV nao enviado');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require('fs');
+    const buffer = fs.readFileSync(file.path);
+    const relPath = join('pesquisa-precos', licitacaoId, file.filename);
+    return this.faseInternaService.importarCsvFontePrecos(licitacaoId, buffer, relPath);
+  }
+
   // === APROVACOES AGREGADAS ===
 
   @Get('aprovacoes')

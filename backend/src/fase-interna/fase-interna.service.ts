@@ -606,6 +606,81 @@ export class FaseInternaService {
     return dados;
   }
 
+  async importarCsvFontePrecos(licitacaoId: string, csvBuffer: Buffer, documentoPath: string): Promise<{
+    dados: PesquisaPrecosDados;
+    resumo: {
+      itensEncontrados: number;
+      cotacoesImportadas: number;
+      cotacoesDuplicadas: number;
+      itensNaoEncontrados: number[];
+    };
+  }> {
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+    const blocos = this.parseCsvFontePrecos(csvBuffer);
+    const itensNaoEncontrados: number[] = [];
+    let cotacoesImportadas = 0;
+    let cotacoesDuplicadas = 0;
+
+    for (const bloco of blocos) {
+      const itemIdx = dados.itens.findIndex((item) => item.item_numero === bloco.itemNumero);
+      if (itemIdx === -1) {
+        itensNaoEncontrados.push(bloco.itemNumero);
+        continue;
+      }
+
+      const cotacoesAtuais = dados.itens[itemIdx].cotacoes || [];
+      const novasCotacoes: CotacaoPorFonte[] = [];
+
+      for (const preco of bloco.precos) {
+        const normalizada = this.normalizarCotacao({
+          fonte: this.classificarFonteCsvFontePrecos(preco.fonte, preco.orgaoEmpresaSite),
+          descricao_fonte: ['Fonte de Precos', preco.fonte, preco.orgaoEmpresaSite].filter(Boolean).join(' - '),
+          url_referencia: this.urlSeValida(preco.orgaoEmpresaSite),
+          data_pesquisa: preco.dataPesquisa,
+          valor_unitario: preco.valorUnitario,
+          observacao: [
+            'Importada do CSV Fonte de Precos',
+            preco.identificacao ? `Identificacao: ${preco.identificacao}` : '',
+            preco.quantidade ? `Quantidade da fonte: ${preco.quantidade}` : '',
+          ]
+            .filter(Boolean)
+            .join(' | '),
+          documento_comprobatorio_path: documentoPath,
+        });
+
+        if (
+          cotacoesAtuais.some((existente) => this.cotacaoDuplicada(existente, normalizada)) ||
+          novasCotacoes.some((existente) => this.cotacaoDuplicada(existente, normalizada))
+        ) {
+          cotacoesDuplicadas += 1;
+          continue;
+        }
+
+        novasCotacoes.push(normalizada);
+        cotacoesImportadas += 1;
+      }
+
+      if (novasCotacoes.length) {
+        dados.itens[itemIdx].cotacoes = [...cotacoesAtuais, ...novasCotacoes];
+        dados.itens[itemIdx] = calcularEstatisticasItem(dados.itens[itemIdx]);
+      }
+    }
+
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
+
+    return {
+      dados,
+      resumo: {
+        itensEncontrados: blocos.length,
+        cotacoesImportadas,
+        cotacoesDuplicadas,
+        itensNaoEncontrados,
+      },
+    };
+  }
+
   async removerCotacoesEstimadasDoAgente(licitacaoId: string): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
@@ -663,6 +738,171 @@ export class FaseInternaService {
       documento_comprobatorio_path: cotacao.documento_comprobatorio_path,
       documento_hash: cotacao.documento_hash,
     };
+  }
+
+  private parseCsvFontePrecos(buffer: Buffer): Array<{
+    itemNumero: number;
+    descricao: string;
+    quantidade: number;
+    valorUnitarioMedio: number;
+    precos: Array<{
+      fonte: string;
+      orgaoEmpresaSite: string;
+      identificacao: string;
+      dataPesquisa: string;
+      quantidade: number;
+      valorUnitario: number;
+    }>;
+  }> {
+    const texto = this.decodedCsvText(buffer);
+    const linhas = texto
+      .split(/\r?\n/)
+      .map((linha) => this.parseCsvLine(linha))
+      .filter((linha) => linha.some((celula) => celula.trim()));
+    const blocos: Array<{
+      itemNumero: number;
+      descricao: string;
+      quantidade: number;
+      valorUnitarioMedio: number;
+      precos: Array<{
+        fonte: string;
+        orgaoEmpresaSite: string;
+        identificacao: string;
+        dataPesquisa: string;
+        quantidade: number;
+        valorUnitario: number;
+      }>;
+    }> = [];
+    let blocoAtual: (typeof blocos)[number] | null = null;
+    let aguardandoResumoItem = false;
+
+    for (let index = 0; index < linhas.length; index += 1) {
+      const linha = linhas[index];
+      const primeira = String(linha[0] || '').trim();
+      const matchItem = primeira.match(/^Item\s+(\d+)$/i);
+      if (matchItem) {
+        blocoAtual = {
+          itemNumero: Number(matchItem[1]),
+          descricao: '',
+          quantidade: 1,
+          valorUnitarioMedio: 0,
+          precos: [],
+        };
+        blocos.push(blocoAtual);
+        aguardandoResumoItem = true;
+        continue;
+      }
+
+      if (!blocoAtual) continue;
+
+      if (aguardandoResumoItem && primeira) {
+        blocoAtual.descricao = primeira;
+        blocoAtual.valorUnitarioMedio = this.valorMonetarioCsv(linha[6]);
+        blocoAtual.quantidade = this.numeroCsv(linha[7]) || 1;
+        aguardandoResumoItem = false;
+        continue;
+      }
+
+      const numeroPreco = Number(primeira);
+      const segunda = String(linha[1] || '').trim();
+      if (!Number.isFinite(numeroPreco) || numeroPreco <= 0 || segunda.toLowerCase() !== 'fonte') continue;
+
+      const detalhe = linhas[index + 1];
+      if (!detalhe) continue;
+
+      const valorUnitario = this.valorMonetarioCsv(detalhe[8]);
+      if (valorUnitario <= 0) continue;
+      blocoAtual.precos.push({
+        fonte: String(detalhe[1] || '').trim(),
+        orgaoEmpresaSite: String(detalhe[2] || '').trim(),
+        identificacao: String(detalhe[5] || '').trim(),
+        dataPesquisa: this.dataCsvFontePrecos(detalhe[6]),
+        quantidade: this.numeroCsv(detalhe[7]) || 1,
+        valorUnitario,
+      });
+    }
+
+    return blocos.filter((bloco) => bloco.precos.length > 0);
+  }
+
+  private decodedCsvText(buffer: Buffer): string {
+    const utf8 = buffer.toString('utf8');
+    const latin1 = buffer.toString('latin1');
+    const scoreUtf8 = (utf8.match(/\uFFFD|Ã|Â/g) || []).length;
+    const scoreLatin1 = (latin1.match(/\uFFFD|Ã|Â/g) || []).length;
+    return scoreLatin1 < scoreUtf8 ? latin1 : utf8;
+  }
+
+  private parseCsvLine(linha: string): string[] {
+    const cells: string[] = [];
+    let atual = '';
+    let dentroAspas = false;
+
+    for (let i = 0; i < linha.length; i += 1) {
+      const char = linha[i];
+      const prox = linha[i + 1];
+      if (char === '"' && dentroAspas && prox === '"') {
+        atual += '"';
+        i += 1;
+        continue;
+      }
+      if (char === '"') {
+        dentroAspas = !dentroAspas;
+        continue;
+      }
+      if (char === ',' && !dentroAspas) {
+        cells.push(atual.trim());
+        atual = '';
+        continue;
+      }
+      atual += char;
+    }
+
+    cells.push(atual.trim());
+    return cells;
+  }
+
+  private valorMonetarioCsv(valor: unknown): number {
+    const texto = String(valor || '').trim();
+    if (!texto) return 0;
+    const limpo = texto
+      .replace(/[^\d,.-]/g, '')
+      .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+      .replace(',', '.');
+    const numero = Number(limpo);
+    return Number.isFinite(numero) ? Number(numero.toFixed(4)) : 0;
+  }
+
+  private numeroCsv(valor: unknown): number {
+    const texto = String(valor || '').trim();
+    if (!texto) return 0;
+    const numero = Number(texto.replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.'));
+    return Number.isFinite(numero) ? numero : 0;
+  }
+
+  private dataCsvFontePrecos(valor: unknown): string {
+    const texto = String(valor || '').trim();
+    const match = texto.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+    return new Date().toISOString().split('T')[0];
+  }
+
+  private classificarFonteCsvFontePrecos(fonte: string, referencia: string): CotacaoPorFonte['fonte'] {
+    const texto = this.normalizarTextoCotacao(`${fonte} ${referencia}`);
+    if (texto.includes('pncp')) return 'PNCP';
+    if (texto.includes('compras.gov') || texto.includes('comprasnet') || texto.includes('painel')) return 'PAINEL_DE_PRECOS';
+    if (texto.includes('dominio amplo') || texto.startsWith('http') || texto.includes('http')) return 'MIDIA_ESPECIALIZADA';
+    return 'MIDIA_ESPECIALIZADA';
+  }
+
+  private urlSeValida(valor: string): string | undefined {
+    const texto = String(valor || '').trim();
+    if (!/^https?:\/\//i.test(texto)) return undefined;
+    try {
+      return new URL(texto).toString();
+    } catch {
+      return undefined;
+    }
   }
 
   private cotacaoDuplicada(a: CotacaoPorFonte, b: CotacaoPorFonte): boolean {

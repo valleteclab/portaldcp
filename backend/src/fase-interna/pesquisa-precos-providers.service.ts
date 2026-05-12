@@ -1008,19 +1008,28 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
         let descartadosPorData = 0;
         let sinalizadosPorAderencia = 0;
         let descartadosInvalidos = 0;
-        let descartadosUrlIndisponivel = 0;
+        let sinalizadosSemUrl = 0;
+        let sinalizadosUrlIndisponivel = 0;
         for (const produto of results) {
           const valor = normalizarValorPreco(produto.valor_unitario || produto.valorUnitario || produto.preco || produto.valor);
           const url = urlValida(produto.url || produto.url_referencia || produto.urlReferencia);
-          if (valor <= 0 || !url) {
+          if (valor <= 0) {
             descartadosInvalidos += 1;
             continue;
           }
-          const verificacaoUrl = await this.verificarUrlWeb(url);
-          if (!verificacaoUrl.ok) {
-            descartadosUrlIndisponivel += 1;
-            this.logger.debug(`Busca web descartou URL indisponivel (${verificacaoUrl.status || 'sem status'}) para item ${item.numero_item}: ${url}`);
-            continue;
+          let urlReferencia: string | undefined = url || undefined;
+          let alertaUrl: string | null = null;
+          if (url) {
+            const verificacaoUrl = await this.verificarUrlWeb(url);
+            if (!verificacaoUrl.ok) {
+              sinalizadosUrlIndisponivel += 1;
+              urlReferencia = undefined;
+              alertaUrl = `URL informada pela busca web indisponivel (${verificacaoUrl.status || 'sem status'}); validar fonte, objeto e comprovante antes de aprovar.`;
+              this.logger.debug(`Busca web aceitou resultado sem URL verificavel (${verificacaoUrl.status || 'sem status'}) para item ${item.numero_item}: ${url}`);
+            }
+          } else {
+            sinalizadosSemUrl += 1;
+            alertaUrl = 'Resultado sem URL verificavel; validar fonte, objeto e comprovante antes de aprovar.';
           }
           const aderenciaNaoComprovada = aderenteMarcadoComoFalso(produto.aderente);
           if (aderenciaNaoComprovada) sinalizadosPorAderencia += 1;
@@ -1033,7 +1042,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             item_numero: item.numero_item,
             fonte_tipo: this.classificarFontePelaUrl(url),
             descricao_fonte: produto.descricao_fonte || produto.fonte || 'Fonte web verificada',
-            url_referencia: url,
+            url_referencia: urlReferencia,
             data_pesquisa: dataPesquisa,
             fornecedor_razao_social: produto.fornecedor,
             valor_unitario: valor,
@@ -1048,6 +1057,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             score: aderenciaNaoComprovada ? 58 : 82,
             flags: [
               'Fonte encontrada por busca web: validar aderencia tecnica antes de aprovar.',
+              ...(alertaUrl ? [alertaUrl] : []),
               ...(aderenciaNaoComprovada ? ['A IA nao comprovou aderencia integral a especificacao; revisar antes de usar como referencia.'] : []),
               ...(Array.isArray(produto.criterios_confirmados) && produto.criterios_confirmados.length
                 ? [`Criterios confirmados: ${produto.criterios_confirmados.join('; ')}`]
@@ -1056,7 +1066,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
           });
         }
         this.logger.log(
-          `Busca web item ${item.numero_item}: ${results.length} resultado(s) recebidos, ${descartadosInvalidos} descartado(s) sem preco/url, ${descartadosUrlIndisponivel} descartado(s) por URL indisponivel, ${descartadosPorData} descartado(s) por data, ${sinalizadosPorAderencia} sinalizado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
+          `Busca web item ${item.numero_item}: ${results.length} resultado(s) recebidos, ${descartadosInvalidos} descartado(s) sem preco, ${sinalizadosSemUrl} sem URL, ${sinalizadosUrlIndisponivel} com URL indisponivel, ${descartadosPorData} descartado(s) por data, ${sinalizadosPorAderencia} sinalizado(s) por aderencia, ${candidatos.filter((c) => c.item_numero === item.numero_item).length} candidato(s) aceito(s)`,
         );
       } catch (error) {
         this.logger.warn(`Falha ao consultar web para item ${item.numero_item}: ${(error as Error).message}`);
