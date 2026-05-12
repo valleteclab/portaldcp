@@ -55,7 +55,7 @@ async function bootstrap() {
     next();
   });
 
-  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+  app.useStaticAssets(process.env.UPLOAD_DIR || join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
   
