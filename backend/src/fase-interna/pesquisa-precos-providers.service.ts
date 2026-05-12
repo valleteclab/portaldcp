@@ -717,7 +717,7 @@ export class FontePrecosProvider implements PesquisaPrecoProvider {
     }
 
     const candidatos: PesquisaPrecoCandidateInput[] = [];
-    const limitePorItem = Math.max(5, context.scope.maxPorFonte || 5);
+    const limitePorItem = Math.max(13, context.scope.maxPorFonte || 5);
 
     for (const item of context.itens) {
       const candidatosItem: PesquisaPrecoCandidateInput[] = [];
@@ -731,7 +731,7 @@ export class FontePrecosProvider implements PesquisaPrecoProvider {
 
         for (const consulta of consultas) {
           if (candidatosItem.length >= limitePorItem) break;
-          const registros = await this.consultarPesquisaExpressa(config, consulta, limitePorItem - candidatosItem.length);
+          const registros = await this.consultarPesquisaExpressa(config, consulta, limitePorItem);
           for (const registro of registros) {
             const mapeado = mapearResultadoFontePrecos(registro, item);
             if (!mapeado) {
@@ -755,6 +755,8 @@ export class FontePrecosProvider implements PesquisaPrecoProvider {
             }
             vistos.add(chave);
             candidatosItem.push(mapeado);
+            candidatosItem.sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+            if (candidatosItem.length > limitePorItem) candidatosItem.pop();
             if (candidatosItem.length >= limitePorItem) break;
           }
         }
@@ -802,7 +804,9 @@ export class FontePrecosProvider implements PesquisaPrecoProvider {
   private montarConsultas(item: ItemLicitacao, periodo: number): Array<Record<string, string | number | boolean>> {
     const codigo = codigoCatalogoItem(item);
     const tipo = item.codigo_catser ? 's' : item.codigo_catmat ? 'm' : 't';
+    const descricaoCompleta = especificacaoObrigatoria(item) || termoItem(item);
     const descricaoCurta = (item.descricao_resumida || item.descricao_detalhada || '').replace(/\s+/g, ' ').trim();
+    const termoCompleto = descricaoCompleta.replace(/\s+/g, ' ').trim().slice(0, 500);
     const termoCurto = this.termoCurto(descricaoCurta);
     const base = {
       tipo,
@@ -819,10 +823,21 @@ export class FontePrecosProvider implements PesquisaPrecoProvider {
     };
 
     return [
+      termoCompleto ? { ...base, termo: termoCompleto, catmat_catser: '' } : null,
+      codigo && termoCompleto ? { ...base, termo: termoCompleto, catmat_catser: codigo } : null,
       codigo ? { ...base, termo: termoCurto || codigo, catmat_catser: codigo } : null,
-      { ...base, termo: termoCurto || termoItem(item), catmat_catser: '' },
-      descricaoCurta && descricaoCurta !== termoCurto ? { ...base, termo: descricaoCurta.slice(0, 180), catmat_catser: '' } : null,
-    ].filter(Boolean) as Array<Record<string, string | number | boolean>>;
+      termoCurto ? { ...base, termo: termoCurto, catmat_catser: '' } : null,
+    ]
+      .filter(Boolean)
+      .filter((consulta, index, lista) => {
+        const atual = consulta as Record<string, string | number | boolean>;
+        return (
+          lista.findIndex((itemLista) => {
+            const outro = itemLista as Record<string, string | number | boolean>;
+            return outro.termo === atual.termo && outro.catmat_catser === atual.catmat_catser;
+          }) === index
+        );
+      }) as Array<Record<string, string | number | boolean>>;
   }
 
   private termoCurto(descricao: string): string {
