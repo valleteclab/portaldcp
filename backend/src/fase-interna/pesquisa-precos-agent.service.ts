@@ -11,6 +11,7 @@ import { PesquisaPrecosComplianceService } from './pesquisa-precos-compliance.se
 import {
   BrowserFallbackProvider,
   ContratosVigentesProvider,
+  FontePrecosProvider,
   FornecedorDiretoProvider,
   NfeProvider,
   PainelComprasGovProvider,
@@ -45,6 +46,7 @@ export class PesquisaPrecosAgentService {
     private readonly compliance: PesquisaPrecosComplianceService,
     pncpProvider: PncpPriceProvider,
     painelProvider: PainelComprasGovProvider,
+    fontePrecosProvider: FontePrecosProvider,
     contratosProvider: ContratosVigentesProvider,
     webProvider: WebEspecializadaProvider,
     fornecedorProvider: FornecedorDiretoProvider,
@@ -54,6 +56,7 @@ export class PesquisaPrecosAgentService {
     this.providers = [
       pncpProvider,
       painelProvider,
+      fontePrecosProvider,
       contratosProvider,
       webProvider,
       fornecedorProvider,

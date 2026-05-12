@@ -16,6 +16,7 @@ const PNCP_API_BASE = 'https://pncp.gov.br/api/pncp/v1';
 const DADOS_ABERTOS_COMPRAS_BASE = 'https://dadosabertos.compras.gov.br';
 const PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL = 'https://www.gov.br/compras/pt-br/sistemas/conheca-o-compras/pesquisa-de-precos';
 const PESQUISA_PRECOS_DADOS_ABERTOS_URL = 'https://suportedadoslivres.streamlit.app/';
+const FONTE_PRECOS_DEFAULT_PERIOD_DIAS = 365;
 const HTTP_HEADERS = {
   Accept: 'application/json',
   'User-Agent': 'PortalDCP/1.0 (pesquisa-precos; contato=suporte@portaldcp.com.br)',
@@ -182,6 +183,10 @@ function normalizarValorPreco(valor: unknown): number {
   return Number.isFinite(numero) ? numero : 0;
 }
 
+export function normalizarValorFontePrecos(valor: unknown): number {
+  return normalizarValorPreco(valor);
+}
+
 function aderenteMarcadoComoFalso(valor: unknown): boolean {
   if (valor === false) return true;
   const texto = normalizarBusca(valor);
@@ -197,6 +202,22 @@ function urlValida(url: unknown): string {
     return parsed.toString();
   } catch {
     return '';
+  }
+}
+
+function extrairPrimeiraUrl(valor: unknown): string {
+  if (!valor) return '';
+  const texto = String(valor);
+  const match = texto.match(/https?:\/\/[^\s"'<>\\]+/i);
+  return match ? urlValida(match[0]) : '';
+}
+
+function parsePossivelJson(valor: unknown): any {
+  if (!valor || typeof valor !== 'string') return valor;
+  try {
+    return JSON.parse(valor);
+  } catch {
+    return null;
   }
 }
 
@@ -231,6 +252,13 @@ function asArray(data: any): any[] {
   if (Array.isArray(data?.itens)) return data.itens;
   if (Array.isArray(data?.resultado)) return data.resultado;
   if (Array.isArray(data)) return data;
+  return [];
+}
+
+function asFontePrecosArray(data: any): any[] {
+  const result = data?.result ?? data?.results ?? data?.data ?? data;
+  if (Array.isArray(result)) return result;
+  if (result && typeof result === 'object') return Object.values(result);
   return [];
 }
 
@@ -484,6 +512,423 @@ export class PainelComprasGovProvider implements PesquisaPrecoProvider {
 
     if (ultimoErro) throw ultimoErro;
     return [];
+  }
+}
+
+type FontePrecosSession = {
+  cookies: string;
+  autenticadoEm: number;
+};
+
+type FontePrecosConfig = {
+  baseUrl: string;
+  email: string;
+  password: string;
+  periodo: number;
+};
+
+function textoFontePrecos(registro: any): string {
+  return [
+    registro?.catmat_catser,
+    registro?.codigo_br,
+    registro?.termo_id,
+    registro?.descricao,
+    registro?.descricao_comp,
+    registro?.descricao_comp_limit_25,
+    registro?.objeto,
+    registro?.marca,
+    registro?.partnumber,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function textoFontePrecosFonte(registro: any): string {
+  return [
+    registro?.base,
+    registro?.uasg?.descricao,
+    registro?.uasg_name,
+    registro?.fornecedor?.fornecedor,
+    registro?.fornecedor?.razao_social,
+    registro?.fornecedor?.nome_fantasia,
+  ]
+    .filter(Boolean)
+    .join(' - ');
+}
+
+export function fontePrecosAderenteAoItem(registro: any, item: Pick<ItemLicitacao, 'codigo_catmat' | 'codigo_catser' | 'codigo_catalogo' | 'descricao_resumida' | 'descricao_detalhada'>): {
+  aderente: boolean;
+  score: number;
+  flags: string[];
+} {
+  const texto = normalizarBusca(textoFontePrecos(registro));
+  const descricaoItem = normalizarBusca(especificacaoObrigatoria(item as ItemLicitacao) || termoItem(item as ItemLicitacao));
+  const codigo = codigoCatalogoItem(item as ItemLicitacao);
+  const flags: string[] = [];
+
+  if (codigo && texto.includes(codigo)) {
+    return { aderente: true, score: 90, flags };
+  }
+
+  const itemNotebook = descricaoItem.includes('notebook') || descricaoItem.includes('laptop');
+  if (itemNotebook) {
+    const bloqueios = [
+      'veiculo',
+      'veiculos',
+      'carro',
+      'caminhao',
+      'caminhonete',
+      'onibus',
+      'motocicleta',
+      'desktop',
+      'computador desktop',
+      'monitor',
+      'tablet',
+      'bateria para notebook',
+      'bateria notebook',
+      'carregador',
+      'fonte para notebook',
+      'mouse',
+      'teclado',
+      'suporte',
+      'switch',
+      'roteador',
+      'impressora',
+      'notebook infantil',
+      'infantil educativo',
+      'brinquedo',
+    ];
+    const bloqueio = bloqueios.find((termo) => texto.includes(termo));
+    if (bloqueio) {
+      return { aderente: false, score: 0, flags: [`Descartado por incompatibilidade aparente: ${bloqueio}.`] };
+    }
+
+    const temNotebook = texto.includes('notebook') || texto.includes('laptop') || texto.includes('computador portatil');
+    if (!temNotebook) {
+      return { aderente: false, score: 0, flags: ['Descartado: resultado nao descreve notebook/laptop.'] };
+    }
+
+    const criterios = [
+      texto.includes('14') || texto.includes('15') || texto.includes('16') || texto.includes('tela'),
+      texto.includes('ram') || texto.includes('memoria'),
+      texto.includes('ssd') || texto.includes('480') || texto.includes('512') || texto.includes('1tb') || texto.includes('1.000'),
+      texto.includes('windows') || texto.includes('proprietario') || texto.includes('sistema operacional'),
+      texto.includes('garantia') || texto.includes('on site') || texto.includes('onsite'),
+      texto.includes('nucleo') || texto.includes('core') || texto.includes('i5') || texto.includes('i7') || texto.includes('ryzen'),
+    ];
+    const confirmados = criterios.filter(Boolean).length;
+    if (confirmados < 2) {
+      return {
+        aderente: false,
+        score: 0,
+        flags: ['Descartado: notebook com poucos criterios tecnicos confirmados na fonte.'],
+      };
+    }
+    if (confirmados < 4) {
+      flags.push('Aderencia parcial: revisar criterios tecnicos completos antes de aprovar.');
+    }
+    return { aderente: true, score: confirmados >= 4 ? 84 : 68, flags };
+  }
+
+  const tokens = descricaoItem
+    .split(' ')
+    .filter((token) => token.length > 3)
+    .slice(0, 10);
+  const encontrados = tokens.filter((token) => texto.includes(token)).length;
+  const minimo = Math.min(3, tokens.length);
+  return {
+    aderente: tokens.length > 0 && encontrados >= minimo,
+    score: encontrados >= 5 ? 82 : 66,
+    flags: encontrados < 5 ? ['Aderencia textual parcial: revisar antes de aprovar.'] : flags,
+  };
+}
+
+export function mapearResultadoFontePrecos(registro: any, item: ItemLicitacao): PesquisaPrecoCandidateInput | null {
+  const valor = normalizarValorFontePrecos(registro?.valor_unitario);
+  if (valor <= 0) return null;
+
+  const aderencia = fontePrecosAderenteAoItem(registro, item);
+  if (!aderencia.aderente) return null;
+
+  const partnumber = parsePossivelJson(registro?.partnumber);
+  const urlPartnumber =
+    extrairPrimeiraUrl(partnumber?.links?.processo) ||
+    extrairPrimeiraUrl(partnumber?.links?.edital) ||
+    extrairPrimeiraUrl(partnumber?.links?.ata) ||
+    extrairPrimeiraUrl(partnumber?.documento) ||
+    extrairPrimeiraUrl(registro?.partnumber);
+  const url =
+    urlValida(registro?.url_ata) ||
+    urlValida(registro?.url_edital) ||
+    urlValida(registro?.download_link) ||
+    urlValida(registro?.links?.ata) ||
+    urlValida(registro?.links?.edital) ||
+    urlValida(registro?.links?.homolog_link) ||
+    urlValida(registro?.links?.adjudicacao_link) ||
+    urlValida(registro?.links?.resultadopfornecedor_link) ||
+    urlPartnumber ||
+    urlValida(registro?.fonte);
+  if (!url) return null;
+
+  const dataPesquisa = normalizarDataPesquisa(
+    registro?.dt_homologacao || registro?.dt_abertura_proposta || registro?.dt_entrega_proposta || registro?.data || registro?.created_at,
+  );
+  const fonte = textoFontePrecosFonte(registro);
+  const descricao = [registro?.descricao, registro?.descricao_comp, registro?.objeto].filter(Boolean).join(' - ').replace(/\s+/g, ' ').trim();
+
+  return {
+    item_numero: item.numero_item,
+    fonte_tipo: 'MIDIA_ESPECIALIZADA',
+    descricao_fonte: `Fonte de Precos${fonte ? ` - ${fonte}` : ''}`.slice(0, 500),
+    url_referencia: url,
+    data_pesquisa: dataPesquisa,
+    fornecedor_cnpj: registro?.fornecedor?.cnpj,
+    fornecedor_razao_social: registro?.fornecedor?.razao_social || registro?.fornecedor?.fornecedor || registro?.fornecedor?.nome_fantasia,
+    valor_unitario: Number(valor.toFixed(4)),
+    quantidade_base: normalizarValorFontePrecos(registro?.quant) || Number(item.quantidade) || 1,
+    unidade: String(registro?.unidade || item.unidade_medida || 'UN'),
+    evidencia: {
+      tipo: 'api',
+      origem: 'Fonte de Precos - Pesquisa Expressa autenticada',
+      coletado_em: new Date().toISOString(),
+      titulo: descricao || termoItem(item),
+    },
+    score: aderencia.score,
+    flags: [
+      'Fonte complementar Fonte de Precos: validar comprovante antes de aprovar como fonte oficial.',
+      ...aderencia.flags,
+    ],
+  };
+}
+
+@Injectable()
+export class FontePrecosProvider implements PesquisaPrecoProvider {
+  readonly fonte: FontePesquisaTipo = 'MIDIA_ESPECIALIZADA';
+  private readonly logger = new Logger(FontePrecosProvider.name);
+  private session: FontePrecosSession | null = null;
+
+  constructor(private readonly configService: ConfigService) {}
+
+  async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
+    const config = this.getConfig();
+    if (!config) {
+      this.logger.debug('Fonte de Precos desabilitada: configure FONTE_PRECOS_BASE_URL, FONTE_PRECOS_EMAIL e FONTE_PRECOS_PASSWORD.');
+      return [];
+    }
+
+    const candidatos: PesquisaPrecoCandidateInput[] = [];
+    const limitePorItem = Math.max(5, context.scope.maxPorFonte || 5);
+
+    for (const item of context.itens) {
+      const candidatosItem: PesquisaPrecoCandidateInput[] = [];
+      let descartadosDuplicados = 0;
+      let descartadosAderencia = 0;
+      let descartadosInvalidos = 0;
+
+      try {
+        const consultas = this.montarConsultas(item, config.periodo);
+        const vistos = new Set<string>();
+
+        for (const consulta of consultas) {
+          if (candidatosItem.length >= limitePorItem) break;
+          const registros = await this.consultarPesquisaExpressa(config, consulta, limitePorItem - candidatosItem.length);
+          for (const registro of registros) {
+            const mapeado = mapearResultadoFontePrecos(registro, item);
+            if (!mapeado) {
+              const valor = normalizarValorFontePrecos(registro?.valor_unitario);
+              const aderencia = fontePrecosAderenteAoItem(registro, item);
+              if (valor <= 0 || !this.urlDoRegistro(registro)) descartadosInvalidos += 1;
+              else if (!aderencia.aderente) descartadosAderencia += 1;
+              continue;
+            }
+
+            const chave = [
+              mapeado.item_numero,
+              mapeado.url_referencia?.toLowerCase(),
+              normalizarBusca(mapeado.descricao_fonte),
+              mapeado.valor_unitario,
+              mapeado.data_pesquisa,
+            ].join('|');
+            if (vistos.has(chave)) {
+              descartadosDuplicados += 1;
+              continue;
+            }
+            vistos.add(chave);
+            candidatosItem.push(mapeado);
+            if (candidatosItem.length >= limitePorItem) break;
+          }
+        }
+
+        candidatos.push(...candidatosItem);
+        this.logger.log(
+          `Fonte de Precos item ${item.numero_item}: ${candidatosItem.length} aceito(s), ${descartadosDuplicados} duplicado(s), ${descartadosAderencia} descartado(s) por aderencia, ${descartadosInvalidos} descartado(s) sem preco/url.`,
+        );
+      } catch (error) {
+        this.logger.warn(`Falha ao consultar Fonte de Precos para item ${item.numero_item}: ${(error as Error).message}`);
+        this.session = null;
+      }
+    }
+
+    return candidatos;
+  }
+
+  private getConfig(): FontePrecosConfig | null {
+    const baseUrl = this.configService.get<string>('FONTE_PRECOS_BASE_URL') || this.configService.get<string>('FONTEPRECOS_BASE_URL') || '';
+    const email = this.configService.get<string>('FONTE_PRECOS_EMAIL') || this.configService.get<string>('FONTEPRECOS_EMAIL') || '';
+    const password = this.configService.get<string>('FONTE_PRECOS_PASSWORD') || this.configService.get<string>('FONTEPRECOS_PASSWORD') || '';
+    const periodo = Number(this.configService.get<string>('FONTE_PRECOS_PERIODO_DIAS') || FONTE_PRECOS_DEFAULT_PERIOD_DIAS);
+    if (!baseUrl || !email || !password) return null;
+    return {
+      baseUrl: baseUrl.replace(/\/+$/, ''),
+      email,
+      password,
+      periodo: Number.isFinite(periodo) && periodo > 0 ? periodo : FONTE_PRECOS_DEFAULT_PERIOD_DIAS,
+    };
+  }
+
+  private montarConsultas(item: ItemLicitacao, periodo: number): Array<Record<string, string | number | boolean>> {
+    const codigo = codigoCatalogoItem(item);
+    const tipo = item.codigo_catser ? 's' : item.codigo_catmat ? 'm' : 't';
+    const descricaoCurta = (item.descricao_resumida || item.descricao_detalhada || '').replace(/\s+/g, ' ').trim();
+    const termoCurto = this.termoCurto(descricaoCurta);
+    const base = {
+      tipo,
+      pregao: '',
+      nome_uasg: '',
+      razao_social: '',
+      marca: '',
+      codigo_br: '',
+      uasg: '',
+      cnpj: '',
+      fornecedor_porte: '',
+      filtros: 'on',
+      periodo,
+    };
+
+    return [
+      codigo ? { ...base, termo: termoCurto || codigo, catmat_catser: codigo } : null,
+      { ...base, termo: termoCurto || termoItem(item), catmat_catser: '' },
+      descricaoCurta && descricaoCurta !== termoCurto ? { ...base, termo: descricaoCurta.slice(0, 180), catmat_catser: '' } : null,
+    ].filter(Boolean) as Array<Record<string, string | number | boolean>>;
+  }
+
+  private termoCurto(descricao: string): string {
+    const normalizada = descricao.replace(/\s+/g, ' ').trim();
+    const principal = normalizada.split(/\s+-\s+|:/)[0]?.trim();
+    if (principal && principal.length >= 3) return principal.slice(0, 80);
+    return normalizada.slice(0, 80);
+  }
+
+  private async consultarPesquisaExpressa(config: FontePrecosConfig, params: Record<string, string | number | boolean>, limite: number): Promise<any[]> {
+    const session = await this.ensureSession(config);
+    const registros: any[] = [];
+    const paginas = Math.max(1, Math.min(3, Math.ceil(limite / 10) + 1));
+
+    for (let page = 1; page <= paginas && registros.length < limite; page += 1) {
+      const res = await axios.get(`${config.baseUrl}/api/expressa/search/page${page}`, {
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: {
+          ...HTTP_BROWSER_HEADERS,
+          Accept: 'application/json',
+          Cookie: session.cookies,
+          Referer: `${config.baseUrl}/v2/cotacoes/expressa`,
+        },
+        params,
+        validateStatus: () => true,
+      });
+
+      if (res.status === 401 || res.status === 403 || String(res.data || '').includes('/login')) {
+        this.session = null;
+        throw new Error(`sessao Fonte de Precos expirada ou negada (HTTP ${res.status})`);
+      }
+      if (res.status >= 400) {
+        throw new Error(`Pesquisa Expressa Fonte de Precos HTTP ${res.status}`);
+      }
+
+      registros.push(...asFontePrecosArray(res.data));
+    }
+
+    return registros.slice(0, limite * 4);
+  }
+
+  private async ensureSession(config: FontePrecosConfig): Promise<FontePrecosSession> {
+    if (this.session && Date.now() - this.session.autenticadoEm < 45 * 60 * 1000) {
+      const valida = await this.validarSessao(config, this.session).catch(() => false);
+      if (valida) return this.session;
+    }
+    this.session = await this.login(config);
+    return this.session;
+  }
+
+  private async validarSessao(config: FontePrecosConfig, session: FontePrecosSession): Promise<boolean> {
+    const res = await axios.get(`${config.baseUrl}/api/check-session`, {
+      timeout: 8000,
+      headers: {
+        ...HTTP_BROWSER_HEADERS,
+        Accept: 'application/json',
+        Cookie: session.cookies,
+      },
+      validateStatus: () => true,
+    });
+    return res.status >= 200 && res.status < 300 && Boolean(res.data);
+  }
+
+  private async login(config: FontePrecosConfig): Promise<FontePrecosSession> {
+    const loginPage = await axios.get(`${config.baseUrl}/login`, {
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: HTTP_BROWSER_HEADERS,
+      responseType: 'text',
+    });
+    const csrf = String(loginPage.data || '').match(/name=["']csrfmiddlewaretoken["']\s+value=["']([^"']+)["']/i)?.[1];
+    if (!csrf) throw new Error('CSRF da Fonte de Precos nao encontrado');
+
+    const cookiesIniciais = this.montarCookieHeader(loginPage.headers['set-cookie']);
+    const body = new URLSearchParams();
+    body.set('csrfmiddlewaretoken', csrf);
+    body.set('email', config.email);
+    body.set('password', config.password);
+
+    const auth = await axios.post(`${config.baseUrl}/login`, body.toString(), {
+      timeout: REQUEST_TIMEOUT_MS,
+      maxRedirects: 0,
+      validateStatus: (status) => status >= 200 && status < 400,
+      headers: {
+        ...HTTP_BROWSER_HEADERS,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: cookiesIniciais,
+        Referer: `${config.baseUrl}/login`,
+        'X-CSRFToken': csrf,
+      },
+    });
+
+    const cookies = this.montarCookieHeader([...(loginPage.headers['set-cookie'] || []), ...(auth.headers['set-cookie'] || [])]);
+    if (!cookies.includes('sessionid=')) throw new Error('Login Fonte de Precos nao retornou sessionid');
+    const session = { cookies, autenticadoEm: Date.now() };
+    const valida = await this.validarSessao(config, session).catch(() => false);
+    if (!valida) throw new Error('Sessao Fonte de Precos nao validada apos login');
+    return session;
+  }
+
+  private montarCookieHeader(setCookie?: string[] | string): string {
+    const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+    const map = new Map<string, string>();
+    for (const cookie of cookies) {
+      const primeiro = cookie.split(';')[0];
+      const idx = primeiro.indexOf('=');
+      if (idx <= 0) continue;
+      map.set(primeiro.slice(0, idx), primeiro.slice(idx + 1));
+    }
+    return [...map.entries()].map(([key, value]) => `${key}=${value}`).join('; ');
+  }
+
+  private urlDoRegistro(registro: any): string {
+    return (
+      urlValida(registro?.url_ata) ||
+      urlValida(registro?.url_edital) ||
+      urlValida(registro?.download_link) ||
+      urlValida(registro?.fonte) ||
+      extrairPrimeiraUrl(registro?.partnumber)
+    );
   }
 }
 
