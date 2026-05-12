@@ -116,6 +116,43 @@ export class GeradorPpService {
         const formatCurrency = (val: number) =>
           val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+        const formatDateBR = (val?: string) => {
+          if (!val) return '-';
+          const match = String(val).match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+          const parsed = new Date(val);
+          if (Number.isNaN(parsed.getTime())) return val;
+          return parsed.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        };
+
+        const limitarTexto = (texto: string, limite = 650) =>
+          texto.length > limite ? `${texto.slice(0, limite - 3)}...` : texto;
+
+        const montarOrigemCotacao = (
+          cot: ItemPesquisaPrecos['cotacoes'][number],
+        ) => {
+          const partes = [
+            cot.descricao_fonte,
+            cot.fornecedor_razao_social
+              ? `Fornecedor: ${cot.fornecedor_razao_social}${cot.fornecedor_cnpj ? ` (${cot.fornecedor_cnpj})` : ''}`
+              : '',
+            cot.observacao,
+          ]
+            .filter(Boolean)
+            .map((parte) => String(parte).replace(/\s+/g, ' ').trim());
+
+          return limitarTexto(partes.join('\n'), 720) || '-';
+        };
+
+        const montarEvidenciaCotacao = (
+          cot: ItemPesquisaPrecos['cotacoes'][number],
+        ) => {
+          const evidencias: string[] = [];
+          if (cot.url_referencia) evidencias.push('Link');
+          if (cot.documento_comprobatorio_path) evidencias.push('Comprovante');
+          return evidencias.length ? evidencias.join(' + ') : '-';
+        };
+
         const metodologiaLabel: Record<string, string> = {
           MEDIA: 'Média aritmética',
           MEDIANA: 'Mediana',
@@ -247,7 +284,7 @@ export class GeradorPpService {
         const dadosProcesso = [
           ['Processo', dados.numeroProcesso || '-'],
           ['Órgão', dados.orgao || orgaoDetalhes?.nome || '-'],
-          ['Data', dados.dataAssinatura || '-'],
+          ['Data', formatDateBR(dados.dataAssinatura)],
         ];
         for (let i = 0; i < dadosProcesso.length; i++) {
           const x = marginL + i * infoColW;
@@ -327,15 +364,14 @@ export class GeradorPpService {
 
           // Tabela de cotações
           if (item.cotacoes && item.cotacoes.length > 0) {
-            const colWidths = [25, 70, 110, 55, 70, 90, 40];
+            const colWidths = [25, 70, 230, 58, 72, 40];
             const headers = [
               'Nº',
               'Fonte',
-              'Descrição',
+              'Origem / processo / fornecedor',
               'Data',
               'Vl. Unit.',
-              'URL',
-              'Válida',
+              'Evid.',
             ];
             const tableX = marginL;
             let tableY = doc.y;
@@ -360,13 +396,13 @@ export class GeradorPpService {
               const cot = item.cotacoes[ci];
               const rowBg = ci % 2 === 0 ? '#f9fafb' : '#ffffff';
 
-              // Calcular altura necessária para a linha (descrição pode ser longa)
-              const descText = cot.descricao_fonte || '-';
+              // Calcular altura necessária para a linha (origem pode ser longa)
+              const origemText = montarOrigemCotacao(cot);
               doc.fontSize(7).font('Helvetica');
-              const descH = doc.heightOfString(descText, {
+              const descH = doc.heightOfString(origemText, {
                 width: colWidths[2] - 6,
               });
-              const rowH = Math.max(15, descH + 4);
+              const rowH = Math.max(24, Math.min(82, descH + 7));
 
               if (tableY + rowH > doc.page.height - 60) {
                 doc.addPage();
@@ -385,11 +421,10 @@ export class GeradorPpService {
               const rowData = [
                 String(ci + 1),
                 cot.fonte || '-',
-                descText,
-                cot.data_pesquisa ? cot.data_pesquisa.substring(0, 10) : '-',
+                origemText,
+                formatDateBR(cot.data_pesquisa),
                 formatCurrency(cot.valor_unitario || 0),
-                cot.url_referencia || '-',
-                cot.documento_comprobatorio_path ? 'Sim' : 'Não',
+                montarEvidenciaCotacao(cot),
               ];
 
               for (let col = 0; col < rowData.length; col++) {
@@ -415,6 +450,64 @@ export class GeradorPpService {
               .lineWidth(0.3)
               .stroke('#e5e7eb');
             doc.y = tableY + 6;
+
+            const cotacoesComReferencia = item.cotacoes.filter(
+              (cot) => cot.url_referencia || cot.documento_comprobatorio_path,
+            );
+            if (cotacoesComReferencia.length > 0) {
+              if (doc.y > doc.page.height - 120) {
+                doc.addPage();
+                addPageHeader();
+                doc.y = 55;
+              }
+
+              doc
+                .fontSize(8)
+                .font('Helvetica-Bold')
+                .fillColor('#374151')
+                .text(
+                  'Referências e comprovantes das cotações',
+                  marginL,
+                  doc.y,
+                  {
+                    width: contentW,
+                  },
+                );
+              doc.moveDown(0.2);
+
+              for (const [refIndex, cot] of cotacoesComReferencia.entries()) {
+                const originalIndex = item.cotacoes.indexOf(cot) + 1;
+                const linhas = [
+                  cot.url_referencia ? `URL: ${cot.url_referencia}` : '',
+                  cot.documento_comprobatorio_path
+                    ? `Comprovante gerado/anexado: ${cot.documento_comprobatorio_path}`
+                    : '',
+                ].filter(Boolean);
+                const textoRef = `${originalIndex}. ${linhas.join(' | ')}`;
+                const refH =
+                  doc.heightOfString(textoRef, { width: contentW - 10 }) + 4;
+
+                if (doc.y + refH > doc.page.height - 55) {
+                  doc.addPage();
+                  addPageHeader();
+                  doc.y = 55;
+                }
+
+                doc
+                  .fontSize(7)
+                  .font('Helvetica')
+                  .fillColor('#374151')
+                  .text(textoRef, marginL + 6, doc.y, {
+                    width: contentW - 10,
+                    link: cot.url_referencia || undefined,
+                    underline: Boolean(cot.url_referencia),
+                  });
+                if (refIndex < cotacoesComReferencia.length - 1) {
+                  doc.moveDown(0.1);
+                }
+              }
+              doc.moveDown(0.4);
+            }
           }
 
           // Estatísticas
