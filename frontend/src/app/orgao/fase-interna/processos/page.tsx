@@ -1,41 +1,48 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import Link from "next/link"
-import { Search, Plus, ChevronRight, Filter, Loader2, Trash2 } from "lucide-react"
-import { toast } from "sonner"
-import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Progress } from "@/components/ui/progress"
-import { API_URL, authFetch } from "@/lib/api"
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import {
+  Search,
+  Plus,
+  ChevronRight,
+  Filter,
+  Loader2,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { API_URL, authFetch } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Licitacao {
-  id: string
-  numero_processo: string
-  objeto: string
-  fase: string
-  modalidade: string
-  valor_total_estimado: number | string
-  responsavel?: string
-  area?: string
-  created_at?: string
-  etapaAtual?: EtapaInfo
+  id: string;
+  numero_processo: string;
+  objeto: string;
+  fase: string;
+  modalidade: string;
+  valor_total_estimado: number | string;
+  responsavel?: string;
+  area?: string;
+  created_at?: string;
+  etapaAtual?: EtapaInfo;
 }
 
 interface Documento {
-  tipo: string
-  descricao?: string
-  dados_estruturados?: Record<string, unknown>
+  tipo: string;
+  descricao?: string;
+  dados_estruturados?: Record<string, unknown>;
 }
 
 interface EtapaInfo {
-  sigla: string
-  art: string
-  progresso: number
-  step?: string
+  sigla: string;
+  art: string;
+  progresso: number;
+  step?: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -46,25 +53,45 @@ const FASES_INTERNAS = [
   "PESQUISA_PRECOS",
   "ANALISE_JURIDICA",
   "APROVACAO_INTERNA",
-]
+];
 
 /** Map fase → status display slug */
 const FASE_STATUS: Record<string, string> = {
-  PLANEJAMENTO:       "rascunho",
-  TERMO_REFERENCIA:   "andamento",
-  PESQUISA_PRECOS:    "andamento",
-  ANALISE_JURIDICA:   "juridico",
-  APROVACAO_INTERNA:  "revisao",
-}
+  PLANEJAMENTO: "rascunho",
+  TERMO_REFERENCIA: "andamento",
+  PESQUISA_PRECOS: "andamento",
+  ANALISE_JURIDICA: "juridico",
+  APROVACAO_INTERNA: "revisao",
+};
 
 /** Map fase → etapa sigla e art */
 const FASE_ETAPA: Record<string, EtapaInfo> = {
-  PLANEJAMENTO:      { sigla: "DFD", art: "Art. 18, I",      progresso: 1, step: "dfd" },
-  TERMO_REFERENCIA:  { sigla: "ETP", art: "Art. 18, §1º",   progresso: 2, step: "etp" },
-  PESQUISA_PRECOS:   { sigla: "PP",  art: "Art. 23",         progresso: 4, step: "pesquisa" },
-  ANALISE_JURIDICA:  { sigla: "TR",  art: "Art. 6º, XXIII",  progresso: 5, step: "tr" },
-  APROVACAO_INTERNA: { sigla: "PJ",  art: "Art. 53",         progresso: 8, step: "juridico" },
-}
+  PLANEJAMENTO: { sigla: "DFD", art: "Art. 18, I", progresso: 1, step: "dfd" },
+  TERMO_REFERENCIA: {
+    sigla: "ETP",
+    art: "Art. 18, §1º",
+    progresso: 2,
+    step: "etp",
+  },
+  PESQUISA_PRECOS: {
+    sigla: "PP",
+    art: "Art. 23",
+    progresso: 4,
+    step: "pesquisa",
+  },
+  ANALISE_JURIDICA: {
+    sigla: "TR",
+    art: "Art. 6º, XXIII",
+    progresso: 5,
+    step: "tr",
+  },
+  APROVACAO_INTERNA: {
+    sigla: "PJ",
+    art: "Art. 53",
+    progresso: 8,
+    step: "juridico",
+  },
+};
 
 const DOCUMENTO_ETAPA: Record<string, EtapaInfo> = {
   DFD: { sigla: "DFD", art: "Art. 18, I", progresso: 1, step: "dfd" },
@@ -75,133 +102,171 @@ const DOCUMENTO_ETAPA: Record<string, EtapaInfo> = {
   AA: { sigla: "AUT", art: "Art. 18, II", progresso: 6, step: "autorizacao" },
   ME: { sigla: "ED", art: "Art. 25", progresso: 7, step: "edital" },
   PJ: { sigla: "PJ", art: "Art. 53", progresso: 8, step: "juridico" },
-}
+};
 
 /** Status filter tabs */
-type FilterTab = "todos" | "rascunho" | "andamento" | "revisao" | "juridico" | "aprovado"
+type FilterTab =
+  | "todos"
+  | "rascunho"
+  | "andamento"
+  | "revisao"
+  | "juridico"
+  | "aprovado";
 
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
-  { key: "todos",     label: "Todos" },
-  { key: "rascunho",  label: "Rascunho" },
+  { key: "todos", label: "Todos" },
+  { key: "rascunho", label: "Rascunho" },
   { key: "andamento", label: "Em andamento" },
-  { key: "revisao",   label: "Em revisão" },
-  { key: "juridico",  label: "Jurídico" },
-  { key: "aprovado",  label: "Aprovado" },
-]
+  { key: "revisao", label: "Em revisão" },
+  { key: "juridico", label: "Jurídico" },
+  { key: "aprovado", label: "Aprovado" },
+];
 
 /** Status chip styles */
-const STATUS_CHIP: Record<string, { bg: string; text: string; label: string }> = {
-  rascunho:  { bg: "bg-gray-100",    text: "text-gray-600",    label: "Rascunho" },
-  andamento: { bg: "bg-blue-100",    text: "text-[#1351b4]",   label: "Em andamento" },
-  revisao:   { bg: "bg-yellow-100",  text: "text-yellow-700",  label: "Em revisão" },
-  juridico:  { bg: "bg-purple-100",  text: "text-purple-700",  label: "Jurídico" },
-  aprovado:  { bg: "bg-green-100",   text: "text-[#168821]",   label: "Aprovado" },
-}
+const STATUS_CHIP: Record<string, { bg: string; text: string; label: string }> =
+  {
+    rascunho: { bg: "bg-gray-100", text: "text-gray-600", label: "Rascunho" },
+    andamento: {
+      bg: "bg-blue-100",
+      text: "text-[#1351b4]",
+      label: "Em andamento",
+    },
+    revisao: {
+      bg: "bg-yellow-100",
+      text: "text-yellow-700",
+      label: "Em revisão",
+    },
+    juridico: {
+      bg: "bg-purple-100",
+      text: "text-purple-700",
+      label: "Jurídico",
+    },
+    aprovado: { bg: "bg-green-100", text: "text-[#168821]", label: "Aprovado" },
+  };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtMoeda(v: number | string) {
-  const n = typeof v === "string" ? parseFloat(v) : v
-  if (!n || isNaN(n)) return "—"
-  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  if (!n || isNaN(n)) return "—";
+  return n.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 }
 
 function documentoTemConteudo(doc?: Documento) {
-  if (!doc) return false
-  if (doc.descricao?.trim()) return true
-  return !!doc.dados_estruturados && Object.keys(doc.dados_estruturados).length > 0
+  if (!doc) return false;
+  if (doc.descricao?.trim()) return true;
+  return (
+    !!doc.dados_estruturados && Object.keys(doc.dados_estruturados).length > 0
+  );
 }
 
 function calcularEtapaAtual(documentos: Documento[]): EtapaInfo | undefined {
   return documentos.reduce<EtapaInfo | undefined>((ultima, doc) => {
-    if (!documentoTemConteudo(doc)) return ultima
-    const etapa = DOCUMENTO_ETAPA[doc.tipo]
-    if (!etapa) return ultima
-    if (!ultima || etapa.progresso > ultima.progresso) return etapa
-    return ultima
-  }, undefined)
+    if (!documentoTemConteudo(doc)) return ultima;
+    const etapa = DOCUMENTO_ETAPA[doc.tipo];
+    if (!etapa) return ultima;
+    if (!ultima || etapa.progresso > ultima.progresso) return etapa;
+    return ultima;
+  }, undefined);
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProcessosPage() {
-  const [processos, setProcessos] = useState<Licitacao[]>([])
-  const [loading, setLoading] = useState(true)
-  const [excluindoId, setExcluindoId] = useState<string | null>(null)
-  const [busca, setBusca] = useState("")
-  const [filtroTab, setFiltroTab] = useState<FilterTab>("todos")
+  const [processos, setProcessos] = useState<Licitacao[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
+  const [filtroTab, setFiltroTab] = useState<FilterTab>("todos");
 
   useEffect(() => {
-    carregar()
-  }, [])
+    carregar();
+  }, []);
 
   const carregar = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const res = await authFetch(`${API_URL}/api/licitacoes?limit=100`)
+      const res = await authFetch(`${API_URL}/api/licitacoes?limit=100`);
       if (res.ok) {
-        const data = await res.json()
-        const lista: Licitacao[] = Array.isArray(data) ? data : (data.data || data.items || [])
-        const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
-        const enriquecidas = await Promise.all(internas.map(async (processo) => {
-          try {
-            const documentosRes = await authFetch(`${API_URL}/api/fase-interna/${processo.id}/documentos`)
-            if (!documentosRes.ok) return processo
-            const documentos = await documentosRes.json()
-            return { ...processo, etapaAtual: calcularEtapaAtual(documentos) || undefined }
-          } catch {
-            return processo
-          }
-        }))
-        setProcessos(enriquecidas)
+        const data = await res.json();
+        const lista: Licitacao[] = Array.isArray(data)
+          ? data
+          : data.data || data.items || [];
+        const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase));
+        const enriquecidas = await Promise.all(
+          internas.map(async (processo) => {
+            try {
+              const documentosRes = await authFetch(
+                `${API_URL}/api/fase-interna/${processo.id}/documentos`,
+              );
+              if (!documentosRes.ok) return processo;
+              const documentos = await documentosRes.json();
+              return {
+                ...processo,
+                etapaAtual: calcularEtapaAtual(documentos) || undefined,
+              };
+            } catch {
+              return processo;
+            }
+          }),
+        );
+        setProcessos(enriquecidas);
       } else {
-        setProcessos([])
+        setProcessos([]);
       }
     } catch (e) {
-      console.error(e)
-      setProcessos([])
+      console.error(e);
+      setProcessos([]);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const filtrados = processos.filter((p) => {
-    const status = FASE_STATUS[p.fase] || "rascunho"
+    const status = FASE_STATUS[p.fase] || "rascunho";
     const matchBusca =
       !busca ||
       p.numero_processo?.toLowerCase().includes(busca.toLowerCase()) ||
-      p.objeto?.toLowerCase().includes(busca.toLowerCase())
-    const matchTab = filtroTab === "todos" || status === filtroTab
-    return matchBusca && matchTab
-  })
+      p.objeto?.toLowerCase().includes(busca.toLowerCase());
+    const matchTab = filtroTab === "todos" || status === filtroTab;
+    return matchBusca && matchTab;
+  });
 
   const excluirProcesso = async (processo: Licitacao) => {
-    const identificador = processo.numero_processo || processo.objeto || processo.id
+    const identificador =
+      processo.numero_processo || processo.objeto || processo.id;
     const confirmado = window.confirm(
-      `Excluir o processo ${identificador}?\n\nEsta ação remove o processo e não pode ser desfeita.`
-    )
+      `Excluir o processo ${identificador}?\n\nEsta ação remove o processo e não pode ser desfeita.`,
+    );
 
-    if (!confirmado) return
+    if (!confirmado) return;
 
-    setExcluindoId(processo.id)
+    setExcluindoId(processo.id);
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes/${processo.id}`, {
         method: "DELETE",
-      })
+      });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        throw new Error(data?.message || "Erro ao excluir processo")
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.message || "Erro ao excluir processo");
       }
 
-      setProcessos((prev) => prev.filter((p) => p.id !== processo.id))
-      toast.success("Processo excluído com sucesso")
+      setProcessos((prev) => prev.filter((p) => p.id !== processo.id));
+      toast.success("Processo excluído com sucesso");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Erro ao excluir processo")
+      toast.error(
+        error instanceof Error ? error.message : "Erro ao excluir processo",
+      );
     } finally {
-      setExcluindoId(null)
+      setExcluindoId(null);
     }
-  }
+  };
 
   return (
     <div className="p-6 pb-10 max-w-6xl">
@@ -213,7 +278,9 @@ export default function ProcessosPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Processos licitatórios</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Processos licitatórios
+          </h1>
           <p className="text-sm text-gray-500 mt-1">
             {loading
               ? "Carregando…"
@@ -261,7 +328,11 @@ export default function ProcessosPage() {
             </div>
 
             {/* Mais filtros */}
-            <Button variant="ghost" size="sm" className="gap-1.5 ml-auto text-gray-500">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 ml-auto text-gray-500"
+            >
               <Filter className="w-3.5 h-3.5" />
               Mais filtros
             </Button>
@@ -278,7 +349,8 @@ export default function ProcessosPage() {
             </div>
           ) : filtrados.length === 0 ? (
             <div className="py-16 text-center text-gray-400 text-sm">
-              Nenhum processo encontrado. Ajuste os filtros ou crie um novo processo.
+              Nenhum processo encontrado. Ajuste os filtros ou crie um novo
+              processo.
             </div>
           ) : (
             <table className="w-full">
@@ -310,9 +382,14 @@ export default function ProcessosPage() {
               </thead>
               <tbody>
                 {filtrados.map((p) => {
-                  const etapa = p.etapaAtual || FASE_ETAPA[p.fase] || { sigla: "—", art: "—", progresso: 0 }
-                  const status = FASE_STATUS[p.fase] || "rascunho"
-                  const chip = STATUS_CHIP[status] || STATUS_CHIP.rascunho
+                  const etapa = p.etapaAtual ||
+                    FASE_ETAPA[p.fase] || {
+                      sigla: "—",
+                      art: "—",
+                      progresso: 0,
+                    };
+                  const status = FASE_STATUS[p.fase] || "rascunho";
+                  const chip = STATUS_CHIP[status] || STATUS_CHIP.rascunho;
                   return (
                     <tr
                       key={p.id}
@@ -320,8 +397,12 @@ export default function ProcessosPage() {
                     >
                       {/* Nº / Objeto */}
                       <td className="px-5 py-4">
-                        <div className="font-bold text-sm text-gray-900">{p.numero_processo || `#${p.id.slice(0, 8)}`}</div>
-                        <div className="text-xs text-gray-500 mt-0.5 max-w-xs truncate">{p.objeto}</div>
+                        <div className="font-bold text-sm text-gray-900">
+                          {p.numero_processo || `#${p.id.slice(0, 8)}`}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5 max-w-xs truncate">
+                          {p.objeto}
+                        </div>
                       </td>
 
                       {/* Modalidade */}
@@ -334,29 +415,46 @@ export default function ProcessosPage() {
                         <span className="inline-block px-2 py-0.5 rounded text-[11px] font-bold bg-[#ecf3fc] text-[#1351b4] mb-0.5">
                           {etapa.sigla}
                         </span>
-                        <div className="text-[10px] text-gray-400">{etapa.art}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {etapa.art}
+                        </div>
                       </td>
 
                       {/* Progresso */}
                       <td className="px-3 py-4 w-36">
-                        <Progress value={(etapa.progresso / 8) * 100} className="h-1.5 mb-1" />
-                        <div className="text-[10px] text-gray-400">{etapa.progresso}/8</div>
+                        <Progress
+                          value={(etapa.progresso / 8) * 100}
+                          className="h-1.5 mb-1"
+                        />
+                        <div className="text-[10px] text-gray-400">
+                          {etapa.progresso}/8
+                        </div>
                       </td>
 
                       {/* Valor estimado */}
                       <td className="px-3 py-4 text-right">
-                        <div className="text-sm font-bold text-gray-800">{fmtMoeda(p.valor_total_estimado)}</div>
+                        <div className="text-sm font-bold text-gray-800">
+                          {fmtMoeda(p.valor_total_estimado)}
+                        </div>
                       </td>
 
                       {/* Responsável */}
                       <td className="px-3 py-4">
-                        <div className="text-xs font-medium text-gray-700">{p.responsavel || "—"}</div>
-                        {p.area && <div className="text-[10px] text-gray-400">{p.area}</div>}
+                        <div className="text-xs font-medium text-gray-700">
+                          {p.responsavel || "—"}
+                        </div>
+                        {p.area && (
+                          <div className="text-[10px] text-gray-400">
+                            {p.area}
+                          </div>
+                        )}
                       </td>
 
                       {/* Status chip */}
                       <td className="px-3 py-4">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${chip.bg} ${chip.text}`}>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${chip.bg} ${chip.text}`}
+                        >
                           {chip.label}
                         </span>
                       </td>
@@ -378,15 +476,19 @@ export default function ProcessosPage() {
                               <Trash2 className="w-4 h-4" />
                             )}
                           </Button>
-                          <Link href={`/orgao/fase-interna/processos/novo?id=${p.id}&step=${etapa.step || "dfd"}`}>
-                            <Button variant="ghost" size="icon" className="w-7 h-7 hover:bg-[#ecf3fc] hover:text-[#1351b4]">
+                          <Link href={`/orgao/fase-interna/processos/${p.id}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="w-7 h-7 hover:bg-[#ecf3fc] hover:text-[#1351b4]"
+                            >
                               <ChevronRight className="w-4 h-4" />
                             </Button>
                           </Link>
                         </div>
                       </td>
                     </tr>
-                  )
+                  );
                 })}
               </tbody>
             </table>
@@ -394,5 +496,5 @@ export default function ProcessosPage() {
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   LayoutDashboard,
   ListChecks,
@@ -15,16 +15,16 @@ import {
   BookOpen,
   ChevronRight,
   type LucideIcon,
-} from "lucide-react"
-import { API_URL, authFetch } from "@/lib/api"
+} from "lucide-react";
+import { API_URL, authFetch } from "@/lib/api";
 
 type NavItem = {
-  href: string
-  label: string
-  icon: LucideIcon
-  exact?: boolean
-  badge?: number
-}
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  exact?: boolean;
+  badge?: number;
+};
 
 const FASES_INTERNAS = [
   "PLANEJAMENTO",
@@ -32,22 +32,22 @@ const FASES_INTERNAS = [
   "PESQUISA_PRECOS",
   "ANALISE_JURIDICA",
   "APROVACAO_INTERNA",
-]
+];
 
 const SUPPORT_NAV: NavItem[] = [
   { href: "/orgao/pncp", label: "PNCP / Painel Preços", icon: ExternalLink },
   { href: "#", label: "Jurisprudência", icon: Gavel },
   { href: "#", label: "Modelos e checklists", icon: BookOpen },
-]
+];
 
 function NavGroup({
   label,
   items,
   isActive,
 }: {
-  label: string
-  items: NavItem[]
-  isActive: (href: string, exact?: boolean) => boolean
+  label: string;
+  items: NavItem[];
+  isActive: (href: string, exact?: boolean) => boolean;
 }) {
   return (
     <div className="mb-4">
@@ -58,8 +58,8 @@ function NavGroup({
       </div>
       <div className="px-2 space-y-0.5">
         {items.map((item) => {
-          const Icon = item.icon
-          const active = isActive(item.href, item.exact)
+          const Icon = item.icon;
+          const active = isActive(item.href, item.exact);
 
           return (
             <Link
@@ -85,73 +85,84 @@ function NavGroup({
                 <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-40 transition-opacity" />
               )}
             </Link>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }
 
 export function FaseInternaNav() {
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const [procCount, setProcCount] = useState<number | undefined>(undefined)
-  const [aprovCount, setAprovCount] = useState<number | undefined>(undefined)
-  const processoPathId = pathname.match(/\/orgao\/fase-interna\/processos\/([^/]+)/)?.[1]
-  const processoQueryId = searchParams.get("id")
-  const processoId = processoPathId === "novo" ? processoQueryId : processoPathId
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [procCount, setProcCount] = useState<number | undefined>(undefined);
+  const [aprovCount, setAprovCount] = useState<number | undefined>(undefined);
+  const processoPathId = pathname.match(
+    /\/orgao\/fase-interna\/processos\/([^/]+)/,
+  )?.[1];
+  const processoQueryId = searchParams.get("id");
+  const processoId =
+    processoPathId === "novo" ? processoQueryId : processoPathId;
   const processoBase = processoId
     ? `/orgao/fase-interna/processos/${processoId}`
-    : "/orgao/fase-interna/processos"
+    : "/orgao/fase-interna/processos";
 
   useEffect(() => {
-    let isMounted = true
+    let isMounted = true;
     const carregar = async () => {
       try {
-        const licRes = await authFetch(`${API_URL}/api/licitacoes?limit=100`)
+        const licRes = await authFetch(`${API_URL}/api/licitacoes?limit=100`);
         if (licRes.ok) {
-          const data = await licRes.json()
-          const lista: any[] = Array.isArray(data) ? data : (data.data || data.items || [])
-          const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
-          if (isMounted) setProcCount(internas.length)
+          const data = await licRes.json();
+          const lista: any[] = Array.isArray(data)
+            ? data
+            : data.data || data.items || [];
+          const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase));
+          if (isMounted) setProcCount(internas.length);
         } else {
-          if (isMounted) setProcCount(0)
+          if (isMounted) setProcCount(0);
         }
 
-        const meRes = await authFetch(`${API_URL}/api/auth/me`)
-        let orgaoId: string | undefined
+        const meRes = await authFetch(`${API_URL}/api/auth/me`);
+        let orgaoId: string | undefined;
         if (meRes.ok) {
-          const meData = await meRes.json()
-          orgaoId = meData?.orgao?.id || meData?.orgaoId
+          const meData = await meRes.json();
+          orgaoId = meData?.orgao?.id || meData?.orgaoId;
         }
         if (!orgaoId) {
-          if (isMounted) setAprovCount(0)
+          if (isMounted) setAprovCount(0);
         } else {
-          const apRes = await authFetch(`${API_URL}/api/fase-interna/aprovacoes?orgao_id=${orgaoId}`)
+          const apRes = await authFetch(
+            `${API_URL}/api/fase-interna/aprovacoes?orgao_id=${orgaoId}`,
+          );
           if (apRes.ok) {
-            const apData = await apRes.json()
-            const len = Array.isArray(apData) ? apData.length : (apData?.data?.length || apData?.items?.length || 0)
-            if (isMounted) setAprovCount(len)
+            const apData = await apRes.json();
+            const len = Array.isArray(apData)
+              ? apData.length
+              : apData?.data?.length || apData?.items?.length || 0;
+            if (isMounted) setAprovCount(len);
           } else {
-            if (isMounted) setAprovCount(0)
+            if (isMounted) setAprovCount(0);
           }
         }
       } catch {
         if (isMounted) {
-          setProcCount(0)
-          setAprovCount(0)
+          setProcCount(0);
+          setAprovCount(0);
         }
       }
-    }
-    carregar()
+    };
+    carregar();
     return () => {
-      isMounted = false
-    }
-  }, [])
+      isMounted = false;
+    };
+  }, []);
 
   const documentNav: NavItem[] = [
     {
-      href: processoId ? `/orgao/fase-interna/processos/novo?id=${processoId}&step=dfd` : processoBase,
+      href: processoId
+        ? `/orgao/fase-interna/processos/novo?id=${processoId}&step=dfd`
+        : processoBase,
       label: "Editor de TR / DFD / ETP",
       icon: FileText,
     },
@@ -165,19 +176,37 @@ export function FaseInternaNav() {
       label: "Pesquisa de Preços",
       icon: DollarSign,
     },
-  ]
+  ];
 
   const isActive = (href: string, exact?: boolean) => {
-    if (href === "#") return false
-    if (exact) return pathname === href
-    return pathname === href || pathname.startsWith(`${href}/`)
-  }
+    if (href === "#") return false;
+    if (exact) return pathname === href;
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
 
   const WORK_NAV: NavItem[] = [
-    { href: "/orgao/fase-interna", label: "Painel", icon: LayoutDashboard, exact: true },
-    { href: "/orgao/fase-interna/processos", label: "Processos", icon: ListChecks, badge: typeof procCount === "number" ? procCount : undefined },
-    { href: "/orgao/fase-interna/aprovacoes", label: "Aprovações", icon: CheckSquare, badge: typeof aprovCount === "number" ? aprovCount : undefined },
-  ]
+    {
+      href: "/orgao/fase-interna",
+      label: "Painel",
+      icon: LayoutDashboard,
+      exact: true,
+    },
+    {
+      href: "/orgao/fase-interna/processos",
+      label: "Processos",
+      icon: ListChecks,
+      badge: typeof procCount === "number" ? procCount : undefined,
+    },
+    ...(processoId
+      ? [{ href: processoBase, label: "Dossiê do processo", icon: FileText }]
+      : []),
+    {
+      href: "/orgao/fase-interna/aprovacoes",
+      label: "Aprovações",
+      icon: CheckSquare,
+      badge: typeof aprovCount === "number" ? aprovCount : undefined,
+    },
+  ];
 
   return (
     <aside className="w-56 shrink-0 bg-white border-r border-gray-100 flex flex-col py-4 overflow-y-auto">
@@ -187,8 +216,12 @@ export function FaseInternaNav() {
             <span className="text-white text-xs font-black">FI</span>
           </div>
           <div>
-            <div className="text-xs font-bold text-[#1351b4] leading-none">Fase Interna</div>
-            <div className="text-[10px] text-gray-400 leading-none mt-0.5">Lei 14.133/2021</div>
+            <div className="text-xs font-bold text-[#1351b4] leading-none">
+              Fase Interna
+            </div>
+            <div className="text-[10px] text-gray-400 leading-none mt-0.5">
+              Lei 14.133/2021
+            </div>
           </div>
         </div>
       </div>
@@ -201,5 +234,5 @@ export function FaseInternaNav() {
       />
       <NavGroup label="Apoio" items={SUPPORT_NAV} isActive={isActive} />
     </aside>
-  )
+  );
 }
