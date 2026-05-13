@@ -1,12 +1,24 @@
 import {
-  Controller, Get, Post, Put, Delete, Param, Body, Query,
-  UseInterceptors, UploadedFile, BadRequestException,
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { FaseInternaService } from './fase-interna.service';
-import { TipoDocumentoFaseInterna, OrigemDocumento } from './entities/documento-fase-interna.entity';
+import {
+  TipoDocumentoFaseInterna,
+  OrigemDocumento,
+} from './entities/documento-fase-interna.entity';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
 import { GeradorPpService } from './gerador-pp.service';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
@@ -24,13 +36,14 @@ export class FaseInternaController {
   @Post(':licitacaoId/documento')
   async criarDocumento(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       tipo: TipoDocumentoFaseInterna;
       titulo: string;
       descricao?: string;
       criadorId?: string;
       criadorNome?: string;
-    }
+    },
   ) {
     return this.faseInternaService.criarDocumento(
       licitacaoId,
@@ -38,14 +51,15 @@ export class FaseInternaController {
       body.titulo,
       body.descricao,
       body.criadorId,
-      body.criadorNome
+      body.criadorNome,
     );
   }
 
   @Post(':licitacaoId/importar-documento')
   async importarDocumento(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       tipo: TipoDocumentoFaseInterna;
       titulo: string;
       origem: OrigemDocumento;
@@ -54,7 +68,7 @@ export class FaseInternaController {
       nomeArquivo?: string;
       caminhoArquivo?: string;
       hashArquivo?: string;
-    }
+    },
   ) {
     return this.faseInternaService.importarDocumento(
       licitacaoId,
@@ -65,13 +79,14 @@ export class FaseInternaController {
       body.idExterno,
       body.nomeArquivo,
       body.caminhoArquivo,
-      body.hashArquivo
+      body.hashArquivo,
     );
   }
 
   @Post('importar-processo')
   async importarProcessoCompleto(
-    @Body() body: {
+    @Body()
+    body: {
       sistemaOrigem: string;
       idExterno: string;
       numero_processo: string;
@@ -84,7 +99,7 @@ export class FaseInternaController {
         idExterno: string;
         caminhoArquivo?: string;
       }>;
-    }
+    },
   ) {
     return this.faseInternaService.importarProcessoCompleto(body);
   }
@@ -97,7 +112,7 @@ export class FaseInternaController {
   @Get(':licitacaoId/documentos/:tipo')
   async getDocumentosPorTipo(
     @Param('licitacaoId') licitacaoId: string,
-    @Param('tipo') tipo: TipoDocumentoFaseInterna
+    @Param('tipo') tipo: TipoDocumentoFaseInterna,
   ) {
     return this.faseInternaService.getDocumentosPorTipo(licitacaoId, tipo);
   }
@@ -117,26 +132,28 @@ export class FaseInternaController {
   @Put('documento/:id/aprovar')
   async aprovarDocumento(
     @Param('id') id: string,
-    @Body() body: { aprovadorId: string; aprovadorNome: string; observacao?: string }
+    @Body()
+    body: { aprovadorId: string; aprovadorNome: string; observacao?: string },
   ) {
     return this.faseInternaService.aprovarDocumento(
       id,
       body.aprovadorId,
       body.aprovadorNome,
-      body.observacao
+      body.observacao,
     );
   }
 
   @Put('documento/:id/reprovar')
   async reprovarDocumento(
     @Param('id') id: string,
-    @Body() body: { aprovadorId: string; aprovadorNome: string; observacao: string }
+    @Body()
+    body: { aprovadorId: string; aprovadorNome: string; observacao: string },
   ) {
     return this.faseInternaService.reprovarDocumento(
       id,
       body.aprovadorId,
       body.aprovadorNome,
-      body.observacao
+      body.observacao,
     );
   }
 
@@ -174,7 +191,8 @@ export class FaseInternaController {
   @Post(':licitacaoId/riscos')
   async adicionarRisco(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       descricao: string;
       categoria: string;
       probabilidade: 1 | 2 | 3 | 4 | 5;
@@ -182,7 +200,7 @@ export class FaseInternaController {
       mitigacao: string;
       responsavel?: string;
       prazo?: string;
-    }
+    },
   ) {
     return this.faseInternaService.adicionarRisco(licitacaoId, body);
   }
@@ -191,7 +209,8 @@ export class FaseInternaController {
   async atualizarRisco(
     @Param('licitacaoId') licitacaoId: string,
     @Param('riscoId') riscoId: string,
-    @Body() body: Partial<{
+    @Body()
+    body: Partial<{
       descricao: string;
       categoria: string;
       probabilidade: 1 | 2 | 3 | 4 | 5;
@@ -200,7 +219,7 @@ export class FaseInternaController {
       responsavel: string;
       prazo: string;
       status: 'identificado' | 'mitigado' | 'aceito';
-    }>
+    }>,
   ) {
     return this.faseInternaService.atualizarRisco(licitacaoId, riscoId, body);
   }
@@ -208,12 +227,17 @@ export class FaseInternaController {
   @Delete(':licitacaoId/riscos/:riscoId')
   async removerRisco(
     @Param('licitacaoId') licitacaoId: string,
-    @Param('riscoId') riscoId: string
+    @Param('riscoId') riscoId: string,
   ) {
     return this.faseInternaService.removerRisco(licitacaoId, riscoId);
   }
 
   // === PESQUISA DE PRECOS ===
+
+  @Get('publico/precos/:licitacaoId')
+  async getPrecosPublicos(@Param('licitacaoId') licitacaoId: string) {
+    return this.faseInternaService.getPrecosPublicos(licitacaoId);
+  }
 
   @Get(':licitacaoId/precos')
   async getPrecos(@Param('licitacaoId') licitacaoId: string) {
@@ -223,7 +247,8 @@ export class FaseInternaController {
   @Post(':licitacaoId/precos/item')
   async adicionarItemPesquisa(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       descricao: string;
       quantidade: number;
       unidade: string;
@@ -235,15 +260,20 @@ export class FaseInternaController {
   ) {
     const dados = await this.faseInternaService.getPrecos(licitacaoId);
     const proximoNumero = (dados.dados?.itens?.length ?? 0) + 1;
-    const codigoCatalogo = body.codigo_catalogo || body.codigo_catmat || body.codigo_catser;
+    const codigoCatalogo =
+      body.codigo_catalogo || body.codigo_catmat || body.codigo_catser;
     return this.faseInternaService.adicionarItemPesquisa(licitacaoId, {
       item_numero: proximoNumero,
       descricao: body.descricao,
       quantidade: body.quantidade || 1,
       unidade: body.unidade || 'UN',
       codigo_catalogo: codigoCatalogo,
-      codigo_catmat: body.codigo_catmat || (body.tipo_catalogo === 'MATERIAL' ? codigoCatalogo : undefined),
-      codigo_catser: body.codigo_catser || (body.tipo_catalogo === 'SERVICO' ? codigoCatalogo : undefined),
+      codigo_catmat:
+        body.codigo_catmat ||
+        (body.tipo_catalogo === 'MATERIAL' ? codigoCatalogo : undefined),
+      codigo_catser:
+        body.codigo_catser ||
+        (body.tipo_catalogo === 'SERVICO' ? codigoCatalogo : undefined),
       tipo_catalogo: body.tipo_catalogo,
       cotacoes: [],
       metodologia: 'MEDIANA',
@@ -256,37 +286,68 @@ export class FaseInternaController {
     @Param('licitacaoId') licitacaoId: string,
     @Param('itemNumero') itemNumero: string,
   ) {
-    return this.faseInternaService.removerItemPesquisa(licitacaoId, parseInt(itemNumero));
+    return this.faseInternaService.removerItemPesquisa(
+      licitacaoId,
+      parseInt(itemNumero),
+    );
   }
 
   @Put(':licitacaoId/precos/metodologia')
   async salvarMetodologia(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA';
       justificativa?: string;
-      outliers?: Array<{ item_numero: number; cotacao_index: number; motivo: string }>;
+      outliers?: Array<{
+        item_numero: number;
+        cotacao_index: number;
+        motivo: string;
+      }>;
     },
   ) {
-    return this.faseInternaService.salvarMetodologiaPP(licitacaoId, body.metodologia, body.justificativa, body.outliers);
+    return this.faseInternaService.salvarMetodologiaPP(
+      licitacaoId,
+      body.metodologia,
+      body.justificativa,
+      body.outliers,
+    );
   }
 
   @Put(':licitacaoId/precos/responsavel')
   async salvarResponsavel(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: { nome: string; cargo: string; matricula?: string; observacoes?: string; data_pesquisa?: string },
+    @Body()
+    body: {
+      nome: string;
+      cargo: string;
+      matricula?: string;
+      observacoes?: string;
+      data_pesquisa?: string;
+    },
   ) {
-    return this.faseInternaService.salvarResponsavelPP(licitacaoId, body, body.observacoes, body.data_pesquisa);
+    return this.faseInternaService.salvarResponsavelPP(
+      licitacaoId,
+      body,
+      body.observacoes,
+      body.data_pesquisa,
+    );
   }
 
   @Post(':licitacaoId/precos/fonte')
   async adicionarFontePreco(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       itemNumero: number;
       cotacao: any & {
         fonte: string;
-        tipo: 'PNCP' | 'PAINEL_PRECOS' | 'COTACAO_DIRETA' | 'CATALOGO' | 'ORCAMENTO';
+        tipo:
+          | 'PNCP'
+          | 'PAINEL_PRECOS'
+          | 'COTACAO_DIRETA'
+          | 'CATALOGO'
+          | 'ORCAMENTO';
         valor_unitario: number;
         data_pesquisa: string;
         fornecedor?: string;
@@ -294,28 +355,33 @@ export class FaseInternaController {
         observacao?: string;
         valida?: boolean;
       };
-    }
+    },
   ) {
-    return this.faseInternaService.adicionarFontePreco(licitacaoId, body.itemNumero, body.cotacao);
+    return this.faseInternaService.adicionarFontePreco(
+      licitacaoId,
+      body.itemNumero,
+      body.cotacao,
+    );
   }
 
   @Delete(':licitacaoId/precos/fonte')
   async removerFontePreco(
     @Param('licitacaoId') licitacaoId: string,
     @Query('item') itemNumero: string,
-    @Query('index') cotacaoIndex: string
+    @Query('index') cotacaoIndex: string,
   ) {
     return this.faseInternaService.removerFontePreco(
       licitacaoId,
       parseInt(itemNumero),
-      parseInt(cotacaoIndex)
+      parseInt(cotacaoIndex),
     );
   }
 
   @Post(':licitacaoId/precos/agente/executar')
   async executarAgentePrecos(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       itemNumero?: number;
       itemNumeros?: number[];
       fontes?: FontePesquisaTipo[];
@@ -324,7 +390,7 @@ export class FaseInternaController {
       autoAprovar?: boolean;
       iniciadoPorId?: string;
       iniciadoPorNome?: string;
-    }
+    },
   ) {
     const b = body || {};
     // aceita itemNumero singular como alias
@@ -334,7 +400,10 @@ export class FaseInternaController {
         ? [b.itemNumero]
         : undefined;
 
-    const execucao = await this.pesquisaPrecosAgentService.executar(licitacaoId, { ...b, itemNumeros });
+    const execucao = await this.pesquisaPrecosAgentService.executar(
+      licitacaoId,
+      { ...b, itemNumeros },
+    );
 
     if (b.autoAprovar && execucao.candidatos?.length) {
       for (const candidato of execucao.candidatos) {
@@ -358,14 +427,15 @@ export class FaseInternaController {
   async executarAgentePrecosItem(
     @Param('licitacaoId') licitacaoId: string,
     @Param('itemNumero') itemNumero: string,
-    @Body() body: {
+    @Body()
+    body: {
       fontes?: FontePesquisaTipo[];
       maxPorFonte?: number;
       usarBrowserFallback?: boolean;
       autoAprovar?: boolean;
       iniciadoPorId?: string;
       iniciadoPorNome?: string;
-    }
+    },
   ) {
     return this.executarAgentePrecos(licitacaoId, {
       ...(body || {}),
@@ -381,28 +451,35 @@ export class FaseInternaController {
   @Get(':licitacaoId/precos/agente/execucoes/:execucaoId')
   async obterExecucaoAgentePrecos(
     @Param('licitacaoId') licitacaoId: string,
-    @Param('execucaoId') execucaoId: string
+    @Param('execucaoId') execucaoId: string,
   ) {
-    return this.pesquisaPrecosAgentService.obterExecucao(licitacaoId, execucaoId);
+    return this.pesquisaPrecosAgentService.obterExecucao(
+      licitacaoId,
+      execucaoId,
+    );
   }
 
   @Post(':licitacaoId/precos/agente/candidatos/:candidateId/aprovar')
   async aprovarCandidatoPreco(
     @Param('licitacaoId') licitacaoId: string,
     @Param('candidateId') candidateId: string,
-    @Body() body: { decisorId?: string; decisorNome?: string }
+    @Body() body: { decisorId?: string; decisorNome?: string },
   ) {
-    return this.pesquisaPrecosAgentService.aprovarCandidato(licitacaoId, candidateId, {
-      id: body?.decisorId,
-      nome: body?.decisorNome,
-    });
+    return this.pesquisaPrecosAgentService.aprovarCandidato(
+      licitacaoId,
+      candidateId,
+      {
+        id: body?.decisorId,
+        nome: body?.decisorNome,
+      },
+    );
   }
 
   @Post(':licitacaoId/precos/agente/candidatos/:candidateId/rejeitar')
   async rejeitarCandidatoPreco(
     @Param('licitacaoId') licitacaoId: string,
     @Param('candidateId') candidateId: string,
-    @Body() body: { motivo?: string; decisorId?: string; decisorNome?: string }
+    @Body() body: { motivo?: string; decisorId?: string; decisorNome?: string },
   ) {
     return this.pesquisaPrecosAgentService.rejeitarCandidato(
       licitacaoId,
@@ -415,7 +492,8 @@ export class FaseInternaController {
   @Post(':licitacaoId/precos/agente/nfe/importar')
   async importarNfeAgentePrecos(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       itemNumero: number;
       descricaoFonte?: string;
       urlReferencia?: string;
@@ -425,7 +503,7 @@ export class FaseInternaController {
       dataPesquisa?: string;
       documentoPath?: string;
       documentoHash?: string;
-    }
+    },
   ) {
     return this.pesquisaPrecosAgentService.importarNfe(licitacaoId, body);
   }
@@ -435,23 +513,42 @@ export class FaseInternaController {
     FileInterceptor('file', {
       storage: diskStorage({
         destination: (req, _file, cb) => {
-          const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
-          const destPath = join(uploadPath, 'pesquisa-precos', req.params.licitacaoId);
+          const uploadPath =
+            process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+          const destPath = join(
+            uploadPath,
+            'pesquisa-precos',
+            req.params.licitacaoId,
+          );
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const fs = require('fs');
-          if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+          if (!fs.existsSync(destPath))
+            fs.mkdirSync(destPath, { recursive: true });
           cb(null, destPath);
         },
         filename: (_req, file, cb) => {
           const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-          cb(null, `fonte-precos-${unique}${extname(file.originalname) || '.csv'}`);
+          cb(
+            null,
+            `fonte-precos-${unique}${extname(file.originalname) || '.csv'}`,
+          );
         },
       }),
       fileFilter: (_req, file, cb) => {
         const nome = file.originalname.toLowerCase();
-        const allowed = ['text/csv', 'application/csv', 'application/vnd.ms-excel', 'text/plain'];
+        const allowed = [
+          'text/csv',
+          'application/csv',
+          'application/vnd.ms-excel',
+          'text/plain',
+        ];
         if (!nome.endsWith('.csv') && !allowed.includes(file.mimetype)) {
-          return cb(new BadRequestException('Apenas arquivos CSV da Fonte de Precos sao aceitos'), false);
+          return cb(
+            new BadRequestException(
+              'Apenas arquivos CSV da Fonte de Precos sao aceitos',
+            ),
+            false,
+          );
         }
         cb(null, true);
       },
@@ -467,7 +564,11 @@ export class FaseInternaController {
     const fs = require('fs');
     const buffer = fs.readFileSync(file.path);
     const relPath = join('pesquisa-precos', licitacaoId, file.filename);
-    return this.faseInternaService.importarCsvFontePrecos(licitacaoId, buffer, relPath);
+    return this.faseInternaService.importarCsvFontePrecos(
+      licitacaoId,
+      buffer,
+      relPath,
+    );
   }
 
   // === APROVACOES AGREGADAS ===
@@ -482,7 +583,8 @@ export class FaseInternaController {
   @Post(':licitacaoId/wizard')
   async salvarWizard(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       dfd?: string;
       etp?: Record<string, any>;
       riscos?: Array<any>;
@@ -493,7 +595,7 @@ export class FaseInternaController {
       parecerJuridico?: string;
       criadorId?: string;
       criadorNome?: string;
-    }
+    },
   ) {
     return this.faseInternaService.salvarWizard(licitacaoId, body);
   }
@@ -505,11 +607,17 @@ export class FaseInternaController {
     FileInterceptor('file', {
       storage: diskStorage({
         destination: (req, _file, cb) => {
-          const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
-          const destPath = join(uploadPath, 'pesquisa-precos', req.params.licitacaoId);
+          const uploadPath =
+            process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+          const destPath = join(
+            uploadPath,
+            'pesquisa-precos',
+            req.params.licitacaoId,
+          );
           // eslint-disable-next-line @typescript-eslint/no-require-imports
           const fs = require('fs');
-          if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+          if (!fs.existsSync(destPath))
+            fs.mkdirSync(destPath, { recursive: true });
           cb(null, destPath);
         },
         filename: (_req, file, cb) => {
@@ -518,9 +626,17 @@ export class FaseInternaController {
         },
       }),
       fileFilter: (_req, file, cb) => {
-        const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+        const allowed = [
+          'application/pdf',
+          'image/jpeg',
+          'image/png',
+          'image/jpg',
+        ];
         if (!allowed.includes(file.mimetype)) {
-          return cb(new BadRequestException('Apenas PDF, JPG e PNG são aceitos'), false);
+          return cb(
+            new BadRequestException('Apenas PDF, JPG e PNG são aceitos'),
+            false,
+          );
         }
         cb(null, true);
       },
@@ -548,7 +664,8 @@ export class FaseInternaController {
   @Post(':licitacaoId/precos/gerar-documento')
   async gerarDocumentoPP(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: {
+    @Body()
+    body: {
       responsavel: { nome: string; cargo: string; matricula?: string };
       metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA';
       justificativaMetodologia?: string;

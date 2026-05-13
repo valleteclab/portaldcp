@@ -246,7 +246,12 @@ export class PesquisaPrecosAgentService {
         candidato.score
           ? `Score de aderencia: ${Number(candidato.score).toFixed(2)}`
           : '',
-        ...(candidato.flags || []),
+        ...(candidato.flags || []).filter(
+          (flag) =>
+            !/Fonte complementar Fonte de Precos: validar comprovante antes de aprovar como fonte oficial/i.test(
+              flag,
+            ),
+        ),
       ]
         .filter(Boolean)
         .join(' | '),

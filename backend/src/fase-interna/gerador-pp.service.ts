@@ -5,6 +5,7 @@ import { join } from 'path';
 import { existsSync, mkdirSync, createWriteStream } from 'fs';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemPesquisaPrecos } from './types/pesquisa-precos.type';
+import * as QRCode from 'qrcode';
 
 const PDFDocument = require('pdfkit');
 
@@ -74,6 +75,12 @@ export class GeradorPpService {
     const filename = `PP_${timestamp}.pdf`;
     const filePath = join(dirPath, filename);
     const relativePath = `pesquisa-precos/${licitacaoId}/${filename}`;
+    const urlPublica = `${this.getFrontendUrl()}/pesquisa-precos/publica/${licitacaoId}`;
+    const qrCodeBuffer = await QRCode.toBuffer(urlPublica, {
+      type: 'png',
+      width: 160,
+      margin: 1,
+    });
 
     return new Promise((resolve, reject) => {
       try {
@@ -128,6 +135,19 @@ export class GeradorPpService {
         const limitarTexto = (texto: string, limite = 650) =>
           texto.length > limite ? `${texto.slice(0, limite - 3)}...` : texto;
 
+        const limparObservacaoCotacao = (observacao?: string) =>
+          String(observacao || '')
+            .split('|')
+            .map((parte) => parte.trim())
+            .filter(
+              (parte) =>
+                parte &&
+                !/Fonte complementar Fonte de Precos: validar comprovante antes de aprovar como fonte oficial/i.test(
+                  parte,
+                ),
+            )
+            .join(' | ');
+
         const montarOrigemCotacao = (
           cot: ItemPesquisaPrecos['cotacoes'][number],
         ) => {
@@ -136,7 +156,7 @@ export class GeradorPpService {
             cot.fornecedor_razao_social
               ? `Fornecedor: ${cot.fornecedor_razao_social}${cot.fornecedor_cnpj ? ` (${cot.fornecedor_cnpj})` : ''}`
               : '',
-            cot.observacao,
+            limparObservacaoCotacao(cot.observacao),
           ]
             .filter(Boolean)
             .map((parte) => String(parte).replace(/\s+/g, ' ').trim());
@@ -144,13 +164,24 @@ export class GeradorPpService {
           return limitarTexto(partes.join('\n'), 720) || '-';
         };
 
-        const montarEvidenciaCotacao = (
+        const formatFonteCotacao = (
           cot: ItemPesquisaPrecos['cotacoes'][number],
         ) => {
-          const evidencias: string[] = [];
-          if (cot.url_referencia) evidencias.push('Link');
-          if (cot.documento_comprobatorio_path) evidencias.push('Comprovante');
-          return evidencias.length ? evidencias.join(' + ') : '-';
+          if (
+            /Fonte de Precos/i.test(`${cot.descricao_fonte} ${cot.observacao}`)
+          ) {
+            return 'Fonte de Preços';
+          }
+          const labels: Record<string, string> = {
+            PAINEL_DE_PRECOS: 'Compras.gov.br',
+            PNCP: 'PNCP',
+            CONTRATO_VIGENTE_SISTEMA: 'Contrato vigente',
+            MIDIA_ESPECIALIZADA: 'Mídia especializada',
+            FORNECEDOR_DIRETO: 'Fornecedor',
+            NOTA_FISCAL_ELETRONICA: 'NF-e',
+            OUTRA: 'Outra',
+          };
+          return labels[cot.fonte] || cot.fonte || '-';
         };
 
         const metodologiaLabel: Record<string, string> = {
@@ -364,14 +395,13 @@ export class GeradorPpService {
 
           // Tabela de cotações
           if (item.cotacoes && item.cotacoes.length > 0) {
-            const colWidths = [25, 70, 230, 58, 72, 40];
+            const colWidths = [25, 90, 250, 58, 72];
             const headers = [
               'Nº',
               'Fonte',
               'Origem / processo / fornecedor',
               'Data',
               'Vl. Unit.',
-              'Evid.',
             ];
             const tableX = marginL;
             let tableY = doc.y;
@@ -420,11 +450,10 @@ export class GeradorPpService {
               colX = tableX;
               const rowData = [
                 String(ci + 1),
-                cot.fonte || '-',
+                formatFonteCotacao(cot),
                 origemText,
                 formatDateBR(cot.data_pesquisa),
                 formatCurrency(cot.valor_unitario || 0),
-                montarEvidenciaCotacao(cot),
               ];
 
               for (let col = 0; col < rowData.length; col++) {
@@ -688,9 +717,14 @@ export class GeradorPpService {
           });
         }
         doc.moveDown(0.2);
-        doc.text(`Data: ${dados.dataAssinatura}`, marginL, doc.y, {
-          width: contentW,
-        });
+        doc.text(
+          `Data: ${formatDateBR(dados.dataAssinatura)}`,
+          marginL,
+          doc.y,
+          {
+            width: contentW,
+          },
+        );
 
         // Linha para assinatura
         doc.moveDown(1.5);
@@ -711,6 +745,52 @@ export class GeradorPpService {
           width: 200,
           align: 'center',
         });
+
+        // ─── QR CODE PÚBLICO ─────────────────────────────────────────────────
+        if (doc.y > doc.page.height - 145) {
+          doc.addPage();
+          addPageHeader();
+          doc.y = 55;
+        }
+
+        doc.moveDown(1);
+        const qrSize = 72;
+        const qrY = doc.y;
+        const qrX = pageW - marginR - qrSize;
+        doc
+          .moveTo(marginL, qrY - 6)
+          .lineTo(pageW - marginR, qrY - 6)
+          .lineWidth(0.5)
+          .stroke('#d1d5db');
+        doc
+          .fontSize(9)
+          .font('Helvetica-Bold')
+          .fillColor('#111827')
+          .text('Consulta pública da cotação', marginL, qrY, {
+            width: contentW - qrSize - 18,
+          });
+        doc.moveDown(0.25);
+        doc
+          .fontSize(8)
+          .font('Helvetica')
+          .fillColor('#374151')
+          .text(
+            'Aponte a câmera para o QR Code para consultar os dados públicos da pesquisa de preços, itens, fontes, valores e referências.',
+            marginL,
+            doc.y,
+            { width: contentW - qrSize - 18 },
+          );
+        doc.moveDown(0.2);
+        doc
+          .fontSize(7)
+          .fillColor('#1d4ed8')
+          .text(urlPublica, marginL, doc.y, {
+            width: contentW - qrSize - 18,
+            link: urlPublica,
+            underline: true,
+          });
+        doc.image(qrCodeBuffer, qrX, qrY, { width: qrSize, height: qrSize });
+        doc.y = Math.max(doc.y, qrY + qrSize + 6);
 
         // ─── RODAPÉS ──────────────────────────────────────────────────────────
         const totalPages = doc.bufferedPageRange().count;
@@ -756,5 +836,14 @@ export class GeradorPpService {
       .replace(/^\/+/, '');
 
     return caminhoRelativo ? join(this.uploadDir, caminhoRelativo) : null;
+  }
+
+  private getFrontendUrl(): string {
+    return (
+      process.env.FRONTEND_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.APP_URL ||
+      'http://localhost:3001'
+    ).replace(/\/$/, '');
   }
 }

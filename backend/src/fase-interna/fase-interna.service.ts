@@ -1,11 +1,32 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { DocumentoFaseInterna, TipoDocumentoFaseInterna, StatusDocumento, OrigemDocumento } from './entities/documento-fase-interna.entity';
-import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
+import {
+  DocumentoFaseInterna,
+  TipoDocumentoFaseInterna,
+  StatusDocumento,
+  OrigemDocumento,
+} from './entities/documento-fase-interna.entity';
+import {
+  Licitacao,
+  FaseLicitacao,
+} from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
-import { RiscoIdentificado, MatrizRiscosDados, calcularGrauRisco } from './types/matriz-riscos.type';
-import { CotacaoPorFonte, ItemPesquisaPrecos, PesquisaPrecosDados, calcularEstatisticasItem } from './types/pesquisa-precos.type';
+import {
+  RiscoIdentificado,
+  MatrizRiscosDados,
+  calcularGrauRisco,
+} from './types/matriz-riscos.type';
+import {
+  CotacaoPorFonte,
+  ItemPesquisaPrecos,
+  PesquisaPrecosDados,
+  calcularEstatisticasItem,
+} from './types/pesquisa-precos.type';
 
 /**
  * Servico para gerenciamento da Fase Interna (Preparatoria)
@@ -26,7 +47,9 @@ export class FaseInternaService {
   // DOCUMENTOS OBRIGATORIOS POR FASE
   // ========================================
 
-  private getDocumentosObrigatorios(fase: FaseLicitacao): TipoDocumentoFaseInterna[] {
+  private getDocumentosObrigatorios(
+    fase: FaseLicitacao,
+  ): TipoDocumentoFaseInterna[] {
     const documentosPorFase: Record<string, TipoDocumentoFaseInterna[]> = {
       [FaseLicitacao.PLANEJAMENTO]: [
         TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA,
@@ -63,16 +86,18 @@ export class FaseInternaService {
     titulo: string,
     descricao?: string,
     criadorId?: string,
-    criadorNome?: string
+    criadorNome?: string,
   ): Promise<DocumentoFaseInterna> {
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
     if (!licitacao) {
       throw new NotFoundException('Licitacao nao encontrada');
     }
 
     // Verifica se ja existe documento do mesmo tipo (versao atual)
     const existente = await this.documentoRepository.findOne({
-      where: { licitacao_id: licitacaoId, tipo, versao_atual: true }
+      where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
     });
 
     if (existente) {
@@ -99,7 +124,10 @@ export class FaseInternaService {
     return await this.documentoRepository.save(documento);
   }
 
-  private isDocumentoObrigatorio(fase: FaseLicitacao, tipo: TipoDocumentoFaseInterna): boolean {
+  private isDocumentoObrigatorio(
+    fase: FaseLicitacao,
+    tipo: TipoDocumentoFaseInterna,
+  ): boolean {
     const obrigatorios = this.getDocumentosObrigatorios(fase);
     return obrigatorios.includes(tipo);
   }
@@ -117,9 +145,11 @@ export class FaseInternaService {
     idExterno: string,
     nomeArquivo?: string,
     caminhoArquivo?: string,
-    hashArquivo?: string
+    hashArquivo?: string,
   ): Promise<DocumentoFaseInterna> {
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
     if (!licitacao) {
       throw new NotFoundException('Licitacao nao encontrada');
     }
@@ -186,7 +216,7 @@ export class FaseInternaService {
         dados.sistemaOrigem,
         doc.idExterno,
         undefined,
-        doc.caminhoArquivo
+        doc.caminhoArquivo,
       );
       documentosImportados.push(documento);
     }
@@ -198,8 +228,12 @@ export class FaseInternaService {
   // APROVACAO DE DOCUMENTOS
   // ========================================
 
-  async submeterParaAprovacao(documentoId: string): Promise<DocumentoFaseInterna> {
-    const documento = await this.documentoRepository.findOneBy({ id: documentoId });
+  async submeterParaAprovacao(
+    documentoId: string,
+  ): Promise<DocumentoFaseInterna> {
+    const documento = await this.documentoRepository.findOneBy({
+      id: documentoId,
+    });
     if (!documento) {
       throw new NotFoundException('Documento nao encontrado');
     }
@@ -216,9 +250,11 @@ export class FaseInternaService {
     documentoId: string,
     aprovadorId: string,
     aprovadorNome: string,
-    observacao?: string
+    observacao?: string,
   ): Promise<DocumentoFaseInterna> {
-    const documento = await this.documentoRepository.findOneBy({ id: documentoId });
+    const documento = await this.documentoRepository.findOneBy({
+      id: documentoId,
+    });
     if (!documento) {
       throw new NotFoundException('Documento nao encontrado');
     }
@@ -240,9 +276,11 @@ export class FaseInternaService {
     documentoId: string,
     aprovadorId: string,
     aprovadorNome: string,
-    observacao: string
+    observacao: string,
   ): Promise<DocumentoFaseInterna> {
-    const documento = await this.documentoRepository.findOneBy({ id: documentoId });
+    const documento = await this.documentoRepository.findOneBy({
+      id: documentoId,
+    });
     if (!documento) {
       throw new NotFoundException('Documento nao encontrado');
     }
@@ -265,24 +303,28 @@ export class FaseInternaService {
     documentosPendentes: TipoDocumentoFaseInterna[];
     documentosAprovados: TipoDocumentoFaseInterna[];
   }> {
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
     if (!licitacao) {
       throw new NotFoundException('Licitacao nao encontrada');
     }
 
-    const documentosObrigatorios = this.getDocumentosObrigatorios(licitacao.fase);
-    
+    const documentosObrigatorios = this.getDocumentosObrigatorios(
+      licitacao.fase,
+    );
+
     const documentosAprovados = await this.documentoRepository.find({
-      where: { 
-        licitacao_id: licitacaoId, 
+      where: {
+        licitacao_id: licitacaoId,
         status: StatusDocumento.APROVADO,
-        versao_atual: true
-      }
+        versao_atual: true,
+      },
     });
 
-    const tiposAprovados = documentosAprovados.map(d => d.tipo);
+    const tiposAprovados = documentosAprovados.map((d) => d.tipo);
     const documentosPendentes = documentosObrigatorios.filter(
-      tipo => !tiposAprovados.includes(tipo)
+      (tipo) => !tiposAprovados.includes(tipo),
     );
 
     return {
@@ -293,7 +335,9 @@ export class FaseInternaService {
   }
 
   async avancarFaseInterna(licitacaoId: string): Promise<Licitacao> {
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
     if (!licitacao) {
       throw new NotFoundException('Licitacao nao encontrada');
     }
@@ -301,7 +345,7 @@ export class FaseInternaService {
     const verificacao = await this.verificarFaseCompleta(licitacaoId);
     if (!verificacao.completa) {
       throw new BadRequestException(
-        `Documentos pendentes: ${verificacao.documentosPendentes.join(', ')}`
+        `Documentos pendentes: ${verificacao.documentosPendentes.join(', ')}`,
       );
     }
 
@@ -315,7 +359,7 @@ export class FaseInternaService {
     ];
 
     const indiceAtual = ordemFases.indexOf(licitacao.fase);
-    
+
     if (indiceAtual === ordemFases.length - 1) {
       // Fase interna concluida, pronto para publicacao
       licitacao.fase_interna_concluida = true;
@@ -333,17 +377,17 @@ export class FaseInternaService {
   async getDocumentos(licitacaoId: string): Promise<DocumentoFaseInterna[]> {
     return await this.documentoRepository.find({
       where: { licitacao_id: licitacaoId, versao_atual: true },
-      order: { ordem_exibicao: 'ASC', created_at: 'ASC' }
+      order: { ordem_exibicao: 'ASC', created_at: 'ASC' },
     });
   }
 
   async getDocumentosPorTipo(
-    licitacaoId: string, 
-    tipo: TipoDocumentoFaseInterna
+    licitacaoId: string,
+    tipo: TipoDocumentoFaseInterna,
   ): Promise<DocumentoFaseInterna[]> {
     return await this.documentoRepository.find({
       where: { licitacao_id: licitacaoId, tipo },
-      order: { versao: 'DESC' }
+      order: { versao: 'DESC' },
     });
   }
 
@@ -390,11 +434,13 @@ export class FaseInternaService {
         where: { licitacao_id: In(ids), versao_atual: true },
         select: ['status'],
       });
-      documentosPendentes = docs.filter((d) =>
-        d.status === StatusDocumento.PENDENTE || d.status === StatusDocumento.EM_ELABORACAO
+      documentosPendentes = docs.filter(
+        (d) =>
+          d.status === StatusDocumento.PENDENTE ||
+          d.status === StatusDocumento.EM_ELABORACAO,
       ).length;
       documentosAguardandoAprovacao = docs.filter(
-        (d) => d.status === StatusDocumento.AGUARDANDO_APROVACAO
+        (d) => d.status === StatusDocumento.AGUARDANDO_APROVACAO,
       ).length;
     }
 
@@ -404,13 +450,17 @@ export class FaseInternaService {
 
     const valorTotal = licitacoes.reduce(
       (acc, l) => acc + (parseFloat(String(l.valor_total_estimado)) || 0),
-      0
+      0,
     );
 
     return {
       totalProcessos: licitacoes.length,
-      emAndamento: licitacoes.filter((l) => l.fase !== FaseLicitacao.APROVACAO_INTERNA).length,
-      emAprovacao: licitacoes.filter((l) => l.fase === FaseLicitacao.APROVACAO_INTERNA).length,
+      emAndamento: licitacoes.filter(
+        (l) => l.fase !== FaseLicitacao.APROVACAO_INTERNA,
+      ).length,
+      emAprovacao: licitacoes.filter(
+        (l) => l.fase === FaseLicitacao.APROVACAO_INTERNA,
+      ).length,
       valorTotal,
       porFase,
       documentosPendentes,
@@ -422,8 +472,12 @@ export class FaseInternaService {
   // RISCOS — via dados_estruturados do doc MR
   // ========================================
 
-  private async getOuCriarDocMR(licitacaoId: string): Promise<DocumentoFaseInterna> {
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+  private async getOuCriarDocMR(
+    licitacaoId: string,
+  ): Promise<DocumentoFaseInterna> {
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
 
     let doc = await this.documentoRepository.findOne({
@@ -451,19 +505,30 @@ export class FaseInternaService {
     return doc;
   }
 
-  async getRiscos(licitacaoId: string): Promise<{ documento: DocumentoFaseInterna; riscos: RiscoIdentificado[] }> {
+  async getRiscos(
+    licitacaoId: string,
+  ): Promise<{ documento: DocumentoFaseInterna; riscos: RiscoIdentificado[] }> {
     const doc = await this.getOuCriarDocMR(licitacaoId);
     const dados: MatrizRiscosDados = doc.dados_estruturados || { riscos: [] };
     return { documento: doc, riscos: dados.riscos || [] };
   }
 
-  async adicionarRisco(licitacaoId: string, risco: Omit<RiscoIdentificado, 'grau' | 'nivel'>): Promise<RiscoIdentificado[]> {
+  async adicionarRisco(
+    licitacaoId: string,
+    risco: Omit<RiscoIdentificado, 'grau' | 'nivel'>,
+  ): Promise<RiscoIdentificado[]> {
     const doc = await this.getOuCriarDocMR(licitacaoId);
     const dados: MatrizRiscosDados = doc.dados_estruturados || { riscos: [] };
 
     const grau = calcularGrauRisco(risco.probabilidade, risco.impacto);
-    const nivel: RiscoIdentificado['nivel'] = grau >= 15 ? 'ALTO' : grau >= 7 ? 'MEDIO' : 'BAIXO';
-    const novoRisco: RiscoIdentificado = { ...risco, grau, nivel, numero: (dados.riscos?.length || 0) + 1 };
+    const nivel: RiscoIdentificado['nivel'] =
+      grau >= 15 ? 'ALTO' : grau >= 7 ? 'MEDIO' : 'BAIXO';
+    const novoRisco: RiscoIdentificado = {
+      ...risco,
+      grau,
+      nivel,
+      numero: (dados.riscos?.length || 0) + 1,
+    };
 
     dados.riscos = [...(dados.riscos || []), novoRisco];
     doc.dados_estruturados = dados;
@@ -472,7 +537,11 @@ export class FaseInternaService {
     return dados.riscos;
   }
 
-  async atualizarRisco(licitacaoId: string, riscoId: string, updates: Partial<RiscoIdentificado>): Promise<RiscoIdentificado[]> {
+  async atualizarRisco(
+    licitacaoId: string,
+    riscoId: string,
+    updates: Partial<RiscoIdentificado>,
+  ): Promise<RiscoIdentificado[]> {
     const doc = await this.getOuCriarDocMR(licitacaoId);
     const dados: MatrizRiscosDados = doc.dados_estruturados || { riscos: [] };
 
@@ -480,7 +549,8 @@ export class FaseInternaService {
       if (r.id !== riscoId) return r;
       const merged = { ...r, ...updates };
       merged.grau = calcularGrauRisco(merged.probabilidade, merged.impacto);
-      merged.nivel = merged.grau >= 15 ? 'ALTO' : merged.grau >= 7 ? 'MEDIO' : 'BAIXO';
+      merged.nivel =
+        merged.grau >= 15 ? 'ALTO' : merged.grau >= 7 ? 'MEDIO' : 'BAIXO';
       return merged;
     });
 
@@ -489,7 +559,10 @@ export class FaseInternaService {
     return dados.riscos;
   }
 
-  async removerRisco(licitacaoId: string, riscoId: string): Promise<RiscoIdentificado[]> {
+  async removerRisco(
+    licitacaoId: string,
+    riscoId: string,
+  ): Promise<RiscoIdentificado[]> {
     const doc = await this.getOuCriarDocMR(licitacaoId);
     const dados: MatrizRiscosDados = doc.dados_estruturados || { riscos: [] };
 
@@ -504,11 +577,17 @@ export class FaseInternaService {
   // ========================================
 
   async getOuCriarDocPP(licitacaoId: string): Promise<DocumentoFaseInterna> {
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
 
     let doc = await this.documentoRepository.findOne({
-      where: { licitacao_id: licitacaoId, tipo: TipoDocumentoFaseInterna.PESQUISA_PRECOS, versao_atual: true },
+      where: {
+        licitacao_id: licitacaoId,
+        tipo: TipoDocumentoFaseInterna.PESQUISA_PRECOS,
+        versao_atual: true,
+      },
     });
 
     if (!doc) {
@@ -519,14 +598,27 @@ export class FaseInternaService {
       const itensPesquisa = itens.length
         ? itens.map((item) => ({
             item_numero: item.numero_item,
-            descricao: item.descricao_resumida || item.descricao_detalhada || licitacao.objeto,
+            descricao:
+              item.descricao_resumida ||
+              item.descricao_detalhada ||
+              licitacao.objeto,
             quantidade: Number(item.quantidade) || 1,
             unidade: String(item.unidade_medida || 'UN'),
             cotacoes: [],
             metodologia: 'MEDIANA' as const,
             valor_referencial: Number(item.valor_unitario_estimado) || 0,
           }))
-        : [{ item_numero: 1, descricao: licitacao.objeto || '', quantidade: 1, unidade: 'UN', cotacoes: [], metodologia: 'MEDIANA' as const, valor_referencial: 0 }];
+        : [
+            {
+              item_numero: 1,
+              descricao: licitacao.objeto || '',
+              quantidade: 1,
+              unidade: 'UN',
+              cotacoes: [],
+              metodologia: 'MEDIANA' as const,
+              valor_referencial: 0,
+            },
+          ];
 
       doc = this.documentoRepository.create({
         licitacao_id: licitacaoId,
@@ -544,7 +636,13 @@ export class FaseInternaService {
     return doc;
   }
 
-  async getPrecos(licitacaoId: string): Promise<{ documento: DocumentoFaseInterna; dados: PesquisaPrecosDados; estatisticas: any }> {
+  async getPrecos(
+    licitacaoId: string,
+  ): Promise<{
+    documento: DocumentoFaseInterna;
+    dados: PesquisaPrecosDados;
+    estatisticas: any;
+  }> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
 
@@ -554,8 +652,14 @@ export class FaseInternaService {
       ...calcularEstatisticasItem(item),
     }));
 
-    const valorTotal = itensComEstatisticas.reduce((acc, i) => acc + (i.valor_referencial * i.quantidade), 0);
-    const totalFontes = itensComEstatisticas.reduce((acc, i) => acc + (i.cotacoes?.length || 0), 0);
+    const valorTotal = itensComEstatisticas.reduce(
+      (acc, i) => acc + i.valor_referencial * i.quantidade,
+      0,
+    );
+    const totalFontes = itensComEstatisticas.reduce(
+      (acc, i) => acc + (i.cotacoes?.length || 0),
+      0,
+    );
 
     return {
       documento: doc,
@@ -568,11 +672,61 @@ export class FaseInternaService {
     };
   }
 
-  async adicionarItemPesquisa(licitacaoId: string, item: ItemPesquisaPrecos): Promise<PesquisaPrecosDados> {
+  async getPrecosPublicos(licitacaoId: string): Promise<{
+    licitacao: any;
+    orgao: any;
+    documento: Pick<DocumentoFaseInterna, 'id' | 'titulo' | 'updated_at'>;
+    dados: PesquisaPrecosDados;
+    estatisticas: any;
+    geradoEm: string;
+  }> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['orgao'],
+    });
+    if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+
+    const precos = await this.getPrecos(licitacaoId);
+    const orgao = (licitacao as any).orgao;
+
+    return {
+      licitacao: {
+        id: licitacao.id,
+        numero_processo: licitacao.numero_processo,
+        numero_edital: licitacao.numero_edital,
+        objeto: licitacao.objeto,
+        modalidade: licitacao.modalidade,
+        criterio_julgamento: licitacao.criterio_julgamento,
+        fase: licitacao.fase,
+      },
+      orgao: orgao
+        ? {
+            nome: orgao.nome,
+            cnpj: orgao.cnpj,
+            cidade: orgao.cidade,
+            uf: orgao.uf,
+            logo_url: orgao.logo_url,
+          }
+        : null,
+      documento: {
+        id: precos.documento.id,
+        titulo: precos.documento.titulo,
+        updated_at: precos.documento.updated_at,
+      },
+      dados: precos.dados,
+      estatisticas: precos.estatisticas,
+      geradoEm: new Date().toISOString(),
+    };
+  }
+
+  async adicionarItemPesquisa(
+    licitacaoId: string,
+    item: ItemPesquisaPrecos,
+  ): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
 
-    const existe = dados.itens.some(i => i.item_numero === item.item_numero);
+    const existe = dados.itens.some((i) => i.item_numero === item.item_numero);
     if (existe) throw new Error(`Item ${item.item_numero} já existe`);
 
     const itemComStats = calcularEstatisticasItem(item);
@@ -583,16 +737,27 @@ export class FaseInternaService {
     return dados;
   }
 
-  async adicionarFontePreco(licitacaoId: string, itemNumero: number, cotacao: CotacaoPorFonte): Promise<PesquisaPrecosDados> {
+  async adicionarFontePreco(
+    licitacaoId: string,
+    itemNumero: number,
+    cotacao: CotacaoPorFonte,
+  ): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
 
     const itemIdx = dados.itens.findIndex((i) => i.item_numero === itemNumero);
-    if (itemIdx === -1) throw new NotFoundException(`Item ${itemNumero} nao encontrado na pesquisa`);
+    if (itemIdx === -1)
+      throw new NotFoundException(
+        `Item ${itemNumero} nao encontrado na pesquisa`,
+      );
 
     const normalizada = this.normalizarCotacao(cotacao);
     const cotacoesAtuais = dados.itens[itemIdx].cotacoes || [];
-    if (cotacoesAtuais.some((existente) => this.cotacaoDuplicada(existente, normalizada))) {
+    if (
+      cotacoesAtuais.some((existente) =>
+        this.cotacaoDuplicada(existente, normalizada),
+      )
+    ) {
       return dados;
     }
 
@@ -606,7 +771,11 @@ export class FaseInternaService {
     return dados;
   }
 
-  async importarCsvFontePrecos(licitacaoId: string, csvBuffer: Buffer, documentoPath: string): Promise<{
+  async importarCsvFontePrecos(
+    licitacaoId: string,
+    csvBuffer: Buffer,
+    documentoPath: string,
+  ): Promise<{
     dados: PesquisaPrecosDados;
     resumo: {
       itensEncontrados: number;
@@ -623,7 +792,9 @@ export class FaseInternaService {
     let cotacoesDuplicadas = 0;
 
     for (const bloco of blocos) {
-      const itemIdx = dados.itens.findIndex((item) => item.item_numero === bloco.itemNumero);
+      const itemIdx = dados.itens.findIndex(
+        (item) => item.item_numero === bloco.itemNumero,
+      );
       if (itemIdx === -1) {
         itensNaoEncontrados.push(bloco.itemNumero);
         continue;
@@ -634,8 +805,17 @@ export class FaseInternaService {
 
       for (const preco of bloco.precos) {
         const normalizada = this.normalizarCotacao({
-          fonte: this.classificarFonteCsvFontePrecos(preco.fonte, preco.orgaoEmpresaSite),
-          descricao_fonte: ['Fonte de Precos', preco.fonte, preco.orgaoEmpresaSite].filter(Boolean).join(' - '),
+          fonte: this.classificarFonteCsvFontePrecos(
+            preco.fonte,
+            preco.orgaoEmpresaSite,
+          ),
+          descricao_fonte: [
+            'Fonte de Precos',
+            preco.fonte,
+            preco.orgaoEmpresaSite,
+          ]
+            .filter(Boolean)
+            .join(' - '),
           url_referencia: this.urlSeValida(preco.orgaoEmpresaSite),
           data_pesquisa: preco.dataPesquisa,
           valor_unitario: preco.valorUnitario,
@@ -650,8 +830,12 @@ export class FaseInternaService {
         });
 
         if (
-          cotacoesAtuais.some((existente) => this.cotacaoDuplicada(existente, normalizada)) ||
-          novasCotacoes.some((existente) => this.cotacaoDuplicada(existente, normalizada))
+          cotacoesAtuais.some((existente) =>
+            this.cotacaoDuplicada(existente, normalizada),
+          ) ||
+          novasCotacoes.some((existente) =>
+            this.cotacaoDuplicada(existente, normalizada),
+          )
         ) {
           cotacoesDuplicadas += 1;
           continue;
@@ -681,7 +865,9 @@ export class FaseInternaService {
     };
   }
 
-  async removerCotacoesEstimadasDoAgente(licitacaoId: string): Promise<PesquisaPrecosDados> {
+  async removerCotacoesEstimadasDoAgente(
+    licitacaoId: string,
+  ): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
     let alterou = false;
@@ -728,11 +914,17 @@ export class FaseInternaService {
 
     return {
       fonte: mapaTipo[String(tipoLegado)] || 'OUTRA',
-      descricao_fonte: cotacao.descricao_fonte || cotacao.fonte || cotacao.fornecedor || 'Fonte informada',
+      descricao_fonte:
+        cotacao.descricao_fonte ||
+        cotacao.fonte ||
+        cotacao.fornecedor ||
+        'Fonte informada',
       url_referencia: cotacao.url_referencia,
-      data_pesquisa: cotacao.data_pesquisa || new Date().toISOString().split('T')[0],
+      data_pesquisa:
+        cotacao.data_pesquisa || new Date().toISOString().split('T')[0],
       fornecedor_cnpj: cotacao.fornecedor_cnpj,
-      fornecedor_razao_social: cotacao.fornecedor_razao_social || cotacao.fornecedor,
+      fornecedor_razao_social:
+        cotacao.fornecedor_razao_social || cotacao.fornecedor,
       valor_unitario: Number(cotacao.valor_unitario) || 0,
       observacao: cotacao.observacao,
       documento_comprobatorio_path: cotacao.documento_comprobatorio_path,
@@ -805,7 +997,12 @@ export class FaseInternaService {
 
       const numeroPreco = Number(primeira);
       const segunda = String(linha[1] || '').trim();
-      if (!Number.isFinite(numeroPreco) || numeroPreco <= 0 || segunda.toLowerCase() !== 'fonte') continue;
+      if (
+        !Number.isFinite(numeroPreco) ||
+        numeroPreco <= 0 ||
+        segunda.toLowerCase() !== 'fonte'
+      )
+        continue;
 
       const detalhe = linhas[index + 1];
       if (!detalhe) continue;
@@ -876,7 +1073,9 @@ export class FaseInternaService {
   private numeroCsv(valor: unknown): number {
     const texto = String(valor || '').trim();
     if (!texto) return 0;
-    const numero = Number(texto.replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.'));
+    const numero = Number(
+      texto.replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.'),
+    );
     return Number.isFinite(numero) ? numero : 0;
   }
 
@@ -887,11 +1086,24 @@ export class FaseInternaService {
     return new Date().toISOString().split('T')[0];
   }
 
-  private classificarFonteCsvFontePrecos(fonte: string, referencia: string): CotacaoPorFonte['fonte'] {
+  private classificarFonteCsvFontePrecos(
+    fonte: string,
+    referencia: string,
+  ): CotacaoPorFonte['fonte'] {
     const texto = this.normalizarTextoCotacao(`${fonte} ${referencia}`);
     if (texto.includes('pncp')) return 'PNCP';
-    if (texto.includes('compras.gov') || texto.includes('comprasnet') || texto.includes('painel')) return 'PAINEL_DE_PRECOS';
-    if (texto.includes('dominio amplo') || texto.startsWith('http') || texto.includes('http')) return 'MIDIA_ESPECIALIZADA';
+    if (
+      texto.includes('compras.gov') ||
+      texto.includes('comprasnet') ||
+      texto.includes('painel')
+    )
+      return 'PAINEL_DE_PRECOS';
+    if (
+      texto.includes('dominio amplo') ||
+      texto.startsWith('http') ||
+      texto.includes('http')
+    )
+      return 'MIDIA_ESPECIALIZADA';
     return 'MIDIA_ESPECIALIZADA';
   }
 
@@ -917,9 +1129,11 @@ export class FaseInternaService {
 
     return (
       a.fonte === b.fonte &&
-      this.normalizarTextoCotacao(a.descricao_fonte) === this.normalizarTextoCotacao(b.descricao_fonte) &&
+      this.normalizarTextoCotacao(a.descricao_fonte) ===
+        this.normalizarTextoCotacao(b.descricao_fonte) &&
       valorA === valorB &&
-      this.normalizarTextoCotacao(a.data_pesquisa) === this.normalizarTextoCotacao(b.data_pesquisa)
+      this.normalizarTextoCotacao(a.data_pesquisa) ===
+        this.normalizarTextoCotacao(b.data_pesquisa)
     );
   }
 
@@ -928,7 +1142,9 @@ export class FaseInternaService {
     try {
       const parsed = new URL(url);
       parsed.hash = '';
-      const params = [...parsed.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
+      const params = [...parsed.searchParams.entries()].sort(([a], [b]) =>
+        a.localeCompare(b),
+      );
       parsed.search = '';
       for (const [key, value] of params) parsed.searchParams.append(key, value);
       return parsed.toString().replace(/\/$/, '').toLowerCase();
@@ -946,14 +1162,21 @@ export class FaseInternaService {
       .trim();
   }
 
-  async removerFontePreco(licitacaoId: string, itemNumero: number, cotacaoIndex: number): Promise<PesquisaPrecosDados> {
+  async removerFontePreco(
+    licitacaoId: string,
+    itemNumero: number,
+    cotacaoIndex: number,
+  ): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
 
     const itemIdx = dados.itens.findIndex((i) => i.item_numero === itemNumero);
-    if (itemIdx === -1) throw new NotFoundException(`Item ${itemNumero} nao encontrado`);
+    if (itemIdx === -1)
+      throw new NotFoundException(`Item ${itemNumero} nao encontrado`);
 
-    dados.itens[itemIdx].cotacoes = (dados.itens[itemIdx].cotacoes || []).filter((_, i) => i !== cotacaoIndex);
+    dados.itens[itemIdx].cotacoes = (
+      dados.itens[itemIdx].cotacoes || []
+    ).filter((_, i) => i !== cotacaoIndex);
     const stats = calcularEstatisticasItem(dados.itens[itemIdx]);
     dados.itens[itemIdx] = { ...dados.itens[itemIdx], ...stats };
 
@@ -972,14 +1195,18 @@ export class FaseInternaService {
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
 
     const itemIdx = dados.itens.findIndex((i) => i.item_numero === itemNumero);
-    if (itemIdx === -1) throw new NotFoundException(`Item ${itemNumero} nao encontrado`);
+    if (itemIdx === -1)
+      throw new NotFoundException(`Item ${itemNumero} nao encontrado`);
 
     const cotacoes = dados.itens[itemIdx].cotacoes || [];
     if (cotacaoIndex < 0 || cotacaoIndex >= cotacoes.length) {
       throw new BadRequestException(`Cotacao index ${cotacaoIndex} invalido`);
     }
 
-    cotacoes[cotacaoIndex] = { ...cotacoes[cotacaoIndex], documento_comprobatorio_path: path };
+    cotacoes[cotacaoIndex] = {
+      ...cotacoes[cotacaoIndex],
+      documento_comprobatorio_path: path,
+    };
     dados.itens[itemIdx].cotacoes = cotacoes;
 
     doc.dados_estruturados = dados;
@@ -987,10 +1214,13 @@ export class FaseInternaService {
     return dados;
   }
 
-  async removerItemPesquisa(licitacaoId: string, itemNumero: number): Promise<PesquisaPrecosDados> {
+  async removerItemPesquisa(
+    licitacaoId: string,
+    itemNumero: number,
+  ): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
-    dados.itens = dados.itens.filter(i => i.item_numero !== itemNumero);
+    dados.itens = dados.itens.filter((i) => i.item_numero !== itemNumero);
     doc.dados_estruturados = dados;
     await this.documentoRepository.save(doc);
     return dados;
@@ -1000,36 +1230,65 @@ export class FaseInternaService {
     licitacaoId: string,
     metodologia: 'MEDIA' | 'MEDIANA' | 'MENOR_VALOR' | 'OUTRA',
     justificativa?: string,
-    outliers?: Array<{ item_numero: number; cotacao_index: number; motivo: string }>,
+    outliers?: Array<{
+      item_numero: number;
+      cotacao_index: number;
+      motivo: string;
+    }>,
   ): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
     dados.metodologia_geral = metodologia;
     dados.observacoes = justificativa || dados.observacoes;
     // Recalcula valor_referencial de cada item com a nova metodologia
-    dados.itens = dados.itens.map(item => {
-      const outliersItem = (outliers || []).filter((o) => Number(o.item_numero) === Number(item.item_numero));
+    dados.itens = dados.itens.map((item) => {
+      const outliersItem = (outliers || []).filter(
+        (o) => Number(o.item_numero) === Number(item.item_numero),
+      );
       const itemComOutliers = {
         ...item,
         outliers_descartados: outliersItem.length
           ? outliersItem.map((o) => ({
               cotacao_index: Number(o.cotacao_index),
-              motivo: o.motivo || 'Descartado como outlier pelo responsavel pela pesquisa.',
+              motivo:
+                o.motivo ||
+                'Descartado como outlier pelo responsavel pela pesquisa.',
             }))
           : undefined,
-        justificativa_metodologia: justificativa || item.justificativa_metodologia,
+        justificativa_metodologia:
+          justificativa || item.justificativa_metodologia,
       };
       const vals = (itemComOutliers.cotacoes || [])
-        .filter((_, idx) => !itemComOutliers.outliers_descartados?.some((o) => o.cotacao_index === idx))
-        .map(c => c.valor_unitario)
-        .filter(v => v > 0)
+        .filter(
+          (_, idx) =>
+            !itemComOutliers.outliers_descartados?.some(
+              (o) => o.cotacao_index === idx,
+            ),
+        )
+        .map((c) => c.valor_unitario)
+        .filter((v) => v > 0)
         .sort((a, b) => a - b);
-      if (!vals.length) return calcularEstatisticasItem({ ...itemComOutliers, metodologia, valor_referencial: 0 });
+      if (!vals.length)
+        return calcularEstatisticasItem({
+          ...itemComOutliers,
+          metodologia,
+          valor_referencial: 0,
+        });
       const mid = Math.floor(vals.length / 2);
-      const mediana = vals.length % 2 !== 0 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+      const mediana =
+        vals.length % 2 !== 0 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
       const media = vals.reduce((a, b) => a + b, 0) / vals.length;
-      const ref = metodologia === 'MEDIANA' ? mediana : metodologia === 'MENOR_VALOR' ? vals[0] : media;
-      return calcularEstatisticasItem({ ...itemComOutliers, metodologia, valor_referencial: ref });
+      const ref =
+        metodologia === 'MEDIANA'
+          ? mediana
+          : metodologia === 'MENOR_VALOR'
+            ? vals[0]
+            : media;
+      return calcularEstatisticasItem({
+        ...itemComOutliers,
+        metodologia,
+        valor_referencial: ref,
+      });
     });
     doc.dados_estruturados = dados;
     await this.documentoRepository.save(doc);
@@ -1044,7 +1303,11 @@ export class FaseInternaService {
   ): Promise<PesquisaPrecosDados> {
     const doc = await this.getOuCriarDocPP(licitacaoId);
     const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
-    dados.responsavel_pesquisa = { nome: responsavel.nome, cargo: responsavel.cargo, matricula: responsavel.matricula };
+    dados.responsavel_pesquisa = {
+      nome: responsavel.nome,
+      cargo: responsavel.cargo,
+      matricula: responsavel.matricula,
+    };
     if (observacoes) dados.observacoes = observacoes;
     doc.dados_estruturados = dados;
     await this.documentoRepository.save(doc);
@@ -1055,17 +1318,19 @@ export class FaseInternaService {
   // APROVAÇÕES AGREGADAS
   // ========================================
 
-  async getAprovacoesOrgao(orgaoId: string): Promise<{
-    documentoId: string;
-    tipo: string;
-    titulo: string;
-    status: string;
-    licitacaoId: string;
-    numeroProcesso: string;
-    objeto: string;
-    created_at: Date;
-    updated_at: Date;
-  }[]> {
+  async getAprovacoesOrgao(orgaoId: string): Promise<
+    {
+      documentoId: string;
+      tipo: string;
+      titulo: string;
+      status: string;
+      licitacaoId: string;
+      numeroProcesso: string;
+      objeto: string;
+      created_at: Date;
+      updated_at: Date;
+    }[]
+  > {
     const FASES_INTERNAS = [
       FaseLicitacao.PLANEJAMENTO,
       FaseLicitacao.TERMO_REFERENCIA,
@@ -1085,7 +1350,11 @@ export class FaseInternaService {
     const documentos = await this.documentoRepository.find({
       where: {
         licitacao_id: In(ids),
-        status: In([StatusDocumento.AGUARDANDO_APROVACAO, StatusDocumento.APROVADO, StatusDocumento.REPROVADO]),
+        status: In([
+          StatusDocumento.AGUARDANDO_APROVACAO,
+          StatusDocumento.APROVADO,
+          StatusDocumento.REPROVADO,
+        ]),
         versao_atual: true,
       },
       order: { updated_at: 'DESC' },
@@ -1099,7 +1368,8 @@ export class FaseInternaService {
       titulo: doc.titulo,
       status: doc.status,
       licitacaoId: doc.licitacao_id,
-      numeroProcesso: licMap[doc.licitacao_id]?.numero_processo || doc.licitacao_id,
+      numeroProcesso:
+        licMap[doc.licitacao_id]?.numero_processo || doc.licitacao_id,
       objeto: licMap[doc.licitacao_id]?.objeto || '',
       created_at: doc.created_at,
       updated_at: doc.updated_at,
@@ -1110,66 +1380,125 @@ export class FaseInternaService {
   // WIZARD — salvar documentos em lote
   // ========================================
 
-  async salvarWizard(licitacaoId: string, dados: {
-    dfd?: string;
-    etp?: Record<string, any>;
-    etp_necessidade?: string;
-    etp_solucao?: string;
-    riscos?: string | Array<any>;
-    pesquisaPrecos?: Array<any>;
-    precos_fontes?: string;
-    tr?: Record<string, any>;
-    tr_requisitos?: string;
-    tr_prazo?: string;
-    autorizacao?: string;
-    autorizacao_autoridade?: string;
-    edital?: string;
-    edital_notas?: string;
-    parecerJuridico?: string;
-    juridico_obs?: string;
-  }): Promise<DocumentoFaseInterna[]> {
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+  async salvarWizard(
+    licitacaoId: string,
+    dados: {
+      dfd?: string;
+      etp?: Record<string, any>;
+      etp_necessidade?: string;
+      etp_solucao?: string;
+      riscos?: string | Array<any>;
+      pesquisaPrecos?: Array<any>;
+      precos_fontes?: string;
+      tr?: Record<string, any>;
+      tr_requisitos?: string;
+      tr_prazo?: string;
+      autorizacao?: string;
+      autorizacao_autoridade?: string;
+      edital?: string;
+      edital_notas?: string;
+      parecerJuridico?: string;
+      juridico_obs?: string;
+    },
+  ): Promise<DocumentoFaseInterna[]> {
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
 
     const salvos: DocumentoFaseInterna[] = [];
 
-    const salvarDoc = async (tipo: TipoDocumentoFaseInterna, titulo: string, conteudo: string | undefined, dadosEstruturados?: any) => {
+    const salvarDoc = async (
+      tipo: TipoDocumentoFaseInterna,
+      titulo: string,
+      conteudo: string | undefined,
+      dadosEstruturados?: any,
+    ) => {
       if (!conteudo && !dadosEstruturados) return;
-      const existente = await this.documentoRepository.findOne({ where: { licitacao_id: licitacaoId, tipo, versao_atual: true } });
+      const existente = await this.documentoRepository.findOne({
+        where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
+      });
       if (existente) {
         existente.descricao = conteudo || existente.descricao;
         if (dadosEstruturados) existente.dados_estruturados = dadosEstruturados;
         salvos.push(await this.documentoRepository.save(existente));
       } else {
         const doc = this.documentoRepository.create({
-          licitacao_id: licitacaoId, tipo, titulo,
-          descricao: conteudo, dados_estruturados: dadosEstruturados,
-          status: StatusDocumento.EM_ELABORACAO, origem: OrigemDocumento.INTERNO,
-          versao: 1, versao_atual: true,
+          licitacao_id: licitacaoId,
+          tipo,
+          titulo,
+          descricao: conteudo,
+          dados_estruturados: dadosEstruturados,
+          status: StatusDocumento.EM_ELABORACAO,
+          origem: OrigemDocumento.INTERNO,
+          versao: 1,
+          versao_atual: true,
         });
         salvos.push(await this.documentoRepository.save(doc));
       }
     };
 
-    const etpTexto = dados.etp_necessidade || (dados.etp ? Object.values(dados.etp).join('\n\n') : undefined);
-    const trTexto = dados.tr_requisitos || (dados.tr ? Object.values(dados.tr).join('\n\n') : undefined);
-    const riscosTexto = Array.isArray(dados.riscos) ? JSON.stringify(dados.riscos) : dados.riscos;
-    const precosTexto = dados.precos_fontes || (dados.pesquisaPrecos ? JSON.stringify(dados.pesquisaPrecos) : undefined);
+    const etpTexto =
+      dados.etp_necessidade ||
+      (dados.etp ? Object.values(dados.etp).join('\n\n') : undefined);
+    const trTexto =
+      dados.tr_requisitos ||
+      (dados.tr ? Object.values(dados.tr).join('\n\n') : undefined);
+    const riscosTexto = Array.isArray(dados.riscos)
+      ? JSON.stringify(dados.riscos)
+      : dados.riscos;
+    const precosTexto =
+      dados.precos_fontes ||
+      (dados.pesquisaPrecos ? JSON.stringify(dados.pesquisaPrecos) : undefined);
 
-    await salvarDoc(TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'Formalização da Demanda (DFD)', dados.dfd);
-    await salvarDoc(TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR, 'Estudo Técnico Preliminar (ETP)', etpTexto, dados.etp || {
-      descricao_necessidade: etpTexto,
-      descricao_solucao: dados.etp_solucao,
-    });
-    await salvarDoc(TipoDocumentoFaseInterna.ANALISE_RISCOS, 'Mapa de Riscos', riscosTexto);
-    await salvarDoc(TipoDocumentoFaseInterna.PESQUISA_PRECOS, 'Pesquisa de Preços', precosTexto);
-    await salvarDoc(TipoDocumentoFaseInterna.TERMO_REFERENCIA, 'Termo de Referência (TR)', trTexto, dados.tr || {
-      requisitos_contratacao: trTexto,
-      prazo_vigencia: dados.tr_prazo,
-    });
-    await salvarDoc(TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Autorização da Autoridade', dados.autorizacao_autoridade || dados.autorizacao);
-    await salvarDoc(TipoDocumentoFaseInterna.MINUTA_EDITAL, 'Minuta do Edital', dados.edital_notas || dados.edital);
-    await salvarDoc(TipoDocumentoFaseInterna.PARECER_JURIDICO, 'Parecer Jurídico', dados.juridico_obs || dados.parecerJuridico);
+    await salvarDoc(
+      TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA,
+      'Formalização da Demanda (DFD)',
+      dados.dfd,
+    );
+    await salvarDoc(
+      TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR,
+      'Estudo Técnico Preliminar (ETP)',
+      etpTexto,
+      dados.etp || {
+        descricao_necessidade: etpTexto,
+        descricao_solucao: dados.etp_solucao,
+      },
+    );
+    await salvarDoc(
+      TipoDocumentoFaseInterna.ANALISE_RISCOS,
+      'Mapa de Riscos',
+      riscosTexto,
+    );
+    await salvarDoc(
+      TipoDocumentoFaseInterna.PESQUISA_PRECOS,
+      'Pesquisa de Preços',
+      precosTexto,
+    );
+    await salvarDoc(
+      TipoDocumentoFaseInterna.TERMO_REFERENCIA,
+      'Termo de Referência (TR)',
+      trTexto,
+      dados.tr || {
+        requisitos_contratacao: trTexto,
+        prazo_vigencia: dados.tr_prazo,
+      },
+    );
+    await salvarDoc(
+      TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA,
+      'Autorização da Autoridade',
+      dados.autorizacao_autoridade || dados.autorizacao,
+    );
+    await salvarDoc(
+      TipoDocumentoFaseInterna.MINUTA_EDITAL,
+      'Minuta do Edital',
+      dados.edital_notas || dados.edital,
+    );
+    await salvarDoc(
+      TipoDocumentoFaseInterna.PARECER_JURIDICO,
+      'Parecer Jurídico',
+      dados.juridico_obs || dados.parecerJuridico,
+    );
 
     return salvos;
   }
@@ -1183,27 +1512,36 @@ export class FaseInternaService {
     documentosEmAnalise: number;
     proximosPassos: string[];
   }> {
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
     if (!licitacao) {
       throw new NotFoundException('Licitacao nao encontrada');
     }
 
     const documentos = await this.documentoRepository.find({
-      where: { licitacao_id: licitacaoId, versao_atual: true }
+      where: { licitacao_id: licitacaoId, versao_atual: true },
     });
 
-    const aprovados = documentos.filter(d => d.status === StatusDocumento.APROVADO).length;
-    const pendentes = documentos.filter(d => 
-      d.status === StatusDocumento.PENDENTE || 
-      d.status === StatusDocumento.EM_ELABORACAO
+    const aprovados = documentos.filter(
+      (d) => d.status === StatusDocumento.APROVADO,
     ).length;
-    const emAnalise = documentos.filter(d => d.status === StatusDocumento.AGUARDANDO_APROVACAO).length;
+    const pendentes = documentos.filter(
+      (d) =>
+        d.status === StatusDocumento.PENDENTE ||
+        d.status === StatusDocumento.EM_ELABORACAO,
+    ).length;
+    const emAnalise = documentos.filter(
+      (d) => d.status === StatusDocumento.AGUARDANDO_APROVACAO,
+    ).length;
 
     const verificacao = await this.verificarFaseCompleta(licitacaoId);
-    
+
     const proximosPassos: string[] = [];
     if (verificacao.documentosPendentes.length > 0) {
-      proximosPassos.push(`Elaborar: ${verificacao.documentosPendentes.join(', ')}`);
+      proximosPassos.push(
+        `Elaborar: ${verificacao.documentosPendentes.join(', ')}`,
+      );
     }
     if (emAnalise > 0) {
       proximosPassos.push(`${emAnalise} documento(s) aguardando aprovacao`);
