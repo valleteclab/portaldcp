@@ -22,6 +22,7 @@ import {
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
 import { GeradorPpService } from './gerador-pp.service';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
+import { Public } from '../auth/public.decorator';
 
 @Controller('fase-interna')
 export class FaseInternaController {
@@ -234,6 +235,7 @@ export class FaseInternaController {
 
   // === PESQUISA DE PRECOS ===
 
+  @Public()
   @Get('publico/precos/:licitacaoId')
   async getPrecosPublicos(@Param('licitacaoId') licitacaoId: string) {
     return this.faseInternaService.getPrecosPublicos(licitacaoId);
