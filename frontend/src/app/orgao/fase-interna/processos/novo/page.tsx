@@ -905,18 +905,25 @@ export default function NovoProcessoPage() {
       : 0,
   }
 
+  const goToStep = useCallback((nextStep: string) => {
+    setStep(nextStep)
+    if (processoId) {
+      router.replace(`/orgao/fase-interna/processos/novo?id=${processoId}&step=${nextStep}`, { scroll: false })
+    }
+  }, [processoId, router])
+
   const advance = useCallback(() => {
     setCompleted((prev) => prev.includes(step) ? prev : [...prev, step])
     const idx = WIZARD_ETAPAS.findIndex((e) => e.id === step)
-    if (idx < WIZARD_ETAPAS.length - 1) setStep(WIZARD_ETAPAS[idx + 1].id)
-  }, [step])
+    if (idx < WIZARD_ETAPAS.length - 1) goToStep(WIZARD_ETAPAS[idx + 1].id)
+  }, [goToStep, step])
 
   const back = useCallback(() => {
     const idx = WIZARD_ETAPAS.findIndex((e) => e.id === step)
-    if (idx > 0) setStep(WIZARD_ETAPAS[idx - 1].id)
-  }, [step])
+    if (idx > 0) goToStep(WIZARD_ETAPAS[idx - 1].id)
+  }, [goToStep, step])
 
-  const jump = useCallback((id: string) => setStep(id), [])
+  const jump = useCallback((id: string) => goToStep(id), [goToStep])
 
   const updateDoc = (docKey: string, secId: string, val: string) => {
     setDocs((prev) => ({ ...prev, [docKey]: { ...prev[docKey], [secId]: val } }))

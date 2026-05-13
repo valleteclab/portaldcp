@@ -106,6 +106,12 @@ export function FaseInternaNav() {
   const processoBase = processoId
     ? `/orgao/fase-interna/processos/${processoId}`
     : "/orgao/fase-interna/processos";
+  const isWizardFlow = pathname === "/orgao/fase-interna/processos/novo";
+  const currentWizardStep = searchParams.get("step") || "dfd";
+  const wizardHref = (step: string) =>
+    processoId
+      ? `/orgao/fase-interna/processos/novo?id=${processoId}&step=${step}`
+      : processoBase;
 
   useEffect(() => {
     let isMounted = true;
@@ -160,19 +166,25 @@ export function FaseInternaNav() {
 
   const documentNav: NavItem[] = [
     {
-      href: processoId
-        ? `/orgao/fase-interna/processos/novo?id=${processoId}&step=dfd`
-        : processoBase,
+      href: wizardHref("dfd"),
       label: "Editor de TR / DFD / ETP",
       icon: FileText,
     },
     {
-      href: processoId ? `${processoBase}/riscos` : processoBase,
+      href: isWizardFlow
+        ? wizardHref("riscos")
+        : processoId
+          ? `${processoBase}/riscos`
+          : processoBase,
       label: "Mapa de Riscos",
       icon: TriangleAlert,
     },
     {
-      href: processoId ? `${processoBase}/precos` : processoBase,
+      href: isWizardFlow
+        ? wizardHref("pesquisa")
+        : processoId
+          ? `${processoBase}/precos`
+          : processoBase,
       label: "Pesquisa de Preços",
       icon: DollarSign,
     },
@@ -180,6 +192,13 @@ export function FaseInternaNav() {
 
   const isActive = (href: string, exact?: boolean) => {
     if (href === "#") return false;
+    if (isWizardFlow && href.includes("/processos/novo")) {
+      const hrefStep = href.match(/[?&]step=([^&]+)/)?.[1];
+      if (hrefStep === "dfd") {
+        return ["dfd", "etp", "tr"].includes(currentWizardStep);
+      }
+      return hrefStep === currentWizardStep;
+    }
     if (exact) return pathname === href;
     return pathname === href || pathname.startsWith(`${href}/`);
   };
