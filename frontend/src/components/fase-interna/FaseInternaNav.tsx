@@ -180,11 +180,7 @@ export function FaseInternaNav() {
       icon: TriangleAlert,
     },
     {
-      href: isWizardFlow
-        ? wizardHref("pesquisa")
-        : processoId
-          ? `${processoBase}/precos`
-          : processoBase,
+      href: processoId ? `${processoBase}/precos` : processoBase,
       label: "Pesquisa de Preços",
       icon: DollarSign,
     },

@@ -906,11 +906,21 @@ export default function NovoProcessoPage() {
   }
 
   const goToStep = useCallback((nextStep: string) => {
+    if (nextStep === "pesquisa" && processoId) {
+      router.push(`/orgao/fase-interna/processos/${processoId}/precos`)
+      return
+    }
     setStep(nextStep)
     if (processoId) {
       router.replace(`/orgao/fase-interna/processos/novo?id=${processoId}&step=${nextStep}`, { scroll: false })
     }
   }, [processoId, router])
+
+  useEffect(() => {
+    if (stepParam === "pesquisa" && processoId) {
+      router.replace(`/orgao/fase-interna/processos/${processoId}/precos`)
+    }
+  }, [processoId, router, stepParam])
 
   const advance = useCallback(() => {
     setCompleted((prev) => prev.includes(step) ? prev : [...prev, step])
