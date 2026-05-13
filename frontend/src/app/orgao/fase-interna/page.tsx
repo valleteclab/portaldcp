@@ -23,12 +23,30 @@ interface Licitacao {
   prazo?: string
   created_at?: string
   updated_at?: string
+  fase_interna_concluida?: boolean
+  etapaReal?: EtapaCalculada
 }
 
 interface AlertaIA {
   tipo: "warn" | "info" | "danger"
   titulo: string
   descricao: string
+}
+
+interface DocumentoFaseInterna {
+  tipo: string
+  titulo?: string
+  descricao?: string
+  status?: string
+  dados_estruturados?: any
+}
+
+interface EtapaCalculada {
+  sigla: string
+  nome: string
+  progresso: number
+  total: number
+  status: string
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -56,6 +74,17 @@ const FASE_MAP: Record<string, { sigla: string; nome: string; progresso: number;
   ANALISE_JURIDICA:  { sigla: "TR",  nome: "Termo de Referência",        progresso: 5, status: "juridico" },
   APROVACAO_INTERNA: { sigla: "PJ",  nome: "Parecer Jurídico",           progresso: 7, status: "revisao" },
 }
+
+const ETAPAS_FLUXO = [
+  { tipo: "DFD", sigla: "DFD", nome: "Formalização da Demanda" },
+  { tipo: "ETP", sigla: "ETP", nome: "Estudo Técnico Preliminar" },
+  { tipo: "AR", sigla: "MR", nome: "Análise de Riscos" },
+  { tipo: "PP", sigla: "PP", nome: "Pesquisa de Preços" },
+  { tipo: "TR", sigla: "TR", nome: "Termo de Referência" },
+  { tipo: "AA", sigla: "AUT", nome: "Autorização" },
+  { tipo: "ME", sigla: "ED", nome: "Minuta do Edital" },
+  { tipo: "PJ", sigla: "PJ", nome: "Parecer Jurídico" },
+]
 
 // Status chip colors
 const STATUS_CHIP: Record<string, { bg: string; text: string }> = {
@@ -107,6 +136,34 @@ function diasRestantes(iso?: string): number | null {
   return Math.ceil((prazo.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
 }
 
+function temConteudoDocumento(doc?: DocumentoFaseInterna): boolean {
+  if (!doc) return false
+  if (["APROVADO", "AGUARDANDO_APROVACAO", "IMPORTADO"].includes(doc.status || "")) return true
+  if ((doc.descricao || "").trim().length > 20) return true
+
+  const dados = doc.dados_estruturados
+  if (!dados) return false
+  if (doc.tipo === "AR") return Array.isArray(dados.riscos) && dados.riscos.length > 0
+  if (doc.tipo === "PP") return Array.isArray(dados.itens) && dados.itens.some((item: any) => Array.isArray(item?.cotacoes) && item.cotacoes.length > 0)
+  return Object.values(dados).some((valor) => typeof valor === "string" ? valor.trim().length > 20 : Array.isArray(valor) ? valor.length > 0 : Boolean(valor))
+}
+
+function calcularEtapaReal(licitacao: Licitacao, documentos: DocumentoFaseInterna[]): EtapaCalculada {
+  const porTipo = new Map(documentos.map((doc) => [doc.tipo, doc]))
+  const concluidas = ETAPAS_FLUXO.filter((etapa) => temConteudoDocumento(porTipo.get(etapa.tipo)))
+  const proxima = ETAPAS_FLUXO[concluidas.length] || ETAPAS_FLUXO[ETAPAS_FLUXO.length - 1]
+  const emAnalise = documentos.some((doc) => doc.status === "AGUARDANDO_APROVACAO")
+  const concluido = Boolean((licitacao as any).fase_interna_concluida) || concluidas.length >= ETAPAS_FLUXO.length
+
+  return {
+    sigla: concluido ? "OK" : proxima.sigla,
+    nome: concluido ? "Fase interna concluída" : proxima.nome,
+    progresso: concluido ? ETAPAS_FLUXO.length : concluidas.length,
+    total: ETAPAS_FLUXO.length,
+    status: concluido ? "concluido" : emAnalise ? "revisao" : concluidas.length === 0 ? "rascunho" : "andamento",
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FaseInternaDashboard() {
@@ -120,9 +177,13 @@ export default function FaseInternaDashboard() {
   const gerarAlertasIA = useCallback(async (processos: Licitacao[]) => {
     setGerandoAlertas(true)
     setAlertas([])
+    if (processos.length === 0) {
+      setGerandoAlertas(false)
+      return
+    }
     try {
       const resumo = processos.map((l) => {
-        const m = FASE_MAP[l.fase]
+        const m = l.etapaReal
         return `- Processo ${l.numero_processo}: "${l.objeto}" — fase: ${m?.nome ?? l.fase}, prazo: ${l.prazo ?? "não informado"}, valor: ${fmtMoeda(l.valor_total_estimado)}`
       }).join("\n")
 
@@ -164,7 +225,15 @@ export default function FaseInternaDashboard() {
         const dados = await res.json()
         const lista: Licitacao[] = Array.isArray(dados) ? dados : (dados.data ?? dados.items ?? [])
         const internas = lista.filter((l) => FASES_INTERNAS.includes(l.fase))
-        const final = internas.length > 0 ? internas : MOCK
+        const final = await Promise.all(internas.map(async (licitacao) => {
+          try {
+            const docsRes = await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/documentos`)
+            const documentos: DocumentoFaseInterna[] = docsRes.ok ? await docsRes.json() : []
+            return { ...licitacao, etapaReal: calcularEtapaReal(licitacao, documentos) }
+          } catch {
+            return { ...licitacao, etapaReal: calcularEtapaReal(licitacao, []) }
+          }
+        }))
         setLicitacoes(final)
         gerarAlertasIA(final)
         return
@@ -172,9 +241,8 @@ export default function FaseInternaDashboard() {
     } catch (e) {
       console.error("Erro ao carregar licitações:", e)
     }
-    // fallback to mock
-    setLicitacoes(MOCK)
-    gerarAlertasIA(MOCK)
+    setLicitacoes([])
+    gerarAlertasIA([])
   }, [gerarAlertasIA])
 
   useEffect(() => {
@@ -184,14 +252,12 @@ export default function FaseInternaDashboard() {
   // ── Derived stats ─────────────────────────────────────────────────────────────
 
   const total = licitacoes.length
-  const emAndamento = licitacoes.filter((l) =>
-    ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS"].includes(l.fase)
-  ).length
+  const emAndamento = licitacoes.filter((l) => l.etapaReal?.status !== "concluido").length
   const pendentes = licitacoes.filter((l) => {
     const dias = diasRestantes(l.prazo)
     return dias !== null && dias <= 7
   }).length
-  const aprovadosMes = licitacoes.filter((l) => l.fase === "APROVACAO_INTERNA").length
+  const aprovadosMes = licitacoes.filter((l) => l.etapaReal?.status === "concluido").length
   const valorTotal = licitacoes.reduce(
     (acc, l) => acc + (parseFloat(String(l.valor_total_estimado)) || 0),
     0
@@ -351,7 +417,7 @@ export default function FaseInternaDashboard() {
                 {/* Table rows */}
                 <div className="divide-y divide-gray-50">
                   {prioritarios.map((l) => {
-                    const m = FASE_MAP[l.fase] ?? { sigla: "?", nome: l.fase, progresso: 1, status: "rascunho" }
+                    const m = l.etapaReal ?? calcularEtapaReal(l, [])
                     const chip = STATUS_CHIP[m.status] ?? STATUS_CHIP.rascunho
                     const dias = diasRestantes(l.prazo)
                     const prazoUrgente = dias !== null && dias < 14
@@ -376,8 +442,8 @@ export default function FaseInternaDashboard() {
 
                         {/* Progresso */}
                         <div className="flex flex-col gap-1">
-                          <Progress value={(m.progresso / 8) * 100} className="h-1" />
-                          <span className="text-[10px] text-gray-400">{m.progresso}/8 etapas</span>
+                          <Progress value={(m.progresso / m.total) * 100} className="h-1" />
+                          <span className="text-[10px] text-gray-400">{m.progresso}/{m.total} etapas</span>
                         </div>
 
                         {/* Prazo */}

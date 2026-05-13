@@ -166,11 +166,6 @@ export function FaseInternaNav() {
 
   const documentNav: NavItem[] = [
     {
-      href: wizardHref("dfd"),
-      label: "Editor de TR / DFD / ETP",
-      icon: FileText,
-    },
-    {
       href: isWizardFlow
         ? wizardHref("riscos")
         : processoId
