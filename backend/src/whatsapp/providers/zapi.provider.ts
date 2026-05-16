@@ -101,6 +101,60 @@ export class ZApiProvider implements IWhatsAppProvider {
     }
   }
 
+  async enviarDocumento(params: {
+    to: string;
+    documentoBase64: string;
+    nomeArquivo: string;
+    legenda?: string;
+    extensao?: string;
+    mimeType?: string;
+    orgaoId?: string;
+    config: WhatsAppConfig;
+  }): Promise<boolean> {
+    const { to, documentoBase64, nomeArquivo, legenda, config } = params;
+    const phone = this.normalizarTelefone(to);
+    if (phone.length < 12) {
+      this.logger.warn(`Telefone invÃ¡lido para WhatsApp: ${to}`);
+      return false;
+    }
+
+    const extensao = (params.extensao || nomeArquivo.split('.').pop() || 'pdf').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'pdf';
+    const mimeType = params.mimeType || (extensao === 'pdf' ? 'application/pdf' : 'application/octet-stream');
+    const document = documentoBase64.startsWith('data:')
+      ? documentoBase64
+      : `data:${mimeType};base64,${documentoBase64}`;
+
+    try {
+      const url = `${ZAPI_BASE}/instances/${config.instanceId}/token/${config.token}/send-document/${extensao}`;
+      const clientToken = config.clientToken?.replace(/[\r\n\t]/g, '').trim();
+      this.logger.log(`Chamando Z-API (documento): POST ${url} | phone=${phone} | fileName=${nomeArquivo}`);
+      const response = await axios.post(
+        url,
+        {
+          phone,
+          document,
+          fileName: nomeArquivo,
+          ...(legenda ? { caption: legenda } : {}),
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(clientToken ? { 'Client-Token': clientToken } : {}),
+          },
+          timeout: 30000,
+        },
+      );
+      if (response.data?.messageId || response.data?.zaapId || response.data?.id) {
+        this.logger.log(`Documento WhatsApp enviado para ${phone}: ${response.data.messageId || response.data.zaapId || response.data.id}`);
+        return true;
+      }
+      return false;
+    } catch (error: any) {
+      this.logger.error(`Erro ao enviar documento WhatsApp para ${phone}: status=${error.response?.status} body=${JSON.stringify(error.response?.data)} msg=${error.message}`);
+      return false;
+    }
+  }
+
   async testarConexao(params: {
     config: WhatsAppConfig;
     numeroTeste?: string;

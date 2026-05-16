@@ -20,6 +20,16 @@ export interface IWhatsAppProvider {
     orgaoId?: string;
     config: WhatsAppConfig;
   }): Promise<boolean>;
+  enviarDocumento?(params: {
+    to: string;
+    documentoBase64: string;
+    nomeArquivo: string;
+    legenda?: string;
+    extensao?: string;
+    mimeType?: string;
+    orgaoId?: string;
+    config: WhatsAppConfig;
+  }): Promise<boolean>;
   testarConexao?(params: {
     config: WhatsAppConfig;
     numeroTeste?: string;

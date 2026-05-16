@@ -148,6 +148,39 @@ export class WhatsAppService {
     }
   }
 
+  async enviarDocumento(orgaoId: string, params: {
+    to: string;
+    documentoBase64: string;
+    nomeArquivo: string;
+    legenda?: string;
+    extensao?: string;
+    mimeType?: string;
+  }): Promise<boolean> {
+    const config = await this.getConfig(orgaoId);
+    if (!config) {
+      this.logger.warn(`WhatsApp nao configurado para orgao ${orgaoId}, documento nao enviado`);
+      return false;
+    }
+
+    const orgao = await this.orgaoRepository.findOne({
+      where: { id: orgaoId },
+      select: ['whatsapp_provider'],
+    });
+    const providerName = orgao?.whatsapp_provider || 'ZAPI';
+    const provider = this.getProvider(providerName) as IWhatsAppProvider;
+
+    try {
+      if (!provider.enviarDocumento) {
+        this.logger.warn(`Provedor WhatsApp ${providerName} nao suporta envio de documento`);
+        return false;
+      }
+      return await provider.enviarDocumento({ ...params, orgaoId, config });
+    } catch (error: any) {
+      this.logger.error(`Erro ao enviar documento WhatsApp (orgao ${orgaoId}): ${error.message}`);
+      return false;
+    }
+  }
+
   async enviarSistema(phone: string, mensagem: string): Promise<boolean> {
     let config: WhatsAppConfig | null = null;
 

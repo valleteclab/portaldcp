@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { IWhatsAppProvider, WhatsAppButtonAction, WhatsAppConfig } from '../whatsapp.interfaces';
+import { IWhatsAppProvider } from '../whatsapp.interfaces';
 
 @Injectable()
 export class MetaChatwootProvider implements IWhatsAppProvider {
@@ -9,6 +9,10 @@ export class MetaChatwootProvider implements IWhatsAppProvider {
 
   async enviarComBotao(): Promise<boolean> {
     throw new Error('Provedor Meta + Chatwoot ainda não implementado. Use Z-API por enquanto.');
+  }
+
+  async enviarDocumento(): Promise<boolean> {
+    throw new Error('Provedor Meta + Chatwoot ainda nao implementado. Use Z-API por enquanto.');
   }
 
   async testarConexao(): Promise<{ sucesso: boolean; mensagem: string }> {

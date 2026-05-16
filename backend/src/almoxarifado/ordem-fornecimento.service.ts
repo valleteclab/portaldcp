@@ -345,8 +345,17 @@ ${usuarioNome || 'Gestão de Contratos'}</p>`,
       try {
         const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
         if (configurado) {
-          const mensagem = `📦 *Ordem de Fornecimento Emitida*\n\nPrezado(a) *${ordem.fornecedor?.razao_social || 'Fornecedor'}*,\n\nSua OF *${ordem.numero}* foi emitida.\n\n📎 Verifique seu email para o documento em anexo.\n\n👉 Acesse o portal para registrar a entrega.`;
-          await this.whatsappService.enviar(ordem.orgao_id, { to: telefoneFornecedor, mensagem });
+          const nomeArquivo = `ordem_${ordem.numero.replace(/\//g, '_')}.pdf`;
+          const documentoBase64 = fs.readFileSync(pdfPath).toString('base64');
+          const legenda = `Ordem de Fornecimento ${ordem.numero} emitida.\n\nAcesse o portal para registrar a entrega:\n${process.env.APP_URL || 'https://portaldcp.com.br'}/fornecedor/contratos/${ordem.contrato_id}`;
+          await this.whatsappService.enviarDocumento(ordem.orgao_id, {
+            to: telefoneFornecedor,
+            documentoBase64,
+            nomeArquivo,
+            legenda,
+            extensao: 'pdf',
+            mimeType: 'application/pdf',
+          });
         }
       } catch (err: any) {
         this.logger.warn(`WhatsApp da ordem nao enviado: ${err.message}`);
@@ -431,8 +440,17 @@ ${usuarioNome || 'Gestão de Contratos'}</p>`,
       try {
         const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
         if (configurado) {
-          const mensagem = `📦 *Ordem de Fornecimento Reenviada*\n\nPrezado(a) *${ordem.fornecedor?.razao_social || 'Fornecedor'}*,\n\nSua OF *${ordem.numero}* foi reenviada.\n\n📎 Verifique seu email para o documento em anexo.\n\n👉 Acesse o portal para registrar a entrega.`;
-          await this.whatsappService.enviar(ordem.orgao_id, { to: telefoneFornecedor, mensagem });
+          const nomeArquivo = `ordem_${ordem.numero.replace(/\//g, '_')}.pdf`;
+          const documentoBase64 = fs.readFileSync(pdfPath).toString('base64');
+          const legenda = `Ordem de Fornecimento ${ordem.numero} reenviada.\n\nAcesse o portal para registrar a entrega:\n${process.env.APP_URL || 'https://portaldcp.com.br'}/fornecedor/contratos/${ordem.contrato_id}`;
+          await this.whatsappService.enviarDocumento(ordem.orgao_id, {
+            to: telefoneFornecedor,
+            documentoBase64,
+            nomeArquivo,
+            legenda,
+            extensao: 'pdf',
+            mimeType: 'application/pdf',
+          });
         }
       } catch (err: any) {
         this.logger.warn(`WhatsApp da ordem nao enviado: ${err.message}`);
@@ -1202,11 +1220,16 @@ Gestão de Contratos</p>`,
         const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
         if (configurado && ordem.contrato_id) {
           const linkPortal = `${urlBase}/fornecedor/contratos/${ordem.contrato_id}`;
-          const mensagem = `📦 *Ordem de Fornecimento Aprovada*\n\nPrezado(a) *${fornecedor.razao_social}*,\n\nSua OF *${ordem.numero}* foi aprovada e assinada digitalmente.\n\n📎 O documento oficial foi enviado para seu email.\n\n👉 Acesse o portal para registrar entrega:`;
-          const enviado = await this.whatsappService.enviarComBotao(ordem.orgao_id, {
+          const nomeArquivo = `OF_${ordem.numero.replace(/\//g, '_')}_assinada.pdf`;
+          const documentoBase64 = fs.readFileSync(pdfPath).toString('base64');
+          const legenda = `Ordem de Fornecimento ${ordem.numero} aprovada e assinada digitalmente.\n\nAcesse o portal para registrar entrega:\n${linkPortal}`;
+          const enviado = await this.whatsappService.enviarDocumento(ordem.orgao_id, {
             to: telefoneFornecedor,
-            mensagem,
-            botoes: [{ id: '1', type: 'URL', label: 'Ver no Portal do Fornecedor', url: linkPortal }],
+            documentoBase64,
+            nomeArquivo,
+            legenda,
+            extensao: 'pdf',
+            mimeType: 'application/pdf',
           });
           if (enviado) resultado.whatsapp = true;
         }

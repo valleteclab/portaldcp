@@ -209,14 +209,19 @@ ${requisicao.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         const configurado = await this.whatsappService.isConfigurado(requisicao.orgao_id);
         if (configurado && requisicao.contrato_id) {
           const linkPortal = `${urlBase}/fornecedor/contratos/${requisicao.contrato_id}`;
-          const mensagem = `📋 *Ordem de Serviço Aprovada*\n\nPrezado(a) *${fornecedor.razao_social}*,\n\nSua OS *${requisicao.numero}* foi aprovada e assinada digitalmente.\n\n📎 O documento oficial foi enviado para seu email.\n\n👉 Acesse o portal para acompanhar:`;
-          const enviado = await this.whatsappService.enviarComBotao(requisicao.orgao_id, {
+          const nomeArquivo = `OS_${requisicao.numero.replace(/\//g, '_')}_assinada.pdf`;
+          const documentoBase64 = fs.readFileSync(pdfPath).toString('base64');
+          const legenda = `Ordem de Servico ${requisicao.numero} aprovada e assinada digitalmente.\n\nAcesse o portal para acompanhar:\n${linkPortal}`;
+          const enviado = await this.whatsappService.enviarDocumento(requisicao.orgao_id, {
             to: telefoneFornecedor,
-            mensagem,
-            botoes: [{ id: '1', type: 'URL', label: 'Ver no Portal do Fornecedor', url: linkPortal }],
+            documentoBase64,
+            nomeArquivo,
+            legenda,
+            extensao: 'pdf',
+            mimeType: 'application/pdf',
           });
           if (enviado) resultado.whatsapp = true;
-          this.logger.log(`WhatsApp (com botão) enviado ao fornecedor ${fornecedor.razao_social} para OS ${requisicao.numero}`);
+          this.logger.log(`PDF da OS enviado por WhatsApp ao fornecedor ${fornecedor.razao_social} para OS ${requisicao.numero}`);
         }
       } catch (err: any) {
         this.logger.warn(`Erro ao enviar WhatsApp para fornecedor OS ${requisicao.numero}: ${err.message}`);
@@ -313,14 +318,19 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         const configurado = await this.whatsappService.isConfigurado(ordem.orgao_id);
         if (configurado && ordem.contrato_id) {
           const linkPortal = `${urlBase}/fornecedor/contratos/${ordem.contrato_id}`;
-          const mensagem = `📦 *Ordem de Fornecimento Aprovada*\n\nPrezado(a) *${fornecedor.razao_social}*,\n\nSua OF *${ordem.numero}* foi aprovada e assinada digitalmente.\n\n📎 O documento oficial foi enviado para seu email.\n\n👉 Acesse o portal para registrar entrega:`;
-          const enviado = await this.whatsappService.enviarComBotao(ordem.orgao_id, {
+          const nomeArquivo = `OF_${ordem.numero.replace(/\//g, '_')}_assinada.pdf`;
+          const documentoBase64 = fs.readFileSync(pdfPath).toString('base64');
+          const legenda = `Ordem de Fornecimento ${ordem.numero} aprovada e assinada digitalmente.\n\nAcesse o portal para registrar entrega:\n${linkPortal}`;
+          const enviado = await this.whatsappService.enviarDocumento(ordem.orgao_id, {
             to: telefoneFornecedor,
-            mensagem,
-            botoes: [{ id: '1', type: 'URL', label: 'Ver no Portal do Fornecedor', url: linkPortal }],
+            documentoBase64,
+            nomeArquivo,
+            legenda,
+            extensao: 'pdf',
+            mimeType: 'application/pdf',
           });
           if (enviado) resultado.whatsapp = true;
-          this.logger.log(`WhatsApp enviado ao fornecedor ${fornecedor.razao_social} para OF ${ordem.numero}`);
+          this.logger.log(`PDF da OF enviado por WhatsApp ao fornecedor ${fornecedor.razao_social} para OF ${ordem.numero}`);
         }
       } catch (err: any) {
         this.logger.warn(`Erro ao enviar WhatsApp para fornecedor OF ${ordem.numero}: ${err.message}`);
