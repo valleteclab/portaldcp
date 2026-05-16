@@ -25,7 +25,6 @@ import { JwtPayload, UserType } from '../auth/auth.service';
 import { RequisicaoService } from './requisicao.service';
 import { ItemContratoService } from './item-contrato.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
-import { OrdemFinanceiroMonitorService } from './ordem-financeiro-monitor.service';
 import { RecebimentoService } from './recebimento.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { PdfOrdemService } from './pdf-ordem.service';
@@ -68,7 +67,6 @@ export class AlmoxarifadoController {
     private readonly requisicaoService: RequisicaoService,
     private readonly itemContratoService: ItemContratoService,
     private readonly ordemService: OrdemFornecimentoService,
-    private readonly ordemFinanceiroMonitorService: OrdemFinanceiroMonitorService,
     private readonly recebimentoService: RecebimentoService,
     private readonly configAprovacaoService: ConfiguracaoAprovacaoService,
     private readonly pdfOrdemService: PdfOrdemService,
@@ -614,18 +612,6 @@ export class AlmoxarifadoController {
     return this.ordemService.getEstatisticas(orgaoId);
   }
 
-  @Post('ordens/verificar-financeiro')
-  async verificarFinanceiroOrdens(@Req() request: { user: JwtPayload }) {
-    const orgaoId = this.getOrgaoId(request.user);
-    const resultados = await this.ordemFinanceiroMonitorService.verificarPendentes(orgaoId);
-    return {
-      ok: true,
-      total: resultados.length,
-      alteradas: resultados.filter((resultado) => resultado.alterou).length,
-      resultados,
-    };
-  }
-
   @Get('ordens/dossie-fiscal')
   async listarDossiesFiscal(@Req() request: { user: JwtPayload }) {
     const orgaoId = this.getOrgaoId(request.user);
@@ -865,19 +851,6 @@ export class AlmoxarifadoController {
     }
     const caminhoPdf = await this.pdfOrdemService.vincularEmpenhos(id, empenhos);
     return { ok: true, pdf_regenerado: !!caminhoPdf };
-  }
-
-  @Post('ordens/:id/verificar-financeiro')
-  async verificarFinanceiroOrdem(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Req() request: { user: JwtPayload },
-  ) {
-    const orgaoId = this.getOrgaoId(request.user);
-    const ordem = await this.ordemService.findOne(id);
-    if (ordem.orgao_id !== orgaoId) {
-      throw new ForbiddenException('Ordem nÃ£o pertence ao seu Ã³rgÃ£o');
-    }
-    return this.ordemFinanceiroMonitorService.verificarOrdem(id, true);
   }
 
   @Patch('requisicoes/:id/empenhos')

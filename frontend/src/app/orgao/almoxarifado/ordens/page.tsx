@@ -25,7 +25,6 @@ import {
   MessageCircle,
   Receipt,
   Link2,
-  RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -79,13 +78,6 @@ interface OrdemFornecimento {
   caminho_pdf?: string | null;
   codigo_validacao?: string | null;
   numeros_empenhos?: string[] | null;
-  status_liquidacao?: string;
-  status_pagamento?: string;
-  valor_liquidado_financeiro?: number;
-  valor_pago_financeiro?: number;
-  data_ultima_verificacao_financeira?: string | null;
-  data_liquidacao_detectada?: string | null;
-  data_pagamento_detectado?: string | null;
   contrato_id?: string;
   contrato?: {
     id?: string;
@@ -148,34 +140,6 @@ const STATUS_LABELS: Record<string, string> = {
   ATENDIDA_PARCIAL: 'Parcialmente Atendida',
   ATENDIDA: 'Atendida',
   CANCELADA: 'Cancelada',
-};
-
-const STATUS_LIQUIDACAO_LABELS: Record<string, string> = {
-  NAO_VERIFICADO: 'Liquidacao nao verificada',
-  NAO_LIQUIDADA: 'Nao liquidada',
-  PARCIALMENTE_LIQUIDADA: 'Liquidada parcial',
-  LIQUIDADA: 'Liquidada',
-};
-
-const STATUS_LIQUIDACAO_COLORS: Record<string, string> = {
-  NAO_VERIFICADO: 'bg-gray-100 text-gray-700 border-gray-200',
-  NAO_LIQUIDADA: 'bg-slate-100 text-slate-700 border-slate-200',
-  PARCIALMENTE_LIQUIDADA: 'bg-amber-100 text-amber-800 border-amber-200',
-  LIQUIDADA: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-};
-
-const STATUS_PAGAMENTO_LABELS: Record<string, string> = {
-  NAO_VERIFICADO: 'Pagamento nao verificado',
-  NAO_PAGA: 'Nao paga',
-  PARCIALMENTE_PAGA: 'Paga parcial',
-  PAGA: 'Paga',
-};
-
-const STATUS_PAGAMENTO_COLORS: Record<string, string> = {
-  NAO_VERIFICADO: 'bg-gray-100 text-gray-700 border-gray-200',
-  NAO_PAGA: 'bg-slate-100 text-slate-700 border-slate-200',
-  PARCIALMENTE_PAGA: 'bg-cyan-100 text-cyan-800 border-cyan-200',
-  PAGA: 'bg-green-100 text-green-800 border-green-200',
 };
 
 const TIPO_MOVIMENTO_LABELS: Record<string, string> = {
@@ -273,7 +237,6 @@ function OrdensList() {
 
   const [processando, setProcessando] = useState(false);
   const [gerandoPDF, setGerandoPDF] = useState<string | null>(null);
-  const [verificandoFinanceiro, setVerificandoFinanceiro] = useState<string | null>(null);
   
   useEffect(() => {
     carregarOrdens();
@@ -329,22 +292,6 @@ function OrdensList() {
   };
 
   const formatarDataHora = (data: string) => formatarDataHoraBR(data);
-
-  const renderStatusFinanceiro = (ordem: OrdemFornecimento) => {
-    const statusLiquidacao = ordem.status_liquidacao || 'NAO_VERIFICADO';
-    const statusPagamento = ordem.status_pagamento || 'NAO_VERIFICADO';
-
-    return (
-      <div className="mt-1 flex flex-wrap gap-1">
-        <Badge variant="outline" className={`text-[11px] ${STATUS_LIQUIDACAO_COLORS[statusLiquidacao] || STATUS_LIQUIDACAO_COLORS.NAO_VERIFICADO}`}>
-          {STATUS_LIQUIDACAO_LABELS[statusLiquidacao] || statusLiquidacao}
-        </Badge>
-        <Badge variant="outline" className={`text-[11px] ${STATUS_PAGAMENTO_COLORS[statusPagamento] || STATUS_PAGAMENTO_COLORS.NAO_VERIFICADO}`}>
-          {STATUS_PAGAMENTO_LABELS[statusPagamento] || statusPagamento}
-        </Badge>
-      </div>
-    );
-  };
 
   // Handlers
   const handleVerDetalhes = (ordem: OrdemFornecimento) => {
@@ -558,42 +505,6 @@ function OrdensList() {
       alert('Erro ao baixar PDF da ordem');
     } finally {
       setGerandoPDF(null);
-    }
-  };
-
-  const handleVerificarFinanceiro = async (ordem: OrdemFornecimento) => {
-    if (!ordem.numeros_empenhos?.length) {
-      alert('Vincule ao menos uma nota de empenho antes de verificar liquidação e pagamento.');
-      return;
-    }
-
-    setVerificandoFinanceiro(ordem.id);
-    try {
-      const response = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordem.id}/verificar-financeiro`, {
-        method: 'POST',
-      });
-
-      if (response.ok) {
-        const resultado = await response.json();
-        await carregarOrdens();
-        setOrdemSelecionada((atual) => atual?.id === ordem.id ? {
-          ...atual,
-          status_liquidacao: resultado.status_liquidacao,
-          status_pagamento: resultado.status_pagamento,
-          valor_liquidado_financeiro: resultado.valor_liquidado,
-          valor_pago_financeiro: resultado.valor_pago,
-          data_ultima_verificacao_financeira: new Date().toISOString(),
-        } : atual);
-        alert(`Verificação concluída.\nLiquidação: ${STATUS_LIQUIDACAO_LABELS[resultado.status_liquidacao] || resultado.status_liquidacao}\nPagamento: ${STATUS_PAGAMENTO_LABELS[resultado.status_pagamento] || resultado.status_pagamento}`);
-      } else {
-        const error = await response.json();
-        alert(`Erro ao verificar financeiro: ${error.message || 'Erro desconhecido'}`);
-      }
-    } catch (error) {
-      console.error('Erro ao verificar financeiro:', error);
-      alert('Erro ao verificar liquidação e pagamento');
-    } finally {
-      setVerificandoFinanceiro(null);
     }
   };
 
@@ -836,7 +747,6 @@ function OrdensList() {
                         <Badge className={STATUS_COLORS[ordem.status]}>
                           {STATUS_LABELS[ordem.status]}
                         </Badge>
-                        {renderStatusFinanceiro(ordem)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -873,22 +783,6 @@ function OrdensList() {
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Download className="h-4 w-4" />
-                            )}
-                          </Button>
-
-                          {/* Verificar liquidacao/pagamento */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-cyan-700 hover:text-cyan-800"
-                            onClick={() => handleVerificarFinanceiro(ordem)}
-                            disabled={verificandoFinanceiro === ordem.id || !ordem.numeros_empenhos?.length}
-                            title="Verificar liquidacao e pagamento"
-                          >
-                            {verificandoFinanceiro === ordem.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <RefreshCw className="h-4 w-4" />
                             )}
                           </Button>
                           
@@ -1069,40 +963,6 @@ function OrdensList() {
                   <label className="text-sm font-medium text-gray-500">Valor Entregue</label>
                   <p className="font-semibold text-green-600">{formatarMoeda(ordemSelecionada.valor_entregue)}</p>
                 </div>
-              </div>
-
-              <div className="border rounded-lg p-3 bg-slate-50">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <label className="text-sm font-medium text-slate-700">Acompanhamento financeiro</label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => handleVerificarFinanceiro(ordemSelecionada)}
-                    disabled={verificandoFinanceiro === ordemSelecionada.id || !ordemSelecionada.numeros_empenhos?.length}
-                  >
-                    {verificandoFinanceiro === ordemSelecionada.id ? (
-                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                    )}
-                    Verificar
-                  </Button>
-                </div>
-                {renderStatusFinanceiro(ordemSelecionada)}
-                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <span className="text-gray-500">Liquidado</span>
-                    <p className="font-semibold">{formatarMoeda(Number(ordemSelecionada.valor_liquidado_financeiro || 0))}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Pago</span>
-                    <p className="font-semibold">{formatarMoeda(Number(ordemSelecionada.valor_pago_financeiro || 0))}</p>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  Ultima verificacao: {ordemSelecionada.data_ultima_verificacao_financeira ? formatarDataHora(ordemSelecionada.data_ultima_verificacao_financeira) : 'nunca'}
-                </p>
               </div>
 
               {ordemSelecionada.requisicao && (

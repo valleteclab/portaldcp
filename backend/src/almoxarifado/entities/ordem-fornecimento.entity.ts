@@ -46,20 +46,6 @@ export enum TipoOrdem {
   SERVICO = 'SERVICO',            // Ordem de Serviço
 }
 
-export enum StatusLiquidacaoOrdem {
-  NAO_VERIFICADO = 'NAO_VERIFICADO',
-  NAO_LIQUIDADA = 'NAO_LIQUIDADA',
-  PARCIALMENTE_LIQUIDADA = 'PARCIALMENTE_LIQUIDADA',
-  LIQUIDADA = 'LIQUIDADA',
-}
-
-export enum StatusPagamentoOrdem {
-  NAO_VERIFICADO = 'NAO_VERIFICADO',
-  NAO_PAGA = 'NAO_PAGA',
-  PARCIALMENTE_PAGA = 'PARCIALMENTE_PAGA',
-  PAGA = 'PAGA',
-}
-
 @Entity('ordens_fornecimento')
 export class OrdemFornecimento {
   @PrimaryGeneratedColumn('uuid')
@@ -264,45 +250,6 @@ export class OrdemFornecimento {
   // Lista de empenhos vinculados (JSON array: ["31/2026", "32/2026"])
   @Column({ type: 'jsonb', nullable: true })
   numeros_empenhos: string[] | null;
-
-  // ============================================================================
-  // ACOMPANHAMENTO FINANCEIRO VIA EMPENHOS
-  // ============================================================================
-
-  @Column({
-    type: 'enum',
-    enum: StatusLiquidacaoOrdem,
-    default: StatusLiquidacaoOrdem.NAO_VERIFICADO,
-  })
-  status_liquidacao: StatusLiquidacaoOrdem;
-
-  @Column({
-    type: 'enum',
-    enum: StatusPagamentoOrdem,
-    default: StatusPagamentoOrdem.NAO_VERIFICADO,
-  })
-  status_pagamento: StatusPagamentoOrdem;
-
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
-  valor_liquidado_financeiro: number;
-
-  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
-  valor_pago_financeiro: number;
-
-  @Column({ type: 'timestamp', nullable: true })
-  data_ultima_verificacao_financeira: Date | null;
-
-  @Column({ type: 'timestamp', nullable: true })
-  data_liquidacao_detectada: Date | null;
-
-  @Column({ type: 'timestamp', nullable: true })
-  data_pagamento_detectado: Date | null;
-
-  @Column({ type: 'boolean', default: false })
-  notificou_liquidacao_financeira: boolean;
-
-  @Column({ type: 'boolean', default: false })
-  notificou_pagamento_financeiro: boolean;
 
   // ============================================================================
   // AUDITORIA
