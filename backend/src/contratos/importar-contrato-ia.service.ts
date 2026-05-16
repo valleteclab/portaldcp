@@ -5,6 +5,7 @@ import { IaService } from '../ia/ia.service';
 import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import { ItemContrato, UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
 // Extração robusta usando pdfjs-dist (Mozilla PDF.js) com fallback para pdf-parse
 async function extrairTextoPdf(buffer: Buffer): Promise<string> {
@@ -317,6 +318,49 @@ function normalizarModalidadeExecucao(modalidade: any, categoria: string): strin
   return 'ITEM_QUANTIDADE';
 }
 
+function normalizarUnidadeItemContrato(unidade: any): UnidadeMedidaContrato {
+  const texto = String(unidade || '').trim().toUpperCase();
+  const mapa: Record<string, UnidadeMedidaContrato> = {
+    UN: UnidadeMedidaContrato.UNIDADE,
+    UND: UnidadeMedidaContrato.UNIDADE,
+    UNID: UnidadeMedidaContrato.UNIDADE,
+    UNIDADE: UnidadeMedidaContrato.UNIDADE,
+    PECA: UnidadeMedidaContrato.PECA,
+    PEÇA: UnidadeMedidaContrato.PECA,
+    CX: UnidadeMedidaContrato.CAIXA,
+    CAIXA: UnidadeMedidaContrato.CAIXA,
+    PCT: UnidadeMedidaContrato.PACOTE,
+    PACOTE: UnidadeMedidaContrato.PACOTE,
+    M: UnidadeMedidaContrato.METRO,
+    METRO: UnidadeMedidaContrato.METRO,
+    M2: UnidadeMedidaContrato.METRO_QUADRADO,
+    'M²': UnidadeMedidaContrato.METRO_QUADRADO,
+    METRO_QUADRADO: UnidadeMedidaContrato.METRO_QUADRADO,
+    M3: UnidadeMedidaContrato.METRO_CUBICO,
+    'M³': UnidadeMedidaContrato.METRO_CUBICO,
+    METRO_CUBICO: UnidadeMedidaContrato.METRO_CUBICO,
+    L: UnidadeMedidaContrato.LITRO,
+    LT: UnidadeMedidaContrato.LITRO,
+    LITRO: UnidadeMedidaContrato.LITRO,
+    KG: UnidadeMedidaContrato.QUILOGRAMA,
+    QUILOGRAMA: UnidadeMedidaContrato.QUILOGRAMA,
+    TON: UnidadeMedidaContrato.TONELADA,
+    TONELADA: UnidadeMedidaContrato.TONELADA,
+    HORA: UnidadeMedidaContrato.HORA,
+    HR: UnidadeMedidaContrato.HORA,
+    DIA: UnidadeMedidaContrato.DIARIA,
+    DIARIA: UnidadeMedidaContrato.DIARIA,
+    DIÁRIA: UnidadeMedidaContrato.DIARIA,
+    MES: UnidadeMedidaContrato.MES,
+    MÊS: UnidadeMedidaContrato.MES,
+    ANO: UnidadeMedidaContrato.ANO,
+    SERVICO: UnidadeMedidaContrato.SERVICO,
+    SERVIÇO: UnidadeMedidaContrato.SERVICO,
+    GLOBAL: UnidadeMedidaContrato.GLOBAL,
+  };
+  return mapa[texto] || UnidadeMedidaContrato.UNIDADE;
+}
+
 @Injectable()
 export class ImportarContratoIaService {
   private readonly logger = new Logger(ImportarContratoIaService.name);
@@ -327,6 +371,8 @@ export class ImportarContratoIaService {
     private readonly medicaoService: MedicaoService,
     @InjectRepository(Fornecedor)
     private readonly fornecedorRepo: Repository<Fornecedor>,
+    @InjectRepository(ItemContrato)
+    private readonly itemContratoRepo: Repository<ItemContrato>,
   ) {}
 
   async extrairDadosContrato(file: Express.Multer.File, orgaoId: string): Promise<DadosExtradiosDto> {
@@ -441,6 +487,7 @@ export class ImportarContratoIaService {
     const categoriaNormalizada = normalizarCategoriaContrato(dados.categoria, dados.objeto);
     const modalidadeNormalizada = normalizarModalidadeExecucao(dados.modalidade_execucao, categoriaNormalizada);
     let fornecedorId = dados.fornecedor_id;
+    let fornecedorSnapshot: Fornecedor | null = null;
 
     if (!fornecedorId && dados.fornecedor_cnpj) {
       const cnpj = dados.fornecedor_cnpj.replace(/\D/g, '');
@@ -460,21 +507,35 @@ export class ImportarContratoIaService {
           cep: '00000000',
           telefone: '00000000000',
           email: `${cnpj}@apreencher.com`,
+          representante_nome: 'A PREENCHER',
+          representante_cpf: '00000000000',
+          representante_cargo: 'A PREENCHER',
+          representante_email: `${cnpj}@apreencher.com`,
+          representante_telefone: '00000000000',
           ativo: false,
         } as any);
         fornecedor = await this.fornecedorRepo.save(novo as any) as unknown as Fornecedor;
       }
 
       fornecedorId = fornecedor!.id;
+      fornecedorSnapshot = fornecedor;
+    } else if (fornecedorId) {
+      fornecedorSnapshot = await this.fornecedorRepo.findOne({ where: { id: fornecedorId } });
     }
 
     if (!fornecedorId) {
       throw new BadRequestException('Fornecedor não identificado. Informe o CNPJ para continuar.');
     }
 
+    if (!fornecedorSnapshot) {
+      throw new BadRequestException('Fornecedor não encontrado. Informe um CNPJ válido para continuar.');
+    }
+
     const contrato = await this.contratosService.criar({
       orgao_id: orgaoId,
       fornecedor_id: fornecedorId,
+      fornecedor_cnpj: fornecedorSnapshot.cpf_cnpj,
+      fornecedor_razao_social: fornecedorSnapshot.razao_social,
       objeto: dados.objeto,
       tipo: dados.tipo as any,
       categoria: categoriaNormalizada as any,
@@ -508,6 +569,25 @@ export class ImportarContratoIaService {
               valor_unitario: item.valor_unitario,
               quantidade_meses: item.quantidade_meses || null,
             } as any);
+            itensCriados++;
+          } else if (modalidade === 'ITEM_QUANTIDADE') {
+            const quantidade = Number(item.quantidade) || 0;
+            const valorUnitario = Number(item.valor_unitario) || 0;
+            if (quantidade <= 0 || valorUnitario < 0) continue;
+
+            const itemContrato = this.itemContratoRepo.create({
+              contrato_id: contrato.id,
+              numero_item: itensCriados + 1,
+              descricao: item.descricao || `Item ${itensCriados + 1}`,
+              unidade_medida: normalizarUnidadeItemContrato(item.unidade_medida),
+              quantidade_contratada: quantidade,
+              valor_unitario: valorUnitario,
+              valor_total: Math.round(quantidade * valorUnitario * 100) / 100,
+              quantidade_empenhada: 0,
+              quantidade_entregue: 0,
+              saldo_disponivel: quantidade,
+            } as any);
+            await this.itemContratoRepo.save(itemContrato as any);
             itensCriados++;
           }
         } catch (err) {

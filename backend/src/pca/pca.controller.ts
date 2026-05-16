@@ -16,6 +16,7 @@ import { PlanoContratacaoAnual, ItemPCA, StatusPCA, StatusItemPCA, CategoriaItem
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
+import { Public } from '../auth/public.decorator';
 
 @Controller('pca')
 @RequireModule(ModuloSistema.PCA)
@@ -85,6 +86,21 @@ export class PcaController {
   ) {
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
     return this.pcaService.findByAno(orgaoId, parseInt(ano));
+  }
+
+  @Public()
+  @Get('publico/:cnpj/:ano')
+  async findPublicoPorCnpjEAno(
+    @Param('cnpj') cnpj: string,
+    @Param('ano') ano: string,
+  ) {
+    return this.pcaService.findPublicoPorCnpjEAno(cnpj, parseInt(ano));
+  }
+
+  @Public()
+  @Get('publico/:cnpj')
+  async listarPublicosPorCnpj(@Param('cnpj') cnpj: string) {
+    return this.pcaService.listarPublicosPorCnpj(cnpj);
   }
 
   @Get(':id')

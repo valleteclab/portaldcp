@@ -379,13 +379,18 @@ export async function gerarBoletimMedicaoPdf(
   // INFORMAÇÕES DO CONTRATO
   // =========================================================
   const infoX2 = mX + 22;
+  const textoPretoPdf: [number, number, number] = [0, 0, 0];
+  const textoCorpoTabelaPdf = {
+    textColor: textoPretoPdf,
+    fontStyle: 'bold' as const,
+  };
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(8);
 
   const linhaInfo = (label: string, valor: string) => {
     doc.setFont('helvetica', 'bold');
     doc.text(`${label}:`, mX, y);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('helvetica', 'bold');
     doc.text(textoSeguro(valor), infoX2, y);
     y += 5;
   };
@@ -396,7 +401,7 @@ export async function gerarBoletimMedicaoPdf(
   // Objeto pode ser longo — quebrar em até 3 linhas
   doc.setFont('helvetica', 'bold');
   doc.text('OBJETO:', mX, y);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('helvetica', 'bold');
   const linhasObj = doc.splitTextToSize(textoSeguro(dados.objeto_contrato ?? dados.contrato_objeto), W - mX - infoX2 - 2);
   doc.text(linhasObj, infoX2, y);
   y += linhasObj.length * 4.5 + 1;
@@ -406,12 +411,12 @@ export async function gerarBoletimMedicaoPdf(
   // Período + NF na mesma linha
   doc.setFont('helvetica', 'bold');
   doc.text('PERÍODO:', mX, y);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('helvetica', 'bold');
   doc.text(`${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`, infoX2, y);
   const nfX = W / 2;
   doc.setFont('helvetica', 'bold');
   doc.text('Nº NF:', nfX, y);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('helvetica', 'bold');
   doc.text(dados.nota_fiscal_numero ? textoSeguro(dados.nota_fiscal_numero) : '-', nfX + 12, y);
   y += 5;
 
@@ -467,7 +472,7 @@ export async function gerarBoletimMedicaoPdf(
         ],
       ],
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number] },
+      styles: { fontSize: 7, cellPadding: 1.5, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], ...textoCorpoTabelaPdf },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: { 0: { cellWidth: 12 }, 2: { cellWidth: 30 }, 3: { cellWidth: 18 } },
       margin: { left: mX, right: mX },
@@ -571,7 +576,7 @@ export async function gerarBoletimMedicaoPdf(
         ],
       ],
       theme: 'grid',
-      styles: { fontSize: 6, cellPadding: 0.9, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' as const },
+      styles: { fontSize: 6, cellPadding: 0.9, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' as const, ...textoCorpoTabelaPdf },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
         0: { cellWidth: 8 },
@@ -731,7 +736,7 @@ export async function gerarBoletimMedicaoPdf(
       head,
       body,
       theme: 'grid',
-      styles: { fontSize: 5.8, cellPadding: 1.1, lineWidth: 0.2, lineColor: [190, 190, 190] as [number,number,number], overflow: 'linebreak' as const },
+      styles: { fontSize: 5.8, cellPadding: 1.1, lineWidth: 0.2, lineColor: [190, 190, 190] as [number,number,number], overflow: 'linebreak' as const, ...textoCorpoTabelaPdf },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
         0: { cellWidth: 10 },
@@ -780,7 +785,7 @@ export async function gerarBoletimMedicaoPdf(
         { content: fmtAr(e.valor_medido), styles: { halign: 'right' as const } },
       ]),
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 1.5 },
+      styles: { fontSize: 7, cellPadding: 1.5, ...textoCorpoTabelaPdf },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       margin: { left: mX, right: mX },
     });

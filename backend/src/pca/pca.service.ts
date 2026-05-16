@@ -100,6 +100,130 @@ export class PcaService {
     return pca;
   }
 
+  async findPublicoPorCnpjEAno(cnpj: string, ano: number): Promise<Record<string, unknown>> {
+    const cnpjLimpo = (cnpj || '').replace(/\D/g, '');
+
+    if (!cnpjLimpo || !ano) {
+      throw new BadRequestException('Informe o CNPJ do órgão e o ano do PCA');
+    }
+
+    const pca = await this.pcaRepository.createQueryBuilder('pca')
+      .leftJoinAndSelect('pca.orgao', 'orgao')
+      .leftJoinAndSelect('pca.itens', 'itens')
+      .where("regexp_replace(orgao.cnpj, '\\D', '', 'g') = :cnpj", { cnpj: cnpjLimpo })
+      .andWhere('pca.ano_exercicio = :ano', { ano })
+      .andWhere('pca.status IN (:...statusPublicos)', {
+        statusPublicos: [StatusPCA.PUBLICADO, StatusPCA.ENVIADO_PNCP],
+      })
+      .orderBy('itens.numero_item', 'ASC')
+      .getOne();
+
+    if (!pca) {
+      throw new NotFoundException('PCA público não encontrado');
+    }
+
+    if (pca.itens && pca.itens.length > 0) {
+      pca.itens.sort((a, b) => (a.numero_item || 0) - (b.numero_item || 0));
+    }
+
+    return this.serializarPcaPublico(pca);
+  }
+
+  async listarPublicosPorCnpj(cnpj: string): Promise<Record<string, unknown>> {
+    const cnpjLimpo = (cnpj || '').replace(/\D/g, '');
+
+    if (!cnpjLimpo) {
+      throw new BadRequestException('Informe o CNPJ do órgão');
+    }
+
+    const pcas = await this.pcaRepository.createQueryBuilder('pca')
+      .leftJoinAndSelect('pca.orgao', 'orgao')
+      .where("regexp_replace(orgao.cnpj, '\\D', '', 'g') = :cnpj", { cnpj: cnpjLimpo })
+      .andWhere('pca.status IN (:...statusPublicos)', {
+        statusPublicos: [StatusPCA.PUBLICADO, StatusPCA.ENVIADO_PNCP],
+      })
+      .orderBy('pca.ano_exercicio', 'DESC')
+      .getMany();
+
+    if (pcas.length === 0) {
+      throw new NotFoundException('Nenhum PCA público encontrado para este órgão');
+    }
+
+    const orgao = pcas[0].orgao;
+
+    return {
+      orgao: {
+        nome: orgao?.nome,
+        cnpj: orgao?.cnpj,
+        tipo: orgao?.tipo,
+        esfera: orgao?.esfera,
+        cidade: orgao?.cidade,
+        uf: orgao?.uf,
+        logo_url: orgao?.logo_url,
+      },
+      pcas: pcas.map((pca) => ({
+        id: pca.id,
+        numero_pca: pca.numero_pca,
+        ano_exercicio: pca.ano_exercicio,
+        status: pca.status,
+        data_publicacao: pca.data_publicacao,
+        updated_at: pca.updated_at,
+        valor_total_estimado: pca.valor_total_estimado,
+        quantidade_itens: pca.quantidade_itens,
+        codigo_unidade: pca.codigo_unidade,
+        nome_unidade: pca.nome_unidade,
+      })),
+    };
+  }
+
+  private serializarPcaPublico(pca: PlanoContratacaoAnual): Record<string, unknown> {
+    return {
+      id: pca.id,
+      numero_pca: pca.numero_pca,
+      ano_exercicio: pca.ano_exercicio,
+      status: pca.status,
+      data_publicacao: pca.data_publicacao,
+      updated_at: pca.updated_at,
+      valor_total_estimado: pca.valor_total_estimado,
+      quantidade_itens: pca.quantidade_itens,
+      codigo_unidade: pca.codigo_unidade,
+      nome_unidade: pca.nome_unidade,
+      orgao: {
+        nome: pca.orgao?.nome,
+        cnpj: pca.orgao?.cnpj,
+        tipo: pca.orgao?.tipo,
+        esfera: pca.orgao?.esfera,
+        cidade: pca.orgao?.cidade,
+        uf: pca.orgao?.uf,
+        logo_url: pca.orgao?.logo_url,
+      },
+      itens: (pca.itens || []).map((item) => ({
+        id: item.id,
+        numero_item: item.numero_item,
+        categoria: item.categoria,
+        status: item.status,
+        descricao_objeto: item.descricao_objeto,
+        catalogo_utilizado: item.catalogo_utilizado,
+        classificacao_catalogo: item.classificacao_catalogo,
+        codigo_classe: item.codigo_classe,
+        nome_classe: item.nome_classe,
+        codigo_pdm: item.codigo_pdm,
+        nome_pdm: item.nome_pdm,
+        codigo_item_catalogo: item.codigo_item_catalogo,
+        unidade_medida: item.unidade_medida,
+        quantidade_estimada: item.quantidade_estimada,
+        valor_unitario_estimado: item.valor_unitario_estimado,
+        valor_estimado: item.valor_estimado,
+        valor_orcamentario_exercicio: item.valor_orcamentario_exercicio,
+        renovacao_contrato: item.renovacao_contrato,
+        trimestre_previsto: item.trimestre_previsto,
+        unidade_requisitante: item.unidade_requisitante,
+        codigo_grupo: item.codigo_grupo,
+        nome_grupo: item.nome_grupo,
+      })),
+    };
+  }
+
   async atualizar(id: string, dados: Partial<PlanoContratacaoAnual>): Promise<PlanoContratacaoAnual> {
     const pca = await this.findOne(id);
 

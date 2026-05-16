@@ -67,8 +67,9 @@ import { UnidadeMedidaSelect } from '@/components/catalogo/UnidadeMedidaSelect'
 import { ImportarParaPCA } from '@/components/catalogo/ImportarParaPCA'
 import { ImportarCSVParaPCA } from '@/components/catalogo/ImportarCSVParaPCA'
 import { ImportarCSVInteligente } from '@/components/catalogo/ImportarCSVInteligente'
+import { ImportarXLSXParaPCA } from '@/components/catalogo/ImportarXLSXParaPCA'
 import { BuscaClassificacao, BuscaItemCatalogoProprio } from '@/components/catalogo/BuscaCatalogoProprio'
-import * as XLSX from 'xlsx'
+import { baixarXlsxPca } from '@/lib/pca-export'
 
 interface ItemCatalogo {
   id: string
@@ -161,6 +162,7 @@ function PcaPageContent() {
   const [loading, setLoading] = useState(true)
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
   const [orgaoId, setOrgaoId] = useState<string>('')
+  const [orgaoCnpj, setOrgaoCnpj] = useState<string>('')
   const [showNovoItem, setShowNovoItem] = useState(false)
   const [visualizacao, setVisualizacao] = useState<'lista' | 'detalhes'>('lista')
   const [showNovoPCA, setShowNovoPCA] = useState(false)
@@ -245,6 +247,7 @@ function PcaPageContent() {
 
       const orgao = JSON.parse(orgaoData)
       setOrgaoId(orgao.id) // Salvar orgaoId no estado
+      setOrgaoCnpj((orgao.cnpj || '').replace(/\D/g, ''))
       const response = await authFetch(`${API_URL}/api/pca?orgaoId=${orgao.id}`)
       
       if (response.ok) {
@@ -767,99 +770,7 @@ function PcaPageContent() {
       return
     }
 
-    // Mapear itens para o formato PNCP
-    const dadosExportacao = pcaAtual.itens.map((item, index) => {
-      // Determinar categoria formatada
-      const categoriaMap: Record<string, string> = {
-        'MATERIAL': '1-Material',
-        'SERVICO': '2-Serviço',
-        'OBRA': '3-Obras',
-        'SERVICO_ENGENHARIA': '4-Serviços de Engenharia',
-        'TIC': '5-Soluções de TIC',
-        'LOCACAO_IMOVEL': '6-Locação de Imóveis',
-        'ALIENACAO': '7-Alienação/Concessão/Permissão',
-        'OBRA_ENGENHARIA': '8-Obras e Serviços de Engenharia'
-      }
-
-      const catalogoMap: Record<string, string> = {
-        'COMPRASGOV': '1-CNBS(Catálogo Nacional de Bens e Serviços)',
-        'OUTROS': '2-Outros'
-      }
-
-      const classificacaoMap: Record<string, string> = {
-        'MATERIAL': '1-Material',
-        'SERVICO': '2-Serviço'
-      }
-
-      // Formatar valor para o padrão brasileiro
-      const formatarValorExcel = (valor: number | string | null | undefined) => {
-        const num = typeof valor === 'string' ? parseFloat(valor) : (valor || 0)
-        return num
-      }
-
-      // Formatar data para dd/mm/yyyy
-      const formatarData = (trimestre: number) => {
-        const mes = trimestre * 3
-        return `01/${mes.toString().padStart(2, '0')}/${pcaAtual.ano_exercicio}`
-      }
-
-      return {
-        'Numero Item*': index + 1,
-        'Categoria do Item*': categoriaMap[item.categoria] || '2-Serviço',
-        'Catálogo Utilizado*': catalogoMap[item.catalogo_utilizado || 'OUTROS'] || '2-Outros',
-        'Classificação do Catálogo*': classificacaoMap[item.classificacao_catalogo || 'SERVICO'] || '2-Serviço',
-        'Código da Classificação Superior (Classe/Grupo)*': item.codigo_classe || '',
-        'Classificacao Superior Nome*': item.nome_classe || '',
-        'Código do PDM do Item': item.codigo_pdm || '',
-        'Nome do PDM do Item': item.nome_pdm || '',
-        'Código do Item': item.codigo_item_catalogo || '',
-        'Descrição do Item': item.descricao_objeto || '',
-        'Unidade de Fornecimento': item.unidade_medida || 'UN',
-        'Quantidade Estimada*': Number(item.quantidade_estimada) || 1,
-        'Valor Unitário Estimado (R$)*': formatarValorExcel(item.valor_unitario_estimado),
-        'Valor Total Estimado (R$)*': formatarValorExcel(item.valor_estimado),
-        'Valor orçamentário estimado para o exercício (R$)*': formatarValorExcel(item.valor_orcamentario_exercicio || item.valor_estimado),
-        'Renovação Contrato*': item.renovacao_contrato === 'SIM' ? '1-Sim' : '2-Não',
-        'Data Desejada*': formatarData(item.trimestre_previsto || 1),
-        'Unidade Requisitante': item.unidade_requisitante || '',
-        'Grupo Contratação Codigo': item.codigo_grupo || '',
-        'Grupo Contratação Nome': item.nome_grupo || ''
-      }
-    })
-
-    // Criar workbook e worksheet
-    const ws = XLSX.utils.json_to_sheet(dadosExportacao)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Itens PCA')
-
-    // Ajustar largura das colunas
-    const colWidths = [
-      { wch: 12 },  // Numero Item
-      { wch: 20 },  // Categoria
-      { wch: 40 },  // Catálogo
-      { wch: 25 },  // Classificação
-      { wch: 15 },  // Código Classe
-      { wch: 35 },  // Nome Classe
-      { wch: 15 },  // Código PDM
-      { wch: 25 },  // Nome PDM
-      { wch: 15 },  // Código Item
-      { wch: 60 },  // Descrição
-      { wch: 15 },  // Unidade
-      { wch: 15 },  // Quantidade
-      { wch: 20 },  // Valor Unitário
-      { wch: 20 },  // Valor Total
-      { wch: 25 },  // Valor Orçamentário
-      { wch: 18 },  // Renovação
-      { wch: 15 },  // Data
-      { wch: 30 },  // Unidade Requisitante
-      { wch: 20 },  // Grupo Código
-      { wch: 30 },  // Grupo Nome
-    ]
-    ws['!cols'] = colWidths
-
-    // Gerar arquivo e fazer download
-    const nomeArquivo = `PCA_${pcaAtual.ano_exercicio}_Itens_PNCP.xlsx`
-    XLSX.writeFile(wb, nomeArquivo)
+    baixarXlsxPca(pcaAtual, `PCA_${pcaAtual.ano_exercicio}_Itens_PNCP.xlsx`)
   }
 
   const anos = Array.from({ length: 12 }, (_, i) => new Date().getFullYear() + i - 1) // Anos de -1 até +10
@@ -1262,6 +1173,15 @@ function PcaPageContent() {
                   Exportar PNCP (Excel)
                 </Button>
 
+                {(pcaAtual.status === 'PUBLICADO' || pcaAtual.enviado_pncp) && orgaoCnpj && (
+                  <Button variant="outline" asChild>
+                    <Link href={`/pca/${orgaoCnpj}/${pcaAtual.ano_exercicio}`} target="_blank">
+                      <Eye className="w-4 h-4 mr-2" />
+                      Página pública
+                    </Link>
+                  </Button>
+                )}
+
                 {/* TODO: Implementar página de relatório 
                 <Button variant="outline" asChild>
                   <Link href={`/orgao/pca/${pcaAtual.id}/relatorio`}>
@@ -1296,6 +1216,13 @@ function PcaPageContent() {
                           carregarPCAs()
                           setShowNovoItem(false)
                         }} 
+                      />
+                      <ImportarXLSXParaPCA
+                        pcaId={pcaAtual.id}
+                        onImportSuccess={(count) => {
+                          carregarPCAs()
+                          setShowNovoItem(false)
+                        }}
                       />
                       <ImportarCSVParaPCA 
                         pcaId={pcaAtual.id} 

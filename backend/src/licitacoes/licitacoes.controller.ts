@@ -24,10 +24,13 @@ export class LicitacoesController {
   @Public()
   @Get()
   async findAll(
-    @Query('fase') fase?: FaseLicitacao,
-    @Query('orgao_id') orgao_id?: string
+    @Query('fase') fase?: FaseLicitacao | 'HOMOLOGADA',
+    @Query('orgao_id') orgao_id?: string,
+    @Query('orgaoId') orgaoId?: string
   ): Promise<Licitacao[]> {
-    return await this.licitacoesService.findAll({ fase, orgao_id });
+    const faseNormalizada =
+      fase === 'HOMOLOGADA' ? FaseLicitacao.HOMOLOGACAO : fase;
+    return await this.licitacoesService.findAll({ fase: faseNormalizada, orgao_id: orgao_id || orgaoId });
   }
 
   @Public()
