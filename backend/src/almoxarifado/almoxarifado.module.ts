@@ -5,6 +5,8 @@ import { FornecedorOrdensController } from './fornecedor-ordens.controller';
 import { RequisicaoService } from './requisicao.service';
 import { ItemContratoService } from './item-contrato.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
+import { OrdemFinanceiroMonitorScheduler } from './ordem-financeiro-monitor.scheduler';
+import { OrdemFinanceiroMonitorService } from './ordem-financeiro-monitor.service';
 import { RecebimentoService } from './recebimento.service';
 import { ConfiguracaoAprovacaoService } from './configuracao-aprovacao.service';
 import { PdfOrdemService } from './pdf-ordem.service';
@@ -78,6 +80,8 @@ import { IaModule } from '../ia/ia.module';
     RequisicaoService, 
     ItemContratoService,
     OrdemFornecimentoService,
+    OrdemFinanceiroMonitorService,
+    OrdemFinanceiroMonitorScheduler,
     RecebimentoService,
     ConfiguracaoAprovacaoService,
     PdfOrdemService,
@@ -91,6 +95,7 @@ import { IaModule } from '../ia/ia.module';
     RequisicaoService, 
     ItemContratoService,
     OrdemFornecimentoService,
+    OrdemFinanceiroMonitorService,
     RecebimentoService,
     ConfiguracaoAprovacaoService,
     NotaFiscalFornecedorService,
