@@ -145,17 +145,8 @@ export class OrdemFinanceiroMonitorService {
       }
     }
 
-    const dataReferencia = this.inicioDoDia(ordem.data_emissao);
-    const valorLiquidado = this.arredondarCentavos(encontrados.reduce((total, comp) => {
-      return total + comp.liquidacoes
-        .filter((liquidacao) => this.dataDespesa(liquidacao.data) >= dataReferencia)
-        .reduce((subtotal, liquidacao) => subtotal + Number(liquidacao.valor ?? 0), 0);
-    }, 0));
-    const valorPago = this.arredondarCentavos(encontrados.reduce((total, comp) => {
-      return total + comp.pagamentos
-        .filter((pagamento) => this.dataDespesa(pagamento.data) >= dataReferencia)
-        .reduce((subtotal, pagamento) => subtotal + Number(pagamento.valor ?? 0), 0);
-    }, 0));
+    const valorLiquidado = this.arredondarCentavos(encontrados.reduce((total, comp) => total + Number(comp.total_liquidado ?? 0), 0));
+    const valorPago = this.arredondarCentavos(encontrados.reduce((total, comp) => total + Number(comp.total_pago ?? 0), 0));
     const valorTotal = Number(ordem.valor_total ?? 0);
     const statusLiquidacao = this.statusLiquidacao(valorLiquidado, valorTotal);
     const statusPagamento = this.statusPagamento(valorPago, valorTotal);
@@ -233,18 +224,6 @@ export class OrdemFinanceiroMonitorService {
 
   private arredondarCentavos(valor: number): number {
     return Math.round(Number(valor || 0) * 100) / 100;
-  }
-
-  private inicioDoDia(data: Date | string): Date {
-    const d = new Date(data);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }
-
-  private dataDespesa(valor: string): Date {
-    const [dia, mes, ano] = String(valor ?? '').split('/').map((parte) => Number(parte));
-    if (!dia || !mes || !ano) return new Date(0);
-    return new Date(ano, mes - 1, dia, 0, 0, 0, 0);
   }
 
   private async notificarMudanca(ordem: OrdemFornecimento, evento: 'liquidada' | 'paga'): Promise<void> {
