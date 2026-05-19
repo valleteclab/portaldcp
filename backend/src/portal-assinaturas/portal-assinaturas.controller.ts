@@ -126,10 +126,11 @@ export class PortalAssinaturasController {
 
   @Post(':documentoId/signatarios/:signatarioId/solicitar-otp')
   async solicitarOtpInterno(
+    @Request() req: any,
     @Param('documentoId', ParseUUIDPipe) documentoId: string,
     @Param('signatarioId', ParseUUIDPipe) signatarioId: string,
   ) {
-    return this.portalAssinaturasService.solicitarOtpInterno(documentoId, signatarioId);
+    return this.portalAssinaturasService.solicitarOtpInterno(documentoId, signatarioId, req.user);
   }
 
   @Post(':documentoId/signatarios/:signatarioId/assinar')
@@ -141,11 +142,10 @@ export class PortalAssinaturasController {
     @Ip() ip: string,
     @Headers('user-agent') userAgent: string,
   ) {
-    const usuarioId = req.user.sub;
     return this.portalAssinaturasService.assinarComoOrgaoUser(
       documentoId,
       signatarioId,
-      usuarioId,
+      req.user,
       ip,
       userAgent || '',
       body?.codigo_otp,

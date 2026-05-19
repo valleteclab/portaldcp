@@ -28,6 +28,29 @@ export class PortalAssinaturasService {
     private readonly assinaturasService: AssinaturasService,
   ) {}
 
+  private normalizarEmail(email?: string | null): string {
+    return (email || '').trim().toLowerCase();
+  }
+
+  private normalizarDocumento(documento?: string | null): string {
+    return (documento || '').replace(/\D/g, '');
+  }
+
+  private signatarioEhUsuarioLogado(signatario: SignatarioDocumento, usuario?: any): boolean {
+    const emailSignatario = this.normalizarEmail(signatario.email);
+    const emailUsuario = this.normalizarEmail(usuario?.email);
+    if (emailSignatario && emailUsuario && emailSignatario === emailUsuario) {
+      return true;
+    }
+
+    const documentoSignatario = this.normalizarDocumento(signatario.cpf_cnpj);
+    const documentoUsuario = this.normalizarDocumento(
+      usuario?.cpf || usuario?.cpf_cnpj || usuario?.documento,
+    );
+
+    return !!documentoSignatario && !!documentoUsuario && documentoSignatario === documentoUsuario;
+  }
+
   // =============================================
   // GESTÃO DE DOCUMENTOS (Órgão)
   // =============================================
@@ -214,7 +237,8 @@ export class PortalAssinaturasService {
   async solicitarOtpInterno(
     documentoId: string,
     signatarioId: string,
-  ): Promise<{ canal: string }> {
+    usuarioLogado?: any,
+  ): Promise<{ canal: string; otp_dispensado?: boolean }> {
     const signatario = await this.signatarioRepository.findOne({
       where: { id: signatarioId, documento_id: documentoId },
       relations: ['documento'],
@@ -222,6 +246,12 @@ export class PortalAssinaturasService {
     if (!signatario) throw new NotFoundException('Signatário não encontrado');
     if (signatario.status === StatusAssinaturaSignatario.ASSINADO) {
       throw new BadRequestException('Você já assinou este documento');
+    }
+    if (!signatario.is_orgao_user) {
+      throw new BadRequestException('Este signatario deve usar o link publico de assinatura');
+    }
+    if (this.signatarioEhUsuarioLogado(signatario, usuarioLogado)) {
+      return { canal: 'dispensado', otp_dispensado: true };
     }
     if (!signatario.email) {
       throw new BadRequestException('Signatário sem e-mail cadastrado');
@@ -235,7 +265,7 @@ export class PortalAssinaturasService {
   async assinarComoOrgaoUser(
     documentoId: string,
     signatarioId: string,
-    usuarioId: string,
+    usuarioLogado: any,
     ip: string,
     userAgent: string,
     codigoOtp?: string,
@@ -249,10 +279,20 @@ export class PortalAssinaturasService {
       throw new BadRequestException('Você já assinou este documento');
     }
 
-    const orgaoId = signatario.documento.orgao_id;
+    if (!signatario.is_orgao_user) {
+      throw new BadRequestException('Este signatario deve usar o link publico de assinatura');
+    }
 
-    // Validar OTP se fornecido
-    if (codigoOtp && signatario.email) {
+    const orgaoId = signatario.documento.orgao_id;
+    const ehProprioUsuario = this.signatarioEhUsuarioLogado(signatario, usuarioLogado);
+
+    if (!ehProprioUsuario) {
+      if (!signatario.email) {
+        throw new BadRequestException('Signatario sem e-mail cadastrado');
+      }
+      if (!codigoOtp) {
+        throw new BadRequestException('Informe o codigo enviado por e-mail para assinar este documento');
+      }
       await this.assinaturasService.validarOtpEmail(orgaoId, signatario.email, codigoOtp);
     }
 

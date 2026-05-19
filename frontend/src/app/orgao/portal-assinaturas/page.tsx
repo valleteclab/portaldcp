@@ -142,7 +142,7 @@ export default function PortalAssinaturasPage() {
   const [salvando, setSalvando] = useState(false)
 
   // OTP para assinatura interna
-  const [otpModal, setOtpModal] = useState<{ documentoId: string; signatarioId: string; nome: string } | null>(null)
+  const [otpModal, setOtpModal] = useState<{ documentoId: string; signatarioId: string; nome: string; dispensaOtp?: boolean } | null>(null)
   const [otpCode, setOtpCode] = useState('')
   const [otpEtapa, setOtpEtapa] = useState<'confirmar' | 'codigo'>('confirmar')
   const [otpLoading, setOtpLoading] = useState(false)
@@ -361,8 +361,20 @@ export default function PortalAssinaturasPage() {
 
   // ─── Assinar com OTP ───────────────────────────────────────────────────────
 
-  const iniciarAssinatura = (documentoId: string, signatarioId: string, nome: string) => {
-    setOtpModal({ documentoId, signatarioId, nome })
+  const normalizarEmail = (email?: string | null) => (email || '').trim().toLowerCase()
+  const normalizarDocumento = (documento?: string | null) => (documento || '').replace(/\D/g, '')
+  const signatarioEhUsuarioLogado = (signatario: Pick<Signatario, 'email' | 'cpf_cnpj'>) => {
+    const emailUsuario = normalizarEmail(usuarioLogado?.email)
+    const emailSignatario = normalizarEmail(signatario.email)
+    if (emailUsuario && emailSignatario && emailUsuario === emailSignatario) return true
+
+    const documentoUsuario = normalizarDocumento(usuarioLogado?.cpf)
+    const documentoSignatario = normalizarDocumento(signatario.cpf_cnpj)
+    return !!documentoUsuario && !!documentoSignatario && documentoUsuario === documentoSignatario
+  }
+
+  const iniciarAssinatura = (documentoId: string, signatarioId: string, nome: string, dispensaOtp = false) => {
+    setOtpModal({ documentoId, signatarioId, nome, dispensaOtp })
     setOtpEtapa('confirmar')
     setOtpCode('')
     setOtpErro('')
@@ -381,6 +393,11 @@ export default function PortalAssinaturasPage() {
         const err = await res.json()
         throw new Error(err.message || 'Erro ao enviar código')
       }
+      const data = await res.json().catch(() => ({}))
+      if (data?.otp_dispensado) {
+        await confirmarAssinatura()
+        return
+      }
       setOtpEtapa('codigo')
     } catch (e: any) {
       setOtpErro(e.message)
@@ -396,7 +413,7 @@ export default function PortalAssinaturasPage() {
     try {
       const res = await authFetch(
         `${API_URL}/api/portal-assinaturas/${otpModal.documentoId}/signatarios/${otpModal.signatarioId}/assinar`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo_otp: otpCode }) }
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(otpCode ? { codigo_otp: otpCode } : {}) }
       )
       if (!res.ok) {
         const err = await res.json()
@@ -634,7 +651,7 @@ export default function PortalAssinaturasPage() {
                           <Eye className="h-3 w-3" /> Ver
                         </Button>
                         <Button size="sm" className="gap-1 text-xs bg-orange-600 hover:bg-orange-700"
-                          onClick={() => iniciarAssinatura(p.documento_id, p.signatario_id, usuarioLogado?.nome || '')}>
+                          onClick={() => iniciarAssinatura(p.documento_id, p.signatario_id, usuarioLogado?.nome || '', true)}>
                           <FilePen className="h-3 w-3" /> Assinar
                         </Button>
                       </div>
@@ -732,12 +749,14 @@ export default function PortalAssinaturasPage() {
                     <>
                       <p className="text-sm text-gray-600">
                         Você está prestes a assinar este documento como <strong>{otpModal.nome}</strong>.
-                        Um código de verificação será enviado para seu e-mail.
+                        {otpModal.dispensaOtp
+                          ? ' Como este signatário é seu usuário logado, não será enviado OTP.'
+                          : ' Um código de verificação será enviado para seu e-mail.'}
                       </p>
                       {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
-                      <Button onClick={solicitarOtpInterno} disabled={otpLoading} className="w-full gap-2">
-                        {otpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                        Enviar código por e-mail
+                      <Button onClick={otpModal.dispensaOtp ? confirmarAssinatura : solicitarOtpInterno} disabled={otpLoading} className="w-full gap-2">
+                        {otpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : otpModal.dispensaOtp ? <ShieldCheck className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+                        {otpModal.dispensaOtp ? 'Assinar agora' : 'Enviar código por e-mail'}
                       </Button>
                     </>
                   )}
@@ -955,7 +974,7 @@ export default function PortalAssinaturasPage() {
                               )}
                               {sig.status === 'PENDENTE' && sig.is_orgao_user && (
                                 <Button size="sm" className="mt-2 ml-8 gap-1 text-xs bg-blue-600 hover:bg-blue-700"
-                                  onClick={() => iniciarAssinatura(docAtivo.id, sig.id, sig.nome)}>
+                                  onClick={() => iniciarAssinatura(docAtivo.id, sig.id, sig.nome, signatarioEhUsuarioLogado(sig))}>
                                   <FilePen className="h-3 w-3" /> Assinar agora
                                 </Button>
                               )}
@@ -1144,7 +1163,7 @@ export default function PortalAssinaturasPage() {
                   )}
                   {signatarios.some(s => s.tipo === 'eu_mesmo' || s.tipo === 'usuario_sistema') && (
                     <div className="text-[10px] text-green-600 bg-green-50 rounded p-2">
-                      Internos assinarão pelo portal com verificação OTP por e-mail.
+                      Eu mesmo assina direto. Outros usuários internos assinam pelo portal com OTP por e-mail.
                     </div>
                   )}
                 </>
@@ -1306,7 +1325,7 @@ export default function PortalAssinaturasPage() {
                   )}
                   {novosSigs.some(s => s.tipo === 'usuario_sistema') && (
                     <div className="text-[10px] text-green-600 bg-green-50 rounded p-2">
-                      Internos assinarão pelo portal com verificação OTP por e-mail.
+                      Eu mesmo assina direto. Outros usuários internos assinam pelo portal com OTP por e-mail.
                     </div>
                   )}
                 </>
@@ -1328,12 +1347,15 @@ export default function PortalAssinaturasPage() {
                 {otpEtapa === 'confirmar' && (
                   <>
                     <p className="text-sm text-gray-600">
-                      Assinar como <strong>{otpModal.nome}</strong>. Um código será enviado para seu e-mail.
+                      Assinar como <strong>{otpModal.nome}</strong>.
+                      {otpModal.dispensaOtp
+                        ? ' Como este signatário é seu usuário logado, não será enviado OTP.'
+                        : ' Um código será enviado para seu e-mail.'}
                     </p>
                     {otpErro && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{otpErro}</p>}
-                    <Button onClick={solicitarOtpInterno} disabled={otpLoading} className="w-full gap-2">
-                      {otpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                      Enviar código por e-mail
+                    <Button onClick={otpModal.dispensaOtp ? confirmarAssinatura : solicitarOtpInterno} disabled={otpLoading} className="w-full gap-2">
+                      {otpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : otpModal.dispensaOtp ? <ShieldCheck className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+                      {otpModal.dispensaOtp ? 'Assinar agora' : 'Enviar código por e-mail'}
                     </Button>
                   </>
                 )}
