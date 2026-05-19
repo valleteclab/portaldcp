@@ -1214,7 +1214,7 @@ window._extraindoContratos = true;
                         {contratosImportar.map((c, i) => (
                           <tr key={i} className="hover:bg-gray-50">
                             <td className="px-3 py-2 font-mono text-xs">{(c.n || c['n'] || '').replace(/-Contrato$/i, '')}</td>
-                            <td className="px-3 py-2 max-w-[200px] truncate" title={c.favorecido}>{c.favorecido}</td>
+                            <td className="px-3 py-2 max-w-[260px] align-top whitespace-normal break-words" title={c.favorecido}>{c.favorecido}</td>
                             <td className="px-3 py-2 font-mono text-xs">{c['cpf-cnpj'] || c['cpf/cnpj'] || ''}</td>
                             <td className="px-3 py-2 text-xs">{c.vigencia}</td>
                             <td className="px-3 py-2 text-xs">{c.fiscal}</td>

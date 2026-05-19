@@ -425,15 +425,15 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
               </p>
             </div>
           ) : (
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>OS</TableHead>
+                  <TableHead className="w-28">OS</TableHead>
                   <TableHead>Descrição</TableHead>
                   <TableHead className="text-center">Métrica</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                  <TableHead className="text-center">Prazo</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
+                  <TableHead className="w-28 text-right">Valor</TableHead>
+                  <TableHead className="w-24 text-center">Prazo</TableHead>
+                  <TableHead className="w-32 text-center">Status</TableHead>
                   <TableHead className="w-40"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -442,7 +442,7 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
                   <TableRow key={os.id}>
                     <TableCell className="font-medium">{os.numero_os}</TableCell>
                     <TableCell>
-                      <p className="font-medium text-sm">{os.descricao}</p>
+                      <p className="font-medium text-sm whitespace-normal break-words">{os.descricao}</p>
                       {os.responsavel_tecnico && <p className="text-xs text-gray-400">Resp: {os.responsavel_tecnico}</p>}
                       {os.numero_empenho && <p className="text-xs text-blue-600">Emp.: {os.numero_empenho}</p>}
                     </TableCell>

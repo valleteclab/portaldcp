@@ -2574,11 +2574,11 @@ export default function DetalheContratoOrgaoPage() {
                                 </Badge>
                               </td>
                               <td className="px-3 py-2">
-                                <p className="font-medium text-gray-800 truncate max-w-[180px]">{e.credor}</p>
+                                <p className="font-medium text-gray-800 whitespace-normal break-words">{e.credor}</p>
                                 {e.cnpj && <p className="text-xs text-gray-400 font-mono">{e.cnpj}</p>}
                               </td>
                               <td className="px-3 py-2 text-gray-600 text-xs hidden md:table-cell">{e.numero_processo || '—'}</td>
-                              <td className="px-3 py-2 text-gray-600 text-xs hidden lg:table-cell truncate max-w-[160px]">{e.elemento_despesa || '—'}</td>
+                              <td className="px-3 py-2 text-gray-600 text-xs hidden lg:table-cell whitespace-normal break-words">{e.elemento_despesa || '—'}</td>
                               <td className="px-3 py-2 text-right font-medium text-gray-800 whitespace-nowrap">{e.valor_formatado}</td>
                             </tr>
                           )
@@ -3245,7 +3245,7 @@ export default function DetalheContratoOrgaoPage() {
                     Preview: {csvItens.length} itens encontrados
                   </div>
                   <div className="max-h-60 overflow-y-auto">
-                    <table className="w-full text-xs">
+                    <table className="w-full table-fixed text-xs">
                       <thead className="bg-gray-50 sticky top-0">
                         <tr>
                           <th className="text-left py-2 px-3">#</th>
@@ -3261,7 +3261,7 @@ export default function DetalheContratoOrgaoPage() {
                         {csvItens.map((item, i) => (
                           <tr key={i} className="border-b hover:bg-gray-50">
                             <td className="py-2 px-3">{item.numero_item || i + 1}</td>
-                            <td className="py-2 px-3 max-w-[200px] truncate">{item.descricao}</td>
+                            <td className="py-2 px-3 align-top whitespace-normal break-words">{item.descricao}</td>
                             <td className="py-2 px-3">{item.marca || '-'}</td>
                             <td className="py-2 px-3 text-center">{item.unidade_medida || 'UN'}</td>
                             <td className="py-2 px-3 text-right">{item.quantidade_contratada}</td>

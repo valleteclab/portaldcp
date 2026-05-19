@@ -278,7 +278,7 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead>Fornecedor</TableHead>
@@ -312,11 +312,11 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
                 <TableRow>
                   <TableHead className="w-16">Item</TableHead>
                   <TableHead>Descrição</TableHead>
-                  <TableHead className="text-center">Qtd</TableHead>
-                  <TableHead className="text-right">Valor Est.</TableHead>
+                  <TableHead className="w-24 text-center">Qtd</TableHead>
+                  <TableHead className="w-28 text-right">Valor Est.</TableHead>
                   <TableHead>Vencedor</TableHead>
-                  <TableHead className="text-right">Valor Final</TableHead>
-                  <TableHead className="text-right">Economia</TableHead>
+                  <TableHead className="w-28 text-right">Valor Final</TableHead>
+                  <TableHead className="w-24 text-right">Economia</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -325,7 +325,7 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
                     <TableCell>
                       <Badge variant="outline">{item.numero}</Badge>
                     </TableCell>
-                    <TableCell className="max-w-xs truncate">{item.descricao}</TableCell>
+                    <TableCell className="whitespace-normal break-words">{item.descricao}</TableCell>
                     <TableCell className="text-center">{item.quantidade} {item.unidade}</TableCell>
                     <TableCell className="text-right">{formatarMoeda(item.valor_estimado)}</TableCell>
                     <TableCell>

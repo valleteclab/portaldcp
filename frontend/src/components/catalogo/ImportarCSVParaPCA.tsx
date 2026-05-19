@@ -582,7 +582,7 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
               </div>
 
               <ScrollArea className="flex-1 min-h-0 border rounded-lg">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-10"></TableHead>
@@ -608,12 +608,12 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
                         </TableCell>
                         <TableCell className="font-mono text-xs">{item.numero_item}</TableCell>
                         <TableCell>
-                          <div className="max-w-md">
-                            <p className="truncate text-sm" title={item.descricao}>
+                          <div className="min-w-0">
+                            <p className="whitespace-normal break-words text-sm" title={item.descricao}>
                               {item.descricao}
                             </p>
                             {item.unidade_requisitante && (
-                              <p className="text-xs text-gray-500 truncate">
+                              <p className="text-xs text-gray-500 whitespace-normal break-words">
                                 {item.unidade_requisitante}
                               </p>
                             )}
@@ -736,7 +736,7 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
                               Linha {d.linha || '?'}:
                             </span>
                             <div className="flex-1 min-w-0">
-                              <p className="text-gray-800 truncate" title={d.item}>
+                              <p className="text-gray-800 whitespace-normal break-words" title={d.item}>
                                 {d.item}
                               </p>
                               <p className="text-red-600 text-xs mt-1">
@@ -767,9 +767,9 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
                       .filter(d => d.status === 'duplicado')
                       .slice(0, 30)
                       .map((d: any, i) => (
-                        <li key={i} className="flex gap-2">
+                        <li key={i} className="flex items-start gap-2">
                           <span className="font-mono text-yellow-600 shrink-0">Linha {d.linha || '?'}:</span>
-                          <span className="truncate">{d.item}</span>
+                          <span className="min-w-0 whitespace-normal break-words">{d.item}</span>
                           <span className="text-xs text-yellow-500 shrink-0">({d.motivo})</span>
                         </li>
                       ))}

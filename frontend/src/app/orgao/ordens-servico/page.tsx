@@ -180,12 +180,12 @@ function OrdensServicoPage() {
         <Card><CardHeader><CardTitle className="text-lg">Lista de Ordens de Servico</CardTitle></CardHeader><CardContent>
           {loading ? <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
           : oFilt.length === 0 ? <div className="py-12 text-center text-muted-foreground"><FileText className="mx-auto h-12 w-12 mb-3 opacity-30" /><p>Nenhuma ordem de servico encontrada.</p></div>
-          : <Table><TableHeader><TableRow><TableHead>No OS</TableHead><TableHead>Contrato</TableHead><TableHead>Descricao</TableHead><TableHead>Valor</TableHead><TableHead>Saldo OS</TableHead><TableHead>Prazo</TableHead><TableHead>Status</TableHead><TableHead className="w-[120px]">Acoes</TableHead></TableRow></TableHeader>
+          : <Table className="table-fixed"><TableHeader><TableRow><TableHead className="w-28">No OS</TableHead><TableHead className="w-40">Contrato</TableHead><TableHead>Descricao</TableHead><TableHead className="w-28">Valor</TableHead><TableHead className="w-28">Saldo OS</TableHead><TableHead className="w-28">Prazo</TableHead><TableHead className="w-32">Status</TableHead><TableHead className="w-[120px]">Acoes</TableHead></TableRow></TableHeader>
             <TableBody>{oFilt.map(o => (
               <TableRow key={o.id} className="cursor-pointer hover:bg-muted/50" onClick={() => { setSel(o); setShowDet(true); }}>
                 <TableCell className="font-medium">{o.numero_os}</TableCell>
                 <TableCell><div>{o.numero_contrato}</div>{o.fornecedor_nome && <span className="text-xs text-muted-foreground">{o.fornecedor_nome}</span>}</TableCell>
-                <TableCell className="max-w-[200px] truncate">{o.descricao || '-'}</TableCell>
+                <TableCell className="whitespace-normal break-words">{o.descricao || '-'}</TableCell>
                 <TableCell>{formatarMoeda(o.valor_total)}</TableCell>
                 <TableCell><span className={o.saldo_os >= 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>{formatarMoeda(o.saldo_os)}</span></TableCell>
                 <TableCell>{formatarData(o.data_prazo)}</TableCell>
@@ -211,8 +211,8 @@ function OrdensServicoPage() {
               return (<Card key={c.id} className={`cursor-pointer transition-all hover:shadow-md ${is ? 'ring-2 ring-blue-500 bg-blue-50/50' : 'hover:bg-gray-50'}`} onClick={() => { setCSel(c); setStep(1); }}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between mb-2"><div className="flex items-center gap-2 flex-wrap"><Badge variant="outline" className="font-mono text-xs">{c.numero_contrato}</Badge><Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">{ML[c.modalidade_execucao] || c.modalidade_execucao}</Badge></div>{is && <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0" />}</div>
-                  <p className="text-sm text-gray-700 line-clamp-2 mb-2">{c.objeto || 'Sem objeto definido'}</p>
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mb-3"><Building2 className="h-3.5 w-3.5 shrink-0" /><span className="truncate font-medium">{c.fornecedor_razao_social}</span></div>
+                  <p className="text-sm text-gray-700 whitespace-normal break-words mb-2">{c.objeto || 'Sem objeto definido'}</p>
+                  <div className="flex items-start gap-2 text-sm text-gray-600 mb-3"><Building2 className="h-3.5 w-3.5 shrink-0" /><span className="min-w-0 whitespace-normal break-words font-medium">{c.fornecedor_razao_social}</span></div>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <div className="bg-gray-50 rounded-md p-2"><p className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Global</p><p className="text-sm font-bold text-gray-800">{formatarMoeda(c.valor_global)}</p></div>
                     <div className="bg-green-50 rounded-md p-2"><p className="text-[10px] text-green-600 uppercase tracking-wide">Saldo Disponivel</p><p className="text-sm font-bold text-green-700">{formatarMoeda(s > 0 ? s : 0)}</p></div>
@@ -229,7 +229,7 @@ function OrdensServicoPage() {
         {step === 1 && cSel && <div className="space-y-4 py-2">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
             <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2"><Badge variant="outline" className="font-mono">{cSel.numero_contrato}</Badge><Badge className="bg-blue-100 text-blue-700 text-xs">{ML[cSel.modalidade_execucao] || cSel.modalidade_execucao}</Badge></div><Button variant="ghost" size="sm" onClick={() => setStep(0)}><ArrowLeft className="h-4 w-4 mr-1" />Trocar</Button></div>
-            <p className="text-sm text-gray-700 line-clamp-2 mb-2">{cSel.objeto}</p>
+            <p className="text-sm text-gray-700 whitespace-normal break-words mb-2">{cSel.objeto}</p>
             <div className="flex items-center gap-2 text-sm text-gray-600 mb-3"><Building2 className="h-3.5 w-3.5" /><span className="font-medium">{cSel.fornecedor_razao_social}</span></div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3 pt-3 border-t border-blue-200">
               <div className="bg-white/60 rounded-md p-3"><p className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Global</p><p className="text-sm font-bold text-gray-800">{formatarMoeda(cSel.valor_global)}</p></div>

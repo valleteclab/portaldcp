@@ -901,10 +901,10 @@ export function LotesManager({
           <CardContent className="pt-0">
             <div className="space-y-2">
               {itensSemLote.map((item) => (
-                <div key={item.numero} className="flex items-center justify-between p-2 bg-white rounded-lg border">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">Item {item.numero}:</span>
-                    <span className="text-sm truncate max-w-md">{item.descricao}</span>
+                <div key={item.numero} className="flex items-start justify-between gap-3 p-2 bg-white rounded-lg border">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <span className="font-medium whitespace-nowrap">Item {item.numero}:</span>
+                    <span className="min-w-0 text-sm whitespace-normal break-words">{item.descricao}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">{formatarValor(item.quantidade * item.valor_unitario)}</span>

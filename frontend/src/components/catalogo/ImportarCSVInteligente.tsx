@@ -510,7 +510,7 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
               </div>
 
               <ScrollArea className="flex-1 min-h-0 border rounded-lg">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-10"></TableHead>
@@ -538,7 +538,7 @@ export function ImportarCSVInteligente({ pcaId, onImportSuccess }: ImportarCSVIn
                           {item.numero_item}
                         </TableCell>
                         <TableCell>
-                          <p className="text-sm line-clamp-2" title={item.descricao}>
+                          <p className="text-sm whitespace-normal break-words" title={item.descricao}>
                             {item.descricao}
                           </p>
                         </TableCell>

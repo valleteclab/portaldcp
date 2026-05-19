@@ -1116,19 +1116,19 @@ function RequisicoesList() {
 
       {/* Tabela */}
       <Card>
-        <CardContent className="pt-6 overflow-x-auto">
-          <Table className="text-xs">
+        <CardContent className="pt-6 min-w-0">
+          <Table className="table-fixed text-xs">
             <TableHeader>
               <TableRow>
                 <TableHead className="whitespace-nowrap">Número</TableHead>
                 <TableHead className="w-12">Tipo</TableHead>
-                <TableHead className="whitespace-nowrap">Setor</TableHead>
-                <TableHead className="whitespace-nowrap">Solicitante</TableHead>
-                <TableHead className="whitespace-nowrap">Data</TableHead>
+                <TableHead className="w-36">Setor</TableHead>
+                <TableHead className="w-44">Solicitante</TableHead>
+                <TableHead className="w-24">Data</TableHead>
                 <TableHead className="w-20">Prioridade</TableHead>
-                <TableHead className="whitespace-nowrap">Valor</TableHead>
-                <TableHead className="whitespace-nowrap">Empresa</TableHead>
-                <TableHead className="whitespace-nowrap">Status</TableHead>
+                <TableHead className="w-24">Valor</TableHead>
+                <TableHead>Empresa</TableHead>
+                <TableHead className="w-36">Status</TableHead>
                 <TableHead className="text-right whitespace-nowrap">Ações</TableHead>
               </TableRow>
             </TableHeader>
@@ -1150,8 +1150,8 @@ function RequisicoesList() {
                         {req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'MATERIAL' ? 'Mat.' : req.tipo === 'SERVICO' ? 'Serv.' : req.tipo}
                       </Badge>
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{req.setor_solicitante}</TableCell>
-                    <TableCell className="whitespace-nowrap">{req.usuario_solicitante_nome}</TableCell>
+                    <TableCell>{req.setor_solicitante}</TableCell>
+                    <TableCell>{req.usuario_solicitante_nome}</TableCell>
                     <TableCell className="whitespace-nowrap">{formatarData(req.data_solicitacao)}</TableCell>
                     <TableCell>
                       <Badge className={`text-xs ${PRIORIDADE_COLORS[req.prioridade]}`}>
@@ -1159,16 +1159,16 @@ function RequisicoesList() {
                       </Badge>
                     </TableCell>
                     <TableCell className="whitespace-nowrap">{formatarMoeda(req.valor_total_estimado)}</TableCell>
-                    <TableCell className="whitespace-nowrap max-w-[220px] truncate" title={req.contrato?.fornecedor?.razao_social}>
+                    <TableCell className="min-w-0" title={req.contrato?.fornecedor?.razao_social}>
                       {req.contrato?.fornecedor?.razao_social || '-'}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">
+                    <TableCell>
                       <Badge className={`text-xs ${statusDisplay.className}`}>
                         {statusDisplay.label}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex flex-wrap justify-end gap-1">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1405,7 +1405,7 @@ function RequisicoesList() {
 
       {/* Modal Detalhes */}
       <Dialog open={showDetalhes} onOpenChange={setShowDetalhes}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-full max-w-[95vw] lg:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Requisição {requisicaoSelecionada?.numero}</DialogTitle>
             <DialogDescription>
@@ -1442,7 +1442,7 @@ function RequisicoesList() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <label className="text-sm font-medium text-gray-500">Status</label>
                   <div>
@@ -1538,13 +1538,13 @@ function RequisicoesList() {
 
               <div>
                 <label className="text-sm font-medium text-gray-500">Justificativa</label>
-                <p className="bg-gray-50 p-3 rounded-md">{requisicaoSelecionada.justificativa}</p>
+                <p className="bg-gray-50 p-3 rounded-md whitespace-normal break-words">{requisicaoSelecionada.justificativa}</p>
               </div>
 
               {requisicaoSelecionada.contrato && (
                 <div>
                   <label className="text-sm font-medium text-gray-500">Contrato</label>
-                  <p>
+                  <p className="whitespace-normal break-words">
                     {requisicaoSelecionada.contrato.numero_contrato}
                     {requisicaoSelecionada.contrato.fornecedor && 
                       ` - ${requisicaoSelecionada.contrato.fornecedor.razao_social}`
@@ -1567,7 +1567,7 @@ function RequisicoesList() {
                     {requisicaoSelecionada.descricao_os && (
                       <div className="col-span-2">
                         <label className="text-gray-500">Objeto da OS</label>
-                        <p className="font-medium">{requisicaoSelecionada.descricao_os}</p>
+                        <p className="font-medium whitespace-normal break-words">{requisicaoSelecionada.descricao_os}</p>
                       </div>
                     )}
                     {requisicaoSelecionada.local_execucao && (
@@ -1621,15 +1621,15 @@ function RequisicoesList() {
               {requisicaoSelecionada.itensOS && requisicaoSelecionada.itensOS.length > 0 && (
                 <div>
                   <label className="text-sm font-medium text-gray-500 mb-2 block">Itens da OS</label>
-                  <Table>
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>#</TableHead>
+                        <TableHead className="w-12">#</TableHead>
                         <TableHead>Descrição</TableHead>
-                        <TableHead className="text-right">Unidade</TableHead>
-                        <TableHead className="text-right">Qtd. Solicitada</TableHead>
-                        <TableHead className="text-right">Valor Unit.</TableHead>
-                        <TableHead className="text-right">Total</TableHead>
+                        <TableHead className="w-24 text-right">Unidade</TableHead>
+                        <TableHead className="w-28 text-right">Qtd. Solicitada</TableHead>
+                        <TableHead className="w-28 text-right">Valor Unit.</TableHead>
+                        <TableHead className="w-28 text-right">Total</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1639,7 +1639,7 @@ function RequisicoesList() {
                         return (
                           <TableRow key={item.id}>
                             <TableCell>{idx + 1}</TableCell>
-                            <TableCell>{ic?.descricao ?? '-'}</TableCell>
+                            <TableCell className="whitespace-normal break-words">{ic?.descricao ?? '-'}</TableCell>
                             <TableCell className="text-right">{ic?.unidade_medida ?? '-'}</TableCell>
                             <TableCell className="text-right">{item.quantidade_solicitada}</TableCell>
                             <TableCell className="text-right">{ic?.valor_unitario ? formatarMoeda(ic.valor_unitario) : '-'}</TableCell>
@@ -1656,14 +1656,14 @@ function RequisicoesList() {
               {requisicaoSelecionada.etapasOS && requisicaoSelecionada.etapasOS.length > 0 && (
                 <div>
                   <label className="text-sm font-medium text-gray-500 mb-2 block">Etapas da OS</label>
-                  <Table>
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>#</TableHead>
+                        <TableHead className="w-12">#</TableHead>
                         <TableHead>Descrição</TableHead>
-                        <TableHead className="text-right">%</TableHead>
-                        <TableHead className="text-right">Valor Previsto</TableHead>
-                        <TableHead className="text-right">Total Autorizado</TableHead>
+                        <TableHead className="w-20 text-right">%</TableHead>
+                        <TableHead className="w-32 text-right">Valor Previsto</TableHead>
+                        <TableHead className="w-36 text-right">Total Autorizado</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1674,7 +1674,7 @@ function RequisicoesList() {
                         return (
                           <TableRow key={e.id}>
                             <TableCell>{e.etapa?.numero_etapa ?? idx + 1}</TableCell>
-                            <TableCell>{e.etapa?.descricao ?? '-'}</TableCell>
+                            <TableCell className="whitespace-normal break-words">{e.etapa?.descricao ?? '-'}</TableCell>
                             <TableCell className="text-right">{perc}%</TableCell>
                             <TableCell className="text-right">{formatarMoeda(valorPrevisto)}</TableCell>
                             <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
@@ -1690,10 +1690,10 @@ function RequisicoesList() {
               {(!requisicaoSelecionada.itensOS?.length && !requisicaoSelecionada.etapasOS?.length) && (
                 <div>
                   <label className="text-sm font-medium text-gray-500 mb-2 block">Itens</label>
-                  <Table>
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-10 whitespace-nowrap">#</TableHead>
+                        <TableHead className="w-12">#</TableHead>
                         <TableHead>Descrição</TableHead>
                         <TableHead className="whitespace-nowrap w-28">Qtd. Sol.</TableHead>
                         <TableHead className="whitespace-nowrap w-28">Qtd. Aut.</TableHead>
@@ -2574,7 +2574,7 @@ function RequisicoesList() {
                             Disponível {fmt(saldoVirtual)}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-600 truncate mt-0.5">{credor}</p>
+                        <p className="text-xs text-gray-600 whitespace-normal break-words mt-0.5">{credor}</p>
                       </div>
                     </div>
                   );

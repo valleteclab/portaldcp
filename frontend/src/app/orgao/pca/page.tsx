@@ -1487,7 +1487,7 @@ function PcaPageContent() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full table-fixed text-sm">
                     <thead>
                       <tr className="border-b bg-gray-50">
                         <th className="text-left py-3 px-2 whitespace-nowrap">Nº</th>
@@ -1526,11 +1526,11 @@ function PcaPageContent() {
                               </Badge>
                             </td>
                             <td className="py-2 px-2 font-mono text-xs">{item.codigo_classe || '-'}</td>
-                            <td className="py-2 px-2 text-xs max-w-[150px] truncate" title={item.nome_classe || ''}>
+                            <td className="py-2 px-2 text-xs align-top whitespace-normal break-words" title={item.nome_classe || ''}>
                               {item.nome_classe || '-'}
                             </td>
                             <td className="py-2 px-2 font-mono text-xs">{item.codigo_item_catalogo || '-'}</td>
-                            <td className="py-2 px-2 max-w-[200px] truncate" title={item.descricao_objeto}>
+                            <td className="py-2 px-2 align-top whitespace-normal break-words" title={item.descricao_objeto}>
                               {item.descricao_objeto}
                             </td>
                             <td className="py-2 px-2 text-center text-xs">{item.unidade_medida || 'UN'}</td>
@@ -1549,7 +1549,7 @@ function PcaPageContent() {
                             <td className="py-2 px-2 text-center text-xs">
                               {formatarDataBR(item.data_desejada_contratacao)}
                             </td>
-                            <td className="py-2 px-2 text-xs max-w-[120px] truncate" title={item.unidade_requisitante || ''}>
+                            <td className="py-2 px-2 text-xs align-top whitespace-normal break-words" title={item.unidade_requisitante || ''}>
                               {item.unidade_requisitante || '-'}
                             </td>
                             <td className="py-2 px-2 text-center">

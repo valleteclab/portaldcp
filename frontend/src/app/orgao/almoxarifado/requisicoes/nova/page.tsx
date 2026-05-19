@@ -2016,7 +2016,7 @@ function NovaRequisicaoForm() {
                       {/* Fornecedor */}
                       <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
                         <Building2 className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate font-medium">{getNomeFornecedor(contrato)}</span>
+                        <span className="min-w-0 whitespace-normal break-words font-medium">{getNomeFornecedor(contrato)}</span>
                       </div>
 
                       {/* Valores: Inicial + Saldo */}
@@ -2080,7 +2080,7 @@ function NovaRequisicaoForm() {
           ) : (
             // VISUALIZAÇÃO EM LISTA (TABELA)
             <div className="max-h-[600px] overflow-y-auto border rounded-lg">
-              <Table>
+              <Table className="table-fixed">
                 <TableHeader className="sticky top-0 bg-white z-10">
                   <TableRow>
                     <TableHead className="w-10"></TableHead>
@@ -2177,7 +2177,7 @@ function NovaRequisicaoForm() {
               <Building2 className="h-5 w-5 text-white/80" />
             </div>
             <div className="min-w-0">
-              <p className="text-white font-semibold text-sm truncate">
+              <p className="text-white font-semibold text-sm whitespace-normal break-words">
                 {contratoSelecionado ? getNomeFornecedor(contratoSelecionado) : '-'}
               </p>
               <p className="text-white/50 text-xs">
@@ -2327,8 +2327,8 @@ function NovaRequisicaoForm() {
             <p className="text-sm">Nenhum item encontrado neste contrato</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="min-w-0 overflow-x-auto">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow className="bg-muted/20">
                   <TableHead className="w-12"></TableHead>
@@ -2597,18 +2597,18 @@ function NovaRequisicaoForm() {
             <div>
               <Label>Itens do Contrato</Label>
               <div className="border rounded-lg overflow-hidden mt-2">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead>#</TableHead>
                       <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Unidade</TableHead>
-                      <TableHead className="text-right">Qtd contratada</TableHead>
-                      <TableHead className="text-right">Qtd medida</TableHead>
-                      <TableHead className="text-right">Saldo</TableHead>
-                      <TableHead className="text-right">Meses</TableHead>
-                      <TableHead className="text-right">Val. Mensal</TableHead>
-                      <TableHead className="text-right">Valor unit.</TableHead>
+                      <TableHead className="w-24 text-right">Unidade</TableHead>
+                      <TableHead className="w-28 text-right">Qtd contratada</TableHead>
+                      <TableHead className="w-28 text-right">Qtd medida</TableHead>
+                      <TableHead className="w-24 text-right">Saldo</TableHead>
+                      <TableHead className="w-20 text-right">Meses</TableHead>
+                      <TableHead className="w-28 text-right">Val. Mensal</TableHead>
+                      <TableHead className="w-28 text-right">Valor unit.</TableHead>
                       {modoOS === 'ORDEM_DEMANDA' && itensCronograma.some(i => i.quantidade_meses != null) && (
                         <TableHead className="text-right">Meses sol.</TableHead>
                       )}
@@ -2755,14 +2755,14 @@ function NovaRequisicaoForm() {
             <div>
               <Label>Etapas do Contrato</Label>
               <div className="border rounded-lg overflow-hidden mt-2">
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead>#</TableHead>
                       <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Valor previsto</TableHead>
-                      <TableHead className="text-right">Valor executado</TableHead>
-                      <TableHead className="text-right">Saldo</TableHead>
+                      <TableHead className="w-32 text-right">Valor previsto</TableHead>
+                      <TableHead className="w-32 text-right">Valor executado</TableHead>
+                      <TableHead className="w-28 text-right">Saldo</TableHead>
                       {modoOS === 'ORDEM_DEMANDA' && (
                         <TableHead className="text-right">Valor solicitado</TableHead>
                       )}
@@ -3065,7 +3065,7 @@ function NovaRequisicaoForm() {
                     return (
                       <TableRow key={item.id}>
                         <TableCell>{item.numero_item}</TableCell>
-                        <TableCell className="max-w-[300px] truncate">{item.descricao}</TableCell>
+                        <TableCell className="whitespace-normal break-words">{item.descricao}</TableCell>
                         <TableCell className="text-right">{item.unidade_medida}</TableCell>
                         <TableCell className="text-right">{qtd}</TableCell>
                         <TableCell className="text-right">
@@ -3105,7 +3105,7 @@ function NovaRequisicaoForm() {
               <h4 className="font-medium mb-2">
                 Etapas Autorizadas ({etapasOS.length}) — {modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global (100%)' : 'Ordem por Demanda'}
               </h4>
-              <Table>
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
                     <TableHead>#</TableHead>
@@ -3124,7 +3124,7 @@ function NovaRequisicaoForm() {
                     return (
                       <TableRow key={etapa.id}>
                         <TableCell>{etapa.numero_etapa ?? idx + 1}</TableCell>
-                        <TableCell className="max-w-[300px] truncate">{etapa.descricao}</TableCell>
+                        <TableCell className="whitespace-normal break-words">{etapa.descricao}</TableCell>
                         <TableCell className="text-right">{perc}%</TableCell>
                         <TableCell className="text-right">{formatarMoeda(valorPrevisto)}</TableCell>
                         <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
@@ -3149,7 +3149,7 @@ function NovaRequisicaoForm() {
             <>
               <div>
                 <h4 className="font-medium mb-2">Itens ({itensRequisicao.length})</h4>
-                <Table>
+                <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead>#</TableHead>
@@ -3163,7 +3163,7 @@ function NovaRequisicaoForm() {
                     {itensRequisicao.map((item, index) => (
                       <TableRow key={item.item_contrato_id}>
                         <TableCell>{index + 1}</TableCell>
-                        <TableCell className="max-w-[300px] truncate">
+                        <TableCell className="whitespace-normal break-words">
                           {item.descricao}
                         </TableCell>
                         <TableCell className="text-right">

@@ -1419,15 +1419,15 @@ ${htmlHeader('Relatório de Saldo para Aditivo', contrato)}
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="w-full table-fixed text-xs">
                       <thead>
                         <tr className="bg-[#1351B4] text-white">
-                          <th className="py-2.5 px-2 text-center font-semibold">#</th>
+                          <th className="w-12 py-2.5 px-2 text-center font-semibold">#</th>
                           <th className="py-2.5 px-3 text-left font-semibold">Descrição</th>
-                          <th className="py-2.5 px-2 text-center font-semibold">Unid.</th>
-                          <th className="py-2.5 px-2 text-right font-semibold">Valor Contratado</th>
-                          <th className="py-2.5 px-2 text-right font-semibold">Executado/Pago</th>
-                          <th className="py-2.5 px-2 text-right font-semibold">Saldo</th>
+                          <th className="w-20 py-2.5 px-2 text-center font-semibold">Unid.</th>
+                          <th className="w-32 py-2.5 px-2 text-right font-semibold">Valor Contratado</th>
+                          <th className="w-36 py-2.5 px-2 text-right font-semibold">Executado/Pago</th>
+                          <th className="w-28 py-2.5 px-2 text-right font-semibold">Saldo</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1437,7 +1437,7 @@ ${htmlHeader('Relatório de Saldo para Aditivo', contrato)}
                           return (
                             <tr key={item.itemId} className={index % 2 === 0 ? 'bg-white' : 'bg-blue-50/30'}>
                               <td className="px-2 py-2.5 text-center font-medium">{item.numeroItem}</td>
-                              <td className="px-3 py-2.5 max-w-[620px]">
+                              <td className="px-3 py-2.5 align-top whitespace-normal break-words">
                                 <div className="font-medium text-slate-900 leading-snug">{item.descricao}</div>
                               </td>
                               <td className="px-2 py-2.5 text-center">{item.unidade}</td>
@@ -1557,22 +1557,22 @@ ${htmlHeader('Relatório de Saldo para Aditivo', contrato)}
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
+                  <table className="w-full table-fixed text-xs">
                     <thead>
                       <tr className="bg-[#1351B4] text-white">
-                        <th className="py-2.5 px-2 text-center font-semibold">#</th>
-                        <th className="py-2.5 px-2 text-center font-semibold">Lote</th>
+                        <th className="w-12 py-2.5 px-2 text-center font-semibold">#</th>
+                        <th className="w-20 py-2.5 px-2 text-center font-semibold">Lote</th>
                         <th className="py-2.5 px-3 text-left font-semibold">Descrição</th>
-                        <th className="py-2.5 px-2 text-center font-semibold">Unid.</th>
-                        <th className="py-2.5 px-2 text-right font-semibold">Qtd. Inicial</th>
-                        <th className="py-2.5 px-2 text-right font-semibold text-yellow-200">Solicitado</th>
-                        <th className="py-2.5 px-2 text-right font-semibold text-green-200">{labelExecutado}</th>
-                        <th className="py-2.5 px-2 text-right font-semibold">Saldo Qtd.</th>
-                        <th className="py-2.5 px-2 text-center font-semibold">% Exec.</th>
-                        <th className="py-2.5 px-2 text-right font-semibold">Valor Unit.</th>
-                        <th className="py-2.5 px-2 text-right font-semibold">Valor Total</th>
-                        <th className="py-2.5 px-2 text-right font-semibold text-green-200">Valor Exec.</th>
-                        <th className="py-2.5 px-2 text-right font-semibold">Saldo (R$)</th>
+                        <th className="w-20 py-2.5 px-2 text-center font-semibold">Unid.</th>
+                        <th className="w-24 py-2.5 px-2 text-right font-semibold">Qtd. Inicial</th>
+                        <th className="w-24 py-2.5 px-2 text-right font-semibold text-yellow-200">Solicitado</th>
+                        <th className="w-24 py-2.5 px-2 text-right font-semibold text-green-200">{labelExecutado}</th>
+                        <th className="w-24 py-2.5 px-2 text-right font-semibold">Saldo Qtd.</th>
+                        <th className="w-24 py-2.5 px-2 text-center font-semibold">% Exec.</th>
+                        <th className="w-24 py-2.5 px-2 text-right font-semibold">Valor Unit.</th>
+                        <th className="w-28 py-2.5 px-2 text-right font-semibold">Valor Total</th>
+                        <th className="w-28 py-2.5 px-2 text-right font-semibold text-green-200">Valor Exec.</th>
+                        <th className="w-28 py-2.5 px-2 text-right font-semibold">Saldo (R$)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1587,7 +1587,7 @@ ${htmlHeader('Relatório de Saldo para Aditivo', contrato)}
                           <tr key={item.id} className={index % 2 === 0 ? 'bg-white' : 'bg-blue-50/30'}>
                             <td className="px-2 py-2.5 text-center font-medium">{item.numero_item}</td>
                             <td className="px-2 py-2.5 text-center">{item.lote_numero ? `Lote ${item.lote_numero}` : '-'}</td>
-                            <td className="px-3 py-2.5 max-w-[420px]">
+                            <td className="px-3 py-2.5 align-top whitespace-normal break-words">
                               <div className="font-medium text-slate-900 leading-snug">{item.descricao}</div>
                               {item.codigo_catalogo_proprio && (
                                 <div className="text-[11px] text-purple-700 mt-0.5">Catálogo: {item.codigo_catalogo_proprio}</div>

@@ -297,7 +297,7 @@ export function ImportarXLSXParaPCA({ pcaId, onImportSuccess }: Props) {
                 </div>
 
                 <ScrollArea className="min-h-0 flex-1 rounded-lg border">
-                  <Table>
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-10"></TableHead>
@@ -321,8 +321,8 @@ export function ImportarXLSXParaPCA({ pcaId, onImportSuccess }: Props) {
                           </TableCell>
                           <TableCell>{item.numero_item}</TableCell>
                           <TableCell>
-                            <p className="line-clamp-2 text-sm">{item.descricao}</p>
-                            <p className="mt-1 text-xs text-slate-500">{item.unidade_requisitante || 'Sem unidade requisitante'}</p>
+                            <p className="text-sm whitespace-normal break-words">{item.descricao}</p>
+                            <p className="mt-1 text-xs text-slate-500 whitespace-normal break-words">{item.unidade_requisitante || 'Sem unidade requisitante'}</p>
                           </TableCell>
                           <TableCell>{item.categoria || '-'}</TableCell>
                           <TableCell>{item.quantidade} {item.unidade_medida}</TableCell>
