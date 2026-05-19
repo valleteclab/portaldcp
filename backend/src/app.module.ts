@@ -44,6 +44,7 @@ import { EmailModule } from './email/email.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { AssinaturasModule } from './assinaturas/assinaturas.module';
 import { PortalAssinaturasModule } from './portal-assinaturas/portal-assinaturas.module';
+import { AssinadorModule } from './assinador/assinador.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { AgenteContratosModule } from './agente-contratos/agente-contratos.module';
 import { AgenteTarefasModule } from './agente-tarefas/agente-tarefas.module';
@@ -143,6 +144,7 @@ import { McpModule } from './mcp/mcp.module';
     WebhooksModule,
     AssinaturasModule,
     PortalAssinaturasModule,
+    AssinadorModule,
     WhatsAppModule,
     AgenteContratosModule,
     AgenteTarefasModule,
