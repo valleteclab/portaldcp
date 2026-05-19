@@ -260,16 +260,22 @@ export class MedicaoService {
     const fluxo = await this.getFluxoOsEfetivo(contratoId);
 
     if (fluxo === 'REQUISICAO') {
-      const req = await this.requisicaoRepository.findOne({
-        where: {
-          contrato_id: contratoId,
-          tipo: TipoRequisicao.ORDEM_SERVICO,
-          status: In([
+      const req = await this.requisicaoRepository
+        .createQueryBuilder('r')
+        .where('r.contrato_id = :contratoId', { contratoId })
+        .andWhere('r.tipo = :tipo', { tipo: TipoRequisicao.ORDEM_SERVICO })
+        .andWhere('r.status IN (:...status)', {
+          status: [
             StatusRequisicao.AUTORIZADA,
             StatusRequisicao.ORDEM_GERADA,
-          ]),
-        },
-      });
+          ],
+        })
+        .orderBy(
+          `CASE WHEN r.status = '${StatusRequisicao.AUTORIZADA}' THEN 0 ELSE 1 END`,
+          'ASC',
+        )
+        .addOrderBy('r.created_at', 'DESC')
+        .getOne();
       return req ? this.normalizarOSRequisicao(req) : null;
     }
 

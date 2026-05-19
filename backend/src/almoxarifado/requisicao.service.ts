@@ -100,7 +100,6 @@ export class RequisicaoService {
           StatusRequisicao.RASCUNHO,
           StatusRequisicao.AGUARDANDO_AUTORIZACAO,
           StatusRequisicao.AUTORIZADA,
-          StatusRequisicao.ORDEM_GERADA,
         ],
       });
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
@@ -124,7 +123,6 @@ export class RequisicaoService {
           StatusRequisicao.RASCUNHO,
           StatusRequisicao.AGUARDANDO_AUTORIZACAO,
           StatusRequisicao.AUTORIZADA,
-          StatusRequisicao.ORDEM_GERADA,
         ],
       });
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
@@ -383,7 +381,6 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           StatusRequisicao.RASCUNHO,
           StatusRequisicao.AGUARDANDO_AUTORIZACAO,
           StatusRequisicao.AUTORIZADA,
-          StatusRequisicao.ORDEM_GERADA,
         ];
         const osAtivas = await this.requisicaoRepository.find({
           where: {
@@ -394,7 +391,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           relations: ['itensOS', 'etapasOS'],
         });
         const osGlobalAtiva = osAtivas.find(o => o.modo_os === 'ORDEM_GLOBAL');
-        if (osGlobalAtiva) {
+        if (osGlobalAtiva && (!dto.modo_os || dto.modo_os === 'ORDEM_GLOBAL')) {
           throw new BadRequestException(
             `Já existe uma OS Global ativa para este contrato (${osGlobalAtiva.numero}). ` +
             `Conclua ou cancele a OS atual antes de criar uma nova.`
@@ -419,12 +416,6 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
 
       // Validar saldo para OS Demanda (itens e etapas)
       if (dto.modo_os === 'ORDEM_DEMANDA' && dto.contrato_id) {
-        const statusAtivos = [
-          StatusRequisicao.RASCUNHO,
-          StatusRequisicao.AGUARDANDO_AUTORIZACAO,
-          StatusRequisicao.AUTORIZADA,
-          StatusRequisicao.ORDEM_GERADA,
-        ];
         if (dto.itens_os?.length) {
           const comprometidoPorItem = await this.somarQuantidadeComprometidaPorItemOS(dto.contrato_id);
           for (const io of dto.itens_os) {
