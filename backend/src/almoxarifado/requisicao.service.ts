@@ -88,6 +88,13 @@ export class RequisicaoService {
 
   /** Soma quantidade_solicitada por item_cronograma de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
   private async somarQuantidadeComprometidaPorItemOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+    const statusMedicoesQueConsomemOS = [
+      'SUBMETIDA',
+      'AGUARDANDO_ATESTE',
+      'PARCIALMENTE_ATESTADA',
+      'AGUARDANDO_APROVACAO',
+      'APROVADA',
+    ];
     const qb = this.requisicaoItemOSRepository
       .createQueryBuilder('rio')
       .select('rio.item_cronograma_id', 'id')
@@ -101,7 +108,15 @@ export class RequisicaoService {
           StatusRequisicao.AGUARDANDO_AUTORIZACAO,
           StatusRequisicao.AUTORIZADA,
         ],
-      });
+      })
+      .andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM medicoes m
+          WHERE m.requisicao_id = r.id
+            AND m.status IN (:...statusMedicoesQueConsomemOS)
+        )`,
+        { statusMedicoesQueConsomemOS },
+      );
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
     const rows = await qb.groupBy('rio.item_cronograma_id').getRawMany<{ id: string; total: string }>();
     const mapa = new Map<string, number>();
@@ -111,6 +126,13 @@ export class RequisicaoService {
 
   /** Soma valor_solicitado por etapa_id de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
   private async somarValorComprometidoPorEtapaOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+    const statusMedicoesQueConsomemOS = [
+      'SUBMETIDA',
+      'AGUARDANDO_ATESTE',
+      'PARCIALMENTE_ATESTADA',
+      'AGUARDANDO_APROVACAO',
+      'APROVADA',
+    ];
     const qb = this.requisicaoEtapaOSRepository
       .createQueryBuilder('reo')
       .select('reo.etapa_id', 'id')
@@ -124,7 +146,15 @@ export class RequisicaoService {
           StatusRequisicao.AGUARDANDO_AUTORIZACAO,
           StatusRequisicao.AUTORIZADA,
         ],
-      });
+      })
+      .andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM medicoes m
+          WHERE m.requisicao_id = r.id
+            AND m.status IN (:...statusMedicoesQueConsomemOS)
+        )`,
+        { statusMedicoesQueConsomemOS },
+      );
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
     const rows = await qb.groupBy('reo.etapa_id').getRawMany<{ id: string; total: string }>();
     const mapa = new Map<string, number>();
@@ -377,19 +407,32 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
 
       // Para OS: regras Global vs Demanda
       if (dto.tipo === TipoRequisicao.ORDEM_SERVICO) {
+        const statusMedicoesQueConsomemOS = [
+          'SUBMETIDA',
+          'AGUARDANDO_ATESTE',
+          'PARCIALMENTE_ATESTADA',
+          'AGUARDANDO_APROVACAO',
+          'APROVADA',
+        ];
         const statusAtivos = [
           StatusRequisicao.RASCUNHO,
           StatusRequisicao.AGUARDANDO_AUTORIZACAO,
           StatusRequisicao.AUTORIZADA,
         ];
-        const osAtivas = await this.requisicaoRepository.find({
-          where: {
-            contrato_id: dto.contrato_id,
-            tipo: TipoRequisicao.ORDEM_SERVICO,
-            status: In(statusAtivos),
-          },
-          relations: ['itensOS', 'etapasOS'],
-        });
+        const osAtivas = await this.requisicaoRepository
+          .createQueryBuilder('r')
+          .where('r.contrato_id = :contratoId', { contratoId: dto.contrato_id })
+          .andWhere('r.tipo = :tipo', { tipo: TipoRequisicao.ORDEM_SERVICO })
+          .andWhere('r.status IN (:...statusAtivos)', { statusAtivos })
+          .andWhere(
+            `NOT EXISTS (
+              SELECT 1 FROM medicoes m
+              WHERE m.requisicao_id = r.id
+                AND m.status IN (:...statusMedicoesQueConsomemOS)
+            )`,
+            { statusMedicoesQueConsomemOS },
+          )
+          .getMany();
         const osGlobalAtiva = osAtivas.find(o => o.modo_os === 'ORDEM_GLOBAL');
         if (osGlobalAtiva && (!dto.modo_os || dto.modo_os === 'ORDEM_GLOBAL')) {
           throw new BadRequestException(
