@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { API_URL, getAssetUrl } from '@/lib/api'
-import { baixarXlsxPca } from '@/lib/pca-export'
-import { Calendar, Download, Home, LogIn, Search } from 'lucide-react'
+import { baixarPdfPca, baixarXlsxPca } from '@/lib/pca-export'
+import { Calendar, Download, FileText, Home, LogIn, Search } from 'lucide-react'
 
 interface ItemPcaPublico {
   id: string
@@ -330,8 +330,17 @@ export default function PcaPublicoPage() {
                 <Download aria-hidden="true" className="h-4 w-4" />
                 Baixar arquivo XLSX
               </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-md border border-[#1351B4] bg-white px-5 py-2.5 font-semibold text-[#1351B4] hover:bg-[#EAF0FB]"
+                aria-label={`Baixar arquivo PDF do PCA ${pca.ano_exercicio}`}
+                onClick={() => baixarPdfPca(pca, `PCA_${pca.ano_exercicio}_Itens.pdf`)}
+              >
+                <FileText aria-hidden="true" className="h-4 w-4" />
+                Baixar arquivo PDF
+              </button>
               <p className="text-sm text-[#4A5568]">
-                Relação dos itens do plano anual do órgão no modelo de envio do PNCP.
+                Relação dos itens do plano anual do órgão em XLSX para PNCP e PDF para conferência.
               </p>
             </div>
           </div>

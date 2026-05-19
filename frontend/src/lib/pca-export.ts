@@ -24,6 +24,17 @@ export interface PcaExportItem {
 
 export interface PcaExportData {
   ano_exercicio: number
+  numero_pca?: string
+  codigo_unidade?: string
+  nome_unidade?: string
+  orgao?: {
+    nome?: string
+    cnpj?: string
+    cidade?: string
+    uf?: string
+  }
+  valor_total_estimado?: number | string | null
+  quantidade_itens?: number | string | null
   itens: PcaExportItem[]
 }
 
@@ -114,4 +125,130 @@ export function baixarXlsxPca(pca: PcaExportData, nomeArquivo = `PCA_${pca.ano_e
   ]
 
   XLSX.writeFile(wb, nomeArquivo)
+}
+
+function formatarMoeda(valor: number | string | null | undefined): string {
+  return numero(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function formatarNumero(valor: number | string | null | undefined): string {
+  return numero(valor).toLocaleString('pt-BR')
+}
+
+function formatarCnpj(cnpj?: string): string {
+  const limpo = (cnpj || '').replace(/\D/g, '')
+  if (limpo.length !== 14) return cnpj || ''
+  return limpo.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+}
+
+function texto(valor: unknown): string {
+  return String(valor ?? '').trim() || '-'
+}
+
+export async function baixarPdfPca(pca: PcaExportData, nomeArquivo = `PCA_${pca.ano_exercicio}_Itens.pdf`) {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ])
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margem = 12
+  const orgao = pca.orgao || {}
+  const itens = pca.itens || []
+  const valorTotal = pca.valor_total_estimado ?? itens.reduce((total, item) => total + numero(item.valor_estimado), 0)
+  const quantidadeItens = pca.quantidade_itens ?? itens.length
+
+  doc.setFillColor(7, 29, 65)
+  doc.rect(0, 0, pageWidth, 22, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(15)
+  doc.text(`Plano de Contratações Anual (PCA) ${pca.ano_exercicio}`, margem, 13)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.text(`Emitido pelo Portal DCP em ${new Date().toLocaleString('pt-BR')}`, pageWidth - margem, 13, { align: 'right' })
+
+  doc.setTextColor(7, 29, 65)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(11)
+  doc.text(texto(orgao.nome), margem, 32)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(74, 85, 104)
+  doc.text(
+    [
+      orgao.cnpj ? `CNPJ ${formatarCnpj(orgao.cnpj)}` : '',
+      [orgao.cidade, orgao.uf].filter(Boolean).join(' - '),
+      pca.numero_pca ? `Nº PCA ${pca.numero_pca}` : '',
+    ].filter(Boolean).join(' · '),
+    margem,
+    38,
+  )
+
+  autoTable(doc, {
+    startY: 45,
+    theme: 'plain',
+    margin: { left: margem, right: margem },
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 2 },
+    body: [
+      ['Ano de exercício', String(pca.ano_exercicio), 'Quantidade de itens', formatarNumero(quantidadeItens)],
+      ['Valor total estimado', formatarMoeda(valorTotal), 'Unidade', `${pca.codigo_unidade || '1'} - ${pca.nome_unidade || 'Unidade Principal'}`],
+    ],
+    columnStyles: {
+      0: { fontStyle: 'bold', textColor: [7, 29, 65] },
+      2: { fontStyle: 'bold', textColor: [7, 29, 65] },
+    },
+  })
+
+  const tableStartY = ((doc as any).lastAutoTable?.finalY || 62) + 6
+  autoTable(doc, {
+    startY: tableStartY,
+    margin: { left: margem, right: margem, bottom: 15 },
+    head: [['#', 'Categoria', 'Descrição do item', 'Unidade', 'Qtd.', 'Valor unit.', 'Valor total']],
+    body: itens.map((item, index) => [
+      String(index + 1),
+      categoriaMap[item.categoria || ''] || texto(item.categoria),
+      texto(item.descricao_objeto),
+      texto(item.unidade_medida || 'UN'),
+      formatarNumero(item.quantidade_estimada || 1),
+      formatarMoeda(item.valor_unitario_estimado),
+      formatarMoeda(item.valor_estimado),
+    ]),
+    theme: 'grid',
+    styles: {
+      font: 'helvetica',
+      fontSize: 7.5,
+      cellPadding: 1.8,
+      overflow: 'linebreak',
+      valign: 'top',
+      lineColor: [217, 221, 227],
+      lineWidth: 0.1,
+    },
+    headStyles: {
+      fillColor: [19, 81, 180],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+    },
+    alternateRowStyles: { fillColor: [250, 251, 252] },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 28 },
+      2: { cellWidth: 125 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 18, halign: 'right' },
+      5: { cellWidth: 24, halign: 'right' },
+      6: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
+    },
+    didDrawPage: () => {
+      const pagina = doc.getNumberOfPages()
+      doc.setFontSize(8)
+      doc.setTextColor(113, 128, 150)
+      doc.text(`Página ${pagina}`, pageWidth - margem, pageHeight - 7, { align: 'right' })
+      doc.text('Portal DCP - Diário de Compras Públicas', margem, pageHeight - 7)
+    },
+  })
+
+  doc.save(nomeArquivo)
 }
