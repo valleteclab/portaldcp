@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThan } from 'typeorm';
 import { DocumentoAssinatura, StatusDocumentoAssinatura } from '../assinaturas/entities/documento-assinatura.entity';
@@ -157,6 +157,18 @@ export class AssinadorService {
           codigo_validacao: s.codigo_validacao,
         })),
     };
+  }
+
+  async excluirDocumento(id: string, orgaoId: string) {
+    const doc = await this.documentoRepo.findOne({ where: { id } });
+    if (!doc) throw new NotFoundException('Documento não encontrado');
+    if (doc.orgao_id !== orgaoId) throw new ForbiddenException('Acesso negado');
+    if (doc.status === StatusDocumentoAssinatura.CONCLUIDO) {
+      throw new ForbiddenException('Documentos concluídos não podem ser excluídos');
+    }
+    await this.signatarioRepo.delete({ documento_id: id });
+    await this.documentoRepo.delete(id);
+    return { ok: true };
   }
 
   async buscarUsuariosOrg(orgaoId: string, q?: string) {
