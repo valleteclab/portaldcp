@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, SVGProps } from 'react'
 import {
-  Accessibility,
   AlignCenter,
   AlignLeft,
   AlignRight,
@@ -162,7 +161,7 @@ export function AccessibilityWidget() {
         aria-expanded={open}
         onClick={() => setOpen(true)}
       >
-        <Accessibility aria-hidden="true" />
+        <UniversalAccessibilityIcon aria-hidden="true" />
       </button>
 
       {open && (
@@ -223,6 +222,22 @@ export function AccessibilityWidget() {
         </aside>
       )}
     </div>
+  )
+}
+
+function UniversalAccessibilityIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 64 64" fill="none" {...props}>
+      <title>Símbolo internacional de acessibilidade</title>
+      <path d="M8 30.5C12.8 20.2 22.1 13 32 13s19.2 7.2 24 17.5" stroke="#111827" strokeWidth="4" strokeLinecap="round" />
+      <path d="M56 33.5C51.2 43.8 41.9 51 32 51S12.8 43.8 8 33.5" stroke="#111827" strokeWidth="4" strokeLinecap="round" />
+      <circle cx="32" cy="20" r="6" fill="#5EDBFF" stroke="#111827" strokeWidth="3" />
+      <circle cx="8" cy="32" r="4.5" fill="#5EDBFF" stroke="#111827" strokeWidth="3" />
+      <circle cx="56" cy="32" r="4.5" fill="#5EDBFF" stroke="#111827" strokeWidth="3" />
+      <circle cx="22" cy="49" r="4.5" fill="#5EDBFF" stroke="#111827" strokeWidth="3" />
+      <circle cx="42" cy="49" r="4.5" fill="#5EDBFF" stroke="#111827" strokeWidth="3" />
+      <path d="M32 28L22 49M32 28L42 49M12.5 32H51.5" stroke="#111827" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 

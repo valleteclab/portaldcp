@@ -260,12 +260,15 @@ export default function PcaPublicoPage() {
                 <img src={logoOrgao(pca.orgao)} alt={`Brasão ou logomarca de ${pca.orgao.nome}`} className="max-h-full max-w-full object-contain" />
               </div>
               <div>
-                <p className="text-[12px] font-bold uppercase tracking-[1.4px] text-[#718096]">Plano de Contratações Anual</p>
+                <p className="text-[12px] font-bold uppercase tracking-[1.4px] text-[#718096]">Documento publicado</p>
                 <h1 id="titulo-pca-publico" className="mt-2 text-[clamp(26px,3vw,40px)] font-bold leading-tight text-[#071D41]">
-                  {pca.orgao.nome}
+                  Plano de Contratações Anual (PCA) {pca.ano_exercicio}
                 </h1>
                 <p className="mt-3 text-[15px] text-[#4A5568]">
-                  PCA {pca.ano_exercicio} · CNPJ {formatarCnpj(pca.orgao.cnpj)} · {[pca.orgao.cidade, pca.orgao.uf].filter(Boolean).join(' - ')}
+                  {pca.orgao.nome} · CNPJ {formatarCnpj(pca.orgao.cnpj)} · {[pca.orgao.cidade, pca.orgao.uf].filter(Boolean).join(' - ')}
+                </p>
+                <p className="mt-2 max-w-3xl text-sm text-[#4A5568]">
+                  PCA significa Plano de Contratações Anual, documento que consolida as contratações planejadas pelo órgão para o exercício.
                 </p>
               </div>
             </div>
@@ -447,7 +450,7 @@ function PortalHeader() {
     <>
       <div className="flex min-h-[34px] items-center justify-between gap-4 bg-[#071D41] px-6 py-1 md:px-12">
         <span className="text-[11.5px] text-white/70">
-          Câmara Municipal de <strong className="font-bold text-[#FFCD07]">Luis Eduardo Magalhães</strong> · Poder Legislativo Municipal
+          Câmara Municipal de <strong className="font-bold text-[#FFCD07]">Luís Eduardo Magalhães</strong> · Poder Legislativo Municipal
         </span>
         <div className="hidden items-center gap-4 sm:flex" aria-label="Barra de acessibilidade">
           <a href="#conteudo-principal" className="text-[11px] font-semibold text-white/80 hover:text-white">Conteúdo</a>
