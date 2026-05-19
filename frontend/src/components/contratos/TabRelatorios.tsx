@@ -37,12 +37,14 @@ interface ItemContrato {
   lote_descricao?: string
   codigo_catalogo?: string
   codigo_catalogo_proprio?: string
+  origem?: 'contrato' | 'cronograma'
 }
 
 interface Contrato {
   id: string
   numero_contrato: string
   ano: number
+  tipo?: string
   objeto: string
   valor_inicial: number | string
   valor_global: number | string
@@ -55,6 +57,18 @@ interface Contrato {
   fornecedor_cnpj: string
   orgao: { nome: string; cnpj: string; cidade: string; uf: string; logo_url?: string | null }
   itens?: ItemContrato[]
+  modalidade_execucao?: string
+}
+
+interface ItemCronograma {
+  id: string
+  numero_item: number
+  descricao: string
+  unidade_medida: string
+  quantidade: number | string
+  quantidade_medida: number | string
+  valor_unitario: number | string
+  valor_total: number | string
 }
 
 interface PedidoDocumento {
@@ -99,6 +113,15 @@ interface TabRelatoriosProps {
   contrato: Contrato
 }
 
+interface ItemSaldoRetroativo {
+  itemId: string
+  numeroItem: number
+  descricao: string
+  unidade: string
+  valorContratado: number
+  valorExecutadoAnterior: number
+}
+
 type PdfImageCompression = 'NONE' | 'FAST' | 'MEDIUM' | 'SLOW'
 
 interface PdfHeaderDoc {
@@ -137,6 +160,13 @@ const RELATORIOS = [
     icon: ClipboardList,
     badge: 'Novo',
   },
+  {
+    id: 'saldo_retroativo_aditivo',
+    titulo: 'Saldo para Aditivo',
+    descricao: 'Fotografia manual do saldo por item em uma data de referência para instruir termo aditivo.',
+    icon: FileText,
+    badge: 'Novo',
+  },
 ] as const
 
 function fmtMoeda(valor: number | string) {
@@ -165,6 +195,36 @@ function statusLabel(status?: string | null) {
 
 function joinEmpenhos(empenhos: string[]) {
   return empenhos.length ? empenhos.join(', ') : 'Sem empenho vinculado'
+}
+
+function getNumeroContratoRelatorio(contrato: Contrato) {
+  const numero = contrato.numero_contrato || ''
+  if (numero.includes(':')) {
+    return numero.split(':').slice(1).join(':').trim()
+  }
+  return numero
+}
+
+const TIPO_INSTRUMENTO_LABELS: Record<string, string> = {
+  CONTRATO: 'Contrato',
+  NOTA_EMPENHO: 'Nota de Empenho',
+  CARTA_CONTRATO: 'Carta Contrato',
+  TERMO_ADESAO: 'Termo de Adesão',
+  ATA_REGISTRO_PRECO: 'Ata de Registro de Preço',
+  ATA_REGISTRO_DE_PRECO: 'Ata de Registro de Preço',
+  'ATA REGISTRO DE PREÇO': 'Ata de Registro de Preço',
+  'ATA REGISTRO DE PRECO': 'Ata de Registro de Preço',
+}
+
+function getTipoInstrumentoRelatorio(contrato: Contrato) {
+  const tipo = (contrato.tipo || '').trim()
+  if (TIPO_INSTRUMENTO_LABELS[tipo]) return TIPO_INSTRUMENTO_LABELS[tipo]
+
+  const numero = contrato.numero_contrato || ''
+  const prefixo = numero.includes(':') ? numero.split(':')[0].trim() : ''
+  if (TIPO_INSTRUMENTO_LABELS[prefixo]) return TIPO_INSTRUMENTO_LABELS[prefixo]
+
+  return tipo ? statusLabel(tipo) : '-'
 }
 
 function getStatusClasses(status?: string | null) {
@@ -264,8 +324,21 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
   const [dadosPedidos, setDadosPedidos] = useState<RelatorioPedidosData | null>(null)
   const [carregandoPedidos, setCarregandoPedidos] = useState(false)
   const [erroPedidos, setErroPedidos] = useState<string | null>(null)
+  const [itensCronograma, setItensCronograma] = useState<ItemContrato[]>([])
+  const [carregandoItensCronograma, setCarregandoItensCronograma] = useState(false)
+  const [erroItensCronograma, setErroItensCronograma] = useState<string | null>(null)
+  const [dataReferenciaRetroativa, setDataReferenciaRetroativa] = useState('2026-04-08')
+  const [justificativaRetroativa, setJustificativaRetroativa] = useState(
+    'Relatório emitido para instrução de termo aditivo, com base em apuração contábil da execução anterior à regularização do saldo do contrato.',
+  )
+  const [itensSaldoRetroativo, setItensSaldoRetroativo] = useState<ItemSaldoRetroativo[]>([])
 
-  const itens = useMemo(() => contrato.itens ?? [], [contrato.itens])
+  const itens = useMemo(() => {
+    const itensContrato = (contrato.itens ?? []).map(item => ({ ...item, origem: 'contrato' as const }))
+    return itensContrato.length > 0 ? itensContrato : itensCronograma
+  }, [contrato.itens, itensCronograma])
+
+  const usandoItensCronograma = itens.length > 0 && itens.every(item => item.origem === 'cronograma')
 
   const totalValorContratado = useMemo(
     () => itens.reduce((soma, item) => soma + Number(item.valor_total), 0),
@@ -280,9 +353,25 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
     [itens],
   )
   const percExecGeral = totalValorContratado > 0 ? (totalExecutado / totalValorContratado) * 100 : 0
+  const labelExecutado = usandoItensCronograma ? 'Medido' : 'Entregue'
+  const labelExecutadoPlural = usandoItensCronograma ? 'itens medidos' : 'itens com entrega'
+  const tituloItens = usandoItensCronograma ? 'Itens do Cronograma FÃ­sico-Financeiro' : 'Itens do Contrato'
+
+  const totaisRetroativos = useMemo(() => {
+    return itensSaldoRetroativo.reduce(
+      (acc, item) => {
+        const saldo = Math.max(0, item.valorContratado - item.valorExecutadoAnterior)
+        acc.contratado += item.valorContratado
+        acc.executado += item.valorExecutadoAnterior
+        acc.saldo += saldo
+        return acc
+      },
+      { contratado: 0, executado: 0, saldo: 0 },
+    )
+  }, [itensSaldoRetroativo])
 
   useEffect(() => {
-    if (relatorioAtivo !== 'pedidos' || dadosPedidos || carregandoPedidos) return
+    if (relatorioAtivo !== 'pedidos' || dadosPedidos) return
 
     let ativo = true
     async function carregarRelatorioPedidos() {
@@ -319,6 +408,80 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
     }
   }, [contrato.id, dadosPedidos, relatorioAtivo])
 
+  useEffect(() => {
+    if (relatorioAtivo !== 'saldo_itens' && relatorioAtivo !== 'saldo_retroativo_aditivo') return
+    if ((contrato.itens?.length || 0) > 0 || itensCronograma.length > 0) return
+
+    let ativo = true
+    async function carregarItensCronograma() {
+      setCarregandoItensCronograma(true)
+      setErroItensCronograma(null)
+      try {
+        const response = await authFetch(`${API_URL}/api/contratos/${contrato.id}/itens-cronograma`)
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({ message: 'Erro ao carregar itens do cronograma' }))
+          throw new Error(error.message || 'Erro ao carregar itens do cronograma')
+        }
+        const data = await response.json() as ItemCronograma[]
+        if (!ativo) return
+        setItensCronograma(data.map(item => {
+          const quantidade = Number(item.quantidade || 0)
+          const quantidadeMedida = Number(item.quantidade_medida || 0)
+          const valorUnitario = Number(item.valor_unitario || 0)
+          const saldo = Math.max(0, quantidade - quantidadeMedida)
+
+          return {
+            id: item.id,
+            numero_item: item.numero_item,
+            descricao: item.descricao,
+            quantidade_contratada: quantidade,
+            quantidade_empenhada: 0,
+            quantidade_entregue: quantidadeMedida,
+            saldo_disponivel: saldo,
+            valor_unitario: valorUnitario,
+            valor_total: Number(item.valor_total || quantidade * valorUnitario),
+            unidade_medida: item.unidade_medida,
+            origem: 'cronograma',
+          }
+        }))
+      } catch (error) {
+        if (ativo) {
+          setErroItensCronograma(error instanceof Error ? error.message : 'Erro ao carregar itens do cronograma')
+        }
+      } finally {
+        if (ativo) setCarregandoItensCronograma(false)
+      }
+    }
+
+    carregarItensCronograma()
+    return () => {
+      ativo = false
+    }
+  }, [contrato.id, contrato.itens, itensCronograma.length, relatorioAtivo])
+
+  useEffect(() => {
+    if (relatorioAtivo !== 'saldo_retroativo_aditivo' || itens.length === 0 || itensSaldoRetroativo.length > 0) return
+
+    setItensSaldoRetroativo(itens.map(item => {
+      const valorContratado = Number(item.valor_total || 0)
+      let valorExecutadoAnterior = Number(item.quantidade_entregue || 0) * Number(item.valor_unitario || 0)
+
+      if (contrato.id === '4492c057-d4d3-4445-bb41-05cb7d99aa9f') {
+        if (Number(item.numero_item) === 1) valorExecutadoAnterior = 151105
+        if (Number(item.numero_item) === 2) valorExecutadoAnterior = 52920
+      }
+
+      return {
+        itemId: item.id,
+        numeroItem: item.numero_item,
+        descricao: item.descricao,
+        unidade: item.unidade_medida,
+        valorContratado,
+        valorExecutadoAnterior: Math.min(valorContratado, valorExecutadoAnterior),
+      }
+    }))
+  }, [contrato.id, itens, itensSaldoRetroativo.length, relatorioAtivo])
+
   async function exportarPDFSaldo() {
     const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
       import('jspdf'),
@@ -337,8 +500,9 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 
     const info = [
       [`Órgão: ${contrato.orgao.nome}`, `CNPJ: ${contrato.orgao.cnpj}`],
-      [`Contrato nº ${contrato.numero_contrato}/${contrato.ano}`, `Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`],
-      [`Objeto: ${contrato.objeto}`, `Vigência: ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}`],
+      [`Contrato nº ${getNumeroContratoRelatorio(contrato)}`, `Tipo de instrumento: ${getTipoInstrumentoRelatorio(contrato)}`],
+      [`Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`, `Vigência: ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}`],
+      [`Objeto: ${contrato.objeto}`, ''],
       [`Valor Contratado (global): ${fmtMoeda(contrato.valor_global)}`, `Emitido em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`],
     ]
 
@@ -357,7 +521,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       startY: y,
       head: [[
         '#', 'Lote', 'Descrição', 'Unid.',
-        'Qtd. Inicial', 'Solicitado', 'Entregue', 'Saldo Qtd.',
+        'Qtd. Inicial', 'Solicitado', labelExecutado, 'Saldo Qtd.',
         '% Exec.', 'Valor Unit.', 'Valor Total', 'Valor Exec.', 'Saldo (R$)',
       ]],
       body: itens.map(item => {
@@ -418,7 +582,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       doc.text(`Página ${pagina} de ${totalPags}`, pageW - 10, pageH - 6, { align: 'right' })
     }
 
-    doc.save(`saldo-itens-${contrato.numero_contrato}-${contrato.ano}.pdf`)
+    doc.save(`saldo-itens-${getNumeroContratoRelatorio(contrato)}.pdf`)
   }
 
   async function exportarPDFPedidos() {
@@ -448,8 +612,9 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 
     const info = [
       [`Órgão: ${dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome}`, `CNPJ: ${dadosPedidos.contrato.orgao?.cnpj || contrato.orgao.cnpj}`],
-      [`Contrato nº ${contrato.numero_contrato}/${contrato.ano}`, `Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`],
-      [`Objeto: ${contrato.objeto}`, `Vigência: ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}`],
+      [`Contrato nº ${getNumeroContratoRelatorio(contrato)}`, `Tipo de instrumento: ${getTipoInstrumentoRelatorio(contrato)}`],
+      [`Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`, `Vigência: ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}`],
+      [`Objeto: ${contrato.objeto}`, ''],
       [`Documentos: ${dadosPedidos.resumo.total_documentos}`, `Empenhos vinculados: ${dadosPedidos.resumo.total_empenhos_vinculados}`],
     ]
 
@@ -505,7 +670,84 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
       doc.text(`Página ${pagina} de ${totalPags}`, pageW - 10, pageH - 6, { align: 'right' })
     }
 
-    doc.save(`pedidos-${contrato.numero_contrato}-${contrato.ano}.pdf`)
+    doc.save(`pedidos-${getNumeroContratoRelatorio(contrato)}.pdf`)
+  }
+
+  async function exportarPDFSaldoRetroativo() {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ])
+
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const pageW = doc.internal.pageSize.width
+    const logoDataUrl = await getImageDataUrl(getLogoUrl(contrato))
+
+    drawPdfHeader(doc, 'RELATORIO DE SALDO PARA ADITIVO', contrato.orgao.nome, logoDataUrl)
+
+    doc.setTextColor(30, 30, 30)
+    doc.setFontSize(8.5)
+    doc.setFont('helvetica', 'normal')
+
+    const info = [
+      [`Orgao: ${contrato.orgao.nome}`, `CNPJ: ${contrato.orgao.cnpj}`],
+      [`Contrato no ${getNumeroContratoRelatorio(contrato)}`, `Tipo de instrumento: ${getTipoInstrumentoRelatorio(contrato)}`],
+      [`Fornecedor: ${contrato.fornecedor_razao_social} - ${contrato.fornecedor_cnpj}`, `Data de referencia: ${fmtData(dataReferenciaRetroativa)}`],
+      [`Valor global: ${fmtMoeda(contrato.valor_global)}`, ''],
+      [`Objeto: ${contrato.objeto}`, ''],
+    ]
+
+    let y = 28
+    for (const [col1, col2] of info) {
+      doc.text(col1, 10, y)
+      doc.text(col2, pageW / 2 + 2, y)
+      y += 5.5
+    }
+
+    doc.setFont('helvetica', 'bold')
+    doc.text('Justificativa:', 10, y + 1)
+    doc.setFont('helvetica', 'normal')
+    const justificativaLinhas = doc.splitTextToSize(justificativaRetroativa || '-', pageW - 48)
+    doc.text(justificativaLinhas, 34, y + 1)
+    y += Math.max(10, justificativaLinhas.length * 4 + 4)
+
+    autoTable(doc, {
+      startY: y,
+      head: [['#', 'Descricao', 'Unid.', 'Valor Contratado', 'Executado/Pago ate a referencia', 'Saldo']],
+      body: itensSaldoRetroativo.map(item => {
+        const saldo = Math.max(0, item.valorContratado - item.valorExecutadoAnterior)
+        return [
+          item.numeroItem,
+          item.descricao,
+          item.unidade,
+          fmtMoeda(item.valorContratado),
+          fmtMoeda(item.valorExecutadoAnterior),
+          fmtMoeda(saldo),
+        ]
+      }),
+      foot: [[
+        '',
+        'TOTAL GERAL',
+        '',
+        fmtMoeda(totaisRetroativos.contratado),
+        fmtMoeda(totaisRetroativos.executado),
+        fmtMoeda(totaisRetroativos.saldo),
+      ]],
+      styles: { fontSize: 7.5, cellPadding: 2 },
+      headStyles: { fillColor: [19, 81, 180], textColor: 255, fontStyle: 'bold' },
+      footStyles: { fillColor: [235, 240, 255], textColor: [19, 81, 180], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 255] },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 10 },
+        1: { cellWidth: 130 },
+        2: { halign: 'center', cellWidth: 18 },
+        3: { halign: 'right', cellWidth: 34 },
+        4: { halign: 'right', cellWidth: 44 },
+        5: { halign: 'right', cellWidth: 34 },
+      },
+    })
+
+    doc.save(`saldo-aditivo-${contrato.numero_contrato}-${dataReferenciaRetroativa}.pdf`)
   }
 
   function imprimirHTMLSaldo() {
@@ -513,7 +755,7 @@ export default function TabRelatorios({ contrato }: TabRelatoriosProps) {
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"/>
-<title>Saldo de Itens - Contrato ${contrato.numero_contrato}/${contrato.ano}</title>
+<title>Saldo de Itens - Contrato ${getNumeroContratoRelatorio(contrato)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 16px; }
@@ -550,7 +792,8 @@ ${htmlHeader('Relatório de Saldo de Itens do Contrato', contrato)}
 <div class="info-grid">
   <span><strong>Órgão:</strong> ${contrato.orgao.nome}</span>
   <span><strong>CNPJ:</strong> ${contrato.orgao.cnpj}</span>
-  <span><strong>Contrato nº:</strong> ${contrato.numero_contrato}/${contrato.ano}</span>
+  <span><strong>Contrato nº:</strong> ${getNumeroContratoRelatorio(contrato)}</span>
+  <span><strong>Tipo de instrumento:</strong> ${getTipoInstrumentoRelatorio(contrato)}</span>
   <span><strong>Fornecedor:</strong> ${contrato.fornecedor_razao_social}</span>
   <span><strong>Objeto:</strong> ${contrato.objeto}</span>
   <span><strong>CNPJ Fornecedor:</strong> ${contrato.fornecedor_cnpj}</span>
@@ -559,7 +802,7 @@ ${htmlHeader('Relatório de Saldo de Itens do Contrato', contrato)}
 </div>
 <div class="summary">
   <div class="card blue"><div class="label">Valor Contratado</div><div class="value">${fmtMoeda(totalValorContratado)}</div></div>
-  <div class="card green"><div class="label">Valor Executado</div><div class="value">${fmtMoeda(totalExecutado)}</div></div>
+  <div class="card green"><div class="label">Valor ${labelExecutado}</div><div class="value">${fmtMoeda(totalExecutado)}</div></div>
   <div class="card purple"><div class="label">Saldo Disponível</div><div class="value">${fmtMoeda(totalSaldoValor)}</div></div>
   <div class="card orange"><div class="label">% Executado</div><div class="value">${percExecGeral.toFixed(1)}%</div></div>
 </div>
@@ -567,7 +810,7 @@ ${htmlHeader('Relatório de Saldo de Itens do Contrato', contrato)}
   <thead>
     <tr>
       <th>#</th><th>Lote</th><th style="text-align:left">Descrição</th><th>Unid.</th>
-      <th>Qtd. Inicial</th><th>Solicitado</th><th>Entregue</th><th>Saldo Qtd.</th>
+      <th>Qtd. Inicial</th><th>Solicitado</th><th>${labelExecutado}</th><th>Saldo Qtd.</th>
       <th>% Exec.</th><th>Valor Unit.</th><th>Valor Total</th><th>Valor Exec.</th><th>Saldo (R$)</th>
     </tr>
   </thead>
@@ -656,7 +899,7 @@ ${htmlHeader('Relatório de Saldo de Itens do Contrato', contrato)}
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"/>
-<title>Relatório de Pedidos - Contrato ${contrato.numero_contrato}/${contrato.ano}</title>
+<title>Relatório de Pedidos - Contrato ${getNumeroContratoRelatorio(contrato)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 16px; }
@@ -684,7 +927,8 @@ ${htmlHeader('Relatório de Pedidos', contrato)}
 <div class="info-grid">
   <span><strong>Órgão:</strong> ${dadosPedidos.contrato.orgao?.nome || contrato.orgao.nome}</span>
   <span><strong>CNPJ:</strong> ${dadosPedidos.contrato.orgao?.cnpj || contrato.orgao.cnpj}</span>
-  <span><strong>Contrato nº:</strong> ${contrato.numero_contrato}/${contrato.ano}</span>
+  <span><strong>Contrato nº:</strong> ${getNumeroContratoRelatorio(contrato)}</span>
+  <span><strong>Tipo de instrumento:</strong> ${getTipoInstrumentoRelatorio(contrato)}</span>
   <span><strong>Fornecedor:</strong> ${contrato.fornecedor_razao_social}</span>
   <span><strong>Objeto:</strong> ${contrato.objeto}</span>
   <span><strong>Vigência:</strong> ${fmtData(contrato.data_vigencia_inicio)} a ${fmtData(contrato.data_vigencia_fim)}</span>
@@ -713,11 +957,102 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
     printWindowWhenReady(w)
   }
 
+  function imprimirHTMLSaldoRetroativo() {
+    const linhas = itensSaldoRetroativo.map(item => {
+      const saldo = Math.max(0, item.valorContratado - item.valorExecutadoAnterior)
+      return `<tr>
+        <td class="center">${item.numeroItem}</td>
+        <td>${item.descricao}</td>
+        <td class="center">${item.unidade}</td>
+        <td class="right">${fmtMoeda(item.valorContratado)}</td>
+        <td class="right">${fmtMoeda(item.valorExecutadoAnterior)}</td>
+        <td class="right">${fmtMoeda(saldo)}</td>
+      </tr>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<title>Saldo para Aditivo - Contrato ${getNumeroContratoRelatorio(contrato)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 16px; }
+  h1 { font-size: 15px; color: #1351B4; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .5px; }
+  .report-header { display: grid; grid-template-columns: 58px 1fr 58px; align-items: center; gap: 12px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1351B4; text-align: center; }
+  .report-logo, .report-logo-placeholder { width: 52px; height: 52px; object-fit: contain; justify-self: start; }
+  .report-orgao { color: #555; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 20px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 2px solid #1351B4; }
+  .justificativa { border: 1px solid #dde3f0; border-radius: 6px; padding: 10px; margin-bottom: 14px; background: #f8faff; }
+  .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .card { border: 1px solid #dde3f0; border-radius: 6px; padding: 10px 12px; background: #f8faff; }
+  .label { font-size: 9.5px; color: #666; text-transform: uppercase; }
+  .value { font-size: 14px; font-weight: bold; margin-top: 2px; color: #1351B4; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+  thead tr { background: #1351B4; color: #fff; }
+  thead th { padding: 6px 5px; text-align: left; }
+  tbody tr:nth-child(even) { background: #f7faff; }
+  td { padding: 5px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  td.right { text-align: right; }
+  td.center { text-align: center; }
+  tfoot tr { background: #e8eeff; font-weight: bold; color: #1351B4; }
+  tfoot td { padding: 6px 5px; border-top: 2px solid #1351B4; }
+  .footer { margin-top: 16px; font-size: 9px; color: #888; display: flex; justify-content: space-between; border-top: 1px solid #ddd; padding-top: 6px; }
+  @media print { @page { size: A4 landscape; margin: 12mm; } body { padding: 0; } }
+</style>
+</head>
+<body>
+${htmlHeader('Relatório de Saldo para Aditivo', contrato)}
+<div class="info-grid">
+  <span><strong>Órgão:</strong> ${contrato.orgao.nome}</span>
+  <span><strong>CNPJ:</strong> ${contrato.orgao.cnpj}</span>
+  <span><strong>Contrato nº:</strong> ${getNumeroContratoRelatorio(contrato)}</span>
+  <span><strong>Tipo de instrumento:</strong> ${getTipoInstrumentoRelatorio(contrato)}</span>
+  <span><strong>Fornecedor:</strong> ${contrato.fornecedor_razao_social}</span>
+  <span><strong>Data de referência:</strong> ${fmtData(dataReferenciaRetroativa)}</span>
+</div>
+<div class="justificativa"><strong>Justificativa:</strong> ${justificativaRetroativa || '-'}</div>
+<div class="summary">
+  <div class="card"><div class="label">Valor Contratado</div><div class="value">${fmtMoeda(totaisRetroativos.contratado)}</div></div>
+  <div class="card"><div class="label">Executado/Pago</div><div class="value">${fmtMoeda(totaisRetroativos.executado)}</div></div>
+  <div class="card"><div class="label">Saldo</div><div class="value">${fmtMoeda(totaisRetroativos.saldo)}</div></div>
+</div>
+<table>
+  <thead>
+    <tr><th>#</th><th>Descrição</th><th>Unid.</th><th>Valor Contratado</th><th>Executado/Pago até referência</th><th>Saldo</th></tr>
+  </thead>
+  <tbody>${linhas}</tbody>
+  <tfoot>
+    <tr>
+      <td colspan="3" style="text-align:right">TOTAL GERAL</td>
+      <td class="right">${fmtMoeda(totaisRetroativos.contratado)}</td>
+      <td class="right">${fmtMoeda(totaisRetroativos.executado)}</td>
+      <td class="right">${fmtMoeda(totaisRetroativos.saldo)}</td>
+    </tr>
+  </tfoot>
+</table>
+<div class="footer">
+  <span>${contrato.orgao.nome} - ${contrato.orgao.cidade}/${contrato.orgao.uf}</span>
+  <span>Documento gerado pelo Portal DCP</span>
+</div>
+</body>
+</html>`
+
+    const w = window.open('', '_blank', 'width=1200,height=800')
+    if (!w) return
+    w.document.write(html)
+    w.document.close()
+    w.focus()
+    printWindowWhenReady(w)
+  }
+
   async function exportarPDF() {
     setGerando(true)
     try {
       if (relatorioAtivo === 'pedidos') {
         await exportarPDFPedidos()
+      } else if (relatorioAtivo === 'saldo_retroativo_aditivo') {
+        await exportarPDFSaldoRetroativo()
       } else {
         await exportarPDFSaldo()
       }
@@ -729,6 +1064,8 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
   function imprimirHTML() {
     if (relatorioAtivo === 'pedidos') {
       imprimirHTMLPedidos()
+    } else if (relatorioAtivo === 'saldo_retroativo_aditivo') {
+      imprimirHTMLSaldoRetroativo()
     } else {
       imprimirHTMLSaldo()
     }
@@ -834,8 +1171,12 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
     )
   }
 
-  const titulo = relatorioAtivo === 'pedidos' ? 'Relatório de Pedidos' : 'Saldo de Itens do Contrato'
-  const subtitulo = `${contrato.numero_contrato}/${contrato.ano} - ${contrato.fornecedor_razao_social}`
+  const titulo = relatorioAtivo === 'pedidos'
+    ? 'Relatório de Pedidos'
+    : relatorioAtivo === 'saldo_retroativo_aditivo'
+      ? 'Saldo para Aditivo'
+      : 'Saldo de Itens do Contrato'
+  const subtitulo = `${getNumeroContratoRelatorio(contrato)} - ${contrato.fornecedor_razao_social}`
 
   return (
     <div className="space-y-6">
@@ -851,11 +1192,27 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={imprimirHTML} disabled={relatorioAtivo === 'pedidos' && (!dadosPedidos || carregandoPedidos)}>
+          <Button
+            variant="outline"
+            onClick={imprimirHTML}
+            disabled={
+              (relatorioAtivo === 'pedidos' && (!dadosPedidos || carregandoPedidos)) ||
+              (relatorioAtivo === 'saldo_itens' && carregandoItensCronograma) ||
+              (relatorioAtivo === 'saldo_retroativo_aditivo' && (carregandoItensCronograma || itensSaldoRetroativo.length === 0))
+            }
+          >
             <Printer className="w-4 h-4 mr-2" />
             Imprimir / HTML
           </Button>
-          <Button onClick={exportarPDF} disabled={gerando || (relatorioAtivo === 'pedidos' && (!dadosPedidos || carregandoPedidos))}>
+          <Button
+            onClick={exportarPDF}
+            disabled={
+              gerando ||
+              (relatorioAtivo === 'pedidos' && (!dadosPedidos || carregandoPedidos)) ||
+              (relatorioAtivo === 'saldo_itens' && carregandoItensCronograma) ||
+              (relatorioAtivo === 'saldo_retroativo_aditivo' && (carregandoItensCronograma || itensSaldoRetroativo.length === 0))
+            }
+          >
             {gerando ? (
               <span className="flex items-center gap-2">
                 <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
@@ -873,12 +1230,13 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
 
       <Card className="border-blue-100 bg-blue-50/40">
         <CardContent className="pt-4 pb-3">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-x-6 gap-y-1 text-sm">
             <div><span className="text-gray-500 text-xs">Órgão</span><p className="font-medium">{contrato.orgao.nome}</p></div>
-            <div><span className="text-gray-500 text-xs">Contrato</span><p className="font-medium">{contrato.numero_contrato}/{contrato.ano}</p></div>
+            <div><span className="text-gray-500 text-xs">Contrato</span><p className="font-medium">{getNumeroContratoRelatorio(contrato)}</p></div>
+            <div><span className="text-gray-500 text-xs">Tipo de instrumento</span><p className="font-medium">{getTipoInstrumentoRelatorio(contrato)}</p></div>
             <div><span className="text-gray-500 text-xs">Fornecedor</span><p className="font-medium">{contrato.fornecedor_razao_social}</p></div>
             <div><span className="text-gray-500 text-xs">Vigência</span><p className="font-medium">{fmtData(contrato.data_vigencia_inicio)} a {fmtData(contrato.data_vigencia_fim)}</p></div>
-            <div className="col-span-2 md:col-span-4 mt-1"><span className="text-gray-500 text-xs">Objeto</span><p className="font-medium text-sm leading-snug">{contrato.objeto}</p></div>
+            <div className="col-span-2 md:col-span-5 mt-1"><span className="text-gray-500 text-xs">Objeto</span><p className="font-medium text-sm leading-snug">{contrato.objeto}</p></div>
           </div>
         </CardContent>
       </Card>
@@ -977,6 +1335,150 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
             </>
           ) : null}
         </>
+      ) : relatorioAtivo === 'saldo_retroativo_aditivo' ? (
+        <>
+          <Card className="border-amber-200 bg-amber-50/50">
+            <CardContent className="pt-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-4">
+                <div>
+                  <label className="text-xs font-medium text-amber-900">Data de referência</label>
+                  <input
+                    type="date"
+                    value={dataReferenciaRetroativa}
+                    onChange={(event) => setDataReferenciaRetroativa(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-amber-900">Justificativa do relatório</label>
+                  <textarea
+                    value={justificativaRetroativa}
+                    onChange={(event) => setJustificativaRetroativa(event.target.value)}
+                    rows={2}
+                    className="mt-1 w-full rounded-md border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-amber-800">
+                Este relatório é uma fotografia manual para instrução de aditivo. Ele não altera medições, saldos atuais ou dados do contrato.
+              </p>
+            </CardContent>
+          </Card>
+
+          {carregandoItensCronograma ? (
+            <Card>
+              <CardContent className="text-center py-12 text-sm text-gray-500">
+                Carregando itens do cronograma...
+              </CardContent>
+            </Card>
+          ) : erroItensCronograma ? (
+            <Card className="border-red-200 bg-red-50/50">
+              <CardContent className="py-8 text-sm text-red-700">
+                {erroItensCronograma}
+              </CardContent>
+            </Card>
+          ) : itensSaldoRetroativo.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-12">
+                <Package className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500">Nenhum item disponível para o relatório.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Valor Contratado</p>
+                    <p className="text-xl font-bold text-blue-700">{fmtMoeda(totaisRetroativos.contratado)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Executado/Pago até referência</p>
+                    <p className="text-xl font-bold text-green-700">{fmtMoeda(totaisRetroativos.executado)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Saldo</p>
+                    <p className="text-xl font-bold text-purple-700">{fmtMoeda(totaisRetroativos.saldo)}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    Saldos por item
+                  </CardTitle>
+                  <CardDescription>
+                    Informe o valor executado/pago apurado pela contabilidade até a data de referência.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-[#1351B4] text-white">
+                          <th className="py-2.5 px-2 text-center font-semibold">#</th>
+                          <th className="py-2.5 px-3 text-left font-semibold">Descrição</th>
+                          <th className="py-2.5 px-2 text-center font-semibold">Unid.</th>
+                          <th className="py-2.5 px-2 text-right font-semibold">Valor Contratado</th>
+                          <th className="py-2.5 px-2 text-right font-semibold">Executado/Pago</th>
+                          <th className="py-2.5 px-2 text-right font-semibold">Saldo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itensSaldoRetroativo.map((item, index) => {
+                          const saldo = Math.max(0, item.valorContratado - item.valorExecutadoAnterior)
+
+                          return (
+                            <tr key={item.itemId} className={index % 2 === 0 ? 'bg-white' : 'bg-blue-50/30'}>
+                              <td className="px-2 py-2.5 text-center font-medium">{item.numeroItem}</td>
+                              <td className="px-3 py-2.5 max-w-[620px]">
+                                <div className="font-medium text-slate-900 leading-snug">{item.descricao}</div>
+                              </td>
+                              <td className="px-2 py-2.5 text-center">{item.unidade}</td>
+                              <td className="px-2 py-2.5 text-right font-medium">{fmtMoeda(item.valorContratado)}</td>
+                              <td className="px-2 py-2.5 text-right">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={item.valorExecutadoAnterior}
+                                  onChange={(event) => {
+                                    const valor = Number(event.target.value || 0)
+                                    setItensSaldoRetroativo(prev => prev.map(row =>
+                                      row.itemId === item.itemId
+                                        ? { ...row, valorExecutadoAnterior: Math.min(row.valorContratado, Math.max(0, valor)) }
+                                        : row,
+                                    ))
+                                  }}
+                                  className="w-32 rounded-md border border-slate-200 px-2 py-1 text-right outline-none focus:border-blue-500"
+                                />
+                              </td>
+                              <td className="px-2 py-2.5 text-right font-semibold text-purple-700">{fmtMoeda(saldo)}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-blue-50/70 font-semibold text-slate-900 border-t">
+                          <td colSpan={3} className="px-3 py-3 text-right">Total Geral</td>
+                          <td className="px-2 py-3 text-right">{fmtMoeda(totaisRetroativos.contratado)}</td>
+                          <td className="px-2 py-3 text-right text-green-700">{fmtMoeda(totaisRetroativos.executado)}</td>
+                          <td className="px-2 py-3 text-right text-purple-700">{fmtMoeda(totaisRetroativos.saldo)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </>
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -994,10 +1496,10 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
               <CardContent className="pt-4">
                 <div className="flex items-center gap-2 mb-1">
                   <CheckCircle className="w-4 h-4 text-green-600" />
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Valor Executado</span>
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Valor {labelExecutado}</span>
                 </div>
                 <p className="text-xl font-bold text-green-700">{fmtMoeda(totalExecutado)}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{itens.filter(item => Number(item.quantidade_entregue) > 0).length} itens com entrega</p>
+                <p className="text-xs text-gray-400 mt-0.5">{itens.filter(item => Number(item.quantidade_entregue) > 0).length} {labelExecutadoPlural}</p>
               </CardContent>
             </Card>
             <Card>
@@ -1026,11 +1528,23 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
             </Card>
           </div>
 
-          {itens.length === 0 ? (
+          {carregandoItensCronograma ? (
+            <Card>
+              <CardContent className="text-center py-12 text-sm text-gray-500">
+                Carregando itens do cronograma...
+              </CardContent>
+            </Card>
+          ) : erroItensCronograma ? (
+            <Card className="border-red-200 bg-red-50/50">
+              <CardContent className="py-8 text-sm text-red-700">
+                {erroItensCronograma}
+              </CardContent>
+            </Card>
+          ) : itens.length === 0 ? (
             <Card>
               <CardContent className="text-center py-12">
                 <Package className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                <p className="text-gray-500">Nenhum item cadastrado neste contrato.</p>
+                <p className="text-gray-500">Nenhum item cadastrado neste contrato ou cronograma.</p>
               </CardContent>
             </Card>
           ) : (
@@ -1038,7 +1552,7 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Package className="w-4 h-4 text-blue-600" />
-                  Itens do Contrato
+                  {tituloItens}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -1052,7 +1566,7 @@ ${htmlSecao('Ordens de Serviço', dadosPedidos.secoes.ordens_servico)}
                         <th className="py-2.5 px-2 text-center font-semibold">Unid.</th>
                         <th className="py-2.5 px-2 text-right font-semibold">Qtd. Inicial</th>
                         <th className="py-2.5 px-2 text-right font-semibold text-yellow-200">Solicitado</th>
-                        <th className="py-2.5 px-2 text-right font-semibold text-green-200">Entregue</th>
+                        <th className="py-2.5 px-2 text-right font-semibold text-green-200">{labelExecutado}</th>
                         <th className="py-2.5 px-2 text-right font-semibold">Saldo Qtd.</th>
                         <th className="py-2.5 px-2 text-center font-semibold">% Exec.</th>
                         <th className="py-2.5 px-2 text-right font-semibold">Valor Unit.</th>

@@ -14,6 +14,8 @@ import { HistoricoContrato, TipoAcaoContrato } from './entities/historico-contra
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
+import { ItemCronograma } from './entities/item-cronograma.entity';
+import { ItemMedicaoItem } from './entities/item-medicao-item.entity';
 import { AtestacaoMensal } from './entities/atestacao-mensal.entity';
 import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
@@ -48,6 +50,10 @@ export class ContratosService implements OnModuleInit {
     private usuarioRepository: Repository<Usuario>,
     @InjectRepository(Medicao)
     private medicaoRepository: Repository<Medicao>,
+    @InjectRepository(ItemCronograma)
+    private itemCronogramaRepository: Repository<ItemCronograma>,
+    @InjectRepository(ItemMedicaoItem)
+    private itemMedicaoItemRepository: Repository<ItemMedicaoItem>,
     @InjectRepository(AtestacaoMensal)
     private atestacaoRepository: Repository<AtestacaoMensal>,
     @InjectRepository(FrotaContrato)
@@ -611,6 +617,15 @@ export class ContratosService implements OnModuleInit {
       const curr = resultado.get(r.contrato_id);
       if (curr) curr.comprometido = Number(r.total ?? 0);
     }
+
+    const migracaoPorContrato = await this.calcularValorMigracaoPorItemBatch(contratoIds);
+    for (const [contratoId, valorMigracao] of migracaoPorContrato.entries()) {
+      const curr = resultado.get(contratoId);
+      if (!curr || valorMigracao <= 0) continue;
+      curr.aprovado += valorMigracao;
+      curr.comprometido += valorMigracao;
+    }
+
     return resultado;
   }
 
@@ -638,10 +653,68 @@ export class ContratosService implements OnModuleInit {
       .andWhere('m.status IN (:...status)', { status: statusComprometidos })
       .getRawOne<{ total: string }>();
 
+    const valorMigracaoPorItem = await this.calcularValorMigracaoPorItem(contratoId);
+
     return {
-      aprovado: Number(resultAprovado?.total ?? 0),
-      comprometido: Number(resultComprometido?.total ?? 0),
+      aprovado: Number(resultAprovado?.total ?? 0) + valorMigracaoPorItem,
+      comprometido: Number(resultComprometido?.total ?? 0) + valorMigracaoPorItem,
     };
+  }
+
+  private async calcularValorMigracaoPorItem(contratoId: string): Promise<number> {
+    const mapa = await this.calcularValorMigracaoPorItemBatch([contratoId]);
+    return mapa.get(contratoId) || 0;
+  }
+
+  private async calcularValorMigracaoPorItemBatch(contratoIds: string[]): Promise<Map<string, number>> {
+    const resultado = new Map<string, number>();
+    if (contratoIds.length === 0) return resultado;
+
+    const itensCronograma = await this.itemCronogramaRepository.find({
+      where: { contrato_id: In(contratoIds) },
+    });
+    if (itensCronograma.length === 0) return resultado;
+
+    const itemIds = itensCronograma.map((item) => item.id);
+    const itensAprovados = await this.itemMedicaoItemRepository
+      .createQueryBuilder('imi')
+      .innerJoin(Medicao, 'm', 'm.id = imi.medicao_id')
+      .select('imi.item_cronograma_id', 'item_cronograma_id')
+      .addSelect('COALESCE(SUM(imi.valor_medido), 0)', 'valor_aprovado')
+      .where('imi.item_cronograma_id IN (:...itemIds)', { itemIds })
+      .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+      .groupBy('imi.item_cronograma_id')
+      .getRawMany<{ item_cronograma_id: string; valor_aprovado: string }>();
+
+    const valoresAprovadosPorItem = new Map<string, number>();
+    for (const item of itensAprovados) {
+      valoresAprovadosPorItem.set(item.item_cronograma_id, Number(item.valor_aprovado || 0));
+    }
+
+    for (const item of itensCronograma) {
+      let valorItem = 0;
+      if (
+        item.unidade_medida === 'MENSAL' &&
+        Number(item.valor_migracao_reais || 0) > 0
+      ) {
+        valorItem = Number(item.valor_migracao_reais || 0);
+      } else {
+        const valorAcumuladoItem =
+          Number(item.quantidade_medida || 0) *
+          Number(item.valor_unitario || 0);
+        const valorAprovadoItem = valoresAprovadosPorItem.get(item.id) || 0;
+        valorItem = Math.max(0, valorAcumuladoItem - valorAprovadoItem);
+      }
+
+      if (valorItem > 0) {
+        resultado.set(
+          item.contrato_id,
+          (resultado.get(item.contrato_id) || 0) + valorItem,
+        );
+      }
+    }
+
+    return resultado;
   }
 
   private async somarValorMedicoesCiclo(contratoId: string, dataRenovacao: Date): Promise<{ aprovado: number; comprometido: number }> {
