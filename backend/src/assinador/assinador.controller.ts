@@ -150,6 +150,11 @@ export class AssinadorController {
     );
   }
 
+  @Delete(':id')
+  async excluir(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
+    return this.assinadorService.excluirDocumento(id, this.getOrgaoId(req.user));
+  }
+
   @Delete(':id/cancelar')
   async cancelar(@Request() req: any, @Param('id', ParseUUIDPipe) id: string) {
     return this.assinadorService.cancelarDocumento(id, this.getOrgaoId(req.user));

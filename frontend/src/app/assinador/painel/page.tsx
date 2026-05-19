@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Plus, Fingerprint, PenLine, Clock, CheckCircle, Eye, Download, MoreHorizontal, FileText } from 'lucide-react';
+import { Plus, Fingerprint, PenLine, Clock, CheckCircle, Eye, Download, MoreHorizontal, FileText, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { assinadorGet } from '@/lib/assinador-api';
+import { assinadorGet, assinadorFetch } from '@/lib/assinador-api';
 import { useAssinador } from '@/components/assinador/AssinadorContext';
 import { KpiCard } from '@/components/assinador/KpiCard';
 import { StatusChip } from '@/components/assinador/StatusChip';
@@ -52,6 +52,10 @@ export default function PainelPage() {
   const [docs, setDocs] = useState<Documento[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<Filtro>(filtroParam);
+  const [menuAberto, setMenuAberto] = useState<string | null>(null);
+  const [excluindo, setExcluindo] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Documento | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const carregarDocs = useCallback(async () => {
     try {
@@ -68,6 +72,31 @@ export default function PainelPage() {
     carregarDocs();
     refreshKpis();
   }, [carregarDocs, refreshKpis]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuAberto(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  async function confirmarExclusao() {
+    if (!confirmDelete) return;
+    setExcluindo(confirmDelete.id);
+    setConfirmDelete(null);
+    try {
+      await assinadorFetch(`/api/assinador/${confirmDelete.id}`, { method: 'DELETE' });
+      setDocs(prev => prev.filter(d => d.id !== confirmDelete.id));
+      refreshKpis();
+    } catch {
+      // silently fail
+    } finally {
+      setExcluindo(null);
+    }
+  }
 
   useEffect(() => {
     setFiltro(filtroParam);
@@ -312,14 +341,65 @@ export default function PainelPage() {
                     )}
                   </>
                 )}
-                <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#EFF1F4] text-[#8A91A0]">
-                  <MoreHorizontal size={15} />
-                </button>
+                <div className="relative" ref={menuAberto === d.id ? menuRef : undefined}>
+                  <button
+                    onClick={() => setMenuAberto(menuAberto === d.id ? null : d.id)}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#EFF1F4] text-[#8A91A0]"
+                  >
+                    {excluindo === d.id
+                      ? <div className="w-3.5 h-3.5 border-2 border-[#E4E7ED] border-t-[#8A91A0] rounded-full animate-spin" />
+                      : <MoreHorizontal size={15} />}
+                  </button>
+                  {menuAberto === d.id && (
+                    <div className="absolute right-0 top-9 z-20 w-44 bg-white border border-[#E4E7ED] rounded-xl shadow-lg py-1">
+                      {d.status !== 'CONCLUIDO' && (
+                        <button
+                          onClick={() => { setMenuAberto(null); setConfirmDelete(d); }}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-[#C53030] hover:bg-[#FDECEC] transition-colors"
+                        >
+                          <Trash2 size={14} /> Excluir documento
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Confirm delete modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="w-12 h-12 bg-[#FDECEC] rounded-2xl flex items-center justify-center mb-4">
+              <Trash2 size={22} className="text-[#C53030]" />
+            </div>
+            <h2 className="text-lg font-bold text-[#1A1D24] mb-1">Excluir documento?</h2>
+            <p className="text-sm text-[#5F6675] mb-1">
+              <span className="font-semibold text-[#1A1D24]">{confirmDelete.titulo}</span>
+            </p>
+            <p className="text-sm text-[#5F6675] mb-6">
+              Esta ação é permanente e não pode ser desfeita. O PDF e todos os registros de assinatura serão removidos.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 h-11 border border-[#D6DAE1] rounded-xl text-sm font-semibold text-[#424957] hover:bg-[#F7F8FA] transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarExclusao}
+                className="flex-1 h-11 bg-[#C53030] hover:bg-[#9B1C1C] text-white rounded-xl text-sm font-semibold transition-colors"
+              >
+                Sim, excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
