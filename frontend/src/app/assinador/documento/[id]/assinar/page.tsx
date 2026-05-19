@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Download, PenLine, Users, ShieldCheck, Lock } from 'lucide-react';
 import Link from 'next/link';
@@ -11,6 +11,7 @@ import { SuccessBurst } from '@/components/assinador/SuccessBurst';
 import { TimelineRow } from '@/components/assinador/TimelineRow';
 import { HashBlock } from '@/components/assinador/HashBlock';
 import { StatusChip } from '@/components/assinador/StatusChip';
+import { SignaturePad, SignaturePadRef } from '@/components/assinador/SignaturePad';
 
 interface Signatario {
   id: string;
@@ -43,6 +44,7 @@ export default function AssinarPage() {
   const [reviewed, setReviewed] = useState(false);
   const [phase, setPhase] = useState<'review' | 'otp' | 'done'>('review');
   const [canal, setCanal] = useState<string>('email');
+  const sigPadRef = useRef<SignaturePadRef>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -84,10 +86,11 @@ export default function AssinarPage() {
 
   async function assinarComCodigo(code?: string) {
     if (!mySig) return;
+    const assinaturaImagem = sigPadRef.current?.isEmpty() ? undefined : sigPadRef.current?.toDataURL();
     const res = await assinadorFetch(`/api/assinador/${id}/signatarios/${mySig.id}/assinar`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ codigo_otp: code }),
+      body: JSON.stringify({ codigo_otp: code, assinatura_imagem: assinaturaImagem }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -225,6 +228,9 @@ export default function AssinarPage() {
                       ))}
                     </div>
 
+                    {/* Signature pad */}
+                    <SignaturePad ref={sigPadRef} />
+
                     {/* Checkbox */}
                     <label
                       className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
@@ -263,7 +269,7 @@ export default function AssinarPage() {
                       <Lock size={13} className="text-[#1F5EDC] flex-none mt-0.5" />
                       <div>
                         <strong className="text-[#1A1D24] block mb-0.5">Assinatura eletrônica avançada</strong>
-                        Vinculada à sua conta no portal + verificação por código. Validade jurídica pela Lei nº 14.063/2020.
+                        Assinatura manuscrita + código de verificação, vinculada à sua conta. Validade jurídica pela Lei nº 14.063/2020.
                       </div>
                     </div>
                   </div>

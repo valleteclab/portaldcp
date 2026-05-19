@@ -269,6 +269,7 @@ export class PortalAssinaturasService {
     ip: string,
     userAgent: string,
     codigoOtp?: string,
+    assinaturaImagem?: string,
   ): Promise<{ sucesso: boolean; pdf_url?: string }> {
     const signatario = await this.signatarioRepository.findOne({
       where: { id: signatarioId, documento_id: documentoId },
@@ -303,6 +304,7 @@ export class PortalAssinaturasService {
     signatario.ip_address = ip;
     signatario.user_agent = userAgent;
     signatario.codigo_validacao = codigoValidacao;
+    if (assinaturaImagem) signatario.assinatura_imagem = assinaturaImagem;
     await this.signatarioRepository.save(signatario);
 
     // Salvar na tabela assinaturas_digitais para validação pública
@@ -601,35 +603,79 @@ export class PortalAssinaturasService {
         borderWidth: 0.5,
       });
 
-      // Logo do órgão (lado esquerdo)
-      const logoW = logoImage ? 28 : 0;
-      const textX = x + (logoImage ? logoW + 4 : 4);
-      if (logoImage) {
-        const dims = logoImage.scale(1);
-        const ratio = Math.min(26 / dims.width, 30 / dims.height);
-        const lw = dims.width * ratio;
-        const lh = dims.height * ratio;
-        targetPage.drawImage(logoImage, { x: x + 3, y: y + (boxH - lh) / 2, width: lw, height: lh });
+      // ── Assinatura manuscrita (se disponível) ──
+      let sigDrawImage: any = null;
+      if (sig.assinatura_imagem) {
+        try {
+          const base64Data = sig.assinatura_imagem.replace(/^data:image\/png;base64,/, '');
+          const imgBytes = Buffer.from(base64Data, 'base64');
+          sigDrawImage = await pdfDoc.embedPng(imgBytes);
+        } catch (e) {
+          this.logger.warn(`Erro ao embutir assinatura manuscrita: ${e.message}`);
+        }
       }
 
-      // Texto: "Documento assinado digitalmente"
-      targetPage.drawText('Documento assinado digitalmente', {
-        x: textX, y: y + boxH - 10, size: 6, font: helvetica, color: rgb(0.3, 0.3, 0.3),
-      });
-      // Nome em negrito
-      const nomeDisplay = sig.nome.length > 40 ? sig.nome.substring(0, 40) + '...' : sig.nome;
-      targetPage.drawText(nomeDisplay.toUpperCase(), {
-        x: textX, y: y + boxH - 20, size: 7, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
-      });
-      // Data
-      const dataStr = new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-      targetPage.drawText(`Data: ${dataStr}`, {
-        x: textX, y: y + boxH - 30, size: 6, font: helvetica, color: rgb(0.35, 0.35, 0.35),
-      });
-      // Verificação
-      targetPage.drawText(`Verifique em ${urlValidacao}`, {
-        x: textX, y: y + boxH - 40, size: 5.5, font: helvetica, color: rgb(0.15, 0.39, 0.93),
-      });
+      if (sigDrawImage) {
+        // Layout com assinatura manuscrita: imagem ocupa 60% da largura, texto os outros 40%
+        const imgAreaW = Math.round(boxW * 0.55);
+        const imgAreaH = boxH - 6;
+        const dims = sigDrawImage.scaleToFit(imgAreaW - 4, imgAreaH - 4);
+        targetPage.drawImage(sigDrawImage, {
+          x: x + 2,
+          y: y + (boxH - dims.height) / 2,
+          width: dims.width,
+          height: dims.height,
+        });
+
+        // Linha separadora vertical
+        targetPage.drawLine({
+          start: { x: x + imgAreaW, y: y + 4 },
+          end: { x: x + imgAreaW, y: y + boxH - 4 },
+          thickness: 0.4,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+
+        const textX = x + imgAreaW + 4;
+        const dataStr = new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        const nomeDisplay = sig.nome.length > 28 ? sig.nome.substring(0, 28) + '…' : sig.nome;
+        targetPage.drawText('Assinado digitalmente', {
+          x: textX, y: y + boxH - 11, size: 5.5, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+        });
+        targetPage.drawText(nomeDisplay.toUpperCase(), {
+          x: textX, y: y + boxH - 21, size: 6, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
+        });
+        targetPage.drawText(`Data: ${dataStr}`, {
+          x: textX, y: y + boxH - 31, size: 5.5, font: helvetica, color: rgb(0.35, 0.35, 0.35),
+        });
+        targetPage.drawText(`Verifique em ${urlValidacao}`, {
+          x: textX, y: y + boxH - 41, size: 5, font: helvetica, color: rgb(0.15, 0.39, 0.93),
+        });
+      } else {
+        // Layout padrão (sem assinatura manuscrita)
+        const logoW = logoImage ? 28 : 0;
+        const textX = x + (logoImage ? logoW + 4 : 4);
+        if (logoImage) {
+          const dims = logoImage.scale(1);
+          const ratio = Math.min(26 / dims.width, 30 / dims.height);
+          const lw = dims.width * ratio;
+          const lh = dims.height * ratio;
+          targetPage.drawImage(logoImage, { x: x + 3, y: y + (boxH - lh) / 2, width: lw, height: lh });
+        }
+        targetPage.drawText('Documento assinado digitalmente', {
+          x: textX, y: y + boxH - 10, size: 6, font: helvetica, color: rgb(0.3, 0.3, 0.3),
+        });
+        const nomeDisplay = sig.nome.length > 40 ? sig.nome.substring(0, 40) + '...' : sig.nome;
+        targetPage.drawText(nomeDisplay.toUpperCase(), {
+          x: textX, y: y + boxH - 20, size: 7, font: helveticaBold, color: rgb(0.07, 0.07, 0.07),
+        });
+        const dataStr = new Date(sig.data_assinatura).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        targetPage.drawText(`Data: ${dataStr}`, {
+          x: textX, y: y + boxH - 30, size: 6, font: helvetica, color: rgb(0.35, 0.35, 0.35),
+        });
+        targetPage.drawText(`Verifique em ${urlValidacao}`, {
+          x: textX, y: y + boxH - 40, size: 5.5, font: helvetica, color: rgb(0.15, 0.39, 0.93),
+        });
+      }
     }
 
     // ── 2. Página resumo (quadro de assinaturas) no final ──

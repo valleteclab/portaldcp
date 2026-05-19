@@ -141,12 +141,12 @@ export class AssinadorController {
     @Request() req: any,
     @Param('documentoId', ParseUUIDPipe) documentoId: string,
     @Param('signatarioId', ParseUUIDPipe) signatarioId: string,
-    @Body() body: { codigo_otp?: string },
+    @Body() body: { codigo_otp?: string; assinatura_imagem?: string },
     @Ip() ip: string,
     @Headers('user-agent') userAgent: string,
   ) {
     return this.assinadorService.assinarDocumento(
-      documentoId, signatarioId, req.user, ip, userAgent || '', body?.codigo_otp,
+      documentoId, signatarioId, req.user, ip, userAgent || '', body?.codigo_otp, body?.assinatura_imagem,
     );
   }
 
