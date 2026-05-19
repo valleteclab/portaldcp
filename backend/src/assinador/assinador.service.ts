@@ -40,8 +40,8 @@ export class AssinadorService {
     return this.portalService.solicitarOtpInterno(documentoId, signatarioId, usuario);
   }
 
-  assinarDocumento(documentoId: string, signatarioId: string, usuario: any, ip: string, userAgent: string, codigoOtp?: string) {
-    return this.portalService.assinarComoOrgaoUser(documentoId, signatarioId, usuario, ip, userAgent, codigoOtp);
+  assinarDocumento(documentoId: string, signatarioId: string, usuario: any, ip: string, userAgent: string, codigoOtp?: string, assinaturaImagem?: string) {
+    return this.portalService.assinarComoOrgaoUser(documentoId, signatarioId, usuario, ip, userAgent, codigoOtp, assinaturaImagem);
   }
 
   cancelarDocumento(id: string, orgaoId: string) {

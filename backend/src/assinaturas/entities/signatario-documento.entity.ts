@@ -61,6 +61,9 @@ export class SignatarioDocumento {
   @Column({ type: 'varchar', length: 500, nullable: true })
   user_agent: string;
 
+  @Column({ type: 'text', nullable: true })
+  assinatura_imagem: string; // base64 PNG da assinatura manuscrita (opcional)
+
   @CreateDateColumn()
   created_at: Date;
 
