@@ -57,6 +57,11 @@ export class CriarItemContratoDto {
   quantidade_contratada: number;
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quantidade_ja_utilizada?: number;
+
+  @IsOptional()
   @IsString()
   item_licitacao_id?: string;
 

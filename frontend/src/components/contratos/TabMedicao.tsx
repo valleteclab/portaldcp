@@ -295,6 +295,11 @@ function prodTrunc(q: number, vl: number): number {
   return Math.floor((Math.round(q * 100) * Math.round(vl * 100)) / 100) / 100;
 }
 
+function parseDecimal(valor: string | number | null | undefined): number {
+  if (valor === null || valor === undefined || valor === "") return 0;
+  return Number(String(valor).replace(",", ".")) || 0;
+}
+
 function calcularSaldoFinanceiroItemCronograma(ic: ItemCronograma): number {
   const valorTotal = Number(ic.valor_total) || 0;
   const valorUnitario = Number(ic.valor_unitario) || 0;
@@ -1752,11 +1757,10 @@ export default function TabMedicao({
           return;
         }
         if (isAdmin) {
-          const qtdMedida =
-            parseFloat(formItemCronograma.quantidade_medida || "0") || 0;
+          const qtdMedida = parseDecimal(formItemCronograma.quantidade_medida);
           const valorMigracaoReais = isMensalUnit
             ? formItemCronograma.valor_medida_reais !== ""
-              ? parseFloat(formItemCronograma.valor_medida_reais) || 0
+              ? parseDecimal(formItemCronograma.valor_medida_reais)
               : null
             : null;
           const resMig = await authFetch(
@@ -1785,6 +1789,31 @@ export default function TabMedicao({
           const e = await res.json().catch(() => ({}));
           alert(e.message || "Erro");
           return;
+        }
+        const itemCriado = await res.json().catch(() => null);
+        const qtdMedida = parseDecimal(formItemCronograma.quantidade_medida);
+        const valorMigracaoReais = isMensalUnit
+          ? formItemCronograma.valor_medida_reais !== ""
+            ? parseDecimal(formItemCronograma.valor_medida_reais)
+            : null
+          : null;
+        if (isAdmin && itemCriado?.id && (qtdMedida > 0 || (valorMigracaoReais ?? 0) > 0)) {
+          const resMig = await authFetch(
+            `${API_URL}/api/contratos/${contratoId}/itens-cronograma/${itemCriado.id}/quantidade-migracao`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                quantidade_medida: qtdMedida,
+                valor_migracao_reais: valorMigracaoReais,
+              }),
+            },
+          );
+          if (!resMig.ok) {
+            const e = await resMig.json().catch(() => ({}));
+            alert(e.message || "Item criado, mas houve erro ao salvar quantidade já utilizada: " + (e.message || "Erro"));
+            return;
+          }
         }
       }
       setModalItemCronograma(false);
@@ -4422,7 +4451,7 @@ export default function TabMedicao({
                 )}
               </>
             )}
-            {isAdmin && editandoItemCronograma && (
+            {isAdmin && (
               <div className="space-y-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <Label className="text-amber-800 font-medium">
                   {(modoClausulaContrato

@@ -1031,6 +1031,7 @@ export default function DetalheContratoOrgaoPage() {
           unidade_medida: novoItem.unidade_medida,
           valor_unitario: parseFloat(novoItem.valor_unitario),
           quantidade_contratada: parseFloat(novoItem.quantidade_contratada),
+          quantidade_ja_utilizada: novoItem.quantidade_ja_utilizada !== '' ? parseFloat(novoItem.quantidade_ja_utilizada) : undefined,
           codigo_catalogo: novoItem.codigo_catalogo || null,
           codigo_catalogo_proprio: novoItem.codigo_catalogo_proprio || null,
           lote_numero: novoItem.lote_numero ? parseInt(novoItem.lote_numero) : null,
@@ -3161,22 +3162,20 @@ export default function DetalheContratoOrgaoPage() {
               </div>
             </div>
 
-            {editandoItem && (
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Quantidade já utilizada</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Ex: 30"
-                    value={novoItem.quantidade_ja_utilizada}
-                    onChange={(e) => setNovoItem({...novoItem, quantidade_ja_utilizada: e.target.value})}
-                  />
-                  <p className="text-xs text-muted-foreground">Para migração: qtd. já entregue antes de cadastrar no sistema.</p>
-                </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Quantidade já utilizada</Label>
+                <Input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  placeholder="Ex: 2.267"
+                  value={novoItem.quantidade_ja_utilizada}
+                  onChange={(e) => setNovoItem({...novoItem, quantidade_ja_utilizada: e.target.value})}
+                />
+                <p className="text-xs text-muted-foreground">Para migração: qtd. já entregue/medida antes de cadastrar no sistema.</p>
               </div>
-            )}
+            </div>
 
             {novoItem.valor_unitario && novoItem.quantidade_contratada && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">

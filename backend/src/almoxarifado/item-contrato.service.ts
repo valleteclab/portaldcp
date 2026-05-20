@@ -46,14 +46,19 @@ export class ItemContratoService {
   async criar(dto: CriarItemContratoDto): Promise<ItemContrato> {
     // Calcula valores
     const valor_total = dto.valor_unitario * dto.quantidade_contratada;
-    const saldo_disponivel = dto.quantidade_contratada;
+    const quantidade_entregue = Number(dto.quantidade_ja_utilizada || 0);
+    if (quantidade_entregue > Number(dto.quantidade_contratada)) {
+      throw new BadRequestException('Quantidade já utilizada não pode ser maior que a quantidade contratada');
+    }
+    const saldo_disponivel = Number(dto.quantidade_contratada) - quantidade_entregue;
 
+    const { quantidade_ja_utilizada, ...camposItem } = dto;
     const item = this.itemContratoRepository.create({
-      ...dto,
+      ...camposItem,
       valor_total,
       saldo_disponivel,
       quantidade_empenhada: 0,
-      quantidade_entregue: 0,
+      quantidade_entregue,
     });
 
     return this.itemContratoRepository.save(item);
@@ -62,13 +67,18 @@ export class ItemContratoService {
   async criarEmLote(contratoId: string, itens: CriarItemContratoDto[]): Promise<ItemContrato[]> {
     const itensParaCriar = itens.map(dto => {
       const valor_total = dto.valor_unitario * dto.quantidade_contratada;
+      const quantidade_entregue = Number(dto.quantidade_ja_utilizada || 0);
+      if (quantidade_entregue > Number(dto.quantidade_contratada)) {
+        throw new BadRequestException(`Quantidade já utilizada do item ${dto.numero_item} não pode ser maior que a quantidade contratada`);
+      }
+      const { quantidade_ja_utilizada, ...camposItem } = dto;
       return this.itemContratoRepository.create({
-        ...dto,
+        ...camposItem,
         contrato_id: contratoId,
         valor_total,
-        saldo_disponivel: dto.quantidade_contratada,
+        saldo_disponivel: Number(dto.quantidade_contratada) - quantidade_entregue,
         quantidade_empenhada: 0,
-        quantidade_entregue: 0,
+        quantidade_entregue,
       });
     });
 
