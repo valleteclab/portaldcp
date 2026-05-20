@@ -58,19 +58,20 @@ export const SignaturePad = forwardRef<SignaturePadRef, Props>(function Signatur
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const currentCanvas = canvas;
 
     // Set internal resolution higher than display for sharpness
     const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const rect = currentCanvas.getBoundingClientRect();
+    currentCanvas.width = rect.width * dpr;
+    currentCanvas.height = rect.height * dpr;
 
-    const ctx = canvas.getContext('2d')!;
+    const ctx = currentCanvas.getContext('2d')!;
     ctx.scale(dpr, dpr);
 
     function onDown(e: PointerEvent) {
       e.preventDefault();
-      canvas.setPointerCapture(e.pointerId);
+      currentCanvas.setPointerCapture(e.pointerId);
       drawing.current = true;
       lastPoint.current = getPos(e);
 
@@ -114,16 +115,16 @@ export const SignaturePad = forwardRef<SignaturePadRef, Props>(function Signatur
       onSign?.();
     }
 
-    canvas.addEventListener('pointerdown', onDown, { passive: false });
-    canvas.addEventListener('pointermove', onMove, { passive: false });
-    canvas.addEventListener('pointerup', onUp);
-    canvas.addEventListener('pointercancel', onUp);
+    currentCanvas.addEventListener('pointerdown', onDown, { passive: false });
+    currentCanvas.addEventListener('pointermove', onMove, { passive: false });
+    currentCanvas.addEventListener('pointerup', onUp);
+    currentCanvas.addEventListener('pointercancel', onUp);
 
     return () => {
-      canvas.removeEventListener('pointerdown', onDown);
-      canvas.removeEventListener('pointermove', onMove);
-      canvas.removeEventListener('pointerup', onUp);
-      canvas.removeEventListener('pointercancel', onUp);
+      currentCanvas.removeEventListener('pointerdown', onDown);
+      currentCanvas.removeEventListener('pointermove', onMove);
+      currentCanvas.removeEventListener('pointerup', onUp);
+      currentCanvas.removeEventListener('pointercancel', onUp);
     };
   }, [onSign]);
 
