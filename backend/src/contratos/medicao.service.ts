@@ -3443,11 +3443,17 @@ export class MedicaoService {
       : null;
 
     const discriminacoes = await this.listarDiscriminacoes(medicaoId);
-    const execucaoFinanceiraAtual =
-      await this.calcularExecucaoFinanceiraFornecedor(
-        medicao.contrato_id,
-        medicaoId,
-      );
+    const execucaoFinanceiraSnapshot = medicao.execucao_financeira as any;
+    const usarSnapshotExecucao =
+      medicao.status === StatusMedicao.APROVADA &&
+      Array.isArray(execucaoFinanceiraSnapshot?.itens) &&
+      execucaoFinanceiraSnapshot.itens.length > 0;
+    const execucaoFinanceiraAtual = usarSnapshotExecucao
+      ? execucaoFinanceiraSnapshot
+      : await this.calcularExecucaoFinanceiraFornecedor(
+          medicao.contrato_id,
+          medicaoId,
+        );
 
     const assinaturas = await this.assinaturaDigitalRepository.find({
       where: { entidade_tipo: EntidadeTipo.MEDICAO, entidade_id: medicaoId },
@@ -3484,7 +3490,7 @@ export class MedicaoService {
     // inclui ic.quantidade_medida no ate_periodo. Aplicamos Math.max igual ao frontend.
     const efItens: any[] =
       execucaoFinanceiraAtual?.itens ||
-      (medicao.execucao_financeira as any)?.itens ||
+      execucaoFinanceiraSnapshot?.itens ||
       [];
     const efItemMap = new Map<string, any>();
     for (const ef of efItens) {
