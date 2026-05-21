@@ -64,6 +64,35 @@ function textoSeguro(valor: unknown, fallback = '-'): string {
   return texto.trim() ? texto : fallback;
 }
 
+function textoItensEtapa(etapa: any): string {
+  const itens = Array.isArray(etapa?.itens_detalhados)
+    ? etapa.itens_detalhados.filter((item: any) => String(item || '').trim())
+    : [];
+  if (itens.length > 0) {
+    return itens.map((item: any) => `- ${String(item).trim()}`).join('\n');
+  }
+  const texto = String(etapa?.detalhamento || '').replace(/\r\n/g, '\n');
+  const linhas = texto
+    .split('\n')
+    .map((linha) => linha.trim())
+    .filter(Boolean);
+  const indiceDetalhamento = linhas.findIndex((linha) =>
+    /^detalhamento\s*:/i.test(linha),
+  );
+  const linhasItens =
+    indiceDetalhamento >= 0 ? linhas.slice(indiceDetalhamento + 1) : linhas;
+  const extraidos = linhasItens
+    .filter((linha) => /^[-•]/.test(linha))
+    .map((linha) => linha.replace(/^[-•]\s*/, '').trim())
+    .filter(Boolean);
+  return extraidos.map((item) => `- ${item}`).join('\n');
+}
+
+function descricaoComItensEtapa(etapa: any): string {
+  const itens = textoItensEtapa(etapa);
+  return itens ? `${etapa.descricao}\nItens da etapa:\n${itens}` : etapa.descricao;
+}
+
 /** Diferença em dias usando ANO COMERCIAL (360 dias = 12 meses x 30 dias).
  *  Regra: dia 31 (e fev 29/28) = dia 30 no calendário comercial.
  *  Clip em dia2 ANTES de subtrair — garante 20/03→31/03 = 11, não 12. */
@@ -640,10 +669,8 @@ export async function gerarBoletimMedicaoPdf(
         ...dados.etapas_contratadas.map((etapa: any) => [
           { content: etapa.numero, styles: { halign: 'center' as const } },
           {
-            content: etapa.detalhamento
-              ? `${etapa.descricao}\n${etapa.detalhamento}`
-              : etapa.descricao,
-            styles: { fontSize: etapa.detalhamento ? 5.3 : 6 },
+            content: descricaoComItensEtapa(etapa),
+            styles: { fontSize: textoItensEtapa(etapa) ? 5.3 : 6 },
           },
           {
             content: `${Number(etapa.percentual_fisico || 0).toLocaleString('pt-BR', {
@@ -895,10 +922,8 @@ export async function gerarBoletimMedicaoPdf(
         ...dados.etapas.map((e: any) => [
           { content: e.numero, styles: { halign: 'center' as const, fontSize: 5.8 } },
           {
-            content: e.detalhamento
-              ? `${e.descricao}\n${e.detalhamento}`
-              : e.descricao,
-            styles: { fontSize: e.detalhamento ? 5.3 : 6.2 },
+            content: descricaoComItensEtapa(e),
+            styles: { fontSize: textoItensEtapa(e) ? 5.3 : 6.2 },
           },
           { content: fmtPct(e.percentual_executado_anterior), styles: { halign: 'center' as const, fontSize: 5.8 } },
           { content: fmtPct(e.percentual_executado_atual), styles: { halign: 'center' as const, fontSize: 5.8 } },

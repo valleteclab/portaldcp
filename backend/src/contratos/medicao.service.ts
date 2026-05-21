@@ -3329,6 +3329,24 @@ export class MedicaoService {
       if (data instanceof Date) return data.toISOString().slice(0, 10);
       return String(data).split('T')[0];
     };
+    const extrairItensDetalhamentoEtapa = (texto?: string | null) => {
+      if (!texto) return [];
+      const linhas = String(texto)
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map((linha) => linha.trim())
+        .filter(Boolean);
+      const indiceDetalhamento = linhas.findIndex((linha) =>
+        /^detalhamento\s*:/i.test(linha),
+      );
+      const linhasItens =
+        indiceDetalhamento >= 0 ? linhas.slice(indiceDetalhamento + 1) : linhas;
+
+      return linhasItens
+        .filter((linha) => /^[-•]/.test(linha))
+        .map((linha) => linha.replace(/^[-•]\s*/, '').trim())
+        .filter(Boolean);
+    };
 
     const itensParaPdf = ((medicao as any).itens || [])
       .filter((i: any) => i.tipo_item === 'item_cronograma')
@@ -3578,7 +3596,10 @@ export class MedicaoService {
     const etapasContratadas = etapasCronograma.map((etapa) => ({
       numero: Number(etapa.numero_etapa || 0),
       descricao: etapa.descricao || '',
-      detalhamento: etapa.descricao_detalhada || etapa.observacoes || '',
+      detalhamento: etapa.descricao_detalhada || '',
+      itens_detalhados: extrairItensDetalhamentoEtapa(
+        etapa.descricao_detalhada,
+      ),
       percentual_fisico: Number(etapa.percentual_fisico || 0),
       data_inicio_prevista: fmtDataIso(etapa.data_inicio_prevista),
       data_fim_prevista: fmtDataIso(etapa.data_fim_prevista),
@@ -3618,8 +3639,10 @@ export class MedicaoService {
         return {
           numero: Number(item.etapa_numero || 0),
           descricao: item.etapa_descricao || '',
-          detalhamento:
-            item.etapa_descricao_detalhada || item.etapa_observacoes || '',
+          detalhamento: item.etapa_descricao_detalhada || '',
+          itens_detalhados: extrairItensDetalhamentoEtapa(
+            item.etapa_descricao_detalhada,
+          ),
           percentual_fisico: Number(item.etapa_percentual_fisico || 0),
           percentual_executado_anterior: percentualAnterior,
           percentual_executado_atual: percentualPeriodo,
