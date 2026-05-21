@@ -605,6 +605,88 @@ export async function gerarBoletimMedicaoPdf(
   }
 
   // =========================================================
+  // ETAPAS DO CRONOGRAMA (planilha completa)
+  // =========================================================
+  if (dados.etapas_contratadas && dados.etapas_contratadas.length > 0) {
+    doc.setFillColor(22, 60, 100);
+    doc.rect(mX, y, W - 2 * mX, 6, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.text('ETAPAS DO CRONOGRAMA', W / 2, y + 4, { align: 'center' });
+    y += 6;
+    doc.setTextColor(0, 0, 0);
+
+    const totalEtapasContratadas = dados.etapas_contratadas.reduce(
+      (s: number, etapa: any) => s + Number(etapa.valor_previsto || 0),
+      0,
+    );
+    const totalPercentualEtapas = dados.etapas_contratadas.reduce(
+      (s: number, etapa: any) => s + Number(etapa.percentual_fisico || 0),
+      0,
+    );
+
+    autoTable(doc, {
+      startY: y,
+      head: [[
+        { content: 'Nº', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
+        { content: '% Físico', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+        { content: 'Início', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Fim', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Vl. Previsto', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
+      ]],
+      body: [
+        ...dados.etapas_contratadas.map((etapa: any) => [
+          { content: etapa.numero, styles: { halign: 'center' as const } },
+          {
+            content: etapa.detalhamento
+              ? `${etapa.descricao}\n${etapa.detalhamento}`
+              : etapa.descricao,
+            styles: { fontSize: etapa.detalhamento ? 5.3 : 6 },
+          },
+          {
+            content: `${Number(etapa.percentual_fisico || 0).toLocaleString('pt-BR', {
+              minimumFractionDigits: 1,
+              maximumFractionDigits: 2,
+            })}%`,
+            styles: { halign: 'right' as const },
+          },
+          { content: fmtData(etapa.data_inicio_prevista), styles: { halign: 'center' as const } },
+          { content: fmtData(etapa.data_fim_prevista), styles: { halign: 'center' as const } },
+          { content: fmtAr(etapa.valor_previsto || 0), styles: { halign: 'right' as const } },
+        ]),
+        [
+          { content: 'TOTAL', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          {
+            content: `${totalPercentualEtapas.toLocaleString('pt-BR', {
+              minimumFractionDigits: 1,
+              maximumFractionDigits: 2,
+            })}%`,
+            styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] },
+          },
+          { content: '', styles: { fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: '', styles: { fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: fmtAr(totalEtapasContratadas), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+        ],
+      ],
+      theme: 'grid',
+      styles: { fontSize: 5.8, cellPadding: 0.9, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' as const, ...textoCorpoTabelaPdf },
+      headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
+      columnStyles: {
+        0: { cellWidth: 8 },
+        1: { cellWidth: 92 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 22 },
+        4: { cellWidth: 22 },
+        5: { cellWidth: 34 },
+      },
+      margin: { left: mX, right: mX },
+    });
+    y = (doc as any).lastAutoTable.finalY + 4;
+  }
+
+  // =========================================================
   // EXECUÇÃO FISCAL / FINANCEIRA (item_cronograma)
   // =========================================================
   if (dados.itens && dados.itens.length > 0) {

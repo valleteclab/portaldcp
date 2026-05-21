@@ -3320,6 +3320,16 @@ export class MedicaoService {
       icMigracaoMap.set(ic.id, ic);
     }
 
+    const etapasCronograma = await this.etapaRepository.find({
+      where: { contrato_id: contrato.id },
+      order: { numero_etapa: 'ASC' },
+    });
+    const fmtDataIso = (data: any) => {
+      if (!data) return undefined;
+      if (data instanceof Date) return data.toISOString().slice(0, 10);
+      return String(data).split('T')[0];
+    };
+
     const itensParaPdf = ((medicao as any).itens || [])
       .filter((i: any) => i.tipo_item === 'item_cronograma')
       .sort(
@@ -3565,6 +3575,19 @@ export class MedicaoService {
       valor_total: Number(ic.valor_total || 0),
     }));
 
+    const etapasContratadas = etapasCronograma.map((etapa) => ({
+      numero: Number(etapa.numero_etapa || 0),
+      descricao: etapa.descricao || '',
+      detalhamento: etapa.descricao_detalhada || etapa.observacoes || '',
+      percentual_fisico: Number(etapa.percentual_fisico || 0),
+      data_inicio_prevista: fmtDataIso(etapa.data_inicio_prevista),
+      data_fim_prevista: fmtDataIso(etapa.data_fim_prevista),
+      valor_previsto: Number(etapa.valor_previsto || 0),
+      percentual_executado: Number(etapa.percentual_executado || 0),
+      valor_executado: Number(etapa.valor_executado || 0),
+      status: etapa.status || '',
+    }));
+
     const etapasParaPdf = ((medicao as any).itens || [])
       .filter((i: any) => i.tipo_item === 'etapa')
       .sort(
@@ -3647,9 +3670,11 @@ export class MedicaoService {
       execucao_fiscal_por_quantidade:
         !!execucaoFinanceiraAtual?.execucao_fiscal_por_quantidade ||
         !!(contrato as any).boletim_por_quantidade ||
-        itensParaPdf.some((i) => i.unidade && i.unidade !== 'MENSAL'),
+        itensParaPdf.some((i: any) => i.unidade && i.unidade !== 'MENSAL'),
       itens: itensParaPdf.length > 0 ? itensParaPdf : undefined,
       etapas: etapasParaPdf.length > 0 ? etapasParaPdf : undefined,
+      etapas_contratadas:
+        etapasContratadas.length > 0 ? etapasContratadas : undefined,
       itens_contratados:
         itensContratados.length > 0 ? itensContratados : undefined,
       discriminacoes:
