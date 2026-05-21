@@ -3666,7 +3666,7 @@ export default function TabMedicao({
 
       {/* Modal Nova/Editar Etapa */}
       <Dialog open={modalEtapa} onOpenChange={setModalEtapa}>
-        <DialogContent>
+        <DialogContent className="w-[96vw] max-w-7xl max-h-[94vh]">
           <DialogHeader>
             <DialogTitle>
               {editandoEtapa ? "Editar Etapa" : "Nova Etapa do Cronograma"}
@@ -3858,7 +3858,7 @@ export default function TabMedicao({
               </div>
               {formEtapa.itens.length > 0 && (
                 <div className="overflow-x-auto border rounded-md">
-                  <Table>
+                  <Table className="min-w-[1180px]">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-14">Nº</TableHead>
