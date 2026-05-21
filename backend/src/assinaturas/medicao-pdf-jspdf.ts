@@ -440,6 +440,11 @@ export async function gerarBoletimMedicaoPdf(
     textColor: textoPretoPdf,
     fontStyle: 'bold' as const,
   };
+  const contratoNumero = textoSeguro(dados.numero_contrato ?? dados.contrato_numero).trim();
+  const usarRotuloLote =
+    textoSeguro((dados as any).contrato_id) === '167a043f-3788-40ba-9c7e-9ef4faaa6a2c';
+  const rotuloItemContrato = usarRotuloLote ? 'LOTE' : 'Nº';
+  const rotuloItemExecucao = usarRotuloLote ? 'LOTE' : 'ITEM\nNº';
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(8);
 
@@ -535,7 +540,6 @@ export async function gerarBoletimMedicaoPdf(
     });
     y = (doc as any).lastAutoTable.finalY + 4;
 
-    const contratoNumero = textoSeguro(dados.numero_contrato ?? dados.contrato_numero).trim();
     const fornecedorCnpj = String(dados.fornecedor_cnpj || '').replace(/\D/g, '');
     const observacaoDmnewsFevereiro =
       contratoNumero === '002/2026' && fornecedorCnpj === '13772522000153'
@@ -592,7 +596,7 @@ export async function gerarBoletimMedicaoPdf(
     autoTable(doc, {
       startY: y,
       head: [[
-        { content: 'Nº', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: rotuloItemContrato, styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
         { content: 'Unidade', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         ...(exibirColunasFrequencia
@@ -752,7 +756,7 @@ export async function gerarBoletimMedicaoPdf(
 
     const head: any[] = [
       [
-        { content: 'ITEM\nNº', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
+        { content: rotuloItemExecucao, rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
         { content: 'DESCRIÇÃO', rowSpan: 2, styles: { halign: 'left' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
         { content: 'EXECUÇÃO FISCAL', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: fCor, textColor: [255, 255, 255] as [number,number,number] } },
         { content: 'EXECUÇÃO FINANCEIRA', colSpan: 3, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: fCor2, textColor: [255, 255, 255] as [number,number,number] } },

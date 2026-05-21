@@ -3884,6 +3884,7 @@ export class MedicaoService {
     return {
       orgao: contrato.orgao || null,
       orgao_nome: contrato.orgao?.nome || '',
+      contrato_id: contrato.id,
       contrato_numero: contrato.numero_contrato || '',
       arredondar_calculo: contrato.arredondar_calculo ?? true,
       contrato_objeto:
