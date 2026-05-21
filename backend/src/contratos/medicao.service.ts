@@ -3571,23 +3571,44 @@ export class MedicaoService {
         (a: any, b: any) =>
           (Number(a.etapa_numero) || 0) - (Number(b.etapa_numero) || 0),
       )
-      .map((item: any) => ({
-        numero: Number(item.etapa_numero || 0),
-        descricao: item.etapa_descricao || '',
-        detalhamento:
-          item.etapa_descricao_detalhada || item.etapa_observacoes || '',
-        percentual_fisico: Number(item.etapa_percentual_fisico || 0),
-        percentual_executado_anterior: Number(
+      .map((item: any) => {
+        const percentualAnterior = Number(
           item.percentual_executado_anterior || 0,
-        ),
-        percentual_executado_atual: Number(
+        );
+        const percentualPeriodo = Number(
           item.percentual_executado_atual || 0,
-        ),
-        percentual_executado_acumulado: Number(
-          item.percentual_executado_acumulado || 0,
-        ),
-        valor_medido: Number(item.valor_medido || 0),
-      }));
+        );
+        const percentualAcumulado = Number(
+          item.percentual_executado_acumulado ||
+            percentualAnterior + percentualPeriodo ||
+            0,
+        );
+        const valorPrevisto = Number(item.etapa_valor_previsto || 0);
+        const valorPeriodo = Number(item.valor_medido || 0);
+        const valorAnterior = truncarMoedaReais2Casas(
+          (valorPrevisto * percentualAnterior) / 100,
+        );
+        const valorAtePeriodo = truncarMoedaReais2Casas(
+          valorAnterior + valorPeriodo,
+        );
+
+        return {
+          numero: Number(item.etapa_numero || 0),
+          descricao: item.etapa_descricao || '',
+          detalhamento:
+            item.etapa_descricao_detalhada || item.etapa_observacoes || '',
+          percentual_fisico: Number(item.etapa_percentual_fisico || 0),
+          percentual_executado_anterior: percentualAnterior,
+          percentual_executado_atual: percentualPeriodo,
+          percentual_executado_acumulado: percentualAcumulado,
+          percentual_a_executar: Math.max(0, 100 - percentualAcumulado),
+          valor_previsto: valorPrevisto,
+          valor_acumulado_anterior: valorAnterior,
+          valor_medido: valorPeriodo,
+          valor_ate_periodo: valorAtePeriodo,
+          valor_a_executar: Math.max(0, valorPrevisto - valorAtePeriodo),
+        };
+      });
 
     return {
       orgao: contrato.orgao || null,

@@ -762,36 +762,93 @@ export async function gerarBoletimMedicaoPdf(
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
-    doc.text('PLANILHA ORÇAMENTÁRIA — ETAPAS', W / 2, y + 4, { align: 'center' });
+    doc.text('EVOLUCAO FISICA / FINANCEIRA - ETAPAS', W / 2, y + 4, { align: 'center' });
     y += 6;
     doc.setTextColor(0, 0, 0);
 
+    const fmtPct = (valor: number) =>
+      `${Number(valor || 0).toLocaleString('pt-BR', {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 2,
+      })}%`;
+    const etapaHeadFisica: [number, number, number] = [0, 70, 140];
+    const etapaHeadFisicaSub: [number, number, number] = [60, 120, 185];
+    const etapaHeadFinanceira: [number, number, number] = [0, 110, 55];
+    const etapaHeadFinanceiraSub: [number, number, number] = [50, 150, 85];
+    const totalEtapasPeriodo = dados.etapas.reduce(
+      (s: number, e: any) => s + Number(e.valor_medido || 0),
+      0,
+    );
+    const totalEtapasAte = dados.etapas.reduce(
+      (s: number, e: any) =>
+        s + Number(e.valor_ate_periodo || e.valor_medido || 0),
+      0,
+    );
+    const totalEtapasAExecutar = dados.etapas.reduce(
+      (s: number, e: any) => s + Number(e.valor_a_executar || 0),
+      0,
+    );
+
     autoTable(doc, {
       startY: y,
-      head: [[
-        { content: 'Nº', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
-        { content: '% Físico', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: '% Anterior', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: '% Medido', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: 'Vl. Medido', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-      ]],
-      body: dados.etapas.map((e: any) => [
-        { content: e.numero, styles: { halign: 'center' as const } },
-        {
-          content: e.detalhamento
-            ? `${e.descricao}\n${e.detalhamento}`
-            : e.descricao,
-          styles: { fontSize: e.detalhamento ? 5.8 : 7 },
-        },
-        { content: `${e.percentual_fisico.toFixed(1)}%`, styles: { halign: 'center' as const } },
-        { content: `${e.percentual_executado_anterior.toFixed(1)}%`, styles: { halign: 'center' as const } },
-        { content: `${e.percentual_executado_atual.toFixed(1)}%`, styles: { halign: 'center' as const } },
-        { content: fmtAr(e.valor_medido), styles: { halign: 'right' as const } },
-      ]),
+      head: [
+        [
+          { content: 'ITEM\nNº', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
+          { content: 'DESCRICAO', rowSpan: 2, styles: { fontStyle: 'bold' as const, valign: 'middle' as const, fontSize: 6 } },
+          { content: 'EVOLUCAO FISICA (%)', colSpan: 4, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: etapaHeadFisica, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'EVOLUCAO FINANCEIRA', colSpan: 4, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: etapaHeadFinanceira, textColor: [255, 255, 255] as [number, number, number] } },
+        ],
+        [
+          { content: 'ANTERIOR', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'PERIODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'ACUM.', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'SALDO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'ANTERIOR', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFinanceiraSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'PERIODO', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFinanceiraSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'ACUM.', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFinanceiraSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'SALDO', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFinanceiraSub, textColor: [255, 255, 255] as [number, number, number] } },
+        ],
+      ],
+      body: [
+        ...dados.etapas.map((e: any) => [
+          { content: e.numero, styles: { halign: 'center' as const, fontSize: 5.8 } },
+          {
+            content: e.detalhamento
+              ? `${e.descricao}\n${e.detalhamento}`
+              : e.descricao,
+            styles: { fontSize: e.detalhamento ? 5.3 : 6.2 },
+          },
+          { content: fmtPct(e.percentual_executado_anterior), styles: { halign: 'center' as const, fontSize: 5.8 } },
+          { content: fmtPct(e.percentual_executado_atual), styles: { halign: 'center' as const, fontSize: 5.8 } },
+          { content: fmtPct(e.percentual_executado_acumulado), styles: { halign: 'center' as const, fontSize: 5.8 } },
+          { content: fmtPct(e.percentual_a_executar), styles: { halign: 'center' as const, fontSize: 5.8 } },
+          { content: fmtAr(e.valor_acumulado_anterior || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
+          { content: fmtAr(e.valor_medido || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
+          { content: fmtAr(e.valor_ate_periodo || e.valor_medido || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
+          { content: fmtAr(e.valor_a_executar || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
+        ]),
+        [
+          { content: 'TOTAL', colSpan: 7, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: fmtAr(totalEtapasPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: fmtAr(totalEtapasAte), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: fmtAr(totalEtapasAExecutar), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+        ],
+      ],
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 1.5, ...textoCorpoTabelaPdf },
+      styles: { fontSize: 5.6, cellPadding: 1, overflow: 'linebreak' as const, ...textoCorpoTabelaPdf },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
+      columnStyles: {
+        0: { cellWidth: 8 },
+        1: { cellWidth: 60 },
+        2: { cellWidth: 14 },
+        3: { cellWidth: 14 },
+        4: { cellWidth: 14 },
+        5: { cellWidth: 14 },
+        6: { cellWidth: 17 },
+        7: { cellWidth: 17 },
+        8: { cellWidth: 18 },
+        9: { cellWidth: 18 },
+      },
       margin: { left: mX, right: mX },
     });
     y = (doc as any).lastAutoTable.finalY + 5;
