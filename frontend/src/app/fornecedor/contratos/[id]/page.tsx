@@ -93,7 +93,35 @@ interface Etapa {
   status: string;
   data_inicio_prevista?: string;
   data_fim_prevista?: string;
+  itens?: EtapaItem[];
 }
+
+interface EtapaItem {
+  id?: string;
+  numero_item: number;
+  descricao: string;
+  unidade?: string;
+  quantidade?: number;
+  valor_unitario?: number;
+  valor_total?: number;
+  marca?: string;
+  modelo?: string;
+}
+
+type ItemMedicaoEtapaState = {
+  etapa_id: string;
+  percentual_executado_atual: number;
+  valor_executado_atual?: number;
+  modo_input?: 'percentual' | 'valor' | 'itens';
+  itens_etapa_medidos?: string[];
+};
+
+type ItemMedicaoCronogramaState = {
+  item_cronograma_id: string;
+  quantidade_medida: number;
+  modo_input?: 'quantidade' | 'valor';
+  valor_override?: number;
+};
 
 interface ItemCronograma {
   id: string;
@@ -502,7 +530,7 @@ export default function FornecedorContratoDetalhePage() {
     nota_fiscal_valor: '',
     nota_fiscal_data: '',
     valor_medido: '',
-    itens: [] as ({ etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } | { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number })[],
+    itens: [] as (ItemMedicaoEtapaState | ItemMedicaoCronogramaState)[],
   });
   // Discriminação de Despesas
   const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([]);
@@ -1108,8 +1136,8 @@ export default function FornecedorContratoDetalhePage() {
         payload.itens = itensComQtd;
       } else {
         const itensComValor = novaMedicao.itens
-          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual != null && i.valor_executado_atual > 0)))
-          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined }));
+          .filter((i): i is ItemMedicaoEtapaState => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual != null && i.valor_executado_atual > 0)))
+          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined, itens_etapa_medidos: i.itens_etapa_medidos || undefined }));
         if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
         if (resumo) {
@@ -1245,8 +1273,8 @@ export default function FornecedorContratoDetalhePage() {
         payload.itens = itensComQtd;
       } else {
         const itensComValor = novaMedicao.itens
-          .filter((i): i is { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual != null && i.valor_executado_atual > 0)))
-          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined }));
+          .filter((i): i is ItemMedicaoEtapaState => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual != null && i.valor_executado_atual > 0)))
+          .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined, itens_etapa_medidos: i.itens_etapa_medidos || undefined }));
         if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
         if (resumo) {
@@ -2550,21 +2578,42 @@ export default function FornecedorContratoDetalhePage() {
                     const jaExecutado = Number(etapa.percentual_executado);
                     const etapasComprT = resumo?.etapas_comprometidas || {};
                     const emTransito = etapasComprT[etapa.id] || 0;
-                    const itemState = novaMedicao.itens[idx] as { etapa_id: string; percentual_executado_atual: number; valor_executado_atual?: number; modo_input?: 'percentual' | 'valor' } | undefined;
+                    const itemState = novaMedicao.itens[idx] as ItemMedicaoEtapaState | undefined;
                     const modoInput = itemState?.modo_input ?? 'percentual';
                     const execPerc = itemState?.percentual_executado_atual ?? 0;
                     const execValor = itemState?.valor_executado_atual ?? 0;
                     const valorPrevisto = Number(etapa.valor_previsto);
                     const restante = 100 - jaExecutado - emTransito;
                     const valorRestante = (restante / 100) * valorPrevisto;
+                    const itensEtapa = etapa.itens || [];
+                    const itensSelecionados = itemState?.itens_etapa_medidos || [];
+                    const atualizarItensEtapaMedidos = (itemId: string, marcado: boolean) => {
+                      const selecionados = new Set(itensSelecionados);
+                      if (marcado) selecionados.add(itemId);
+                      else selecionados.delete(itemId);
+                      const ids = Array.from(selecionados);
+                      const valorItens = itensEtapa
+                        .filter((item) => item.id && ids.includes(item.id))
+                        .reduce((sum, item) => sum + Number(item.valor_total || 0), 0);
+                      const percItens = valorPrevisto > 0 ? (valorItens / valorPrevisto) * 100 : 0;
+                      const itens = [...novaMedicao.itens];
+                      itens[idx] = {
+                        etapa_id: etapa.id,
+                        percentual_executado_atual: Math.round(percItens * 100) / 100,
+                        valor_executado_atual: valorItens,
+                        modo_input: 'itens',
+                        itens_etapa_medidos: ids,
+                      };
+                      setNovaMedicao({ ...novaMedicao, itens });
+                    };
 
                     // Calcula subtotal baseado no modo de input
-                    const subtotal = modoInput === 'valor'
+                    const subtotal = modoInput === 'valor' || modoInput === 'itens'
                       ? execValor
                       : (execPerc / 100) * valorPrevisto;
 
                     // Calcula % exibido baseado no modo
-                    const percExibido = modoInput === 'valor' && valorPrevisto > 0
+                    const percExibido = (modoInput === 'valor' || modoInput === 'itens') && valorPrevisto > 0
                       ? (execValor / valorPrevisto) * 100
                       : execPerc;
 
@@ -2581,6 +2630,31 @@ export default function FornecedorContratoDetalhePage() {
                           </p>
                           {excedeLimite && (
                             <p className="text-xs text-red-500 font-medium mt-0.5">Excede o disponivel!</p>
+                          )}
+                          {itensEtapa.length > 0 && (
+                            <div className="mt-2 space-y-1 rounded border bg-white p-2">
+                              {itensEtapa.map((item) => {
+                                const itemId = item.id || `${etapa.id}-${item.numero_item}`;
+                                const marcado = itensSelecionados.includes(itemId);
+                                return (
+                                  <label key={itemId} className="flex items-start gap-2 text-xs">
+                                    <input
+                                      type="checkbox"
+                                      checked={marcado}
+                                      onChange={(e) => atualizarItensEtapaMedidos(itemId, e.target.checked)}
+                                      className="mt-0.5 h-4 w-4"
+                                    />
+                                    <span className="flex-1">
+                                      <span className="font-medium">{item.numero_item}. {item.descricao}</span>
+                                      <span className="ml-1 text-gray-500">
+                                        {item.quantidade ? `${Number(item.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${item.unidade || ''} · ` : ''}
+                                        {formatarMoeda(Number(item.valor_total || 0))}
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
                           )}
                         </TableCell>
                         <TableCell className="text-right text-sm">{formatarMoeda(valorPrevisto)}</TableCell>

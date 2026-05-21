@@ -453,6 +453,7 @@ export class MedicaoService {
               (item) =>
                 this.etapaItemRepository.create({
                   ...item,
+                  id: `${etapa.id}-${item.numero_item}`,
                   contrato_id: etapa.contrato_id,
                   etapa_id: etapa.id,
                 }),
@@ -1593,6 +1594,7 @@ export class MedicaoService {
           etapa_id: string;
           percentual_executado_atual?: number;
           valor_executado_atual?: number;
+          itens_etapa_medidos?: string[];
         };
         const etapa = await this.etapaRepository.findOne({
           where: { id: itemEtapa.etapa_id },
@@ -1642,6 +1644,12 @@ export class MedicaoService {
           percentual_executado_acumulado:
             percentualAprovado + percentualExecAtual,
           valor_medido: valorItem,
+          observacoes:
+            itemEtapa.itens_etapa_medidos?.length
+              ? JSON.stringify({
+                  itens_etapa_medidos: itemEtapa.itens_etapa_medidos,
+                })
+              : undefined,
         });
       }
 
@@ -2020,6 +2028,7 @@ export class MedicaoService {
           etapa_id: string;
           percentual_executado_atual?: number;
           valor_executado_atual?: number;
+          itens_etapa_medidos?: string[];
         };
         const etapa = await this.etapaRepository.findOne({
           where: { id: itemEtapa.etapa_id },
@@ -2067,6 +2076,12 @@ export class MedicaoService {
           percentual_executado_acumulado:
             percentualAprovado + percentualExecAtual,
           valor_medido: valorItem,
+          observacoes:
+            itemEtapa.itens_etapa_medidos?.length
+              ? JSON.stringify({
+                  itens_etapa_medidos: itemEtapa.itens_etapa_medidos,
+                })
+              : undefined,
         });
       }
 
@@ -3509,9 +3524,13 @@ export class MedicaoService {
         .map((linha) => linha.replace(/^[-•]\s*/, '').trim())
         .filter(Boolean);
     };
-    const itensEtapaParaPdf = (itens?: any[]) =>
+    const itensEtapaParaPdf = (itens?: any[], idsSelecionados?: string[]) =>
       Array.isArray(itens)
         ? itens
+            .filter(
+              (item) =>
+                !idsSelecionados?.length || idsSelecionados.includes(item.id),
+            )
             .sort(
               (a, b) =>
                 (Number(a.numero_item) || 0) - (Number(b.numero_item) || 0),
@@ -3527,6 +3546,17 @@ export class MedicaoService {
               modelo: item.modelo || '',
             }))
         : [];
+    const idsItensMedidosEtapa = (observacoes?: string | null): string[] => {
+      if (!observacoes) return [];
+      try {
+        const parsed = JSON.parse(observacoes);
+        return Array.isArray(parsed?.itens_etapa_medidos)
+          ? parsed.itens_etapa_medidos.filter(Boolean)
+          : [];
+      } catch {
+        return [];
+      }
+    };
 
     const itensParaPdf = ((medicao as any).itens || [])
       .filter((i: any) => i.tipo_item === 'item_cronograma')
@@ -3814,6 +3844,7 @@ export class MedicaoService {
         const valorPrevisto = Number(item.etapa_valor_previsto || 0);
         const valorPeriodo = Number(item.valor_medido || 0);
         const etapaCronograma = etapasCronogramaMap.get(item.etapa_id);
+        const idsItensMedidos = idsItensMedidosEtapa(item.observacoes);
         const valorAnterior = truncarMoedaReais2Casas(
           (valorPrevisto * percentualAnterior) / 100,
         );
@@ -3825,7 +3856,10 @@ export class MedicaoService {
           numero: Number(item.etapa_numero || 0),
           descricao: item.etapa_descricao || '',
           detalhamento: item.etapa_descricao_detalhada || '',
-          itens: itensEtapaParaPdf((etapaCronograma as any)?.itens),
+          itens: itensEtapaParaPdf(
+            (etapaCronograma as any)?.itens,
+            idsItensMedidos,
+          ),
           itens_detalhados:
             (etapaCronograma as any)?.itens?.length > 0
               ? []
