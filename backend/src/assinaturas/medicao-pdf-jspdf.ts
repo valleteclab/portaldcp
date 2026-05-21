@@ -688,8 +688,6 @@ export async function gerarBoletimMedicaoPdf(
         { content: 'Nº', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: 'Descrição', styles: { fontStyle: 'bold' as const } },
         { content: '% Físico', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
-        { content: 'Início', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
-        { content: 'Fim', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: 'Vl. Previsto', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
       body: [
@@ -706,8 +704,6 @@ export async function gerarBoletimMedicaoPdf(
             })}%`,
             styles: { halign: 'right' as const },
           },
-          { content: fmtData(etapa.data_inicio_prevista), styles: { halign: 'center' as const } },
-          { content: fmtData(etapa.data_fim_prevista), styles: { halign: 'center' as const } },
           { content: fmtAr(etapa.valor_previsto || 0), styles: { halign: 'right' as const } },
         ]),
         [
@@ -719,8 +715,6 @@ export async function gerarBoletimMedicaoPdf(
             })}%`,
             styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] },
           },
-          { content: '', styles: { fillColor: [230, 230, 230] as [number,number,number] } },
-          { content: '', styles: { fillColor: [230, 230, 230] as [number,number,number] } },
           { content: fmtAr(totalEtapasContratadas), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
       ],
@@ -729,11 +723,9 @@ export async function gerarBoletimMedicaoPdf(
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
         0: { cellWidth: 8 },
-        1: { cellWidth: 92 },
+        1: { cellWidth: 136 },
         2: { cellWidth: 20 },
-        3: { cellWidth: 22 },
-        4: { cellWidth: 22 },
-        5: { cellWidth: 34 },
+        3: { cellWidth: 34 },
       },
       margin: { left: mX, right: mX },
     });
