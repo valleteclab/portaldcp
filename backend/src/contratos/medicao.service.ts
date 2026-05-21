@@ -3565,6 +3565,30 @@ export class MedicaoService {
       valor_total: Number(ic.valor_total || 0),
     }));
 
+    const etapasParaPdf = ((medicao as any).itens || [])
+      .filter((i: any) => i.tipo_item === 'etapa')
+      .sort(
+        (a: any, b: any) =>
+          (Number(a.etapa_numero) || 0) - (Number(b.etapa_numero) || 0),
+      )
+      .map((item: any) => ({
+        numero: Number(item.etapa_numero || 0),
+        descricao: item.etapa_descricao || '',
+        detalhamento:
+          item.etapa_descricao_detalhada || item.etapa_observacoes || '',
+        percentual_fisico: Number(item.etapa_percentual_fisico || 0),
+        percentual_executado_anterior: Number(
+          item.percentual_executado_anterior || 0,
+        ),
+        percentual_executado_atual: Number(
+          item.percentual_executado_atual || 0,
+        ),
+        percentual_executado_acumulado: Number(
+          item.percentual_executado_acumulado || 0,
+        ),
+        valor_medido: Number(item.valor_medido || 0),
+      }));
+
     return {
       orgao: contrato.orgao || null,
       orgao_nome: contrato.orgao?.nome || '',
@@ -3604,6 +3628,7 @@ export class MedicaoService {
         !!(contrato as any).boletim_por_quantidade ||
         itensParaPdf.some((i) => i.unidade && i.unidade !== 'MENSAL'),
       itens: itensParaPdf.length > 0 ? itensParaPdf : undefined,
+      etapas: etapasParaPdf.length > 0 ? etapasParaPdf : undefined,
       itens_contratados:
         itensContratados.length > 0 ? itensContratados : undefined,
       discriminacoes:
@@ -5262,6 +5287,8 @@ export class MedicaoService {
       ...item,
       tipo_item: 'etapa',
       etapa_descricao: item.etapa?.descricao || '',
+      etapa_descricao_detalhada: item.etapa?.descricao_detalhada || '',
+      etapa_observacoes: item.etapa?.observacoes || '',
       etapa_numero: item.etapa?.numero_etapa || 0,
       etapa_valor_previsto: item.etapa ? Number(item.etapa.valor_previsto) : 0,
       etapa_percentual_fisico: item.etapa

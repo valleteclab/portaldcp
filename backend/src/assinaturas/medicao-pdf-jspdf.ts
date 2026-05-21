@@ -778,7 +778,12 @@ export async function gerarBoletimMedicaoPdf(
       ]],
       body: dados.etapas.map((e: any) => [
         { content: e.numero, styles: { halign: 'center' as const } },
-        e.descricao,
+        {
+          content: e.detalhamento
+            ? `${e.descricao}\n${e.detalhamento}`
+            : e.descricao,
+          styles: { fontSize: e.detalhamento ? 5.8 : 7 },
+        },
         { content: `${e.percentual_fisico.toFixed(1)}%`, styles: { halign: 'center' as const } },
         { content: `${e.percentual_executado_anterior.toFixed(1)}%`, styles: { halign: 'center' as const } },
         { content: `${e.percentual_executado_atual.toFixed(1)}%`, styles: { halign: 'center' as const } },
