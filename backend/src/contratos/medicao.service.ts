@@ -1604,14 +1604,14 @@ export class MedicaoService {
             `Etapa ${itemEtapa.etapa_id} não encontrada`,
           );
 
+        const valorExecutadoAtual = Number(itemEtapa.valor_executado_atual || 0);
         let percentualExecAtual = itemEtapa.percentual_executado_atual || 0;
         if (
-          !percentualExecAtual &&
-          itemEtapa.valor_executado_atual &&
+          valorExecutadoAtual > 0 &&
           Number(etapa.valor_previsto) > 0
         ) {
           percentualExecAtual =
-            (itemEtapa.valor_executado_atual / Number(etapa.valor_previsto)) *
+            (valorExecutadoAtual / Number(etapa.valor_previsto)) *
             100;
         }
 
@@ -1632,7 +1632,9 @@ export class MedicaoService {
         }
 
         const valorItem =
-          (percentualExecAtual / 100) * Number(etapa.valor_previsto);
+          valorExecutadoAtual > 0
+            ? valorExecutadoAtual
+            : (percentualExecAtual / 100) * Number(etapa.valor_previsto);
         valorMedido += valorItem;
         percentualFisicoMedido +=
           (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
@@ -2039,14 +2041,14 @@ export class MedicaoService {
           );
         }
 
+        const valorExecutadoAtual = Number(itemEtapa.valor_executado_atual || 0);
         let percentualExecAtual = itemEtapa.percentual_executado_atual || 0;
         if (
-          !percentualExecAtual &&
-          itemEtapa.valor_executado_atual &&
+          valorExecutadoAtual > 0 &&
           Number(etapa.valor_previsto) > 0
         ) {
           percentualExecAtual =
-            (itemEtapa.valor_executado_atual / Number(etapa.valor_previsto)) *
+            (valorExecutadoAtual / Number(etapa.valor_previsto)) *
             100;
         }
         if (percentualExecAtual <= 0) continue;
@@ -2064,7 +2066,9 @@ export class MedicaoService {
         }
 
         const valorItem =
-          (percentualExecAtual / 100) * Number(etapa.valor_previsto);
+          valorExecutadoAtual > 0
+            ? valorExecutadoAtual
+            : (percentualExecAtual / 100) * Number(etapa.valor_previsto);
         valorMedido += valorItem;
         percentualFisicoMedido +=
           (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
