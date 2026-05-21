@@ -577,6 +577,19 @@ export default function FornecedorContratoDetalhePage() {
   const [anexos, setAnexos] = useState<Record<string, Anexo[]>>({});
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
 
+  const valorItemEtapaMedicao = (
+    item: ItemMedicaoEtapaState,
+    etapa: Etapa,
+  ) => {
+    if (
+      (item.modo_input === 'valor' || item.modo_input === 'itens') &&
+      item.valor_executado_atual != null
+    ) {
+      return Number(item.valor_executado_atual) || 0;
+    }
+    return (Number(item.percentual_executado_atual) / 100) * Number(etapa.valor_previsto);
+  };
+
   const valorMedicaoAtual = isServicoContinuado
     ? (parseFloat(novaMedicao.valor_medido) || 0)
     : usarItensCronograma
@@ -593,8 +606,7 @@ export default function FornecedorContratoDetalhePage() {
       : novaMedicao.itens.reduce((acc, item, idx) => {
           const etapa = etapas[idx];
           if (!etapa || !('etapa_id' in item)) return acc;
-          if (item.modo_input === 'valor' && item.valor_executado_atual) return acc + item.valor_executado_atual;
-          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+          return acc + valorItemEtapaMedicao(item, etapa);
         }, 0);
 
   // Determina o tipo de medição atual com base nos itens já preenchidos (mensal vs quantidade)
@@ -1143,7 +1155,7 @@ export default function FornecedorContratoDetalhePage() {
         if (resumo) {
           const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
             const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
-            return item.modo_input === 'valor' && item.valor_executado_atual ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+            return acc + valorItemEtapaMedicao(item, etapa);
           }, 0);
           if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
@@ -1152,7 +1164,7 @@ export default function FornecedorContratoDetalhePage() {
         for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
           const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item || !('etapa_id' in item)) continue;
           const percAprovado = Number(etapa.percentual_executado); const percEmTransito = etapasCompr[etapa.id] || 0; const restante = 100 - percAprovado - percEmTransito;
-          const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
+          const percUsado = (item.modo_input === 'valor' || item.modo_input === 'itens') && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
           if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
         }
         payload.itens = itensComValor;
@@ -1280,7 +1292,7 @@ export default function FornecedorContratoDetalhePage() {
         if (resumo) {
           const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
             const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
-            return item.modo_input === 'valor' && item.valor_executado_atual ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+            return acc + valorItemEtapaMedicao(item, etapa);
           }, 0);
           if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
@@ -1289,7 +1301,7 @@ export default function FornecedorContratoDetalhePage() {
         for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
           const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item || !('etapa_id' in item)) continue;
           const percAprovado = Number(etapa.percentual_executado); const percEmTransito = etapasComprCS[etapa.id] || 0; const restante = 100 - percAprovado - percEmTransito;
-          const percUsado = item.modo_input === 'valor' && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
+          const percUsado = (item.modo_input === 'valor' || item.modo_input === 'itens') && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
           if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
         }
         payload.itens = itensComValor;
@@ -1491,7 +1503,7 @@ export default function FornecedorContratoDetalhePage() {
           }, 0)
         : novaMedicao.itens.reduce((acc, item, idx) => {
             const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
-            return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+            return acc + valorItemEtapaMedicao(item, etapa);
           }, 0);
     // Base da discriminação: valor da NF quando disponível, senão valor medido
     const valorBaseDiscriminacao = escolherValorBaseDiscriminacao(novaMedicao.nota_fiscal_valor, valorMedidoAtual);
@@ -2241,8 +2253,7 @@ export default function FornecedorContratoDetalhePage() {
                       : novaMedicao.itens.reduce((acc, item, idx) => {
                           const etapa = etapas[idx];
                           if (!etapa || !('etapa_id' in item)) return acc;
-                          if (item.modo_input === 'valor' && item.valor_executado_atual) return acc + item.valor_executado_atual;
-                          return acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+                          return acc + valorItemEtapaMedicao(item, etapa);
                         }, 0);
                   const saldoDisp = resumo ? resumo.saldo_disponivel : Infinity;
                   const excedeSaldo = totalMedicao > saldoDisp + 0.01;
@@ -2897,7 +2908,7 @@ export default function FornecedorContratoDetalhePage() {
                     }, 0)
                   : novaMedicao.itens.reduce((acc, item, idx) => {
                       const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
-                      return (item.modo_input === 'valor' && item.valor_executado_atual) ? acc + item.valor_executado_atual : acc + (item.percentual_executado_atual / 100) * Number(etapa.valor_previsto);
+                      return acc + valorItemEtapaMedicao(item, etapa);
                     }, 0);
               // Base da discriminação: valor da NF quando disponível, senão valor medido
               const valorBaseDiscriminacao = escolherValorBaseDiscriminacao(novaMedicao.nota_fiscal_valor, valorMedidoAtual);
