@@ -16,6 +16,7 @@ import {
   EtapaCronograma,
   StatusEtapaCronograma,
 } from './entities/etapa-cronograma.entity';
+import { EtapaCronogramaItem } from './entities/etapa-cronograma-item.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
 import { LinkAssinaturaFiscal } from './entities/link-assinatura-fiscal.entity';
 import {
@@ -82,6 +83,8 @@ export class MedicaoService {
     private orgaoRepository: Repository<Orgao>,
     @InjectRepository(EtapaCronograma)
     private etapaRepository: Repository<EtapaCronograma>,
+    @InjectRepository(EtapaCronogramaItem)
+    private etapaItemRepository: Repository<EtapaCronogramaItem>,
     @InjectRepository(ItemCronograma)
     private itemCronogramaRepository: Repository<ItemCronograma>,
     @InjectRepository(ItemMedicaoItem)
@@ -312,10 +315,158 @@ export class MedicaoService {
   // ETAPAS DO CRONOGRAMA
   // ============================================================================
 
+  private extrairItensEtapaDeDetalhamento(
+    texto?: string | null,
+  ): Partial<EtapaCronogramaItem>[] {
+    if (!texto) return [];
+    const linhas = String(texto)
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .map((linha) => linha.trim())
+      .filter(Boolean);
+    const indiceDetalhamento = linhas.findIndex((linha) =>
+      /^detalhamento\s*:/i.test(linha),
+    );
+    const linhasItens =
+      indiceDetalhamento >= 0 ? linhas.slice(indiceDetalhamento + 1) : linhas;
+
+    return linhasItens
+      .filter((linha) => /^[-•]/.test(linha))
+      .map((linha, idx) => {
+        const textoItem = linha.replace(/^[-•]\s*/, '').trim();
+        const partes = textoItem
+          .split(/\s+-\s+/)
+          .map((parte) => parte.trim())
+          .filter(Boolean);
+        const qtdMatch = partes.find((parte) =>
+          /^[\d.,]+\s+[A-Za-zÀ-ÿ0-9/²³]+$/.test(parte),
+        );
+        const valorUnitarioMatch = textoItem.match(/V\.?Unit\s+R\$\s*([\d.,]+)/i);
+        const valorTotalMatch = textoItem.match(/Total\s+R\$\s*([\d.,]+)/i);
+        const marcaMatch = textoItem.match(/Marca\s+(.+?)(?:\s+-\s+Modelo|$)/i);
+        const modeloMatch = textoItem.match(/Modelo\s+(.+)$/i);
+        const qtdPartes = qtdMatch?.split(/\s+/) || [];
+        const descricao =
+          partes.find(
+            (parte) =>
+              parte !== qtdMatch &&
+              !/^V\.?Unit/i.test(parte) &&
+              !/^Total\s+R\$/i.test(parte) &&
+              !/^Marca\s+/i.test(parte) &&
+              !/^Modelo\s+/i.test(parte),
+          ) || textoItem;
+        const parseMoeda = (valor?: string) =>
+          valor
+            ? Number(valor.replace(/\./g, '').replace(',', '.')) || 0
+            : 0;
+
+        return {
+          numero_item: idx + 1,
+          descricao,
+          unidade: qtdPartes.slice(1).join(' ') || undefined,
+          quantidade: qtdPartes[0]
+            ? Number(qtdPartes[0].replace(/\./g, '').replace(',', '.')) || 0
+            : 0,
+          valor_unitario: parseMoeda(valorUnitarioMatch?.[1]),
+          valor_total: parseMoeda(valorTotalMatch?.[1]),
+          marca: marcaMatch?.[1]?.trim() || undefined,
+          modelo: modeloMatch?.[1]?.trim() || undefined,
+        };
+      })
+      .filter((item) => item.descricao);
+  }
+
+  private normalizarItensEtapa(
+    itens: any[] | undefined,
+    contratoId: string,
+    etapaId: string,
+  ): Partial<EtapaCronogramaItem>[] {
+    if (!Array.isArray(itens)) return [];
+    return itens
+      .map((item, idx) => {
+        const quantidade = Number(item.quantidade || 0);
+        const valorUnitario = Number(item.valor_unitario || 0);
+        const valorTotalInformado = Number(item.valor_total || 0);
+        const valorTotal =
+          valorTotalInformado > 0
+            ? truncarMoedaReais2Casas(valorTotalInformado)
+            : truncarMoedaReais2Casas(quantidade * valorUnitario);
+
+        return {
+          contrato_id: contratoId,
+          etapa_id: etapaId,
+          numero_item: Number(item.numero_item || idx + 1),
+          descricao: String(item.descricao || '').trim(),
+          unidade: item.unidade ? String(item.unidade).trim() : undefined,
+          quantidade,
+          valor_unitario: valorUnitario,
+          valor_total: valorTotal,
+          marca: item.marca ? String(item.marca).trim() : undefined,
+          modelo: item.modelo ? String(item.modelo).trim() : undefined,
+          observacoes: item.observacoes
+            ? String(item.observacoes).trim()
+            : undefined,
+        };
+      })
+      .filter((item) => item.descricao);
+  }
+
+  private async salvarItensEtapa(
+    etapa: EtapaCronograma,
+    itens: any[] | undefined,
+  ): Promise<void> {
+    if (!Array.isArray(itens)) return;
+
+    await this.etapaItemRepository.delete({ etapa_id: etapa.id });
+    const itensNormalizados = this.normalizarItensEtapa(
+      itens,
+      etapa.contrato_id,
+      etapa.id,
+    );
+    if (itensNormalizados.length === 0) return;
+
+    await this.etapaItemRepository.save(
+      itensNormalizados.map((item) => this.etapaItemRepository.create(item)),
+    );
+  }
+
+  private async anexarItensEtapas<T extends EtapaCronograma>(
+    etapas: T[],
+  ): Promise<(T & { itens: EtapaCronogramaItem[] })[]> {
+    if (etapas.length === 0) return [] as any;
+    const itens = await this.etapaItemRepository.find({
+      where: { etapa_id: In(etapas.map((etapa) => etapa.id)) },
+      order: { numero_item: 'ASC' },
+    });
+    const itensPorEtapa = new Map<string, EtapaCronogramaItem[]>();
+    for (const item of itens) {
+      const lista = itensPorEtapa.get(item.etapa_id) || [];
+      lista.push(item);
+      itensPorEtapa.set(item.etapa_id, lista);
+    }
+    return etapas.map((etapa) => {
+      const itensCadastrados = itensPorEtapa.get(etapa.id) || [];
+      const itensFallback =
+        itensCadastrados.length > 0
+          ? []
+          : this.extrairItensEtapaDeDetalhamento(etapa.descricao_detalhada).map(
+              (item) =>
+                this.etapaItemRepository.create({
+                  ...item,
+                  contrato_id: etapa.contrato_id,
+                  etapa_id: etapa.id,
+                }),
+            );
+      return Object.assign(etapa, {
+        itens: itensCadastrados.length > 0 ? itensCadastrados : itensFallback,
+      });
+    });
+  }
+
   async criarEtapa(
     contratoId: string,
     dados: Partial<EtapaCronograma>,
-  ): Promise<EtapaCronograma> {
+  ): Promise<EtapaCronograma & { itens?: EtapaCronogramaItem[] }> {
     const contrato = await this.validarContratoMedicao(contratoId);
 
     const itensNoCronograma = await this.itemCronogramaRepository.count({
@@ -369,26 +520,33 @@ export class MedicaoService {
     });
     const numeroEtapa = ultimaEtapa ? ultimaEtapa.numero_etapa + 1 : 1;
 
-    const etapa = this.etapaRepository.create({
-      ...dados,
+    const { itens, ...dadosEtapa } = dados as any;
+    const etapa = Object.assign(new EtapaCronograma(), {
+      ...dadosEtapa,
       contrato_id: contratoId,
       numero_etapa: numeroEtapa,
     });
 
-    return this.etapaRepository.save(etapa);
+    const etapaSalva = await this.etapaRepository.save(etapa);
+    await this.salvarItensEtapa(etapaSalva, itens);
+    const [etapaComItens] = await this.anexarItensEtapas([etapaSalva]);
+    return etapaComItens;
   }
 
-  async listarEtapas(contratoId: string): Promise<EtapaCronograma[]> {
-    return this.etapaRepository.find({
+  async listarEtapas(
+    contratoId: string,
+  ): Promise<(EtapaCronograma & { itens: EtapaCronogramaItem[] })[]> {
+    const etapas = await this.etapaRepository.find({
       where: { contrato_id: contratoId },
       order: { numero_etapa: 'ASC' },
     });
+    return this.anexarItensEtapas(etapas);
   }
 
   async atualizarEtapa(
     etapaId: string,
     dados: Partial<EtapaCronograma>,
-  ): Promise<EtapaCronograma> {
+  ): Promise<EtapaCronograma & { itens?: EtapaCronogramaItem[] }> {
     const etapa = await this.etapaRepository.findOne({
       where: { id: etapaId },
     });
@@ -444,8 +602,12 @@ export class MedicaoService {
       }
     }
 
-    Object.assign(etapa, dados);
-    return this.etapaRepository.save(etapa);
+    const { itens, ...dadosEtapa } = dados as any;
+    Object.assign(etapa, dadosEtapa);
+    const etapaSalva = await this.etapaRepository.save(etapa);
+    await this.salvarItensEtapa(etapaSalva, itens);
+    const [etapaComItens] = await this.anexarItensEtapas([etapaSalva]);
+    return etapaComItens;
   }
 
   async excluirEtapa(etapaId: string): Promise<void> {
@@ -3320,10 +3482,10 @@ export class MedicaoService {
       icMigracaoMap.set(ic.id, ic);
     }
 
-    const etapasCronograma = await this.etapaRepository.find({
-      where: { contrato_id: contrato.id },
-      order: { numero_etapa: 'ASC' },
-    });
+    const etapasCronograma = await this.listarEtapas(contrato.id);
+    const etapasCronogramaMap = new Map(
+      etapasCronograma.map((etapa: any) => [etapa.id, etapa]),
+    );
     const fmtDataIso = (data: any) => {
       if (!data) return undefined;
       if (data instanceof Date) return data.toISOString().slice(0, 10);
@@ -3347,6 +3509,24 @@ export class MedicaoService {
         .map((linha) => linha.replace(/^[-•]\s*/, '').trim())
         .filter(Boolean);
     };
+    const itensEtapaParaPdf = (itens?: any[]) =>
+      Array.isArray(itens)
+        ? itens
+            .sort(
+              (a, b) =>
+                (Number(a.numero_item) || 0) - (Number(b.numero_item) || 0),
+            )
+            .map((item) => ({
+              numero: Number(item.numero_item || 0),
+              descricao: item.descricao || '',
+              unidade: item.unidade || '',
+              quantidade: Number(item.quantidade || 0),
+              valor_unitario: Number(item.valor_unitario || 0),
+              valor_total: Number(item.valor_total || 0),
+              marca: item.marca || '',
+              modelo: item.modelo || '',
+            }))
+        : [];
 
     const itensParaPdf = ((medicao as any).itens || [])
       .filter((i: any) => i.tipo_item === 'item_cronograma')
@@ -3507,22 +3687,24 @@ export class MedicaoService {
     // financeiros aplicados). Usar valor_no_periodo em vez de qtd×vu garante que overrides fin_*
     // sejam refletidos nos totais sem recalcular a partir das quantidades físicas.
     const totalNoCent = itensParaPdf.reduce(
-      (s, i) => s + Math.round((Number(i.valor_no_periodo) || 0) * 100),
+      (s: number, i: any) =>
+        s + Math.round((Number(i.valor_no_periodo) || 0) * 100),
       0,
     );
-    const totalAteCent = itensParaPdf.reduce((s, i) => {
+    const totalAteCent = itensParaPdf.reduce((s: number, i: any) => {
       const cNo = Math.round((Number(i.valor_no_periodo) || 0) * 100);
       const cAcum = Math.round((Number(i.valor_acumulado_anterior) || 0) * 100);
       return s + cNo + cAcum;
     }, 0);
     const totalAExecCent = itensParaPdf.reduce(
-      (s, i) => s + Math.round((Number(i.valor_a_executar) || 0) * 100),
+      (s: number, i: any) =>
+        s + Math.round((Number(i.valor_a_executar) || 0) * 100),
       0,
     );
     const totalNoPeriodoPdf = centavosParaReaisTrunc2(totalNoCent);
     const totalAtePeriodoPdf = centavosParaReaisTrunc2(totalAteCent);
     const totalAExecutarPdf = centavosParaReaisTrunc2(totalAExecCent);
-    const totalPrevistoCent = itensParaPdf.reduce((s, i) => {
+    const totalPrevistoCent = itensParaPdf.reduce((s: number, i: any) => {
       const vu = Number(i.valor_unitario) || 0;
       const ct =
         i.valor_total_item != null && i.valor_total_item !== undefined
@@ -3597,9 +3779,11 @@ export class MedicaoService {
       numero: Number(etapa.numero_etapa || 0),
       descricao: etapa.descricao || '',
       detalhamento: etapa.descricao_detalhada || '',
-      itens_detalhados: extrairItensDetalhamentoEtapa(
-        etapa.descricao_detalhada,
-      ),
+      itens: itensEtapaParaPdf((etapa as any).itens),
+      itens_detalhados:
+        (etapa as any).itens?.length > 0
+          ? []
+          : extrairItensDetalhamentoEtapa(etapa.descricao_detalhada),
       percentual_fisico: Number(etapa.percentual_fisico || 0),
       data_inicio_prevista: fmtDataIso(etapa.data_inicio_prevista),
       data_fim_prevista: fmtDataIso(etapa.data_fim_prevista),
@@ -3629,6 +3813,7 @@ export class MedicaoService {
         );
         const valorPrevisto = Number(item.etapa_valor_previsto || 0);
         const valorPeriodo = Number(item.valor_medido || 0);
+        const etapaCronograma = etapasCronogramaMap.get(item.etapa_id);
         const valorAnterior = truncarMoedaReais2Casas(
           (valorPrevisto * percentualAnterior) / 100,
         );
@@ -3640,9 +3825,11 @@ export class MedicaoService {
           numero: Number(item.etapa_numero || 0),
           descricao: item.etapa_descricao || '',
           detalhamento: item.etapa_descricao_detalhada || '',
-          itens_detalhados: extrairItensDetalhamentoEtapa(
-            item.etapa_descricao_detalhada,
-          ),
+          itens: itensEtapaParaPdf((etapaCronograma as any)?.itens),
+          itens_detalhados:
+            (etapaCronograma as any)?.itens?.length > 0
+              ? []
+              : extrairItensDetalhamentoEtapa(item.etapa_descricao_detalhada),
           percentual_fisico: Number(item.etapa_percentual_fisico || 0),
           percentual_executado_anterior: percentualAnterior,
           percentual_executado_atual: percentualPeriodo,

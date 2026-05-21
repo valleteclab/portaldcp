@@ -45,6 +45,15 @@ function fmtExecFinanceira(v: number): string {
   }).format(truncado);
 }
 
+function fmtMoedaPdf(v: number): string {
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(v) || 0);
+}
+
 function fmtData(d: string): string {
   if (!d) return '-';
   const p = d.split('T')[0].split('-');
@@ -65,6 +74,24 @@ function textoSeguro(valor: unknown, fallback = '-'): string {
 }
 
 function textoItensEtapa(etapa: any): string {
+  const itensCadastrados = Array.isArray(etapa?.itens)
+    ? etapa.itens.filter((item: any) => String(item?.descricao || '').trim())
+    : [];
+  if (itensCadastrados.length > 0) {
+    return itensCadastrados
+      .map((item: any) => {
+        const partes = [
+          item.descricao,
+          item.quantidade ? `${Number(item.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${item.unidade || ''}`.trim() : '',
+          item.valor_unitario ? `V.Unit ${fmtMoedaPdf(item.valor_unitario)}` : '',
+          item.valor_total ? `Total ${fmtMoedaPdf(item.valor_total)}` : '',
+          item.marca ? `Marca ${item.marca}` : '',
+          item.modelo ? `Modelo ${item.modelo}` : '',
+        ].filter(Boolean);
+        return `- ${partes.join(' - ')}`;
+      })
+      .join('\n');
+  }
   const itens = Array.isArray(etapa?.itens_detalhados)
     ? etapa.itens_detalhados.filter((item: any) => String(item || '').trim())
     : [];

@@ -123,6 +123,20 @@ interface Etapa {
   percentual_executado: number;
   valor_executado: number;
   status: string;
+  itens?: EtapaItem[];
+}
+
+interface EtapaItem {
+  id?: string;
+  numero_item: number;
+  descricao: string;
+  unidade?: string;
+  quantidade?: number;
+  valor_unitario?: number;
+  valor_total?: number;
+  marca?: string;
+  modelo?: string;
+  observacoes?: string;
 }
 
 interface ItemCronograma {
@@ -592,6 +606,16 @@ export default function TabMedicao({
     data_inicio_prevista: "",
     data_fim_prevista: "",
     observacoes: "",
+    itens: [] as {
+      numero_item: string;
+      descricao: string;
+      unidade: string;
+      quantidade: string;
+      valor_unitario: string;
+      valor_total: string;
+      marca: string;
+      modelo: string;
+    }[],
   });
   const [formItemCronograma, setFormItemCronograma] = useState({
     numero_item: "",
@@ -1322,6 +1346,16 @@ export default function TabMedicao({
         data_inicio_prevista: etapa.data_inicio_prevista?.split("T")[0] || "",
         data_fim_prevista: etapa.data_fim_prevista?.split("T")[0] || "",
         observacoes: "",
+        itens: (etapa.itens || []).map((item, idx) => ({
+          numero_item: String(item.numero_item || idx + 1),
+          descricao: item.descricao || "",
+          unidade: item.unidade || "",
+          quantidade: item.quantidade?.toString() || "",
+          valor_unitario: item.valor_unitario?.toString() || "",
+          valor_total: item.valor_total?.toString() || "",
+          marca: item.marca || "",
+          modelo: item.modelo || "",
+        })),
       });
     } else {
       setEditandoEtapa(null);
@@ -1332,6 +1366,7 @@ export default function TabMedicao({
         data_inicio_prevista: "",
         data_fim_prevista: "",
         observacoes: "",
+        itens: [],
       });
     }
     setModalEtapa(true);
@@ -1348,6 +1383,64 @@ export default function TabMedicao({
   );
   const saldoValorEtapas = valorGlobalCronograma - somaValorEtapas;
   const saldoPercentualEtapas = 100 - somaPercentualEtapas;
+  const totalItensFormEtapa = formEtapa.itens.reduce(
+    (sum, item) => sum + (parseFloat(item.valor_total) || 0),
+    0,
+  );
+  const adicionarItemEtapa = () => {
+    setFormEtapa({
+      ...formEtapa,
+      itens: [
+        ...formEtapa.itens,
+        {
+          numero_item: String(formEtapa.itens.length + 1),
+          descricao: "",
+          unidade: "UN",
+          quantidade: "",
+          valor_unitario: "",
+          valor_total: "",
+          marca: "",
+          modelo: "",
+        },
+      ],
+    });
+  };
+  const atualizarItemEtapa = (
+    idx: number,
+    campo:
+      | "numero_item"
+      | "descricao"
+      | "unidade"
+      | "quantidade"
+      | "valor_unitario"
+      | "valor_total"
+      | "marca"
+      | "modelo",
+    valor: string,
+  ) => {
+    const itens = [...formEtapa.itens];
+    const item = { ...itens[idx], [campo]: valor };
+    if (campo === "quantidade" || campo === "valor_unitario") {
+      const qtd = parseFloat(campo === "quantidade" ? valor : item.quantidade);
+      const unit = parseFloat(
+        campo === "valor_unitario" ? valor : item.valor_unitario,
+      );
+      item.valor_total =
+        Number.isFinite(qtd) && Number.isFinite(unit)
+          ? (qtd * unit).toFixed(2)
+          : item.valor_total;
+    }
+    itens[idx] = item;
+    setFormEtapa({ ...formEtapa, itens });
+  };
+  const removerItemEtapa = (idx: number) => {
+    setFormEtapa({
+      ...formEtapa,
+      itens: formEtapa.itens
+        .filter((_, itemIdx) => itemIdx !== idx)
+        .map((item, itemIdx) => ({ ...item, numero_item: String(itemIdx + 1) })),
+    });
+  };
 
   const salvarEtapa = async () => {
     const novoValor = parseFloat(formEtapa.valor_previsto) || 0;
@@ -1390,6 +1483,18 @@ export default function TabMedicao({
         data_inicio_prevista: formEtapa.data_inicio_prevista,
         data_fim_prevista: formEtapa.data_fim_prevista,
         observacoes: formEtapa.observacoes || null,
+        itens: formEtapa.itens
+          .filter((item) => item.descricao.trim())
+          .map((item, idx) => ({
+            numero_item: parseInt(item.numero_item, 10) || idx + 1,
+            descricao: item.descricao.trim(),
+            unidade: item.unidade || null,
+            quantidade: parseFloat(item.quantidade) || 0,
+            valor_unitario: parseFloat(item.valor_unitario) || 0,
+            valor_total: parseFloat(item.valor_total) || 0,
+            marca: item.marca || null,
+            modelo: item.modelo || null,
+          })),
       };
       const url = editandoEtapa
         ? `${API_URL}/api/contratos/etapas/${editandoEtapa.id}`
@@ -3135,6 +3240,11 @@ export default function TabMedicao({
                           {formatarData(e.data_inicio_prevista)} →{" "}
                           {formatarData(e.data_fim_prevista)}
                         </p>
+                        {(e.itens?.length || 0) > 0 && (
+                          <p className="text-xs text-blue-600">
+                            {e.itens?.length} item(ns) cadastrado(s)
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         {Number(e.percentual_fisico).toFixed(1)}%
@@ -3732,6 +3842,83 @@ export default function TabMedicao({
                   }
                 />
               </div>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Itens da etapa</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Cadastre os itens que compõem esta etapa para aparecerem no boletim.
+                  </p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={adicionarItemEtapa}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Item
+                </Button>
+              </div>
+              {formEtapa.itens.length > 0 && (
+                <div className="overflow-x-auto border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-14">Nº</TableHead>
+                        <TableHead className="min-w-[260px]">Descrição</TableHead>
+                        <TableHead className="w-20">Und</TableHead>
+                        <TableHead className="w-24 text-right">Qtd</TableHead>
+                        <TableHead className="w-28 text-right">V. Unit.</TableHead>
+                        <TableHead className="w-28 text-right">Total</TableHead>
+                        <TableHead className="w-28">Marca</TableHead>
+                        <TableHead className="w-28">Modelo</TableHead>
+                        <TableHead className="w-10"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {formEtapa.itens.map((item, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>
+                            <Input value={item.numero_item} onChange={(e) => atualizarItemEtapa(idx, "numero_item", e.target.value)} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Input value={item.descricao} onChange={(e) => atualizarItemEtapa(idx, "descricao", e.target.value)} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Input value={item.unidade} onChange={(e) => atualizarItemEtapa(idx, "unidade", e.target.value)} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Input type="number" step="0.0001" value={item.quantidade} onChange={(e) => atualizarItemEtapa(idx, "quantidade", e.target.value)} className="h-8 text-right" />
+                          </TableCell>
+                          <TableCell>
+                            <Input type="number" step="0.01" value={item.valor_unitario} onChange={(e) => atualizarItemEtapa(idx, "valor_unitario", e.target.value)} className="h-8 text-right" />
+                          </TableCell>
+                          <TableCell>
+                            <Input type="number" step="0.01" value={item.valor_total} onChange={(e) => atualizarItemEtapa(idx, "valor_total", e.target.value)} className="h-8 text-right" />
+                          </TableCell>
+                          <TableCell>
+                            <Input value={item.marca} onChange={(e) => atualizarItemEtapa(idx, "marca", e.target.value)} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Input value={item.modelo} onChange={(e) => atualizarItemEtapa(idx, "modelo", e.target.value)} className="h-8" />
+                          </TableCell>
+                          <TableCell>
+                            <Button type="button" variant="ghost" size="icon" onClick={() => removerItemEtapa(idx)}>
+                              <Trash2 className="w-4 h-4 text-red-500" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-right font-medium">
+                          Total dos itens
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {formatarMoeda(totalItensFormEtapa)}
+                        </TableCell>
+                        <TableCell colSpan={3}></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>Observações</Label>

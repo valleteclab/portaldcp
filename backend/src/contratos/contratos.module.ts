@@ -16,6 +16,7 @@ import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { EtapaCronograma } from './entities/etapa-cronograma.entity';
+import { EtapaCronogramaItem } from './entities/etapa-cronograma-item.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
 import { ItemMedicaoItem } from './entities/item-medicao-item.entity';
 import { Medicao } from './entities/medicao.entity';
@@ -70,7 +71,7 @@ import { PropostaItem } from '../propostas/entities/proposta-item.entity';
     }),
     TypeOrmModule.forFeature([
       Contrato, TermoAditivo, DocumentoContrato, HistoricoContrato, Licitacao, ItemLicitacao, Fornecedor, ItemContrato, Usuario,
-      EtapaCronograma, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, OrdemFornecimento, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
+      EtapaCronograma, EtapaCronogramaItem, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, BancoMetricas, Requisicao, OrdemFornecimento, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
       MedicaoChatSession, AtualizacaoSistema, AtualizacaoLida,
       Proposta, PropostaItem,
     ]),
