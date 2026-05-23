@@ -1596,7 +1596,17 @@ export default function NovoProcessoPage() {
 
   let content: React.ReactNode
   if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} />
-  else if (step === "dfd")    content = <StepDocumento stepKey="dfd" secoes={docs.dfd} onChangeSec={(s, v) => updateDoc("dfd", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "dfd")    content = <StepDocumento
+    stepKey="dfd"
+    secoes={docs.dfd}
+    onChangeSec={(s, v) => updateDoc("dfd", s, v)}
+    onNext={advance}
+    onBack={back}
+    ctx={ctx}
+    customRenderers={{
+      previsao: (val, onChange) => <PcaSelectorField value={val} onChange={onChange} />,
+    }}
+  />
   else if (step === "etp")    content = <StepDocumento
     stepKey="etp"
     secoes={docs.etp}
