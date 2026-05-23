@@ -655,14 +655,197 @@ Formato de resposta:
   )
 }
 
+// ─── PCA Selector Field ────────────────────────────────────────────
+function PcaSelectorField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  // "selecionar" = vincular a item do PCA | "justificar" = não consta / justificar
+  const [modo, setModo] = useState<"selecionar" | "justificar">(
+    value && !value.startsWith("PCA") ? "justificar" : "selecionar"
+  )
+  const [pcas, setPcas] = useState<any[]>([])
+  const [pcaSelecionado, setPcaSelecionado] = useState("")
+  const [itens, setItens] = useState<any[]>([])
+  const [carregandoPcas, setCarregandoPcas] = useState(false)
+  const [carregandoItens, setCarregandoItens] = useState(false)
+  const [itemSelecionadoId, setItemSelecionadoId] = useState("")
+
+  // Carrega lista de PCAs do órgão
+  useEffect(() => {
+    let isMounted = true
+    setCarregandoPcas(true)
+    const orgaoId = getOrgaoId()
+    if (!orgaoId) { setCarregandoPcas(false); return }
+    authFetch(`${API_URL}/api/pca?orgaoId=${orgaoId}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        if (!isMounted) return
+        const lista: any[] = Array.isArray(data) ? data : data.data || data.items || []
+        // Ordena por ano desc — mais recente primeiro
+        lista.sort((a, b) => (b.ano_exercicio || 0) - (a.ano_exercicio || 0))
+        setPcas(lista)
+        if (lista.length === 0) setModo("justificar")
+      })
+      .catch(() => { if (isMounted) setModo("justificar") })
+      .finally(() => { if (isMounted) setCarregandoPcas(false) })
+    return () => { isMounted = false }
+  }, [])
+
+  // Carrega itens do PCA selecionado
+  useEffect(() => {
+    if (!pcaSelecionado) { setItens([]); return }
+    let isMounted = true
+    setCarregandoItens(true)
+    authFetch(`${API_URL}/api/pca/${pcaSelecionado}/itens`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        if (!isMounted) return
+        const lista: any[] = Array.isArray(data) ? data : data.data || data.items || []
+        setItens(lista)
+      })
+      .catch(() => {})
+      .finally(() => { if (isMounted) setCarregandoItens(false) })
+    return () => { isMounted = false }
+  }, [pcaSelecionado])
+
+  const handleSelecionarItem = (itemId: string) => {
+    setItemSelecionadoId(itemId)
+    const item = itens.find((i) => i.id === itemId)
+    const pca  = pcas.find((p) => p.id === pcaSelecionado)
+    if (!item) return
+    const partes: string[] = []
+    partes.push(`${pca?.numero_pca || "PCA"} (${pca?.ano_exercicio || "—"}) · Item Nº ${item.numero_item || "?"}`)
+    partes.push(`Objeto: ${item.descricao_objeto}`)
+    if (item.valor_estimado)
+      partes.push(`Valor estimado: R$ ${Number(item.valor_estimado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)
+    if (item.trimestre_previsto)
+      partes.push(`Previsão: ${item.trimestre_previsto}º trimestre`)
+    else if (item.mes_previsto_contratacao)
+      partes.push(`Previsão: mês ${item.mes_previsto_contratacao}`)
+    if (item.modalidade_prevista)
+      partes.push(`Modalidade prevista: ${item.modalidade_prevista.replace(/_/g, " ")}`)
+    onChange(partes.join(". ") + ".")
+  }
+
+  const pcaAtual = pcas.find((p) => p.id === pcaSelecionado)
+
+  return (
+    <div className="space-y-3">
+      {/* Toggle modo */}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setModo("selecionar")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            modo === "selecionar"
+              ? "bg-[#1351b4] text-white border-[#1351b4]"
+              : "bg-white text-gray-600 border-gray-200 hover:border-[#1351b4] hover:text-[#1351b4]"
+          }`}
+        >
+          Vincular item do PCA
+        </button>
+        <button
+          type="button"
+          onClick={() => { setModo("justificar"); setItemSelecionadoId("") }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            modo === "justificar"
+              ? "bg-amber-500 text-white border-amber-500"
+              : "bg-white text-gray-600 border-gray-200 hover:border-amber-400 hover:text-amber-600"
+          }`}
+        >
+          Não consta no PCA — justificar
+        </button>
+      </div>
+
+      {modo === "selecionar" && (
+        <div className="space-y-2">
+          {carregandoPcas ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando PCAs…
+            </div>
+          ) : pcas.length === 0 ? (
+            <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+              Nenhum PCA encontrado para o órgão. Cadastre em <strong>/orgao/pca</strong> ou selecione "Não consta no PCA" para justificar.
+            </div>
+          ) : (
+            <>
+              {/* Selector de PCA */}
+              <Select value={pcaSelecionado} onValueChange={(v) => { setPcaSelecionado(v); setItemSelecionadoId("") }}>
+                <SelectTrigger className="text-xs h-8">
+                  <SelectValue placeholder="Selecione o PCA…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {pcas.map((pca) => (
+                    <SelectItem key={pca.id} value={pca.id}>
+                      {pca.numero_pca || `PCA ${pca.ano_exercicio}`} — {pca.status?.replace(/_/g, " ")}
+                      {pca.quantidade_itens ? ` (${pca.quantidade_itens} itens)` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Selector de Item */}
+              {pcaSelecionado && (
+                carregandoItens ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Carregando itens…
+                  </div>
+                ) : itens.length === 0 ? (
+                  <div className="text-xs text-gray-400 py-1">Nenhum item encontrado neste PCA.</div>
+                ) : (
+                  <Select value={itemSelecionadoId} onValueChange={handleSelecionarItem}>
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue placeholder="Selecione o item do PCA…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {itens.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          Item {item.numero_item} — {item.descricao_objeto?.slice(0, 60)}{(item.descricao_objeto?.length || 0) > 60 ? "…" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )
+              )}
+            </>
+          )}
+
+          {/* Preview do valor gerado */}
+          {value && value.startsWith("PCA") && (
+            <div className="p-2.5 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800 flex items-start gap-2">
+              <Check className="w-3.5 h-3.5 shrink-0 mt-0.5 text-green-600" />
+              <span>{value}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {modo === "justificar" && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-amber-700 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Art. 12, §1º — se não consta no PCA, justificar formalmente.
+          </p>
+          <Textarea
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Justifique a ausência no Plano de Contratações Anual. Ex: contratação emergencial posterior à aprovação do PCA; objeto de baixo valor não previsto; demanda surgida após o encerramento do ciclo de planejamento…"
+            rows={3}
+            className="resize-none text-sm border-amber-200 bg-amber-50/40"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Step: Documento genérico (DFD / ETP / TR / Edital) ──────────
-function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx }: {
+function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx, customRenderers }: {
   stepKey: string
   secoes: Record<string, string>
   onChangeSec: (id: string, val: string) => void
   onNext: () => void
   onBack: () => void
   ctx: any
+  customRenderers?: Record<string, (val: string, onChange: (v: string) => void, isAnimando: boolean) => React.ReactNode>
 }) {
   const tpl = TEMPLATES[stepKey]
   const [busy, setBusy] = useState(false)
@@ -749,13 +932,18 @@ function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx }: {
                   </span>
                 )}
               </label>
-              <Textarea
-                value={val}
-                onChange={(e) => onChangeSec(sec.id, e.target.value)}
-                placeholder={sec.placeholder}
-                rows={sec.rows || Math.max(2, val.split("\n").length + 1)}
-                className="resize-none text-sm bg-transparent border-gray-200"
-              />
+              {customRenderers?.[sec.id]
+                ? customRenderers[sec.id](val, (v) => onChangeSec(sec.id, v), isAnimando)
+                : (
+                  <Textarea
+                    value={val}
+                    onChange={(e) => onChangeSec(sec.id, e.target.value)}
+                    placeholder={sec.placeholder}
+                    rows={sec.rows || Math.max(2, val.split("\n").length + 1)}
+                    className="resize-none text-sm bg-transparent border-gray-200"
+                  />
+                )
+              }
             </div>
           )
         })}
@@ -1409,7 +1597,17 @@ export default function NovoProcessoPage() {
   let content: React.ReactNode
   if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} />
   else if (step === "dfd")    content = <StepDocumento stepKey="dfd" secoes={docs.dfd} onChangeSec={(s, v) => updateDoc("dfd", s, v)} onNext={advance} onBack={back} ctx={ctx} />
-  else if (step === "etp")    content = <StepDocumento stepKey="etp" secoes={docs.etp} onChangeSec={(s, v) => updateDoc("etp", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "etp")    content = <StepDocumento
+    stepKey="etp"
+    secoes={docs.etp}
+    onChangeSec={(s, v) => updateDoc("etp", s, v)}
+    onNext={advance}
+    onBack={back}
+    ctx={ctx}
+    customRenderers={{
+      previsao_pca: (val, onChange) => <PcaSelectorField value={val} onChange={onChange} />,
+    }}
+  />
   else if (step === "riscos") content = <StepRiscos riscos={riscos} setRiscos={setRiscos} onNext={advance} onBack={back} ctx={ctx} />
   else if (step === "pesquisa") content = <StepPesquisa fontes={fontes} setFontes={setFontes} onNext={advance} onBack={back} />
   else if (step === "tr")     content = <StepDocumento stepKey="tr" secoes={docs.tr} onChangeSec={(s, v) => updateDoc("tr", s, v)} onNext={advance} onBack={back} ctx={ctx} />
