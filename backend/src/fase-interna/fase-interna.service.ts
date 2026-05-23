@@ -399,6 +399,42 @@ export class FaseInternaService {
     return documento;
   }
 
+  /**
+   * Auto-save do editor colaborativo Tiptap.
+   * Atualiza apenas descricao (HTML) sem alterar outros campos.
+   * Retorna { ok: true } para performance (sem recarregar o objeto).
+   */
+  async atualizarConteudo(
+    licitacaoId: string,
+    tipo: TipoDocumentoFaseInterna,
+    html: string,
+  ): Promise<{ ok: boolean }> {
+    // Busca o documento atual ou cria um rascunho se não existir
+    let documento = await this.documentoRepository.findOne({
+      where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
+    });
+
+    if (!documento) {
+      // Cria documento rascunho (o editor foi aberto antes do wizard)
+      documento = this.documentoRepository.create({
+        licitacao_id: licitacaoId,
+        tipo,
+        titulo: tipo,
+        descricao: html,
+        status: StatusDocumento.EM_ELABORACAO,
+        origem: OrigemDocumento.INTERNO,
+        versao: 1,
+        versao_atual: true,
+        obrigatorio: true,
+      });
+    } else {
+      documento.descricao = html;
+    }
+
+    await this.documentoRepository.save(documento);
+    return { ok: true };
+  }
+
   // ========================================
   // DASHBOARD — KPIs AGREGADOS
   // ========================================

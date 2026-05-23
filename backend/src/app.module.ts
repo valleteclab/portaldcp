@@ -36,6 +36,7 @@ import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module'
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { DisputaModule } from './disputa-v2/disputa.module';
 import { DisputaV3Module } from './disputa-v3/disputa-v3.module';
+import { ColaboracaoModule } from './colaboracao/colaboracao.module';
 import { AdminModule } from './admin/admin.module';
 import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
@@ -136,6 +137,7 @@ import { McpModule } from './mcp/mcp.module';
     UsuariosModule,
     DisputaModule,
     DisputaV3Module,
+    ColaboracaoModule,
     AdminModule,
     AlmoxarifadoModule,
     NotificacoesModule,
