@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from "react"
 import { useSearchParams } from "next/navigation"
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import {
   ChevronRight,
   Home,
@@ -12,7 +13,20 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { API_URL, authFetch } from "@/lib/api"
-import { DocumentEditor } from "@/components/editor/DocumentEditor"
+
+// Importação dinâmica com ssr: false — o editor Tiptap/Yjs/ProseMirror
+// não pode rodar no servidor (usa APIs do browser e Y.Doc)
+const DocumentEditor = dynamic(
+  () => import("@/components/editor/DocumentEditor").then((m) => ({ default: m.DocumentEditor })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-6 h-6 animate-spin text-[#1351b4]" />
+      </div>
+    ),
+  },
+)
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
