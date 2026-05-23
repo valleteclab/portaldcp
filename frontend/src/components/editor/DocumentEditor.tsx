@@ -3,7 +3,8 @@
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Collaboration from '@tiptap/extension-collaboration'
-import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
+// Note: extension-collaboration-cursor foi renomeado para -caret no Tiptap v3
+import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import CharacterCount from '@tiptap/extension-character-count'
 import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
@@ -101,33 +102,21 @@ export function DocumentEditor({
   initialHtml,
   readOnly = false,
 }: DocumentEditorProps) {
-  // ─── Yjs: useRef garante uma única instância estável por montagem ──────────
-  // (useMemo não é garantido de manter o valor; useRef é)
-  const ydocRef = useRef<Y.Doc | null>(null)
-  if (ydocRef.current === null) {
-    ydocRef.current = new Y.Doc()
-  }
-  const ydoc = ydocRef.current
+  "use no memo" // Desativa React Compiler para este componente (conflito com Tiptap/Yjs)
 
-  const awarenessRef = useRef<Awareness | null>(null)
-  if (awarenessRef.current === null) {
-    awarenessRef.current = new Awareness(ydoc)
-  }
-  const awareness = awarenessRef.current
-
-  // CollaborationCursor precisa de um objeto com `.awareness` — estável via ref
-  const providerRef = useRef<{ awareness: Awareness } | null>(null)
-  if (providerRef.current === null) {
-    providerRef.current = { awareness }
-  }
-  const provider = providerRef.current
-
-  // Usuário local (lido do localStorage) — estável via ref
-  const usuarioRef = useRef<UsuarioOnline | null>(null)
-  if (usuarioRef.current === null) {
-    usuarioRef.current = getUsuarioAtual()
-  }
-  const usuario = usuarioRef.current
+  // ─── Yjs: cria Y.Doc + Awareness + provider atomicamente, uma única vez ───
+  // useState com inicializador lazy garante chamada única e referência estável
+  const [yState] = useState(() => {
+    const ydoc = new Y.Doc()
+    // Garante que o XmlFragment 'default' existe e está vinculado ao ydoc
+    // ANTES do Tiptap criar o editor (evita "Cannot read properties of undefined")
+    ydoc.getXmlFragment('default')
+    const awareness = new Awareness(ydoc)
+    const provider = { awareness }
+    const usuario = getUsuarioAtual()
+    return { ydoc, awareness, provider, usuario }
+  })
+  const { ydoc, awareness, provider, usuario } = yState
 
   // ─── Estado ────────────────────────────────────────────────────────────────
   const [presentes, setPresentes] = useState<UsuarioOnline[]>([])
@@ -160,7 +149,7 @@ export function DocumentEditor({
     extensions: [
       StarterKit.configure({ undoRedo: false }), // Collaboration gerencia undo/redo via Yjs
       Collaboration.configure({ document: ydoc }),
-      CollaborationCursor.configure({
+      CollaborationCaret.configure({
         provider,
         user: { name: usuario.nome, color: usuario.cor },
       }),
@@ -287,7 +276,7 @@ export function DocumentEditor({
     <>
       {/* Estilos do editor e cursores colaborativos */}
       <style>{`
-        .collaboration-cursor__caret {
+        .collaboration-carets__caret {
           border-left: 2px solid;
           border-right: none;
           margin-left: -1px;
@@ -296,7 +285,7 @@ export function DocumentEditor({
           position: relative;
           word-break: normal;
         }
-        .collaboration-cursor__label {
+        .collaboration-carets__label {
           border-radius: 3px 3px 3px 0;
           color: #fff;
           font-size: 10px;

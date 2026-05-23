@@ -5,7 +5,7 @@ const BACKEND_URL = process.env.BACKEND_URL || 'https://portaldcp-production.up.
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
-  // Transpila pacotes ESM que precisam de tratamento especial no webpack
+  // Transpila pacotes ESM que precisam de tratamento especial
   transpilePackages: ['@tiptap/y-tiptap', 'y-protocols', 'yjs'],
   // Configuração para produção
   images: {
