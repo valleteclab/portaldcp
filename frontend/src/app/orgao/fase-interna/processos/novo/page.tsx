@@ -31,47 +31,104 @@ function gerarNumeroProcesso(): string {
 
 function mapearModalidade(frontend: string): string {
   const map: Record<string, string> = {
-    "Pregão Eletrônico": "PREGAO_ELETRONICO",
-    "Concorrência": "CONCORRENCIA",
-    "Dispensa de Licitação": "DISPENSA",
-    "Inexigibilidade": "INEXIGIBILIDADE",
-    "Concurso": "CONCURSO",
-    "Leilão": "LEILAO",
+    "Pregão Eletrônico":    "PREGAO_ELETRONICO",
+    "Concorrência":         "CONCORRENCIA",
+    "Concurso":             "CONCURSO",
+    "Leilão":               "LEILAO",
+    "Diálogo Competitivo":  "DIALOGO_COMPETITIVO",
+    "Dispensa Eletrônica":  "DISPENSA_ELETRONICA",
+    "Inexigibilidade":      "INEXIGIBILIDADE",
   }
   return map[frontend] || "PREGAO_ELETRONICO"
 }
 
 function mapearCategoria(frontend: string): string {
   const map: Record<string, string> = {
-    "Serviços de TI": "SERVICO",
-    "Bens de TI": "COMPRA",
-    "Serviços Comuns": "SERVICO",
-    "Obras e Engenharia": "OBRA",
-    "Outros Serviços": "SERVICO",
-    "Outros": "SERVICO",
+    "Compras / Aquisição de Bens":          "COMPRA",
+    "Serviços Comuns":                       "SERVICO",
+    "Serviços de Tecnologia da Informação": "SERVICO",
+    "Obras de Construção Civil":             "OBRA",
+    "Serviços de Engenharia":                "SERVICO_ENGENHARIA",
+    "Locação de Imóveis":                    "LOCACAO",
+    "Alienação de Bens":                     "ALIENACAO",
+    // legado
+    "Serviços de TI":   "SERVICO",
+    "Bens de TI":       "COMPRA",
+    "Outros Serviços":  "SERVICO",
+    "Outros":           "SERVICO",
   }
   return map[frontend] || "SERVICO"
 }
 
+function mapearCriterio(frontend: string): string {
+  const map: Record<string, string> = {
+    "Menor preço":                  "MENOR_PRECO",
+    "Maior desconto":               "MAIOR_DESCONTO",
+    "Melhor técnica":               "MELHOR_TECNICA",
+    "Técnica e preço":              "TECNICA_E_PRECO",
+    "Maior lance":                  "MAIOR_LANCE",
+    "Maior retorno econômico":      "MAIOR_RETORNO_ECONOMICO",
+  }
+  return map[frontend] || "MENOR_PRECO"
+}
+
+function mapearModoDisputa(frontend: string): string {
+  const map: Record<string, string> = {
+    "Aberto":           "ABERTO",
+    "Aberto e Fechado": "ABERTO_FECHADO",
+    "Fechado e Aberto": "FECHADO_ABERTO",
+    "Fechado":          "FECHADO",
+  }
+  return map[frontend] || "ABERTO"
+}
+
 function desmapearModalidade(backend: string): string {
   const map: Record<string, string> = {
-    PREGAO_ELETRONICO: "Pregão Eletrônico",
-    CONCORRENCIA: "Concorrência",
-    DISPENSA: "Dispensa de Licitação",
-    INEXIGIBILIDADE: "Inexigibilidade",
-    CONCURSO: "Concurso",
-    LEILAO: "Leilão",
+    PREGAO_ELETRONICO:   "Pregão Eletrônico",
+    CONCORRENCIA:        "Concorrência",
+    CONCURSO:            "Concurso",
+    LEILAO:              "Leilão",
+    DIALOGO_COMPETITIVO: "Diálogo Competitivo",
+    DISPENSA_ELETRONICA: "Dispensa Eletrônica",
+    INEXIGIBILIDADE:     "Inexigibilidade",
+    // legado
+    DISPENSA:            "Dispensa Eletrônica",
   }
   return map[backend] || backend || ""
 }
 
 function desmapearCategoria(backend: string): string {
   const map: Record<string, string> = {
-    SERVICO: "Serviços Comuns",
-    COMPRA: "Bens de TI",
-    OBRA: "Obras e Engenharia",
+    COMPRA:             "Compras / Aquisição de Bens",
+    SERVICO:            "Serviços Comuns",
+    OBRA:               "Obras de Construção Civil",
+    SERVICO_ENGENHARIA: "Serviços de Engenharia",
+    LOCACAO:            "Locação de Imóveis",
+    ALIENACAO:          "Alienação de Bens",
   }
   return map[backend] || backend || ""
+}
+
+function desmapearCriterio(backend: string): string {
+  const map: Record<string, string> = {
+    MENOR_PRECO:             "Menor preço",
+    MAIOR_DESCONTO:          "Maior desconto",
+    MELHOR_TECNICA:          "Melhor técnica",
+    TECNICA_E_PRECO:         "Técnica e preço",
+    MAIOR_LANCE:             "Maior lance",
+    MAIOR_RETORNO_ECONOMICO: "Maior retorno econômico",
+  }
+  return map[backend] || "Menor preço"
+}
+
+function desmapearModoDisputa(backend: string): string {
+  const map: Record<string, string> = {
+    ABERTO:         "Aberto",
+    ABERTO_FECHADO: "Aberto e Fechado",
+    FECHADO_ABERTO: "Fechado e Aberto",
+    FECHADO:        "Fechado",
+  }
+  return map[backend] || "Aberto"
 }
 
 // ─── Etapas do wizard ──────────────────────────────────────────────
@@ -283,50 +340,78 @@ function WizardSidebar({ etapas, current, completed, onJump }: {
   )
 }
 
+// Modalidades com licitação formal (critério + modo de disputa obrigatórios)
+const MODALIDADES_LICITACAO = ["Pregão Eletrônico", "Concorrência", "Concurso", "Leilão", "Diálogo Competitivo"]
+// Critérios compatíveis por modalidade
+const CRITERIOS_POR_MODALIDADE: Record<string, string[]> = {
+  "Pregão Eletrônico":   ["Menor preço", "Maior desconto"],
+  "Concorrência":        ["Menor preço", "Maior desconto", "Melhor técnica", "Técnica e preço", "Maior retorno econômico"],
+  "Concurso":            ["Melhor técnica"],
+  "Leilão":              ["Maior lance"],
+  "Diálogo Competitivo": ["Menor preço", "Maior desconto", "Melhor técnica", "Técnica e preço"],
+}
+
 // ─── Step: Dados básicos ───────────────────────────────────────────
 function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: string, v: string) => void; onNext: () => void }) {
-  const valido = dados.objeto && dados.categoria && dados.modalidade
+  const objetoOk = (dados.objeto || "").trim().length >= 10
+  const ehLicitacaoFormal = MODALIDADES_LICITACAO.includes(dados.modalidade)
+  const valido = dados.objeto && dados.categoria && dados.modalidade &&
+    (!ehLicitacaoFormal || dados.criterio)
+
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [animando, setAnimando] = useState<string | null>(null)
 
+  // Ao trocar modalidade: limpa critério incompatível e ajusta modo de disputa
+  const handleModalidade = (v: string) => {
+    onChange("modalidade", v)
+    const criteriosValidos = CRITERIOS_POR_MODALIDADE[v] || []
+    if (!criteriosValidos.includes(dados.criterio)) {
+      onChange("criterio", criteriosValidos[0] || "")
+    }
+    if (!MODALIDADES_LICITACAO.includes(v)) {
+      onChange("modoDisputa", "")
+    } else if (!dados.modoDisputa) {
+      onChange("modoDisputa", "Aberto")
+    }
+  }
+
   const gerarComIA = async () => {
-    if (!dados.objeto || dados.objeto.trim().length < 10) {
-      setErro("Informe ao menos uma descrição inicial do objeto para a IA completar os dados.")
+    if (!objetoOk) {
+      setErro("Descreva o objeto da contratação (mínimo 10 caracteres) antes de usar a IA.")
       return
     }
-
     setBusy(true)
     setErro(null)
     try {
       const resposta = await chamarIA(
         `Você é especialista em fase interna de licitações conforme a Lei 14.133/2021.
 
-A partir da descrição inicial abaixo, complete os dados básicos do processo com sugestões plausíveis e objetivas.
+A partir da descrição inicial abaixo, complete os dados básicos do processo licitatório com sugestões plausíveis, formais e objetivas.
 
 Descrição inicial do objeto: ${dados.objeto}
 Categoria atual: ${dados.categoria || "não informada"}
 Modalidade atual: ${dados.modalidade || "não informada"}
-Quantidade atual: ${dados.quantidade || "não informada"}
+Critério de julgamento atual: ${dados.criterio || "não informado"}
 Área demandante atual: ${dados.area || "não informada"}
 Valor estimado atual: ${dados.valor || "não informado"}
 
-Regras:
-- mantenha linguagem formal e administrativa;
-- escolha apenas uma categoria compatível com estas opções: Serviços de TI, Bens de TI, Serviços Comuns, Obras e Engenharia, Outros Serviços;
-- escolha apenas uma modalidade compatível com estas opções: Pregão Eletrônico, Concorrência, Dispensa de Licitação, Inexigibilidade;
-- se não houver base para estimar valor, retorne string vazia em "valor";
-- responda APENAS com JSON válido.
+Regras (respeite rigorosamente):
+- Linguagem formal e administrativa conforme Lei 14.133/2021;
+- Categoria — escolha EXATAMENTE um dos valores: "Compras / Aquisição de Bens", "Serviços Comuns", "Serviços de Tecnologia da Informação", "Obras de Construção Civil", "Serviços de Engenharia", "Locação de Imóveis", "Alienação de Bens";
+- Modalidade (Art. 28) — escolha EXATAMENTE um dos valores: "Pregão Eletrônico", "Concorrência", "Concurso", "Leilão", "Diálogo Competitivo", "Dispensa Eletrônica", "Inexigibilidade";
+- Critério de julgamento (Art. 33) — escolha EXATAMENTE um dos valores: "Menor preço", "Maior desconto", "Melhor técnica", "Técnica e preço", "Maior lance", "Maior retorno econômico". Para Pregão use "Menor preço" ou "Maior desconto"; para Leilão use "Maior lance"; para Concurso use "Melhor técnica"; para Dispensa/Inexigibilidade retorne string vazia;
+- Se não houver base para estimar valor, retorne string vazia em "valor";
+- Responda APENAS com JSON válido, sem texto adicional.
 
-Formato:
-{"objeto":"...","categoria":"...","modalidade":"...","quantidade":"...","area":"...","valor":"..."}`,
+Formato de resposta:
+{"objeto":"...","categoria":"...","modalidade":"...","criterio":"...","area":"...","valor":"..."}`,
         "dados_basicos_fase_interna"
       )
       const jsonMatch = resposta.match(/\{[\s\S]*\}/)
       if (!jsonMatch) throw new Error("JSON não encontrado na resposta")
-
       const parsed = JSON.parse(jsonMatch[0])
-      const campos = ["objeto", "categoria", "modalidade", "quantidade", "area", "valor"]
+      const campos = ["objeto", "categoria", "modalidade", "criterio", "area", "valor"]
       for (const campo of campos) {
         if (typeof parsed[campo] === "string" && parsed[campo].trim()) {
           setAnimando(campo)
@@ -342,20 +427,27 @@ Formato:
     }
   }
 
+  const criteriosDisponiveis = CRITERIOS_POR_MODALIDADE[dados.modalidade] ||
+    ["Menor preço", "Maior desconto", "Melhor técnica", "Técnica e preço", "Maior lance", "Maior retorno econômico"]
+
   return (
     <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      {/* Cabeçalho */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Dados básicos do processo</h2>
-          <p className="text-sm text-gray-500 mt-1">Informações iniciais que guiarão a elaboração de todos os documentos.</p>
-          <span className="text-xs text-[#1351b4] font-medium">Configuração inicial</span>
+          <p className="text-sm text-gray-500 mt-1">
+            Informações iniciais que guiarão a elaboração de todos os documentos.
+          </p>
+          <span className="text-xs text-[#1351b4] font-medium">Configuração inicial · Lei 14.133/2021</span>
         </div>
         <Button
           variant="outline"
           size="sm"
           onClick={gerarComIA}
-          disabled={busy}
-          className="shrink-0 ml-4 text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc]"
+          disabled={busy || !objetoOk}
+          title={!objetoOk ? "Descreva o objeto primeiro (mín. 10 caracteres)" : "Completar campos com IA"}
+          className="shrink-0 ml-4 text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc] disabled:opacity-40"
         >
           {busy
             ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Gerando…</>
@@ -363,13 +455,16 @@ Formato:
           }
         </Button>
       </div>
+
       {erro && (
         <div className="mb-4 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           {erro}
         </div>
       )}
+
       <div className="space-y-5">
+        {/* Objeto */}
         <div>
           <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
             Objeto da contratação *
@@ -378,68 +473,125 @@ Formato:
           <Textarea
             value={dados.objeto || ""}
             onChange={(e) => onChange("objeto", e.target.value)}
-            placeholder="Descreva o objeto de forma clara e objetiva…"
+            placeholder="Descreva o objeto de forma clara e objetiva conforme Art. 6º, XXIII da Lei 14.133/2021…"
             className="resize-none"
             rows={3}
           />
+          <p className="mt-1.5 text-[11px] text-gray-400 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-[#1351b4]" />
+            Descreva o objeto acima para habilitar o botão <strong>Gerar com IA</strong> e completar os demais campos automaticamente.
+          </p>
         </div>
+
+        {/* Categoria + Modalidade */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
-              Categoria *
+              Natureza do objeto *
               {animando === "categoria" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
             </Label>
             <Select value={dados.categoria || ""} onValueChange={(v) => onChange("categoria", v)}>
               <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="Serviços de TI">Serviços de TI</SelectItem>
-                <SelectItem value="Bens de TI">Bens de TI</SelectItem>
+                <SelectItem value="Compras / Aquisição de Bens">Compras / Aquisição de Bens</SelectItem>
                 <SelectItem value="Serviços Comuns">Serviços Comuns</SelectItem>
-                <SelectItem value="Obras e Engenharia">Obras e Engenharia</SelectItem>
-                <SelectItem value="Outros Serviços">Outros Serviços</SelectItem>
+                <SelectItem value="Serviços de Tecnologia da Informação">Serviços de Tecnologia da Informação</SelectItem>
+                <SelectItem value="Obras de Construção Civil">Obras de Construção Civil</SelectItem>
+                <SelectItem value="Serviços de Engenharia">Serviços de Engenharia</SelectItem>
+                <SelectItem value="Locação de Imóveis">Locação de Imóveis</SelectItem>
+                <SelectItem value="Alienação de Bens">Alienação de Bens</SelectItem>
               </SelectContent>
             </Select>
+            <p className="mt-1 text-[10px] text-gray-400">Art. 6º, XIV, XXI e XXII</p>
           </div>
           <div>
             <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
               Modalidade *
               {animando === "modalidade" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
             </Label>
-            <Select value={dados.modalidade || ""} onValueChange={(v) => onChange("modalidade", v)}>
+            <Select value={dados.modalidade || ""} onValueChange={handleModalidade}>
               <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="Pregão Eletrônico">Pregão Eletrônico</SelectItem>
                 <SelectItem value="Concorrência">Concorrência</SelectItem>
-                <SelectItem value="Dispensa de Licitação">Dispensa de Licitação</SelectItem>
+                <SelectItem value="Concurso">Concurso</SelectItem>
+                <SelectItem value="Leilão">Leilão</SelectItem>
+                <SelectItem value="Diálogo Competitivo">Diálogo Competitivo</SelectItem>
+                <SelectItem value="Dispensa Eletrônica">Dispensa Eletrônica</SelectItem>
                 <SelectItem value="Inexigibilidade">Inexigibilidade</SelectItem>
               </SelectContent>
             </Select>
+            <p className="mt-1 text-[10px] text-gray-400">Art. 28 (licitação) · Art. 74-75 (contratação direta)</p>
           </div>
         </div>
+
+        {/* Critério de Julgamento + Modo de Disputa (só para licitação formal) */}
+        {ehLicitacaoFormal && (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+                Critério de julgamento *
+                {animando === "criterio" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+              </Label>
+              <Select value={dados.criterio || ""} onValueChange={(v) => onChange("criterio", v)}>
+                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                <SelectContent>
+                  {criteriosDisponiveis.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[10px] text-gray-400">Art. 33 · Lei 14.133/2021</p>
+            </div>
+            {(dados.modalidade === "Pregão Eletrônico" || dados.modalidade === "Concorrência" || dados.modalidade === "Diálogo Competitivo") && (
+              <div>
+                <Label className="text-xs font-semibold text-gray-700 mb-1.5">
+                  Modo de disputa
+                </Label>
+                <Select value={dados.modoDisputa || "Aberto"} onValueChange={(v) => onChange("modoDisputa", v)}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Aberto">Aberto</SelectItem>
+                    <SelectItem value="Aberto e Fechado">Aberto e Fechado</SelectItem>
+                    <SelectItem value="Fechado e Aberto">Fechado e Aberto</SelectItem>
+                    <SelectItem value="Fechado">Fechado</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-[10px] text-gray-400">Art. 56 · Lei 14.133/2021</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Área demandante + Valor estimado */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
-              Quantidade estimada
-              {animando === "quantidade" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+              Área demandante *
+              {animando === "area" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
             </Label>
-            <Input value={dados.quantidade || ""} onChange={(e) => onChange("quantidade", e.target.value)} placeholder="Ex: 100 licenças" />
+            <Input
+              value={dados.area || ""}
+              onChange={(e) => onChange("area", e.target.value)}
+              placeholder="Ex: SETIC, Gabinete, DCOMP…"
+            />
+            <p className="mt-1 text-[10px] text-gray-400">Unidade requisitante (Art. 18, §1º)</p>
           </div>
           <div>
             <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
-              Área demandante
-              {animando === "area" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
+              Valor total estimado (R$)
+              {animando === "valor" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
             </Label>
-            <Input value={dados.area || ""} onChange={(e) => onChange("area", e.target.value)} placeholder="Ex: SETIC, GABIN…" />
+            <Input
+              value={dados.valor || ""}
+              onChange={(e) => onChange("valor", e.target.value)}
+              placeholder="Ex: 150000.00"
+            />
+            <p className="mt-1 text-[10px] text-gray-400">Influencia modalidade (Art. 6º, XXXVIII)</p>
           </div>
         </div>
-        <div>
-          <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
-            Valor estimado (R$)
-            {animando === "valor" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
-          </Label>
-          <Input value={dados.valor || ""} onChange={(e) => onChange("valor", e.target.value)} placeholder="Ex: 150000.00" />
-        </div>
       </div>
+
       <div className="mt-8 flex justify-end">
         <Button onClick={onNext} disabled={!valido} className="bg-[#1351b4] hover:bg-[#0c326f]">
           Próxima etapa <ArrowRight className="w-4 h-4 ml-2" />
@@ -871,6 +1023,8 @@ export default function NovoProcessoPage() {
             objeto: licitacao.objeto || "",
             modalidade: desmapearModalidade(licitacao.modalidade),
             categoria: desmapearCategoria(licitacao.tipo_contratacao),
+            criterio: desmapearCriterio(licitacao.criterio_julgamento),
+            modoDisputa: desmapearModoDisputa(licitacao.modo_disputa),
             valor: licitacao.valor_total_estimado ? String(licitacao.valor_total_estimado) : "",
           })
         }
@@ -1007,7 +1161,8 @@ export default function NovoProcessoPage() {
         objeto: dados.objeto,
         modalidade: mapearModalidade(dados.modalidade),
         tipo_contratacao: mapearCategoria(dados.categoria),
-        criterio_julgamento: "MENOR_PRECO",
+        criterio_julgamento: mapearCriterio(dados.criterio || "Menor preço"),
+        modo_disputa: mapearModoDisputa(dados.modoDisputa || "Aberto"),
         valor_total_estimado: valorEstimado > 0 ? valorEstimado : undefined,
       }
       const res = await authFetch(
