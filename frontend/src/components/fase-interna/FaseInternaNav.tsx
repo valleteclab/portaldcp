@@ -159,8 +159,11 @@ export function FaseInternaNav() {
       }
     };
     carregar();
+    // Recarrega badge quando um processo é criado ou excluído na mesma aba
+    window.addEventListener('processos-updated', carregar);
     return () => {
       isMounted = false;
+      window.removeEventListener('processos-updated', carregar);
     };
   }, []);
 

@@ -258,6 +258,7 @@ export default function ProcessosPage() {
       }
 
       setProcessos((prev) => prev.filter((p) => p.id !== processo.id));
+      window.dispatchEvent(new CustomEvent('processos-updated'));
       toast.success("Processo excluído com sucesso");
     } catch (error) {
       toast.error(
