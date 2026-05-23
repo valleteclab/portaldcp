@@ -17,7 +17,7 @@ import Link from '@tiptap/extension-link'
 import * as Y from 'yjs'
 import { Awareness } from 'y-protocols/awareness'
 import { encodeAwarenessUpdate, applyAwarenessUpdate } from 'y-protocols/awareness'
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { io } from 'socket.io-client'
 import { EditorToolbar } from './EditorToolbar'
 import { AiAssistantPanel } from './AiAssistantPanel'
@@ -101,15 +101,33 @@ export function DocumentEditor({
   initialHtml,
   readOnly = false,
 }: DocumentEditorProps) {
-  // ─── Yjs: Y.Doc e Awareness criados uma única vez ──────────────────────────
-  const ydoc = useMemo(() => new Y.Doc(), [])
-  const awareness = useMemo(() => new Awareness(ydoc), [ydoc])
+  // ─── Yjs: useRef garante uma única instância estável por montagem ──────────
+  // (useMemo não é garantido de manter o valor; useRef é)
+  const ydocRef = useRef<Y.Doc | null>(null)
+  if (ydocRef.current === null) {
+    ydocRef.current = new Y.Doc()
+  }
+  const ydoc = ydocRef.current
 
-  // CollaborationCursor precisa de um objeto com `.awareness`
-  const provider = useMemo(() => ({ awareness }), [awareness])
+  const awarenessRef = useRef<Awareness | null>(null)
+  if (awarenessRef.current === null) {
+    awarenessRef.current = new Awareness(ydoc)
+  }
+  const awareness = awarenessRef.current
 
-  // Usuário local (lido do localStorage)
-  const usuario = useMemo(() => getUsuarioAtual(), [])
+  // CollaborationCursor precisa de um objeto com `.awareness` — estável via ref
+  const providerRef = useRef<{ awareness: Awareness } | null>(null)
+  if (providerRef.current === null) {
+    providerRef.current = { awareness }
+  }
+  const provider = providerRef.current
+
+  // Usuário local (lido do localStorage) — estável via ref
+  const usuarioRef = useRef<UsuarioOnline | null>(null)
+  if (usuarioRef.current === null) {
+    usuarioRef.current = getUsuarioAtual()
+  }
+  const usuario = usuarioRef.current
 
   // ─── Estado ────────────────────────────────────────────────────────────────
   const [presentes, setPresentes] = useState<UsuarioOnline[]>([])
