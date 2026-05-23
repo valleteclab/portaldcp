@@ -518,6 +518,19 @@ export class LicitacoesService {
     await this.licitacaoRepository.manager.transaction(async (manager) => {
       // Registros da fase interna podem ter FKs sem cascade em bancos existentes.
       // Remover filhos primeiro evita erro 500 por violação de constraint.
+      //
+      // Ordem correta para respeitar as FKs:
+      //   pesquisa_preco_candidatos → FK para pesquisa_preco_execucoes (sem guarantee de cascade no DB)
+      //   pesquisa_preco_execucoes  → FK para documentos_fase_interna (sem cascade)
+      //   logs_fase_interna         → FK para licitacao
+      //   documentos_fase_interna   → FK para licitacao
+      await manager.query(
+        `DELETE FROM pesquisa_preco_candidatos WHERE execucao_id IN (
+          SELECT id FROM pesquisa_preco_execucoes WHERE licitacao_id = $1
+        )`,
+        [id],
+      );
+      await manager.delete('pesquisa_preco_execucoes', { licitacao_id: id });
       await manager.delete('logs_fase_interna', { licitacao_id: id });
       await manager.delete('documentos_fase_interna', { licitacao_id: id });
       await manager.delete('documentos_licitacao', { licitacao_id: id });
