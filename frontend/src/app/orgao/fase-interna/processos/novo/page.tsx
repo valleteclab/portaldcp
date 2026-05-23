@@ -131,6 +131,9 @@ function desmapearModoDisputa(backend: string): string {
   return map[backend] || "Aberto"
 }
 
+// Modalidades de contratação direta (sem licitação formal — sem minuta de edital)
+const MODALIDADES_CONTRATACAO_DIRETA = ["Dispensa Eletrônica", "Inexigibilidade"]
+
 // ─── Etapas do wizard ──────────────────────────────────────────────
 const WIZARD_ETAPAS = [
   { id: "dados",      sigla: "INI", nome: "Dados básicos",           art: "Configuração inicial" },
@@ -139,8 +142,9 @@ const WIZARD_ETAPAS = [
   { id: "riscos",     sigla: "MR",  nome: "Análise de Riscos",       art: "Art. 18, X" },
   { id: "pesquisa",   sigla: "PP",  nome: "Pesquisa de Preços",      art: "Art. 23" },
   { id: "tr",         sigla: "TR",  nome: "Termo de Referência",     art: "Art. 6º, XXIII" },
+  { id: "dotacao",    sigla: "DOT", nome: "Dotação Orçamentária",    art: "Art. 167 CF + LRF" },
   { id: "autorizacao",sigla: "AUT", nome: "Autorização",             art: "Art. 18, II" },
-  { id: "edital",     sigla: "ED",  nome: "Minuta do Edital",        art: "Art. 25" },
+  { id: "edital",     sigla: "ED",  nome: "Edital / Aviso",          art: "Art. 25 / Art. 74-75" },
   { id: "juridico",   sigla: "PJ",  nome: "Parecer Jurídico",        art: "Art. 53" },
   { id: "concluido",  sigla: "OK",  nome: "Fase interna concluída",  art: "" },
 ]
@@ -177,55 +181,105 @@ Responda APENAS com JSON válido:
   },
   etp: {
     titulo: "Estudo Técnico Preliminar (ETP)",
-    intro: "Analisa a viabilidade técnica e econômica da contratação, fundamentando o Termo de Referência.",
-    artigo: "Art. 18, §1º · Lei 14.133/2021",
+    intro: "Analisa a viabilidade técnica e econômica da contratação. Os incisos I, IV, VI, VIII e XIII são de presença obrigatória (Art. 18, §2º). Os demais exigem justificativa quando ausentes.",
+    artigo: "Art. 18, §1º (I–XIII) · Lei 14.133/2021",
     secoes: [
-      { id: "necessidade",  titulo: "1. Descrição da necessidade",        placeholder: "Necessidade fundamentada em estudos…" },
-      { id: "requisitos",   titulo: "2. Requisitos da contratação",       placeholder: "Requisitos técnicos, de sustentabilidade, qualidade…" },
-      { id: "estimativa",   titulo: "3. Estimativa de quantidades",       placeholder: "Memória de cálculo e parâmetros…" },
-      { id: "levantamento", titulo: "4. Levantamento de mercado",         placeholder: "Soluções disponíveis no mercado…" },
-      { id: "solucao",      titulo: "5. Descrição da solução escolhida",  placeholder: "Justificativa da solução selecionada…" },
-      { id: "beneficios",   titulo: "6. Benefícios esperados",            placeholder: "Resultados pretendidos com a contratação…" },
-      { id: "parcelamento", titulo: "7. Parcelamento",                    placeholder: "Justificativa para parcelar ou não o objeto…" },
-      { id: "viabilidade",  titulo: "8. Posicionamento conclusivo",       placeholder: "Conclusão sobre a viabilidade da contratação…" },
+      // Inciso I — OBRIGATÓRIO (§2º)
+      { id: "necessidade",      titulo: "1. Descrição da necessidade (inc. I) *",         placeholder: "Necessidade fundamentada em estudos que caracteriza o interesse público envolvido…" },
+      // Inciso II
+      { id: "previsao_pca",     titulo: "2. Previsão no PCA (inc. II)",                   placeholder: "Referência ao Plano de Contratações Anual (Art. 12, §1º). Se não constar, justificar…" },
+      // Inciso III
+      { id: "requisitos",       titulo: "3. Requisitos da contratação (inc. III)",        placeholder: "Requisitos técnicos, de sustentabilidade (Art. 5º, IV), qualidade e desempenho…" },
+      // Inciso IV — OBRIGATÓRIO (§2º)
+      { id: "estimativa",       titulo: "4. Estimativa de quantidades (inc. IV) *",       placeholder: "Memória de cálculo, parâmetros utilizados e documentos de suporte para as quantidades…" },
+      // Inciso V
+      { id: "levantamento",     titulo: "5. Levantamento de mercado (inc. V)",            placeholder: "Alternativas de mercado analisadas, solução escolhida e justificativa técnica/econômica…" },
+      // Inciso VI — OBRIGATÓRIO (§2º)
+      { id: "estimativa_valor", titulo: "6. Estimativa de valor referencial (inc. VI) *", placeholder: "Valor total estimado com metodologia, composição de preços e referências utilizadas (distinto da PP)…", rows: 4 },
+      // Inciso VII
+      { id: "solucao",          titulo: "7. Descrição da solução escolhida (inc. VII)",   placeholder: "Descrição detalhada da solução técnica adotada e justificativa da escolha…" },
+      // Inciso VIII — OBRIGATÓRIO (§2º)
+      { id: "parcelamento",     titulo: "8. Parcelamento ou não (inc. VIII) *",           placeholder: "Justificativa para parcelar ou não o objeto (Art. 40, §3º). Se não parcelado, razões técnicas/econômicas…" },
+      // Inciso IX
+      { id: "beneficios",       titulo: "9. Resultados e benefícios esperados (inc. IX)", placeholder: "Resultados pretendidos em termos quantitativos e qualitativos com a contratação…" },
+      // Inciso X
+      { id: "providencias",     titulo: "10. Providências prévias necessárias (inc. X)",  placeholder: "Licenças, autorizações, certificações ou ações administrativas a serem adotadas previamente…" },
+      // Inciso XI
+      { id: "correlatas",       titulo: "11. Contratações correlatas (inc. XI)",          placeholder: "Contratos vigentes ou a serem celebrados que guardem relação de interdependência com esta contratação…" },
+      // Inciso XII
+      { id: "sustentabilidade", titulo: "12. Impactos ambientais e sustentabilidade (inc. XII)", placeholder: "Critérios de sustentabilidade (Art. 5º, IV), impactos ambientais identificados e medidas mitigadoras…" },
+      // Inciso XIII — OBRIGATÓRIO (§2º)
+      { id: "viabilidade",      titulo: "13. Posicionamento conclusivo (inc. XIII) *",    placeholder: "Conclusão sobre a viabilidade técnica e econômica da contratação e recomendações…" },
     ],
-    buildPrompt: (ctx) => `Você é analista técnico elaborando um ETP conforme Art. 18 §1º da Lei 14.133/2021.
+    buildPrompt: (ctx) => `Você é analista técnico elaborando um ETP conforme Art. 18, §1º, incisos I a XIII, da Lei 14.133/2021.
 
-Objeto: ${ctx.objeto}
-Categoria: ${ctx.categoria}
-Quantidade: ${ctx.quantidade || "a definir"}
-Modalidade: ${ctx.modalidade || "não informada"}
+Os incisos I, IV, VI, VIII e XIII são OBRIGATÓRIOS (§2º). Os demais requerem justificativa se ausentes.
 
-Gere 8 seções do ETP em JSON. 2-3 frases técnicas por seção. Cite normas: LGPD, IN SGD/ME 1/2019 para TI quando pertinente.
+Contexto:
+- Objeto: ${ctx.objeto}
+- Natureza: ${ctx.categoria || "não informada"}
+- Modalidade: ${ctx.modalidade || "não informada"}
+- Valor estimado: ${ctx.valor ? "R$ " + ctx.valor : "não informado"}
+- Área demandante: ${ctx.area || "não informada"}
+
+Gere todas as 13 seções em JSON. 2–3 frases técnicas por seção. Cite normas quando pertinente (LGPD, IN SEGES 65/2021, IN SGD 1/2019 para TI). Inciso XII deve mencionar critérios de sustentabilidade mesmo que não aplicáveis.
 
 Responda APENAS com JSON válido:
-{"necessidade":"...","requisitos":"...","estimativa":"...","levantamento":"...","solucao":"...","beneficios":"...","parcelamento":"...","viabilidade":"..."}`,
+{"necessidade":"...","previsao_pca":"...","requisitos":"...","estimativa":"...","levantamento":"...","estimativa_valor":"...","solucao":"...","parcelamento":"...","beneficios":"...","providencias":"...","correlatas":"...","sustentabilidade":"...","viabilidade":"..."}`,
   },
   tr: {
     titulo: "Termo de Referência (TR)",
-    intro: "Consolida tudo o que foi estudado e define com precisão o objeto, requisitos, modelo de execução e fiscalização.",
+    intro: "Consolida tudo o que foi estudado e define com precisão o objeto, requisitos, modelo de execução e fiscalização. Deve conter todos os elementos do Art. 6º, XXIII, alíneas a–j.",
     artigo: "Art. 6º, XXIII · Art. 40 · Lei 14.133/2021",
     secoes: [
-      { id: "objeto",          titulo: "1. Objeto",                          placeholder: "Descrição precisa do objeto da contratação…" },
-      { id: "fundamentacao",   titulo: "2. Fundamentação",                   placeholder: "Base legal e justificativa da contratação…" },
-      { id: "descricao",       titulo: "3. Descrição da solução",            placeholder: "Solução técnica completa adotada…" },
-      { id: "requisitos",      titulo: "4. Requisitos da contratação",       placeholder: "Requisitos técnicos detalhados e específicos…" },
-      { id: "modelo_execucao", titulo: "5. Modelo de execução",              placeholder: "Como o objeto será entregue e fiscalizado…" },
-      { id: "modelo_gestao",   titulo: "6. Gestão e fiscalização",           placeholder: "Estrutura de gestão e fiscalização do contrato…" },
-      { id: "pagamento",       titulo: "7. Forma de pagamento",              placeholder: "Forma, condições e prazos de pagamento…" },
+      { id: "objeto",                  titulo: "1. Objeto (alínea a)",                            placeholder: "Descrição precisa do objeto da contratação…" },
+      { id: "fundamentacao",           titulo: "2. Fundamentação e justificativa (alínea b)",      placeholder: "Base legal e justificativa da necessidade da contratação…" },
+      { id: "descricao",               titulo: "3. Descrição da solução (alínea c)",               placeholder: "Solução técnica completa, incluindo os resultados esperados…" },
+      { id: "requisitos",              titulo: "4. Requisitos da contratação (alínea d)",          placeholder: "Requisitos técnicos, qualidade, desempenho, sustentabilidade e outras condicionantes…" },
+      { id: "modelo_execucao",         titulo: "5. Modelo de execução do objeto (alínea e)",      placeholder: "Prazos, locais de entrega/execução, dinâmica de execução e demais condições práticas…" },
+      { id: "modelo_gestao",           titulo: "6. Modelo de gestão e fiscalização (alínea f)",   placeholder: "Estrutura de gestão, designação de fiscais, indicadores de desempenho e penalidades…" },
+      { id: "pagamento",               titulo: "7. Critérios de medição e pagamento (alínea g)",  placeholder: "Forma, condições, prazos e critérios objetivos de medição e pagamento…" },
+      { id: "selecao_habilitacao",     titulo: "8. Critérios de seleção e habilitação (alínea h)", placeholder: "Forma de seleção do fornecedor, modalidade, critério de julgamento, modo de disputa e requisitos de habilitação jurídica, fiscal, técnica e econômico-financeira…" },
+      { id: "estimativa_valor_tr",     titulo: "9. Estimativa de valor e sigilo (alínea i)",      placeholder: "Estimativa do valor do objeto com metodologia utilizada. Se aplicável, indicar sigilo do orçamento (Art. 24, §1º) e fundamentar…", rows: 4 },
+      { id: "dotacao_orcamentaria_tr", titulo: "10. Adequação orçamentária (alínea j)",           placeholder: "Elemento de despesa, fonte de recurso, programa/ação e dotação orçamentária. Indicar exercício e disponibilidade de crédito ou justificativa de dispensa (SRP/exercício subsequente)…" },
     ],
-    buildPrompt: (ctx) => `Você elabora um Termo de Referência conforme Art. 6º, XXIII e Art. 40 da Lei 14.133/2021.
+    buildPrompt: (ctx) => `Você elabora um Termo de Referência completo conforme Art. 6º, XXIII (alíneas a–j) e Art. 40 da Lei 14.133/2021.
 
-Objeto: ${ctx.objeto}
-Categoria: ${ctx.categoria}
-Quantidade: ${ctx.quantidade || "a definir"}
-Valor estimado mediano: R$ ${(ctx.valorMediano || 0).toLocaleString("pt-BR")}
-ETP concluído: SIM
+Contexto:
+- Objeto: ${ctx.objeto}
+- Categoria: ${ctx.categoria}
+- Quantidade: ${ctx.quantidade || "a definir"}
+- Modalidade: ${ctx.modalidade || "não informada"}
+- Critério de julgamento: ${ctx.criterio || "Menor preço"}
+- Valor estimado mediano da pesquisa de preços: R$ ${(ctx.valorMediano || 0).toLocaleString("pt-BR")}
+- ETP concluído: SIM
 
-Gere as 7 seções do TR em JSON. 3-4 frases formais, técnicas, com citações legais.
+Gere as 10 seções do TR em JSON. 3-4 frases formais, técnicas, com citações legais. A seção 8 deve mencionar a modalidade e critério de julgamento. A seção 9 deve referenciar a pesquisa de preços realizada. A seção 10 deve indicar que a dotação orçamentária será indicada conforme disponibilidade no exercício financeiro vigente.
 
 Responda APENAS com JSON válido:
-{"objeto":"...","fundamentacao":"...","descricao":"...","requisitos":"...","modelo_execucao":"...","modelo_gestao":"...","pagamento":"..."}`,
+{"objeto":"...","fundamentacao":"...","descricao":"...","requisitos":"...","modelo_execucao":"...","modelo_gestao":"...","pagamento":"...","selecao_habilitacao":"...","estimativa_valor_tr":"...","dotacao_orcamentaria_tr":"..."}`,
+  },
+  aviso: {
+    titulo: "Aviso de Contratação Direta",
+    intro: "Publicação obrigatória no PNCP e no Diário Oficial para contratações por dispensa eletrônica ou inexigibilidade. Substitui a minuta do edital nestes casos.",
+    artigo: "Art. 74-75 · Art. 54, §1º · Lei 14.133/2021",
+    secoes: [
+      { id: "amparo_legal",       titulo: "1. Amparo legal",                                         placeholder: "Fundamento legal da contratação direta. Ex: Art. 75, I – valor abaixo do limite; Art. 74, III, d – notória especialização…" },
+      { id: "objeto_contratacao", titulo: "2. Objeto da contratação",                                placeholder: "Descrição objetiva do bem, serviço ou obra objeto da contratação direta…" },
+      { id: "justificativa",      titulo: "3. Justificativa da contratação direta",                  placeholder: "Razões fáticas e jurídicas que enquadram a contratação na hipótese de dispensa ou inexigibilidade…", rows: 4 },
+      { id: "caracterizacao",     titulo: "4. Caracterização da situação e escolha do fornecedor",   placeholder: "Demonstração objetiva do enquadramento legal, cotações realizadas, análises técnicas ou pareceres que embasam a escolha do fornecedor…" },
+    ],
+    buildPrompt: (ctx) => `Você elabora um Aviso de Contratação Direta conforme Arts. 74-75 da Lei 14.133/2021.
+
+Objeto: ${ctx.objeto}
+Modalidade: ${ctx.modalidade || "Dispensa Eletrônica"}
+Categoria: ${ctx.categoria || "não informada"}
+Valor estimado: ${ctx.valor ? "R$ " + ctx.valor : "não informado"}
+
+Gere as 4 seções em JSON. Seja objetivo e formal. Indique o amparo legal mais provável com base no objeto e modalidade. Para Dispensa Eletrônica use Art. 75; para Inexigibilidade use Art. 74.
+
+Responda APENAS com JSON válido:
+{"amparo_legal":"...","objeto_contratacao":"...","justificativa":"...","caracterizacao":"..."}`,
   },
   edital: {
     titulo: "Minuta do Edital",
@@ -601,14 +655,197 @@ Formato de resposta:
   )
 }
 
+// ─── PCA Selector Field ────────────────────────────────────────────
+function PcaSelectorField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  // "selecionar" = vincular a item do PCA | "justificar" = não consta / justificar
+  const [modo, setModo] = useState<"selecionar" | "justificar">(
+    value && !value.startsWith("PCA") ? "justificar" : "selecionar"
+  )
+  const [pcas, setPcas] = useState<any[]>([])
+  const [pcaSelecionado, setPcaSelecionado] = useState("")
+  const [itens, setItens] = useState<any[]>([])
+  const [carregandoPcas, setCarregandoPcas] = useState(false)
+  const [carregandoItens, setCarregandoItens] = useState(false)
+  const [itemSelecionadoId, setItemSelecionadoId] = useState("")
+
+  // Carrega lista de PCAs do órgão
+  useEffect(() => {
+    let isMounted = true
+    setCarregandoPcas(true)
+    const orgaoId = getOrgaoId()
+    if (!orgaoId) { setCarregandoPcas(false); return }
+    authFetch(`${API_URL}/api/pca?orgaoId=${orgaoId}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        if (!isMounted) return
+        const lista: any[] = Array.isArray(data) ? data : data.data || data.items || []
+        // Ordena por ano desc — mais recente primeiro
+        lista.sort((a, b) => (b.ano_exercicio || 0) - (a.ano_exercicio || 0))
+        setPcas(lista)
+        if (lista.length === 0) setModo("justificar")
+      })
+      .catch(() => { if (isMounted) setModo("justificar") })
+      .finally(() => { if (isMounted) setCarregandoPcas(false) })
+    return () => { isMounted = false }
+  }, [])
+
+  // Carrega itens do PCA selecionado
+  useEffect(() => {
+    if (!pcaSelecionado) { setItens([]); return }
+    let isMounted = true
+    setCarregandoItens(true)
+    authFetch(`${API_URL}/api/pca/${pcaSelecionado}/itens`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        if (!isMounted) return
+        const lista: any[] = Array.isArray(data) ? data : data.data || data.items || []
+        setItens(lista)
+      })
+      .catch(() => {})
+      .finally(() => { if (isMounted) setCarregandoItens(false) })
+    return () => { isMounted = false }
+  }, [pcaSelecionado])
+
+  const handleSelecionarItem = (itemId: string) => {
+    setItemSelecionadoId(itemId)
+    const item = itens.find((i) => i.id === itemId)
+    const pca  = pcas.find((p) => p.id === pcaSelecionado)
+    if (!item) return
+    const partes: string[] = []
+    partes.push(`${pca?.numero_pca || "PCA"} (${pca?.ano_exercicio || "—"}) · Item Nº ${item.numero_item || "?"}`)
+    partes.push(`Objeto: ${item.descricao_objeto}`)
+    if (item.valor_estimado)
+      partes.push(`Valor estimado: R$ ${Number(item.valor_estimado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)
+    if (item.trimestre_previsto)
+      partes.push(`Previsão: ${item.trimestre_previsto}º trimestre`)
+    else if (item.mes_previsto_contratacao)
+      partes.push(`Previsão: mês ${item.mes_previsto_contratacao}`)
+    if (item.modalidade_prevista)
+      partes.push(`Modalidade prevista: ${item.modalidade_prevista.replace(/_/g, " ")}`)
+    onChange(partes.join(". ") + ".")
+  }
+
+  const pcaAtual = pcas.find((p) => p.id === pcaSelecionado)
+
+  return (
+    <div className="space-y-3">
+      {/* Toggle modo */}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setModo("selecionar")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            modo === "selecionar"
+              ? "bg-[#1351b4] text-white border-[#1351b4]"
+              : "bg-white text-gray-600 border-gray-200 hover:border-[#1351b4] hover:text-[#1351b4]"
+          }`}
+        >
+          Vincular item do PCA
+        </button>
+        <button
+          type="button"
+          onClick={() => { setModo("justificar"); setItemSelecionadoId("") }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            modo === "justificar"
+              ? "bg-amber-500 text-white border-amber-500"
+              : "bg-white text-gray-600 border-gray-200 hover:border-amber-400 hover:text-amber-600"
+          }`}
+        >
+          Não consta no PCA — justificar
+        </button>
+      </div>
+
+      {modo === "selecionar" && (
+        <div className="space-y-2">
+          {carregandoPcas ? (
+            <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Carregando PCAs…
+            </div>
+          ) : pcas.length === 0 ? (
+            <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+              Nenhum PCA encontrado para o órgão. Cadastre em <strong>/orgao/pca</strong> ou selecione "Não consta no PCA" para justificar.
+            </div>
+          ) : (
+            <>
+              {/* Selector de PCA */}
+              <Select value={pcaSelecionado} onValueChange={(v) => { setPcaSelecionado(v); setItemSelecionadoId("") }}>
+                <SelectTrigger className="text-xs h-8">
+                  <SelectValue placeholder="Selecione o PCA…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {pcas.map((pca) => (
+                    <SelectItem key={pca.id} value={pca.id}>
+                      {pca.numero_pca || `PCA ${pca.ano_exercicio}`} — {pca.status?.replace(/_/g, " ")}
+                      {pca.quantidade_itens ? ` (${pca.quantidade_itens} itens)` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Selector de Item */}
+              {pcaSelecionado && (
+                carregandoItens ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Carregando itens…
+                  </div>
+                ) : itens.length === 0 ? (
+                  <div className="text-xs text-gray-400 py-1">Nenhum item encontrado neste PCA.</div>
+                ) : (
+                  <Select value={itemSelecionadoId} onValueChange={handleSelecionarItem}>
+                    <SelectTrigger className="text-xs h-8">
+                      <SelectValue placeholder="Selecione o item do PCA…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {itens.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          Item {item.numero_item} — {item.descricao_objeto?.slice(0, 60)}{(item.descricao_objeto?.length || 0) > 60 ? "…" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )
+              )}
+            </>
+          )}
+
+          {/* Preview do valor gerado */}
+          {value && value.startsWith("PCA") && (
+            <div className="p-2.5 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800 flex items-start gap-2">
+              <Check className="w-3.5 h-3.5 shrink-0 mt-0.5 text-green-600" />
+              <span>{value}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {modo === "justificar" && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-amber-700 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Art. 12, §1º — se não consta no PCA, justificar formalmente.
+          </p>
+          <Textarea
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Justifique a ausência no Plano de Contratações Anual. Ex: contratação emergencial posterior à aprovação do PCA; objeto de baixo valor não previsto; demanda surgida após o encerramento do ciclo de planejamento…"
+            rows={3}
+            className="resize-none text-sm border-amber-200 bg-amber-50/40"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Step: Documento genérico (DFD / ETP / TR / Edital) ──────────
-function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx }: {
+function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx, customRenderers }: {
   stepKey: string
   secoes: Record<string, string>
   onChangeSec: (id: string, val: string) => void
   onNext: () => void
   onBack: () => void
   ctx: any
+  customRenderers?: Record<string, (val: string, onChange: (v: string) => void, isAnimando: boolean) => React.ReactNode>
 }) {
   const tpl = TEMPLATES[stepKey]
   const [busy, setBusy] = useState(false)
@@ -695,13 +932,18 @@ function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx }: {
                   </span>
                 )}
               </label>
-              <Textarea
-                value={val}
-                onChange={(e) => onChangeSec(sec.id, e.target.value)}
-                placeholder={sec.placeholder}
-                rows={sec.rows || Math.max(2, val.split("\n").length + 1)}
-                className="resize-none text-sm bg-transparent border-gray-200"
-              />
+              {customRenderers?.[sec.id]
+                ? customRenderers[sec.id](val, (v) => onChangeSec(sec.id, v), isAnimando)
+                : (
+                  <Textarea
+                    value={val}
+                    onChange={(e) => onChangeSec(sec.id, e.target.value)}
+                    placeholder={sec.placeholder}
+                    rows={sec.rows || Math.max(2, val.split("\n").length + 1)}
+                    className="resize-none text-sm bg-transparent border-gray-200"
+                  />
+                )
+              }
             </div>
           )
         })}
@@ -874,6 +1116,138 @@ function StepPesquisa({ fontes, setFontes, onNext, onBack }: any) {
   )
 }
 
+// ─── Step: Dotação Orçamentária ───────────────────────────────────
+function StepDotacao({ dotacao, setDotacao, onNext, onBack }: any) {
+  const isSRP = dotacao.srp === "true"
+  const isExercicioSeguinte = dotacao.exercicio_seguinte === "true"
+  const dispensada = isSRP || isExercicioSeguinte
+
+  const valido = dispensada || (
+    dotacao.elemento_despesa &&
+    dotacao.fonte_recurso &&
+    dotacao.dotacao &&
+    dotacao.exercicio
+  )
+
+  return (
+    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-gray-900">Dotação Orçamentária</h2>
+        <p className="text-sm text-gray-500 mt-1">
+          Registre os dados orçamentários do processo. A reserva de dotação é obrigação do órgão (Art. 167 CF + Art. 16 LRF).
+          O sistema registra as informações — a reserva efetiva é realizada diretamente no sistema contábil do órgão.
+        </p>
+        <span className="text-xs text-[#1351b4] font-medium">Art. 167 CF/88 · Art. 16 LRF · Art. 82, §1º e Art. 105 · Lei 14.133/2021</span>
+      </div>
+
+      {/* Casos de dispensa de dotação prévia */}
+      <div className="mb-5 p-4 bg-[#f6f9fd] rounded-xl border border-[#dbe8fb] space-y-3">
+        <p className="text-xs font-semibold text-gray-700 mb-1">Dotação prévia dispensada em:</p>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isSRP}
+            onChange={(e) => setDotacao((p: any) => ({ ...p, srp: String(e.target.checked) }))}
+            className="mt-0.5"
+          />
+          <div>
+            <span className="text-xs font-medium text-gray-800">Sistema de Registro de Preços (SRP)</span>
+            <p className="text-[10px] text-gray-500 mt-0.5">Art. 82, §1º, I — a dotação é exigida somente na emissão da Nota de Empenho.</p>
+          </div>
+        </label>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isExercicioSeguinte}
+            onChange={(e) => setDotacao((p: any) => ({ ...p, exercicio_seguinte: String(e.target.checked) }))}
+            className="mt-0.5"
+          />
+          <div>
+            <span className="text-xs font-medium text-gray-800">Contrato para exercício financeiro subsequente</span>
+            <p className="text-[10px] text-gray-500 mt-0.5">Art. 105 — dotação a indicar quando do exercício em que ocorrer a despesa.</p>
+          </div>
+        </label>
+      </div>
+
+      {/* Campos de dotação */}
+      {!dispensada && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs font-semibold text-gray-700 mb-1.5">Elemento de despesa *</Label>
+              <Input
+                value={dotacao.elemento_despesa || ""}
+                onChange={(e) => setDotacao((p: any) => ({ ...p, elemento_despesa: e.target.value }))}
+                placeholder="Ex: 339039 – Outros Serviços de PJ"
+              />
+              <p className="mt-1 text-[10px] text-gray-400">Classificação da despesa pública</p>
+            </div>
+            <div>
+              <Label className="text-xs font-semibold text-gray-700 mb-1.5">Fonte de recurso *</Label>
+              <Input
+                value={dotacao.fonte_recurso || ""}
+                onChange={(e) => setDotacao((p: any) => ({ ...p, fonte_recurso: e.target.value }))}
+                placeholder="Ex: 0100 – Recursos Ordinários"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold text-gray-700 mb-1.5">Dotação orçamentária *</Label>
+            <Input
+              value={dotacao.dotacao || ""}
+              onChange={(e) => setDotacao((p: any) => ({ ...p, dotacao: e.target.value }))}
+              placeholder="Ex: 20.122.0000.2272.0001 – Programa/Ação/Sub-ação"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs font-semibold text-gray-700 mb-1.5">Valor disponível (R$)</Label>
+              <Input
+                value={dotacao.valor_dotacao || ""}
+                onChange={(e) => setDotacao((p: any) => ({ ...p, valor_dotacao: e.target.value }))}
+                placeholder="Ex: 150000.00"
+                type="number"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold text-gray-700 mb-1.5">Exercício financeiro *</Label>
+              <Input
+                value={dotacao.exercicio || ""}
+                onChange={(e) => setDotacao((p: any) => ({ ...p, exercicio: e.target.value }))}
+                placeholder={String(new Date().getFullYear())}
+                maxLength={4}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {dispensada && (
+        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl text-xs text-yellow-800 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          Dotação prévia dispensada. Os dados orçamentários serão indicados no momento da solicitação/empenho.
+        </div>
+      )}
+
+      <div className="mt-4">
+        <Label className="text-xs font-semibold text-gray-700 mb-1.5">Observações</Label>
+        <Textarea
+          value={dotacao.observacoes || ""}
+          onChange={(e) => setDotacao((p: any) => ({ ...p, observacoes: e.target.value }))}
+          placeholder="Informações adicionais: ofício de reserva, certificação do setor financeiro, número do processo orçamentário…"
+          rows={3}
+          className="resize-none"
+        />
+      </div>
+
+      <div className="mt-6 flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
+        <Button onClick={onNext} disabled={!valido} className="bg-[#1351b4] hover:bg-[#0c326f]">Próxima etapa <ArrowRight className="w-4 h-4 ml-2" /></Button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Step: Autorização ────────────────────────────────────────────
 function StepAutorizacao({ autorizacao, setAutorizacao, onNext, onBack, ctx }: any) {
   const [busy, setBusy] = useState(false)
@@ -950,6 +1324,18 @@ function StepJuridico({ parecer, setParecer, onNext, onBack, ctx }: any) {
 
 // ─── Step: Conclusão ───────────────────────────────────────────────
 function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => void; criando: boolean }) {
+  const isContratacaoDireta = MODALIDADES_CONTRATACAO_DIRETA.includes(ctx.modalidade)
+  const docs = [
+    "DFD",
+    "ETP",
+    "Mapa de Riscos",
+    "Pesquisa de Preços",
+    "Termo de Referência",
+    "Dotação Orçamentária",
+    "Autorização",
+    isContratacaoDireta ? "Aviso de Contratação Direta" : "Minuta do Edital",
+    "Parecer Jurídico",
+  ]
   return (
     <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full flex flex-col items-center justify-center text-center">
       <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mb-6">
@@ -957,10 +1343,11 @@ function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => voi
       </div>
       <h2 className="text-xl font-bold text-gray-900 mb-2">Fase interna concluída!</h2>
       <p className="text-sm text-gray-500 mb-6 max-w-md">
-        Todos os documentos foram elaborados: DFD, ETP, Mapa de Riscos, Pesquisa de Preços, TR, Autorização, Minuta do Edital e Parecer Jurídico — em conformidade com a Lei 14.133/2021.
+        Todos os documentos foram elaborados em conformidade com a Lei 14.133/2021.
+        {isContratacaoDireta && " Fluxo de contratação direta (sem minuta de edital)."}
       </p>
       <div className="grid grid-cols-2 gap-3 text-xs mb-8 text-left w-full max-w-sm">
-        {["DFD", "ETP", "Mapa de Riscos", "Pesquisa de Preços", "Termo de Referência", "Autorização", "Minuta do Edital", "Parecer Jurídico"].map((doc) => (
+        {docs.map((doc) => (
           <div key={doc} className="flex items-center gap-2 text-green-700">
             <Check className="w-3.5 h-3.5 text-green-500 shrink-0" /> {doc}
           </div>
@@ -986,8 +1373,9 @@ export default function NovoProcessoPage() {
 
   const [dados, setDados] = useState<Record<string, string>>({})
   const [docs, setDocs] = useState<Record<string, Record<string, string>>>({
-    dfd: {}, etp: {}, tr: {}, edital: {}
+    dfd: {}, etp: {}, tr: {}, edital: {}, aviso: {}
   })
+  const [dotacao, setDotacao] = useState<Record<string, string>>({})
   const [riscos, setRiscos] = useState<any[]>([])
   const [fontes, setFontes] = useState<any[]>([{ fonte: "", valor: 0 }, { fonte: "", valor: 0 }, { fonte: "", valor: 0 }])
   const [autorizacao, setAutorizacao] = useState("")
@@ -1039,6 +1427,7 @@ export default function NovoProcessoPage() {
             etp: aplicarDocumentoNasSecoes("etp", porTipo.ETP),
             tr: aplicarDocumentoNasSecoes("tr", porTipo.TR),
             edital: aplicarDocumentoNasSecoes("edital", porTipo.ME),
+            aviso: aplicarDocumentoNasSecoes("aviso", porTipo.AVISO),
           }))
           setAutorizacao(porTipo.AA?.descricao || "")
           setParecer(porTipo.PJ?.descricao || "")
@@ -1101,8 +1490,10 @@ export default function NovoProcessoPage() {
     precos_fontes: JSON.stringify(fontes.filter((f) => f.valor > 0)),
     tr: docs.tr,
     tr_requisitos: Object.values(docs.tr).join("\n\n"),
+    dotacao: JSON.stringify(dotacao),
     autorizacao_autoridade: autorizacao,
-    edital_notas: Object.values(docs.edital).join("\n\n"),
+    edital_notas: Object.values(docs.edital || {}).join("\n\n"),
+    aviso_notas: Object.values(docs.aviso || {}).join("\n\n"),
     juridico_obs: parecer,
   })
 
@@ -1201,15 +1592,30 @@ export default function NovoProcessoPage() {
   const etapaAtual = WIZARD_ETAPAS.find((e) => e.id === step)
   const idxAtual = WIZARD_ETAPAS.findIndex((e) => e.id === step)
 
+  const isContratacaoDireta = MODALIDADES_CONTRATACAO_DIRETA.includes(dados.modalidade)
+
   let content: React.ReactNode
   if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} />
   else if (step === "dfd")    content = <StepDocumento stepKey="dfd" secoes={docs.dfd} onChangeSec={(s, v) => updateDoc("dfd", s, v)} onNext={advance} onBack={back} ctx={ctx} />
-  else if (step === "etp")    content = <StepDocumento stepKey="etp" secoes={docs.etp} onChangeSec={(s, v) => updateDoc("etp", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "etp")    content = <StepDocumento
+    stepKey="etp"
+    secoes={docs.etp}
+    onChangeSec={(s, v) => updateDoc("etp", s, v)}
+    onNext={advance}
+    onBack={back}
+    ctx={ctx}
+    customRenderers={{
+      previsao_pca: (val, onChange) => <PcaSelectorField value={val} onChange={onChange} />,
+    }}
+  />
   else if (step === "riscos") content = <StepRiscos riscos={riscos} setRiscos={setRiscos} onNext={advance} onBack={back} ctx={ctx} />
   else if (step === "pesquisa") content = <StepPesquisa fontes={fontes} setFontes={setFontes} onNext={advance} onBack={back} />
   else if (step === "tr")     content = <StepDocumento stepKey="tr" secoes={docs.tr} onChangeSec={(s, v) => updateDoc("tr", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "dotacao") content = <StepDotacao dotacao={dotacao} setDotacao={setDotacao} onNext={advance} onBack={back} />
   else if (step === "autorizacao") content = <StepAutorizacao autorizacao={autorizacao} setAutorizacao={setAutorizacao} onNext={advance} onBack={back} ctx={ctx} />
-  else if (step === "edital") content = <StepDocumento stepKey="edital" secoes={docs.edital} onChangeSec={(s, v) => updateDoc("edital", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+  else if (step === "edital") content = isContratacaoDireta
+    ? <StepDocumento stepKey="aviso" secoes={docs.aviso} onChangeSec={(s, v) => updateDoc("aviso", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+    : <StepDocumento stepKey="edital" secoes={docs.edital} onChangeSec={(s, v) => updateDoc("edital", s, v)} onNext={advance} onBack={back} ctx={ctx} />
   else if (step === "juridico") content = <StepJuridico parecer={parecer} setParecer={setParecer} onNext={advance} onBack={back} ctx={ctx} />
   else content = <StepConcluido ctx={ctx} onCriar={criarProcesso} criando={criando} />
 
