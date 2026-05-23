@@ -53,13 +53,14 @@ const ETAPAS = [
     id: "DFD",
     nome: "Documento de Formalização de Demanda",
     art: "Art. 18, I",
-    route: "/orgao/fase-interna/processos/novo?id=:id&step=dfd",
+    // Abre o editor colaborativo Tiptap para DFD
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=DFD",
   },
   {
     id: "ETP",
     nome: "Estudo Técnico Preliminar",
     art: "Art. 18, §1º",
-    route: "/orgao/fase-interna/processos/novo?id=:id&step=etp",
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=ETP",
   },
   {
     id: "MR",
@@ -77,25 +78,25 @@ const ETAPAS = [
     id: "TR",
     nome: "Termo de Referência",
     art: "Art. 6º, XXIII",
-    route: "/orgao/fase-interna/processos/novo?id=:id&step=tr",
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=TR",
   },
   {
     id: "AUT",
     nome: "Autorização para abertura",
     art: "Art. 18, II",
-    route: "/orgao/fase-interna/processos/novo?id=:id&step=autorizacao",
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=AUTORIZACAO",
   },
   {
     id: "ED",
     nome: "Elaboração do Edital",
     art: "Art. 25",
-    route: "/orgao/fase-interna/processos/novo?id=:id&step=edital",
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=EDITAL",
   },
   {
     id: "PJ",
     nome: "Parecer Jurídico",
     art: "Art. 53",
-    route: "/orgao/fase-interna/processos/novo?id=:id&step=juridico",
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=PARECER_JURIDICO",
   },
 ];
 

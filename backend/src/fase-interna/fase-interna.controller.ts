@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Param,
   Body,
@@ -116,6 +117,20 @@ export class FaseInternaController {
     @Param('tipo') tipo: TipoDocumentoFaseInterna,
   ) {
     return this.faseInternaService.getDocumentosPorTipo(licitacaoId, tipo);
+  }
+
+  /**
+   * Auto-save do editor colaborativo.
+   * Atualiza apenas o conteúdo HTML do documento (sem recarregar objeto completo).
+   * Chamado a cada 2s pelo editor Tiptap enquanto o usuário edita.
+   */
+  @Patch(':licitacaoId/documentos/:tipo/conteudo')
+  async atualizarConteudo(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('tipo') tipo: TipoDocumentoFaseInterna,
+    @Body() body: { html: string },
+  ) {
+    return this.faseInternaService.atualizarConteudo(licitacaoId, tipo, body.html);
   }
 
   @Get('documento/:id')
