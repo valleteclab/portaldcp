@@ -202,6 +202,8 @@ interface FormItemState {
   trimestre_previsto: string
   prioridade: string
   renovacao_contrato: boolean
+  codigo_classe?: string
+  nome_classe?: string
 }
 
 function FormAdicionarItem({
@@ -222,7 +224,21 @@ function FormAdicionarItem({
     trimestre_previsto: '1',
     prioridade: '3',
     renovacao_contrato: false,
+    codigo_classe: item.codigo_classe,
+    nome_classe: item.nome_classe,
   })
+  const [classes, setClasses] = useState<{ id: string; codigo: string; nome: string }[]>([])
+
+  // Carregar classes quando item não tem classificação
+  useEffect(() => {
+    if (!item.codigo_classe) {
+      const tipoParam = item.tipo ? `?tipo=${item.tipo}` : ''
+      authFetch(`${API_URL}/api/catalogo/classes${tipoParam}`)
+        .then(r => r.json())
+        .then(data => setClasses(Array.isArray(data) ? data : []))
+        .catch(() => {})
+    }
+  }, [item.codigo_classe, item.tipo])
 
   const valor = parseFloat(form.valor_unitario_estimado) || 0
   const qtd = parseFloat(form.quantidade_estimada) || 0
@@ -268,10 +284,10 @@ function FormAdicionarItem({
               <span>Classificação: {item.codigo_classe} — {item.nome_classe}</span>
             </div>
           )}
-          {!item.codigo_classe && (
+          {!item.codigo_classe && !form.codigo_classe && (
             <div className="mt-1 text-xs text-amber-600 flex items-center gap-1">
               <AlertCircle className="h-3 w-3" />
-              Item sem classificação — será agrupado individualmente no PCA
+              Selecione a classificação abaixo para agrupar corretamente no PCA
             </div>
           )}
         </div>
@@ -279,6 +295,34 @@ function FormAdicionarItem({
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      {/* Classificação — obrigatório quando item não tem */}
+      {!item.codigo_classe && (
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            Classificação (Classe) *
+            <span className="ml-1 text-amber-600 font-normal">— necessária para agrupar no PCA</span>
+          </label>
+          <Select
+            value={form.codigo_classe || ''}
+            onValueChange={v => {
+              const cls = classes.find(c => c.codigo === v)
+              setForm({ ...form, codigo_classe: v, nome_classe: cls?.nome || v })
+            }}
+          >
+            <SelectTrigger className="h-9 bg-white">
+              <SelectValue placeholder="Selecione a classificação..." />
+            </SelectTrigger>
+            <SelectContent>
+              {classes.map(c => (
+                <SelectItem key={c.id} value={c.codigo}>
+                  {c.codigo} — {c.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* Campos */}
       <div className="grid grid-cols-2 gap-3">
@@ -560,6 +604,10 @@ export default function DetalheDemandaPage() {
     if (!demanda || !itemSelecionado) return
     setSalvando(true)
     try {
+      // Classe efetiva: pode vir do item (CATMAT/próprio) ou do seletor do formulário
+      const codigoClasse = itemSelecionado.codigo_classe || form.codigo_classe
+      const nomeClasse = itemSelecionado.nome_classe || form.nome_classe
+
       // 1. Registrar no catálogo federal se origem = COMPRASGOV
       if (itemSelecionado.fonte === 'COMPRASGOV') {
         await authFetch(`${API_URL}/api/catalogo/importar-item`, {
@@ -570,7 +618,8 @@ export default function DetalheDemandaPage() {
             descricao: itemSelecionado.descricao,
             tipo: itemSelecionado.tipo,
             unidade_padrao: itemSelecionado.unidade_padrao,
-            codigo_classe: itemSelecionado.codigo_classe,
+            codigo_classe: codigoClasse,
+            nome_classe: nomeClasse,
             origem: 'COMPRASGOV',
           }),
         })
@@ -587,8 +636,8 @@ export default function DetalheDemandaPage() {
           categoria: itemSelecionado.tipo,
           codigo_item_catalogo: itemSelecionado.codigo,
           descricao_objeto: itemSelecionado.descricao,
-          codigo_classe: itemSelecionado.codigo_classe,
-          nome_classe: itemSelecionado.nome_classe,
+          codigo_classe: codigoClasse,
+          nome_classe: nomeClasse,
           quantidade_estimada: quantidade,
           unidade_medida: form.unidade_medida,
           valor_unitario_estimado: valorUnitario,
