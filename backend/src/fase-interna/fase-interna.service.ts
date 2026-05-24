@@ -435,6 +435,50 @@ export class FaseInternaService {
     return { ok: true };
   }
 
+  /**
+   * Auto-save de uma seção específica do editor de seções guiadas.
+   * Atualiza dados_estruturados[secaoId] = html e regenera o cache HTML (descricao).
+   * SEM validação estrita — rascunhos sempre salvam.
+   */
+  async atualizarSecao(
+    licitacaoId: string,
+    tipo: TipoDocumentoFaseInterna,
+    secaoId: string,
+    html: string,
+  ): Promise<{ ok: boolean; secaoId: string }> {
+    let documento = await this.documentoRepository.findOne({
+      where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
+    });
+
+    if (!documento) {
+      // Cria rascunho automaticamente se ainda não existir
+      documento = this.documentoRepository.create({
+        licitacao_id: licitacaoId,
+        tipo,
+        titulo: tipo,
+        status: StatusDocumento.EM_ELABORACAO,
+        origem: OrigemDocumento.INTERNO,
+        versao: 1,
+        versao_atual: true,
+        obrigatorio: true,
+        dados_estruturados: {},
+      });
+    }
+
+    // Atualiza a seção no JSONB
+    const dados = (documento.dados_estruturados as Record<string, string>) || {};
+    dados[secaoId] = html;
+    documento.dados_estruturados = dados;
+
+    // Regenera cache HTML (descricao) a partir de todos os valores
+    documento.descricao = Object.values(dados)
+      .filter((v) => typeof v === 'string' && v.trim())
+      .join('\n');
+
+    await this.documentoRepository.save(documento);
+    return { ok: true, secaoId };
+  }
+
   // ========================================
   // DASHBOARD — KPIs AGREGADOS
   // ========================================

@@ -120,9 +120,8 @@ export class FaseInternaController {
   }
 
   /**
-   * Auto-save do editor colaborativo.
-   * Atualiza apenas o conteúdo HTML do documento (sem recarregar objeto completo).
-   * Chamado a cada 2s pelo editor Tiptap enquanto o usuário edita.
+   * Auto-save do editor (conteúdo HTML inteiro).
+   * Mantido para compatibilidade com o DocumentEditor legado.
    */
   @Patch(':licitacaoId/documentos/:tipo/conteudo')
   async atualizarConteudo(
@@ -131,6 +130,26 @@ export class FaseInternaController {
     @Body() body: { html: string },
   ) {
     return this.faseInternaService.atualizarConteudo(licitacaoId, tipo, body.html);
+  }
+
+  /**
+   * Auto-save de uma seção específica do editor de seções guiadas.
+   * Atualiza dados_estruturados[secaoId] = html.
+   * SEM validação — permite salvar rascunhos incompletos.
+   */
+  @Patch(':licitacaoId/documentos/:tipo/secao/:secaoId')
+  async atualizarSecao(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('tipo') tipo: TipoDocumentoFaseInterna,
+    @Param('secaoId') secaoId: string,
+    @Body() body: { html: string },
+  ) {
+    return this.faseInternaService.atualizarSecao(
+      licitacaoId,
+      tipo,
+      secaoId,
+      body.html || '',
+    );
   }
 
   @Get('documento/:id')
