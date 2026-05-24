@@ -121,10 +121,18 @@ export function DocumentEditor({
   // ─── Estado ────────────────────────────────────────────────────────────────
   const [presentes, setPresentes] = useState<UsuarioOnline[]>([])
   const [salvo, setSalvo] = useState<boolean | undefined>(undefined)
+  // Sinaliza que recebemos o estado inicial do Y.Doc do servidor.
+  // Apenas depois disso é seguro inicializar conteúdo a partir do initialHtml
+  // (evita duplicação quando o servidor já tem conteúdo de sessões anteriores).
+  const [yStateReceived, setYStateReceived] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const contentInitializedRef = useRef(false)
-  // Sinaliza que y-state chegou vazio do servidor → pendente de init com initialHtml
-  const pendingContentInitRef = useRef(false)
+  // Mantém o initialHtml mais recente acessível dentro de handlers do socket
+  // sem precisar reconectar o socket toda vez que initialHtml mudar.
+  const initialHtmlRef = useRef(initialHtml)
+  useEffect(() => {
+    initialHtmlRef.current = initialHtml
+  }, [initialHtml])
 
   // ─── Auto-save ─────────────────────────────────────────────────────────────
   const salvar = useCallback(
@@ -197,14 +205,11 @@ export function DocumentEditor({
     })
 
     // 2. Estado inicial do Y.Doc (enviado pelo servidor na entrada)
+    // Aplica updates do servidor e marca yStateReceived=true para liberar o init
+    // do conteúdo a partir do initialHtml (no useEffect abaixo).
     socket.on('y-state', ({ estado }: { estado: number[] }) => {
       Y.applyUpdate(ydoc, new Uint8Array(estado))
-      // Se o Y.Doc estiver vazio no servidor → sinaliza para init com initialHtml
-      // (o editor pode não estar pronto ainda; a inicialização real acontece no useEffect abaixo)
-      const xmlFragment = ydoc.getXmlFragment('default')
-      if (xmlFragment.length === 0 && initialHtml?.trim() && !contentInitializedRef.current) {
-        pendingContentInitRef.current = true
-      }
+      setYStateReceived(true)
     })
 
     // 3. Atualizações remotas do documento
@@ -256,42 +261,33 @@ export function DocumentEditor({
       awareness.off('update', onAwarenessUpdate)
       socket.disconnect()
     }
-    // Nota: `editor` intencionalmente excluído das deps — o socket deve conectar
-    // apenas uma vez. O init de conteúdo é tratado no useEffect separado abaixo.
+    // `editor` e `initialHtml` intencionalmente excluídos das deps — o socket
+    // deve conectar apenas uma vez por documentoId. O init do conteúdo é
+    // tratado no useEffect separado abaixo, que aguarda yStateReceived.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentoId, ydoc, awareness, usuario, initialHtml])
+  }, [documentoId, ydoc, awareness, usuario])
 
-  // ─── Inicialização confiável do conteúdo ───────────────────────────────────
-  // Garante que o initialHtml (do wizard) seja carregado mesmo se o
-  // y-state chegar antes do editor estar pronto.
+  // ─── Inicialização do conteúdo (após confirmar estado do servidor) ─────────
+  // Só inicializa o conteúdo a partir do initialHtml DEPOIS que o servidor
+  // enviou seu y-state. Se o servidor já tem conteúdo, esse conteúdo prevalece
+  // (xmlFragment.length > 0 → não inicializa). Isso evita duplicação quando
+  // setContent dispararia antes do y-state do servidor chegar.
   useEffect(() => {
-    if (!editor || !initialHtml?.trim() || contentInitializedRef.current) return
+    if (!editor || editor.isDestroyed) return
+    if (!yStateReceived) return
+    if (contentInitializedRef.current) return
+    const html = initialHtmlRef.current
+    if (!html?.trim()) return
 
-    const tryInit = () => {
-      if (contentInitializedRef.current) return
-      const xmlFragment = ydoc.getXmlFragment('default')
-      if (xmlFragment.length === 0) {
-        contentInitializedRef.current = true
-        editor.commands.setContent(initialHtml)
-      }
+    const xmlFragment = ydoc.getXmlFragment('default')
+    if (xmlFragment.length === 0) {
+      contentInitializedRef.current = true
+      editor.commands.setContent(html)
+    } else {
+      // Servidor já tinha conteúdo; marca como inicializado para não tentar de novo
+      contentInitializedRef.current = true
     }
-
-    // Caso 1: y-state já chegou vazio → init imediato
-    if (pendingContentInitRef.current) {
-      pendingContentInitRef.current = false
-      tryInit()
-      return
-    }
-
-    // Caso 2: y-state ainda não chegou → aguardar 800ms para o servidor responder
-    // (suficiente para a conexão WebSocket + round-trip even em redes lentas)
-    const timer = setTimeout(() => {
-      pendingContentInitRef.current = false
-      tryInit()
-    }, 800)
-
-    return () => clearTimeout(timer)
-  }, [editor, initialHtml, ydoc])
+  }, [editor, yStateReceived, ydoc])
 
   // ─── Cleanup ───────────────────────────────────────────────────────────────
   useEffect(() => {

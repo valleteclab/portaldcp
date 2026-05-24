@@ -39,6 +39,12 @@ interface DocumentoFaseInterna {
   status?: string
 }
 
+interface LicitacaoMini {
+  numero_processo?: string
+  objeto?: string
+  modalidade?: string
+}
+
 // ─── Templates de seções por tipo (para converter JSON → HTML) ───────────────
 
 interface Secao {
@@ -214,31 +220,39 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
   const tipo = (searchParams.get("tipo") || "TR").toUpperCase()
 
   const [documento, setDocumento] = useState<DocumentoFaseInterna | null>(null)
+  const [licitacao, setLicitacao] = useState<LicitacaoMini | null>(null)
   const [loading, setLoading] = useState(true)
 
   const tituloDocumento = TITULOS_TIPO[tipo] || tipo
   const initialHtml = getInitialHtml(documento)
 
   useEffect(() => {
-    carregarDocumento()
+    carregarTudo()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, tipo])
 
-  const carregarDocumento = async () => {
+  const carregarTudo = async () => {
     setLoading(true)
     try {
-      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/documentos/${tipo}`)
-      if (res.ok) {
-        const data = await res.json()
+      const [docRes, licRes] = await Promise.all([
+        authFetch(`${API_URL}/api/fase-interna/${id}/documentos/${tipo}`),
+        authFetch(`${API_URL}/api/licitacoes/${id}`),
+      ])
+
+      if (docRes.ok) {
+        const data = await docRes.json()
         // O endpoint retorna um array — pegar o primeiro documento (versão atual)
         const docItem = Array.isArray(data) ? (data[0] ?? null) : (data ?? null)
         setDocumento(docItem)
       } else {
-        // Documento não existe ainda — editor inicia vazio
         setDocumento(null)
       }
+
+      if (licRes.ok) {
+        setLicitacao(await licRes.json())
+      }
     } catch (e) {
-      console.error('[editor] Erro ao carregar documento:', e)
+      console.error('[editor] Erro ao carregar dados:', e)
       setDocumento(null)
     } finally {
       setLoading(false)
@@ -255,9 +269,8 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="flex flex-col" style={{ height: '100vh' }}>
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-5 py-2.5 bg-white border-b border-gray-200 shrink-0 z-10">
-        {/* Breadcrumb */}
+      {/* Top bar — breadcrumb + actions */}
+      <div className="flex items-center justify-between px-5 py-2 bg-white border-b border-gray-200 shrink-0 z-10">
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
           <Home className="w-3.5 h-3.5" />
           <ChevronRight className="w-3 h-3" />
@@ -266,17 +279,12 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
           </Link>
           <ChevronRight className="w-3 h-3" />
           <Link href={`/orgao/fase-interna/processos/${id}`} className="hover:text-[#1351b4]">
-            Processo
+            {licitacao?.numero_processo || "Processo"}
           </Link>
           <ChevronRight className="w-3 h-3" />
           <span className="text-[#1351b4] font-medium">{tituloDocumento}</span>
         </div>
-
-        {/* Actions */}
         <div className="flex items-center gap-2">
-          <span className="text-xs bg-[#ecf3fc] text-[#1351b4] px-2 py-0.5 rounded font-semibold">
-            {tipo}
-          </span>
           <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
             <Eye className="w-3.5 h-3.5" /> PDF
           </Button>
@@ -286,10 +294,32 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
+      {/* Document title bar — contexto visual claro do documento sendo editado */}
+      <div className="px-6 py-3 bg-gradient-to-r from-[#0c326f] to-[#1351b4] text-white shrink-0 border-b border-[#0c326f]">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/15 backdrop-blur ring-1 ring-white/25">
+            {tipo}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-sm font-semibold leading-tight truncate">{tituloDocumento}</h1>
+            {licitacao?.objeto && (
+              <p className="text-[11px] text-white/80 truncate mt-0.5">
+                {licitacao.numero_processo ? `${licitacao.numero_processo} · ` : ""}
+                {licitacao.objeto}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Editor + AI Panel — ocupa o restante da tela */}
       <div className="flex-1 overflow-hidden">
         <DocumentEditor
-          documentoId={documento?.id || `${id}-${tipo}`}
+          // documentoId estável: identifica a sala de colaboração pelo par
+          // (licitação, tipo). Não usar documento.id porque ele só fica
+          // disponível depois do load — usar uma string estável evita
+          // reconexão do socket e o problema de duplicação que causa.
+          documentoId={`${id}-${tipo}`}
           licitacaoId={id}
           tipo={tipo}
           tituloDocumento={tituloDocumento}
