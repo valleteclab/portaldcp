@@ -201,7 +201,6 @@ interface FormItemState {
   valor_unitario_estimado: string
   trimestre_previsto: string
   prioridade: string
-  justificativa: string
   renovacao_contrato: boolean
 }
 
@@ -222,7 +221,6 @@ function FormAdicionarItem({
     valor_unitario_estimado: '',
     trimestre_previsto: '1',
     prioridade: '3',
-    justificativa: '',
     renovacao_contrato: false,
   })
 
@@ -339,16 +337,6 @@ function FormAdicionarItem({
         </div>
       </div>
 
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">
-          Justificativa * <span className="text-gray-400 font-normal">(Art. 18, I — Lei 14.133/2021)</span>
-        </label>
-        <Textarea value={form.justificativa}
-          onChange={e => setForm({ ...form, justificativa: e.target.value })}
-          placeholder="Descreva a necessidade que justifica esta contratação..."
-          rows={3} className="bg-white text-sm" />
-      </div>
-
       {total > 0 && (
         <div className="bg-white rounded-lg p-3 border border-blue-100 flex justify-between items-center">
           <span className="text-sm text-gray-600">Valor Total Estimado</span>
@@ -359,12 +347,87 @@ function FormAdicionarItem({
       <div className="flex gap-2 pt-1">
         <Button variant="outline" onClick={onCancelar} className="flex-1" size="sm">Cancelar</Button>
         <Button onClick={() => onConfirm(form)}
-          disabled={loading || !form.justificativa.trim()}
+          disabled={loading || !form.quantidade_estimada || parseFloat(form.quantidade_estimada) <= 0}
           className="flex-1 bg-blue-600 hover:bg-blue-700" size="sm">
           {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
           Adicionar à Demanda
         </Button>
       </div>
+    </div>
+  )
+}
+
+// ─── Justificativa da Demanda (nível demanda, salva em observacoes) ───────────
+
+function JustificativaDemanda({
+  demandaId,
+  justificativa,
+  podeEditar,
+  onSalvo,
+}: {
+  demandaId: string
+  justificativa: string
+  podeEditar: boolean
+  onSalvo: (texto: string) => void
+}) {
+  const [texto, setTexto] = useState(justificativa)
+  const [salvando, setSalvando] = useState(false)
+  const [salvo, setSalvo] = useState(true)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Sincroniza quando a prop muda (ex.: reload)
+  useEffect(() => { setTexto(justificativa) }, [justificativa])
+
+  const salvar = useCallback(async (valor: string) => {
+    setSalvando(true)
+    try {
+      await authFetch(`${API_URL}/api/demandas/${demandaId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ observacoes: valor }),
+      })
+      onSalvo(valor)
+      setSalvo(true)
+    } finally {
+      setSalvando(false)
+    }
+  }, [demandaId, onSalvo])
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    setTexto(val)
+    setSalvo(false)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => salvar(val), 1200)
+  }
+
+  return (
+    <div className="bg-white rounded-xl border p-4 shadow-sm space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+          <FileText className="h-4 w-4 text-gray-400" />
+          Justificativa da Necessidade
+          <span className="text-xs font-normal text-gray-400">(Art. 18, I — Lei 14.133/2021)</span>
+        </label>
+        {podeEditar && (
+          <span className={`text-xs ${salvando ? 'text-amber-500' : salvo ? 'text-green-600' : 'text-gray-400'}`}>
+            {salvando ? '● Salvando…' : salvo && texto ? '✓ Salvo' : ''}
+          </span>
+        )}
+      </div>
+      {podeEditar ? (
+        <Textarea
+          value={texto}
+          onChange={handleChange}
+          placeholder="Descreva a necessidade que justifica esta demanda de contratação. Ex.: A contratação se faz necessária para garantir o funcionamento adequado das atividades do setor, conforme Art. 18, I da Lei 14.133/2021..."
+          rows={4}
+          className="text-sm resize-none border-gray-200 focus:border-blue-400"
+        />
+      ) : (
+        <p className="text-sm text-gray-700 whitespace-pre-wrap">
+          {texto || <span className="text-gray-400 italic">Sem justificativa informada.</span>}
+        </p>
+      )}
     </div>
   )
 }
@@ -532,7 +595,6 @@ export default function DetalheDemandaPage() {
           valor_total_estimado: valorUnitario * quantidade,
           trimestre_previsto: parseInt(form.trimestre_previsto),
           prioridade: parseInt(form.prioridade),
-          justificativa: form.justificativa,
           renovacao_contrato: form.renovacao_contrato,
           catalogo_utilizado: itemSelecionado.fonte === 'COMPRASGOV' ? 'COMPRASGOV' : 'OUTROS',
         }),
@@ -678,6 +740,14 @@ export default function DetalheDemandaPage() {
 
         {/* ── Coluna esquerda: Itens ─────────────────────────────────── */}
         <div className="space-y-4">
+          {/* Justificativa da demanda */}
+          <JustificativaDemanda
+            demandaId={demanda.id}
+            justificativa={demanda.observacoes || ''}
+            podeEditar={podeEditar}
+            onSalvo={(texto) => setDemanda(d => d ? { ...d, observacoes: texto } : d)}
+          />
+
           <h2 className="font-semibold text-gray-800 flex items-center gap-2">
             <BookOpen className="h-4 w-4" />
             Itens da Demanda
