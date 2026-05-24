@@ -158,11 +158,44 @@ export class CatalogoService {
       .getManyAndCount();
 
     // Enriquecer itens que têm codigo_classe mas não têm classe_id/nome_classe
-    const semClasse = dados.filter(i => i.codigo_classe && !i.classe_id && !i.nome_classe);
+    const semClasse = dados.filter(i => i.codigo_classe && !i.classe_id && !(i.nome_classe?.trim()));
     if (semClasse.length > 0) {
       const codigos = [...new Set(semClasse.map(i => i.codigo_classe!))];
+
+      // 1ª fonte: tabela ClasseCatalogo
       const classesEncontradas = await this.classeRepository.find({ where: { codigo: In(codigos) } });
-      const mapaClasses = new Map(classesEncontradas.map(c => [c.codigo, c]));
+      const mapaClasses = new Map<string, ClasseCatalogo>(classesEncontradas.map(c => [c.codigo, c]));
+
+      // 2ª fonte: outros ItemCatalogo com mesmo codigo_classe que já têm nome_classe
+      //   (itens importados via CSV têm nome_classe mas ClasseCatalogo pode não ter a entrada)
+      const codigosSemClasse = codigos.filter(c => !mapaClasses.has(c));
+      for (const codigoClasse of codigosSemClasse) {
+        const itemRef = await this.itemRepository
+          .createQueryBuilder('i')
+          .where('i.codigo_classe = :codigo', { codigo: codigoClasse })
+          .andWhere('i.nome_classe IS NOT NULL')
+          .andWhere("i.nome_classe != ''")
+          .take(1)
+          .getOne();
+
+        if (itemRef?.nome_classe) {
+          // Criar ClasseCatalogo para futuras consultas não precisarem repetir esse caminho
+          let classeEntidade = await this.classeRepository.findOne({ where: { codigo: codigoClasse } });
+          if (!classeEntidade) {
+            const tipoItem = semClasse.find(i => i.codigo_classe === codigoClasse)?.tipo ?? 'MATERIAL';
+            classeEntidade = this.classeRepository.create({
+              codigo: codigoClasse,
+              nome: itemRef.nome_classe,
+              tipo: tipoItem,
+              origem: 'COMPRASGOV',
+            });
+            await this.classeRepository.save(classeEntidade);
+          }
+          mapaClasses.set(codigoClasse, classeEntidade);
+        }
+      }
+
+      // Aplicar enriquecimento nos itens do resultado atual
       for (const item of semClasse) {
         const classe = mapaClasses.get(item.codigo_classe!);
         if (classe) {
@@ -388,6 +421,60 @@ export class CatalogoService {
     } catch (error) {
       this.logger.error(`Erro ao salvar classe: ${error.message}`);
     }
+  }
+
+  // ============ POPULAR ClasseCatalogo DOS ITENS IMPORTADOS ============
+
+  /**
+   * Varre todos os ItemCatalogo que têm (codigo_classe + nome_classe) e garante
+   * que exista uma entrada em ClasseCatalogo para cada uma.
+   * Útil para ser chamado uma vez após importar o CSV do ComprasGov.
+   */
+  async sincronizarClassesDosItens(): Promise<{ criadas: number; jaExistiam: number }> {
+    // Buscar pares (codigo_classe, nome_classe, tipo) distintos que existem nos itens
+    const pares: { codigo_classe: string; nome_classe: string; tipo: string }[] =
+      await this.itemRepository
+        .createQueryBuilder('i')
+        .select('i.codigo_classe', 'codigo_classe')
+        .addSelect('MAX(i.nome_classe)', 'nome_classe')
+        .addSelect('i.tipo', 'tipo')
+        .where('i.codigo_classe IS NOT NULL')
+        .andWhere('i.nome_classe IS NOT NULL')
+        .andWhere("i.nome_classe != ''")
+        .groupBy('i.codigo_classe')
+        .addGroupBy('i.tipo')
+        .getRawMany();
+
+    let criadas = 0;
+    let jaExistiam = 0;
+
+    for (const par of pares) {
+      const existente = await this.classeRepository.findOne({
+        where: { codigo: par.codigo_classe },
+      });
+      if (existente) {
+        jaExistiam++;
+        // Atualizar nome se estava em branco
+        if (!existente.nome && par.nome_classe) {
+          existente.nome = par.nome_classe;
+          await this.classeRepository.save(existente);
+        }
+      } else {
+        await this.classeRepository.save(
+          this.classeRepository.create({
+            codigo: par.codigo_classe,
+            nome: par.nome_classe,
+            tipo: (par.tipo as 'MATERIAL' | 'SERVICO') || 'MATERIAL',
+            origem: 'COMPRASGOV',
+          }),
+        );
+        criadas++;
+      }
+    }
+
+    this.cacheClasses.clear();
+    this.logger.log(`sincronizarClassesDosItens: ${criadas} criadas, ${jaExistiam} já existiam`);
+    return { criadas, jaExistiam };
   }
 
   // ============ ESTATÍSTICAS ============

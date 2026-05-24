@@ -79,6 +79,21 @@ export class CatalogoController {
     return { mensagem: 'Dados iniciais populados com sucesso' };
   }
 
+  // ============ SINCRONIZAR ClasseCatalogo DOS ITENS JÁ IMPORTADOS ============
+
+  /**
+   * Popula ClasseCatalogo a partir dos nome_classe já gravados em ItemCatalogo.
+   * Chamar uma vez após importar o CSV do ComprasGov para vincular classificações.
+   */
+  @Post('sincronizar-classes')
+  async sincronizarClasses() {
+    const resultado = await this.catalogoService.sincronizarClassesDosItens();
+    return {
+      mensagem: `Sincronização concluída: ${resultado.criadas} classes criadas, ${resultado.jaExistiam} já existiam`,
+      ...resultado,
+    };
+  }
+
   // ============ IMPORTAR ITEM DO CATÁLOGO COMPRAS.GOV.BR ============
 
   @Post('importar-item')
