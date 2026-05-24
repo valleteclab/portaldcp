@@ -1,29 +1,25 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { 
-  Plus, 
-  FileText, 
-  Send, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
+import { useRouter } from 'next/navigation'
+import {
+  Plus,
+  FileText,
+  Send,
+  CheckCircle,
+  XCircle,
+  Clock,
   Package,
   Wrench,
   Eye,
-  Edit,
   Trash2,
-  ChevronDown,
-  ChevronUp,
-  Filter,
   Search,
   Building2,
-  Calendar,
-  AlertCircle,
   ArrowRight,
   Loader2,
-  Save,
-  X
+  X,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,7 +41,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { BuscaItemCatalogoProprio, BuscaClassificacao } from '@/components/catalogo'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 
@@ -116,6 +111,7 @@ const PRIORIDADE_CONFIG: Record<number, { label: string; cor: string }> = {
 }
 
 function DemandasPageContent() {
+  const router = useRouter()
   const [demandas, setDemandas] = useState<Demanda[]>([])
   const [estatisticas, setEstatisticas] = useState<Estatisticas | null>(null)
   const [loading, setLoading] = useState(true)
@@ -127,8 +123,6 @@ function DemandasPageContent() {
 
   // Estados para modais
   const [showNovaDemanda, setShowNovaDemanda] = useState(false)
-  const [showDetalhes, setShowDetalhes] = useState(false)
-  const [demandaSelecionada, setDemandaSelecionada] = useState<Demanda | null>(null)
   const [demandaExpandida, setDemandaExpandida] = useState<string | null>(null)
 
   // Estado para nova demanda
@@ -219,10 +213,8 @@ function DemandasPageContent() {
           responsavel_telefone: '',
           observacoes: ''
         })
-        // Garantir que itens seja sempre array (TypeORM save() não carrega relações)
-        setDemandaSelecionada({ ...demandaCriada, itens: demandaCriada.itens ?? [] })
-        setShowDetalhes(true)
-        carregarDados()
+        // Navegar direto para a página de detalhe da demanda criada
+        router.push(`/orgao/demandas/${demandaCriada.id}`)
       } else {
         const err = await response.json().catch(() => ({}))
         alert(err.message || 'Erro ao criar demanda')
@@ -240,13 +232,8 @@ function DemandasPageContent() {
       const response = await authFetch(`${API_URL}/api/demandas/${demandaId}/enviar`, {
         method: 'PATCH'
       })
-
       if (response.ok) {
         carregarDados()
-        if (demandaSelecionada?.id === demandaId) {
-          const updated = await response.json()
-          setDemandaSelecionada(updated)
-        }
       } else {
         const error = await response.json()
         alert(error.message || 'Erro ao enviar demanda')
@@ -258,19 +245,9 @@ function DemandasPageContent() {
 
   const excluirDemanda = async (demandaId: string) => {
     if (!confirm('Tem certeza que deseja excluir esta demanda?')) return
-
     try {
-      const response = await authFetch(`${API_URL}/api/demandas/${demandaId}`, {
-        method: 'DELETE'
-      })
-
-      if (response.ok) {
-        carregarDados()
-        if (demandaSelecionada?.id === demandaId) {
-          setShowDetalhes(false)
-          setDemandaSelecionada(null)
-        }
-      }
+      const response = await authFetch(`${API_URL}/api/demandas/${demandaId}`, { method: 'DELETE' })
+      if (response.ok) carregarDados()
     } catch (error) {
       console.error('Erro ao excluir demanda:', error)
     }
@@ -502,17 +479,16 @@ function DemandasPageContent() {
 
                     {/* Ações */}
                     <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation()
-                          setDemandaSelecionada(demanda)
-                          setShowDetalhes(true)
+                          router.push(`/orgao/demandas/${demanda.id}`)
                         }}
                       >
                         <Eye className="h-4 w-4 mr-1" />
-                        Detalhes
+                        Abrir
                       </Button>
                       {demanda.status === 'RASCUNHO' && (
                         <>
@@ -628,406 +604,10 @@ function DemandasPageContent() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal Detalhes da Demanda */}
-      <DetalhesDemandaModal
-        demanda={demandaSelecionada}
-        open={showDetalhes}
-        onClose={() => {
-          setShowDetalhes(false)
-          setDemandaSelecionada(null)
-        }}
-        onUpdate={() => carregarDados()}
-        onEnviar={() => demandaSelecionada && enviarDemanda(demandaSelecionada.id)}
-      />
     </div>
   )
 }
 
-// Componente Modal de Detalhes
-function DetalhesDemandaModal({ 
-  demanda, 
-  open, 
-  onClose, 
-  onUpdate,
-  onEnviar 
-}: { 
-  demanda: Demanda | null
-  open: boolean
-  onClose: () => void
-  onUpdate: () => void
-  onEnviar: () => void
-}) {
-  const [showNovoItem, setShowNovoItem] = useState(false)
-  const [salvando, setSalvando] = useState(false)
-  const [novoItem, setNovoItem] = useState({
-    categoria: 'SERVICO' as 'MATERIAL' | 'SERVICO',
-    codigo_classe: '',
-    nome_classe: '',
-    codigo_item_catalogo: '',
-    descricao_objeto: '',
-    justificativa: '',
-    quantidade_estimada: '1',
-    unidade_medida: 'UN',
-    valor_unitario_estimado: '',
-    trimestre_previsto: '1',
-    prioridade: '3',
-    renovacao_contrato: false,
-    catalogo_utilizado: 'OUTROS'
-  })
-
-  if (!demanda) return null
-
-  const StatusIcon = STATUS_CONFIG[demanda.status]?.icon || FileText
-  const podeEditar = demanda.status === 'RASCUNHO'
-  const itens = demanda.itens ?? []
-  const totalValor = itens.reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
-
-  const adicionarItem = async () => {
-    if (!novoItem.descricao_objeto) {
-      alert('Informe a descrição do item')
-      return
-    }
-
-    setSalvando(true)
-    try {
-      const valorUnitario = parseFloat(novoItem.valor_unitario_estimado) || 0
-      const quantidade = parseFloat(novoItem.quantidade_estimada) || 1
-
-      const response = await authFetch(`${API_URL}/api/demandas/${demanda.id}/itens`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...novoItem,
-          quantidade_estimada: quantidade,
-          valor_unitario_estimado: valorUnitario,
-          valor_total_estimado: valorUnitario * quantidade,
-          trimestre_previsto: parseInt(novoItem.trimestre_previsto),
-          prioridade: parseInt(novoItem.prioridade)
-        })
-      })
-
-      if (response.ok) {
-        setShowNovoItem(false)
-        setNovoItem({
-          categoria: 'SERVICO',
-          codigo_classe: '',
-          nome_classe: '',
-          codigo_item_catalogo: '',
-          descricao_objeto: '',
-          justificativa: '',
-          quantidade_estimada: '1',
-          unidade_medida: 'UN',
-          valor_unitario_estimado: '',
-          trimestre_previsto: '1',
-          prioridade: '3',
-          renovacao_contrato: false,
-          catalogo_utilizado: 'OUTROS'
-        })
-        onUpdate()
-      }
-    } catch (error) {
-      console.error('Erro ao adicionar item:', error)
-    } finally {
-      setSalvando(false)
-    }
-  }
-
-  const removerItem = async (itemId: string) => {
-    if (!confirm('Remover este item?')) return
-
-    try {
-      await authFetch(`${API_URL}/api/demandas/itens/${itemId}`, { method: 'DELETE' })
-      onUpdate()
-    } catch (error) {
-      console.error('Erro ao remover item:', error)
-    }
-  }
-
-  const formatarMoeda = (valor: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-center justify-between">
-            <DialogTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5" />
-              {demanda.unidade_requisitante}
-            </DialogTitle>
-            <Badge className={STATUS_CONFIG[demanda.status]?.cor}>
-              <StatusIcon className="h-3 w-3 mr-1" />
-              {STATUS_CONFIG[demanda.status]?.label}
-            </Badge>
-          </div>
-          <DialogDescription>
-            Demanda para o PCA {demanda.ano_referencia}
-            {demanda.responsavel_nome && ` • Responsável: ${demanda.responsavel_nome}`}
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* Informações da Demanda */}
-        <div className="grid grid-cols-3 gap-4 py-4 border-b">
-          <div>
-            <div className="text-sm text-gray-500">Total de Itens</div>
-            <div className="text-xl font-bold">{itens.length}</div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-500">Valor Total</div>
-            <div className="text-xl font-bold text-blue-600">{formatarMoeda(totalValor)}</div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-500">Criada em</div>
-            <div className="text-xl font-bold">
-              {new Date(demanda.created_at).toLocaleDateString('pt-BR')}
-            </div>
-          </div>
-        </div>
-
-        {/* Motivo de Rejeição */}
-        {demanda.status === 'REJEITADA' && demanda.motivo_rejeicao && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
-              <div>
-                <div className="font-medium text-red-800">Motivo da Rejeição</div>
-                <p className="text-red-700">{demanda.motivo_rejeicao}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Lista de Itens */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium">Itens da Demanda</h3>
-            {podeEditar && (
-              <Button size="sm" onClick={() => setShowNovoItem(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                Adicionar Item
-              </Button>
-            )}
-          </div>
-
-          {itens.length === 0 ? (
-            <div className="text-center py-8 bg-gray-50 rounded-lg">
-              <Package className="h-12 w-12 mx-auto text-gray-300 mb-2" />
-              <p className="text-gray-500">Nenhum item cadastrado</p>
-              {podeEditar && (
-                <Button variant="outline" className="mt-4" onClick={() => setShowNovoItem(true)}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Adicionar primeiro item
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {itens.map(item => (
-                <div key={item.id} className="bg-gray-50 p-4 rounded-lg">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      {item.categoria === 'MATERIAL' ? (
-                        <Package className="h-5 w-5 text-blue-500 mt-1" />
-                      ) : (
-                        <Wrench className="h-5 w-5 text-purple-500 mt-1" />
-                      )}
-                      <div>
-                        <div className="font-medium">{item.descricao_objeto}</div>
-                        <div className="text-sm text-gray-500 space-x-2">
-                          {item.codigo_item_catalogo && (
-                            <span className="font-mono bg-gray-200 px-1 rounded">{item.codigo_item_catalogo}</span>
-                          )}
-                          {item.nome_classe && <span>• {item.nome_classe}</span>}
-                        </div>
-                        {item.justificativa && (
-                          <p className="text-sm text-gray-600 mt-1">{item.justificativa}</p>
-                        )}
-                        <div className="flex items-center gap-4 mt-2 text-sm">
-                          <span>{item.quantidade_estimada} {item.unidade_medida}</span>
-                          {item.trimestre_previsto && <span>• {item.trimestre_previsto}º Trimestre</span>}
-                          {item.renovacao_contrato && (
-                            <Badge variant="outline" className="text-xs">Renovação</Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold">{formatarMoeda(Number(item.valor_total_estimado) || 0)}</div>
-                      <div className="text-sm text-gray-500">
-                        {formatarMoeda(Number(item.valor_unitario_estimado) || 0)} / {item.unidade_medida}
-                      </div>
-                      <Badge className={PRIORIDADE_CONFIG[item.prioridade]?.cor} variant="outline">
-                        {PRIORIDADE_CONFIG[item.prioridade]?.label}
-                      </Badge>
-                      {podeEditar && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="mt-2 text-red-500"
-                          onClick={() => removerItem(item.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Formulário de Novo Item */}
-        {showNovoItem && (
-          <div className="border-t pt-4 mt-4">
-            <h4 className="font-medium mb-4 flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Novo Item
-            </h4>
-            <div className="space-y-4">
-              {/* Busca no Catálogo */}
-              <div>
-                <label className="block text-sm font-medium mb-1">Buscar Item no Catálogo</label>
-                <BuscaItemCatalogoProprio
-                  placeholder="Buscar item existente..."
-                  onChange={(item) => {
-                    if (item) {
-                      setNovoItem({
-                        ...novoItem,
-                        codigo_item_catalogo: item.codigo,
-                        descricao_objeto: item.descricao,
-                        categoria: item.tipo,
-                        unidade_medida: item.unidade_padrao || 'UN',
-                        codigo_classe: item.classificacao?.codigo || '',
-                        nome_classe: item.classificacao?.nome || ''
-                      })
-                    }
-                  }}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Categoria</label>
-                  <Select 
-                    value={novoItem.categoria} 
-                    onValueChange={(v: 'MATERIAL' | 'SERVICO') => setNovoItem({...novoItem, categoria: v})}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="SERVICO">Serviço</SelectItem>
-                      <SelectItem value="MATERIAL">Material</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Código do Item</label>
-                  <Input value={novoItem.codigo_item_catalogo} readOnly className="bg-gray-50" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Descrição *</label>
-                <Textarea
-                  value={novoItem.descricao_objeto}
-                  onChange={(e) => setNovoItem({...novoItem, descricao_objeto: e.target.value})}
-                  placeholder="Descreva o material ou serviço..."
-                  rows={2}
-                />
-              </div>
-
-              <div className="grid grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Quantidade</label>
-                  <Input
-                    type="number"
-                    value={novoItem.quantidade_estimada}
-                    onChange={(e) => setNovoItem({...novoItem, quantidade_estimada: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Unidade</label>
-                  <Select value={novoItem.unidade_medida} onValueChange={(v) => setNovoItem({...novoItem, unidade_medida: v})}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="UN">UN</SelectItem>
-                      <SelectItem value="MES">MES</SelectItem>
-                      <SelectItem value="KG">KG</SelectItem>
-                      <SelectItem value="M">M</SelectItem>
-                      <SelectItem value="L">L</SelectItem>
-                      <SelectItem value="H">H</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Valor Unitário</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={novoItem.valor_unitario_estimado}
-                    onChange={(e) => setNovoItem({...novoItem, valor_unitario_estimado: e.target.value})}
-                    placeholder="0,00"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Trimestre</label>
-                  <Select value={novoItem.trimestre_previsto} onValueChange={(v) => setNovoItem({...novoItem, trimestre_previsto: v})}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">1º Trimestre</SelectItem>
-                      <SelectItem value="2">2º Trimestre</SelectItem>
-                      <SelectItem value="3">3º Trimestre</SelectItem>
-                      <SelectItem value="4">4º Trimestre</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Justificativa</label>
-                <Textarea
-                  value={novoItem.justificativa}
-                  onChange={(e) => setNovoItem({...novoItem, justificativa: e.target.value})}
-                  placeholder="Justifique a necessidade desta contratação..."
-                  rows={2}
-                />
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setShowNovoItem(false)}>
-                  Cancelar
-                </Button>
-                <Button onClick={adicionarItem} disabled={salvando}>
-                  {salvando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                  Adicionar Item
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <DialogFooter className="border-t pt-4">
-          <Button variant="outline" onClick={onClose}>
-            Fechar
-          </Button>
-          {podeEditar && itens.length > 0 && (
-            <Button onClick={onEnviar}>
-              <Send className="h-4 w-4 mr-2" />
-              Enviar para Aprovação
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 export default function DemandasPage() {
   return (
