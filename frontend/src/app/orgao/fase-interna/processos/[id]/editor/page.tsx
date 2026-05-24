@@ -80,6 +80,17 @@ const SECOES_POR_TIPO: Record<string, Secao[]> = {
     { id: "sustentabilidade", titulo: "12. Impactos Ambientais e Sustentabilidade" },
     { id: "viabilidade", titulo: "13. Posicionamento Conclusivo" },
   ],
+  // ME = MINUTA_EDITAL (enum value 'ME')
+  ME: [
+    { id: "preambulo", titulo: "1. Preâmbulo" },
+    { id: "objeto", titulo: "2. Objeto" },
+    { id: "participacao", titulo: "3. Participação" },
+    { id: "habilitacao", titulo: "4. Habilitação" },
+    { id: "julgamento", titulo: "5. Julgamento" },
+    { id: "recursos", titulo: "6. Recursos" },
+    { id: "contratacao", titulo: "7. Contratação" },
+  ],
+  // legado — pode chegar via dados_estruturados antigos
   EDITAL: [
     { id: "preambulo", titulo: "1. Preâmbulo" },
     { id: "objeto", titulo: "2. Objeto" },
@@ -98,26 +109,29 @@ const SECOES_POR_TIPO: Record<string, Secao[]> = {
 }
 
 const TITULOS_TIPO: Record<string, string> = {
-  TR: "Termo de Referência",
-  TERMO_REFERENCIA: "Termo de Referência",
+  // Enum values (curtos) — usados nas URLs (?tipo=DFD, ?tipo=AA, etc.)
   DFD: "Documento de Formalização de Demanda",
-  DOCUMENTO_FORMALIZACAO_DEMANDA: "Documento de Formalização de Demanda",
   ETP: "Estudo Técnico Preliminar",
-  ESTUDO_TECNICO_PRELIMINAR: "Estudo Técnico Preliminar",
-  MR: "Mapa de Riscos",
-  ANALISE_RISCOS: "Análise de Riscos",
+  AR: "Análise de Riscos",
+  TR: "Termo de Referência",
   PP: "Pesquisa de Preços",
+  PJ: "Parecer Jurídico",
+  PT: "Parecer Técnico",
+  AA: "Autorização para Abertura",
+  ME: "Minuta do Edital",
+  DO: "Dotação Orçamentária",
+  // Nomes longos (chaves dos enums) — legado / compat
+  TERMO_REFERENCIA: "Termo de Referência",
+  DOCUMENTO_FORMALIZACAO_DEMANDA: "Documento de Formalização de Demanda",
+  ESTUDO_TECNICO_PRELIMINAR: "Estudo Técnico Preliminar",
+  ANALISE_RISCOS: "Análise de Riscos",
   PESQUISA_PRECOS: "Pesquisa de Preços",
-  AUT: "Autorização para Abertura",
+  PARECER_JURIDICO: "Parecer Jurídico",
   AUTORIZACAO: "Autorização para Abertura",
   AUTORIZACAO_ABERTURA: "Autorização para Abertura",
-  ED: "Minuta do Edital",
   EDITAL: "Minuta do Edital",
-  PJ: "Parecer Jurídico",
-  PARECER_JURIDICO: "Parecer Jurídico",
-  AVISO_CONTRATACAO: "Aviso de Contratação Direta",
-  DOT: "Dotação Orçamentária",
   DOTACAO_ORCAMENTARIA: "Dotação Orçamentária",
+  AVISO_CONTRATACAO: "Aviso de Contratação Direta",
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -158,12 +172,37 @@ function secoesPraHtml(tipo: string, dados: Record<string, unknown>): string {
   return html
 }
 
+/**
+ * Detecta se uma string contém HTML rico do editor Tiptap
+ * (headings, parágrafos, etc. — diferente de plain text simples).
+ */
+function isEditorHtml(s: string): boolean {
+  return /<h[1-6]|<ul|<ol|<table|<blockquote/.test(s)
+}
+
 function getInitialHtml(doc: DocumentoFaseInterna | null): string | undefined {
   if (!doc) return undefined
-  if (doc.descricao?.trim()) return doc.descricao
+
+  // 1. Conteúdo HTML rico salvo pelo editor Tiptap → usa diretamente
+  if (doc.descricao?.trim() && isEditorHtml(doc.descricao)) {
+    return doc.descricao
+  }
+
+  // 2. Dados estruturados do wizard → converte para HTML formatado com seções
   if (doc.dados_estruturados && Object.keys(doc.dados_estruturados).length > 0) {
     return secoesPraHtml(doc.tipo, doc.dados_estruturados as Record<string, unknown>)
   }
+
+  // 3. Texto puro do wizard (ex: DFD, autorizacao, parecer) → formata com título
+  if (doc.descricao?.trim()) {
+    const titulo = TITULOS_TIPO[doc.tipo] || doc.tipo
+    const paragrafos = doc.descricao.split(/\n\n+/).filter(Boolean)
+    const body = paragrafos.length > 1
+      ? paragrafos.map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('\n')
+      : `<p>${doc.descricao.replace(/\n/g, '<br/>')}</p>`
+    return `<h1>${titulo}</h1>\n${body}`
+  }
+
   return undefined
 }
 
@@ -190,13 +229,16 @@ export default function EditorDocumentoPage({ params }: { params: Promise<{ id: 
     try {
       const res = await authFetch(`${API_URL}/api/fase-interna/${id}/documentos/${tipo}`)
       if (res.ok) {
-        setDocumento(await res.json())
+        const data = await res.json()
+        // O endpoint retorna um array — pegar o primeiro documento (versão atual)
+        const docItem = Array.isArray(data) ? (data[0] ?? null) : (data ?? null)
+        setDocumento(docItem)
       } else {
         // Documento não existe ainda — editor inicia vazio
         setDocumento(null)
       }
     } catch (e) {
-      console.error(e)
+      console.error('[editor] Erro ao carregar documento:', e)
       setDocumento(null)
     } finally {
       setLoading(false)

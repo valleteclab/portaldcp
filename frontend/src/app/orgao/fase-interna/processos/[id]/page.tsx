@@ -84,19 +84,19 @@ const ETAPAS = [
     id: "AUT",
     nome: "Autorização para abertura",
     art: "Art. 18, II",
-    route: "/orgao/fase-interna/processos/:id/editor?tipo=AUTORIZACAO",
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=AA",
   },
   {
     id: "ED",
     nome: "Elaboração do Edital",
     art: "Art. 25",
-    route: "/orgao/fase-interna/processos/:id/editor?tipo=EDITAL",
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=ME",
   },
   {
     id: "PJ",
     nome: "Parecer Jurídico",
     art: "Art. 53",
-    route: "/orgao/fase-interna/processos/:id/editor?tipo=PARECER_JURIDICO",
+    route: "/orgao/fase-interna/processos/:id/editor?tipo=PJ",
   },
 ];
 
