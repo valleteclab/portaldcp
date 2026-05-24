@@ -124,13 +124,13 @@ function DemandasPageContent() {
   const [filtroUnidade, setFiltroUnidade] = useState<string>('TODAS')
   const [unidades, setUnidades] = useState<string[]>([])
   const [termoBusca, setTermoBusca] = useState('')
-  
+
   // Estados para modais
   const [showNovaDemanda, setShowNovaDemanda] = useState(false)
   const [showDetalhes, setShowDetalhes] = useState(false)
   const [demandaSelecionada, setDemandaSelecionada] = useState<Demanda | null>(null)
   const [demandaExpandida, setDemandaExpandida] = useState<string | null>(null)
-  
+
   // Estado para nova demanda
   const [novaDemanda, setNovaDemanda] = useState({
     unidade_requisitante: '',
@@ -141,14 +141,27 @@ function DemandasPageContent() {
   })
   const [salvando, setSalvando] = useState(false)
 
-  // Simular orgaoId (em produção viria do contexto de autenticação)
-  const orgaoId = 'orgao-teste-id'
+  // orgaoId carregado do localStorage (mesmo padrão do PCA)
+  const [orgaoId, setOrgaoId] = useState('')
 
   useEffect(() => {
-    carregarDados()
-  }, [anoSelecionado])
+    try {
+      const orgaoData = localStorage.getItem('orgao')
+      if (orgaoData) {
+        const orgao = JSON.parse(orgaoData)
+        setOrgaoId(orgao.id)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    if (orgaoId) carregarDados()
+  }, [anoSelecionado, orgaoId])
 
   const carregarDados = async () => {
+    if (!orgaoId) return
     setLoading(true)
     try {
       const [demandasRes, estatisticasRes, unidadesRes] = await Promise.all([
@@ -206,10 +219,13 @@ function DemandasPageContent() {
           responsavel_telefone: '',
           observacoes: ''
         })
-        // Abrir detalhes da demanda criada para adicionar itens
-        setDemandaSelecionada(demandaCriada)
+        // Garantir que itens seja sempre array (TypeORM save() não carrega relações)
+        setDemandaSelecionada({ ...demandaCriada, itens: demandaCriada.itens ?? [] })
         setShowDetalhes(true)
         carregarDados()
+      } else {
+        const err = await response.json().catch(() => ({}))
+        alert(err.message || 'Erro ao criar demanda')
       }
     } catch (error) {
       console.error('Erro ao criar demanda:', error)
@@ -278,8 +294,8 @@ function DemandasPageContent() {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
   }
 
-  const calcularTotalDemanda = (itens: ItemDemanda[]) => {
-    return itens.reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
+  const calcularTotalDemanda = (itens: ItemDemanda[] | undefined) => {
+    return (itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
   }
 
   return (
@@ -438,7 +454,7 @@ function DemandasPageContent() {
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <div className="font-medium">{demanda.itens.length} {demanda.itens.length === 1 ? 'item' : 'itens'}</div>
+                        <div className="font-medium">{(demanda.itens ?? []).length} {(demanda.itens ?? []).length === 1 ? 'item' : 'itens'}</div>
                         <div className="text-sm text-gray-500">{formatarMoeda(totalValor)}</div>
                       </div>
                       <Badge className={STATUS_CONFIG[demanda.status]?.cor}>
@@ -452,11 +468,11 @@ function DemandasPageContent() {
                 {/* Itens expandidos */}
                 {isExpanded && (
                   <div className="border-t bg-gray-50 p-4">
-                    {demanda.itens.length === 0 ? (
+                    {(demanda.itens ?? []).length === 0 ? (
                       <p className="text-center text-gray-500 py-4">Nenhum item cadastrado</p>
                     ) : (
                       <div className="space-y-2">
-                        {demanda.itens.map(item => (
+                        {(demanda.itens ?? []).map(item => (
                           <div key={item.id} className="bg-white p-3 rounded-lg border flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               {item.categoria === 'MATERIAL' ? (
@@ -517,7 +533,7 @@ function DemandasPageContent() {
                               e.stopPropagation()
                               enviarDemanda(demanda.id)
                             }}
-                            disabled={demanda.itens.length === 0}
+                            disabled={(demanda.itens ?? []).length === 0}
                           >
                             <Send className="h-4 w-4 mr-1" />
                             Enviar para Aprovação
@@ -663,7 +679,8 @@ function DetalhesDemandaModal({
 
   const StatusIcon = STATUS_CONFIG[demanda.status]?.icon || FileText
   const podeEditar = demanda.status === 'RASCUNHO'
-  const totalValor = demanda.itens.reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
+  const itens = demanda.itens ?? []
+  const totalValor = itens.reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
 
   const adicionarItem = async () => {
     if (!novoItem.descricao_objeto) {
@@ -754,7 +771,7 @@ function DetalhesDemandaModal({
         <div className="grid grid-cols-3 gap-4 py-4 border-b">
           <div>
             <div className="text-sm text-gray-500">Total de Itens</div>
-            <div className="text-xl font-bold">{demanda.itens.length}</div>
+            <div className="text-xl font-bold">{itens.length}</div>
           </div>
           <div>
             <div className="text-sm text-gray-500">Valor Total</div>
@@ -793,7 +810,7 @@ function DetalhesDemandaModal({
             )}
           </div>
 
-          {demanda.itens.length === 0 ? (
+          {itens.length === 0 ? (
             <div className="text-center py-8 bg-gray-50 rounded-lg">
               <Package className="h-12 w-12 mx-auto text-gray-300 mb-2" />
               <p className="text-gray-500">Nenhum item cadastrado</p>
@@ -806,7 +823,7 @@ function DetalhesDemandaModal({
             </div>
           ) : (
             <div className="space-y-2">
-              {demanda.itens.map(item => (
+              {itens.map(item => (
                 <div key={item.id} className="bg-gray-50 p-4 rounded-lg">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3">
@@ -1000,7 +1017,7 @@ function DetalhesDemandaModal({
           <Button variant="outline" onClick={onClose}>
             Fechar
           </Button>
-          {podeEditar && demanda.itens.length > 0 && (
+          {podeEditar && itens.length > 0 && (
             <Button onClick={onEnviar}>
               <Send className="h-4 w-4 mr-2" />
               Enviar para Aprovação
