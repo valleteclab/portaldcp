@@ -74,7 +74,10 @@ export class DemandasService {
       status: StatusDemanda.RASCUNHO,
     });
 
-    return this.demandaRepository.save(demanda);
+    const salva = await this.demandaRepository.save(demanda);
+    // Retornar com itens inicializado como array vazio para evitar erros no frontend
+    salva.itens = [];
+    return salva;
   }
 
   async update(id: string, dados: Partial<Demanda>): Promise<Demanda> {
