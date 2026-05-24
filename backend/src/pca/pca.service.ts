@@ -854,57 +854,137 @@ export class PcaService {
       throw new BadRequestException('Não é possível adicionar itens a um PCA já enviado ao PNCP');
     }
 
-    // Buscar demandas aprovadas
     const demandasRepository = this.pcaRepository.manager.connection.getRepository('Demanda');
     const itemDemandaRepository = this.pcaRepository.manager.connection.getRepository('ItemDemanda');
 
-    let itensAdicionados = 0;
     let demandasConsolidadas = 0;
+
+    // ── Coletar TODOS os itens das demandas selecionadas ──────────────────────
+    type ItemComDemanda = {
+      item: any;
+      demanda: any;
+    };
+    const todosItens: ItemComDemanda[] = [];
 
     for (const demandaId of demandaIds) {
       const demanda = await demandasRepository.findOne({
         where: { id: demandaId },
-        relations: ['itens']
+        relations: ['itens'],
       }) as any;
 
-      if (!demanda || demanda.status !== 'APROVADA') {
-        continue;
+      if (!demanda || demanda.status !== 'APROVADA') continue;
+
+      for (const item of demanda.itens || []) {
+        todosItens.push({ item, demanda });
       }
-
-      // Adicionar cada item da demanda ao PCA
-      for (const itemDemanda of demanda.itens || []) {
-        const novoItem = await this.adicionarItem(pcaId, {
-          categoria: itemDemanda.categoria,
-          descricao_objeto: itemDemanda.descricao_objeto,
-          justificativa: itemDemanda.justificativa,
-          codigo_classe: itemDemanda.codigo_classe,
-          nome_classe: itemDemanda.nome_classe,
-          codigo_item_catalogo: itemDemanda.codigo_item_catalogo,
-          catalogo_utilizado: itemDemanda.catalogo_utilizado || 'OUTROS',
-          unidade_requisitante: demanda.unidade_requisitante,
-          responsavel_demanda: demanda.responsavel_nome,
-          email_responsavel: demanda.responsavel_email,
-          valor_estimado: itemDemanda.valor_total_estimado,
-          valor_unitario_estimado: itemDemanda.valor_unitario_estimado,
-          quantidade_estimada: itemDemanda.quantidade_estimada,
-          unidade_medida: itemDemanda.unidade_medida,
-          trimestre_previsto: itemDemanda.trimestre_previsto,
-          prioridade: itemDemanda.prioridade,
-          renovacao_contrato: itemDemanda.renovacao_contrato ? 'SIM' : 'NAO',
-          data_desejada_contratacao: itemDemanda.data_desejada_contratacao
-        });
-
-        // Vincular item da demanda ao item do PCA
-        await itemDemandaRepository.update(itemDemanda.id, { item_pca_id: novoItem.id });
-        itensAdicionados++;
-      }
-
-      // Marcar demanda como consolidada
-      await demandasRepository.update(demandaId, { 
-        status: 'CONSOLIDADA',
-        pca_id: pcaId
-      });
       demandasConsolidadas++;
+    }
+
+    // ── Agrupar por classificação (codigo_classe + nome_classe + categoria) ──
+    // Itens sem classificação viram grupos individuais (chave = código do item)
+    type GrupoClassificacao = {
+      codigo_classe: string;
+      nome_classe: string;
+      categoria: string;
+      valor_total: number;
+      quantidade_total: number;
+      unidade_medida: string;
+      prioridade: number; // menor = mais prioritário
+      trimestre_previsto: number;
+      justificativas: string[];
+      itens_demanda_ids: string[];
+      unidades_requisitantes: string[];
+      responsaveis: { nome?: string; email?: string }[];
+    };
+
+    const grupos = new Map<string, GrupoClassificacao>();
+
+    for (const { item, demanda } of todosItens) {
+      // Chave de agrupamento: classificação ou, se ausente, o próprio código do item
+      const chave = item.codigo_classe
+        ? `classe:${item.codigo_classe}:${item.categoria || 'SERVICO'}`
+        : `item:${item.id}`;
+
+      if (!grupos.has(chave)) {
+        grupos.set(chave, {
+          codigo_classe: item.codigo_classe || '',
+          nome_classe: item.nome_classe || item.descricao_objeto,
+          categoria: item.categoria || 'SERVICO',
+          valor_total: 0,
+          quantidade_total: 0,
+          unidade_medida: item.unidade_medida || 'UN',
+          prioridade: item.prioridade || 3,
+          trimestre_previsto: item.trimestre_previsto || 1,
+          justificativas: [],
+          itens_demanda_ids: [],
+          unidades_requisitantes: [],
+          responsaveis: [],
+        });
+      }
+
+      const grupo = grupos.get(chave)!;
+      grupo.valor_total += Number(item.valor_total_estimado) || 0;
+      grupo.quantidade_total += Number(item.quantidade_estimada) || 1;
+      if (item.prioridade < grupo.prioridade) grupo.prioridade = item.prioridade;
+      if (item.trimestre_previsto < grupo.trimestre_previsto)
+        grupo.trimestre_previsto = item.trimestre_previsto;
+      if (item.justificativa?.trim())
+        grupo.justificativas.push(item.justificativa.trim());
+      grupo.itens_demanda_ids.push(item.id);
+      if (demanda.unidade_requisitante && !grupo.unidades_requisitantes.includes(demanda.unidade_requisitante))
+        grupo.unidades_requisitantes.push(demanda.unidade_requisitante);
+      if (demanda.responsavel_nome)
+        grupo.responsaveis.push({ nome: demanda.responsavel_nome, email: demanda.responsavel_email });
+    }
+
+    // ── Criar um ItemPCA por grupo de classificação ───────────────────────────
+    let itensAdicionados = 0;
+
+    for (const [, grupo] of grupos) {
+      const descricaoObj = grupo.nome_classe
+        ? `${grupo.categoria === 'MATERIAL' ? 'Aquisição de' : 'Contratação de'} ${grupo.nome_classe}`
+        : 'Item sem classificação';
+
+      const justificativa = grupo.justificativas.length
+        ? [...new Set(grupo.justificativas)].join(' | ')
+        : undefined;
+
+      const novoItemPca = await this.adicionarItem(pcaId, {
+        categoria: grupo.categoria as any,
+        descricao_objeto: descricaoObj,
+        justificativa,
+        codigo_classe: grupo.codigo_classe || undefined,
+        nome_classe: grupo.nome_classe || undefined,
+        catalogo_utilizado: 'COMPRASGOV',
+        unidade_requisitante: grupo.unidades_requisitantes.join(', ') || undefined,
+        responsavel_demanda: grupo.responsaveis[0]?.nome,
+        email_responsavel: grupo.responsaveis[0]?.email,
+        valor_estimado: grupo.valor_total,
+        valor_unitario_estimado: grupo.valor_total,
+        quantidade_estimada: 1,          // PCA registra por grupo, qtd = 1 contratação
+        unidade_medida: 'VB',            // VB = Verba (contratação global)
+        trimestre_previsto: grupo.trimestre_previsto,
+        prioridade: grupo.prioridade,
+        renovacao_contrato: 'NAO',
+      });
+
+      // Vincular cada item de demanda ao ItemPCA criado
+      for (const itemId of grupo.itens_demanda_ids) {
+        await itemDemandaRepository.update(itemId, { item_pca_id: novoItemPca.id });
+      }
+
+      itensAdicionados++;
+    }
+
+    // ── Marcar demandas como consolidadas ─────────────────────────────────────
+    for (const demandaId of demandaIds) {
+      const demanda = await demandasRepository.findOne({ where: { id: demandaId } }) as any;
+      if (demanda && demanda.status === 'APROVADA') {
+        await demandasRepository.update(demandaId, {
+          status: 'CONSOLIDADA',
+          pca_id: pcaId,
+        });
+      }
     }
 
     return { itensAdicionados, demandasConsolidadas };
