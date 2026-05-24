@@ -88,6 +88,7 @@ export class CatalogoController {
     tipo: 'MATERIAL' | 'SERVICO';
     unidade_padrao?: string;
     codigo_classe?: string;
+    nome_classe?: string;
     origem?: string;
   }) {
     return this.catalogoService.importarItem(itemData);

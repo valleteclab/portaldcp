@@ -5,6 +5,7 @@ export interface ItemComprasGov {
   codigo: number;
   descricao: string;
   classe?: number;
+  nome_classe?: string;
   grupo?: number;
   pdm?: string | number;
   unidade_fornecimento?: string;
@@ -80,6 +81,7 @@ export class ComprasGovService {
             codigo: item.codigoItem,
             descricao: this.montarDescricaoMaterial(item),
             classe: item.codigoClasse ?? pdm.codigoClasse,
+            nome_classe: item.nomeClasse ?? pdm.nomeClasse,
             grupo: pdm.codigoGrupo,
             pdm: item.codigoPdm ?? codigoPdm,
             status: item.statusItem,
@@ -135,6 +137,7 @@ export class ComprasGovService {
         codigo: s.codigoServico ?? s.codigo,
         descricao: s.descricaoServicoAcentuado || s.nomeServicoAcentuado || s.nomeServico,
         classe: s.codigoClasse,
+        nome_classe: s.nomeClasse,
         grupo: s.codigoGrupo,
         status: s.statusServico ?? s.status,
         tipo: 'SERVICO' as const,

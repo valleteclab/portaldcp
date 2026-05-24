@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ClasseCatalogo, ItemCatalogo, UnidadeMedida, CatalogoSyncLog } from './entities/catalogo.entity';
 import { ComprasGovService, ItemComprasGov } from './comprasgov.service';
@@ -157,6 +157,24 @@ export class CatalogoService {
       .take(limite)
       .getManyAndCount();
 
+    // Enriquecer itens que têm codigo_classe mas não têm classe_id/nome_classe
+    const semClasse = dados.filter(i => i.codigo_classe && !i.classe_id && !i.nome_classe);
+    if (semClasse.length > 0) {
+      const codigos = [...new Set(semClasse.map(i => i.codigo_classe!))];
+      const classesEncontradas = await this.classeRepository.find({ where: { codigo: In(codigos) } });
+      const mapaClasses = new Map(classesEncontradas.map(c => [c.codigo, c]));
+      for (const item of semClasse) {
+        const classe = mapaClasses.get(item.codigo_classe!);
+        if (classe) {
+          item.nome_classe = classe.nome;
+          item.classe_id = classe.id;
+          item.classe = classe;
+          // Persistir em background para próximas consultas
+          this.itemRepository.save(item).catch(() => {});
+        }
+      }
+    }
+
     // Se não encontrou localmente e tem termo, buscar na API
     if (dados.length === 0 && termo && termo.length >= 3) {
       this.logger.log(`Buscando "${termo}" na API Compras.gov.br...`);
@@ -240,10 +258,27 @@ export class CatalogoService {
         where: { codigo: String(itemApi.codigo) },
       });
 
+      // Buscar classe no banco local se houver codigo_classe
+      let classeId: string | undefined;
+      let nomeClasse: string | undefined = itemApi.nome_classe;
+      if (itemApi.classe) {
+        const classeObj = await this.classeRepository.findOne({
+          where: { codigo: String(itemApi.classe) },
+        });
+        if (classeObj) {
+          classeId = classeObj.id;
+          nomeClasse = nomeClasse || classeObj.nome;
+        }
+      }
+
       if (existente) {
         // Atualizar
         existente.descricao = itemApi.descricao || existente.descricao;
         existente.ultima_sincronizacao = new Date();
+        // Enriquecer classe se não existia antes
+        if (!existente.codigo_classe && itemApi.classe) existente.codigo_classe = String(itemApi.classe);
+        if (!existente.classe_id && classeId) existente.classe_id = classeId;
+        if (!existente.nome_classe && nomeClasse) existente.nome_classe = nomeClasse;
         return this.itemRepository.save(existente);
       }
 
@@ -253,6 +288,8 @@ export class CatalogoService {
         descricao: itemApi.descricao,
         tipo: itemApi.tipo || 'MATERIAL',
         codigo_classe: itemApi.classe ? String(itemApi.classe) : undefined,
+        nome_classe: nomeClasse,
+        classe_id: classeId,
         codigo_grupo: itemApi.grupo ? String(itemApi.grupo) : undefined,
         codigo_pdm: itemApi.pdm ? String(itemApi.pdm) : undefined,
         unidade_padrao: itemApi.unidade_fornecimento || 'UN',
@@ -626,8 +663,22 @@ export class CatalogoService {
     tipo: 'MATERIAL' | 'SERVICO';
     unidade_padrao?: string;
     codigo_classe?: string;
+    nome_classe?: string;
     origem?: string;
   }): Promise<ItemCatalogo> {
+    // Buscar classe no banco local para enriquecer com id e nome
+    let classeId: string | undefined;
+    let nomeClasse: string | undefined = itemData.nome_classe;
+    if (itemData.codigo_classe) {
+      const classeObj = await this.classeRepository.findOne({
+        where: { codigo: itemData.codigo_classe },
+      });
+      if (classeObj) {
+        classeId = classeObj.id;
+        nomeClasse = nomeClasse || classeObj.nome;
+      }
+    }
+
     // Verificar se já existe
     let item = await this.itemRepository.findOne({
       where: { codigo: itemData.codigo },
@@ -639,6 +690,8 @@ export class CatalogoService {
       item.tipo = itemData.tipo;
       if (itemData.unidade_padrao) item.unidade_padrao = itemData.unidade_padrao;
       if (itemData.codigo_classe) item.codigo_classe = itemData.codigo_classe;
+      if (classeId) item.classe_id = classeId;
+      if (nomeClasse) item.nome_classe = nomeClasse;
       item.origem = 'COMPRASGOV';
       await this.itemRepository.save(item);
       this.logger.log(`Item atualizado: ${itemData.codigo} - ${itemData.descricao}`);
@@ -650,6 +703,8 @@ export class CatalogoService {
         tipo: itemData.tipo,
         unidade_padrao: itemData.unidade_padrao || 'UN',
         codigo_classe: itemData.codigo_classe,
+        nome_classe: nomeClasse,
+        classe_id: classeId,
         origem: 'COMPRASGOV',
         ativo: true,
       });
