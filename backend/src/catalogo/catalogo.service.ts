@@ -764,15 +764,31 @@ export class CatalogoService {
     unidade_padrao?: string;
     codigo_classe?: string;
     nome_classe?: string;
+    codigo_pdm?: string;
+    nome_pdm?: string;
+    descricao_detalhada?: string;
     origem?: string;
   }): Promise<ItemCatalogo> {
     // Buscar classe no banco local para enriquecer com id e nome
     let classeId: string | undefined;
     let nomeClasse: string | undefined = itemData.nome_classe;
     if (itemData.codigo_classe) {
-      const classeObj = await this.classeRepository.findOne({
+      let classeObj = await this.classeRepository.findOne({
         where: { codigo: itemData.codigo_classe },
       });
+      if (!classeObj && itemData.nome_classe) {
+        classeObj = await this.classeRepository.save(
+          this.classeRepository.create({
+            codigo: itemData.codigo_classe,
+            nome: itemData.nome_classe,
+            tipo: itemData.tipo,
+            origem: 'COMPRASGOV',
+            ativo: true,
+          }),
+        );
+        this.cacheClasses.clear();
+        this.logger.log(`Classe importada: ${itemData.codigo_classe} - ${itemData.nome_classe}`);
+      }
       if (classeObj) {
         classeId = classeObj.id;
         nomeClasse = nomeClasse || classeObj.nome;
@@ -792,6 +808,9 @@ export class CatalogoService {
       if (itemData.codigo_classe) item.codigo_classe = itemData.codigo_classe;
       if (classeId) item.classe_id = classeId;
       if (nomeClasse) item.nome_classe = nomeClasse;
+      if (itemData.codigo_pdm) item.codigo_pdm = itemData.codigo_pdm;
+      if (itemData.nome_pdm) item.nome_pdm = itemData.nome_pdm;
+      if (itemData.descricao_detalhada) item.descricao_detalhada = itemData.descricao_detalhada;
       item.origem = 'COMPRASGOV';
       await this.itemRepository.save(item);
       this.logger.log(`Item atualizado: ${itemData.codigo} - ${itemData.descricao}`);
@@ -805,6 +824,9 @@ export class CatalogoService {
         codigo_classe: itemData.codigo_classe,
         nome_classe: nomeClasse,
         classe_id: classeId,
+        codigo_pdm: itemData.codigo_pdm,
+        nome_pdm: itemData.nome_pdm,
+        descricao_detalhada: itemData.descricao_detalhada,
         origem: 'COMPRASGOV',
         ativo: true,
       });

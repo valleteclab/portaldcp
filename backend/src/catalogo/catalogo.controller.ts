@@ -137,6 +137,9 @@ export class CatalogoController {
     unidade_padrao?: string;
     codigo_classe?: string;
     nome_classe?: string;
+    codigo_pdm?: string;
+    nome_pdm?: string;
+    descricao_detalhada?: string;
     origem?: string;
   }) {
     return this.catalogoService.importarItem(itemData);

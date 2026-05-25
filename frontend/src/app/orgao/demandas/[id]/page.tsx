@@ -69,6 +69,9 @@ interface ItemSelecionado {
   unidade_padrao?: string
   codigo_classe?: string
   nome_classe?: string
+  codigo_pdm?: string
+  nome_pdm?: string
+  descricao_detalhada?: string
   fonte: 'COMPRASGOV' | 'PROPRIO' | 'NOVO'
 }
 
@@ -392,6 +395,9 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
                     unidade_padrao: item.unidade_padrao,
                     codigo_classe: item.codigo_classe || item.classe?.codigo,
                     nome_classe: item.classe?.nome || item.nome_classe,
+                    codigo_pdm: item.codigo_pdm,
+                    nome_pdm: item.nome_pdm,
+                    descricao_detalhada: item.descricao_detalhada,
                     fonte: 'COMPRASGOV',
                   })}
                   className="w-full grid grid-cols-[80px_1fr_32px] items-start px-4 py-3 hover:bg-blue-50 text-left transition-colors group gap-3"
@@ -910,6 +916,9 @@ export default function DetalheDemandaPage() {
             unidade_padrao: itemSelecionado.unidade_padrao,
             codigo_classe: codigoClasse,
             nome_classe: nomeClasse,
+            codigo_pdm: itemSelecionado.codigo_pdm,
+            nome_pdm: itemSelecionado.nome_pdm,
+            descricao_detalhada: itemSelecionado.descricao_detalhada,
             origem: 'COMPRASGOV',
           }),
         })
@@ -1410,7 +1419,7 @@ export default function DetalheDemandaPage() {
         setDialogAdicionar(open)
         if (!open) setItemSelecionado(null)
       }}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Plus className="h-4 w-4 text-blue-600" />
