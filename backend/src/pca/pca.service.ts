@@ -295,6 +295,29 @@ export class PcaService {
       throw new BadRequestException('Não é possível excluir um PCA já enviado ao PNCP');
     }
 
+    const demandasRepository = this.pcaRepository.manager.connection.getRepository('Demanda');
+    const itemDemandaRepository = this.pcaRepository.manager.connection.getRepository('ItemDemanda');
+
+    const demandasConsolidadas = await demandasRepository.find({
+      where: { pca_id: id } as any,
+    }) as any[];
+
+    if (demandasConsolidadas.length > 0) {
+      await itemDemandaRepository
+        .createQueryBuilder()
+        .update()
+        .set({ item_pca_id: null } as any)
+        .where('demanda_id IN (:...demandaIds)', { demandaIds: demandasConsolidadas.map((demanda) => demanda.id) })
+        .execute();
+
+      await demandasRepository
+        .createQueryBuilder()
+        .update()
+        .set({ status: 'APROVADA', pca_id: null } as any)
+        .where('pca_id = :pcaId', { pcaId: id })
+        .execute();
+    }
+
     // Excluir itens primeiro
     await this.itemPcaRepository.delete({ pca_id: id });
     

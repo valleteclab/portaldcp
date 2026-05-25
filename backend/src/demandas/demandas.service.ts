@@ -248,7 +248,7 @@ export class DemandasService {
   // ==================== CONSOLIDAÇÃO PARA PCA ====================
 
   async getDemandasParaConsolidar(orgaoId: string, ano: number): Promise<Demanda[]> {
-    return this.demandaRepository.find({
+    const aprovadas = await this.demandaRepository.find({
       where: {
         orgao_id: orgaoId,
         ano_referencia: ano,
@@ -257,6 +257,44 @@ export class DemandasService {
       relations: ['itens'],
       order: { unidade_requisitante: 'ASC' }
     });
+
+    const orfas = await this.demandaRepository
+      .createQueryBuilder('d')
+      .leftJoinAndSelect('d.itens', 'itens')
+      .leftJoin('planos_contratacao_anual', 'pca', 'pca.id = d.pca_id')
+      .where('d.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('d.ano_referencia = :ano', { ano })
+      .andWhere('d.status = :status', { status: StatusDemanda.CONSOLIDADA })
+      .andWhere('d.pca_id IS NOT NULL')
+      .andWhere('pca.id IS NULL')
+      .orderBy('d.unidade_requisitante', 'ASC')
+      .getMany();
+
+    if (orfas.length > 0) {
+      const ids = orfas.map((demanda) => demanda.id);
+      await this.itemDemandaRepository
+        .createQueryBuilder()
+        .update()
+        .set({ item_pca_id: null } as any)
+        .where('demanda_id IN (:...ids)', { ids })
+        .execute();
+
+      await this.demandaRepository
+        .createQueryBuilder()
+        .update()
+        .set({ status: StatusDemanda.APROVADA, pca_id: null } as any)
+        .where('id IN (:...ids)', { ids })
+        .execute();
+
+      orfas.forEach((demanda) => {
+        demanda.status = StatusDemanda.APROVADA;
+        demanda.pca_id = null as any;
+      });
+    }
+
+    return [...aprovadas, ...orfas].sort((a, b) =>
+      a.unidade_requisitante.localeCompare(b.unidade_requisitante, 'pt-BR')
+    );
   }
 
   async marcarComoConsolidada(demandaId: string, pcaId: string): Promise<Demanda> {
