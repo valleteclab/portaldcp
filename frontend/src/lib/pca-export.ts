@@ -16,6 +16,7 @@ export interface PcaExportItem {
   valor_estimado?: number | string | null
   valor_orcamentario_exercicio?: number | string | null
   renovacao_contrato?: string
+  data_desejada_contratacao?: string
   trimestre_previsto?: number | string | null
   unidade_requisitante?: string
   codigo_grupo?: string
@@ -73,6 +74,15 @@ function dataDesejada(ano: number, trimestre?: number | string | null): string {
   return `01/${String(mes).padStart(2, '0')}/${ano}`
 }
 
+function dataDesejadaItem(ano: number, item: PcaExportItem): string {
+  if (item.data_desejada_contratacao) {
+    const [yyyy, mm, dd] = String(item.data_desejada_contratacao).slice(0, 10).split('-')
+    if (yyyy && mm && dd) return `${dd}/${mm}/${yyyy}`
+  }
+
+  return dataDesejada(ano, item.trimestre_previsto)
+}
+
 export function montarDadosExportacaoPca(pca: PcaExportData) {
   return (pca.itens || []).map((item, index) => ({
     'Numero Item*': index + 1,
@@ -93,7 +103,7 @@ export function montarDadosExportacaoPca(pca: PcaExportData) {
     'Valor Total Estimado (R$)*': numero(item.valor_estimado),
     'Valor orçamentário estimado para o exercício (R$)*': numero(item.valor_orcamentario_exercicio || item.valor_estimado),
     'Renovação Contrato*': item.renovacao_contrato === 'SIM' ? '1-Sim' : '2-Não',
-    'Data Desejada*': dataDesejada(pca.ano_exercicio, item.trimestre_previsto),
+    'Data Desejada*': dataDesejadaItem(pca.ano_exercicio, item),
     'Unidade Requisitante': item.unidade_requisitante || '',
     'Grupo Contratação Codigo': item.identificador_contratacao || item.codigo_grupo || '',
     'Grupo Contratação Nome': item.nome_contratacao || item.nome_grupo || '',

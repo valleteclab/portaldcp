@@ -41,6 +41,7 @@ interface ItemDemanda {
   valor_unitario_estimado?: number
   valor_total_estimado?: number
   trimestre_previsto?: number
+  data_desejada_contratacao?: string
   renovacao_contrato: boolean
   prioridade: number
   catalogo_utilizado: string
@@ -56,6 +57,8 @@ interface Demanda {
   responsavel_telefone?: string
   status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA'
   observacoes?: string
+  data_desejada_contratacao?: string
+  renovacao_contrato?: boolean
   motivo_rejeicao?: string
   created_at: string
   itens: ItemDemanda[]
@@ -1272,6 +1275,13 @@ export default function DetalheDemandaPage() {
                 {[
                   { label: 'Unidade Requisitante', valor: demanda.unidade_requisitante },
                   { label: 'Ano de Referência (PCA)', valor: String(demanda.ano_referencia) },
+                  { label: 'Tipo da Demanda', valor: demanda.renovacao_contrato ? 'Renovação contratual' : 'Nova demanda' },
+                  {
+                    label: 'Data Desejada',
+                    valor: demanda.data_desejada_contratacao
+                      ? new Date(demanda.data_desejada_contratacao).toLocaleDateString('pt-BR')
+                      : '-'
+                  },
                   { label: 'Status', valor: STATUS_CONFIG[demanda.status]?.label },
                   { label: 'Data de Criação', valor: new Date(demanda.created_at).toLocaleDateString('pt-BR') },
                 ].map(row => (

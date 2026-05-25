@@ -45,6 +45,12 @@ export class Demanda {
   @Column({ type: 'text', nullable: true })
   observacoes: string;
 
+  @Column({ type: 'date', nullable: true })
+  data_desejada_contratacao: Date;
+
+  @Column({ default: false })
+  renovacao_contrato: boolean;
+
   @Column({ type: 'timestamp', nullable: true })
   data_envio: Date;
 

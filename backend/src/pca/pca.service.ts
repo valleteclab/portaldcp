@@ -964,6 +964,8 @@ export class PcaService {
       unidade_medida: string;
       prioridade: number; // menor = mais prioritário
       trimestre_previsto: number;
+      data_desejada_contratacao?: Date | string;
+      renovacao_contrato: boolean;
       justificativas: string[];
       itens_demanda_ids: string[];
       unidades_requisitantes: string[];
@@ -991,6 +993,8 @@ export class PcaService {
           unidade_medida: item.unidade_medida || 'UN',
           prioridade: item.prioridade || 3,
           trimestre_previsto: item.trimestre_previsto || 1,
+          data_desejada_contratacao: item.data_desejada_contratacao || demanda.data_desejada_contratacao,
+          renovacao_contrato: !!(item.renovacao_contrato || demanda.renovacao_contrato),
           justificativas: [],
           itens_demanda_ids: [],
           unidades_requisitantes: [],
@@ -1007,6 +1011,11 @@ export class PcaService {
       if (item.prioridade < grupo.prioridade) grupo.prioridade = item.prioridade;
       if (item.trimestre_previsto < grupo.trimestre_previsto)
         grupo.trimestre_previsto = item.trimestre_previsto;
+      const dataDesejada = item.data_desejada_contratacao || demanda.data_desejada_contratacao;
+      if (dataDesejada && (!grupo.data_desejada_contratacao || new Date(dataDesejada) < new Date(grupo.data_desejada_contratacao))) {
+        grupo.data_desejada_contratacao = dataDesejada;
+      }
+      grupo.renovacao_contrato = grupo.renovacao_contrato || !!(item.renovacao_contrato || demanda.renovacao_contrato);
       if (item.justificativa?.trim())
         grupo.justificativas.push(item.justificativa.trim());
       grupo.itens_demanda_ids.push(item.id);
@@ -1067,8 +1076,9 @@ export class PcaService {
         quantidade_estimada: 1,          // PCA registra por grupo, qtd = 1 contratação
         unidade_medida: 'VB',            // VB = Verba (contratação global)
         trimestre_previsto: grupo.trimestre_previsto,
+        data_desejada_contratacao: grupo.data_desejada_contratacao as any,
         prioridade: grupo.prioridade,
-        renovacao_contrato: 'NAO',
+        renovacao_contrato: grupo.renovacao_contrato ? 'SIM' : 'NAO',
       });
       proximoNumeroContratacao++;
 

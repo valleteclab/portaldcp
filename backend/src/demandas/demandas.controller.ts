@@ -85,6 +85,8 @@ export class DemandasController {
       responsavel_email?: string;
       responsavel_telefone?: string;
       observacoes?: string;
+      data_desejada_contratacao?: string;
+      renovacao_contrato?: boolean;
     },
   ) {
     return this.demandasService.create(dados);

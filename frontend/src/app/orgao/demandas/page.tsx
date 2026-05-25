@@ -76,6 +76,8 @@ interface Demanda {
   responsavel_telefone?: string
   status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA'
   observacoes?: string
+  data_desejada_contratacao?: string
+  renovacao_contrato?: boolean
   data_envio?: string
   data_aprovacao?: string
   aprovado_por?: string
@@ -83,6 +85,15 @@ interface Demanda {
   pca_id?: string
   created_at: string
   itens: ItemDemanda[]
+}
+
+interface SetorOrgao {
+  id: string
+  codigo: string
+  nome: string
+  responsavel_nome?: string
+  responsavel_email?: string
+  responsavel_telefone?: string
 }
 
 interface Estatisticas {
@@ -119,6 +130,7 @@ function DemandasPageContent() {
   const [filtroStatus, setFiltroStatus] = useState<string>('TODOS')
   const [filtroUnidade, setFiltroUnidade] = useState<string>('TODAS')
   const [unidades, setUnidades] = useState<string[]>([])
+  const [setores, setSetores] = useState<SetorOrgao[]>([])
   const [termoBusca, setTermoBusca] = useState('')
 
   // Estados para modais
@@ -131,6 +143,8 @@ function DemandasPageContent() {
     responsavel_nome: '',
     responsavel_email: '',
     responsavel_telefone: '',
+    data_desejada_contratacao: '',
+    renovacao_contrato: false,
     observacoes: ''
   })
   const [salvando, setSalvando] = useState(false)
@@ -158,10 +172,11 @@ function DemandasPageContent() {
     if (!orgaoId) return
     setLoading(true)
     try {
-      const [demandasRes, estatisticasRes, unidadesRes] = await Promise.all([
+      const [demandasRes, estatisticasRes, unidadesRes, setoresRes] = await Promise.all([
         authFetch(`${API_URL}/api/demandas?orgaoId=${orgaoId}&ano=${anoSelecionado}`),
         authFetch(`${API_URL}/api/demandas/estatisticas?orgaoId=${orgaoId}&ano=${anoSelecionado}`),
-        authFetch(`${API_URL}/api/demandas/unidades?orgaoId=${orgaoId}`)
+        authFetch(`${API_URL}/api/demandas/unidades?orgaoId=${orgaoId}`),
+        authFetch(`${API_URL}/api/orgaos/${orgaoId}/setores`)
       ])
 
       if (demandasRes.ok) {
@@ -177,6 +192,11 @@ function DemandasPageContent() {
       if (unidadesRes.ok) {
         const data = await unidadesRes.json()
         setUnidades(data)
+      }
+
+      if (setoresRes.ok) {
+        const data = await setoresRes.json()
+        setSetores(Array.isArray(data) ? data : [])
       }
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
@@ -211,6 +231,8 @@ function DemandasPageContent() {
           responsavel_nome: '',
           responsavel_email: '',
           responsavel_telefone: '',
+          data_desejada_contratacao: '',
+          renovacao_contrato: false,
           observacoes: ''
         })
         // Navegar direto para a página de detalhe da demanda criada
@@ -541,11 +563,67 @@ function DemandasPageContent() {
           <div className="space-y-4 py-4">
             <div>
               <label className="block text-sm font-medium mb-1">Unidade Requisitante *</label>
-              <Input
-                value={novaDemanda.unidade_requisitante}
-                onChange={(e) => setNovaDemanda({...novaDemanda, unidade_requisitante: e.target.value})}
-                placeholder="Ex: Departamento de TI, Setor de Compras..."
-              />
+              {setores.length > 0 ? (
+                <Select
+                  value={novaDemanda.unidade_requisitante}
+                  onValueChange={(value) => {
+                    const setor = setores.find(s => s.nome === value)
+                    setNovaDemanda({
+                      ...novaDemanda,
+                      unidade_requisitante: value,
+                      responsavel_nome: setor?.responsavel_nome || novaDemanda.responsavel_nome,
+                      responsavel_email: setor?.responsavel_email || novaDemanda.responsavel_email,
+                      responsavel_telefone: setor?.responsavel_telefone || novaDemanda.responsavel_telefone
+                    })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o setor requisitante" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {setores.map(setor => (
+                      <SelectItem key={setor.id} value={setor.nome}>
+                        {setor.codigo} - {setor.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={novaDemanda.unidade_requisitante}
+                  onChange={(e) => setNovaDemanda({...novaDemanda, unidade_requisitante: e.target.value})}
+                  placeholder="Ex: Departamento de TI, Setor de Compras..."
+                />
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Tipo da Demanda</label>
+                <Select
+                  value={novaDemanda.renovacao_contrato ? 'RENOVACAO' : 'NOVA'}
+                  onValueChange={(value) => setNovaDemanda({
+                    ...novaDemanda,
+                    renovacao_contrato: value === 'RENOVACAO'
+                  })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NOVA">Nova demanda</SelectItem>
+                    <SelectItem value="RENOVACAO">Renovação contratual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Data Desejada</label>
+                <Input
+                  type="date"
+                  value={novaDemanda.data_desejada_contratacao}
+                  onChange={(e) => setNovaDemanda({...novaDemanda, data_desejada_contratacao: e.target.value})}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

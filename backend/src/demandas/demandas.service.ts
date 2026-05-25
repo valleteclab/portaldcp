@@ -62,6 +62,8 @@ export class DemandasService {
     responsavel_email?: string;
     responsavel_telefone?: string;
     observacoes?: string;
+    data_desejada_contratacao?: Date | string;
+    renovacao_contrato?: boolean;
   }): Promise<Demanda> {
     const demanda = this.demandaRepository.create({
       orgao_id: dados.orgaoId,
@@ -71,6 +73,8 @@ export class DemandasService {
       responsavel_email: dados.responsavel_email,
       responsavel_telefone: dados.responsavel_telefone,
       observacoes: dados.observacoes,
+      data_desejada_contratacao: dados.data_desejada_contratacao as any,
+      renovacao_contrato: !!dados.renovacao_contrato,
       status: StatusDemanda.RASCUNHO,
     });
 
@@ -193,6 +197,8 @@ export class DemandasService {
     const item = this.itemDemandaRepository.create({
       ...dados,
       demanda_id: demandaId,
+      data_desejada_contratacao: (dados.data_desejada_contratacao || demanda.data_desejada_contratacao) as any,
+      renovacao_contrato: dados.renovacao_contrato ?? demanda.renovacao_contrato ?? false,
       valor_total_estimado: valorTotal,
     });
 
