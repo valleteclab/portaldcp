@@ -487,6 +487,8 @@ function FormAdicionarItem({
   })
   const [classes, setClasses] = useState<{ id: string; codigo: string; nome: string }[]>([])
   const [classeOpen, setClasseOpen] = useState(false)
+  const [buscaClasse, setBuscaClasse] = useState(item.nome_classe || item.codigo_classe || '')
+  const [criandoClasse, setCriandoClasse] = useState(false)
 
   // Sempre carregar classes — usa as classificações do nosso catálogo próprio
   useEffect(() => {
@@ -502,6 +504,38 @@ function FormAdicionarItem({
   const classeSelecionada = form.codigo_classe
     ? classes.find(c => c.codigo === form.codigo_classe)
     : null
+  const termoNovaClasse = buscaClasse.trim()
+  const existeClasseNaBusca = termoNovaClasse.length > 0 && classes.some(c =>
+    c.codigo.toLowerCase() === termoNovaClasse.toLowerCase() ||
+    c.nome.trim().toLowerCase() === termoNovaClasse.toLowerCase()
+  )
+  const podeCriarClasse = termoNovaClasse.length >= 3 && !existeClasseNaBusca
+
+  const criarClassificacao = async () => {
+    if (!podeCriarClasse || criandoClasse) return
+    setCriandoClasse(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/catalogo-proprio/classificacoes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nome: termoNovaClasse,
+          tipo: item.tipo,
+          palavras_chave: termoNovaClasse.split(/\s+/).filter(Boolean),
+        }),
+      })
+      if (!res.ok) throw new Error('Erro ao criar classificacao')
+      const nova = await res.json()
+      setClasses(prev => [...prev, nova].sort((a, b) => a.codigo.localeCompare(b.codigo)))
+      setForm(prev => ({ ...prev, codigo_classe: nova.codigo, nome_classe: nova.nome }))
+      setBuscaClasse('')
+      setClasseOpen(false)
+    } catch {
+      alert('Não foi possível criar a classificação agora. Tente novamente.')
+    } finally {
+      setCriandoClasse(false)
+    }
+  }
 
   const valor = parseFloat(form.valor_unitario_estimado) || 0
   const qtd = parseFloat(form.quantidade_estimada) || 0
@@ -578,13 +612,30 @@ function FormAdicionarItem({
             <Command>
               <CommandInput
                 placeholder={`Buscar por código ou nome${item.codigo_classe ? ` (ex: ${item.codigo_classe})` : ''}...`}
-                defaultValue={item.codigo_classe || ''}
+                value={buscaClasse}
+                onValueChange={setBuscaClasse}
               />
               <CommandList>
                 <CommandEmpty className="py-4 text-center text-sm text-gray-500">
                   Nenhuma classificação encontrada
                 </CommandEmpty>
                 <CommandGroup>
+                  {podeCriarClasse && (
+                    <CommandItem
+                      value={`criar ${termoNovaClasse}`}
+                      onSelect={criarClassificacao}
+                      className="flex items-center gap-2 cursor-pointer text-blue-700"
+                    >
+                      {criandoClasse ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4 shrink-0" />
+                      )}
+                      <span className="truncate text-sm font-medium">
+                        Criar nova classificação: "{termoNovaClasse}"
+                      </span>
+                    </CommandItem>
+                  )}
                   {classes.map(c => (
                     <CommandItem
                       key={c.id}
@@ -680,7 +731,7 @@ function FormAdicionarItem({
       <div className="flex gap-2 pt-1">
         <Button variant="outline" onClick={onCancelar} className="flex-1" size="sm">Cancelar</Button>
         <Button onClick={() => onConfirm(form)}
-          disabled={loading || !form.quantidade_estimada || parseFloat(form.quantidade_estimada) <= 0}
+          disabled={loading || !form.codigo_classe || !form.quantidade_estimada || parseFloat(form.quantidade_estimada) <= 0}
           className="flex-1 bg-blue-600 hover:bg-blue-700" size="sm">
           {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
           Adicionar à Demanda

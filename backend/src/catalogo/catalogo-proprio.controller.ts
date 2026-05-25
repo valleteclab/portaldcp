@@ -48,6 +48,7 @@ export class CatalogoProprioController {
 
   @Post('classificacoes')
   async criarClassificacao(
+    @Req() request: { user: JwtPayload },
     @Body() dados: {
       nome: string;
       tipo: 'MATERIAL' | 'SERVICO';
@@ -56,7 +57,8 @@ export class CatalogoProprioController {
       orgaoId?: string;
     },
   ) {
-    return this.catalogoProprioService.criarClassificacao(dados);
+    const orgaoId = dados.orgaoId || this.getOrgaoIdOptional(request.user);
+    return this.catalogoProprioService.criarClassificacao({ ...dados, orgaoId });
   }
 
   @Put('classificacoes/:id')
