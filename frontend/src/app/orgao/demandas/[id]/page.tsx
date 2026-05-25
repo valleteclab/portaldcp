@@ -95,24 +95,74 @@ type FonteBusca = 'federal' | 'proprio'
 
 // ─── Busca CATMAT/CATSER (catálogo federal) inline ────────────────────────────
 
+interface PdmComprasGov {
+  codigoPdm: number
+  nomePdm: string
+  codigoClasse?: number
+  nomeClasse?: string
+}
+
+interface FiltroPdm {
+  codigo: string
+  nome: string
+  obrigatoria: boolean
+  valores: { codigo: string; nome: string }[]
+}
+
 function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) => void }) {
   const [termo, setTermo] = useState('')
   const [tipo, setTipo] = useState<'all' | 'MATERIAL' | 'SERVICO'>('all')
   const [resultados, setResultados] = useState<any[]>([])
+  const [pdms, setPdms] = useState<PdmComprasGov[]>([])
+  const [pdmSelecionado, setPdmSelecionado] = useState<PdmComprasGov | null>(null)
+  const [filtros, setFiltros] = useState<FiltroPdm[]>([])
+  const [filtrosSelecionados, setFiltrosSelecionados] = useState<Record<string, string>>({})
+  const [totalFederal, setTotalFederal] = useState(0)
+  const [unidadePdm, setUnidadePdm] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [buscado, setBuscado] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const buscar = useCallback(async (t: string, tp: string) => {
-    if (t.trim().length < 2) { setResultados([]); setBuscado(false); return }
+  const normalizarBusca = (valor: string) =>
+    valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
+
+  const parseCaracteristicas = (item: any): { nome: string; valor: string }[] => {
+    let caracts: { nome: string; valor: string }[] = []
+    if (item.descricao_detalhada) {
+      try { caracts = JSON.parse(item.descricao_detalhada) } catch { /* ignore */ }
+    }
+    if (caracts.length === 0 && item.descricao) {
+      const dashIdx = item.descricao.indexOf(' - ')
+      if (dashIdx > -1) {
+        const caractsStr = item.descricao.slice(dashIdx + 3)
+        caracts = caractsStr.split(', ')
+          .map((c: string) => {
+            const colonIdx = c.indexOf(': ')
+            if (colonIdx > -1) return { nome: c.slice(0, colonIdx).trim(), valor: c.slice(colonIdx + 2).trim() }
+            return null
+          })
+          .filter((c: { nome: string; valor: string } | null): c is { nome: string; valor: string } =>
+            c !== null && c.nome.length > 0 && c.valor.length > 0
+          )
+      }
+    }
+    return caracts
+  }
+
+  const carregarItensPdm = useCallback(async (pdm: PdmComprasGov, filtrosAtuais: Record<string, string>) => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ termo: t, limite: '30' })
-      if (tp !== 'all') params.set('tipo', tp)
-      const res = await authFetch(`${API_URL}/api/catalogo/itens?${params}`)
+      const params = new URLSearchParams({
+        limite: '100',
+        filtros: JSON.stringify(filtrosAtuais),
+      })
+      const res = await authFetch(`${API_URL}/api/catalogo/comprasgov/pdm/${pdm.codigoPdm}/itens?${params}`)
       if (res.ok) {
         const data = await res.json()
-        setResultados(Array.isArray(data) ? data : (data.dados ?? []))
+        setResultados(data.itens ?? [])
+        setFiltros(data.filtros ?? [])
+        setUnidadePdm(data.unidade ?? null)
+        setTotalFederal(data.total ?? data.itens?.length ?? 0)
       }
     } catch { /* silencioso */ } finally {
       setLoading(false)
@@ -120,11 +170,73 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
     }
   }, [])
 
+  const selecionarPdm = useCallback((pdm: PdmComprasGov) => {
+    setPdmSelecionado(pdm)
+    setFiltrosSelecionados({})
+    carregarItensPdm(pdm, {})
+  }, [carregarItensPdm])
+
+  const buscar = useCallback(async (t: string, tp: string) => {
+    if (t.trim().length < 2) {
+      setResultados([])
+      setPdms([])
+      setPdmSelecionado(null)
+      setFiltros([])
+      setBuscado(false)
+      return
+    }
+    setLoading(true)
+    try {
+      setPdmSelecionado(null)
+      setFiltros([])
+      setFiltrosSelecionados({})
+      setUnidadePdm(null)
+      setTotalFederal(0)
+
+      if (tp !== 'SERVICO') {
+        const paramsPdm = new URLSearchParams({ termo: t, limite: '12' })
+        const resPdm = await authFetch(`${API_URL}/api/catalogo/comprasgov/pdms?${paramsPdm}`)
+        const pdmsData = resPdm.ok ? await resPdm.json() : []
+        setPdms(pdmsData)
+
+        const pdmExato = pdmsData.find((pdm: PdmComprasGov) =>
+          normalizarBusca(pdm.nomePdm) === normalizarBusca(t)
+        )
+
+        if (pdmExato) {
+          setPdmSelecionado(pdmExato)
+          await carregarItensPdm(pdmExato, {})
+          return
+        }
+      } else {
+        setPdms([])
+      }
+
+      const params = new URLSearchParams({ termo: t, limite: '30' })
+      if (tp !== 'all') params.set('tipo', tp)
+      const res = await authFetch(`${API_URL}/api/catalogo/itens?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        const itens = Array.isArray(data) ? data : (data.dados ?? [])
+        setResultados(itens)
+        setTotalFederal(itens.length)
+      }
+    } catch { /* silencioso */ } finally {
+      setLoading(false)
+      setBuscado(true)
+    }
+  }, [carregarItensPdm])
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => buscar(termo, tipo), 350)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [termo, tipo, buscar])
+
+  useEffect(() => {
+    if (!pdmSelecionado) return
+    carregarItensPdm(pdmSelecionado, filtrosSelecionados)
+  }, [filtrosSelecionados, pdmSelecionado, carregarItensPdm])
 
   return (
     <div className="space-y-3">
@@ -153,7 +265,80 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
         </Select>
       </div>
 
-      {buscado && resultados.length === 0 && !loading && (
+      {pdms.length > 0 && !pdmSelecionado && (
+        <div className="border rounded-lg bg-white divide-y max-h-56 overflow-y-auto">
+          {pdms.map(pdm => (
+            <button
+              key={pdm.codigoPdm}
+              type="button"
+              onClick={() => selecionarPdm(pdm)}
+              className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-sm text-gray-900">PDM: {pdm.codigoPdm} - {pdm.nomePdm}</p>
+                  {pdm.nomeClasse && <p className="text-xs text-gray-500 mt-0.5">Classe: {pdm.codigoClasse} - {pdm.nomeClasse}</p>}
+                </div>
+                <ChevronRight className="h-4 w-4 text-gray-400 mt-0.5" />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {pdmSelecionado && (
+        <div className="border rounded-lg bg-gray-50 p-3 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs text-gray-500">PDM selecionado</p>
+              <p className="text-sm font-semibold text-gray-900">{pdmSelecionado.codigoPdm} - {pdmSelecionado.nomePdm}</p>
+              {unidadePdm?.siglaUnidadeFornecimento && (
+                <p className="text-xs text-gray-500 mt-1">Unidade: {unidadePdm.nomeUnidadeFornecimento || unidadePdm.siglaUnidadeFornecimento}</p>
+              )}
+            </div>
+            {Object.keys(filtrosSelecionados).length > 0 && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setFiltrosSelecionados({})}>
+                Limpar filtros
+              </Button>
+            )}
+          </div>
+
+          {filtros.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {filtros.map(filtro => (
+                <div key={filtro.codigo} className="space-y-1">
+                  <label className="text-xs font-medium text-gray-700">
+                    {filtro.nome}{filtro.obrigatoria ? ' *' : ''}
+                  </label>
+                  <Select
+                    value={filtrosSelecionados[filtro.codigo] ?? 'all'}
+                    onValueChange={(value) => {
+                      setFiltrosSelecionados(prev => {
+                        const next = { ...prev }
+                        if (value === 'all') delete next[filtro.codigo]
+                        else next[filtro.codigo] = value
+                        return next
+                      })
+                    }}
+                  >
+                    <SelectTrigger className="h-9 bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {filtro.valores.map(valor => (
+                        <SelectItem key={valor.codigo} value={valor.codigo}>{valor.nome}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {buscado && resultados.length === 0 && !loading && pdms.length === 0 && (
         <div className="text-center py-5 text-gray-400 bg-gray-50 rounded-lg text-sm">
           Nenhum item encontrado. Tente outro termo ou use "Catálogo Próprio".
         </div>
@@ -162,7 +347,7 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
       {resultados.length > 0 && (
         <div>
           <p className="text-xs text-gray-500 mb-1.5">
-            Foram encontrados <strong>{resultados.length}</strong> {resultados.length === 1 ? 'resultado' : 'resultados'}
+            Foram encontrados <strong>{totalFederal || resultados.length}</strong> {resultados.length === 1 ? 'resultado' : 'resultados'}
           </p>
           {/* Cabeçalho da tabela */}
           <div className="bg-gray-50 border border-b-0 rounded-t-lg grid grid-cols-[80px_1fr_32px] px-4 py-2">
@@ -173,7 +358,7 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
           <div className="border rounded-b-lg divide-y max-h-96 overflow-y-auto bg-white shadow-sm">
             {resultados.map(item => {
               // Parsear características: podem vir como JSON em descricao_detalhada ou como parte do objeto
-              let caracts: { nome: string; valor: string }[] = []
+              let caracts: { nome: string; valor: string }[] = parseCaracteristicas(item)
               if (item.descricao_detalhada) {
                 try { caracts = JSON.parse(item.descricao_detalhada) } catch { /* ignore */ }
               }
@@ -198,7 +383,7 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
 
               return (
                 <button
-                  key={item.id}
+                  key={item.id || item.codigo}
                   type="button"
                   onClick={() => onSelect({
                     codigo: item.codigo,

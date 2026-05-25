@@ -1,6 +1,7 @@
 import { Controller, Get, Query, Param, Post, Body } from '@nestjs/common';
 import { CatalogoService, BuscaCatalogoDto } from './catalogo.service';
 import { CatalogoImportService } from './catalogo-import.service';
+import { ComprasGovService } from './comprasgov.service';
 import * as path from 'path';
 
 @Controller('catalogo')
@@ -8,6 +9,7 @@ export class CatalogoController {
   constructor(
     private readonly catalogoService: CatalogoService,
     private readonly catalogoImportService: CatalogoImportService,
+    private readonly comprasGovService: ComprasGovService,
   ) {}
 
   // ============ CLASSES ============
@@ -47,6 +49,37 @@ export class CatalogoController {
   @Get('itens/:codigo')
   async buscarItem(@Param('codigo') codigo: string) {
     return this.catalogoService.buscarItemPorCodigo(codigo);
+  }
+
+  @Get('comprasgov/pdms')
+  async buscarPdmsComprasGov(
+    @Query('termo') termo?: string,
+    @Query('limite') limite?: string,
+  ) {
+    if (!termo || termo.trim().length < 2) return [];
+    return this.comprasGovService.buscarPdmsMateriais(termo, limite ? parseInt(limite) : 20);
+  }
+
+  @Get('comprasgov/pdm/:codigo/itens')
+  async buscarItensPdmComprasGov(
+    @Param('codigo') codigo: string,
+    @Query('filtros') filtros?: string,
+    @Query('limite') limite?: string,
+  ) {
+    let filtrosParsed: Record<string, string> = {};
+    if (filtros) {
+      try {
+        filtrosParsed = JSON.parse(filtros);
+      } catch {
+        filtrosParsed = {};
+      }
+    }
+
+    return this.comprasGovService.buscarItensPdmMaterial(
+      codigo,
+      filtrosParsed,
+      limite ? parseInt(limite) : 100,
+    );
   }
 
   // ============ UNIDADES ============
