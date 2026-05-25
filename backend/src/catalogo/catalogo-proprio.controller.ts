@@ -112,6 +112,7 @@ export class CatalogoProprioController {
 
   @Post('itens')
   async criarItem(
+    @Req() request: { user: JwtPayload },
     @Body() dados: {
       descricao: string;
       tipo: 'MATERIAL' | 'SERVICO';
@@ -122,7 +123,8 @@ export class CatalogoProprioController {
       orgaoId?: string;
     },
   ) {
-    return this.catalogoProprioService.criarItem(dados);
+    const orgaoId = dados.orgaoId || this.getOrgaoIdOptional(request.user);
+    return this.catalogoProprioService.criarItem({ ...dados, orgaoId });
   }
 
   @Put('itens/:id')

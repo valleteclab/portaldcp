@@ -332,26 +332,27 @@ export function BuscaItemCatalogoProprio({
 
   return (
     <>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            className="w-full justify-between font-normal"
-            disabled={disabled}
-          >
-            {value ? (
-              <span className="truncate">
-                <span className="font-mono text-xs mr-2">{value.codigo}</span>
-                {value.descricao}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">{placeholder}</span>
-            )}
-            <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              className="flex-1 justify-between font-normal min-w-0"
+              disabled={disabled}
+            >
+              {value ? (
+                <span className="truncate">
+                  <span className="font-mono text-xs mr-2">{value.codigo}</span>
+                  {value.descricao}
+                </span>
+              ) : (
+                <span className="text-muted-foreground truncate">{placeholder}</span>
+              )}
+              <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
         <PopoverContent className="w-[500px] p-0" align="start">
           <Command>
             <CommandInput 
@@ -425,7 +426,18 @@ export function BuscaItemCatalogoProprio({
             )}
           </div>
         </PopoverContent>
-      </Popover>
+        </Popover>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleAbrirCadastro}
+          disabled={disabled}
+          className="shrink-0 text-blue-600 border-blue-200 hover:bg-blue-50"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Novo item manual
+        </Button>
+      </div>
 
       {/* Modal de Cadastro de Novo Item */}
       <Dialog open={showCadastro} onOpenChange={setShowCadastro}>
