@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, Wrench, Trash2, Send, Search, Loader2,
   CheckCircle, XCircle, Clock, FileText, AlertCircle, BookOpen,
-  Plus, Check, X, ChevronRight, Info, Database, Globe
+  Plus, Check, X, ChevronRight, Info, Database, Globe, ChevronsUpDown
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,10 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList
+} from '@/components/ui/command'
 import { BuscaItemCatalogoProprio } from '@/components/catalogo'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -228,17 +232,21 @@ function FormAdicionarItem({
     nome_classe: item.nome_classe,
   })
   const [classes, setClasses] = useState<{ id: string; codigo: string; nome: string }[]>([])
+  const [classeOpen, setClasseOpen] = useState(false)
 
-  // Carregar classes quando item não tem classificação
+  // Sempre carregar classes — necessário para vincular ao nosso sistema
   useEffect(() => {
-    if (!item.codigo_classe) {
-      const tipoParam = item.tipo ? `?tipo=${item.tipo}` : ''
-      authFetch(`${API_URL}/api/catalogo/classes${tipoParam}`)
-        .then(r => r.json())
-        .then(data => setClasses(Array.isArray(data) ? data : []))
-        .catch(() => {})
-    }
-  }, [item.codigo_classe, item.tipo])
+    const tipoParam = item.tipo ? `?tipo=${item.tipo}` : ''
+    authFetch(`${API_URL}/api/catalogo/classes${tipoParam}`)
+      .then(r => r.json())
+      .then(data => setClasses(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [item.tipo])
+
+  // Nome da classe selecionada (do formulário ou do item)
+  const classeSelecionada = form.codigo_classe
+    ? classes.find(c => c.codigo === form.codigo_classe)
+    : null
 
   const valor = parseFloat(form.valor_unitario_estimado) || 0
   const qtd = parseFloat(form.quantidade_estimada) || 0
@@ -274,55 +282,81 @@ function FormAdicionarItem({
               {fonteLabel[item.fonte]}
             </span>
           </div>
-          <div className="text-xs text-gray-500 space-x-2">
-            {item.codigo && <span className="font-mono">{item.codigo}</span>}
-            {item.nome_classe && <span>· {item.nome_classe}</span>}
-          </div>
-          {item.codigo_classe && (
-            <div className="mt-1 flex items-center gap-1 text-xs text-blue-600">
-              <BookOpen className="h-3 w-3" />
-              <span>Classificação: {item.codigo_classe} — {item.nome_classe}</span>
-            </div>
-          )}
-          {!item.codigo_classe && !form.codigo_classe && (
-            <div className="mt-1 text-xs text-amber-600 flex items-center gap-1">
-              <AlertCircle className="h-3 w-3" />
-              Selecione a classificação abaixo para agrupar corretamente no PCA
-            </div>
-          )}
+          <div className="text-xs text-gray-500 font-mono">{item.codigo}</div>
         </div>
-        <button onClick={onCancelar} className="text-gray-400 hover:text-gray-600">
+        <button onClick={onCancelar} className="text-gray-400 hover:text-gray-600 shrink-0">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Classificação — obrigatório quando item não tem */}
-      {!item.codigo_classe && (
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            Classificação (Classe) *
-            <span className="ml-1 text-amber-600 font-normal">— necessária para agrupar no PCA</span>
-          </label>
-          <Select
-            value={form.codigo_classe || ''}
-            onValueChange={v => {
-              const cls = classes.find(c => c.codigo === v)
-              setForm({ ...form, codigo_classe: v, nome_classe: cls?.nome || v })
-            }}
-          >
-            <SelectTrigger className="h-9 bg-white">
-              <SelectValue placeholder="Selecione a classificação..." />
-            </SelectTrigger>
-            <SelectContent>
-              {classes.map(c => (
-                <SelectItem key={c.id} value={c.codigo}>
-                  {c.codigo} — {c.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
+      {/* Classificação — sempre visível para vincular ao nosso sistema */}
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
+          <BookOpen className="h-3.5 w-3.5 text-blue-500" />
+          Classificação no nosso sistema
+          {!form.codigo_classe && (
+            <span className="text-amber-600 font-normal ml-1">* necessária para agrupar no PCA</span>
+          )}
+        </label>
+        <Popover open={classeOpen} onOpenChange={setClasseOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={`w-full flex items-center justify-between h-9 px-3 rounded-md border text-sm bg-white transition-colors
+                ${classeOpen ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200 hover:border-gray-300'}
+                ${!form.codigo_classe ? 'text-amber-700 border-amber-300 bg-amber-50' : 'text-gray-900'}`}
+            >
+              <span className="flex items-center gap-2 truncate">
+                {form.codigo_classe ? (
+                  <>
+                    <span className="font-mono text-xs text-gray-400 shrink-0">{form.codigo_classe}</span>
+                    <span className="truncate">{classeSelecionada?.nome || form.nome_classe || '—'}</span>
+                  </>
+                ) : (
+                  <span className="text-amber-600">Selecione a classificação...</span>
+                )}
+              </span>
+              <ChevronsUpDown className="h-4 w-4 text-gray-400 shrink-0 ml-2" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[400px] p-0" align="start">
+            <Command>
+              <CommandInput
+                placeholder={`Buscar por código ou nome${item.codigo_classe ? ` (ex: ${item.codigo_classe})` : ''}...`}
+                defaultValue={item.codigo_classe || ''}
+              />
+              <CommandList>
+                <CommandEmpty className="py-4 text-center text-sm text-gray-500">
+                  Nenhuma classificação encontrada
+                </CommandEmpty>
+                <CommandGroup>
+                  {classes.map(c => (
+                    <CommandItem
+                      key={c.id}
+                      value={`${c.codigo} ${c.nome}`}
+                      onSelect={() => {
+                        setForm({ ...form, codigo_classe: c.codigo, nome_classe: c.nome })
+                        setClasseOpen(false)
+                      }}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <Check className={`h-4 w-4 shrink-0 ${form.codigo_classe === c.codigo ? 'opacity-100 text-blue-600' : 'opacity-0'}`} />
+                      <span className="font-mono text-xs text-gray-400 shrink-0 w-14">{c.codigo}</span>
+                      <span className="truncate text-sm">{c.nome}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+        {form.codigo_classe && (
+          <p className="mt-1 text-xs text-green-600 flex items-center gap-1">
+            <Check className="h-3 w-3" />
+            Itens desta classificação serão agrupados em 1 linha no PCA
+          </p>
+        )}
+      </div>
 
       {/* Campos */}
       <div className="grid grid-cols-2 gap-3">
