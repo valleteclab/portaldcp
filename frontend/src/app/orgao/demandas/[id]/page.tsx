@@ -234,12 +234,13 @@ function FormAdicionarItem({
   const [classes, setClasses] = useState<{ id: string; codigo: string; nome: string }[]>([])
   const [classeOpen, setClasseOpen] = useState(false)
 
-  // Sempre carregar classes — necessário para vincular ao nosso sistema
+  // Sempre carregar classes — usa as classificações do nosso catálogo próprio
   useEffect(() => {
-    const tipoParam = item.tipo ? `?tipo=${item.tipo}` : ''
-    authFetch(`${API_URL}/api/catalogo/classes${tipoParam}`)
+    const params = new URLSearchParams({ limite: '200' })
+    if (item.tipo) params.set('tipo', item.tipo)
+    authFetch(`${API_URL}/api/catalogo-proprio/classificacoes?${params}`)
       .then(r => r.json())
-      .then(data => setClasses(Array.isArray(data) ? data : []))
+      .then(data => setClasses(Array.isArray(data) ? data : (data.dados ?? [])))
       .catch(() => {})
   }, [item.tipo])
 
