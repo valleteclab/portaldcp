@@ -172,11 +172,10 @@ function DemandasPageContent() {
     if (!orgaoId) return
     setLoading(true)
     try {
-      const [demandasRes, estatisticasRes, unidadesRes, setoresRes] = await Promise.all([
+      const [demandasRes, estatisticasRes, unidadesRes] = await Promise.all([
         authFetch(`${API_URL}/api/demandas?orgaoId=${orgaoId}&ano=${anoSelecionado}`),
         authFetch(`${API_URL}/api/demandas/estatisticas?orgaoId=${orgaoId}&ano=${anoSelecionado}`),
         authFetch(`${API_URL}/api/demandas/unidades?orgaoId=${orgaoId}`),
-        authFetch(`${API_URL}/api/orgaos/${orgaoId}/setores`)
       ])
 
       if (demandasRes.ok) {
@@ -194,10 +193,16 @@ function DemandasPageContent() {
         setUnidades(data)
       }
 
-      if (setoresRes.ok) {
-        const data = await setoresRes.json()
-        setSetores(Array.isArray(data) ? data : [])
-      }
+      authFetch(`${API_URL}/api/orgaos/${orgaoId}/setores`)
+        .then(async (setoresRes) => {
+          if (!setoresRes.ok) return
+          const data = await setoresRes.json()
+          setSetores(Array.isArray(data) ? data : [])
+        })
+        .catch((error) => {
+          console.error('Erro ao carregar setores:', error)
+          setSetores([])
+        })
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {

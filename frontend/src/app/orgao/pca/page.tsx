@@ -651,18 +651,26 @@ function PcaPageContent() {
 
     try {
       const orgaoData = localStorage.getItem('orgao')
-      if (!orgaoData) return
+      if (!orgaoData) {
+        alert('Não foi possível identificar o órgão para buscar demandas.')
+        return
+      }
       const orgao = JSON.parse(orgaoData)
 
       const response = await authFetch(`${API_URL}/api/demandas/para-consolidar?orgaoId=${orgao.id}&ano=${pcaAtual.ano_exercicio}`)
-      if (response.ok) {
-        const demandas = await response.json()
-        setDemandasDisponiveis(demandas)
-        setDemandasSelecionadas([])
-        setShowConsolidarDemandas(true)
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        alert(error.message || 'Erro ao carregar demandas para consolidar')
+        return
       }
+
+      const demandas = await response.json()
+      setDemandasDisponiveis(Array.isArray(demandas) ? demandas : [])
+      setDemandasSelecionadas([])
+      setShowConsolidarDemandas(true)
     } catch (error) {
       console.error('Erro ao carregar demandas:', error)
+      alert('Erro ao carregar demandas para consolidar')
     }
   }
 
