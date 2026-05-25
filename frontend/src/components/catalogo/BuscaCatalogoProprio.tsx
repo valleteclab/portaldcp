@@ -58,6 +58,7 @@ interface BuscaClassificacaoProps {
   tipo?: 'MATERIAL' | 'SERVICO'
   disabled?: boolean
   placeholder?: string
+  manualOnly?: boolean
 }
 
 export function BuscaClassificacao({ 
@@ -188,6 +189,7 @@ interface BuscaItemCatalogoProprioProps {
   orgaoId?: string
   disabled?: boolean
   placeholder?: string
+  manualOnly?: boolean
 }
 
 export function BuscaItemCatalogoProprio({ 
@@ -196,7 +198,8 @@ export function BuscaItemCatalogoProprio({
   tipo, 
   orgaoId,
   disabled,
-  placeholder = "Buscar item do catálogo..." 
+  placeholder = "Buscar item do catálogo...",
+  manualOnly = false,
 }: BuscaItemCatalogoProprioProps) {
   const [open, setOpen] = useState(false)
   const [termo, setTermo] = useState('')
@@ -333,7 +336,8 @@ export function BuscaItemCatalogoProprio({
   return (
     <>
       <div className="flex flex-col sm:flex-row gap-2">
-        <Popover open={open} onOpenChange={setOpen}>
+        {!manualOnly && (
+          <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"
@@ -426,13 +430,14 @@ export function BuscaItemCatalogoProprio({
             )}
           </div>
         </PopoverContent>
-        </Popover>
+          </Popover>
+        )}
         <Button
           type="button"
           variant="outline"
           onClick={handleAbrirCadastro}
           disabled={disabled}
-          className="shrink-0 text-blue-600 border-blue-200 hover:bg-blue-50"
+          className={manualOnly ? 'w-full text-blue-600 border-blue-200 hover:bg-blue-50' : 'shrink-0 text-blue-600 border-blue-200 hover:bg-blue-50'}
         >
           <Plus className="h-4 w-4 mr-2" />
           Novo item manual

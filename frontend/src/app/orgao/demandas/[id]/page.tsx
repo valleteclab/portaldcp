@@ -843,7 +843,7 @@ function PainelBusca({
           <Globe className="h-4 w-4" />
           CATMAT / CATSER
           <span className={`text-xs px-1 rounded ${fonte === 'federal' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
-            Federal
+            ComprasGov
           </span>
         </button>
         <div className="w-px bg-gray-200" />
@@ -866,7 +866,26 @@ function PainelBusca({
 
       {/* Conteúdo da busca */}
       {fonte === 'federal' ? (
-        <BuscaCatalogoFederal onSelect={onSelect} />
+        <div className="space-y-3">
+          <BuscaCatalogoFederal onSelect={onSelect} />
+          <BuscaItemCatalogoProprio
+            orgaoId={orgaoId}
+            manualOnly
+            onChange={(item) => {
+              if (item) {
+                onSelect({
+                  codigo: item.codigo,
+                  descricao: item.descricao,
+                  tipo: item.tipo,
+                  unidade_padrao: item.unidade_padrao,
+                  codigo_classe: item.classificacao?.codigo,
+                  nome_classe: item.classificacao?.nome,
+                  fonte: 'PROPRIO',
+                })
+              }
+            }}
+          />
+        </div>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-gray-500">
