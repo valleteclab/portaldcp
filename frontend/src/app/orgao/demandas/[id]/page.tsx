@@ -609,7 +609,7 @@ function FormAdicionarItem({
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-[400px] p-0" align="start">
-            <Command>
+            <Command shouldFilter={false}>
               <CommandInput
                 placeholder={`Buscar por código ou nome${item.codigo_classe ? ` (ex: ${item.codigo_classe})` : ''}...`}
                 value={buscaClasse}
@@ -620,22 +620,6 @@ function FormAdicionarItem({
                   Nenhuma classificação encontrada
                 </CommandEmpty>
                 <CommandGroup>
-                  {podeCriarClasse && (
-                    <CommandItem
-                      value={`criar ${termoNovaClasse}`}
-                      onSelect={criarClassificacao}
-                      className="flex items-center gap-2 cursor-pointer text-blue-700"
-                    >
-                      {criandoClasse ? (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                      ) : (
-                        <Plus className="h-4 w-4 shrink-0" />
-                      )}
-                      <span className="truncate text-sm font-medium">
-                        Criar nova classificação: "{termoNovaClasse}"
-                      </span>
-                    </CommandItem>
-                  )}
                   {classes.map(c => (
                     <CommandItem
                       key={c.id}
@@ -651,6 +635,22 @@ function FormAdicionarItem({
                       <span className="truncate text-sm">{c.nome}</span>
                     </CommandItem>
                   ))}
+                  {podeCriarClasse && (
+                    <CommandItem
+                      value={`criar ${termoNovaClasse}`}
+                      onSelect={criarClassificacao}
+                      className="flex items-center gap-2 cursor-pointer border-t mt-1 pt-2 text-blue-700"
+                    >
+                      {criandoClasse ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4 shrink-0" />
+                      )}
+                      <span className="truncate text-sm font-medium">
+                        Criar nova classificação: "{termoNovaClasse}"
+                      </span>
+                    </CommandItem>
+                  )}
                 </CommandGroup>
               </CommandList>
             </Command>
