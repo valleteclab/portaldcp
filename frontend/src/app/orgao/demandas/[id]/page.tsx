@@ -785,32 +785,42 @@ function JustificativaDemanda({
     debounceRef.current = setTimeout(() => salvar(val), 1200)
   }
 
+  const caracteres = texto.trim().length
+
   return (
-    <div className="bg-white rounded-xl border p-4 shadow-sm space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
-          <FileText className="h-4 w-4 text-gray-400" />
+    <div className="bg-white rounded-lg border shadow-sm overflow-hidden max-w-5xl">
+      <div className="border-b px-6 py-4 flex items-start justify-between gap-4">
+        <label className="text-base font-semibold text-gray-900 flex items-center gap-2">
+          <FileText className="h-4 w-4 text-blue-600" />
           Justificativa da Necessidade
           <span className="text-xs font-normal text-gray-400">(Art. 18, I — Lei 14.133/2021)</span>
         </label>
         {podeEditar && (
-          <span className={`text-xs ${salvando ? 'text-amber-500' : salvo ? 'text-green-600' : 'text-gray-400'}`}>
+          <span className={`text-xs font-medium rounded px-2 py-1 border ${salvando ? 'text-amber-700 bg-amber-50 border-amber-200' : salvo && texto ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-500 bg-gray-50 border-gray-200'}`}>
             {salvando ? '● Salvando…' : salvo && texto ? '✓ Salvo' : ''}
           </span>
         )}
       </div>
       {podeEditar ? (
-        <Textarea
+        <div className="p-6 bg-gray-50">
+          <Textarea
           value={texto}
           onChange={handleChange}
           placeholder="Descreva a necessidade que justifica esta demanda de contratação. Ex.: A contratação se faz necessária para garantir o funcionamento adequado das atividades do setor, conforme Art. 18, I da Lei 14.133/2021..."
-          rows={4}
-          className="text-sm resize-none border-gray-200 focus:border-blue-400"
-        />
+          rows={14}
+          className="min-h-[360px] w-full resize-y border-gray-200 px-5 py-4 text-[15px] leading-7 text-gray-800 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+          />
+          <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+            <span>A justificativa compõe o DFD e será utilizada na instrução da fase interna.</span>
+            <span>{caracteres.toLocaleString('pt-BR')} caracteres</span>
+          </div>
+        </div>
       ) : (
-        <p className="text-sm text-gray-700 whitespace-pre-wrap">
-          {texto || <span className="text-gray-400 italic">Sem justificativa informada.</span>}
-        </p>
+        <div className="p-6 bg-gray-50">
+          <div className="min-h-[260px] rounded-md border bg-white px-5 py-4 text-[15px] leading-7 text-gray-800 whitespace-pre-wrap">
+            {texto || <span className="text-gray-400 italic">Sem justificativa informada.</span>}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -1276,7 +1286,7 @@ export default function DetalheDemandaPage() {
 
           {/* ── Seção 2: Justificativa ──────────────────────────────────── */}
           {secaoAtiva === 2 && (
-            <div className="max-w-2xl">
+            <div className="max-w-5xl">
               <JustificativaDemanda
                 demandaId={demanda.id}
                 justificativa={demanda.observacoes || ''}
