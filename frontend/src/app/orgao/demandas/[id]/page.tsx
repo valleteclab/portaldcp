@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, Package, Wrench, Trash2, Send, Search, Loader2,
   CheckCircle, XCircle, Clock, FileText, AlertCircle, BookOpen,
-  Plus, Check, X, ChevronRight, Info, Database, Globe, ChevronsUpDown
+  Plus, Check, X, ChevronRight, ChevronLeft, Info, Database, Globe,
+  ChevronsUpDown, Pencil, Home, Lock, Users
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +19,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList
 } from '@/components/ui/command'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle
+} from '@/components/ui/dialog'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BuscaItemCatalogoProprio } from '@/components/catalogo'
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -608,6 +613,12 @@ export default function DetalheDemandaPage() {
 
   const [itemSelecionado, setItemSelecionado] = useState<ItemSelecionado | null>(null)
 
+  // ── Estado do layout DFD ──────────────────────────────────────────────────
+  const [secaoAtiva, setSecaoAtiva] = useState<1 | 2 | 3 | 4>(3)
+  const [dialogAdicionar, setDialogAdicionar] = useState(false)
+  const [filtroItens, setFiltroItens] = useState('')
+  const [tabTipo, setTabTipo] = useState<'MATERIAL' | 'SERVICO'>('MATERIAL')
+
   // ── Carregar orgaoId e demanda ─────────────────────────────────────────────
   useEffect(() => {
     try {
@@ -717,30 +728,6 @@ export default function DetalheDemandaPage() {
     }
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  const fmt = (v: number) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-
-  const totalDemanda = (demanda?.itens ?? []).reduce(
-    (acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0
-  )
-  const podeEditar = demanda?.status === 'RASCUNHO'
-
-  // ─── Agrupar itens por classificação (prévia do PCA) ──────────────────────
-  const gruposPCA = (() => {
-    if (!demanda?.itens.length) return []
-    const map = new Map<string, { nome: string; valor: number; itens: number }>()
-    for (const item of demanda.itens) {
-      const chave = item.codigo_classe || `sem-classe:${item.id}`
-      const nome = item.nome_classe || item.descricao_objeto
-      const atual = map.get(chave) || { nome, valor: 0, itens: 0 }
-      atual.valor += Number(item.valor_total_estimado) || 0
-      atual.itens += 1
-      map.set(chave, atual)
-    }
-    return Array.from(map.values())
-  })()
-
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -752,223 +739,461 @@ export default function DetalheDemandaPage() {
   if (!demanda) return null
 
   const StatusIcon = STATUS_CONFIG[demanda.status]?.icon || FileText
+  const podeEditar = demanda.status === 'RASCUNHO'
+  const fmt = (v: number) =>
+    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+  const totalDemanda = (demanda.itens ?? []).reduce(
+    (acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0
+  )
+
+  // Seções com status de completude
+  const SECOES = [
+    { id: 1 as const, titulo: 'Informações Gerais',        icon: Home,      completa: true },
+    { id: 2 as const, titulo: 'Justificativa de Necessidade', icon: FileText, completa: !!(demanda.observacoes?.trim()) },
+    { id: 3 as const, titulo: 'Materiais/Serviços',        icon: Package,   completa: demanda.itens.length > 0 },
+    { id: 4 as const, titulo: 'Responsáveis',              icon: Users,     completa: !!(demanda.responsavel_nome?.trim()) },
+  ]
+
+  // Itens filtrados para a tabela
+  const itensFiltrados = demanda.itens.filter(item => {
+    const filtroOk = !filtroItens || item.descricao_objeto.toLowerCase().includes(filtroItens.toLowerCase()) ||
+      (item.codigo_item_catalogo || '').toLowerCase().includes(filtroItens.toLowerCase()) ||
+      (item.nome_classe || '').toLowerCase().includes(filtroItens.toLowerCase())
+    const tipoOk = item.categoria === tabTipo
+    return filtroOk && tipoOk
+  })
+  const nMateriais = demanda.itens.filter(i => i.categoria === 'MATERIAL').length
+  const nServicos  = demanda.itens.filter(i => i.categoria === 'SERVICO').length
+
+  // Agrupamento para prévia do PCA
+  const gruposPCA = (() => {
+    const map = new Map<string, { nome: string; valor: number; itens: number }>()
+    for (const item of demanda.itens) {
+      const chave = item.codigo_classe || `sem-classe:${item.id}`
+      const nome  = item.nome_classe  || item.descricao_objeto
+      const atual = map.get(chave) || { nome, valor: 0, itens: 0 }
+      atual.valor += Number(item.valor_total_estimado) || 0
+      atual.itens += 1
+      map.set(chave, atual)
+    }
+    return Array.from(map.values())
+  })()
+
+  const irParaSecao = (s: 1 | 2 | 3 | 4) => setSecaoAtiva(s)
+  const secaoAnterior = () => secaoAtiva > 1 && irParaSecao((secaoAtiva - 1) as any)
+  const proximaSecao  = () => secaoAtiva < 4 && irParaSecao((secaoAtiva + 1) as any)
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* ── Cabeçalho sticky ──────────────────────────────────────────── */}
-      <div className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push('/orgao/demandas')}
-              className="flex items-center gap-1.5 text-gray-500 hover:text-gray-800 transition-colors text-sm"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Demandas
-            </button>
-            <div className="h-4 w-px bg-gray-200" />
+    <div className="flex min-h-screen bg-gray-100">
+
+      {/* ══ SIDEBAR ══════════════════════════════════════════════════════════ */}
+      <aside className="w-64 bg-white border-r shadow-sm flex flex-col fixed top-0 left-0 h-full z-20">
+        {/* Cabeçalho azul */}
+        <div className="bg-blue-700 text-white p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Lock className="h-3.5 w-3.5 opacity-70" />
+            <Users className="h-3.5 w-3.5 opacity-70" />
+          </div>
+          <h2 className="font-bold text-sm leading-tight">
+            Documento de Formalização da Demanda
+          </h2>
+          <div className="mt-2">
+            <span className={`text-xs font-semibold uppercase px-2 py-0.5 rounded ${
+              demanda.status === 'RASCUNHO' ? 'bg-blue-600 text-blue-100' :
+              demanda.status === 'APROVADA' ? 'bg-green-600 text-white' :
+              demanda.status === 'REJEITADA' ? 'bg-red-600 text-white' :
+              'bg-blue-500 text-white'
+            }`}>
+              {STATUS_CONFIG[demanda.status]?.label}
+            </span>
+          </div>
+        </div>
+
+        {/* Navegação de seções */}
+        <nav className="flex-1 py-4 overflow-y-auto">
+          <p className="text-xs font-semibold text-gray-400 uppercase px-4 mb-2 tracking-wide">
+            Seções do Documento
+          </p>
+          <div className="space-y-0.5 px-2">
+            {SECOES.map(s => {
+              const Icon = s.icon
+              const ativa = secaoAtiva === s.id
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => irParaSecao(s.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left ${
+                    ativa
+                      ? 'bg-blue-50 text-blue-700 font-semibold'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  <span className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold shrink-0 ${
+                    ativa
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : s.completa
+                        ? 'border-green-400 bg-green-50 text-green-600'
+                        : 'border-gray-300 text-gray-400'
+                  }`}>
+                    {s.completa && !ativa ? <Check className="h-3 w-3" /> : s.id}
+                  </span>
+                  <span className="flex-1 leading-tight">{s.titulo}</span>
+                  {s.completa && !ativa && (
+                    <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </nav>
+
+        {/* Rodapé: PCA + estimativa */}
+        <div className="border-t p-4 bg-gray-50 space-y-1">
+          <p className="text-xs text-gray-500">
+            PCA <span className="font-semibold text-gray-700">{demanda.ano_referencia}</span>
+          </p>
+          <p className="text-xs text-gray-500">Estimativa Preliminar deste DFD</p>
+          <p className="text-base font-bold text-blue-700">{fmt(totalDemanda)}</p>
+        </div>
+      </aside>
+
+      {/* ══ CONTEÚDO PRINCIPAL ═══════════════════════════════════════════════ */}
+      <main className="ml-64 flex-1 flex flex-col min-h-screen">
+
+        {/* Breadcrumb */}
+        <div className="bg-white border-b px-6 py-2.5 flex items-center gap-1.5 text-xs text-gray-500">
+          <button onClick={() => router.push('/orgao/demandas')}
+            className="hover:text-blue-600 flex items-center gap-1">
+            <Home className="h-3.5 w-3.5" />
+            Demandas
+          </button>
+          <ChevronRight className="h-3 w-3" />
+          <span className="text-gray-700 font-medium">
+            DFD — {demanda.unidade_requisitante}
+          </span>
+        </div>
+
+        {/* Alerta de rejeição */}
+        {demanda.status === 'REJEITADA' && demanda.motivo_rejeicao && (
+          <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2">
+            <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-semibold text-gray-900">{demanda.unidade_requisitante}</h1>
-                <Badge className={`${STATUS_CONFIG[demanda.status]?.cor} text-xs`}>
-                  <StatusIcon className="h-3 w-3 mr-1" />
-                  {STATUS_CONFIG[demanda.status]?.label}
-                </Badge>
-              </div>
-              <p className="text-xs text-gray-400">
-                Demanda para o PCA {demanda.ano_referencia}
-                {demanda.responsavel_nome && ` · ${demanda.responsavel_nome}`}
-              </p>
+              <span className="font-medium text-red-800 text-sm">Demanda Rejeitada: </span>
+              <span className="text-sm text-red-700">{demanda.motivo_rejeicao}</span>
             </div>
           </div>
+        )}
+
+        {/* ── Header da seção: navegação + ações ───────────────────────── */}
+        <div className="bg-white border-b px-6 py-3 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-4 text-sm text-right pr-4 border-r">
-              <div>
-                <div className="text-gray-400 text-xs">Itens</div>
-                <div className="font-bold text-gray-900">{demanda.itens.length}</div>
-              </div>
-              <div>
-                <div className="text-gray-400 text-xs">Valor Total</div>
-                <div className="font-bold text-blue-600">{fmt(totalDemanda)}</div>
-              </div>
+            <div className="flex gap-1">
+              <button
+                onClick={secaoAnterior}
+                disabled={secaoAtiva === 1}
+                className="w-7 h-7 border rounded flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                onClick={proximaSecao}
+                disabled={secaoAtiva === 4}
+                className="w-7 h-7 border rounded flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
             </div>
+            <h1 className="font-semibold text-gray-900 text-base">
+              {secaoAtiva}. {SECOES[secaoAtiva - 1].titulo}
+            </h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => router.push('/orgao/demandas')}>
+              Voltar
+            </Button>
             {podeEditar && (
               <Button
+                size="sm"
                 onClick={enviarParaAprovacao}
                 disabled={enviando || demanda.itens.length === 0}
-                className="bg-blue-700 hover:bg-blue-800 text-white" size="sm"
+                className="bg-blue-700 hover:bg-blue-800"
               >
-                {enviando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-                Enviar para Aprovação
+                {enviando
+                  ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  : <Send className="h-4 w-4 mr-1.5" />}
+                Enviar DFD
               </Button>
             )}
           </div>
         </div>
-      </div>
 
-      {/* ── Alerta de rejeição ────────────────────────────────────────── */}
-      {demanda.status === 'REJEITADA' && demanda.motivo_rejeicao && (
-        <div className="max-w-7xl mx-auto px-6 pt-4">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex gap-3">
-            <AlertCircle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
-            <div>
-              <div className="font-medium text-red-800">Demanda Rejeitada</div>
-              <p className="text-sm text-red-700">{demanda.motivo_rejeicao}</p>
-            </div>
-          </div>
-        </div>
-      )}
+        {/* ── Conteúdo da seção ────────────────────────────────────────── */}
+        <div className="flex-1 p-6">
 
-      {/* ── Conteúdo ─────────────────────────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* ── Coluna esquerda: Itens ─────────────────────────────────── */}
-        <div className="space-y-4">
-          {/* Justificativa da demanda */}
-          <JustificativaDemanda
-            demandaId={demanda.id}
-            justificativa={demanda.observacoes || ''}
-            podeEditar={podeEditar}
-            onSalvo={(texto) => setDemanda(d => d ? { ...d, observacoes: texto } : d)}
-          />
-
-          <h2 className="font-semibold text-gray-800 flex items-center gap-2">
-            <BookOpen className="h-4 w-4" />
-            Itens da Demanda
-          </h2>
-
-          {demanda.itens.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-gray-200">
-              <Package className="h-12 w-12 mx-auto text-gray-300 mb-3" />
-              <h3 className="font-medium text-gray-500">Nenhum item adicionado</h3>
-              <p className="text-sm text-gray-400 mt-1">
-                Busque itens pelo CATMAT/CATSER ou Catálogo Próprio ao lado
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-3">
-                {demanda.itens.map((item, idx) => (
-                  <div key={item.id} className="bg-white rounded-xl border p-4 shadow-sm">
-                    <div className="flex items-start gap-3">
-                      <div className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center text-xs font-bold text-blue-600 shrink-0">
-                        {idx + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-                              {item.categoria === 'MATERIAL'
-                                ? <Package className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                                : <Wrench className="h-3.5 w-3.5 text-purple-500 shrink-0" />}
-                              {item.codigo_item_catalogo && (
-                                <span className="font-mono text-xs text-gray-400">{item.codigo_item_catalogo}</span>
-                              )}
-                              {item.nome_classe && (
-                                <Badge variant="outline" className="text-xs py-0">{item.nome_classe}</Badge>
-                              )}
-                            </div>
-                            <p className="font-medium text-sm text-gray-900 leading-snug">{item.descricao_objeto}</p>
-                            {item.justificativa && (
-                              <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.justificativa}</p>
-                            )}
-                          </div>
-                          {podeEditar && (
-                            <button
-                              onClick={() => removerItem(item.id)}
-                              className="text-gray-300 hover:text-red-500 transition-colors shrink-0 p-1"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
-                          <span>{item.quantidade_estimada} {item.unidade_medida}</span>
-                          <span className="font-medium text-gray-700">{fmt(Number(item.valor_unitario_estimado) || 0)}/{item.unidade_medida}</span>
-                          <span className="font-bold text-blue-600">= {fmt(Number(item.valor_total_estimado) || 0)}</span>
-                          {item.trimestre_previsto && (
-                            <Badge variant="outline" className="text-xs py-0">{item.trimestre_previsto}º Trim.</Badge>
-                          )}
-                          <span className={`font-medium ${PRIORIDADE_CONFIG[item.prioridade]?.cor}`}>
-                            {PRIORIDADE_CONFIG[item.prioridade]?.label}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+          {/* ── Seção 1: Informações Gerais ─────────────────────────────── */}
+          {secaoAtiva === 1 && (
+            <div className="max-w-2xl space-y-4">
+              <div className="bg-white rounded-xl border shadow-sm divide-y">
+                {[
+                  { label: 'Unidade Requisitante', valor: demanda.unidade_requisitante },
+                  { label: 'Ano de Referência (PCA)', valor: String(demanda.ano_referencia) },
+                  { label: 'Status', valor: STATUS_CONFIG[demanda.status]?.label },
+                  { label: 'Data de Criação', valor: new Date(demanda.created_at).toLocaleDateString('pt-BR') },
+                ].map(row => (
+                  <div key={row.label} className="flex items-center px-5 py-3.5">
+                    <span className="text-sm text-gray-500 w-48 shrink-0">{row.label}</span>
+                    <span className="text-sm font-medium text-gray-900">{row.valor}</span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
 
-                {/* Totalizador */}
-                <div className="bg-blue-700 text-white rounded-xl p-4 flex justify-between items-center">
-                  <span className="font-medium">Valor Total da Demanda</span>
-                  <span className="text-xl font-bold">{fmt(totalDemanda)}</span>
+          {/* ── Seção 2: Justificativa ──────────────────────────────────── */}
+          {secaoAtiva === 2 && (
+            <div className="max-w-2xl">
+              <JustificativaDemanda
+                demandaId={demanda.id}
+                justificativa={demanda.observacoes || ''}
+                podeEditar={podeEditar}
+                onSalvo={(texto) => setDemanda(d => d ? { ...d, observacoes: texto } : d)}
+              />
+              <p className="mt-3 text-xs text-gray-400">
+                A justificativa fundamenta a necessidade de contratação conforme Art. 18, I — Lei 14.133/2021.
+              </p>
+            </div>
+          )}
+
+          {/* ── Seção 3: Materiais/Serviços ─────────────────────────────── */}
+          {secaoAtiva === 3 && (
+            <div className="space-y-4">
+
+              {/* Barra superior: busca + adicionar */}
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    value={filtroItens}
+                    onChange={e => setFiltroItens(e.target.value)}
+                    placeholder="Pesquisar por descrição, código ou classe..."
+                    className="pl-9 h-9 text-sm"
+                  />
                 </div>
+                {podeEditar && (
+                  <Button
+                    size="sm"
+                    onClick={() => { setItemSelecionado(null); setDialogAdicionar(true) }}
+                    className="bg-blue-700 hover:bg-blue-800 whitespace-nowrap"
+                  >
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    Adicionar
+                  </Button>
+                )}
               </div>
 
-              {/* Prévia do agrupamento no PCA */}
+              {/* Tabs Materiais / Serviços */}
+              <div className="flex border-b">
+                {(['MATERIAL', 'SERVICO'] as const).map(tipo => (
+                  <button
+                    key={tipo}
+                    onClick={() => setTabTipo(tipo)}
+                    className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                      tabTipo === tipo
+                        ? 'border-blue-600 text-blue-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {tipo === 'MATERIAL' ? 'Materiais' : 'Serviços'}
+                    <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
+                      tabTipo === tipo ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {tipo === 'MATERIAL' ? nMateriais : nServicos}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Tabela de itens */}
+              {itensFiltrados.length === 0 ? (
+                <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-gray-200">
+                  <Package className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                  <p className="font-medium text-gray-500">
+                    {demanda.itens.length === 0
+                      ? 'Nenhum item adicionado ainda'
+                      : 'Nenhum item encontrado'}
+                  </p>
+                  {demanda.itens.length === 0 && podeEditar && (
+                    <Button size="sm" variant="outline" className="mt-4"
+                      onClick={() => { setItemSelecionado(null); setDialogAdicionar(true) }}>
+                      <Plus className="h-4 w-4 mr-1.5" /> Adicionar primeiro item
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b text-xs text-gray-500 uppercase tracking-wide">
+                        <th className="px-4 py-3 text-left font-semibold w-12">Nº</th>
+                        <th className="px-4 py-3 text-left font-semibold">Classe</th>
+                        <th className="px-4 py-3 text-left font-semibold">Código</th>
+                        <th className="px-4 py-3 text-left font-semibold">Descrição</th>
+                        <th className="px-4 py-3 text-right font-semibold w-16">Qtd</th>
+                        <th className="px-4 py-3 text-right font-semibold w-28">Val. Unit.</th>
+                        <th className="px-4 py-3 text-right font-semibold w-28">Val. Total</th>
+                        {podeEditar && <th className="px-4 py-3 text-center font-semibold w-20">Ações</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {itensFiltrados.map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
+                          <td className="px-4 py-3">
+                            {item.nome_classe ? (
+                              <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                                {item.nome_classe}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-300">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs text-gray-400">
+                            {item.codigo_item_catalogo || '—'}
+                          </td>
+                          <td className="px-4 py-3 max-w-xs">
+                            <p className="font-medium text-gray-900 line-clamp-2 text-sm leading-snug">
+                              {item.descricao_objeto}
+                            </p>
+                            {item.trimestre_previsto && (
+                              <span className="text-xs text-gray-400">{item.trimestre_previsto}º Trimestre</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right text-gray-700">
+                            {item.quantidade_estimada} {item.unidade_medida}
+                          </td>
+                          <td className="px-4 py-3 text-right text-gray-700">
+                            {fmt(Number(item.valor_unitario_estimado) || 0)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-blue-700">
+                            {fmt(Number(item.valor_total_estimado) || 0)}
+                          </td>
+                          {podeEditar && (
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  onClick={() => removerItem(item.id)}
+                                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                  title="Remover"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    {/* Rodapé com total */}
+                    <tfoot>
+                      <tr className="bg-gray-50 border-t-2 border-gray-200">
+                        <td colSpan={podeEditar ? 6 : 5} className="px-4 py-3 text-sm font-semibold text-gray-700 text-right">
+                          Total da Demanda
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-blue-700 text-base">
+                          {fmt(totalDemanda)}
+                        </td>
+                        {podeEditar && <td />}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* Prévia PCA */}
               {gruposPCA.length > 0 && (
                 <div className="bg-purple-50 border border-purple-100 rounded-xl p-4">
-                  <h3 className="text-xs font-semibold text-purple-700 mb-2 flex items-center gap-1">
+                  <h3 className="text-xs font-semibold text-purple-700 mb-2 flex items-center gap-1.5">
                     <Info className="h-3.5 w-3.5" />
-                    Prévia — Como será consolidado no PCA
+                    Como será consolidado no PCA
                   </h3>
-                  <div className="space-y-1.5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
                     {gruposPCA.map((g, i) => (
-                      <div key={i} className="flex justify-between items-center text-xs bg-white rounded p-2 border border-purple-100">
+                      <div key={i} className="flex justify-between items-center text-xs bg-white rounded-lg p-2.5 border border-purple-100">
                         <span className="font-medium text-gray-700 truncate flex-1 mr-2">{g.nome}</span>
-                        <span className="text-gray-400 mr-2">{g.itens} {g.itens === 1 ? 'item' : 'itens'}</span>
+                        <span className="text-gray-400 mr-2 shrink-0">{g.itens} {g.itens === 1 ? 'item' : 'itens'}</span>
                         <span className="font-bold text-purple-700 whitespace-nowrap">{fmt(g.valor)}</span>
                       </div>
                     ))}
                   </div>
                   <p className="text-xs text-purple-500 mt-2">
-                    Cada classificação gera 1 item no PCA (Art. 12, VII — Lei 14.133/2021)
+                    Cada classificação gera 1 linha no PCA — Art. 12, VII — Lei 14.133/2021
                   </p>
                 </div>
               )}
-            </>
+            </div>
           )}
-        </div>
 
-        {/* ── Coluna direita: Busca ──────────────────────────────────── */}
-        {podeEditar ? (
-          <div>
-            <h2 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Adicionar Item
-            </h2>
-
-            {itemSelecionado ? (
-              <FormAdicionarItem
-                item={itemSelecionado}
-                onConfirm={adicionarItem}
-                onCancelar={() => setItemSelecionado(null)}
-                loading={salvando}
-              />
-            ) : (
-              <div className="bg-white rounded-xl border p-5 shadow-sm space-y-4">
-                <PainelBusca orgaoId={orgaoId} onSelect={setItemSelecionado} />
+          {/* ── Seção 4: Responsáveis ────────────────────────────────────── */}
+          {secaoAtiva === 4 && (
+            <div className="max-w-2xl space-y-4">
+              <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
+                <h3 className="font-semibold text-gray-800 text-sm">Dados do Responsável pela Demanda</h3>
+                <div className="grid grid-cols-1 gap-3">
+                  {[
+                    { label: 'Nome', valor: demanda.responsavel_nome },
+                    { label: 'E-mail', valor: demanda.responsavel_email },
+                    { label: 'Telefone', valor: demanda.responsavel_telefone },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center border rounded-lg px-4 py-3 bg-gray-50">
+                      <span className="text-xs text-gray-500 w-24 shrink-0">{row.label}</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {row.valor || <span className="text-gray-400 italic">Não informado</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
+            </div>
+          )}
 
-            <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-100 text-xs text-gray-500 flex gap-2">
-              <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              <span>
-                Itens com classificação são agrupados no PCA por classe (ex.: "Equipamentos de TI").
-                Itens sem classificação geram um item PCA individual.
-              </span>
+        </div>{/* /conteudo seção */}
+      </main>{/* /main */}
+
+      {/* ══ DIALOG: Adicionar Item ═══════════════════════════════════════════ */}
+      <Dialog open={dialogAdicionar} onOpenChange={(open) => {
+        setDialogAdicionar(open)
+        if (!open) setItemSelecionado(null)
+      }}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Plus className="h-4 w-4 text-blue-600" />
+              Adicionar Material ou Serviço
+            </DialogTitle>
+          </DialogHeader>
+
+          {itemSelecionado ? (
+            <FormAdicionarItem
+              item={itemSelecionado}
+              onConfirm={async (form) => {
+                await adicionarItem(form)
+                setDialogAdicionar(false)
+              }}
+              onCancelar={() => setItemSelecionado(null)}
+              loading={salvando}
+            />
+          ) : (
+            <div className="space-y-4">
+              <PainelBusca orgaoId={orgaoId} onSelect={setItemSelecionado} />
+              <p className="text-xs text-gray-400 flex gap-1.5">
+                <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                Itens com classificação são agrupados no PCA. Itens sem classificação geram item individual.
+              </p>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center text-gray-400 py-16">
-              <Check className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-              <p className="font-medium">Demanda {STATUS_CONFIG[demanda.status]?.label}</p>
-              <p className="text-sm mt-1">Esta demanda não está mais em edição.</p>
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }
