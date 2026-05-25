@@ -160,42 +160,91 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
       )}
 
       {resultados.length > 0 && (
-        <div className="border rounded-lg divide-y max-h-72 overflow-y-auto bg-white shadow-sm">
-          {resultados.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelect({
-                codigo: item.codigo,
-                descricao: item.descricao,
-                tipo: item.tipo,
-                unidade_padrao: item.unidade_padrao,
-                codigo_classe: item.codigo_classe || item.classe?.codigo,
-                nome_classe: item.classe?.nome || item.nome_classe,
-                fonte: 'COMPRASGOV',
-              })}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-blue-50 text-left transition-colors group"
-            >
-              <div className="shrink-0">
-                {item.tipo === 'MATERIAL'
-                  ? <Package className="h-4 w-4 text-blue-500" />
-                  : <Wrench className="h-4 w-4 text-purple-500" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm text-gray-900 truncate">{item.descricao}</div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="font-mono text-xs text-gray-400">{item.codigo}</span>
-                  {(item.classe?.nome || item.nome_classe) && (
-                    <span className="text-xs text-gray-400">· {item.classe?.nome || item.nome_classe}</span>
-                  )}
-                  {item.unidade_padrao && (
-                    <Badge variant="outline" className="text-xs py-0">{item.unidade_padrao}</Badge>
-                  )}
-                </div>
-              </div>
-              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-blue-500 shrink-0" />
-            </button>
-          ))}
+        <div>
+          <p className="text-xs text-gray-500 mb-1.5">
+            Foram encontrados <strong>{resultados.length}</strong> {resultados.length === 1 ? 'resultado' : 'resultados'}
+          </p>
+          {/* Cabeçalho da tabela */}
+          <div className="bg-gray-50 border border-b-0 rounded-t-lg grid grid-cols-[80px_1fr_32px] px-4 py-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Código</span>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Nome do Material / Serviço</span>
+            <span />
+          </div>
+          <div className="border rounded-b-lg divide-y max-h-96 overflow-y-auto bg-white shadow-sm">
+            {resultados.map(item => {
+              // Parsear características: podem vir como JSON em descricao_detalhada ou como parte do objeto
+              let caracts: { nome: string; valor: string }[] = []
+              if (item.descricao_detalhada) {
+                try { caracts = JSON.parse(item.descricao_detalhada) } catch { /* ignore */ }
+              }
+              const nomePdm = item.nome_pdm || ''
+              const nomeCls = item.classe?.nome || item.nome_classe || ''
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelect({
+                    codigo: item.codigo,
+                    descricao: item.descricao,
+                    tipo: item.tipo,
+                    unidade_padrao: item.unidade_padrao,
+                    codigo_classe: item.codigo_classe || item.classe?.codigo,
+                    nome_classe: item.classe?.nome || item.nome_classe,
+                    fonte: 'COMPRASGOV',
+                  })}
+                  className="w-full grid grid-cols-[80px_1fr_32px] items-start px-4 py-3 hover:bg-blue-50 text-left transition-colors group gap-3"
+                >
+                  {/* Código */}
+                  <div className="pt-0.5">
+                    <span className="font-mono text-sm font-semibold text-gray-700">{item.codigo}</span>
+                  </div>
+
+                  {/* Descrição estruturada */}
+                  <div className="min-w-0">
+                    <p className="font-bold text-sm text-gray-900 leading-snug">
+                      {nomePdm || item.descricao.split(' - ')[0]}
+                    </p>
+                    {caracts.length > 0 ? (
+                      <div className="mt-1 space-y-0.5">
+                        {caracts.map((c, i) => (
+                          <p key={i} className="text-xs text-gray-600">
+                            <span className="text-gray-400">{c.nome}:</span>{' '}
+                            <span>{c.valor}</span>
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      /* Fallback: mostrar descrição completa para itens sem características */
+                      nomePdm && item.descricao !== nomePdm && (
+                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                          {item.descricao.replace(nomePdm + ' - ', '')}
+                        </p>
+                      )
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {nomeCls && (
+                        <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">
+                          {nomeCls}
+                        </span>
+                      )}
+                      {item.unidade_padrao && (
+                        <Badge variant="outline" className="text-xs py-0">{item.unidade_padrao}</Badge>
+                      )}
+                      {item.sustentavel && (
+                        <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">♻ Sustentável</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Ação */}
+                  <div className="pt-0.5 flex justify-center">
+                    <Plus className="h-4 w-4 text-gray-300 group-hover:text-blue-500 transition-colors" />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
