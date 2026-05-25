@@ -208,22 +208,17 @@ export class CatalogoService {
       }
     }
 
-    // Complementar resultados locais incompletos com a API federal.
-    if (termo && termo.length >= 3 && dados.length < limite) {
+    // Se não encontrou localmente e tem termo, buscar na API
+    if (dados.length === 0 && termo && termo.length >= 3) {
       this.logger.log(`Buscando "${termo}" na API Compras.gov.br...`);
-      const itensApi = await this.buscarNaApiEArmazenar(termo, tipo, limite);
+      const itensApi = await this.buscarNaApiEArmazenar(termo, tipo);
       
       if (itensApi.length > 0) {
-        const itensPorCodigo = new Map<string, ItemCatalogo>();
-        for (const item of [...itensApi, ...dados]) {
-          itensPorCodigo.set(item.codigo, item);
-        }
-        const resultados = Array.from(itensPorCodigo.values());
         return {
-          dados: resultados.slice(0, limite),
-          total: resultados.length,
+          dados: itensApi.slice(0, limite),
+          total: itensApi.length,
           pagina: 1,
-          totalPaginas: Math.ceil(resultados.length / limite),
+          totalPaginas: Math.ceil(itensApi.length / limite),
         };
       }
     }
@@ -261,17 +256,17 @@ export class CatalogoService {
     return item;
   }
 
-  private async buscarNaApiEArmazenar(termo: string, tipo?: 'MATERIAL' | 'SERVICO', limite = 50): Promise<ItemCatalogo[]> {
+  private async buscarNaApiEArmazenar(termo: string, tipo?: 'MATERIAL' | 'SERVICO'): Promise<ItemCatalogo[]> {
     try {
       let itensApi: any[] = [];
 
       if (!tipo || tipo === 'MATERIAL') {
-        const materiais = await this.comprasGovService.buscarMateriais(termo, 1, Math.max(limite, 50));
+        const materiais = await this.comprasGovService.buscarMateriais(termo);
         itensApi = [...itensApi, ...materiais];
       }
 
       if (!tipo || tipo === 'SERVICO') {
-        const servicos = await this.comprasGovService.buscarServicos(termo, 1, Math.max(limite, 50));
+        const servicos = await this.comprasGovService.buscarServicos(termo);
         itensApi = [...itensApi, ...servicos];
       }
 
