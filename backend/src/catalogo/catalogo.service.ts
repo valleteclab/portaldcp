@@ -208,17 +208,22 @@ export class CatalogoService {
       }
     }
 
-    // Se não encontrou localmente e tem termo, buscar na API
-    if (dados.length === 0 && termo && termo.length >= 3) {
+    // Complementar resultados locais incompletos com a API federal.
+    if (termo && termo.length >= 3 && dados.length < limite) {
       this.logger.log(`Buscando "${termo}" na API Compras.gov.br...`);
-      const itensApi = await this.buscarNaApiEArmazenar(termo, tipo);
+      const itensApi = await this.buscarNaApiEArmazenar(termo, tipo, limite);
       
       if (itensApi.length > 0) {
+        const itensPorCodigo = new Map<string, ItemCatalogo>();
+        for (const item of [...itensApi, ...dados]) {
+          itensPorCodigo.set(item.codigo, item);
+        }
+        const resultados = Array.from(itensPorCodigo.values());
         return {
-          dados: itensApi.slice(0, limite),
-          total: itensApi.length,
+          dados: resultados.slice(0, limite),
+          total: resultados.length,
           pagina: 1,
-          totalPaginas: Math.ceil(itensApi.length / limite),
+          totalPaginas: Math.ceil(resultados.length / limite),
         };
       }
     }
@@ -256,17 +261,17 @@ export class CatalogoService {
     return item;
   }
 
-  private async buscarNaApiEArmazenar(termo: string, tipo?: 'MATERIAL' | 'SERVICO'): Promise<ItemCatalogo[]> {
+  private async buscarNaApiEArmazenar(termo: string, tipo?: 'MATERIAL' | 'SERVICO', limite = 50): Promise<ItemCatalogo[]> {
     try {
       let itensApi: any[] = [];
 
       if (!tipo || tipo === 'MATERIAL') {
-        const materiais = await this.comprasGovService.buscarMateriais(termo);
+        const materiais = await this.comprasGovService.buscarMateriais(termo, 1, Math.max(limite, 50));
         itensApi = [...itensApi, ...materiais];
       }
 
       if (!tipo || tipo === 'SERVICO') {
-        const servicos = await this.comprasGovService.buscarServicos(termo);
+        const servicos = await this.comprasGovService.buscarServicos(termo, 1, Math.max(limite, 50));
         itensApi = [...itensApi, ...servicos];
       }
 
