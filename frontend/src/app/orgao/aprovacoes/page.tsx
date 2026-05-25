@@ -172,6 +172,23 @@ interface MedicaoPendente {
   };
 }
 
+interface DemandaAprovacao {
+  id: string;
+  ano_referencia: number;
+  unidade_requisitante: string;
+  responsavel_nome?: string;
+  status: 'ENVIADA' | 'EM_ANALISE';
+  observacoes?: string;
+  data_envio?: string;
+  created_at: string;
+  itens: {
+    id: string;
+    descricao_objeto: string;
+    quantidade_estimada: number;
+    valor_total_estimado?: number;
+  }[];
+}
+
 // ============ CONSTANTS ============
 
 const PRIORIDADE_COLORS: Record<string, string> = {
@@ -234,6 +251,7 @@ export default function CentralAprovacoesPage() {
 
   // Dados
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
+  const [demandas, setDemandas] = useState<DemandaAprovacao[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [medicoes, setMedicoes] = useState<MedicaoPendente[]>([]);
   const [ordensServico, setOrdensServico] = useState<OSPendente[]>([]);
@@ -241,6 +259,7 @@ export default function CentralAprovacoesPage() {
   // UI State
   const [loadingContratos, setLoadingContratos] = useState(false);
   const [loadingRequisicoes, setLoadingRequisicoes] = useState(false);
+  const [loadingDemandas, setLoadingDemandas] = useState(false);
   const [loadingMedicoes, setLoadingMedicoes] = useState(false);
   const [loadingOS, setLoadingOS] = useState(false);
   const [processando, setProcessando] = useState(false);
@@ -345,7 +364,7 @@ export default function CentralAprovacoesPage() {
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     if (!tabParam) return;
-    const tabsPermitidas = new Set(['contratos', 'requisicoes', 'medicoes', 'ordens-servico']);
+    const tabsPermitidas = new Set(['contratos', 'demandas', 'requisicoes', 'medicoes', 'ordens-servico']);
     if (tabsPermitidas.has(tabParam)) {
       setActiveTab(tabParam);
     }
@@ -382,6 +401,7 @@ export default function CentralAprovacoesPage() {
   useEffect(() => {
     if (!loading && orgaoId) {
       if (podeLiberarContratos) carregarContratos();
+      if (podeAprovarRequisicoes) carregarDemandas();
       if (podeAprovarRequisicoes) carregarRequisicoes();
       carregarMedicoes();
       carregarOrdensServico();
@@ -392,6 +412,7 @@ export default function CentralAprovacoesPage() {
     if (!orgaoId) return;
     const interval = setInterval(() => {
       if (podeAprovarRequisicoes) carregarRequisicoes();
+      if (podeAprovarRequisicoes) carregarDemandas();
       carregarMedicoes();
       carregarOrdensServico();
     }, 30000);
@@ -429,6 +450,24 @@ export default function CentralAprovacoesPage() {
     }
   };
 
+  const carregarDemandas = async () => {
+    if (!orgaoId) return;
+    setLoadingDemandas(true);
+    try {
+      const [enviadasRes, analiseRes] = await Promise.all([
+        authFetch(`${API_URL}/api/demandas?orgaoId=${orgaoId}&status=ENVIADA`),
+        authFetch(`${API_URL}/api/demandas?orgaoId=${orgaoId}&status=EM_ANALISE`),
+      ]);
+      const enviadas = enviadasRes.ok ? await enviadasRes.json() : [];
+      const analise = analiseRes.ok ? await analiseRes.json() : [];
+      setDemandas([...(Array.isArray(enviadas) ? enviadas : []), ...(Array.isArray(analise) ? analise : [])]);
+    } catch (error) {
+      console.error('Erro ao carregar demandas:', error);
+    } finally {
+      setLoadingDemandas(false);
+    }
+  };
+
   const carregarMedicoes = async () => {
     setLoadingMedicoes(true);
     try {
@@ -459,6 +498,7 @@ export default function CentralAprovacoesPage() {
 
   const recarregarTudo = () => {
     if (podeLiberarContratos) carregarContratos();
+    if (podeAprovarRequisicoes) carregarDemandas();
     if (podeAprovarRequisicoes) carregarRequisicoes();
     carregarMedicoes();
     carregarOrdensServico();
@@ -564,6 +604,49 @@ export default function CentralAprovacoesPage() {
     } catch (error) {
       console.error('Erro:', error);
       alert('Erro ao negar requisição');
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const aprovarDemanda = async (demanda: DemandaAprovacao) => {
+    if (!confirm(`Aprovar a demanda "${demanda.unidade_requisitante}" para o PCA ${demanda.ano_referencia}?`)) return;
+    setProcessando(true);
+    try {
+      const usuarioStr = localStorage.getItem('usuario');
+      const usuario = usuarioStr ? JSON.parse(usuarioStr) : {};
+      const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/aprovar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ aprovadoPor: usuario.nome || usuario.email || 'Usuário' }),
+      });
+      if (res.ok) {
+        await carregarDemandas();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || 'Erro ao aprovar demanda');
+      }
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const rejeitarDemanda = async (demanda: DemandaAprovacao) => {
+    const motivo = prompt(`Informe o motivo da rejeição da demanda "${demanda.unidade_requisitante}":`);
+    if (!motivo?.trim()) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/rejeitar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo }),
+      });
+      if (res.ok) {
+        await carregarDemandas();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || 'Erro ao rejeitar demanda');
+      }
     } finally {
       setProcessando(false);
     }
@@ -814,8 +897,12 @@ export default function CentralAprovacoesPage() {
     );
   }
 
-  const totalPendentes = contratos.length + requisicoes.length + medicoes.length + ordensServico.length;
+  const totalPendentes = contratos.length + demandas.length + requisicoes.length + medicoes.length + ordensServico.length;
   const valorTotalContratos = contratos.reduce((acc, c) => acc + Number(c.valor_global || 0), 0);
+  const valorTotalDemandas = demandas.reduce(
+    (acc, d) => acc + (d.itens || []).reduce((sum, item) => sum + Number(item.valor_total_estimado || 0), 0),
+    0,
+  );
   const valorTotalRequisicoes = requisicoes.reduce((acc, r) => acc + Number(r.valor_total_estimado || 0), 0);
   const valorTotalMedicoes = medicoes.reduce((acc, m) => acc + Number(m.valor_medido || 0), 0);
   const valorTotalOS = ordensServico.reduce((acc, os) => acc + Number(os.valor_total || 0), 0);
@@ -869,6 +956,21 @@ export default function CentralAprovacoesPage() {
         )}
 
         {podeAprovarRequisicoes && (
+          <Card className={demandas.length > 0 ? 'border-amber-200 bg-amber-50' : ''}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                <FileText className="h-4 w-4 text-amber-500" />
+                Demandas DFD
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-600">{demandas.length}</div>
+              <p className="text-xs text-gray-500 mt-1">{formatarMoeda(valorTotalDemandas)}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {podeAprovarRequisicoes && (
           <Card className={requisicoes.length > 0 ? 'border-purple-200 bg-purple-50' : ''}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
@@ -917,7 +1019,7 @@ export default function CentralAprovacoesPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-700">
-              {formatarMoeda(valorTotalContratos + valorTotalRequisicoes + valorTotalMedicoes + valorTotalOS)}
+              {formatarMoeda(valorTotalContratos + valorTotalDemandas + valorTotalRequisicoes + valorTotalMedicoes + valorTotalOS)}
             </div>
           </CardContent>
         </Card>
@@ -932,6 +1034,15 @@ export default function CentralAprovacoesPage() {
               Contratos
               {contratos.length > 0 && (
                 <Badge className="ml-1 bg-blue-600 text-white text-xs px-1.5 py-0">{contratos.length}</Badge>
+              )}
+            </TabsTrigger>
+          )}
+          {podeAprovarRequisicoes && (
+            <TabsTrigger value="demandas" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Demandas DFD
+              {demandas.length > 0 && (
+                <Badge className="ml-1 bg-amber-600 text-white text-xs px-1.5 py-0">{demandas.length}</Badge>
               )}
             </TabsTrigger>
           )}
@@ -959,6 +1070,87 @@ export default function CentralAprovacoesPage() {
             )}
           </TabsTrigger>
         </TabsList>
+
+        {/* ============ TAB DEMANDAS DFD ============ */}
+        <TabsContent value="demandas" className="space-y-4">
+          {loadingDemandas ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+            </div>
+          ) : demandas.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma demanda pendente</h3>
+                <p className="text-gray-500">Todas as demandas DFD foram processadas.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {demandas.map((demanda) => {
+                const valorDemanda = (demanda.itens || []).reduce((sum, item) => sum + Number(item.valor_total_estimado || 0), 0);
+                return (
+                  <Card key={demanda.id} className="overflow-hidden border-l-4 border-l-amber-400">
+                    <CardContent className="p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-bold text-lg text-gray-900 truncate">{demanda.unidade_requisitante}</h3>
+                            <Badge className="bg-amber-100 text-amber-800">
+                              {demanda.status === 'EM_ANALISE' ? 'Em análise' : 'Aguardando aprovação'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-500">
+                            PCA {demanda.ano_referencia} • Responsável: {demanda.responsavel_nome || 'Não informado'}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs text-gray-500">{demanda.itens?.length || 0} itens</p>
+                          <p className="font-bold text-blue-700">{formatarMoeda(valorDemanda)}</p>
+                        </div>
+                      </div>
+
+                      {demanda.observacoes && (
+                        <div className="mt-4 rounded-lg bg-gray-50 border p-3">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Justificativa</p>
+                          <p className="text-sm text-gray-700 line-clamp-3 whitespace-pre-wrap">{demanda.observacoes}</p>
+                        </div>
+                      )}
+
+                      <div className="mt-4 flex flex-wrap gap-2 pt-4 border-t">
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700"
+                          onClick={() => aprovarDemanda(demanda)}
+                          disabled={processando}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Aprovar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-red-600 border-red-300 hover:bg-red-50"
+                          onClick={() => rejeitarDemanda(demanda)}
+                          disabled={processando}
+                        >
+                          <XCircle className="h-4 w-4 mr-1" />
+                          Rejeitar
+                        </Button>
+                        <Button size="sm" variant="ghost" asChild>
+                          <Link href={`/orgao/demandas/${demanda.id}`}>
+                            <Eye className="h-4 w-4 mr-1" />
+                            Ver DFD
+                          </Link>
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
 
         {/* ============ TAB CONTRATOS ============ */}
         <TabsContent value="contratos" className="space-y-4">
