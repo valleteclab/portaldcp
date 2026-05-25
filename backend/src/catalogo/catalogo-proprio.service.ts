@@ -233,6 +233,65 @@ export class CatalogoProprioService implements OnModuleInit {
     return this.itemRepository.save(item);
   }
 
+  async importarItemComprasGov(dados: {
+    codigoFederal: string;
+    descricao: string;
+    tipo: 'MATERIAL' | 'SERVICO';
+    codigo_classe?: string;
+    nome_classe?: string;
+    descricao_detalhada?: string;
+    unidade_padrao?: string;
+  }): Promise<ItemCatalogoProprio | null> {
+    if (!dados.codigo_classe || !dados.nome_classe) return null;
+
+    let classificacao = await this.classificacaoRepository.findOne({
+      where: { codigo: dados.codigo_classe },
+    });
+
+    if (!classificacao) {
+      classificacao = await this.classificacaoRepository.save(
+        this.classificacaoRepository.create({
+          codigo: dados.codigo_classe,
+          nome: dados.nome_classe.toUpperCase(),
+          tipo: dados.tipo,
+          descricao: `Classificação importada do ComprasGov (${dados.codigo_classe})`,
+          palavras_chave: dados.nome_classe.split(/\s+/).filter(Boolean),
+          orgao_id: null,
+          ativo: true,
+        }),
+      );
+      this.logger.log(`[COMPRASGOV] Classificação própria criada: ${dados.codigo_classe} - ${dados.nome_classe}`);
+    }
+
+    const existente = await this.itemRepository
+      .createQueryBuilder('i')
+      .where('i.classificacao_id = :classificacaoId', { classificacaoId: classificacao.id })
+      .andWhere('i.tipo = :tipo', { tipo: dados.tipo })
+      .andWhere('LOWER(i.descricao) = LOWER(:descricao)', { descricao: dados.descricao })
+      .getOne();
+
+    if (existente) {
+      if (dados.unidade_padrao) existente.unidade_padrao = dados.unidade_padrao;
+      if (dados.descricao_detalhada) existente.descricao_detalhada = dados.descricao_detalhada;
+      return this.itemRepository.save(existente);
+    }
+
+    const codigo = await this.gerarCodigoItem(dados.tipo, classificacao.codigo);
+    const item = this.itemRepository.create({
+      codigo,
+      descricao: dados.descricao,
+      descricao_detalhada: dados.descricao_detalhada || `Código ComprasGov: ${dados.codigoFederal}`,
+      tipo: dados.tipo,
+      unidade_padrao: dados.unidade_padrao || 'UN',
+      classificacao_id: classificacao.id,
+      orgao_id: null,
+      ativo: true,
+    });
+
+    this.logger.log(`[COMPRASGOV] Item próprio criado: ${codigo} - ${dados.descricao}`);
+    return this.itemRepository.save(item);
+  }
+
   private async gerarCodigoItem(tipo: 'MATERIAL' | 'SERVICO', codigoClassificacao: string): Promise<string> {
     // Formato: S1000001 (Serviço) ou M10000001 (Material)
     const prefixo = tipo === 'MATERIAL' ? 'M' : 'S';

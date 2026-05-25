@@ -4,6 +4,7 @@ import { Repository, In } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ClasseCatalogo, ItemCatalogo, UnidadeMedida, CatalogoSyncLog } from './entities/catalogo.entity';
 import { ComprasGovService, ItemComprasGov } from './comprasgov.service';
+import { CatalogoProprioService } from './catalogo-proprio.service';
 
 export interface BuscaCatalogoDto {
   termo?: string;
@@ -41,6 +42,7 @@ export class CatalogoService {
     @InjectRepository(CatalogoSyncLog)
     private syncLogRepository: Repository<CatalogoSyncLog>,
     private comprasGovService: ComprasGovService,
+    private catalogoProprioService: CatalogoProprioService,
   ) {}
 
   // ============ CLASSES ============
@@ -836,6 +838,18 @@ export class CatalogoService {
 
     // Limpar cache
     this.cacheBuscas.clear();
+
+    if ((itemData.origem || 'COMPRASGOV') === 'COMPRASGOV') {
+      await this.catalogoProprioService.importarItemComprasGov({
+        codigoFederal: itemData.codigo,
+        descricao: itemData.descricao,
+        tipo: itemData.tipo,
+        unidade_padrao: itemData.unidade_padrao,
+        codigo_classe: itemData.codigo_classe,
+        nome_classe: nomeClasse || itemData.nome_classe,
+        descricao_detalhada: itemData.descricao_detalhada,
+      });
+    }
 
     return item;
   }
