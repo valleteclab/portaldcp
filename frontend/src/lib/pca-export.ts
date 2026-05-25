@@ -20,6 +20,8 @@ export interface PcaExportItem {
   unidade_requisitante?: string
   codigo_grupo?: string
   nome_grupo?: string
+  identificador_contratacao?: string
+  nome_contratacao?: string
 }
 
 export interface PcaExportData {
@@ -74,6 +76,8 @@ function dataDesejada(ano: number, trimestre?: number | string | null): string {
 export function montarDadosExportacaoPca(pca: PcaExportData) {
   return (pca.itens || []).map((item, index) => ({
     'Numero Item*': index + 1,
+    'Identificador da Futura Contratação': item.identificador_contratacao || item.codigo_grupo || '',
+    'Nome da Futura Contratação': item.nome_contratacao || item.nome_grupo || '',
     'Categoria do Item*': categoriaMap[item.categoria || ''] || '2-Serviço',
     'Catálogo Utilizado*': catalogoMap[item.catalogo_utilizado || 'OUTROS'] || '2-Outros',
     'Classificação do Catálogo*': classificacaoMap[item.classificacao_catalogo || 'SERVICO'] || '2-Serviço',
@@ -91,8 +95,8 @@ export function montarDadosExportacaoPca(pca: PcaExportData) {
     'Renovação Contrato*': item.renovacao_contrato === 'SIM' ? '1-Sim' : '2-Não',
     'Data Desejada*': dataDesejada(pca.ano_exercicio, item.trimestre_previsto),
     'Unidade Requisitante': item.unidade_requisitante || '',
-    'Grupo Contratação Codigo': item.codigo_grupo || '',
-    'Grupo Contratação Nome': item.nome_grupo || '',
+    'Grupo Contratação Codigo': item.identificador_contratacao || item.codigo_grupo || '',
+    'Grupo Contratação Nome': item.nome_contratacao || item.nome_grupo || '',
   }))
 }
 

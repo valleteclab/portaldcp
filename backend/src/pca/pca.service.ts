@@ -107,7 +107,9 @@ export class PcaService {
   private async repararCodigosItensConsolidados(pca: PlanoContratacaoAnual): Promise<void> {
     if (pca.status === StatusPCA.ENVIADO_PNCP || !pca.itens?.length) return;
 
-    const itensSemCodigo = pca.itens.filter((item) => !item.codigo_item_catalogo);
+    const itensSemCodigo = pca.itens.filter((item) =>
+      !item.codigo_item_catalogo && !(item.codigo_classe && item.unidade_medida === 'VB')
+    );
     if (itensSemCodigo.length === 0) return;
 
     const itemDemandaRepository = this.pcaRepository.manager.connection.getRepository('ItemDemanda');
@@ -267,6 +269,8 @@ export class PcaService {
         renovacao_contrato: item.renovacao_contrato,
         trimestre_previsto: item.trimestre_previsto,
         unidade_requisitante: item.unidade_requisitante,
+        identificador_contratacao: item.identificador_contratacao,
+        nome_contratacao: item.nome_contratacao,
         codigo_grupo: item.codigo_grupo,
         nome_grupo: item.nome_grupo,
       })),
@@ -382,6 +386,24 @@ export class PcaService {
     await this.recalcularTotais(pcaId);
 
     return itemSalvo;
+  }
+
+  private montarIdentificadorContratacao(pca: PlanoContratacaoAnual, numeroItem: number): string {
+    const unidade = (pca.codigo_unidade || pca.nome_unidade || '1').toString().replace(/\D/g, '') || '1';
+    return `${unidade}-${numeroItem}/${pca.ano_exercicio}`;
+  }
+
+  private montarNomeContratacao(grupo: {
+    categoria: string;
+    codigo_classe: string;
+    nome_classe: string;
+  }): string {
+    const nomeClasse = grupo.nome_classe || 'Itens sem classificacao';
+    const acao = grupo.categoria === CategoriaItemPCA.MATERIAL || grupo.categoria === 'MATERIAL'
+      ? 'Aquisicao de'
+      : 'Contratacao de';
+
+    return `${acao} ${nomeClasse}`;
   }
 
   // ============ IMPORTAÇÃO COM VERIFICAÇÃO DE DUPLICIDADE ============
@@ -867,6 +889,8 @@ export class PcaService {
         classificacao_catalogo: item.classificacao_catalogo,
         codigo_grupo: item.codigo_grupo,
         nome_grupo: item.nome_grupo,
+        identificador_contratacao: item.identificador_contratacao,
+        nome_contratacao: item.nome_contratacao,
         unidade_requisitante: item.unidade_requisitante,
         responsavel_demanda: item.responsavel_demanda,
         email_responsavel: item.email_responsavel,
@@ -1003,6 +1027,7 @@ export class PcaService {
 
     // ── Criar um ItemPCA por grupo de classificação ───────────────────────────
     let itensAdicionados = 0;
+    let proximoNumeroContratacao = Math.max(0, ...(pca.itens || []).map((item) => item.numero_item || 0)) + 1;
 
     for (const [, grupo] of grupos) {
       const descricaoObj = grupo.nome_classe
@@ -1013,11 +1038,13 @@ export class PcaService {
         ? [...new Set(grupo.justificativas)].join(' | ')
         : undefined;
       const codigoItemCatalogo =
-        grupo.codigos_item_catalogo.size === 1 ? Array.from(grupo.codigos_item_catalogo)[0] : undefined;
+        !grupo.codigo_classe && grupo.codigos_item_catalogo.size === 1 ? Array.from(grupo.codigos_item_catalogo)[0] : undefined;
       const descricaoItemCatalogo =
-        grupo.descricoes_item_catalogo.size === 1 ? Array.from(grupo.descricoes_item_catalogo)[0] : undefined;
+        !grupo.codigo_classe && grupo.descricoes_item_catalogo.size === 1 ? Array.from(grupo.descricoes_item_catalogo)[0] : undefined;
       const catalogoUtilizado =
         grupo.catalogos_utilizados.size === 1 ? Array.from(grupo.catalogos_utilizados)[0] : 'COMPRASGOV';
+      const identificadorContratacao = this.montarIdentificadorContratacao(pca, proximoNumeroContratacao);
+      const nomeContratacao = this.montarNomeContratacao(grupo);
 
       const novoItemPca = await this.adicionarItem(pcaId, {
         categoria: grupo.categoria as any,
@@ -1028,6 +1055,10 @@ export class PcaService {
         catalogo_utilizado: catalogoUtilizado as any,
         codigo_item_catalogo: codigoItemCatalogo,
         descricao_item_catalogo: descricaoItemCatalogo,
+        identificador_contratacao: identificadorContratacao,
+        nome_contratacao: nomeContratacao,
+        codigo_grupo: identificadorContratacao,
+        nome_grupo: nomeContratacao,
         unidade_requisitante: grupo.unidades_requisitantes.join(', ') || undefined,
         responsavel_demanda: grupo.responsaveis[0]?.nome,
         email_responsavel: grupo.responsaveis[0]?.email,
@@ -1039,6 +1070,7 @@ export class PcaService {
         prioridade: grupo.prioridade,
         renovacao_contrato: 'NAO',
       });
+      proximoNumeroContratacao++;
 
       // Vincular cada item de demanda ao ItemPCA criado
       for (const itemId of grupo.itens_demanda_ids) {

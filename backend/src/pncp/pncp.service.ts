@@ -1527,6 +1527,8 @@ export class PncpService implements OnModuleInit {
       
       // Nome da Classificação Superior - usar nome_classe do item
       const nomeClasseSuperior = item.nome_classe || (categoria === 1 ? 'MATERIAIS' : 'SERVIÇOS');
+      const grupoContratacaoCodigo = item.identificador_contratacao || item.codigo_grupo;
+      const grupoContratacaoNome = item.nome_contratacao || item.nome_grupo;
       
       return {
         numeroItem: item.numero_item || (index + 1),
@@ -1546,6 +1548,8 @@ export class PncpService implements OnModuleInit {
         // Código e Nome da Classificação Superior (Classe/Grupo)
         classificacaoSuperiorCodigo: codigoClasseSuperior,
         classificacaoSuperiorNome: nomeClasseSuperior,
+        grupoContratacaoCodigo,
+        grupoContratacaoNome,
         // Data obrigatória
         dataDesejada: item.data_desejada_contratacao || item.data_prevista_inicio || new Date().toISOString().split('T')[0],
         grauPrioridade: item.prioridade || 3,

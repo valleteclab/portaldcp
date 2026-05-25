@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -106,6 +106,8 @@ interface ItemPCA {
   classificacao_catalogo?: string
   codigo_grupo?: string
   nome_grupo?: string
+  identificador_contratacao?: string
+  nome_contratacao?: string
   renovacao_contrato?: string
   data_desejada_contratacao?: string
   valor_orcamentario_exercicio?: number
@@ -237,6 +239,57 @@ function PcaPageContent() {
       carregarUnidadesOrgao()
     }
   }, [showNovoPCA])
+
+  const gruposConsolidacao = useMemo(() => {
+    const grupos = new Map<string, {
+      chave: string
+      codigoClasse: string
+      nomeClasse: string
+      categoria: string
+      demandaIds: string[]
+      demandas: any[]
+      quantidadeDfds: number
+      valorTotal: number
+    }>()
+
+    demandasDisponiveis.forEach((demanda) => {
+      const itens = demanda.itens?.length ? demanda.itens : [{ descricao_objeto: demanda.objeto || demanda.unidade_requisitante }]
+
+      itens.forEach((item: any) => {
+        const categoria = item.categoria || 'SERVICO'
+        const codigoClasse = item.codigo_classe || 'SEM_CLASSE'
+        const nomeClasse = item.nome_classe || item.descricao_objeto || 'Sem classificacao'
+        const chave = item.codigo_classe
+          ? `${categoria}:${codigoClasse}`
+          : `${categoria}:demanda:${demanda.id}`
+
+        if (!grupos.has(chave)) {
+          grupos.set(chave, {
+            chave,
+            codigoClasse,
+            nomeClasse,
+            categoria,
+            demandaIds: [],
+            demandas: [],
+            quantidadeDfds: 0,
+            valorTotal: 0,
+          })
+        }
+
+        const grupo = grupos.get(chave)!
+        grupo.valorTotal += Number(item.valor_total_estimado) || 0
+        if (!grupo.demandaIds.includes(demanda.id)) {
+          grupo.demandaIds.push(demanda.id)
+          grupo.demandas.push(demanda)
+          grupo.quantidadeDfds += 1
+        }
+      })
+    })
+
+    return Array.from(grupos.values()).sort((a, b) =>
+      a.codigoClasse.localeCompare(b.codigoClasse, 'pt-BR', { numeric: true })
+    )
+  }, [demandasDisponiveis])
 
   const carregarPCAs = async () => {
     setLoading(true)
@@ -643,6 +696,16 @@ function PcaPageContent() {
     } else {
       setDemandasSelecionadas(demandasDisponiveis.map(d => d.id))
     }
+  }
+
+  const toggleGrupoConsolidacao = (demandaIds: string[]) => {
+    setDemandasSelecionadas(prev => {
+      const todasSelecionadas = demandaIds.every(id => prev.includes(id))
+      if (todasSelecionadas) {
+        return prev.filter(id => !demandaIds.includes(id))
+      }
+      return Array.from(new Set([...prev, ...demandaIds]))
+    })
   }
 
   const aprovarPCA = async () => {
@@ -1531,7 +1594,15 @@ function PcaPageContent() {
                             </td>
                             <td className="py-2 px-2 font-mono text-xs">{item.codigo_item_catalogo || '-'}</td>
                             <td className="py-2 px-2 align-top whitespace-normal break-words" title={item.descricao_objeto}>
-                              {item.descricao_objeto}
+                              <div className="space-y-1">
+                                <div>{item.descricao_objeto}</div>
+                                {(item.identificador_contratacao || item.nome_contratacao) && (
+                                  <div className="text-[11px] text-gray-500">
+                                    <span className="font-mono">{item.identificador_contratacao}</span>
+                                    {item.nome_contratacao && ` - ${item.nome_contratacao}`}
+                                  </div>
+                                )}
+                              </div>
                             </td>
                             <td className="py-2 px-2 text-center text-xs">{item.unidade_medida || 'UN'}</td>
                             <td className="py-2 px-2 text-right">{Number(item.quantidade_estimada || 1).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}</td>
@@ -1979,6 +2050,40 @@ function PcaPageContent() {
                 <span className="text-sm text-gray-500">
                   {demandasSelecionadas.length} selecionada(s)
                 </span>
+              </div>
+
+              <div className="space-y-2 rounded-lg border bg-gray-50 p-3">
+                <div className="text-sm font-medium text-gray-700">Demandas consolidadas por classe ou grupo</div>
+                <div className="space-y-2">
+                  {gruposConsolidacao.map((grupo) => {
+                    const isSelected = grupo.demandaIds.every(id => demandasSelecionadas.includes(id))
+
+                    return (
+                      <button
+                        key={grupo.chave}
+                        type="button"
+                        onClick={() => toggleGrupoConsolidacao(grupo.demandaIds)}
+                        className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                          isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'
+                        }`}
+                      >
+                        <span>
+                          <span className="block text-xs text-gray-500">Classe</span>
+                          <span className="font-medium">
+                            {grupo.codigoClasse !== 'SEM_CLASSE' ? `${grupo.codigoClasse} - ` : ''}
+                            {grupo.nomeClasse}
+                          </span>
+                        </span>
+                        <span className="text-right">
+                          <span className="block text-xs text-gray-500">{grupo.quantidadeDfds} DFD(s)</span>
+                          <span className="font-semibold text-blue-700">
+                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(grupo.valorTotal)}
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className="space-y-3 max-h-[400px] overflow-y-auto">
