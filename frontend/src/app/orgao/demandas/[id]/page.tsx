@@ -177,7 +177,23 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
               if (item.descricao_detalhada) {
                 try { caracts = JSON.parse(item.descricao_detalhada) } catch { /* ignore */ }
               }
-              const nomePdm = item.nome_pdm || ''
+              // Fallback: parsear string "PDM - Car1: Val1, Car2: Val2, ..." quando descricao_detalhada nulo
+              if (caracts.length === 0 && item.descricao) {
+                const dashIdx = item.descricao.indexOf(' - ')
+                if (dashIdx > -1) {
+                  const caractsStr = item.descricao.slice(dashIdx + 3)
+                  caracts = caractsStr.split(', ')
+                    .map((c: string) => {
+                      const colonIdx = c.indexOf(': ')
+                      if (colonIdx > -1) return { nome: c.slice(0, colonIdx).trim(), valor: c.slice(colonIdx + 2).trim() }
+                      return null
+                    })
+                    .filter((c: { nome: string; valor: string } | null): c is { nome: string; valor: string } =>
+                      c !== null && c.nome.length > 0 && c.valor.length > 0
+                    )
+                }
+              }
+              const nomePdm = item.nome_pdm || (item.descricao?.indexOf(' - ') > -1 ? item.descricao.split(' - ')[0] : item.descricao)
               const nomeCls = item.classe?.nome || item.nome_classe || ''
 
               return (
@@ -203,9 +219,9 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
                   {/* Descrição estruturada */}
                   <div className="min-w-0">
                     <p className="font-bold text-sm text-gray-900 leading-snug">
-                      {nomePdm || item.descricao.split(' - ')[0]}
+                      {nomePdm}
                     </p>
-                    {caracts.length > 0 ? (
+                    {caracts.length > 0 && (
                       <div className="mt-1 space-y-0.5">
                         {caracts.map((c, i) => (
                           <p key={i} className="text-xs text-gray-600">
@@ -214,13 +230,6 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
                           </p>
                         ))}
                       </div>
-                    ) : (
-                      /* Fallback: mostrar descrição completa para itens sem características */
-                      nomePdm && item.descricao !== nomePdm && (
-                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
-                          {item.descricao.replace(nomePdm + ' - ', '')}
-                        </p>
-                      )
                     )}
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       {nomeCls && (
