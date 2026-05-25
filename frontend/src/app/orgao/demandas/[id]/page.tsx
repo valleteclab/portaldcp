@@ -708,9 +708,10 @@ export default function DetalheDemandaPage() {
     if (!demanda || !itemSelecionado) return
     setSalvando(true)
     try {
-      // Classe efetiva: pode vir do item (CATMAT/próprio) ou do seletor do formulário
-      const codigoClasse = itemSelecionado.codigo_classe || form.codigo_classe
-      const nomeClasse = itemSelecionado.nome_classe || form.nome_classe
+      // Classe efetiva: preferir classificação própria selecionada no formulário;
+      // fallback para o código do item (pode ser código federal CATMAT/CATSER)
+      const codigoClasse = form.codigo_classe || itemSelecionado.codigo_classe
+      const nomeClasse = form.nome_classe || itemSelecionado.nome_classe
 
       // 1. Registrar no catálogo federal se origem = COMPRASGOV
       if (itemSelecionado.fonte === 'COMPRASGOV') {
@@ -824,11 +825,13 @@ export default function DetalheDemandaPage() {
   const nServicos  = demanda.itens.filter(i => i.categoria === 'SERVICO').length
 
   // Agrupamento para prévia do PCA
+  // Usa nome_classe normalizado como chave para consolidar itens de origens diferentes
+  // (CATMAT federal usa código "7060", catálogo próprio usa "1000" — mas mesmo nome de classe)
   const gruposPCA = (() => {
     const map = new Map<string, { nome: string; valor: number; itens: number }>()
     for (const item of demanda.itens) {
-      const chave = item.codigo_classe || `sem-classe:${item.id}`
-      const nome  = item.nome_classe  || item.descricao_objeto
+      const nome  = item.nome_classe || item.descricao_objeto || ''
+      const chave = nome.trim().toUpperCase() || item.codigo_classe || `sem-classe:${item.id}`
       const atual = map.get(chave) || { nome, valor: 0, itens: 0 }
       atual.valor += Number(item.valor_total_estimado) || 0
       atual.itens += 1
