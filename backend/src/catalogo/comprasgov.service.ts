@@ -4,6 +4,8 @@ import axios, { AxiosInstance } from 'axios';
 export interface ItemComprasGov {
   codigo: number;
   descricao: string;
+  nome_pdm?: string;
+  caracteristicas?: { nome: string; valor: string }[];
   classe?: number;
   nome_classe?: string;
   grupo?: number;
@@ -77,9 +79,16 @@ export class ComprasGovService {
         });
         const itens = Array.isArray(itensResponse.data) ? itensResponse.data : [];
         for (const item of itens.slice(0, itensPorPdm)) {
+          const nomePdm = item.nomePdm || pdm.nomePdm || pdm.descricaoPDM || '';
+          const caracts: { nome: string; valor: string }[] = (item.buscaItemCaracteristica || [])
+            .map((c: any) => ({ nome: c.nomeCaracteristica, valor: c.nomeValorCaracteristica }))
+            .filter((c: any) => c.nome && c.valor);
+
           materiais.push({
             codigo: item.codigoItem,
             descricao: this.montarDescricaoMaterial(item),
+            nome_pdm: nomePdm,
+            caracteristicas: caracts,
             classe: item.codigoClasse ?? pdm.codigoClasse,
             nome_classe: item.nomeClasse ?? pdm.nomeClasse,
             grupo: pdm.codigoGrupo,

@@ -312,6 +312,10 @@ export class CatalogoService {
         if (!existente.codigo_classe && itemApi.classe) existente.codigo_classe = String(itemApi.classe);
         if (!existente.classe_id && classeId) existente.classe_id = classeId;
         if (!existente.nome_classe && nomeClasse) existente.nome_classe = nomeClasse;
+        // Enriquecer PDM e características
+        if (!existente.nome_pdm && itemApi.nome_pdm) existente.nome_pdm = itemApi.nome_pdm;
+        if (!existente.descricao_detalhada && itemApi.caracteristicas?.length)
+          existente.descricao_detalhada = JSON.stringify(itemApi.caracteristicas);
         return this.itemRepository.save(existente);
       }
 
@@ -325,6 +329,10 @@ export class CatalogoService {
         classe_id: classeId,
         codigo_grupo: itemApi.grupo ? String(itemApi.grupo) : undefined,
         codigo_pdm: itemApi.pdm ? String(itemApi.pdm) : undefined,
+        nome_pdm: itemApi.nome_pdm,
+        descricao_detalhada: itemApi.caracteristicas?.length
+          ? JSON.stringify(itemApi.caracteristicas)
+          : undefined,
         unidade_padrao: itemApi.unidade_fornecimento || 'UN',
         sustentavel: Boolean(itemApi.sustentavel),
         origem: 'COMPRASGOV',
