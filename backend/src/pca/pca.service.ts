@@ -400,8 +400,8 @@ export class PcaService {
   }): string {
     const nomeClasse = grupo.nome_classe || 'Itens sem classificacao';
     const acao = grupo.categoria === CategoriaItemPCA.MATERIAL || grupo.categoria === 'MATERIAL'
-      ? 'Aquisicao de'
-      : 'Contratacao de';
+      ? 'Aquisição de'
+      : 'Contratação de';
 
     return `${acao} ${nomeClasse}`;
   }

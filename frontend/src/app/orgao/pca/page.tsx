@@ -291,6 +291,18 @@ function PcaPageContent() {
     )
   }, [demandasDisponiveis])
 
+  const textosEquivalentes = (a?: string, b?: string) => {
+    const normalizar = (texto?: string) =>
+      (texto || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase()
+
+    return normalizar(a) !== '' && normalizar(a) === normalizar(b)
+  }
+
   const carregarPCAs = async () => {
     setLoading(true)
     try {
@@ -1574,6 +1586,7 @@ function PcaPageContent() {
                     <tbody>
                       {pcaAtual.itens.map((item) => {
                         const CategoriaIcon = CATEGORIAS[item.categoria as keyof typeof CATEGORIAS]?.icon || Package
+                        const nomeContratacaoRepetido = textosEquivalentes(item.nome_contratacao, item.descricao_objeto)
                         return (
                           <tr key={item.id} className="border-b hover:bg-gray-50">
                             <td className="py-2 px-2 font-medium">{item.numero_item}</td>
@@ -1599,7 +1612,7 @@ function PcaPageContent() {
                                 {(item.identificador_contratacao || item.nome_contratacao) && (
                                   <div className="text-[11px] text-gray-500">
                                     <span className="font-mono">{item.identificador_contratacao}</span>
-                                    {item.nome_contratacao && ` - ${item.nome_contratacao}`}
+                                    {item.nome_contratacao && !nomeContratacaoRepetido && ` - ${item.nome_contratacao}`}
                                   </div>
                                 )}
                               </div>
