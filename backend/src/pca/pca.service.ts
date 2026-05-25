@@ -74,6 +74,8 @@ export class PcaService {
       throw new NotFoundException('PCA não encontrado');
     }
 
+    await this.repararCodigosItensConsolidados(pca);
+
     // Ordenar itens por numero_item
     if (pca.itens && pca.itens.length > 0) {
       pca.itens.sort((a, b) => (a.numero_item || 0) - (b.numero_item || 0));
@@ -92,12 +94,59 @@ export class PcaService {
       throw new NotFoundException(`PCA do ano ${ano} não encontrado`);
     }
 
+    await this.repararCodigosItensConsolidados(pca);
+
     // Ordenar itens por numero_item
     if (pca.itens && pca.itens.length > 0) {
       pca.itens.sort((a, b) => (a.numero_item || 0) - (b.numero_item || 0));
     }
 
     return pca;
+  }
+
+  private async repararCodigosItensConsolidados(pca: PlanoContratacaoAnual): Promise<void> {
+    if (pca.status === StatusPCA.ENVIADO_PNCP || !pca.itens?.length) return;
+
+    const itensSemCodigo = pca.itens.filter((item) => !item.codigo_item_catalogo);
+    if (itensSemCodigo.length === 0) return;
+
+    const itemDemandaRepository = this.pcaRepository.manager.connection.getRepository('ItemDemanda');
+
+    for (const itemPca of itensSemCodigo) {
+      const itensDemanda = await itemDemandaRepository.find({
+        where: { item_pca_id: itemPca.id } as any,
+      }) as any[];
+
+      const codigos = new Set(
+        itensDemanda
+          .map((item) => item.codigo_item_catalogo?.trim())
+          .filter(Boolean),
+      );
+
+      if (codigos.size !== 1) continue;
+
+      const descricoes = new Set(
+        itensDemanda
+          .map((item) => item.descricao_objeto?.trim())
+          .filter(Boolean),
+      );
+      const catalogos = new Set(
+        itensDemanda
+          .map((item) => item.catalogo_utilizado?.trim())
+          .filter(Boolean),
+      );
+
+      itemPca.codigo_item_catalogo = Array.from(codigos)[0];
+      if (!itemPca.descricao_item_catalogo && descricoes.size === 1) {
+        itemPca.descricao_item_catalogo = Array.from(descricoes)[0];
+      }
+      if (catalogos.size === 1) {
+        itemPca.catalogo_utilizado = Array.from(catalogos)[0] as any;
+      }
+
+      await this.itemPcaRepository.save(itemPca);
+      this.logger.log(`[PCA] Código de item reparado na consolidação: ${itemPca.id} -> ${itemPca.codigo_item_catalogo}`);
+    }
   }
 
   async findPublicoPorCnpjEAno(cnpj: string, ano: number): Promise<Record<string, unknown>> {
@@ -895,6 +944,9 @@ export class PcaService {
       itens_demanda_ids: string[];
       unidades_requisitantes: string[];
       responsaveis: { nome?: string; email?: string }[];
+      codigos_item_catalogo: Set<string>;
+      descricoes_item_catalogo: Set<string>;
+      catalogos_utilizados: Set<string>;
     };
 
     const grupos = new Map<string, GrupoClassificacao>();
@@ -919,6 +971,9 @@ export class PcaService {
           itens_demanda_ids: [],
           unidades_requisitantes: [],
           responsaveis: [],
+          codigos_item_catalogo: new Set<string>(),
+          descricoes_item_catalogo: new Set<string>(),
+          catalogos_utilizados: new Set<string>(),
         });
       }
 
@@ -931,6 +986,15 @@ export class PcaService {
       if (item.justificativa?.trim())
         grupo.justificativas.push(item.justificativa.trim());
       grupo.itens_demanda_ids.push(item.id);
+      if (item.codigo_item_catalogo?.trim()) {
+        grupo.codigos_item_catalogo.add(item.codigo_item_catalogo.trim());
+      }
+      if (item.descricao_objeto?.trim()) {
+        grupo.descricoes_item_catalogo.add(item.descricao_objeto.trim());
+      }
+      if (item.catalogo_utilizado?.trim()) {
+        grupo.catalogos_utilizados.add(item.catalogo_utilizado.trim());
+      }
       if (demanda.unidade_requisitante && !grupo.unidades_requisitantes.includes(demanda.unidade_requisitante))
         grupo.unidades_requisitantes.push(demanda.unidade_requisitante);
       if (demanda.responsavel_nome)
@@ -948,6 +1012,12 @@ export class PcaService {
       const justificativa = grupo.justificativas.length
         ? [...new Set(grupo.justificativas)].join(' | ')
         : undefined;
+      const codigoItemCatalogo =
+        grupo.codigos_item_catalogo.size === 1 ? Array.from(grupo.codigos_item_catalogo)[0] : undefined;
+      const descricaoItemCatalogo =
+        grupo.descricoes_item_catalogo.size === 1 ? Array.from(grupo.descricoes_item_catalogo)[0] : undefined;
+      const catalogoUtilizado =
+        grupo.catalogos_utilizados.size === 1 ? Array.from(grupo.catalogos_utilizados)[0] : 'COMPRASGOV';
 
       const novoItemPca = await this.adicionarItem(pcaId, {
         categoria: grupo.categoria as any,
@@ -955,7 +1025,9 @@ export class PcaService {
         justificativa,
         codigo_classe: grupo.codigo_classe || undefined,
         nome_classe: grupo.nome_classe || undefined,
-        catalogo_utilizado: 'COMPRASGOV',
+        catalogo_utilizado: catalogoUtilizado as any,
+        codigo_item_catalogo: codigoItemCatalogo,
+        descricao_item_catalogo: descricaoItemCatalogo,
         unidade_requisitante: grupo.unidades_requisitantes.join(', ') || undefined,
         responsavel_demanda: grupo.responsaveis[0]?.nome,
         email_responsavel: grupo.responsaveis[0]?.email,
