@@ -45,6 +45,9 @@ export class Demanda {
   @Column({ type: 'text', nullable: true })
   observacoes: string;
 
+  @Column({ type: 'text', nullable: true })
+  descricao_sucinta_objeto: string;
+
   @Column({ type: 'date', nullable: true })
   data_desejada_contratacao: Date;
 
@@ -66,6 +69,9 @@ export class Demanda {
   @Column({ nullable: true })
   pca_id: string; // ID do PCA onde foi consolidada
 
+  @Column({ nullable: true })
+  contratacao_futura_id: string; // ID da contratação futura onde a DFD foi agrupada
+
   @CreateDateColumn()
   created_at: Date;
 
@@ -75,6 +81,60 @@ export class Demanda {
   // Relacionamento com itens da demanda
   @OneToMany(() => ItemDemanda, item => item.demanda, { cascade: true })
   itens: ItemDemanda[];
+}
+
+export enum StatusContratacaoFutura {
+  EM_ELABORACAO = 'EM_ELABORACAO',
+  ENVIADA_APROVACAO = 'ENVIADA_APROVACAO',
+  APROVADA = 'APROVADA',
+  REPROVADA = 'REPROVADA',
+}
+
+@Entity('contratacoes_futuras')
+export class ContratacaoFutura {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column()
+  orgao_id: string;
+
+  @Column()
+  ano_referencia: number;
+
+  @Column()
+  identificador: string;
+
+  @Column()
+  titulo: string;
+
+  @Column({ type: 'enum', enum: ['MATERIAL', 'SERVICO', 'OBRA', 'OUTROS'], default: 'MATERIAL' })
+  categoria: 'MATERIAL' | 'SERVICO' | 'OBRA' | 'OUTROS';
+
+  @Column({ type: 'text', nullable: true })
+  descricao: string;
+
+  @Column({ type: 'date', nullable: true })
+  data_inicio_processo: Date;
+
+  @Column({ type: 'date', nullable: true })
+  data_conclusao_processo: Date;
+
+  @Column({ nullable: true })
+  prazo_estimado_dias: number;
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
+  valor_total_estimado: number;
+
+  @Column({ type: 'enum', enum: StatusContratacaoFutura, default: StatusContratacaoFutura.EM_ELABORACAO })
+  status: StatusContratacaoFutura;
+
+  demandas: Demanda[];
+
+  @CreateDateColumn()
+  created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Demanda, ItemDemanda, StatusDemanda } from './entities/demanda.entity';
+import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda } from './entities/demanda.entity';
 
 @Injectable()
 export class DemandasService {
@@ -10,6 +10,8 @@ export class DemandasService {
     private demandaRepository: Repository<Demanda>,
     @InjectRepository(ItemDemanda)
     private itemDemandaRepository: Repository<ItemDemanda>,
+    @InjectRepository(ContratacaoFutura)
+    private contratacaoFuturaRepository: Repository<ContratacaoFutura>,
   ) {}
 
   // ==================== DEMANDAS ====================
@@ -62,6 +64,7 @@ export class DemandasService {
     responsavel_email?: string;
     responsavel_telefone?: string;
     observacoes?: string;
+    descricao_sucinta_objeto?: string;
     data_desejada_contratacao?: Date | string;
     renovacao_contrato?: boolean;
   }): Promise<Demanda> {
@@ -73,6 +76,7 @@ export class DemandasService {
       responsavel_email: dados.responsavel_email,
       responsavel_telefone: dados.responsavel_telefone,
       observacoes: dados.observacoes,
+      descricao_sucinta_objeto: dados.descricao_sucinta_objeto,
       data_desejada_contratacao: dados.data_desejada_contratacao as any,
       renovacao_contrato: !!dados.renovacao_contrato,
       status: StatusDemanda.RASCUNHO,
@@ -117,6 +121,10 @@ export class DemandasService {
 
     if (!demanda.itens || demanda.itens.length === 0) {
       throw new BadRequestException('Demanda deve ter pelo menos um item');
+    }
+
+    if (!demanda.descricao_sucinta_objeto?.trim()) {
+      throw new BadRequestException('Informe a descrição sucinta do objeto antes de enviar a DFD');
     }
 
     demanda.status = StatusDemanda.ENVIADA;
@@ -308,6 +316,127 @@ export class DemandasService {
     demanda.pca_id = pcaId;
 
     return this.demandaRepository.save(demanda);
+  }
+
+  // ==================== CONTRATAÇÕES FUTURAS ====================
+
+  async listarContratacoesFuturas(orgaoId: string, ano: number): Promise<ContratacaoFutura[]> {
+    const contratacoes = await this.contratacaoFuturaRepository.find({
+      where: { orgao_id: orgaoId, ano_referencia: ano },
+      order: { created_at: 'DESC' },
+    });
+    await this.preencherDemandasContratacoes(contratacoes);
+    return contratacoes;
+  }
+
+  private async preencherDemandasContratacoes(contratacoes: ContratacaoFutura[]): Promise<void> {
+    if (contratacoes.length === 0) return;
+
+    const demandas = await this.demandaRepository.find({
+      where: contratacoes.map((contratacao) => ({ contratacao_futura_id: contratacao.id })),
+      relations: ['itens'],
+    });
+
+    for (const contratacao of contratacoes) {
+      contratacao.demandas = demandas.filter((demanda) => demanda.contratacao_futura_id === contratacao.id);
+    }
+  }
+
+  async criarContratacaoFutura(orgaoId: string, dados: {
+    ano_referencia: number;
+    titulo: string;
+    categoria: 'MATERIAL' | 'SERVICO' | 'OBRA' | 'OUTROS';
+    descricao?: string;
+    data_inicio_processo?: string;
+    data_conclusao_processo?: string;
+    prazo_estimado_dias?: number;
+    demandaIds?: string[];
+    codigo_unidade?: string;
+  }): Promise<ContratacaoFutura> {
+    const demandaIds = dados.demandaIds || [];
+    const demandas = demandaIds.length > 0
+      ? await this.demandaRepository.find({
+          where: demandaIds.map((id) => ({ id, orgao_id: orgaoId, ano_referencia: dados.ano_referencia })),
+          relations: ['itens'],
+        })
+      : [];
+
+    if (demandaIds.length > 0 && demandas.length !== demandaIds.length) {
+      throw new BadRequestException('Uma ou mais DFDs selecionadas não foram encontradas para este órgão e ano');
+    }
+
+    const valorTotal = demandas.reduce((total, demanda) => (
+      total + (demanda.itens || []).reduce((subtotal, item) => subtotal + (Number(item.valor_total_estimado) || 0), 0)
+    ), 0);
+
+    const totalContratacoes = await this.contratacaoFuturaRepository.count({
+      where: { orgao_id: orgaoId, ano_referencia: dados.ano_referencia },
+    });
+    const codigoUnidade = (dados.codigo_unidade || '10').trim() || '10';
+    const identificador = `${codigoUnidade}-${totalContratacoes + 1}/${dados.ano_referencia}`;
+
+    const contratacao = this.contratacaoFuturaRepository.create({
+      orgao_id: orgaoId,
+      ano_referencia: dados.ano_referencia,
+      identificador,
+      titulo: dados.titulo,
+      categoria: dados.categoria || 'OUTROS',
+      descricao: dados.descricao,
+      data_inicio_processo: dados.data_inicio_processo as any,
+      data_conclusao_processo: dados.data_conclusao_processo as any,
+      prazo_estimado_dias: dados.prazo_estimado_dias,
+      valor_total_estimado: valorTotal,
+      status: StatusContratacaoFutura.EM_ELABORACAO,
+    });
+
+    const salva = await this.contratacaoFuturaRepository.save(contratacao);
+
+    if (demandas.length > 0) {
+      await this.demandaRepository.update(
+        demandaIds,
+        { contratacao_futura_id: salva.id } as any,
+      );
+    }
+
+    const completa = await this.contratacaoFuturaRepository.findOne({ where: { id: salva.id } });
+    if (!completa) throw new NotFoundException('Contratação futura não encontrada após criação');
+    await this.preencherDemandasContratacoes([completa]);
+    return completa;
+  }
+
+  async vincularDemandasContratacaoFutura(orgaoId: string, contratacaoId: string, demandaIds: string[]): Promise<ContratacaoFutura> {
+    const contratacao = await this.contratacaoFuturaRepository.findOne({
+      where: { id: contratacaoId, orgao_id: orgaoId },
+    });
+
+    if (!contratacao) {
+      throw new NotFoundException('Contratação futura não encontrada');
+    }
+
+    const demandas = await this.demandaRepository.find({
+      where: demandaIds.map((id) => ({ id, orgao_id: orgaoId, ano_referencia: contratacao.ano_referencia })),
+      relations: ['itens'],
+    });
+
+    if (demandas.length !== demandaIds.length) {
+      throw new BadRequestException('Uma ou mais DFDs selecionadas não foram encontradas para esta contratação');
+    }
+
+    await this.demandaRepository.update(demandaIds, { contratacao_futura_id: contratacao.id } as any);
+
+    const todasDemandas = await this.demandaRepository.find({
+      where: { contratacao_futura_id: contratacao.id },
+      relations: ['itens'],
+    });
+    contratacao.valor_total_estimado = todasDemandas.reduce((total, demanda) => (
+      total + (demanda.itens || []).reduce((subtotal, item) => subtotal + (Number(item.valor_total_estimado) || 0), 0)
+    ), 0);
+    await this.contratacaoFuturaRepository.save(contratacao);
+
+    const atualizada = await this.contratacaoFuturaRepository.findOne({ where: { id: contratacao.id } });
+    if (!atualizada) throw new NotFoundException('Contratação futura não encontrada após atualização');
+    await this.preencherDemandasContratacoes([atualizada]);
+    return atualizada;
   }
 
   async vincularItemAoPCA(itemDemandaId: string, itemPcaId: string): Promise<ItemDemanda> {

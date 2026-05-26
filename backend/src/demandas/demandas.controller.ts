@@ -70,6 +70,46 @@ export class DemandasController {
     return this.demandasService.getDemandasParaConsolidar(orgaoId, parseInt(ano));
   }
 
+  @Get('contratacoes-futuras')
+  async listarContratacoesFuturas(
+    @Req() request: { user: JwtPayload },
+    @Query('ano') ano: string,
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.demandasService.listarContratacoesFuturas(orgaoId, parseInt(ano));
+  }
+
+  @Post('contratacoes-futuras')
+  async criarContratacaoFutura(
+    @Req() request: { user: JwtPayload },
+    @Body() dados: {
+      orgaoId?: string;
+      ano_referencia: number;
+      titulo: string;
+      categoria: 'MATERIAL' | 'SERVICO' | 'OBRA' | 'OUTROS';
+      descricao?: string;
+      data_inicio_processo?: string;
+      data_conclusao_processo?: string;
+      prazo_estimado_dias?: number;
+      demandaIds?: string[];
+      codigo_unidade?: string;
+    },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, dados.orgaoId);
+    return this.demandasService.criarContratacaoFutura(orgaoId, dados);
+  }
+
+  @Patch('contratacoes-futuras/:id/demandas')
+  async vincularDemandasContratacaoFutura(
+    @Req() request: { user: JwtPayload },
+    @Param('id') id: string,
+    @Body() body: { orgaoId?: string; demandaIds: string[] },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, body.orgaoId);
+    return this.demandasService.vincularDemandasContratacaoFutura(orgaoId, id, body.demandaIds || []);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.demandasService.findOne(id);
@@ -85,6 +125,7 @@ export class DemandasController {
       responsavel_email?: string;
       responsavel_telefone?: string;
       observacoes?: string;
+      descricao_sucinta_objeto?: string;
       data_desejada_contratacao?: string;
       renovacao_contrato?: boolean;
     },

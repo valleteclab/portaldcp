@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import type { ComponentType } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Plus,
@@ -76,6 +77,7 @@ interface Demanda {
   responsavel_telefone?: string
   status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA'
   observacoes?: string
+  descricao_sucinta_objeto?: string
   data_desejada_contratacao?: string
   renovacao_contrato?: boolean
   data_envio?: string
@@ -104,7 +106,7 @@ interface Estatisticas {
 }
 
 // Configuração de status
-const STATUS_CONFIG: Record<string, { label: string; cor: string; icon: any }> = {
+const STATUS_CONFIG: Record<string, { label: string; cor: string; icon: ComponentType<{ className?: string }> }> = {
   RASCUNHO: { label: 'Rascunho', cor: 'bg-gray-100 text-gray-800', icon: FileText },
   ENVIADA: { label: 'Enviada', cor: 'bg-blue-100 text-blue-800', icon: Send },
   EM_ANALISE: { label: 'Em Análise', cor: 'bg-yellow-100 text-yellow-800', icon: Clock },
@@ -145,6 +147,7 @@ function DemandasPageContent() {
     responsavel_telefone: '',
     data_desejada_contratacao: '',
     renovacao_contrato: false,
+    descricao_sucinta_objeto: '',
     observacoes: ''
   })
   const [salvando, setSalvando] = useState(false)
@@ -215,6 +218,10 @@ function DemandasPageContent() {
       alert('Informe a unidade requisitante')
       return
     }
+    if (!novaDemanda.descricao_sucinta_objeto.trim()) {
+      alert('Informe a descrição sucinta do objeto')
+      return
+    }
 
     setSalvando(true)
     try {
@@ -238,6 +245,7 @@ function DemandasPageContent() {
           responsavel_telefone: '',
           data_desejada_contratacao: '',
           renovacao_contrato: false,
+          descricao_sucinta_objeto: '',
           observacoes: ''
         })
         // Navegar direto para a página de detalhe da demanda criada
@@ -288,8 +296,9 @@ function DemandasPageContent() {
       const termo = termoBusca.toLowerCase()
       const matchUnidade = d.unidade_requisitante.toLowerCase().includes(termo)
       const matchResponsavel = d.responsavel_nome?.toLowerCase().includes(termo)
+      const matchObjeto = d.descricao_sucinta_objeto?.toLowerCase().includes(termo)
       const matchItem = d.itens.some(i => i.descricao_objeto.toLowerCase().includes(termo))
-      if (!matchUnidade && !matchResponsavel && !matchItem) return false
+      if (!matchUnidade && !matchResponsavel && !matchObjeto && !matchItem) return false
     }
     return true
   })
@@ -316,6 +325,10 @@ function DemandasPageContent() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={() => router.push('/orgao/demandas/consolidacao')}>
+            <ArrowRight className="h-4 w-4 mr-2" />
+            Consolidação
+          </Button>
           <Select value={String(anoSelecionado)} onValueChange={(v) => setAnoSelecionado(parseInt(v))}>
             <SelectTrigger className="w-32">
               <SelectValue />
@@ -450,6 +463,11 @@ function DemandasPageContent() {
                       </div>
                       <div>
                         <h3 className="font-medium">{demanda.unidade_requisitante}</h3>
+                        {demanda.descricao_sucinta_objeto && (
+                          <p className="text-sm text-gray-700 mt-1 line-clamp-1">
+                            {demanda.descricao_sucinta_objeto}
+                          </p>
+                        )}
                         <p className="text-sm text-gray-500">
                           {demanda.responsavel_nome || 'Sem responsável definido'}
                           {demanda.responsavel_email && ` • ${demanda.responsavel_email}`}
@@ -600,6 +618,19 @@ function DemandasPageContent() {
                   placeholder="Ex: Departamento de TI, Setor de Compras..."
                 />
               )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Descrição Sucinta do Objeto *</label>
+              <Textarea
+                value={novaDemanda.descricao_sucinta_objeto}
+                onChange={(e) => setNovaDemanda({...novaDemanda, descricao_sucinta_objeto: e.target.value})}
+                placeholder="Ex: Aquisição de notebooks para atender as atividades administrativas do setor de TI."
+                rows={3}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Este resumo identifica a DFD na consolidação e ajuda a formar a contratação futura.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

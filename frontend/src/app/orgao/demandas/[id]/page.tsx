@@ -57,6 +57,7 @@ interface Demanda {
   responsavel_telefone?: string
   status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA'
   observacoes?: string
+  descricao_sucinta_objeto?: string
   data_desejada_contratacao?: string
   renovacao_contrato?: boolean
   motivo_rejeicao?: string
@@ -977,6 +978,27 @@ export default function DetalheDemandaPage() {
 
   useEffect(() => { carregarDemanda() }, [carregarDemanda])
 
+  const salvarDadosDemanda = async (dados: Partial<Demanda>) => {
+    if (!demanda) return
+    setSalvando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dados),
+      })
+      if (res.ok) {
+        const atualizada = await res.json()
+        setDemanda({ ...atualizada, itens: atualizada.itens ?? demanda.itens ?? [] })
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao salvar dados da demanda')
+      }
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   // ── Adicionar item ─────────────────────────────────────────────────────────
   const adicionarItem = async (form: FormItemState) => {
     if (!demanda || !itemSelecionado) return
@@ -1253,7 +1275,7 @@ export default function DetalheDemandaPage() {
               <Button
                 size="sm"
                 onClick={enviarParaAprovacao}
-                disabled={enviando || demanda.itens.length === 0}
+                disabled={enviando || demanda.itens.length === 0 || !demanda.descricao_sucinta_objeto?.trim()}
                 className="bg-blue-700 hover:bg-blue-800"
               >
                 {enviando
@@ -1270,7 +1292,32 @@ export default function DetalheDemandaPage() {
 
           {/* ── Seção 1: Informações Gerais ─────────────────────────────── */}
           {secaoAtiva === 1 && (
-            <div className="max-w-2xl space-y-4">
+            <div className="max-w-3xl space-y-4">
+              <div className="bg-white rounded-xl border shadow-sm p-5">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <label className="text-sm font-semibold text-gray-900">
+                    Descrição sucinta do objeto *
+                  </label>
+                  {salvando && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+                </div>
+                {podeEditar ? (
+                  <Textarea
+                    value={demanda.descricao_sucinta_objeto || ''}
+                    onChange={(e) => setDemanda(d => d ? { ...d, descricao_sucinta_objeto: e.target.value } : d)}
+                    onBlur={(e) => salvarDadosDemanda({ descricao_sucinta_objeto: e.target.value })}
+                    placeholder="Ex: Aquisição de notebooks para atender as atividades administrativas do setor de TI."
+                    rows={4}
+                    className="resize-y"
+                  />
+                ) : (
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                    {demanda.descricao_sucinta_objeto || 'Sem descrição sucinta informada.'}
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 mt-2">
+                  Esse resumo aparece na consolidação das demandas e orienta a criação da contratação futura.
+                </p>
+              </div>
               <div className="bg-white rounded-xl border shadow-sm divide-y">
                 {[
                   { label: 'Unidade Requisitante', valor: demanda.unidade_requisitante },
