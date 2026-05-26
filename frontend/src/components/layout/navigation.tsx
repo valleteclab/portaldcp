@@ -136,6 +136,7 @@ export function Sidebar({ userType }: SidebarProps) {
   const orgaoLinks: MenuLink[] = [
     { href: "/orgao", label: "Dashboard", icon: LayoutDashboard }, // Sempre visível
     { href: "/orgao/demandas", label: "Demandas", icon: ClipboardList, modulo: ModuloSistema.DEMANDAS },
+    { href: "/orgao/demandas/consolidacao", label: "Consolidação DFD", icon: ClipboardCheck, modulo: ModuloSistema.DEMANDAS },
     { href: "/orgao/pca", label: "PCA", icon: Calendar, modulo: ModuloSistema.PCA },
     { href: "/orgao/licitacoes", label: "Licitações", icon: FileText, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/licitacoes/nova", label: "Nova Licitação", icon: Gavel, modulo: ModuloSistema.LICITACOES },

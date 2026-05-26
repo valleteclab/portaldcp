@@ -1194,6 +1194,13 @@ function PcaPageContent() {
                   <ClipboardList className="w-4 h-4 mr-2" />
                   Consolidar Demandas
                 </Button>
+
+                <Button variant="outline" asChild>
+                  <Link href="/orgao/demandas/consolidacao">
+                    <ClipboardList className="w-4 h-4 mr-2" />
+                    Tela de Consolidação
+                  </Link>
+                </Button>
                 
                 {pcaAtual.status === 'RASCUNHO' || pcaAtual.status === 'EM_ELABORACAO' ? (
                   <Button variant="outline" onClick={aprovarPCA}>
