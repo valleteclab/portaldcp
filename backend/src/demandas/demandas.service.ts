@@ -261,7 +261,7 @@ export class DemandasService {
     const orfas = await this.demandaRepository
       .createQueryBuilder('d')
       .leftJoinAndSelect('d.itens', 'itens')
-      .leftJoin('planos_contratacao_anual', 'pca', 'pca.id = d.pca_id')
+      .leftJoin('planos_contratacao_anual', 'pca', 'pca.id::text = d.pca_id')
       .where('d.orgao_id = :orgaoId', { orgaoId })
       .andWhere('d.ano_referencia = :ano', { ano })
       .andWhere('d.status = :status', { status: StatusDemanda.CONSOLIDADA })
