@@ -44,6 +44,7 @@ type DraftPreview = PreviewMedicao & {
 }
 
 type ItemCronogramaContexto = {
+  id?: string
   numero_item?: number
   descricao?: string
   unidade_medida?: string
@@ -52,6 +53,8 @@ type ItemCronogramaContexto = {
   valor_total?: number
   quantidade?: number
   quantidade_meses?: number | null
+  quantidade_medida?: number
+  valor_migracao_reais?: number | null
 }
 
 type ContextoAssistido = {
@@ -89,6 +92,7 @@ type SessionResponse = {
     saldo_disponivel?: number
     valor_global?: number
     valor_em_analise?: number
+    itens_comprometidos?: Record<string, number>
   }
   preview: {
     modo: 'medicao' | 'draft'
@@ -130,6 +134,34 @@ function formatarData(data?: string | null) {
 function truncar(texto?: string, limite = 110) {
   if (!texto) return ''
   return texto.length > limite ? `${texto.slice(0, limite).trim()}...` : texto
+}
+
+function formatarQuantidade(valor?: number | null) {
+  const numero = Number(valor || 0)
+  return numero.toLocaleString('pt-BR', {
+    minimumFractionDigits: Number.isInteger(numero) ? 0 : 2,
+    maximumFractionDigits: 4,
+  })
+}
+
+function calcularSaldoFinanceiroItem(item: ItemCronogramaContexto) {
+  const valorTotal = Number(item.valor_total) || 0
+  const valorUnitario = Number(item.valor_unitario) || Number(item.valor_mensal) || 0
+  const quantidadeMedida = Number(item.quantidade_medida) || 0
+  const valorMigracao = Number(item.valor_migracao_reais || 0)
+
+  if (item.unidade_medida === 'MENSAL' && valorMigracao > 0 && valorUnitario > 0) {
+    const mesesMigracao = valorMigracao / valorUnitario
+    const quantidadeAprovadaRaw = Math.max(0, quantidadeMedida - mesesMigracao)
+    const quantidadeAprovada =
+      Math.abs(quantidadeAprovadaRaw - Math.round(quantidadeAprovadaRaw)) < 0.01
+        ? Math.round(quantidadeAprovadaRaw)
+        : quantidadeAprovadaRaw
+    const valorAprovado = Math.round(quantidadeAprovada * valorUnitario * 100) / 100
+    return Math.max(0, Math.round((valorTotal - valorMigracao - valorAprovado) * 100) / 100)
+  }
+
+  return Math.max(0, Math.round((valorTotal - quantidadeMedida * valorUnitario) * 100) / 100)
 }
 
 function getPreviewAtual(sessionData: SessionResponse | null) {
@@ -246,6 +278,23 @@ export default function MedicaoChatFornecedorPage() {
     Number(itemPrincipal?.quantidade_meses || 0) ||
     Number(itemPrincipal?.quantidade || 0) ||
     undefined
+  const saldosItensCronograma = useMemo(() => {
+    const itens = sessionData?.contexto_assistido?.itens_cronograma || []
+    const comprometidos = sessionData?.resumo?.itens_comprometidos || {}
+
+    return itens.map((item) => {
+      const quantidadeTotalItem = Number(item.quantidade || 0)
+      const quantidadeAprovada = Number(item.quantidade_medida || 0)
+      const emAnalise = item.id ? Number(comprometidos[item.id] || 0) : 0
+      const saldoQuantidade = Math.max(0, quantidadeTotalItem - quantidadeAprovada - emAnalise)
+      return {
+        ...item,
+        emAnalise,
+        saldoQuantidade,
+        saldoFinanceiro: calcularSaldoFinanceiroItem(item),
+      }
+    })
+  }, [sessionData])
 
   const enviarMensagem = async (texto?: string) => {
     const conteudo = (texto ?? mensagem).trim()
@@ -448,6 +497,41 @@ export default function MedicaoChatFornecedorPage() {
               </div>
             </div>
           </section>
+
+          {saldosItensCronograma.length > 0 && (
+            <section className="border-b border-slate-200 p-4">
+              <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                Saldos por item
+              </div>
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                {saldosItensCronograma.map((item) => (
+                  <div key={item.id || item.numero_item} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="mb-1 flex items-start gap-2">
+                      <span className="rounded bg-blue-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-800">
+                        {item.numero_item}
+                      </span>
+                      <p className="min-w-0 flex-1 text-[11px] font-medium leading-4 text-slate-700">
+                        {truncar(item.descricao, 95)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 text-[10px]">
+                      <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-medium text-emerald-700">
+                        Saldo: {formatarQuantidade(item.saldoQuantidade)} {item.unidade_medida || ''}
+                      </span>
+                      <span className="rounded border border-slate-200 bg-white px-2 py-1 font-medium text-slate-700">
+                        {formatarMoeda(item.saldoFinanceiro)}
+                      </span>
+                      {item.emAnalise > 0 && (
+                        <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                          Em analise: {formatarQuantidade(item.emAnalise)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="border-b border-slate-200 p-4">
             <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
