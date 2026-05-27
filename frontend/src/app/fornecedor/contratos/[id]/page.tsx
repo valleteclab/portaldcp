@@ -356,6 +356,14 @@ const formatarMoeda = (valor: number | null | undefined) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 };
 
+const formatarQuantidade = (valor: number | null | undefined) => {
+  const numero = Number(valor) || 0;
+  return numero.toLocaleString('pt-BR', {
+    minimumFractionDigits: Number.isInteger(numero) ? 0 : 2,
+    maximumFractionDigits: 4,
+  });
+};
+
 const parseValorDecimal = (valor: string | number | null | undefined) => {
   if (valor == null) return 0;
   if (typeof valor === 'number') return Number.isFinite(valor) ? valor : 0;
@@ -2483,34 +2491,49 @@ export default function FornecedorContratoDetalhePage() {
                     const qtdAprovada = Number(ic.quantidade_medida);
                     const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
                     const saldo = qtdTotal - qtdAprovada - emTransito;
+                    const saldoQuantidade = Math.max(0, saldo);
                     const saldoFinanceiro = calcularSaldoFinanceiroItemCronograma(ic);
                     const valorUnit = Number(ic.valor_unitario);
                     const subtotal = modoInput === 'valor' && valorOverride != null ? valorOverride : qtdMedida * valorUnit;
                     const excedeSaldo = modoInput === 'valor'
                       ? (valorOverride || 0) > saldoFinanceiro + 0.01
-                      : qtdMedida > saldo + 0.001;
+                      : qtdMedida > saldoQuantidade + 0.001;
                     const isMensal = ic.unidade_medida === 'MENSAL';
                     const tipoEsteItem = isMensal ? 'mensal' : 'quantidade';
                     const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual;
+                    const unidadeTela = textoUnidadeCronogramaNaTela(ic.unidade_medida);
                     return (
                       <TableRow key={ic.id} className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
                         <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
                         <TableCell className="whitespace-normal break-words align-top min-w-[320px] max-w-[520px]">
                           <p className="text-sm font-medium whitespace-normal break-words">{ic.descricao}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                            <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 font-medium text-emerald-700">
+                              Saldo disponivel: {formatarQuantidade(saldoQuantidade)} {unidadeTela}
+                            </span>
+                            <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 font-medium text-slate-700">
+                              {formatarMoeda(saldoFinanceiro)}
+                            </span>
+                            {emTransito > 0 && (
+                              <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                                Em analise: {formatarQuantidade(emTransito)} {unidadeTela}
+                              </span>
+                            )}
+                          </div>
                           {bloqueado && (
                             <p className="text-xs text-amber-600 mt-0.5">
                               Inclua em medição separada (tipo: {isMensal ? 'mensal' : 'por quantidade'})
                             </p>
                           )}
                         </TableCell>
-                        <TableCell className="text-center text-xs leading-tight max-w-[120px]">{textoUnidadeCronogramaNaTela(ic.unidade_medida)}</TableCell>
+                        <TableCell className="text-center text-xs leading-tight max-w-[120px]">{unidadeTela}</TableCell>
                         <TableCell className="text-center text-xs whitespace-nowrap">{textoFrequenciaNaTela(ic.frequencia_execucao)}</TableCell>
                         <TableCell className="text-right text-sm">{qtdTotal.toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="text-right text-sm">{formatarMoeda(valorUnit)}</TableCell>
                         {/* Qtd. Mês */}
                         <TableCell className="bg-blue-50/50">
                           <Input
-                            type="number" step="0.001" min="0" max={saldo}
+                            type="number" step="0.001" min="0" max={saldoQuantidade}
                             placeholder="0"
                             disabled={bloqueado}
                             value={modoInput === 'quantidade' ? (qtdMedida || '') : (qtdMedida > 0 ? qtdMedida.toFixed(4) : '')}
