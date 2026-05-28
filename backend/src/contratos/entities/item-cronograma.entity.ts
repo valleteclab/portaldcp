@@ -46,7 +46,7 @@ export class ItemCronograma {
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   quantidade: number;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 18, scale: 12 })
   valor_unitario: number;
 
   @Column({ type: 'int', nullable: true, default: null })

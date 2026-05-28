@@ -1745,9 +1745,7 @@ export default function TabMedicao({
     Math.abs(diferencaValorItemMensal) > 0.01;
   const valorMensalSugeridoPeloDisponivel =
     quantidadeFormItemCronograma > 0
-      ? aplicarRegraMoedaContrato(
-          valorDisponivelEdicaoItemCronograma / quantidadeFormItemCronograma,
-        )
+      ? valorDisponivelEdicaoItemCronograma / quantidadeFormItemCronograma
       : 0;
   const diferencaMensalApenasCentavos =
     unidadeFormItemCronograma === "MENSAL" &&
@@ -4450,7 +4448,7 @@ export default function TabMedicao({
                     </Label>
                     <Input
                       type="number"
-                      step="0.01"
+                      step={formItemCronograma.unidade_medida === "MENSAL" ? "0.000000000001" : "0.01"}
                       min="0"
                       placeholder="0,00"
                       value={formItemCronograma.valor_unitario}
