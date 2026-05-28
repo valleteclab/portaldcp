@@ -1695,29 +1695,6 @@ export class MedicaoService {
       medicao,
     )) as unknown as Medicao;
 
-    // Calcular e salvar execução fiscal (temporal) com ano comercial
-    try {
-      const execucaoFinanceira = await this.calcularExecucaoFinanceira(
-        contratoId,
-        '',
-        medicaoSalva.id,
-      );
-      if (execucaoFinanceira) {
-        await this.medicaoRepository.update(medicaoSalva.id, {
-          execucao_fiscal: execucaoFinanceira.execucao_fiscal,
-          execucao_financeira:
-            this.montarSnapshotExecucaoFinanceira(execucaoFinanceira),
-        });
-        this.logger.log(
-          `Execução fiscal/financeira calculada e salva para medição ${medicaoSalva.id}`,
-        );
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Erro ao calcular execução fiscal/financeira para medição ${medicaoSalva.id}: ${error.message}`,
-      );
-      // Não falhar a criação da medição se der erro no snapshot de execução
-    }
 
     // Salvar itens da medição (obras/etapas)
     for (const item of itensParaSalvar) {
@@ -1737,6 +1714,28 @@ export class MedicaoService {
         valor_medido: item.valor_medido,
       } as any);
       await this.itemMedicaoItemRepository.save(itemMedicaoItem);
+    }
+
+    try {
+      const execucaoFinanceira =
+        await this.calcularExecucaoFinanceiraFornecedor(
+          contratoId,
+          medicaoSalva.id,
+        );
+      if (execucaoFinanceira) {
+        await this.medicaoRepository.update(medicaoSalva.id, {
+          execucao_fiscal: execucaoFinanceira.execucao_fiscal,
+          execucao_financeira:
+            this.montarSnapshotExecucaoFinanceira(execucaoFinanceira),
+        });
+        this.logger.log(
+          `Execucao fiscal/financeira calculada e salva para medicao ${medicaoSalva.id}`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Erro ao calcular execucao fiscal/financeira para medicao ${medicaoSalva.id}: ${error.message}`,
+      );
     }
 
     return this.buscarMedicaoCompleta(medicaoSalva.id);
@@ -6606,11 +6605,17 @@ export class MedicaoService {
         this.medicaoAteReferencia(m, medicaoAtual),
       );
     }
-    const emAnalise = await this.carregarValoresEmAnalisePorReferencia(
-      contratoId,
-      dataCorteCiclo,
-      medicaoAtual,
-    );
+    const emAnalise = medicaoAtual
+      ? {
+          valoresPorEtapa: new Map<string, number>(),
+          valoresPorItem: new Map<string, number>(),
+          quantidadesPorItem: new Map<string, number>(),
+        }
+      : await this.carregarValoresEmAnalisePorReferencia(
+          contratoId,
+          dataCorteCiclo,
+          medicaoAtual,
+        );
     const possuiMedicaoAnteriorNoCiclo =
       !!medicaoAtual &&
       (medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id) ||
