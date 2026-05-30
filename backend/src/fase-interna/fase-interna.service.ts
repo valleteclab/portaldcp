@@ -1649,6 +1649,55 @@ export class FaseInternaService {
    * Retorna contexto rico para o painel IA — aba Dados.
    * Agrega informações da licitação, demanda, documentos e pesquisa de preços.
    */
+  /**
+   * Campos canônicos (incisos da Lei 14.133/2021) exigidos por tipo de
+   * documento. Compartilhado entre o cockpit (/contexto) e a aba de
+   * conformidade (/conformidade) para que ambos meçam as mesmas seções.
+   * Retorna [] para tipos sem checklist canônico (usa-se fallback por chaves).
+   */
+  private regrasConformidade(
+    tipo: string,
+  ): Array<{ campo: string; fundamentoLegal: string }> {
+    switch (tipo) {
+      case TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA:
+        return [
+          { campo: 'demanda', fundamentoLegal: 'Art. 18, I' },
+          { campo: 'quantidade', fundamentoLegal: 'Art. 18, I' },
+          { campo: 'previsao', fundamentoLegal: 'Art. 18, I' },
+        ];
+      case TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR:
+        return [
+          { campo: 'necessidade', fundamentoLegal: 'Art. 18, I' },
+          { campo: 'requisitos', fundamentoLegal: 'Art. 18, IV' },
+          { campo: 'estimativa', fundamentoLegal: 'Art. 18, VI' },
+          { campo: 'estimativa_valor', fundamentoLegal: 'Art. 18, VIII' },
+          { campo: 'viabilidade', fundamentoLegal: 'Art. 18, XIII' },
+        ];
+      case TipoDocumentoFaseInterna.TERMO_REFERENCIA:
+        return [
+          { campo: 'objeto', fundamentoLegal: 'Art. 6 XXIII a' },
+          { campo: 'descricao', fundamentoLegal: 'Art. 6 XXIII b' },
+          { campo: 'requisitos', fundamentoLegal: 'Art. 6 XXIII c' },
+          { campo: 'estimativa_valor_tr', fundamentoLegal: 'Art. 6 XXIII f' },
+          {
+            campo: 'dotacao_orcamentaria_tr',
+            fundamentoLegal: 'Art. 6 XXIII j',
+          },
+        ];
+      default:
+        return [];
+    }
+  }
+
+  private valorNaoVazio(valor: any): boolean {
+    if (valor == null) return false;
+    if (typeof valor === 'string') return valor.trim().length > 0;
+    if (typeof valor === 'number') return !isNaN(valor);
+    if (Array.isArray(valor)) return valor.length > 0;
+    if (typeof valor === 'object') return Object.keys(valor).length > 0;
+    return Boolean(valor);
+  }
+
   async buscarContexto(licitacaoId: string): Promise<{
     licitacao: {
       id: string;
@@ -1720,18 +1769,34 @@ export class FaseInternaService {
       let secoes_total = 0;
       let textoResumo = '';
 
-      if (dados && typeof dados === 'object' && !Array.isArray(dados)) {
-        const chaves = Object.keys(dados);
-        secoes_total = chaves.length;
-        for (const chave of chaves) {
-          const valor = dados[chave];
-          const textoValor =
-            typeof valor === 'string' ? valor : JSON.stringify(valor ?? '');
-          if (textoValor && textoValor.trim().length > 0) {
-            secoes_preenchidas++;
-            textoResumo += ' ' + stripHtml(textoValor);
-          }
+      const dadosObj =
+        dados && typeof dados === 'object' && !Array.isArray(dados)
+          ? (dados as Record<string, any>)
+          : {};
+
+      // Texto de resumo a partir de tudo que estiver preenchido.
+      for (const valor of Object.values(dadosObj)) {
+        const textoValor =
+          typeof valor === 'string' ? valor : JSON.stringify(valor ?? '');
+        if (textoValor && textoValor.trim().length > 0) {
+          textoResumo += ' ' + stripHtml(textoValor);
         }
+      }
+
+      // Total/preenchidas usam o checklist canônico do tipo quando existe;
+      // caso contrário, caem para a contagem de chaves presentes.
+      const regras = this.regrasConformidade(doc.tipo as string);
+      if (regras.length > 0) {
+        secoes_total = regras.length;
+        secoes_preenchidas = regras.filter((r) =>
+          this.valorNaoVazio(dadosObj[r.campo]),
+        ).length;
+      } else {
+        const chaves = Object.keys(dadosObj);
+        secoes_total = chaves.length;
+        secoes_preenchidas = chaves.filter((c) =>
+          this.valorNaoVazio(dadosObj[c]),
+        ).length;
       }
 
       const resumo = textoResumo.trim().slice(0, 200);
@@ -1830,65 +1895,24 @@ export class FaseInternaService {
 
       const dados = doc.dados_estruturados || {};
 
-      type RegraConformidade = {
-        campo: string;
-        fundamentoLegal: string;
-      };
+      let regras = this.regrasConformidade(doc.tipo as string);
 
-      let regras: RegraConformidade[] = [];
-
-      switch (doc.tipo) {
-        case TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA:
-          regras = [
-            { campo: 'demanda', fundamentoLegal: 'Art. 18, I' },
-            { campo: 'quantidade', fundamentoLegal: 'Art. 18, I' },
-            { campo: 'previsao', fundamentoLegal: 'Art. 18, I' },
-          ];
-          break;
-
-        case TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR:
-          regras = [
-            { campo: 'necessidade', fundamentoLegal: 'Art. 18, I' },
-            { campo: 'requisitos', fundamentoLegal: 'Art. 18, IV' },
-            { campo: 'estimativa', fundamentoLegal: 'Art. 18, VI' },
-            { campo: 'estimativa_valor', fundamentoLegal: 'Art. 18, VIII' },
-            { campo: 'viabilidade', fundamentoLegal: 'Art. 18, XIII' },
-          ];
-          break;
-
-        case TipoDocumentoFaseInterna.TERMO_REFERENCIA:
-          regras = [
-            { campo: 'objeto', fundamentoLegal: 'Art. 6 XXIII a' },
-            { campo: 'descricao', fundamentoLegal: 'Art. 6 XXIII b' },
-            { campo: 'requisitos', fundamentoLegal: 'Art. 6 XXIII c' },
-            { campo: 'estimativa_valor_tr', fundamentoLegal: 'Art. 6 XXIII f' },
-            { campo: 'dotacao_orcamentaria_tr', fundamentoLegal: 'Art. 6 XXIII j' },
-          ];
-          break;
-
-        default:
-          // Para outros tipos: checar que todas as chaves de dados_estruturados são não-vazias
-          if (dados && typeof dados === 'object' && !Array.isArray(dados)) {
-            regras = Object.keys(dados).map((campo) => ({
-              campo,
-              fundamentoLegal: 'Lei 14.133/2021',
-            }));
-          }
-          break;
+      // Tipos sem checklist canônico: checar todas as chaves presentes.
+      if (
+        regras.length === 0 &&
+        dados &&
+        typeof dados === 'object' &&
+        !Array.isArray(dados)
+      ) {
+        regras = Object.keys(dados).map((campo) => ({
+          campo,
+          fundamentoLegal: 'Lei 14.133/2021',
+        }));
       }
-
-      const isNonEmpty = (valor: any): boolean => {
-        if (valor == null) return false;
-        if (typeof valor === 'string') return valor.trim().length > 0;
-        if (typeof valor === 'number') return !isNaN(valor);
-        if (Array.isArray(valor)) return valor.length > 0;
-        if (typeof valor === 'object') return Object.keys(valor).length > 0;
-        return Boolean(valor);
-      };
 
       const itens = regras.map((regra) => {
         const valor = dados[regra.campo];
-        const ok = isNonEmpty(valor);
+        const ok = this.valorNaoVazio(valor);
         return {
           campo: regra.campo,
           fundamentoLegal: regra.fundamentoLegal,
