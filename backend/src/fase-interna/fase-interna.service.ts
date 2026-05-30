@@ -1640,4 +1640,273 @@ export class FaseInternaService {
       proximosPassos,
     };
   }
+
+  // ========================================
+  // CONTEXTO E CONFORMIDADE (PAINEL IA)
+  // ========================================
+
+  /**
+   * Retorna contexto rico para o painel IA — aba Dados.
+   * Agrega informações da licitação, demanda, documentos e pesquisa de preços.
+   */
+  async buscarContexto(licitacaoId: string): Promise<{
+    licitacao: {
+      id: string;
+      objeto: string;
+      numero_processo: string;
+      modalidade: string;
+      criterio_julgamento: string;
+      valor_total_estimado: number | null;
+      natureza_objeto: string;
+      prazo_execucao: string | null;
+      itens: Array<{
+        descricao_resumida: string;
+        quantidade: number;
+        unidade_medida: string;
+        valor_unitario_estimado: number | null;
+      }>;
+    };
+    demanda: {
+      unidade_requisitante: string;
+      ano_referencia: number;
+      itens_count: number;
+    } | null;
+    documentos: Array<{
+      tipo: string;
+      status: string;
+      secoes_preenchidas: number;
+      secoes_total: number;
+      resumo: string;
+    }>;
+    pesquisa_preco: {
+      valor_mediano: number | null;
+      fontes_count: number;
+    } | null;
+  }> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['itens', 'demanda'],
+    });
+
+    if (!licitacao) {
+      return {
+        licitacao: {
+          id: licitacaoId,
+          objeto: '',
+          numero_processo: '',
+          modalidade: '',
+          criterio_julgamento: '',
+          valor_total_estimado: null,
+          natureza_objeto: '',
+          prazo_execucao: null,
+          itens: [],
+        },
+        demanda: null,
+        documentos: [],
+        pesquisa_preco: null,
+      };
+    }
+
+    const documentos = await this.documentoRepository.find({
+      where: { licitacao_id: licitacaoId, versao_atual: true },
+    });
+
+    const stripHtml = (html: string): string =>
+      (html || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+
+    const docsFormatados = documentos.map((doc) => {
+      const dados = doc.dados_estruturados;
+      let secoes_preenchidas = 0;
+      let secoes_total = 0;
+      let textoResumo = '';
+
+      if (dados && typeof dados === 'object' && !Array.isArray(dados)) {
+        const chaves = Object.keys(dados);
+        secoes_total = chaves.length;
+        for (const chave of chaves) {
+          const valor = dados[chave];
+          const textoValor =
+            typeof valor === 'string' ? valor : JSON.stringify(valor ?? '');
+          if (textoValor && textoValor.trim().length > 0) {
+            secoes_preenchidas++;
+            textoResumo += ' ' + stripHtml(textoValor);
+          }
+        }
+      }
+
+      const resumo = textoResumo.trim().slice(0, 200);
+
+      return {
+        tipo: doc.tipo as string,
+        status: doc.status as string,
+        secoes_preenchidas,
+        secoes_total,
+        resumo,
+      };
+    });
+
+    // Pesquisa de preços
+    let pesquisa_preco: { valor_mediano: number | null; fontes_count: number } | null = null;
+    const docPP = documentos.find(
+      (d) => d.tipo === TipoDocumentoFaseInterna.PESQUISA_PRECOS,
+    );
+    if (docPP && docPP.dados_estruturados) {
+      const dadosPP = docPP.dados_estruturados as any;
+      let valorMediano: number | null = null;
+      let fontesCount = 0;
+
+      if (typeof dadosPP.valor_mediano === 'number') {
+        valorMediano = dadosPP.valor_mediano;
+      }
+
+      if (Array.isArray(dadosPP.itens)) {
+        for (const item of dadosPP.itens) {
+          if (Array.isArray(item.cotacoes)) {
+            fontesCount += item.cotacoes.length;
+          }
+        }
+      }
+
+      pesquisa_preco = { valor_mediano: valorMediano, fontes_count: fontesCount };
+    }
+
+    // Demanda
+    let demandaFormatada: { unidade_requisitante: string; ano_referencia: number; itens_count: number } | null = null;
+    if (licitacao.demanda) {
+      const d = licitacao.demanda as any;
+      const itens_count = Array.isArray(d.itens) ? d.itens.length : 0;
+      demandaFormatada = {
+        unidade_requisitante: d.unidade_requisitante || '',
+        ano_referencia: d.ano_referencia || 0,
+        itens_count,
+      };
+    }
+
+    return {
+      licitacao: {
+        id: licitacao.id,
+        objeto: licitacao.objeto || '',
+        numero_processo: licitacao.numero_processo || '',
+        modalidade: licitacao.modalidade as string,
+        criterio_julgamento: licitacao.criterio_julgamento as string,
+        valor_total_estimado: licitacao.valor_total_estimado ?? null,
+        natureza_objeto: licitacao.tipo_contratacao as string,
+        prazo_execucao: null,
+        itens: (licitacao.itens || []).map((item) => ({
+          descricao_resumida: item.descricao_resumida || '',
+          quantidade: Number(item.quantidade) || 0,
+          unidade_medida: item.unidade_medida as string,
+          valor_unitario_estimado: item.valor_unitario_estimado != null
+            ? Number(item.valor_unitario_estimado)
+            : null,
+        })),
+      },
+      demanda: demandaFormatada,
+      documentos: docsFormatados,
+      pesquisa_preco,
+    };
+  }
+
+  /**
+   * Retorna conformidade por inciso para o painel IA — aba Análise.
+   * Nunca lança exceção; sempre retorna { itens: [] } em caso de erro.
+   */
+  async buscarConformidade(documentoId: string): Promise<{
+    itens: Array<{
+      campo: string;
+      fundamentoLegal: string;
+      ok: boolean;
+      erro: string | null;
+    }>;
+    tipo: string;
+    total: number;
+    aprovados: number;
+  }> {
+    try {
+      const doc = await this.documentoRepository.findOneBy({ id: documentoId });
+      if (!doc) {
+        return { itens: [], tipo: '', total: 0, aprovados: 0 };
+      }
+
+      const dados = doc.dados_estruturados || {};
+
+      type RegraConformidade = {
+        campo: string;
+        fundamentoLegal: string;
+      };
+
+      let regras: RegraConformidade[] = [];
+
+      switch (doc.tipo) {
+        case TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA:
+          regras = [
+            { campo: 'demanda', fundamentoLegal: 'Art. 18, I' },
+            { campo: 'quantidade', fundamentoLegal: 'Art. 18, I' },
+            { campo: 'previsao', fundamentoLegal: 'Art. 18, I' },
+          ];
+          break;
+
+        case TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR:
+          regras = [
+            { campo: 'necessidade', fundamentoLegal: 'Art. 18, I' },
+            { campo: 'requisitos', fundamentoLegal: 'Art. 18, IV' },
+            { campo: 'estimativa', fundamentoLegal: 'Art. 18, VI' },
+            { campo: 'estimativa_valor', fundamentoLegal: 'Art. 18, VIII' },
+            { campo: 'viabilidade', fundamentoLegal: 'Art. 18, XIII' },
+          ];
+          break;
+
+        case TipoDocumentoFaseInterna.TERMO_REFERENCIA:
+          regras = [
+            { campo: 'objeto', fundamentoLegal: 'Art. 6 XXIII a' },
+            { campo: 'descricao', fundamentoLegal: 'Art. 6 XXIII b' },
+            { campo: 'requisitos', fundamentoLegal: 'Art. 6 XXIII c' },
+            { campo: 'estimativa_valor_tr', fundamentoLegal: 'Art. 6 XXIII f' },
+            { campo: 'dotacao_orcamentaria_tr', fundamentoLegal: 'Art. 6 XXIII j' },
+          ];
+          break;
+
+        default:
+          // Para outros tipos: checar que todas as chaves de dados_estruturados são não-vazias
+          if (dados && typeof dados === 'object' && !Array.isArray(dados)) {
+            regras = Object.keys(dados).map((campo) => ({
+              campo,
+              fundamentoLegal: 'Lei 14.133/2021',
+            }));
+          }
+          break;
+      }
+
+      const isNonEmpty = (valor: any): boolean => {
+        if (valor == null) return false;
+        if (typeof valor === 'string') return valor.trim().length > 0;
+        if (typeof valor === 'number') return !isNaN(valor);
+        if (Array.isArray(valor)) return valor.length > 0;
+        if (typeof valor === 'object') return Object.keys(valor).length > 0;
+        return Boolean(valor);
+      };
+
+      const itens = regras.map((regra) => {
+        const valor = dados[regra.campo];
+        const ok = isNonEmpty(valor);
+        return {
+          campo: regra.campo,
+          fundamentoLegal: regra.fundamentoLegal,
+          ok,
+          erro: ok ? null : 'Campo obrigatório não preenchido',
+        };
+      });
+
+      const aprovados = itens.filter((i) => i.ok).length;
+
+      return {
+        itens,
+        tipo: doc.tipo as string,
+        total: itens.length,
+        aprovados,
+      };
+    } catch {
+      return { itens: [], tipo: '', total: 0, aprovados: 0 };
+    }
+  }
 }

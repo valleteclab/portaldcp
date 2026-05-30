@@ -108,6 +108,11 @@ export class FaseInternaController {
     return this.faseInternaService.importarProcessoCompleto(body);
   }
 
+  @Get(':licitacaoId/contexto')
+  async buscarContexto(@Param('licitacaoId') licitacaoId: string) {
+    return this.faseInternaService.buscarContexto(licitacaoId);
+  }
+
   @Get(':licitacaoId/documentos')
   async getDocumentos(@Param('licitacaoId') licitacaoId: string) {
     return this.faseInternaService.getDocumentos(licitacaoId);
