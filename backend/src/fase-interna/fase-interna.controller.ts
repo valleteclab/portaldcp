@@ -16,6 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { FaseInternaService } from './fase-interna.service';
+import { DerivacaoService } from './derivacao.service';
 import {
   TipoDocumentoFaseInterna,
   OrigemDocumento,
@@ -29,6 +30,7 @@ import { Public } from '../auth/public.decorator';
 export class FaseInternaController {
   constructor(
     private readonly faseInternaService: FaseInternaService,
+    private readonly derivacaoService: DerivacaoService,
     private readonly pesquisaPrecosAgentService: PesquisaPrecosAgentService,
     private readonly geradorPpService: GeradorPpService,
   ) {}
@@ -106,6 +108,11 @@ export class FaseInternaController {
     return this.faseInternaService.importarProcessoCompleto(body);
   }
 
+  @Get(':licitacaoId/contexto')
+  async buscarContexto(@Param('licitacaoId') licitacaoId: string) {
+    return this.faseInternaService.buscarContexto(licitacaoId);
+  }
+
   @Get(':licitacaoId/documentos')
   async getDocumentos(@Param('licitacaoId') licitacaoId: string) {
     return this.faseInternaService.getDocumentos(licitacaoId);
@@ -150,6 +157,20 @@ export class FaseInternaController {
       secaoId,
       body.html || '',
     );
+  }
+
+  @Get(':licitacaoId/documentos/:tipo/seed')
+  async montarSeed(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string) {
+    return this.derivacaoService.montarSeed(licitacaoId, tipo);
+  }
+
+  @Post(':licitacaoId/documentos/:tipo/aplicar-seed')
+  async aplicarSeed(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('tipo') tipo: string,
+    @Body() body: { secoes: string[]; sobrescrever?: boolean },
+  ) {
+    return this.derivacaoService.aplicarSeed(licitacaoId, tipo, body.secoes || [], body.sobrescrever ?? false);
   }
 
   @Get('documento/:id')

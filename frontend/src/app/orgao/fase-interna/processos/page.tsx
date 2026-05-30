@@ -9,6 +9,7 @@ import {
   Filter,
   Loader2,
   Trash2,
+  ClipboardList,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { API_URL, authFetch } from "@/lib/api";
+import CriarProcessoDeDemandaDialog from "@/components/fase-interna/CriarProcessoDeDemandaDialog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -183,6 +185,7 @@ export default function ProcessosPage() {
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [filtroTab, setFiltroTab] = useState<FilterTab>("todos");
+  const [demandaDialogAberto, setDemandaDialogAberto] = useState(false);
 
   useEffect(() => {
     carregar();
@@ -288,13 +291,28 @@ export default function ProcessosPage() {
               : `${filtrados.length} processo${filtrados.length !== 1 ? "s" : ""} · Fase interna em curso`}
           </p>
         </div>
-        <Link href="/orgao/fase-interna/processos/novo">
-          <Button className="bg-[#1351b4] hover:bg-[#0c326f] text-white gap-1.5">
-            <Plus className="w-4 h-4" />
-            Novo processo
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="gap-1.5 border-[#1351b4] text-[#1351b4] hover:bg-[#ecf3fc]"
+            onClick={() => setDemandaDialogAberto(true)}
+          >
+            <ClipboardList className="w-4 h-4" />
+            A partir de demanda
           </Button>
-        </Link>
+          <Link href="/orgao/fase-interna/processos/novo">
+            <Button className="bg-[#1351b4] hover:bg-[#0c326f] text-white gap-1.5">
+              <Plus className="w-4 h-4" />
+              Novo processo
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      <CriarProcessoDeDemandaDialog
+        open={demandaDialogAberto}
+        onOpenChange={setDemandaDialogAberto}
+      />
 
       {/* Filter card */}
       <Card className="border-0 shadow-sm mb-5">

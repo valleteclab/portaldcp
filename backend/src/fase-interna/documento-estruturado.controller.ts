@@ -1,7 +1,8 @@
-import { Controller, Param, Body, Put, Post } from '@nestjs/common';
+import { Controller, Param, Body, Put, Post, Get } from '@nestjs/common';
 import { DocumentoEstruturadoService } from './documento-estruturado.service';
 import { ContextoUsuario } from './audit-log.service';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
+import { FaseInternaService } from './fase-interna.service';
 
 /**
  * Endpoints para manipulacao dos dados estruturados (jsonb)
@@ -11,6 +12,7 @@ import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 export class DocumentoEstruturadoController {
   constructor(
     private readonly documentoEstruturadoService: DocumentoEstruturadoService,
+    private readonly faseInternaService: FaseInternaService,
   ) {}
 
   @Put(':documentoId/dados')
@@ -52,5 +54,22 @@ export class DocumentoEstruturadoController {
     @Param('documentoId') documentoId: string,
   ): Promise<DocumentoFaseInterna> {
     return this.documentoEstruturadoService.recalcularEstatisticas(documentoId);
+  }
+
+  @Get(':documentoId/conformidade')
+  async buscarConformidade(
+    @Param('documentoId') documentoId: string,
+  ): Promise<{
+    itens: Array<{
+      campo: string;
+      fundamentoLegal: string;
+      ok: boolean;
+      erro: string | null;
+    }>;
+    tipo: string;
+    total: number;
+    aprovados: number;
+  }> {
+    return this.faseInternaService.buscarConformidade(documentoId);
   }
 }

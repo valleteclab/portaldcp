@@ -6,8 +6,16 @@ import {
   AlertTriangle,
   FileText,
   Eye,
+  Wand2,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { API_URL, authFetch } from '@/lib/api'
 import { SecaoEditor } from './SecaoEditor'
 import { PainelIA } from './PainelIA'
@@ -100,6 +108,25 @@ function extrairConteudoSecoes(
   }
 
   return {}
+}
+
+// ─── Herdar de documentos anteriores (seed) ──────────────────────────────────
+
+interface SeedEntry {
+  html: string
+  origem: string
+}
+
+type SeedSecoes = Record<string, SeedEntry>
+
+/** Remove tags HTML e retorna o texto puro, com espaços normalizados. */
+function textoPuro(html: string): string {
+  return (html || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+}
+
+function preview(html: string, max = 120): string {
+  const t = textoPuro(html)
+  return t.length > max ? t.slice(0, max).trimEnd() + '…' : t
 }
 
 // ─── Status de auto-save por seção ────────────────────────────────────────────
@@ -200,6 +227,99 @@ export function DocumentoSeccionado({
     [conteudo, salvarSecao],
   )
 
+  // ─── Herdar de documentos anteriores (seed) ───────────────────────────────
+
+  const [seedLoading, setSeedLoading] = useState(false)
+  const [seedModalAberto, setSeedModalAberto] = useState(false)
+  const [seedSecoes, setSeedSecoes] = useState<SeedSecoes>({})
+  const [seedSelecionadas, setSeedSelecionadas] = useState<Record<string, boolean>>({})
+  const [seedAplicando, setSeedAplicando] = useState(false)
+  const [seedErro, setSeedErro] = useState<string | null>(null)
+  // Banner exibido quando não há nada a herdar
+  const [seedSemHeranca, setSeedSemHeranca] = useState(false)
+
+  const tituloDaSecao = useCallback(
+    (secaoId: string) => secoes.find((s) => s.id === secaoId)?.titulo.replace(/\s*\*$/, '') ?? secaoId,
+    [secoes],
+  )
+
+  const buscarSeed = useCallback(async () => {
+    setSeedLoading(true)
+    setSeedSemHeranca(false)
+    setSeedErro(null)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/fase-interna/${licitacaoId}/documentos/${tipo}/seed`,
+      )
+      const data: { secoes?: SeedSecoes } = await res.json().catch(() => ({}))
+      const dados = data?.secoes ?? {}
+      const ids = Object.keys(dados)
+
+      if (ids.length === 0) {
+        setSeedSemHeranca(true)
+        return
+      }
+
+      // Marca por padrão apenas as seções atualmente vazias
+      const selecao: Record<string, boolean> = {}
+      for (const id of ids) {
+        const atual = conteudo[id] ?? ''
+        selecao[id] = textoPuro(atual).length === 0
+      }
+      setSeedSecoes(dados)
+      setSeedSelecionadas(selecao)
+      setSeedModalAberto(true)
+    } catch {
+      setSeedErro('Não foi possível buscar o conteúdo dos documentos anteriores.')
+      setSeedSemHeranca(true)
+    } finally {
+      setSeedLoading(false)
+    }
+  }, [licitacaoId, tipo, conteudo])
+
+  const idsSelecionados = Object.keys(seedSelecionadas).filter((id) => seedSelecionadas[id])
+
+  const aplicarSeed = useCallback(async () => {
+    if (idsSelecionados.length === 0) return
+    setSeedAplicando(true)
+    setSeedErro(null)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/fase-interna/${licitacaoId}/documentos/${tipo}/aplicar-seed`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secoes: idsSelecionados, sobrescrever: true }),
+        },
+      )
+
+      if (!res.ok) {
+        const erro = await res.json().catch(() => null)
+        setSeedErro(erro?.message || 'Não foi possível aplicar o conteúdo selecionado.')
+        return
+      }
+
+      const data: { dados_estruturados?: Record<string, unknown> } = await res
+        .json()
+        .catch(() => ({}))
+      const dados = data?.dados_estruturados ?? {}
+
+      // Apenas valores string
+      const atualizacao: Record<string, string> = {}
+      for (const [id, val] of Object.entries(dados)) {
+        if (typeof val === 'string') atualizacao[id] = val
+      }
+
+      setConteudo((prev) => ({ ...prev, ...atualizacao }))
+      setInserirConteudo((prev) => ({ ...prev, ...atualizacao }))
+      setSeedModalAberto(false)
+    } catch {
+      setSeedErro('Não foi possível aplicar o conteúdo selecionado.')
+    } finally {
+      setSeedAplicando(false)
+    }
+  }, [idsSelecionados, licitacaoId, tipo])
+
   // ─── Cálculo de progresso ──────────────────────────────────────────────────
 
   const secoesObrigatorias = secoes.filter((s) => s.obrigatorio)
@@ -273,6 +393,21 @@ export function DocumentoSeccionado({
                 variant="outline"
                 size="sm"
                 className="h-7 text-xs gap-1.5"
+                onClick={buscarSeed}
+                disabled={seedLoading}
+                title="Preencher as seções a partir dos documentos e da demanda já cadastrados"
+              >
+                {seedLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="w-3.5 h-3.5" />
+                )}
+                Preencher dos anteriores
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5"
                 onClick={() => {
                   window.open(
                     `${API_URL}/api/fase-interna/${licitacaoId}/documentos/${tipo}/pdf`,
@@ -295,6 +430,25 @@ export function DocumentoSeccionado({
 
         {/* Seções */}
         <div className="p-6 space-y-6 max-w-3xl mx-auto">
+          {/* Aviso: nada a herdar */}
+          {seedSemHeranca && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+              <p className="flex-1 leading-relaxed">
+                {seedErro ??
+                  'Nada a herdar ainda — preencha os documentos anteriores primeiro.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setSeedSemHeranca(false)}
+                className="shrink-0 text-amber-500 hover:text-amber-700"
+                aria-label="Dispensar aviso"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {secoes.map((secao) => (
             <SecaoCard
               key={secao.id}
@@ -337,6 +491,107 @@ export function DocumentoSeccionado({
           onInserirNaSecao={handleInserirNaSecao}
         />
       </div>
+
+      {/* ── Modal: preencher dos documentos anteriores ── */}
+      <Dialog
+        open={seedModalAberto}
+        onOpenChange={(aberto) => {
+          if (!seedAplicando) setSeedModalAberto(aberto)
+        }}
+      >
+        <DialogContent className="max-w-xl bg-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base text-gray-900">
+              <Wand2 className="w-4 h-4 text-[#1351b4]" />
+              Preencher dos documentos anteriores
+            </DialogTitle>
+          </DialogHeader>
+
+          <p className="text-xs text-gray-500 -mt-1">
+            Selecione as seções que deseja preencher com o conteúdo derivado dos
+            documentos e da demanda já cadastrados.
+          </p>
+
+          <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+            {Object.entries(seedSecoes).map(([secaoId, entry]) => {
+              const atual = conteudo[secaoId] ?? ''
+              const temConteudoAtual = textoPuro(atual).length > 0
+              const checked = !!seedSelecionadas[secaoId]
+              return (
+                <label
+                  key={secaoId}
+                  className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                    checked
+                      ? 'border-[#1351b4]/40 bg-[#1351b4]/5'
+                      : 'border-gray-200 bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#1351b4]"
+                    checked={checked}
+                    onChange={(e) =>
+                      setSeedSelecionadas((prev) => ({
+                        ...prev,
+                        [secaoId]: e.target.checked,
+                      }))
+                    }
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-gray-800">
+                        {tituloDaSecao(secaoId)}
+                      </span>
+                      {entry.origem && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#1351b4]/10 text-[#1351b4] shrink-0">
+                          {entry.origem}
+                        </span>
+                      )}
+                    </div>
+                    {preview(entry.html) && (
+                      <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                        {preview(entry.html)}
+                      </p>
+                    )}
+                    {temConteudoAtual && checked && (
+                      <p className="text-[11px] text-amber-600 mt-1">
+                        substituirá o conteúdo atual
+                      </p>
+                    )}
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+
+          {seedErro && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              {seedErro}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setSeedModalAberto(false)}
+              disabled={seedAplicando}
+            >
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={aplicarSeed}
+              disabled={seedAplicando || idsSelecionados.length === 0}
+            >
+              {seedAplicando && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Aplicar selecionadas ({idsSelecionados.length})
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

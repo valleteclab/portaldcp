@@ -15,6 +15,8 @@ import { GeradorPpService } from './gerador-pp.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { Demanda } from '../demandas/entities/demanda.entity';
+import { DerivacaoService } from './derivacao.service';
 import { PesquisaPrecoExecucao } from './entities/pesquisa-preco-execucao.entity';
 import { PesquisaPrecoCandidato } from './entities/pesquisa-preco-candidato.entity';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
@@ -39,6 +41,7 @@ import {
       Licitacao,
       Contrato,
       ItemLicitacao,
+      Demanda,
       PesquisaPrecoExecucao,
       PesquisaPrecoCandidato,
     ]),
@@ -46,6 +49,7 @@ import {
   controllers: [FaseInternaController, DocumentoEstruturadoController],
   providers: [
     FaseInternaService,
+    DerivacaoService,
     AuditLogService,
     DocumentoEstruturadoService,
     GeradorDocumentoService,
@@ -63,6 +67,6 @@ import {
     NfeProvider,
     BrowserFallbackProvider,
   ],
-  exports: [FaseInternaService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgentService, GeradorPpService],
+  exports: [FaseInternaService, DerivacaoService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgentService, GeradorPpService],
 })
 export class FaseInternaModule {}

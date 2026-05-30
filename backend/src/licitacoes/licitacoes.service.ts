@@ -1,10 +1,12 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
+import { Licitacao, FaseLicitacao, ModalidadeLicitacao, TipoContratacao, CriterioJulgamento } from './entities/licitacao.entity';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
-import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
+import { ItemLicitacao, UnidadeMedida } from '../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
+import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
 
 // Formata Date para string ISO local (sem conversão UTC)
@@ -32,6 +34,8 @@ export class LicitacoesService {
     private readonly itemRepository: Repository<ItemLicitacao>,
     @InjectRepository(LoteLicitacao)
     private readonly loteRepository: Repository<LoteLicitacao>,
+    @InjectRepository(Demanda)
+    private readonly demandaRepository: Repository<Demanda>,
     @Inject(forwardRef(() => ContratosService))
     private readonly contratosService: ContratosService,
   ) {}
@@ -63,6 +67,192 @@ export class LicitacoesService {
     });
 
     return await this.licitacaoRepository.save(licitacao);
+  }
+
+  // === CRIAÇÃO A PARTIR DE DEMANDA APROVADA ===
+  /**
+   * Mapeia a string livre de unidade de medida usada nas demandas
+   * para o enum UnidadeMedida usado nos itens da licitação.
+   * Fallback: UnidadeMedida.UNIDADE
+   */
+  private mapUnidade(u: string): UnidadeMedida {
+    if (!u) return UnidadeMedida.UNIDADE;
+    const v = u.toString().trim().toUpperCase();
+    const mapa: Record<string, UnidadeMedida> = {
+      UN: UnidadeMedida.UNIDADE,
+      UND: UnidadeMedida.UNIDADE,
+      UNID: UnidadeMedida.UNIDADE,
+      UNIDADE: UnidadeMedida.UNIDADE,
+      PC: UnidadeMedida.PECA,
+      PECA: UnidadeMedida.PECA,
+      'PEÇA': UnidadeMedida.PECA,
+      CX: UnidadeMedida.CAIXA,
+      CAIXA: UnidadeMedida.CAIXA,
+      PCT: UnidadeMedida.PACOTE,
+      PACOTE: UnidadeMedida.PACOTE,
+      M: UnidadeMedida.METRO,
+      METRO: UnidadeMedida.METRO,
+      M2: UnidadeMedida.METRO_QUADRADO,
+      'M²': UnidadeMedida.METRO_QUADRADO,
+      METRO_QUADRADO: UnidadeMedida.METRO_QUADRADO,
+      M3: UnidadeMedida.METRO_CUBICO,
+      'M³': UnidadeMedida.METRO_CUBICO,
+      METRO_CUBICO: UnidadeMedida.METRO_CUBICO,
+      L: UnidadeMedida.LITRO,
+      LT: UnidadeMedida.LITRO,
+      LITRO: UnidadeMedida.LITRO,
+      KG: UnidadeMedida.QUILOGRAMA,
+      QUILOGRAMA: UnidadeMedida.QUILOGRAMA,
+      QUILO: UnidadeMedida.QUILOGRAMA,
+      T: UnidadeMedida.TONELADA,
+      TON: UnidadeMedida.TONELADA,
+      TONELADA: UnidadeMedida.TONELADA,
+      H: UnidadeMedida.HORA,
+      HORA: UnidadeMedida.HORA,
+      HR: UnidadeMedida.HORA,
+      DIARIA: UnidadeMedida.DIARIA,
+      'DIÁRIA': UnidadeMedida.DIARIA,
+      MES: UnidadeMedida.MES,
+      'MÊS': UnidadeMedida.MES,
+      MESES: UnidadeMedida.MES,
+      ANO: UnidadeMedida.ANO,
+      ANOS: UnidadeMedida.ANO,
+      SERVICO: UnidadeMedida.SERVICO,
+      'SERVIÇO': UnidadeMedida.SERVICO,
+      SERV: UnidadeMedida.SERVICO,
+      GLOBAL: UnidadeMedida.GLOBAL,
+    };
+    return mapa[v] ?? UnidadeMedida.UNIDADE;
+  }
+
+  async criarAPartirDeDemanda(dto: CreateFromDemandaDto): Promise<Licitacao> {
+    // 1. Carrega a demanda com itens
+    const demanda = await this.demandaRepository.findOne({
+      where: { id: dto.demanda_id },
+      relations: ['itens'],
+    });
+
+    if (!demanda) {
+      throw new NotFoundException('Demanda não encontrada');
+    }
+
+    // 2. Exige status APROVADA ou CONSOLIDADA
+    if (
+      demanda.status !== StatusDemanda.APROVADA &&
+      demanda.status !== StatusDemanda.CONSOLIDADA
+    ) {
+      throw new BadRequestException(
+        'Apenas demandas aprovadas podem originar um processo',
+      );
+    }
+
+    const itens = demanda.itens || [];
+
+    // 3. Gera/valida numero_processo
+    const ano = new Date().getFullYear();
+    let numero_processo: string;
+
+    if (dto.numero_processo) {
+      const existente = await this.licitacaoRepository.findOne({
+        where: { numero_processo: dto.numero_processo },
+      });
+      if (existente) {
+        throw new ConflictException(
+          `Já existe uma licitação com o processo ${dto.numero_processo}`,
+        );
+      }
+      numero_processo = dto.numero_processo;
+    } else {
+      const count = await this.licitacaoRepository.count({ where: { ano } });
+      let sequencial = count + 1;
+      // Garante unicidade incrementando o sequencial até estar livre
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        numero_processo = `${ano}/${String(sequencial).padStart(5, '0')}`;
+        const existente = await this.licitacaoRepository.findOne({
+          where: { numero_processo },
+        });
+        if (!existente) break;
+        sequencial++;
+      }
+    }
+
+    // Sequencial determinístico para persistência (contagem do ano + 1)
+    const countParaSeq = await this.licitacaoRepository.count({ where: { ano } });
+
+    // 4. Compõe o objeto
+    let objeto: string;
+    if (dto.objeto) {
+      objeto = dto.objeto;
+    } else if (itens.length === 1) {
+      objeto = itens[0].descricao_objeto;
+    } else {
+      objeto = `Contratação referente à demanda ${demanda.unidade_requisitante} (${itens.length} itens)`;
+    }
+
+    // 5. Soma dos valores estimados
+    const valor_total_estimado = itens.reduce(
+      (acc, it) => acc + (Number(it.valor_total_estimado) || 0),
+      0,
+    );
+
+    // 6. Cria e salva a Licitacao
+    const licitacao = this.licitacaoRepository.create({
+      orgao_id: demanda.orgao_id,
+      objeto,
+      valor_total_estimado,
+      demanda_id: demanda.id,
+      numero_processo,
+      modalidade: dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO,
+      tipo_contratacao: dto.tipo_contratacao ?? TipoContratacao.COMPRA,
+      criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
+      fase: FaseLicitacao.PLANEJAMENTO,
+      ano,
+      sequencial: countParaSeq + 1,
+      data_abertura_processo: new Date(),
+    });
+
+    const licitacaoSalva = await this.licitacaoRepository.save(licitacao);
+
+    // 7. Cria os itens da licitação a partir dos itens da demanda
+    const itensLicitacao = itens.map((item, i) => {
+      const semPca = !item.item_pca_id;
+      const codigoCatmat =
+        item.categoria === 'MATERIAL' ? item.codigo_classe : undefined;
+      const codigoCatser =
+        item.categoria === 'MATERIAL' ? undefined : item.codigo_classe;
+
+      return this.itemRepository.create({
+        licitacao_id: licitacaoSalva.id,
+        numero_item: i + 1,
+        descricao_resumida: item.descricao_objeto,
+        descricao_detalhada: item.descricao_objeto,
+        quantidade: item.quantidade_estimada,
+        unidade_medida: this.mapUnidade(item.unidade_medida),
+        valor_unitario_estimado: item.valor_unitario_estimado ?? 0,
+        valor_total_estimado: item.valor_total_estimado ?? 0,
+        codigo_catalogo: item.codigo_item_catalogo,
+        codigo_catmat: codigoCatmat,
+        codigo_catser: codigoCatser,
+        classe_catalogo: item.nome_classe,
+        nome_pdm: item.nome_classe,
+        nome_grupo: item.categoria,
+        item_pca_id: item.item_pca_id ?? undefined,
+        sem_pca: semPca,
+        justificativa_sem_pca: item.item_pca_id ? undefined : (item.justificativa ?? undefined),
+      });
+    });
+
+    if (itensLicitacao.length > 0) {
+      await this.itemRepository.save(itensLicitacao);
+    }
+
+    // 8. Retorna a licitação recarregada com os itens
+    const resultado = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoSalva.id },
+      relations: ['itens'],
+    });
+    return resultado!;
   }
 
   async findAll(filtros?: { fase?: FaseLicitacao; orgao_id?: string }): Promise<Licitacao[]> {
