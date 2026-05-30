@@ -4,6 +4,7 @@ import { ItemLicitacao } from '../../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../../lotes/entities/lote-licitacao.entity';
 import { ItemPCA } from '../../pca/entities/pca.entity';
 import { Usuario } from '../../usuarios/entities/usuario.entity';
+import { Demanda } from '../../demandas/entities/demanda.entity';
 
 /**
  * ============================================================================
@@ -137,6 +138,14 @@ export class Licitacao {
 
   @Column({ nullable: true })
   orgao_id: string;
+
+  // === ORIGEM: DEMANDA ===
+  @Column({ type: 'uuid', nullable: true })
+  demanda_id: string;
+
+  @ManyToOne(() => Demanda, { nullable: true })
+  @JoinColumn({ name: 'demanda_id' })
+  demanda: Demanda;
 
   // === UNIDADE COMPRADORA (PNCP) ===
   @Column({ nullable: true })

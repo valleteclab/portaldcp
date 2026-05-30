@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe 
 import { LicitacoesService } from './licitacoes.service';
 import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
+import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -19,6 +20,11 @@ export class LicitacoesController {
   @Post()
   async create(@Body(new ValidationPipe()) createDto: CreateLicitacaoDto): Promise<Licitacao> {
     return await this.licitacoesService.create(createDto);
+  }
+
+  @Post('a-partir-de-demanda')
+  async createFromDemanda(@Body(new ValidationPipe()) dto: CreateFromDemandaDto): Promise<Licitacao> {
+    return this.licitacoesService.criarAPartirDeDemanda(dto);
   }
 
   @Public()

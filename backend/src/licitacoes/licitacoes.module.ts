@@ -6,11 +6,12 @@ import { LicitacoesController } from './licitacoes.controller';
 import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
+import { Demanda } from '../demandas/entities/demanda.entity';
 import { ContratosModule } from '../contratos/contratos.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao]),
+    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda]),
     forwardRef(() => ContratosModule)
   ],
   controllers: [LicitacoesController],
