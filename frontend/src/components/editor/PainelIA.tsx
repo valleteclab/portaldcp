@@ -12,6 +12,7 @@ import {
   Database,
   RefreshCw,
   ChevronDown,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { API_URL, authFetch } from '@/lib/api'
@@ -40,6 +41,59 @@ interface DadosProcesso {
   natureza_objeto?: string
 }
 
+interface ItemLicitacao {
+  descricao_resumida: string
+  quantidade: number
+  unidade_medida: string
+  valor_unitario_estimado: number
+}
+
+interface DocumentoContexto {
+  tipo: string
+  status: string
+  secoes_preenchidas: number
+  secoes_total: number
+  resumo: string
+}
+
+interface ContextoLicitacao {
+  licitacao: {
+    id: string
+    objeto: string
+    numero_processo: string
+    modalidade: string
+    criterio_julgamento: string
+    valor_total_estimado: number
+    natureza_objeto: string
+    prazo_execucao: string
+    itens: ItemLicitacao[]
+  }
+  demanda: {
+    unidade_requisitante: string
+    ano_referencia: number
+    itens_count: number
+  } | null
+  documentos: DocumentoContexto[]
+  pesquisa_preco: {
+    valor_mediano: number | null
+    fontes_count: number
+  } | null
+}
+
+interface ItemConformidade {
+  campo: string
+  fundamentoLegal: string
+  ok: boolean
+  erro: string | null
+}
+
+interface ResultadoConformidade {
+  itens: ItemConformidade[]
+  tipo: string
+  total: number
+  aprovados: number
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface PainelIAProps {
@@ -56,6 +110,27 @@ interface PainelIAProps {
   dadosProcesso?: DadosProcesso
   /** Callback para inserir texto em uma seção específica */
   onInserirNaSecao: (secaoId: string, html: string) => void
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const TIPO_LABELS: Record<string, string> = {
+  DOCUMENTO_FORMALIZACAO_DEMANDA: 'DFD',
+  ESTUDO_TECNICO_PRELIMINAR: 'ETP',
+  MAPA_RISCO: 'Mapa de Riscos',
+  PESQUISA_PRECOS: 'Pesquisa de Preços',
+  TERMO_REFERENCIA: 'TR',
+  AUTORIZACAO_ABERTURA: 'Autorização',
+  MINUTA_EDITAL: 'Minuta do Edital',
+  PARECER_JURIDICO: 'Parecer Jurídico',
+}
+
+const formatBRL = (value: number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value)
+
+const friendlyCampo = (campo: string) => {
+  const s = campo.replace(/_/g, ' ')
+  return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 // ─── Sugestões rápidas por tipo ───────────────────────────────────────────────
@@ -136,11 +211,13 @@ function AbaChat({
   secoes,
   conteudoSecoes,
   onInserirNaSecao,
+  contexto,
 }: {
   tipoDocumento: string
   secoes: SecaoTemplate[]
   conteudoSecoes: Record<string, string>
   onInserirNaSecao: (secaoId: string, html: string) => void
+  contexto: ContextoLicitacao | null
 }) {
   const [mensagens, setMensagens] = useState<Mensagem[]>([])
   const [input, setInput] = useState('')
@@ -156,6 +233,43 @@ function AbaChat({
   const getSugestoes = () => {
     const key = tipoDocumento.toUpperCase() as keyof typeof SUGESTOES_RAPIDAS
     return SUGESTOES_RAPIDAS[key] || SUGESTOES_RAPIDAS.DEFAULT
+  }
+
+  const buildContextoExtra = () => {
+    if (!contexto) return ''
+    const lines: string[] = []
+
+    if (contexto.licitacao.itens?.length) {
+      lines.push(`Itens da licitação: ${contexto.licitacao.itens.length} item(ns) cadastrado(s).`)
+    }
+
+    if (contexto.demanda) {
+      lines.push(
+        `Demanda: unidade requisitante "${contexto.demanda.unidade_requisitante}", ` +
+          `ano ${contexto.demanda.ano_referencia}, ${contexto.demanda.itens_count} itens.`
+      )
+    }
+
+    if (contexto.pesquisa_preco?.valor_mediano != null) {
+      lines.push(
+        `Pesquisa de preços: valor mediano ${formatBRL(contexto.pesquisa_preco.valor_mediano)} ` +
+          `(${contexto.pesquisa_preco.fontes_count} fonte(s)).`
+      )
+    }
+
+    if (contexto.documentos?.length) {
+      lines.push('Documentos do processo:')
+      for (const doc of contexto.documentos) {
+        const tipoLabel = TIPO_LABELS[doc.tipo] || doc.tipo
+        lines.push(
+          `  • ${tipoLabel} — status: ${doc.status}, ` +
+            `${doc.secoes_preenchidas}/${doc.secoes_total} seções preenchidas` +
+            (doc.resumo ? `. Resumo: ${doc.resumo}` : '')
+        )
+      }
+    }
+
+    return lines.length ? '\n\nContexto do processo:\n' + lines.join('\n') : ''
   }
 
   const enviar = async (texto?: string) => {
@@ -180,7 +294,7 @@ objetiva e fundamentada nos artigos da lei. Quando sugerir textos para inserçã
 escreva o texto diretamente sem introduções como "Aqui está o texto:".
 Tipo de documento: ${tipoDocumento}
 ${secaoInfo ? `Seção atual: ${secaoInfo.titulo} (${secaoInfo.fundamentoLegal})` : ''}
-${conteudoAtual ? `Conteúdo atual da seção:\n${conteudoAtual.replace(/<[^>]+>/g, ' ')}` : ''}`
+${conteudoAtual ? `Conteúdo atual da seção:\n${conteudoAtual.replace(/<[^>]+>/g, ' ')}` : ''}${buildContextoExtra()}`
 
       const res = await authFetch(`${API_URL}/api/ia/chat`, {
         method: 'POST',
@@ -354,47 +468,49 @@ ${conteudoAtual ? `Conteúdo atual da seção:\n${conteudoAtual.replace(/<[^>]+>
 // ─── Aba Análise ──────────────────────────────────────────────────────────────
 
 function AbaAnalise({
-  secoes,
-  conteudoSecoes,
+  documentoId,
 }: {
-  secoes: SecaoTemplate[]
-  conteudoSecoes: Record<string, string>
+  documentoId?: string
 }) {
   const [analisando, setAnalisando] = useState(false)
-  const [checklist, setChecklist] = useState<ItemChecklist[] | null>(null)
+  const [resultado, setResultado] = useState<ResultadoConformidade | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
 
-  const analisar = () => {
+  const analisar = async () => {
+    if (!documentoId) {
+      setErro('ID do documento não disponível para análise de conformidade.')
+      return
+    }
     setAnalisando(true)
+    setErro(null)
 
-    // Análise local: verificar quais seções obrigatórias estão vazias
-    setTimeout(() => {
-      const items: ItemChecklist[] = secoes.map((s) => {
-        const conteudo = conteudoSecoes[s.id] || ''
-        const hasContent = conteudo.replace(/<[^>]+>/g, '').trim().length > 20
-
-        if (s.obrigatorio && !hasContent) {
-          return {
-            secao: s.id,
-            label: s.titulo.replace(/\s*\*$/, ''),
-            valido: false,
-            mensagem: `Seção obrigatória (${s.fundamentoLegal}) está vazia ou muito curta.`,
-          }
-        }
-        return {
-          secao: s.id,
-          label: s.titulo.replace(/\s*\*$/, ''),
-          valido: hasContent,
-          mensagem: hasContent ? undefined : `Seção não preenchida (${s.fundamentoLegal}).`,
-        }
-      })
-      setChecklist(items)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/fase-interna/estruturado/${documentoId}/conformidade`
+      )
+      if (res.ok) {
+        const data: ResultadoConformidade = await res.json()
+        setResultado(data)
+      } else {
+        setErro('Não foi possível obter a análise de conformidade.')
+      }
+    } catch {
+      setErro('Erro de conexão ao buscar conformidade.')
+    } finally {
       setAnalisando(false)
-    }, 600)
+    }
   }
 
-  const total = checklist?.length || 0
-  const validos = checklist?.filter((i) => i.valido).length || 0
-  const pct = total > 0 ? Math.round((validos / total) * 100) : 0
+  useEffect(() => {
+    if (documentoId) {
+      analisar()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentoId])
+
+  const total = resultado?.total ?? 0
+  const aprovados = resultado?.aprovados ?? 0
+  const pct = total > 0 ? Math.round((aprovados / total) * 100) : 0
 
   return (
     <div className="flex flex-col h-full">
@@ -402,24 +518,26 @@ function AbaAnalise({
         <Button
           size="sm"
           onClick={analisar}
-          disabled={analisando}
+          disabled={analisando || !documentoId}
           className="w-full text-xs h-8 bg-[#1351b4] hover:bg-[#0c326f]"
         >
           {analisando ? (
             <>
-              <RefreshCw className="w-3 h-3 mr-1.5 animate-spin" /> Analisando…
+              <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Analisando…
             </>
           ) : (
             <>
-              <CheckCircle className="w-3 h-3 mr-1.5" /> Analisar conformidade
+              <RefreshCw className="w-3 h-3 mr-1.5" /> Reanalisar
             </>
           )}
         </Button>
 
-        {checklist && (
+        {resultado && (
           <div className="mt-2">
             <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-gray-600 font-medium">Completude</span>
+              <span className="text-gray-600 font-medium">
+                {aprovados}/{total} conformidades atendidas
+              </span>
               <span
                 className={`font-bold ${
                   pct >= 80 ? 'text-green-600' : pct >= 50 ? 'text-amber-500' : 'text-red-500'
@@ -436,49 +554,70 @@ function AbaAnalise({
                 style={{ width: `${pct}%` }}
               />
             </div>
-            <p className="text-[10px] text-gray-400 mt-1">
-              {validos}/{total} seções preenchidas
-            </p>
           </div>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
-        {!checklist && (
+        {analisando && (
+          <div className="flex flex-col items-center justify-center py-10 gap-2">
+            <Loader2 className="w-6 h-6 text-[#1351b4] animate-spin" />
+            <p className="text-xs text-gray-400">Verificando conformidade…</p>
+          </div>
+        )}
+
+        {!analisando && erro && (
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 text-xs text-red-600">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            {erro}
+          </div>
+        )}
+
+        {!analisando && !resultado && !erro && (
           <div className="text-center py-8">
             <AlertCircle className="w-8 h-8 text-gray-300 mx-auto mb-2" />
             <p className="text-xs text-gray-400">
-              Clique em "Analisar conformidade" para verificar o preenchimento das seções.
+              {documentoId
+                ? 'Clique em "Reanalisar" para verificar a conformidade.'
+                : 'ID do documento não disponível.'}
             </p>
           </div>
         )}
 
-        {checklist?.map((item) => (
-          <div
-            key={item.secao}
-            className={`flex items-start gap-2 p-2 rounded-lg text-xs ${
-              item.valido ? 'bg-green-50' : 'bg-red-50'
-            }`}
-          >
-            {item.valido ? (
-              <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
-            ) : (
-              <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-            )}
-            <div className="min-w-0">
-              <p
-                className={`font-medium leading-tight ${
-                  item.valido ? 'text-green-700' : 'text-red-600'
-                }`}
-              >
-                {item.label}
-              </p>
-              {item.mensagem && (
-                <p className="text-gray-500 mt-0.5 leading-tight">{item.mensagem}</p>
+        {!analisando &&
+          resultado?.itens.map((item, idx) => (
+            <div
+              key={idx}
+              className={`flex items-start gap-2 p-2 rounded-lg text-xs ${
+                item.ok ? 'bg-green-50' : 'bg-red-50'
+              }`}
+            >
+              {item.ok ? (
+                <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
+              ) : (
+                <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
               )}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p
+                    className={`font-medium leading-tight ${
+                      item.ok ? 'text-green-700' : 'text-red-600'
+                    }`}
+                  >
+                    {friendlyCampo(item.campo)}
+                  </p>
+                  {item.fundamentoLegal && (
+                    <span className="inline-block bg-gray-100 text-gray-500 text-[10px] px-1.5 py-0.5 rounded-full leading-tight">
+                      {item.fundamentoLegal}
+                    </span>
+                  )}
+                </div>
+                {item.erro && (
+                  <p className="text-red-500 mt-0.5 leading-tight">{item.erro}</p>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
       </div>
     </div>
   )
@@ -490,10 +629,16 @@ function AbaDados({
   dadosProcesso,
   secoes,
   onInserirNaSecao,
+  licitacaoId,
+  contexto,
+  carregandoContexto,
 }: {
   dadosProcesso?: DadosProcesso
   secoes: SecaoTemplate[]
   onInserirNaSecao: (secaoId: string, html: string) => void
+  licitacaoId: string
+  contexto: ContextoLicitacao | null
+  carregandoContexto: boolean
 }) {
   const [secaoAlvo, setSecaoAlvo] = useState<string>(secoes[0]?.id || '')
 
@@ -510,6 +655,14 @@ function AbaDados({
     { label: 'Nº do processo', value: dadosProcesso?.numero_processo, icon: '🔢' },
     { label: 'Natureza do objeto', value: dadosProcesso?.natureza_objeto, icon: '📦' },
   ].filter((c) => c.value && c.value !== '—')
+
+  const statusBadgeClass = (status: string) => {
+    const s = status.toLowerCase()
+    if (s === 'concluido' || s === 'concluído' || s === 'aprovado') return 'bg-green-100 text-green-700'
+    if (s === 'em_andamento' || s === 'em andamento' || s === 'rascunho') return 'bg-blue-100 text-blue-700'
+    if (s === 'pendente' || s === 'aguardando') return 'bg-amber-100 text-amber-700'
+    return 'bg-gray-100 text-gray-600'
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -535,37 +688,164 @@ function AbaDados({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0">
-        {cartoes.length === 0 ? (
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+        {/* Dados básicos do processo (hardcoded / props) */}
+        {cartoes.length > 0 && (
+          <div className="space-y-2">
+            {cartoes.map((c) => (
+              <div
+                key={c.label}
+                className="bg-white rounded-lg border border-gray-200 p-2.5 flex items-start justify-between gap-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm">{c.icon}</span>
+                    <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                      {c.label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-800 mt-0.5 leading-snug">{c.value}</p>
+                </div>
+                <button
+                  type="button"
+                  title="Inserir na seção"
+                  onClick={() => onInserirNaSecao(secaoAlvo, `<p>${c.value}</p>`)}
+                  className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-[#ecf3fc] text-[#1351b4] hover:bg-[#1351b4] hover:text-white transition-colors"
+                >
+                  <PlusSquare className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {cartoes.length === 0 && !carregandoContexto && !contexto && (
           <div className="text-center py-8">
             <Database className="w-8 h-8 text-gray-300 mx-auto mb-2" />
             <p className="text-xs text-gray-400">Dados do processo não disponíveis.</p>
           </div>
-        ) : (
-          cartoes.map((c) => (
-            <div
-              key={c.label}
-              className="bg-white rounded-lg border border-gray-200 p-2.5 flex items-start justify-between gap-2"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm">{c.icon}</span>
-                  <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
-                    {c.label}
+        )}
+
+        {/* Loading contextual */}
+        {carregandoContexto && (
+          <div className="flex flex-col items-center justify-center py-6 gap-2">
+            <Loader2 className="w-5 h-5 text-[#1351b4] animate-spin" />
+            <p className="text-xs text-gray-400">Carregando dados do processo…</p>
+          </div>
+        )}
+
+        {/* Demanda */}
+        {!carregandoContexto && contexto?.demanda && (
+          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+            <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-1.5">
+              Demanda
+            </p>
+            <p className="text-xs text-gray-800">
+              <span className="font-medium">Unidade:</span> {contexto.demanda.unidade_requisitante}
+            </p>
+            <p className="text-xs text-gray-800">
+              <span className="font-medium">Ano de referência:</span> {contexto.demanda.ano_referencia}
+            </p>
+            <p className="text-xs text-gray-800">
+              <span className="font-medium">Itens:</span> {contexto.demanda.itens_count}
+            </p>
+          </div>
+        )}
+
+        {/* Pesquisa de preços */}
+        {!carregandoContexto && contexto?.pesquisa_preco?.valor_mediano != null && (
+          <div className="bg-green-50 border border-green-100 rounded-lg p-3">
+            <p className="text-[10px] font-semibold text-green-600 uppercase tracking-wide mb-1.5">
+              Pesquisa de Preços
+            </p>
+            <p className="text-xs text-gray-800">
+              <span className="font-medium">Valor mediano:</span>{' '}
+              {formatBRL(contexto.pesquisa_preco.valor_mediano)}
+            </p>
+            <p className="text-xs text-gray-800">
+              <span className="font-medium">Fontes:</span> {contexto.pesquisa_preco.fontes_count}
+            </p>
+          </div>
+        )}
+
+        {/* Documentos relacionados */}
+        {!carregandoContexto && contexto?.documentos && contexto.documentos.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+              Documentos do Processo
+            </p>
+            {contexto.documentos.map((doc, idx) => (
+              <div key={idx} className="bg-white border border-gray-200 rounded-lg p-2.5">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-xs font-medium text-gray-800">
+                    {TIPO_LABELS[doc.tipo] || doc.tipo}
+                  </span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${statusBadgeClass(doc.status)}`}
+                  >
+                    {doc.status}
                   </span>
                 </div>
-                <p className="text-xs text-gray-800 mt-0.5 leading-snug">{c.value}</p>
+                <div className="w-full h-1 rounded-full bg-gray-100 overflow-hidden mb-1">
+                  <div
+                    className="h-full rounded-full bg-[#1351b4]"
+                    style={{
+                      width:
+                        doc.secoes_total > 0
+                          ? `${Math.round((doc.secoes_preenchidas / doc.secoes_total) * 100)}%`
+                          : '0%',
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400">
+                  {doc.secoes_preenchidas}/{doc.secoes_total} seções
+                </p>
               </div>
-              <button
-                type="button"
-                title="Inserir na seção"
-                onClick={() => onInserirNaSecao(secaoAlvo, `<p>${c.value}</p>`)}
-                className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md bg-[#ecf3fc] text-[#1351b4] hover:bg-[#1351b4] hover:text-white transition-colors"
-              >
-                <PlusSquare className="w-3 h-3" />
-              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Tabela de itens */}
+        {!carregandoContexto && contexto?.licitacao?.itens && contexto.licitacao.itens.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+              Itens da Licitação
+            </p>
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left px-2 py-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                      Descrição
+                    </th>
+                    <th className="text-right px-2 py-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      Qtd
+                    </th>
+                    <th className="text-left px-2 py-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                      Un.
+                    </th>
+                    <th className="text-right px-2 py-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                      Vlr Unit.
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {contexto.licitacao.itens.map((item, idx) => (
+                    <tr key={idx} className="bg-white">
+                      <td className="px-2 py-1.5 text-gray-800 leading-snug max-w-[120px] truncate">
+                        {item.descricao_resumida}
+                      </td>
+                      <td className="px-2 py-1.5 text-gray-700 text-right">{item.quantidade}</td>
+                      <td className="px-2 py-1.5 text-gray-700">{item.unidade_medida}</td>
+                      <td className="px-2 py-1.5 text-gray-700 text-right whitespace-nowrap">
+                        {formatBRL(item.valor_unitario_estimado)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))
+          </div>
         )}
       </div>
     </div>
@@ -576,12 +856,30 @@ function AbaDados({
 
 export function PainelIA({
   tipoDocumento,
+  licitacaoId,
+  documentoId,
   secoes,
   conteudoSecoes,
   dadosProcesso,
   onInserirNaSecao,
 }: PainelIAProps) {
   const [abaAtiva, setAbaAtiva] = useState<'chat' | 'analise' | 'dados'>('chat')
+  const [contexto, setContexto] = useState<ContextoLicitacao | null>(null)
+  const [carregandoContexto, setCarregandoContexto] = useState(false)
+
+  useEffect(() => {
+    if (!licitacaoId) return
+    setCarregandoContexto(true)
+    authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/contexto`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: ContextoLicitacao | null) => {
+        if (data) setContexto(data)
+      })
+      .catch(() => {
+        // silently fail — component degrades gracefully
+      })
+      .finally(() => setCarregandoContexto(false))
+  }, [licitacaoId])
 
   return (
     <div className="flex flex-col h-full bg-white border-l border-gray-200">
@@ -617,16 +915,20 @@ export function PainelIA({
             secoes={secoes}
             conteudoSecoes={conteudoSecoes}
             onInserirNaSecao={onInserirNaSecao}
+            contexto={contexto}
           />
         )}
         {abaAtiva === 'analise' && (
-          <AbaAnalise secoes={secoes} conteudoSecoes={conteudoSecoes} />
+          <AbaAnalise documentoId={documentoId} />
         )}
         {abaAtiva === 'dados' && (
           <AbaDados
             dadosProcesso={dadosProcesso}
             secoes={secoes}
             onInserirNaSecao={onInserirNaSecao}
+            licitacaoId={licitacaoId}
+            contexto={contexto}
+            carregandoContexto={carregandoContexto}
           />
         )}
       </div>
