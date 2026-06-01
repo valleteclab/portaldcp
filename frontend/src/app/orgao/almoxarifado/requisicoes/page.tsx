@@ -99,9 +99,11 @@ interface Requisicao {
   orgao?: { nome: string };
   contrato?: {
     numero_contrato: string;
+    objeto?: string;
     fornecedor?: {
       id?: string;
       razao_social: string;
+      cpf_cnpj?: string;
       email?: string;
       telefone?: string;
       representante_telefone?: string;
@@ -970,12 +972,27 @@ function RequisicoesList() {
     if (filtroTipo && filtroTipo !== '__all__' && req.tipo !== filtroTipo) return false;
     // Filtro por busca
     if (!busca) return true;
-    const termo = busca.toLowerCase();
-    return (
-      req.numero.toLowerCase().includes(termo) ||
-      req.setor_solicitante.toLowerCase().includes(termo) ||
-      req.usuario_solicitante_nome.toLowerCase().includes(termo)
-    );
+    const termo = busca.toLowerCase().trim();
+    const termoNumeros = termo.replace(/\D/g, '');
+    const fornecedor = req.contrato?.fornecedor;
+    const textoBusca = [
+      req.numero,
+      req.setor_solicitante,
+      req.usuario_solicitante_nome,
+      req.contrato?.numero_contrato,
+      req.contrato?.objeto,
+      fornecedor?.razao_social,
+      fornecedor?.cpf_cnpj,
+      ...(req.itens || []).map(item => item.descricao),
+      ...(req.itensOS || []).map(item => item.itemCronograma?.descricao),
+      ...(req.etapasOS || []).map(etapa => etapa.etapa?.descricao),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    const textoNumeros = textoBusca.replace(/\D/g, '');
+
+    return textoBusca.includes(termo) || (!!termoNumeros && textoNumeros.includes(termoNumeros));
   });
 
   if (loading) {
@@ -1077,7 +1094,7 @@ function RequisicoesList() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
-                  placeholder="Buscar por número, setor ou solicitante..."
+                  placeholder="Buscar por número, empresa, CNPJ, contrato, item ou solicitante..."
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
                   className="pl-10"
