@@ -343,7 +343,7 @@ function QuantidadeInput({
   );
 }
 
-// Input inteiro de meses para Ordem por Demanda
+// Input inteiro de meses para OS Parcial
 function MesesInput({
   value,
   maxMeses,
@@ -503,7 +503,7 @@ function NovaRequisicaoForm() {
   }>({ aberto: false, mensagens: [], enviarParaAutorizacao: false });
   const pularVerificacaoEmpenho = useRef(false);
 
-  // OS com ItemCronograma (medição por itens): Ordem Global vs Ordem por Demanda
+  // OS com ItemCronograma (medição por itens): Ordem Global vs OS Parcial
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([]);
   const [etapasOS, setEtapasOS] = useState<any[]>([]);
   const [carregandoCronograma, setCarregandoCronograma] = useState(false);
@@ -1401,16 +1401,16 @@ function NovaRequisicaoForm() {
           if (!setorSolicitante.trim()) return 'Informe o setor solicitante';
           if (!justificativa.trim()) return 'Informe a justificativa';
           if (usarItensCronograma) {
-            if (!modoOS) return 'Selecione o tipo de ordem (Global ou por Demanda)';
+            if (!modoOS) return 'Selecione o tipo de ordem (Global ou Parcial)';
             if (modoOS === 'ORDEM_DEMANDA') {
               const temAlgum = itensOSDemanda.some(d => d.quantidade_solicitada > 0);
-              if (!temAlgum) return 'Informe a quantidade de pelo menos um item na Ordem por Demanda';
+              if (!temAlgum) return 'Informe a quantidade de pelo menos um item na OS Parcial';
             }
           } else if (usarEtapasCronograma) {
-            if (!modoOS) return 'Selecione o tipo de ordem (Global ou por Demanda)';
+            if (!modoOS) return 'Selecione o tipo de ordem (Global ou Parcial)';
             if (modoOS === 'ORDEM_DEMANDA') {
               const temAlgum = etapasOSDemanda.some(d => (d.valor_solicitado ?? 0) > 0);
-              if (!temAlgum) return 'Informe o valor de pelo menos uma etapa na Ordem por Demanda';
+              if (!temAlgum) return 'Informe o valor de pelo menos uma etapa na OS Parcial';
             }
           } else {
             if (!descricaoOS.trim()) return 'Informe a descrição/objeto da OS';
@@ -1527,7 +1527,7 @@ function NovaRequisicaoForm() {
               }));
           dados.descricao_os = modoOS === 'ORDEM_GLOBAL'
             ? 'Ordem Global - todos os itens do cronograma'
-            : 'Ordem por Demanda - itens selecionados';
+            : 'OS Parcial - itens selecionados';
         } else if (usarEtapasCronograma && modoOS) {
           dados.modo_os = modoOS;
           dados.etapas_os = modoOS === 'ORDEM_GLOBAL'
@@ -1539,7 +1539,7 @@ function NovaRequisicaoForm() {
                 etapa_id: d.etapa_id,
                 valor_solicitado: d.valor_solicitado ?? 0,
               }));
-          dados.descricao_os = descricaoOS || contratoSelecionado?.objeto || (modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global - todas as etapas' : 'Ordem por Demanda - etapas selecionadas');
+          dados.descricao_os = descricaoOS || contratoSelecionado?.objeto || (modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global - todas as etapas' : 'OS Parcial - etapas selecionadas');
         } else {
           dados.descricao_os = descricaoOS;
           dados.local_execucao = localExecucao || undefined;
@@ -2557,7 +2557,7 @@ function NovaRequisicaoForm() {
           </CardContent>
         </Card>
       ) : usarItensCronograma ? (
-        /* Fluxo com ItemCronograma: Ordem Global vs Ordem por Demanda */
+        /* Fluxo com ItemCronograma: Ordem Global vs OS Parcial */
         <Card>
           <CardHeader>
             <CardTitle>Dados da Ordem de Serviço</CardTitle>
@@ -2588,8 +2588,8 @@ function NovaRequisicaoForm() {
                     onChange={() => setModoOS('ORDEM_DEMANDA')}
                     className="h-4 w-4"
                   />
-                  <span>Ordem por Demanda</span>
-                  <span className="text-sm text-gray-500">— Define quantidades específicas para este período</span>
+                  <span>OS Parcial</span>
+                  <span className="text-sm text-gray-500">— Formaliza itens específicos do contrato</span>
                 </label>
               </div>
             </div>
@@ -2707,7 +2707,7 @@ function NovaRequisicaoForm() {
           </CardContent>
         </Card>
       ) : usarEtapasCronograma ? (
-        /* Fluxo EtapaCronograma: Ordem Global vs Ordem por Demanda */
+        /* Fluxo EtapaCronograma: Ordem Global vs OS Parcial */
         <Card>
           <CardHeader>
             <CardTitle>Dados da Ordem de Serviço</CardTitle>
@@ -2747,8 +2747,8 @@ function NovaRequisicaoForm() {
                     onChange={() => setModoOS('ORDEM_DEMANDA')}
                     className="h-4 w-4"
                   />
-                  <span>Ordem por Demanda</span>
-                  <span className="text-sm text-gray-500">— Define valores específicos por etapa</span>
+                  <span>OS Parcial</span>
+                  <span className="text-sm text-gray-500">— Formaliza etapas específicas do contrato</span>
                 </label>
               </div>
             </div>
@@ -2980,7 +2980,7 @@ function NovaRequisicaoForm() {
               {isOS && usarItensCronograma && modoOS && (
                 <div className="col-span-2">
                   <span className="text-gray-500">Tipo de Ordem:</span>{' '}
-                  <strong>{modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global' : 'Ordem por Demanda'}</strong>
+                  <strong>{modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global' : 'OS Parcial'}</strong>
                 </div>
               )}
               {isOS && !usarItensCronograma && descricaoOS && (
@@ -3103,7 +3103,7 @@ function NovaRequisicaoForm() {
           {isOS && usarEtapasCronograma && etapasOS.length > 0 && (
             <div>
               <h4 className="font-medium mb-2">
-                Etapas Autorizadas ({etapasOS.length}) — {modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global (100%)' : 'Ordem por Demanda'}
+                Etapas Autorizadas ({etapasOS.length}) — {modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global (100%)' : 'OS Parcial'}
               </h4>
               <Table className="table-fixed">
                 <TableHeader>

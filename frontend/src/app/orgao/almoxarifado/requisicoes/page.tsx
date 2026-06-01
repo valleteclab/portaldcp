@@ -1561,7 +1561,7 @@ function RequisicoesList() {
                     {requisicaoSelecionada.modo_os && (
                       <div>
                         <label className="text-gray-500">Tipo de Ordem</label>
-                        <p className="font-medium">{requisicaoSelecionada.modo_os === 'ORDEM_GLOBAL' ? 'Ordem Global (100%)' : 'Ordem por Demanda'}</p>
+                        <p className="font-medium">{requisicaoSelecionada.modo_os === 'ORDEM_GLOBAL' ? 'Ordem Global (100%)' : 'OS Parcial'}</p>
                       </div>
                     )}
                     {requisicaoSelecionada.descricao_os && (
