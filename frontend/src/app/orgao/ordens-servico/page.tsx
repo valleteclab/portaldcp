@@ -32,7 +32,7 @@ interface OrdemServico {
   usuario_cadastro_nome?: string; aprovador_nome?: string; data_aprovacao?: string;
   observacao_aprovador?: string; responsavel_tecnico?: string; sla_excedido?: boolean;
   created_at: string; numero_contrato?: string; fornecedor_nome?: string;
-  escopo_detalhado?: string; modalidade_execucao?: string;
+  escopo_detalhado?: string; modalidade_execucao?: string; tipo_escopo?: string;
 }
 interface Contrato {
   id: string; numero_contrato: string; objeto: string;
@@ -40,6 +40,10 @@ interface Contrato {
   modalidade_execucao: string; categoria?: string;
   valor_global: number; valor_inicial?: number; valor_executado_anterior?: number;
   status: string; data_vigencia_inicio: string; data_vigencia_fim: string;
+}
+interface ItemCronograma {
+  id: string; numero_item: number; descricao: string; unidade_medida: string;
+  quantidade: number; valor_unitario: number; valor_total: number;
 }
 
 const SL: Record<string, string> = {
@@ -79,7 +83,10 @@ function OrdensServicoPage() {
   const [step, setStep] = useState(0);
   const [cSel, setCSel] = useState<Contrato | null>(null);
   const [buscaC, setBuscaC] = useState('');
-  const [nOS, setNOS] = useState({ desc: '', escopo: '', valor: '', resp: '', dAb: new Date().toISOString().split('T')[0], dPr: '' });
+  const [nOS, setNOS] = useState({ desc: '', escopo: '', valor: '', resp: '', dAb: new Date().toISOString().split('T')[0], dPr: '', tipo: 'GLOBAL' });
+  const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([]);
+  const [itensSelecionados, setItensSelecionados] = useState<string[]>([]);
+  const [loadingItens, setLoadingItens] = useState(false);
   const [sel, setSel] = useState<OrdemServico | null>(null);
   const [showDet, setShowDet] = useState(false);
 
@@ -123,9 +130,26 @@ function OrdensServicoPage() {
     return contratos.filter(c => c.numero_contrato?.toLowerCase().includes(b) || c.objeto?.toLowerCase().includes(b) || c.fornecedor_razao_social?.toLowerCase().includes(b));
   }, [contratos, buscaC]);
 
+  const carregarItensContrato = async (contratoId: string) => {
+    setLoadingItens(true);
+    try {
+      const r = await authFetch(`${API_URL}/api/contratos/${contratoId}/itens-cronograma`);
+      const d = await r.json();
+      setItensCronograma(Array.isArray(d) ? d : []);
+    } catch { setItensCronograma([]); } finally { setLoadingItens(false); }
+  };
+
+  const selecionarContrato = (contrato: Contrato) => {
+    setCSel(contrato);
+    setItensSelecionados([]);
+    setStep(1);
+    carregarItensContrato(contrato.id);
+  };
+
   const openNew = () => {
     setCSel(null); setBuscaC('');
-    setNOS({ desc: '', escopo: '', valor: '', resp: '', dAb: new Date().toISOString().split('T')[0], dPr: '' });
+    setItensCronograma([]); setItensSelecionados([]);
+    setNOS({ desc: '', escopo: '', valor: '', resp: '', dAb: new Date().toISOString().split('T')[0], dPr: '', tipo: 'GLOBAL' });
     setStep(0); setShowNew(true);
     if (contratos.length === 0) loadCt();
   };
@@ -134,9 +158,10 @@ function OrdensServicoPage() {
     if (!cSel) return;
     if (!nOS.desc.trim()) { alert('Informe a descricao da OS.'); return; }
     if (!nOS.valor || parseFloat(nOS.valor) <= 0) { alert('Informe o valor total da OS.'); return; }
+    if (nOS.tipo === 'PARCIAL' && itensSelecionados.length === 0) { alert('Selecione pelo menos um item do cronograma para OS parcial.'); return; }
     setSaving(true);
     try {
-      const body: Record<string, unknown> = { descricao: nOS.desc, valor_total: parseFloat(nOS.valor), data_abertura: nOS.dAb || undefined, data_prazo: nOS.dPr || undefined, responsavel_tecnico: nOS.resp || undefined, escopo_detalhado: nOS.escopo || undefined, submeter_aprovacao: true };
+      const body: Record<string, unknown> = { descricao: nOS.desc, valor_total: parseFloat(nOS.valor), data_abertura: nOS.dAb || undefined, data_prazo: nOS.dPr || undefined, responsavel_tecnico: nOS.resp || undefined, escopo_detalhado: nOS.escopo || undefined, tipo_escopo: nOS.tipo, itens: itensSelecionados.map(id => ({ item_cronograma_id: id })), submeter_aprovacao: true };
       const r = await authFetch(`${API_URL}/api/contratos/${cSel.id}/ordens-servico`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (r.ok) { setShowNew(false); loadOS(); } else { const e = await r.json().catch(() => null); alert(e?.message || 'Erro ao criar OS.'); }
     } catch { alert('Erro ao criar OS.'); } finally { setSaving(false); }
@@ -208,7 +233,7 @@ function OrdensServicoPage() {
           : cF.length === 0 ? <div className="py-12 text-center text-muted-foreground"><Building2 className="mx-auto h-12 w-12 mb-3 opacity-30" /><p>Nenhum contrato elegivel encontrado.</p><p className="text-xs mt-1">Apenas contratos vigentes com modalidade de servico sao exibidos.</p></div>
           : <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-h-[65vh] overflow-y-auto pr-1">
             {cF.map(c => { const d = diasRest(c.data_vigencia_fim); const s = c.valor_global - (c.valor_executado_anterior || 0); const pc = c.valor_global > 0 ? ((c.valor_executado_anterior || 0) / c.valor_global) * 100 : 0; const is = cSel?.id === c.id;
-              return (<Card key={c.id} className={`cursor-pointer transition-all hover:shadow-md ${is ? 'ring-2 ring-blue-500 bg-blue-50/50' : 'hover:bg-gray-50'}`} onClick={() => { setCSel(c); setStep(1); }}>
+              return (<Card key={c.id} className={`cursor-pointer transition-all hover:shadow-md ${is ? 'ring-2 ring-blue-500 bg-blue-50/50' : 'hover:bg-gray-50'}`} onClick={() => selecionarContrato(c)}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between mb-2"><div className="flex items-center gap-2 flex-wrap"><Badge variant="outline" className="font-mono text-xs">{c.numero_contrato}</Badge><Badge className="bg-blue-50 text-blue-700 border-blue-200 text-xs">{ML[c.modalidade_execucao] || c.modalidade_execucao}</Badge></div>{is && <CheckCircle2 className="h-5 w-5 text-blue-600 shrink-0" />}</div>
                   <p className="text-sm text-gray-700 whitespace-normal break-words mb-2">{c.objeto || 'Sem objeto definido'}</p>
@@ -239,6 +264,8 @@ function OrdensServicoPage() {
             </div>
           </div>
           <div className="grid gap-4">
+            <div><Label>Tipo da OS</Label><Select value={nOS.tipo} onValueChange={v => setNOS(p => ({ ...p, tipo: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="GLOBAL">Global - todos os itens do cronograma</SelectItem><SelectItem value="PARCIAL">Parcial - apenas itens selecionados</SelectItem></SelectContent></Select></div>
+            {nOS.tipo === 'PARCIAL' && <div className="rounded-lg border p-3 space-y-2"><Label>Itens do cronograma da OS parcial</Label>{loadingItens ? <div className="text-sm text-muted-foreground">Carregando itens...</div> : itensCronograma.length === 0 ? <div className="text-sm text-muted-foreground">Nenhum item de cronograma encontrado para este contrato.</div> : <div className="max-h-56 overflow-y-auto space-y-2">{itensCronograma.map(item => <label key={item.id} className="flex items-start gap-2 rounded-md border p-2 text-sm"><input type="checkbox" className="mt-1" checked={itensSelecionados.includes(item.id)} onChange={e => setItensSelecionados(prev => e.target.checked ? [...prev, item.id] : prev.filter(id => id !== item.id))} /><span><span className="font-medium">Item {item.numero_item} - {item.unidade_medida}</span><span className="block text-muted-foreground">{item.descricao}</span></span></label>)}</div>}</div>}
             <div><Label>Descricao da OS <span className="text-red-500">*</span></Label><Textarea value={nOS.desc} onChange={e => setNOS(p => ({ ...p, desc: e.target.value }))} placeholder="Descreva o servico a ser executado..." rows={3} /></div>
             <div><Label>Escopo Detalhado</Label><Textarea value={nOS.escopo} onChange={e => setNOS(p => ({ ...p, escopo: e.target.value }))} placeholder="Detalhamento do escopo, entregas esperadas... (opcional)" rows={3} /></div>
             <div className="grid grid-cols-2 gap-4">
@@ -265,6 +292,7 @@ function OrdensServicoPage() {
             <div><Label className="text-muted-foreground text-xs">No OS</Label><p className="font-medium">{sel.numero_os}</p></div>
             <div><Label className="text-muted-foreground text-xs">Contrato</Label><p className="font-medium">{sel.numero_contrato}</p><p className="text-xs text-muted-foreground">{sel.fornecedor_nome}</p></div>
             <div><Label className="text-muted-foreground text-xs">Valor Total</Label><p className="font-medium text-lg">{formatarMoeda(sel.valor_total)}</p></div>
+            <div><Label className="text-muted-foreground text-xs">Tipo de OS</Label><p className="font-medium">{sel.tipo_escopo === 'PARCIAL' ? 'Parcial' : 'Global'}</p></div>
             <div><Label className="text-muted-foreground text-xs">Saldo OS</Label><p className={`font-medium text-lg ${sel.saldo_os >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatarMoeda(sel.saldo_os)}</p></div>
             <div><Label className="text-muted-foreground text-xs">Data Abertura</Label><p>{formatarData(sel.data_abertura)}</p></div>
             <div><Label className="text-muted-foreground text-xs">Data Prazo</Label><p>{formatarData(sel.data_prazo)}</p></div>

@@ -2,7 +2,9 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Contrato, ModalidadeExecucao, StatusContrato } from './entities/contrato.entity';
-import { OrdemServicoContrato, StatusOrdemServico, MetricaOS } from './entities/ordem-servico-contrato.entity';
+import { OrdemServicoContrato, StatusOrdemServico, MetricaOS, TipoEscopoOrdemServico } from './entities/ordem-servico-contrato.entity';
+import { OrdemServicoContratoItem } from './entities/ordem-servico-contrato-item.entity';
+import { ItemCronograma } from './entities/item-cronograma.entity';
 import { BancoMetricas } from './entities/banco-metricas.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 
@@ -22,6 +24,10 @@ export class OrdemServicoContratoService {
     private contratoRepository: Repository<Contrato>,
     @InjectRepository(OrdemServicoContrato)
     private osRepository: Repository<OrdemServicoContrato>,
+    @InjectRepository(OrdemServicoContratoItem)
+    private osItemRepository: Repository<OrdemServicoContratoItem>,
+    @InjectRepository(ItemCronograma)
+    private itemCronogramaRepository: Repository<ItemCronograma>,
     @InjectRepository(BancoMetricas)
     private bancoRepository: Repository<BancoMetricas>,
     @InjectRepository(Medicao)
@@ -66,8 +72,13 @@ export class OrdemServicoContratoService {
   // ORDENS DE SERVIÇO — CRUD
   // ============================================================================
 
-  async criarOS(contratoId: string, dados: Partial<OrdemServicoContrato> & { submeter?: boolean }): Promise<OrdemServicoContrato> {
+  async criarOS(contratoId: string, dados: Partial<OrdemServicoContrato> & { submeter?: boolean; submeter_aprovacao?: boolean; itens?: Array<{ item_cronograma_id?: string; quantidade_referencia?: number; observacoes?: string }> }): Promise<OrdemServicoContrato> {
     const contrato = await this.validarContratoOS(contratoId);
+    const tipoEscopo = dados.tipo_escopo === TipoEscopoOrdemServico.PARCIAL ? TipoEscopoOrdemServico.PARCIAL : TipoEscopoOrdemServico.GLOBAL;
+    const itensPayload = Array.isArray(dados.itens) ? dados.itens : [];
+    if (tipoEscopo === TipoEscopoOrdemServico.PARCIAL && itensPayload.length === 0) {
+      throw new BadRequestException('Selecione pelo menos um item do cronograma para OS parcial');
+    }
 
     const ultimaOS = await this.osRepository.findOne({
       where: { contrato_id: contratoId },
@@ -110,7 +121,7 @@ export class OrdemServicoContratoService {
       );
     }
 
-    const statusInicial = dados.submeter ? StatusOrdemServico.AGUARDANDO_APROVACAO : StatusOrdemServico.RASCUNHO;
+    const statusInicial = (dados.submeter || dados.submeter_aprovacao) ? StatusOrdemServico.AGUARDANDO_APROVACAO : StatusOrdemServico.RASCUNHO;
 
     const os = this.osRepository.create({
       ...dados,
@@ -118,12 +129,17 @@ export class OrdemServicoContratoService {
       numero_os: numeroOS,
       sequencial,
       valor_total: valorTotal,
+      tipo_escopo: tipoEscopo,
       status: statusInicial,
     });
 
     this.logger.log(`OS ${numeroOS} criada para contrato ${contrato.numero_contrato} (status: ${statusInicial})`);
 
-    return this.osRepository.save(os);
+    const osSalva = await this.osRepository.save(os);
+    if (tipoEscopo === TipoEscopoOrdemServico.PARCIAL) {
+      await this.salvarItensOS(osSalva.id, contratoId, itensPayload);
+    }
+    return this.buscarOS(osSalva.id);
   }
 
   async listarOS(contratoId: string, status?: StatusOrdemServico): Promise<OrdemServicoContrato[]> {
@@ -132,6 +148,7 @@ export class OrdemServicoContratoService {
 
     return this.osRepository.find({
       where,
+      relations: ['itens', 'itens.item_cronograma'],
       order: { sequencial: 'DESC' },
     });
   }
@@ -139,7 +156,7 @@ export class OrdemServicoContratoService {
   async buscarOS(osId: string): Promise<OrdemServicoContrato> {
     const os = await this.osRepository.findOne({
       where: { id: osId },
-      relations: ['contrato'],
+      relations: ['contrato', 'itens', 'itens.item_cronograma'],
     });
     if (!os) throw new NotFoundException('Ordem de Serviço não encontrada');
     return os;
@@ -379,6 +396,7 @@ export class OrdemServicoContratoService {
       .select('COALESCE(SUM(os.valor_total), 0)', 'total')
       .where('os.contrato_id = :contratoId', { contratoId })
       .andWhere('os.status IN (:...status)', { status: statusAtivos })
+      .andWhere('(os.tipo_escopo IS NULL OR os.tipo_escopo != :tipoParcial)', { tipoParcial: TipoEscopoOrdemServico.PARCIAL })
       .getRawOne();
 
     return valorGlobal - valorExecAnterior - Number(result.total);
@@ -392,6 +410,8 @@ export class OrdemServicoContratoService {
     const ordens = await this.osRepository
       .createQueryBuilder('os')
       .innerJoinAndSelect('os.contrato', 'c')
+      .leftJoinAndSelect('os.itens', 'osi')
+      .leftJoinAndSelect('osi.item_cronograma', 'ic')
       .where('c.orgao_id = :orgaoId', { orgaoId })
       .andWhere('os.status = :status', { status: StatusOrdemServico.AGUARDANDO_APROVACAO })
       .orderBy('os.created_at', 'ASC')
@@ -410,6 +430,8 @@ export class OrdemServicoContratoService {
         metrica: os.metrica,
         quantidade_metrica: os.quantidade_metrica,
         status: os.status,
+        tipo_escopo: os.tipo_escopo || TipoEscopoOrdemServico.GLOBAL,
+        itens: os.itens || [],
         usuario_cadastro_nome: os.usuario_cadastro_nome,
         created_at: os.created_at,
         numero_contrato: contrato?.numero_contrato,
@@ -471,6 +493,8 @@ export class OrdemServicoContratoService {
         objeto_contrato: contrato?.objeto,
         fornecedor_nome: contrato?.fornecedor_razao_social || contrato?.fornecedor_nome,
         modalidade_execucao: contrato?.modalidade_execucao,
+        tipo_escopo: os.tipo_escopo || TipoEscopoOrdemServico.GLOBAL,
+        itens: os.itens || [],
       });
     }
     return result;
@@ -538,6 +562,36 @@ export class OrdemServicoContratoService {
         saldo: Number(b.saldo),
       })),
     };
+  }
+
+
+  private async salvarItensOS(
+    osId: string,
+    contratoId: string,
+    itens: Array<{ item_cronograma_id?: string; quantidade_referencia?: number; observacoes?: string }>,
+  ): Promise<void> {
+    const ids = Array.from(new Set(itens.map((item) => item.item_cronograma_id).filter(Boolean))) as string[];
+    if (ids.length === 0) {
+      throw new BadRequestException('Selecione pelo menos um item do cronograma para OS parcial');
+    }
+
+    const itensCronograma = await this.itemCronogramaRepository.find({
+      where: { id: In(ids), contrato_id: contratoId } as any,
+    });
+    if (itensCronograma.length !== ids.length) {
+      throw new BadRequestException('Um ou mais itens selecionados nao pertencem ao contrato');
+    }
+
+    await this.osItemRepository.delete({ ordem_servico_id: osId });
+    const registros = itens
+      .filter((item) => item.item_cronograma_id)
+      .map((item) => this.osItemRepository.create({
+        ordem_servico_id: osId,
+        item_cronograma_id: item.item_cronograma_id!,
+        quantidade_referencia: item.quantidade_referencia ?? null,
+        observacoes: item.observacoes || null,
+      }));
+    await this.osItemRepository.save(registros);
   }
 
   // ============================================================================

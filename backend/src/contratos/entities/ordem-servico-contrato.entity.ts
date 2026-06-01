@@ -31,8 +31,10 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  OneToMany,
 } from 'typeorm';
 import { Contrato } from './contrato.entity';
+import { OrdemServicoContratoItem } from './ordem-servico-contrato-item.entity';
 
 export enum MetricaOS {
   UST = 'UST',
@@ -41,6 +43,11 @@ export enum MetricaOS {
   DEMANDA_FIXA = 'DEMANDA_FIXA',
   UNIDADE = 'UNIDADE',
   VALOR_FIXO = 'VALOR_FIXO',
+}
+
+export enum TipoEscopoOrdemServico {
+  GLOBAL = 'GLOBAL',
+  PARCIAL = 'PARCIAL',
 }
 
 export enum StatusOrdemServico {
@@ -80,6 +87,9 @@ export class OrdemServicoContrato {
 
   @Column({ type: 'text', nullable: true })
   escopo_detalhado: string;
+
+  @Column({ type: 'varchar', length: 20, default: TipoEscopoOrdemServico.GLOBAL })
+  tipo_escopo: TipoEscopoOrdemServico;
 
   // Métricas (opcionais para contratos de valor fixo)
   @Column({
@@ -173,6 +183,9 @@ export class OrdemServicoContrato {
   // Lista de empenhos vinculados (JSON array: ["31/2026", "32/2026"])
   @Column({ type: 'jsonb', nullable: true })
   numeros_empenhos: string[] | null;
+
+  @OneToMany(() => OrdemServicoContratoItem, (item) => item.ordem_servico)
+  itens: OrdemServicoContratoItem[];
 
   // Auditoria
   @Column({ nullable: true })
