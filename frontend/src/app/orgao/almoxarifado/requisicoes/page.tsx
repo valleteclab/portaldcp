@@ -252,6 +252,14 @@ function RequisicoesList() {
     observacoes: '',
   });
 
+  // Itens Avulsos (pós-NF)
+  const [showItensAvulsos, setShowItensAvulsos] = useState(false);
+  const [itensAvulsos, setItensAvulsos] = useState<any[]>([]);
+  const [loadingItensAvulsos, setLoadingItensAvulsos] = useState(false);
+  const [novoItemAvulso, setNovoItemAvulso] = useState({ descricao: '', quantidade: '', valor_unitario: '' });
+  const [savingItemAvulso, setSavingItemAvulso] = useState(false);
+
+
   // Overrides para notificação ao fornecedor (OS) - editáveis antes de autorizar
   const [emailFornecedor, setEmailFornecedor] = useState('');
   const [telefoneFornecedor, setTelefoneFornecedor] = useState('');
@@ -406,6 +414,83 @@ function RequisicoesList() {
         const data = await response.json();
         setRequisicoes(data);
       }
+
+  // Funções para gerenciar itens avulsos (pós-NF)
+  const loadItensAvulsos = async (requisicaoId: string) => {
+    setLoadingItensAvulsos(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoId}/itens-avulsos`);
+      if (res.ok) {
+        const data = await res.json();
+        setItensAvulsos(Array.isArray(data) ? data : []);
+      } else {
+        setItensAvulsos([]);
+      }
+    } catch {
+      setItensAvulsos([]);
+    } finally {
+      setLoadingItensAvulsos(false);
+    }
+  };
+
+  const adicionarItemAvulso = async () => {
+    if (!requisicaoSelecionada) return;
+    if (!novoItemAvulso.descricao.trim()) { alert('Informe a descrição do item.'); return; }
+    if (!novoItemAvulso.quantidade || parseFloat(novoItemAvulso.quantidade) <= 0) { alert('Informe a quantidade.'); return; }
+    if (!novoItemAvulso.valor_unitario || parseFloat(novoItemAvulso.valor_unitario) <= 0) { alert('Informe o valor unitário.'); return; }
+    
+    setSavingItemAvulso(true);
+    try {
+      const body = {
+        descricao: novoItemAvulso.descricao,
+        quantidade: parseFloat(novoItemAvulso.quantidade),
+        valor_unitario: parseFloat(novoItemAvulso.valor_unitario),
+      };
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/itens-avulsos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setNovoItemAvulso({ descricao: '', quantidade: '', valor_unitario: '' });
+        await loadItensAvulsos(requisicaoSelecionada.id);
+        await carregarRequisicoes();
+        alert('Item avulso adicionado com sucesso!');
+      } else {
+        const error = await res.json().catch(() => null);
+        alert(error?.message || 'Erro ao adicionar item avulso.');
+      }
+    } catch {
+      alert('Erro ao adicionar item avulso.');
+    } finally {
+      setSavingItemAvulso(false);
+    }
+  };
+
+  const removerItemAvulso = async (itemId: string) => {
+    if (!requisicaoSelecionada) return;
+    if (!confirm('Deseja realmente remover este item avulso?')) return;
+    
+    setSavingItemAvulso(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/itens-avulsos/${itemId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        await loadItensAvulsos(requisicaoSelecionada.id);
+        await carregarRequisicoes();
+        alert('Item avulso removido com sucesso!');
+      } else {
+        const error = await res.json().catch(() => null);
+        alert(error?.message || 'Erro ao remover item avulso.');
+      }
+    } catch {
+      alert('Erro ao remover item avulso.');
+    } finally {
+      setSavingItemAvulso(false);
+    }
+  };
+
     } catch (error) {
       console.error('Erro ao carregar requisições:', error);
     } finally {
@@ -1746,6 +1831,26 @@ function RequisicoesList() {
               )}
             </div>
           )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDetalhes(false)}>
+              Fechar
+            </Button>
+            {requisicaoSelecionada?.tipo === 'ORDEM_SERVICO' && 
+             ['AUTORIZADA', 'ORDEM_GERADA', 'ATENDIDA_PARCIAL'].includes(requisicaoSelecionada?.status || '') && (
+              <Button 
+                onClick={() => {
+                  setShowDetalhes(false);
+                  setShowItensAvulsos(true);
+                  loadItensAvulsos(requisicaoSelecionada.id);
+                }}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                <Package className="h-4 w-4 mr-2" />
+                Gerenciar Itens Avulsos
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -2616,6 +2721,122 @@ function RequisicoesList() {
             <Button onClick={salvarEmpenhosOS} disabled={salvandoEmpenhosOS} className="bg-blue-600 hover:bg-blue-700">
               {salvandoEmpenhosOS ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Link2 className="h-4 w-4 mr-2" />}
               Salvar e Regerar PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Itens Avulsos */}
+      <Dialog open={showItensAvulsos} onOpenChange={setShowItensAvulsos}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-purple-600" />
+              Itens Avulsos — {requisicaoSelecionada?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Adicione peças/materiais específicos conhecidos após a nota fiscal (não afeta saldo do contrato)
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Formulário para adicionar item avulso */}
+            <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+              <h4 className="font-medium text-purple-900 mb-3">Adicionar Novo Item Avulso</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-sm">Descrição *</Label>
+                  <Input
+                    placeholder="Ex: Compressor de ar 220V"
+                    value={novoItemAvulso.descricao}
+                    onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, descricao: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm">Quantidade *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="Ex: 2"
+                    value={novoItemAvulso.quantidade}
+                    onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, quantidade: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm">Valor Unitário *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="Ex: 1500.00"
+                    value={novoItemAvulso.valor_unitario}
+                    onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, valor_unitario: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end mt-3">
+                <Button 
+                  onClick={adicionarItemAvulso} 
+                  disabled={savingItemAvulso}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  {savingItemAvulso ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                  Adicionar Item
+                </Button>
+              </div>
+            </div>
+
+            {/* Lista de itens avulsos */}
+            <div>
+              <h4 className="font-medium text-gray-900 mb-3">Itens Avulsos Cadastrados</h4>
+              {loadingItensAvulsos ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
+                  <span className="ml-2 text-sm text-gray-500">Carregando itens...</span>
+                </div>
+              ) : itensAvulsos.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4 italic">Nenhum item avulso cadastrado</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Quantidade</TableHead>
+                      <TableHead className="text-right">Valor Unit.</TableHead>
+                      <TableHead className="text-right">Valor Total</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {itensAvulsos.map((item: any) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="whitespace-normal break-words">{item.descricao_avulso}</TableCell>
+                        <TableCell className="text-right">{item.quantidade_avulso}</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(item.valor_unitario_avulso)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatarMoeda(item.valor_total_avulso)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removerItemAvulso(item.id)}
+                            disabled={savingItemAvulso}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            {savingItemAvulso ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowItensAvulsos(false)}>
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>
