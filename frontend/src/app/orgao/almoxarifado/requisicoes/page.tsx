@@ -414,7 +414,6 @@ function RequisicoesList() {
         const data = await response.json();
         setRequisicoes(data);
       }
-  };
 
     } catch (error) {
       console.error('Erro ao carregar requisições:', error);
