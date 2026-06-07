@@ -2587,7 +2587,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     await this.requisicaoItemOSRepository.save(itemAvulso);
     this.logger.log(`Item avulso adicionado à requisição ${requisicao.numero}: ${dados.descricao}`);
 
-    return this.buscarRequisicao(requisicaoId);
+    return this.findOne(requisicaoId);
   }
 
   /**
@@ -2631,7 +2631,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     await this.requisicaoItemOSRepository.remove(item);
     this.logger.log(`Item avulso removido da requisição ${requisicao.numero}: ${item.descricao_avulso}`);
 
-    return this.buscarRequisicao(requisicaoId);
+    return this.findOne(requisicaoId);
   }
 
   /**
