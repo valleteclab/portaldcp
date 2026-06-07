@@ -414,81 +414,6 @@ function RequisicoesList() {
         const data = await response.json();
         setRequisicoes(data);
       }
-
-  // Funções para gerenciar itens avulsos (pós-NF)
-  const loadItensAvulsos = async (requisicaoId: string) => {
-    setLoadingItensAvulsos(true);
-    try {
-      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoId}/itens-avulsos`);
-      if (res.ok) {
-        const data = await res.json();
-        setItensAvulsos(Array.isArray(data) ? data : []);
-      } else {
-        setItensAvulsos([]);
-      }
-    } catch {
-      setItensAvulsos([]);
-    } finally {
-      setLoadingItensAvulsos(false);
-    }
-  };
-
-  const adicionarItemAvulso = async () => {
-    if (!requisicaoSelecionada) return;
-    if (!novoItemAvulso.descricao.trim()) { alert('Informe a descrição do item.'); return; }
-    if (!novoItemAvulso.quantidade || parseFloat(novoItemAvulso.quantidade) <= 0) { alert('Informe a quantidade.'); return; }
-    if (!novoItemAvulso.valor_unitario || parseFloat(novoItemAvulso.valor_unitario) <= 0) { alert('Informe o valor unitário.'); return; }
-    
-    setSavingItemAvulso(true);
-    try {
-      const body = {
-        descricao: novoItemAvulso.descricao,
-        quantidade: parseFloat(novoItemAvulso.quantidade),
-        valor_unitario: parseFloat(novoItemAvulso.valor_unitario),
-      };
-      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/itens-avulsos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        setNovoItemAvulso({ descricao: '', quantidade: '', valor_unitario: '' });
-        await loadItensAvulsos(requisicaoSelecionada.id);
-        await carregarRequisicoes();
-        alert('Item avulso adicionado com sucesso!');
-      } else {
-        const error = await res.json().catch(() => null);
-        alert(error?.message || 'Erro ao adicionar item avulso.');
-      }
-    } catch {
-      alert('Erro ao adicionar item avulso.');
-    } finally {
-      setSavingItemAvulso(false);
-    }
-  };
-
-  const removerItemAvulso = async (itemId: string) => {
-    if (!requisicaoSelecionada) return;
-    if (!confirm('Deseja realmente remover este item avulso?')) return;
-    
-    setSavingItemAvulso(true);
-    try {
-      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/itens-avulsos/${itemId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        await loadItensAvulsos(requisicaoSelecionada.id);
-        await carregarRequisicoes();
-        alert('Item avulso removido com sucesso!');
-      } else {
-        const error = await res.json().catch(() => null);
-        alert(error?.message || 'Erro ao remover item avulso.');
-      }
-    } catch {
-      alert('Erro ao remover item avulso.');
-    } finally {
-      setSavingItemAvulso(false);
-    }
   };
 
     } catch (error) {
@@ -571,6 +496,81 @@ function RequisicoesList() {
       setHistoricoOS([]);
     } finally {
       setCarregandoHistoricoOS(false);
+    }
+
+  // Funções para gerenciar itens avulsos (pós-NF)
+  const loadItensAvulsos = async (requisicaoId: string) => {
+    setLoadingItensAvulsos(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoId}/itens-avulsos`);
+      if (res.ok) {
+        const data = await res.json();
+        setItensAvulsos(Array.isArray(data) ? data : []);
+      } else {
+        setItensAvulsos([]);
+      }
+    } catch {
+      setItensAvulsos([]);
+    } finally {
+      setLoadingItensAvulsos(false);
+    }
+  };
+
+  const adicionarItemAvulso = async () => {
+    if (!requisicaoSelecionada) return;
+    if (!novoItemAvulso.descricao.trim()) { alert('Informe a descrição do item.'); return; }
+    if (!novoItemAvulso.quantidade || parseFloat(novoItemAvulso.quantidade) <= 0) { alert('Informe a quantidade.'); return; }
+    if (!novoItemAvulso.valor_unitario || parseFloat(novoItemAvulso.valor_unitario) <= 0) { alert('Informe o valor unitário.'); return; }
+    
+    setSavingItemAvulso(true);
+    try {
+      const body = {
+        descricao: novoItemAvulso.descricao,
+        quantidade: parseFloat(novoItemAvulso.quantidade),
+        valor_unitario: parseFloat(novoItemAvulso.valor_unitario),
+      };
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/itens-avulsos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setNovoItemAvulso({ descricao: '', quantidade: '', valor_unitario: '' });
+        await loadItensAvulsos(requisicaoSelecionada.id);
+        await carregarRequisicoes();
+        alert('Item avulso adicionado com sucesso!');
+      } else {
+        const error = await res.json().catch(() => null);
+        alert(error?.message || 'Erro ao adicionar item avulso.');
+      }
+    } catch {
+      alert('Erro ao adicionar item avulso.');
+    } finally {
+      setSavingItemAvulso(false);
+    }
+  };
+
+  const removerItemAvulso = async (itemId: string) => {
+    if (!requisicaoSelecionada) return;
+    if (!confirm('Deseja realmente remover este item avulso?')) return;
+    
+    setSavingItemAvulso(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${requisicaoSelecionada.id}/itens-avulsos/${itemId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        await loadItensAvulsos(requisicaoSelecionada.id);
+        await carregarRequisicoes();
+        alert('Item avulso removido com sucesso!');
+      } else {
+        const error = await res.json().catch(() => null);
+        alert(error?.message || 'Erro ao remover item avulso.');
+      }
+    } catch {
+      alert('Erro ao remover item avulso.');
+    } finally {
+      setSavingItemAvulso(false);
     }
   };
 
