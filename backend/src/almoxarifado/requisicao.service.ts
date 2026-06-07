@@ -2517,4 +2517,133 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       pendentes_autorizacao,
     };
   }
+
+  // ============================================================================
+  // ITENS AVULSOS (pós-NF)
+  // ============================================================================
+
+  /**
+   * Adiciona um item avulso à requisição/OS (não vinculado ao ItemCronograma)
+   * Usado para peças/materiais específicos conhecidos após a NF
+   */
+  async adicionarItemAvulso(
+    requisicaoId: string,
+    dados: {
+      descricao: string;
+      quantidade: number;
+      valor_unitario: number;
+    },
+  ): Promise<Requisicao> {
+    const requisicao = await this.requisicaoRepository.findOne({
+      where: { id: requisicaoId },
+      relations: ['itensOS'],
+    });
+
+    if (!requisicao) {
+      throw new NotFoundException('Requisição não encontrada');
+    }
+
+    // Verificar se é uma requisição de OS
+    if (requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO) {
+      throw new BadRequestException('Itens avulsos só podem ser adicionados em requisições de Ordem de Serviço');
+    }
+
+    // Status que permitem adição de itens avulsos
+    const STATUS_PERMITIDOS: StatusRequisicao[] = [
+      StatusRequisicao.AUTORIZADA,
+      StatusRequisicao.ORDEM_GERADA,
+      StatusRequisicao.ATENDIDA_PARCIAL,
+    ];
+
+    if (!STATUS_PERMITIDOS.includes(requisicao.status)) {
+      throw new BadRequestException(
+        `Não é possível adicionar itens avulsos em requisição com status ${requisicao.status}`
+      );
+    }
+
+    // Validar campos obrigatórios
+    if (!dados.descricao || !dados.descricao.trim()) {
+      throw new BadRequestException('Descrição do item avulso é obrigatória');
+    }
+    if (!dados.quantidade || dados.quantidade <= 0) {
+      throw new BadRequestException('Quantidade deve ser maior que zero');
+    }
+    if (!dados.valor_unitario || dados.valor_unitario <= 0) {
+      throw new BadRequestException('Valor unitário deve ser maior que zero');
+    }
+
+    const valorTotal = Number(dados.quantidade) * Number(dados.valor_unitario);
+
+    const itemAvulso = this.requisicaoItemOSRepository.create({
+      requisicao_id: requisicaoId,
+      item_cronograma_id: null, // Item avulso não vinculado ao cronograma
+      quantidade_solicitada: 0, // Não aplicável para itens avulsos
+      descricao_avulso: dados.descricao.trim(),
+      quantidade_avulso: Number(dados.quantidade),
+      valor_unitario_avulso: Number(dados.valor_unitario),
+      valor_total_avulso: valorTotal,
+    });
+
+    await this.requisicaoItemOSRepository.save(itemAvulso);
+    this.logger.log(`Item avulso adicionado à requisição ${requisicao.numero}: ${dados.descricao}`);
+
+    return this.buscarRequisicao(requisicaoId);
+  }
+
+  /**
+   * Remove um item avulso da requisição/OS
+   */
+  async removerItemAvulso(requisicaoId: string, itemId: string): Promise<Requisicao> {
+    const requisicao = await this.requisicaoRepository.findOne({
+      where: { id: requisicaoId },
+    });
+
+    if (!requisicao) {
+      throw new NotFoundException('Requisição não encontrada');
+    }
+
+    // Status que permitem remoção de itens avulsos
+    const STATUS_PERMITIDOS: StatusRequisicao[] = [
+      StatusRequisicao.AUTORIZADA,
+      StatusRequisicao.ORDEM_GERADA,
+      StatusRequisicao.ATENDIDA_PARCIAL,
+    ];
+
+    if (!STATUS_PERMITIDOS.includes(requisicao.status)) {
+      throw new BadRequestException(
+        `Não é possível remover itens avulsos em requisição com status ${requisicao.status}`
+      );
+    }
+
+    const item = await this.requisicaoItemOSRepository.findOne({
+      where: { id: itemId, requisicao_id: requisicaoId },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Item não encontrado na requisição');
+    }
+
+    // Só permite remover itens avulsos (não vinculados ao ItemCronograma)
+    if (item.item_cronograma_id) {
+      throw new BadRequestException('Só é possível remover itens avulsos (itens do cronograma não podem ser removidos)');
+    }
+
+    await this.requisicaoItemOSRepository.remove(item);
+    this.logger.log(`Item avulso removido da requisição ${requisicao.numero}: ${item.descricao_avulso}`);
+
+    return this.buscarRequisicao(requisicaoId);
+  }
+
+  /**
+   * Lista apenas os itens avulsos de uma requisição/OS
+   */
+  async listarItensAvulsos(requisicaoId: string): Promise<RequisicaoItemOS[]> {
+    const itens = await this.requisicaoItemOSRepository.find({
+      where: { requisicao_id: requisicaoId },
+    });
+
+    // Filtrar apenas itens avulsos (item_cronograma_id is null)
+    return itens.filter(item => !item.item_cronograma_id);
+  }
+
 }

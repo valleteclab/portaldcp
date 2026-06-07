@@ -310,6 +310,41 @@ export class AlmoxarifadoController {
     return this.requisicaoService.getHistoricoRequisicao(id);
   }
 
+  // --- Itens Avulsos (pós-NF) ---
+
+  @Post('requisicoes/:id/itens-avulsos')
+  async adicionarItemAvulso(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dados: { descricao: string; quantidade: number; valor_unitario: number },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.requisicaoService.validarOrgaoRequisicao(id, orgaoId);
+    return this.requisicaoService.adicionarItemAvulso(id, dados);
+  }
+
+  @Delete('requisicoes/:id/itens-avulsos/:itemId')
+  async removerItemAvulso(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.requisicaoService.validarOrgaoRequisicao(id, orgaoId);
+    return this.requisicaoService.removerItemAvulso(id, itemId);
+  }
+
+  @Get('requisicoes/:id/itens-avulsos')
+  async listarItensAvulsos(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    await this.requisicaoService.validarOrgaoRequisicao(id, orgaoId);
+    return this.requisicaoService.listarItensAvulsos(id);
+  }
+
+
   @Post('requisicoes')
   async criarRequisicao(
     @Req() request: { user: JwtPayload },
