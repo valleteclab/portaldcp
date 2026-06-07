@@ -15,6 +15,7 @@ import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import * as fs from 'fs';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class OrdemFornecimentoService {
@@ -1428,5 +1429,80 @@ Gestão de Contratos</p>`,
       valor_total_emitido,
       valor_total_entregue,
     };
+  }
+
+  // ==========================================================================
+  // ITENS AVULSOS (pos-NF) - documentais, nao afetam saldo do contrato
+  // ==========================================================================
+
+  private readonly STATUS_AVULSO_PERMITIDOS: StatusOrdemFornecimento[] = [
+    StatusOrdemFornecimento.EMITIDA,
+    StatusOrdemFornecimento.ENVIADA,
+    StatusOrdemFornecimento.EM_ATENDIMENTO,
+    StatusOrdemFornecimento.ATENDIDA_PARCIAL,
+    StatusOrdemFornecimento.ATENDIDA,
+  ];
+
+  async adicionarItemAvulso(
+    ordemId: string,
+    dados: { descricao: string; quantidade: number; valor_unitario: number },
+  ): Promise<OrdemFornecimento> {
+    const ordem = await this.findOne(ordemId);
+
+    if (!this.STATUS_AVULSO_PERMITIDOS.includes(ordem.status)) {
+      throw new BadRequestException(
+        `Nao e possivel adicionar itens avulsos em ordem com status ${ordem.status}`,
+      );
+    }
+
+    const descricao = (dados.descricao || '').trim();
+    if (!descricao) {
+      throw new BadRequestException('Descricao do item avulso e obrigatoria');
+    }
+    const quantidade = Number(dados.quantidade);
+    if (!quantidade || quantidade <= 0) {
+      throw new BadRequestException('Quantidade deve ser maior que zero');
+    }
+    const valorUnitario = Number(dados.valor_unitario);
+    if (!valorUnitario || valorUnitario <= 0) {
+      throw new BadRequestException('Valor unitario deve ser maior que zero');
+    }
+
+    const itensAvulsos = Array.isArray(ordem.itens_avulsos) ? ordem.itens_avulsos : [];
+    itensAvulsos.push({
+      id: randomUUID(),
+      descricao,
+      quantidade,
+      valor_unitario: valorUnitario,
+      valor_total: Number((quantidade * valorUnitario).toFixed(2)),
+    });
+    ordem.itens_avulsos = itensAvulsos;
+
+    await this.ordemRepository.save(ordem);
+    this.logger.log(`Item avulso adicionado a ordem ${ordem.numero}: ${descricao}`);
+
+    return this.findOne(ordemId);
+  }
+
+  async removerItemAvulso(ordemId: string, itemId: string): Promise<OrdemFornecimento> {
+    const ordem = await this.findOne(ordemId);
+
+    if (!this.STATUS_AVULSO_PERMITIDOS.includes(ordem.status)) {
+      throw new BadRequestException(
+        `Nao e possivel remover itens avulsos em ordem com status ${ordem.status}`,
+      );
+    }
+
+    const itensAvulsos = Array.isArray(ordem.itens_avulsos) ? ordem.itens_avulsos : [];
+    const novoArray = itensAvulsos.filter((i) => i.id !== itemId);
+    if (novoArray.length === itensAvulsos.length) {
+      throw new NotFoundException('Item avulso nao encontrado na ordem');
+    }
+    ordem.itens_avulsos = novoArray;
+
+    await this.ordemRepository.save(ordem);
+    this.logger.log(`Item avulso removido da ordem ${ordem.numero}`);
+
+    return this.findOne(ordemId);
   }
 }

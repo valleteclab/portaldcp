@@ -25,6 +25,7 @@ import {
   MessageCircle,
   Receipt,
   Link2,
+  Plus,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -107,6 +108,13 @@ interface OrdemFornecimento {
     valor_unitario: number;
     valor_total: number;
     unidade_medida?: string;
+  }[];
+  itens_avulsos?: {
+    id: string;
+    descricao: string;
+    quantidade: number;
+    valor_unitario: number;
+    valor_total: number;
   }[];
 }
 
@@ -236,6 +244,9 @@ function OrdensList() {
   const [anoEmpenho, setAnoEmpenho] = useState(new Date().getFullYear().toString());
 
   const [processando, setProcessando] = useState(false);
+  // Itens avulsos (pos-NF) da OF
+  const [novoItemAvulso, setNovoItemAvulso] = useState({ descricao: '', quantidade: '', valor_unitario: '' });
+  const [savingItemAvulso, setSavingItemAvulso] = useState(false);
   const [gerandoPDF, setGerandoPDF] = useState<string | null>(null);
   
   useEffect(() => {
@@ -292,6 +303,49 @@ function OrdensList() {
   };
 
   const formatarDataHora = (data: string) => formatarDataHoraBR(data);
+
+  const adicionarItemAvulsoOF = async () => {
+    if (!ordemSelecionada) return;
+    if (!novoItemAvulso.descricao.trim()) { alert('Informe a descricao do item.'); return; }
+    if (!novoItemAvulso.quantidade || parseFloat(novoItemAvulso.quantidade) <= 0) { alert('Informe a quantidade.'); return; }
+    if (!novoItemAvulso.valor_unitario || parseFloat(novoItemAvulso.valor_unitario) <= 0) { alert('Informe o valor unitario.'); return; }
+    setSavingItemAvulso(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/itens-avulsos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ descricao: novoItemAvulso.descricao, quantidade: parseFloat(novoItemAvulso.quantidade), valor_unitario: parseFloat(novoItemAvulso.valor_unitario) }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setOrdemSelecionada(updated);
+        setNovoItemAvulso({ descricao: '', quantidade: '', valor_unitario: '' });
+        await carregarOrdens();
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.message || 'Erro ao adicionar item avulso.');
+      }
+    } catch { alert('Erro ao adicionar item avulso.'); }
+    finally { setSavingItemAvulso(false); }
+  };
+
+  const removerItemAvulsoOF = async (itemId: string) => {
+    if (!ordemSelecionada) return;
+    if (!confirm('Deseja remover este item avulso?')) return;
+    setSavingItemAvulso(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/itens-avulsos/${itemId}`, { method: 'DELETE' });
+      if (res.ok) {
+        const updated = await res.json();
+        setOrdemSelecionada(updated);
+        await carregarOrdens();
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.message || 'Erro ao remover item avulso.');
+      }
+    } catch { alert('Erro ao remover item avulso.'); }
+    finally { setSavingItemAvulso(false); }
+  };
 
   // Handlers
   const handleVerDetalhes = (ordem: OrdemFornecimento) => {
@@ -1030,6 +1084,64 @@ function OrdensList() {
                   </TableBody>
                 </Table>
               </div>
+
+              {['EMITIDA','ENVIADA','EM_ATENDIMENTO','ATENDIDA_PARCIAL','ATENDIDA'].includes(ordemSelecionada.status) && (
+                <div>
+                  <label className="text-sm font-medium text-gray-500 mb-1 block">Itens Avulsos (pos-NF)</label>
+                  <p className="text-xs text-gray-400 mb-2">Pecas/materiais especificos da nota fiscal. Documental - nao afeta saldo do contrato.</p>
+                  {(ordemSelecionada.itens_avulsos && ordemSelecionada.itens_avulsos.length > 0) ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Descricao</TableHead>
+                          <TableHead className="text-right">Qtd.</TableHead>
+                          <TableHead className="text-right">Valor Unit.</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                          <TableHead className="text-right">Acoes</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ordemSelecionada.itens_avulsos.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell className="whitespace-normal break-words">{item.descricao}</TableCell>
+                            <TableCell className="text-right">{item.quantidade}</TableCell>
+                            <TableCell className="text-right">{formatarMoeda(item.valor_unitario)}</TableCell>
+                            <TableCell className="text-right font-medium">{formatarMoeda(item.valor_total)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="ghost" size="sm" onClick={() => removerItemAvulsoOF(item.id)} disabled={savingItemAvulso} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                                {savingItemAvulso ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <p className="text-xs text-gray-500 italic">Nenhum item avulso cadastrado</p>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mt-3 items-end">
+                    <div className="md:col-span-2">
+                      <Label className="text-xs">Descricao</Label>
+                      <Input placeholder="Ex: Compressor 220V" value={novoItemAvulso.descricao} onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, descricao: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Quantidade</Label>
+                      <Input type="number" step="0.01" min="0" value={novoItemAvulso.quantidade} onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, quantidade: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Valor Unit.</Label>
+                      <Input type="number" step="0.01" min="0" value={novoItemAvulso.valor_unitario} onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, valor_unitario: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="flex justify-end mt-2">
+                    <Button size="sm" onClick={adicionarItemAvulsoOF} disabled={savingItemAvulso} className="bg-purple-600 hover:bg-purple-700">
+                      {savingItemAvulso ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                      Adicionar Item Avulso
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

@@ -776,6 +776,36 @@ export class AlmoxarifadoController {
     return { message: 'Ordem excluída com sucesso' };
   }
 
+  // --- Itens Avulsos da OF (pos-NF) ---
+
+  @Post('ordens/:id/itens-avulsos')
+  async adicionarItemAvulsoOrdem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dados: { descricao: string; quantidade: number; valor_unitario: number },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const ordem = await this.ordemService.findOne(id);
+    if (ordem.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Ordem nao pertence a este orgao');
+    }
+    return this.ordemService.adicionarItemAvulso(id, dados);
+  }
+
+  @Delete('ordens/:id/itens-avulsos/:itemId')
+  async removerItemAvulsoOrdem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const ordem = await this.ordemService.findOne(id);
+    if (ordem.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Ordem nao pertence a este orgao');
+    }
+    return this.ordemService.removerItemAvulso(id, itemId);
+  }
+
   @Get('ordens/:id/historico')
   async getHistoricoOrdem(@Param('id', ParseUUIDPipe) id: string) {
     return this.ordemService.getHistorico(id);

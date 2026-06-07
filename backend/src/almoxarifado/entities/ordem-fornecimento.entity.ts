@@ -162,6 +162,20 @@ export class OrdemFornecimento {
     valor_total: number;
   }[];
 
+  /**
+   * Itens avulsos (pos-NF): pecas/materiais conhecidos somente apos a NF.
+   * Sao puramente documentais - NAO entram no matching de NF nem afetam
+   * saldo do contrato / valor_total da OF.
+   */
+  @Column({ type: 'jsonb', default: [] })
+  itens_avulsos: {
+    id: string;
+    descricao: string;
+    quantidade: number;
+    valor_unitario: number;
+    valor_total: number;
+  }[];
+
   // ============================================================================
   // ENVIO
   // ============================================================================
