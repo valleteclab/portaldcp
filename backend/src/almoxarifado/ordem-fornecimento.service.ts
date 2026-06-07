@@ -1481,7 +1481,18 @@ Gestão de Contratos</p>`,
     await this.ordemRepository.save(ordem);
     this.logger.log(`Item avulso adicionado a ordem ${ordem.numero}: ${descricao}`);
 
+    await this.regenerarPdfOrdem(ordemId, ordem.numero);
+
     return this.findOne(ordemId);
+  }
+
+  private async regenerarPdfOrdem(ordemId: string, numero: string): Promise<void> {
+    try {
+      const novoCaminho = await this.pdfOrdemService.gerarPdf(ordemId);
+      await this.ordemRepository.update(ordemId, { caminho_pdf: novoCaminho });
+    } catch (e) {
+      this.logger.warn(`Falha ao regenerar PDF da ordem ${numero}: ${(e as Error).message}`);
+    }
   }
 
   async removerItemAvulso(ordemId: string, itemId: string): Promise<OrdemFornecimento> {
@@ -1502,6 +1513,8 @@ Gestão de Contratos</p>`,
 
     await this.ordemRepository.save(ordem);
     this.logger.log(`Item avulso removido da ordem ${ordem.numero}`);
+
+    await this.regenerarPdfOrdem(ordemId, ordem.numero);
 
     return this.findOne(ordemId);
   }

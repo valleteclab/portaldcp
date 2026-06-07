@@ -247,6 +247,7 @@ function OrdensList() {
   // Itens avulsos (pos-NF) da OF
   const [novoItemAvulso, setNovoItemAvulso] = useState({ descricao: '', quantidade: '', valor_unitario: '' });
   const [savingItemAvulso, setSavingItemAvulso] = useState(false);
+  const [showItensAvulsosOF, setShowItensAvulsosOF] = useState(false);
   const [gerandoPDF, setGerandoPDF] = useState<string | null>(null);
   
   useEffect(() => {
@@ -1086,64 +1087,136 @@ function OrdensList() {
               </div>
 
               {['EMITIDA','ENVIADA','EM_ATENDIMENTO','ATENDIDA_PARCIAL','ATENDIDA'].includes(ordemSelecionada.status) && (
-                <div>
-                  <label className="text-sm font-medium text-gray-500 mb-1 block">Itens Avulsos (pos-NF)</label>
-                  <p className="text-xs text-gray-400 mb-2">Pecas/materiais especificos da nota fiscal. Documental - nao afeta saldo do contrato.</p>
-                  {(ordemSelecionada.itens_avulsos && ordemSelecionada.itens_avulsos.length > 0) ? (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Descricao</TableHead>
-                          <TableHead className="text-right">Qtd.</TableHead>
-                          <TableHead className="text-right">Valor Unit.</TableHead>
-                          <TableHead className="text-right">Total</TableHead>
-                          <TableHead className="text-right">Acoes</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {ordemSelecionada.itens_avulsos.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="whitespace-normal break-words">{item.descricao}</TableCell>
-                            <TableCell className="text-right">{item.quantidade}</TableCell>
-                            <TableCell className="text-right">{formatarMoeda(item.valor_unitario)}</TableCell>
-                            <TableCell className="text-right font-medium">{formatarMoeda(item.valor_total)}</TableCell>
-                            <TableCell className="text-right">
-                              <Button variant="ghost" size="sm" onClick={() => removerItemAvulsoOF(item.id)} disabled={savingItemAvulso} className="text-red-600 hover:text-red-700 hover:bg-red-50">
-                                {savingItemAvulso ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  ) : (
-                    <p className="text-xs text-gray-500 italic">Nenhum item avulso cadastrado</p>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mt-3 items-end">
-                    <div className="md:col-span-2">
-                      <Label className="text-xs">Descricao</Label>
-                      <Input placeholder="Ex: Compressor 220V" value={novoItemAvulso.descricao} onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, descricao: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Quantidade</Label>
-                      <Input type="number" step="0.01" min="0" value={novoItemAvulso.quantidade} onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, quantidade: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Valor Unit.</Label>
-                      <Input type="number" step="0.01" min="0" value={novoItemAvulso.valor_unitario} onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, valor_unitario: e.target.value })} />
-                    </div>
+                <div className="flex items-center justify-between rounded-lg border border-purple-200 bg-purple-50 p-3">
+                  <div>
+                    <p className="text-sm font-medium text-purple-900">Itens Avulsos (pós-NF)</p>
+                    <p className="text-xs text-purple-700">
+                      {ordemSelecionada.itens_avulsos?.length
+                        ? `${ordemSelecionada.itens_avulsos.length} item(ns) avulso(s) cadastrado(s)`
+                        : "Peças/materiais específicos da nota fiscal (documental, não afeta o saldo do contrato)"}
+                    </p>
                   </div>
-                  <div className="flex justify-end mt-2">
-                    <Button size="sm" onClick={adicionarItemAvulsoOF} disabled={savingItemAvulso} className="bg-purple-600 hover:bg-purple-700">
-                      {savingItemAvulso ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-                      Adicionar Item Avulso
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-purple-600 hover:bg-purple-700"
+                    onClick={() => { setShowDetalhes(false); setNovoItemAvulso({ descricao: '', quantidade: '', valor_unitario: '' }); setShowItensAvulsosOF(true); }}
+                  >
+                    <Package className="h-4 w-4 mr-2" />
+                    Gerenciar Itens Avulsos
+                  </Button>
                 </div>
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Itens Avulsos (pós-NF) */}
+      <Dialog open={showItensAvulsosOF} onOpenChange={setShowItensAvulsosOF}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-purple-600" />
+              Itens Avulsos — {ordemSelecionada?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Adicione peças/materiais específicos conhecidos após a nota fiscal (não afeta o saldo do contrato). Ao salvar, o PDF da ordem é atualizado.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+              <h4 className="font-medium text-purple-900 mb-3">Adicionar Novo Item Avulso</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-sm">Descrição *</Label>
+                  <Input
+                    placeholder="Ex: Compressor de ar 220V"
+                    value={novoItemAvulso.descricao}
+                    onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, descricao: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm">Quantidade *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="Ex: 2"
+                    value={novoItemAvulso.quantidade}
+                    onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, quantidade: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm">Valor Unitário *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="Ex: 1500.00"
+                    value={novoItemAvulso.valor_unitario}
+                    onChange={(e) => setNovoItemAvulso({ ...novoItemAvulso, valor_unitario: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end mt-3">
+                <Button
+                  onClick={adicionarItemAvulsoOF}
+                  disabled={savingItemAvulso}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  {savingItemAvulso ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                  Adicionar Item
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="font-medium text-gray-900 mb-3">Itens Avulsos Cadastrados</h4>
+              {(!ordemSelecionada?.itens_avulsos || ordemSelecionada.itens_avulsos.length === 0) ? (
+                <p className="text-sm text-gray-500 text-center py-4 italic">Nenhum item avulso cadastrado</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Quantidade</TableHead>
+                      <TableHead className="text-right">Valor Unit.</TableHead>
+                      <TableHead className="text-right">Valor Total</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ordemSelecionada.itens_avulsos.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="whitespace-normal break-words">{item.descricao}</TableCell>
+                        <TableCell className="text-right">{item.quantidade}</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(item.valor_unitario)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatarMoeda(item.valor_total)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removerItemAvulsoOF(item.id)}
+                            disabled={savingItemAvulso}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            {savingItemAvulso ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowItensAvulsosOF(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

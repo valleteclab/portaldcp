@@ -287,6 +287,12 @@ export class GeradorPdfService {
         valor_unitario: number;
         valor_total: number;
       }>;
+      itens_avulsos?: Array<{
+        descricao: string;
+        quantidade: number;
+        valor_unitario: number;
+        valor_total: number;
+      }>;
       orgao?: { nome?: string; logo_url?: string; logradouro?: string; bairro?: string; cidade?: string; uf?: string; cnpj?: string };
       contrato?: { numero_contrato?: string; numero_processo?: string; tipo?: string; objeto?: string; fornecedor?: { razao_social?: string; cpf_cnpj?: string } };
       requisicao?: { usuario_solicitante_nome?: string; setor_solicitante?: string; prioridade?: string };
@@ -488,6 +494,26 @@ export class GeradorPdfService {
             .text('Itens da Ordem de Fornecimento:', marginL, doc.y, { width: contentW });
           doc.moveDown(0.3);
           this.escreverTabelaItensOS(doc, itensParaRender);
+        }
+
+        // ── TABELA DE ITENS AVULSOS (pós-NF) ─────────────────────────────────
+        const avulsosParaRender = (ordem.itens_avulsos || []).map((item) => ({
+          quantidade_solicitada: Number(item.quantidade),
+          itemCronograma: {
+            descricao: item.descricao || '-',
+            unidade_medida: 'UN',
+            valor_unitario: Number(item.valor_unitario),
+            quantidade_meses: undefined,
+            valor_mensal: undefined,
+          },
+          total_override: Number(item.valor_total),
+        }));
+        if (avulsosParaRender.length > 0) {
+          doc.moveDown(0.6);
+          doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151')
+            .text('Itens avulsos (conforme nota fiscal):', marginL, doc.y, { width: contentW });
+          doc.moveDown(0.3);
+          this.escreverTabelaItensOS(doc, avulsosParaRender);
         }
 
         // ── RODAPÉ: assinaturas eletrônicas ou espaço para assinatura manual ───

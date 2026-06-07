@@ -56,6 +56,7 @@ export class PdfOrdemService {
       local_entrega: ordem.local_entrega,
       valor_total: Number(ordem.valor_total),
       itens: ordem.itens || [],
+      itens_avulsos: ordem.itens_avulsos || [],
       orgao: ordem.orgao ? {
         nome: ordem.orgao.nome,
         logo_url: ordem.orgao.logo_url,
