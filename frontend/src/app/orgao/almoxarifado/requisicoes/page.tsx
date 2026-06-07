@@ -496,6 +496,7 @@ function RequisicoesList() {
     } finally {
       setCarregandoHistoricoOS(false);
     }
+  };
 
   // Funções para gerenciar itens avulsos (pós-NF)
   const loadItensAvulsos = async (requisicaoId: string) => {
