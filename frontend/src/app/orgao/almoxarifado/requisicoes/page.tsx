@@ -1124,12 +1124,8 @@ function RequisicoesList() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/orgao/almoxarifado/requisicoes/lote-os">
-              <Calendar className="h-4 w-4 mr-2" />
-              OS Mensal em Lote
-            </Link>
-          </Button>
+          {/* Botão "OS Mensal em Lote" temporariamente oculto até análise do cliente.
+              A feature (página, endpoint e serviço) permanece no código. */}
           <Button variant="outline" asChild>
             <Link href="/orgao/almoxarifado/requisicoes/pedido">
               <ShoppingCart className="h-4 w-4 mr-2" />
