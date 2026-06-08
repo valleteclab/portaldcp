@@ -29,6 +29,7 @@ import {
   DevolverRequisicaoDto,
   EnviarAoFornecedorDto,
   CorrigirDataAutorizacaoOSDto,
+  CriarOsLoteDto,
 } from './dto/criar-requisicao.dto';
 
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
@@ -761,6 +762,125 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     } finally {
       await queryRunner.release();
     }
+  }
+
+  // ============================================================================
+  // CRIAÇÃO EM LOTE DE OS MENSAIS PARCIAIS
+  // ============================================================================
+
+  /**
+   * Cria, em lote, uma OS mensal parcial (tipo ORDEM_SERVICO, modo ORDEM_DEMANDA)
+   * por contrato selecionado. Para cada contrato, monta os itens da OS a partir de
+   * TODOS os itens do cronograma (quantidade mensal × 1 mês), cria a OS reutilizando
+   * `criar()` e a envia para autorização via `enviarParaAutorizacao()`.
+   *
+   * Resiliente: cada contrato é processado isoladamente (try/catch). Falhas
+   * (sem cronograma, saldo insuficiente, contrato não vigente) NÃO abortam o lote;
+   * são reportadas por contrato no resultado.
+   */
+  async criarOsMensalEmLote(
+    orgaoId: string,
+    dto: CriarOsLoteDto,
+    usuarioId: string,
+    usuarioNome: string,
+    usuarioEmail: string | undefined,
+    usuariosOrgao: { id: string; perfil: string; email?: string; telefone?: string }[],
+  ): Promise<{
+    total: number;
+    criadas: number;
+    puladas: number;
+    erros: number;
+    resultados: Array<{
+      contrato_id: string;
+      numero_contrato?: string;
+      status: 'criada' | 'pulada' | 'erro';
+      numero?: string;
+      requisicao_id?: string;
+      motivo?: string;
+    }>;
+  }> {
+    const sufixoMes = dto.mes_competencia ? ` - Competência ${dto.mes_competencia}` : '';
+    const resultados: Array<{
+      contrato_id: string;
+      numero_contrato?: string;
+      status: 'criada' | 'pulada' | 'erro';
+      numero?: string;
+      requisicao_id?: string;
+      motivo?: string;
+    }> = [];
+
+    // Sequencial: processa um contrato por vez (não paralelizar) para que cada
+    // chamada a criar() releia o último número antes da próxima.
+    for (const contratoId of dto.contratos_ids) {
+      let numeroContrato: string | undefined;
+      try {
+        const contrato = await this.contratoRepository.findOne({ where: { id: contratoId } });
+        if (!contrato) {
+          resultados.push({ contrato_id: contratoId, status: 'pulada', motivo: 'Contrato não encontrado' });
+          continue;
+        }
+        numeroContrato = contrato.numero_contrato;
+
+        if (contrato.status !== StatusContrato.VIGENTE) {
+          resultados.push({ contrato_id: contratoId, numero_contrato: numeroContrato, status: 'pulada', motivo: `Contrato não está VIGENTE (status: ${contrato.status})` });
+          continue;
+        }
+
+        const itensCronograma = await this.itemCronogramaRepository.find({
+          where: { contrato_id: contratoId },
+          order: { numero_item: 'ASC' },
+        });
+        if (!itensCronograma.length) {
+          resultados.push({ contrato_id: contratoId, numero_contrato: numeroContrato, status: 'pulada', motivo: 'Contrato sem itens de cronograma (etapas não suportadas no lote)' });
+          continue;
+        }
+
+        const itens_os = itensCronograma
+          .filter(ic => Number(ic.quantidade) > 0)
+          .map(ic => ({
+            item_cronograma_id: ic.id,
+            quantidade_solicitada: Number(ic.quantidade),
+            meses_solicitados: 1,
+          }));
+        if (!itens_os.length) {
+          resultados.push({ contrato_id: contratoId, numero_contrato: numeroContrato, status: 'pulada', motivo: 'Itens do cronograma sem quantidade mensal' });
+          continue;
+        }
+
+        const dtoOS = {
+          contrato_id: contratoId,
+          tipo: TipoRequisicao.ORDEM_SERVICO,
+          setor_solicitante: dto.setor_solicitante,
+          codigo_setor: dto.codigo_setor,
+          justificativa: dto.justificativa + sufixoMes,
+          prioridade: dto.prioridade ?? PrioridadeRequisicao.NORMAL,
+          observacoes: dto.observacoes,
+          descricao_os: `OS mensal parcial${sufixoMes}`,
+          modo_os: 'ORDEM_DEMANDA' as const,
+          itens_os,
+        } as CriarRequisicaoDto;
+
+        const os = await this.criar(orgaoId, dtoOS, usuarioId, usuarioNome, usuarioEmail);
+
+        // Envio isolado: se falhar, a OS já existe (fica como rascunho).
+        try {
+          await this.enviarParaAutorizacao(os.id, usuariosOrgao);
+          resultados.push({ contrato_id: contratoId, numero_contrato: numeroContrato, status: 'criada', numero: os.numero, requisicao_id: os.id });
+        } catch (envioErr: any) {
+          this.logger.warn(`OS ${os.numero} criada, mas falha ao enviar para autorização: ${envioErr?.message}`);
+          resultados.push({ contrato_id: contratoId, numero_contrato: numeroContrato, status: 'criada', numero: os.numero, requisicao_id: os.id, motivo: `OS criada como rascunho; falha ao enviar para autorização: ${envioErr?.message ?? 'erro'}` });
+        }
+      } catch (e: any) {
+        this.logger.warn(`Falha ao criar OS em lote para contrato ${contratoId}: ${e?.message}`);
+        resultados.push({ contrato_id: contratoId, numero_contrato: numeroContrato, status: 'erro', motivo: e?.message ?? 'Erro desconhecido' });
+      }
+    }
+
+    const criadas = resultados.filter(r => r.status === 'criada').length;
+    const puladas = resultados.filter(r => r.status === 'pulada').length;
+    const erros = resultados.filter(r => r.status === 'erro').length;
+    this.logger.log(`OS em lote: ${criadas} criadas, ${puladas} puladas, ${erros} erros (de ${dto.contratos_ids.length}).`);
+    return { total: dto.contratos_ids.length, criadas, puladas, erros, resultados };
   }
 
   // ============================================================================
