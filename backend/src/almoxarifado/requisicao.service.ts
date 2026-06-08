@@ -110,6 +110,10 @@ export class RequisicaoService {
           StatusRequisicao.AUTORIZADA,
         ],
       })
+      // Exclui OS de modo ORDEM_GLOBAL do comprometido: a global é uma "liberação"
+      // inicial e NÃO deve reservar saldo contra OS parciais. O saldo real do
+      // contrato é regido pelas medições aprovadas (quantidade_medida).
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' })
       .andWhere(
         `NOT EXISTS (
           SELECT 1 FROM medicoes m
@@ -148,6 +152,10 @@ export class RequisicaoService {
           StatusRequisicao.AUTORIZADA,
         ],
       })
+      // Exclui OS de modo ORDEM_GLOBAL do comprometido: a global é uma "liberação"
+      // inicial e NÃO deve reservar saldo contra OS parciais. O saldo real do
+      // contrato é regido pelas medições aprovadas (quantidade_medida).
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' })
       .andWhere(
         `NOT EXISTS (
           SELECT 1 FROM medicoes m
