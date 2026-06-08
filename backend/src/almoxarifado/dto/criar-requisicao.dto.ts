@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, ValidateNested, IsUUID, Min, IsDateString, IsBoolean, IsIn } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, ValidateNested, IsUUID, Min, IsDateString, IsBoolean, IsIn, ArrayNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TipoRequisicao, PrioridadeRequisicao } from '../entities/requisicao.entity';
 
@@ -173,6 +173,41 @@ export class CriarRequisicaoDto {
   @IsArray()
   @IsString({ each: true })
   numeros_empenhos?: string[];
+}
+
+/**
+ * Criação EM LOTE de Ordens de Serviço mensais parciais.
+ * Gera uma OS (tipo ORDEM_SERVICO, modo ORDEM_DEMANDA) por contrato selecionado,
+ * pegando automaticamente a parcela do mês a partir do cronograma de cada contrato.
+ */
+export class CriarOsLoteDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('all', { each: true })
+  contratos_ids: string[];
+
+  @IsString()
+  setor_solicitante: string;
+
+  @IsString()
+  justificativa: string;
+
+  /** Mês de competência (informativo, ex.: "2026-06"). Não persiste em coluna própria. */
+  @IsOptional()
+  @IsString()
+  mes_competencia?: string;
+
+  @IsOptional()
+  @IsString()
+  codigo_setor?: string;
+
+  @IsOptional()
+  @IsEnum(PrioridadeRequisicao)
+  prioridade?: PrioridadeRequisicao;
+
+  @IsOptional()
+  @IsString()
+  observacoes?: string;
 }
 
 export class AtualizarRequisicaoDto {

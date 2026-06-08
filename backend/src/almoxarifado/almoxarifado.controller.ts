@@ -43,6 +43,7 @@ import {
   DevolverRequisicaoDto,
   EnviarAoFornecedorDto,
   CorrigirDataAutorizacaoOSDto,
+  CriarOsLoteDto,
 } from './dto/criar-requisicao.dto';
 import { CriarItemContratoDto, AtualizarItemContratoDto } from './dto/criar-item-contrato.dto';
 import { StatusRequisicao } from './entities/requisicao.entity';
@@ -359,6 +360,37 @@ export class AlmoxarifadoController {
       user.sub,
       user.email || 'Usuário',
       user.email,
+    );
+  }
+
+  // --- Criação EM LOTE de OS mensais parciais (uma OS por contrato) ---
+  @Post('requisicoes/lote-os')
+  async criarOsLote(
+    @Req() request: { user: JwtPayload },
+    @Body(new ValidationPipe({ transform: true, whitelist: true })) dto: CriarOsLoteDto,
+  ) {
+    const user = request.user;
+    const orgaoId = this.getOrgaoId(user);
+
+    // Busca usuários do órgão com permissão de aprovação (mesmo padrão do envio individual)
+    const usuariosAprovadores = await this.usuarioRepository.find({
+      where: { orgao_id: orgaoId, pode_aprovar_requisicoes: true, ativo: true },
+      select: ['id', 'email', 'role', 'telefone'],
+    });
+    const usuariosOrgao = usuariosAprovadores.map(u => ({
+      id: u.id,
+      perfil: u.role || 'USUARIO',
+      email: u.email || undefined,
+      telefone: u.telefone || undefined,
+    }));
+
+    return this.requisicaoService.criarOsMensalEmLote(
+      orgaoId,
+      dto,
+      user.sub,
+      user.email || 'Usuário',
+      user.email,
+      usuariosOrgao,
     );
   }
 

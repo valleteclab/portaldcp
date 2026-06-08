@@ -1125,6 +1125,12 @@ function RequisicoesList() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" asChild>
+            <Link href="/orgao/almoxarifado/requisicoes/lote-os">
+              <Calendar className="h-4 w-4 mr-2" />
+              OS Mensal em Lote
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href="/orgao/almoxarifado/requisicoes/pedido">
               <ShoppingCart className="h-4 w-4 mr-2" />
               Pedido de Compras
