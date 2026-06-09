@@ -212,6 +212,9 @@ function OrdensList() {
   const [showExcluir, setShowExcluir] = useState(false);
   const [showCancelar, setShowCancelar] = useState(false);
   const [showEditar, setShowEditar] = useState(false);
+  const [showCorrigirDatas, setShowCorrigirDatas] = useState(false);
+  const [formDatas, setFormDatas] = useState({ data_emissao: '', data_assinatura: '' });
+  const [salvandoDatas, setSalvandoDatas] = useState(false);
   const [showHistorico, setShowHistorico] = useState(false);
   
   // Envio ao fornecedor (PDF assinado)
@@ -382,6 +385,66 @@ function OrdensList() {
     setOrdemSelecionada(ordem);
     setShowHistorico(true);
     await carregarHistorico(ordem.id);
+  };
+
+  const handleAbrirCorrigirDatas = (ordem: OrdemFornecimento) => {
+    setOrdemSelecionada(ordem);
+    setFormDatas({
+      data_emissao: ordem.data_emissao ? String(ordem.data_emissao).split('T')[0] : '',
+      data_assinatura: '',
+    });
+    setShowCorrigirDatas(true);
+  };
+
+  const handleSalvarDatas = async () => {
+    if (!ordemSelecionada) return;
+    if (!formDatas.data_emissao && !formDatas.data_assinatura) {
+      alert('Informe ao menos a data de emissão ou a data/hora da assinatura.');
+      return;
+    }
+    setSalvandoDatas(true);
+    try {
+      const body: { data_emissao?: string; data_assinatura?: string } = {};
+      if (formDatas.data_emissao) body.data_emissao = formDatas.data_emissao;
+      if (formDatas.data_assinatura) body.data_assinatura = formDatas.data_assinatura;
+      const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/corrigir-datas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setShowCorrigirDatas(false);
+        await carregarOrdens();
+        alert('Datas corrigidas e PDF regenerado com sucesso!');
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.message || 'Erro ao corrigir datas.');
+      }
+    } catch {
+      alert('Erro ao corrigir datas.');
+    } finally {
+      setSalvandoDatas(false);
+    }
+  };
+
+  const handleRegenerarPDFOrdem = async () => {
+    if (!ordemSelecionada) return;
+    setSalvandoDatas(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/regenerar-pdf`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        alert('PDF regenerado com sucesso!');
+      } else {
+        const err = await res.json().catch(() => null);
+        alert(err?.message || 'Erro ao regenerar PDF.');
+      }
+    } catch {
+      alert('Erro ao regenerar PDF.');
+    } finally {
+      setSalvandoDatas(false);
+    }
   };
 
   const handleAbrirExcluir = (ordem: OrdemFornecimento) => {
@@ -867,6 +930,17 @@ function OrdensList() {
                               <Edit className="h-4 w-4" />
                             </Button>
                           )}
+
+                          {/* Corrigir datas (emissão / assinatura) + regenerar PDF */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-indigo-600 hover:text-indigo-700"
+                            onClick={() => handleAbrirCorrigirDatas(ordem)}
+                            title="Corrigir datas (emissão/assinatura) e regenerar PDF"
+                          >
+                            <Calendar className="h-4 w-4" />
+                          </Button>
                           
                           {/* Registrar Recebimento - leva para página de recebimento da ordem */}
                           {acoes.registrarRecebimento && (
@@ -1444,6 +1518,55 @@ function OrdensList() {
       </Dialog>
 
       {/* Modal Editar */}
+      {/* Modal Corrigir Datas (emissão / assinatura) + regenerar PDF */}
+      <Dialog open={showCorrigirDatas} onOpenChange={setShowCorrigirDatas}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-indigo-600" />
+              Corrigir datas — {ordemSelecionada?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Ajuste a data de emissão e/ou a data e hora do quadro de assinaturas (horário de Brasília). O PDF é regenerado ao salvar.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label>Data de Emissão</Label>
+              <Input
+                type="date"
+                value={formDatas.data_emissao}
+                onChange={(e) => setFormDatas({ ...formDatas, data_emissao: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Data e hora da assinatura (Brasília)</Label>
+              <Input
+                type="datetime-local"
+                value={formDatas.data_assinatura}
+                onChange={(e) => setFormDatas({ ...formDatas, data_assinatura: e.target.value })}
+              />
+              <p className="text-xs text-gray-500 mt-1">Deixe em branco para manter a assinatura atual.</p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowCorrigirDatas(false)} disabled={salvandoDatas}>
+              Cancelar
+            </Button>
+            <Button variant="outline" onClick={handleRegenerarPDFOrdem} disabled={salvandoDatas} title="Regenerar PDF sem alterar datas">
+              <FileText className="h-4 w-4 mr-2" />
+              Regenerar PDF
+            </Button>
+            <Button onClick={handleSalvarDatas} disabled={salvandoDatas}>
+              {salvandoDatas && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Salvar e regenerar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showEditar} onOpenChange={setShowEditar}>
         <DialogContent>
           <DialogHeader>

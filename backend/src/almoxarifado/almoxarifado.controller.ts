@@ -34,7 +34,7 @@ import { NotaFiscalFornecedorService } from './nota-fiscal-fornecedor.service';
 import { MatchingIaService } from './matching-ia.service';
 import { DossieService } from './dossie.service';
 import { TipoAprovador } from './entities/configuracao-aprovacao.entity';
-import { GerarOrdemDto, CriarRecebimentoDto, AceitarRecebimentoDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
+import { GerarOrdemDto, CriarRecebimentoDto, AceitarRecebimentoDto, EditarOrdemDto, CorrigirDatasOrdemDto } from './dto/ordem-fornecimento.dto';
 import { 
   CriarRequisicaoDto, 
   AtualizarRequisicaoDto,
@@ -776,6 +776,34 @@ export class AlmoxarifadoController {
       user.email || 'Usuário',
       temPermissaoAprovacao,
     );
+  }
+
+  // --- Corrigir datas (emissão / assinatura) e regenerar PDF da OF ---
+  @Post('ordens/:id/corrigir-datas')
+  async corrigirDatasOrdem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ValidationPipe({ whitelist: true })) dto: CorrigirDatasOrdemDto,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const ordem = await this.ordemService.findOne(id);
+    if (ordem.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Ordem não pertence a este órgão');
+    }
+    return this.ordemService.corrigirDatas(id, dto, request.user.sub, request.user.email || 'Sistema');
+  }
+
+  @Post('ordens/:id/regenerar-pdf')
+  async regenerarPdfOrdem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const ordem = await this.ordemService.findOne(id);
+    if (ordem.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Ordem não pertence a este órgão');
+    }
+    return this.ordemService.regenerarPdf(id);
   }
 
   @Post('ordens/:id/cancelar')

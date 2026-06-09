@@ -10,6 +10,8 @@ import { Contrato } from '../contratos/entities/contrato.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { GerarOrdemDto, EditarOrdemDto } from './dto/ordem-fornecimento.dto';
 import { PdfOrdemService } from './pdf-ordem.service';
+import { AssinaturasService } from '../assinaturas/assinaturas.service';
+import { EntidadeTipo } from '../assinaturas/entities/assinatura-digital.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -34,6 +36,7 @@ export class OrdemFornecimentoService {
     private readonly historicoRepository: Repository<HistoricoOrdemFornecimento>,
     private readonly dataSource: DataSource,
     private readonly pdfOrdemService: PdfOrdemService,
+    private readonly assinaturasService: AssinaturasService,
     private readonly notificacoesService: NotificacoesService,
     private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
@@ -1493,6 +1496,89 @@ Gestão de Contratos</p>`,
     } catch (e) {
       this.logger.warn(`Falha ao regenerar PDF da ordem ${numero}: ${(e as Error).message}`);
     }
+  }
+
+  /**
+   * Corrige a data de emissão e/ou a data/hora do quadro de assinaturas da OF e
+   * regenera o PDF. Tratamento de fuso (Brasília, UTC-3):
+   * - data_emissao (coluna date): grava o dia literal (o render foi corrigido para não deslocar);
+   * - data_assinatura (timestamp): grava em UTC = horaBRT + 3h, para o PDF exibir a hora de Brasília.
+   */
+  async corrigirDatas(
+    id: string,
+    dto: { data_emissao?: string; data_assinatura?: string },
+    adminId: string,
+    adminNome: string,
+  ): Promise<{ ordem: OrdemFornecimento; assinaturas_corrigidas: number; caminho_pdf: string }> {
+    const ordem = await this.findOne(id);
+    const detalhes: Record<string, any> = {};
+
+    if (dto.data_emissao) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dto.data_emissao)) {
+        throw new BadRequestException('Data de emissão deve estar no formato YYYY-MM-DD.');
+      }
+      detalhes.data_emissao_anterior = ordem.data_emissao;
+      ordem.data_emissao = dto.data_emissao as any;
+      await this.ordemRepository.save(ordem);
+      detalhes.data_emissao_nova = dto.data_emissao;
+    }
+
+    let assinaturasCorrigidas = 0;
+    if (dto.data_assinatura) {
+      const m = dto.data_assinatura.match(
+        /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/,
+      );
+      if (!m) {
+        throw new BadRequestException('Data/hora da assinatura deve estar no formato YYYY-MM-DDTHH:mm.');
+      }
+      const [, ano, mes, dia, hora, min, seg] = m;
+      // UTC = BRT + 3h => formatarDataHora() do PDF subtrai 3h e exibe a hora de Brasília.
+      const dataAssin = new Date(
+        Date.UTC(
+          Number(ano),
+          Number(mes) - 1,
+          Number(dia),
+          Number(hora) + 3,
+          Number(min),
+          Number(seg || '0'),
+        ),
+      );
+      const corrigidas = await this.assinaturasService.corrigirDataAssinaturasPorEntidade(
+        id,
+        EntidadeTipo.ORDEM_FORNECIMENTO,
+        dataAssin,
+      );
+      assinaturasCorrigidas = corrigidas.length;
+      detalhes.data_assinatura_nova = dto.data_assinatura;
+    }
+
+    const caminhoPdf = await this.pdfOrdemService.gerarPdf(id);
+    await this.ordemRepository.update(id, { caminho_pdf: caminhoPdf });
+
+    await this.registrarHistorico({
+      ordemId: id,
+      tipoAcao: TipoAcaoOrdem.EDITADA,
+      descricao: `Datas corrigidas por: ${adminNome}`,
+      detalhes,
+      usuarioId: adminId,
+      usuarioNome: adminNome,
+    });
+
+    this.logger.log(`Datas da ordem ${ordem.numero} corrigidas por ${adminNome}`);
+    return {
+      ordem: await this.findOne(id),
+      assinaturas_corrigidas: assinaturasCorrigidas,
+      caminho_pdf: caminhoPdf,
+    };
+  }
+
+  /** Regenera o PDF da OF (sem alterar datas). */
+  async regenerarPdf(id: string): Promise<{ caminho_pdf: string }> {
+    const ordem = await this.findOne(id);
+    const caminho = await this.pdfOrdemService.gerarPdf(id);
+    await this.ordemRepository.update(id, { caminho_pdf: caminho });
+    this.logger.log(`PDF da ordem ${ordem.numero} regenerado.`);
+    return { caminho_pdf: caminho };
   }
 
   async removerItemAvulso(ordemId: string, itemId: string): Promise<OrdemFornecimento> {
