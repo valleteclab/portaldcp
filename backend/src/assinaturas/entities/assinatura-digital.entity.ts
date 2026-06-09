@@ -13,6 +13,7 @@ export enum PapelAssinante {
   FORNECEDOR = 'FORNECEDOR',
   FISCAL = 'FISCAL',
   GESTOR = 'GESTOR',
+  ENGENHEIRO = 'ENGENHEIRO',
   SIGNATARIO = 'SIGNATARIO',
 }
 

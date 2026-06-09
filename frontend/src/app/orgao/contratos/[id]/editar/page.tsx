@@ -88,6 +88,7 @@ export default function EditarContratoPage() {
     data_vigencia_fim: '', data_publicacao: '', prazo_execucao_dias: '', prazo_vigencia_meses: '',
     numero_processo: '', amparo_legal: '', dotacao_orcamentaria: '', fonte_recurso: '', programa_trabalho: '',
     elemento_despesa: '', fiscal_nome: '', fiscal_matricula: '', gestor_nome: '', gestor_matricula: '',
+    engenheiro_nome: '', engenheiro_cpf: '', engenheiro_whatsapp: '', exigir_assinatura_engenheiro_medicao: false,
     exige_garantia: false, percentual_garantia: '', tipo_garantia: '', observacoes: '',
     modalidade_licitacao: '',
     boletim_por_quantidade: false,
@@ -134,6 +135,10 @@ export default function EditarContratoPage() {
           fiscal_matricula: contrato.fiscal_matricula || '',
           gestor_nome: contrato.gestor_nome || '',
           gestor_matricula: contrato.gestor_matricula || '',
+          engenheiro_nome: contrato.engenheiro_nome || '',
+          engenheiro_cpf: contrato.engenheiro_cpf || '',
+          engenheiro_whatsapp: contrato.engenheiro_whatsapp || '',
+          exigir_assinatura_engenheiro_medicao: contrato.exigir_assinatura_engenheiro_medicao || false,
           exige_garantia: contrato.exige_garantia || false,
           percentual_garantia: contrato.percentual_garantia?.toString() || '',
           tipo_garantia: contrato.tipo_garantia || '',
@@ -311,6 +316,9 @@ export default function EditarContratoPage() {
         programa_trabalho: formData.programa_trabalho || null, elemento_despesa: formData.elemento_despesa || null,
         fiscal_nome: formData.fiscal_nome || null, fiscal_matricula: formData.fiscal_matricula || null,
         gestor_nome: formData.gestor_nome || null, gestor_matricula: formData.gestor_matricula || null,
+        engenheiro_nome: formData.engenheiro_nome || null, engenheiro_cpf: formData.engenheiro_cpf || null,
+        engenheiro_whatsapp: formData.engenheiro_whatsapp || null,
+        exigir_assinatura_engenheiro_medicao: formData.exigir_assinatura_engenheiro_medicao,
         exige_garantia: formData.exige_garantia,
         percentual_garantia: formData.percentual_garantia ? parseFloat(formData.percentual_garantia) : null,
         tipo_garantia: formData.tipo_garantia || null, observacoes: formData.observacoes || null,
@@ -628,6 +636,19 @@ export default function EditarContratoPage() {
               <h4 className="font-medium">Gestor do Contrato</h4>
               <div className="space-y-2"><Label>Nome</Label><Input placeholder="Nome do gestor" value={formData.gestor_nome} onChange={(e) => handleInputChange('gestor_nome', e.target.value)} /></div>
               <div className="space-y-2"><Label>Matrícula</Label><Input placeholder="Matrícula funcional" value={formData.gestor_matricula} onChange={(e) => handleInputChange('gestor_matricula', e.target.value)} /></div>
+            </div>
+            <div className="space-y-3 md:col-span-2 border-t pt-4">
+              <div className="flex items-center gap-2">
+                <Switch id="exigir-eng" checked={formData.exigir_assinatura_engenheiro_medicao} onCheckedChange={(v) => handleInputChange('exigir_assinatura_engenheiro_medicao', v)} />
+                <Label htmlFor="exigir-eng" className="font-medium">Exigir assinatura do Engenheiro do Projeto na medição</Label>
+              </div>
+              {formData.exigir_assinatura_engenheiro_medicao && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2"><Label>Engenheiro — Nome</Label><Input placeholder="Nome do engenheiro" value={formData.engenheiro_nome} onChange={(e) => handleInputChange('engenheiro_nome', e.target.value)} /></div>
+                  <div className="space-y-2"><Label>Engenheiro — CPF</Label><Input placeholder="CPF do engenheiro" value={formData.engenheiro_cpf} onChange={(e) => handleInputChange('engenheiro_cpf', e.target.value)} /></div>
+                  <div className="space-y-2"><Label>Engenheiro — WhatsApp</Label><Input placeholder="(00) 00000-0000" value={formData.engenheiro_whatsapp} onChange={(e) => handleInputChange('engenheiro_whatsapp', e.target.value)} /></div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -354,6 +354,22 @@ export class ModalidadesContratoController {
     return this.medicaoService.statusAssinaturaFiscal(medicaoId);
   }
 
+  @Post('medicoes/:medicaoId/solicitar-assinatura-engenheiro')
+  async solicitarAssinaturaEngenheiro(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    return this.medicaoService.solicitarAssinaturaEngenheiroWhatsApp(
+      medicaoId,
+      request.user.sub,
+    );
+  }
+
+  @Get('medicoes/:medicaoId/status-assinatura-engenheiro')
+  async statusAssinaturaEngenheiro(@Param('medicaoId') medicaoId: string) {
+    return this.medicaoService.statusAssinaturaEngenheiro(medicaoId);
+  }
+
   @Get('medicoes/pendentes-ateste')
   async listarPendentesAteste(
     @Req() request: { user: JwtPayload },

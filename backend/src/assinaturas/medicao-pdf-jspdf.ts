@@ -250,16 +250,18 @@ function desenharQuadroAssinaturas(
   );
   dy += 4.5;
 
-  // ── Caixas por assinante ────────────────────────────────────────────────
-  const boxW = (contentW - 4) / 2;
-  const assinantesArr = assinaturas.slice(0, 2);
+  // ── Caixas por assinante (2 ou 3 boxes) ──────────────────────────────────
+  const assinantesArr = assinaturas.slice(0, 3);
+  const nBoxes = Math.max(1, assinantesArr.length);
+  const gapBox = nBoxes >= 3 ? 3 : 4;
+  const boxW = (contentW - gapBox * (nBoxes - 1)) / nBoxes;
 
   let maxBoxH = 0;
   const boxesInfo: { x: number; boxH: number }[] = [];
 
   for (let i = 0; i < assinantesArr.length; i++) {
     const a = assinantesArr[i];
-    const bx = mX + i * (boxW + 4);
+    const bx = mX + i * (boxW + gapBox);
 
     let boxH: number;
     if (a.pendente) {
@@ -1017,6 +1019,7 @@ export async function gerarBoletimMedicaoPdf(
 
   const aForn = dados.assinatura_fornecedor;
   const aFisc = dados.assinatura_fiscal;
+  const aEng = dados.assinatura_engenheiro;
 
   const assinaturasArr = [
     {
@@ -1039,6 +1042,18 @@ export async function gerarBoletimMedicaoPdf(
       pendente: !aFisc,
       codigoValidacao: aFisc?.codigo_validacao,
     },
+    ...(aEng
+      ? [{
+          titulo: 'ENGENHEIRO DO PROJETO',
+          cor: [124, 58, 173] as [number, number, number],
+          nome: aEng?.nome || '',
+          identificacao: aEng?.cpf ? `CPF: ${aEng.cpf}` : '',
+          cargo: aEng?.cargo || '',
+          dataHora: aEng?.data_hora || '',
+          pendente: !aEng,
+          codigoValidacao: aEng?.codigo_validacao,
+        }]
+      : []),
   ];
 
   const altQuadro = desenharQuadroAssinaturas(doc, y, mX, W, assinaturasArr, dados.url_validacao, qrDataUrl);

@@ -131,6 +131,13 @@ export interface DadosMedicaoPdf {
     data_hora: string
     codigo_validacao?: string      // código formatado XXXX-XXXX-XXXX-XXXX
   }
+  assinatura_engenheiro?: {
+    nome: string
+    cpf?: string
+    cargo?: string
+    data_hora: string
+    codigo_validacao?: string
+  }
   url_validacao?: string           // ex: portaldcp.com.br/validar-documento
   qr_code_data_url?: string        // Data URI PNG do QR Code para verificação
 }
@@ -350,16 +357,18 @@ function desenharQuadroAssinaturas(
   )
   dy += 4.5
 
-  // ── Caixas por assinante ────────────────────────────────────────────────
-  const boxW = (contentW - 4) / 2
-  const assinantesArr = assinaturas.slice(0, 2)
+  // ── Caixas por assinante (2 ou 3 boxes) ──────────────────────────────────
+  const assinantesArr = assinaturas.slice(0, 3)
+  const nBoxes = Math.max(1, assinantesArr.length)
+  const gapBox = nBoxes >= 3 ? 3 : 4
+  const boxW = (contentW - gapBox * (nBoxes - 1)) / nBoxes
 
   let maxBoxH = 0
   const boxesInfo: { x: number; boxH: number }[] = []
 
   for (let i = 0; i < assinantesArr.length; i++) {
     const a = assinantesArr[i]
-    const bx = mX + i * (boxW + 4)
+    const bx = mX + i * (boxW + gapBox)
     const pendente = a.pendente
     // DEPOIS — altura dinâmica baseada no conteúdo
 let boxH: number
@@ -924,6 +933,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
 
   const aForn = dados.assinatura_fornecedor
   const aFisc = dados.assinatura_fiscal
+  const aEng = dados.assinatura_engenheiro
 
   const assinaturasArr: Parameters<typeof desenharQuadroAssinaturas>[4] = [
     {
@@ -948,6 +958,18 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
       pendente: !aFisc,
       codigoValidacao: aFisc?.codigo_validacao,
     },
+    ...(aEng
+      ? [{
+          titulo: 'ENGENHEIRO DO PROJETO',
+          cor: [124, 58, 173] as [number, number, number],
+          nome: aEng?.nome || '',
+          identificacao: aEng?.cpf ? `CPF: ${aEng.cpf}` : '',
+          cargo: aEng?.cargo || '',
+          dataHora: aEng?.data_hora || '',
+          pendente: !aEng,
+          codigoValidacao: aEng?.codigo_validacao,
+        }]
+      : []),
   ]
 
   const altQuadro = desenharQuadroAssinaturas(doc, y, mX, W, assinaturasArr, dados.url_validacao, dados.qr_code_data_url)

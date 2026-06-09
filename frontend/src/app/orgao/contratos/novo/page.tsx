@@ -121,6 +121,10 @@ export default function NovoContratoPage() {
     fiscal_matricula: '',
     gestor_nome: '',
     gestor_matricula: '',
+    engenheiro_nome: '',
+    engenheiro_cpf: '',
+    engenheiro_whatsapp: '',
+    exigir_assinatura_engenheiro_medicao: false,
     exige_garantia: false,
     percentual_garantia: '',
     tipo_garantia: '',
@@ -305,6 +309,10 @@ export default function NovoContratoPage() {
         fiscal_matricula: formData.fiscal_matricula || null,
         gestor_nome: formData.gestor_nome || null,
         gestor_matricula: formData.gestor_matricula || null,
+        engenheiro_nome: formData.engenheiro_nome || null,
+        engenheiro_cpf: formData.engenheiro_cpf || null,
+        engenheiro_whatsapp: formData.engenheiro_whatsapp || null,
+        exigir_assinatura_engenheiro_medicao: formData.exigir_assinatura_engenheiro_medicao,
         exige_garantia: formData.exige_garantia,
         percentual_garantia: formData.percentual_garantia ? parseFloat(formData.percentual_garantia) : null,
         tipo_garantia: formData.tipo_garantia || null,
@@ -780,6 +788,28 @@ export default function NovoContratoPage() {
                 <Label>Matrícula</Label>
                 <Input placeholder="Matrícula funcional" value={formData.gestor_matricula} onChange={(e) => handleInputChange('gestor_matricula', e.target.value)} />
               </div>
+            </div>
+            <div className="space-y-3 md:col-span-2 border-t pt-4">
+              <div className="flex items-center gap-2">
+                <Switch id="exigir-eng" checked={formData.exigir_assinatura_engenheiro_medicao} onCheckedChange={(v) => handleInputChange('exigir_assinatura_engenheiro_medicao', v)} />
+                <Label htmlFor="exigir-eng" className="font-medium">Exigir assinatura do Engenheiro do Projeto na medição</Label>
+              </div>
+              {formData.exigir_assinatura_engenheiro_medicao && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Engenheiro — Nome</Label>
+                    <Input placeholder="Nome do engenheiro" value={formData.engenheiro_nome} onChange={(e) => handleInputChange('engenheiro_nome', e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Engenheiro — CPF</Label>
+                    <Input placeholder="CPF do engenheiro" value={formData.engenheiro_cpf} onChange={(e) => handleInputChange('engenheiro_cpf', e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Engenheiro — WhatsApp</Label>
+                    <Input placeholder="(00) 00000-0000" value={formData.engenheiro_whatsapp} onChange={(e) => handleInputChange('engenheiro_whatsapp', e.target.value)} />
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
