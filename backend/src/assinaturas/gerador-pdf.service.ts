@@ -393,7 +393,7 @@ export class GeradorPdfService {
         let rowY = doc.y;
 
         campo('Número:', numOF, marginL, rowY, valueW);
-        campo('Data Emissão:', ordem.data_emissao ? new Date(ordem.data_emissao).toLocaleDateString('pt-BR') : '-', col2X, rowY, valueW);
+        campo('Data Emissão:', this.formatarDataSomenteDia(ordem.data_emissao), col2X, rowY, valueW);
         rowY += 18;
 
         const nomeOrgaoOF = (orgao.nome || '-').toUpperCase();
@@ -792,6 +792,25 @@ export class GeradorPdfService {
     const mi = String(brt.getUTCMinutes()).padStart(2, '0');
     const ss = String(brt.getUTCSeconds()).padStart(2, '0');
     return `${dd}/${mm}/${yyyy}, ${hh}:${mi}:${ss}`;
+  }
+
+  /**
+   * Formata uma coluna DATE (sem hora) como DD/MM/YYYY SEM conversão de fuso.
+   * Evita o bug de `new Date("YYYY-MM-DD")` ser interpretado como UTC e voltar 1 dia
+   * em servidores com fuso negativo (Brasília, UTC-3).
+   */
+  private formatarDataSomenteDia(valor: Date | string | null | undefined): string {
+    if (!valor) return '-';
+    const s =
+      typeof valor === 'string'
+        ? valor
+        : valor instanceof Date
+          ? valor.toISOString()
+          : String(valor);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    const d = new Date(valor as any);
+    return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR');
   }
 
   private normalizarNome(nome: string): string {

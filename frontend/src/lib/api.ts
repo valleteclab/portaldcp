@@ -186,6 +186,10 @@ export const TIMEZONE_BRASILIA = 'America/Sao_Paulo';
  */
 export function formatarDataBR(dataISO: string | null | undefined): string {
   if (!dataISO) return '-';
+  // Data "pura" (coluna DATE, sem hora): formata direto, SEM conversão de fuso,
+  // para não voltar 1 dia em UTC-3 (Brasília). Ex.: "2026-05-21" -> "21/05/2026".
+  const dataPura = /^\d{4}-\d{2}-\d{2}$/.exec(dataISO);
+  if (dataPura) return `${dataPura[3]}/${dataPura[2]}/${dataPura[1]}`;
   try {
     // Se a string tem hora mas não tem timezone (Z ou +HH:mm), força UTC
     const normalized = /T\d{2}:\d{2}/.test(dataISO) && !/Z$|[+-]\d{2}:?\d{2}$/.test(dataISO)

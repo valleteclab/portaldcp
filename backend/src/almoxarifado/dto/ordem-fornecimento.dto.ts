@@ -2,6 +2,17 @@ import { IsString, IsNumber, IsOptional, IsUUID, IsDateString, IsArray, Validate
 import { Type } from 'class-transformer';
 import { TipoRecebimento } from '../entities/recebimento.entity';
 
+/** Corrige data de emissão (YYYY-MM-DD) e/ou data-hora da assinatura (YYYY-MM-DDTHH:mm) da OF. */
+export class CorrigirDatasOrdemDto {
+  @IsOptional()
+  @IsString()
+  data_emissao?: string;
+
+  @IsOptional()
+  @IsString()
+  data_assinatura?: string;
+}
+
 export class GerarOrdemDto {
   @IsUUID()
   requisicao_id: string;
