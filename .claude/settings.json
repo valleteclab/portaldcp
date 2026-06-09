@@ -21,7 +21,23 @@
       "Bash(grep -n \"classificaEmpenho\\\\|Apostilamento \\(fecha\" frontend/src/app/contratos/\\\\\\\\[id\\\\\\\\]/page.tsx)",
       "Bash(git commit -m ' *)",
       "Bash(grep -E \"\\(frontend|backend\\)$\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(fd -e ts item.*contrato backend/src)",
+      "Bash(rg -iB0 \"valor\")",
+      "Bash(rg -n \"@Post|criarLicitacao|criar\\\\\\(|novo|PLANEJAMENTO|fase\" backend/src/licitacoes/*.controller.ts)",
+      "Bash(rg -rn \"importar-processo|/licitacoes|criarProcesso|novo-processo|method: 'POST'\" frontend/src/app/orgao/fase-interna)",
+      "Bash(rg -n \"@Controller|@Post\\\\\\(\\\\\\)|async criar|CriarLicitacaoDto|@Body\" backend/src/licitacoes/*.controller.ts)",
+      "Bash(rg -n \"RequireModule|@Controller|ModuloGuard|ModuloSistema\\\\.\" backend/src/licitacoes/*.controller.ts)",
+      "Bash(rg -rn \"@Controller\\\\\\('apin'\\\\\\)|'apin'|apin\" backend/src --glob \"*.controller.ts\")",
+      "Bash(rg -rn \"LICITACOES|FASE_INTERNA|enum ModuloSistema|PESQUISA\" backend/src --glob \"*.ts\")",
+      "Bash(npx tsc *)",
+      "Bash(grep -iE \"lote-os|requisicoes/page\\\\.tsx|requisicoes\\\\\\\\\\\\\\\\page\\\\.tsx\")",
+      "Bash(gh pr create --base main --head claude/os-mensal-lote --title 'feat: criação em lote de OS mensais parciais' --body ' *)",
+      "PowerShell($g = Get-Command gh -ErrorAction SilentlyContinue; if \\($g\\) { Write-Output \\(\"gh: \" + $g.Source\\); gh --version 2>&1 | Select-Object -First 1 } else { Write-Output \"GH_AUSENTE\" })",
+      "Bash(grep -E \"ordens/page\\\\.tsx|ordens\\\\\\\\\\\\\\\\page\\\\.tsx|lib/api\\\\.ts|lib\\\\\\\\\\\\\\\\api\\\\.ts\")",
+      "Bash(grep -iE \"pdf-medicao|contratos/novo|contratos\\\\\\\\\\\\\\\\novo|editar|medicoes-v2|assinar-medicao\")",
+      "Bash(head-20)",
+      "Bash(sed -n \"/async buscarMedicao\\(/,/^ }/p\" contratos/medicao.service.ts)"
     ]
   }
 }

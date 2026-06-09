@@ -17,8 +17,17 @@ export class LinkAssinaturaFiscal {
   @Column()
   medicao_id: string;
 
-  @Column()
+  /** Papel do assinante deste link: FISCAL (padrão) | ENGENHEIRO */
+  @Column({ type: 'varchar', length: 20, default: 'FISCAL' })
+  papel: string;
+
+  /** Nulo quando o assinante não é usuário do sistema (ex.: engenheiro do contrato). */
+  @Column({ nullable: true })
   fiscal_usuario_id: string;
+
+  /** CPF do assinante quando não vem de usuário (ex.: engenheiro). */
+  @Column({ nullable: true })
+  assinante_cpf: string;
 
   @Column({ nullable: true })
   fiscal_nome: string;

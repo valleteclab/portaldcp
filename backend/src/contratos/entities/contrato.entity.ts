@@ -200,6 +200,20 @@ export class Contrato {
   @Column({ nullable: true })
   gestor_matricula: string;
 
+  // Engenheiro do Projeto (assina o boletim de medição quando exigido)
+  @Column({ nullable: true })
+  engenheiro_nome: string;
+
+  @Column({ nullable: true })
+  engenheiro_cpf: string;
+
+  @Column({ nullable: true })
+  engenheiro_whatsapp: string;
+
+  /** Quando true, habilita a solicitação de assinatura do engenheiro na medição. */
+  @Column({ default: false })
+  exigir_assinatura_engenheiro_medicao: boolean;
+
   // Dotação Orçamentária
   @Column({ nullable: true })
   dotacao_orcamentaria: string;

@@ -279,6 +279,11 @@ export default function MedicoesV2Page() {
   const [otpFiscal, setOtpFiscal] = useState('')
   const [codigoAssinatura, setCodigoAssinatura] = useState<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Assinatura do engenheiro do projeto (independente do fiscal)
+  const [etapaEngenheiro, setEtapaEngenheiro] = useState<'idle' | 'aguardando' | 'assinado' | 'recusado'>('idle')
+  const [statusEngenheiro, setStatusEngenheiro] = useState<any>(null)
+  const [loadingEngenheiro, setLoadingEngenheiro] = useState(false)
+  const pollingEngRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Devolver / Excluir
   const [modalDevolver, setModalDevolver] = useState<any>(null)
@@ -489,6 +494,21 @@ export default function MedicoesV2Page() {
               }
             }
             else if (data.status === 'recusado') setEtapaAssinatura('recusado')
+          }
+        })
+        .catch(() => {})
+      // Verificar status da assinatura do engenheiro (se houver)
+      authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/status-assinatura-engenheiro`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.status && data.status !== 'sem_solicitacao' && data.status !== 'expirado') {
+            setStatusEngenheiro(data)
+            if (data.status === 'pendente') setEtapaEngenheiro('aguardando')
+            else if (data.status === 'assinado') setEtapaEngenheiro('assinado')
+            else if (data.status === 'recusado') setEtapaEngenheiro('recusado')
+          } else {
+            setEtapaEngenheiro('idle')
+            setStatusEngenheiro(null)
           }
         })
         .catch(() => {})
@@ -1585,7 +1605,7 @@ export default function MedicoesV2Page() {
       )}
 
       {/* ============ MODAL: ATESTE DIRETO ============ */}
-      <Dialog open={!!modalAteste} onOpenChange={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setFiscalSelecionado(''); setStatusAssinatura(null); if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null } }}>
+      <Dialog open={!!modalAteste} onOpenChange={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setFiscalSelecionado(''); setStatusAssinatura(null); if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null } if (pollingEngRef.current) { clearInterval(pollingEngRef.current); pollingEngRef.current = null } setEtapaEngenheiro('idle'); setStatusEngenheiro(null) }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1971,8 +1991,108 @@ export default function MedicoesV2Page() {
             </div>
           )}
 
+          {/* Assinatura do Engenheiro do Projeto (apenas para contratos que exigem) */}
+          {modalAteste && modalAteste.contrato?.exigir_assinatura_engenheiro_medicao && modalAteste.contrato?.engenheiro_nome && modalAteste.contrato?.engenheiro_whatsapp && (
+            <div className="border-t pt-4 space-y-3 px-1">
+              <div className="flex items-center gap-2">
+                <PenLine className="w-4 h-4 text-purple-600" />
+                <span className="text-sm font-semibold text-gray-800">Assinatura do Engenheiro do Projeto</span>
+                {etapaEngenheiro === 'assinado' && <CheckCircle className="w-4 h-4 text-green-600" />}
+                {etapaEngenheiro === 'recusado' && <XCircle className="w-4 h-4 text-red-500" />}
+              </div>
+
+              {etapaEngenheiro === 'idle' && (
+                <div className="space-y-2">
+                  <p className="text-xs text-purple-700">
+                    Engenheiro: <strong>{modalAteste.contrato.engenheiro_nome}</strong> — WhatsApp: {modalAteste.contrato.engenheiro_whatsapp}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={loadingEngenheiro}
+                    onClick={async () => {
+                      setLoadingEngenheiro(true)
+                      try {
+                        const res = await authFetch(
+                          `${API_URL}/api/contratos/medicoes/${modalAteste.id}/solicitar-assinatura-engenheiro`,
+                          { method: 'POST', body: JSON.stringify({}) }
+                        )
+                        if (res.ok) {
+                          const data = await res.json()
+                          setStatusEngenheiro(data)
+                          setEtapaEngenheiro('aguardando')
+                          if (pollingEngRef.current) clearInterval(pollingEngRef.current)
+                          pollingEngRef.current = setInterval(async () => {
+                            const r = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAteste.id}/status-assinatura-engenheiro`)
+                            if (!r.ok) return
+                            const s = await r.json()
+                            setStatusEngenheiro(s)
+                            if (s.status === 'assinado') {
+                              setEtapaEngenheiro('assinado')
+                              clearInterval(pollingEngRef.current!)
+                              pollingEngRef.current = null
+                            } else if (s.status === 'recusado') {
+                              setEtapaEngenheiro('recusado')
+                              clearInterval(pollingEngRef.current!)
+                              pollingEngRef.current = null
+                            }
+                          }, 30_000)
+                        } else {
+                          const err = await res.json().catch(() => ({}))
+                          alert(err.message || 'Erro ao solicitar assinatura do engenheiro.')
+                        }
+                      } catch {
+                        alert('Erro ao solicitar assinatura do engenheiro.')
+                      }
+                      setLoadingEngenheiro(false)
+                    }}
+                  >
+                    {loadingEngenheiro ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Solicitar assinatura do engenheiro'}
+                  </Button>
+                </div>
+              )}
+
+              {etapaEngenheiro === 'aguardando' && (
+                <div className="space-y-2">
+                  <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm">
+                    <p className="text-yellow-800 font-medium flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Aguardando assinatura de <strong>{statusEngenheiro?.engenheiro_nome || modalAteste.contrato.engenheiro_nome}</strong>
+                    </p>
+                    <p className="text-yellow-600 text-xs mt-1">Link enviado via WhatsApp. Verificando automaticamente a cada 30s.</p>
+                  </div>
+                  <Button size="sm" variant="outline" className="gap-1.5 text-purple-600 border-purple-200 hover:bg-purple-50" onClick={() => {
+                    if (pollingEngRef.current) { clearInterval(pollingEngRef.current); pollingEngRef.current = null }
+                    setEtapaEngenheiro('idle')
+                    setStatusEngenheiro(null)
+                  }}>
+                    <Send className="w-3.5 h-3.5" />
+                    Reenviar link
+                  </Button>
+                </div>
+              )}
+
+              {etapaEngenheiro === 'assinado' && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+                  ✅ Boletim assinado digitalmente pelo engenheiro <strong>{statusEngenheiro?.engenheiro_nome || modalAteste.contrato.engenheiro_nome}</strong>.
+                </div>
+              )}
+
+              {etapaEngenheiro === 'recusado' && (
+                <div className="space-y-2">
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+                    ❌ Assinatura recusada pelo engenheiro.
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => { setEtapaEngenheiro('idle'); setStatusEngenheiro(null) }}>
+                    Solicitar novamente
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setFiscalSelecionado(''); setStatusAssinatura(null); if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null } }}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setModalAteste(null); setAnexosAteste([]); setEtapaAssinatura('idle'); setFiscalSelecionado(''); setStatusAssinatura(null); if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null } if (pollingEngRef.current) { clearInterval(pollingEngRef.current); pollingEngRef.current = null } setEtapaEngenheiro('idle'); setStatusEngenheiro(null) }}>Cancelar</Button>
             {modalAteste && (
               <Button
                 size="sm"

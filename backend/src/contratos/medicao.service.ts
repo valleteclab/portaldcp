@@ -3355,7 +3355,7 @@ export class MedicaoService {
     medicaoId: string,
     dados: {
       orgao_id?: string;
-      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR';
+      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR' | 'ENGENHEIRO';
       usuario_id?: string;
       usuario_nome: string;
       usuario_cpf_cnpj: string;
@@ -3368,6 +3368,7 @@ export class MedicaoService {
       FORNECEDOR: PapelAssinante.FORNECEDOR,
       FISCAL: PapelAssinante.FISCAL,
       GESTOR: PapelAssinante.GESTOR,
+      ENGENHEIRO: PapelAssinante.ENGENHEIRO,
     };
 
     const assinaturaExistente = await this.assinaturaDigitalRepository.findOne({
@@ -3463,6 +3464,9 @@ export class MedicaoService {
     );
     const asFiscal = assinaturas.find(
       (a) => a.papel_assinante === PapelAssinante.FISCAL,
+    );
+    const asEngenheiro = assinaturas.find(
+      (a) => a.papel_assinante === PapelAssinante.ENGENHEIRO,
     );
 
     const fmtCodigo = (c: string) => c?.match(/.{1,4}/g)?.join('-') ?? c;
@@ -3956,6 +3960,15 @@ export class MedicaoService {
             portaria: asFiscal.usuario_portaria || undefined,
             data_hora: fmtDataBR(asFiscal.data_assinatura),
             codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
+          }
+        : undefined,
+      assinatura_engenheiro: asEngenheiro
+        ? {
+            nome: asEngenheiro.usuario_nome,
+            cpf: asEngenheiro.usuario_cpf_cnpj,
+            cargo: asEngenheiro.usuario_cargo || 'Engenheiro do Projeto',
+            data_hora: fmtDataBR(asEngenheiro.data_assinatura),
+            codigo_validacao: fmtCodigo(asEngenheiro.codigo_validacao),
           }
         : undefined,
       url_validacao: `${process.env.APP_URL || 'https://portaldcp.com.br'}/validar-documento`,
@@ -7443,7 +7456,7 @@ export class MedicaoService {
     medicaoId: string,
     dados: {
       orgao_id?: string;
-      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR';
+      papel: 'FORNECEDOR' | 'FISCAL' | 'GESTOR' | 'ENGENHEIRO';
       usuario_id?: string;
       usuario_nome: string;
       usuario_cpf_cnpj: string;
@@ -7471,6 +7484,7 @@ export class MedicaoService {
       FORNECEDOR: PapelAssinante.FORNECEDOR,
       FISCAL: PapelAssinante.FISCAL,
       GESTOR: PapelAssinante.GESTOR,
+      ENGENHEIRO: PapelAssinante.ENGENHEIRO,
     };
 
     const assinatura = await this.assinaturasService.registrarAssinatura({
@@ -8328,9 +8342,10 @@ export class MedicaoService {
       opcoes?.itensSelecionadosIds,
     );
 
-    // Invalidar links anteriores pendentes para esta medição
+    // Invalidar links anteriores pendentes do FISCAL para esta medição
+    // (filtra por papel para não derrubar um link pendente do engenheiro)
     await this.linkAssinaturaRepository.update(
-      { medicao_id: medicaoId, status: 'pendente' },
+      { medicao_id: medicaoId, status: 'pendente', papel: 'FISCAL' },
       { status: 'expirado' } as any,
     );
 
@@ -8412,11 +8427,115 @@ export class MedicaoService {
   }
 
   /**
+   * Solicita a assinatura do ENGENHEIRO do projeto (link WhatsApp + OTP), análogo ao fiscal.
+   * Só permite se o contrato tiver `exigir_assinatura_engenheiro_medicao` e dados do engenheiro.
+   * É independente do fiscal (não aciona auto-encaminhamento de aprovação).
+   */
+  async solicitarAssinaturaEngenheiroWhatsApp(
+    medicaoId: string,
+    solicitadoPorId: string,
+  ): Promise<{ link_enviado: boolean; engenheiro_nome: string; expira_em: Date }> {
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+      relations: ['orgao'],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (!contrato.exigir_assinatura_engenheiro_medicao) {
+      throw new BadRequestException('Assinatura do engenheiro não está habilitada para este contrato.');
+    }
+    if (!contrato.engenheiro_nome || !contrato.engenheiro_whatsapp) {
+      throw new BadRequestException('Dados do engenheiro (nome e WhatsApp) não preenchidos no contrato.');
+    }
+
+    const solicitante = await this.usuarioRepository.findOne({ where: { id: solicitadoPorId } });
+
+    // Invalida links pendentes do ENGENHEIRO (não toca no link do fiscal)
+    await this.linkAssinaturaRepository.update(
+      { medicao_id: medicaoId, status: 'pendente', papel: 'ENGENHEIRO' },
+      { status: 'expirado' } as any,
+    );
+
+    const { randomUUID } = await import('crypto');
+    const token = randomUUID();
+    const expira_em = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+    await this.linkAssinaturaRepository.save({
+      token,
+      medicao_id: medicaoId,
+      papel: 'ENGENHEIRO',
+      fiscal_usuario_id: null as any,
+      fiscal_nome: contrato.engenheiro_nome,
+      fiscal_telefone: contrato.engenheiro_whatsapp,
+      assinante_cpf: contrato.engenheiro_cpf || null,
+      solicitado_por_id: solicitadoPorId,
+      solicitado_por_nome: solicitante?.nome || '',
+      solicitado_por_telefone: solicitante?.telefone || '',
+      status: 'pendente',
+      expira_em,
+      auto_enviar_aprovacao: false,
+    } as any);
+
+    const appUrl =
+      process.env.APP_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      'https://portaldcp.com.br';
+    const linkUrl = `${appUrl}/assinar-medicao/${token}`;
+    const orgaoNome = contrato?.orgao?.nome || 'Órgão';
+    const numContrato = contrato?.numero_contrato || '';
+    const numMedicao = String(medicao.numero_medicao || '').padStart(3, '0');
+
+    const mensagem =
+      `Olá, *${contrato.engenheiro_nome}*! 👋\n\n` +
+      `Você recebeu uma solicitação de *assinatura (Engenheiro do Projeto)* de boletim de medição.\n\n` +
+      `🏛️ *Órgão:* ${orgaoNome}\n` +
+      `📋 *Contrato:* ${numContrato}\n` +
+      `🔢 *Medição Nº:* ${numMedicao}\n\n` +
+      `Acesse o link abaixo para revisar e assinar digitalmente:\n` +
+      `🔗 ${linkUrl}\n\n` +
+      `⏳ Este link expira em *48 horas*.`;
+
+    if (contrato.engenheiro_whatsapp) {
+      try {
+        await (this.assinaturasService as any).whatsappService?.enviar(
+          contrato?.orgao_id || '',
+          { to: contrato.engenheiro_whatsapp, mensagem },
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Não foi possível enviar WhatsApp para engenheiro ${contrato.engenheiro_nome}: ${err.message}`,
+        );
+      }
+    }
+
+    return {
+      link_enviado: !!contrato.engenheiro_whatsapp,
+      engenheiro_nome: contrato.engenheiro_nome,
+      expira_em,
+    };
+  }
+
+  /** Status do link de assinatura do ENGENHEIRO para a medição. */
+  async statusAssinaturaEngenheiro(medicaoId: string): Promise<any> {
+    const link = await this.linkAssinaturaRepository.findOne({
+      where: { medicao_id: medicaoId, papel: 'ENGENHEIRO' },
+      order: { criado_em: 'DESC' } as any,
+    });
+    return {
+      status: link?.status || 'sem_solicitacao',
+      engenheiro_nome: link?.fiscal_nome || null,
+      atualizado_em: link?.atualizado_em || null,
+    };
+  }
+
+  /**
    * Retorna o status do link de assinatura mais recente para a medição.
    */
   async statusAssinaturaFiscal(medicaoId: string): Promise<any> {
     const link = await this.linkAssinaturaRepository.findOne({
-      where: { medicao_id: medicaoId },
+      where: { medicao_id: medicaoId, papel: 'FISCAL' },
       order: { criado_em: 'DESC' } as any,
     });
     const medicao = await this.medicaoRepository.findOne({
@@ -8468,6 +8587,7 @@ export class MedicaoService {
 
     return {
       medicao_id: link.medicao_id,
+      papel: link.papel || 'FISCAL',
       fiscal_nome: link.fiscal_nome,
       numero_medicao: medicao.numero_medicao,
       periodo_inicio: medicao.periodo_inicio,
@@ -8624,20 +8744,33 @@ export class MedicaoService {
     }
     (this.assinaturasService as any).otpCache?.delete(cacheKey);
 
-    // Registrar assinatura
-    const fiscalUser = await this.usuarioRepository.findOne({
-      where: { id: link.fiscal_usuario_id },
-    });
-    const assinatura = await this.registrarAssinaturaMedicao(link.medicao_id, {
-      orgao_id: '',
-      papel: 'FISCAL',
-      usuario_id: link.fiscal_usuario_id,
-      usuario_nome: link.fiscal_nome,
-      usuario_cpf_cnpj: fiscalUser?.cpf || '',
-      usuario_cargo: fiscalUser?.cargo || 'Fiscal de Contrato',
-      usuario_matricula: fiscalUser?.matricula || undefined,
-      usuario_portaria: fiscalUser?.portaria_fiscal || undefined,
-    });
+    // Registrar assinatura conforme o papel do link (FISCAL ou ENGENHEIRO)
+    const ehEngenheiro = (link.papel || 'FISCAL') === 'ENGENHEIRO';
+    const fiscalUser = ehEngenheiro
+      ? null
+      : await this.usuarioRepository.findOne({ where: { id: link.fiscal_usuario_id } });
+    const assinatura = await this.registrarAssinaturaMedicao(
+      link.medicao_id,
+      ehEngenheiro
+        ? {
+            orgao_id: '',
+            papel: 'ENGENHEIRO',
+            usuario_id: undefined,
+            usuario_nome: link.fiscal_nome,
+            usuario_cpf_cnpj: link.assinante_cpf || '',
+            usuario_cargo: 'Engenheiro do Projeto',
+          }
+        : {
+            orgao_id: '',
+            papel: 'FISCAL',
+            usuario_id: link.fiscal_usuario_id,
+            usuario_nome: link.fiscal_nome,
+            usuario_cpf_cnpj: fiscalUser?.cpf || '',
+            usuario_cargo: fiscalUser?.cargo || 'Fiscal de Contrato',
+            usuario_matricula: fiscalUser?.matricula || undefined,
+            usuario_portaria: fiscalUser?.portaria_fiscal || undefined,
+          },
+    );
 
     // Montar dados para o frontend gerar o PDF
     let dados_pdf: any = null;
@@ -8667,13 +8800,16 @@ export class MedicaoService {
     } as any);
 
     let autoEncaminhadaAprovacao = false;
-    try {
-      autoEncaminhadaAprovacao =
-        await this.autoEncaminharAssinaturaFiscal(link);
-    } catch (err) {
-      this.logger.warn(
-        `Falha no autoencaminhamento pós-assinatura: ${err.message}`,
-      );
+    // Auto-encaminhamento só se aplica à assinatura do FISCAL (engenheiro é independente)
+    if (!ehEngenheiro) {
+      try {
+        autoEncaminhadaAprovacao =
+          await this.autoEncaminharAssinaturaFiscal(link);
+      } catch (err) {
+        this.logger.warn(
+          `Falha no autoencaminhamento pós-assinatura: ${err.message}`,
+        );
+      }
     }
 
     const medicaoAtualizada = await this.medicaoRepository.findOne({
