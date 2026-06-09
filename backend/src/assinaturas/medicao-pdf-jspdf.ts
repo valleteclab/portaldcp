@@ -1048,7 +1048,7 @@ export async function gerarBoletimMedicaoPdf(
           cor: [124, 58, 173] as [number, number, number],
           nome: aEng?.nome || '',
           identificacao: aEng?.cpf ? `CPF: ${aEng.cpf}` : '',
-          cargo: aEng?.cargo || '',
+          cargo: aEng?.crea ? `CREA: ${aEng.crea}` : (aEng?.cargo || ''),
           dataHora: aEng?.data_hora || '',
           pendente: !aEng,
           codigoValidacao: aEng?.codigo_validacao,

@@ -208,6 +208,9 @@ export class Contrato {
   engenheiro_cpf: string;
 
   @Column({ nullable: true })
+  engenheiro_crea: string;
+
+  @Column({ nullable: true })
   engenheiro_whatsapp: string;
 
   /** Quando true, habilita a solicitação de assinatura do engenheiro na medição. */

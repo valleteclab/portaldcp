@@ -2004,7 +2004,7 @@ export default function MedicoesV2Page() {
               {etapaEngenheiro === 'idle' && (
                 <div className="space-y-2">
                   <p className="text-xs text-purple-700">
-                    Engenheiro: <strong>{modalAteste.contrato.engenheiro_nome}</strong> — WhatsApp: {modalAteste.contrato.engenheiro_whatsapp}
+                    Engenheiro: <strong>{modalAteste.contrato.engenheiro_nome}</strong>{modalAteste.contrato.engenheiro_crea ? ` — CREA: ${modalAteste.contrato.engenheiro_crea}` : ''} — WhatsApp: {modalAteste.contrato.engenheiro_whatsapp}
                   </p>
                   <Button
                     size="sm"

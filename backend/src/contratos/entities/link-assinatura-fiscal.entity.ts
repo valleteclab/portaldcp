@@ -29,6 +29,10 @@ export class LinkAssinaturaFiscal {
   @Column({ nullable: true })
   assinante_cpf: string;
 
+  /** CREA do engenheiro (registro profissional), quando aplicável. */
+  @Column({ nullable: true })
+  assinante_crea: string;
+
   @Column({ nullable: true })
   fiscal_nome: string;
 

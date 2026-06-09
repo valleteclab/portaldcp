@@ -134,6 +134,7 @@ export interface DadosMedicaoPdf {
   assinatura_engenheiro?: {
     nome: string
     cpf?: string
+    crea?: string
     cargo?: string
     data_hora: string
     codigo_validacao?: string
@@ -964,7 +965,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
           cor: [124, 58, 173] as [number, number, number],
           nome: aEng?.nome || '',
           identificacao: aEng?.cpf ? `CPF: ${aEng.cpf}` : '',
-          cargo: aEng?.cargo || '',
+          cargo: aEng?.crea ? `CREA: ${aEng.crea}` : (aEng?.cargo || ''),
           dataHora: aEng?.data_hora || '',
           pendente: !aEng,
           codigoValidacao: aEng?.codigo_validacao,

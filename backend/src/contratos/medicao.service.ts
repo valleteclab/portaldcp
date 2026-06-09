@@ -3966,6 +3966,7 @@ export class MedicaoService {
         ? {
             nome: asEngenheiro.usuario_nome,
             cpf: asEngenheiro.usuario_cpf_cnpj,
+            crea: asEngenheiro.usuario_matricula || undefined,
             cargo: asEngenheiro.usuario_cargo || 'Engenheiro do Projeto',
             data_hora: fmtDataBR(asEngenheiro.data_assinatura),
             codigo_validacao: fmtCodigo(asEngenheiro.codigo_validacao),
@@ -8470,6 +8471,7 @@ export class MedicaoService {
       fiscal_nome: contrato.engenheiro_nome,
       fiscal_telefone: contrato.engenheiro_whatsapp,
       assinante_cpf: contrato.engenheiro_cpf || null,
+      assinante_crea: contrato.engenheiro_crea || null,
       solicitado_por_id: solicitadoPorId,
       solicitado_por_nome: solicitante?.nome || '',
       solicitado_por_telefone: solicitante?.telefone || '',
@@ -8759,6 +8761,7 @@ export class MedicaoService {
             usuario_nome: link.fiscal_nome,
             usuario_cpf_cnpj: link.assinante_cpf || '',
             usuario_cargo: 'Engenheiro do Projeto',
+            usuario_matricula: link.assinante_crea || undefined,
           }
         : {
             orgao_id: '',
