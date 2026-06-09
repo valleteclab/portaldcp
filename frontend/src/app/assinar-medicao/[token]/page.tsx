@@ -171,7 +171,7 @@ export default function AssinarMedicaoPage() {
                 <div className="col-span-2"><span className="text-gray-500">Fornecedor:</span> <span className="font-medium">{dados.fornecedor_nome}</span></div>
               </div>
               <div className="bg-blue-50 rounded-lg px-3 py-2 text-sm text-blue-700 mt-2">
-                <strong>{dados.papel === 'ENGENHEIRO' ? 'Engenheiro do Projeto:' : 'Fiscal:'}</strong> {dados.fiscal_nome}
+                <strong>{dados.papel === 'ENGENHEIRO' ? 'Engenheiro Responsável Técnico:' : 'Fiscal:'}</strong> {dados.fiscal_nome}
               </div>
             </div>
 

@@ -3967,7 +3967,7 @@ export class MedicaoService {
             nome: asEngenheiro.usuario_nome,
             cpf: asEngenheiro.usuario_cpf_cnpj,
             crea: asEngenheiro.usuario_matricula || undefined,
-            cargo: asEngenheiro.usuario_cargo || 'Engenheiro do Projeto',
+            cargo: asEngenheiro.usuario_cargo || 'Engenheiro Responsável Técnico',
             data_hora: fmtDataBR(asEngenheiro.data_assinatura),
             codigo_validacao: fmtCodigo(asEngenheiro.codigo_validacao),
           }
@@ -8491,7 +8491,7 @@ export class MedicaoService {
 
     const mensagem =
       `Olá, *${contrato.engenheiro_nome}*! 👋\n\n` +
-      `Você recebeu uma solicitação de *assinatura (Engenheiro do Projeto)* de boletim de medição.\n\n` +
+      `Você recebeu uma solicitação de *assinatura (Engenheiro Responsável Técnico)* de boletim de medição.\n\n` +
       `🏛️ *Órgão:* ${orgaoNome}\n` +
       `📋 *Contrato:* ${numContrato}\n` +
       `🔢 *Medição Nº:* ${numMedicao}\n\n` +
@@ -8760,7 +8760,7 @@ export class MedicaoService {
             usuario_id: undefined,
             usuario_nome: link.fiscal_nome,
             usuario_cpf_cnpj: link.assinante_cpf || '',
-            usuario_cargo: 'Engenheiro do Projeto',
+            usuario_cargo: 'Engenheiro Responsável Técnico',
             usuario_matricula: link.assinante_crea || undefined,
           }
         : {

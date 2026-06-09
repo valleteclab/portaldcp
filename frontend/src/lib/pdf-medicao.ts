@@ -961,7 +961,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
     },
     ...(aEng
       ? [{
-          titulo: 'ENGENHEIRO DO PROJETO',
+          titulo: 'ENGENHEIRO RESPONSÁVEL TÉCNICO',
           cor: [124, 58, 173] as [number, number, number],
           nome: aEng?.nome || '',
           identificacao: aEng?.cpf ? `CPF: ${aEng.cpf}` : '',

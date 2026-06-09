@@ -1996,7 +1996,7 @@ export default function MedicoesV2Page() {
             <div className="border-t pt-4 space-y-3 px-1">
               <div className="flex items-center gap-2">
                 <PenLine className="w-4 h-4 text-purple-600" />
-                <span className="text-sm font-semibold text-gray-800">Assinatura do Engenheiro do Projeto</span>
+                <span className="text-sm font-semibold text-gray-800">Assinatura do Engenheiro Responsável Técnico</span>
                 {etapaEngenheiro === 'assinado' && <CheckCircle className="w-4 h-4 text-green-600" />}
                 {etapaEngenheiro === 'recusado' && <XCircle className="w-4 h-4 text-red-500" />}
               </div>
