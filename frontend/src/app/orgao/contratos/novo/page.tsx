@@ -123,6 +123,7 @@ export default function NovoContratoPage() {
     gestor_matricula: '',
     engenheiro_nome: '',
     engenheiro_cpf: '',
+    engenheiro_crea: '',
     engenheiro_whatsapp: '',
     exigir_assinatura_engenheiro_medicao: false,
     exige_garantia: false,
@@ -311,6 +312,7 @@ export default function NovoContratoPage() {
         gestor_matricula: formData.gestor_matricula || null,
         engenheiro_nome: formData.engenheiro_nome || null,
         engenheiro_cpf: formData.engenheiro_cpf || null,
+        engenheiro_crea: formData.engenheiro_crea || null,
         engenheiro_whatsapp: formData.engenheiro_whatsapp || null,
         exigir_assinatura_engenheiro_medicao: formData.exigir_assinatura_engenheiro_medicao,
         exige_garantia: formData.exige_garantia,
@@ -803,6 +805,10 @@ export default function NovoContratoPage() {
                   <div className="space-y-2">
                     <Label>Engenheiro — CPF</Label>
                     <Input placeholder="CPF do engenheiro" value={formData.engenheiro_cpf} onChange={(e) => handleInputChange('engenheiro_cpf', e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Engenheiro — CREA</Label>
+                    <Input placeholder="Nº do CREA" value={formData.engenheiro_crea} onChange={(e) => handleInputChange('engenheiro_crea', e.target.value)} />
                   </div>
                   <div className="space-y-2">
                     <Label>Engenheiro — WhatsApp</Label>

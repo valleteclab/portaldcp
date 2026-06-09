@@ -88,7 +88,7 @@ export default function EditarContratoPage() {
     data_vigencia_fim: '', data_publicacao: '', prazo_execucao_dias: '', prazo_vigencia_meses: '',
     numero_processo: '', amparo_legal: '', dotacao_orcamentaria: '', fonte_recurso: '', programa_trabalho: '',
     elemento_despesa: '', fiscal_nome: '', fiscal_matricula: '', gestor_nome: '', gestor_matricula: '',
-    engenheiro_nome: '', engenheiro_cpf: '', engenheiro_whatsapp: '', exigir_assinatura_engenheiro_medicao: false,
+    engenheiro_nome: '', engenheiro_cpf: '', engenheiro_crea: '', engenheiro_whatsapp: '', exigir_assinatura_engenheiro_medicao: false,
     exige_garantia: false, percentual_garantia: '', tipo_garantia: '', observacoes: '',
     modalidade_licitacao: '',
     boletim_por_quantidade: false,
@@ -137,6 +137,7 @@ export default function EditarContratoPage() {
           gestor_matricula: contrato.gestor_matricula || '',
           engenheiro_nome: contrato.engenheiro_nome || '',
           engenheiro_cpf: contrato.engenheiro_cpf || '',
+          engenheiro_crea: contrato.engenheiro_crea || '',
           engenheiro_whatsapp: contrato.engenheiro_whatsapp || '',
           exigir_assinatura_engenheiro_medicao: contrato.exigir_assinatura_engenheiro_medicao || false,
           exige_garantia: contrato.exige_garantia || false,
@@ -316,7 +317,7 @@ export default function EditarContratoPage() {
         programa_trabalho: formData.programa_trabalho || null, elemento_despesa: formData.elemento_despesa || null,
         fiscal_nome: formData.fiscal_nome || null, fiscal_matricula: formData.fiscal_matricula || null,
         gestor_nome: formData.gestor_nome || null, gestor_matricula: formData.gestor_matricula || null,
-        engenheiro_nome: formData.engenheiro_nome || null, engenheiro_cpf: formData.engenheiro_cpf || null,
+        engenheiro_nome: formData.engenheiro_nome || null, engenheiro_cpf: formData.engenheiro_cpf || null, engenheiro_crea: formData.engenheiro_crea || null,
         engenheiro_whatsapp: formData.engenheiro_whatsapp || null,
         exigir_assinatura_engenheiro_medicao: formData.exigir_assinatura_engenheiro_medicao,
         exige_garantia: formData.exige_garantia,
@@ -646,6 +647,7 @@ export default function EditarContratoPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2"><Label>Engenheiro — Nome</Label><Input placeholder="Nome do engenheiro" value={formData.engenheiro_nome} onChange={(e) => handleInputChange('engenheiro_nome', e.target.value)} /></div>
                   <div className="space-y-2"><Label>Engenheiro — CPF</Label><Input placeholder="CPF do engenheiro" value={formData.engenheiro_cpf} onChange={(e) => handleInputChange('engenheiro_cpf', e.target.value)} /></div>
+                  <div className="space-y-2"><Label>Engenheiro — CREA</Label><Input placeholder="Nº do CREA" value={formData.engenheiro_crea} onChange={(e) => handleInputChange('engenheiro_crea', e.target.value)} /></div>
                   <div className="space-y-2"><Label>Engenheiro — WhatsApp</Label><Input placeholder="(00) 00000-0000" value={formData.engenheiro_whatsapp} onChange={(e) => handleInputChange('engenheiro_whatsapp', e.target.value)} /></div>
                 </div>
               )}
