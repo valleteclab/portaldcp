@@ -794,7 +794,7 @@ export default function NovoContratoPage() {
             <div className="space-y-3 md:col-span-2 border-t pt-4">
               <div className="flex items-center gap-2">
                 <Switch id="exigir-eng" checked={formData.exigir_assinatura_engenheiro_medicao} onCheckedChange={(v) => handleInputChange('exigir_assinatura_engenheiro_medicao', v)} />
-                <Label htmlFor="exigir-eng" className="font-medium">Exigir assinatura do Engenheiro do Projeto na medição</Label>
+                <Label htmlFor="exigir-eng" className="font-medium">Exigir assinatura do Engenheiro Responsável Técnico na medição</Label>
               </div>
               {formData.exigir_assinatura_engenheiro_medicao && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
