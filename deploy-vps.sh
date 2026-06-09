@@ -6,6 +6,12 @@ PROJECT_DIR="${PROJECT_DIR:-/opt/portaldcp}"
 BRANCH="${BRANCH:-main}"
 REPO_URL="${REPO_URL:-https://github.com/valleteclab/portaldcp.git}"
 
+# Serviços que possuem build e são recriados no deploy.
+# postgres/redis usam imagem pronta e NÃO são reiniciados (sem downtime do banco).
+BUILD_SERVICES="${BUILD_SERVICES:-backend frontend}"
+# Porta interna do backend para o health check.
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3001/api/health}"
+
 if docker compose version >/dev/null 2>&1; then
   COMPOSE_BIN="docker compose"
 elif command -v docker-compose >/dev/null 2>&1; then
@@ -24,25 +30,26 @@ else
 fi
 
 echo "=================================================="
-echo " Portal DCP - Deploy VPS"
+echo " Portal DCP - Deploy VPS (build antes de recriar)"
 echo "=================================================="
 echo "Projeto: $PROJECT_DIR"
 echo "Branch:  $BRANCH"
 echo "Compose: $COMPOSE_FILE"
+echo "Build:   $BUILD_SERVICES"
 echo ""
 
 mkdir -p "$PROJECT_DIR"
 cd "$PROJECT_DIR"
 
 if [ ! -d ".git" ]; then
-  echo "[1/7] Clonando repositório..."
+  echo "[1/6] Clonando repositório..."
   git clone "$REPO_URL" .
 fi
 
-echo "[2/7] Atualizando código..."
+echo "[2/6] Atualizando código (--autostash p/ edições locais)..."
 git fetch origin
 git checkout "$BRANCH"
-git pull --rebase origin "$BRANCH"
+git pull --rebase --autostash origin "$BRANCH"
 
 if [ ! -f ".env" ]; then
   echo "[ERRO] Arquivo .env não encontrado em $PROJECT_DIR/.env"
@@ -50,26 +57,39 @@ if [ ! -f ".env" ]; then
   exit 1
 fi
 
-echo "[3/7] Validando arquivos principais..."
+echo "[3/6] Validando arquivos principais..."
 test -f "$COMPOSE_FILE"
 test -f "backend/Dockerfile"
 test -f "frontend/Dockerfile"
 
-echo "[4/7] Derrubando stack antiga..."
-$COMPOSE_BIN -f "$COMPOSE_FILE" down --remove-orphans || true
+# A stack ATUAL permanece no ar durante todo o build — aqui NÃO há downtime.
+echo "[4/6] Buildando imagens novas (stack atual continua servindo)..."
+# shellcheck disable=SC2086
+$COMPOSE_BIN -f "$COMPOSE_FILE" build $BUILD_SERVICES
 
-echo "[5/7] Subindo stack atualizada..."
-$COMPOSE_BIN -f "$COMPOSE_FILE" up -d --build --force-recreate
+# 'up -d' (sem --force-recreate) recria SOMENTE os serviços cuja imagem mudou
+# (backend/frontend). postgres e redis continuam rodando. Downtime ~segundos por serviço.
+echo "[5/6] Recriando apenas os serviços atualizados (banco intocado)..."
+$COMPOSE_BIN -f "$COMPOSE_FILE" up -d --remove-orphans
 
-echo "[6/7] Aguardando serviços..."
-sleep 20
-
-echo "[7/7] Status final..."
-$COMPOSE_BIN -f "$COMPOSE_FILE" ps
+echo "[6/6] Aguardando backend saudável em $HEALTH_URL ..."
+OK=0
+for i in $(seq 1 40); do
+  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$HEALTH_URL" || true)
+  if [ "$code" = "200" ]; then OK=1; echo "  Backend OK (HTTP 200) na tentativa $i."; break; fi
+  sleep 3
+done
+if [ "$OK" != "1" ]; then
+  echo "[AVISO] Backend não retornou HTTP 200 em $HEALTH_URL dentro do tempo limite."
+  echo "        Verifique os logs: $COMPOSE_BIN -f $COMPOSE_FILE logs --tail=100 backend"
+fi
 
 echo ""
-echo "Últimos logs do backend:"
-$COMPOSE_BIN -f "$COMPOSE_FILE" logs --tail=50 backend || true
+echo "Status:"
+$COMPOSE_BIN -f "$COMPOSE_FILE" ps
+
+# Remove imagens órfãs antigas para liberar disco (não-fatal).
+docker image prune -f >/dev/null 2>&1 || true
 
 echo ""
 echo "Deploy concluído."
