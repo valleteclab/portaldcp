@@ -930,6 +930,20 @@ export async function gerarBoletimMedicaoPdf(
       (s: number, e: any) => s + Number(e.valor_a_executar || 0),
       0,
     );
+    const totalPercentualEtapasGlobal = dados.etapas.reduce(
+      (s: number, e: any) => s + Number(e.percentual_fisico || 0),
+      0,
+    );
+    // Avanço físico GLOBAL acumulado = soma de (peso da etapa × % executado acum.)
+    const totalGlobalAcum = dados.etapas.reduce(
+      (s: number, e: any) =>
+        s + (Number(e.percentual_fisico || 0) * Number(e.percentual_executado_acumulado || 0)) / 100,
+      0,
+    );
+    const totalFinAnterior = dados.etapas.reduce(
+      (s: number, e: any) => s + Number(e.valor_acumulado_anterior || 0),
+      0,
+    );
 
     autoTable(doc, {
       startY: y,
@@ -937,7 +951,7 @@ export async function gerarBoletimMedicaoPdf(
         [
           { content: 'ITEM\nNº', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const, fontStyle: 'bold' as const, fontSize: 6 } },
           { content: 'DESCRICAO', rowSpan: 2, styles: { fontStyle: 'bold' as const, valign: 'middle' as const, fontSize: 6 } },
-          { content: 'EVOLUCAO FISICA (%)', colSpan: 4, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: etapaHeadFisica, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'EVOLUCAO FISICA (%)', colSpan: 6, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: etapaHeadFisica, textColor: [255, 255, 255] as [number, number, number] } },
           { content: 'EVOLUCAO FINANCEIRA', colSpan: 4, styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6, fillColor: etapaHeadFinanceira, textColor: [255, 255, 255] as [number, number, number] } },
         ],
         [
@@ -945,6 +959,8 @@ export async function gerarBoletimMedicaoPdf(
           { content: 'PERIODO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
           { content: 'ACUM.', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
           { content: 'SALDO', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: '% CONTR.', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
+          { content: 'GLOB. ACUM.', styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFisicaSub, textColor: [255, 255, 255] as [number, number, number] } },
           { content: 'ANTERIOR', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFinanceiraSub, textColor: [255, 255, 255] as [number, number, number] } },
           { content: 'PERIODO', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFinanceiraSub, textColor: [255, 255, 255] as [number, number, number] } },
           { content: 'ACUM.', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 5.4, fillColor: etapaHeadFinanceiraSub, textColor: [255, 255, 255] as [number, number, number] } },
@@ -962,13 +978,18 @@ export async function gerarBoletimMedicaoPdf(
           { content: fmtPct(e.percentual_executado_atual), styles: { halign: 'center' as const, fontSize: 5.8 } },
           { content: fmtPct(e.percentual_executado_acumulado), styles: { halign: 'center' as const, fontSize: 5.8 } },
           { content: fmtPct(e.percentual_a_executar), styles: { halign: 'center' as const, fontSize: 5.8 } },
+          { content: fmtPct(e.percentual_fisico), styles: { halign: 'center' as const, fontSize: 5.8 } },
+          { content: fmtPct((Number(e.percentual_fisico || 0) * Number(e.percentual_executado_acumulado || 0)) / 100), styles: { halign: 'center' as const, fontSize: 5.8, fontStyle: 'bold' as const } },
           { content: fmtAr(e.valor_acumulado_anterior || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
           { content: fmtAr(e.valor_medido || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
           { content: fmtAr(e.valor_ate_periodo || e.valor_medido || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
           { content: fmtAr(e.valor_a_executar || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
         ]),
         [
-          { content: 'TOTAL', colSpan: 7, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: 'TOTAL', colSpan: 6, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: fmtPct(totalPercentualEtapasGlobal), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: fmtPct(totalGlobalAcum), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [255, 235, 200] as [number, number, number] } },
+          { content: fmtAr(totalFinAnterior), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
           { content: fmtAr(totalEtapasPeriodo), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
           { content: fmtAr(totalEtapasAte), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
           { content: fmtAr(totalEtapasAExecutar), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
@@ -978,16 +999,18 @@ export async function gerarBoletimMedicaoPdf(
       styles: { fontSize: 5.6, cellPadding: 1, overflow: 'linebreak' as const, ...textoCorpoTabelaPdf },
       headStyles: { fillColor: [22, 60, 100] as [number,number,number], textColor: [255, 255, 255] as [number,number,number] },
       columnStyles: {
-        0: { cellWidth: 8 },
-        1: { cellWidth: 60 },
-        2: { cellWidth: 14 },
-        3: { cellWidth: 14 },
-        4: { cellWidth: 14 },
-        5: { cellWidth: 14 },
-        6: { cellWidth: 17 },
-        7: { cellWidth: 17 },
-        8: { cellWidth: 18 },
-        9: { cellWidth: 18 },
+        0: { cellWidth: 7 },
+        1: { cellWidth: 42 },
+        2: { cellWidth: 10 },
+        3: { cellWidth: 10 },
+        4: { cellWidth: 10 },
+        5: { cellWidth: 10 },
+        6: { cellWidth: 12 },
+        7: { cellWidth: 13 },
+        8: { cellWidth: 14 },
+        9: { cellWidth: 14 },
+        10: { cellWidth: 14 },
+        11: { cellWidth: 14 },
       },
       margin: { left: mX, right: mX },
     });
