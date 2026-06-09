@@ -482,7 +482,12 @@ export async function gerarBoletimMedicaoPdf(
   y += 5;
 
   // Data de emissão = data em que o FORNECEDOR assinou (quadro de assinaturas). '-' se ainda não assinado.
-  linhaInfo('DATA DE EMISSÃO', (textoSeguro(dados.assinatura_fornecedor?.data_hora).match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0]);
+  // O rótulo é mais largo que o infoX2 padrão; posiciona o valor após a largura do rótulo + 2mm.
+  const dataEmissaoBoletim = (textoSeguro(dados.assinatura_fornecedor?.data_hora).match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0];
+  doc.setFont('helvetica', 'bold');
+  doc.text('DATA DE EMISSÃO:', mX, y);
+  doc.text(dataEmissaoBoletim, mX + doc.getTextWidth('DATA DE EMISSÃO:') + 2, y);
+  y += 5;
 
   // Valor Bruto (= valor da medição)
   linhaInfo('VALOR BRUTO', fmtAr(dados.valor_medido));

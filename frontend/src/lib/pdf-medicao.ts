@@ -555,8 +555,12 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   doc.text(dados.nota_fiscal_numero ? `${dados.nota_fiscal_numero}` : '-', nfX + 12, y)
   y += 5
 
-  // Data de emissão = data em que o FORNECEDOR assinou (quadro de assinaturas). '-' se ainda não assinado.
-  linhaInfo('DATA DE EMISSÃO', (String(dados.assinatura_fornecedor?.data_hora ?? '').match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0])
+  // Data de emissão = data em que o FORNECEDOR assinou. Posiciona o valor após a largura do rótulo + 2mm.
+  const dataEmissaoBoletim = (String(dados.assinatura_fornecedor?.data_hora ?? '').match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0]
+  doc.setFont('helvetica', 'bold')
+  doc.text('DATA DE EMISSÃO:', mX, y)
+  doc.text(dataEmissaoBoletim, mX + doc.getTextWidth('DATA DE EMISSÃO:') + 2, y)
+  y += 5
 
   // Valor Bruto (= valor da medição)
   linhaInfo('VALOR BRUTO', fmt(dados.valor_medido))
