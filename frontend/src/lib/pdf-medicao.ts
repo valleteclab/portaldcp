@@ -891,6 +891,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
         { content: '% Físico', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: '% Anterior', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: '% Medido', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
+        { content: 'Avanço Global', styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: 'Vl. Medido', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
       body: dados.etapas.map(e => [
@@ -899,6 +900,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
         { content: `${e.percentual_fisico.toFixed(1)}%`, styles: { halign: 'center' as const } },
         { content: `${e.percentual_executado_anterior.toFixed(1)}%`, styles: { halign: 'center' as const } },
         { content: `${e.percentual_executado_atual.toFixed(1)}%`, styles: { halign: 'center' as const } },
+        { content: `${((e.percentual_fisico * (e.percentual_executado_anterior + e.percentual_executado_atual)) / 100).toFixed(1)}%`, styles: { halign: 'center' as const, fontStyle: 'bold' as const } },
         { content: fmt(e.valor_medido), styles: { halign: 'right' as const } },
       ]),
       theme: 'grid',
