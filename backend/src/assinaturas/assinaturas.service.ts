@@ -246,13 +246,14 @@ export class AssinaturasService {
   async corrigirDataAssinaturasPorEntidade(
     entidadeId: string,
     entidadeTipo: EntidadeTipo,
-    novaDataAssinatura: Date,
+    novaDataAssinatura: Date | string,
   ): Promise<AssinaturaDigital[]> {
     const assinaturas = await this.buscarPorEntidade(entidadeId, entidadeTipo);
     if (assinaturas.length === 0) return [];
 
     assinaturas.forEach((assinatura) => {
-      assinatura.data_assinatura = novaDataAssinatura;
+      // String literal => Postgres grava o timestamp sem conversão de fuso.
+      assinatura.data_assinatura = novaDataAssinatura as any;
     });
 
     return this.assinaturaRepository.save(assinaturas);

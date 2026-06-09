@@ -1532,21 +1532,19 @@ Gestão de Contratos</p>`,
         throw new BadRequestException('Data/hora da assinatura deve estar no formato YYYY-MM-DDTHH:mm.');
       }
       const [, ano, mes, dia, hora, min, seg] = m;
-      // UTC = BRT + 3h => formatarDataHora() do PDF subtrai 3h e exibe a hora de Brasília.
-      const dataAssin = new Date(
-        Date.UTC(
-          Number(ano),
-          Number(mes) - 1,
-          Number(dia),
-          Number(hora) + 3,
-          Number(min),
-          Number(seg || '0'),
-        ),
+      // O PDF (formatarDataHora) interpreta o valor gravado como UTC e subtrai 3h para BRT.
+      // Logo, para exibir a hora de Brasília T, gravamos o "relógio" = T + 3h como STRING
+      // literal — o Postgres armazena timestamp-without-tz sem converter fuso (ao contrário
+      // de um objeto Date, que o TypeORM serializa em horário local, "comendo" os +3h).
+      const alvoUtc = new Date(
+        Date.UTC(Number(ano), Number(mes) - 1, Number(dia), Number(hora) + 3, Number(min), Number(seg || '0')),
       );
+      const p2 = (n: number) => String(n).padStart(2, '0');
+      const dataAssinStr = `${alvoUtc.getUTCFullYear()}-${p2(alvoUtc.getUTCMonth() + 1)}-${p2(alvoUtc.getUTCDate())} ${p2(alvoUtc.getUTCHours())}:${p2(alvoUtc.getUTCMinutes())}:${p2(alvoUtc.getUTCSeconds())}`;
       const corrigidas = await this.assinaturasService.corrigirDataAssinaturasPorEntidade(
         id,
         EntidadeTipo.ORDEM_FORNECIMENTO,
-        dataAssin,
+        dataAssinStr,
       );
       assinaturasCorrigidas = corrigidas.length;
       detalhes.data_assinatura_nova = dto.data_assinatura;
