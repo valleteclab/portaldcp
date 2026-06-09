@@ -481,6 +481,9 @@ export async function gerarBoletimMedicaoPdf(
   doc.text(dados.nota_fiscal_numero ? textoSeguro(dados.nota_fiscal_numero) : '-', nfX + 12, y);
   y += 5;
 
+  // Data de emissão = data em que o FORNECEDOR assinou (quadro de assinaturas). '-' se ainda não assinado.
+  linhaInfo('DATA DE EMISSÃO', (textoSeguro(dados.assinatura_fornecedor?.data_hora).match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0]);
+
   // Valor Bruto (= valor da medição)
   linhaInfo('VALOR BRUTO', fmtAr(dados.valor_medido));
 
