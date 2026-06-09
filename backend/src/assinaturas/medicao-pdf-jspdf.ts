@@ -273,7 +273,7 @@ function desenharQuadroAssinaturas(
         + numLinhasNome * 3.1
         + (a.cargo ? 2.8 : 0)
         + (a.identificacao ? 2.8 : 0)
-        + 2.8   // data/hora
+        + (a.dataHora ? 2.8 : 0)   // data/hora (omitida quando vazia)
         + 2.8   // assinatura válida
         + 2.5;  // padding inferior
     }
@@ -313,7 +313,7 @@ function desenharQuadroAssinaturas(
       doc.setTextColor(55, 65, 81);
       if (a.cargo) { doc.text(a.cargo, bx + 3, ly); ly += 2.8; }
       if (a.identificacao) { doc.text(a.identificacao, bx + 3, ly); ly += 2.8; }
-      doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 2.8;
+      if (a.dataHora) { doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 2.8; }
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(5.5);
@@ -1049,7 +1049,7 @@ export async function gerarBoletimMedicaoPdf(
           nome: aEng?.nome || '',
           identificacao: aEng?.cpf ? `CPF: ${aEng.cpf}` : '',
           cargo: aEng?.crea ? `CREA: ${aEng.crea}` : (aEng?.cargo || ''),
-          dataHora: aEng?.data_hora || '',
+          dataHora: '', // assinatura do engenheiro exibida sem data/hora
           pendente: !aEng,
           codigoValidacao: aEng?.codigo_validacao,
         }]
