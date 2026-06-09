@@ -5218,6 +5218,68 @@ export class MedicaoService {
     return mapa;
   }
 
+  /** Valor medido APROVADO por etapa (opcionalmente filtrado pelo ciclo atual via dataCorteCiclo). */
+  private async calcularValorAprovadoPorEtapa(
+    contratoId: string,
+    dataCorteCiclo?: Date | null,
+  ): Promise<Map<string, number>> {
+    const qb = this.itemMedicaoRepository
+      .createQueryBuilder('im')
+      .select('im.etapa_id', 'etapa_id')
+      .addSelect('COALESCE(SUM(im.valor_medido), 0)', 'total_valor')
+      .innerJoin('im.medicao', 'm')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
+      .groupBy('im.etapa_id');
+
+    if (dataCorteCiclo) {
+      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', { dataCorteCiclo });
+    }
+
+    const results = await qb.getRawMany<{ etapa_id: string; total_valor: string }>();
+    const mapa = new Map<string, number>();
+    for (const row of results) {
+      mapa.set(row.etapa_id, Number(row.total_valor));
+    }
+    return mapa;
+  }
+
+  /**
+   * Consumo (quantidade medida APROVADA) por item do cronograma considerando o
+   * CICLO ATUAL do contrato (reseta no novo período via data_renovacao_ciclo).
+   * Retorna null quando o contrato NÃO tem renovação de ciclo — nesse caso o
+   * chamador deve usar o quantidade_medida acumulado (padrão, sem regressão).
+   */
+  async getConsumoCicloPorItem(
+    contratoId: string,
+  ): Promise<Map<string, number> | null> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    const dataRenovacao = contrato
+      ? this.obterDataRenovacaoCiclo(contrato)
+      : null;
+    if (!dataRenovacao) return null;
+    return this.calcularQuantidadeAprovadaPorItem(contratoId, dataRenovacao);
+  }
+
+  /**
+   * Consumo (valor medido APROVADO) por etapa do cronograma considerando o
+   * CICLO ATUAL do contrato. Retorna null quando não há renovação de ciclo.
+   */
+  async getConsumoCicloPorEtapa(
+    contratoId: string,
+  ): Promise<Map<string, number> | null> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    const dataRenovacao = contrato
+      ? this.obterDataRenovacaoCiclo(contrato)
+      : null;
+    if (!dataRenovacao) return null;
+    return this.calcularValorAprovadoPorEtapa(contratoId, dataRenovacao);
+  }
+
   private async carregarValoresEmAnalisePorReferencia(
     contratoId: string,
     dataCorteCiclo: Date | null,

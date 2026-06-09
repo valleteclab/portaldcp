@@ -8,6 +8,7 @@ import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao
 import { ItemContrato } from './entities/item-contrato.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { Contrato, StatusContrato } from '../contratos/entities/contrato.entity';
+import { MedicaoService } from '../contratos/medicao.service';
 import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
 import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
 import { ItemContratoService } from './item-contrato.service';
@@ -85,6 +86,8 @@ export class RequisicaoService {
     private readonly geradorPdfService: GeradorPdfService,
     private readonly emailService: EmailService,
     private readonly whatsappService: WhatsAppService,
+    @Inject(forwardRef(() => MedicaoService))
+    private readonly medicaoService: MedicaoService,
   ) {}
 
   /** Soma quantidade_solicitada por item_cronograma de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
@@ -470,12 +473,15 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       if (dto.modo_os === 'ORDEM_DEMANDA' && dto.contrato_id) {
         if (dto.itens_os?.length) {
           const comprometidoPorItem = await this.somarQuantidadeComprometidaPorItemOS(dto.contrato_id);
+          // Consumo CIENTE DE CICLO (reseta no novo período via data_renovacao_ciclo).
+          // null => contrato sem renovação: usa o quantidade_medida acumulado (padrão).
+          const medidoCicloPorItem = await this.medicaoService.getConsumoCicloPorItem(dto.contrato_id);
           for (const io of dto.itens_os) {
             const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: io.item_cronograma_id } });
             if (!itemCron) throw new BadRequestException(`Item do cronograma ${io.item_cronograma_id} não encontrado`);
             if (itemCron.contrato_id !== dto.contrato_id) throw new BadRequestException(`Item não pertence ao contrato`);
             const qtdTotal = Number(itemCron.quantidade) * (Number(itemCron.quantidade_meses) || 1);
-            const medido = Number(itemCron.quantidade_medida || 0);
+            const medido = medidoCicloPorItem ? (medidoCicloPorItem.get(io.item_cronograma_id) || 0) : Number(itemCron.quantidade_medida || 0);
             const comprometido = comprometidoPorItem.get(io.item_cronograma_id) || 0;
             const saldo = qtdTotal - medido - comprometido;
             if (Number(io.quantidade_solicitada) > saldo + 0.0001) {
@@ -487,12 +493,14 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         }
         if (dto.etapas_os?.length) {
           const comprometidoPorEtapa = await this.somarValorComprometidoPorEtapaOS(dto.contrato_id);
+          // Valor executado CIENTE DE CICLO (null => sem renovação: usa valor_executado acumulado).
+          const execCicloPorEtapa = await this.medicaoService.getConsumoCicloPorEtapa(dto.contrato_id);
           for (const eo of dto.etapas_os) {
             const etapa = await this.etapaCronogramaRepository.findOne({ where: { id: eo.etapa_id } });
             if (!etapa) throw new BadRequestException(`Etapa ${eo.etapa_id} não encontrada`);
             if (etapa.contrato_id !== dto.contrato_id) throw new BadRequestException(`Etapa não pertence ao contrato`);
             const valorPrevisto = Number(etapa.valor_previsto);
-            const valorExecutado = Number(etapa.valor_executado || 0);
+            const valorExecutado = execCicloPorEtapa ? (execCicloPorEtapa.get(eo.etapa_id) || 0) : Number(etapa.valor_executado || 0);
             const comprometido = comprometidoPorEtapa.get(eo.etapa_id) || 0;
             const saldo = valorPrevisto - valorExecutado - comprometido;
             const valorSolicitado = Number(eo.valor_solicitado ?? 0);
@@ -2325,10 +2333,12 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         await this.requisicaoItemOSRepository.delete({ requisicao_id: id });
         if (Array.isArray(itens_os) && itens_os.length > 0) {
           const comprometido = await this.somarQuantidadeComprometidaPorItemOS(requisicao.contrato_id, id);
+          const medidoCicloPorItem = await this.medicaoService.getConsumoCicloPorItem(requisicao.contrato_id);
           for (const io of itens_os) {
             const itemCron = await this.itemCronogramaRepository.findOne({ where: { id: io.item_cronograma_id } });
             if (!itemCron || itemCron.contrato_id !== requisicao.contrato_id) continue;
-            const saldo = Number(itemCron.quantidade) * (Number(itemCron.quantidade_meses) || 1) - Number(itemCron.quantidade_medida || 0) - (comprometido.get(io.item_cronograma_id) || 0);
+            const medidoItem = medidoCicloPorItem ? (medidoCicloPorItem.get(io.item_cronograma_id) || 0) : Number(itemCron.quantidade_medida || 0);
+            const saldo = Number(itemCron.quantidade) * (Number(itemCron.quantidade_meses) || 1) - medidoItem - (comprometido.get(io.item_cronograma_id) || 0);
             if (Number(io.quantidade_solicitada) > saldo + 0.0001) throw new BadRequestException(`Item "${itemCron.descricao}" excede saldo (${saldo.toFixed(2)})`);
             await this.requisicaoItemOSRepository.save(this.requisicaoItemOSRepository.create({ requisicao_id: id, item_cronograma_id: io.item_cronograma_id, quantidade_solicitada: Number(io.quantidade_solicitada) }));
           }
@@ -2338,10 +2348,12 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         await this.requisicaoEtapaOSRepository.delete({ requisicao_id: id });
         if (Array.isArray(etapas_os) && etapas_os.length > 0) {
           const comprometido = await this.somarValorComprometidoPorEtapaOS(requisicao.contrato_id, id);
+          const execCicloPorEtapa = await this.medicaoService.getConsumoCicloPorEtapa(requisicao.contrato_id);
           for (const eo of etapas_os) {
             const etapa = await this.etapaCronogramaRepository.findOne({ where: { id: eo.etapa_id } });
             if (!etapa || etapa.contrato_id !== requisicao.contrato_id) continue;
-            const saldo = Number(etapa.valor_previsto) - Number(etapa.valor_executado || 0) - (comprometido.get(eo.etapa_id) || 0);
+            const execEtapa = execCicloPorEtapa ? (execCicloPorEtapa.get(eo.etapa_id) || 0) : Number(etapa.valor_executado || 0);
+            const saldo = Number(etapa.valor_previsto) - execEtapa - (comprometido.get(eo.etapa_id) || 0);
             const valor = Number(eo.valor_solicitado ?? 0);
             if (valor > saldo + 0.01) throw new BadRequestException(`Etapa "${etapa.descricao}" excede saldo (R$ ${saldo.toFixed(2)})`);
             await this.requisicaoEtapaOSRepository.save(this.requisicaoEtapaOSRepository.create({ requisicao_id: id, etapa_id: eo.etapa_id, percentual_solicitado: Number(eo.percentual_solicitado ?? 0), valor_solicitado: valor }));
