@@ -363,7 +363,8 @@ export class GeradorPdfService {
         doc.moveDown(0.5);
 
         // ── TÍTULO + NÚMERO ──────────────────────────────────────────────────
-        const titulo = ordem.tipo === 'SERVICO' ? 'ORDEM DE SERVIÇO' : 'ORDEM DE FORNECIMENTO';
+        // Este documento é sempre uma Ordem de Fornecimento (mesmo quando o tipo é SERVICO).
+        const titulo = 'ORDEM DE FORNECIMENTO';
         const numOF = ordem.numero || '';
         const tituloY = doc.y;
         doc.fontSize(14).font('Helvetica-Bold').fillColor('#111827')
