@@ -1307,7 +1307,7 @@ export default function DetalheContratoOrgaoPage() {
       <Tabs value={tabAtivo} onValueChange={setTabAtivo} className="space-y-6">
         <TabsList>
           <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
-          {(!contrato.modalidade_execucao || contrato.modalidade_execucao === 'ITEM_QUANTIDADE') && (
+          {(!contrato.modalidade_execucao || contrato.modalidade_execucao === 'ITEM_QUANTIDADE' || (contrato.itens?.length || 0) > 0) && (
             <TabsTrigger value="itens">Itens ({contrato.itens?.length || 0})</TabsTrigger>
           )}
           {['MEDICAO', 'CONTINUADO', 'LICENCA'].includes(contrato.modalidade_execucao || '') && (
