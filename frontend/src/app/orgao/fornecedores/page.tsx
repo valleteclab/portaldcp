@@ -121,6 +121,8 @@ export default function FornecedoresOrgaoPage() {
   const [modalReset, setModalReset] = useState(false)
   const [enviandoReset, setEnviandoReset] = useState(false)
   const [resetOk, setResetOk] = useState(false)
+  const [canalEmail, setCanalEmail] = useState(true)
+  const [canalWhats, setCanalWhats] = useState(false)
 
   // Modal WhatsApp
   const [modalWhatsApp, setModalWhatsApp] = useState(false)
@@ -189,16 +191,20 @@ export default function FornecedoresOrgaoPage() {
   const abrirReset = (f: FornecedorContrato) => {
     setSelecionado(f)
     setResetOk(false)
+    setCanalEmail(!!f.email)
+    setCanalWhats(!f.email && !!f.whatsapp)
     setModalReset(true)
   }
 
   const confirmarReset = async () => {
     if (!selecionado?.fornecedor_id) return
+    if (!canalEmail && !canalWhats) return
+    const canal = canalEmail && canalWhats ? "ambos" : canalWhats ? "whatsapp" : "email"
     setEnviandoReset(true)
     try {
       const res = await authFetch(
         `${API_URL}/api/fornecedores/${selecionado.fornecedor_id}/orgao/solicitar-reset`,
-        { method: "POST" }
+        { method: "POST", body: JSON.stringify({ canal }) }
       )
       if (res.ok) setResetOk(true)
     } finally {
@@ -638,20 +644,33 @@ export default function FornecedoresOrgaoPage() {
               <CheckCircle2 className="h-12 w-12 text-green-500" />
               <p className="text-center font-medium">Link enviado com sucesso!</p>
               <p className="text-sm text-muted-foreground text-center">
-                O fornecedor receberá um e-mail com o link para redefinir a senha. Válido por 24h.
+                O fornecedor receberá o link para redefinir a senha pelos canais selecionados. Válido por 24h.
               </p>
             </div>
           ) : (
             <div className="space-y-3">
               <p className="text-sm">
-                Será enviado um e-mail com link de redefinição de senha para{" "}
-                <span className="font-semibold">{selecionado?.razao_social}</span>.
+                Enviar link de redefinição de senha para{" "}
+                <span className="font-semibold">{selecionado?.razao_social}</span> por:
               </p>
               {selecionado?.email && (
-                <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-3 text-sm">
+                <label className="flex items-center gap-2 bg-slate-50 rounded-lg p-3 text-sm cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4 accent-slate-800" checked={canalEmail} onChange={(e) => setCanalEmail(e.target.checked)} />
                   <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span>{selecionado.email}</span>
-                </div>
+                  <span>E-mail: {selecionado.email}</span>
+                </label>
+              )}
+              {selecionado?.whatsapp && (
+                <label className="flex items-center gap-2 bg-slate-50 rounded-lg p-3 text-sm cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4 accent-green-600" checked={canalWhats} onChange={(e) => setCanalWhats(e.target.checked)} />
+                  <MessageCircle className="h-4 w-4 text-green-600" />
+                  <span>WhatsApp: {selecionado.whatsapp}</span>
+                </label>
+              )}
+              {!selecionado?.email && !selecionado?.whatsapp && (
+                <p className="text-xs text-red-600">
+                  Este fornecedor não tem e-mail nem WhatsApp cadastrado. Edite o cadastro para adicionar um contato.
+                </p>
               )}
               <p className="text-xs text-muted-foreground">
                 O link será válido por 24 horas. A senha atual permanece ativa até que o
@@ -667,7 +686,7 @@ export default function FornecedoresOrgaoPage() {
                 <Button variant="outline" onClick={() => setModalReset(false)}>
                   Cancelar
                 </Button>
-                <Button onClick={confirmarReset} disabled={enviandoReset}>
+                <Button onClick={confirmarReset} disabled={enviandoReset || (!canalEmail && !canalWhats)}>
                   {enviandoReset ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
