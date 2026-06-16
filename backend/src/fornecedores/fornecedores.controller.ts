@@ -441,13 +441,17 @@ export class FornecedoresController {
    * POST /api/fornecedores/:id/orgao/solicitar-reset
    */
   @Post(':id/orgao/solicitar-reset')
-  async solicitarResetPorOrgao(@Param('id') id: string, @Req() req: any) {
+  async solicitarResetPorOrgao(
+    @Param('id') id: string,
+    @Body() body: { canal?: 'email' | 'whatsapp' | 'ambos' },
+    @Req() req: any,
+  ) {
     const user = req.user as JwtPayload;
     if (user.type !== UserType.ORGAO && user.type !== UserType.USUARIO && user.type !== UserType.ADMIN) {
       throw new ForbiddenException('Acesso não autorizado');
     }
     const orgaoId = user.type === UserType.ORGAO ? user.sub : (user as any).orgaoId || (user as any).orgao_id;
-    return await this.fornecedoresService.solicitarResetPorOrgao(id, orgaoId);
+    return await this.fornecedoresService.solicitarResetPorOrgao(id, orgaoId, body?.canal || 'email');
   }
 
   /**

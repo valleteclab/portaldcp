@@ -1600,10 +1600,27 @@ export class FornecedoresService {
    * Solicita reset de senha pelo órgão — usa o e-mail do fornecedor cadastrado.
    * Seguro: envia apenas o link de reset, não expõe a senha.
    */
-  async solicitarResetPorOrgao(fornecedorId: string, orgaoId: string): Promise<{ message: string }> {
+  async solicitarResetPorOrgao(
+    fornecedorId: string,
+    orgaoId: string,
+    canal: 'email' | 'whatsapp' | 'ambos' = 'email',
+  ): Promise<{ message: string }> {
     const fornecedor = await this.findOne(fornecedorId);
-    if (!fornecedor.email) {
+    const enviarEmail = canal === 'email' || canal === 'ambos';
+    const enviarWhatsapp = canal === 'whatsapp' || canal === 'ambos';
+    // Mesmo número exibido na tela (getFornecedoresDoOrgao): representante_whatsapp || representante_telefone || telefone
+    const whatsapp = (
+      fornecedor.representante_whatsapp ||
+      fornecedor.representante_telefone ||
+      fornecedor.telefone ||
+      ''
+    ).replace(/\D/g, '');
+
+    if (enviarEmail && !fornecedor.email) {
       throw new BadRequestException('Fornecedor não possui e-mail cadastrado para reset de senha');
+    }
+    if (enviarWhatsapp && !whatsapp) {
+      throw new BadRequestException('Fornecedor não possui WhatsApp cadastrado para reset de senha');
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -1619,12 +1636,14 @@ export class FornecedoresService {
     await this.passwordResetTokenRepository.save(resetToken);
 
     const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/resetar-senha/${token}`;
+    const enviados: string[] = [];
 
-    try {
-      await this.emailService.enviar(orgaoId, {
-        to: fornecedor.email,
-        subject: 'Redefina sua senha — Portal DCP',
-        html: `
+    if (enviarEmail) {
+      try {
+        await this.emailService.enviar(orgaoId, {
+          to: fornecedor.email,
+          subject: 'Redefina sua senha — Portal DCP',
+          html: `
           <h2>Redefinição de Senha</h2>
           <p>Olá, ${fornecedor.razao_social || fornecedor.nome_fantasia},</p>
           <p>O órgão contratante solicitou a redefinição da sua senha no Portal DCP.</p>
@@ -1633,12 +1652,33 @@ export class FornecedoresService {
           <p>Este link é válido por 24 horas.</p>
           <p>Se você não reconhece esta solicitação, entre em contato com o órgão.</p>
         `,
-      });
-    } catch (error) {
-      console.error('Erro ao enviar e-mail de reset pelo órgão:', error);
+        });
+        enviados.push(`e-mail (${fornecedor.email})`);
+      } catch (error) {
+        console.error('Erro ao enviar e-mail de reset pelo órgão:', error);
+      }
     }
 
-    return { message: `Link de reset enviado para ${fornecedor.email}` };
+    if (enviarWhatsapp) {
+      try {
+        const mensagem =
+          `🔐 *Redefinição de Senha - Portal DCP*\n\n` +
+          `Olá, ${fornecedor.razao_social || fornecedor.nome_fantasia}!\n\n` +
+          `O órgão contratante solicitou a redefinição da sua senha.\n\n` +
+          `Clique no link para criar uma nova senha:\n${resetLink}\n\n` +
+          `⏰ Válido por 24 horas. A senha atual permanece ativa até você redefinir.`;
+        await this.whatsappService.enviar(orgaoId, { to: whatsapp, mensagem });
+        enviados.push(`WhatsApp (${whatsapp})`);
+      } catch (error) {
+        console.error('Erro ao enviar WhatsApp de reset pelo órgão:', error);
+      }
+    }
+
+    return {
+      message: enviados.length
+        ? `Link de reset enviado por ${enviados.join(' e ')}`
+        : 'Não foi possível enviar o link de reset',
+    };
   }
 
   /**
