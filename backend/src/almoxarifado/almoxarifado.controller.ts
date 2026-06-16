@@ -296,6 +296,19 @@ export class AlmoxarifadoController {
     return this.requisicaoService.getEstatisticas(orgaoId);
   }
 
+  /** Quantidade comprometida por item de cronograma (OS parciais ativas), para a tela de nova OS exibir o saldo real. Retorna { [item_cronograma_id]: quantidade }. */
+  @Get('requisicoes/comprometido-os/:contratoId')
+  async getComprometidoOS(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Query('excluirRequisicaoId') excluirRequisicaoId?: string,
+  ) {
+    const mapa = await this.requisicaoService.somarQuantidadeComprometidaPorItemOS(
+      contratoId,
+      excluirRequisicaoId,
+    );
+    return Object.fromEntries(mapa);
+  }
+
   @Get('requisicoes/:id')
   async getRequisicao(@Param('id', ParseUUIDPipe) id: string) {
     return this.requisicaoService.findOne(id);

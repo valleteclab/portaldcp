@@ -505,6 +505,8 @@ function NovaRequisicaoForm() {
 
   // OS com ItemCronograma (medição por itens): Ordem Global vs OS Parcial
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([]);
+  // Quantidade já comprometida por item (OS parciais ativas) — para o saldo exibido bater com a validação
+  const [comprometidoMap, setComprometidoMap] = useState<Record<string, number>>({});
   const [etapasOS, setEtapasOS] = useState<any[]>([]);
   const [carregandoCronograma, setCarregandoCronograma] = useState(false);
   const [modoOS, setModoOS] = useState<'ORDEM_GLOBAL' | 'ORDEM_DEMANDA' | null>(null);
@@ -970,19 +972,22 @@ function NovaRequisicaoForm() {
     const carregarCronograma = async () => {
       setCarregandoCronograma(true);
       try {
-        const [resItens, resEtapas] = await Promise.all([
+        const [resItens, resEtapas, resComp] = await Promise.all([
           authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/itens-cronograma`),
           authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/etapas`),
+          authFetch(`${API_URL}/api/almoxarifado/requisicoes/comprometido-os/${contratoSelecionado.id}`),
         ]);
         const itens: ItemCronograma[] = resItens.ok ? await resItens.json() : [];
         const etapas: any[] = resEtapas.ok ? await resEtapas.json() : [];
+        const comp: Record<string, number> = resComp.ok ? await resComp.json() : {};
         setItensCronograma(itens);
         setEtapasOS(etapas);
+        setComprometidoMap(comp);
         if (itens.length > 0) {
           setModoOS('ORDEM_GLOBAL');
           setItensOSDemanda(itens.map(i => ({
             item_cronograma_id: i.id,
-            quantidade_solicitada: Number(i.quantidade) * (i.quantidade_meses ?? 1) - Number(i.quantidade_medida),
+            quantidade_solicitada: Math.max(0, Number(i.quantidade) * (i.quantidade_meses ?? 1) - Number(i.quantidade_medida) - Number(comp[i.id] || 0)),
           })));
           setEtapasOSDemanda([]);
         } else if (etapas.length > 0) {
@@ -2619,7 +2624,8 @@ function NovaRequisicaoForm() {
                   </TableHeader>
                   <TableBody>
                     {itensCronograma.map((item) => {
-                      const saldo = Number(item.quantidade) * (item.quantidade_meses ?? 1) - Number(item.quantidade_medida);
+                      const comprometido = Number(comprometidoMap[item.id] || 0);
+                      const saldo = Math.max(0, Number(item.quantidade) * (item.quantidade_meses ?? 1) - Number(item.quantidade_medida) - comprometido);
                       const qtdContratada = item.quantidade_meses
                         ? Number(item.quantidade) * item.quantidade_meses
                         : Number(item.quantidade);

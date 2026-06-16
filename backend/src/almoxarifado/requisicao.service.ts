@@ -90,8 +90,8 @@ export class RequisicaoService {
     private readonly medicaoService: MedicaoService,
   ) {}
 
-  /** Soma quantidade_solicitada por item_cronograma de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
-  private async somarQuantidadeComprometidaPorItemOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+  /** Soma quantidade_solicitada por item_cronograma de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. Público para a tela de nova OS exibir o saldo já descontando o comprometido (mesma conta da validação). */
+  async somarQuantidadeComprometidaPorItemOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
     const statusMedicoesQueConsomemOS = [
       'SUBMETIDA',
       'AGUARDANDO_ATESTE',
