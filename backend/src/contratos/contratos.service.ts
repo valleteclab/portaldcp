@@ -1293,6 +1293,26 @@ export class ContratosService implements OnModuleInit {
       contrato.data_renovacao_ciclo = termo.data_assinatura as any;
       contrato.data_assinatura = termo.data_assinatura as any;
       contrato.data_vigencia_inicio = (termo.data_vigencia_inicio || termo.data_assinatura) as any;
+
+      // COMPRAS / ITEM_QUANTIDADE: o saldo dos itens (itens_contrato) não é cíclico
+      // (não há medição que o recalcule por ciclo, como em MEDICAO/CONTINUADO/LICENCA).
+      // Na renovação de ciclo, reseta o saldo dos itens para a quantidade contratada do
+      // novo ciclo (zera empenhada/entregue). O histórico de OFs/recebimentos é preservado.
+      if (!['MEDICAO', 'CONTINUADO', 'LICENCA'].includes((contrato.modalidade_execucao as any) || '')) {
+        await this.itemContratoRepository
+          .createQueryBuilder()
+          .update()
+          .set({
+            quantidade_empenhada: 0,
+            quantidade_entregue: 0,
+            saldo_disponivel: () => 'quantidade_contratada',
+          })
+          .where('contrato_id = :id', { id: contrato.id })
+          .execute();
+        this.logger.log(
+          `[renovacao_ciclo] Saldo dos itens do contrato ${contrato.numero_contrato} resetado para a quantidade contratada (novo ciclo).`,
+        );
+      }
     }
 
     // Aplicar alterações de valor (mesmo com renovação de ciclo — o novo valor global reflete o novo ciclo)
