@@ -6832,9 +6832,12 @@ export class MedicaoService {
             }
           }
 
-          const quantidadeMigracao =
-            unidadeMedida === 'MENSAL' &&
-            Number((item as any).valor_migracao_reais || 0) > 0
+          // Em contrato com renovação de ciclo, a migração (consumo de ciclos
+          // anteriores) NÃO entra no acumulado do novo ciclo — ele começa do zero.
+          const quantidadeMigracao = dataCorteCiclo
+            ? 0
+            : unidadeMedida === 'MENSAL' &&
+                Number((item as any).valor_migracao_reais || 0) > 0
               ? (Number(item.valor_unitario) || 0) > 0
                 ? Number((item as any).valor_migracao_reais || 0) /
                   Number(item.valor_unitario)
@@ -6846,9 +6849,10 @@ export class MedicaoService {
                   (Number(item.quantidade_medida) || 0) -
                     quantidadeAprovadaHistorica,
                 );
-          const centMigracao =
-            unidadeMedida === 'MENSAL' &&
-            Number((item as any).valor_migracao_reais || 0) > 0
+          const centMigracao = dataCorteCiclo
+            ? 0
+            : unidadeMedida === 'MENSAL' &&
+                Number((item as any).valor_migracao_reais || 0) > 0
               ? Math.round(
                   Number((item as any).valor_migracao_reais || 0) * 100,
                 )
