@@ -3446,6 +3446,10 @@ export class MedicaoService {
     const execucaoFinanceiraSnapshot = medicao.execucao_financeira as any;
     const usarSnapshotExecucao =
       medicao.status === StatusMedicao.APROVADA &&
+      // Contratos com renovação de ciclo: o snapshot pode ter sido salvo com o
+      // acumulado de TODOS os ciclos (não ciente de ciclo). Recalcula via
+      // calcularExecucaoFinanceiraFornecedor (que filtra pelo ciclo atual).
+      !contrato.data_renovacao_ciclo &&
       Array.isArray(execucaoFinanceiraSnapshot?.itens) &&
       execucaoFinanceiraSnapshot.itens.length > 0;
     const execucaoFinanceiraAtual = usarSnapshotExecucao
