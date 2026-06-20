@@ -3446,10 +3446,6 @@ export class MedicaoService {
     const execucaoFinanceiraSnapshot = medicao.execucao_financeira as any;
     const usarSnapshotExecucao =
       medicao.status === StatusMedicao.APROVADA &&
-      // Contratos com renovação de ciclo: o snapshot pode ter sido salvo com o
-      // acumulado de TODOS os ciclos (não ciente de ciclo). Recalcula via
-      // calcularExecucaoFinanceiraFornecedor (que filtra pelo ciclo atual).
-      !contrato.data_renovacao_ciclo &&
       Array.isArray(execucaoFinanceiraSnapshot?.itens) &&
       execucaoFinanceiraSnapshot.itens.length > 0;
     const execucaoFinanceiraAtual = usarSnapshotExecucao
@@ -6832,12 +6828,9 @@ export class MedicaoService {
             }
           }
 
-          // Em contrato com renovação de ciclo, a migração (consumo de ciclos
-          // anteriores) NÃO entra no acumulado do novo ciclo — ele começa do zero.
-          const quantidadeMigracao = dataCorteCiclo
-            ? 0
-            : unidadeMedida === 'MENSAL' &&
-                Number((item as any).valor_migracao_reais || 0) > 0
+          const quantidadeMigracao =
+            unidadeMedida === 'MENSAL' &&
+            Number((item as any).valor_migracao_reais || 0) > 0
               ? (Number(item.valor_unitario) || 0) > 0
                 ? Number((item as any).valor_migracao_reais || 0) /
                   Number(item.valor_unitario)
@@ -6849,10 +6842,9 @@ export class MedicaoService {
                   (Number(item.quantidade_medida) || 0) -
                     quantidadeAprovadaHistorica,
                 );
-          const centMigracao = dataCorteCiclo
-            ? 0
-            : unidadeMedida === 'MENSAL' &&
-                Number((item as any).valor_migracao_reais || 0) > 0
+          const centMigracao =
+            unidadeMedida === 'MENSAL' &&
+            Number((item as any).valor_migracao_reais || 0) > 0
               ? Math.round(
                   Number((item as any).valor_migracao_reais || 0) * 100,
                 )
@@ -7043,25 +7035,11 @@ export class MedicaoService {
         return Math.min(dias, 360);
       };
 
-      // Em contrato com renovação de ciclo, o tempo executado conta a partir da
-      // PRIMEIRA medição do ciclo (não da vigência do contrato), e a migração de
-      // tempo de ciclos anteriores é zerada — o novo ciclo começa do zero.
-      const inicioPrimeiraMedicaoCiclo =
-        dataCorteCiclo && medicoesAprovadas.length > 0
-          ? medicoesAprovadas
-              .map((m) => m.periodo_inicio)
-              .filter(Boolean)
-              .map((d) => new Date(d as any))
-              .sort((a, b) => a.getTime() - b.getTime())[0]
-          : null;
       const inicioAcumulado =
-        inicioPrimeiraMedicaoCiclo ??
-        (medicaoAtual?.periodo_inicio && !possuiMedicaoAnteriorNoCiclo
+        medicaoAtual?.periodo_inicio && !possuiMedicaoAnteriorNoCiclo
           ? new Date(medicaoAtual.periodo_inicio)
-          : vigenciaInicio);
-      const diasMigracaoTempo = dataCorteCiclo
-        ? 0
-        : !possuiMedicaoAnteriorNoCiclo
+          : vigenciaInicio;
+      const diasMigracaoTempo = !possuiMedicaoAnteriorNoCiclo
         ? itensCronograma
             .filter((item) => item.unidade_medida === 'MENSAL')
             .reduce((maxDias, item) => {
