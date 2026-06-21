@@ -6544,6 +6544,61 @@ export class MedicaoService {
   }
 
   /**
+   * Detecta um "buraco" (gap) entre o fim da última medição válida (ou o início
+   * da vigência, na primeira) e o início do novo período. Como o físico por
+   * tempo deriva do MEDIDO, um intervalo sem medição NÃO é contado como
+   * executado — o operador/fornecedor precisa estar ciente. Retorna a mensagem
+   * de aviso (markdown) ou null quando não há gap relevante (> 2 dias).
+   */
+  async detectarGapMedicao(
+    contratoId: string,
+    periodoInicio: string | Date,
+    ignorarMedicaoId?: string | null,
+  ): Promise<string | null> {
+    if (!periodoInicio) return null;
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    if (!contrato) return null;
+    const toUtc = (s: string | Date) =>
+      new Date(String(s).slice(0, 10) + 'T00:00:00Z');
+    const inicio = toUtc(periodoInicio);
+    const statusInvalidos = ['REJEITADA', 'REPROVADA', 'CANCELADA', 'RASCUNHO'];
+    const medicoes = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId },
+    });
+    const fins = medicoes
+      .filter(
+        (m) =>
+          m.id !== ignorarMedicaoId &&
+          m.periodo_fim &&
+          !statusInvalidos.includes(String(m.status || '').toUpperCase()),
+      )
+      .map((m) => toUtc(m.periodo_fim as any).getTime());
+    let referencia: Date | null = null;
+    if (fins.length > 0) {
+      referencia = new Date(Math.max(...fins));
+      referencia.setUTCDate(referencia.getUTCDate() + 1);
+    } else if (contrato.data_vigencia_inicio) {
+      referencia = toUtc(contrato.data_vigencia_inicio as any);
+    }
+    if (!referencia) return null;
+    const diffDias = Math.round(
+      (inicio.getTime() - referencia.getTime()) / 86400000,
+    );
+    if (diffDias <= 2) return null;
+    const fmt = (d: Date) =>
+      `${String(d.getUTCDate()).padStart(2, '0')}/${String(
+        d.getUTCMonth() + 1,
+      ).padStart(2, '0')}/${d.getUTCFullYear()}`;
+    return (
+      `⚠️ **Atenção:** existe um intervalo SEM medição entre ${fmt(referencia)} e ` +
+      `${fmt(inicio)} (${diffDias} dias). Esse período NÃO será contado como ` +
+      `executado no boletim. Confirme que o serviço realmente não foi prestado nesse intervalo.`
+    );
+  }
+
+  /**
    * Notifica o fornecedor quando o fiscal corrige uma discriminação.
    */
   private async notificarCorrecaoDiscriminacao(

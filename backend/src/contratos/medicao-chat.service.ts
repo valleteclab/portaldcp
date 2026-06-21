@@ -2044,6 +2044,27 @@ export class MedicaoChatService {
       }
     }
 
+    // Aviso de "gap": se o período foi (re)definido neste turno e pula um
+    // intervalo sem medição, anexar o alerta APÓS o LLM conversacional para que
+    // ele não seja omitido na reescrita.
+    if (
+      resultado.handled &&
+      draft.periodo_inicio &&
+      (draftAntes as any)?.periodo_inicio !== draft.periodo_inicio
+    ) {
+      const avisoGap = await this.medicaoService.detectarGapMedicao(
+        contrato.id,
+        draft.periodo_inicio,
+        session.medicao_id,
+      );
+      if (
+        avisoGap &&
+        !String(resultado.resposta || '').includes('intervalo SEM medição')
+      ) {
+        resultado.resposta = `${resultado.resposta || ''}\n\n${avisoGap}`.trim();
+      }
+    }
+
     return {
       ...resultado,
       plano_agente: {
