@@ -1086,6 +1086,45 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  // Detecta "buraco" entre o fim da última medição (ou início da vigência) e o
+  // início do novo período. Esse intervalo não é contado como executado no
+  // boletim (o físico deriva do medido), então o fornecedor deve confirmar que
+  // realmente não houve serviço no intervalo. Retorna a mensagem ou null.
+  const verificarGapMedicao = (): string | null => {
+    if (!novaMedicao.periodo_inicio) return null;
+    const toDate = (s: string) => new Date(String(s).slice(0, 10) + 'T00:00:00Z');
+    const inicio = toDate(novaMedicao.periodo_inicio);
+    const validas = medicoes.filter(
+      (m) =>
+        m.periodo_fim &&
+        !['REJEITADA', 'REPROVADA', 'CANCELADA', 'RASCUNHO'].includes(
+          (m.status || '').toUpperCase(),
+        ),
+    );
+    let referencia: Date | null = null;
+    if (validas.length > 0) {
+      const ultimoFim = validas
+        .map((m) => toDate(m.periodo_fim as string).getTime())
+        .reduce((a, b) => Math.max(a, b), 0);
+      referencia = new Date(ultimoFim);
+      referencia.setUTCDate(referencia.getUTCDate() + 1);
+    } else if (contrato?.data_vigencia_inicio) {
+      referencia = toDate(contrato.data_vigencia_inicio as string);
+    }
+    if (!referencia) return null;
+    const diffDias = Math.round((inicio.getTime() - referencia.getTime()) / 86400000);
+    if (diffDias > 2) {
+      const refStr = referencia.toISOString().slice(0, 10);
+      return (
+        `Existe um intervalo SEM medição entre ${formatarData(refStr)} e ` +
+        `${formatarData(novaMedicao.periodo_inicio)} (${diffDias} dias).\n\n` +
+        `Esse período NÃO será contado como executado no boletim. Confirme que o ` +
+        `serviço realmente não foi prestado nesse intervalo.\n\nDeseja continuar mesmo assim?`
+      );
+    }
+    return null;
+  };
+
   const handleCriarMedicao = async () => {
     if (!fornecedor) return;
     setSubmitting(true);
@@ -1105,6 +1144,13 @@ export default function FornecedorContratoDetalhePage() {
           setSubmitting(false);
           return;
         }
+      }
+
+      // Aviso de "gap": período que pula um intervalo sem medição (não conta como executado)
+      const gapMsg = verificarGapMedicao();
+      if (gapMsg && !window.confirm(gapMsg)) {
+        setSubmitting(false);
+        return;
       }
 
       const payload: any = {
@@ -1242,6 +1288,13 @@ export default function FornecedorContratoDetalhePage() {
           setSubmitting(false);
           return;
         }
+      }
+
+      // Aviso de "gap": período que pula um intervalo sem medição (não conta como executado)
+      const gapMsg = verificarGapMedicao();
+      if (gapMsg && !window.confirm(gapMsg)) {
+        setSubmitting(false);
+        return;
       }
 
       const payload: any = {
