@@ -6987,85 +6987,28 @@ export class MedicaoService {
     let execucaoFiscal: any = null;
     if (!boletimPorQuantidade && vigenciaInicio && vigenciaFim) {
       // Para execução temporal, usar data final da medição atual se existir, senão data atual
-      let dataReferencia = new Date();
-
-      // Se temos uma medição, usar o período_fim dela como referência
-      if (medicaoAtual && medicaoAtual.periodo_fim) {
-        dataReferencia = new Date(medicaoAtual.periodo_fim);
-        console.log('Usando data da medição:', dataReferencia.toISOString());
-      } else {
-        console.log(
-          'Usando data atual do servidor:',
-          dataReferencia.toISOString(),
-        );
-      }
-
       // Para ano comercial: total sempre 360 dias para contratos anuais
       const totalDias = 360;
 
-      // Calcular dias executados usando ano comercial (360 dias).
-      // Regra: dia 31 (e fev 29/28) = dia 30 — clipa dia2 ANTES de subtrair.
-      const calcularDiasComercial = (inicio: Date, fim: Date): number => {
-        const ano1 = inicio.getUTCFullYear();
-        const mes1 = inicio.getUTCMonth();
-        const dia1 = inicio.getUTCDate();
-
-        const ano2 = fim.getUTCFullYear();
-        const mes2 = fim.getUTCMonth();
-        const dia2 = fim.getUTCDate();
-
-        // No calendário comercial o mês tem sempre 30 dias: clipa dia2 a 30
-        const dia2Com = this.diaFimComercialUtc(ano2, mes2, dia2);
-
-        let dias = 0;
-
-        if (ano1 === ano2 && mes1 === mes2) {
-          dias = dia2Com - dia1 + 1;
-        } else {
-          const diasPrimeiroMes = Math.min(30 - dia1 + 1, 30);
-
-          let mesesCompletos = 0;
-          if (ano2 > ano1 || mes2 > mes1 + 1) {
-            mesesCompletos = (ano2 - ano1) * 12 + (mes2 - mes1 - 1);
-          }
-
-          dias = diasPrimeiroMes + mesesCompletos * 30 + dia2Com;
-        }
-
-        return Math.min(dias, 360);
-      };
-
-      const inicioAcumulado =
-        medicaoAtual?.periodo_inicio && !possuiMedicaoAnteriorNoCiclo
-          ? new Date(medicaoAtual.periodo_inicio)
-          : vigenciaInicio;
-      const diasMigracaoTempo = !possuiMedicaoAnteriorNoCiclo
-        ? itensCronograma
-            .filter((item) => item.unidade_medida === 'MENSAL')
-            .reduce((maxDias, item) => {
-              if (
-                possuiMedicaoAprovadaPosteriorReferencia &&
-                !(Number(item.valor_migracao_reais || 0) > 0)
-              ) {
-                return maxDias;
-              }
-              const valorUnit =
-                Number(item.valor_unitario) || Number(item.valor_mensal) || 0;
-              const mesesMigracao = Number(item.quantidade_medida || 0);
-              const mesesPeloValor =
-                Number(item.valor_migracao_reais || 0) > 0 && valorUnit > 0
-                  ? Number(item.valor_migracao_reais || 0) / valorUnit
-                  : mesesMigracao;
-              return Math.max(
-                maxDias,
-                Math.max(0, Math.round(mesesPeloValor * 30)),
-              );
-            }, 0)
-        : 0;
+      // Físico por TEMPO reflete o MEDIDO (soma das medições + migração), não o
+      // calendário corrido entre vigência e período. Caso contrário um mês
+      // "pulado" (sem medição) infla o executado (ex.: 004/2025 — maio sem
+      // medição mostrava 4m19d em vez de 3m19d). O financeiro (ate_periodo) já
+      // soma apenas as medições reais do ciclo e inclui a migração, então
+      // derivamos os dias da fração executada do financeiro (executado/previsto).
+      const totalAteCentFiscal = resultado.reduce(
+        (s, r) => s + Math.round((Number(r.ate_periodo) || 0) * 100),
+        0,
+      );
+      const totalPrevCentFiscal = resultado.reduce(
+        (s, r) => s + Math.round((Number(r.valor_previsto) || 0) * 100),
+        0,
+      );
+      const fracaoExecutada =
+        totalPrevCentFiscal > 0 ? totalAteCentFiscal / totalPrevCentFiscal : 0;
       const diasExecutados = Math.min(
         360,
-        calcularDiasComercial(inicioAcumulado, dataReferencia) +
-          diasMigracaoTempo,
+        Math.max(0, Math.round(fracaoExecutada * 360)),
       );
       const diasRestantes = Math.max(0, totalDias - diasExecutados);
 
@@ -7334,74 +7277,27 @@ export class MedicaoService {
     let execucaoFiscal: any = null;
     if (vigenciaInicio && vigenciaFim) {
       // Para execução temporal, usar data final da medição atual se existir, senão data atual
-      let dataReferencia = new Date();
-
-      // Se temos uma medição, usar o período_fim dela como referência
-      if (medicaoAtual && medicaoAtual.periodo_fim) {
-        dataReferencia = new Date(medicaoAtual.periodo_fim);
-        console.log('Usando data da medição:', dataReferencia.toISOString());
-      } else {
-        console.log(
-          'Usando data atual do servidor:',
-          dataReferencia.toISOString(),
-        );
-      }
-
       // Para ano comercial: total sempre 360 dias para contratos anuais
       const totalDias = 360;
 
-      // Calcular dias executados usando ano comercial com UTC para evitar timezone issues
-      let diasExecutados = 0;
-
-      const inicioAcumulado =
-        medicaoAtual?.periodo_inicio && !possuiMedicaoAnteriorNoCiclo
-          ? new Date(medicaoAtual.periodo_inicio)
-          : vigenciaInicio;
-
-      if (dataReferencia >= inicioAcumulado) {
-        const dataFimExecucao =
-          dataReferencia > vigenciaFim ? vigenciaFim : dataReferencia;
-
-        // Usar métodos UTC para evitar problemas de timezone
-        const anoInicio = inicioAcumulado.getUTCFullYear();
-        const mesInicio = inicioAcumulado.getUTCMonth();
-        const diaInicio = inicioAcumulado.getUTCDate();
-
-        const anoFim = dataFimExecucao.getUTCFullYear();
-        const mesFim = dataFimExecucao.getUTCMonth();
-        const diaFim = dataFimExecucao.getUTCDate();
-
-        // Se mesmo mês
-        if (anoInicio === anoFim && mesInicio === mesFim) {
-          const diaFimCom = this.diaFimComercialUtc(anoFim, mesFim, diaFim);
-          diasExecutados = diaFimCom - diaInicio + 1;
-        } else {
-          // Dias no primeiro mês (ano comercial)
-          const diasPrimeiroMes = Math.min(30 - diaInicio + 1, 30);
-
-          // Meses completos no meio
-          let mesesCompletos = 0;
-          if (anoFim > anoInicio || mesFim > mesInicio + 1) {
-            mesesCompletos =
-              (anoFim - anoInicio) * 12 + (mesFim - mesInicio - 1);
-          }
-
-          // Dias no último mês (ano comercial)
-          const diasUltimoMes = this.diaFimComercialUtc(
-            anoFim,
-            mesFim,
-            diaFim,
-          );
-
-          diasExecutados =
-            diasPrimeiroMes + mesesCompletos * 30 + diasUltimoMes;
-        }
-
-        // Limitar a 360 dias
-        diasExecutados = Math.min(diasExecutados, 360);
-      }
-
-      const diasRestantes = 360 - diasExecutados;
+      // Físico por TEMPO reflete o MEDIDO (financeiro), não o calendário corrido,
+      // para que um mês "pulado" (sem medição) não infle o executado. Mesma regra
+      // da gêmea calcularExecucaoFinanceiraFornecedor.
+      const totalAteCentFiscal = resultado.reduce(
+        (s, r) => s + Math.round((Number(r.ate_periodo) || 0) * 100),
+        0,
+      );
+      const totalPrevCentFiscal = resultado.reduce(
+        (s, r) => s + Math.round((Number(r.valor_previsto) || 0) * 100),
+        0,
+      );
+      const fracaoExecutada =
+        totalPrevCentFiscal > 0 ? totalAteCentFiscal / totalPrevCentFiscal : 0;
+      const diasExecutados = Math.min(
+        360,
+        Math.max(0, Math.round(fracaoExecutada * 360)),
+      );
+      const diasRestantes = Math.max(0, totalDias - diasExecutados);
 
       // Usar ano comercial: 12 meses de 30 dias = 360 dias
       execucaoFiscal = {
