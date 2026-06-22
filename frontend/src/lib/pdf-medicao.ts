@@ -93,6 +93,8 @@ export interface DadosMedicaoPdf {
   nota_fiscal_valor?: number
   /** Quando true, Execução Fiscal exibe quantidades (un, h, m) em vez de dias */
   execucao_fiscal_por_quantidade?: boolean
+  /** Quando true, o campo "Período" exibe a competência gravada em vez do intervalo de datas */
+  boletim_periodo_competencia?: boolean
   // Execução fiscal (calculada no backend com ano comercial)
   execucao_fiscal?: {
     vigencia_inicio: string;
@@ -557,7 +559,12 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   doc.setFont('helvetica', 'bold')
   doc.text('PERÍODO:', mX, y)
   doc.setFont('helvetica', 'bold')
-  doc.text(`${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`, infoX2, y)
+  // Quando a flag do contrato está ligada, o campo Período exibe a competência gravada
+  const textoPeriodo =
+    dados.boletim_periodo_competencia && dados.competencia
+      ? dados.competencia
+      : `${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`
+  doc.text(textoPeriodo, infoX2, y)
   const nfX = W / 2
   doc.setFont('helvetica', 'bold')
   doc.text('Nº NF:', nfX, y)

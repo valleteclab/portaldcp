@@ -275,6 +275,10 @@ export class Contrato {
   @Column({ default: false })
   boletim_por_quantidade: boolean;
 
+  /** Quando true, o campo "Período" do boletim exibe a competência gravada da medição em vez do intervalo de datas */
+  @Column({ default: false })
+  boletim_periodo_competencia: boolean;
+
   /** Quando false, os valores calculados (valor_mensal, valor_total) são truncados em vez de arredondados */
   @Column({ default: true })
   arredondar_calculo: boolean;
