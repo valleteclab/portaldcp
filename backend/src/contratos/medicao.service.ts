@@ -3908,6 +3908,9 @@ export class MedicaoService {
       periodo_inicio: medicao.periodo_inicio || '',
       periodo_fim: medicao.periodo_fim || '',
       competencia: (medicao as any).competencia || undefined,
+      // Quando true (flag do contrato), o campo "Período" do boletim mostra a competência gravada
+      boletim_periodo_competencia: !!(contrato as any)
+        .boletim_periodo_competencia,
       // Usa o total recomputado dos itens (produtoQuantidadeValorUnitarioCentavos) quando há itens,
       // evitando que o DECIMAL(15,2) do banco (que arredonda) apareça errado no PDF.
       valor_medido:

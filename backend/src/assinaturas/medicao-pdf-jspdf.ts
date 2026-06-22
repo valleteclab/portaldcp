@@ -475,7 +475,12 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFont('helvetica', 'bold');
   doc.text('PERÍODO:', mX, y);
   doc.setFont('helvetica', 'bold');
-  doc.text(`${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`, infoX2, y);
+  // Quando a flag do contrato está ligada, o campo Período exibe a competência gravada
+  const textoPeriodo =
+    dados.boletim_periodo_competencia && dados.competencia
+      ? textoSeguro(dados.competencia)
+      : `${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`;
+  doc.text(textoPeriodo, infoX2, y);
   const nfX = W / 2;
   doc.setFont('helvetica', 'bold');
   doc.text('Nº NF:', nfX, y);
