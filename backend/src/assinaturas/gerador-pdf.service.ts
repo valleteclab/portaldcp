@@ -829,7 +829,7 @@ export class GeradorPdfService {
     return nome;
   }
 
-  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; itemCronograma?: { numero_item?: number; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true): void {
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; descricao_avulso?: string | null; quantidade_avulso?: number | null; valor_unitario_avulso?: number | null; valor_total_avulso?: number | null; itemCronograma?: { numero_item?: number; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true): void {
     const pageWidth = doc.page.width - 100;
     const colNum   = pageWidth * 0.05;
     const colDesc  = pageWidth * 0.39;
@@ -863,13 +863,17 @@ export class GeradorPdfService {
 
     for (const item of itensOS) {
       const ic  = item.itemCronograma || {};
-      const desc = ic.descricao || '-';
-      const unid = ic.unidade_medida || '-';
-      const qtd  = Number(item.quantidade_solicitada);
-      const vlUnit = Number(ic.valor_unitario ?? 0);
+      // Item avulso (não vinculado ao cronograma): usa os campos *_avulso
+      const isAvulso = !item.itemCronograma && !!item.descricao_avulso;
+      const desc = isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-');
+      const unid = isAvulso ? '-' : (ic.unidade_medida || '-');
+      const qtd  = isAvulso ? Number(item.quantidade_avulso ?? 0) : Number(item.quantidade_solicitada);
+      const vlUnit = isAvulso ? Number(item.valor_unitario_avulso ?? 0) : Number(ic.valor_unitario ?? 0);
       const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
-      // total: use qtd (already incorporates meses_solicitados × qty_per_period) × vlUnit
-      const total  = item.total_override !== undefined ? item.total_override : ap(qtd * vlUnit);
+      // total: avulso usa valor_total_avulso; cronograma usa qtd × vlUnit (qtd já inclui meses × qty/período)
+      const total  = isAvulso
+        ? Number(item.valor_total_avulso ?? 0)
+        : (item.total_override !== undefined ? item.total_override : ap(qtd * vlUnit));
       totalGeral  += total;
 
       doc.fontSize(8);
