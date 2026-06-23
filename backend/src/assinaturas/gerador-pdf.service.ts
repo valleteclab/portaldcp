@@ -889,7 +889,7 @@ export class GeradorPdfService {
       doc.text(desc,  x1 + 3, rowY, { width: colDesc - 6 });
       doc.text(unid,  x2, rowY, { width: colUnid,  align: 'center' });
       doc.text(
-        qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }),
+        qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
         x3, rowY, { width: colQtd, align: 'right' }
       );
       doc.text(
