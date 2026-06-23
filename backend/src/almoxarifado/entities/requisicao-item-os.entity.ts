@@ -44,7 +44,9 @@ export class RequisicaoItemOS {
   @Column({ nullable: true })
   item_cronograma_id: string | null;
 
-  @Column({ type: 'decimal', precision: 15, scale: 4 })
+  // scale 6: permite representar frações exatas (ex.: funcionário parcial na OS
+  // de mão de obra) de forma que quantidade × valor_unitário feche nos centavos.
+  @Column({ type: 'decimal', precision: 15, scale: 6 })
   quantidade_solicitada: number;
 
   @Column({ type: 'int', nullable: true, default: null })
