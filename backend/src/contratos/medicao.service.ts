@@ -5191,7 +5191,13 @@ export class MedicaoService {
       qb.andWhere('m.id != :excludeId', { excludeId: excludeMedicaoId });
     }
     if (dataCorteCiclo) {
-      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', { dataCorteCiclo });
+      // Comparar como data 'YYYY-MM-DD' (UTC). Passar o objeto Date direto fazia
+      // o driver aplicar o fuso (-3h), recuando o corte em 1 dia e incluindo
+      // medições do dia anterior no ciclo (ex.: corte 02/06 incluía a de 01/06).
+      const corteIso = dataCorteCiclo.toISOString().slice(0, 10);
+      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', {
+        dataCorteCiclo: corteIso,
+      });
     }
 
     const results = await qb.getRawMany<{
@@ -5220,7 +5226,13 @@ export class MedicaoService {
       .groupBy('imi.item_cronograma_id');
 
     if (dataCorteCiclo) {
-      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', { dataCorteCiclo });
+      // Comparar como data 'YYYY-MM-DD' (UTC). Passar o objeto Date direto fazia
+      // o driver aplicar o fuso (-3h), recuando o corte em 1 dia e incluindo
+      // medições do dia anterior no ciclo (ex.: corte 02/06 incluía a de 01/06).
+      const corteIso = dataCorteCiclo.toISOString().slice(0, 10);
+      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', {
+        dataCorteCiclo: corteIso,
+      });
     }
 
     const results = await qb.getRawMany<{
@@ -5250,7 +5262,13 @@ export class MedicaoService {
       .groupBy('im.etapa_id');
 
     if (dataCorteCiclo) {
-      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', { dataCorteCiclo });
+      // Comparar como data 'YYYY-MM-DD' (UTC). Passar o objeto Date direto fazia
+      // o driver aplicar o fuso (-3h), recuando o corte em 1 dia e incluindo
+      // medições do dia anterior no ciclo (ex.: corte 02/06 incluía a de 01/06).
+      const corteIso = dataCorteCiclo.toISOString().slice(0, 10);
+      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', {
+        dataCorteCiclo: corteIso,
+      });
     }
 
     const results = await qb.getRawMany<{ etapa_id: string; total_valor: string }>();
