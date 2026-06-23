@@ -3629,9 +3629,17 @@ export class MedicaoService {
               truncarMoedaReais2Casas(Number(efItem.valor_previsto || 0)) * 100,
             )
           : produtoQuantidadeValorUnitarioCentavos(qtdTotal, vlrUnitario);
-        // Para não-MENSAL: usa qtd_restante×vu (evita floor(total)-floor(ate) ≠ floor(total-ate))
-        const centAExecutar =
-          (item.item_unidade || '') === 'MENSAL'
+        // Com snapshot (medição aprovada) usa o a_executar já calculado — senão a
+        // fórmula por quantidade dupla-contava o período em itens aprovados, pois
+        // ic.quantidade_medida já inclui a quantidade da própria medição.
+        // Sem snapshot e não-MENSAL: usa qtd_restante×vu (evita floor(total)-floor(ate) ≠ floor(total-ate)).
+        const centAExecutar = efItem
+          ? Math.round(
+              truncarMoedaReais2Casas(
+                Number(efItem.a_executar_global ?? efItem.a_executar ?? 0),
+              ) * 100,
+            )
+          : (item.item_unidade || '') === 'MENSAL'
             ? Math.max(0, centTotal - centAte)
             : produtoQuantidadeValorUnitarioCentavos(
                 Math.max(
