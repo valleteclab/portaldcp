@@ -487,6 +487,16 @@ export default function TabMedicao({
     (item) => !!item.frequencia_execucao,
   );
 
+  // Contrato recorrente/mensal: itens com quantidade_meses > 1 (ex.: postos por mês × meses).
+  // Nesses, a tela mostra a coluna "Meses", o Valor Total do contrato (qtd × valor unit. × meses)
+  // e o Medido sobre o total contratado — evita o "Medido 40 vs Quantidade 8" confuso.
+  const exibirMesesCronograma =
+    !exibirColunasFrequenciaCronograma &&
+    itensCronograma.some(
+      (item) =>
+        Number(item.quantidade_meses) > 1 && item.unidade_medida !== "MENSAL",
+    );
+
   // Verificar se o usuário logado tem permissão de excluir medições
   const [podeExcluirMedicao, setPodeExcluirMedicao] = useState(false);
   useEffect(() => {
@@ -3073,6 +3083,9 @@ export default function TabMedicao({
                         </TableHead>
                       )}
                       <TableHead className="text-right">Quantidade</TableHead>
+                      {exibirMesesCronograma && (
+                        <TableHead className="text-center">Meses</TableHead>
+                      )}
                       <TableHead className="text-right">Valor Unit.</TableHead>
                       {exibirColunasFrequenciaCronograma && (
                         <TableHead className="text-right">Nº exec.</TableHead>
@@ -3108,7 +3121,21 @@ export default function TabMedicao({
                           )}
                           <TableCell className="text-right whitespace-nowrap">
                             {Number(i.quantidade).toLocaleString("pt-BR")}
+                            {exibirMesesCronograma &&
+                              Number(i.quantidade_meses) > 1 && (
+                                <span className="text-[11px] text-gray-400">
+                                  {" "}
+                                  /mês
+                                </span>
+                              )}
                           </TableCell>
+                          {exibirMesesCronograma && (
+                            <TableCell className="text-center whitespace-nowrap">
+                              {Number(i.quantidade_meses) > 1
+                                ? i.quantidade_meses
+                                : "-"}
+                            </TableCell>
+                          )}
                           <TableCell className="text-right whitespace-nowrap">
                             {formatarMoeda(i.valor_unitario)}
                           </TableCell>
@@ -3130,7 +3157,27 @@ export default function TabMedicao({
                             </TableCell>
                           )}
                           <TableCell className="text-right font-medium whitespace-nowrap">
-                            {formatarMoeda(i.valor_total)}
+                            {Number(i.quantidade_meses) > 1 &&
+                            i.unidade_medida !== "MENSAL" ? (
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>
+                                  {formatarMoeda(
+                                    Number(i.quantidade) *
+                                      Number(i.valor_unitario) *
+                                      Number(i.quantidade_meses),
+                                  )}
+                                </span>
+                                <span className="text-[11px] font-normal text-gray-400">
+                                  {formatarMoeda(
+                                    Number(i.quantidade) *
+                                      Number(i.valor_unitario),
+                                  )}
+                                  /mês
+                                </span>
+                              </div>
+                            ) : (
+                              formatarMoeda(i.valor_total)
+                            )}
                           </TableCell>
                           <TableCell className="text-center whitespace-nowrap">
                             {isAdmin ? (
@@ -3140,7 +3187,12 @@ export default function TabMedicao({
                                     type="number"
                                     step="0.01"
                                     min="0"
-                                    max={Number(i.quantidade) || 0}
+                                    max={
+                                      (Number(i.quantidade) || 0) *
+                                      (Number(i.quantidade_meses) > 1
+                                        ? Number(i.quantidade_meses)
+                                        : 1)
+                                    }
                                     value={editandoMedidoValor}
                                     onChange={(e) =>
                                       setEditandoMedidoValor(e.target.value)
@@ -3179,6 +3231,13 @@ export default function TabMedicao({
                                   {Number(i.quantidade_medida).toLocaleString(
                                     "pt-BR",
                                   )}
+                                  {exibirMesesCronograma &&
+                                  Number(i.quantidade_meses) > 1
+                                    ? ` / ${(
+                                        Number(i.quantidade) *
+                                        Number(i.quantidade_meses)
+                                      ).toLocaleString("pt-BR")}`
+                                    : ""}
                                 </button>
                               )
                             ) : (
@@ -3186,6 +3245,13 @@ export default function TabMedicao({
                                 {Number(i.quantidade_medida).toLocaleString(
                                   "pt-BR",
                                 )}
+                                {exibirMesesCronograma &&
+                                Number(i.quantidade_meses) > 1
+                                  ? ` / ${(
+                                      Number(i.quantidade) *
+                                      Number(i.quantidade_meses)
+                                    ).toLocaleString("pt-BR")}`
+                                  : ""}
                               </span>
                             )}
                           </TableCell>
