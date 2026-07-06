@@ -1,7 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from './entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from './entities/evento-sessao.entity';
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
@@ -1648,12 +1647,20 @@ export class SessaoService {
   }
 
   // ========================================
-  // CRON JOB - VERIFICACAO AUTOMATICA POR ITEM
-  // Lei 14.133/2021 - Tempo de inatividade e tempo aleatório
+  // CRON JOB - VERIFICACAO AUTOMATICA POR ITEM  [DESATIVADO]
   // ========================================
-
-  @Cron(CronExpression.EVERY_10_SECONDS)
+  // ⚠️ Dono único do tempo de disputa: DisputaTimerService (disputa-v2, @Cron EVERY_SECOND).
+  // Este cron implementava um modelo DIFERENTE de encerramento (inatividade →
+  // TEMPO_ALEATORIO → sorteio), que rodava em paralelo ao timer do disputa-v2
+  // (prorrogação automática → encerramento direto) sobre os MESMOS itens EM_DISPUTA,
+  // causando encerramento não-determinístico. O @Cron foi removido para deixar um
+  // único dono do tempo (Fase 0 do plano de licitação). O método é preservado
+  // (sem agendamento) para referência do modelo de tempo aleatório.
   async verificarItensEmDisputa(): Promise<void> {
+    if (process.env.SESSAO_CRON_TEMPO_ALEATORIO !== 'true') {
+      // Desativado por padrão. O DisputaTimerService (disputa-v2) governa o tempo.
+      return;
+    }
     try {
       // Busca todos os itens em disputa ou em tempo aleatório
       const itensEmDisputa = await this.itemRepository.find({
