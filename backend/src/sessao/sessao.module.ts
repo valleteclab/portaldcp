@@ -3,7 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SessaoDisputa } from './entities/sessao-disputa.entity';
 import { EventoSessao } from './entities/evento-sessao.entity';
+import { RecursoAdministrativo } from './entities/recurso-administrativo.entity';
 import { SessaoService } from './sessao.service';
+import { RecursosService } from './recursos.service';
 import { SessaoController } from './sessao.controller';
 import { SessaoGateway } from './sessao.gateway';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
@@ -18,6 +20,7 @@ import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-li
     TypeOrmModule.forFeature([
       SessaoDisputa,
       EventoSessao,
+      RecursoAdministrativo,
       Licitacao,
       ItemLicitacao,
       Lance,
@@ -28,7 +31,7 @@ import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-li
     ParametrosLicitacaoModule,
   ],
   controllers: [SessaoController],
-  providers: [SessaoService, SessaoGateway],
-  exports: [SessaoService],
+  providers: [SessaoService, RecursosService, SessaoGateway],
+  exports: [SessaoService, RecursosService],
 })
 export class SessaoModule {}

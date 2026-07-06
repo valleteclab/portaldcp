@@ -24,6 +24,8 @@ import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { useDisputaV3 } from '@/hooks/useDisputaV3'
 import { DisputaV3Stepper } from '@/components/disputa-v3/disputa-v3-stepper'
+import { RecursosPanel } from '@/components/disputa-v3/RecursosPanel'
+import { HomologacaoPanel } from '@/components/disputa-v3/HomologacaoPanel'
 import {
   formatarMoeda,
   formatarTempo,
@@ -1010,7 +1012,9 @@ export default function DisputaV3OrgaoPage() {
                   ) : isIntencaoAtiva ? (
                     /* =============================================
                        PAINEL DE INTENÇÃO DE RECURSO (Art. 165)
+                       + gestão de recursos formais (razões/contrarrazões/decisão)
                        ============================================= */
+                    <div className="space-y-4">
                     <Card>
                       <CardHeader className="border-b bg-amber-50">
                         <CardTitle className="flex items-center gap-2 text-amber-800">
@@ -1074,6 +1078,10 @@ export default function DisputaV3OrgaoPage() {
                         </Button>
                       </CardContent>
                     </Card>
+                    {sessaoId && <RecursosPanel sessaoId={sessaoId} />}
+                    </div>
+                  ) : etapaCodigo === 'HOMOLOGACAO' ? (
+                    sessaoId ? <HomologacaoPanel sessaoId={sessaoId} /> : null
                   ) : isAdjudicacaoAtiva ? (
                     /* =============================================
                        PAINEL DE ADJUDICAÇÃO (Art. 71)

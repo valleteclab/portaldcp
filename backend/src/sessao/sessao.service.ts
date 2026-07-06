@@ -965,6 +965,8 @@ export class SessaoService {
     const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
     if (!sessao) return false;
 
+    const licitacao = await this.licitacaoRepository.findOneBy({ id: sessao.licitacao_id });
+
     // Busca os dois melhores lances
     const lances = await this.lanceRepository.find({
       where: { licitacao_id: sessao.licitacao_id, cancelado: false },
@@ -977,12 +979,20 @@ export class SessaoService {
     const melhorLance = Number(lances[0].valor);
     const segundoLance = Number(lances[1].valor);
 
-    // Empate ficto: ate 5% de diferenca para ME/EPP
+    // Margem de empate ficto parametrizada (LC 123, art. 44):
+    // pregão/eletrônico até 5%; demais modalidades até 10%.
+    const parametros = await this.parametrosService.resolver(licitacao?.orgao_id);
+    const modalidade = String(licitacao?.modalidade || '');
+    const isPregao = modalidade.includes('PREGAO');
+    const limite = isPregao
+      ? Number(parametros.percentual_empate_ficto_pregao)
+      : Number(parametros.percentual_empate_ficto_demais);
+
     const diferenca = ((segundoLance - melhorLance) / melhorLance) * 100;
 
-    if (diferenca <= 5) {
+    if (diferenca <= limite) {
       await this.registrarEvento(sessao.id, TipoEvento.EMPATE_FICTO_DETECTADO,
-        `Empate ficto detectado. Diferenca de ${diferenca.toFixed(2)}% entre os melhores lances`,
+        `Empate ficto detectado. Diferenca de ${diferenca.toFixed(2)}% (limite ${limite}%) entre os melhores lances`,
         itemId, undefined, 'SISTEMA', true);
       return true;
     }
@@ -1000,6 +1010,70 @@ export class SessaoService {
     await this.registrarEvento(sessao.id, TipoEvento.LANCE_MPE_SOLICITADO,
       `ME/EPP convocada para exercer direito de preferencia. Prazo: 5 minutos`,
       sessao.item_atual_id, fornecedorId, 'SISTEMA', true);
+  }
+
+  /**
+   * ME/EPP exerce o direito de preferência: registra novo lance (menor que o
+   * 1º colocado) e passa a ser vencedora do item (LC 123, art. 45, I).
+   */
+  async aceitarLanceMPE(
+    sessaoId: string,
+    fornecedorId: string,
+    itemId: string,
+    novoValor: number,
+  ): Promise<void> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    // Melhor lance atual do item (1º colocado a ser superado)
+    const melhorLance = await this.lanceRepository.findOne({
+      where: { item_id: itemId, licitacao_id: sessao.licitacao_id, cancelado: false },
+      order: { valor: 'ASC' },
+    });
+    if (melhorLance && novoValor >= Number(melhorLance.valor)) {
+      throw new BadRequestException(
+        `O lance da ME/EPP deve ser MENOR que o melhor lance atual (R$ ${Number(melhorLance.valor).toFixed(2)})`,
+      );
+    }
+
+    // Registra o lance de desempate da ME/EPP
+    const lance = this.lanceRepository.create({
+      licitacao_id: sessao.licitacao_id,
+      item_id: itemId,
+      fornecedor_id: fornecedorId,
+      fornecedor_identificador: fornecedorId,
+      valor: novoValor,
+    });
+    await this.lanceRepository.save(lance);
+
+    // Atualiza o melhor lance do item
+    await this.itemRepository.update(itemId, {
+      melhor_lance_valor: novoValor,
+      melhor_lance_fornecedor_id: fornecedorId,
+      ultimo_lance_em: new Date(),
+    });
+
+    await this.registrarEvento(sessao.id, TipoEvento.LANCE_MPE_REGISTRADO,
+      `ME/EPP exerceu o direito de preferencia com lance de R$ ${novoValor.toFixed(2)} (LC 123, art. 45)`,
+      itemId, fornecedorId, fornecedorId, false, { valor: novoValor });
+  }
+
+  /**
+   * ME/EPP não exerce a preferência (ou expira o prazo). O item segue com o
+   * 1º colocado original; convoca-se a próxima ME/EPP elegível se houver
+   * (tratado pelo pregoeiro na sequência).
+   */
+  async recusarLanceMPE(
+    sessaoId: string,
+    fornecedorId: string,
+    itemId: string,
+  ): Promise<void> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    await this.registrarEvento(sessao.id, TipoEvento.LANCE_MPE_NAO_REGISTRADO,
+      `ME/EPP nao exerceu o direito de preferencia. Mantido o 1o colocado original.`,
+      itemId, fornecedorId, fornecedorId, false);
   }
 
   // ========================================
@@ -1358,7 +1432,7 @@ export class SessaoService {
     // Itens da licitação
     const itens = await this.itemRepository.find({
       where: { licitacao_id: sessao.licitacao_id },
-      order: { numero: 'ASC' },
+      order: { numero_item: 'ASC' },
     });
 
     // Para cada item, busca o melhor lance
@@ -1385,10 +1459,10 @@ export class SessaoService {
 
         return {
           itemId: item.id,
-          numero: item.numero,
-          descricao: item.descricao,
+          numero: item.numero_item,
+          descricao: item.descricao_resumida ?? item.descricao_detalhada,
           quantidade: item.quantidade,
-          unidade: item.unidade,
+          unidade: item.unidade_medida,
           vencedor,
         };
       })
@@ -1409,7 +1483,7 @@ export class SessaoService {
 
     const itens = await this.itemRepository.find({
       where: { licitacao_id: sessao.licitacao_id },
-      order: { numero: 'ASC' },
+      order: { numero_item: 'ASC' },
     });
 
     let totalAdjudicados = 0;
@@ -1420,7 +1494,7 @@ export class SessaoService {
       });
       if (melhorLance) {
         await this.registrarEvento(sessao.id, TipoEvento.ITEM_ADJUDICADO,
-          `Item ${item.numero} adjudicado ao fornecedor ${melhorLance.fornecedor_id} por R$ ${Number(melhorLance.valor).toFixed(2)}`,
+          `Item ${item.numero_item} adjudicado ao fornecedor ${melhorLance.fornecedor_id} por R$ ${Number(melhorLance.valor).toFixed(2)}`,
           item.id, melhorLance.fornecedor_id, sessao.pregoeiro_nome, true,
           { valor: Number(melhorLance.valor) });
         totalAdjudicados++;
@@ -1438,6 +1512,82 @@ export class SessaoService {
 
     // Sync licitacao.fase → ADJUDICACAO
     await this.licitacaoRepository.update(sessao.licitacao_id, { fase: FaseLicitacao.ADJUDICACAO });
+  }
+
+  // ========================================
+  // HOMOLOGAÇÃO (Art. 71, Lei 14.133/2021)
+  // ========================================
+
+  /**
+   * Homologação do resultado pela autoridade competente (Art. 71).
+   * Ato final que confirma a adjudicação: fixa o vencedor e o valor homologado
+   * de cada item, atualiza a licitação (fase HOMOLOGACAO + valor_homologado) e
+   * encerra a sessão. Só pode ocorrer após a adjudicação.
+   */
+  async homologar(
+    sessaoId: string,
+    autoridade: { nome?: string; cargo?: string },
+  ): Promise<{ totalHomologado: number; valorTotal: number }> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+
+    if (sessao.etapa !== EtapaSessao.HOMOLOGACAO && sessao.etapa !== EtapaSessao.ADJUDICACAO) {
+      throw new BadRequestException(
+        'A homologação só pode ocorrer após a adjudicação do resultado (Art. 71).',
+      );
+    }
+
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: sessao.licitacao_id },
+      order: { numero_item: 'ASC' },
+    });
+
+    let totalHomologado = 0;
+    let valorTotal = 0;
+    for (const item of itens) {
+      const melhorLance = await this.lanceRepository.findOne({
+        where: { item_id: item.id, licitacao_id: sessao.licitacao_id, cancelado: false },
+        order: { valor: 'ASC' },
+      });
+      if (!melhorLance) continue;
+
+      const valor = Number(melhorLance.valor);
+      const proposta = await this.propostaRepository.findOne({
+        where: { licitacao_id: sessao.licitacao_id, fornecedor_id: melhorLance.fornecedor_id },
+        relations: ['fornecedor'],
+      });
+      const qtd = Number(item.quantidade) || 1;
+
+      await this.itemRepository.update(item.id, {
+        valor_unitario_homologado: valor,
+        valor_total_homologado: valor * qtd,
+        fornecedor_vencedor_id: melhorLance.fornecedor_id,
+        fornecedor_vencedor_nome: proposta?.fornecedor?.razao_social ?? undefined,
+      });
+      totalHomologado++;
+      valorTotal += valor * qtd;
+    }
+
+    // Atualiza a licitação: fase HOMOLOGACAO + valor homologado + data
+    await this.licitacaoRepository.update(sessao.licitacao_id, {
+      fase: FaseLicitacao.HOMOLOGACAO,
+      valor_homologado: valorTotal,
+      data_homologacao: new Date(),
+    });
+
+    // Encerra a sessão
+    sessao.etapa = EtapaSessao.ENCERRAMENTO;
+    sessao.status = StatusSessao.ENCERRADA;
+    sessao.data_hora_encerramento = new Date();
+    await this.sessaoRepository.save(sessao);
+
+    await this.registrarEvento(sessao.id, TipoEvento.LICITACAO_HOMOLOGADA,
+      `Resultado HOMOLOGADO pela autoridade competente${autoridade.nome ? ` (${autoridade.nome}${autoridade.cargo ? ` — ${autoridade.cargo}` : ''})` : ''}. ` +
+      `${totalHomologado} item(ns), valor total R$ ${valorTotal.toFixed(2)} (Art. 71, Lei 14.133/2021).`,
+      undefined, undefined, autoridade.nome || sessao.pregoeiro_nome, false,
+      { totalHomologado, valorTotal, autoridade });
+
+    return { totalHomologado, valorTotal };
   }
 
   async suspenderSessao(sessaoId: string, motivo: string): Promise<SessaoDisputa> {
