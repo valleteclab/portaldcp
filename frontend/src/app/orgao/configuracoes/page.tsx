@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Loader2,
   FolderTree,
+  GitBranch,
   Plus,
   Pencil,
   Trash2
@@ -464,15 +465,26 @@ export default function ConfiguracoesPage() {
           <h1 className="text-2xl font-bold text-slate-800">Configuracoes</h1>
           <p className="text-muted-foreground">Gerencie as configuracoes do orgao</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => router.push('/orgao/configuracoes/modelos-documento')}
-        >
-          <FolderTree className="h-4 w-4" />
-          Modelos de documento
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push('/orgao/configuracoes/modelos-documento')}
+          >
+            <FolderTree className="h-4 w-4" />
+            Modelos de documento
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push('/orgao/configuracoes/fluxos-aprovacao')}
+          >
+            <GitBranch className="h-4 w-4" />
+            Fluxos de aprovação
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
