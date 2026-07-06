@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { API_URL, authFetch } from "@/lib/api";
+import { TramitacaoProcessoCard } from "@/components/fase-interna/TramitacaoProcessoCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -541,6 +542,8 @@ export default function ProcessoDetailPage({
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [contexto, setContexto] = useState<ContextoLicitacao | null>(null);
   const [loading, setLoading] = useState(true);
+  const [abaAtiva, setAbaAtiva] = useState("visao-geral");
+  const [abrirEncaminhar, setAbrirEncaminhar] = useState(false);
 
   useEffect(() => {
     carregar();
@@ -673,6 +676,10 @@ export default function ProcessoDetailPage({
           <Button
             size="sm"
             className="bg-[#1351b4] hover:bg-[#0c326f] text-white gap-1.5"
+            onClick={() => {
+              setAbaAtiva("tramitacao");
+              setAbrirEncaminhar(true);
+            }}
           >
             <ArrowRight className="w-3.5 h-3.5" />
             Encaminhar
@@ -681,13 +688,13 @@ export default function ProcessoDetailPage({
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="visao-geral">
+      <Tabs value={abaAtiva} onValueChange={setAbaAtiva}>
         <TabsList className="border-b border-gray-200 bg-transparent rounded-none p-0 h-auto gap-0 mb-6 w-full justify-start">
           {[
             { key: "visao-geral", label: "Visão geral" },
             { key: "documentos", label: "Documentos (8)" },
-            { key: "comentarios", label: "Comentários (4)" },
-            { key: "historico", label: "Histórico" },
+            { key: "tramitacao", label: "Tramitação" },
+            { key: "comentarios", label: "Comentários" },
             { key: "permissoes", label: "Permissões" },
           ].map((tab) => (
             <TabsTrigger
@@ -948,14 +955,16 @@ export default function ProcessoDetailPage({
             })}
           </div>
         </TabsContent>
+        <TabsContent value="tramitacao">
+          <TramitacaoProcessoCard
+            licitacaoId={id}
+            abrirEncaminharExterno={abrirEncaminhar}
+            onEncaminharFechado={() => setAbrirEncaminhar(false)}
+          />
+        </TabsContent>
         <TabsContent value="comentarios">
           <div className="py-16 text-center text-gray-400 text-sm">
             Aba de comentários em desenvolvimento.
-          </div>
-        </TabsContent>
-        <TabsContent value="historico">
-          <div className="py-16 text-center text-gray-400 text-sm">
-            Histórico de tramitação em desenvolvimento.
           </div>
         </TabsContent>
         <TabsContent value="permissoes">

@@ -77,6 +77,10 @@ export enum TipoNotificacao {
   // Dossiê Fiscal
   DOSSIE_FISCAL_DISPONIVEL = 'DOSSIE_FISCAL_DISPONIVEL',
 
+  // Fase interna (processo eletrônico)
+  PROCESSO_TRAMITADO = 'PROCESSO_TRAMITADO',
+  DOCUMENTO_AGUARDANDO_APROVACAO = 'DOCUMENTO_AGUARDANDO_APROVACAO',
+
   // Geral
   SISTEMA = 'SISTEMA',
   ALERTA = 'ALERTA',
