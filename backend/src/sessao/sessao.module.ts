@@ -11,6 +11,7 @@ import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { Lance } from '../lances/entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
+import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PropostaItem } from '../propostas/entities/proposta-item.entity';
       PropostaItem,
     ]),
     ScheduleModule.forRoot(),
+    ParametrosLicitacaoModule,
   ],
   controllers: [SessaoController],
   providers: [SessaoService, SessaoGateway],

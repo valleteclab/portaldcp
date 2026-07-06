@@ -1,5 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { JwtPayload, UserType } from '../auth/auth.service';
+import { AuditLogEntity } from './entities/audit-log.entity';
 
 export enum AuditAction {
   // Autenticação
@@ -53,8 +56,16 @@ export interface AuditLog {
 export class AuditService {
   private readonly logger = new Logger('AUDIT');
 
+  constructor(
+    @Optional()
+    @InjectRepository(AuditLogEntity)
+    private readonly auditRepo?: Repository<AuditLogEntity>,
+  ) {}
+
   /**
-   * Registra uma ação de auditoria
+   * Registra uma ação de auditoria.
+   * Assinatura síncrona (fire-and-forget) para não exigir await nos chamadores;
+   * a persistência em banco acontece em background e nunca derruba a operação.
    */
   log(
     action: AuditAction,
@@ -62,6 +73,7 @@ export class AuditService {
     options?: {
       resourceType?: string;
       resourceId?: string;
+      orgaoId?: string;
       ip?: string;
       userAgent?: string;
       details?: Record<string, any>;
@@ -86,15 +98,66 @@ export class AuditService {
 
     // Log estruturado para análise
     const logMessage = this.formatLogMessage(auditLog);
-    
+
     if (auditLog.success) {
       this.logger.log(logMessage);
     } else {
       this.logger.warn(logMessage);
     }
 
-    // TODO: Em produção, salvar no banco de dados ou enviar para serviço de logs
-    // await this.auditRepository.save(auditLog);
+    // Persistência em banco (append-only). Fire-and-forget: falha não propaga.
+    if (this.auditRepo) {
+      const registro = this.auditRepo.create({
+        action,
+        user_id: user?.sub,
+        user_type: user?.type,
+        user_email: user?.email,
+        orgao_id: options?.orgaoId ?? user?.orgaoId,
+        resource_type: options?.resourceType,
+        resource_id: options?.resourceId,
+        ip: options?.ip,
+        user_agent: options?.userAgent,
+        details: options?.details,
+        success: auditLog.success,
+        error_message: options?.errorMessage,
+      });
+      this.auditRepo
+        .save(registro)
+        .catch((e) =>
+          this.logger.error(`Falha ao persistir auditoria: ${e.message}`),
+        );
+    }
+  }
+
+  /**
+   * Consulta paginada da trilha de auditoria.
+   */
+  async listar(filtro: {
+    orgaoId?: string;
+    action?: string;
+    resourceType?: string;
+    resourceId?: string;
+    userId?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ itens: AuditLogEntity[]; total: number }> {
+    if (!this.auditRepo) return { itens: [], total: 0 };
+    const page = Math.max(1, filtro.page || 1);
+    const limit = Math.min(200, filtro.limit || 50);
+    const qb = this.auditRepo
+      .createQueryBuilder('a')
+      .orderBy('a.created_at', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+    if (filtro.orgaoId) qb.andWhere('a.orgao_id = :o', { o: filtro.orgaoId });
+    if (filtro.action) qb.andWhere('a.action = :a', { a: filtro.action });
+    if (filtro.resourceType)
+      qb.andWhere('a.resource_type = :rt', { rt: filtro.resourceType });
+    if (filtro.resourceId)
+      qb.andWhere('a.resource_id = :ri', { ri: filtro.resourceId });
+    if (filtro.userId) qb.andWhere('a.user_id = :u', { u: filtro.userId });
+    const [itens, total] = await qb.getManyAndCount();
+    return { itens, total };
   }
 
   /**

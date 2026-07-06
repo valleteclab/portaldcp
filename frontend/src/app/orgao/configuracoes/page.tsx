@@ -484,6 +484,15 @@ export default function ConfiguracoesPage() {
             <GitBranch className="h-4 w-4" />
             Fluxos de aprovação
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push('/orgao/configuracoes/parametros-licitacao')}
+          >
+            <Settings className="h-4 w-4" />
+            Parâmetros de licitação
+          </Button>
         </div>
       </div>
 
