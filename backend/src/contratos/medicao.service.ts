@@ -3919,6 +3919,7 @@ export class MedicaoService {
       // Quando true (flag do contrato), o campo "Período" do boletim mostra a competência gravada
       boletim_periodo_competencia: !!(contrato as any)
         .boletim_periodo_competencia,
+      boletim_data_emissao: medicao.boletim_data_emissao || undefined,
       // Usa o total recomputado dos itens (produtoQuantidadeValorUnitarioCentavos) quando há itens,
       // evitando que o DECIMAL(15,2) do banco (que arredonda) apareça errado no PDF.
       valor_medido:
@@ -6377,6 +6378,7 @@ export class MedicaoService {
       nota_fiscal_numero?: string;
       nota_fiscal_valor?: number | null;
       nota_fiscal_data?: string | null;
+      data_emissao?: string | null;
       objeto_contrato?: string;
     },
     fiscalId: string,
@@ -6422,6 +6424,10 @@ export class MedicaoService {
     if (dados.nota_fiscal_data !== undefined)
       updates.nota_fiscal_data = dados.nota_fiscal_data
         ? (dados.nota_fiscal_data.slice(0, 10) as any)
+        : null;
+    if (dados.data_emissao !== undefined)
+      updates.boletim_data_emissao = dados.data_emissao
+        ? (dados.data_emissao.slice(0, 10) as any)
         : null;
     // Limpa o PDF para forçar regeneração
     updates.boletim_pdf_url = null;

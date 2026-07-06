@@ -172,6 +172,7 @@ interface Medicao {
   nota_fiscal_numero?: string;
   nota_fiscal_valor?: number;
   nota_fiscal_data?: string;
+  boletim_data_emissao?: string | null;
   data_submissao?: string;
   ateste_fiscal_nome?: string;
   ateste_data?: string;
@@ -539,6 +540,7 @@ export default function TabMedicao({
     nota_fiscal_numero: "",
     nota_fiscal_valor: "",
     nota_fiscal_data: "",
+    data_emissao: "",
     objeto_contrato: "",
   });
   const [discCorrigir, setDiscCorrigir] = useState<
@@ -786,6 +788,9 @@ export default function TabMedicao({
       nota_fiscal_data: m.nota_fiscal_data
         ? m.nota_fiscal_data.slice(0, 10)
         : "",
+      data_emissao: m.boletim_data_emissao
+        ? m.boletim_data_emissao.slice(0, 10)
+        : "",
       objeto_contrato: contratoProp?.objeto ?? "",
     });
     // Itens cronograma (cópia editável)
@@ -999,6 +1004,11 @@ export default function TabMedicao({
         (modalCorrigir.nota_fiscal_data?.slice(0, 10) ?? "")
       )
         body.nota_fiscal_data = cabecalhoForm.nota_fiscal_data || null;
+      if (
+        cabecalhoForm.data_emissao !==
+        (modalCorrigir.boletim_data_emissao?.slice(0, 10) ?? "")
+      )
+        body.data_emissao = cabecalhoForm.data_emissao || null;
       if (cabecalhoForm.objeto_contrato !== (contratoProp?.objeto ?? ""))
         body.objeto_contrato = cabecalhoForm.objeto_contrato;
       if (Object.keys(body).length === 0) {
@@ -8015,6 +8025,23 @@ export default function TabMedicao({
                         }))
                       }
                     />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Data de Emissão</Label>
+                    <Input
+                      type="date"
+                      value={cabecalhoForm.data_emissao}
+                      onChange={(e) =>
+                        setCabecalhoForm((f) => ({
+                          ...f,
+                          data_emissao: e.target.value,
+                        }))
+                      }
+                    />
+                    <p className="text-[11px] text-gray-400">
+                      Se vazio, o boletim usa a data da assinatura do
+                      fornecedor.
+                    </p>
                   </div>
                 </div>
                 <div className="flex justify-end">

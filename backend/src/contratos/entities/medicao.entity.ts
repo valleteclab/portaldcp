@@ -246,6 +246,9 @@ export class Medicao {
   @Column({ type: 'text', nullable: true })
   boletim_pdf_url: string; // URL/caminho do PDF do boletim assinado digitalmente
 
+  @Column({ type: 'date', nullable: true })
+  boletim_data_emissao?: string | null; // Override da DATA DE EMISSÃO do boletim (padrão: data da assinatura do fornecedor)
+
   // ============ ENVIO PARA CONTABILIDADE ============
 
   @Column({ name: 'enviado_contabilidade', type: 'boolean', default: false })
