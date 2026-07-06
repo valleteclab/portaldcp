@@ -96,11 +96,11 @@ Publicações no PNCP (edital+itens ao publicar, retificações, resultado por i
 ## 5. Roadmap
 
 ### Fase 0 — Fundações de confiança (pré-requisito para tudo)
-1. Gerar migrations do schema atual e **desligar `synchronize` em produção**.
-2. Persistir auditoria em banco (tabela `audit_logs`), plugando os atos de sessão/licitação já emitidos.
-3. Testes do motor: registrar lance (5 validações + concorrência), timer/prorrogação, transições de fase da sessão. Meta: core de disputa coberto.
-4. Tabelas `parametros_licitacao` + `limites_legais`, migrando os defaults atuais; resolver a inconsistência 10min×30min da intenção de recurso.
-5. Unificar dono do tempo: mover o que resta de timer do `sessao.service` para `disputa-v2` (ou vice-versa — um só).
+1. ⏳ Gerar migrations do schema atual e **desligar `synchronize` em produção**. — *lever `DB_SYNCHRONIZE` por env já entregue (PR fase0-fundacoes); falta gerar as migrations para poder pôr `false` em produção.*
+2. ✅ Persistir auditoria em banco (tabela `audit_logs`), plugando os atos de sessão/licitação já emitidos. — *entregue: `AuditLogEntity` + `AuditService` persiste (fire-and-forget) + `GET /audit/logs`.*
+3. ⏳ Testes do motor: registrar lance (5 validações + concorrência), timer/prorrogação, transições de fase da sessão. Meta: core de disputa coberto. — *pendente.*
+4. ✅ Tabelas `parametros_licitacao` + `limites_legais`, migrando os defaults atuais; resolver a inconsistência 10min×30min da intenção de recurso. — *entregue: entidades + service (resolve órgão→sistema) + seed + tela de config; sessão herda os tempos. Intenção de recurso agora é parâmetro único (`prazo_intencao_recurso_minutos`, default 10).*
+5. ⏳ Unificar dono do tempo: mover o que resta de timer do `sessao.service` para `disputa-v2` (ou vice-versa — um só). — *pendente.*
 
 **Critério de saída**: rodar uma disputa simulada completa em homologação sem tocar em código para configurar prazos.
 
