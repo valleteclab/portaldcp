@@ -185,8 +185,8 @@ export class FatorTransparenciaService {
       }
 
       // Chave composta: numero_liquidacao se repete entre anos (reseta a cada exercício),
-      // então usamos data + fase + valor + nº para diferenciar
-      const chave = `${e.data}|${e.fase_tipo}|${e.numero_liquidacao || idx}|${e.valor}`;
+      // então usamos empenho + data + fase + valor + nº para diferenciar
+      const chave = `${e.numero_empenho}|${e.data}|${e.fase_tipo}|${e.numero_liquidacao || idx}|${e.valor}`;
       if (vistos.has(chave)) return false;
       vistos.add(chave);
       return true;
@@ -263,6 +263,154 @@ export class FatorTransparenciaService {
   }
 
   private parsearHtml(html: string): EmpenhoFator[] {
+    // Novo formato do portal (desde ~jun/2026): uma linha agregada por empenho
+    const novoFormato = this.parsearHtmlNovoFormato(html);
+    if (novoFormato.length > 0) return novoFormato;
+
+    // Fallback: formato antigo (uma linha por fase da despesa)
+    return this.parsearHtmlFormatoAntigo(html);
+  }
+
+  /**
+   * Novo formato do portal Fator: cada <tr data-dialog-id> é um EMPENHO com
+   * valores agregados (Vl. Empenhado / Vl. Liquidado / Vl. Pago) e o dialog
+   * traz as liquidações e pagamentos detalhados por subempenho.
+   *
+   * Sintetiza registros no mesmo contrato de dados do formato antigo:
+   * um EmpenhoFator de fase EMPENHO por linha + um de fase LIQUIDACAO/PAGAMENTO
+   * por item das sub-tabelas do dialog.
+   */
+  private parsearHtmlNovoFormato(html: string): EmpenhoFator[] {
+    const resultados: EmpenhoFator[] = [];
+
+    // Linha com 8 <td>: data, nº empenho, tipo, credor, empenhado, liquidado, pago, dialog_N
+    const rowPattern =
+      /<tr data-dialog-id='\d+'[^>]*>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(dialog_\d+)<\/td>\s*<\/tr>/gs;
+
+    const dialogsBrutos = this.extrairDialogsBrutos(html);
+
+    let match: RegExpExecArray | null;
+    while ((match = rowPattern.exec(html)) !== null) {
+      const [, data, numeroEmpenhoTd, tipoEmpenho, credor, valorEmpenhadoBr, , , dialogId] = match;
+      const conteudoDialog = dialogsBrutos.get(dialogId) ?? '';
+      const detalhe = this.extrairCamposDialogNovo(conteudoDialog);
+
+      const numeroEmpenho = detalhe.numero_empenho || numeroEmpenhoTd.trim();
+      const credorLimpo = this.limparHtml(credor.trim());
+      const base = {
+        numero_empenho: numeroEmpenho,
+        credor: credorLimpo,
+        cnpj: detalhe.cnpj ?? '',
+        bem_servico: detalhe.bem_servico ?? '',
+        numero_contrato: detalhe.numero_contrato ?? '',
+        numero_processo: detalhe.numero_processo ?? '',
+        modalidade: detalhe.modalidade ?? '',
+        elemento_despesa: detalhe.elemento_despesa ?? '',
+      };
+
+      resultados.push({
+        ...base,
+        numero_liquidacao: '',
+        data: data.trim(),
+        fase: `EMPENHO - ${tipoEmpenho.trim()}`.trim(),
+        fase_tipo: 'EMPENHO',
+        valor: this.parseValorBrasileiro(valorEmpenhadoBr),
+        valor_formatado: valorEmpenhadoBr.trim(),
+      });
+
+      for (const liq of this.extrairMovimentosSubempenho(conteudoDialog, 'liquidacao')) {
+        resultados.push({
+          ...base,
+          numero_liquidacao: liq.subempenho,
+          data: liq.data,
+          fase: 'LIQUIDAÇÃO',
+          fase_tipo: 'LIQUIDACAO',
+          valor: liq.valor,
+          valor_formatado: liq.valor_formatado,
+        });
+      }
+
+      for (const pag of this.extrairMovimentosSubempenho(conteudoDialog, 'pagamento')) {
+        resultados.push({
+          ...base,
+          numero_liquidacao: pag.subempenho,
+          data: pag.data,
+          fase: 'PAGAMENTO',
+          fase_tipo: 'PAGAMENTO',
+          valor: pag.valor,
+          valor_formatado: pag.valor_formatado,
+        });
+      }
+    }
+
+    return resultados;
+  }
+
+  /** Extrai as linhas das sub-tabelas de liquidações/pagamentos do dialog (novo formato) */
+  private extrairMovimentosSubempenho(
+    conteudoDialog: string,
+    tipo: 'liquidacao' | 'pagamento',
+  ): Array<{ data: string; subempenho: string; valor: number; valor_formatado: string }> {
+    const prefixo = tipo === 'liquidacao' ? 'liq' : 'pag';
+    const pattern = new RegExp(
+      `class='linha-${tipo}'[\\s\\S]*?class='${prefixo}-data'[^>]*>\\s*([\\d/]+)\\s*<[\\s\\S]*?class='${prefixo}-sub'[^>]*>\\s*([^<]*?)\\s*<[\\s\\S]*?class='${prefixo}-valor'[^>]*>\\s*R\\$\\s*([-\\d.,]+)`,
+      'g',
+    );
+
+    const movimentos: Array<{ data: string; subempenho: string; valor: number; valor_formatado: string }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(conteudoDialog)) !== null) {
+      movimentos.push({
+        data: m[1].trim(),
+        subempenho: m[2].trim(),
+        valor: this.parseValorBrasileiro(m[3]),
+        valor_formatado: `R$ ${m[3].trim()}`,
+      });
+    }
+    return movimentos;
+  }
+
+  private parseValorBrasileiro(valorBr: string): number {
+    const limpo = valorBr.trim().replace(/\./g, '').replace(',', '.');
+    return parseFloat(limpo) || 0;
+  }
+
+  /** Campos do dialog no novo formato (labels sem &nbsp; antes do fechamento do strong) */
+  private extrairCamposDialogNovo(
+    conteudo: string,
+  ): Partial<EmpenhoFator> & Record<string, string> {
+    return {
+      numero_empenho: this.extrairCampo(conteudo, /Nº Empenho:<\/strong>\s*(\d+)/),
+      numero_processo: this.extrairCampo(conteudo, /Nº do Processo:<\/strong>\s*(\d+)/),
+      cnpj: this.extrairCampo(
+        conteudo,
+        /<strong>CNPJ:<\/strong>\s*([\d.\/\-]+)/,
+      ),
+      bem_servico: this.limparHtml(
+        this.extrairCampo(
+          conteudo,
+          /<strong>Bem \/Serviço prestado:<\/strong>\s*([\s\S]*?)<\/p>/,
+        ),
+      ),
+      numero_contrato: this.limparHtml(
+        this.extrairCampo(
+          conteudo,
+          /<strong>Nº Contrato:<\/strong>\s*([^<]+?)(?:<|&nbsp;|$)/,
+        ),
+      ),
+      modalidade: this.limparHtml(
+        this.extrairCampo(conteudo, /<strong>Modalidade:<\/strong>\s*([^<&]*)/),
+      ),
+      elemento_despesa: this.limparHtml(
+        this.extrairCampo(
+          conteudo,
+          /<strong>Elemento de Despesa:<\/strong>\s*(.*?)<\/p>/,
+        ),
+      ),
+    };
+  }
+
+  private parsearHtmlFormatoAntigo(html: string): EmpenhoFator[] {
     const resultados: EmpenhoFator[] = [];
 
     // Extrai as linhas da tabela (cada linha possui 6 <td>)
@@ -307,18 +455,29 @@ export class FatorTransparenciaService {
     return resultados;
   }
 
-  /** Mapeia cada dialog_N ao seu bloco de detalhes */
+  /** Mapeia cada dialog_N ao seu conteúdo HTML bruto (aceita atributos extras como data-chave) */
+  private extrairDialogsBrutos(html: string): Map<string, string> {
+    const map = new Map<string, string>();
+
+    const dialogPattern =
+      /<div id='(dialog_\d+)'[^>]*title='Detalhe da Despesa'[^>]*>([\s\S]*?)(?=<div id='dialog_\d+'|$)/g;
+
+    let m: RegExpExecArray | null;
+    while ((m = dialogPattern.exec(html)) !== null) {
+      const [, id, conteudo] = m;
+      map.set(id, conteudo);
+    }
+
+    return map;
+  }
+
+  /** Mapeia cada dialog_N ao seu bloco de detalhes (formato antigo) */
   private extrairDialogs(
     html: string,
   ): Map<string, Partial<EmpenhoFator> & Record<string, string>> {
     const map = new Map<string, Partial<EmpenhoFator> & Record<string, string>>();
 
-    const dialogPattern =
-      /<div id='(dialog_\d+)'\s+title='Detalhe da Despesa'[^>]*>([\s\S]*?)(?=<div id='dialog_\d+'|$)/g;
-
-    let m: RegExpExecArray | null;
-    while ((m = dialogPattern.exec(html)) !== null) {
-      const [, id, conteudo] = m;
+    for (const [id, conteudo] of this.extrairDialogsBrutos(html)) {
       map.set(id, this.extrairCamposDialog(conteudo));
     }
 
