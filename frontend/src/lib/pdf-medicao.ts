@@ -83,6 +83,7 @@ export interface DadosMedicaoPdf {
   periodo_inicio: string
   periodo_fim: string
   competencia?: string          // ex: FEVEREIRO/2026 (gerado automaticamente se omitido)
+  boletim_data_emissao?: string // override da DATA DE EMISSÃO (YYYY-MM-DD); padrão: data da assinatura do fornecedor
   valor_medido: number
   execucao_financeira_totais?: {
     no_periodo: number
@@ -572,8 +573,11 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   doc.text(dados.nota_fiscal_numero ? `${dados.nota_fiscal_numero}` : '-', nfX + 12, y)
   y += 5
 
-  // Data de emissão = data em que o FORNECEDOR assinou. Posiciona o valor após a largura do rótulo + 2mm.
-  const dataEmissaoBoletim = (String(dados.assinatura_fornecedor?.data_hora ?? '').match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0]
+  // Data de emissão = override corrigido (boletim_data_emissao) ou, por padrão, a data em que o
+  // FORNECEDOR assinou. Posiciona o valor após a largura do rótulo + 2mm.
+  const dataEmissaoBoletim = dados.boletim_data_emissao
+    ? fmtData(String(dados.boletim_data_emissao).slice(0, 10))
+    : (String(dados.assinatura_fornecedor?.data_hora ?? '').match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0]
   doc.setFont('helvetica', 'bold')
   doc.text('DATA DE EMISSÃO:', mX, y)
   doc.text(dataEmissaoBoletim, mX + doc.getTextWidth('DATA DE EMISSÃO:') + 2, y)

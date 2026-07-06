@@ -759,6 +759,7 @@ export class ModalidadesContratoController {
       nota_fiscal_numero?: string;
       nota_fiscal_valor?: number | null;
       nota_fiscal_data?: string | null;
+      data_emissao?: string | null;
       objeto_contrato?: string;
     },
     @Req() request: { user: JwtPayload },

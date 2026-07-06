@@ -488,9 +488,12 @@ export async function gerarBoletimMedicaoPdf(
   doc.text(dados.nota_fiscal_numero ? textoSeguro(dados.nota_fiscal_numero) : '-', nfX + 12, y);
   y += 5;
 
-  // Data de emissão = data em que o FORNECEDOR assinou (quadro de assinaturas). '-' se ainda não assinado.
+  // Data de emissão = override corrigido (boletim_data_emissao) ou, por padrão, a data
+  // em que o FORNECEDOR assinou (quadro de assinaturas). '-' se ainda não assinado.
   // O rótulo é mais largo que o infoX2 padrão; posiciona o valor após a largura do rótulo + 2mm.
-  const dataEmissaoBoletim = (textoSeguro(dados.assinatura_fornecedor?.data_hora).match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0];
+  const dataEmissaoBoletim = dados.boletim_data_emissao
+    ? fmtData(String(dados.boletim_data_emissao).slice(0, 10))
+    : (textoSeguro(dados.assinatura_fornecedor?.data_hora).match(/\d{2}\/\d{2}\/\d{4}/) || ['-'])[0];
   doc.setFont('helvetica', 'bold');
   doc.text('DATA DE EMISSÃO:', mX, y);
   doc.text(dataEmissaoBoletim, mX + doc.getTextWidth('DATA DE EMISSÃO:') + 2, y);
