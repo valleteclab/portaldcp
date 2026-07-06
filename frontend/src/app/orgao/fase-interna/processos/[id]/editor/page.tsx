@@ -8,9 +8,12 @@ import {
   ChevronRight,
   Home,
   Loader2,
+  ShieldCheck,
+  X,
 } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { TITULOS_TIPO } from "@/lib/fase-interna/secoes-template"
+import { AprovacaoEtapasPanel } from "@/components/fase-interna/AprovacaoEtapasPanel"
 
 // Importação dinâmica — DocumentoSeccionado usa Tiptap (browser-only)
 const DocumentoSeccionado = dynamic(
@@ -62,6 +65,7 @@ export default function EditorDocumentoPage({
   const [documento, setDocumento] = useState<DocumentoFaseInterna | null>(null)
   const [licitacao, setLicitacao] = useState<LicitacaoMini | null>(null)
   const [loading, setLoading] = useState(true)
+  const [mostrarAprovacao, setMostrarAprovacao] = useState(false)
 
   const tituloDocumento = TITULOS_TIPO[tipo] || tipo
 
@@ -147,17 +151,51 @@ export default function EditorDocumentoPage({
               </p>
             )}
           </div>
+          {documento?.id && (
+            <button
+              onClick={() => setMostrarAprovacao((v) => !v)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white/15 hover:bg-white/25 ring-1 ring-white/25 transition-colors shrink-0"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Aprovação
+              {documento.status && (
+                <span className="opacity-75">· {documento.status.replaceAll("_", " ")}</span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Editor de seções guiadas (ocupa o restante) ── */}
-      <div className="flex-1 overflow-hidden">
-        <DocumentoSeccionado
-          licitacaoId={id}
-          tipo={tipo}
-          documento={documento}
-          licitacao={licitacao}
-        />
+      {/* ── Editor de seções guiadas + painel de aprovação ── */}
+      <div className="flex-1 overflow-hidden flex">
+        <div className="flex-1 overflow-hidden">
+          <DocumentoSeccionado
+            licitacaoId={id}
+            tipo={tipo}
+            documento={documento}
+            licitacao={licitacao}
+          />
+        </div>
+        {mostrarAprovacao && documento?.id && (
+          <aside className="w-[380px] shrink-0 border-l border-gray-200 bg-gray-50 overflow-y-auto p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Fluxo de aprovação
+              </span>
+              <button
+                onClick={() => setMostrarAprovacao(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <AprovacaoEtapasPanel
+              documentoId={documento.id}
+              statusDocumento={documento.status}
+              onMudou={carregarTudo}
+            />
+          </aside>
+        )}
       </div>
     </div>
   )

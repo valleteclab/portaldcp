@@ -1,8 +1,21 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SystemConfigModule } from '../system-config/system-config.module';
+import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
+import { ModeloDocumento } from './entities/modelo-documento.entity';
+import { TramitacaoProcesso } from './entities/tramitacao-processo.entity';
+import {
+  FluxoAprovacaoDocumento,
+  AprovacaoDocumento,
+} from './entities/fluxo-aprovacao.entity';
+import { ModeloDocumentoService } from './modelo-documento.service';
+import { TramitacaoService } from './tramitacao.service';
+import { AprovacaoService } from './aprovacao.service';
+import { ProcessoEletronicoController } from './processo-eletronico.controller';
+import { Setor } from '../orgaos/entities/setor.entity';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 import { FaseInternaService } from './fase-interna.service';
 import { FaseInternaController } from './fase-interna.controller';
 import { AuditLogService } from './audit-log.service';
@@ -35,9 +48,16 @@ import {
 @Module({
   imports: [
     SystemConfigModule,
+    NotificacoesModule,
     TypeOrmModule.forFeature([
       DocumentoFaseInterna,
       LogFaseInterna,
+      ModeloDocumento,
+      TramitacaoProcesso,
+      FluxoAprovacaoDocumento,
+      AprovacaoDocumento,
+      Setor,
+      Orgao,
       Licitacao,
       Contrato,
       ItemLicitacao,
@@ -46,9 +66,16 @@ import {
       PesquisaPrecoCandidato,
     ]),
   ],
-  controllers: [FaseInternaController, DocumentoEstruturadoController],
+  controllers: [
+    FaseInternaController,
+    DocumentoEstruturadoController,
+    ProcessoEletronicoController,
+  ],
   providers: [
     FaseInternaService,
+    ModeloDocumentoService,
+    TramitacaoService,
+    AprovacaoService,
     DerivacaoService,
     AuditLogService,
     DocumentoEstruturadoService,
@@ -67,6 +94,16 @@ import {
     NfeProvider,
     BrowserFallbackProvider,
   ],
-  exports: [FaseInternaService, DerivacaoService, AuditLogService, GeradorDocumentoService, PesquisaPrecosAgentService, GeradorPpService],
+  exports: [
+    FaseInternaService,
+    DerivacaoService,
+    AuditLogService,
+    GeradorDocumentoService,
+    PesquisaPrecosAgentService,
+    GeradorPpService,
+    ModeloDocumentoService,
+    TramitacaoService,
+    AprovacaoService,
+  ],
 })
 export class FaseInternaModule {}

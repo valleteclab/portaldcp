@@ -459,9 +459,20 @@ export default function ConfiguracoesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Configuracoes</h1>
-        <p className="text-muted-foreground">Gerencie as configuracoes do orgao</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Configuracoes</h1>
+          <p className="text-muted-foreground">Gerencie as configuracoes do orgao</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => router.push('/orgao/configuracoes/modelos-documento')}
+        >
+          <FolderTree className="h-4 w-4" />
+          Modelos de documento
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
