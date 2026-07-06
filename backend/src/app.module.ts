@@ -56,6 +56,7 @@ import { MedicaoIaModule } from './medicao-ia/medicao-ia.module';
 import { NfseSpedyModule } from './nfse-spedy/nfse-spedy.module';
 import { ExtModule } from './ext/ext.module';
 import { McpModule } from './mcp/mcp.module';
+import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-licitacao.module';
 
 @Module({
   imports: [
@@ -92,9 +93,10 @@ import { McpModule } from './mcp/mcp.module';
         ? undefined
         : process.env.DB_DATABASE || 'licitafacil',
       autoLoadEntities: true,
-      // ⚠️ IMPORTANTE: synchronize habilitado temporariamente em produção
-      // TODO: Criar migrations e desabilitar synchronize em produção
-      synchronize: true,
+      // synchronize controlado por env. Default true (mantém deploys atuais);
+      // defina DB_SYNCHRONIZE=false após gerar migrations para congelar o schema
+      // em produção (evita alteração automática de tabelas durante uma disputa).
+      synchronize: process.env.DB_SYNCHRONIZE !== 'false',
       migrations: [],
       migrationsRun: false,
       ssl:
@@ -156,6 +158,7 @@ import { McpModule } from './mcp/mcp.module';
     NfseSpedyModule,
     ExtModule,
     McpModule,
+    ParametrosLicitacaoModule,
   ],
   controllers: [HealthController],
   providers: [

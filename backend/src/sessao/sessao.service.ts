@@ -9,6 +9,7 @@ import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitac
 import { Lance } from '../lances/entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
+import { ParametrosLicitacaoService } from '../parametros-licitacao/parametros-licitacao.service';
 
 /**
  * Servico de Controle da Sessao de Disputa
@@ -17,6 +18,7 @@ import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 @Injectable()
 export class SessaoService {
   constructor(
+    private readonly parametrosService: ParametrosLicitacaoService,
     @InjectRepository(SessaoDisputa)
     private readonly sessaoRepository: Repository<SessaoDisputa>,
     @InjectRepository(EventoSessao)
@@ -62,6 +64,10 @@ export class SessaoService {
     const modoAberto = licitacao.modo_disputa === 'ABERTO' || licitacao.modo_disputa === 'ABERTO_FECHADO';
     const modoAbertoFechado = licitacao.modo_disputa === 'ABERTO_FECHADO' || licitacao.modo_disputa === 'FECHADO_ABERTO';
 
+    // Defaults de tempo vêm da parametrização do órgão (fallback: default do sistema).
+    // Overrides pontuais da licitação têm precedência quando informados.
+    const parametros = await this.parametrosService.resolver(licitacao.orgao_id);
+
     const sessao = this.sessaoRepository.create({
       licitacao_id: licitacaoId,
       pregoeiro_id: pregoeiroId,
@@ -73,12 +79,17 @@ export class SessaoService {
       disputa_por_item: disputaPorItem,
       modo_aberto: modoAberto,
       modo_aberto_fechado: modoAbertoFechado,
-      // Configuracoes de tempo herdadas da licitação (Lei 14.133/2021)
-      intervalo_minimo_lances_minutos: licitacao.intervalo_minimo_lances || 3,
-      tempo_inatividade_minutos: licitacao.tempo_inatividade || 10, // 10 min default
-      tempo_aleatorio_min_minutos: 2,
-      tempo_aleatorio_max_minutos: 30,
-      tempo_prorrogacao_minutos: licitacao.tempo_prorrogacao || 2, // 2 min default
+      // Configuracoes de tempo: override da licitação → parâmetro do órgão/sistema
+      intervalo_minimo_lances_minutos:
+        licitacao.intervalo_minimo_lances || parametros.intervalo_minimo_lances_minutos,
+      tempo_inatividade_minutos:
+        licitacao.tempo_inatividade || parametros.tempo_inatividade_minutos,
+      tempo_aleatorio_min_minutos: parametros.tempo_aleatorio_min_minutos,
+      tempo_aleatorio_max_minutos: parametros.tempo_aleatorio_max_minutos,
+      tempo_prorrogacao_minutos:
+        licitacao.tempo_prorrogacao || parametros.tempo_prorrogacao_minutos,
+      lance_final_fechado_minutos: parametros.lance_final_fechado_minutos,
+      etapa_aberta_minutos_hibrido: parametros.etapa_aberta_hibrida_minutos,
     });
 
     return await this.sessaoRepository.save(sessao);
