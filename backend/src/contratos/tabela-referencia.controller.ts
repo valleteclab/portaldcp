@@ -146,4 +146,32 @@ export class TabelaReferenciaController {
     const criados = await this.service.aplicarItensAoContrato(contratoId, body.selecoes);
     return { total: criados.length, itens: criados };
   }
+
+  /**
+   * Gera linhas de publicidade (SINAPRO −desconto / terceiros +honorário / mídia
+   * −desconto de agência) como itens do contrato, prontas para a Ordem de Serviço.
+   */
+  @Post('contrato/:contratoId/gerar-linhas')
+  async gerarLinhas(
+    @Param('contratoId') contratoId: string,
+    @Body()
+    body: {
+      linhas: Array<{
+        tipo: 'SINAPRO' | 'TERCEIROS' | 'MIDIA';
+        quantidade?: number;
+        item_tabela_id?: string;
+        base?: 'total' | 'criacao' | 'finalizacao';
+        desconto_pct?: number;
+        descricao?: string;
+        custo?: number;
+        honorario_pct?: number;
+        valor_midia?: number;
+        desconto_agencia_pct?: number;
+      }>;
+    },
+  ) {
+    if (!body?.linhas?.length) throw new BadRequestException('Nenhuma linha informada.');
+    const criados = await this.service.gerarLinhasPublicidade(contratoId, body.linhas);
+    return { total: criados.length, itens: criados };
+  }
 }
