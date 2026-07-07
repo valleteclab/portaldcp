@@ -134,6 +134,19 @@ export default function NovoContratoPage() {
     arredondar_calculo: true,
   })
 
+  // Remuneração de publicidade (Lei 12.232/2010)
+  const [isPublicidade, setIsPublicidade] = useState(false)
+  const [tabelaReferenciaId, setTabelaReferenciaId] = useState('')
+  const [tabelasRef, setTabelasRef] = useState<{ id: string; nome: string; total_itens?: number }[]>([])
+  const [remun, setRemun] = useState({
+    desconto_tabela_pct: '34',
+    honorario_producao_pct: '8',
+    honorario_pesquisa_pct: '7',
+    honorario_terceiros_pct: '8',
+    honorario_reutilizacao_pct: '4',
+    desconto_agencia_pct: '20',
+  })
+
   useEffect(() => {
     const orgaoStr = localStorage.getItem('orgao')
     if (orgaoStr) {
@@ -142,6 +155,7 @@ export default function NovoContratoPage() {
         setOrgaoId(orgao.id)
         carregarLicitacoes(orgao.id)
         carregarFornecedores()
+        carregarTabelasRef()
       } catch (e) {
         console.error('Erro ao parsear orgao:', e)
       }
@@ -186,6 +200,13 @@ export default function NovoContratoPage() {
     } finally {
       setLoadingLicitacoes(false)
     }
+  }
+
+  const carregarTabelasRef = async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia`)
+      if (res.ok) setTabelasRef(await res.json())
+    } catch { /* silencioso */ }
   }
 
   const carregarFornecedores = async () => {
@@ -321,6 +342,20 @@ export default function NovoContratoPage() {
         observacoes: formData.observacoes || null,
         boletim_por_quantidade: formData.boletim_por_quantidade || false,
         arredondar_calculo: formData.arredondar_calculo ?? true,
+      }
+
+      // Remuneração de publicidade (Lei 12.232/2010)
+      if (isPublicidade) {
+        const pct = (v: string) => (v === '' || v == null ? null : parseFloat(v))
+        payload.tabela_referencia_id = tabelaReferenciaId || null
+        payload.remuneracao_publicidade = {
+          desconto_tabela_pct: pct(remun.desconto_tabela_pct),
+          honorario_producao_pct: pct(remun.honorario_producao_pct),
+          honorario_pesquisa_pct: pct(remun.honorario_pesquisa_pct),
+          honorario_terceiros_pct: pct(remun.honorario_terceiros_pct),
+          honorario_reutilizacao_pct: pct(remun.honorario_reutilizacao_pct),
+          desconto_agencia_pct: pct(remun.desconto_agencia_pct),
+        }
       }
 
       let res: Response
@@ -459,6 +494,68 @@ export default function NovoContratoPage() {
                 {MODALIDADES_EXECUCAO.find(m => m.value === formData.modalidade_execucao)?.desc}
               </p>
             </div>
+
+            {/* Remuneração de agência de publicidade (Lei 12.232/2010) */}
+            {formData.categoria === 'SERVICOS' && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="is_publicidade"
+                    checked={isPublicidade}
+                    onChange={(e) => setIsPublicidade(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <Label htmlFor="is_publicidade" className="cursor-pointer font-medium text-sm">
+                    Contrato de agência de publicidade (Lei 12.232/2010) — remuneração por desconto/honorários
+                  </Label>
+                </div>
+                {isPublicidade && (
+                  <div className="space-y-3 pt-1">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Tabela de referência (SINAPRO)</Label>
+                      <Select value={tabelaReferenciaId || 'none'} onValueChange={(v) => setTabelaReferenciaId(v === 'none' ? '' : v)}>
+                        <SelectTrigger><SelectValue placeholder="Selecione a tabela" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">— Nenhuma —</SelectItem>
+                          {tabelasRef.map(t => (
+                            <SelectItem key={t.id} value={t.id}>{t.nome}{t.total_itens ? ` (${t.total_itens} itens)` : ''}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {tabelasRef.length === 0 && (
+                        <p className="text-xs text-amber-700">
+                          Nenhuma tabela cadastrada. <Link href="/orgao/contratos/tabelas-referencia" className="underline">Importar SINAPRO</Link> primeiro.
+                        </p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {[
+                        { k: 'desconto_tabela_pct', label: 'Desconto s/ tabela (%)' },
+                        { k: 'honorario_producao_pct', label: 'Honorário produção (%)' },
+                        { k: 'honorario_pesquisa_pct', label: 'Honorário pesquisa (%)' },
+                        { k: 'honorario_terceiros_pct', label: 'Honorário terceiros (%)' },
+                        { k: 'honorario_reutilizacao_pct', label: 'Honorário reutilização (%)' },
+                        { k: 'desconto_agencia_pct', label: 'Desconto de agência (%)' },
+                      ].map(({ k, label }) => (
+                        <div key={k} className="space-y-1">
+                          <Label className="text-xs">{label}</Label>
+                          <Input
+                            type="number" step="0.01" min="0" max="100"
+                            value={(remun as Record<string, string>)[k]}
+                            onChange={(e) => setRemun({ ...remun, [k]: e.target.value })}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      O desconto s/ tabela (ex.: 34%) é aplicado automaticamente ao gerar os itens do contrato a partir da tabela SINAPRO.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {['MEDICAO', 'CONTINUADO', 'LICENCA'].includes(formData.modalidade_execucao) && (
               <div className="flex items-center gap-2 pt-2">
                 <input

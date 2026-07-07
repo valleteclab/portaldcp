@@ -64,6 +64,10 @@ import { AtualizacoesController } from './atualizacoes.controller';
 import { XmlNfeParserService } from '../almoxarifado/xml-nfe-parser.service';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
+import { TabelaReferenciaPreco } from './entities/tabela-referencia-preco.entity';
+import { ItemTabelaReferencia } from './entities/item-tabela-referencia.entity';
+import { TabelaReferenciaService } from './tabela-referencia.service';
+import { TabelaReferenciaController } from './tabela-referencia.controller';
 
 @Module({
   imports: [
@@ -75,6 +79,7 @@ import { PropostaItem } from '../propostas/entities/proposta-item.entity';
       EtapaCronograma, EtapaCronogramaItem, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, OrdemServicoContratoItem, BancoMetricas, Requisicao, OrdemFornecimento, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
       MedicaoChatSession, AtualizacaoSistema, AtualizacaoLida,
       Proposta, PropostaItem,
+      TabelaReferenciaPreco, ItemTabelaReferencia,
     ]),
     NotificacoesModule,
     UploadModule,
@@ -84,8 +89,8 @@ import { PropostaItem } from '../propostas/entities/proposta-item.entity';
     FornecedoresModule,
     SystemConfigModule,
   ],
-  controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
-  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
+  controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
+  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}

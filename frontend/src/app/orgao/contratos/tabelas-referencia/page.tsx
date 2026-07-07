@@ -1,0 +1,322 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { ArrowLeft, Plus, Upload, FileText, Loader2, Trash2, Table2, Sparkles, Eye } from 'lucide-react'
+import { API_URL, authFetch } from '@/lib/api'
+
+interface TabelaReferencia {
+  id: string
+  nome: string
+  fonte: string | null
+  uf: string | null
+  edicao: string | null
+  ativa: boolean
+  total_itens?: number
+  created_at: string
+}
+
+interface ItemTabela {
+  id?: string
+  categoria_codigo?: string | null
+  categoria_nome?: string | null
+  codigo?: string | null
+  descricao: string
+  valor_criacao?: number | null
+  valor_finalizacao?: number | null
+  valor_total?: number | null
+  valor_reformulacao?: number | null
+  sob_orcamento?: boolean
+}
+
+const fmtBRL = (v: number | null | undefined) =>
+  v == null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v))
+
+export default function TabelasReferenciaPage() {
+  const [tabelas, setTabelas] = useState<TabelaReferencia[]>([])
+  const [loading, setLoading] = useState(false)
+  const [seeding, setSeeding] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  // Import modal
+  const [showImport, setShowImport] = useState(false)
+  const [importMeta, setImportMeta] = useState({ nome: '', fonte: 'SINAPRO', uf: 'BA', edicao: '' })
+  const [previewItens, setPreviewItens] = useState<ItemTabela[]>([])
+  const [processando, setProcessando] = useState(false)
+  const [csvTexto, setCsvTexto] = useState('')
+
+  // Itens viewer
+  const [viewTabela, setViewTabela] = useState<TabelaReferencia | null>(null)
+  const [viewItens, setViewItens] = useState<ItemTabela[]>([])
+  const [loadingItens, setLoadingItens] = useState(false)
+
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    setErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia`)
+      if (res.ok) setTabelas(await res.json())
+      else setErro('Erro ao carregar tabelas.')
+    } catch {
+      setErro('Erro de conexão.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  const semearSinapro = async () => {
+    if (!confirm('Importar a tabela SINAPRO-BA 2025/2026 (345 itens) para este órgão?')) return
+    setSeeding(true)
+    setErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/seed/sinapro-ba`, { method: 'POST' })
+      if (res.ok) await carregar()
+      else {
+        const e = await res.json().catch(() => ({}))
+        setErro(e.message || 'Erro ao semear SINAPRO-BA.')
+      }
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  const previewPdf = async (file: File) => {
+    setProcessando(true)
+    setErro(null)
+    setPreviewItens([])
+    try {
+      const fd = new FormData()
+      fd.append('arquivo', file)
+      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/preview/pdf`, { method: 'POST', body: fd })
+      const data = await res.json()
+      if (res.ok) {
+        setPreviewItens(data.itens)
+        if (!importMeta.nome) setImportMeta((m) => ({ ...m, nome: file.name.replace(/\.pdf$/i, '') }))
+      } else setErro(data.message || 'Falha ao ler o PDF.')
+    } catch {
+      setErro('Erro ao processar o PDF.')
+    } finally {
+      setProcessando(false)
+    }
+  }
+
+  const previewCsv = async () => {
+    if (!csvTexto.trim()) return
+    setProcessando(true)
+    setErro(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/preview/csv`, {
+        method: 'POST',
+        body: JSON.stringify({ conteudo: csvTexto }),
+      })
+      const data = await res.json()
+      if (res.ok) setPreviewItens(data.itens)
+      else setErro(data.message || 'Falha ao ler o CSV.')
+    } finally {
+      setProcessando(false)
+    }
+  }
+
+  const confirmarImport = async () => {
+    if (!importMeta.nome || previewItens.length === 0) return
+    setProcessando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia`, {
+        method: 'POST',
+        body: JSON.stringify({ ...importMeta, itens: previewItens }),
+      })
+      if (res.ok) {
+        setShowImport(false)
+        setPreviewItens([])
+        setCsvTexto('')
+        setImportMeta({ nome: '', fonte: 'SINAPRO', uf: 'BA', edicao: '' })
+        await carregar()
+      } else {
+        const e = await res.json().catch(() => ({}))
+        setErro(e.message || 'Erro ao salvar a tabela.')
+      }
+    } finally {
+      setProcessando(false)
+    }
+  }
+
+  const excluir = async (t: TabelaReferencia) => {
+    if (!confirm(`Excluir a tabela "${t.nome}"? Os itens serão removidos.`)) return
+    const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/${t.id}`, { method: 'DELETE' })
+    if (res.ok) await carregar()
+    else {
+      const e = await res.json().catch(() => ({}))
+      alert(e.message || 'Erro ao excluir.')
+    }
+  }
+
+  const verItens = async (t: TabelaReferencia) => {
+    setViewTabela(t)
+    setLoadingItens(true)
+    setViewItens([])
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/${t.id}/itens`)
+      if (res.ok) setViewItens(await res.json())
+    } finally {
+      setLoadingItens(false)
+    }
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <div className="flex items-center gap-3">
+        <Link href="/orgao/contratos"><Button variant="ghost" size="sm"><ArrowLeft className="w-4 h-4 mr-1" /> Contratos</Button></Link>
+      </div>
+
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><Table2 className="w-6 h-6" /> Tabelas de Referência de Preços</h1>
+          <p className="text-gray-500 mt-1 max-w-2xl">
+            Tabelas como a <strong>SINAPRO</strong> usadas em contratos de agência de publicidade (Lei 12.232/2010).
+            Importe uma vez e reaproveite em todos os contratos do órgão — o desconto contratual é aplicado ao gerar os itens do contrato.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={semearSinapro} disabled={seeding}>
+            {seeding ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
+            Semear SINAPRO-BA
+          </Button>
+          <Button onClick={() => setShowImport(true)}><Plus className="w-4 h-4 mr-1" /> Importar tabela</Button>
+        </div>
+      </div>
+
+      {erro && <div className="rounded-md bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">{erro}</div>}
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-gray-400"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : tabelas.length === 0 ? (
+        <Card><CardContent className="py-16 text-center text-gray-500">
+          <Table2 className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+          Nenhuma tabela cadastrada. Use <strong>Semear SINAPRO-BA</strong> para o caso LOOP ou <strong>Importar tabela</strong>.
+        </CardContent></Card>
+      ) : (
+        <div className="grid gap-3">
+          {tabelas.map((t) => (
+            <Card key={t.id}>
+              <CardContent className="py-4 flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="font-semibold">{t.nome}</p>
+                  <p className="text-sm text-gray-500">
+                    {[t.fonte, t.uf, t.edicao].filter(Boolean).join(' · ')} · {t.total_itens ?? 0} itens
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => verItens(t)}><Eye className="w-4 h-4 mr-1" /> Ver itens</Button>
+                  <Button variant="ghost" size="sm" onClick={() => excluir(t)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Modal de importação */}
+      <Dialog open={showImport} onOpenChange={setShowImport}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Importar tabela de referência</DialogTitle>
+            <DialogDescription>Envie o PDF da SINAPRO ou cole um CSV. Revise os itens antes de salvar.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Nome *</Label><Input value={importMeta.nome} onChange={(e) => setImportMeta({ ...importMeta, nome: e.target.value })} placeholder="SINAPRO-BA — Custos Internos" /></div>
+            <div><Label>Fonte</Label><Input value={importMeta.fonte} onChange={(e) => setImportMeta({ ...importMeta, fonte: e.target.value })} /></div>
+            <div><Label>UF</Label><Input value={importMeta.uf} onChange={(e) => setImportMeta({ ...importMeta, uf: e.target.value })} maxLength={2} /></div>
+            <div><Label>Edição</Label><Input value={importMeta.edicao} onChange={(e) => setImportMeta({ ...importMeta, edicao: e.target.value })} placeholder="2025/2026" /></div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <div className="border rounded-md p-3">
+              <Label className="flex items-center gap-1"><FileText className="w-4 h-4" /> Por PDF</Label>
+              <input type="file" accept="application/pdf" className="mt-2 text-sm" disabled={processando}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) previewPdf(f) }} />
+            </div>
+            <div className="border rounded-md p-3">
+              <Label className="flex items-center gap-1"><Upload className="w-4 h-4" /> Por CSV</Label>
+              <Textarea className="mt-2 h-20 text-xs font-mono" placeholder="categoria_codigo;categoria_nome;codigo;descricao;valor_criacao;valor_finalizacao;valor_total" value={csvTexto} onChange={(e) => setCsvTexto(e.target.value)} />
+              <Button size="sm" variant="outline" className="mt-2" onClick={previewCsv} disabled={processando || !csvTexto.trim()}>Ler CSV</Button>
+            </div>
+          </div>
+
+          {processando && <div className="flex items-center gap-2 text-sm text-gray-500 mt-2"><Loader2 className="w-4 h-4 animate-spin" /> Processando…</div>}
+
+          {previewItens.length > 0 && (
+            <div className="mt-3">
+              <p className="text-sm font-medium mb-2">{previewItens.length} itens encontrados</p>
+              <div className="border rounded-md max-h-64 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0"><tr>
+                    <th className="text-left p-2">Cód.</th><th className="text-left p-2">Descrição</th>
+                    <th className="text-right p-2">Criação</th><th className="text-right p-2">Finalização</th><th className="text-right p-2">Total</th>
+                  </tr></thead>
+                  <tbody>
+                    {previewItens.slice(0, 400).map((it, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="p-2 text-gray-500">{it.codigo}</td>
+                        <td className="p-2">{it.descricao}{it.sob_orcamento && <span className="ml-1 text-amber-600">(sob orçamento)</span>}</td>
+                        <td className="p-2 text-right">{fmtBRL(it.valor_criacao)}</td>
+                        <td className="p-2 text-right">{fmtBRL(it.valor_finalizacao)}</td>
+                        <td className="p-2 text-right font-medium">{fmtBRL(it.valor_total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowImport(false)}>Cancelar</Button>
+            <Button onClick={confirmarImport} disabled={processando || !importMeta.nome || previewItens.length === 0}>
+              Salvar {previewItens.length > 0 ? `(${previewItens.length} itens)` : ''}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Viewer de itens */}
+      <Dialog open={!!viewTabela} onOpenChange={(o) => !o && setViewTabela(null)}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{viewTabela?.nome}</DialogTitle></DialogHeader>
+          {loadingItens ? (
+            <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+          ) : (
+            <div className="border rounded-md max-h-[65vh] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 sticky top-0"><tr>
+                  <th className="text-left p-2">Categoria</th><th className="text-left p-2">Cód.</th><th className="text-left p-2">Descrição</th>
+                  <th className="text-right p-2">Criação</th><th className="text-right p-2">Finalização</th><th className="text-right p-2">Total</th>
+                </tr></thead>
+                <tbody>
+                  {viewItens.map((it) => (
+                    <tr key={it.id} className="border-t">
+                      <td className="p-2 text-gray-400">{it.categoria_nome}</td>
+                      <td className="p-2 text-gray-500">{it.codigo}</td>
+                      <td className="p-2">{it.descricao}{it.sob_orcamento && <span className="ml-1 text-amber-600">(sob orçamento)</span>}</td>
+                      <td className="p-2 text-right">{fmtBRL(it.valor_criacao)}</td>
+                      <td className="p-2 text-right">{fmtBRL(it.valor_finalizacao)}</td>
+                      <td className="p-2 text-right font-medium">{fmtBRL(it.valor_total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
