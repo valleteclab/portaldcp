@@ -24,6 +24,7 @@ interface ItemContrato {
 }
 
 interface DadosExtraidos {
+  numero_contrato?: string
   objeto: string
   fornecedor_cnpj: string
   fornecedor_razao_social: string
@@ -356,6 +357,17 @@ export default function ImportarContratoIaPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-xs text-gray-500">Número do Contrato</Label>
+                      <Input
+                        value={dados.numero_contrato || ''}
+                        onChange={e => atualizarDados('numero_contrato', e.target.value)}
+                        placeholder="Ex.: 012/2026"
+                        className="mt-1 h-9 text-sm"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-1">Confira com o documento. Se deixar vazio, o sistema gera automaticamente.</p>
+                    </div>
+                    <div className="hidden md:block" />
                     <div className="md:col-span-2">
                       <Label className="text-xs text-gray-500">Objeto *</Label>
                       <textarea

@@ -64,6 +64,7 @@ REGRAS JSON — EXTREMAMENTE IMPORTANTE:
 - Verifique se todas as chaves estão fechadas corretamente antes de retornar
 
 COMO IDENTIFICAR OS CAMPOS:
+- "numero_contrato": o número do contrato EXATAMENTE como consta no documento físico (ex: "CONTRATO Nº 012/2026", "Contrato nº 35/2025" → "012/2026", "035/2025"). Preserve o formato/zeros à esquerda do documento. Se não houver, use null. NÃO invente nem sequencie.
 - "objeto": trecho que começa com "tem por objeto" ou "cujo objeto é" ou "objeto:" no contrato
 - "fornecedor_cnpj": CNPJ da empresa contratada (não do órgão contratante)
 - "fornecedor_razao_social": razão social da empresa contratada
@@ -88,6 +89,7 @@ IMPORTANTE SOBRE ITENS:
 
 Schema de retorno (JSON puro e válido):
 {
+  "numero_contrato": "012/2026",
   "objeto": "texto exato do objeto do contrato",
   "fornecedor_cnpj": "somente digitos sem pontuacao ou null",
   "fornecedor_razao_social": "nome completo ou null",
@@ -169,8 +171,8 @@ function tentarExtrairJson(str: string): any | null {
     const resultado: any = { itens: [] };
     
     // Extrai campos string do contrato (todos os valores entre aspas)
-    const stringFields = ['objeto', 'fornecedor_cnpj', 'fornecedor_razao_social', 'tipo', 'categoria', 
-                    'modalidade_execucao', 'data_assinatura', 'data_vigencia_inicio', 
+    const stringFields = ['numero_contrato', 'objeto', 'fornecedor_cnpj', 'fornecedor_razao_social', 'tipo', 'categoria',
+                    'modalidade_execucao', 'data_assinatura', 'data_vigencia_inicio',
                     'data_vigencia_fim', 'numero_processo', 'amparo_legal', 'fiscal_nome', 'fiscal_portaria'];
     
     for (const campo of stringFields) {
@@ -459,6 +461,7 @@ export class ImportarContratoIaService {
     const modalidadeNormalizada = normalizarModalidadeExecucao(dadosExtraidos.modalidade_execucao, categoriaNormalizada);
 
     return {
+      numero_contrato: dadosExtraidos.numero_contrato || undefined,
       objeto: dadosExtraidos.objeto || '',
       fornecedor_cnpj,
       fornecedor_razao_social: dadosExtraidos.fornecedor_razao_social || '',
@@ -531,8 +534,20 @@ export class ImportarContratoIaService {
       throw new BadRequestException('Fornecedor não encontrado. Informe um CNPJ válido para continuar.');
     }
 
+    // Número do documento físico (não sequenciar automaticamente quando informado).
+    // Deriva o ano do próprio número (ex.: "012/2026") ou da data de assinatura.
+    const numeroDocumento = dados.numero_contrato?.trim() || undefined;
+    const anoDoNumero = numeroDocumento?.match(/\/(\d{4})/)?.[1];
+    const anoDoContrato = anoDoNumero
+      ? parseInt(anoDoNumero)
+      : dados.data_assinatura
+      ? new Date(dados.data_assinatura).getFullYear()
+      : undefined;
+
     const contrato = await this.contratosService.criar({
       orgao_id: orgaoId,
+      numero_contrato: numeroDocumento,
+      ano: anoDoContrato,
       fornecedor_id: fornecedorId,
       fornecedor_cnpj: fornecedorSnapshot.cpf_cnpj,
       fornecedor_razao_social: fornecedorSnapshot.razao_social,
