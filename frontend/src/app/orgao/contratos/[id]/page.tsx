@@ -55,6 +55,7 @@ import {
   Receipt,
   ClipboardList,
   ExternalLink,
+  Calculator,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
@@ -65,6 +66,7 @@ import TabOrdensServico from '@/components/contratos/TabOrdensServico'
 import TabRequisicoes from '@/components/contratos/TabRequisicoes'
 import TabRelatorios from '@/components/contratos/TabRelatorios'
 import SimuladorPedidoModal from '@/components/contratos/SimuladorPedidoModal'
+import AplicarTabelaSinaproModal from '@/components/contratos/AplicarTabelaSinaproModal'
 
 interface TermoAditivo {
   id: string
@@ -155,6 +157,15 @@ interface Contrato {
   observacao_ajuste?: string
   itens?: ItemContrato[]
   total_itens?: number
+  tabela_referencia_id?: string | null
+  remuneracao_publicidade?: {
+    desconto_tabela_pct?: number
+    honorario_producao_pct?: number
+    honorario_pesquisa_pct?: number
+    honorario_terceiros_pct?: number
+    honorario_reutilizacao_pct?: number
+    desconto_agencia_pct?: number
+  } | null
 }
 
 interface DocumentoContrato {
@@ -360,6 +371,7 @@ export default function DetalheContratoOrgaoPage() {
   const [removendoDuplicados, setRemovendoDuplicados] = useState(false)
 
   const [modalTermo, setModalTermo] = useState(false)
+  const [modalSinapro, setModalSinapro] = useState(false)
   const [modalEditTermo, setModalEditTermo] = useState<TermoAditivo | null>(null)
   const [modalCancelarTermo, setModalCancelarTermo] = useState<TermoAditivo | null>(null)
   const [modalAditivosPortal, setModalAditivosPortal] = useState<{
@@ -1303,6 +1315,42 @@ export default function DetalheContratoOrgaoPage() {
           )}
         </div>
       </div>
+
+      {/* Banner: contrato de agência de publicidade (Lei 12.232) */}
+      {contrato.remuneracao_publicidade && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardContent className="py-4 flex items-center justify-between gap-4 flex-wrap">
+            <div className="text-sm">
+              <p className="font-medium text-amber-900">Contrato de agência de publicidade (Lei 12.232/2010)</p>
+              <p className="text-amber-800 mt-0.5">
+                Remuneração: desconto {contrato.remuneracao_publicidade.desconto_tabela_pct ?? 0}% sobre a tabela SINAPRO ·
+                honorários {contrato.remuneracao_publicidade.honorario_producao_pct ?? 0}%/{contrato.remuneracao_publicidade.honorario_terceiros_pct ?? 0}% ·
+                desconto de agência {contrato.remuneracao_publicidade.desconto_agencia_pct ?? 0}%.
+                {' '}Gere os itens do contrato a partir da tabela com o desconto já aplicado.
+              </p>
+            </div>
+            <Button
+              onClick={() => setModalSinapro(true)}
+              disabled={!contrato.tabela_referencia_id}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              <Calculator className="w-4 h-4 mr-2" />
+              Gerar itens da SINAPRO
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {contrato.tabela_referencia_id && (
+        <AplicarTabelaSinaproModal
+          contratoId={contrato.id}
+          tabelaId={contrato.tabela_referencia_id}
+          descontoPct={contrato.remuneracao_publicidade?.desconto_tabela_pct ?? 0}
+          open={modalSinapro}
+          onOpenChange={setModalSinapro}
+          onApplied={(qtd) => { alert(`${qtd} item(ns) gerado(s) no contrato.`); carregarDados() }}
+        />
+      )}
 
       <Tabs value={tabAtivo} onValueChange={setTabAtivo} className="space-y-6">
         <TabsList>

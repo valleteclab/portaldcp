@@ -38,7 +38,8 @@ import {
   Info,
   MessageCircle,
   Building2,
-  Trash2
+  Trash2,
+  Table2
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
@@ -591,6 +592,12 @@ window._extraindoContratos = true;
               </Button>
             </>
           )}
+          <Button variant="outline" asChild>
+            <Link href="/orgao/contratos/tabelas-referencia">
+              <Table2 className="w-4 h-4 mr-2" />
+              Tabelas de Referência
+            </Link>
+          </Button>
           <Button asChild>
             <Link href="/orgao/contratos/novo">
               <Plus className="w-4 h-4 mr-2" />

@@ -4,7 +4,7 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": ["ext/api-docs-content.md"],
+    "assets": ["ext/api-docs-content.md", "contratos/seed/*.json"],
     "watchAssets": true
   }
 }

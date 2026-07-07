@@ -45,6 +45,26 @@ export enum ModalidadeExecucao {
   ORDEM_SERVICO = 'ORDEM_SERVICO',         // Consultoria/Demanda
 }
 
+/**
+ * Configuração de remuneração de contratos de agência de publicidade
+ * (Lei 12.232/2010). Percentuais bidos na licitação; base para o cálculo
+ * automático do preço de cada serviço a partir da tabela de referência.
+ */
+export interface RemuneracaoPublicidade {
+  /** Desconto sobre a tabela de referência (SINAPRO) — trabalhos internos. Ex.: 34 */
+  desconto_tabela_pct?: number;
+  /** Honorário sobre produção de peças por terceiros (sem desconto de veículo). Ex.: 8 */
+  honorario_producao_pct?: number;
+  /** Honorário sobre pesquisas pré/pós-teste. Ex.: 7 */
+  honorario_pesquisa_pct?: number;
+  /** Honorário sobre outros serviços de terceiros. Ex.: 8 */
+  honorario_terceiros_pct?: number;
+  /** Honorário na reutilização de peças. Ex.: 4 */
+  honorario_reutilizacao_pct?: number;
+  /** Desconto de agência sobre veiculação de mídia (repassado ao órgão). Ex.: 20 */
+  desconto_agencia_pct?: number;
+}
+
 @Entity('contratos')
 export class Contrato {
   @PrimaryGeneratedColumn('uuid')
@@ -282,6 +302,15 @@ export class Contrato {
   /** Quando false, os valores calculados (valor_mensal, valor_total) são truncados em vez de arredondados */
   @Column({ default: true })
   arredondar_calculo: boolean;
+
+  // Remuneração de publicidade (Lei 12.232/2010) — modalidade agência de publicidade
+  /** Tabela de referência (ex.: SINAPRO) usada como base de preço dos serviços internos */
+  @Column({ type: 'uuid', nullable: true })
+  tabela_referencia_id: string | null;
+
+  /** Percentuais de desconto/honorários do contrato de publicidade */
+  @Column({ type: 'jsonb', nullable: true })
+  remuneracao_publicidade: RemuneracaoPublicidade | null;
 
   // Observações
   @Column({ type: 'text', nullable: true })
