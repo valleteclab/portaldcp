@@ -23,6 +23,10 @@ export class ItemExtraidoDto {
 }
 
 export class DadosExtradiosDto {
+  @IsOptional()
+  @IsString()
+  numero_contrato?: string;
+
   @IsString()
   objeto: string;
 
@@ -91,6 +95,10 @@ export class DadosExtradiosDto {
 }
 
 export class ConfirmarImportacaoDto {
+  @IsOptional()
+  @IsString()
+  numero_contrato?: string;
+
   @IsString()
   objeto: string;
 

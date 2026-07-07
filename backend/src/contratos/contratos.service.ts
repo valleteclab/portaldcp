@@ -154,21 +154,26 @@ export class ContratosService implements OnModuleInit {
       throw new BadRequestException('orgao_id é obrigatório para criar contrato');
     }
 
-    // Se já tem número e sequencial (importação), usar os valores fornecidos
-    // Senão, gerar novo número sequencial
-    let numeroContrato = dados.numero_contrato;
+    // Número e sequencial são independentes:
+    // - numero_contrato: quando informado (ex.: importação, documento físico), é
+    //   preservado como está — NUNCA sobrescrito por sequência automática.
+    // - sequencial: id interno; se não vier, calcula o próximo do órgão/ano.
+    // - ano: respeita o informado; senão deriva do número (".../2026") ou ano atual.
+    let numeroContrato = dados.numero_contrato?.trim() || undefined;
     let sequencial = dados.sequencial;
-    let ano = dados.ano || new Date().getFullYear();
+    const anoDoNumero = numeroContrato?.match(/\/(\d{4})/)?.[1];
+    let ano = dados.ano || (anoDoNumero ? parseInt(anoDoNumero) : new Date().getFullYear());
 
-    if (!numeroContrato || !sequencial) {
-      // Gerar número do contrato automaticamente
-      ano = new Date().getFullYear();
+    if (!sequencial) {
       const ultimoContrato = await this.contratoRepository.findOne({
         where: { orgao_id: dados.orgao_id, ano },
         order: { sequencial: 'DESC' }
       });
-
       sequencial = ultimoContrato ? ultimoContrato.sequencial + 1 : 1;
+    }
+
+    if (!numeroContrato) {
+      // Sem número informado: gera automaticamente NNN/ano
       numeroContrato = `${String(sequencial).padStart(3, '0')}/${ano}`;
     }
 
