@@ -101,10 +101,10 @@ export class RecursoAdministrativo {
   decisao: string;
 
   /** Quem decidiu (pregoeiro em retratação ou autoridade superior) */
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   decidido_por: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   decidido_por_cargo: string | null;
 
   @Column({ type: 'timestamp', nullable: true })

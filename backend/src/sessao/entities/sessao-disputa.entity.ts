@@ -159,7 +159,7 @@ export class SessaoDisputa {
 
   // === HABILITAÇÃO (Art. 62-70, Lei 14.133/2021) ===
   // Fornecedor atualmente convocado para apresentar documentos de habilitação
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   fornecedor_habilitacao_id: string | null;
 
   // === CHAT ===
