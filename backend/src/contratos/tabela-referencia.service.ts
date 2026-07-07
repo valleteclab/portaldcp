@@ -441,4 +441,93 @@ export class TabelaReferenciaService {
     }
     return criados;
   }
+
+  /**
+   * Gera itens do contrato (ItemCronograma) para as 3 bases de remuneração de
+   * publicidade, criando linhas prontas para a Ordem de Serviço:
+   *  - SINAPRO   : valor da tabela − desconto (ex.: 34%)
+   *  - TERCEIROS : custo do fornecedor + honorário (8/7/8/4%)
+   *  - MIDIA     : valor da mídia − desconto de agência (ex.: 20%)
+   */
+  async gerarLinhasPublicidade(
+    contratoId: string,
+    linhas: Array<{
+      tipo: 'SINAPRO' | 'TERCEIROS' | 'MIDIA';
+      quantidade?: number;
+      // SINAPRO
+      item_tabela_id?: string;
+      base?: 'total' | 'criacao' | 'finalizacao';
+      desconto_pct?: number;
+      // TERCEIROS / MIDIA
+      descricao?: string;
+      custo?: number;
+      honorario_pct?: number;
+      valor_midia?: number;
+      desconto_agencia_pct?: number;
+    }>,
+  ): Promise<ItemCronograma[]> {
+    const contrato = await this.contratoRepo.findOne({ where: { id: contratoId } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    const rp = contrato.remuneracao_publicidade || {};
+
+    const existentes = await this.itemCronogramaRepo.find({ where: { contrato_id: contratoId } });
+    let proximoNumero = existentes.reduce((max, it) => Math.max(max, it.numero_item || 0), 0) + 1;
+
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+    const criados: ItemCronograma[] = [];
+
+    for (const l of linhas) {
+      const quantidade = l.quantidade && l.quantidade > 0 ? l.quantidade : 1;
+      let descricao = '';
+      let precoUnit: number | null = null;
+      let memorial = '';
+
+      if (l.tipo === 'SINAPRO') {
+        if (!l.item_tabela_id) continue;
+        const itemTabela = await this.itemRepo.findOne({ where: { id: l.item_tabela_id } });
+        if (!itemTabela) continue;
+        const base = l.base || 'total';
+        const desconto = l.desconto_pct ?? rp.desconto_tabela_pct ?? 0;
+        precoUnit = this.calcularPrecoComDesconto(itemTabela, base, desconto);
+        if (precoUnit == null) continue; // sob orçamento
+        const sufixo = base === 'criacao' ? ' (Criação)' : base === 'finalizacao' ? ' (Finalização)' : '';
+        const valorBase =
+          base === 'criacao' ? itemTabela.valor_criacao : base === 'finalizacao' ? itemTabela.valor_finalizacao : itemTabela.valor_total;
+        descricao = `${itemTabela.descricao}${sufixo}`;
+        memorial = `SINAPRO ${itemTabela.codigo || ''} — tabela ${Number(valorBase)} − ${desconto}% = ${precoUnit}`.trim();
+      } else if (l.tipo === 'TERCEIROS') {
+        const custo = Number(l.custo || 0);
+        if (!l.descricao || custo <= 0) continue;
+        const honorario = l.honorario_pct ?? rp.honorario_terceiros_pct ?? 0;
+        precoUnit = round2(custo * (1 + honorario / 100));
+        descricao = l.descricao;
+        memorial = `Terceiros — custo ${custo} + honorário ${honorario}% = ${precoUnit}`;
+      } else if (l.tipo === 'MIDIA') {
+        const valorMidia = Number(l.valor_midia || 0);
+        if (!l.descricao || valorMidia <= 0) continue;
+        const descAgencia = l.desconto_agencia_pct ?? rp.desconto_agencia_pct ?? 0;
+        precoUnit = round2(valorMidia * (1 - descAgencia / 100));
+        descricao = l.descricao;
+        memorial = `Mídia — veiculação ${valorMidia} − ${descAgencia}% (desconto de agência) = ${precoUnit}`;
+      } else {
+        continue;
+      }
+
+      if (precoUnit == null) continue;
+      const item = this.itemCronogramaRepo.create({
+        contrato_id: contratoId,
+        numero_item: proximoNumero++,
+        descricao,
+        unidade_medida: 'SERVICO',
+        quantidade,
+        valor_unitario: precoUnit,
+        valor_mensal: 0,
+        valor_total: round2(precoUnit * quantidade),
+        quantidade_meses: null,
+        observacoes: memorial,
+      });
+      criados.push(await this.itemCronogramaRepo.save(item));
+    }
+    return criados;
+  }
 }

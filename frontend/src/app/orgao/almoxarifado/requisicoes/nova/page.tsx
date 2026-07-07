@@ -27,6 +27,7 @@ import {
   Wallet,
   ChevronDown,
   AlertTriangle,
+  Plus,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import AdicionarServicoPublicidadeModal from '@/components/contratos/AdicionarServicoPublicidadeModal';
 import {
   Select,
   SelectContent,
@@ -99,6 +101,15 @@ interface Contrato {
   total_itens?: number;
   modalidade_execucao?: string;
   arredondar_calculo?: boolean;
+  tabela_referencia_id?: string | null;
+  remuneracao_publicidade?: {
+    desconto_tabela_pct?: number;
+    honorario_producao_pct?: number;
+    honorario_pesquisa_pct?: number;
+    honorario_terceiros_pct?: number;
+    honorario_reutilizacao_pct?: number;
+    desconto_agencia_pct?: number;
+  } | null;
 }
 
 const CATEGORIA_LABELS: Record<string, { label: string; cor: string }> = {
@@ -512,6 +523,8 @@ function NovaRequisicaoForm() {
   const [modoOS, setModoOS] = useState<'ORDEM_GLOBAL' | 'ORDEM_DEMANDA' | null>(null);
   const [itensOSDemanda, setItensOSDemanda] = useState<{ item_cronograma_id: string; quantidade_solicitada: number; meses_solicitados?: number }[]>([]);
   const [etapasOSDemanda, setEtapasOSDemanda] = useState<{ etapa_id: string; percentual_solicitado?: number; valor_solicitado?: number }[]>([]);
+  // Publicidade (Lei 12.232): modal para gerar linhas SINAPRO/terceiros/mídia como itens do contrato
+  const [modalPublicidade, setModalPublicidade] = useState(false);
 
   // Ref para controlar auto-save
   const autoSaveTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -2553,6 +2566,44 @@ function NovaRequisicaoForm() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Publicidade (Lei 12.232): gerar serviços SINAPRO/terceiros/mídia como itens da OS */}
+      {contratoSelecionado?.remuneracao_publicidade && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+            <div className="text-sm">
+              <p className="font-medium text-amber-900">Contrato de agência de publicidade</p>
+              <p className="text-amber-800 mt-0.5">
+                Adicione os serviços desta OS: SINAPRO (−{contratoSelecionado.remuneracao_publicidade.desconto_tabela_pct ?? 34}%),
+                terceiros (+honorário) ou mídia (−{contratoSelecionado.remuneracao_publicidade.desconto_agencia_pct ?? 20}%).
+                Os valores são calculados automaticamente.
+              </p>
+            </div>
+            <Button type="button" onClick={() => setModalPublicidade(true)} className="bg-amber-600 hover:bg-amber-700">
+              <Plus className="w-4 h-4 mr-2" /> Adicionar serviço de publicidade
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {contratoSelecionado?.remuneracao_publicidade && (
+        <AdicionarServicoPublicidadeModal
+          contratoId={contratoSelecionado.id}
+          tabelaId={contratoSelecionado.tabela_referencia_id}
+          remuneracao={contratoSelecionado.remuneracao_publicidade}
+          open={modalPublicidade}
+          onOpenChange={setModalPublicidade}
+          onCreated={(novos) => {
+            if (!novos?.length) return
+            setItensCronograma((prev) => [...prev, ...novos])
+            setModoOS('ORDEM_DEMANDA')
+            setItensOSDemanda((prev) => [
+              ...prev,
+              ...novos.map((n: any) => ({ item_cronograma_id: n.id, quantidade_solicitada: Number(n.quantidade) || 1 })),
+            ])
+          }}
+        />
+      )}
 
       {carregandoCronograma ? (
         <Card>

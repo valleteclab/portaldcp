@@ -1,0 +1,276 @@
+'use client'
+
+import { useState, useEffect, useMemo } from 'react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Loader2, Search, Plus, Trash2, Calculator } from 'lucide-react'
+import { API_URL, authFetch } from '@/lib/api'
+
+interface ItemTabela {
+  id: string
+  categoria_nome?: string | null
+  codigo?: string | null
+  descricao: string
+  valor_criacao?: number | null
+  valor_finalizacao?: number | null
+  valor_total?: number | null
+  sob_orcamento?: boolean
+}
+
+interface Remuneracao {
+  desconto_tabela_pct?: number
+  honorario_producao_pct?: number
+  honorario_pesquisa_pct?: number
+  honorario_terceiros_pct?: number
+  honorario_reutilizacao_pct?: number
+  desconto_agencia_pct?: number
+}
+
+type Linha =
+  | { tipo: 'SINAPRO'; descricao: string; item_tabela_id: string; base: 'total' | 'criacao' | 'finalizacao'; quantidade: number; desconto_pct: number; precoUnit: number }
+  | { tipo: 'TERCEIROS'; descricao: string; custo: number; honorario_pct: number; quantidade: number; precoUnit: number }
+  | { tipo: 'MIDIA'; descricao: string; valor_midia: number; desconto_agencia_pct: number; quantidade: number; precoUnit: number }
+
+interface Props {
+  contratoId: string
+  tabelaId?: string | null
+  remuneracao?: Remuneracao | null
+  open: boolean
+  onOpenChange: (o: boolean) => void
+  onCreated?: (itens: any[]) => void
+}
+
+const fmtBRL = (v: number | null | undefined) =>
+  v == null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v))
+const r2 = (v: number) => Math.round(v * 100) / 100
+
+export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId, remuneracao, open, onOpenChange, onCreated }: Props) {
+  const rp = remuneracao || {}
+  const [aba, setAba] = useState<'SINAPRO' | 'TERCEIROS' | 'MIDIA'>('SINAPRO')
+  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [salvando, setSalvando] = useState(false)
+
+  // SINAPRO
+  const [itensTabela, setItensTabela] = useState<ItemTabela[]>([])
+  const [loadingTabela, setLoadingTabela] = useState(false)
+  const [busca, setBusca] = useState('')
+  const [selItem, setSelItem] = useState<ItemTabela | null>(null)
+  const [base, setBase] = useState<'total' | 'criacao' | 'finalizacao'>('total')
+  const [qtdSinapro, setQtdSinapro] = useState(1)
+
+  // Terceiros
+  const [tDesc, setTDesc] = useState('')
+  const [tCusto, setTCusto] = useState('')
+  const [tHonorario, setTHonorario] = useState<string>(String(rp.honorario_terceiros_pct ?? 8))
+  const [tQtd, setTQtd] = useState(1)
+
+  // Mídia
+  const [mDesc, setMDesc] = useState('')
+  const [mValor, setMValor] = useState('')
+  const [mQtd, setMQtd] = useState(1)
+  const descAgencia = rp.desconto_agencia_pct ?? 20
+  const descTabela = rp.desconto_tabela_pct ?? 34
+
+  useEffect(() => {
+    if (!open) { setLinhas([]); setSelItem(null); setBusca(''); return }
+    if (aba === 'SINAPRO' && tabelaId && itensTabela.length === 0) {
+      setLoadingTabela(true)
+      authFetch(`${API_URL}/api/contratos/tabelas-referencia/${tabelaId}/itens`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then(setItensTabela)
+        .finally(() => setLoadingTabela(false))
+    }
+  }, [open, aba, tabelaId])
+
+  const filtrados = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    if (!q) return itensTabela.slice(0, 60)
+    return itensTabela.filter((it) => it.descricao.toLowerCase().includes(q) || (it.codigo || '').toLowerCase().includes(q)).slice(0, 60)
+  }, [itensTabela, busca])
+
+  const valorBaseSel = selItem ? (base === 'criacao' ? selItem.valor_criacao : base === 'finalizacao' ? selItem.valor_finalizacao : selItem.valor_total) : null
+  const precoSinapro = valorBaseSel == null ? null : r2(Number(valorBaseSel) * (1 - descTabela / 100))
+
+  const honorarios = [
+    { pct: rp.honorario_producao_pct ?? 8, label: `Produção (${rp.honorario_producao_pct ?? 8}%)` },
+    { pct: rp.honorario_pesquisa_pct ?? 7, label: `Pesquisa (${rp.honorario_pesquisa_pct ?? 7}%)` },
+    { pct: rp.honorario_terceiros_pct ?? 8, label: `Outros terceiros (${rp.honorario_terceiros_pct ?? 8}%)` },
+    { pct: rp.honorario_reutilizacao_pct ?? 4, label: `Reutilização (${rp.honorario_reutilizacao_pct ?? 4}%)` },
+  ]
+
+  const addSinapro = () => {
+    if (!selItem || precoSinapro == null) return
+    const sufixo = base === 'criacao' ? ' (Criação)' : base === 'finalizacao' ? ' (Finalização)' : ''
+    setLinhas((p) => [...p, { tipo: 'SINAPRO', descricao: `${selItem.descricao}${sufixo}`, item_tabela_id: selItem.id, base, quantidade: qtdSinapro, desconto_pct: descTabela, precoUnit: precoSinapro }])
+    setSelItem(null); setQtdSinapro(1)
+  }
+  const addTerceiros = () => {
+    const custo = parseFloat(tCusto.replace(',', '.'))
+    if (!tDesc.trim() || !custo || custo <= 0) return
+    const h = parseFloat(tHonorario)
+    setLinhas((p) => [...p, { tipo: 'TERCEIROS', descricao: tDesc.trim(), custo, honorario_pct: h, quantidade: tQtd, precoUnit: r2(custo * (1 + h / 100)) }])
+    setTDesc(''); setTCusto(''); setTQtd(1)
+  }
+  const addMidia = () => {
+    const valor = parseFloat(mValor.replace(',', '.'))
+    if (!mDesc.trim() || !valor || valor <= 0) return
+    setLinhas((p) => [...p, { tipo: 'MIDIA', descricao: mDesc.trim(), valor_midia: valor, desconto_agencia_pct: descAgencia, quantidade: mQtd, precoUnit: r2(valor * (1 - descAgencia / 100)) }])
+    setMDesc(''); setMValor(''); setMQtd(1)
+  }
+
+  const totalGeral = linhas.reduce((s, l) => s + l.precoUnit * l.quantidade, 0)
+
+  const gerar = async () => {
+    if (linhas.length === 0) return
+    setSalvando(true)
+    try {
+      const payload = {
+        linhas: linhas.map((l) =>
+          l.tipo === 'SINAPRO'
+            ? { tipo: 'SINAPRO', item_tabela_id: l.item_tabela_id, base: l.base, quantidade: l.quantidade, desconto_pct: l.desconto_pct }
+            : l.tipo === 'TERCEIROS'
+            ? { tipo: 'TERCEIROS', descricao: l.descricao, custo: l.custo, honorario_pct: l.honorario_pct, quantidade: l.quantidade }
+            : { tipo: 'MIDIA', descricao: l.descricao, valor_midia: l.valor_midia, desconto_agencia_pct: l.desconto_agencia_pct, quantidade: l.quantidade },
+        ),
+      }
+      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/contrato/${contratoId}/gerar-linhas`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        onCreated?.(data.itens || [])
+        onOpenChange(false)
+      } else {
+        alert(data.message || 'Erro ao gerar linhas.')
+      }
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><Calculator className="w-5 h-5" /> Adicionar serviço de publicidade</DialogTitle>
+          <DialogDescription>
+            SINAPRO (−{descTabela}%), serviços de terceiros (+honorário) ou mídia (−{descAgencia}%). As linhas viram itens do contrato para a OS.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex gap-1 border-b">
+          {(['SINAPRO', 'TERCEIROS', 'MIDIA'] as const).map((t) => (
+            <button key={t} onClick={() => setAba(t)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${aba === t ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500'}`}>
+              {t === 'SINAPRO' ? 'SINAPRO' : t === 'TERCEIROS' ? 'Terceiros' : 'Mídia'}
+            </button>
+          ))}
+        </div>
+
+        <div className="py-2">
+          {aba === 'SINAPRO' && (
+            !tabelaId ? (
+              <p className="text-sm text-amber-700">Este contrato não tem tabela SINAPRO vinculada.</p>
+            ) : (
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Input className="pl-9" placeholder="Buscar serviço na tabela…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                </div>
+                <div className="border rounded max-h-40 overflow-y-auto">
+                  {loadingTabela ? <div className="p-4 text-center"><Loader2 className="w-4 h-4 animate-spin inline" /></div> :
+                    filtrados.map((it) => (
+                      <button key={it.id} onClick={() => setSelItem(it)} disabled={it.sob_orcamento}
+                        className={`w-full text-left px-3 py-1.5 text-xs border-b hover:bg-indigo-50 ${selItem?.id === it.id ? 'bg-indigo-100' : ''} ${it.sob_orcamento ? 'opacity-40' : ''}`}>
+                        <span className="text-gray-400">{it.codigo}</span> {it.descricao} <span className="text-gray-500">— {fmtBRL(it.valor_total)}</span>
+                      </button>
+                    ))}
+                </div>
+                {selItem && (
+                  <div className="flex items-end gap-2 bg-gray-50 rounded p-2">
+                    <div className="flex-1 text-xs"><span className="font-medium">{selItem.descricao}</span></div>
+                    <div><Label className="text-xs">Base</Label>
+                      <select value={base} onChange={(e) => setBase(e.target.value as any)} className="border rounded px-2 py-1 text-xs block">
+                        <option value="total">Total</option>
+                        {selItem.valor_criacao != null && <option value="criacao">Criação</option>}
+                        {selItem.valor_finalizacao != null && <option value="finalizacao">Finalização</option>}
+                      </select>
+                    </div>
+                    <div><Label className="text-xs">Qtd</Label><Input type="number" min="1" value={qtdSinapro} onChange={(e) => setQtdSinapro(parseInt(e.target.value) || 1)} className="h-8 w-16 text-xs" /></div>
+                    <div className="text-xs"><Label className="text-xs">−{descTabela}%</Label><div className="font-semibold text-indigo-700 h-8 flex items-center">{fmtBRL(precoSinapro)}</div></div>
+                    <Button size="sm" onClick={addSinapro}><Plus className="w-4 h-4" /></Button>
+                  </div>
+                )}
+              </div>
+            )
+          )}
+
+          {aba === 'TERCEIROS' && (
+            <div className="flex items-end gap-2 flex-wrap bg-gray-50 rounded p-2">
+              <div className="flex-1 min-w-[180px]"><Label className="text-xs">Descrição do serviço</Label><Input value={tDesc} onChange={(e) => setTDesc(e.target.value)} placeholder="Ex.: Impressão de folders (gráfica)" className="h-8 text-xs" /></div>
+              <div><Label className="text-xs">Custo (R$)</Label><Input value={tCusto} onChange={(e) => setTCusto(e.target.value)} placeholder="1000,00" className="h-8 w-24 text-xs" /></div>
+              <div><Label className="text-xs">Honorário</Label>
+                <select value={tHonorario} onChange={(e) => setTHonorario(e.target.value)} className="border rounded px-2 py-1 text-xs block h-8">
+                  {honorarios.map((h) => <option key={h.label} value={h.pct}>{h.label}</option>)}
+                </select>
+              </div>
+              <div><Label className="text-xs">Qtd</Label><Input type="number" min="1" value={tQtd} onChange={(e) => setTQtd(parseInt(e.target.value) || 1)} className="h-8 w-16 text-xs" /></div>
+              <div className="text-xs"><Label className="text-xs">+ honorário</Label><div className="font-semibold text-indigo-700 h-8 flex items-center">{tCusto ? fmtBRL(r2(parseFloat(tCusto.replace(',', '.') || '0') * (1 + parseFloat(tHonorario) / 100))) : '—'}</div></div>
+              <Button size="sm" onClick={addTerceiros}><Plus className="w-4 h-4" /></Button>
+            </div>
+          )}
+
+          {aba === 'MIDIA' && (
+            <div className="flex items-end gap-2 flex-wrap bg-gray-50 rounded p-2">
+              <div className="flex-1 min-w-[180px]"><Label className="text-xs">Descrição da veiculação</Label><Input value={mDesc} onChange={(e) => setMDesc(e.target.value)} placeholder="Ex.: 30 inserções rádio X" className="h-8 text-xs" /></div>
+              <div><Label className="text-xs">Valor mídia (R$)</Label><Input value={mValor} onChange={(e) => setMValor(e.target.value)} placeholder="10000,00" className="h-8 w-28 text-xs" /></div>
+              <div><Label className="text-xs">Qtd</Label><Input type="number" min="1" value={mQtd} onChange={(e) => setMQtd(parseInt(e.target.value) || 1)} className="h-8 w-16 text-xs" /></div>
+              <div className="text-xs"><Label className="text-xs">−{descAgencia}%</Label><div className="font-semibold text-indigo-700 h-8 flex items-center">{mValor ? fmtBRL(r2(parseFloat(mValor.replace(',', '.') || '0') * (1 - descAgencia / 100))) : '—'}</div></div>
+              <Button size="sm" onClick={addMidia}><Plus className="w-4 h-4" /></Button>
+            </div>
+          )}
+        </div>
+
+        {/* Linhas montadas */}
+        <div className="flex-1 overflow-y-auto border rounded">
+          {linhas.length === 0 ? (
+            <div className="p-6 text-center text-sm text-gray-400">Nenhuma linha adicionada. Monte os serviços acima.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 sticky top-0"><tr>
+                <th className="text-left p-2">Tipo</th><th className="text-left p-2">Descrição</th>
+                <th className="text-right p-2">Preço unit.</th><th className="text-center p-2">Qtd</th><th className="text-right p-2">Total</th><th className="w-8"></th>
+              </tr></thead>
+              <tbody>
+                {linhas.map((l, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="p-2"><span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{l.tipo === 'SINAPRO' ? 'SINAPRO' : l.tipo === 'TERCEIROS' ? 'Terceiros' : 'Mídia'}</span></td>
+                    <td className="p-2">{l.descricao}</td>
+                    <td className="p-2 text-right">{fmtBRL(l.precoUnit)}</td>
+                    <td className="p-2 text-center">{l.quantidade}</td>
+                    <td className="p-2 text-right font-semibold">{fmtBRL(l.precoUnit * l.quantidade)}</td>
+                    <td className="p-2"><button onClick={() => setLinhas((p) => p.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4 text-red-400" /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <DialogFooter className="flex items-center justify-between gap-4 sm:justify-between">
+          <div className="text-sm"><span className="text-gray-500">{linhas.length} linha(s) · Total: </span><span className="font-bold text-indigo-700">{fmtBRL(totalGeral)}</span></div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+            <Button onClick={gerar} disabled={salvando || linhas.length === 0}>
+              {salvando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Gerar {linhas.length} item(ns)
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
