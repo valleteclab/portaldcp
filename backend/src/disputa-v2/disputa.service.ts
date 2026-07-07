@@ -678,6 +678,22 @@ export class DisputaService {
         );
       }
 
+      // =========================================================================
+      // VALIDAÇÃO 5: Intervalo mínimo entre lances do mesmo fornecedor
+      // (IN SEGES/ME 73/2022, art. 51 — parametrizável; 0 = desabilitado)
+      // =========================================================================
+      const intervaloMinMin = Number(sessao.intervalo_minimo_lances_minutos) || 0;
+      if (intervaloMinMin > 0 && meuUltimoLance) {
+        const intervaloMs = intervaloMinMin * 60 * 1000;
+        const desdeUltimo = Date.now() - new Date(meuUltimoLance.created_at).getTime();
+        if (desdeUltimo < intervaloMs) {
+          const faltaSeg = Math.ceil((intervaloMs - desdeUltimo) / 1000);
+          throw new BadRequestException(
+            `Intervalo mínimo entre seus lances é de ${intervaloMinMin} min. Aguarde ${faltaSeg}s para enviar outro lance.`
+          );
+        }
+      }
+
       // Criar lance
       const lance = manager.create(Lance, {
         licitacao_id: sessao.licitacao_id,

@@ -105,12 +105,12 @@ Publicações no PNCP (edital+itens ao publicar, retificações, resultado por i
 **Critério de saída**: rodar uma disputa simulada completa em homologação sem tocar em código para configurar prazos.
 
 ### Fase 1 — Pregão eletrônico fim a fim (modalidade âncora)
-1. Completar pós-disputa: recursos (registro de razões no prazo recursal, contrarrazões, decisão do pregoeiro/autoridade) e **homologação** como ato explícito da autoridade competente.
-2. ME/EPP completo: aceitar/recusar novo lance da ME/EPP convocada, com prazo (5min) e efeito no ranking; percentual 5%/10% parametrizado.
-3. Validar intervalo mínimo entre lances e diferença mínima (colunas já existem).
-4. Frontend: v3 vira a sala única do pregoeiro (integrar operação em tempo real da v2); criar a visão v3 do **fornecedor** (acompanhar negociação, ser convocado para habilitação, manifestar intenção de recurso, apresentar razões).
-5. Ata versionada + assinatura digital da ata.
-6. PNCP: publicar compra + itens + documentos ao publicar edital; publicar resultado por item na homologação (D5).
+1. ✅ Completar pós-disputa: recursos (razões, contrarrazões, decisão) e **homologação** como ato explícito da autoridade. — *entregue (PR fase1): entidade `RecursoAdministrativo` + `RecursosService` (admitir/recusar intenção → razões → contrarrazões → decidir, prazos em dias úteis parametrizados); `sessao.homologar` (Art. 71) fixa vencedor/valor por item e encerra.*
+2. ✅ ME/EPP completo: aceitar/recusar novo lance da ME/EPP; percentual 5%/10% parametrizado. — *entregue: `aceitarLanceMPE`/`recusarLanceMPE` + empate ficto lê `percentual_empate_ficto_pregao/demais` (fim do 5% hardcoded).*
+3. ⏳ Validar intervalo mínimo entre lances e diferença mínima. — *intervalo mínimo entre lances entregue (validação 5 na engine disputa-v2, parametrizado); diferença mínima de valor entre lances ainda pendente.*
+4. ⏳ Frontend: v3 vira a sala única do pregoeiro; visão v3 do **fornecedor**. — *parcial: painéis `RecursosPanel` e `HomologacaoPanel` adicionados à v3 do pregoeiro. Falta a sala única (absorver operação em tempo real da v2 e aposentar v2/sala-disputa) e estender a visão do fornecedor (`/fornecedor/disputa-v3` já existe) para negociação/habilitação/recurso.*
+5. ⏳ Ata versionada + assinatura digital da ata. — *pendente.*
+6. ⏳ PNCP: publicar compra + itens + documentos ao publicar edital; publicar resultado por item na homologação (D5). — *pendente (maior esforço restante).*
 
 **Critério de saída**: um pregão de teste completo — do edital publicado à homologação com ata assinada e espelho no PNCP de homologação — conduzido por um usuário que não é dev.
 

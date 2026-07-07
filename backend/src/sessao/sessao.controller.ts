@@ -1,10 +1,14 @@
 import { Controller, Get, Post, Put, Param, Body, Query, Req } from '@nestjs/common';
 import { SessaoService } from './sessao.service';
+import { RecursosService } from './recursos.service';
 import { Public } from '../auth/public.decorator';
 
 @Controller('sessao')
 export class SessaoController {
-  constructor(private readonly sessaoService: SessaoService) {}
+  constructor(
+    private readonly sessaoService: SessaoService,
+    private readonly recursosService: RecursosService,
+  ) {}
 
   // ========================================
   // ENDPOINTS PARA SALA DE DISPUTA DO FORNECEDOR
@@ -229,6 +233,91 @@ export class SessaoController {
   @Put(':id/recursos/encerrar-prazo')
   async encerrarPrazoIntencaoRecurso(@Param('id') id: string) {
     return this.sessaoService.encerrarPrazoIntencaoRecurso(id);
+  }
+
+  // === BENEFÍCIO ME/EPP (LC 123, art. 44/45) ===
+
+  @Put(':id/mpe/convocar/:fornecedorId')
+  async convocarMPE(@Param('id') id: string, @Param('fornecedorId') fornecedorId: string) {
+    return this.sessaoService.convocarMPEParaLance(id, fornecedorId);
+  }
+
+  @Put(':id/mpe/aceitar/:fornecedorId')
+  async aceitarLanceMPE(
+    @Param('id') id: string,
+    @Param('fornecedorId') fornecedorId: string,
+    @Body() body: { itemId: string; valor: number },
+  ) {
+    return this.sessaoService.aceitarLanceMPE(id, fornecedorId, body.itemId, body.valor);
+  }
+
+  @Put(':id/mpe/recusar/:fornecedorId')
+  async recusarLanceMPE(
+    @Param('id') id: string,
+    @Param('fornecedorId') fornecedorId: string,
+    @Body() body: { itemId: string },
+  ) {
+    return this.sessaoService.recusarLanceMPE(id, fornecedorId, body.itemId);
+  }
+
+  // === RECURSOS FORMAIS (Art. 165) ===
+
+  @Get(':id/recursos')
+  async listarRecursos(@Param('id') id: string) {
+    return this.recursosService.listarPorSessao(id);
+  }
+
+  @Post(':id/recursos/:fornecedorId/admitir')
+  async admitirIntencao(
+    @Param('id') id: string,
+    @Param('fornecedorId') fornecedorId: string,
+    @Body() body: { fornecedorNome?: string; itemId?: string; motivacao?: string },
+  ) {
+    return this.recursosService.admitirIntencao(id, fornecedorId, body);
+  }
+
+  @Post(':id/recursos/:fornecedorId/recusar')
+  async recusarIntencao(
+    @Param('id') id: string,
+    @Param('fornecedorId') fornecedorId: string,
+    @Body() body: { motivo: string; fornecedorNome?: string; itemId?: string },
+  ) {
+    return this.recursosService.recusarIntencao(id, fornecedorId, body.motivo, body);
+  }
+
+  @Put('recursos/:recursoId/razoes')
+  async apresentarRazoes(
+    @Param('recursoId') recursoId: string,
+    @Body() body: { razoes: string },
+  ) {
+    return this.recursosService.apresentarRazoes(recursoId, body.razoes);
+  }
+
+  @Put('recursos/:recursoId/contrarrazoes')
+  async apresentarContrarrazoes(
+    @Param('recursoId') recursoId: string,
+    @Body() body: { fornecedorId: string; fornecedorNome?: string; texto: string },
+  ) {
+    return this.recursosService.apresentarContrarrazoes(recursoId, body);
+  }
+
+  @Put('recursos/:recursoId/decidir')
+  async decidirRecurso(
+    @Param('recursoId') recursoId: string,
+    @Body()
+    body: { provido: boolean; decisao: string; decididoPor?: string; decididoPorCargo?: string },
+  ) {
+    return this.recursosService.decidir(recursoId, body);
+  }
+
+  // === HOMOLOGAÇÃO (Art. 71) ===
+
+  @Put(':id/homologar')
+  async homologar(
+    @Param('id') id: string,
+    @Body() body: { nome?: string; cargo?: string },
+  ) {
+    return this.sessaoService.homologar(id, body);
   }
 
   @Get(':id/adjudicacao')
