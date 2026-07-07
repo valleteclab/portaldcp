@@ -82,6 +82,16 @@ export class TabelaReferenciaController {
     );
   }
 
+  /** Substitui os itens da tabela (re-importação de nova edição). */
+  @Post(':id/substituir-itens')
+  async substituirItens(
+    @Param('id') id: string,
+    @Body() body: { itens: ItemTabelaInput[]; edicao?: string; observacoes?: string },
+  ) {
+    if (!body?.itens?.length) throw new BadRequestException('Envie os itens revisados.');
+    return this.service.substituirItens(id, body.itens, { edicao: body.edicao, observacoes: body.observacoes });
+  }
+
   @Put(':id')
   async atualizar(@Param('id') id: string, @Body() body: any) {
     return this.service.atualizarTabela(id, {

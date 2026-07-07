@@ -46,6 +46,8 @@ export default function TabelasReferenciaPage() {
 
   // Import modal
   const [showImport, setShowImport] = useState(false)
+  // quando setado, o import substitui os itens desta tabela em vez de criar nova
+  const [atualizarAlvo, setAtualizarAlvo] = useState<TabelaReferencia | null>(null)
   const [importMeta, setImportMeta] = useState({ nome: '', fonte: 'SINAPRO', uf: 'BA', edicao: '' })
   const [previewItens, setPreviewItens] = useState<ItemTabela[]>([])
   const [processando, setProcessando] = useState(false)
@@ -125,16 +127,37 @@ export default function TabelasReferenciaPage() {
     }
   }
 
+  const abrirImportarNova = () => {
+    setAtualizarAlvo(null)
+    setPreviewItens([])
+    setCsvTexto('')
+    setImportMeta({ nome: '', fonte: 'SINAPRO', uf: 'BA', edicao: '' })
+    setShowImport(true)
+  }
+
+  const abrirAtualizar = (t: TabelaReferencia) => {
+    setAtualizarAlvo(t)
+    setPreviewItens([])
+    setCsvTexto('')
+    setImportMeta({ nome: t.nome, fonte: t.fonte || '', uf: t.uf || '', edicao: t.edicao || '' })
+    setShowImport(true)
+  }
+
   const confirmarImport = async () => {
-    if (!importMeta.nome || previewItens.length === 0) return
+    if (previewItens.length === 0) return
+    if (!atualizarAlvo && !importMeta.nome) return
     setProcessando(true)
     try {
-      const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia`, {
-        method: 'POST',
-        body: JSON.stringify({ ...importMeta, itens: previewItens }),
-      })
+      const url = atualizarAlvo
+        ? `${API_URL}/api/contratos/tabelas-referencia/${atualizarAlvo.id}/substituir-itens`
+        : `${API_URL}/api/contratos/tabelas-referencia`
+      const body = atualizarAlvo
+        ? { itens: previewItens, edicao: importMeta.edicao }
+        : { ...importMeta, itens: previewItens }
+      const res = await authFetch(url, { method: 'POST', body: JSON.stringify(body) })
       if (res.ok) {
         setShowImport(false)
+        setAtualizarAlvo(null)
         setPreviewItens([])
         setCsvTexto('')
         setImportMeta({ nome: '', fonte: 'SINAPRO', uf: 'BA', edicao: '' })
@@ -189,7 +212,7 @@ export default function TabelasReferenciaPage() {
             {seeding ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1" />}
             Semear SINAPRO-BA
           </Button>
-          <Button onClick={() => setShowImport(true)}><Plus className="w-4 h-4 mr-1" /> Importar tabela</Button>
+          <Button onClick={abrirImportarNova}><Plus className="w-4 h-4 mr-1" /> Importar tabela</Button>
         </div>
       </div>
 
@@ -215,6 +238,7 @@ export default function TabelasReferenciaPage() {
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => verItens(t)}><Eye className="w-4 h-4 mr-1" /> Ver itens</Button>
+                  <Button variant="outline" size="sm" onClick={() => abrirAtualizar(t)}><Upload className="w-4 h-4 mr-1" /> Atualizar itens</Button>
                   <Button variant="ghost" size="sm" onClick={() => excluir(t)}><Trash2 className="w-4 h-4 text-red-500" /></Button>
                 </div>
               </CardContent>
@@ -227,16 +251,27 @@ export default function TabelasReferenciaPage() {
       <Dialog open={showImport} onOpenChange={setShowImport}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Importar tabela de referência</DialogTitle>
-            <DialogDescription>Envie o PDF da SINAPRO ou cole um CSV. Revise os itens antes de salvar.</DialogDescription>
+            <DialogTitle>{atualizarAlvo ? `Atualizar itens — ${atualizarAlvo.nome}` : 'Importar tabela de referência'}</DialogTitle>
+            <DialogDescription>
+              {atualizarAlvo
+                ? 'Envie a nova edição (PDF/CSV). Os itens atuais serão substituídos; os contratos vinculados seguem usando esta tabela com os novos preços.'
+                : 'Envie o PDF da SINAPRO ou cole um CSV. Revise os itens antes de salvar.'}
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label>Nome *</Label><Input value={importMeta.nome} onChange={(e) => setImportMeta({ ...importMeta, nome: e.target.value })} placeholder="SINAPRO-BA — Custos Internos" /></div>
-            <div><Label>Fonte</Label><Input value={importMeta.fonte} onChange={(e) => setImportMeta({ ...importMeta, fonte: e.target.value })} /></div>
-            <div><Label>UF</Label><Input value={importMeta.uf} onChange={(e) => setImportMeta({ ...importMeta, uf: e.target.value })} maxLength={2} /></div>
-            <div><Label>Edição</Label><Input value={importMeta.edicao} onChange={(e) => setImportMeta({ ...importMeta, edicao: e.target.value })} placeholder="2025/2026" /></div>
-          </div>
+          {atualizarAlvo ? (
+            <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+              Substituindo os itens de <strong>{atualizarAlvo.nome}</strong> ({atualizarAlvo.total_itens ?? 0} itens atuais).
+              <div className="mt-2 w-40"><Label className="text-xs">Nova edição</Label><Input value={importMeta.edicao} onChange={(e) => setImportMeta({ ...importMeta, edicao: e.target.value })} placeholder="2026/2027" /></div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Nome *</Label><Input value={importMeta.nome} onChange={(e) => setImportMeta({ ...importMeta, nome: e.target.value })} placeholder="SINAPRO-BA — Custos Internos" /></div>
+              <div><Label>Fonte</Label><Input value={importMeta.fonte} onChange={(e) => setImportMeta({ ...importMeta, fonte: e.target.value })} /></div>
+              <div><Label>UF</Label><Input value={importMeta.uf} onChange={(e) => setImportMeta({ ...importMeta, uf: e.target.value })} maxLength={2} /></div>
+              <div><Label>Edição</Label><Input value={importMeta.edicao} onChange={(e) => setImportMeta({ ...importMeta, edicao: e.target.value })} placeholder="2025/2026" /></div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3 mt-2">
             <div className="border rounded-md p-3">
@@ -280,8 +315,8 @@ export default function TabelasReferenciaPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowImport(false)}>Cancelar</Button>
-            <Button onClick={confirmarImport} disabled={processando || !importMeta.nome || previewItens.length === 0}>
-              Salvar {previewItens.length > 0 ? `(${previewItens.length} itens)` : ''}
+            <Button onClick={confirmarImport} disabled={processando || previewItens.length === 0 || (!atualizarAlvo && !importMeta.nome)}>
+              {atualizarAlvo ? 'Substituir' : 'Salvar'} {previewItens.length > 0 ? `(${previewItens.length} itens)` : ''}
             </Button>
           </DialogFooter>
         </DialogContent>
