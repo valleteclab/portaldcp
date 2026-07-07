@@ -233,6 +233,29 @@ export class TabelaReferenciaService {
     await this.tabelaRepo.delete(id);
   }
 
+  /**
+   * Substitui todos os itens de uma tabela existente (re-importação de nova
+   * edição). Mantém o mesmo id da tabela — contratos vinculados seguem usando-a
+   * com os preços atualizados. Opcionalmente atualiza a edição/observações.
+   */
+  async substituirItens(
+    tabelaId: string,
+    itens: ItemTabelaInput[],
+    meta?: { edicao?: string; observacoes?: string },
+  ): Promise<{ removidos: number; inseridos: number }> {
+    const tabela = await this.buscarTabela(tabelaId);
+    if (!itens?.length) throw new BadRequestException('Nenhum item para importar.');
+    const removidos = await this.itemRepo.count({ where: { tabela_id: tabelaId } });
+    await this.itemRepo.delete({ tabela_id: tabelaId });
+    const inseridos = await this.inserirItens(tabelaId, itens);
+    if (meta?.edicao !== undefined || meta?.observacoes !== undefined) {
+      tabela.edicao = meta.edicao ?? tabela.edicao;
+      tabela.observacoes = meta.observacoes ?? tabela.observacoes;
+      await this.tabelaRepo.save(tabela);
+    }
+    return { removidos, inseridos };
+  }
+
   private async inserirItens(tabelaId: string, itens: ItemTabelaInput[]): Promise<number> {
     const entidades = itens.map((it, idx) =>
       this.itemRepo.create({
