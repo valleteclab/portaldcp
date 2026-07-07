@@ -1216,8 +1216,12 @@ function NovaRequisicaoForm() {
     setItensRequisicao([]); // Limpa itens ao mudar contrato
     setMensagemSugestaoRestos(null);
     // Auto-preencher tipo baseado na modalidade/categoria do contrato
-    // Contratos de MEDICAO (obras/serviços por medição) usam fluxo de OS
-    if (contrato.modalidade_execucao === 'MEDICAO' || contrato.categoria === 'OBRAS') {
+    // Contratos de MEDICAO (obras) e ORDEM_SERVICO (ex.: publicidade) usam fluxo de OS
+    if (
+      contrato.modalidade_execucao === 'MEDICAO' ||
+      contrato.modalidade_execucao === 'ORDEM_SERVICO' ||
+      contrato.categoria === 'OBRAS'
+    ) {
       setTipo('ORDEM_SERVICO');
     } else if (contrato.categoria === 'SERVICOS') {
       setTipo('SERVICO');
