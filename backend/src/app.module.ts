@@ -97,8 +97,11 @@ import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-lic
       // defina DB_SYNCHRONIZE=false após gerar migrations para congelar o schema
       // em produção (evita alteração automática de tabelas durante uma disputa).
       synchronize: process.env.DB_SYNCHRONIZE !== 'false',
-      migrations: [],
-      migrationsRun: false,
+      // Migrations empacotadas no build (dist/migrations/*.js) ou fonte (dev).
+      migrations: [__dirname + '/migrations/*.{js,ts}'],
+      // Rodar migrations no boot só quando DB_MIGRATIONS_RUN=true
+      // (usado quando synchronize estiver desligado em produção).
+      migrationsRun: process.env.DB_MIGRATIONS_RUN === 'true',
       ssl:
         process.env.DB_SSL === 'false'
           ? false
