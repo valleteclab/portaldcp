@@ -199,6 +199,10 @@ export class Orgao {
   @Column({ length: 500, nullable: true })
   whatsapp_client_token: string; // criptografado
 
+  /** WhatsApp do responsável por receber medições — recebe alertas de medição aprovada e não liquidada */
+  @Column({ length: 20, nullable: true })
+  whatsapp_responsavel_medicoes: string;
+
   // ============ CONFIGURAÇÕES DE DISPUTA ============
   
   @Column({ default: true })

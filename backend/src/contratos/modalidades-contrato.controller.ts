@@ -35,6 +35,7 @@ import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { FatorTransparenciaService } from './fator-transparencia.service';
 import { ConciliacaoFatorService } from './conciliacao-fator.service';
+import { ConciliacaoFatorScheduler } from './conciliacao-fator.scheduler';
 import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
@@ -51,6 +52,7 @@ export class ModalidadesContratoController {
     private readonly osService: OrdemServicoContratoService,
     private readonly fatorTransparencia: FatorTransparenciaService,
     private readonly conciliacaoFator_: ConciliacaoFatorService,
+    private readonly conciliacaoScheduler: ConciliacaoFatorScheduler,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(Contrato)
@@ -1486,6 +1488,26 @@ export class ModalidadesContratoController {
     const user = req.user as JwtPayload;
     const orgaoId = this.getOrgaoId(user, req.query?.orgaoId);
     return this.conciliacaoFator_.auditarContratos(orgaoId, { comFator: fator === '1' });
+  }
+
+  /** Medições aprovadas há >N dias sem liquidação no portal (badge/lista). */
+  @Get('auditoria/medicoes-nao-liquidadas')
+  async medicoesNaoLiquidadas(@Req() req: any, @Query('dias') dias?: string) {
+    const user = req.user as JwtPayload;
+    const orgaoId = this.getOrgaoId(user, req.query?.orgaoId);
+    return this.conciliacaoFator_.verificarMedicoesNaoLiquidadas(
+      orgaoId,
+      dias ? parseInt(dias, 10) : 15,
+    );
+  }
+
+  /** Dispara a verificação/notificação agora (mesmo fluxo do job diário). */
+  @Post('auditoria/medicoes-nao-liquidadas/notificar')
+  async notificarMedicoesNaoLiquidadas(@Req() req: any) {
+    const user = req.user as JwtPayload;
+    const orgaoId = this.getOrgaoId(user, req.query?.orgaoId);
+    const enviadas = await this.conciliacaoScheduler.verificarOrgao(orgaoId);
+    return { notificacoes_enviadas: enviadas };
   }
 
   @Get(':contratoId/empenhos')

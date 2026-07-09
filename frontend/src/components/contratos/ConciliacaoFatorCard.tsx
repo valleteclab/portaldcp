@@ -28,6 +28,7 @@ interface Conciliacao {
   tolerancia: number
   status: 'CONCILIADO' | 'DIVERGENTE' | 'SEM_DADOS_FATOR'
   atravessa_exercicios: boolean
+  nota?: string
   alertas: { tipo: string; mensagem: string }[]
 }
 
@@ -129,14 +130,16 @@ export default function ConciliacaoFatorCard({ contratoId }: { contratoId: strin
                   <span className="text-gray-700 font-medium border-t pt-0.5">Diferença</span>
                   <span className={`font-semibold text-right tabular-nums border-t pt-0.5 ${liquidacaoEmDia || explicadaPelaUltima ? 'text-emerald-700' : 'text-amber-700'}`}>{fmtBRL(dados.diferenca)}</span>
                 </div>
-                <p className={`mt-1.5 ${liquidacaoEmDia || explicadaPelaUltima ? 'text-emerald-700' : 'text-amber-700'}`}>
+                <p className={`mt-1.5 ${liquidacaoEmDia || explicadaPelaUltima || (dados.nota && dados.status === 'CONCILIADO') ? 'text-emerald-700' : 'text-amber-700'}`}>
                   {liquidacaoEmDia
                     ? '✓ Liquidação em dia — sistema e portal batem ao centavo.'
                     : explicadaPelaUltima
                       ? `✓ A diferença é exatamente a última medição #${ultima!.numero} (${fmtBRL(ultima!.valor)}), aprovada e aguardando liquidação — conciliado.`
-                      : ultima
-                        ? `⚠ Descontando a última medição #${ultima.numero} (${fmtBRL(ultima.valor)}, possivelmente aguardando liquidação), restam ${fmtBRL(Math.abs(restoAposUltima))} sem explicação.`
-                        : `⚠ Diferença de ${fmtBRL(Math.abs(dados.diferenca))} sem medição pendente que a explique.`}
+                      : dados.nota
+                        ? `${dados.status === 'CONCILIADO' ? '✓' : '⚠'} ${dados.nota}`
+                        : ultima
+                          ? `⚠ Descontando a última medição #${ultima.numero} (${fmtBRL(ultima.valor)}, possivelmente aguardando liquidação), restam ${fmtBRL(Math.abs(restoAposUltima))} sem explicação.`
+                          : `⚠ Diferença de ${fmtBRL(Math.abs(dados.diferenca))} sem medição pendente que a explique.`}
                 </p>
               </div>
 

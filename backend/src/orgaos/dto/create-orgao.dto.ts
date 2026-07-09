@@ -99,6 +99,11 @@ export class CreateOrgaoDto {
   @IsOptional()
   site?: string;
 
+  /** WhatsApp do responsável por receber medições (alertas de medição não liquidada) */
+  @IsString()
+  @IsOptional()
+  whatsapp_responsavel_medicoes?: string;
+
   // Responsável Legal - tornando opcional com valores padrão
   @IsString()
   @IsOptional()
