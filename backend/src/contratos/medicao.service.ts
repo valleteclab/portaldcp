@@ -1590,6 +1590,12 @@ export class MedicaoService {
         await this.calcularPercentualComprometidoPorEtapa(contratoId);
       const valoresEmTransito =
         await this.calcularValorComprometidoPorEtapa(contratoId);
+      const itensEtapaComprometidos =
+        await this.calcularItensEtapaMedidosComprometidos(
+          contratoId,
+          undefined,
+          dataCorteCiclo,
+        );
 
       for (const item of dados.itens || []) {
         const itemEtapa = item as {
@@ -1605,6 +1611,17 @@ export class MedicaoService {
           throw new NotFoundException(
             `Etapa ${itemEtapa.etapa_id} não encontrada`,
           );
+
+        const idsItensJaMedidos =
+          itensEtapaComprometidos.get(itemEtapa.etapa_id) || new Set<string>();
+        const idsRepetidos = (itemEtapa.itens_etapa_medidos || []).filter(
+          (id) => idsItensJaMedidos.has(id),
+        );
+        if (idsRepetidos.length > 0) {
+          throw new BadRequestException(
+            `Etapa "${etapa.descricao}": ha subitens ja medidos nesta etapa. Atualize a selecao e tente novamente.`,
+          );
+        }
 
         const valorExecutadoAtual = Number(itemEtapa.valor_executado_atual || 0);
         let percentualExecAtual = itemEtapa.percentual_executado_atual || 0;
@@ -2040,6 +2057,12 @@ export class MedicaoService {
         medicao.contrato_id,
         medicao.id,
       );
+      const itensEtapaComprometidos =
+        await this.calcularItensEtapaMedidosComprometidos(
+          medicao.contrato_id,
+          medicao.id,
+          dataCorteCiclo,
+        );
 
       for (const item of dados.itens || []) {
         const itemEtapa = item as {
@@ -2054,6 +2077,17 @@ export class MedicaoService {
         if (!etapa) {
           throw new NotFoundException(
             `Etapa ${itemEtapa.etapa_id} não encontrada`,
+          );
+        }
+
+        const idsItensJaMedidos =
+          itensEtapaComprometidos.get(itemEtapa.etapa_id) || new Set<string>();
+        const idsRepetidos = (itemEtapa.itens_etapa_medidos || []).filter(
+          (id) => idsItensJaMedidos.has(id),
+        );
+        if (idsRepetidos.length > 0) {
+          throw new BadRequestException(
+            `Etapa "${etapa.descricao}": ha subitens ja medidos nesta etapa. Atualize a selecao e tente novamente.`,
           );
         }
 
@@ -4547,6 +4581,16 @@ export class MedicaoService {
     for (const [etapaId, perc] of percentuaisEmTransito.entries()) {
       etapasComprometidas[etapaId] = perc;
     }
+    const itensEtapaMedidosMap =
+      await this.calcularItensEtapaMedidosComprometidos(
+        contratoId,
+        undefined,
+        dataRenovacao,
+      );
+    const itensEtapaMedidos: Record<string, string[]> = {};
+    for (const [etapaId, ids] of itensEtapaMedidosMap.entries()) {
+      itensEtapaMedidos[etapaId] = Array.from(ids);
+    }
 
     const pendentesAteste = medicoesDoCiclo.filter(
       (m) => m.status === StatusMedicao.SUBMETIDA,
@@ -4663,6 +4707,7 @@ export class MedicaoService {
       saldo_disponivel: saldoDisponivel,
       percentual_fisico_total: Math.min(percentualFisicoTotal, 100),
       etapas_comprometidas: etapasComprometidas,
+      itens_etapa_medidos: itensEtapaMedidos,
       itens_comprometidos: itensComprometidos,
       total_etapas: etapas.length,
       etapas_concluidas: etapas.filter(
@@ -5238,6 +5283,64 @@ export class MedicaoService {
     const mapa = new Map<string, number>();
     for (const row of results) {
       mapa.set(row.etapa_id, Number(row.total_valor));
+    }
+    return mapa;
+  }
+
+  private extrairItensEtapaMedidosObservacoes(
+    observacoes?: string | null,
+  ): string[] {
+    if (!observacoes) return [];
+    try {
+      const parsed = JSON.parse(observacoes);
+      return Array.isArray(parsed?.itens_etapa_medidos)
+        ? parsed.itens_etapa_medidos.filter(Boolean)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async calcularItensEtapaMedidosComprometidos(
+    contratoId: string,
+    excludeMedicaoId?: string,
+    dataCorteCiclo?: Date | null,
+  ): Promise<Map<string, Set<string>>> {
+    const statusComprometidos = [
+      StatusMedicao.SUBMETIDA,
+      StatusMedicao.AGUARDANDO_ATESTE,
+      StatusMedicao.PARCIALMENTE_ATESTADA,
+      StatusMedicao.AGUARDANDO_APROVACAO,
+      StatusMedicao.APROVADA,
+    ];
+
+    const qb = this.itemMedicaoRepository
+      .createQueryBuilder('im')
+      .select('im.etapa_id', 'etapa_id')
+      .addSelect('im.observacoes', 'observacoes')
+      .innerJoin('im.medicao', 'm')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status IN (:...status)', { status: statusComprometidos });
+
+    if (excludeMedicaoId) {
+      qb.andWhere('m.id != :excludeId', { excludeId: excludeMedicaoId });
+    }
+    if (dataCorteCiclo) {
+      qb.andWhere('m.periodo_inicio >= :dataCorteCiclo', { dataCorteCiclo });
+    }
+
+    const results = await qb.getRawMany<{
+      etapa_id: string;
+      observacoes: string | null;
+    }>();
+
+    const mapa = new Map<string, Set<string>>();
+    for (const row of results) {
+      const ids = this.extrairItensEtapaMedidosObservacoes(row.observacoes);
+      if (ids.length === 0) continue;
+      const set = mapa.get(row.etapa_id) || new Set<string>();
+      ids.forEach((id) => set.add(id));
+      mapa.set(row.etapa_id, set);
     }
     return mapa;
   }

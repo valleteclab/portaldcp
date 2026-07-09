@@ -211,6 +211,7 @@ interface Resumo {
   saldo_disponivel: number;
   percentual_fisico_total: number;
   etapas_comprometidas?: Record<string, number>;
+  itens_etapa_medidos?: Record<string, string[]>;
   itens_comprometidos?: Record<string, number>;
   total_etapas: number;
   etapas_concluidas: number;
@@ -2686,14 +2687,16 @@ export default function FornecedorContratoDetalhePage() {
                     const valorRestante = valorSaldoEtapa(etapa, emTransito);
                     const restante = valorPrevisto > 0 ? (valorRestante / valorPrevisto) * 100 : 0;
                     const itensEtapa = etapa.itens || [];
+                    const itensJaMedidos = new Set(resumo?.itens_etapa_medidos?.[etapa.id] || []);
                     const itensSelecionados = itemState?.itens_etapa_medidos || [];
                     const atualizarItensEtapaMedidos = (itemId: string, marcado: boolean) => {
-                      const selecionados = new Set(itensSelecionados);
+                      if (itensJaMedidos.has(itemId)) return;
+                      const selecionados = new Set(itensSelecionados.filter((id) => !itensJaMedidos.has(id)));
                       if (marcado) selecionados.add(itemId);
                       else selecionados.delete(itemId);
                       const ids = Array.from(selecionados);
                       const valorItens = itensEtapa
-                        .filter((item) => item.id && ids.includes(item.id))
+                        .filter((item) => item.id && !itensJaMedidos.has(item.id) && ids.includes(item.id))
                         .reduce((sum, item) => sum + Number(item.valor_total || 0), 0);
                       const percItens = valorPrevisto > 0 ? (valorItens / valorPrevisto) * 100 : 0;
                       const itens = [...novaMedicao.itens];
@@ -2736,19 +2739,22 @@ export default function FornecedorContratoDetalhePage() {
                               {itensEtapa.map((item) => {
                                 const itemId = item.id || `${etapa.id}-${item.numero_item}`;
                                 const marcado = itensSelecionados.includes(itemId);
+                                const jaMedido = itensJaMedidos.has(itemId);
                                 return (
-                                  <label key={itemId} className="flex items-start gap-2 text-xs">
+                                  <label key={itemId} className={`flex items-start gap-2 text-xs ${jaMedido ? 'text-gray-400' : ''}`}>
                                     <input
                                       type="checkbox"
-                                      checked={marcado}
+                                      checked={!jaMedido && marcado}
+                                      disabled={jaMedido}
                                       onChange={(e) => atualizarItensEtapaMedidos(itemId, e.target.checked)}
-                                      className="mt-0.5 h-4 w-4"
+                                      className="mt-0.5 h-4 w-4 disabled:cursor-not-allowed"
                                     />
                                     <span className="flex-1">
-                                      <span className="font-medium">{item.numero_item}. {item.descricao}</span>
+                                      <span className={`font-medium ${jaMedido ? 'line-through' : ''}`}>{item.numero_item}. {item.descricao}</span>
                                       <span className="ml-1 text-gray-500">
                                         {item.quantidade ? `${Number(item.quantidade).toLocaleString('pt-BR', { maximumFractionDigits: 4 })} ${item.unidade || ''} · ` : ''}
                                         {formatarMoeda(Number(item.valor_total || 0))}
+                                        {jaMedido ? ' - ja medido' : ''}
                                       </span>
                                     </span>
                                   </label>
