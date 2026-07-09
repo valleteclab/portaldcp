@@ -71,6 +71,8 @@ export interface ConciliacaoResultado {
    * exercício seguinte. Nesse caso o saldo do empenho NÃO é o saldo do contrato.
    */
   atravessa_exercicios: boolean;
+  /** Observação explicativa (ex.: liquidado maior por pagamentos do ciclo anterior) */
+  nota?: string;
   alertas: AlertaConsistencia[];
 }
 
@@ -105,18 +107,40 @@ export class ConciliacaoFatorService {
     });
     const totalAprovado = medicoes.reduce((s, m) => s + Number(m.valor_medido || 0), 0);
 
+    // Renovação de ciclo zera quantidade_medida: só medições do CICLO ATUAL
+    // contam na comparação com quantidade_medida (medições anteriores à
+    // renovação pertencem ao ciclo anterior — ex.: 025A/2023).
+    const inicioCiclo = contrato.data_renovacao_ciclo
+      ? new Date(contrato.data_renovacao_ciclo as any)
+      : null;
+    const medicoesCiclo = inicioCiclo
+      ? medicoes.filter((m) => new Date(m.periodo_inicio as any) >= inicioCiclo)
+      : medicoes;
+
+    // Quantidade aprovada POR ITEM no ciclo atual (contrato pode ter vários itens
+    // e nem toda medição mede todos)
+    const idsCiclo = medicoesCiclo.map((m) => m.id);
+    const qtdAprovadaPorItem = new Map<string, number>();
+    if (idsCiclo.length > 0) {
+      const rows: Array<{ item_cronograma_id: string; qtd: string }> =
+        await this.medicaoRepo.manager.query(
+          `SELECT item_cronograma_id, COALESCE(SUM(quantidade_medida),0) AS qtd
+           FROM itens_medicao_item WHERE medicao_id = ANY($1) GROUP BY item_cronograma_id`,
+          [idsCiclo],
+        );
+      for (const r of rows) qtdAprovadaPorItem.set(r.item_cronograma_id, Number(r.qtd));
+    }
+
     let migracaoTotal = 0;
     for (const it of itens) {
       const vu = Number(it.valor_unitario || 0);
       const migracao = Number(it.valor_migracao_reais || 0);
       migracaoTotal += migracao;
 
-      // 1) Item MENSAL com migração: migração(meses) + medições aprovadas ≟ quantidade_medida
+      // 1) Item MENSAL com migração: migração(meses) + aprovadas do ciclo ≟ quantidade_medida
       if (it.unidade_medida === 'MENSAL' && migracao > 0 && vu > 0) {
         const mesesMigracao = migracao / vu;
-        // total de meses aprovados neste item = quantidade_medida − meses de migração
-        // (a aprovação incrementa quantidade_medida; a migração é o baseline)
-        const mesesAprovados = medicoes.length; // medição mensal: 1 mês por medição
+        const mesesAprovados = qtdAprovadaPorItem.get(it.id) ?? 0;
         const esperado = mesesMigracao + mesesAprovados;
         const atual = Number(it.quantidade_medida || 0);
         if (Math.abs(esperado - atual) > 0.05) {
@@ -124,7 +148,7 @@ export class ConciliacaoFatorService {
             tipo: 'MIGRACAO_INCONSISTENTE',
             mensagem:
               `Item ${it.numero_item}: migração (${mesesMigracao.toFixed(2)} meses = R$ ${migracao.toFixed(2)}) ` +
-              `+ ${mesesAprovados} medições aprovadas = ${esperado.toFixed(2)}, mas quantidade_medida = ${atual.toFixed(2)}. ` +
+              `+ ${mesesAprovados.toFixed(2)} meses aprovados no ciclo = ${esperado.toFixed(2)}, mas quantidade_medida = ${atual.toFixed(2)}. ` +
               `Possível sobreposição entre migração e medições (dupla contagem).`,
           });
         }
@@ -151,8 +175,9 @@ export class ConciliacaoFatorService {
     }
 
     // 4) Snapshot de execução fiscal não-monotônico (ex.: 9 → 10 → 8 → 12)
+    // Só medições do ciclo atual — a renovação zera o contador de meses.
     const mesesSeq: number[] = [];
-    for (const m of medicoes) {
+    for (const m of medicoesCiclo) {
       const ef: any = m.execucao_fiscal;
       const meses = Number(ef?.meses_executados);
       if (Number.isFinite(meses)) mesesSeq.push(meses);
@@ -209,11 +234,17 @@ export class ConciliacaoFatorService {
       if (it.unidade_medida === 'MENSAL' && vu > 0) {
         maiorValorMensal = Math.max(maiorValorMensal, vu);
         if (migracao > 0 && inicioBase) {
-          const meses = Math.round(migracao / vu);
+          // Consome o valor da migração mês a mês a partir do início do ciclo,
+          // suportando frações (ex.: 11 dias = 0,37 mês no caso 025A/2023).
           const inicio = new Date(inicioBase as any);
-          for (let k = 0; k < meses; k++) {
+          let restante = migracao;
+          let k = 0;
+          while (restante > 0.005 && k < 60) {
+            const parcela = Math.min(vu, restante);
             const comp = new Date(inicio.getFullYear(), inicio.getMonth() + k, 1);
-            if (comp.getFullYear() === ano) migracaoAno += vu;
+            if (comp.getFullYear() === ano) migracaoAno += parcela;
+            restante -= parcela;
+            k++;
           }
         }
       }
@@ -298,16 +329,128 @@ export class ConciliacaoFatorService {
       },
       diferenca,
       tolerancia,
-      status: !fatorDisponivel
-        ? 'SEM_DADOS_FATOR'
-        : Math.abs(diferenca) <= tolerancia + 0.05
-          ? 'CONCILIADO'
-          : 'DIVERGENTE',
+      ...(() => {
+        // Status direcional:
+        // - sistema > liquidado além da tolerância → DIVERGENTE (medição aprovada
+        //   e não liquidada — caso acionável).
+        // - liquidado > sistema: com renovação de ciclo no exercício é ESPERADO
+        //   (o portal liquida também competências do ciclo anterior que não estão
+        //   no sistema — ex.: 025A/2023); sem ciclo, sinaliza pagamento sem medição.
+        const renovacaoNoExercicio =
+          contrato.data_renovacao_ciclo &&
+          new Date(contrato.data_renovacao_ciclo as any).getFullYear() === ano;
+        if (!fatorDisponivel) return { status: 'SEM_DADOS_FATOR' as const };
+        if (diferenca > tolerancia + 0.05) return { status: 'DIVERGENTE' as const };
+        if (diferenca < -(tolerancia + 0.05)) {
+          if (renovacaoNoExercicio) {
+            return {
+              status: 'CONCILIADO' as const,
+              nota:
+                `Liquidado no portal (${liquidadoAno.toFixed(2)}) supera a competência registrada no sistema — ` +
+                `esperado: o ciclo foi renovado em ${ano} e o portal inclui pagamentos do ciclo anterior, ` +
+                `que não são acompanhados neste ciclo do sistema.`,
+            };
+          }
+          return {
+            status: 'DIVERGENTE' as const,
+            nota: 'Liquidado no portal supera o registrado no sistema — verifique pagamentos sem medição correspondente.',
+          };
+        }
+        return { status: 'CONCILIADO' as const };
+      })(),
       atravessa_exercicios: contrato.data_vigencia_fim
         ? new Date(contrato.data_vigencia_fim as any).getFullYear() > ano
         : false,
       alertas,
     };
+  }
+
+  /**
+   * Medições APROVADAS há mais de `dias` dias cujo valor ainda não aparece no
+   * LIQUIDADO do portal — sinal de que o processo físico de pagamento pode não
+   * ter sido encaminhado à contabilidade (última perna do fluxo é manual).
+   *
+   * Critério por contrato/exercício: liquidado(Fator) deve cobrir o acumulado
+   * por competência até cada medição (migração do exercício + aprovadas até ela).
+   */
+  async verificarMedicoesNaoLiquidadas(
+    orgaoId: string,
+    dias = 15,
+  ): Promise<Array<{
+    contrato_id: string;
+    numero_contrato: string;
+    fornecedor: string;
+    medicao_id: string;
+    numero_medicao: number;
+    valor: number;
+    data_aprovacao: string;
+    dias_desde_aprovacao: number;
+    liquidado_fator: number;
+    esperado_ate_medicao: number;
+  }>> {
+    const limite = new Date();
+    limite.setDate(limite.getDate() - dias);
+
+    const contratos = await this.contratoRepo.find({
+      where: { orgao_id: orgaoId, modalidade_execucao: ModalidadeExecucao.MEDICAO, status: 'VIGENTE' as any },
+      select: ['id', 'numero_contrato', 'fornecedor_razao_social', 'fornecedor_cnpj', 'ano', 'valor_global', 'data_vigencia_inicio', 'data_renovacao_ciclo', 'data_vigencia_fim'],
+    });
+
+    const pendentes: any[] = [];
+    for (const c of contratos) {
+      const medicoes = await this.medicaoRepo.find({
+        where: { contrato_id: c.id, status: StatusMedicao.APROVADA },
+        order: { numero_medicao: 'ASC' },
+      });
+      // Candidatas: aprovadas há mais de `dias`
+      const candidatas = medicoes.filter((m) => {
+        const aprov = m.data_aprovacao ? new Date(m.data_aprovacao as any) : null;
+        return aprov && aprov <= limite;
+      });
+      if (candidatas.length === 0) continue;
+
+      // Uma consulta Fator por contrato (só quando há candidatas)
+      let conc: ConciliacaoResultado;
+      try {
+        conc = await this.conciliarContrato(c.id);
+      } catch {
+        continue;
+      }
+      if (!conc.fator.disponivel) continue;
+
+      const ano = conc.exercicio;
+      // Acumulado por competência até cada medição do exercício
+      const aprovadasAno = medicoes.filter(
+        (m) => new Date(m.periodo_fim as any).getFullYear() === ano,
+      );
+      let acumulado = conc.sistema.migracao_no_exercicio;
+      const acumuladoAte = new Map<string, number>();
+      for (const m of aprovadasAno) {
+        acumulado = r2(acumulado + Number(m.valor_medido || 0));
+        acumuladoAte.set(m.id, acumulado);
+      }
+
+      for (const m of candidatas) {
+        const esperado = acumuladoAte.get(m.id);
+        if (esperado == null) continue; // medição de outro exercício
+        if (esperado > conc.fator.total_liquidado + 0.05) {
+          const aprov = new Date(m.data_aprovacao as any);
+          pendentes.push({
+            contrato_id: c.id,
+            numero_contrato: c.numero_contrato,
+            fornecedor: c.fornecedor_razao_social,
+            medicao_id: m.id,
+            numero_medicao: m.numero_medicao,
+            valor: r2(Number(m.valor_medido || 0)),
+            data_aprovacao: aprov.toISOString().slice(0, 10),
+            dias_desde_aprovacao: Math.floor((Date.now() - aprov.getTime()) / 86400000),
+            liquidado_fator: conc.fator.total_liquidado,
+            esperado_ate_medicao: esperado,
+          });
+        }
+      }
+    }
+    return pendentes;
   }
 
   /**

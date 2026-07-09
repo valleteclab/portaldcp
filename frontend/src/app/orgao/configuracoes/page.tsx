@@ -102,6 +102,7 @@ export default function ConfiguracoesPage() {
     telefone: '',
     email: '',
     site: '',
+    whatsapp_responsavel_medicoes: '' as string | null,
     logo_url: '' as string | null,
   })
   const [loading, setLoading] = useState(true)
@@ -124,6 +125,7 @@ export default function ConfiguracoesPage() {
           telefone: dados.telefone || '',
           email: dados.email || dados.email_login || '',
           site: dados.site || '',
+          whatsapp_responsavel_medicoes: dados.whatsapp_responsavel_medicoes || '',
           logo_url: dados.logo_url || null,
         }
         setOrgao(orgaoAtual)
@@ -146,6 +148,7 @@ export default function ConfiguracoesPage() {
           telefone: dados.telefone || '',
           email: dados.email || dados.email_login || '',
           site: dados.site || '',
+          whatsapp_responsavel_medicoes: dados.whatsapp_responsavel_medicoes || '',
           logo_url: dados.logo_url || null,
         })
       }
@@ -281,6 +284,7 @@ export default function ConfiguracoesPage() {
           telefone: orgao.telefone,
           email: orgao.email,
           site: orgao.site,
+          whatsapp_responsavel_medicoes: orgao.whatsapp_responsavel_medicoes || null,
         }),
       })
       if (res.ok) {
@@ -589,10 +593,21 @@ export default function ConfiguracoesPage() {
                 </div>
                 <div className="col-span-2 space-y-2">
                   <Label>Site</Label>
-                  <Input 
+                  <Input
                     value={orgao.site}
                     onChange={(e) => setOrgao({...orgao, site: e.target.value})}
                   />
+                </div>
+                <div className="col-span-2 space-y-2">
+                  <Label>WhatsApp do responsável por medições</Label>
+                  <Input
+                    placeholder="Ex.: 77999990000 (DDD + número)"
+                    value={orgao.whatsapp_responsavel_medicoes || ''}
+                    onChange={(e) => setOrgao({...orgao, whatsapp_responsavel_medicoes: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Recebe alerta quando uma medição aprovada há mais de 15 dias ainda não constar liquidada no portal da transparência (processo de pagamento possivelmente não encaminhado à contabilidade).
+                  </p>
                 </div>
               </div>
               <div className="flex justify-end">

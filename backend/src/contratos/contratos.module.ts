@@ -69,6 +69,9 @@ import { ItemTabelaReferencia } from './entities/item-tabela-referencia.entity';
 import { TabelaReferenciaService } from './tabela-referencia.service';
 import { TabelaReferenciaController } from './tabela-referencia.controller';
 import { ConciliacaoFatorService } from './conciliacao-fator.service';
+import { ConciliacaoFatorScheduler } from './conciliacao-fator.scheduler';
+import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { Notificacao } from '../notificacoes/entities/notificacao.entity';
 
 @Module({
   imports: [
@@ -80,7 +83,7 @@ import { ConciliacaoFatorService } from './conciliacao-fator.service';
       EtapaCronograma, EtapaCronogramaItem, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, OrdemServicoContratoItem, BancoMetricas, Requisicao, OrdemFornecimento, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
       MedicaoChatSession, AtualizacaoSistema, AtualizacaoLida,
       Proposta, PropostaItem,
-      TabelaReferenciaPreco, ItemTabelaReferencia,
+      TabelaReferenciaPreco, ItemTabelaReferencia, Notificacao,
     ]),
     NotificacoesModule,
     UploadModule,
@@ -89,9 +92,10 @@ import { ConciliacaoFatorService } from './conciliacao-fator.service';
     HttpModule,
     FornecedoresModule,
     SystemConfigModule,
+    WhatsAppModule,
   ],
   controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
-  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
+  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}
