@@ -3933,7 +3933,7 @@ export class MedicaoService {
             : valorExecutadoEtapa + valorPeriodo;
         const etapaCronograma = etapasCronogramaMap.get(item.etapa_id);
         const idsItensMedidos = idsItensMedidosEtapa(item.observacoes);
-        const valorAtePeriodo =
+        let valorAtePeriodo =
           valorAtePeriodoBase > 0
             ? truncarMoedaReais2Casas(valorAtePeriodoBase)
             : truncarMoedaReais2Casas(
@@ -3942,6 +3942,25 @@ export class MedicaoService {
         const valorAnterior = truncarMoedaReais2Casas(
           Math.max(0, valorAtePeriodo - valorPeriodo),
         );
+        let valorMedidoFinanceiro = truncarMoedaReais2Casas(valorPeriodo);
+        let valorAExecutarFinanceiro = truncarMoedaReais2Casas(
+          Math.max(0, valorPrevisto - valorAtePeriodo),
+        );
+        const etapaFisicamenteConcluida =
+          percentualAcumulado >= 99.99 ||
+          Math.max(0, 100 - percentualAcumulado) <= 0.01;
+
+        if (
+          etapaFisicamenteConcluida &&
+          valorAExecutarFinanceiro > 0 &&
+          valorAExecutarFinanceiro <= 0.02
+        ) {
+          valorAtePeriodo = truncarMoedaReais2Casas(valorPrevisto);
+          valorMedidoFinanceiro = truncarMoedaReais2Casas(
+            Math.max(0, valorAtePeriodo - valorAnterior),
+          );
+          valorAExecutarFinanceiro = 0;
+        }
 
         return {
           numero: Number(item.etapa_numero || 0),
@@ -3962,9 +3981,9 @@ export class MedicaoService {
           percentual_a_executar: Math.max(0, 100 - percentualAcumulado),
           valor_previsto: valorPrevisto,
           valor_acumulado_anterior: valorAnterior,
-          valor_medido: valorPeriodo,
+          valor_medido: valorMedidoFinanceiro,
           valor_ate_periodo: valorAtePeriodo,
-          valor_a_executar: Math.max(0, valorPrevisto - valorAtePeriodo),
+          valor_a_executar: valorAExecutarFinanceiro,
         };
       });
 
