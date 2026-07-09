@@ -78,10 +78,10 @@ export default function ConciliacaoFatorCard({ contratoId }: { contratoId: strin
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-sm">
             <Scale className="w-4 h-4 text-gray-500" />
-            <span className="font-medium">Conciliação com a transparência ({dados.exercicio})</span>
+            <span className="font-medium">Saldo × transparência ({dados.exercicio})</span>
             {dados.status === 'CONCILIADO' && dados.alertas.length === 0 ? (
               <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-medium">
-                <CheckCircle2 className="w-4 h-4" /> Conciliado
+                <CheckCircle2 className="w-4 h-4" /> Saldo validado
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-amber-700 text-xs font-medium">
@@ -109,9 +109,28 @@ export default function ConciliacaoFatorCard({ contratoId }: { contratoId: strin
           // Liquidado MAIOR que o sistema: tudo que foi medido está pago; o excedente
           // costuma ser parcela do ciclo/contrato anterior ou acerto de aditivo
           const liquidadoAlem = dados.diferenca < -0.05
+          const veredito = liquidacaoEmDia
+            ? '✓ Liquidação em dia — sistema e portal batem ao centavo.'
+            : explicadaPelaUltima
+              ? `✓ A diferença é exatamente a última medição #${ultima!.numero} (${fmtBRL(ultima!.valor)}), aprovada e aguardando liquidação — conciliado.`
+              : dados.nota
+                ? `${dados.status === 'CONCILIADO' ? '✓' : '⚠'} ${dados.nota}`
+                : liquidadoAlem
+                  ? `${dados.status === 'CONCILIADO' ? '✓' : '⚠'} Todas as medições aprovadas estão liquidadas no portal. O portal registra ${fmtBRL(Math.abs(dados.diferenca))} além da competência do sistema — comum quando o exercício inclui parcela do ciclo/contrato anterior à renovação ou acerto de aditivo.`
+                  : ultima
+                    ? `⚠ Descontando a última medição #${ultima.numero} (${fmtBRL(ultima.valor)}, possivelmente aguardando liquidação), restam ${fmtBRL(Math.abs(restoAposUltima))} sem explicação.`
+                    : `⚠ Diferença de ${fmtBRL(Math.abs(dados.diferenca))} sem medição pendente que a explique.`
+          const vereditoOk = liquidacaoEmDia || explicadaPelaUltima || (liquidadoAlem && dados.status === 'CONCILIADO') || (dados.nota && dados.status === 'CONCILIADO')
           return (
             <>
-              {/* Memória de conciliação — a conta pronta, sem calculadora */}
+              {/* O ESSENCIAL: o saldo do sistema é confiável? */}
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <span className="text-sm text-gray-600">Saldo a executar (contrato):</span>
+                <span className="text-lg font-bold tabular-nums">{fmtBRL(dados.sistema.a_executar)}</span>
+              </div>
+              <p className={`text-xs ${vereditoOk ? 'text-emerald-700' : 'text-amber-700'}`}>{veredito}</p>
+
+              {aberto && (
               <div className="text-xs bg-white/70 border rounded-md px-3 py-2 max-w-xl">
                 <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5 items-baseline">
                   <span className="text-gray-400"> </span>
@@ -132,37 +151,24 @@ export default function ConciliacaoFatorCard({ contratoId }: { contratoId: strin
 
                   <span className="text-gray-400">=</span>
                   <span className="text-gray-700 font-medium border-t pt-0.5">Diferença</span>
-                  <span className={`font-semibold text-right tabular-nums border-t pt-0.5 ${liquidacaoEmDia || explicadaPelaUltima ? 'text-emerald-700' : 'text-amber-700'}`}>{fmtBRL(dados.diferenca)}</span>
+                  <span className={`font-semibold text-right tabular-nums border-t pt-0.5 ${vereditoOk ? 'text-emerald-700' : 'text-amber-700'}`}>{fmtBRL(dados.diferenca)}</span>
                 </div>
-                <p className={`mt-1.5 ${liquidacaoEmDia || explicadaPelaUltima || (liquidadoAlem && dados.status === 'CONCILIADO') || (dados.nota && dados.status === 'CONCILIADO') ? 'text-emerald-700' : 'text-amber-700'}`}>
-                  {liquidacaoEmDia
-                    ? '✓ Liquidação em dia — sistema e portal batem ao centavo.'
-                    : explicadaPelaUltima
-                      ? `✓ A diferença é exatamente a última medição #${ultima!.numero} (${fmtBRL(ultima!.valor)}), aprovada e aguardando liquidação — conciliado.`
-                      : dados.nota
-                        ? `${dados.status === 'CONCILIADO' ? '✓' : '⚠'} ${dados.nota}`
-                        : liquidadoAlem
-                          ? `${dados.status === 'CONCILIADO' ? '✓' : '⚠'} Todas as medições aprovadas estão liquidadas no portal. O portal registra ${fmtBRL(Math.abs(dados.diferenca))} além da competência do sistema — comum quando o exercício inclui parcela do ciclo/contrato anterior à renovação ou acerto de aditivo.`
-                          : ultima
-                            ? `⚠ Descontando a última medição #${ultima.numero} (${fmtBRL(ultima.valor)}, possivelmente aguardando liquidação), restam ${fmtBRL(Math.abs(restoAposUltima))} sem explicação.`
-                            : `⚠ Diferença de ${fmtBRL(Math.abs(dados.diferenca))} sem medição pendente que a explique.`}
-                </p>
               </div>
+              )}
 
               {aberto && (
                 <div className="pt-2 border-t space-y-2 text-xs text-gray-600">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <div>Pago (Fator, {dados.exercicio}): <strong>{fmtBRL(dados.fator.total_pago)}</strong></div>
+                    <div>Liquidado ({dados.exercicio}): <strong>{fmtBRL(dados.fator.total_liquidado)}</strong></div>
+                    <div>Pago ({dados.exercicio}): <strong>{fmtBRL(dados.fator.total_pago)}</strong></div>
                     <div>Empenhado líquido ({dados.exercicio}): <strong>{fmtBRL(dados.fator.total_empenhado_liquido)}</strong></div>
-                    <div>Saldo a liquidar (empenho): <strong>{fmtBRL(dados.fator.saldo_a_liquidar)}</strong></div>
-                    <div>A executar (contrato): <strong>{fmtBRL(dados.sistema.a_executar)}</strong></div>
+                    <div>Saldo do empenho: <strong>{fmtBRL(dados.fator.saldo_a_liquidar)}</strong></div>
                   </div>
+                  <p className="text-gray-500">
+                    ℹ O saldo do empenho não é o saldo do contrato: a contabilidade empenha apenas a parcela que vai usar no exercício.
+                    {dados.atravessa_exercicios && ` Este contrato atravessa exercícios — apostilamento/novo empenho é esperado em ${dados.exercicio + 1}.`}
+                  </p>
                   <p className="text-gray-500">Tolerância de conciliação: {fmtBRL(dados.tolerancia)} (1 valor mensal — cobre a defasagem normal entre medição e liquidação).</p>
-                  {dados.atravessa_exercicios && (
-                    <p className="text-amber-700">
-                      ⚠ Este contrato atravessa exercícios: o empenho de {dados.exercicio} cobre só até dezembro — o saldo do empenho não é o saldo do contrato. Apostilamento/novo empenho é esperado em {dados.exercicio + 1}.
-                    </p>
-                  )}
                   {dados.alertas.map((a, i) => (
                     <p key={i} className="text-amber-800 bg-amber-100/60 rounded px-2 py-1">⚠ {a.mensagem}</p>
                   ))}
