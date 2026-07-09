@@ -103,8 +103,12 @@ export default function ConciliacaoFatorCard({ contratoId }: { contratoId: strin
         {(() => {
           const ultima = dados.sistema.ultima_medicao
           const restoAposUltima = ultima ? Math.round((dados.diferenca - ultima.valor) * 100) / 100 : dados.diferenca
-          const explicadaPelaUltima = ultima != null && Math.abs(restoAposUltima) <= 0.05
+          // "explicada pela última medição" só faz sentido com sistema À FRENTE do liquidado
+          const explicadaPelaUltima = dados.diferenca > 0.05 && ultima != null && Math.abs(restoAposUltima) <= 0.05
           const liquidacaoEmDia = Math.abs(dados.diferenca) <= 0.05
+          // Liquidado MAIOR que o sistema: tudo que foi medido está pago; o excedente
+          // costuma ser parcela do ciclo/contrato anterior ou acerto de aditivo
+          const liquidadoAlem = dados.diferenca < -0.05
           return (
             <>
               {/* Memória de conciliação — a conta pronta, sem calculadora */}
@@ -130,16 +134,18 @@ export default function ConciliacaoFatorCard({ contratoId }: { contratoId: strin
                   <span className="text-gray-700 font-medium border-t pt-0.5">Diferença</span>
                   <span className={`font-semibold text-right tabular-nums border-t pt-0.5 ${liquidacaoEmDia || explicadaPelaUltima ? 'text-emerald-700' : 'text-amber-700'}`}>{fmtBRL(dados.diferenca)}</span>
                 </div>
-                <p className={`mt-1.5 ${liquidacaoEmDia || explicadaPelaUltima || (dados.nota && dados.status === 'CONCILIADO') ? 'text-emerald-700' : 'text-amber-700'}`}>
+                <p className={`mt-1.5 ${liquidacaoEmDia || explicadaPelaUltima || (liquidadoAlem && dados.status === 'CONCILIADO') || (dados.nota && dados.status === 'CONCILIADO') ? 'text-emerald-700' : 'text-amber-700'}`}>
                   {liquidacaoEmDia
                     ? '✓ Liquidação em dia — sistema e portal batem ao centavo.'
                     : explicadaPelaUltima
                       ? `✓ A diferença é exatamente a última medição #${ultima!.numero} (${fmtBRL(ultima!.valor)}), aprovada e aguardando liquidação — conciliado.`
                       : dados.nota
                         ? `${dados.status === 'CONCILIADO' ? '✓' : '⚠'} ${dados.nota}`
-                        : ultima
-                          ? `⚠ Descontando a última medição #${ultima.numero} (${fmtBRL(ultima.valor)}, possivelmente aguardando liquidação), restam ${fmtBRL(Math.abs(restoAposUltima))} sem explicação.`
-                          : `⚠ Diferença de ${fmtBRL(Math.abs(dados.diferenca))} sem medição pendente que a explique.`}
+                        : liquidadoAlem
+                          ? `${dados.status === 'CONCILIADO' ? '✓' : '⚠'} Todas as medições aprovadas estão liquidadas no portal. O portal registra ${fmtBRL(Math.abs(dados.diferenca))} além da competência do sistema — comum quando o exercício inclui parcela do ciclo/contrato anterior à renovação ou acerto de aditivo.`
+                          : ultima
+                            ? `⚠ Descontando a última medição #${ultima.numero} (${fmtBRL(ultima.valor)}, possivelmente aguardando liquidação), restam ${fmtBRL(Math.abs(restoAposUltima))} sem explicação.`
+                            : `⚠ Diferença de ${fmtBRL(Math.abs(dados.diferenca))} sem medição pendente que a explique.`}
                 </p>
               </div>
 
