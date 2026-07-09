@@ -25,6 +25,7 @@ import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
 import { FatorTransparenciaService } from './fator-transparencia.service';
+import { ContratosService } from './contratos.service';
 
 export interface AlertaConsistencia {
   tipo:
@@ -90,6 +91,7 @@ export class ConciliacaoFatorService {
     @InjectRepository(ItemCronograma)
     private readonly itemCronogramaRepo: Repository<ItemCronograma>,
     private readonly fator: FatorTransparenciaService,
+    private readonly contratosService: ContratosService,
   ) {}
 
   /**
@@ -251,10 +253,34 @@ export class ConciliacaoFatorService {
     }
     migracaoAno = r2(migracaoAno);
     const totalSistemaAno = r2(migracaoAno + medidoAno);
+    // Acumulado do CICLO atual (renovação zera o ciclo: medições anteriores não contam)
+    const inicioCicloSaldo = contrato.data_renovacao_ciclo
+      ? new Date(contrato.data_renovacao_ciclo as any)
+      : null;
+    const medicoesCicloSaldo = inicioCicloSaldo
+      ? medicoes.filter((m) => new Date(m.periodo_inicio as any) >= inicioCicloSaldo)
+      : medicoes;
     const acumuladoVigencia = r2(
-      migracaoTotal + medicoes.reduce((s, m) => s + Number(m.valor_medido || 0), 0),
+      migracaoTotal + medicoesCicloSaldo.reduce((s, m) => s + Number(m.valor_medido || 0), 0),
     );
-    const valorGlobal = Number(contrato.valor_global || 0);
+
+    // Valor e saldo do CICLO ATIVO — mesma fonte da tela do contrato
+    // (findOne enriquece com ciclo_ativo/saldo_total_em_valor; o valor_global
+    // cru soma todos os ciclos e superestimaria o saldo — ex.: 004/2025).
+    let valorGlobal = Number(contrato.valor_global || 0);
+    let aExecutar: number | null = null;
+    try {
+      const enriquecido: any = await this.contratosService.findOne(contratoId);
+      if (enriquecido?.ciclo_ativo?.valor_global != null) {
+        valorGlobal = r2(Number(enriquecido.ciclo_ativo.valor_global));
+        aExecutar = r2(Number(enriquecido.ciclo_ativo.saldo_disponivel ?? valorGlobal - acumuladoVigencia));
+      } else if (enriquecido?.saldo_total_em_valor != null) {
+        aExecutar = r2(Number(enriquecido.saldo_total_em_valor));
+      }
+    } catch {
+      /* fallback abaixo */
+    }
+    if (aExecutar == null) aExecutar = r2(valorGlobal - acumuladoVigencia);
 
     // ---- Fator: liquidado no exercício ----
     let fatorDisponivel = false;
@@ -311,7 +337,7 @@ export class ConciliacaoFatorService {
         total_no_exercicio: totalSistemaAno,
         acumulado_vigencia: acumuladoVigencia,
         valor_global: valorGlobal,
-        a_executar: r2(valorGlobal - acumuladoVigencia),
+        a_executar: aExecutar,
         ultima_medicao: ultima
           ? {
               numero: ultima.numero_medicao,
