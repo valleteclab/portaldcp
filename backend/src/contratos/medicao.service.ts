@@ -1588,6 +1588,8 @@ export class MedicaoService {
       // Fluxo completo com etapas (obras/engenharia)
       const percentuaisEmTransito =
         await this.calcularPercentualComprometidoPorEtapa(contratoId);
+      const valoresEmTransito =
+        await this.calcularValorComprometidoPorEtapa(contratoId);
 
       for (const item of dados.itens || []) {
         const itemEtapa = item as {
@@ -1617,11 +1619,26 @@ export class MedicaoService {
 
         if (percentualExecAtual <= 0) continue;
 
+        const valorItem =
+          valorExecutadoAtual > 0
+            ? valorExecutadoAtual
+            : (percentualExecAtual / 100) * Number(etapa.valor_previsto);
         const percentualAprovado = Number(etapa.percentual_executado);
         const percentualEmTransito =
           percentuaisEmTransito.get(itemEtapa.etapa_id) || 0;
+        const valorAprovado = Number(etapa.valor_executado) || 0;
+        const valorEmTransito =
+          valoresEmTransito.get(itemEtapa.etapa_id) || 0;
+        const valorDisponivel =
+          Number(etapa.valor_previsto) - valorAprovado - valorEmTransito;
         const percentualAcumuladoComNovo =
           percentualAprovado + percentualEmTransito + percentualExecAtual;
+
+        if (valorItem > valorDisponivel + 0.01) {
+          throw new BadRequestException(
+            `Etapa "${etapa.descricao}": valor medido (R$ ${valorItem.toFixed(2)}) excede o saldo disponivel da etapa (R$ ${valorDisponivel.toFixed(2)}).`,
+          );
+        }
 
         if (percentualAcumuladoComNovo > 100.01) {
           throw new BadRequestException(
@@ -1631,10 +1648,6 @@ export class MedicaoService {
           );
         }
 
-        const valorItem =
-          valorExecutadoAtual > 0
-            ? valorExecutadoAtual
-            : (percentualExecAtual / 100) * Number(etapa.valor_previsto);
         valorMedido += valorItem;
         percentualFisicoMedido +=
           (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
@@ -2023,6 +2036,10 @@ export class MedicaoService {
           medicao.contrato_id,
           medicao.id,
         );
+      const valoresEmTransito = await this.calcularValorComprometidoPorEtapa(
+        medicao.contrato_id,
+        medicao.id,
+      );
 
       for (const item of dados.itens || []) {
         const itemEtapa = item as {
@@ -2052,11 +2069,26 @@ export class MedicaoService {
         }
         if (percentualExecAtual <= 0) continue;
 
+        const valorItem =
+          valorExecutadoAtual > 0
+            ? valorExecutadoAtual
+            : (percentualExecAtual / 100) * Number(etapa.valor_previsto);
         const percentualAprovado = Number(etapa.percentual_executado);
         const percentualEmTransito =
           percentuaisEmTransito.get(itemEtapa.etapa_id) || 0;
+        const valorAprovado = Number(etapa.valor_executado) || 0;
+        const valorEmTransito =
+          valoresEmTransito.get(itemEtapa.etapa_id) || 0;
+        const valorDisponivel =
+          Number(etapa.valor_previsto) - valorAprovado - valorEmTransito;
         const percentualAcumuladoComNovo =
           percentualAprovado + percentualEmTransito + percentualExecAtual;
+
+        if (valorItem > valorDisponivel + 0.01) {
+          throw new BadRequestException(
+            `Etapa "${etapa.descricao}": valor medido (R$ ${valorItem.toFixed(2)}) excede o saldo disponivel da etapa (R$ ${valorDisponivel.toFixed(2)}).`,
+          );
+        }
 
         if (percentualAcumuladoComNovo > 100.01) {
           throw new BadRequestException(
@@ -2064,10 +2096,6 @@ export class MedicaoService {
           );
         }
 
-        const valorItem =
-          valorExecutadoAtual > 0
-            ? valorExecutadoAtual
-            : (percentualExecAtual / 100) * Number(etapa.valor_previsto);
         valorMedido += valorItem;
         percentualFisicoMedido +=
           (percentualExecAtual / 100) * Number(etapa.percentual_fisico);
@@ -5174,7 +5202,47 @@ export class MedicaoService {
     return mapa;
   }
 
-  /** Quantidade comprometida por item do cronograma (medições em trânsito) */
+  /**
+   * Calcula o valor comprometido POR ETAPA em medicoes em transito.
+   * Usado para validar saldo financeiro sem depender de percentual arredondado.
+   */
+  private async calcularValorComprometidoPorEtapa(
+    contratoId: string,
+    excludeMedicaoId?: string,
+  ): Promise<Map<string, number>> {
+    const statusEmTransito = [
+      StatusMedicao.SUBMETIDA,
+      StatusMedicao.AGUARDANDO_ATESTE,
+      StatusMedicao.PARCIALMENTE_ATESTADA,
+      StatusMedicao.AGUARDANDO_APROVACAO,
+    ];
+
+    const qb = this.itemMedicaoRepository
+      .createQueryBuilder('im')
+      .select('im.etapa_id', 'etapa_id')
+      .addSelect('COALESCE(SUM(im.valor_medido), 0)', 'total_valor')
+      .innerJoin('im.medicao', 'm')
+      .where('m.contrato_id = :contratoId', { contratoId })
+      .andWhere('m.status IN (:...status)', { status: statusEmTransito })
+      .groupBy('im.etapa_id');
+
+    if (excludeMedicaoId) {
+      qb.andWhere('m.id != :excludeId', { excludeId: excludeMedicaoId });
+    }
+
+    const results = await qb.getRawMany<{
+      etapa_id: string;
+      total_valor: string;
+    }>();
+
+    const mapa = new Map<string, number>();
+    for (const row of results) {
+      mapa.set(row.etapa_id, Number(row.total_valor));
+    }
+    return mapa;
+  }
+
+  /** Quantidade comprometida por item do cronograma em medicoes em transito. */
   private async calcularQuantidadeComprometidaPorItem(
     contratoId: string,
     excludeMedicaoId?: string,

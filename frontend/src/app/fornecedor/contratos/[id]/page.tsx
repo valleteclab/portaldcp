@@ -598,6 +598,13 @@ export default function FornecedorContratoDetalhePage() {
     return (Number(item.percentual_executado_atual) / 100) * Number(etapa.valor_previsto);
   };
 
+  const valorSaldoEtapa = (etapa: Etapa, percentualEmTransito = 0) => {
+    const valorPrevisto = Number(etapa.valor_previsto) || 0;
+    const valorExecutado = Number(etapa.valor_executado) || 0;
+    const valorEmTransito = (percentualEmTransito / 100) * valorPrevisto;
+    return Math.max(0, valorPrevisto - valorExecutado - valorEmTransito);
+  };
+
   const valorMedicaoAtual = isServicoContinuado
     ? (parseFloat(novaMedicao.valor_medido) || 0)
     : usarItensCronograma
@@ -1218,7 +1225,10 @@ export default function FornecedorContratoDetalhePage() {
         for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
           const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item || !('etapa_id' in item)) continue;
           const percAprovado = Number(etapa.percentual_executado); const percEmTransito = etapasCompr[etapa.id] || 0; const restante = 100 - percAprovado - percEmTransito;
+          const valorUsado = valorItemEtapaMedicao(item, etapa);
+          const saldoValorEtapa = valorSaldoEtapa(etapa, percEmTransito);
           const percUsado = (item.modo_input === 'valor' || item.modo_input === 'itens') && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
+          if (valorUsado > saldoValorEtapa + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${formatarMoeda(saldoValorEtapa)} disponivel, mas voce informou ${formatarMoeda(valorUsado)}.`); setSubmitting(false); return; }
           if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
         }
         payload.itens = itensComValor;
@@ -1362,7 +1372,10 @@ export default function FornecedorContratoDetalhePage() {
         for (let idx = 0; idx < novaMedicao.itens.length; idx++) {
           const item = novaMedicao.itens[idx]; const etapa = etapas[idx]; if (!etapa || !item || !('etapa_id' in item)) continue;
           const percAprovado = Number(etapa.percentual_executado); const percEmTransito = etapasComprCS[etapa.id] || 0; const restante = 100 - percAprovado - percEmTransito;
+          const valorUsado = valorItemEtapaMedicao(item, etapa);
+          const saldoValorEtapa = valorSaldoEtapa(etapa, percEmTransito);
           const percUsado = (item.modo_input === 'valor' || item.modo_input === 'itens') && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
+          if (valorUsado > saldoValorEtapa + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${formatarMoeda(saldoValorEtapa)} disponivel, mas voce informou ${formatarMoeda(valorUsado)}.`); setSubmitting(false); return; }
           if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
         }
         payload.itens = itensComValor;
@@ -2670,8 +2683,8 @@ export default function FornecedorContratoDetalhePage() {
                     const execPerc = itemState?.percentual_executado_atual ?? 0;
                     const execValor = itemState?.valor_executado_atual ?? 0;
                     const valorPrevisto = Number(etapa.valor_previsto);
-                    const restante = 100 - jaExecutado - emTransito;
-                    const valorRestante = (restante / 100) * valorPrevisto;
+                    const valorRestante = valorSaldoEtapa(etapa, emTransito);
+                    const restante = valorPrevisto > 0 ? (valorRestante / valorPrevisto) * 100 : 0;
                     const itensEtapa = etapa.itens || [];
                     const itensSelecionados = itemState?.itens_etapa_medidos || [];
                     const atualizarItensEtapaMedidos = (itemId: string, marcado: boolean) => {
