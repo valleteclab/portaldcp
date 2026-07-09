@@ -68,6 +68,7 @@ import { TabelaReferenciaPreco } from './entities/tabela-referencia-preco.entity
 import { ItemTabelaReferencia } from './entities/item-tabela-referencia.entity';
 import { TabelaReferenciaService } from './tabela-referencia.service';
 import { TabelaReferenciaController } from './tabela-referencia.controller';
+import { ConciliacaoFatorService } from './conciliacao-fator.service';
 
 @Module({
   imports: [
@@ -90,7 +91,7 @@ import { TabelaReferenciaController } from './tabela-referencia.controller';
     SystemConfigModule,
   ],
   controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
-  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
+  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
   exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}
