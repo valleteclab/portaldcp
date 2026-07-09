@@ -75,6 +75,7 @@ import {
 import Link from "next/link";
 import { API_URL, authFetch } from "@/lib/api";
 import { derivarCompetencia } from "@/lib/pdf-medicao";
+import ConciliacaoFatorCard from "@/components/contratos/ConciliacaoFatorCard";
 import {
   mesesVigenciaContrato,
   execucoesSugeridasPorFrequencia,
@@ -2700,6 +2701,9 @@ export default function TabMedicao({
 
   return (
     <div className="space-y-6">
+      {/* Conciliação com o portal de transparência (liquidado × medido) */}
+      <ConciliacaoFatorCard contratoId={contratoId} />
+
       {/* Ordem de Serviço (para todos os contratos, exceto serviços continuados que são opcionais) */}
       {!isServicoContinuado && (
         <Card

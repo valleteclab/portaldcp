@@ -34,6 +34,7 @@ import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { FatorTransparenciaService } from './fator-transparencia.service';
+import { ConciliacaoFatorService } from './conciliacao-fator.service';
 import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
@@ -49,6 +50,7 @@ export class ModalidadesContratoController {
     private readonly licencaService: LicencaControleService,
     private readonly osService: OrdemServicoContratoService,
     private readonly fatorTransparencia: FatorTransparenciaService,
+    private readonly conciliacaoFator_: ConciliacaoFatorService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(Contrato)
@@ -1458,6 +1460,32 @@ export class ModalidadesContratoController {
       },
       secoes,
     };
+  }
+
+  /**
+   * Conciliação sistema × Fator (liquidado por exercício) + checagens internas.
+   * Usado pelo painel da aba Medição.
+   */
+  @Get(':contratoId/conciliacao-fator')
+  async conciliacaoFator(
+    @Param('contratoId') contratoId: string,
+    @Query('exercicio') exercicio?: string,
+  ) {
+    return this.conciliacaoFator_.conciliarContrato(
+      contratoId,
+      exercicio ? parseInt(exercicio, 10) : undefined,
+    );
+  }
+
+  /**
+   * Auditoria em lote dos contratos de MEDICAO do órgão: checagens internas
+   * de saldo/migração (e opcionalmente conciliação Fator com ?fator=1).
+   */
+  @Get('auditoria/saldos')
+  async auditoriaSaldos(@Req() req: any, @Query('fator') fator?: string) {
+    const user = req.user as JwtPayload;
+    const orgaoId = this.getOrgaoId(user, req.query?.orgaoId);
+    return this.conciliacaoFator_.auditarContratos(orgaoId, { comFator: fator === '1' });
   }
 
   @Get(':contratoId/empenhos')
