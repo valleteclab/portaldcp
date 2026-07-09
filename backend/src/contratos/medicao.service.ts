@@ -3926,13 +3926,21 @@ export class MedicaoService {
         );
         const valorPrevisto = Number(item.etapa_valor_previsto || 0);
         const valorPeriodo = Number(item.valor_medido || 0);
+        const valorExecutadoEtapa = Number(item.etapa_valor_executado || 0);
+        const valorAtePeriodoBase =
+          medicao.status === StatusMedicao.APROVADA
+            ? valorExecutadoEtapa
+            : valorExecutadoEtapa + valorPeriodo;
         const etapaCronograma = etapasCronogramaMap.get(item.etapa_id);
         const idsItensMedidos = idsItensMedidosEtapa(item.observacoes);
+        const valorAtePeriodo =
+          valorAtePeriodoBase > 0
+            ? truncarMoedaReais2Casas(valorAtePeriodoBase)
+            : truncarMoedaReais2Casas(
+                (valorPrevisto * percentualAcumulado) / 100,
+              );
         const valorAnterior = truncarMoedaReais2Casas(
-          (valorPrevisto * percentualAnterior) / 100,
-        );
-        const valorAtePeriodo = truncarMoedaReais2Casas(
-          valorAnterior + valorPeriodo,
+          Math.max(0, valorAtePeriodo - valorPeriodo),
         );
 
         return {
@@ -5868,6 +5876,7 @@ export class MedicaoService {
       etapa_observacoes: item.etapa?.observacoes || '',
       etapa_numero: item.etapa?.numero_etapa || 0,
       etapa_valor_previsto: item.etapa ? Number(item.etapa.valor_previsto) : 0,
+      etapa_valor_executado: item.etapa ? Number(item.etapa.valor_executado) : 0,
       etapa_percentual_fisico: item.etapa
         ? Number(item.etapa.percentual_fisico)
         : 0,
