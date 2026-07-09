@@ -99,37 +99,69 @@ export default function ConciliacaoFatorCard({ contratoId }: { contratoId: strin
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-          <div><span className="text-gray-500">Sistema (competência {dados.exercicio}):</span> <span className="font-semibold">{fmtBRL(dados.sistema.total_no_exercicio)}</span></div>
-          <div><span className="text-gray-500">Liquidado (Fator):</span> <span className="font-semibold">{fmtBRL(dados.fator.total_liquidado)}</span></div>
-          <div><span className="text-gray-500">Pago (Fator):</span> <span className="font-semibold">{fmtBRL(dados.fator.total_pago)}</span></div>
-          <div><span className="text-gray-500">A executar (contrato):</span> <span className="font-semibold">{fmtBRL(dados.sistema.a_executar)}</span></div>
-        </div>
+        {(() => {
+          const ultima = dados.sistema.ultima_medicao
+          const restoAposUltima = ultima ? Math.round((dados.diferenca - ultima.valor) * 100) / 100 : dados.diferenca
+          const explicadaPelaUltima = ultima != null && Math.abs(restoAposUltima) <= 0.05
+          const liquidacaoEmDia = Math.abs(dados.diferenca) <= 0.05
+          return (
+            <>
+              {/* Memória de conciliação — a conta pronta, sem calculadora */}
+              <div className="text-xs bg-white/70 border rounded-md px-3 py-2 max-w-xl">
+                <div className="grid grid-cols-[auto_1fr_auto] gap-x-2 gap-y-0.5 items-baseline">
+                  <span className="text-gray-400"> </span>
+                  <span className="text-gray-600">Migração no exercício ({dados.exercicio})</span>
+                  <span className="font-medium text-right tabular-nums">{fmtBRL(dados.sistema.migracao_no_exercicio)}</span>
 
-        {aberto && (
-          <div className="pt-2 border-t space-y-2 text-xs text-gray-600">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <div>Migração no exercício: <strong>{fmtBRL(dados.sistema.migracao_no_exercicio)}</strong></div>
-              <div>Medições aprovadas ({dados.exercicio}): <strong>{fmtBRL(dados.sistema.medido_aprovado_no_exercicio)}</strong></div>
-              <div>Empenhado líquido ({dados.exercicio}): <strong>{fmtBRL(dados.fator.total_empenhado_liquido)}</strong></div>
-              <div>Saldo a liquidar (empenho): <strong>{fmtBRL(dados.fator.saldo_a_liquidar)}</strong></div>
-            </div>
-            <p className="text-gray-500">
-              Diferença (sistema − liquidado): <strong>{fmtBRL(dados.diferenca)}</strong> · tolerância {fmtBRL(dados.tolerancia)}
-              {dados.sistema.ultima_medicao && (
-                <> · última medição #{dados.sistema.ultima_medicao.numero} ({fmtBRL(dados.sistema.ultima_medicao.valor)}) — se recém-aprovada, pode ainda não estar liquidada (defasagem normal).</>
+                  <span className="text-gray-400">+</span>
+                  <span className="text-gray-600">Medições aprovadas ({dados.exercicio})</span>
+                  <span className="font-medium text-right tabular-nums">{fmtBRL(dados.sistema.medido_aprovado_no_exercicio)}</span>
+
+                  <span className="text-gray-400">=</span>
+                  <span className="text-gray-700 font-medium border-t pt-0.5">Executado por competência (sistema)</span>
+                  <span className="font-semibold text-right tabular-nums border-t pt-0.5">{fmtBRL(dados.sistema.total_no_exercicio)}</span>
+
+                  <span className="text-gray-400">−</span>
+                  <span className="text-gray-600">Liquidado no portal (Fator)</span>
+                  <span className="font-medium text-right tabular-nums">{fmtBRL(dados.fator.total_liquidado)}</span>
+
+                  <span className="text-gray-400">=</span>
+                  <span className="text-gray-700 font-medium border-t pt-0.5">Diferença</span>
+                  <span className={`font-semibold text-right tabular-nums border-t pt-0.5 ${liquidacaoEmDia || explicadaPelaUltima ? 'text-emerald-700' : 'text-amber-700'}`}>{fmtBRL(dados.diferenca)}</span>
+                </div>
+                <p className={`mt-1.5 ${liquidacaoEmDia || explicadaPelaUltima ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {liquidacaoEmDia
+                    ? '✓ Liquidação em dia — sistema e portal batem ao centavo.'
+                    : explicadaPelaUltima
+                      ? `✓ A diferença é exatamente a última medição #${ultima!.numero} (${fmtBRL(ultima!.valor)}), aprovada e aguardando liquidação — conciliado.`
+                      : ultima
+                        ? `⚠ Descontando a última medição #${ultima.numero} (${fmtBRL(ultima.valor)}, possivelmente aguardando liquidação), restam ${fmtBRL(Math.abs(restoAposUltima))} sem explicação.`
+                        : `⚠ Diferença de ${fmtBRL(Math.abs(dados.diferenca))} sem medição pendente que a explique.`}
+                </p>
+              </div>
+
+              {aberto && (
+                <div className="pt-2 border-t space-y-2 text-xs text-gray-600">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <div>Pago (Fator, {dados.exercicio}): <strong>{fmtBRL(dados.fator.total_pago)}</strong></div>
+                    <div>Empenhado líquido ({dados.exercicio}): <strong>{fmtBRL(dados.fator.total_empenhado_liquido)}</strong></div>
+                    <div>Saldo a liquidar (empenho): <strong>{fmtBRL(dados.fator.saldo_a_liquidar)}</strong></div>
+                    <div>A executar (contrato): <strong>{fmtBRL(dados.sistema.a_executar)}</strong></div>
+                  </div>
+                  <p className="text-gray-500">Tolerância de conciliação: {fmtBRL(dados.tolerancia)} (1 valor mensal — cobre a defasagem normal entre medição e liquidação).</p>
+                  {dados.atravessa_exercicios && (
+                    <p className="text-amber-700">
+                      ⚠ Este contrato atravessa exercícios: o empenho de {dados.exercicio} cobre só até dezembro — o saldo do empenho não é o saldo do contrato. Apostilamento/novo empenho é esperado em {dados.exercicio + 1}.
+                    </p>
+                  )}
+                  {dados.alertas.map((a, i) => (
+                    <p key={i} className="text-amber-800 bg-amber-100/60 rounded px-2 py-1">⚠ {a.mensagem}</p>
+                  ))}
+                </div>
               )}
-            </p>
-            {dados.atravessa_exercicios && (
-              <p className="text-amber-700">
-                ⚠ Este contrato atravessa exercícios: o empenho de {dados.exercicio} cobre só até dezembro — o saldo do empenho não é o saldo do contrato. Apostilamento/novo empenho é esperado em {dados.exercicio + 1}.
-              </p>
-            )}
-            {dados.alertas.map((a, i) => (
-              <p key={i} className="text-amber-800 bg-amber-100/60 rounded px-2 py-1">⚠ {a.mensagem}</p>
-            ))}
-          </div>
-        )}
+            </>
+          )
+        })()}
       </CardContent>
     </Card>
   )
