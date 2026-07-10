@@ -16,7 +16,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
-import { TabelaReferenciaService, ItemTabelaInput } from './tabela-referencia.service';
+import { TabelaReferenciaService } from './tabela-referencia.service';
+import type { ItemTabelaInput } from './tabela-referencia.service';
 
 @Controller('contratos/tabelas-referencia')
 @RequireModule(ModuloSistema.CONTRATOS)
@@ -80,6 +81,25 @@ export class TabelaReferenciaController {
       },
       body.itens || [],
     );
+  }
+
+  /** Edita um item individual (valor, descrição, código etc.). */
+  @Put('itens/:itemId')
+  async atualizarItem(@Param('itemId') itemId: string, @Body() body: Partial<ItemTabelaInput>) {
+    return this.service.atualizarItem(itemId, body);
+  }
+
+  /** Adiciona um item avulso à tabela. */
+  @Post(':id/itens')
+  async adicionarItem(@Param('id') id: string, @Body() body: ItemTabelaInput) {
+    return this.service.adicionarItem(id, body);
+  }
+
+  /** Remove um item da tabela. */
+  @Delete('itens/:itemId')
+  async removerItem(@Param('itemId') itemId: string) {
+    await this.service.removerItem(itemId);
+    return { ok: true };
   }
 
   /** Substitui os itens da tabela (re-importação de nova edição). */

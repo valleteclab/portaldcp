@@ -20,6 +20,7 @@ export interface ItemTabelaInput {
   valor_reformulacao?: number | null;
   unidade?: string | null;
   sob_orcamento?: boolean;
+  observacoes?: string | null;
   ordem?: number;
 }
 
@@ -231,6 +232,58 @@ export class TabelaReferenciaService {
       );
     }
     await this.tabelaRepo.delete(id);
+  }
+
+  /** Atualiza um item individual da tabela (valor, descrição, código etc.). */
+  async atualizarItem(itemId: string, dados: Partial<ItemTabelaInput>): Promise<ItemTabelaReferencia> {
+    const item = await this.itemRepo.findOne({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Item da tabela não encontrado');
+    if (dados.descricao !== undefined) item.descricao = dados.descricao || item.descricao;
+    if (dados.categoria_codigo !== undefined) item.categoria_codigo = dados.categoria_codigo ?? null;
+    if (dados.categoria_nome !== undefined) item.categoria_nome = dados.categoria_nome ?? null;
+    if (dados.codigo !== undefined) item.codigo = dados.codigo ?? null;
+    if (dados.valor_criacao !== undefined) item.valor_criacao = dados.valor_criacao ?? null;
+    if (dados.valor_finalizacao !== undefined) item.valor_finalizacao = dados.valor_finalizacao ?? null;
+    if (dados.valor_total !== undefined) item.valor_total = dados.valor_total ?? null;
+    if (dados.valor_reformulacao !== undefined) item.valor_reformulacao = dados.valor_reformulacao ?? null;
+    if (dados.unidade !== undefined) item.unidade = dados.unidade ?? null;
+    if (dados.observacoes !== undefined) item.observacoes = dados.observacoes ?? null;
+    item.sob_orcamento = item.valor_total == null && item.valor_criacao == null;
+    return this.itemRepo.save(item);
+  }
+
+  /** Adiciona um item avulso à tabela (no fim da ordenação). */
+  async adicionarItem(tabelaId: string, dados: ItemTabelaInput): Promise<ItemTabelaReferencia> {
+    await this.buscarTabela(tabelaId);
+    if (!dados?.descricao?.trim()) throw new BadRequestException('Informe a descrição do item.');
+    const max = await this.itemRepo
+      .createQueryBuilder('i')
+      .select('COALESCE(MAX(i.ordem), 0)', 'max')
+      .where('i.tabela_id = :tabelaId', { tabelaId })
+      .getRawOne();
+    const item = this.itemRepo.create({
+      tabela_id: tabelaId,
+      categoria_codigo: dados.categoria_codigo ?? null,
+      categoria_nome: dados.categoria_nome ?? null,
+      codigo: dados.codigo ?? null,
+      descricao: dados.descricao.trim(),
+      valor_criacao: dados.valor_criacao ?? null,
+      valor_finalizacao: dados.valor_finalizacao ?? null,
+      valor_total: dados.valor_total ?? null,
+      valor_reformulacao: dados.valor_reformulacao ?? null,
+      unidade: dados.unidade ?? null,
+      sob_orcamento: dados.valor_total == null && dados.valor_criacao == null,
+      observacoes: dados.observacoes ?? null,
+      ordem: Number(max?.max || 0) + 1,
+    });
+    return this.itemRepo.save(item);
+  }
+
+  /** Remove um item da tabela. */
+  async removerItem(itemId: string): Promise<void> {
+    const item = await this.itemRepo.findOne({ where: { id: itemId } });
+    if (!item) throw new NotFoundException('Item da tabela não encontrado');
+    await this.itemRepo.delete(itemId);
   }
 
   /**

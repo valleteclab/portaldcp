@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
-import { ArrowLeft, Plus, Upload, FileText, Loader2, Trash2, Table2, Sparkles, Eye } from 'lucide-react'
+import { ArrowLeft, Plus, Upload, FileText, Loader2, Trash2, Table2, Sparkles, Eye, Pencil, Search } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
 interface TabelaReferencia {
@@ -53,10 +53,75 @@ export default function TabelasReferenciaPage() {
   const [processando, setProcessando] = useState(false)
   const [csvTexto, setCsvTexto] = useState('')
 
-  // Itens viewer
+  // Itens viewer + edição
   const [viewTabela, setViewTabela] = useState<TabelaReferencia | null>(null)
   const [viewItens, setViewItens] = useState<ItemTabela[]>([])
   const [loadingItens, setLoadingItens] = useState(false)
+  const [buscaItens, setBuscaItens] = useState('')
+  const [editando, setEditando] = useState<{
+    id?: string
+    novo: boolean
+    descricao: string
+    codigo: string
+    categoria_nome: string
+    criacao: string
+    finalizacao: string
+    total: string
+  } | null>(null)
+  const [salvandoItem, setSalvandoItem] = useState(false)
+
+  const parseBR = (s: string): number | null => {
+    const t = s.trim()
+    if (!t) return null
+    const n = parseFloat(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t)
+    return isNaN(n) ? null : n
+  }
+
+  const recarregarItens = async (tabelaId: string) => {
+    const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/${tabelaId}/itens`)
+    if (res.ok) setViewItens(await res.json())
+  }
+
+  const salvarItem = async () => {
+    if (!editando || !viewTabela) return
+    setSalvandoItem(true)
+    try {
+      const payload = {
+        descricao: editando.descricao.trim(),
+        codigo: editando.codigo.trim() || null,
+        categoria_nome: editando.categoria_nome.trim() || null,
+        valor_criacao: parseBR(editando.criacao),
+        valor_finalizacao: parseBR(editando.finalizacao),
+        valor_total: parseBR(editando.total),
+      }
+      const res = editando.novo
+        ? await authFetch(`${API_URL}/api/contratos/tabelas-referencia/${viewTabela.id}/itens`, { method: 'POST', body: JSON.stringify(payload) })
+        : await authFetch(`${API_URL}/api/contratos/tabelas-referencia/itens/${editando.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      if (res.ok) {
+        setEditando(null)
+        await recarregarItens(viewTabela.id)
+        await carregar()
+      } else {
+        const e = await res.json().catch(() => ({}))
+        alert(e.message || 'Erro ao salvar o item.')
+      }
+    } finally {
+      setSalvandoItem(false)
+    }
+  }
+
+  const excluirItem = async (it: ItemTabela) => {
+    if (!viewTabela || !it.id) return
+    if (!confirm(`Excluir o item "${it.codigo || ''} ${it.descricao.slice(0, 60)}"?`)) return
+    const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/itens/${it.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      await recarregarItens(viewTabela.id)
+      await carregar()
+    } else {
+      const e = await res.json().catch(() => ({}))
+      alert(e.message || 'Erro ao excluir o item.')
+    }
+  }
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -185,6 +250,8 @@ export default function TabelasReferenciaPage() {
     setViewTabela(t)
     setLoadingItens(true)
     setViewItens([])
+    setEditando(null)
+    setBuscaItens('')
     try {
       const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/${t.id}/itens`)
       if (res.ok) setViewItens(await res.json())
@@ -329,26 +396,75 @@ export default function TabelasReferenciaPage() {
           {loadingItens ? (
             <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
           ) : (
-            <div className="border rounded-md max-h-[65vh] overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 sticky top-0"><tr>
-                  <th className="text-left p-2">Categoria</th><th className="text-left p-2">Cód.</th><th className="text-left p-2">Descrição</th>
-                  <th className="text-right p-2">Criação</th><th className="text-right p-2">Finalização</th><th className="text-right p-2">Total</th>
-                </tr></thead>
-                <tbody>
-                  {viewItens.map((it) => (
-                    <tr key={it.id} className="border-t">
-                      <td className="p-2 text-gray-400">{it.categoria_nome}</td>
-                      <td className="p-2 text-gray-500">{it.codigo}</td>
-                      <td className="p-2">{it.descricao}{it.sob_orcamento && <span className="ml-1 text-amber-600">(sob orçamento)</span>}</td>
-                      <td className="p-2 text-right">{fmtBRL(it.valor_criacao)}</td>
-                      <td className="p-2 text-right">{fmtBRL(it.valor_finalizacao)}</td>
-                      <td className="p-2 text-right font-medium">{fmtBRL(it.valor_total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Input className="pl-9 h-8 text-sm" placeholder="Buscar item…" value={buscaItens} onChange={(e) => setBuscaItens(e.target.value)} />
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setEditando({ novo: true, descricao: '', codigo: '', categoria_nome: '', criacao: '', finalizacao: '', total: '' })}>
+                  <Plus className="w-4 h-4 mr-1" /> Adicionar item
+                </Button>
+              </div>
+
+              {editando && (
+                <div className="border border-indigo-200 bg-indigo-50/40 rounded-md p-3 grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
+                  <div className="col-span-2"><Label className="text-xs">Descrição *</Label><Input className="h-8 text-xs" value={editando.descricao} onChange={(e) => setEditando({ ...editando, descricao: e.target.value })} /></div>
+                  <div><Label className="text-xs">Código</Label><Input className="h-8 text-xs" value={editando.codigo} onChange={(e) => setEditando({ ...editando, codigo: e.target.value })} /></div>
+                  <div><Label className="text-xs">Categoria</Label><Input className="h-8 text-xs" value={editando.categoria_nome} onChange={(e) => setEditando({ ...editando, categoria_nome: e.target.value })} /></div>
+                  <div><Label className="text-xs">Criação (R$)</Label><Input className="h-8 text-xs" placeholder="4.254,00" value={editando.criacao} onChange={(e) => setEditando({ ...editando, criacao: e.target.value })} /></div>
+                  <div><Label className="text-xs">Finalização (R$)</Label><Input className="h-8 text-xs" placeholder="2.836,00" value={editando.finalizacao} onChange={(e) => setEditando({ ...editando, finalizacao: e.target.value })} /></div>
+                  <div><Label className="text-xs">Total (R$)</Label><Input className="h-8 text-xs" placeholder="7.090,00" value={editando.total} onChange={(e) => setEditando({ ...editando, total: e.target.value })} /></div>
+                  <div className="col-span-2 md:col-span-5 flex gap-2 justify-end">
+                    <Button size="sm" variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
+                    <Button size="sm" onClick={salvarItem} disabled={salvandoItem || !editando.descricao.trim()}>
+                      {salvandoItem ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                      {editando.novo ? 'Adicionar' : 'Salvar alteração'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div className="border rounded-md max-h-[58vh] overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0"><tr>
+                    <th className="text-left p-2">Categoria</th><th className="text-left p-2">Cód.</th><th className="text-left p-2">Descrição</th>
+                    <th className="text-right p-2">Criação</th><th className="text-right p-2">Finalização</th><th className="text-right p-2">Total</th>
+                    <th className="w-16"></th>
+                  </tr></thead>
+                  <tbody>
+                    {viewItens
+                      .filter((it) => {
+                        const q = buscaItens.trim().toLowerCase()
+                        if (!q) return true
+                        return it.descricao.toLowerCase().includes(q) || (it.codigo || '').toLowerCase().includes(q) || (it.categoria_nome || '').toLowerCase().includes(q)
+                      })
+                      .map((it) => (
+                      <tr key={it.id} className={`border-t ${editando?.id === it.id ? 'bg-indigo-50' : ''}`}>
+                        <td className="p-2 text-gray-400">{it.categoria_nome}</td>
+                        <td className="p-2 text-gray-500">{it.codigo}</td>
+                        <td className="p-2">{it.descricao}{it.sob_orcamento && <span className="ml-1 text-amber-600">(sob orçamento)</span>}</td>
+                        <td className="p-2 text-right">{fmtBRL(it.valor_criacao)}</td>
+                        <td className="p-2 text-right">{fmtBRL(it.valor_finalizacao)}</td>
+                        <td className="p-2 text-right font-medium">{fmtBRL(it.valor_total)}</td>
+                        <td className="p-2">
+                          <div className="flex gap-1 justify-end">
+                            <button title="Editar" onClick={() => setEditando({
+                              id: it.id, novo: false,
+                              descricao: it.descricao, codigo: it.codigo || '', categoria_nome: it.categoria_nome || '',
+                              criacao: it.valor_criacao != null ? String(it.valor_criacao).replace('.', ',') : '',
+                              finalizacao: it.valor_finalizacao != null ? String(it.valor_finalizacao).replace('.', ',') : '',
+                              total: it.valor_total != null ? String(it.valor_total).replace('.', ',') : '',
+                            })}><Pencil className="w-3.5 h-3.5 text-indigo-500" /></button>
+                            <button title="Excluir" onClick={() => excluirItem(it)}><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
