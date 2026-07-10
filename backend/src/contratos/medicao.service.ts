@@ -3768,6 +3768,17 @@ export class MedicaoService {
         base.quantidade_ate_periodo = Math.round(qtdAtePeriodo * 100) / 100;
         base.quantidade_a_executar = Math.round(qtdAExecutar * 100) / 100;
 
+        // Item fisicamente concluído: zera o resíduo financeiro de truncamento
+        // (ex.: total 39.299,83 vs 2× execuções truncadas 19.649,91 → sobrava 0,01).
+        // Mesmo critério do fix de etapas concluídas (resíduo ≤ 0,02).
+        if (
+          base.quantidade_a_executar <= 0.005 &&
+          base.valor_a_executar > 0 &&
+          base.valor_a_executar <= 0.02
+        ) {
+          base.valor_a_executar = 0;
+        }
+
         // Aplicar overrides manuais de execução fiscal (corrigirExecucaoFiscal)
         const efOverrides: any[] =
           (medicao.execucao_fiscal as any)?.item_overrides || [];
@@ -7200,6 +7211,14 @@ export class MedicaoService {
               Math.round(quantidadeAtePeriodo * 100) / 100;
             base.quantidade_a_executar =
               Math.round(quantidadeAExecutar * 100) / 100;
+          }
+          // Item fisicamente concluído: zera resíduo financeiro de truncamento (≤ 0,02)
+          if (
+            Math.round(quantidadeAExecutar * 100) / 100 <= 0.005 &&
+            base.a_executar > 0 &&
+            base.a_executar <= 0.02
+          ) {
+            base.a_executar = 0;
           }
           return base;
         })
