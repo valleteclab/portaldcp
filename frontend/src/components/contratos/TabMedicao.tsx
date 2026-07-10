@@ -5349,13 +5349,20 @@ export default function TabMedicao({
                                 onChange={(e) => {
                                   const val = parseFloat(e.target.value) || 0;
                                   const itens = [...formMedicao.itens];
+                                  // Respeita a regra do contrato: truncar quando
+                                  // arredondar_calculo=false (igual ao replicar e ao portal do fornecedor)
+                                  const arredondarQtd =
+                                    contratoProp?.arredondar_calculo ?? true;
+                                  const valorCalculado = arredondarQtd
+                                    ? Math.round(val * valorUnit * 100) / 100
+                                    : prodTrunc(val, valorUnit);
                                   itens[idx] = {
                                     item_cronograma_id: ic.id,
                                     quantidade_medida: val,
                                     modo_input: "quantidade",
                                     valor_override:
                                       limitarValorAoSaldoFinanceiro(
-                                        Math.round(val * valorUnit * 100) / 100,
+                                        valorCalculado,
                                         saldoFinanceiro,
                                       ),
                                   };
