@@ -2554,7 +2554,9 @@ export default function FornecedorContratoDetalhePage() {
                     const qtdMedida = itemState?.quantidade_medida || 0;
                     const valorOverride = itemState?.valor_override;
                     const modoInput = itemState?.modo_input ?? 'quantidade';
-                    const qtdTotal = Number(ic.quantidade);
+                    // Total = quantidade × nº de execuções/meses (itens recorrentes:
+                    // cada execução mede a quantidade cheia — ex.: trimestral 4×)
+                    const qtdTotal = Number(ic.quantidade) * (Number(ic.quantidade_meses) || 1);
                     const qtdAprovada = Number(ic.quantidade_medida);
                     const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
                     const saldo = qtdTotal - qtdAprovada - emTransito;
