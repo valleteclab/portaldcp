@@ -1230,7 +1230,9 @@ export class MedicaoService {
     if (!item) throw new NotFoundException('Item do cronograma não encontrado');
 
     const qtd = Number(quantidadeMedida) || 0;
-    const quantidadeTotal = Number(item.quantidade) || 0;
+    // Total contratado = quantidade × nº de execuções/meses (itens recorrentes)
+    const quantidadeTotal =
+      (Number(item.quantidade) || 0) * (Number(item.quantidade_meses) || 1);
     if (qtd < 0)
       throw new BadRequestException('Quantidade medida não pode ser negativa');
     if (qtd > quantidadeTotal + 0.0001) {
@@ -1531,7 +1533,10 @@ export class MedicaoService {
 
         unidadesAtivas.push(itemCron.unidade_medida);
 
-        const quantidadeTotal = Number(itemCron.quantidade);
+        // Total contratado = quantidade × nº de execuções/meses (itens recorrentes,
+        // ex.: limpeza TRIMESTRAL 4×: cada execução mede a quantidade cheia).
+        const quantidadeTotal =
+          Number(itemCron.quantidade) * (Number(itemCron.quantidade_meses) || 1);
         const quantidadeAprovada = quantidadeAprovadaCicloPorItem
           ? quantidadeAprovadaCicloPorItem.get(itemCron.id) || 0
           : Number(itemCron.quantidade_medida) || 0;
@@ -2000,7 +2005,9 @@ export class MedicaoService {
         if (qtdMedida <= 0) continue;
         unidadesAtivas.push(itemCron.unidade_medida);
 
-        const quantidadeTotal = Number(itemCron.quantidade);
+        // Total contratado = quantidade × nº de execuções/meses (itens recorrentes)
+        const quantidadeTotal =
+          Number(itemCron.quantidade) * (Number(itemCron.quantidade_meses) || 1);
         const quantidadeAprovada = quantidadeAprovadaCicloPorItem
           ? quantidadeAprovadaCicloPorItem.get(itemCron.id) || 0
           : Number(itemCron.quantidade_medida) || 0;
