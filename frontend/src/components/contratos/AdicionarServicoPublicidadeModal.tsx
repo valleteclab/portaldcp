@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2, Search, Plus, Trash2, Calculator } from 'lucide-react'
+import { Loader2, Search, Plus, Trash2, Calculator, Download, Upload } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 
 interface ItemTabela {
@@ -75,14 +75,15 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
 
   useEffect(() => {
     if (!open) { setLinhas([]); setSelItem(null); setBusca(''); return }
-    if (aba === 'SINAPRO' && tabelaId && itensTabela.length === 0) {
+    // Carrega a tabela ao abrir (necessária também para baixar modelo/importar planilha)
+    if (tabelaId && itensTabela.length === 0) {
       setLoadingTabela(true)
       authFetch(`${API_URL}/api/contratos/tabelas-referencia/${tabelaId}/itens`)
         .then((r) => (r.ok ? r.json() : []))
         .then(setItensTabela)
         .finally(() => setLoadingTabela(false))
     }
-  }, [open, aba, tabelaId])
+  }, [open, tabelaId])
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -121,6 +122,84 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
   }
 
   const totalGeral = linhas.reduce((s, l) => s + l.precoUnit * l.quantidade, 0)
+
+  // ==========================================================================
+  // Modelo de OS (CSV): baixar → fornecedor preenche → importar.
+  // Governança: os valores são SEMPRE recalculados pela tabela do sistema
+  // e pelos percentuais do contrato — nunca pelos valores do arquivo.
+  // ==========================================================================
+  const numBR = (s: string): number => {
+    const t = (s || '').trim()
+    if (!t) return 0
+    const n = parseFloat(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t)
+    return isNaN(n) ? 0 : n
+  }
+
+  const baixarModelo = () => {
+    const out: string[] = [
+      'tipo;codigo;servico;base;quantidade;valor',
+      '# Preencha QUANTIDADE nos itens SINAPRO executados (base: total, criacao ou finalizacao).',
+      '# Linhas TERCEIROS: informe servico e VALOR = custo do fornecedor (honorario do contrato sera somado).',
+      '# Linhas MIDIA: informe servico e VALOR = verba de veiculacao (desconto de agencia sera aplicado).',
+      '# Os valores finais sao calculados pela tabela vigente no sistema e pelos percentuais do contrato.',
+    ]
+    for (const it of itensTabela) {
+      if (it.sob_orcamento) continue
+      out.push(`SINAPRO;${it.codigo || ''};${(it.descricao || '').replace(/[;\r\n]+/g, ' ')};total;;`)
+    }
+    out.push('TERCEIROS;;EXEMPLO - Impressao de outdoors (grafica);;1;5000,00')
+    out.push('MIDIA;;EXEMPLO - Locacao de pontos de outdoor / painel LED;;1;10000,00')
+    const blob = new Blob(['﻿' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'modelo-os-publicidade.csv'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  const importarArquivo = async (file: File) => {
+    const texto = await file.text()
+    const linhasArq = texto.replace(/^﻿/, '').split(/\r?\n/)
+    const novas: Linha[] = []
+    const erros: string[] = []
+    let ignoradas = 0
+    for (const raw of linhasArq) {
+      const l = raw.trim()
+      if (!l || l.startsWith('#') || l.toLowerCase().startsWith('tipo;')) continue
+      const c = l.split(';')
+      const tipo = (c[0] || '').trim().toUpperCase()
+      const codigo = (c[1] || '').trim().toLowerCase()
+      const servico = (c[2] || '').trim()
+      const baseCsv = ((c[3] || '').trim().toLowerCase() || 'total') as 'total' | 'criacao' | 'finalizacao'
+      const qtd = numBR(c[4] || '')
+      const valor = numBR(c[5] || '')
+      if (servico.toUpperCase().startsWith('EXEMPLO')) continue
+
+      if (tipo === 'SINAPRO') {
+        if (qtd <= 0) { ignoradas++; continue }
+        const it = itensTabela.find((x) => (x.codigo || '').trim().toLowerCase() === codigo)
+        if (!it) { erros.push(`Código "${c[1]}" não encontrado na tabela`); continue }
+        const b: 'total' | 'criacao' | 'finalizacao' = ['total', 'criacao', 'finalizacao'].includes(baseCsv) ? baseCsv : 'total'
+        const vb = b === 'criacao' ? it.valor_criacao : b === 'finalizacao' ? it.valor_finalizacao : it.valor_total
+        if (vb == null) { erros.push(`Código "${c[1]}": sem valor na base "${b}" (item sob orçamento?)`); continue }
+        const sufixo = b === 'criacao' ? ' (Criação)' : b === 'finalizacao' ? ' (Finalização)' : ''
+        novas.push({ tipo: 'SINAPRO', descricao: `${it.descricao}${sufixo}`, item_tabela_id: it.id, base: b, quantidade: qtd, desconto_pct: descTabela, precoUnit: r2(Number(vb) * (1 - descTabela / 100)) })
+      } else if (tipo === 'TERCEIROS') {
+        if (!servico || valor <= 0) { ignoradas++; continue }
+        const h = rp.honorario_terceiros_pct ?? 8
+        novas.push({ tipo: 'TERCEIROS', descricao: servico, custo: valor, honorario_pct: h, quantidade: qtd > 0 ? qtd : 1, precoUnit: r2(valor * (1 + h / 100)) })
+      } else if (tipo === 'MIDIA') {
+        if (!servico || valor <= 0) { ignoradas++; continue }
+        novas.push({ tipo: 'MIDIA', descricao: servico, valor_midia: valor, desconto_agencia_pct: descAgencia, quantidade: qtd > 0 ? qtd : 1, precoUnit: r2(valor * (1 - descAgencia / 100)) })
+      } else if (tipo) {
+        erros.push(`Tipo "${c[0]}" desconhecido (use SINAPRO, TERCEIROS ou MIDIA)`)
+      }
+    }
+    if (novas.length > 0) setLinhas((p) => [...p, ...novas])
+    const resumo = [`${novas.length} linha(s) importada(s).`]
+    if (erros.length > 0) resumo.push(`\nProblemas:\n- ${erros.slice(0, 12).join('\n- ')}${erros.length > 12 ? `\n(+${erros.length - 12})` : ''}`)
+    alert(resumo.join(''))
+  }
 
   const gerar = async () => {
     if (linhas.length === 0) return
@@ -161,13 +240,25 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-1 border-b">
-          {(['SINAPRO', 'TERCEIROS', 'MIDIA'] as const).map((t) => (
-            <button key={t} onClick={() => setAba(t)}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${aba === t ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500'}`}>
-              {t === 'SINAPRO' ? 'SINAPRO' : t === 'TERCEIROS' ? 'Terceiros' : 'Mídia'}
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-2 border-b flex-wrap">
+          <div className="flex gap-1">
+            {(['SINAPRO', 'TERCEIROS', 'MIDIA'] as const).map((t) => (
+              <button key={t} onClick={() => setAba(t)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${aba === t ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500'}`}>
+                {t === 'SINAPRO' ? 'SINAPRO' : t === 'TERCEIROS' ? 'Terceiros' : 'Mídia'}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1 pb-1">
+            <Button type="button" variant="ghost" size="sm" onClick={baixarModelo} disabled={itensTabela.length === 0} title="Baixa a planilha-modelo para o fornecedor preencher a OS">
+              <Download className="w-4 h-4 mr-1" /> Modelo (CSV)
+            </Button>
+            <label className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md hover:bg-gray-100 cursor-pointer text-gray-700" title="Importa a planilha preenchida pelo fornecedor — valores recalculados pela tabela do sistema">
+              <Upload className="w-4 h-4" /> Importar planilha
+              <input type="file" accept=".csv,text/csv" className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) importarArquivo(f); e.currentTarget.value = '' }} />
+            </label>
+          </div>
         </div>
 
         <div className="py-2">
