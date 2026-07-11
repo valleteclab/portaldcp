@@ -137,18 +137,19 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
 
   const baixarModelo = () => {
     const out: string[] = [
-      'tipo;codigo;servico;base;quantidade;valor',
-      '# Preencha QUANTIDADE nos itens SINAPRO executados (base: total, criacao ou finalizacao).',
-      '# Linhas TERCEIROS: informe servico e VALOR = custo do fornecedor (honorario do contrato sera somado).',
-      '# Linhas MIDIA: informe servico e VALOR = verba de veiculacao (desconto de agencia sera aplicado).',
-      '# Os valores finais sao calculados pela tabela vigente no sistema e pelos percentuais do contrato.',
+      'tipo;codigo;referencia_tabela;base;quantidade;valor;servico_executado',
+      '# SINAPRO: preencha QUANTIDADE e descreva em SERVICO_EXECUTADO o que foi feito (ex.: Criacao de arte - outdoor, 3 versoes).',
+      '#          A base pode ser: total, criacao ou finalizacao.',
+      '# TERCEIROS: descreva o servico em SERVICO_EXECUTADO e informe VALOR = custo do fornecedor (honorario do contrato sera somado).',
+      '# MIDIA: descreva em SERVICO_EXECUTADO e informe VALOR = verba de veiculacao (desconto de agencia sera aplicado).',
+      '# Os valores finais sao SEMPRE calculados pela tabela vigente no sistema e pelos percentuais do contrato.',
     ]
     for (const it of itensTabela) {
       if (it.sob_orcamento) continue
-      out.push(`SINAPRO;${it.codigo || ''};${(it.descricao || '').replace(/[;\r\n]+/g, ' ')};total;;`)
+      out.push(`SINAPRO;${it.codigo || ''};${(it.descricao || '').replace(/[;\r\n]+/g, ' ')};total;;;`)
     }
-    out.push('TERCEIROS;;EXEMPLO - Impressao de outdoors (grafica);;1;5000,00')
-    out.push('MIDIA;;EXEMPLO - Locacao de pontos de outdoor / painel LED;;1;10000,00')
+    out.push('TERCEIROS;;;;1;5000,00;EXEMPLO - Impressao de outdoors (grafica)')
+    out.push('MIDIA;;;;1;10000,00;EXEMPLO - Locacao de pontos de outdoor / painel LED')
     const blob = new Blob(['﻿' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
@@ -169,11 +170,13 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
       const c = l.split(';')
       const tipo = (c[0] || '').trim().toUpperCase()
       const codigo = (c[1] || '').trim().toLowerCase()
-      const servico = (c[2] || '').trim()
+      const refTabela = (c[2] || '').trim()
       const baseCsv = ((c[3] || '').trim().toLowerCase() || 'total') as 'total' | 'criacao' | 'finalizacao'
       const qtd = numBR(c[4] || '')
       const valor = numBR(c[5] || '')
-      if (servico.toUpperCase().startsWith('EXEMPLO')) continue
+      // Descrição do serviço executado (coluna nova); arquivos antigos usavam a col. 3
+      const servicoExec = ((c[6] || '').trim() || (tipo !== 'SINAPRO' ? refTabela : '')).trim()
+      if (servicoExec.toUpperCase().startsWith('EXEMPLO') || refTabela.toUpperCase().startsWith('EXEMPLO')) continue
 
       if (tipo === 'SINAPRO') {
         if (qtd <= 0) { ignoradas++; continue }
@@ -183,14 +186,18 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
         const vb = b === 'criacao' ? it.valor_criacao : b === 'finalizacao' ? it.valor_finalizacao : it.valor_total
         if (vb == null) { erros.push(`Código "${c[1]}": sem valor na base "${b}" (item sob orçamento?)`); continue }
         const sufixo = b === 'criacao' ? ' (Criação)' : b === 'finalizacao' ? ' (Finalização)' : ''
-        novas.push({ tipo: 'SINAPRO', descricao: `${it.descricao}${sufixo}`, item_tabela_id: it.id, base: b, quantidade: qtd, desconto_pct: descTabela, precoUnit: r2(Number(vb) * (1 - descTabela / 100)) })
+        // Serviço executado (descrição da OS) + referência SINAPRO rastreável
+        const descricao = servicoExec
+          ? `${servicoExec} — SINAPRO ${it.codigo || ''}${sufixo}`
+          : `${it.descricao}${sufixo}`
+        novas.push({ tipo: 'SINAPRO', descricao, item_tabela_id: it.id, base: b, quantidade: qtd, desconto_pct: descTabela, precoUnit: r2(Number(vb) * (1 - descTabela / 100)) })
       } else if (tipo === 'TERCEIROS') {
-        if (!servico || valor <= 0) { ignoradas++; continue }
+        if (!servicoExec || valor <= 0) { ignoradas++; continue }
         const h = rp.honorario_terceiros_pct ?? 8
-        novas.push({ tipo: 'TERCEIROS', descricao: servico, custo: valor, honorario_pct: h, quantidade: qtd > 0 ? qtd : 1, precoUnit: r2(valor * (1 + h / 100)) })
+        novas.push({ tipo: 'TERCEIROS', descricao: servicoExec, custo: valor, honorario_pct: h, quantidade: qtd > 0 ? qtd : 1, precoUnit: r2(valor * (1 + h / 100)) })
       } else if (tipo === 'MIDIA') {
-        if (!servico || valor <= 0) { ignoradas++; continue }
-        novas.push({ tipo: 'MIDIA', descricao: servico, valor_midia: valor, desconto_agencia_pct: descAgencia, quantidade: qtd > 0 ? qtd : 1, precoUnit: r2(valor * (1 - descAgencia / 100)) })
+        if (!servicoExec || valor <= 0) { ignoradas++; continue }
+        novas.push({ tipo: 'MIDIA', descricao: servicoExec, valor_midia: valor, desconto_agencia_pct: descAgencia, quantidade: qtd > 0 ? qtd : 1, precoUnit: r2(valor * (1 - descAgencia / 100)) })
       } else if (tipo) {
         erros.push(`Tipo "${c[0]}" desconhecido (use SINAPRO, TERCEIROS ou MIDIA)`)
       }
@@ -208,7 +215,7 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
       const payload = {
         linhas: linhas.map((l) =>
           l.tipo === 'SINAPRO'
-            ? { tipo: 'SINAPRO', item_tabela_id: l.item_tabela_id, base: l.base, quantidade: l.quantidade, desconto_pct: l.desconto_pct }
+            ? { tipo: 'SINAPRO', item_tabela_id: l.item_tabela_id, base: l.base, quantidade: l.quantidade, desconto_pct: l.desconto_pct, descricao: l.descricao }
             : l.tipo === 'TERCEIROS'
             ? { tipo: 'TERCEIROS', descricao: l.descricao, custo: l.custo, honorario_pct: l.honorario_pct, quantidade: l.quantidade }
             : { tipo: 'MIDIA', descricao: l.descricao, valor_midia: l.valor_midia, desconto_agencia_pct: l.desconto_agencia_pct, quantidade: l.quantidade },
