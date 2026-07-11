@@ -569,8 +569,10 @@ export class TabelaReferenciaService {
         const sufixo = base === 'criacao' ? ' (Criação)' : base === 'finalizacao' ? ' (Finalização)' : '';
         const valorBase =
           base === 'criacao' ? itemTabela.valor_criacao : base === 'finalizacao' ? itemTabela.valor_finalizacao : itemTabela.valor_total;
-        descricao = `${itemTabela.descricao}${sufixo}`;
-        memorial = `SINAPRO ${itemTabela.codigo || ''} — tabela ${Number(valorBase)} − ${desconto}% = ${precoUnit}`.trim();
+        // Descrição do serviço executado (da OS do fornecedor) quando informada;
+        // a referência SINAPRO fica sempre rastreável no memorial.
+        descricao = l.descricao?.trim() || `${itemTabela.descricao}${sufixo}`;
+        memorial = `SINAPRO ${itemTabela.codigo || ''} (${itemTabela.descricao}) — tabela ${Number(valorBase)} − ${desconto}% = ${precoUnit}`.trim();
       } else if (l.tipo === 'TERCEIROS') {
         const custo = Number(l.custo || 0);
         if (!l.descricao || custo <= 0) continue;
