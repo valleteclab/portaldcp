@@ -138,14 +138,18 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
   const baixarModelo = () => {
     const fmtNum = (v: number | null | undefined) =>
       v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const hProd = rp.honorario_producao_pct ?? 8
+    const hPesq = rp.honorario_pesquisa_pct ?? 7
+    const hTerc = rp.honorario_terceiros_pct ?? 8
+    const hReut = rp.honorario_reutilizacao_pct ?? 4
     const out: string[] = [
       'tipo;codigo;referencia_tabela;base;quantidade;valor;servico_executado;ref_total;ref_criacao;ref_finalizacao;contrato_-' + descTabela + '%_(base_total)',
-      '# SINAPRO: preencha QUANTIDADE e descreva em SERVICO_EXECUTADO o que foi feito (ex.: Criacao de arte - outdoor, 3 versoes).',
-      '#          A base pode ser: total, criacao ou finalizacao. Os valores de referencia ja constam nas colunas ref_* (nao altere).',
-      '#          Deixe a coluna VALOR vazia nos itens SINAPRO: o sistema calcula pela tabela vigente e pelo desconto do contrato.',
-      '# TERCEIROS: descreva o servico em SERVICO_EXECUTADO e informe VALOR = custo do fornecedor (honorario do contrato sera somado).',
-      '# MIDIA: descreva em SERVICO_EXECUTADO e informe VALOR = verba de veiculacao (desconto de agencia sera aplicado).',
       '# Os valores finais sao SEMPRE calculados pela tabela vigente no sistema e pelos percentuais do contrato.',
+      '#',
+      '# ================= SECAO 1 - SERVICOS INTERNOS (TABELA SINAPRO - desconto ' + descTabela + '%) =================',
+      '# Preencha QUANTIDADE e descreva em SERVICO_EXECUTADO o que foi feito (ex.: Criacao de arte - outdoor, 3 versoes).',
+      '# BASE: total, criacao ou finalizacao. Valores de referencia nas colunas ref_* (informativas - nao altere).',
+      '# Deixe a coluna VALOR vazia nesta secao: o sistema calcula pela tabela e pelo desconto do contrato.',
     ]
     for (const it of itensTabela) {
       if (it.sob_orcamento) continue
@@ -155,8 +159,24 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
         `${fmtNum(it.valor_total)};${fmtNum(it.valor_criacao)};${fmtNum(it.valor_finalizacao)};${fmtNum(comDesconto)}`,
       )
     }
-    out.push('TERCEIROS;;;;1;5000,00;EXEMPLO - Impressao de outdoors (grafica);;;;')
-    out.push('MIDIA;;;;1;10000,00;EXEMPLO - Locacao de pontos de outdoor / painel LED;;;;')
+    out.push(
+      '#',
+      '# ================= SECAO 2 - CUSTOS EXTERNOS / HONORARIOS (itens SEM valor de tabela) =================',
+      `# Informe VALOR = custo do fornecedor externo e, na coluna BASE, o tipo de honorario do contrato:`,
+      `#   producao (+${hProd}% - pecas/materiais, ex.: grafica) | pesquisa (+${hPesq}% - pre/pos-teste) | terceiros (+${hTerc}% - outros servicos) | reutilizacao (+${hReut}% - cache/direitos)`,
+      '# Linhas sem VALOR sao ignoradas na importacao. Duplique linhas se precisar de mais.',
+      'TERCEIROS;;;producao;1;;DESCREVA O SERVICO - ex.: Impressao de 6 outdoors (grafica);;;;',
+      'TERCEIROS;;;producao;1;;DESCREVA O SERVICO;;;;',
+      'TERCEIROS;;;pesquisa;1;;DESCREVA O SERVICO - ex.: Pesquisa pos-teste da campanha;;;;',
+      'TERCEIROS;;;terceiros;1;;DESCREVA O SERVICO - ex.: Outro servico de terceiros sob supervisao;;;;',
+      'TERCEIROS;;;reutilizacao;1;;DESCREVA O SERVICO - ex.: Reutilizacao de peca (cache/direitos);;;;',
+      '#',
+      `# ================= SECAO 3 - MIDIA / VEICULACAO (desconto de agencia de ${descAgencia}% repassado ao orgao) =================`,
+      '# Informe VALOR = verba de veiculacao/locacao. O sistema aplica o desconto de agencia do contrato.',
+      'MIDIA;;;;1;;DESCREVA A VEICULACAO - ex.: Locacao de pontos de outdoor;;;;',
+      'MIDIA;;;;1;;DESCREVA A VEICULACAO - ex.: Locacao de paineis de LED;;;;',
+      'MIDIA;;;;1;;DESCREVA A VEICULACAO - ex.: Trafego pago YouTube/Google/META;;;;',
+    )
     const blob = new Blob(['﻿' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
@@ -178,18 +198,20 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
       const tipo = (c[0] || '').trim().toUpperCase()
       const codigo = (c[1] || '').trim().toLowerCase()
       const refTabela = (c[2] || '').trim()
-      const baseCsv = ((c[3] || '').trim().toLowerCase() || 'total') as 'total' | 'criacao' | 'finalizacao'
+      const baseCsv: string = (c[3] || '').trim().toLowerCase() || 'total'
       const qtd = numBR(c[4] || '')
       const valor = numBR(c[5] || '')
       // Descrição do serviço executado (coluna nova); arquivos antigos usavam a col. 3
       const servicoExec = ((c[6] || '').trim() || (tipo !== 'SINAPRO' ? refTabela : '')).trim()
-      if (servicoExec.toUpperCase().startsWith('EXEMPLO') || refTabela.toUpperCase().startsWith('EXEMPLO')) continue
+      const upperExec = servicoExec.toUpperCase()
+      if (upperExec.startsWith('EXEMPLO') || upperExec.startsWith('DESCREVA') || refTabela.toUpperCase().startsWith('EXEMPLO')) continue
 
       if (tipo === 'SINAPRO') {
         if (qtd <= 0) { ignoradas++; continue }
         const it = itensTabela.find((x) => (x.codigo || '').trim().toLowerCase() === codigo)
         if (!it) { erros.push(`Código "${c[1]}" não encontrado na tabela`); continue }
-        const b: 'total' | 'criacao' | 'finalizacao' = ['total', 'criacao', 'finalizacao'].includes(baseCsv) ? baseCsv : 'total'
+        const b: 'total' | 'criacao' | 'finalizacao' =
+          baseCsv === 'criacao' || baseCsv === 'finalizacao' ? baseCsv : 'total'
         const vb = b === 'criacao' ? it.valor_criacao : b === 'finalizacao' ? it.valor_finalizacao : it.valor_total
         if (vb == null) { erros.push(`Código "${c[1]}": sem valor na base "${b}" (item sob orçamento?)`); continue }
         const sufixo = b === 'criacao' ? ' (Criação)' : b === 'finalizacao' ? ' (Finalização)' : ''
@@ -200,7 +222,12 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
         novas.push({ tipo: 'SINAPRO', descricao, item_tabela_id: it.id, base: b, quantidade: qtd, desconto_pct: descTabela, precoUnit: r2(Number(vb) * (1 - descTabela / 100)) })
       } else if (tipo === 'TERCEIROS') {
         if (!servicoExec || valor <= 0) { ignoradas++; continue }
-        const h = rp.honorario_terceiros_pct ?? 8
+        // Coluna BASE define o tipo de honorário do contrato
+        const h =
+          baseCsv === 'producao' ? (rp.honorario_producao_pct ?? 8)
+          : baseCsv === 'pesquisa' ? (rp.honorario_pesquisa_pct ?? 7)
+          : baseCsv === 'reutilizacao' ? (rp.honorario_reutilizacao_pct ?? 4)
+          : (rp.honorario_terceiros_pct ?? 8)
         novas.push({ tipo: 'TERCEIROS', descricao: servicoExec, custo: valor, honorario_pct: h, quantidade: qtd > 0 ? qtd : 1, precoUnit: r2(valor * (1 + h / 100)) })
       } else if (tipo === 'MIDIA') {
         if (!servicoExec || valor <= 0) { ignoradas++; continue }
