@@ -135,66 +135,76 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
     return isNaN(n) ? 0 : n
   }
 
-  const baixarModelo = () => {
-    const fmtNum = (v: number | null | undefined) =>
-      v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const baixarModelo = async () => {
     const hProd = rp.honorario_producao_pct ?? 8
     const hPesq = rp.honorario_pesquisa_pct ?? 7
     const hTerc = rp.honorario_terceiros_pct ?? 8
     const hReut = rp.honorario_reutilizacao_pct ?? 4
-    const out: string[] = [
-      'tipo;codigo;referencia_tabela;base;quantidade;valor;servico_executado;ref_total;ref_criacao;ref_finalizacao;contrato_-' + descTabela + '%_(base_total)',
-      '# Os valores finais sao SEMPRE calculados pela tabela vigente no sistema e pelos percentuais do contrato.',
-      '#',
-      '# ================= SECAO 1 - SERVICOS INTERNOS (TABELA SINAPRO - desconto ' + descTabela + '%) =================',
-      '# Preencha QUANTIDADE e descreva em SERVICO_EXECUTADO o que foi feito (ex.: Criacao de arte - outdoor, 3 versoes).',
-      '# BASE: total, criacao ou finalizacao. Valores de referencia nas colunas ref_* (informativas - nao altere).',
-      '# Deixe a coluna VALOR vazia nesta secao: o sistema calcula pela tabela e pelo desconto do contrato.',
+    // Gera .xlsx (Excel de verdade) — CSV era complicado para o fornecedor
+    const XLSX = await import('xlsx')
+    const aoa: (string | number)[][] = [
+      ['tipo', 'codigo', 'referencia_tabela', 'base', 'quantidade', 'valor', 'servico_executado', 'ref_total', 'ref_criacao', 'ref_finalizacao', `contrato_-${descTabela}%_(base_total)`],
+      ['# Os valores finais sao SEMPRE calculados pela tabela vigente no sistema e pelos percentuais do contrato.'],
+      [`# ===== SECAO 1 - SERVICOS INTERNOS (TABELA SINAPRO - desconto ${descTabela}%) =====`],
+      ['# Preencha QUANTIDADE e descreva em SERVICO_EXECUTADO o que foi feito (ex.: Criacao de arte - outdoor, 3 versoes).'],
+      ['# BASE: total, criacao ou finalizacao. Valores de referencia nas colunas ref_* (informativas). Deixe VALOR vazio nesta secao.'],
     ]
     for (const it of itensTabela) {
       if (it.sob_orcamento) continue
-      const comDesconto = it.valor_total != null ? r2(Number(it.valor_total) * (1 - descTabela / 100)) : null
-      out.push(
-        `SINAPRO;${it.codigo || ''};${(it.descricao || '').replace(/[;\r\n]+/g, ' ')};total;;;;` +
-        `${fmtNum(it.valor_total)};${fmtNum(it.valor_criacao)};${fmtNum(it.valor_finalizacao)};${fmtNum(comDesconto)}`,
-      )
+      const comDesconto = it.valor_total != null ? r2(Number(it.valor_total) * (1 - descTabela / 100)) : ''
+      aoa.push([
+        'SINAPRO', it.codigo || '', it.descricao || '', 'total', '', '', '',
+        it.valor_total != null ? Number(it.valor_total) : '',
+        it.valor_criacao != null ? Number(it.valor_criacao) : '',
+        it.valor_finalizacao != null ? Number(it.valor_finalizacao) : '',
+        comDesconto,
+      ])
     }
-    out.push(
-      '#',
-      '# ================= SECAO 2 - CUSTOS EXTERNOS / HONORARIOS (itens SEM valor de tabela) =================',
-      `# Informe VALOR = custo do fornecedor externo e, na coluna BASE, o tipo de honorario do contrato:`,
-      `#   producao (+${hProd}% - pecas/materiais, ex.: grafica) | pesquisa (+${hPesq}% - pre/pos-teste) | terceiros (+${hTerc}% - outros servicos) | reutilizacao (+${hReut}% - cache/direitos)`,
-      '# Linhas sem VALOR sao ignoradas na importacao. Duplique linhas se precisar de mais.',
-      'TERCEIROS;;;producao;1;;DESCREVA O SERVICO - ex.: Impressao de 6 outdoors (grafica);;;;',
-      'TERCEIROS;;;producao;1;;DESCREVA O SERVICO;;;;',
-      'TERCEIROS;;;pesquisa;1;;DESCREVA O SERVICO - ex.: Pesquisa pos-teste da campanha;;;;',
-      'TERCEIROS;;;terceiros;1;;DESCREVA O SERVICO - ex.: Outro servico de terceiros sob supervisao;;;;',
-      'TERCEIROS;;;reutilizacao;1;;DESCREVA O SERVICO - ex.: Reutilizacao de peca (cache/direitos);;;;',
-      '#',
-      `# ================= SECAO 3 - MIDIA / VEICULACAO (desconto de agencia de ${descAgencia}% repassado ao orgao) =================`,
-      '# Informe VALOR = verba de veiculacao/locacao. O sistema aplica o desconto de agencia do contrato.',
-      'MIDIA;;;;1;;DESCREVA A VEICULACAO - ex.: Locacao de pontos de outdoor;;;;',
-      'MIDIA;;;;1;;DESCREVA A VEICULACAO - ex.: Locacao de paineis de LED;;;;',
-      'MIDIA;;;;1;;DESCREVA A VEICULACAO - ex.: Trafego pago YouTube/Google/META;;;;',
+    aoa.push(
+      ['# ===== SECAO 2 - CUSTOS EXTERNOS / HONORARIOS (itens SEM valor de tabela) ====='],
+      ['# Informe VALOR = custo do fornecedor externo e, na coluna BASE, o tipo de honorario do contrato:'],
+      [`# producao (+${hProd}% - pecas/materiais, ex.: grafica) | pesquisa (+${hPesq}% - pre/pos-teste) | terceiros (+${hTerc}% - outros) | reutilizacao (+${hReut}% - cache/direitos)`],
+      ['# Linhas sem VALOR sao ignoradas na importacao. Duplique linhas se precisar de mais.'],
+      ['TERCEIROS', '', '', 'producao', 1, '', 'DESCREVA O SERVICO - ex.: Impressao de 6 outdoors (grafica)'],
+      ['TERCEIROS', '', '', 'producao', 1, '', 'DESCREVA O SERVICO'],
+      ['TERCEIROS', '', '', 'pesquisa', 1, '', 'DESCREVA O SERVICO - ex.: Pesquisa pos-teste da campanha'],
+      ['TERCEIROS', '', '', 'terceiros', 1, '', 'DESCREVA O SERVICO - ex.: Outro servico de terceiros sob supervisao'],
+      ['TERCEIROS', '', '', 'reutilizacao', 1, '', 'DESCREVA O SERVICO - ex.: Reutilizacao de peca (cache/direitos)'],
+      [`# ===== SECAO 3 - MIDIA / VEICULACAO (desconto de agencia de ${descAgencia}% repassado ao orgao) =====`],
+      ['# Informe VALOR = verba de veiculacao/locacao. O sistema aplica o desconto de agencia do contrato.'],
+      ['MIDIA', '', '', '', 1, '', 'DESCREVA A VEICULACAO - ex.: Locacao de pontos de outdoor'],
+      ['MIDIA', '', '', '', 1, '', 'DESCREVA A VEICULACAO - ex.: Locacao de paineis de LED'],
+      ['MIDIA', '', '', '', 1, '', 'DESCREVA A VEICULACAO - ex.: Trafego pago YouTube/Google/META'],
     )
-    const blob = new Blob(['﻿' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = 'modelo-os-publicidade.csv'
-    a.click()
-    URL.revokeObjectURL(a.href)
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    ws['!cols'] = [
+      { wch: 11 }, { wch: 8 }, { wch: 48 }, { wch: 12 }, { wch: 11 },
+      { wch: 12 }, { wch: 52 }, { wch: 12 }, { wch: 12 }, { wch: 13 }, { wch: 18 },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'OS')
+    XLSX.writeFile(wb, 'modelo-os-publicidade.xlsx')
   }
 
   const importarArquivo = async (file: File) => {
-    const texto = await file.text()
-    const linhasArq = texto.replace(/^﻿/, '').split(/\r?\n/)
+    // Aceita Excel (.xlsx/.xls) e CSV
+    let rows: string[][]
+    if (/\.xlsx?$|\.xls$/i.test(file.name)) {
+      const XLSX = await import('xlsx')
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      rows = (XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }) as unknown[][])
+        .map((r) => r.map((cel) => (cel ?? '').toString()))
+    } else {
+      const texto = (await file.text()).replace(/^﻿/, '')
+      rows = texto.split(/\r?\n/).map((l) => l.split(';'))
+    }
     const novas: Linha[] = []
     const erros: string[] = []
     let ignoradas = 0
-    for (const raw of linhasArq) {
-      const l = raw.trim()
-      if (!l || l.startsWith('#') || l.toLowerCase().startsWith('tipo;')) continue
-      const c = l.split(';')
+    for (const c of rows) {
+      const primeira = (c[0] || '').trim()
+      if (!primeira || primeira.startsWith('#') || primeira.toLowerCase() === 'tipo') continue
       const tipo = (c[0] || '').trim().toUpperCase()
       const codigo = (c[1] || '').trim().toLowerCase()
       const refTabela = (c[2] || '').trim()
@@ -291,12 +301,12 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
             ))}
           </div>
           <div className="flex items-center gap-1 pb-1">
-            <Button type="button" variant="ghost" size="sm" onClick={baixarModelo} disabled={itensTabela.length === 0} title="Baixa a planilha-modelo para o fornecedor preencher a OS">
-              <Download className="w-4 h-4 mr-1" /> Modelo (CSV)
+            <Button type="button" variant="ghost" size="sm" onClick={baixarModelo} disabled={itensTabela.length === 0} title="Baixa a planilha Excel para o fornecedor preencher a OS">
+              <Download className="w-4 h-4 mr-1" /> Modelo (Excel)
             </Button>
-            <label className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md hover:bg-gray-100 cursor-pointer text-gray-700" title="Importa a planilha preenchida pelo fornecedor — valores recalculados pela tabela do sistema">
+            <label className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md hover:bg-gray-100 cursor-pointer text-gray-700" title="Importa a planilha preenchida pelo fornecedor (Excel ou CSV) — valores recalculados pela tabela do sistema">
               <Upload className="w-4 h-4" /> Importar planilha
-              <input type="file" accept=".csv,text/csv" className="hidden"
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) importarArquivo(f); e.currentTarget.value = '' }} />
             </label>
           </div>
