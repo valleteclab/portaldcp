@@ -33,6 +33,8 @@ interface PreOs {
   status: 'RASCUNHO' | 'ENVIADA' | 'DEVOLVIDA' | 'ACEITA' | 'CONVERTIDA'
   motivo_devolucao?: string | null
   enviada_em?: string | null
+  requisicao_id?: string | null
+  pdf_url?: string | null
 }
 
 const fmtBRL = (v: number | null | undefined) =>
@@ -51,6 +53,7 @@ export default function PreOsOrgaoSection({ contratoId }: { contratoId: string }
   const [loading, setLoading] = useState(true)
   const [revisando, setRevisando] = useState<PreOs | null>(null)
   const [motivo, setMotivo] = useState('')
+  const [setor, setSetor] = useState('DIRETORIA DE COMUNICAÇÃO')
   const [acao, setAcao] = useState(false)
 
   const carregar = useCallback(async () => {
@@ -88,18 +91,23 @@ export default function PreOsOrgaoSection({ contratoId }: { contratoId: string }
 
   const aceitar = async () => {
     if (!revisando) return
-    if (!confirm(`Aceitar a pré-OS #${revisando.sequencial} e gerar ${revisando.linhas.length} item(ns) no contrato? O fornecedor será notificado da aprovação prévia.`)) return
+    if (!confirm(`Aceitar a pré-OS #${revisando.sequencial}?\n\nSerão gerados ${revisando.linhas.length} item(ns) no contrato e a OS será criada em RASCUNHO para você completar e enviar ao gestor. O fornecedor recebe a aprovação prévia (sino + WhatsApp).`)) return
     setAcao(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/pre-os/${revisando.id}/aceitar`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({ setor_solicitante: setor.trim() || undefined }),
       })
       const d = await res.json()
       if (!res.ok) { alert(d.message || 'Erro ao aceitar.'); return }
-      alert(`Pré-OS aceita — ${d.itens_gerados_ids?.length || revisando.linhas.length} item(ns) gerados no contrato.\nAgora crie a Ordem de Serviço em Requisições selecionando esses itens.`)
+      const irParaOS = confirm(
+        `✅ Pré-OS aprovada!\n\n· ${d.itens_gerados_ids?.length || revisando.linhas.length} item(ns) gerados no contrato\n· OS ${d.requisicao_numero || ''} criada em rascunho\n· PDF da aprovação prévia emitido\n\nAbrir a OS agora para completar e enviar ao gestor?`,
+      )
       setRevisando(null)
       await carregar()
+      if (irParaOS && d.requisicao_id) {
+        window.location.href = `/orgao/almoxarifado/requisicoes/nova?editar=${d.requisicao_id}`
+      }
     } finally {
       setAcao(false)
     }
@@ -169,8 +177,27 @@ export default function PreOsOrgaoSection({ contratoId }: { contratoId: string }
 
           {revisando?.status === 'ENVIADA' && (
             <div className="space-y-2 border-t pt-3">
+              <div>
+                <Label className="text-xs">Setor solicitante da OS (usado no aceite)</Label>
+                <input
+                  className="w-full border rounded-md px-2 py-1.5 text-sm mt-1"
+                  value={setor}
+                  onChange={(e) => setSetor(e.target.value)}
+                />
+              </div>
               <Label className="text-xs">Motivo (obrigatório para devolver)</Label>
               <Textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} className="h-16 text-sm" placeholder="Ex.: honorário de gestão de tráfego sem base contratual — reenquadrar como 4.1.4 (8%)" />
+            </div>
+          )}
+
+          {(revisando?.status === 'ACEITA' || revisando?.status === 'CONVERTIDA') && (
+            <div className="flex gap-3 text-sm border-t pt-3">
+              {revisando?.pdf_url && (
+                <a href={revisando.pdf_url} target="_blank" rel="noreferrer" className="text-indigo-600 underline">📄 PDF da aprovação prévia</a>
+              )}
+              {revisando?.requisicao_id && (
+                <a href={`/orgao/almoxarifado/requisicoes/nova?editar=${revisando.requisicao_id}`} className="text-indigo-600 underline">Abrir OS vinculada</a>
+              )}
             </div>
           )}
 

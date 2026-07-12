@@ -27,6 +27,7 @@ import { OrdemServicoContrato } from './entities/ordem-servico-contrato.entity';
 import { OrdemServicoContratoItem } from './entities/ordem-servico-contrato-item.entity';
 import { BancoMetricas } from './entities/banco-metricas.entity';
 import { Requisicao } from '../almoxarifado/entities/requisicao.entity';
+import { RequisicaoItemOS } from '../almoxarifado/entities/requisicao-item-os.entity';
 import { OrdemFornecimento } from '../almoxarifado/entities/ordem-fornecimento.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { MedicaoService } from './medicao.service';
@@ -86,7 +87,7 @@ import { Notificacao } from '../notificacoes/entities/notificacao.entity';
       EtapaCronograma, EtapaCronogramaItem, ItemCronograma, Medicao, ItemMedicao, ItemMedicaoItem, AnexoMedicao, MensagemSolicitacaoMedicao, DiscriminacaoDespesaMedicao, AtestacaoMensal, LicencaControle, OrdemServicoContrato, OrdemServicoContratoItem, BancoMetricas, Requisicao, OrdemFornecimento, Orgao, AssinaturaDigital, LinkAssinaturaFiscal, FrotaContrato,
       MedicaoChatSession, AtualizacaoSistema, AtualizacaoLida,
       Proposta, PropostaItem,
-      TabelaReferenciaPreco, ItemTabelaReferencia, Notificacao, PreOsPublicidade,
+      TabelaReferenciaPreco, ItemTabelaReferencia, Notificacao, PreOsPublicidade, RequisicaoItemOS,
     ]),
     NotificacoesModule,
     UploadModule,

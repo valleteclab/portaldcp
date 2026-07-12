@@ -1153,4 +1153,120 @@ export class GeradorPdfService {
       }
     });
   }
+
+  /**
+   * PDF da PRÉ-OS de publicidade aprovada — registro da aprovação prévia por
+   * escrito exigida pelas cláusulas 3.6/3.7 (Lei 12.232/2010), com a
+   * apropriação de custos de cada linha. Retorna a URL relativa do arquivo.
+   */
+  async gerarPdfPreOsPublicidade(dados: {
+    id: string;
+    orgao_nome: string;
+    contrato_numero: string;
+    fornecedor_razao_social: string;
+    pre_os_sequencial: number;
+    titulo: string;
+    justificativa?: string | null;
+    linhas: Array<{ tipo: string; servico: string; detalhe: string; qtd: number; unit: number; total: number }>;
+    valor_total: number;
+    aprovado_por?: string | null;
+    aprovado_em: Date;
+    requisicao_numero?: string | null;
+  }): Promise<string> {
+    const docDir = join(this.uploadDir, 'documentos_assinados');
+    if (!existsSync(docDir)) mkdirSync(docDir, { recursive: true });
+    const filename = `pre-os-${dados.id}-${Date.now()}.pdf`;
+    const filePath = join(docDir, filename);
+    const brl = (v: number) =>
+      new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+    const dataBR = (d: Date) =>
+      new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        const ws = createWriteStream(filePath);
+        doc.pipe(ws);
+
+        // Cabeçalho
+        doc.font('Helvetica-Bold').fontSize(13).fillColor('#111827')
+          .text(dados.orgao_nome, { align: 'center' });
+        doc.moveDown(0.3);
+        doc.fontSize(12).text(`PRÉ-OS Nº ${String(dados.pre_os_sequencial).padStart(3, '0')} — APROVAÇÃO PRÉVIA DE DESPESAS`, { align: 'center' });
+        doc.font('Helvetica').fontSize(9).fillColor('#4b5563')
+          .text('Lei nº 12.232/2010 — aprovação prévia por escrito (cláusulas 3.6/3.7 do contrato)', { align: 'center' });
+        doc.moveDown(0.8);
+
+        // Bloco de informações
+        doc.fontSize(10).fillColor('#111827');
+        doc.font('Helvetica-Bold').text('Contrato: ', { continued: true }).font('Helvetica').text(dados.contrato_numero);
+        doc.font('Helvetica-Bold').text('Contratada: ', { continued: true }).font('Helvetica').text(dados.fornecedor_razao_social);
+        doc.font('Helvetica-Bold').text('Campanha/ação: ', { continued: true }).font('Helvetica').text(dados.titulo);
+        if (dados.justificativa) {
+          doc.font('Helvetica-Bold').text('Justificativa: ', { continued: true }).font('Helvetica').text(dados.justificativa);
+        }
+        doc.moveDown(0.6);
+
+        // Tabela de linhas
+        const x0 = 50, wTipo = 62, wServ = 250, wQtd = 36, wUnit = 72, wTot = 75;
+        const xServ = x0 + wTipo, xQtd = xServ + wServ, xUnit = xQtd + wQtd, xTot = xUnit + wUnit;
+        const headerY = doc.y;
+        doc.rect(x0, headerY, wTipo + wServ + wQtd + wUnit + wTot, 16).fill('#1f2937');
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8);
+        doc.text('TIPO', x0 + 3, headerY + 4, { width: wTipo - 6 });
+        doc.text('SERVIÇO / APROPRIAÇÃO DE CUSTOS', xServ + 3, headerY + 4, { width: wServ - 6 });
+        doc.text('QTD', xQtd, headerY + 4, { width: wQtd - 3, align: 'right' });
+        doc.text('VLR UNIT.', xUnit, headerY + 4, { width: wUnit - 3, align: 'right' });
+        doc.text('TOTAL', xTot, headerY + 4, { width: wTot - 3, align: 'right' });
+        let y = headerY + 18;
+
+        doc.font('Helvetica').fontSize(8).fillColor('#111827');
+        for (const l of dados.linhas) {
+          const texto = `${l.servico}\n${l.detalhe}`;
+          const h = Math.max(16, doc.heightOfString(texto, { width: wServ - 6 }) + 6);
+          if (y + h > doc.page.height - 90) { doc.addPage(); y = 50; }
+          doc.fillColor('#6b7280').text(l.tipo, x0 + 3, y + 2, { width: wTipo - 6 });
+          doc.fillColor('#111827').text(texto, xServ + 3, y + 2, { width: wServ - 6 });
+          doc.text(String(l.qtd), xQtd, y + 2, { width: wQtd - 3, align: 'right' });
+          doc.text(brl(l.unit), xUnit, y + 2, { width: wUnit - 3, align: 'right' });
+          doc.font('Helvetica-Bold').text(brl(l.total), xTot, y + 2, { width: wTot - 3, align: 'right' });
+          doc.font('Helvetica');
+          doc.moveTo(x0, y + h).lineTo(xTot + wTot, y + h).strokeColor('#e5e7eb').stroke();
+          y += h;
+        }
+
+        // Total
+        y += 6;
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827');
+        doc.text(`VALOR TOTAL APROVADO: ${brl(dados.valor_total)}`, x0, y, {
+          width: wTipo + wServ + wQtd + wUnit + wTot,
+          align: 'right',
+        });
+        y = doc.y + 14;
+
+        // Aprovação
+        doc.font('Helvetica').fontSize(9).fillColor('#374151');
+        doc.text(
+          `Aprovação prévia registrada em ${dataBR(dados.aprovado_em)}` +
+            (dados.aprovado_por ? ` por ${dados.aprovado_por}` : '') +
+            (dados.requisicao_numero ? ` — Ordem de Serviço vinculada: ${dados.requisicao_numero}.` : '.'),
+          x0,
+          y,
+          { width: wTipo + wServ + wQtd + wUnit + wTot },
+        );
+        doc.moveDown(0.5);
+        doc.fontSize(7.5).fillColor('#6b7280').text(
+          'Valores calculados pela tabela de referência vigente e pelos percentuais do contrato ' +
+            '(desconto sobre tabela, honorários sobre custos de terceiros e desconto de agência sobre veiculação). ' +
+            'Documento gerado eletronicamente pelo Portal DCP.',
+        );
+
+        doc.end();
+        ws.on('finish', () => resolve(`/api/uploads/documentos_assinados/${filename}`));
+        ws.on('error', reject);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
 }
