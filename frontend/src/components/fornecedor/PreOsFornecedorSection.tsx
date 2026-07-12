@@ -23,6 +23,7 @@ interface PreOs {
   motivo_devolucao?: string | null
   enviada_em?: string | null
   respondida_em?: string | null
+  pdf_url?: string | null
 }
 
 const fmtBRL = (v: number | null | undefined) =>
@@ -142,6 +143,9 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId }: { c
                   {p.linhas?.length || 0} serviço(s) · {fmtBRL(Number(p.valor_total_estimado))}
                   {p.status === 'DEVOLVIDA' && p.motivo_devolucao && (
                     <span className="block text-amber-700 mt-0.5">↩ Motivo da devolução: {p.motivo_devolucao}</span>
+                  )}
+                  {(p.status === 'ACEITA' || p.status === 'CONVERTIDA') && p.pdf_url && (
+                    <a href={p.pdf_url} target="_blank" rel="noreferrer" className="block text-indigo-600 underline mt-0.5">📄 Baixar aprovação prévia (PDF)</a>
                   )}
                 </p>
               </div>

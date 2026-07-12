@@ -157,9 +157,16 @@ export class PreOsOrgaoController {
   async aceitar(
     @Param('id') id: string,
     @Req() req: any,
-    @Body() body: { linhas?: LinhaPreOs[] },
+    @Body() body: { linhas?: LinhaPreOs[]; setor_solicitante?: string },
   ) {
     const orgaoId = this.getOrgaoId(req.user, req.query?.orgaoId);
-    return this.service.aceitar(id, orgaoId, (req.user as any)?.nome ?? (req.user as any)?.name, body?.linhas);
+    return this.service.aceitar(
+      id,
+      orgaoId,
+      (req.user as any)?.nome ?? (req.user as any)?.name,
+      body?.linhas,
+      body?.setor_solicitante,
+      (req.user as any)?.sub,
+    );
   }
 }

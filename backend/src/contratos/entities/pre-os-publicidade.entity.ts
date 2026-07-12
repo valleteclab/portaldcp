@@ -107,6 +107,14 @@ export class PreOsPublicidade {
   @Column({ type: 'jsonb', nullable: true })
   itens_gerados_ids: string[] | null;
 
+  /** Requisição/OS criada automaticamente no aceite (rascunho p/ o responsável completar) */
+  @Column({ type: 'uuid', nullable: true })
+  requisicao_id: string | null;
+
+  /** PDF da aprovação prévia (cláusula 3.6) gerado no aceite */
+  @Column({ type: 'varchar', nullable: true })
+  pdf_url: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

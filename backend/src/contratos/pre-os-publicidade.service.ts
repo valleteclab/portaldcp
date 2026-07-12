@@ -40,6 +40,13 @@ import {
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { TabelaReferenciaService } from './tabela-referencia.service';
+import {
+  Requisicao,
+  StatusRequisicao,
+  TipoRequisicao,
+} from '../almoxarifado/entities/requisicao.entity';
+import { RequisicaoItemOS } from '../almoxarifado/entities/requisicao-item-os.entity';
+import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const brl = (v: number) =>
@@ -60,9 +67,14 @@ export class PreOsPublicidadeService {
     private readonly usuarioRepo: Repository<Usuario>,
     @InjectRepository(Orgao)
     private readonly orgaoRepo: Repository<Orgao>,
+    @InjectRepository(Requisicao)
+    private readonly requisicaoRepo: Repository<Requisicao>,
+    @InjectRepository(RequisicaoItemOS)
+    private readonly requisicaoItemOSRepo: Repository<RequisicaoItemOS>,
     private readonly notificacoes: NotificacoesService,
     private readonly whatsapp: WhatsAppService,
     private readonly tabelaReferencia: TabelaReferenciaService,
+    private readonly geradorPdf: GeradorPdfService,
   ) {}
 
   // ==========================================================================
@@ -223,15 +235,18 @@ export class PreOsPublicidadeService {
   }
 
   /**
-   * Aceita a pré-OS (aprovação prévia): gera os itens no contrato via
-   * gerarLinhasPublicidade (linhas podem ter sido ajustadas pelo responsável).
+   * Aceita a pré-OS (aprovação prévia): gera os itens no contrato, cria a
+   * Requisição/OS em RASCUNHO com os itens pré-vinculados (o responsável só
+   * completa e envia ao gestor) e emite o PDF da aprovação prévia (cláusula 3.6).
    */
   async aceitar(
     preOsId: string,
     orgaoId: string,
     respondidaPorNome?: string,
     linhasAjustadas?: LinhaPreOs[],
-  ): Promise<PreOsPublicidade> {
+    setorSolicitante?: string,
+    usuarioId?: string,
+  ): Promise<PreOsPublicidade & { requisicao_numero?: string }> {
     const preOs = await this.preOsRepo.findOne({ where: { id: preOsId } });
     if (!preOs) throw new NotFoundException('Pré-OS não encontrada');
     if (preOs.orgao_id !== orgaoId) throw new ForbiddenException('Sem acesso a esta pré-OS');
@@ -241,6 +256,7 @@ export class PreOsPublicidadeService {
     const linhas = linhasAjustadas?.length ? linhasAjustadas : preOs.linhas;
     this.validarLinhas(linhas);
 
+    // 1) Gera os itens no contrato (preços pela tabela + percentuais do contrato)
     const itens = await this.tabelaReferencia.gerarLinhasPublicidade(
       preOs.contrato_id,
       linhas as any[],
@@ -249,15 +265,88 @@ export class PreOsPublicidadeService {
       throw new BadRequestException('Nenhum item pôde ser gerado a partir das linhas da pré-OS.');
     }
 
-    preOs.status = StatusPreOs.ACEITA;
+    // 2) Cria a Requisição/OS em RASCUNHO (mesma numeração do fluxo normal: OS-NNNN/ano)
+    const ano = new Date().getFullYear();
+    const ultima = await this.requisicaoRepo.findOne({
+      where: { orgao_id: orgaoId, ano },
+      order: { sequencial: 'DESC' },
+    });
+    const sequencial = (ultima?.sequencial || 0) + 1;
+    const numero = `OS-${String(sequencial).padStart(4, '0')}/${ano}`;
+    const requisicao = this.requisicaoRepo.create({
+      orgao_id: orgaoId,
+      contrato_id: preOs.contrato_id,
+      numero,
+      ano,
+      sequencial,
+      tipo: TipoRequisicao.ORDEM_SERVICO,
+      status: StatusRequisicao.RASCUNHO,
+      modo_os: 'ORDEM_DEMANDA',
+      descricao_os: preOs.titulo,
+      setor_solicitante: setorSolicitante?.trim() || 'DIRETORIA DE COMUNICAÇÃO',
+      justificativa:
+        preOs.justificativa ||
+        `Pré-OS #${preOs.sequencial} — ${preOs.titulo} (aprovação prévia, cláusula 3.6 da Lei 12.232/2010)`,
+      usuario_solicitante_id: usuarioId || orgaoId,
+      usuario_solicitante_nome: respondidaPorNome || 'Responsável',
+      data_solicitacao: new Date(),
+    } as Partial<Requisicao>);
+    const reqSalva = await this.requisicaoRepo.save(requisicao);
+    for (const it of itens) {
+      await this.requisicaoItemOSRepo.save(
+        this.requisicaoItemOSRepo.create({
+          requisicao_id: reqSalva.id,
+          item_cronograma_id: it.id,
+          quantidade_solicitada: Number(it.quantidade) || 1,
+        }),
+      );
+    }
+
+    // 3) PDF da aprovação prévia (apropriação de custos)
+    let pdfUrl: string | null = null;
+    try {
+      const { contrato, fornecedor } = await this.dadosContexto(preOs);
+      const orgao = await this.orgaoRepo.findOne({ where: { id: orgaoId }, select: ['id', 'nome'] });
+      const linhasPdf = linhas.map((l) => {
+        const qtd = Number(l.quantidade) || 1;
+        const unit = Number(l.preco_unit || 0);
+        const detalhe =
+          l.tipo === 'SINAPRO'
+            ? `Tabela de referência — base ${l.base || 'total'} − ${l.desconto_pct ?? 0}% (desconto contratual)`
+            : l.tipo === 'TERCEIROS'
+              ? `Custo do fornecedor ${brl(Number(l.custo || 0))} + honorário de ${l.honorario_pct ?? 0}%`
+              : `Veiculação ${brl(Number(l.valor_midia || 0))} − ${l.desconto_agencia_pct ?? 0}% (desconto de agência)`;
+        return { tipo: l.tipo, servico: l.descricao || '(item da tabela)', detalhe, qtd, unit, total: r2(unit * qtd) };
+      });
+      pdfUrl = await this.geradorPdf.gerarPdfPreOsPublicidade({
+        id: preOs.id,
+        orgao_nome: orgao?.nome || 'Órgão',
+        contrato_numero: contrato?.numero_contrato || '',
+        fornecedor_razao_social: fornecedor?.razao_social || '',
+        pre_os_sequencial: preOs.sequencial,
+        titulo: preOs.titulo,
+        justificativa: preOs.justificativa,
+        linhas: linhasPdf,
+        valor_total: this.totalEstimado(linhas),
+        aprovado_por: respondidaPorNome,
+        aprovado_em: new Date(),
+        requisicao_numero: numero,
+      });
+    } catch (e) {
+      this.logger.error(`PDF da pré-OS não gerado: ${(e as any).message}`);
+    }
+
+    preOs.status = StatusPreOs.CONVERTIDA;
     preOs.linhas = linhas;
     preOs.valor_total_estimado = this.totalEstimado(linhas);
     preOs.respondida_em = new Date();
     preOs.respondida_por_nome = respondidaPorNome || null;
     preOs.itens_gerados_ids = itens.map((i) => i.id);
+    preOs.requisicao_id = reqSalva.id;
+    preOs.pdf_url = pdfUrl;
     const salvo = await this.preOsRepo.save(preOs);
     await this.notificarFornecedor(salvo, 'ACEITA');
-    return salvo;
+    return Object.assign(salvo, { requisicao_numero: numero });
   }
 
   // ==========================================================================
