@@ -100,7 +100,7 @@ export class PreOsPublicidade {
   @Column({ type: 'timestamp', nullable: true })
   respondida_em: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   respondida_por_nome: string | null;
 
   /** Ids dos ItemCronograma gerados no aceite (rastreabilidade) */
