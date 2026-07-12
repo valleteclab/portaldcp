@@ -550,6 +550,8 @@ export class TabelaReferenciaService {
     let proximoNumero = existentes.reduce((max, it) => Math.max(max, it.numero_item || 0), 0) + 1;
 
     const round2 = (v: number) => Math.round(v * 100) / 100;
+    const fmtBR = (v: number) =>
+      Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const criados: ItemCronograma[] = [];
 
     for (const l of linhas) {
@@ -572,21 +574,21 @@ export class TabelaReferenciaService {
         // Descrição do serviço executado (da OS do fornecedor) quando informada;
         // a referência SINAPRO fica sempre rastreável no memorial.
         descricao = l.descricao?.trim() || `${itemTabela.descricao}${sufixo}`;
-        memorial = `SINAPRO ${itemTabela.codigo || ''} (${itemTabela.descricao}) — tabela ${Number(valorBase)} − ${desconto}% = ${precoUnit}`.trim();
+        memorial = `SINAPRO ${itemTabela.codigo || ''} (${itemTabela.descricao}) — tabela R$ ${fmtBR(Number(valorBase))} − ${desconto}% = R$ ${fmtBR(precoUnit)}`.trim();
       } else if (l.tipo === 'TERCEIROS') {
         const custo = Number(l.custo || 0);
         if (!l.descricao || custo <= 0) continue;
         const honorario = l.honorario_pct ?? rp.honorario_terceiros_pct ?? 0;
         precoUnit = round2(custo * (1 + honorario / 100));
         descricao = l.descricao;
-        memorial = `Terceiros — custo ${custo} + honorário ${honorario}% = ${precoUnit}`;
+        memorial = `Terceiros — custo R$ ${fmtBR(custo)} + honorário ${honorario}% = R$ ${fmtBR(precoUnit)}`;
       } else if (l.tipo === 'MIDIA') {
         const valorMidia = Number(l.valor_midia || 0);
         if (!l.descricao || valorMidia <= 0) continue;
         const descAgencia = l.desconto_agencia_pct ?? rp.desconto_agencia_pct ?? 0;
         precoUnit = round2(valorMidia * (1 - descAgencia / 100));
         descricao = l.descricao;
-        memorial = `Mídia — veiculação ${valorMidia} − ${descAgencia}% (desconto de agência) = ${precoUnit}`;
+        memorial = `Mídia — veiculação R$ ${fmtBR(valorMidia)} − ${descAgencia}% (desconto de agência) = R$ ${fmtBR(precoUnit)}`;
       } else {
         continue;
       }

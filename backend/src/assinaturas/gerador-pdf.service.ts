@@ -865,7 +865,12 @@ export class GeradorPdfService {
       const ic  = item.itemCronograma || {};
       // Item avulso (não vinculado ao cronograma): usa os campos *_avulso
       const isAvulso = !item.itemCronograma && !!item.descricao_avulso;
-      const desc = isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-');
+      // Publicidade (Lei 12.232): imprime o memorial de apropriação de custos
+      // (valor de referência da tabela + percentual) sob a descrição — cláusula 4.3
+      const memorial = (ic as any).observacoes as string | undefined;
+      const temMemorial = !!memorial && /^(SINAPRO|Terceiros|Mídia)/.test(memorial);
+      const desc = (isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-')) +
+        (temMemorial ? `\n${memorial}` : '');
       const unid = isAvulso ? '-' : (ic.unidade_medida || '-');
       const qtd  = isAvulso ? Number(item.quantidade_avulso ?? 0) : Number(item.quantidade_solicitada);
       const vlUnit = isAvulso ? Number(item.valor_unitario_avulso ?? 0) : Number(ic.valor_unitario ?? 0);
