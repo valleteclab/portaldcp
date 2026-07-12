@@ -136,20 +136,27 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
   }
 
   const baixarModelo = () => {
+    const fmtNum = (v: number | null | undefined) =>
+      v == null ? '' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     const out: string[] = [
-      'tipo;codigo;referencia_tabela;base;quantidade;valor;servico_executado',
+      'tipo;codigo;referencia_tabela;base;quantidade;valor;servico_executado;ref_total;ref_criacao;ref_finalizacao;contrato_-' + descTabela + '%_(base_total)',
       '# SINAPRO: preencha QUANTIDADE e descreva em SERVICO_EXECUTADO o que foi feito (ex.: Criacao de arte - outdoor, 3 versoes).',
-      '#          A base pode ser: total, criacao ou finalizacao.',
+      '#          A base pode ser: total, criacao ou finalizacao. Os valores de referencia ja constam nas colunas ref_* (nao altere).',
+      '#          Deixe a coluna VALOR vazia nos itens SINAPRO: o sistema calcula pela tabela vigente e pelo desconto do contrato.',
       '# TERCEIROS: descreva o servico em SERVICO_EXECUTADO e informe VALOR = custo do fornecedor (honorario do contrato sera somado).',
       '# MIDIA: descreva em SERVICO_EXECUTADO e informe VALOR = verba de veiculacao (desconto de agencia sera aplicado).',
       '# Os valores finais sao SEMPRE calculados pela tabela vigente no sistema e pelos percentuais do contrato.',
     ]
     for (const it of itensTabela) {
       if (it.sob_orcamento) continue
-      out.push(`SINAPRO;${it.codigo || ''};${(it.descricao || '').replace(/[;\r\n]+/g, ' ')};total;;;`)
+      const comDesconto = it.valor_total != null ? r2(Number(it.valor_total) * (1 - descTabela / 100)) : null
+      out.push(
+        `SINAPRO;${it.codigo || ''};${(it.descricao || '').replace(/[;\r\n]+/g, ' ')};total;;;;` +
+        `${fmtNum(it.valor_total)};${fmtNum(it.valor_criacao)};${fmtNum(it.valor_finalizacao)};${fmtNum(comDesconto)}`,
+      )
     }
-    out.push('TERCEIROS;;;;1;5000,00;EXEMPLO - Impressao de outdoors (grafica)')
-    out.push('MIDIA;;;;1;10000,00;EXEMPLO - Locacao de pontos de outdoor / painel LED')
+    out.push('TERCEIROS;;;;1;5000,00;EXEMPLO - Impressao de outdoors (grafica);;;;')
+    out.push('MIDIA;;;;1;10000,00;EXEMPLO - Locacao de pontos de outdoor / painel LED;;;;')
     const blob = new Blob(['﻿' + out.join('\r\n')], { type: 'text/csv;charset=utf-8' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
