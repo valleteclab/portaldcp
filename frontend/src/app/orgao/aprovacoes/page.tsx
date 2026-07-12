@@ -1459,7 +1459,12 @@ export default function CentralAprovacoesPage() {
                                       const total = qtd * vlUnit
                                       return (
                                         <TableRow key={item.id}>
-                                          <TableCell>{ic.descricao || '-'}</TableCell>
+                                          <TableCell>
+                                            {ic.descricao || '-'}
+                                            {/^(SINAPRO|Terceiros|Mídia)/.test(ic.observacoes || '') && (
+                                              <p className="text-xs text-gray-500 mt-0.5">{ic.observacoes}</p>
+                                            )}
+                                          </TableCell>
                                           <TableCell className="text-center">{ic.unidade_medida || '-'}</TableCell>
                                           <TableCell className="text-right">{qtd.toLocaleString('pt-BR')}</TableCell>
                                           <TableCell className="text-right">{meses ?? '-'}</TableCell>

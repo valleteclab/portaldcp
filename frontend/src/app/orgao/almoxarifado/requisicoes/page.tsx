@@ -1749,7 +1749,12 @@ function RequisicoesList() {
                         return (
                           <TableRow key={item.id}>
                             <TableCell>{idx + 1}</TableCell>
-                            <TableCell className="whitespace-normal break-words">{ic?.descricao ?? '-'}</TableCell>
+                            <TableCell className="whitespace-normal break-words">
+                              {ic?.descricao ?? '-'}
+                              {/^(SINAPRO|Terceiros|Mídia)/.test((ic as any)?.observacoes || '') && (
+                                <p className="text-xs text-gray-500 mt-0.5">{(ic as any).observacoes}</p>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">{ic?.unidade_medida ?? '-'}</TableCell>
                             <TableCell className="text-right">{item.quantidade_solicitada}</TableCell>
                             <TableCell className="text-right">{ic?.valor_unitario ? formatarMoeda(ic.valor_unitario) : '-'}</TableCell>

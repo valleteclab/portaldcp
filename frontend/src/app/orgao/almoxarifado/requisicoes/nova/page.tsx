@@ -3126,7 +3126,12 @@ function NovaRequisicaoForm() {
                     return (
                       <TableRow key={item.id}>
                         <TableCell>{item.numero_item}</TableCell>
-                        <TableCell className="whitespace-normal break-words">{item.descricao}</TableCell>
+                        <TableCell className="whitespace-normal break-words">
+                          {item.descricao}
+                          {/^(SINAPRO|Terceiros|Mídia)/.test((item as any).observacoes || '') && (
+                            <p className="text-xs text-gray-500 mt-0.5">{(item as any).observacoes}</p>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">{item.unidade_medida}</TableCell>
                         <TableCell className="text-right">{qtd}</TableCell>
                         <TableCell className="text-right">
