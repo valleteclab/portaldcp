@@ -33,6 +33,21 @@ type Linha =
   | { tipo: 'TERCEIROS'; descricao: string; custo: number; honorario_pct: number; quantidade: number; precoUnit: number }
   | { tipo: 'MIDIA'; descricao: string; valor_midia: number; desconto_agencia_pct: number; quantidade: number; precoUnit: number }
 
+/** Linha no formato aceito pelo backend (gerar-linhas / pré-OS) */
+export interface LinhaPayload {
+  tipo: 'SINAPRO' | 'TERCEIROS' | 'MIDIA'
+  quantidade?: number
+  item_tabela_id?: string
+  base?: 'total' | 'criacao' | 'finalizacao'
+  desconto_pct?: number
+  descricao?: string
+  custo?: number
+  honorario_pct?: number
+  valor_midia?: number
+  desconto_agencia_pct?: number
+  preco_unit?: number
+}
+
 interface Props {
   contratoId: string
   tabelaId?: string | null
@@ -40,13 +55,21 @@ interface Props {
   open: boolean
   onOpenChange: (o: boolean) => void
   onCreated?: (itens: any[]) => void
+  /** URL alternativa para buscar os itens da tabela (ex.: endpoint do portal do fornecedor) */
+  itensUrl?: string
+  /** 'gerar' (padrão): cria itens no contrato · 'retornar': devolve as linhas ao chamador (pré-OS) */
+  modo?: 'gerar' | 'retornar'
+  submitLabel?: string
+  /** Linhas pré-carregadas (edição de pré-OS devolvida) */
+  linhasIniciais?: LinhaPayload[]
+  onLinhas?: (linhas: LinhaPayload[]) => void | Promise<void>
 }
 
 const fmtBRL = (v: number | null | undefined) =>
   v == null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v))
 const r2 = (v: number) => Math.round(v * 100) / 100
 
-export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId, remuneracao, open, onOpenChange, onCreated }: Props) {
+export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId, remuneracao, open, onOpenChange, onCreated, itensUrl, modo = 'gerar', submitLabel, linhasIniciais, onLinhas }: Props) {
   const rp = remuneracao || {}
   const [aba, setAba] = useState<'SINAPRO' | 'TERCEIROS' | 'MIDIA'>('SINAPRO')
   const [linhas, setLinhas] = useState<Linha[]>([])
@@ -75,15 +98,24 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
 
   useEffect(() => {
     if (!open) { setLinhas([]); setSelItem(null); setBusca(''); return }
-    // Carrega a tabela ao abrir (necessária também para baixar modelo/importar planilha)
-    if (tabelaId && itensTabela.length === 0) {
+    // Linhas pré-carregadas (edição de pré-OS devolvida): reconstrói a lista de revisão
+    if (linhasIniciais?.length) {
+      setLinhas(linhasIniciais.map((l) => ({
+        ...(l as any),
+        quantidade: l.quantidade || 1,
+        precoUnit: Number(l.preco_unit || 0),
+      })) as Linha[])
+    }
+    // Carrega a tabela ao abrir (picker/modelo/importação)
+    if ((tabelaId || itensUrl) && itensTabela.length === 0) {
       setLoadingTabela(true)
-      authFetch(`${API_URL}/api/contratos/tabelas-referencia/${tabelaId}/itens`)
+      const url = itensUrl || `${API_URL}/api/contratos/tabelas-referencia/${tabelaId}/itens`
+      authFetch(url)
         .then((r) => (r.ok ? r.json() : []))
-        .then(setItensTabela)
+        .then((data) => setItensTabela(Array.isArray(data) ? data : data?.itens || []))
         .finally(() => setLoadingTabela(false))
     }
-  }, [open, tabelaId])
+  }, [open, tabelaId, itensUrl])
 
   const filtrados = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -252,22 +284,28 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
     alert(resumo.join(''))
   }
 
+  const montarPayload = (): LinhaPayload[] =>
+    linhas.map((l) =>
+      l.tipo === 'SINAPRO'
+        ? { tipo: 'SINAPRO' as const, item_tabela_id: l.item_tabela_id, base: l.base, quantidade: l.quantidade, desconto_pct: l.desconto_pct, descricao: l.descricao, preco_unit: l.precoUnit }
+        : l.tipo === 'TERCEIROS'
+        ? { tipo: 'TERCEIROS' as const, descricao: l.descricao, custo: l.custo, honorario_pct: l.honorario_pct, quantidade: l.quantidade, preco_unit: l.precoUnit }
+        : { tipo: 'MIDIA' as const, descricao: l.descricao, valor_midia: l.valor_midia, desconto_agencia_pct: l.desconto_agencia_pct, quantidade: l.quantidade, preco_unit: l.precoUnit },
+    )
+
   const gerar = async () => {
     if (linhas.length === 0) return
     setSalvando(true)
     try {
-      const payload = {
-        linhas: linhas.map((l) =>
-          l.tipo === 'SINAPRO'
-            ? { tipo: 'SINAPRO', item_tabela_id: l.item_tabela_id, base: l.base, quantidade: l.quantidade, desconto_pct: l.desconto_pct, descricao: l.descricao }
-            : l.tipo === 'TERCEIROS'
-            ? { tipo: 'TERCEIROS', descricao: l.descricao, custo: l.custo, honorario_pct: l.honorario_pct, quantidade: l.quantidade }
-            : { tipo: 'MIDIA', descricao: l.descricao, valor_midia: l.valor_midia, desconto_agencia_pct: l.desconto_agencia_pct, quantidade: l.quantidade },
-        ),
+      // Modo 'retornar' (pré-OS): devolve as linhas ao chamador, sem gerar itens
+      if (modo === 'retornar') {
+        await onLinhas?.(montarPayload())
+        onOpenChange(false)
+        return
       }
       const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/contrato/${contratoId}/gerar-linhas`, {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ linhas: montarPayload() }),
       })
       const data = await res.json()
       if (res.ok) {
@@ -408,7 +446,7 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
             <Button onClick={gerar} disabled={salvando || linhas.length === 0}>
               {salvando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
-              Gerar {linhas.length} item(ns)
+              {submitLabel || 'Gerar'} {linhas.length} item(ns)
             </Button>
           </div>
         </DialogFooter>

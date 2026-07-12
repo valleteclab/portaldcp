@@ -67,6 +67,7 @@ import TabRequisicoes from '@/components/contratos/TabRequisicoes'
 import TabRelatorios from '@/components/contratos/TabRelatorios'
 import SimuladorPedidoModal from '@/components/contratos/SimuladorPedidoModal'
 import AplicarTabelaSinaproModal from '@/components/contratos/AplicarTabelaSinaproModal'
+import PreOsOrgaoSection from '@/components/contratos/PreOsOrgaoSection'
 
 interface TermoAditivo {
   id: string
@@ -1340,6 +1341,9 @@ export default function DetalheContratoOrgaoPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Pré-OS enviadas pelo fornecedor (aprovação prévia — cláusula 3.6) */}
+      {contrato.remuneracao_publicidade && <PreOsOrgaoSection contratoId={contrato.id} />}
 
       {contrato.tabela_referencia_id && (
         <AplicarTabelaSinaproModal

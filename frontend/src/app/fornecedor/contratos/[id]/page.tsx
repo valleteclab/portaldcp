@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import PreOsFornecedorSection from '@/components/fornecedor/PreOsFornecedorSection';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -1794,6 +1795,11 @@ export default function FornecedorContratoDetalhePage() {
           {contrato.status}
         </Badge>
       </div>
+
+      {/* Pré-OS de publicidade (só aparece em contratos de publicidade) */}
+      {fornecedor?.id && (
+        <PreOsFornecedorSection contratoId={contrato.id} fornecedorId={fornecedor.id} />
+      )}
 
       {/* Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
