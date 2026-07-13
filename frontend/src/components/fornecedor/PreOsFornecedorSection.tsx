@@ -37,7 +37,7 @@ const STATUS_BADGE: Record<PreOs['status'], { label: string; cls: string }> = {
   CONVERTIDA: { label: 'OS emitida', cls: 'bg-indigo-100 text-indigo-700' },
 }
 
-export default function PreOsFornecedorSection({ contratoId, fornecedorId }: { contratoId: string; fornecedorId: string }) {
+export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDisponivel }: { contratoId: string; fornecedorId: string; onDisponivel?: (ok: boolean) => void }) {
   const [pub, setPub] = useState<{ tabela_referencia_id: string | null; remuneracao_publicidade: any } | null>(null)
   const [lista, setLista] = useState<PreOs[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,8 +57,9 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId }: { c
     setLoading(true)
     try {
       const resPub = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/tabela-publicidade?${qs}`)
-      if (!resPub.ok) { setPub(null); return } // contrato não é de publicidade
+      if (!resPub.ok) { setPub(null); onDisponivel?.(false); return } // contrato não é de publicidade
       setPub(await resPub.json())
+      onDisponivel?.(true)
       const resLista = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/pre-os?${qs}`)
       if (resLista.ok) setLista(await resLista.json())
     } finally {
@@ -67,6 +68,17 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId }: { c
   }, [contratoId, fornecedorId])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // Atalho externo (ex.: botão ao lado de "Abrir Medição do Mês"): rola até a
+  // seção e abre o formulário de nova pré-OS
+  useEffect(() => {
+    const handler = () => {
+      document.getElementById('pre-os-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setEditando(null); setTitulo(''); setJustificativa(''); setLinhas([]); setFormAberto(true)
+    }
+    window.addEventListener('abrir-pre-os', handler)
+    return () => window.removeEventListener('abrir-pre-os', handler)
+  }, [])
 
   if (loading) return null
   if (!pub) return null // só contratos de publicidade
@@ -119,7 +131,7 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId }: { c
   }
 
   return (
-    <Card className="border-amber-200">
+    <Card className="border-amber-200" id="pre-os-section">
       <CardHeader>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>

@@ -82,6 +82,7 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
   const [selItem, setSelItem] = useState<ItemTabela | null>(null)
   const [base, setBase] = useState<'total' | 'criacao' | 'finalizacao'>('total')
   const [qtdSinapro, setQtdSinapro] = useState(1)
+  const [servicoDesc, setServicoDesc] = useState('')
 
   // Terceiros
   const [tDesc, setTDesc] = useState('')
@@ -136,8 +137,12 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
   const addSinapro = () => {
     if (!selItem || precoSinapro == null) return
     const sufixo = base === 'criacao' ? ' (Criação)' : base === 'finalizacao' ? ' (Finalização)' : ''
-    setLinhas((p) => [...p, { tipo: 'SINAPRO', descricao: `${selItem.descricao}${sufixo}`, item_tabela_id: selItem.id, base, quantidade: qtdSinapro, desconto_pct: descTabela, precoUnit: precoSinapro }])
-    setSelItem(null); setQtdSinapro(1)
+    // Descrição do serviço executado (como nas OS reais) + referência SINAPRO rastreável
+    const descricao = servicoDesc.trim()
+      ? `${servicoDesc.trim()} — SINAPRO ${selItem.codigo || ''}${sufixo}`
+      : `${selItem.descricao}${sufixo}`
+    setLinhas((p) => [...p, { tipo: 'SINAPRO', descricao, item_tabela_id: selItem.id, base, quantidade: qtdSinapro, desconto_pct: descTabela, precoUnit: precoSinapro }])
+    setSelItem(null); setQtdSinapro(1); setServicoDesc('')
   }
   const addTerceiros = () => {
     const custo = parseFloat(tCusto.replace(',', '.'))
@@ -370,18 +375,30 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
                     ))}
                 </div>
                 {selItem && (
-                  <div className="flex items-end gap-2 bg-gray-50 rounded p-2">
-                    <div className="flex-1 text-xs"><span className="font-medium">{selItem.descricao}</span></div>
-                    <div><Label className="text-xs">Base</Label>
-                      <select value={base} onChange={(e) => setBase(e.target.value as any)} className="border rounded px-2 py-1 text-xs block">
-                        <option value="total">Total</option>
-                        {selItem.valor_criacao != null && <option value="criacao">Criação</option>}
-                        {selItem.valor_finalizacao != null && <option value="finalizacao">Finalização</option>}
-                      </select>
+                  <div className="bg-gray-50 rounded p-2 space-y-2">
+                    <p className="text-xs"><span className="text-gray-500">Referência da tabela:</span> <span className="font-medium">{selItem.codigo} — {selItem.descricao}</span></p>
+                    <div>
+                      <Label className="text-xs">Descrição do serviço executado (como sairá na OS)</Label>
+                      <Input
+                        value={servicoDesc}
+                        onChange={(e) => setServicoDesc(e.target.value)}
+                        placeholder="Ex.: Criação de arte — outdoor (3 versões)"
+                        className="h-8 text-xs mt-0.5"
+                      />
+                      <p className="text-[11px] text-gray-400 mt-0.5">Se deixar vazio, usa a descrição da tabela. A referência SINAPRO acompanha sempre.</p>
                     </div>
-                    <div><Label className="text-xs">Qtd</Label><Input type="number" min="1" value={qtdSinapro} onChange={(e) => setQtdSinapro(parseInt(e.target.value) || 1)} className="h-8 w-16 text-xs" /></div>
-                    <div className="text-xs"><Label className="text-xs">−{descTabela}%</Label><div className="font-semibold text-indigo-700 h-8 flex items-center">{fmtBRL(precoSinapro)}</div></div>
-                    <Button size="sm" onClick={addSinapro}><Plus className="w-4 h-4" /></Button>
+                    <div className="flex items-end gap-2">
+                      <div><Label className="text-xs">Base</Label>
+                        <select value={base} onChange={(e) => setBase(e.target.value as any)} className="border rounded px-2 py-1 text-xs block">
+                          <option value="total">Total</option>
+                          {selItem.valor_criacao != null && <option value="criacao">Criação</option>}
+                          {selItem.valor_finalizacao != null && <option value="finalizacao">Finalização</option>}
+                        </select>
+                      </div>
+                      <div><Label className="text-xs">Qtd</Label><Input type="number" min="1" value={qtdSinapro} onChange={(e) => setQtdSinapro(parseInt(e.target.value) || 1)} className="h-8 w-16 text-xs" /></div>
+                      <div className="text-xs flex-1"><Label className="text-xs">Unit. −{descTabela}%</Label><div className="font-semibold text-indigo-700 h-8 flex items-center">{fmtBRL(precoSinapro)}</div></div>
+                      <Button size="sm" onClick={addSinapro}><Plus className="w-4 h-4 mr-1" /> Adicionar</Button>
+                    </div>
                   </div>
                 )}
               </div>
