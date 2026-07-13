@@ -29,9 +29,14 @@ interface Remuneracao {
 }
 
 type Linha =
-  | { tipo: 'SINAPRO'; descricao: string; item_tabela_id: string; base: 'total' | 'criacao' | 'finalizacao'; quantidade: number; desconto_pct: number; precoUnit: number }
+  // servico = descrição livre do serviço executado (editável na lista); ref = referência SINAPRO fixa
+  | { tipo: 'SINAPRO'; descricao: string; servico?: string; ref?: string; refDescricao?: string; item_tabela_id: string; base: 'total' | 'criacao' | 'finalizacao'; quantidade: number; desconto_pct: number; precoUnit: number }
   | { tipo: 'TERCEIROS'; descricao: string; custo: number; honorario_pct: number; quantidade: number; precoUnit: number }
   | { tipo: 'MIDIA'; descricao: string; valor_midia: number; desconto_agencia_pct: number; quantidade: number; precoUnit: number }
+
+/** Recompõe a descrição final da linha SINAPRO: "serviço — SINAPRO cod (base)" */
+const descricaoSinapro = (l: Extract<Linha, { tipo: 'SINAPRO' }>): string =>
+  l.servico?.trim() ? `${l.servico.trim()} — ${l.ref || 'SINAPRO'}` : `${l.refDescricao || l.descricao}`
 
 /** Linha no formato aceito pelo backend (gerar-linhas / pré-OS) */
 export interface LinhaPayload {
@@ -100,12 +105,21 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
   useEffect(() => {
     if (!open) { setLinhas([]); setSelItem(null); setBusca(''); return }
     // Linhas pré-carregadas (edição de pré-OS devolvida): reconstrói a lista de revisão
+    // separando serviço editável da referência SINAPRO ("X — SINAPRO 3p (Criação)")
     if (linhasIniciais?.length) {
-      setLinhas(linhasIniciais.map((l) => ({
-        ...(l as any),
-        quantidade: l.quantidade || 1,
-        precoUnit: Number(l.preco_unit || 0),
-      })) as Linha[])
+      setLinhas(linhasIniciais.map((l) => {
+        const linha: any = { ...(l as any), quantidade: l.quantidade || 1, precoUnit: Number(l.preco_unit || 0) }
+        if (l.tipo === 'SINAPRO' && l.descricao) {
+          const partes = l.descricao.split(' — SINAPRO ')
+          if (partes.length === 2) {
+            linha.servico = partes[0]
+            linha.ref = `SINAPRO ${partes[1]}`
+          } else {
+            linha.refDescricao = l.descricao
+          }
+        }
+        return linha
+      }) as Linha[])
     }
     // Carrega a tabela ao abrir (picker/modelo/importação)
     if ((tabelaId || itensUrl) && itensTabela.length === 0) {
@@ -137,11 +151,22 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
   const addSinapro = () => {
     if (!selItem || precoSinapro == null) return
     const sufixo = base === 'criacao' ? ' (Criação)' : base === 'finalizacao' ? ' (Finalização)' : ''
-    // Descrição do serviço executado (como nas OS reais) + referência SINAPRO rastreável
-    const descricao = servicoDesc.trim()
-      ? `${servicoDesc.trim()} — SINAPRO ${selItem.codigo || ''}${sufixo}`
-      : `${selItem.descricao}${sufixo}`
-    setLinhas((p) => [...p, { tipo: 'SINAPRO', descricao, item_tabela_id: selItem.id, base, quantidade: qtdSinapro, desconto_pct: descTabela, precoUnit: precoSinapro }])
+    const ref = `SINAPRO ${selItem.codigo || ''}${sufixo}`.trim()
+    const refDescricao = `${selItem.descricao}${sufixo}`
+    const nova: Extract<Linha, { tipo: 'SINAPRO' }> = {
+      tipo: 'SINAPRO',
+      servico: servicoDesc.trim(),
+      ref,
+      refDescricao,
+      descricao: '',
+      item_tabela_id: selItem.id,
+      base,
+      quantidade: qtdSinapro,
+      desconto_pct: descTabela,
+      precoUnit: precoSinapro,
+    }
+    nova.descricao = descricaoSinapro(nova)
+    setLinhas((p) => [...p, nova])
     setSelItem(null); setQtdSinapro(1); setServicoDesc('')
   }
   const addTerceiros = () => {
@@ -262,11 +287,11 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
         const vb = b === 'criacao' ? it.valor_criacao : b === 'finalizacao' ? it.valor_finalizacao : it.valor_total
         if (vb == null) { erros.push(`Código "${c[1]}": sem valor na base "${b}" (item sob orçamento?)`); continue }
         const sufixo = b === 'criacao' ? ' (Criação)' : b === 'finalizacao' ? ' (Finalização)' : ''
-        // Serviço executado (descrição da OS) + referência SINAPRO rastreável
-        const descricao = servicoExec
-          ? `${servicoExec} — SINAPRO ${it.codigo || ''}${sufixo}`
-          : `${it.descricao}${sufixo}`
-        novas.push({ tipo: 'SINAPRO', descricao, item_tabela_id: it.id, base: b, quantidade: qtd, desconto_pct: descTabela, precoUnit: r2(Number(vb) * (1 - descTabela / 100)) })
+        // Serviço executado (descrição da OS) + referência SINAPRO rastreável (editável na lista)
+        const ref = `SINAPRO ${it.codigo || ''}${sufixo}`.trim()
+        const refDescricao = `${it.descricao}${sufixo}`
+        const descricao = servicoExec ? `${servicoExec} — ${ref}` : refDescricao
+        novas.push({ tipo: 'SINAPRO', servico: servicoExec, ref, refDescricao, descricao, item_tabela_id: it.id, base: b, quantidade: qtd, desconto_pct: descTabela, precoUnit: r2(Number(vb) * (1 - descTabela / 100)) })
       } else if (tipo === 'TERCEIROS') {
         if (!servicoExec || valor <= 0) { ignoradas++; continue }
         // Coluna BASE define o tipo de honorário do contrato
@@ -443,9 +468,32 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
               </tr></thead>
               <tbody>
                 {linhas.map((l, i) => (
-                  <tr key={i} className="border-t">
+                  <tr key={i} className="border-t align-top">
                     <td className="p-2"><span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{l.tipo === 'SINAPRO' ? 'SINAPRO' : l.tipo === 'TERCEIROS' ? 'Terceiros' : 'Mídia'}</span></td>
-                    <td className="p-2">{l.descricao}</td>
+                    <td className="p-2 min-w-[260px]">
+                      {l.tipo === 'SINAPRO' ? (
+                        <>
+                          <Input
+                            value={l.servico ?? ''}
+                            placeholder={l.refDescricao || 'Descreva o serviço executado…'}
+                            onChange={(e) => setLinhas((p) => p.map((x, j) => {
+                              if (j !== i || x.tipo !== 'SINAPRO') return x
+                              const upd = { ...x, servico: e.target.value }
+                              upd.descricao = descricaoSinapro(upd)
+                              return upd
+                            }))}
+                            className="h-7 text-xs"
+                          />
+                          <p className="text-[11px] text-gray-400 mt-0.5">{l.ref} — {l.refDescricao}</p>
+                        </>
+                      ) : (
+                        <Input
+                          value={l.descricao}
+                          onChange={(e) => setLinhas((p) => p.map((x, j) => (j === i ? { ...x, descricao: e.target.value } : x)))}
+                          className="h-7 text-xs"
+                        />
+                      )}
+                    </td>
                     <td className="p-2 text-right">{fmtBRL(l.precoUnit)}</td>
                     <td className="p-2 text-center">{l.quantidade}</td>
                     <td className="p-2 text-right font-semibold">{fmtBRL(l.precoUnit * l.quantidade)}</td>
