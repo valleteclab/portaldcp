@@ -736,10 +736,12 @@ export class NotificacoesService {
     contratoId: string,
     fiscalNome: string,
     motivo: string,
-    fornecedorDestinatarios: { id: string; email?: string }[],
+    fornecedorDestinatarios: { id: string; email?: string; telefone?: string }[],
   ): Promise<void> {
     this.logger.log(`Notificando medição #${medicaoNumero} devolvida`);
     try {
+      const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://portaldcp.com.br';
+      const linkRelativo = `/fornecedor/contratos/${contratoId}`;
       await this.criarParaMultiplos(fornecedorDestinatarios, {
         orgao_id: orgaoId,
         tipo: TipoNotificacao.MEDICAO_DEVOLVIDA,
@@ -748,8 +750,16 @@ export class NotificacoesService {
         prioridade: PrioridadeNotificacao.ALTA,
         entidade_tipo: 'medicao',
         entidade_id: medicaoId,
-        link: `/fornecedor/contratos/${contratoId}`,
-        metadata: { medicao_numero: medicaoNumero, contrato_numero: contratoNumero, fiscal: fiscalNome, motivo },
+        link: linkRelativo,
+        enviar_email: true,
+        metadata: {
+          medicao_numero: medicaoNumero,
+          contrato_numero: contratoNumero,
+          fiscal: fiscalNome,
+          motivo,
+          whatsapp_text: `⚠️ *Medição #${medicaoNumero} devolvida*\n\nContrato: ${contratoNumero}\nDevolvida por: ${fiscalNome}\n\n*Motivo da devolução:*\n${motivo}\n\nCorrija e reenvie pelo Portal do Fornecedor. Confira se a nota fiscal e a discriminação de despesas estão completas (incluindo retenções como Imposto de Renda, ISS e INSS).`,
+          whatsapp_url: `${appUrl}${linkRelativo}`,
+        },
       });
     } catch (error) {
       this.logger.error(`Erro ao notificar medição devolvida: ${error.message}`, error.stack);

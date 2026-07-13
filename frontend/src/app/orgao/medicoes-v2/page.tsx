@@ -269,6 +269,9 @@ export default function MedicoesV2Page() {
   // Anexos do modal de ateste
   const [anexosAteste, setAnexosAteste] = useState<any[]>([])
   const [loadingAnexos, setLoadingAnexos] = useState(false)
+  // Conferência da NF e discriminação de despesas antes de enviar para análise
+  const [discriminacoesAteste, setDiscriminacoesAteste] = useState<any[]>([])
+  const [conferiuNfAteste, setConferiuNfAteste] = useState(false)
   // Assinatura digital via link WhatsApp
   const [fiscaisDisponiveis, setFiscaisDisponiveis] = useState<any[]>([])
   const [fiscalSelecionado, setFiscalSelecionado] = useState('')
@@ -459,6 +462,8 @@ export default function MedicoesV2Page() {
       setFiscaisDisponiveis([])
       setAnexosAteste([])
       setModalAteste(medicaoCompleta)
+      setConferiuNfAteste(false)
+      setDiscriminacoesAteste([])
       // Buscar anexos em paralelo
       setLoadingAnexos(true)
       authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/anexos`)
@@ -466,6 +471,11 @@ export default function MedicoesV2Page() {
         .then(data => setAnexosAteste(Array.isArray(data) ? data : []))
         .catch(() => {})
         .finally(() => setLoadingAnexos(false))
+      // Buscar discriminação de despesas em paralelo
+      authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/discriminacoes`)
+        .then(r => r.ok ? r.json() : [])
+        .then(data => setDiscriminacoesAteste(Array.isArray(data) ? data : []))
+        .catch(() => {})
       // Buscar fiscais disponíveis
       const orgaoId = JSON.parse(localStorage.getItem('orgao') || '{}').id || ''
       if (orgaoId) {
@@ -526,6 +536,13 @@ export default function MedicoesV2Page() {
 
   const executarAteste = async () => {
     if (!modalAteste) return
+    if (!conferiuNfAteste) {
+      alert(
+        'Antes de atestar, confira a nota fiscal anexada e a discriminação de despesas ' +
+        '(retenções como IR, ISS e INSS devem estar discriminadas) e marque a caixa de conferência.',
+      )
+      return
+    }
     const itens = (modalAteste.itens || []) as any[]
     const { todosSelecionados, naoSelecionados } = resumirSelecaoItensAteste(itens)
     if (!todosSelecionados) {
@@ -1781,6 +1798,63 @@ export default function MedicoesV2Page() {
                 </div>
               )}
 
+              {/* Conferência da NF × discriminação de despesas (evita recusa pela contabilidade) */}
+              <div className="space-y-2 p-3 border border-amber-200 bg-amber-50/60 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                  <span className="text-sm font-semibold text-amber-900">Conferência da Nota Fiscal × Discriminação de Despesas</span>
+                </div>
+                <p className="text-xs text-amber-800">
+                  Antes de enviar para análise, abra a nota fiscal anexada e confira se o fornecedor discriminou
+                  <strong> todas</strong> as despesas e retenções destacadas na NF — Imposto de Renda (IRRF), ISS, INSS e demais deduções.
+                  Discriminação incompleta é o principal motivo de recusa pela contabilidade.
+                </p>
+                {discriminacoesAteste.length > 0 ? (
+                  <div className="rounded border bg-white overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-500 uppercase">
+                          <th className="text-left px-2 py-1.5 font-semibold">Discriminação informada pelo fornecedor</th>
+                          <th className="text-right px-2 py-1.5 font-semibold">Valor</th>
+                          <th className="text-right px-2 py-1.5 font-semibold">%</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {discriminacoesAteste.map((d: any, i: number) => (
+                          <tr key={d.id || i} className="border-t">
+                            <td className="px-2 py-1.5 text-gray-700">{d.descricao}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-700">{formatarMoeda(d.valor || 0)}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-500">{Number(d.percentual || 0).toFixed(2)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs font-medium text-red-600">
+                    Nenhuma discriminação de despesas informada pelo fornecedor nesta medição. Se a NF possui retenções, devolva a medição para correção.
+                  </p>
+                )}
+                {discriminacoesAteste.length > 0 &&
+                  !discriminacoesAteste.some((d: any) => /imposto\s*de\s*renda|irrf|\bir\b|\biss\b|\binss\b|csll|pis|cofins|reten[cç]/i.test(d.descricao || '')) && (
+                  <p className="text-xs font-medium text-amber-700">
+                    Nenhuma linha parece ser retenção (IR/ISS/INSS). Se a NF tiver retenções destacadas, devolva a medição para o fornecedor completar a discriminação.
+                  </p>
+                )}
+                <div className="flex items-start gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="conferiu_nf_ateste"
+                    checked={conferiuNfAteste}
+                    onChange={e => setConferiuNfAteste(e.target.checked)}
+                    className="w-4 h-4 mt-0.5"
+                  />
+                  <label htmlFor="conferiu_nf_ateste" className="text-sm text-amber-900 cursor-pointer">
+                    Conferi a nota fiscal anexada e a discriminação de despesas está completa (incluindo retenções como IR, ISS e INSS, quando houver). <span className="text-red-500">*</span>
+                  </label>
+                </div>
+              </div>
+
               {/* Verificação in loco */}
               <div className="flex items-center gap-3 p-3 border rounded-lg">
                 <input
@@ -1874,6 +1948,13 @@ export default function MedicoesV2Page() {
                     variant="outline"
                     disabled={!fiscalSelecionado || loadingAssinatura || !resumirSelecaoItensAteste((modalAteste.itens || []) as any[]).todosSelecionados}
                     onClick={async () => {
+                      if (!conferiuNfAteste) {
+                        alert(
+                          'Antes de enviar ao fiscal, confira a nota fiscal anexada e a discriminação de despesas ' +
+                          '(retenções como IR, ISS e INSS devem estar discriminadas) e marque a caixa de conferência.',
+                        )
+                        return
+                      }
                       const itens = (modalAteste.itens || []) as any[]
                       const { naoSelecionados, todosSelecionados } = resumirSelecaoItensAteste(itens)
                       if (!todosSelecionados) {

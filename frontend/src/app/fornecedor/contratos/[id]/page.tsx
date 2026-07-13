@@ -1293,6 +1293,22 @@ export default function FornecedorContratoDetalhePage() {
         return;
       }
 
+      // Alerta de retenções ausentes: medições sem IR/ISS/INSS discriminados são recusadas pela contabilidade
+      const temRetencao = discriminacoes.some(d =>
+        /imposto\s*de\s*renda|irrf|\bir\b|\biss\b|\binss\b|csll|pis|cofins|reten[cç]/i.test(d.descricao || '')
+      );
+      if (!temRetencao) {
+        const confirmaSemRetencao = window.confirm(
+          'ATENÇÃO: nenhuma linha da discriminação parece ser uma retenção (Imposto de Renda, ISS, INSS...).\n\n' +
+          'Confira a nota fiscal: se houver retenções destacadas, TODAS devem ser discriminadas — medições com discriminação incompleta são devolvidas pela contabilidade.\n\n' +
+          'Confirma que a nota fiscal NÃO possui retenções e deseja enviar assim mesmo?'
+        );
+        if (!confirmaSemRetencao) {
+          setSubmitting(false);
+          return;
+        }
+      }
+
       // Validar que período da medição não ultrapassa a data de vigência fim do contrato
       if (contrato?.data_vigencia_fim) {
         const dataFimPeriodo = new Date(novaMedicao.periodo_fim);
@@ -3065,6 +3081,10 @@ export default function FornecedorContratoDetalhePage() {
                         <Plus className="w-3 h-3 mr-1" /> Adicionar Item
                       </Button>
                     </div>
+                  </div>
+
+                  <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    <strong>Atenção:</strong> discrimine <strong>todas</strong> as despesas e retenções destacadas na nota fiscal — Imposto de Renda (IRRF), ISS, INSS e demais deduções. Medições com discriminação incompleta são devolvidas pela contabilidade.
                   </div>
 
                   {discriminacoes.length > 0 ? (
