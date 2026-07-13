@@ -3139,7 +3139,11 @@ function NovaRequisicaoForm() {
                           )}
                         </TableCell>
                         <TableCell className="text-right">{item.unidade_medida}</TableCell>
-                        <TableCell className="text-right">{qtd}</TableCell>
+                        <TableCell className="text-right">
+                          {String(item.unidade_medida || '').toUpperCase() === 'MENSAL' && qtd > 0 && Math.abs(qtd - Math.round(qtd)) > 0.0001
+                            ? `${Math.round(qtd * 30)} dias`
+                            : qtd.toLocaleString('pt-BR')}
+                        </TableCell>
                         <TableCell className="text-right">
                           {modoOS === 'ORDEM_DEMANDA'
                             ? (demanda?.meses_solicitados ?? '-')
