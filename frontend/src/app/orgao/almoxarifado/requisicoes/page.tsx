@@ -184,6 +184,12 @@ const PRIORIDADE_COLORS: Record<string, string> = {
   URGENTE: 'bg-red-100 text-red-600',
 };
 
+/** MENSAL fracionado (período parcial) exibe em dias comerciais: 0,2333 mês → "7 dias" */
+const qtdOsDisplay = (qtd: number, unidade?: string | null) =>
+  String(unidade || '').toUpperCase() === 'MENSAL' && qtd > 0 && Math.abs(qtd - Math.round(qtd)) > 0.0001
+    ? `${Math.round(qtd * 30)} dias`
+    : qtd.toLocaleString('pt-BR');
+
 const hojeInput = () => {
   const agora = new Date();
   const local = new Date(agora.getTime() - agora.getTimezoneOffset() * 60000);
@@ -1763,7 +1769,7 @@ function RequisicoesList() {
                               )}
                             </TableCell>
                             <TableCell className="text-right">{ic?.unidade_medida ?? '-'}</TableCell>
-                            <TableCell className="text-right">{item.quantidade_solicitada}</TableCell>
+                            <TableCell className="text-right">{qtdOsDisplay(Number(item.quantidade_solicitada), ic?.unidade_medida)}</TableCell>
                             <TableCell className="text-right">{ic?.valor_unitario ? formatarMoeda(ic.valor_unitario) : '-'}</TableCell>
                             <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
                           </TableRow>
@@ -1830,7 +1836,7 @@ function RequisicoesList() {
                           <TableCell className="align-top">
                             <span className="whitespace-normal break-words text-sm leading-relaxed">{item.descricao}</span>
                           </TableCell>
-                          <TableCell className="whitespace-nowrap align-top">{item.quantidade_solicitada} {item.unidade_medida}</TableCell>
+                          <TableCell className="whitespace-nowrap align-top">{qtdOsDisplay(Number(item.quantidade_solicitada), item.unidade_medida)}{String(item.unidade_medida || '').toUpperCase() === 'MENSAL' && Math.abs(Number(item.quantidade_solicitada) - Math.round(Number(item.quantidade_solicitada))) > 0.0001 ? '' : ` ${item.unidade_medida}`}</TableCell>
                           <TableCell className="whitespace-nowrap align-top">{item.quantidade_autorizada || '-'}</TableCell>
                           <TableCell className="whitespace-nowrap text-right align-top">{item.valor_unitario ? formatarMoeda(item.valor_unitario) : '-'}</TableCell>
                           <TableCell className="whitespace-nowrap text-right align-top font-medium">{item.valor_total_estimado ? formatarMoeda(item.valor_total_estimado) : '-'}</TableCell>

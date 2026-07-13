@@ -871,8 +871,15 @@ export class GeradorPdfService {
       const temMemorial = !!memorial && /^(SINAPRO|Terceiros|Mídia)/.test(memorial);
       const desc = (isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-')) +
         (temMemorial ? `\n${memorial}` : '');
-      const unid = isAvulso ? '-' : (ic.unidade_medida || '-');
       const qtd  = isAvulso ? Number(item.quantidade_avulso ?? 0) : Number(item.quantidade_solicitada);
+      // MENSAL fracionado (período parcial): exibe em DIAS comerciais (ex.: 0,2333 mês → 7 dias).
+      // Apenas exibição — o valor continua calculado pela fração exata.
+      const isMensalFracionado =
+        !isAvulso &&
+        String(ic.unidade_medida || '').toUpperCase() === 'MENSAL' &&
+        qtd > 0 &&
+        Math.abs(qtd - Math.round(qtd)) > 0.0001;
+      const unid = isMensalFracionado ? 'DIAS' : (isAvulso ? '-' : (ic.unidade_medida || '-'));
       const vlUnit = isAvulso ? Number(item.valor_unitario_avulso ?? 0) : Number(ic.valor_unitario ?? 0);
       const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
       // total: avulso usa valor_total_avulso; cronograma usa qtd × vlUnit (qtd já inclui meses × qty/período)
@@ -894,7 +901,9 @@ export class GeradorPdfService {
       doc.text(desc,  x1 + 3, rowY, { width: colDesc - 6 });
       doc.text(unid,  x2, rowY, { width: colUnid,  align: 'center' });
       doc.text(
-        qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
+        isMensalFracionado
+          ? String(Math.round(qtd * 30))
+          : qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
         x3, rowY, { width: colQtd, align: 'right' }
       );
       doc.text(

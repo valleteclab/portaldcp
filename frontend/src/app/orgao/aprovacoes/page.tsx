@@ -1466,7 +1466,11 @@ export default function CentralAprovacoesPage() {
                                             )}
                                           </TableCell>
                                           <TableCell className="text-center">{ic.unidade_medida || '-'}</TableCell>
-                                          <TableCell className="text-right">{qtd.toLocaleString('pt-BR')}</TableCell>
+                                          <TableCell className="text-right">
+                                            {String(ic.unidade_medida || '').toUpperCase() === 'MENSAL' && qtd > 0 && Math.abs(qtd - Math.round(qtd)) > 0.0001
+                                              ? `${Math.round(qtd * 30)} dias`
+                                              : qtd.toLocaleString('pt-BR')}
+                                          </TableCell>
                                           <TableCell className="text-right">{meses ?? '-'}</TableCell>
                                           <TableCell className="text-right">{formatarMoeda(vlMensal)}</TableCell>
                                           <TableCell className="text-right font-medium">{formatarMoeda(total)}</TableCell>
