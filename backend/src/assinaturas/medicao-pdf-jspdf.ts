@@ -942,12 +942,17 @@ export async function gerarBoletimMedicaoPdf(
       (s: number, e: any) => s + Number(e.percentual_fisico || 0),
       0,
     );
-    // Avanço físico GLOBAL acumulado = soma de (peso da etapa × % executado acum.)
-    const totalGlobalAcum = dados.etapas.reduce(
-      (s: number, e: any) =>
-        s + (Number(e.percentual_fisico || 0) * Number(e.percentual_executado_acumulado || 0)) / 100,
-      0,
-    );
+    // Avanço físico GLOBAL ponderado = soma de (peso da etapa × % executado)
+    const globalPonderado = (campo: string) =>
+      dados.etapas.reduce(
+        (s: number, e: any) =>
+          s + (Number(e.percentual_fisico || 0) * Number(e[campo] || 0)) / 100,
+        0,
+      );
+    const totalGlobalAnt = globalPonderado('percentual_executado_anterior');
+    const totalGlobalPer = globalPonderado('percentual_executado_atual');
+    const totalGlobalAcum = globalPonderado('percentual_executado_acumulado');
+    const totalGlobalSaldo = globalPonderado('percentual_a_executar');
     const totalFinAnterior = dados.etapas.reduce(
       (s: number, e: any) => s + Number(e.valor_acumulado_anterior || 0),
       0,
@@ -994,7 +999,11 @@ export async function gerarBoletimMedicaoPdf(
           { content: fmtAr(e.valor_a_executar || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
         ]),
         [
-          { content: 'TOTAL', colSpan: 6, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: 'TOTAL (ETAPAS DESTA MEDIÇÃO)', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: fmtPct(totalGlobalAnt), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: fmtPct(totalGlobalPer), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [255, 235, 200] as [number, number, number] } },
+          { content: fmtPct(totalGlobalAcum), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: fmtPct(totalGlobalSaldo), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
           { content: fmtPct(totalPercentualEtapasGlobal), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
           { content: fmtPct(totalGlobalAcum), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [255, 235, 200] as [number, number, number] } },
           { content: fmtAr(totalFinAnterior), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
@@ -1041,6 +1050,36 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFontSize(13);
   doc.setTextColor(22, 60, 100);
   doc.text(fmtAr(dados.valor_medido), mX + 4, y + 12);
+  if (dados.etapas && dados.etapas.length > 0) {
+    const pesoVezes = (campo: string) =>
+      dados.etapas.reduce(
+        (s: number, e: any) =>
+          s + (Number(e.percentual_fisico || 0) * Number(e[campo] || 0)) / 100,
+        0,
+      );
+    const pctPeriodo =
+      dados.percentual_fisico_periodo != null
+        ? Number(dados.percentual_fisico_periodo)
+        : pesoVezes('percentual_executado_atual');
+    const pctAcum =
+      dados.percentual_fisico_acumulado != null
+        ? Number(dados.percentual_fisico_acumulado)
+        : pesoVezes('percentual_executado_acumulado');
+    const fmtP = (v: number) =>
+      `${v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%`;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(0, 0, 0);
+    doc.text('AVANÇO FÍSICO:', W - mX - 4, y + 5.5, { align: 'right' });
+    doc.setFontSize(10);
+    doc.setTextColor(22, 60, 100);
+    doc.text(
+      `nesta medição ${fmtP(pctPeriodo)}  |  acumulado ${fmtP(pctAcum)}`,
+      W - mX - 4,
+      y + 12,
+      { align: 'right' },
+    );
+  }
   y += 16;
 
   // =========================================================
