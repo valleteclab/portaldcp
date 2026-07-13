@@ -447,6 +447,7 @@ function NovaRequisicaoForm() {
   
   // Dados da OS carregada para edição (itens/etapas aplicados após cronograma carregar)
   const [requisicaoEdicao, setRequisicaoEdicao] = useState<{
+    modo_os?: string | null;
     itensOS?: Array<{ item_cronograma_id: string; quantidade_solicitada: number }>;
     etapasOS?: Array<{ etapa_id: string; valor_solicitado?: number; percentual_solicitado?: number }>;
   } | null>(null);
@@ -893,6 +894,7 @@ function NovaRequisicaoForm() {
         }
         if (req.itensOS?.length) {
           setRequisicaoEdicao({
+            modo_os: req.modo_os || 'ORDEM_DEMANDA',
             itensOS: req.itensOS.map((io: any) => ({
               item_cronograma_id: io.item_cronograma_id || io.itemCronograma?.id,
               quantidade_solicitada: Number(io.quantidade_solicitada || 0),
@@ -920,29 +922,33 @@ function NovaRequisicaoForm() {
     carregarParaEdicao();
   }, [editarId, contratos.length]);
 
-  // Aplicar itens/etapas da OS carregada para edição após cronograma estar pronto
+  // Aplicar itens/etapas da OS carregada para edição após cronograma estar pronto.
+  // IMPORTANTE: só consome requisicaoEdicao quando o cronograma JÁ CARREGOU —
+  // carregandoCronograma começa false antes do fetch iniciar, e aplicar cedo
+  // demais perdia as quantidades e o modo (bug da OS criada pela pré-OS).
   useEffect(() => {
     if (!requisicaoEdicao || carregandoCronograma) return;
     if (requisicaoEdicao.itensOS?.length) {
-      setItensOSDemanda(prev => {
-        const byId = new Map(requisicaoEdicao.itensOS!.map(i => [i.item_cronograma_id, i.quantidade_solicitada]));
-        return prev.map(p => ({
-          ...p,
-          quantidade_solicitada: byId.get(p.item_cronograma_id) ?? p.quantidade_solicitada,
-        }));
-      });
+      if (itensCronograma.length === 0) return; // aguarda o cronograma
+      const byId = new Map(requisicaoEdicao.itensOS!.map(i => [i.item_cronograma_id, i.quantidade_solicitada]));
+      // Reconstrói do cronograma: itens da OS com suas quantidades; demais zerados
+      setItensOSDemanda(itensCronograma.map(p => ({
+        item_cronograma_id: p.id,
+        quantidade_solicitada: byId.get(p.id) ?? 0,
+      })));
+      setModoOS((requisicaoEdicao.modo_os as 'ORDEM_GLOBAL' | 'ORDEM_DEMANDA') || 'ORDEM_DEMANDA');
     }
     if (requisicaoEdicao.etapasOS?.length) {
-      setEtapasOSDemanda(prev => {
-        const byId = new Map(requisicaoEdicao.etapasOS!.map(e => [e.etapa_id, e.valor_solicitado ?? 0]));
-        return prev.map(p => ({
-          ...p,
-          valor_solicitado: byId.get(p.etapa_id) ?? p.valor_solicitado,
-        }));
-      });
+      if (etapasOS.length === 0) return; // aguarda as etapas
+      const byId = new Map(requisicaoEdicao.etapasOS!.map(e => [e.etapa_id, e.valor_solicitado ?? 0]));
+      setEtapasOSDemanda(etapasOS.map((e: any) => ({
+        etapa_id: e.id,
+        valor_solicitado: byId.get(e.id) ?? 0,
+      })));
+      setModoOS((requisicaoEdicao.modo_os as 'ORDEM_GLOBAL' | 'ORDEM_DEMANDA') || 'ORDEM_DEMANDA');
     }
     setRequisicaoEdicao(null);
-  }, [requisicaoEdicao, carregandoCronograma]);
+  }, [requisicaoEdicao, carregandoCronograma, itensCronograma, etapasOS]);
 
   // Se veio com contrato na URL, pula para etapa 2
   useEffect(() => {

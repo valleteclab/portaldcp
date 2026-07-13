@@ -261,6 +261,10 @@ export class Requisicao {
   @Column({ type: 'text', nullable: true })
   numeros_empenhos: string | null;
 
+  /** Pré-OS de publicidade que originou esta OS (aprovação prévia do fornecedor) */
+  @Column({ type: 'uuid', nullable: true })
+  pre_os_id: string | null;
+
   // ============================================================================
   // ASSINATURA DIGITAL
   // ============================================================================

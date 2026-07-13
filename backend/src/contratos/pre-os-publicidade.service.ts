@@ -290,6 +290,7 @@ export class PreOsPublicidadeService {
       usuario_solicitante_id: usuarioId || orgaoId,
       usuario_solicitante_nome: respondidaPorNome || 'Responsável',
       data_solicitacao: new Date(),
+      pre_os_id: preOs.id,
     } as Partial<Requisicao>);
     const reqSalva = await this.requisicaoRepo.save(requisicao);
     for (const it of itens) {

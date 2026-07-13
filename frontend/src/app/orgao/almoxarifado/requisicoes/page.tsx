@@ -1256,9 +1256,16 @@ function RequisicoesList() {
                   <TableRow key={req.id}>
                     <TableCell className="font-medium whitespace-nowrap">{req.numero}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={`text-xs ${req.tipo === 'ORDEM_SERVICO' ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : ''}`}>
-                        {req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'MATERIAL' ? 'Mat.' : req.tipo === 'SERVICO' ? 'Serv.' : req.tipo}
-                      </Badge>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <Badge variant="outline" className={`text-xs ${req.tipo === 'ORDEM_SERVICO' ? 'border-indigo-300 text-indigo-700 bg-indigo-50' : ''}`}>
+                          {req.tipo === 'ORDEM_SERVICO' ? 'OS' : req.tipo === 'MATERIAL' ? 'Mat.' : req.tipo === 'SERVICO' ? 'Serv.' : req.tipo}
+                        </Badge>
+                        {(req as any).pre_os_id && (
+                          <Badge variant="outline" className="text-xs border-amber-300 text-amber-700 bg-amber-50" title="Originada de pré-OS do fornecedor (aprovação prévia — publicidade)">
+                            Pré-OS
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>{req.setor_solicitante}</TableCell>
                     <TableCell>{req.usuario_solicitante_nome}</TableCell>
