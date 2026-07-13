@@ -575,6 +575,8 @@ export default function FornecedorContratoDetalhePage() {
   // Modal Detalhe
   const [modalDetalhe, setModalDetalhe] = useState(false);
   const [modalComprasAviso, setModalComprasAviso] = useState(false);
+  // Pré-OS de publicidade: habilita o atalho ao lado de "Abrir Medição do Mês"
+  const [preOsDisponivel, setPreOsDisponivel] = useState(false);
   const [medicaoDetalhe, setMedicaoDetalhe] = useState<Medicao | null>(null);
   const [discriminacoesDetalhe, setDiscriminacoesDetalhe] = useState<any[]>([]);
   const [editandoItensDetalhe, setEditandoItensDetalhe] = useState(false);
@@ -1798,7 +1800,7 @@ export default function FornecedorContratoDetalhePage() {
 
       {/* Pré-OS de publicidade (só aparece em contratos de publicidade) */}
       {fornecedor?.id && (
-        <PreOsFornecedorSection contratoId={contrato.id} fornecedorId={fornecedor.id} />
+        <PreOsFornecedorSection contratoId={contrato.id} fornecedorId={fornecedor.id} onDisponivel={setPreOsDisponivel} />
       )}
 
       {/* Info Cards */}
@@ -1913,6 +1915,16 @@ export default function FornecedorContratoDetalhePage() {
               <p className="text-sm text-gray-500">Crie e submeta medições para análise do fiscal do contrato</p>
             </div>
             <div className="flex items-center gap-2">
+              {preOsDisponivel && (
+                <Button
+                  variant="outline"
+                  className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                  onClick={() => window.dispatchEvent(new CustomEvent('abrir-pre-os'))}
+                  title="Montar e enviar uma pré-OS de publicidade para aprovação prévia do órgão"
+                >
+                  <Plus className="w-4 h-4" />Nova pré-OS
+                </Button>
+              )}
               <Button
                 variant="outline"
                 asChild
