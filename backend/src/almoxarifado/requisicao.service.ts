@@ -952,16 +952,25 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
 
         if (aprovadores.length > 0) {
           this.logger.log(`[NOTIFICAÇÃO] Criando notificações para ${aprovadores.length} aprovadores`);
-          await this.notificacoesService.notificarNovaRequisicao(
-            requisicao.orgao_id,
-            requisicao.numero,
-            requisicao.id,
-            requisicao.usuario_solicitante_nome,
-            Number(requisicao.valor_total_estimado),
-            aprovadores,
-            requisicao.tipo,
-          );
-          this.logger.log(`[NOTIFICAÇÃO] Notificações criadas com sucesso para ${aprovadores.length} aprovadores da requisição ${requisicao.numero}`);
+          // Fire-and-forget: o envio de e-mail/WhatsApp por aprovador é síncrono
+          // (um a um) e travava o "Enviar para Autorização" por vários segundos.
+          // As notificações seguem em background; a resposta volta imediatamente.
+          this.notificacoesService
+            .notificarNovaRequisicao(
+              requisicao.orgao_id,
+              requisicao.numero,
+              requisicao.id,
+              requisicao.usuario_solicitante_nome,
+              Number(requisicao.valor_total_estimado),
+              aprovadores,
+              requisicao.tipo,
+            )
+            .then(() =>
+              this.logger.log(`[NOTIFICAÇÃO] Notificações criadas com sucesso para ${aprovadores.length} aprovadores da requisição ${requisicao.numero}`),
+            )
+            .catch((err: any) =>
+              this.logger.error(`[NOTIFICAÇÃO] ❌ Erro em background ao notificar aprovadores: ${err.message}`, err.stack),
+            );
         } else {
           this.logger.warn(`[NOTIFICAÇÃO] ⚠️ Nenhum aprovador elegível encontrado para requisição ${requisicao.numero}. Verifique configuração de aprovação.`);
         }

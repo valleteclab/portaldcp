@@ -291,6 +291,8 @@ export class PreOsPublicidadeService {
       usuario_solicitante_nome: respondidaPorNome || 'Responsável',
       data_solicitacao: new Date(),
       pre_os_id: preOs.id,
+      // Valor estimado da OS (aparece na lista e na Central de Aprovações)
+      valor_total_estimado: this.totalEstimado(linhas),
     } as Partial<Requisicao>);
     const reqSalva = await this.requisicaoRepo.save(requisicao);
     for (const it of itens) {
