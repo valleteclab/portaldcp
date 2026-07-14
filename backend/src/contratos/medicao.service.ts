@@ -4030,68 +4030,6 @@ export class MedicaoService {
           (s, m) => s + Number(m.percentual_fisico_medido || 0),
           0,
         ) + percentualFisicoPeriodo;
-
-      // Completa a tabela do boletim com as etapas do cronograma FORA desta
-      // medição (PER. 0%), com o acumulado reconstruído das medições
-      // anteriores do ciclo — assim os totais fecham com a obra inteira
-      const idsEtapasSnapshot = new Set(
-        ((medicao as any).itens || [])
-          .filter((i: any) => i.tipo_item === 'etapa')
-          .map((i: any) => i.etapa_id),
-      );
-      const idsAnteriores = anterioresDoCiclo.map((m) => m.id);
-      const itensAnteriores =
-        idsAnteriores.length > 0
-          ? await this.itemMedicaoRepository.find({
-              where: { medicao_id: In(idsAnteriores) },
-            })
-          : [];
-      const acumPorEtapa = new Map<string, { pct: number; valor: number }>();
-      for (const it of itensAnteriores) {
-        const atual = acumPorEtapa.get(it.etapa_id) || { pct: 0, valor: 0 };
-        atual.pct += Number((it as any).percentual_executado_atual || 0);
-        atual.valor += Number((it as any).valor_medido || 0);
-        acumPorEtapa.set(it.etapa_id, atual);
-      }
-      for (const etapa of etapasCronograma as any[]) {
-        if (idsEtapasSnapshot.has(etapa.id)) continue;
-        const antInfo = acumPorEtapa.get(etapa.id) || { pct: 0, valor: 0 };
-        const pctAnt = Math.min(100, antInfo.pct);
-        const valorPrevisto = Number(etapa.valor_previsto || 0);
-        let valorAnterior = truncarMoedaReais2Casas(
-          antInfo.valor > 0 ? antInfo.valor : (valorPrevisto * pctAnt) / 100,
-        );
-        let valorAExecutar = truncarMoedaReais2Casas(
-          Math.max(0, valorPrevisto - valorAnterior),
-        );
-        if (pctAnt >= 99.99 && valorAExecutar > 0 && valorAExecutar <= 0.02) {
-          valorAnterior = truncarMoedaReais2Casas(valorPrevisto);
-          valorAExecutar = 0;
-        }
-        etapasParaPdf.push({
-          numero: Number(etapa.numero_etapa || 0),
-          descricao: etapa.descricao || '',
-          detalhamento: etapa.descricao_detalhada || '',
-          itens: itensEtapaParaPdf((etapa as any)?.itens, []),
-          itens_detalhados:
-            (etapa as any)?.itens?.length > 0
-              ? []
-              : extrairItensDetalhamentoEtapa(etapa.descricao_detalhada),
-          percentual_fisico: Number(etapa.percentual_fisico || 0),
-          percentual_executado_anterior: pctAnt,
-          percentual_executado_atual: 0,
-          percentual_executado_acumulado: pctAnt,
-          percentual_a_executar: Math.max(0, 100 - pctAnt),
-          valor_previsto: valorPrevisto,
-          valor_acumulado_anterior: valorAnterior,
-          valor_medido: 0,
-          valor_ate_periodo: valorAnterior,
-          valor_a_executar: valorAExecutar,
-        });
-      }
-      etapasParaPdf.sort(
-        (a: any, b: any) => (Number(a.numero) || 0) - (Number(b.numero) || 0),
-      );
     }
 
     return {
