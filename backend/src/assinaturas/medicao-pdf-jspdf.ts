@@ -1031,7 +1031,20 @@ export async function gerarBoletimMedicaoPdf(
       },
       margin: { left: mX, right: mX },
     });
-    y = (doc as any).lastAutoTable.finalY + 5;
+    y = (doc as any).lastAutoTable.finalY + 3;
+
+    // Nota explicativa: a tabela cobre apenas as etapas medidas neste período
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6);
+    doc.setTextColor(90, 90, 90);
+    const notaEtapas =
+      dados.percentual_fisico_periodo != null &&
+      dados.percentual_fisico_acumulado != null
+        ? `* Os totais acima referem-se apenas às etapas medidas neste período. Avanço físico global da obra: ${fmtPct(Number(dados.percentual_fisico_periodo))} nesta medição e ${fmtPct(Number(dados.percentual_fisico_acumulado))} acumulado (todas as medições).`
+        : '* Os totais acima referem-se apenas às etapas medidas neste período.';
+    doc.text(notaEtapas, mX, y + 2, { maxWidth: W - 2 * mX });
+    doc.setTextColor(0, 0, 0);
+    y += 7;
   }
 
   // =========================================================
