@@ -999,7 +999,7 @@ export async function gerarBoletimMedicaoPdf(
           { content: fmtAr(e.valor_a_executar || 0), styles: { halign: 'right' as const, fontSize: 5.8 } },
         ]),
         [
-          { content: 'TOTAL (ETAPAS DESTA MEDIÇÃO)', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
+          { content: 'TOTAL GLOBAL', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
           { content: fmtPct(totalGlobalAnt), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
           { content: fmtPct(totalGlobalPer), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [255, 235, 200] as [number, number, number] } },
           { content: fmtPct(totalGlobalAcum), styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 6.2, fillColor: [230, 230, 230] as [number, number, number] } },
