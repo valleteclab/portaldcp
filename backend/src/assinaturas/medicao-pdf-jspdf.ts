@@ -565,7 +565,7 @@ export async function gerarBoletimMedicaoPdf(
     const fornecedorCnpj = String(dados.fornecedor_cnpj || '').replace(/\D/g, '');
     const observacaoDmnewsFevereiro =
       contratoNumero === '002/2026' && fornecedorCnpj === '13772522000153'
-        ? 'Não houve sustentação de software no mês de fevereiro.'
+        ? 'Não houve sustentação de software no mês de fevereiro de 2026.'
         : '';
 
     if (observacaoDmnewsFevereiro) {
