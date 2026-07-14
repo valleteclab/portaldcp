@@ -528,6 +528,10 @@ export async function gerarBoletimMedicaoPdf(
     doc.setTextColor(0, 0, 0);
 
     const totalDisc = dados.discriminacoes.reduce((s: number, d: any) => s + d.valor, 0);
+    const totalDiscPerc = dados.discriminacoes.reduce(
+      (s: number, d: any) => s + Number(d.percentual || 0),
+      0,
+    );
 
     autoTable(doc, {
       startY: y,
@@ -547,7 +551,7 @@ export async function gerarBoletimMedicaoPdf(
         [
           { content: 'TOTAL', colSpan: 2, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
           { content: fmtAr(totalDisc), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
-          { content: '100,00%', styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: `${totalDiscPerc.toFixed(2)}%`, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
       ],
       theme: 'grid',

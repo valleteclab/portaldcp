@@ -6313,7 +6313,11 @@ export class MedicaoService {
         numero_item: i + 1,
         descricao: item.descricao.trim(),
         valor: valoresFinais[i],
-        percentual: Number(item.percentual) || 0,
+        percentual: this.percentualDiscriminacao(
+          item.percentual,
+          valoresFinais[i],
+          valorBaseDiscriminacao,
+        ),
       });
       novas.push(await this.discriminacaoRepository.save(disc));
     }
@@ -6509,7 +6513,11 @@ export class MedicaoService {
         numero_item: i + 1,
         descricao: item.descricao.trim(),
         valor: valoresFinais[i],
-        percentual: Number(item.percentual) || 0,
+        percentual: this.percentualDiscriminacao(
+          item.percentual,
+          valoresFinais[i],
+          valorBaseDiscriminacao,
+        ),
         corrigido_por_id: fiscalId,
         corrigido_por_nome: fiscalNome,
         corrigido_em: new Date(),
@@ -6545,15 +6553,21 @@ export class MedicaoService {
     );
     const somaValores = itens.reduce((s, i) => s + (Number(i.valor) || 0), 0);
     const percentuaisSomam100 = Math.abs(somaPercentuais - 100) < 0.05;
-    const valoresSomamValorBruto =
-      valorBruto > 0 &&
-      somaValores > 0 &&
-      Math.abs(somaValores - valorBruto) < 0.02;
-    const usarValoresInformados =
-      valoresSomamValorBruto || !percentuaisSomam100;
 
-    if (usarValoresInformados) {
-      return itens.map((i) => Math.round((Number(i.valor) || 0) * 100) / 100);
+    // Valores informados prevalecem SEMPRE: a discriminação deve espelhar a
+    // nota fiscal exatamente como digitada, mesmo que a soma não bata com a
+    // base ou com os percentuais. Percentual só deriva valor em linha que
+    // veio sem valor.
+    if (somaValores > 0) {
+      return itens.map((i) => {
+        const v = Number(i.valor) || 0;
+        if (v > 0) return Math.round(v * 100) / 100;
+        const perc = Number(i.percentual) || 0;
+        if (perc > 0 && valorBruto > 0) {
+          return Math.round((perc / 100) * valorBruto * 100) / 100;
+        }
+        return 0;
+      });
     }
 
     const valorAlvo =
@@ -6582,6 +6596,24 @@ export class MedicaoService {
     }
 
     return valoresCentavos.map((v) => v / 100);
+  }
+
+  /**
+   * Percentual da discriminação: mantém o digitado; quando ausente, deriva do
+   * valor final sobre a base (apenas informativo — o valor nunca é recalculado
+   * a partir dele).
+   */
+  private percentualDiscriminacao(
+    percentualInformado: number,
+    valorFinal: number,
+    valorBase: number,
+  ): number {
+    const perc = Number(percentualInformado) || 0;
+    if (perc > 0) return perc;
+    if (valorFinal > 0 && valorBase > 0) {
+      return Math.round((valorFinal / valorBase) * 10000) / 100;
+    }
+    return 0;
   }
 
   private escolherValorBaseDiscriminacao(
