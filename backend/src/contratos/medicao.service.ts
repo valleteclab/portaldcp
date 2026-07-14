@@ -4005,6 +4005,33 @@ export class MedicaoService {
         };
       });
 
+    // Avanço físico global (contratos por etapas): % desta medição + acumulado
+    // real do ciclo (o snapshot da medição só traz as etapas medidas nela, então
+    // o acumulado ponderado da tabela não cobre a obra inteira)
+    let percentualFisicoPeriodo: number | undefined;
+    let percentualFisicoAcumulado: number | undefined;
+    if (etapasParaPdf.length > 0) {
+      percentualFisicoPeriodo = Number(medicao.percentual_fisico_medido || 0);
+      const aprovadasContrato = await this.medicaoRepository.find({
+        where: { contrato_id: contrato.id, status: StatusMedicao.APROVADA },
+      });
+      const dataCorteCicloPdf = this.obterDataCorteCicloAtual(
+        contrato,
+        medicao.periodo_inicio,
+      );
+      const anterioresDoCiclo = this.filtrarMedicoesPorCiclo(
+        aprovadasContrato,
+        dataCorteCicloPdf,
+      ).filter(
+        (m) => Number(m.numero_medicao) < Number(medicao.numero_medicao),
+      );
+      percentualFisicoAcumulado =
+        anterioresDoCiclo.reduce(
+          (s, m) => s + Number(m.percentual_fisico_medido || 0),
+          0,
+        ) + percentualFisicoPeriodo;
+    }
+
     return {
       orgao: contrato.orgao || null,
       orgao_nome: contrato.orgao?.nome || '',
@@ -4050,6 +4077,8 @@ export class MedicaoService {
         itensParaPdf.some((i: any) => i.unidade && i.unidade !== 'MENSAL'),
       itens: itensParaPdf.length > 0 ? itensParaPdf : undefined,
       etapas: etapasParaPdf.length > 0 ? etapasParaPdf : undefined,
+      percentual_fisico_periodo: percentualFisicoPeriodo,
+      percentual_fisico_acumulado: percentualFisicoAcumulado,
       etapas_contratadas:
         etapasContratadas.length > 0 ? etapasContratadas : undefined,
       itens_contratados:
