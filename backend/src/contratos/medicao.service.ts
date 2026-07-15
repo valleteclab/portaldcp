@@ -661,7 +661,6 @@ export class MedicaoService {
          FROM requisicao_itens_os rio
          JOIN requisicoes r ON r.id = rio.requisicao_id
          WHERE r.contrato_id = $1 AND r.tipo = 'ORDEM_SERVICO'
-           AND r.status IN ('AGUARDANDO_AUTORIZACAO','AUTORIZADA')
          ORDER BY r.data_solicitacao ASC`,
         [contratoId],
       );
@@ -1318,6 +1317,8 @@ export class MedicaoService {
       observacoes?: string;
       usuario_cadastro_id?: string;
       usuario_cadastro_nome?: string;
+      /** OS específica escolhida para esta medição (medição por OS — publicidade) */
+      requisicao_id?: string;
       itens?: Array<
         | {
             etapa_id: string;
@@ -1400,7 +1401,33 @@ export class MedicaoService {
 
     // Verificar OS autorizada (para todos os tipos de contrato, a menos que skipOSCheck)
     if (!opcoes?.skipOSCheck) {
-      osVinculada = await this.getOSAtiva(contratoId);
+      // Medição por OS: fornecedor escolhe a OS autorizada que está medindo
+      if (dados.requisicao_id && fluxoOs === 'REQUISICAO') {
+        const reqEscolhida = await this.requisicaoRepository.findOne({
+          where: {
+            id: dados.requisicao_id,
+            contrato_id: contratoId,
+            tipo: TipoRequisicao.ORDEM_SERVICO,
+          },
+        });
+        if (!reqEscolhida) {
+          throw new BadRequestException(
+            'Ordem de Serviço informada não encontrada neste contrato',
+          );
+        }
+        const st = String(reqEscolhida.status);
+        if (
+          st !== String(StatusRequisicao.AUTORIZADA) &&
+          st !== String(StatusRequisicao.ORDEM_GERADA)
+        ) {
+          throw new BadRequestException(
+            `A OS ${reqEscolhida.numero} ainda não está autorizada — apenas OS autorizadas podem ser medidas`,
+          );
+        }
+        osVinculada = this.normalizarOSRequisicao(reqEscolhida);
+      } else {
+        osVinculada = await this.getOSAtiva(contratoId);
+      }
       if (!osVinculada) {
         throw new BadRequestException(
           'Aguarde o órgão enviar uma Ordem de Serviço autorizada para emitir a medição.',
