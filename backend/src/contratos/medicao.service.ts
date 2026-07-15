@@ -1259,6 +1259,25 @@ export class MedicaoService {
    * Cria uma medição. Pode ser chamado pelo fornecedor (via portal) ou pelo fiscal (órgão).
    * A medição é criada com status RASCUNHO.
    */
+  /**
+   * % físico da medição dentro do limite do campo NUMERIC(5,2).
+   * Em contratos de publicidade (itens nascem por OS, tabela de referência)
+   * a soma por item explode — o % correto é sobre o teto (valor_global).
+   */
+  private normalizarPercentualFisico(
+    contrato: Contrato,
+    percentualCalculado: number,
+    valorMedido: number,
+  ): number {
+    let percentual = percentualCalculado;
+    if ((contrato as any).tabela_referencia_id) {
+      const teto = Number(contrato.valor_global) || 0;
+      percentual = teto > 0 ? (valorMedido / teto) * 100 : 0;
+    }
+    if (!Number.isFinite(percentual) || percentual < 0) return 0;
+    return Math.min(999.99, Math.round(percentual * 100) / 100);
+  }
+
   async criarMedicao(
     contratoId: string,
     dados: {
@@ -1697,6 +1716,11 @@ export class MedicaoService {
       }
     }
 
+    percentualFisicoMedido = this.normalizarPercentualFisico(
+      contrato,
+      percentualFisicoMedido,
+      valorMedido,
+    );
     const medicao = this.medicaoRepository.create({
       contrato_id: contratoId,
       ordem_servico_id:
@@ -1710,8 +1734,10 @@ export class MedicaoService {
       valor_acumulado_anterior: valorAcumuladoAnterior,
       valor_acumulado_atual: valorAcumuladoAnterior + valorMedido,
       percentual_fisico_medido: percentualFisicoMedido,
-      percentual_fisico_acumulado:
+      percentual_fisico_acumulado: Math.min(
+        999.99,
         percentualAcumuladoAnterior + percentualFisicoMedido,
+      ),
       fornecedor_id: dados.fornecedor_id,
       fornecedor_nome: dados.fornecedor_nome,
       fornecedor_observacoes: dados.fornecedor_observacoes,
@@ -2174,9 +2200,16 @@ export class MedicaoService {
     medicao.valor_acumulado_anterior = valorAcumuladoAnterior as any;
     medicao.valor_acumulado_atual =
       (valorAcumuladoAnterior + valorMedido) as any;
+    percentualFisicoMedido = this.normalizarPercentualFisico(
+      contrato,
+      percentualFisicoMedido,
+      valorMedido,
+    );
     medicao.percentual_fisico_medido = percentualFisicoMedido as any;
-    medicao.percentual_fisico_acumulado =
-      (percentualAcumuladoAnterior + percentualFisicoMedido) as any;
+    medicao.percentual_fisico_acumulado = Math.min(
+      999.99,
+      percentualAcumuladoAnterior + percentualFisicoMedido,
+    ) as any;
     medicao.fornecedor_id = dados.fornecedor_id || medicao.fornecedor_id;
     medicao.fornecedor_nome = dados.fornecedor_nome || medicao.fornecedor_nome;
     medicao.fornecedor_observacoes =
