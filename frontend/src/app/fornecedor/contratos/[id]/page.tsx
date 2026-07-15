@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import PreOsFornecedorSection from '@/components/fornecedor/PreOsFornecedorSection';
@@ -137,6 +137,9 @@ interface ItemCronograma {
   valor_total: number;
   quantidade_medida: number;
   valor_migracao_reais?: number | null;
+  os_id?: string;
+  os_numero?: string;
+  os_status?: string;
 }
 
 interface Medicao {
@@ -2605,8 +2608,19 @@ export default function FornecedorContratoDetalhePage() {
                     const tipoEsteItem = isMensal ? 'mensal' : 'quantidade';
                     const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual;
                     const unidadeTela = textoUnidadeCronogramaNaTela(ic.unidade_medida);
+                    // Agrupamento por OS (publicidade: itens nascem por Ordem de Serviço)
+                    const osAnterior = idx > 0 ? itensCronograma[idx - 1].os_numero : undefined;
+                    const mostrarCabecalhoOs = !!ic.os_numero && ic.os_numero !== osAnterior;
                     return (
-                      <TableRow key={ic.id} className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
+                      <Fragment key={ic.id}>
+                      {mostrarCabecalhoOs && (
+                        <TableRow className="bg-indigo-50/80 hover:bg-indigo-50/80">
+                          <TableCell colSpan={9} className="py-1.5 text-xs font-bold text-indigo-800">
+                            {ic.os_numero} — itens desta Ordem de Serviço (medição total ou parcial)
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      <TableRow className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
                         <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
                         <TableCell className="whitespace-normal break-words align-top min-w-[320px] max-w-[520px]">
                           <p className="text-sm font-medium whitespace-normal break-words">{ic.descricao}</p>
@@ -2688,6 +2702,7 @@ export default function FornecedorContratoDetalhePage() {
                           {excedeSaldo && <p className="text-xs text-red-500">Excede saldo</p>}
                         </TableCell>
                       </TableRow>
+                      </Fragment>
                     );
                   })}
                 </TableBody>

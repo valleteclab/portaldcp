@@ -1067,7 +1067,21 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFontSize(13);
   doc.setTextColor(22, 60, 100);
   doc.text(fmtAr(dados.valor_medido), mX + 4, y + 12);
-  if (dados.etapas && dados.etapas.length > 0) {
+  if (dados.saldo_teto != null && dados.teto_contratual != null) {
+    // Publicidade: o número que rege o contrato é o saldo do teto
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(0, 0, 0);
+    doc.text('SALDO DO TETO CONTRATUAL:', W - mX - 4, y + 5.5, { align: 'right' });
+    doc.setFontSize(10);
+    doc.setTextColor(22, 60, 100);
+    doc.text(
+      `${fmtAr(dados.saldo_teto)}  (teto ${fmtAr(dados.teto_contratual)})`,
+      W - mX - 4,
+      y + 12,
+      { align: 'right' },
+    );
+  } else if (dados.etapas && dados.etapas.length > 0) {
     const pesoVezes = (campo: string) =>
       dados.etapas.reduce(
         (s: number, e: any) =>
