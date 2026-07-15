@@ -643,17 +643,57 @@ export class MedicaoService {
       order: { numero_item: 'ASC' },
     });
 
+    // OS de origem de cada item (contratos de publicidade/OS: itens nascem por
+    // OS autorizada — permite à tela de medição agrupar as linhas por OS)
+    const osPorItem = new Map<
+      string,
+      { os_id: string; os_numero: string; os_status: string }
+    >();
+    try {
+      const rows: Array<{
+        item_id: string;
+        os_id: string;
+        os_numero: string;
+        os_status: string;
+      }> = await this.itemCronogramaRepository.manager.query(
+        `SELECT rio.item_cronograma_id AS item_id, r.id AS os_id,
+                r.numero AS os_numero, r.status AS os_status
+         FROM requisicao_itens_os rio
+         JOIN requisicoes r ON r.id = rio.requisicao_id
+         WHERE r.contrato_id = $1 AND r.tipo = 'ORDEM_SERVICO'
+         ORDER BY r.data_solicitacao ASC`,
+        [contratoId],
+      );
+      for (const row of rows) {
+        if (!osPorItem.has(row.item_id)) {
+          osPorItem.set(row.item_id, {
+            os_id: row.os_id,
+            os_numero: row.os_numero,
+            os_status: row.os_status,
+          });
+        }
+      }
+    } catch (e) {
+      this.logger.warn(`OS por item indisponível: ${e.message}`);
+    }
+    const anexarOs = (item: ItemCronograma): ItemCronograma => {
+      const os = osPorItem.get(item.id);
+      return (os ? { ...item, ...os } : item) as ItemCronograma;
+    };
+
     const dataRenovacao = this.obterDataRenovacaoCiclo(contrato);
-    if (!dataRenovacao) return itens;
+    if (!dataRenovacao) return itens.map(anexarOs);
 
     const quantidadesCiclo =
       await this.calcularQuantidadeAprovadaPorItem(contratoId, dataRenovacao);
 
-    return itens.map((item) => ({
-      ...item,
-      quantidade_medida: quantidadesCiclo.get(item.id) || 0,
-      valor_migracao_reais: 0,
-    }));
+    return itens.map((item) =>
+      anexarOs({
+        ...item,
+        quantidade_medida: quantidadesCiclo.get(item.id) || 0,
+        valor_migracao_reais: 0,
+      } as ItemCronograma),
+    );
   }
 
   async criarItemCronograma(
@@ -1277,6 +1317,8 @@ export class MedicaoService {
       observacoes?: string;
       usuario_cadastro_id?: string;
       usuario_cadastro_nome?: string;
+      /** OS específica escolhida para esta medição (medição por OS — publicidade) */
+      requisicao_id?: string;
       itens?: Array<
         | {
             etapa_id: string;
@@ -1359,7 +1401,33 @@ export class MedicaoService {
 
     // Verificar OS autorizada (para todos os tipos de contrato, a menos que skipOSCheck)
     if (!opcoes?.skipOSCheck) {
-      osVinculada = await this.getOSAtiva(contratoId);
+      // Medição por OS: fornecedor escolhe a OS autorizada que está medindo
+      if (dados.requisicao_id && fluxoOs === 'REQUISICAO') {
+        const reqEscolhida = await this.requisicaoRepository.findOne({
+          where: {
+            id: dados.requisicao_id,
+            contrato_id: contratoId,
+            tipo: TipoRequisicao.ORDEM_SERVICO,
+          },
+        });
+        if (!reqEscolhida) {
+          throw new BadRequestException(
+            'Ordem de Serviço informada não encontrada neste contrato',
+          );
+        }
+        const st = String(reqEscolhida.status);
+        if (
+          st !== String(StatusRequisicao.AUTORIZADA) &&
+          st !== String(StatusRequisicao.ORDEM_GERADA)
+        ) {
+          throw new BadRequestException(
+            `A OS ${reqEscolhida.numero} ainda não está autorizada — apenas OS autorizadas podem ser medidas`,
+          );
+        }
+        osVinculada = this.normalizarOSRequisicao(reqEscolhida);
+      } else {
+        osVinculada = await this.getOSAtiva(contratoId);
+      }
       if (!osVinculada) {
         throw new BadRequestException(
           'Aguarde o órgão enviar uma Ordem de Serviço autorizada para emitir a medição.',
@@ -3747,9 +3815,17 @@ export class MedicaoService {
           efItem?.quantidade_a_executar != null
             ? Number(efItem.quantidade_a_executar)
             : Math.max(0, qtdTotal - qtdAtePeriodo);
+        // Memorial de cálculo da publicidade sob a descrição (mesmo padrão do PDF da OS)
+        const memorialPublicidade =
+          typeof item.item_observacoes === 'string' &&
+          /^(SINAPRO|Terceiros|Mídia)/.test(item.item_observacoes.trim())
+            ? item.item_observacoes.trim()
+            : '';
         const base: any = {
           numero: Number(item.etapa_numero || item.item_numero || 0),
-          descricao: item.item_descricao || item.etapa_descricao || '',
+          descricao:
+            (item.item_descricao || item.etapa_descricao || '') +
+            (memorialPublicidade ? `\n${memorialPublicidade}` : ''),
           unidade: this.unidadeExecucaoFiscalPdf(
             icPdf,
             item.item_unidade || '',
@@ -3835,6 +3911,18 @@ export class MedicaoService {
     const totalNoPeriodoPdf = centavosParaReaisTrunc2(totalNoCent);
     const totalAtePeriodoPdf = centavosParaReaisTrunc2(totalAteCent);
     const totalAExecutarPdf = centavosParaReaisTrunc2(totalAExecCent);
+    // Publicidade (tabela de referência): itens nascem por OS e a soma dos itens
+    // não representa o contrato — o que rege é o TETO (valor_global)
+    const tetoPublicidade =
+      (contrato as any).tabela_referencia_id && itensParaPdf.length > 0
+        ? Number(contrato.valor_global || 0)
+        : 0;
+    const saldoTetoPublicidade =
+      tetoPublicidade > 0
+        ? truncarMoedaReais2Casas(
+            Math.max(0, tetoPublicidade - totalAtePeriodoPdf),
+          )
+        : undefined;
     const totalPrevistoCent = itensParaPdf.reduce((s: number, i: any) => {
       const vu = Number(i.valor_unitario) || 0;
       const ct =
@@ -4079,6 +4167,8 @@ export class MedicaoService {
       etapas: etapasParaPdf.length > 0 ? etapasParaPdf : undefined,
       percentual_fisico_periodo: percentualFisicoPeriodo,
       percentual_fisico_acumulado: percentualFisicoAcumulado,
+      teto_contratual: tetoPublicidade > 0 ? tetoPublicidade : undefined,
+      saldo_teto: saldoTetoPublicidade,
       etapas_contratadas:
         etapasContratadas.length > 0 ? etapasContratadas : undefined,
       itens_contratados:
@@ -5956,6 +6046,8 @@ export class MedicaoService {
     const itensItemEnriquecidos = itensItem.map((item) => ({
       ...item,
       tipo_item: 'item_cronograma',
+      // memorial de cálculo (publicidade: "SINAPRO 3p — tabela R$ X − 34% = R$ Y")
+      item_observacoes: item.itemCronograma?.observacoes || '',
       // campos compatíveis com o padrão do frontend (etapa_*)
       etapa_descricao: item.itemCronograma?.descricao || '',
       etapa_numero: item.itemCronograma?.numero_item || 0,

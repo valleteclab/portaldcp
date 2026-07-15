@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import PreOsFornecedorSection from '@/components/fornecedor/PreOsFornecedorSection';
@@ -137,6 +137,9 @@ interface ItemCronograma {
   valor_total: number;
   quantidade_medida: number;
   valor_migracao_reais?: number | null;
+  os_id?: string;
+  os_numero?: string;
+  os_status?: string;
 }
 
 interface Medicao {
@@ -544,6 +547,8 @@ export default function FornecedorContratoDetalhePage() {
   });
   // Discriminação de Despesas
   const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([]);
+  // Medição por OS (publicidade): fornecedor escolhe a OS autorizada que está medindo
+  const [osMedicao, setOsMedicao] = useState<string>('');
 
   // Arquivos pendentes para upload após criação da medição
   const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([]);
@@ -1174,6 +1179,7 @@ export default function FornecedorContratoDetalhePage() {
         nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
         fornecedor_id: fornecedor.id,
         fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
+        requisicao_id: osMedicao || undefined,
       };
 
       if (isServicoContinuado) {
@@ -1287,6 +1293,11 @@ export default function FornecedorContratoDetalhePage() {
         setSubmitting(false);
         return;
       }
+      if (itensCronograma.some(i => i.os_id) && !osMedicao) {
+        alert('Selecione a Ordem de Serviço autorizada que está sendo medida.');
+        setSubmitting(false);
+        return;
+      }
       if (discriminacoes.length === 0) {
         alert('A discriminação de despesas é obrigatória antes de enviar para ateste.');
         setSubmitting(false);
@@ -1337,6 +1348,7 @@ export default function FornecedorContratoDetalhePage() {
         nota_fiscal_data: novaMedicao.nota_fiscal_data || undefined,
         fornecedor_id: fornecedor.id,
         fornecedor_nome: fornecedor.razao_social || fornecedor.nome,
+        requisicao_id: osMedicao || undefined,
       };
 
       if (isServicoContinuado) {
@@ -1571,6 +1583,7 @@ export default function FornecedorContratoDetalhePage() {
   };
 
   const abrirModalNovaMedicao = async () => {
+    setOsMedicao('');
     setNovaMedicao({
       periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
@@ -2480,6 +2493,38 @@ export default function FornecedorContratoDetalhePage() {
               </div>
             )}
 
+            {/* Medição por OS (publicidade): fornecedor escolhe a OS autorizada */}
+            {!isServicoContinuado && usarItensCronograma && itensCronograma.some(ic => ic.os_id) && (() => {
+              const osAutorizadas = Array.from(
+                new Map(
+                  itensCronograma
+                    .filter(ic => ic.os_id && (ic.os_status === 'AUTORIZADA' || ic.os_status === 'ORDEM_GERADA'))
+                    .map(ic => [ic.os_id as string, ic.os_numero as string]),
+                ).entries(),
+              );
+              return (
+                <div className="border border-indigo-200 bg-indigo-50/60 rounded-lg p-3 space-y-2">
+                  <Label className="text-sm font-bold text-indigo-900">Medição por Ordem de Serviço</Label>
+                  <p className="text-xs text-indigo-800">
+                    Neste contrato a medição é feita por OS: escolha a OS <strong>autorizada</strong> que está medindo — apenas os itens dela ficam disponíveis (execução total ou parcial).
+                  </p>
+                  <select
+                    className="w-full h-9 rounded-md border border-indigo-300 bg-white px-2 text-sm"
+                    value={osMedicao}
+                    onChange={(e) => setOsMedicao(e.target.value)}
+                  >
+                    <option value="">Selecione a OS autorizada...</option>
+                    {osAutorizadas.map(([id, numero]) => (
+                      <option key={id} value={id}>{numero}</option>
+                    ))}
+                  </select>
+                  {osAutorizadas.length === 0 && (
+                    <p className="text-xs font-medium text-red-600">Nenhuma OS autorizada disponível para medição.</p>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Planilha por Itens (quantidade medida) */}
             {!isServicoContinuado && usarItensCronograma && (
             <div className="border rounded-lg overflow-hidden">
@@ -2584,6 +2629,8 @@ export default function FornecedorContratoDetalhePage() {
                 </TableHeader>
                 <TableBody>
                   {itensCronograma.map((ic, idx) => {
+                    // Medição por OS: exibe apenas itens da OS selecionada (índices preservados)
+                    if (itensCronograma.some(i => i.os_id) && ic.os_id !== osMedicao) return null;
                     const itemState = novaMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number } | undefined;
                     const qtdMedida = itemState?.quantidade_medida || 0;
                     const valorOverride = itemState?.valor_override;
@@ -2605,8 +2652,19 @@ export default function FornecedorContratoDetalhePage() {
                     const tipoEsteItem = isMensal ? 'mensal' : 'quantidade';
                     const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual;
                     const unidadeTela = textoUnidadeCronogramaNaTela(ic.unidade_medida);
+                    // Agrupamento por OS (publicidade: itens nascem por Ordem de Serviço)
+                    const osAnterior = idx > 0 ? itensCronograma[idx - 1].os_numero : undefined;
+                    const mostrarCabecalhoOs = !!ic.os_numero && ic.os_numero !== osAnterior;
                     return (
-                      <TableRow key={ic.id} className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
+                      <Fragment key={ic.id}>
+                      {mostrarCabecalhoOs && (
+                        <TableRow className="bg-indigo-50/80 hover:bg-indigo-50/80">
+                          <TableCell colSpan={9} className="py-1.5 text-xs font-bold text-indigo-800">
+                            {ic.os_numero} — itens desta Ordem de Serviço (medição total ou parcial)
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      <TableRow className={`hover:bg-gray-50 ${bloqueado ? 'opacity-40' : ''}`}>
                         <TableCell className="text-center font-mono text-sm font-medium">{ic.numero_item}</TableCell>
                         <TableCell className="whitespace-normal break-words align-top min-w-[320px] max-w-[520px]">
                           <p className="text-sm font-medium whitespace-normal break-words">{ic.descricao}</p>
@@ -2688,6 +2746,7 @@ export default function FornecedorContratoDetalhePage() {
                           {excedeSaldo && <p className="text-xs text-red-500">Excede saldo</p>}
                         </TableCell>
                       </TableRow>
+                      </Fragment>
                     );
                   })}
                 </TableBody>
