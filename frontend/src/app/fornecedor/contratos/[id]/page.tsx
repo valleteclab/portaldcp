@@ -1193,6 +1193,13 @@ export default function FornecedorContratoDetalhePage() {
       } else if (usarItensCronograma) {
         const itensComQtd = novaMedicao.itens
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number; valor_override?: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
+          .filter(i => {
+            // Medição por OS: envia apenas itens da OS selecionada (quantidades
+            // de outras OS podem ter ficado no estado — ex.: botão Proporcional)
+            if (!itensCronograma.some(c => c.os_id)) return true;
+            const ic = itensCronograma.find(c => c.id === i.item_cronograma_id);
+            return ic?.os_id === osMedicao;
+          })
           .map(i => ({
             item_cronograma_id: i.item_cronograma_id,
             quantidade_medida: Number(i.quantidade_medida),
@@ -1362,6 +1369,13 @@ export default function FornecedorContratoDetalhePage() {
       } else if (usarItensCronograma) {
         const itensComQtd = novaMedicao.itens
           .filter((i): i is { item_cronograma_id: string; quantidade_medida: number; valor_override?: number } => 'item_cronograma_id' in i && Number((i as any).quantidade_medida) > 0)
+          .filter(i => {
+            // Medição por OS: envia apenas itens da OS selecionada (quantidades
+            // de outras OS podem ter ficado no estado — ex.: botão Proporcional)
+            if (!itensCronograma.some(c => c.os_id)) return true;
+            const ic = itensCronograma.find(c => c.id === i.item_cronograma_id);
+            return ic?.os_id === osMedicao;
+          })
           .map(i => ({
             item_cronograma_id: i.item_cronograma_id,
             quantidade_medida: Number(i.quantidade_medida),
