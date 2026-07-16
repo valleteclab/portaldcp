@@ -71,6 +71,7 @@ export interface DiscriminacaoPdf {
 export interface DadosMedicaoPdf {
   // Contrato
   numero_contrato: string
+  tipo_instrumento?: string
   objeto_contrato: string
   orgao_nome: string
   fornecedor_nome: string
@@ -526,7 +527,15 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   // =========================================================
   // INFORMAÇÕES DO CONTRATO
   // =========================================================
-  const infoX2 = mX + 22
+  const rotuloInstrumento =
+    dados.tipo_instrumento?.toUpperCase() === 'ATA_REGISTRO_PRECO'
+      ? 'ATA REGISTRO DE PREÇO'
+      : 'CONTRATO'
+  const rotuloInstrumentoTitulo =
+    dados.tipo_instrumento?.toUpperCase() === 'ATA_REGISTRO_PRECO'
+      ? 'Ata Registro de Preço'
+      : 'Contrato'
+  const infoX2 = mX + (rotuloInstrumento === 'CONTRATO' ? 22 : 45)
   const textoPretoPdf: [number, number, number] = [0, 0, 0]
   const textoCorpoTabelaPdf = {
     textColor: textoPretoPdf,
@@ -544,7 +553,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   }
 
   linhaInfo('ÓRGÃO', dados.orgao_nome)
-  linhaInfo('CONTRATO', dados.numero_contrato)
+  linhaInfo(rotuloInstrumento, dados.numero_contrato)
 
   // Objeto pode ser longo — quebrar em até 3 linhas
   doc.setFont('helvetica', 'bold')
@@ -1002,7 +1011,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   )
   doc.setFontSize(8).setFont('helvetica', 'normal').setTextColor(55, 65, 81)
   if (dados.orgao_nome) doc.text(dados.orgao_nome, W / 2, yPA + 6, { align: 'center' })
-  doc.text(`Contrato: ${dados.numero_contrato}`, W / 2, yPA + 11, { align: 'center' })
+  doc.text(`${rotuloInstrumentoTitulo}: ${dados.numero_contrato}`, W / 2, yPA + 11, { align: 'center' })
   yPA += 20
   desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao, dados.qr_code_data_url)
 
@@ -1016,7 +1025,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
     doc.setTextColor(160, 160, 160)
     doc.setFont('helvetica', 'normal')
     doc.text(
-      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  Contrato: ${dados.numero_contrato}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
+      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  ${rotuloInstrumentoTitulo}: ${dados.numero_contrato}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
       W / 2, H - 5, { align: 'center' },
     )
   }

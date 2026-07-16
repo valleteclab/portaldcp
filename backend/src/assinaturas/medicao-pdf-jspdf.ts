@@ -436,13 +436,25 @@ export async function gerarBoletimMedicaoPdf(
   // =========================================================
   // INFORMAÇÕES DO CONTRATO
   // =========================================================
-  const infoX2 = mX + 22;
+  const contratoNumero = textoSeguro(dados.numero_contrato ?? dados.contrato_numero).trim();
+  const tipoInstrumento = textoSeguro(
+    dados.tipo_instrumento ?? dados.contrato_tipo,
+    'CONTRATO',
+  ).toUpperCase();
+  const rotuloInstrumento =
+    tipoInstrumento === 'ATA_REGISTRO_PRECO'
+      ? 'ATA REGISTRO DE PREÇO'
+      : 'CONTRATO';
+  const rotuloInstrumentoTitulo =
+    tipoInstrumento === 'ATA_REGISTRO_PRECO'
+      ? 'Ata Registro de Preço'
+      : 'Contrato';
+  const infoX2 = mX + (rotuloInstrumento === 'CONTRATO' ? 22 : 45);
   const textoPretoPdf: [number, number, number] = [0, 0, 0];
   const textoCorpoTabelaPdf = {
     textColor: textoPretoPdf,
     fontStyle: 'bold' as const,
   };
-  const contratoNumero = textoSeguro(dados.numero_contrato ?? dados.contrato_numero).trim();
   const usarRotuloLote =
     textoSeguro((dados as any).contrato_id) === '167a043f-3788-40ba-9c7e-9ef4faaa6a2c';
   const rotuloItemContrato = usarRotuloLote ? 'LOTE' : 'Nº';
@@ -459,7 +471,10 @@ export async function gerarBoletimMedicaoPdf(
   };
 
   linhaInfo('ÓRGÃO', textoSeguro(dados.orgao_nome));
-  linhaInfo('CONTRATO', textoSeguro(dados.numero_contrato ?? dados.contrato_numero));
+  linhaInfo(
+    rotuloInstrumento,
+    textoSeguro(dados.numero_contrato ?? dados.contrato_numero),
+  );
 
   // Objeto pode ser longo — quebrar em até 3 linhas
   doc.setFont('helvetica', 'bold');
@@ -665,7 +680,7 @@ export async function gerarBoletimMedicaoPdf(
         ],
         ...(dados.teto_contratual != null
           ? [[
-              { content: 'VALOR GLOBAL DO CONTRATO (TETO)', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [255, 235, 200] as [number, number, number] } },
+              { content: tipoInstrumento === 'ATA_REGISTRO_PRECO' ? 'VALOR GLOBAL DA ATA (TETO)' : 'VALOR GLOBAL DO CONTRATO (TETO)', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [255, 235, 200] as [number, number, number] } },
               { content: fmtAr(dados.teto_contratual), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [255, 235, 200] as [number, number, number] } },
             ]]
           : []),
@@ -1189,7 +1204,7 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(55, 65, 81);
   if (dados.orgao_nome) doc.text(dados.orgao_nome, W / 2, yPA + 6, { align: 'center' });
-  doc.text(`Contrato: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}`, W / 2, yPA + 11, { align: 'center' });
+  doc.text(`${rotuloInstrumentoTitulo}: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}`, W / 2, yPA + 11, { align: 'center' });
   yPA += 20;
   desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao, qrDataUrl);
 
@@ -1203,7 +1218,7 @@ export async function gerarBoletimMedicaoPdf(
     doc.setTextColor(160, 160, 160);
     doc.setFont('helvetica', 'normal');
     doc.text(
-      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  Contrato: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
+      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  ${rotuloInstrumentoTitulo}: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
       W / 2, H - 5, { align: 'center' },
     );
   }

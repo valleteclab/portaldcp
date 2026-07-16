@@ -4197,6 +4197,7 @@ export class MedicaoService {
       orgao_nome: contrato.orgao?.nome || '',
       contrato_id: contrato.id,
       contrato_numero: contrato.numero_contrato || '',
+      tipo_instrumento: contrato.tipo || 'CONTRATO',
       arredondar_calculo: contrato.arredondar_calculo ?? true,
       contrato_objeto:
         (medicao as any).objeto_contrato || contrato.objeto || undefined,
