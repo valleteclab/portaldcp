@@ -2384,7 +2384,10 @@ export default function FornecedorContratoDetalhePage() {
                       ? novaMedicao.itens.reduce((acc, item, idx) => {
                           if (!('item_cronograma_id' in item)) return acc;
                           const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
-                          return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
+                          if (!ic) return acc;
+                          // Medição por OS: total considera apenas a OS selecionada
+                          if (itensCronograma.some(c => c.os_id) && ic.os_id !== osMedicao) return acc;
+                          return acc + item.quantidade_medida * Number(ic.valor_unitario);
                         }, 0)
                       : novaMedicao.itens.reduce((acc, item, idx) => {
                           const etapa = etapas[idx];
@@ -2525,7 +2528,18 @@ export default function FornecedorContratoDetalhePage() {
                   <select
                     className="w-full h-9 rounded-md border border-indigo-300 bg-white px-2 text-sm"
                     value={osMedicao}
-                    onChange={(e) => setOsMedicao(e.target.value)}
+                    onChange={(e) => {
+                      setOsMedicao(e.target.value);
+                      // Zera quantidades ao trocar de OS (não vazar estado da anterior)
+                      setNovaMedicao(prev => ({
+                        ...prev,
+                        itens: prev.itens.map(i =>
+                          'item_cronograma_id' in i
+                            ? { ...i, quantidade_medida: 0, valor_override: 0 }
+                            : i,
+                        ),
+                      }));
+                    }}
                   >
                     <option value="">Selecione a OS autorizada...</option>
                     {osAutorizadas.map(([id, numero]) => (
@@ -2580,6 +2594,10 @@ export default function FornecedorContratoDetalhePage() {
                       arredondar,
                     );
                     const itens = itensCronograma.map((ic, idx) => {
+                      // Medição por OS: Proporcional preenche apenas itens da OS selecionada
+                      if (itensCronograma.some(c => c.os_id) && ic.os_id !== osMedicao) {
+                        return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
+                      }
                       const qtdTotal = Number(ic.quantidade);
                       const qtdAprovada = Number(ic.quantidade_medida);
                       const emTransito = resumo?.itens_comprometidos?.[ic.id] || 0;
