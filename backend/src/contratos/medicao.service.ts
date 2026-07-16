@@ -4020,8 +4020,11 @@ export class MedicaoService {
     }
 
     // Itens contratados (para bloco ITENS CONTRATADOS) — espelho do cronograma na UI
+    // Publicidade: numeração do boletim recomeça em 1 (numero_item do
+    // cronograma é contador global de todas as OS)
+    const renumerarPublicidade = !!(contrato as any).tabela_referencia_id;
     const itensContratados = icMigracao.map((ic, idx) => ({
-      numero: ic.numero_item || idx + 1,
+      numero: renumerarPublicidade ? idx + 1 : ic.numero_item || idx + 1,
       descricao: ic.descricao || '',
       unidade: ic.unidade_medida || '',
       unidade_exibicao: textoUnidadeCronogramaPdf(ic.unidade_medida),
