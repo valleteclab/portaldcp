@@ -4021,9 +4021,30 @@ export class MedicaoService {
 
     // Itens contratados (para bloco ITENS CONTRATADOS) — espelho do cronograma na UI
     // Publicidade: numeração do boletim recomeça em 1 (numero_item do
-    // cronograma é contador global de todas as OS)
+    // cronograma é contador global de todas as OS) e a lista traz apenas os
+    // itens da OS que está sendo medida
     const renumerarPublicidade = !!(contrato as any).tabela_referencia_id;
-    const itensContratados = icMigracao.map((ic, idx) => ({
+    let icParaContratados = icMigracao;
+    if (renumerarPublicidade && (medicao as any).requisicao_id) {
+      try {
+        const rowsOsMedida: Array<{ item_cronograma_id: string }> =
+          await this.itemCronogramaRepository.manager.query(
+            `SELECT item_cronograma_id FROM requisicao_itens_os WHERE requisicao_id = $1`,
+            [(medicao as any).requisicao_id],
+          );
+        const idsOsMedida = new Set(
+          rowsOsMedida.map((r) => r.item_cronograma_id),
+        );
+        if (idsOsMedida.size > 0) {
+          icParaContratados = icMigracao.filter((ic) =>
+            idsOsMedida.has(ic.id),
+          );
+        }
+      } catch (e) {
+        this.logger.warn(`Itens da OS medida indisponíveis: ${e.message}`);
+      }
+    }
+    const itensContratados = icParaContratados.map((ic, idx) => ({
       numero: renumerarPublicidade ? idx + 1 : ic.numero_item || idx + 1,
       descricao: ic.descricao || '',
       unidade: ic.unidade_medida || '',

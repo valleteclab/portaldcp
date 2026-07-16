@@ -599,7 +599,14 @@ export async function gerarBoletimMedicaoPdf(
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
-    doc.text('ITENS CONTRATADOS', W / 2, y + 4, { align: 'center' });
+    doc.text(
+      dados.teto_contratual != null
+        ? 'ITENS DA ORDEM DE SERVIÇO MEDIDA'
+        : 'ITENS CONTRATADOS',
+      W / 2,
+      y + 4,
+      { align: 'center' },
+    );
     y += 6;
     doc.setTextColor(0, 0, 0);
 
@@ -653,7 +660,7 @@ export async function gerarBoletimMedicaoPdf(
           { content: fmtAr(ic.valor_total), styles: { halign: 'right' as const } },
         ]),
         [
-          { content: dados.teto_contratual != null ? 'TOTAL DOS ITENS GERADOS POR OS' : 'TOTAL', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: dados.teto_contratual != null ? 'TOTAL DA OS MEDIDA' : 'TOTAL', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
           { content: fmtAr(totalItens), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
         ...(dados.teto_contratual != null
