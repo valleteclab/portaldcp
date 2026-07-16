@@ -320,6 +320,21 @@ const STATUS_CONTRATO = {
   'CANCELADO': { label: 'Cancelado', cor: 'bg-red-100 text-red-800', icon: AlertCircle }
 }
 
+const TIPO_INSTRUMENTO_LABELS: Record<string, string> = {
+  CONTRATO: 'Contrato',
+  NOTA_EMPENHO: 'Nota de Empenho',
+  ORDEM_SERVICO: 'Ordem de Serviço',
+  ORDEM_FORNECIMENTO: 'Ordem de Fornecimento',
+  CARTA_CONTRATO: 'Carta Contrato',
+  TERMO_ADESAO: 'Termo de Adesão',
+  ATA_REGISTRO_PRECO: 'Ata Registro de Preço',
+}
+
+function getTipoInstrumentoLabel(tipo?: string) {
+  if (!tipo) return 'Contrato'
+  return TIPO_INSTRUMENTO_LABELS[tipo] || tipo.replace(/_/g, ' ')
+}
+
 const TIPOS_TERMO = [
   { value: 'ADITIVO_PRAZO', label: 'Aditivo de Prazo' },
   { value: 'ADITIVO_VALOR', label: 'Aditivo de Valor' },
@@ -1246,7 +1261,7 @@ export default function DetalheContratoOrgaoPage() {
           </Button>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <Badge variant="outline">{contrato.tipo}</Badge>
+              <Badge variant="outline">{getTipoInstrumentoLabel(contrato.tipo)}</Badge>
               <Badge className={STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.cor || ''}>
                 <StatusIcon className="w-3 h-3 mr-1" />
                 {STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.label || contrato.status}
@@ -1255,7 +1270,9 @@ export default function DetalheContratoOrgaoPage() {
                 <Badge className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />PNCP</Badge>
               )}
             </div>
-            <h1 className="text-2xl font-bold">Contrato nº {contrato.numero_contrato} - {contrato.tipo}</h1>
+            <h1 className="text-2xl font-bold">
+              {getTipoInstrumentoLabel(contrato.tipo)} nº {contrato.numero_contrato}
+            </h1>
             <p className="text-gray-600">Processo: {contrato.numero_processo}</p>
             {(contrato.fornecedor?.razao_social || contrato.fornecedor_razao_social) && (
               <p className="text-gray-700 font-medium flex items-center gap-1.5 mt-0.5">
