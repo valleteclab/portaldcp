@@ -3956,6 +3956,13 @@ export class MedicaoService {
             Math.max(0, tetoPublicidade - totalAtePeriodoPdf),
           )
         : undefined;
+    if (tetoPublicidade > 0) {
+      // Publicidade: numero_item do cronograma é contador global de todas as
+      // OS — no boletim a numeração recomeça em 1
+      itensParaPdf.forEach((it: any, i: number) => {
+        it.numero = i + 1;
+      });
+    }
     const totalPrevistoCent = itensParaPdf.reduce((s: number, i: any) => {
       const vu = Number(i.valor_unitario) || 0;
       const ct =
