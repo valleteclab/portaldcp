@@ -7419,9 +7419,9 @@ export class MedicaoService {
             no_periodo: noPeriodo,
             ate_periodo: atePeriodo,
             a_executar: aExecutar,
+            unidade_medida: unidadeMedida,
           };
           if (boletimPorQuantidade) {
-            base.unidade_medida = unidadeMedida;
             base.quantidade_no_periodo =
               Math.round(quantidadeNoPeriodo * 100) / 100;
             base.quantidade_ate_periodo =
@@ -7528,12 +7528,21 @@ export class MedicaoService {
       // medição mostrava 4m19d em vez de 3m19d). O financeiro (ate_periodo) já
       // soma apenas as medições reais do ciclo e inclui a migração, então
       // derivamos os dias da fração executada do financeiro (executado/previsto).
-      const totalAteCentFiscal = resultado.reduce(
-        (s, r) => s + Math.round((Number(r.ate_periodo) || 0) * 100),
+      // Base do tempo: apenas os itens MENSAIS quando existirem — itens de
+      // valor fixo/unidade (laudos, exames) não andam com o calendário e
+      // distorciam a fração (058/2023: julho saía 6m17d em vez de 7m26d).
+      const linhasTempoFiscal = resultado.filter(
+        (r: any) => String((r as any).unidade_medida || '') === 'MENSAL',
+      );
+      const baseTempoFiscal =
+        linhasTempoFiscal.length > 0 ? linhasTempoFiscal : resultado;
+      const totalAteCentFiscal = baseTempoFiscal.reduce(
+        (s: any, r: any) => s + Math.round((Number(r.ate_periodo) || 0) * 100),
         0,
       );
-      const totalPrevCentFiscal = resultado.reduce(
-        (s, r) => s + Math.round((Number(r.valor_previsto) || 0) * 100),
+      const totalPrevCentFiscal = baseTempoFiscal.reduce(
+        (s: any, r: any) =>
+          s + Math.round((Number(r.valor_previsto) || 0) * 100),
         0,
       );
       const fracaoExecutada =
@@ -7815,12 +7824,21 @@ export class MedicaoService {
       // Físico por TEMPO reflete o MEDIDO (financeiro), não o calendário corrido,
       // para que um mês "pulado" (sem medição) não infle o executado. Mesma regra
       // da gêmea calcularExecucaoFinanceiraFornecedor.
-      const totalAteCentFiscal = resultado.reduce(
-        (s, r) => s + Math.round((Number(r.ate_periodo) || 0) * 100),
+      // Base do tempo: apenas os itens MENSAIS quando existirem — itens de
+      // valor fixo/unidade (laudos, exames) não andam com o calendário e
+      // distorciam a fração (058/2023: julho saía 6m17d em vez de 7m26d).
+      const linhasTempoFiscal = resultado.filter(
+        (r: any) => String((r as any).unidade_medida || '') === 'MENSAL',
+      );
+      const baseTempoFiscal =
+        linhasTempoFiscal.length > 0 ? linhasTempoFiscal : resultado;
+      const totalAteCentFiscal = baseTempoFiscal.reduce(
+        (s: any, r: any) => s + Math.round((Number(r.ate_periodo) || 0) * 100),
         0,
       );
-      const totalPrevCentFiscal = resultado.reduce(
-        (s, r) => s + Math.round((Number(r.valor_previsto) || 0) * 100),
+      const totalPrevCentFiscal = baseTempoFiscal.reduce(
+        (s: any, r: any) =>
+          s + Math.round((Number(r.valor_previsto) || 0) * 100),
         0,
       );
       const fracaoExecutada =
