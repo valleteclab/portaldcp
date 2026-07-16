@@ -599,7 +599,14 @@ export async function gerarBoletimMedicaoPdf(
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
-    doc.text('ITENS CONTRATADOS', W / 2, y + 4, { align: 'center' });
+    doc.text(
+      dados.teto_contratual != null
+        ? 'ITENS DA ORDEM DE SERVIÇO MEDIDA'
+        : 'ITENS CONTRATADOS',
+      W / 2,
+      y + 4,
+      { align: 'center' },
+    );
     y += 6;
     doc.setTextColor(0, 0, 0);
 
@@ -653,9 +660,15 @@ export async function gerarBoletimMedicaoPdf(
           { content: fmtAr(ic.valor_total), styles: { halign: 'right' as const } },
         ]),
         [
-          { content: 'TOTAL', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
+          { content: dados.teto_contratual != null ? 'TOTAL DA OS MEDIDA' : 'TOTAL', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
           { content: fmtAr(totalItens), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [230, 230, 230] as [number,number,number] } },
         ],
+        ...(dados.teto_contratual != null
+          ? [[
+              { content: 'VALOR GLOBAL DO CONTRATO (TETO)', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [255, 235, 200] as [number, number, number] } },
+              { content: fmtAr(dados.teto_contratual), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [255, 235, 200] as [number, number, number] } },
+            ]]
+          : []),
       ],
       theme: 'grid',
       styles: { fontSize: 6, cellPadding: 0.9, lineWidth: 0.2, lineColor: [200, 200, 200] as [number,number,number], overflow: 'linebreak' as const, ...textoCorpoTabelaPdf },
