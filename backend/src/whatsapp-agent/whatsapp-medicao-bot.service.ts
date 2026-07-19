@@ -145,10 +145,76 @@ export class WhatsappMedicaoBotService {
     const historico = resposta?.session?.historico_ia || [];
     for (let i = historico.length - 1; i >= 0; i--) {
       if (historico[i]?.role === 'assistant' && historico[i]?.content) {
-        return String(historico[i].content);
+        return this.formatarParaWhatsApp(String(historico[i].content));
       }
     }
     return 'Certo! Pode continuar.';
+  }
+
+  /**
+   * As respostas do MedicaoChatService são formatadas para o chat web
+   * (tabelas markdown, **negrito**, payloads em comentário HTML e instruções
+   * de interface). Converte para algo legível no WhatsApp.
+   */
+  private formatarParaWhatsApp(texto: string): string {
+    let t = texto;
+    // Payloads internos (ex.: <!--ITENS_MEDICAO_JSON:...-->) nunca vão ao usuário
+    t = t.replace(/<!--[\s\S]*?-->/g, '');
+
+    // Tabelas markdown → lista compacta
+    const out: string[] = [];
+    let header: string[] | null = null;
+    for (const linha of t.split('\n')) {
+      const l = linha.trim();
+      if (/^\|.*\|$/.test(l)) {
+        const cells = l
+          .slice(1, -1)
+          .split('|')
+          .map((c) => c.trim());
+        if (cells.every((c) => /^[-: ]*$/.test(c))) continue; // separador
+        if (!header) {
+          header = cells;
+          continue;
+        }
+        const partes = cells
+          .map((valor, i) => ({ label: header![i] || '', valor }))
+          .filter((p) => p.valor && p.valor !== '—')
+          .map((p) => {
+            const valor =
+              p.valor.length > 60 ? `${p.valor.slice(0, 57)}…` : p.valor;
+            const rotular =
+              p.label &&
+              !/descri|item|status/i.test(p.label) &&
+              !/^[✅⚠️❌🔒]/.test(valor);
+            return rotular ? `${p.label}: ${valor}` : valor;
+          });
+        out.push(`▫️ ${partes.join(' · ')}`);
+        continue;
+      }
+      header = null;
+      out.push(linha);
+    }
+    t = out.join('\n');
+
+    // Instruções da interface web → equivalentes de conversa
+    t = t.replace(
+      /Selecione os itens na tabela[^.\n]*\.?/gi,
+      'Me diga o que foi executado — por exemplo: "medir o item 1, 1 mês".',
+    );
+    t = t.replace(/,?\s*e\s+clique em\s+\*{0,2}[^.\n*]+\*{0,2}/gi, '');
+    t = t.replace(/\bclique em\s+\*{0,2}[^.\n*]+\*{0,2}\.?/gi, '');
+
+    // Negrito markdown → negrito WhatsApp
+    t = t.replace(/\*\*(.+?)\*\*/g, '*$1*');
+    // Títulos markdown
+    t = t.replace(/^#{1,4}\s*/gm, '');
+    t = t.replace(/\n{3,}/g, '\n\n').trim();
+
+    const MAX = 3500;
+    if (t.length > MAX) {
+      t = `${t.slice(0, MAX - 25)}\n…\n_(mensagem resumida)_`;
+    }
+    return t;
   }
 
   private rodapePadrao(resposta: any): string {
