@@ -7,6 +7,10 @@ import { IaService } from '../ia/ia.service';
 import { FornecedoresService } from '../fornecedores/fornecedores.service';
 import { CnpjService } from '../fornecedores/cnpj.service';
 import { SystemConfigService } from '../system-config/system-config.service';
+import {
+  WhatsappMedicaoBotService,
+  MidiaWhatsApp,
+} from './whatsapp-medicao-bot.service';
 
 const ESTADOS = {
   INICIO: 'INICIO',
@@ -16,6 +20,9 @@ const ESTADOS = {
   CADASTRO_EMAIL: 'CADASTRO_EMAIL',
   CADASTRO_CONCLUIDO: 'CADASTRO_CONCLUIDO',
   FAQ_ATIVO: 'FAQ_ATIVO',
+  MEDICAO_CONTRATO: 'MEDICAO_CONTRATO',
+  MEDICAO_ATIVA: 'MEDICAO_ATIVA',
+  MEDICAO_OTP: 'MEDICAO_OTP',
 } as const;
 
 const SESSION_TTL_HOURS = 24;
@@ -82,6 +89,8 @@ Posso ajudar você com o portal de compras em produção:
 
 1️⃣ Cadastrar minha empresa no portal
 2️⃣ Tirar dúvidas sobre o sistema
+3️⃣ Enviar medição (mandar a nota fiscal) 📸
+4️⃣ Consultar minhas medições
 
 Digite o número da opção desejada.`;
   }
@@ -94,9 +103,10 @@ Digite o número da opção desejada.`;
     private readonly fornecedoresService: FornecedoresService,
     private readonly cnpjService: CnpjService,
     private readonly systemConfigService: SystemConfigService,
+    private readonly medicaoBot: WhatsappMedicaoBotService,
   ) {}
 
-  async processarMensagem(phone: string, mensagem: string, nomeContato?: string, orgaoId?: string): Promise<void> {
+  async processarMensagem(phone: string, mensagem: string, nomeContato?: string, orgaoId?: string, midia?: MidiaWhatsApp): Promise<void> {
     // Verificar se o agente está ativo
     const { ativo } = await this.systemConfigService.getWhatsAppAgentConfig();
     if (!ativo) {
@@ -122,6 +132,29 @@ Digite o número da opção desejada.`;
     let resposta: string;
 
     try {
+      // Mídia (foto/PDF): só faz sentido dentro do fluxo de medição
+      if (midia) {
+        const legenda =
+          texto && !texto.startsWith('📷') && !texto.startsWith('📎')
+            ? texto
+            : undefined;
+        if (session.estado === ESTADOS.MEDICAO_ATIVA) {
+          resposta = await this.medicaoBot.tratarMidiaMedicao(
+            session,
+            midia,
+            legenda,
+          );
+          await this.sessionRepo.save(session);
+          await this.responder(orgaoId, phone, resposta);
+          return;
+        }
+        // Atalho: fornecedor mandou a NF direto — tenta iniciar o fluxo
+        resposta = await this.iniciarFluxoMedicao(session, phone, midia);
+        await this.sessionRepo.save(session);
+        await this.responder(orgaoId, phone, resposta);
+        return;
+      }
+
       switch (session.estado) {
         case ESTADOS.INICIO:
           resposta = await this.handleInicio(session);
@@ -144,6 +177,15 @@ Digite o número da opção desejada.`;
         case ESTADOS.FAQ_ATIVO:
           resposta = await this.handleFaqAtivo(texto, session);
           break;
+        case ESTADOS.MEDICAO_CONTRATO:
+          resposta = await this.handleMedicaoContrato(texto, session);
+          break;
+        case ESTADOS.MEDICAO_ATIVA:
+          resposta = await this.handleMedicaoAtiva(texto, session);
+          break;
+        case ESTADOS.MEDICAO_OTP:
+          resposta = await this.handleMedicaoOtp(texto, session);
+          break;
         default:
           resposta = await this.handleInicio(session);
       }
@@ -154,7 +196,10 @@ Digite o número da opção desejada.`;
     }
 
     await this.sessionRepo.save(session);
+    await this.responder(orgaoId, phone, resposta);
+  }
 
+  private async responder(orgaoId: string | undefined, phone: string, resposta: string): Promise<void> {
     if (orgaoId) {
       const enviado = await this.whatsappService.enviar(orgaoId, { to: phone, mensagem: resposta });
       if (!enviado) {
@@ -163,8 +208,115 @@ Digite o número da opção desejada.`;
       }
       return;
     }
-
     await this.whatsappService.enviarSistema(phone, resposta);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // MEDIÇÃO PELO WHATSAPP (ponte com o fluxo de medição assistida)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Verifica o telefone, resolve o contrato e abre a sessão de medição. */
+  private async iniciarFluxoMedicao(
+    session: WhatsappAgentSession,
+    phone: string,
+    midiaInicial?: MidiaWhatsApp,
+  ): Promise<string> {
+    const fornecedor = await this.medicaoBot.identificarFornecedorPorTelefone(phone);
+    if (!fornecedor) {
+      session.estado = ESTADOS.AGUARDANDO_INTENCAO;
+      return (
+        '🔒 Por segurança, o envio de medições só é liberado para o *telefone cadastrado* do fornecedor.\n\n' +
+        `Não encontrei nenhum fornecedor com este número. Atualize o telefone do representante no portal *${this.getPortalUrl()}* (menu Perfil) e tente novamente.\n\n` +
+        this.getMenuMessage()
+      );
+    }
+
+    const contratos = await this.medicaoBot.listarContratosMediveis(fornecedor.id);
+    if (contratos.length === 0) {
+      session.estado = ESTADOS.AGUARDANDO_INTENCAO;
+      return `Não encontrei contratos vigentes de medição para *${fornecedor.razao_social}*.\n\nEm caso de dúvida, fale com o órgão.\n\n${this.getMenuMessage()}`;
+    }
+
+    if (contratos.length === 1) {
+      const abertura = await this.medicaoBot.iniciarSessaoMedicao(
+        session,
+        contratos[0],
+        fornecedor.id,
+      );
+      session.estado = ESTADOS.MEDICAO_ATIVA;
+      let resposta = `✅ Identifiquei: *${fornecedor.razao_social}*\n\n${abertura}`;
+      if (midiaInicial) {
+        const respostaNf = await this.medicaoBot.tratarMidiaMedicao(session, midiaInicial);
+        resposta = `✅ Identifiquei: *${fornecedor.razao_social}* — contrato ${contratos[0].numero_contrato}\n\n${respostaNf}`;
+      }
+      return resposta;
+    }
+
+    session.dados = {
+      ...session.dados,
+      medicao_fornecedor_id: fornecedor.id,
+      medicao_contratos: contratos.map((c) => ({ id: c.id, numero: c.numero_contrato, objeto: (c.objeto || '').slice(0, 60) })),
+      medicao_midia_pendente: midiaInicial || null,
+    };
+    session.estado = ESTADOS.MEDICAO_CONTRATO;
+    const lista = contratos
+      .map((c, i) => `${i + 1}️⃣ *${c.numero_contrato}* — ${(c.objeto || '').slice(0, 60)}`)
+      .join('\n');
+    return `✅ Identifiquei: *${fornecedor.razao_social}*\n\nQual contrato você quer medir?\n\n${lista}\n\nDigite o número da opção.`;
+  }
+
+  private async handleMedicaoContrato(texto: string, session: WhatsappAgentSession): Promise<string> {
+    if (texto.toLowerCase().trim() === 'menu') return this.handleInicio(session);
+    const dados = session.dados || {};
+    const contratos: Array<{ id: string; numero: string }> = dados.medicao_contratos || [];
+    const escolha = parseInt(texto.trim(), 10);
+    if (!escolha || escolha < 1 || escolha > contratos.length) {
+      return `Não entendi. Digite o número do contrato (1 a ${contratos.length}) ou *menu* para voltar.`;
+    }
+    const contrato = await this.medicaoBot.buscarContrato(contratos[escolha - 1].id);
+    if (!contrato) return 'Contrato não encontrado. Digite *menu* para recomeçar.';
+    const abertura = await this.medicaoBot.iniciarSessaoMedicao(session, contrato, dados.medicao_fornecedor_id);
+    session.estado = ESTADOS.MEDICAO_ATIVA;
+    const midiaPendente = dados.medicao_midia_pendente as MidiaWhatsApp | null;
+    if (midiaPendente) {
+      session.dados = { ...session.dados, medicao_midia_pendente: null };
+      return this.medicaoBot.tratarMidiaMedicao(session, midiaPendente);
+    }
+    return abertura;
+  }
+
+  private async handleMedicaoAtiva(texto: string, session: WhatsappAgentSession): Promise<string> {
+    const comando = texto.toLowerCase().trim();
+    if (comando === 'menu' || comando === 'sair' || comando === 'cancelar') {
+      return this.handleInicio(session);
+    }
+    if (comando === 'status' || comando === 'resumo') {
+      return this.medicaoBot.statusResumo(session);
+    }
+    if (comando === 'enviar' || comando === 'finalizar' || comando === 'assinar') {
+      const otp = await this.medicaoBot.solicitarOtp(session);
+      if (otp.ok) session.estado = ESTADOS.MEDICAO_OTP;
+      return otp.mensagem;
+    }
+    return this.medicaoBot.tratarMensagemMedicao(session, texto);
+  }
+
+  private async handleMedicaoOtp(texto: string, session: WhatsappAgentSession): Promise<string> {
+    const comando = texto.toLowerCase().trim();
+    if (comando === 'menu' || comando === 'cancelar') {
+      session.estado = ESTADOS.MEDICAO_ATIVA;
+      return 'Assinatura cancelada. Você continua na medição — digite *enviar* quando quiser assinar, ou *menu* para sair.';
+    }
+    const codigo = texto.replace(/\D/g, '');
+    if (codigo.length < 4) {
+      return 'Digite o código de verificação recebido (somente números), ou *cancelar* para voltar.';
+    }
+    const resultado = await this.medicaoBot.validarOtp(session, codigo);
+    if (resultado.ok) {
+      session.estado = ESTADOS.AGUARDANDO_INTENCAO;
+      session.dados = {};
+    }
+    return resultado.mensagem;
   }
 
   private async obterOuCriarSessao(phone: string, nomeContato?: string): Promise<WhatsappAgentSession> {
@@ -199,6 +351,22 @@ Digite o número da opção desejada.`;
       session.estado = ESTADOS.FAQ_ATIVO;
       session.historico_ia = [];
       return '💬 Estou aqui para ajudar!\n\nQual é a sua dúvida sobre o Portal DCP?\n\n_(Digite "menu" a qualquer momento para voltar ao início)_';
+    }
+
+    if (normalizado === '3' || normalizado.includes('medic') || normalizado.includes('nota fiscal')) {
+      return this.iniciarFluxoMedicao(session, session.phone);
+    }
+
+    if (normalizado === '4' || normalizado.includes('consult')) {
+      const fornecedor = await this.medicaoBot.identificarFornecedorPorTelefone(session.phone);
+      if (!fornecedor) {
+        return (
+          '🔒 A consulta de medições só é liberada para o *telefone cadastrado* do fornecedor.\n\n' +
+          `Atualize o telefone do representante no portal *${this.getPortalUrl()}* e tente novamente.\n\n` +
+          this.getMenuMessage()
+        );
+      }
+      return this.medicaoBot.listarMedicoesFornecedor(fornecedor.id);
     }
 
     return `Não entendi sua escolha. Por favor, responda com:\n\n${this.getMenuMessage()}`;

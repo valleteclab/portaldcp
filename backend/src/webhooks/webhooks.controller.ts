@@ -72,9 +72,20 @@ export class WebhooksController {
       || payload.image?.caption;
     const fromPhone = payload.phone || payload.from;
 
-    this.logger.log(`Webhook Z-API parsed: fromPhone=${fromPhone}, texto=${texto ? texto.substring(0, 50) : 'null'}, fromMe=${payload.fromMe}, isGroup=${payload.isGroup}, isStatusReply=${payload.isStatusReply}`);
+    // Mídia recebida (foto ou documento) — usada pelo bot de medição (NF)
+    const midia = payload.image?.imageUrl
+      ? { url: payload.image.imageUrl, tipo: 'imagem' as const }
+      : payload.document?.documentUrl
+        ? {
+            url: payload.document.documentUrl,
+            fileName: payload.document.fileName,
+            tipo: 'documento' as const,
+          }
+        : undefined;
 
-    if (texto && fromPhone && !payload.isStatusReply && !payload.fromMe && !payload.isGroup) {
+    this.logger.log(`Webhook Z-API parsed: fromPhone=${fromPhone}, texto=${texto ? texto.substring(0, 50) : 'null'}, midia=${midia?.tipo || 'nao'}, fromMe=${payload.fromMe}, isGroup=${payload.isGroup}, isStatusReply=${payload.isStatusReply}`);
+
+    if ((texto || midia) && fromPhone && !payload.isStatusReply && !payload.fromMe && !payload.isGroup) {
       const orgao = instanceId
         ? await this.orgaoRepository.findOne({ where: { whatsapp_instance_id: instanceId } })
         : null;
@@ -84,9 +95,10 @@ export class WebhooksController {
         await this.whatsappChatService.receberMensagemWebhook(
           orgao.id,
           phone,
-          texto,
+          texto || (midia?.tipo === 'imagem' ? '📷 [imagem]' : '📎 [documento]'),
           messageId,
           payload.senderName || payload.chatName,
+          midia,
         );
       } else {
         this.logger.warn(`Webhook Z-API: nenhum órgão encontrado para instanceId=${instanceId}`);
