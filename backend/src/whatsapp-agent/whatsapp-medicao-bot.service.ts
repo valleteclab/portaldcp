@@ -108,7 +108,7 @@ export class WhatsappMedicaoBotService {
     return this.contratoRepo
       .createQueryBuilder('c')
       .where('c.fornecedor_id = :fid', { fid: fornecedorId })
-      .andWhere("c.modalidade_execucao IN ('MEDICAO','OBRAS')")
+      .andWhere("c.modalidade_execucao IN ('MEDICAO','CONTINUADO')")
       .andWhere('(c.data_vigencia_fim IS NULL OR c.data_vigencia_fim >= NOW())')
       .orderBy('c.numero_contrato', 'ASC')
       .getMany();
