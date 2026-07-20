@@ -59,17 +59,19 @@ export class WhatsappMedicaoBotService {
     return dig.startsWith('55') && dig.length >= 12 ? dig.slice(2) : dig;
   }
 
-  /** Compara telefones tolerando o 9º dígito (celulares antigos sem o 9). */
+  /**
+   * Compara telefones tolerando o 9º dígito: o WhatsApp (Z-API) entrega
+   * celulares SEM o nono dígito (77 98755764) enquanto o cadastro costuma ter
+   * COM (77 998755764). Regra: mesmo DDD + mesmos últimos 8 dígitos.
+   */
   private telefonesEquivalentes(a: string, b: string): boolean {
     if (!a || !b) return false;
     if (a === b) return true;
     if (a.length < 10 || b.length < 10) return false;
-    const dddA = a.slice(0, 2);
-    const dddB = b.slice(0, 2);
-    if (dddA !== dddB) return false;
-    const numA = a.slice(2).replace(/^9/, '');
-    const numB = b.slice(2).replace(/^9/, '');
-    return numA === numB && numA.length >= 8;
+    if (a.slice(0, 2) !== b.slice(0, 2)) return false;
+    const finalA = a.slice(-8);
+    const finalB = b.slice(-8);
+    return finalA.length === 8 && finalA === finalB;
   }
 
   /** Todos os fornecedores cujo telefone cadastrado bate com o da conversa. */
