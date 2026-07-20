@@ -2736,6 +2736,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     await this.requisicaoItemOSRepository.save(itemAvulso);
     this.logger.log(`Item avulso adicionado à requisição ${requisicao.numero}: ${dados.descricao}`);
 
+    await this.recalcularValorTotalOS(requisicaoId);
     return this.findOne(requisicaoId);
   }
 
@@ -2772,27 +2773,90 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       throw new NotFoundException('Item não encontrado na requisição');
     }
 
-    // Só permite remover itens avulsos (não vinculados ao ItemCronograma)
     if (item.item_cronograma_id) {
-      throw new BadRequestException('Só é possível remover itens avulsos (itens do cronograma não podem ser removidos)');
+      // Item do contrato: só não pode sair se alguma medição ativa vinculada à
+      // OS já mediu ESTE item (o saldo comprometido volta ao contrato)
+      const medicoesDoItem: Array<{ count: string }> =
+        await this.requisicaoItemOSRepository.manager.query(
+          `SELECT COUNT(*) AS count
+           FROM medicoes m
+           JOIN itens_medicao_item imi ON imi.medicao_id = m.id
+           WHERE m.requisicao_id = $1
+             AND m.status NOT IN ('DEVOLVIDA','CANCELADA')
+             AND imi.item_cronograma_id = $2`,
+          [requisicaoId, item.item_cronograma_id],
+        );
+      if (Number(medicoesDoItem?.[0]?.count || 0) > 0) {
+        throw new BadRequestException(
+          'Este item do contrato já foi medido em medição vinculada a esta OS — devolva/exclua a medição antes de removê-lo',
+        );
+      }
+      const totalItens = await this.requisicaoItemOSRepository.count({
+        where: { requisicao_id: requisicaoId },
+      });
+      if (totalItens <= 1) {
+        throw new BadRequestException(
+          'A OS não pode ficar sem itens — adicione outro item antes de remover este',
+        );
+      }
     }
 
     await this.requisicaoItemOSRepository.remove(item);
-    this.logger.log(`Item avulso removido da requisição ${requisicao.numero}: ${item.descricao_avulso}`);
+    this.logger.log(
+      `Item ${item.item_cronograma_id ? 'do contrato' : 'avulso'} removido da requisição ${requisicao.numero}: ${item.descricao_avulso || item.item_cronograma_id}`,
+    );
 
+    await this.recalcularValorTotalOS(requisicaoId);
     return this.findOne(requisicaoId);
   }
 
+  /** Recalcula valor_total_estimado da OS (itens do contrato + avulsos). */
+  private async recalcularValorTotalOS(requisicaoId: string): Promise<void> {
+    const rows: Array<{ total: string }> =
+      await this.requisicaoItemOSRepository.manager.query(
+        `SELECT COALESCE(SUM(
+           CASE WHEN rio.item_cronograma_id IS NOT NULL
+                THEN rio.quantidade_solicitada * ic.valor_unitario
+                ELSE COALESCE(rio.valor_total_avulso, 0)
+           END), 0) AS total
+         FROM requisicao_itens_os rio
+         LEFT JOIN itens_cronograma ic ON ic.id = rio.item_cronograma_id
+         WHERE rio.requisicao_id = $1`,
+        [requisicaoId],
+      );
+    const total = Math.round(Number(rows?.[0]?.total || 0) * 100) / 100;
+    await this.requisicaoRepository.update(requisicaoId, {
+      valor_total_estimado: total as any,
+    });
+  }
+
   /**
-   * Lista apenas os itens avulsos de uma requisição/OS
+   * Lista os itens da OS para o gerenciamento (itens do contrato + avulsos).
+   * Itens do contrato vêm com origem 'CONTRATO' e descrição do cronograma.
    */
-  async listarItensAvulsos(requisicaoId: string): Promise<RequisicaoItemOS[]> {
+  async listarItensAvulsos(requisicaoId: string): Promise<any[]> {
     const itens = await this.requisicaoItemOSRepository.find({
       where: { requisicao_id: requisicaoId },
+      relations: ['itemCronograma'],
     });
 
-    // Filtrar apenas itens avulsos (item_cronograma_id is null)
-    return itens.filter(item => !item.item_cronograma_id);
+    return itens.map((item) => {
+      if (item.item_cronograma_id) {
+        const ic: any = (item as any).itemCronograma || {};
+        const valorUnitario = Number(ic.valor_unitario || 0);
+        const quantidade = Number(item.quantidade_solicitada || 0);
+        return {
+          id: item.id,
+          origem: 'CONTRATO',
+          descricao_avulso: ic.descricao || 'Item do contrato',
+          quantidade_avulso: quantidade,
+          valor_unitario_avulso: valorUnitario,
+          valor_total_avulso:
+            Math.round(quantidade * valorUnitario * 100) / 100,
+        };
+      }
+      return { ...item, origem: 'AVULSO' };
+    });
   }
 
 }
