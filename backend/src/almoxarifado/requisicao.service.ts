@@ -2810,21 +2810,33 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     return this.findOne(requisicaoId);
   }
 
-  /** Recalcula valor_total_estimado da OS (itens do contrato + avulsos). */
+  /**
+   * Recalcula valor_total_estimado da OS.
+   * Regra: soma dos itens do CONTRATO (eles é que consomem saldo). Os avulsos
+   * costumam ser o DETALHAMENTO de um item-verba (ex.: peças — OS-0161/2026:
+   * item 38 "Peças" R$ 14.494,19 + avulsos detalhando as peças no mesmo
+   * total) e por isso NÃO somam quando há itens de contrato — senão o valor
+   * dobraria. Só quando a OS não tem nenhum item de contrato o total passa a
+   * ser a soma dos avulsos.
+   */
   private async recalcularValorTotalOS(requisicaoId: string): Promise<void> {
-    const rows: Array<{ total: string }> =
+    const rows: Array<{ total_contrato: string; total_avulso: string }> =
       await this.requisicaoItemOSRepository.manager.query(
-        `SELECT COALESCE(SUM(
-           CASE WHEN rio.item_cronograma_id IS NOT NULL
-                THEN rio.quantidade_solicitada * ic.valor_unitario
-                ELSE COALESCE(rio.valor_total_avulso, 0)
-           END), 0) AS total
+        `SELECT
+           COALESCE(SUM(CASE WHEN rio.item_cronograma_id IS NOT NULL
+                THEN rio.quantidade_solicitada * ic.valor_unitario END), 0) AS total_contrato,
+           COALESCE(SUM(CASE WHEN rio.item_cronograma_id IS NULL
+                THEN COALESCE(rio.valor_total_avulso, 0) END), 0) AS total_avulso
          FROM requisicao_itens_os rio
          LEFT JOIN itens_cronograma ic ON ic.id = rio.item_cronograma_id
          WHERE rio.requisicao_id = $1`,
         [requisicaoId],
       );
-    const total = Math.round(Number(rows?.[0]?.total || 0) * 100) / 100;
+    const totalContrato = Number(rows?.[0]?.total_contrato || 0);
+    const totalAvulso = Number(rows?.[0]?.total_avulso || 0);
+    const total =
+      Math.round((totalContrato > 0 ? totalContrato : totalAvulso) * 100) /
+      100;
     await this.requisicaoRepository.update(requisicaoId, {
       valor_total_estimado: total as any,
     });
