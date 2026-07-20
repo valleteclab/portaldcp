@@ -558,9 +558,12 @@ function RequisicoesList() {
     }
   };
 
-  const removerItemAvulso = async (itemId: string) => {
+  const removerItemAvulso = async (itemId: string, itemDoContrato = false) => {
     if (!requisicaoSelecionada) return;
-    if (!confirm('Deseja realmente remover este item avulso?')) return;
+    const msg = itemDoContrato
+      ? 'Este é um item do CONTRATO. Ao removê-lo desta OS, o saldo volta ao contrato e a OS fica apenas com os demais itens. Confirma a remoção?'
+      : 'Deseja realmente remover este item avulso?';
+    if (!confirm(msg)) return;
     
     setSavingItemAvulso(true);
     try {
@@ -2813,16 +2816,16 @@ function RequisicoesList() {
               </div>
             </div>
 
-            {/* Lista de itens avulsos */}
+            {/* Lista de itens da OS (contrato + avulsos) */}
             <div>
-              <h4 className="font-medium text-gray-900 mb-3">Itens Avulsos Cadastrados</h4>
+              <h4 className="font-medium text-gray-900 mb-3">Itens da OS</h4>
               {loadingItensAvulsos ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-purple-600" />
                   <span className="ml-2 text-sm text-gray-500">Carregando itens...</span>
                 </div>
               ) : itensAvulsos.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-4 italic">Nenhum item avulso cadastrado</p>
+                <p className="text-sm text-gray-500 text-center py-4 italic">Nenhum item cadastrado</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -2837,7 +2840,12 @@ function RequisicoesList() {
                   <TableBody>
                     {itensAvulsos.map((item: any) => (
                       <TableRow key={item.id}>
-                        <TableCell className="whitespace-normal break-words">{item.descricao_avulso}</TableCell>
+                        <TableCell className="whitespace-normal break-words">
+                          {item.origem === 'CONTRATO' && (
+                            <span className="mr-2 inline-block rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 align-middle">CONTRATO</span>
+                          )}
+                          {item.descricao_avulso}
+                        </TableCell>
                         <TableCell className="text-right">{item.quantidade_avulso}</TableCell>
                         <TableCell className="text-right">{formatarMoeda(item.valor_unitario_avulso)}</TableCell>
                         <TableCell className="text-right font-medium">{formatarMoeda(item.valor_total_avulso)}</TableCell>
@@ -2845,7 +2853,7 @@ function RequisicoesList() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => removerItemAvulso(item.id)}
+                            onClick={() => removerItemAvulso(item.id, item.origem === 'CONTRATO')}
                             disabled={savingItemAvulso}
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                           >
