@@ -3,6 +3,9 @@ import { ModuleRef } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { Medicao } from '../contratos/entities/medicao.entity';
@@ -305,7 +308,7 @@ export class WhatsappMedicaoBotService {
 
   async solicitarOtp(
     session: WhatsappAgentSession,
-  ): Promise<{ ok: boolean; mensagem: string }> {
+  ): Promise<{ ok: boolean; mensagem: string; precisaDiscriminacao?: boolean }> {
     const medicaoId = await this.medicaoIdDaSessao(session);
     if (!medicaoId) {
       return {
@@ -315,6 +318,24 @@ export class WhatsappMedicaoBotService {
       };
     }
     const dados = session.dados || {};
+
+    // Discriminação de despesas é obrigatória antes de assinar — principal
+    // motivo de recusa pela contabilidade quando falta (retenções da NF)
+    const discriminacoes = await this.medicaoService.listarDiscriminacoes(
+      medicaoId,
+    );
+    if (!discriminacoes || discriminacoes.length === 0) {
+      session.dados = { ...dados, medicao_id_otp: medicaoId };
+      return {
+        ok: false,
+        precisaDiscriminacao: true,
+        mensagem:
+          '🧾 Antes de enviar, preciso da *discriminação de despesas* exatamente como está na nota fiscal — incluindo retenções (ISS, IRRF, INSS...), se houver.\n\n' +
+          'Me responda com as linhas separadas por ponto e vírgula, por exemplo:\n' +
+          '_ISS 43,73; IRRF 104,94; Serviços 1.835,36_\n\n' +
+          'Se a NF *não tem retenções*, responda: *valor integral*',
+      };
+    }
     try {
       await this.medicaoService.solicitarOtpAssinaturaMedicao(
         medicaoId,
@@ -337,6 +358,8 @@ export class WhatsappMedicaoBotService {
   async validarOtp(
     session: WhatsappAgentSession,
     codigo: string,
+    orgaoId?: string,
+    phone?: string,
   ): Promise<{ ok: boolean; mensagem: string }> {
     const dados = session.dados || {};
     const medicaoId = dados.medicao_id_otp;
@@ -352,12 +375,18 @@ export class WhatsappMedicaoBotService {
       const medicao = await this.medicaoRepo.findOne({
         where: { id: medicaoId },
       });
+      // Envia o boletim em PDF na conversa (não bloqueia a resposta)
+      if (orgaoId && phone) {
+        this.enviarBoletimPdf(medicaoId, medicao?.numero_medicao, orgaoId, phone).catch(
+          (e) => this.logger.warn(`Falha ao enviar boletim PDF: ${e.message}`),
+        );
+      }
       return {
         ok: true,
         mensagem:
           `✅ *Medição #${medicao?.numero_medicao || ''} assinada e enviada com sucesso!*\n\n` +
-          `O órgão foi notificado e fará a conferência. Você receberá as atualizações por aqui.\n\n` +
-          `Digite *menu* para voltar ao início.`,
+          `📄 Estou gerando o boletim em PDF e envio aqui em seguida.\n\n` +
+          `O órgão foi notificado e fará a conferência. Digite *menu* para voltar ao início.`,
       };
     } catch (e: any) {
       return {
@@ -365,6 +394,101 @@ export class WhatsappMedicaoBotService {
         mensagem: `❌ Código inválido ou expirado (${e.message || 'erro'}). Tente novamente ou digite *enviar* para receber um novo código.`,
       };
     }
+  }
+
+  /**
+   * Interpreta a resposta do fornecedor com as linhas de discriminação e as
+   * salva na medição (valores fiéis ao digitado, como no portal).
+   */
+  async salvarDiscriminacaoTexto(
+    session: WhatsappAgentSession,
+    texto: string,
+  ): Promise<{ ok: boolean; mensagem: string }> {
+    const dados = session.dados || {};
+    const medicaoId = dados.medicao_id_otp;
+    if (!medicaoId) {
+      return { ok: false, mensagem: 'Sessão expirada. Digite *enviar* para recomeçar.' };
+    }
+    const medicao = await this.medicaoRepo.findOne({ where: { id: medicaoId } });
+    const valorMedicao = Number(medicao?.valor_medido || 0);
+
+    const normalizado = texto.toLowerCase().trim();
+    let itens: Array<{ descricao: string; valor: number; percentual: number }>;
+
+    if (/^(valor integral|sem reten|integral|nao tem|não tem)/.test(normalizado)) {
+      itens = [{ descricao: 'SERVIÇOS', valor: valorMedicao, percentual: 100 }];
+    } else {
+      const partes = texto
+        .split(/[;\n]+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      itens = [];
+      for (const parte of partes) {
+        const m = parte.match(/^(.+?)\s*[:\-]?\s*(?:R\$\s*)?([\d.]+,\d{2}|[\d.]+)$/);
+        if (!m) {
+          return {
+            ok: false,
+            mensagem:
+              `❌ Não entendi a linha: _"${parte}"_\n\n` +
+              'Use o formato *descrição valor*, separando por ponto e vírgula. Ex.:\n_ISS 43,73; IRRF 104,94; Serviços 1.835,36_',
+          };
+        }
+        const valor = Number(m[2].replace(/\./g, '').replace(',', '.'));
+        if (!Number.isFinite(valor) || valor <= 0) {
+          return { ok: false, mensagem: `❌ Valor inválido em: _"${parte}"_` };
+        }
+        itens.push({ descricao: m[1].trim().toUpperCase(), valor, percentual: 0 });
+      }
+      if (itens.length === 0) {
+        return { ok: false, mensagem: 'Nenhuma linha reconhecida. Tente novamente ou responda *valor integral*.' };
+      }
+    }
+
+    await this.medicaoService.salvarDiscriminacoes(
+      medicaoId,
+      dados.medicao_fornecedor_id,
+      itens,
+    );
+
+    const total = itens.reduce((s, i) => s + i.valor, 0);
+    const fmt = (v: number) =>
+      v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const linhas = itens.map((i) => `▫️ ${i.descricao}: ${fmt(i.valor)}`).join('\n');
+    const alerta =
+      Math.abs(total - valorMedicao) > 0.02
+        ? `\n\n⚠️ A soma (${fmt(total)}) difere do valor da medição (${fmt(valorMedicao)}) — confira se está igual à NF.`
+        : '';
+    return {
+      ok: true,
+      mensagem: `✔️ Discriminação registrada:\n${linhas}\n*Total: ${fmt(total)}*${alerta}`,
+    };
+  }
+
+  /** Gera o boletim oficial e envia o PDF ao fornecedor pela conversa. */
+  private async enviarBoletimPdf(
+    medicaoId: string,
+    numeroMedicao: number | undefined,
+    orgaoId: string,
+    phone: string,
+  ): Promise<void> {
+    await this.medicaoService.gerarPdfOficialMedicao(medicaoId);
+    const uploadDir =
+      process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
+    const filePath = path.join(uploadDir, 'boletins', `boletim_${medicaoId}.pdf`);
+    if (!fs.existsSync(filePath)) {
+      this.logger.warn(`Boletim PDF não encontrado em ${filePath}`);
+      return;
+    }
+    const documentoBase64 = fs.readFileSync(filePath).toString('base64');
+    const whatsapp = this.moduleRef.get(WhatsAppService, { strict: false });
+    await whatsapp.enviarDocumento(orgaoId, {
+      to: phone,
+      documentoBase64,
+      nomeArquivo: `Boletim_Medicao_${numeroMedicao || ''}.pdf`,
+      legenda: `📄 Boletim da Medição #${numeroMedicao || ''} — guarde este documento.`,
+      extensao: 'pdf',
+      mimeType: 'application/pdf',
+    });
   }
 
   // ──────────────────────────────────────────────────────────────────────────

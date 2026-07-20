@@ -22,6 +22,7 @@ const ESTADOS = {
   FAQ_ATIVO: 'FAQ_ATIVO',
   MEDICAO_CONTRATO: 'MEDICAO_CONTRATO',
   MEDICAO_ATIVA: 'MEDICAO_ATIVA',
+  MEDICAO_DISCRIMINACAO: 'MEDICAO_DISCRIMINACAO',
   MEDICAO_OTP: 'MEDICAO_OTP',
 } as const;
 
@@ -183,8 +184,11 @@ Digite o número da opção desejada.`;
         case ESTADOS.MEDICAO_ATIVA:
           resposta = await this.handleMedicaoAtiva(texto, session);
           break;
+        case ESTADOS.MEDICAO_DISCRIMINACAO:
+          resposta = await this.handleMedicaoDiscriminacao(texto, session);
+          break;
         case ESTADOS.MEDICAO_OTP:
-          resposta = await this.handleMedicaoOtp(texto, session);
+          resposta = await this.handleMedicaoOtp(texto, session, orgaoId);
           break;
         default:
           resposta = await this.handleInicio(session);
@@ -296,12 +300,31 @@ Digite o número da opção desejada.`;
     if (comando === 'enviar' || comando === 'finalizar' || comando === 'assinar') {
       const otp = await this.medicaoBot.solicitarOtp(session);
       if (otp.ok) session.estado = ESTADOS.MEDICAO_OTP;
+      else if (otp.precisaDiscriminacao) session.estado = ESTADOS.MEDICAO_DISCRIMINACAO;
       return otp.mensagem;
     }
     return this.medicaoBot.tratarMensagemMedicao(session, texto);
   }
 
-  private async handleMedicaoOtp(texto: string, session: WhatsappAgentSession): Promise<string> {
+  private async handleMedicaoDiscriminacao(texto: string, session: WhatsappAgentSession): Promise<string> {
+    const comando = texto.toLowerCase().trim();
+    if (comando === 'menu' || comando === 'cancelar') {
+      session.estado = ESTADOS.MEDICAO_ATIVA;
+      return 'Ok, voltamos à medição. Digite *enviar* quando quiser finalizar, ou *menu* para sair.';
+    }
+    const resultado = await this.medicaoBot.salvarDiscriminacaoTexto(session, texto);
+    if (!resultado.ok) return resultado.mensagem;
+    // Discriminação salva — segue direto para a assinatura
+    const otp = await this.medicaoBot.solicitarOtp(session);
+    if (otp.ok) {
+      session.estado = ESTADOS.MEDICAO_OTP;
+    } else {
+      session.estado = ESTADOS.MEDICAO_ATIVA;
+    }
+    return `${resultado.mensagem}\n\n${otp.mensagem}`;
+  }
+
+  private async handleMedicaoOtp(texto: string, session: WhatsappAgentSession, orgaoId?: string): Promise<string> {
     const comando = texto.toLowerCase().trim();
     if (comando === 'menu' || comando === 'cancelar') {
       session.estado = ESTADOS.MEDICAO_ATIVA;
@@ -311,7 +334,7 @@ Digite o número da opção desejada.`;
     if (codigo.length < 4) {
       return 'Digite o código de verificação recebido (somente números), ou *cancelar* para voltar.';
     }
-    const resultado = await this.medicaoBot.validarOtp(session, codigo);
+    const resultado = await this.medicaoBot.validarOtp(session, codigo, orgaoId, session.phone);
     if (resultado.ok) {
       session.estado = ESTADOS.AGUARDANDO_INTENCAO;
       session.dados = {};
