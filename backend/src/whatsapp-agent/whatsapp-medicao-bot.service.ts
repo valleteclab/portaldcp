@@ -3,6 +3,9 @@ import { ModuleRef } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { Medicao } from '../contratos/entities/medicao.entity';
@@ -337,6 +340,8 @@ export class WhatsappMedicaoBotService {
   async validarOtp(
     session: WhatsappAgentSession,
     codigo: string,
+    orgaoId?: string,
+    phone?: string,
   ): Promise<{ ok: boolean; mensagem: string }> {
     const dados = session.dados || {};
     const medicaoId = dados.medicao_id_otp;
@@ -352,12 +357,18 @@ export class WhatsappMedicaoBotService {
       const medicao = await this.medicaoRepo.findOne({
         where: { id: medicaoId },
       });
+      // Envia o boletim em PDF na conversa (não bloqueia a resposta)
+      if (orgaoId && phone) {
+        this.enviarBoletimPdf(medicaoId, medicao?.numero_medicao, orgaoId, phone).catch(
+          (e) => this.logger.warn(`Falha ao enviar boletim PDF: ${e.message}`),
+        );
+      }
       return {
         ok: true,
         mensagem:
           `✅ *Medição #${medicao?.numero_medicao || ''} assinada e enviada com sucesso!*\n\n` +
-          `O órgão foi notificado e fará a conferência. Você receberá as atualizações por aqui.\n\n` +
-          `Digite *menu* para voltar ao início.`,
+          `📄 Estou gerando o boletim em PDF e envio aqui em seguida.\n\n` +
+          `O órgão foi notificado e fará a conferência. Digite *menu* para voltar ao início.`,
       };
     } catch (e: any) {
       return {
@@ -365,6 +376,33 @@ export class WhatsappMedicaoBotService {
         mensagem: `❌ Código inválido ou expirado (${e.message || 'erro'}). Tente novamente ou digite *enviar* para receber um novo código.`,
       };
     }
+  }
+
+  /** Gera o boletim oficial e envia o PDF ao fornecedor pela conversa. */
+  private async enviarBoletimPdf(
+    medicaoId: string,
+    numeroMedicao: number | undefined,
+    orgaoId: string,
+    phone: string,
+  ): Promise<void> {
+    await this.medicaoService.gerarPdfOficialMedicao(medicaoId);
+    const uploadDir =
+      process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads');
+    const filePath = path.join(uploadDir, 'boletins', `boletim_${medicaoId}.pdf`);
+    if (!fs.existsSync(filePath)) {
+      this.logger.warn(`Boletim PDF não encontrado em ${filePath}`);
+      return;
+    }
+    const documentoBase64 = fs.readFileSync(filePath).toString('base64');
+    const whatsapp = this.moduleRef.get(WhatsAppService, { strict: false });
+    await whatsapp.enviarDocumento(orgaoId, {
+      to: phone,
+      documentoBase64,
+      nomeArquivo: `Boletim_Medicao_${numeroMedicao || ''}.pdf`,
+      legenda: `📄 Boletim da Medição #${numeroMedicao || ''} — guarde este documento.`,
+      extensao: 'pdf',
+      mimeType: 'application/pdf',
+    });
   }
 
   // ──────────────────────────────────────────────────────────────────────────
