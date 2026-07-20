@@ -20,6 +20,7 @@ const ESTADOS = {
   CADASTRO_EMAIL: 'CADASTRO_EMAIL',
   CADASTRO_CONCLUIDO: 'CADASTRO_CONCLUIDO',
   FAQ_ATIVO: 'FAQ_ATIVO',
+  MEDICAO_EMPRESA: 'MEDICAO_EMPRESA',
   MEDICAO_CONTRATO: 'MEDICAO_CONTRATO',
   MEDICAO_ATIVA: 'MEDICAO_ATIVA',
   MEDICAO_DISCRIMINACAO: 'MEDICAO_DISCRIMINACAO',
@@ -178,6 +179,9 @@ Digite o número da opção desejada.`;
         case ESTADOS.FAQ_ATIVO:
           resposta = await this.handleFaqAtivo(texto, session);
           break;
+        case ESTADOS.MEDICAO_EMPRESA:
+          resposta = await this.handleMedicaoEmpresa(texto, session);
+          break;
         case ESTADOS.MEDICAO_CONTRATO:
           resposta = await this.handleMedicaoContrato(texto, session);
           break;
@@ -225,14 +229,54 @@ Digite o número da opção desejada.`;
     phone: string,
     midiaInicial?: MidiaWhatsApp,
   ): Promise<string> {
-    const fornecedor = await this.medicaoBot.identificarFornecedorPorTelefone(phone);
-    if (!fornecedor) {
+    const fornecedores = await this.medicaoBot.identificarFornecedoresPorTelefone(phone);
+    if (fornecedores.length === 0) {
       session.estado = ESTADOS.AGUARDANDO_INTENCAO;
       return (
         '🔒 Por segurança, o envio de medições só é liberado para o *telefone cadastrado* do fornecedor.\n\n' +
         `Não encontrei nenhum fornecedor com este número. Atualize o telefone do representante no portal *${this.getPortalUrl()}* (menu Perfil) e tente novamente.\n\n` +
         this.getMenuMessage()
       );
+    }
+
+    // Telefone vinculado a mais de uma empresa: pergunta qual antes de seguir
+    if (fornecedores.length > 1) {
+      session.dados = {
+        ...session.dados,
+        medicao_empresas: fornecedores.map((f) => ({ id: f.id, nome: f.razao_social })),
+        medicao_midia_pendente: midiaInicial || null,
+      };
+      session.estado = ESTADOS.MEDICAO_EMPRESA;
+      const lista = fornecedores
+        .map((f, i) => `${i + 1}️⃣ *${f.razao_social}*`)
+        .join('\n');
+      return `Este número está vinculado a mais de uma empresa. Em nome de qual você quer medir?\n\n${lista}\n\nDigite o número da opção.`;
+    }
+
+    return this.prosseguirComEmpresa(session, fornecedores[0].id, midiaInicial);
+  }
+
+  private async handleMedicaoEmpresa(texto: string, session: WhatsappAgentSession): Promise<string> {
+    if (texto.toLowerCase().trim() === 'menu') return this.handleInicio(session);
+    const dados = session.dados || {};
+    const empresas: Array<{ id: string; nome: string }> = dados.medicao_empresas || [];
+    const escolha = parseInt(texto.trim(), 10);
+    if (!escolha || escolha < 1 || escolha > empresas.length) {
+      return `Não entendi. Digite o número da empresa (1 a ${empresas.length}) ou *menu* para voltar.`;
+    }
+    const midiaPendente = (dados.medicao_midia_pendente as MidiaWhatsApp | null) || undefined;
+    return this.prosseguirComEmpresa(session, empresas[escolha - 1].id, midiaPendente);
+  }
+
+  private async prosseguirComEmpresa(
+    session: WhatsappAgentSession,
+    fornecedorId: string,
+    midiaInicial?: MidiaWhatsApp,
+  ): Promise<string> {
+    const fornecedor = await this.medicaoBot.buscarFornecedor(fornecedorId);
+    if (!fornecedor) {
+      session.estado = ESTADOS.AGUARDANDO_INTENCAO;
+      return `Empresa não encontrada. ${this.getMenuMessage()}`;
     }
 
     const contratos = await this.medicaoBot.listarContratosMediveis(fornecedor.id);
@@ -381,15 +425,15 @@ Digite o número da opção desejada.`;
     }
 
     if (normalizado === '4' || normalizado.includes('consult')) {
-      const fornecedor = await this.medicaoBot.identificarFornecedorPorTelefone(session.phone);
-      if (!fornecedor) {
+      const fornecedores = await this.medicaoBot.identificarFornecedoresPorTelefone(session.phone);
+      if (fornecedores.length === 0) {
         return (
           '🔒 A consulta de medições só é liberada para o *telefone cadastrado* do fornecedor.\n\n' +
           `Atualize o telefone do representante no portal *${this.getPortalUrl()}* e tente novamente.\n\n` +
           this.getMenuMessage()
         );
       }
-      return this.medicaoBot.listarMedicoesFornecedor(fornecedor.id);
+      return this.medicaoBot.listarMedicoesFornecedor(fornecedores.map((f) => f.id));
     }
 
     return `Não entendi sua escolha. Por favor, responda com:\n\n${this.getMenuMessage()}`;

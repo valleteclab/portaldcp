@@ -72,11 +72,12 @@ export class WhatsappMedicaoBotService {
     return numA === numB && numA.length >= 8;
   }
 
-  async identificarFornecedorPorTelefone(
+  /** Todos os fornecedores cujo telefone cadastrado bate com o da conversa. */
+  async identificarFornecedoresPorTelefone(
     phone: string,
-  ): Promise<Fornecedor | null> {
+  ): Promise<Fornecedor[]> {
     const alvo = this.normalizarTelefone(phone);
-    if (alvo.length < 10) return null;
+    if (alvo.length < 10) return [];
     const sufixo = alvo.slice(-8);
 
     const candidatos: Fornecedor[] = await this.fornecedorRepo.query(
@@ -86,21 +87,30 @@ export class WhatsappMedicaoBotService {
        WHERE regexp_replace(COALESCE(representante_telefone,''), '\\D', '', 'g') LIKE '%' || $1
           OR regexp_replace(COALESCE(telefone,''), '\\D', '', 'g') LIKE '%' || $1
           OR regexp_replace(COALESCE(telefone_secundario,''), '\\D', '', 'g') LIKE '%' || $1
-       LIMIT 10`,
+       ORDER BY razao_social
+       LIMIT 20`,
       [sufixo],
     );
 
-    for (const f of candidatos) {
+    return candidatos.filter((f) => {
       const telefones = [
         (f as any).representante_telefone,
         (f as any).telefone,
         (f as any).telefone_secundario,
       ].map((t) => this.normalizarTelefone(t));
-      if (telefones.some((t) => this.telefonesEquivalentes(t, alvo))) {
-        return f;
-      }
-    }
-    return null;
+      return telefones.some((t) => this.telefonesEquivalentes(t, alvo));
+    });
+  }
+
+  async identificarFornecedorPorTelefone(
+    phone: string,
+  ): Promise<Fornecedor | null> {
+    const todos = await this.identificarFornecedoresPorTelefone(phone);
+    return todos[0] || null;
+  }
+
+  async buscarFornecedor(id: string): Promise<Fornecedor | null> {
+    return this.fornecedorRepo.findOne({ where: { id } });
   }
 
   async buscarContrato(contratoId: string): Promise<Contrato | null> {
@@ -508,22 +518,27 @@ export class WhatsappMedicaoBotService {
     }
   }
 
-  async listarMedicoesFornecedor(fornecedorId: string): Promise<string> {
+  async listarMedicoesFornecedor(
+    fornecedorIds: string | string[],
+  ): Promise<string> {
+    const ids = Array.isArray(fornecedorIds) ? fornecedorIds : [fornecedorIds];
     const medicoes: Array<{
       numero_medicao: number;
       status: string;
       valor_medido: string;
       numero_contrato: string;
       competencia: string | null;
+      razao_social: string;
     }> = await this.medicaoRepo.query(
       `SELECT m.numero_medicao, m.status, m.valor_medido, m.competencia,
-              c.numero_contrato
+              c.numero_contrato, f.razao_social
        FROM medicoes m
        JOIN contratos c ON c.id = m.contrato_id
-       WHERE c.fornecedor_id = $1
+       JOIN fornecedores f ON f.id = c.fornecedor_id
+       WHERE c.fornecedor_id = ANY($1)
        ORDER BY m.created_at DESC
        LIMIT 10`,
-      [fornecedorId],
+      [ids],
     );
     if (medicoes.length === 0) {
       return 'Você ainda não possui medições registradas.\n\nDigite *menu* para voltar.';
@@ -537,13 +552,15 @@ export class WhatsappMedicaoBotService {
       APROVADA: '✅',
       DEVOLVIDA: '↩️',
     };
+    const varias = ids.length > 1;
     const linhas = medicoes.map((m) => {
       const valor = Number(m.valor_medido || 0).toLocaleString('pt-BR', {
         style: 'currency',
         currency: 'BRL',
       });
       const emoji = statusEmoji[m.status] || '▫️';
-      return `${emoji} *Medição #${m.numero_medicao}* — ${m.numero_contrato}${m.competencia ? ` (${m.competencia})` : ''}\n   ${valor} · ${m.status.replace(/_/g, ' ')}`;
+      const empresa = varias ? `\n   _${(m.razao_social || '').slice(0, 40)}_` : '';
+      return `${emoji} *Medição #${m.numero_medicao}* — ${m.numero_contrato}${m.competencia ? ` (${m.competencia})` : ''}${empresa}\n   ${valor} · ${m.status.replace(/_/g, ' ')}`;
     });
     return (
       `📋 *Suas últimas medições:*\n\n${linhas.join('\n\n')}\n\n` +
