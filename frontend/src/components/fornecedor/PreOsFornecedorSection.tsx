@@ -24,6 +24,8 @@ interface PreOs {
   enviada_em?: string | null
   respondida_em?: string | null
   pdf_url?: string | null
+  os_numero?: string | null
+  os_status?: string | null
 }
 
 const fmtBRL = (v: number | null | undefined) =>
@@ -35,6 +37,25 @@ const STATUS_BADGE: Record<PreOs['status'], { label: string; cls: string }> = {
   DEVOLVIDA: { label: 'Devolvida — corrija e reenvie', cls: 'bg-amber-100 text-amber-800' },
   ACEITA: { label: 'Aprovada pelo órgão', cls: 'bg-emerald-100 text-emerald-700' },
   CONVERTIDA: { label: 'OS emitida', cls: 'bg-indigo-100 text-indigo-700' },
+}
+
+/** Pré-OS convertida: o que vale para o fornecedor é o status da OS gerada */
+const badgeDaOs = (p: PreOs): { label: string; cls: string } => {
+  if (p.status !== 'CONVERTIDA' || !p.os_status) return STATUS_BADGE[p.status]
+  const numero = p.os_numero ? `${p.os_numero} — ` : 'OS '
+  switch (p.os_status) {
+    case 'AUTORIZADA':
+    case 'ORDEM_GERADA':
+      return { label: `${numero}autorizada ✓`, cls: 'bg-emerald-100 text-emerald-700' }
+    case 'AGUARDANDO_AUTORIZACAO':
+      return { label: `${numero}aguardando autorização do órgão`, cls: 'bg-amber-100 text-amber-800' }
+    case 'RASCUNHO':
+      return { label: `${numero}em preparação no órgão`, cls: 'bg-gray-100 text-gray-700' }
+    case 'NEGADA':
+      return { label: `${numero}negada pelo órgão`, cls: 'bg-red-100 text-red-700' }
+    default:
+      return STATUS_BADGE.CONVERTIDA
+  }
 }
 
 export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDisponivel }: { contratoId: string; fornecedorId: string; onDisponivel?: (ok: boolean) => void }) {
@@ -159,10 +180,16 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDis
                   {(p.status === 'ACEITA' || p.status === 'CONVERTIDA') && p.pdf_url && (
                     <a href={p.pdf_url} target="_blank" rel="noreferrer" className="block text-indigo-600 underline mt-0.5">📄 Baixar aprovação prévia (PDF)</a>
                   )}
+                  {p.status === 'CONVERTIDA' && p.os_status === 'AGUARDANDO_AUTORIZACAO' && (
+                    <span className="block text-amber-700 font-medium mt-0.5">⏳ A OS ainda não foi autorizada — aguarde a autorização antes de executar e emitir a nota fiscal.</span>
+                  )}
+                  {p.status === 'CONVERTIDA' && (p.os_status === 'AUTORIZADA' || p.os_status === 'ORDEM_GERADA') && (
+                    <span className="block text-emerald-700 mt-0.5">✅ OS autorizada — liberado para executar e emitir a nota fiscal.</span>
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge className={STATUS_BADGE[p.status].cls}>{STATUS_BADGE[p.status].label}</Badge>
+                <Badge className={badgeDaOs(p).cls}>{badgeDaOs(p).label}</Badge>
                 {(p.status === 'RASCUNHO' || p.status === 'DEVOLVIDA') && (
                   <>
                     <Button variant="outline" size="sm" onClick={() => abrirEdicao(p)}><Pencil className="w-4 h-4" /></Button>

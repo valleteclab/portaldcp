@@ -1318,6 +1318,24 @@ export class ContratosService implements OnModuleInit {
           `[renovacao_ciclo] Saldo dos itens do contrato ${contrato.numero_contrato} resetado para a quantidade contratada (novo ciclo).`,
         );
       }
+
+      // CRONOGRAMA (MEDICAO/CONTINUADO/etc.): a renovação também precisa zerar
+      // o baseline de consumo dos itens do cronograma — as VALIDAÇÕES de saldo
+      // (medição do fornecedor/chat/bot e emissão de OS) leem quantidade_medida
+      // e valor_migracao_reais crus; sem o reset, o ciclo novo nasce "esgotado"
+      // (casos 012/2024, 001/2025 e 048/2023, antes corrigidos por dado). O
+      // histórico do ciclo anterior fica preservado nas medições e snapshots.
+      const resetCronograma = await this.itemCronogramaRepository
+        .createQueryBuilder()
+        .update()
+        .set({ quantidade_medida: 0, valor_migracao_reais: 0 })
+        .where('contrato_id = :id', { id: contrato.id })
+        .execute();
+      if ((resetCronograma.affected || 0) > 0) {
+        this.logger.log(
+          `[renovacao_ciclo] Baseline do cronograma do contrato ${contrato.numero_contrato} zerado (${resetCronograma.affected} itens) — novo ciclo inicia sem consumo.`,
+        );
+      }
     }
 
     // Aplicar alterações de valor (mesmo com renovação de ciclo — o novo valor global reflete o novo ciclo)

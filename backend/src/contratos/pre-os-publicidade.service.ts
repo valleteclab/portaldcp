@@ -23,7 +23,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Contrato } from './entities/contrato.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { Usuario } from '../usuarios/entities/usuario.entity';
@@ -119,9 +119,38 @@ export class PreOsPublicidadeService {
 
   async listarDoFornecedor(contratoId: string, fornecedorId: string): Promise<PreOsPublicidade[]> {
     await this.contratoDoFornecedor(contratoId, fornecedorId);
-    return this.preOsRepo.find({
+    const lista = await this.preOsRepo.find({
       where: { contrato_id: contratoId, fornecedor_id: fornecedorId },
       order: { sequencial: 'DESC' },
+    });
+    return this.anexarStatusDaOs(lista);
+  }
+
+  /**
+   * Anexa o status da Requisição/OS gerada às pré-OS convertidas — o
+   * fornecedor precisa saber se a OS ainda AGUARDA AUTORIZAÇÃO do gestor
+   * (não pode executar/emitir NF) ou se já foi AUTORIZADA.
+   */
+  private async anexarStatusDaOs(
+    lista: PreOsPublicidade[],
+  ): Promise<PreOsPublicidade[]> {
+    const reqIds = lista
+      .map((p) => p.requisicao_id)
+      .filter((id): id is string => !!id);
+    if (reqIds.length === 0) return lista;
+    const reqs = await this.requisicaoRepo.find({
+      where: { id: In(reqIds) },
+      select: ['id', 'numero', 'status'] as any,
+    });
+    const porId = new Map(reqs.map((r) => [r.id, r]));
+    return lista.map((p) => {
+      const req = p.requisicao_id ? porId.get(p.requisicao_id) : undefined;
+      if (!req) return p;
+      return {
+        ...p,
+        os_numero: req.numero,
+        os_status: String(req.status),
+      } as PreOsPublicidade;
     });
   }
 
@@ -206,10 +235,11 @@ export class PreOsPublicidadeService {
     const contrato = await this.contratoRepo.findOne({ where: { id: contratoId } });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
     if (contrato.orgao_id !== orgaoId) throw new ForbiddenException('Sem acesso a este contrato');
-    return this.preOsRepo.find({
+    const lista = await this.preOsRepo.find({
       where: { contrato_id: contratoId },
       order: { sequencial: 'DESC' },
     });
+    return this.anexarStatusDaOs(lista);
   }
 
   async devolver(
