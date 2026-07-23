@@ -549,6 +549,9 @@ export default function FornecedorContratoDetalhePage() {
   const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([]);
   // Medição por OS (publicidade): fornecedor escolhe a OS autorizada que está medindo
   const [osMedicao, setOsMedicao] = useState<string>('');
+  // Retenções lidas da NF por IA (validação cruzada no envio)
+  const [retencoesNf, setRetencoesNf] = useState<{ descricao: string; valor: number }[] | null>(null);
+  const [lendoNf, setLendoNf] = useState(false);
 
   // Arquivos pendentes para upload após criação da medição
   const [arquivosPendentes, setArquivosPendentes] = useState<{ file: File; tipo: 'FOTO' | 'DOCUMENTO'; descricao: string }[]>([]);
@@ -1290,6 +1293,68 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  // Lê a NF anexada por IA: pré-preenche nº/data/valor da nota e a
+  // discriminação de despesas (retenções destacadas + linha de serviços)
+  const extrairDadosNf = async (file: File) => {
+    if (!fornecedor || !contrato) return;
+    setLendoNf(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('fornecedor_id', fornecedor.id);
+      const res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contrato.id}/medicoes/extrair-nf`, { method: 'POST', body: fd });
+      if (!res.ok) return;
+      const nf = await res.json();
+      // Campos da NF já digitados e DIVERGENTES do que a IA leu: mostra o
+      // comparativo e pergunta qual usar (a leitura pode falhar em foto ruim,
+      // por isso não sobrescreve sem confirmar)
+      const divergencias: string[] = [];
+      const digitadoNum = (novaMedicao.nota_fiscal_numero || '').trim();
+      const lidoNum = String(nf.nota_fiscal_numero || '').trim();
+      if (digitadoNum && lidoNum && digitadoNum.replace(/^0+/, '') !== lidoNum.replace(/^0+/, '')) {
+        divergencias.push(`• Número: você digitou "${digitadoNum}" — a nota diz "${lidoNum}"`);
+      }
+      const digitadoValor = parseValorDecimal(novaMedicao.nota_fiscal_valor || '');
+      if (digitadoValor > 0 && nf.nota_fiscal_valor != null && Math.abs(digitadoValor - Number(nf.nota_fiscal_valor)) > 0.01) {
+        divergencias.push(`• Valor: você digitou ${formatarMoeda(digitadoValor)} — a nota diz ${formatarMoeda(Number(nf.nota_fiscal_valor))}`);
+      }
+      if (novaMedicao.nota_fiscal_data && nf.nota_fiscal_data && novaMedicao.nota_fiscal_data !== nf.nota_fiscal_data) {
+        divergencias.push(`• Data de emissão: você digitou ${formatarData(novaMedicao.nota_fiscal_data)} — a nota diz ${formatarData(nf.nota_fiscal_data)}`);
+      }
+      const usarDadosDaNota = divergencias.length > 0
+        ? window.confirm(`⚠️ Os dados digitados divergem da nota fiscal anexada:\n\n${divergencias.join('\n')}\n\nUsar os dados lidos da NOTA? (Cancelar mantém o que você digitou)`)
+        : false;
+      setNovaMedicao(prev => ({
+        ...prev,
+        nota_fiscal_numero: usarDadosDaNota ? (nf.nota_fiscal_numero || prev.nota_fiscal_numero) : (prev.nota_fiscal_numero || nf.nota_fiscal_numero || ''),
+        nota_fiscal_valor: usarDadosDaNota && nf.nota_fiscal_valor != null ? String(nf.nota_fiscal_valor).replace('.', ',') : (prev.nota_fiscal_valor || (nf.nota_fiscal_valor != null ? String(nf.nota_fiscal_valor).replace('.', ',') : '')),
+        nota_fiscal_data: usarDadosDaNota ? (nf.nota_fiscal_data || prev.nota_fiscal_data) : (prev.nota_fiscal_data || nf.nota_fiscal_data || ''),
+      }));
+      const rets: { descricao: string; valor: number }[] = Array.isArray(nf.retencoes) ? nf.retencoes : [];
+      if (rets.length > 0) {
+        setRetencoesNf(rets);
+        setDiscriminacoes(prev => {
+          if (prev.length > 0) return prev; // não sobrescreve o que já foi digitado
+          const bruto = Number(nf.nota_fiscal_valor || 0);
+          const totalRet = rets.reduce((s, r) => s + Number(r.valor || 0), 0);
+          const servicos = Math.round((bruto - totalRet) * 100) / 100;
+          const linhas = rets.map(r => ({
+            descricao: String(r.descricao),
+            valor: Number(r.valor),
+            percentual: bruto > 0 ? Math.round((Number(r.valor) / bruto) * 10000) / 100 : 0,
+          }));
+          if (servicos > 0) {
+            linhas.push({ descricao: 'SERVIÇOS', valor: servicos, percentual: bruto > 0 ? Math.round((servicos / bruto) * 10000) / 100 : 0 });
+          }
+          return linhas;
+        });
+        alert(`🧾 Nota fiscal lida: ${rets.length} retenção(ões) encontradas e discriminação pré-preenchida. Confira os valores antes de enviar.`);
+      }
+    } catch { /* leitura da NF é melhor-esforço */ } finally {
+      setLendoNf(false);
+    }
+  };
+
   // Criar medição E submeter em um único passo (botão "Enviar para Ateste")
   const handleCriarESubmeter = async () => {
     if (!fornecedor) return;
@@ -1311,11 +1376,28 @@ export default function FornecedorContratoDetalhePage() {
         return;
       }
 
+      // Validação cruzada: a IA leu retenções na NF — todas precisam constar
+      // na discriminação (pelo valor). Bloqueia com a diferença apontada.
+      if (retencoesNf && retencoesNf.length > 0) {
+        const faltantes = retencoesNf.filter(r =>
+          !discriminacoes.some(d => Math.abs(Number(d.valor) - Number(r.valor)) <= 0.01)
+        );
+        if (faltantes.length > 0) {
+          const lista = faltantes.map(r => `• ${r.descricao}: ${formatarMoeda(Number(r.valor))}`).join('\n');
+          alert(
+            `❌ A nota fiscal anexada destaca retenções que NÃO estão na discriminação de despesas:\n\n${lista}\n\n` +
+            'Inclua essas linhas (ou corrija os valores) antes de enviar — medições com discriminação divergente da NF são recusadas pela contabilidade.'
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
+
       // Alerta de retenções ausentes: medições sem IR/ISS/INSS discriminados são recusadas pela contabilidade
       const temRetencao = discriminacoes.some(d =>
         /imposto\s*de\s*renda|irrf|\bir\b|\biss\b|\binss\b|csll|pis|cofins|reten[cç]/i.test(d.descricao || '')
       );
-      if (!temRetencao) {
+      if (!(retencoesNf && retencoesNf.length > 0) && !temRetencao) {
         const confirmaSemRetencao = window.confirm(
           'ATENÇÃO: nenhuma linha da discriminação parece ser uma retenção (Imposto de Renda, ISS, INSS...).\n\n' +
           'Confira a nota fiscal: se houver retenções destacadas, TODAS devem ser discriminadas — medições com discriminação incompleta são devolvidas pela contabilidade.\n\n' +
@@ -1598,6 +1680,7 @@ export default function FornecedorContratoDetalhePage() {
 
   const abrirModalNovaMedicao = async () => {
     setOsMedicao('');
+    setRetencoesNf(null);
     setNovaMedicao({
       periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
@@ -3278,6 +3361,11 @@ export default function FornecedorContratoDetalhePage() {
                   <Paperclip className="w-4 h-4" />
                   Fotos e Documentos
                   <span className="text-xs font-normal text-gray-400">(opcional)</span>
+                  {lendoNf && (
+                    <span className="text-xs font-normal text-blue-600 flex items-center gap-1">
+                      <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500" /> lendo a nota fiscal…
+                    </span>
+                  )}
                 </Label>
                 <div className="flex gap-2">
                   <Button
@@ -3293,6 +3381,8 @@ export default function FornecedorContratoDetalhePage() {
                           const titulo = prompt('Título da foto (opcional):') ?? '';
                           const novos = Array.from(files).map(f => ({ file: f, tipo: 'FOTO' as const, descricao: titulo }));
                           setArquivosPendentes(prev => [...prev, ...novos]);
+                          // Foto pode ser a NF: tenta ler por IA
+                          extrairDadosNf(files[0]);
                         }
                       };
                       input.click();
@@ -3312,6 +3402,8 @@ export default function FornecedorContratoDetalhePage() {
                         if (files && files.length > 0) {
                           const titulo = prompt('Título dos documentos (opcional):') ?? '';
                           setArquivosPendentes(prev => [...prev, ...Array.from(files).map(f => ({ file: f, tipo: 'DOCUMENTO' as const, descricao: titulo }))]);
+                          // Lê a NF por IA: pré-preenche nº/data/valor e discriminação (retenções)
+                          extrairDadosNf(files[0]);
                         }
                       };
                       input.click();

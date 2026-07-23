@@ -17,7 +17,8 @@ import {
 } from '@nestjs/common';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { diskStorage, memoryStorage } from 'multer';
+import { MedicaoChatService } from './medicao-chat.service';
 import { extname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { MedicaoService } from './medicao.service';
@@ -49,6 +50,7 @@ export class FornecedorMedicaoController {
     private readonly medicaoService: MedicaoService,
     private readonly contratosService: ContratosService,
     private readonly uploadService: UploadService,
+    private readonly medicaoChatService: MedicaoChatService,
     @InjectRepository(Contrato)
     private readonly contratoRepository: Repository<Contrato>,
     @InjectRepository(AnexoMedicao)
@@ -56,6 +58,36 @@ export class FornecedorMedicaoController {
     @InjectRepository(Medicao)
     private readonly medicaoRepository: Repository<Medicao>,
   ) { }
+
+  /**
+   * Extrai dados da NF (número, data de emissão, valor e retenções destacadas)
+   * para pré-preencher a medição no formulário clássico.
+   * POST /api/fornecedor/contratos/:contratoId/medicoes/extrair-nf
+   */
+  @Post(':contratoId/medicoes/extrair-nf')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async extrairNotaFiscal(
+    @Param('contratoId') contratoId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { fornecedor_id: string },
+  ) {
+    if (!body.fornecedor_id) {
+      throw new BadRequestException('fornecedor_id é obrigatório');
+    }
+    if (!file) {
+      throw new BadRequestException('Arquivo da nota fiscal é obrigatório');
+    }
+    return this.medicaoChatService.extrairDadosNotaFiscal(
+      file,
+      contratoId,
+      body.fornecedor_id,
+    );
+  }
 
   /**
    * Valida que o fornecedor é dono do contrato.

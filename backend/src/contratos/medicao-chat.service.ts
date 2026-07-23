@@ -4780,8 +4780,9 @@ Campos:
 - periodo_fim (YYYY-MM-DD ou null, somente se a nota trouxer o período de medição/prestação)
 - competencia (MÊS/ANO ou null)
 - descricao_servico (string ou null)
+- retencoes (array — TODAS as retenções/deduções DESTACADAS na nota: ISS, IRRF/IR, INSS, CSLL, PIS, COFINS etc. Cada item {"tipo":"ISS","valor":43.73}. Use o nome como aparece na nota. Se a nota não destaca nenhuma retenção, retorne []. NUNCA invente valores — só o que está impresso.)
 Retorne exatamente:
-{"numero":"","data_emissao":null,"valor_bruto":null,"valor_liquido":null,"periodo_inicio":null,"periodo_fim":null,"competencia":null,"descricao_servico":null}`;
+{"numero":"","data_emissao":null,"valor_bruto":null,"valor_liquido":null,"periodo_inicio":null,"periodo_fim":null,"competencia":null,"descricao_servico":null,"retencoes":[]}`;
 
     let resposta = '';
     if (file.mimetype === 'application/pdf') {
@@ -4834,7 +4835,29 @@ Retorne exatamente:
         parsed.descricao_servico != null
           ? String(parsed.descricao_servico)
           : null,
+      retencoes: Array.isArray(parsed.retencoes)
+        ? parsed.retencoes
+            .map((r: any) => ({
+              descricao: String(r?.tipo || r?.descricao || '').trim().toUpperCase(),
+              valor: Number(r?.valor),
+            }))
+            .filter((r: any) => r.descricao && Number.isFinite(r.valor) && r.valor > 0)
+        : [],
     };
+  }
+
+  /**
+   * Extração pública de dados da NF (número, data de emissão, valores e
+   * RETENÇÕES destacadas) — usada pelo formulário clássico do fornecedor
+   * para pré-preencher a medição e a discriminação de despesas.
+   */
+  async extrairDadosNotaFiscal(
+    file: Express.Multer.File,
+    contratoId: string,
+    fornecedorId: string,
+  ) {
+    await this.validarContexto(contratoId, fornecedorId);
+    return this.extrairSugestaoNotaFiscal(file, contratoId, fornecedorId);
   }
 
   private extrairSugestaoNfseXml(xml: string, fornecedorCnpj: string) {
