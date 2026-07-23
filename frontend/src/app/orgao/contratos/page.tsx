@@ -149,6 +149,7 @@ function ContratosOrgaoPageContent() {
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [contratosAVencer, setContratosAVencer] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
+  const [carregouUmaVez, setCarregouUmaVez] = useState(false)
   const [filtros, setFiltros] = useState({
     busca: '',
     status: '',
@@ -391,6 +392,7 @@ window._extraindoContratos = true;
 
   const carregarDados = async (pageContratos?: number) => {
     setLoading(true)
+    // (carregouUmaVez marcado no finally — mantém a lista montada nas próximas)
     try {
       const orgaoData = localStorage.getItem('orgao')
       if (!orgaoData) return
@@ -447,6 +449,7 @@ window._extraindoContratos = true;
       console.error('Erro ao carregar dados:', error)
     } finally {
       setLoading(false)
+      setCarregouUmaVez(true)
     }
   }
 
@@ -542,7 +545,10 @@ window._extraindoContratos = true;
     return [...set].sort((a, b) => b - a)
   }, [anosDisponiveis, filtros.ano])
 
-  if (loading) {
+  // Spinner de página inteira só no PRIMEIRO carregamento — nas buscas/filtros
+  // a lista permanece montada (senão o campo de busca desmonta a cada consulta
+  // e a tela "pisca" a cada letra digitada)
+  if (loading && !carregouUmaVez) {
     return (
       <div className="p-8 text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
@@ -739,6 +745,9 @@ window._extraindoContratos = true;
                   value={filtros.busca}
                   onChange={(e) => setFiltros({ ...filtros, busca: e.target.value })}
                 />
+                {loading && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500" />
+                )}
               </div>
               <Select value={filtros.status || 'all'} onValueChange={(v) => setFiltros({ ...filtros, status: v === 'all' ? '' : v })}>
                 <SelectTrigger className="w-40">
@@ -765,11 +774,11 @@ window._extraindoContratos = true;
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className={loading ? 'opacity-60 transition-opacity duration-200' : 'transition-opacity duration-200'}>
           {contratos.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-              <p>Nenhum contrato encontrado.</p>
+              <p>{loading ? 'Buscando...' : 'Nenhum contrato encontrado.'}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
