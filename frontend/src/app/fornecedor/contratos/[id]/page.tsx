@@ -1305,11 +1305,30 @@ export default function FornecedorContratoDetalhePage() {
       const res = await authFetch(`${API_URL}/api/fornecedor/contratos/${contrato.id}/medicoes/extrair-nf`, { method: 'POST', body: fd });
       if (!res.ok) return;
       const nf = await res.json();
+      // Campos da NF já digitados e DIVERGENTES do que a IA leu: mostra o
+      // comparativo e pergunta qual usar (a leitura pode falhar em foto ruim,
+      // por isso não sobrescreve sem confirmar)
+      const divergencias: string[] = [];
+      const digitadoNum = (novaMedicao.nota_fiscal_numero || '').trim();
+      const lidoNum = String(nf.nota_fiscal_numero || '').trim();
+      if (digitadoNum && lidoNum && digitadoNum.replace(/^0+/, '') !== lidoNum.replace(/^0+/, '')) {
+        divergencias.push(`• Número: você digitou "${digitadoNum}" — a nota diz "${lidoNum}"`);
+      }
+      const digitadoValor = parseValorDecimal(novaMedicao.nota_fiscal_valor || '');
+      if (digitadoValor > 0 && nf.nota_fiscal_valor != null && Math.abs(digitadoValor - Number(nf.nota_fiscal_valor)) > 0.01) {
+        divergencias.push(`• Valor: você digitou ${formatarMoeda(digitadoValor)} — a nota diz ${formatarMoeda(Number(nf.nota_fiscal_valor))}`);
+      }
+      if (novaMedicao.nota_fiscal_data && nf.nota_fiscal_data && novaMedicao.nota_fiscal_data !== nf.nota_fiscal_data) {
+        divergencias.push(`• Data de emissão: você digitou ${formatarData(novaMedicao.nota_fiscal_data)} — a nota diz ${formatarData(nf.nota_fiscal_data)}`);
+      }
+      const usarDadosDaNota = divergencias.length > 0
+        ? window.confirm(`⚠️ Os dados digitados divergem da nota fiscal anexada:\n\n${divergencias.join('\n')}\n\nUsar os dados lidos da NOTA? (Cancelar mantém o que você digitou)`)
+        : false;
       setNovaMedicao(prev => ({
         ...prev,
-        nota_fiscal_numero: prev.nota_fiscal_numero || nf.nota_fiscal_numero || '',
-        nota_fiscal_valor: prev.nota_fiscal_valor || (nf.nota_fiscal_valor != null ? String(nf.nota_fiscal_valor).replace('.', ',') : ''),
-        nota_fiscal_data: prev.nota_fiscal_data || nf.nota_fiscal_data || '',
+        nota_fiscal_numero: usarDadosDaNota ? (nf.nota_fiscal_numero || prev.nota_fiscal_numero) : (prev.nota_fiscal_numero || nf.nota_fiscal_numero || ''),
+        nota_fiscal_valor: usarDadosDaNota && nf.nota_fiscal_valor != null ? String(nf.nota_fiscal_valor).replace('.', ',') : (prev.nota_fiscal_valor || (nf.nota_fiscal_valor != null ? String(nf.nota_fiscal_valor).replace('.', ',') : '')),
+        nota_fiscal_data: usarDadosDaNota ? (nf.nota_fiscal_data || prev.nota_fiscal_data) : (prev.nota_fiscal_data || nf.nota_fiscal_data || ''),
       }));
       const rets: { descricao: string; valor: number }[] = Array.isArray(nf.retencoes) ? nf.retencoes : [];
       if (rets.length > 0) {
