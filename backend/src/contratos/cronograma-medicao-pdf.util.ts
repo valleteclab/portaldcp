@@ -73,7 +73,12 @@ export function centavosParaReaisTrunc2(centavos: number): number {
 export function truncarMoedaReais2Casas(v: number): number {
   const x = Number(v);
   if (!Number.isFinite(x)) return 0;
-  return (x < 0 ? -1 : 1) * Math.floor(Math.abs(x) * 100 + 1e-9) / 100;
+  // O epsilon fixo (1e-9) falhava para valores grandes: 1.074.855,65 × 100 =
+  // 107.485.564,99999999 (erro IEEE ~1e-8 > 1e-9) → truncava p/ ...,64 e, na
+  // segunda passada, ...,63 (caso BSM 051/2023 med 7). toFixed(6) elimina o
+  // ruído de representação antes do floor sem afetar truncamentos reais.
+  const centavos = Math.floor(Number((Math.abs(x) * 100).toFixed(6)));
+  return ((x < 0 ? -1 : 1) * centavos) / 100;
 }
 
 export function valorPorFrequenciaItemCronograma(ic: Pick<ItemCronograma, 'quantidade' | 'valor_unitario' | 'valor_mensal' | 'unidade_medida'>): number {

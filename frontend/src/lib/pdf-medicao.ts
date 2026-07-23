@@ -162,7 +162,10 @@ function fmt(v: number): string {
 function truncarMoedaReais2Casas(v: number): number {
   const x = Number(v)
   if (!Number.isFinite(x)) return 0
-  return (x < 0 ? -1 : 1) * Math.floor(Math.abs(x) * 100 + 1e-9) / 100
+  // toFixed(6) elimina o ruído IEEE 754 antes do floor (1e-9 falhava p/ valores
+  // grandes: 1.074.855,65×100 = 107.485.564,99999999 → truncava errado)
+  const centavos = Math.floor(Number((Math.abs(x) * 100).toFixed(6)))
+  return ((x < 0 ? -1 : 1) * centavos) / 100
 }
 
 /** q×vu com até 2 casas cada → trunc em 2 casas reais (ex.: 2831,40×6,94 → 19.649,91). */
