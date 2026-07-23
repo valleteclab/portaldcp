@@ -266,7 +266,47 @@ export class WhatsappMedicaoBotService {
       file,
       legenda || 'Nota fiscal enviada pelo WhatsApp',
     );
+    // Guarda as retenções lidas da NF para propor a discriminação no envio
+    const anexos = resposta?.preview?.draft?.anexos_pendentes || [];
+    const comNf = [...anexos]
+      .reverse()
+      .find((a: any) => a?.nf_sugerida?.retencoes?.length > 0);
+    if (comNf) {
+      session.dados = {
+        ...session.dados,
+        medicao_nf_retencoes: comNf.nf_sugerida.retencoes,
+      };
+    }
     return this.ultimaRespostaAssistente(resposta) + this.rodapePadrao(resposta);
+  }
+
+  /** Retenções lidas da NF anexada nesta sessão (agente ou chat). */
+  private async retencoesDaNfDaSessao(
+    session: WhatsappAgentSession,
+  ): Promise<Array<{ descricao: string; valor: number }> | null> {
+    const dados = session.dados || {};
+    const salvas = dados.medicao_nf_retencoes;
+    if (Array.isArray(salvas) && salvas.length > 0) {
+      return salvas
+        .map((r: any) => ({
+          descricao: String(r.descricao || r.tipo || '').toUpperCase(),
+          valor: Number(r.valor),
+        }))
+        .filter((r) => r.descricao && Number.isFinite(r.valor) && r.valor > 0);
+    }
+    try {
+      const resposta = await this.medicaoChat.obterSessao(
+        dados.medicao_chat_session_id,
+        dados.medicao_fornecedor_id,
+      );
+      const anexos = resposta?.preview?.draft?.anexos_pendentes || [];
+      const comNf = [...anexos]
+        .reverse()
+        .find((a: any) => a?.nf_sugerida?.retencoes?.length > 0);
+      return comNf ? comNf.nf_sugerida.retencoes : null;
+    } catch {
+      return null;
+    }
   }
 
   private async baixarMidia(
@@ -338,6 +378,46 @@ export class WhatsappMedicaoBotService {
     );
     if (!discriminacoes || discriminacoes.length === 0) {
       session.dados = { ...dados, medicao_id_otp: medicaoId };
+
+      // A IA leu retenções na NF anexada? Propõe a discriminação pronta.
+      const retencoes = await this.retencoesDaNfDaSessao(session);
+      if (retencoes && retencoes.length > 0) {
+        const medicao = await this.medicaoRepo.findOne({
+          where: { id: medicaoId },
+        });
+        const valorMedicao = Number(medicao?.valor_medido || 0);
+        const totalRet = retencoes.reduce((s, r) => s + r.valor, 0);
+        const servicos = Math.round((valorMedicao - totalRet) * 100) / 100;
+        const itens = [
+          ...retencoes.map((r) => ({ ...r, percentual: 0 })),
+          ...(servicos > 0
+            ? [{ descricao: 'SERVIÇOS', valor: servicos, percentual: 0 }]
+            : []),
+        ];
+        await this.medicaoService.salvarDiscriminacoes(
+          medicaoId,
+          dados.medicao_fornecedor_id,
+          itens,
+        );
+        const fmt = (v: number) =>
+          v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const linhas = itens
+          .map((i) => `▫️ ${i.descricao}: ${fmt(i.valor)}`)
+          .join('\n');
+        // Segue direto para o OTP com a discriminação lida da NF
+        await this.medicaoService.solicitarOtpAssinaturaMedicao(
+          medicaoId,
+          dados.medicao_fornecedor_id,
+        );
+        return {
+          ok: true,
+          mensagem:
+            `🧾 Li a discriminação na sua nota fiscal e registrei:\n${linhas}\n\n` +
+            `_(Se algo estiver diferente da NF, digite *cancelar* e depois me mande as linhas corretas.)_\n\n` +
+            '🔐 Enviei um *código de verificação* para os seus contatos cadastrados. Digite o código aqui para *assinar e enviar* a medição.',
+        };
+      }
+
       return {
         ok: false,
         precisaDiscriminacao: true,
