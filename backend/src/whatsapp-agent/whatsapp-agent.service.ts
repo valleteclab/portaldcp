@@ -39,6 +39,8 @@ const JANELA_RATE_LIMIT_MS = 60_000; // 1 minuto
 const MAX_MSGS_POR_JANELA = 15;
 /** Duração da pausa automática após detectar loop/flood. */
 const PAUSA_SILENCIO_MS = 30 * 60_000; // 30 minutos
+/** Pausa quando um HUMANO responde manualmente pelo WhatsApp da IA (assume a conversa). */
+const PAUSA_ATENDIMENTO_HUMANO_MS = 3 * 60 * 60_000; // 3 horas
 
 @Injectable()
 export class WhatsappAgentService {
@@ -334,6 +336,30 @@ Digite o número da opção desejada.`;
       );
     } catch {
       /* se o aviso falhar, tudo bem — o importante é ter pausado */
+    }
+  }
+
+  /**
+   * Um humano respondeu MANUALMENTE pelo WhatsApp da IA a este contato → assume a
+   * conversa e pausa a IA por algumas horas (renova a cada resposta manual).
+   * Chamado pelo webhook quando chega mensagem enviada pelo próprio número (fromApi=false).
+   */
+  async registrarRespostaManual(phone: string): Promise<void> {
+    try {
+      const session = await this.obterOuCriarSessao(phone);
+      session.silenciado_ate = new Date(
+        Date.now() + PAUSA_ATENDIMENTO_HUMANO_MS,
+      );
+      session.silenciado_motivo = 'ATENDIMENTO_HUMANO';
+      session.repeticoes_resposta = 0;
+      await this.sessionRepo.save(session);
+      this.logger.log(
+        `IA pausada para ${phone} (atendimento humano) até ${session.silenciado_ate.toISOString()}.`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `Falha ao registrar resposta manual para ${phone}: ${err.message}`,
+      );
     }
   }
 
