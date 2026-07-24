@@ -41,7 +41,7 @@ export class WhatsappAgentSession {
   silenciado_ate: Date | null;
 
   /** Motivo da última pausa (loop de resposta repetida / excesso de mensagens). */
-  @Column({ nullable: true, length: 40 })
+  @Column({ type: 'varchar', nullable: true, length: 40 })
   silenciado_motivo: string | null;
 
   /** Nº de vezes que a MESMA resposta foi enviada seguidas (detecção de loop). */
@@ -49,7 +49,7 @@ export class WhatsappAgentSession {
   repeticoes_resposta: number;
 
   /** Hash da última resposta enviada (para comparar repetição). */
-  @Column({ nullable: true, length: 64 })
+  @Column({ type: 'varchar', nullable: true, length: 64 })
   ultima_resposta_hash: string | null;
 
   /** Início da janela de rate-limit. */
