@@ -25,6 +25,31 @@ export class WhatsappAgentController {
     // Ignorar mensagens de grupos
     if (payload?.isGroup) return { ok: true };
 
+    // Mensagem ENVIADA pelo próprio número da IA:
+    //   fromApi === true  → foi a própria IA (enviada via API) → ignora.
+    //   fromApi !== true   → um HUMANO respondeu manualmente pelo WhatsApp da IA →
+    //                        assume a conversa e pausa a IA para esse contato.
+    // (Exige o Z-API estar configurado para "notificar mensagens enviadas por mim".)
+    if (payload?.fromMe === true) {
+      if (payload?.fromApi !== true) {
+        const alvo: string = (payload?.phone || payload?.chatId || '').replace(
+          /\D/g,
+          '',
+        );
+        this.logger.log(
+          `Resposta manual detectada para ${alvo} — pausando IA nessa conversa.`,
+        );
+        if (alvo) {
+          this.agentService
+            .registrarRespostaManual(alvo)
+            .catch((err) =>
+              this.logger.error(`Erro ao pausar por resposta manual: ${err.message}`),
+            );
+        }
+      }
+      return { ok: true };
+    }
+
     // Processar apenas mensagens recebidas (ReceivedCallback)
     const tipo: string = payload?.type || '';
     if (tipo && tipo !== 'ReceivedCallback') return { ok: true };

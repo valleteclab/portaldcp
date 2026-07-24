@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { createHash } from 'crypto';
 import { WhatsappAgentSession } from './entities/whatsapp-agent-session.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { IaService } from '../ia/ia.service';
@@ -29,6 +30,17 @@ const ESTADOS = {
 
 const SESSION_TTL_HOURS = 24;
 const MAX_HISTORICO_IA = 10;
+
+// ── Anti-loop / rate-limit (evita o agente responder infinitamente, ex.: IA-com-IA) ──
+/** Máx. de respostas IDÊNTICAS seguidas antes de pausar (ex.: loop de "CNPJ inválido"). */
+const MAX_RESPOSTAS_REPETIDAS = 4;
+/** Janela de rate-limit e máximo de mensagens por janela. */
+const JANELA_RATE_LIMIT_MS = 60_000; // 1 minuto
+const MAX_MSGS_POR_JANELA = 15;
+/** Duração da pausa automática após detectar loop/flood. */
+const PAUSA_SILENCIO_MS = 30 * 60_000; // 30 minutos
+/** Pausa quando um HUMANO responde manualmente pelo WhatsApp da IA (assume a conversa). */
+const PAUSA_ATENDIMENTO_HUMANO_MS = 3 * 60 * 60_000; // 3 horas
 
 @Injectable()
 export class WhatsappAgentService {
@@ -109,6 +121,18 @@ Digite o número da opção desejada.`;
   ) {}
 
   async processarMensagem(phone: string, mensagem: string, nomeContato?: string, orgaoId?: string, midia?: MidiaWhatsApp): Promise<void> {
+    const texto = mensagem.trim();
+    const phoneLimpo = (phone || '').replace(/\D/g, '');
+
+    // ── Comando de ADMINISTRADOR (dono do sistema): funciona MESMO com a IA desativada,
+    //    para o admin poder reativar depois de responder um fornecedor manualmente. ──
+    const admins = await this.systemConfigService.getWhatsAppAgentAdmins();
+    if (admins.some((a) => this.telefoneBate(a, phoneLimpo))) {
+      const respAdmin = await this.tratarComandoAdmin(texto);
+      if (respAdmin) await this.responder(orgaoId, phone, respAdmin);
+      return; // admin não entra no fluxo de atendimento
+    }
+
     // Verificar se o agente está ativo
     const { ativo } = await this.systemConfigService.getWhatsAppAgentConfig();
     if (!ativo) {
@@ -116,8 +140,35 @@ Digite o número da opção desejada.`;
       return;
     }
 
-    const texto = mensagem.trim();
     const session = await this.obterOuCriarSessao(phone, nomeContato);
+
+    // ── Atendimento EXCLUSIVO para empresas cadastradas (número precisa estar no cadastro). ──
+    const fornecedor =
+      await this.medicaoBot.identificarFornecedorPorTelefone(phone);
+    if (!fornecedor) {
+      // Número desconhecido (ex.: outra IA): orienta UMA vez e silencia (anti-loop).
+      if (
+        session.silenciado_ate &&
+        new Date() < new Date(session.silenciado_ate)
+      ) {
+        return;
+      }
+      session.silenciado_ate = new Date(Date.now() + PAUSA_SILENCIO_MS);
+      session.silenciado_motivo = 'NAO_CADASTRADO';
+      await this.sessionRepo.save(session);
+      await this.responder(
+        orgaoId,
+        phone,
+        'Olá! 👋 Este atendimento automático é *exclusivo para empresas já cadastradas* no portal da Câmara.\n\n' +
+          `Se a sua empresa ainda não tem cadastro, acesse *${this.getPortalUrl()}* para se cadastrar.\n\n` +
+          'Se você já é cadastrado, confirme que está usando o WhatsApp informado no portal.',
+      );
+      return;
+    }
+    // Vincula o fornecedor identificado pelo telefone à sessão.
+    if (fornecedor.id && session.fornecedor_id !== fornecedor.id) {
+      session.fornecedor_id = fornecedor.id;
+    }
 
     // Verificar expiração da sessão
     if (session.expires_at && new Date() > session.expires_at) {
@@ -130,6 +181,40 @@ Digite o número da opção desejada.`;
     const novaExpiracao = new Date();
     novaExpiracao.setHours(novaExpiracao.getHours() + SESSION_TTL_HOURS);
     session.expires_at = novaExpiracao;
+
+    // ── Anti-loop: número pausado por loop/flood → ignora a mensagem ──
+    const agora = new Date();
+    if (session.silenciado_ate && agora < new Date(session.silenciado_ate)) {
+      this.logger.warn(
+        `Agente pausado para ${phone} até ${new Date(
+          session.silenciado_ate,
+        ).toISOString()} (${session.silenciado_motivo}); ignorando mensagem.`,
+      );
+      return;
+    }
+    if (session.silenciado_ate) {
+      // pausa expirou → volta a atender, zera contadores
+      session.silenciado_ate = null;
+      session.silenciado_motivo = null;
+      session.repeticoes_resposta = 0;
+      session.janela_contador = 0;
+    }
+
+    // ── Rate-limit: excesso de mensagens numa janela curta (flood/IA-com-IA) ──
+    if (
+      !session.janela_inicio ||
+      agora.getTime() - new Date(session.janela_inicio).getTime() >
+        JANELA_RATE_LIMIT_MS
+    ) {
+      session.janela_inicio = agora;
+      session.janela_contador = 1;
+    } else {
+      session.janela_contador = (session.janela_contador || 0) + 1;
+    }
+    if (session.janela_contador > MAX_MSGS_POR_JANELA) {
+      await this.silenciarSessao(session, phone, orgaoId, 'FLOOD');
+      return;
+    }
 
     let resposta: string;
 
@@ -203,8 +288,116 @@ Digite o número da opção desejada.`;
       session.estado = ESTADOS.AGUARDANDO_INTENCAO;
     }
 
+    // ── Anti-loop: mesma resposta enviada várias vezes seguidas ──
+    const hashResposta = createHash('sha256')
+      .update(resposta || '')
+      .digest('hex')
+      .slice(0, 32);
+    if (hashResposta === session.ultima_resposta_hash) {
+      session.repeticoes_resposta = (session.repeticoes_resposta || 0) + 1;
+    } else {
+      session.ultima_resposta_hash = hashResposta;
+      session.repeticoes_resposta = 1;
+    }
+    if (session.repeticoes_resposta >= MAX_RESPOSTAS_REPETIDAS) {
+      await this.silenciarSessao(session, phone, orgaoId, 'LOOP_RESPOSTA');
+      return;
+    }
+
     await this.sessionRepo.save(session);
     await this.responder(orgaoId, phone, resposta);
+  }
+
+  /**
+   * Pausa o agente para este número por PAUSA_SILENCIO_MS e envia UM aviso final.
+   * Evita o loop de IA-com-IA sem precisar desativar o agente inteiro.
+   */
+  private async silenciarSessao(
+    session: WhatsappAgentSession,
+    phone: string,
+    orgaoId: string | undefined,
+    motivo: 'LOOP_RESPOSTA' | 'FLOOD',
+  ): Promise<void> {
+    session.silenciado_ate = new Date(Date.now() + PAUSA_SILENCIO_MS);
+    session.silenciado_motivo = motivo;
+    session.repeticoes_resposta = 0;
+    session.janela_contador = 0;
+    await this.sessionRepo.save(session);
+    this.logger.warn(
+      `Agente PAUSADO para ${phone} por ${motivo} até ${session.silenciado_ate.toISOString()}.`,
+    );
+    // Envia UM aviso final (a próxima mensagem já cai no silêncio e é ignorada)
+    try {
+      await this.responder(
+        orgaoId,
+        phone,
+        'Percebi que a conversa entrou em repetição, então vou *pausar o atendimento automático* por aqui. ' +
+          'Se precisar, um atendente pode assumir — ou envie *menu* mais tarde para recomeçar. 🙏',
+      );
+    } catch {
+      /* se o aviso falhar, tudo bem — o importante é ter pausado */
+    }
+  }
+
+  /**
+   * Um humano respondeu MANUALMENTE pelo WhatsApp da IA a este contato → assume a
+   * conversa e pausa a IA por algumas horas (renova a cada resposta manual).
+   * Chamado pelo webhook quando chega mensagem enviada pelo próprio número (fromApi=false).
+   */
+  async registrarRespostaManual(phone: string): Promise<void> {
+    try {
+      const session = await this.obterOuCriarSessao(phone);
+      session.silenciado_ate = new Date(
+        Date.now() + PAUSA_ATENDIMENTO_HUMANO_MS,
+      );
+      session.silenciado_motivo = 'ATENDIMENTO_HUMANO';
+      session.repeticoes_resposta = 0;
+      await this.sessionRepo.save(session);
+      this.logger.log(
+        `IA pausada para ${phone} (atendimento humano) até ${session.silenciado_ate.toISOString()}.`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        `Falha ao registrar resposta manual para ${phone}: ${err.message}`,
+      );
+    }
+  }
+
+  /** Compara dois telefones pelo sufixo (tolera DDI/formatação diferentes). */
+  private telefoneBate(a: string, b: string): boolean {
+    const da = (a || '').replace(/\D/g, '');
+    const db = (b || '').replace(/\D/g, '');
+    if (!da || !db) return false;
+    const n = Math.min(da.length, db.length, 11);
+    return n >= 8 && da.slice(-n) === db.slice(-n);
+  }
+
+  /**
+   * Comandos do administrador via WhatsApp. Retorna a resposta ou null (não é comando).
+   * Permite ligar/desligar a IA sem precisar do painel — ex.: desligar para
+   * responder um fornecedor manualmente e religar depois.
+   */
+  private async tratarComandoAdmin(texto: string): Promise<string | null> {
+    const cmd = (texto || '').trim().toLowerCase();
+    const OFF = ['/ia off', '/off', '/desativar', '/pausar', 'ia off'];
+    const ON = ['/ia on', '/on', '/ativar', '/retomar', 'ia on'];
+    const STATUS = ['/ia status', '/status', 'ia status'];
+    if (OFF.includes(cmd)) {
+      await this.systemConfigService.setWhatsAppAgentAtivo(false);
+      return '🔴 *IA desativada.* Agora você pode responder os fornecedores manualmente. Envie */ia on* quando quiser reativar o atendimento automático.';
+    }
+    if (ON.includes(cmd)) {
+      await this.systemConfigService.setWhatsAppAgentAtivo(true);
+      return '🟢 *IA reativada.* O atendimento automático voltou a funcionar.';
+    }
+    if (STATUS.includes(cmd)) {
+      const { ativo } = await this.systemConfigService.getWhatsAppAgentConfig();
+      return `ℹ️ Atendimento automático: ${ativo ? '🟢 *ativo*' : '🔴 *desativado*'}.`;
+    }
+    if (cmd.startsWith('/') || cmd.startsWith('ia ') || cmd === 'ia') {
+      return 'Comandos do administrador:\n• */ia off* — desativar a IA (para você responder)\n• */ia on* — reativar a IA\n• */ia status* — ver o status atual';
+    }
+    return null; // mensagem normal do admin → ignora (não engaja no fluxo)
   }
 
   private async responder(orgaoId: string | undefined, phone: string, resposta: string): Promise<void> {

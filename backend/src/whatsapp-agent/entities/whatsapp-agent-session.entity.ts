@@ -34,4 +34,29 @@ export class WhatsappAgentSession {
 
   @Column({ nullable: true })
   expires_at: Date;
+
+  // ── Anti-loop / rate-limit (evita ficar respondendo em loop, ex.: IA-com-IA) ──
+  /** Enquanto no futuro, o agente NÃO responde este número (pausa automática). */
+  @Column({ type: 'timestamp', nullable: true })
+  silenciado_ate: Date | null;
+
+  /** Motivo da última pausa (loop de resposta repetida / excesso de mensagens). */
+  @Column({ nullable: true, length: 40 })
+  silenciado_motivo: string | null;
+
+  /** Nº de vezes que a MESMA resposta foi enviada seguidas (detecção de loop). */
+  @Column({ type: 'int', default: 0 })
+  repeticoes_resposta: number;
+
+  /** Hash da última resposta enviada (para comparar repetição). */
+  @Column({ nullable: true, length: 64 })
+  ultima_resposta_hash: string | null;
+
+  /** Início da janela de rate-limit. */
+  @Column({ type: 'timestamp', nullable: true })
+  janela_inicio: Date | null;
+
+  /** Contador de mensagens na janela atual (rate-limit). */
+  @Column({ type: 'int', default: 0 })
+  janela_contador: number;
 }

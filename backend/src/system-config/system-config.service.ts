@@ -234,4 +234,24 @@ export class SystemConfigService {
   async setWhatsAppAgentAtivo(ativo: boolean): Promise<void> {
     await this.setValue('WHATSAPP_AGENT_ATIVO', String(ativo), 'Agente de IA WhatsApp ativo');
   }
+
+  /** Telefones (só dígitos) autorizados a enviar comandos de administrador ao agente. */
+  async getWhatsAppAgentAdmins(): Promise<string[]> {
+    const valor = await this.getValue('WHATSAPP_AGENT_ADMINS');
+    return (valor || '')
+      .split(',')
+      .map((s) => s.replace(/\D/g, ''))
+      .filter(Boolean);
+  }
+
+  async setWhatsAppAgentAdmins(telefones: string[]): Promise<void> {
+    const limpos = (telefones || [])
+      .map((s) => String(s).replace(/\D/g, ''))
+      .filter(Boolean);
+    await this.setValue(
+      'WHATSAPP_AGENT_ADMINS',
+      limpos.join(','),
+      'Telefones admin do agente WhatsApp (comandos)',
+    );
+  }
 }
