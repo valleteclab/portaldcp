@@ -119,6 +119,18 @@ Digite o número da opção desejada.`;
   ) {}
 
   async processarMensagem(phone: string, mensagem: string, nomeContato?: string, orgaoId?: string, midia?: MidiaWhatsApp): Promise<void> {
+    const texto = mensagem.trim();
+    const phoneLimpo = (phone || '').replace(/\D/g, '');
+
+    // ── Comando de ADMINISTRADOR (dono do sistema): funciona MESMO com a IA desativada,
+    //    para o admin poder reativar depois de responder um fornecedor manualmente. ──
+    const admins = await this.systemConfigService.getWhatsAppAgentAdmins();
+    if (admins.some((a) => this.telefoneBate(a, phoneLimpo))) {
+      const respAdmin = await this.tratarComandoAdmin(texto);
+      if (respAdmin) await this.responder(orgaoId, phone, respAdmin);
+      return; // admin não entra no fluxo de atendimento
+    }
+
     // Verificar se o agente está ativo
     const { ativo } = await this.systemConfigService.getWhatsAppAgentConfig();
     if (!ativo) {
@@ -126,8 +138,35 @@ Digite o número da opção desejada.`;
       return;
     }
 
-    const texto = mensagem.trim();
     const session = await this.obterOuCriarSessao(phone, nomeContato);
+
+    // ── Atendimento EXCLUSIVO para empresas cadastradas (número precisa estar no cadastro). ──
+    const fornecedor =
+      await this.medicaoBot.identificarFornecedorPorTelefone(phone);
+    if (!fornecedor) {
+      // Número desconhecido (ex.: outra IA): orienta UMA vez e silencia (anti-loop).
+      if (
+        session.silenciado_ate &&
+        new Date() < new Date(session.silenciado_ate)
+      ) {
+        return;
+      }
+      session.silenciado_ate = new Date(Date.now() + PAUSA_SILENCIO_MS);
+      session.silenciado_motivo = 'NAO_CADASTRADO';
+      await this.sessionRepo.save(session);
+      await this.responder(
+        orgaoId,
+        phone,
+        'Olá! 👋 Este atendimento automático é *exclusivo para empresas já cadastradas* no portal da Câmara.\n\n' +
+          `Se a sua empresa ainda não tem cadastro, acesse *${this.getPortalUrl()}* para se cadastrar.\n\n` +
+          'Se você já é cadastrado, confirme que está usando o WhatsApp informado no portal.',
+      );
+      return;
+    }
+    // Vincula o fornecedor identificado pelo telefone à sessão.
+    if (fornecedor.id && session.fornecedor_id !== fornecedor.id) {
+      session.fornecedor_id = fornecedor.id;
+    }
 
     // Verificar expiração da sessão
     if (session.expires_at && new Date() > session.expires_at) {
@@ -296,6 +335,43 @@ Digite o número da opção desejada.`;
     } catch {
       /* se o aviso falhar, tudo bem — o importante é ter pausado */
     }
+  }
+
+  /** Compara dois telefones pelo sufixo (tolera DDI/formatação diferentes). */
+  private telefoneBate(a: string, b: string): boolean {
+    const da = (a || '').replace(/\D/g, '');
+    const db = (b || '').replace(/\D/g, '');
+    if (!da || !db) return false;
+    const n = Math.min(da.length, db.length, 11);
+    return n >= 8 && da.slice(-n) === db.slice(-n);
+  }
+
+  /**
+   * Comandos do administrador via WhatsApp. Retorna a resposta ou null (não é comando).
+   * Permite ligar/desligar a IA sem precisar do painel — ex.: desligar para
+   * responder um fornecedor manualmente e religar depois.
+   */
+  private async tratarComandoAdmin(texto: string): Promise<string | null> {
+    const cmd = (texto || '').trim().toLowerCase();
+    const OFF = ['/ia off', '/off', '/desativar', '/pausar', 'ia off'];
+    const ON = ['/ia on', '/on', '/ativar', '/retomar', 'ia on'];
+    const STATUS = ['/ia status', '/status', 'ia status'];
+    if (OFF.includes(cmd)) {
+      await this.systemConfigService.setWhatsAppAgentAtivo(false);
+      return '🔴 *IA desativada.* Agora você pode responder os fornecedores manualmente. Envie */ia on* quando quiser reativar o atendimento automático.';
+    }
+    if (ON.includes(cmd)) {
+      await this.systemConfigService.setWhatsAppAgentAtivo(true);
+      return '🟢 *IA reativada.* O atendimento automático voltou a funcionar.';
+    }
+    if (STATUS.includes(cmd)) {
+      const { ativo } = await this.systemConfigService.getWhatsAppAgentConfig();
+      return `ℹ️ Atendimento automático: ${ativo ? '🟢 *ativo*' : '🔴 *desativado*'}.`;
+    }
+    if (cmd.startsWith('/') || cmd.startsWith('ia ') || cmd === 'ia') {
+      return 'Comandos do administrador:\n• */ia off* — desativar a IA (para você responder)\n• */ia on* — reativar a IA\n• */ia status* — ver o status atual';
+    }
+    return null; // mensagem normal do admin → ignora (não engaja no fluxo)
   }
 
   private async responder(orgaoId: string | undefined, phone: string, resposta: string): Promise<void> {
