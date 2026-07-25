@@ -14,6 +14,7 @@ import {
 import {
   Licitacao,
   FaseLicitacao,
+  ModalidadeLicitacao,
 } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import {
@@ -77,6 +78,281 @@ export class FaseInternaService {
   }
 
   // ========================================
+  // INSTRUÇÃO DO PROCESSO (Art. 72 — contratação direta)
+  // ========================================
+
+  /**
+   * Contratação direta (dispensa/inexigibilidade) NÃO segue o rito documental
+   * do pregão: a instrução é a do Art. 72 da Lei 14.133/2021 — poucos
+   * documentos obrigatórios e vários "se for o caso" (dispensáveis com
+   * justificativa registrada nos autos).
+   */
+  private isContratacaoDireta(licitacao: Licitacao): boolean {
+    return (
+      licitacao.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA ||
+      licitacao.modalidade === ModalidadeLicitacao.INEXIGIBILIDADE
+    );
+  }
+
+  private getChecklistContratacaoDireta(): Array<{
+    tipo: TipoDocumentoFaseInterna;
+    titulo: string;
+    obrigatorio: boolean;
+    fundamento: string;
+  }> {
+    return [
+      {
+        tipo: TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA,
+        titulo: 'Formalização da demanda (DFD)',
+        obrigatorio: true,
+        fundamento: 'Art. 72, I',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.PESQUISA_PRECOS,
+        titulo: 'Estimativa de despesa (pesquisa de preços)',
+        obrigatorio: true,
+        fundamento: 'Art. 72, II c/c Art. 23',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA,
+        titulo: 'Autorização da autoridade competente',
+        obrigatorio: true,
+        fundamento: 'Art. 72, VIII',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR,
+        titulo: 'Estudo Técnico Preliminar (ETP)',
+        obrigatorio: false,
+        fundamento: 'Art. 72, I — "se for o caso"',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.TERMO_REFERENCIA,
+        titulo: 'Termo de Referência (TR)',
+        obrigatorio: false,
+        fundamento: 'Art. 72, I — "se for o caso"',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.ANALISE_RISCOS,
+        titulo: 'Análise de riscos',
+        obrigatorio: false,
+        fundamento: 'Art. 72, I — "se for o caso"',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.PARECER_JURIDICO,
+        titulo: 'Parecer jurídico',
+        obrigatorio: false,
+        fundamento: 'Art. 72, III c/c Art. 53, §5º',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
+        titulo: 'Compatibilidade orçamentária',
+        obrigatorio: false,
+        fundamento: 'Art. 72, IV',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO,
+        titulo: 'Justificativa da contratação direta (razão da escolha e do preço)',
+        obrigatorio: false,
+        fundamento: 'Art. 72, VI e VII',
+      },
+    ];
+  }
+
+  /**
+   * Na contratação direta o documento "conta" sem exigir o fluxo formal de
+   * aprovação (frequentemente é o mesmo servidor que elabora e autoriza):
+   * basta ter conteúdo ou arquivo e não estar reprovado.
+   */
+  private documentoPresente(doc: DocumentoFaseInterna): boolean {
+    if (
+      doc.status === StatusDocumento.REPROVADO ||
+      doc.status === StatusDocumento.PENDENTE
+    ) {
+      return false;
+    }
+    if (
+      doc.status === StatusDocumento.APROVADO ||
+      doc.status === StatusDocumento.IMPORTADO
+    ) {
+      return true;
+    }
+    const dados = doc.dados_estruturados;
+    return Boolean(
+      (doc.descricao && doc.descricao.trim()) ||
+        doc.caminho_arquivo ||
+        doc.arquivo_pdf_path ||
+        (dados && typeof dados === 'object' && Object.keys(dados).length > 0),
+    );
+  }
+
+  async getInstrucao(licitacaoId: string): Promise<{
+    modalidade: string;
+    contratacao_direta: boolean;
+    fase: FaseLicitacao;
+    fase_interna_concluida: boolean;
+    itens: Array<{
+      tipo: TipoDocumentoFaseInterna;
+      titulo: string;
+      obrigatorio: boolean;
+      fundamento: string;
+      status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA';
+      documento_id?: string;
+      justificativa?: string;
+    }>;
+    pode_divulgar: boolean;
+    pendentes: string[];
+  }> {
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
+    if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+
+    const contratacaoDireta = this.isContratacaoDireta(licitacao);
+    const checklist = contratacaoDireta
+      ? this.getChecklistContratacaoDireta()
+      : // Modalidades com rito completo: agrega os obrigatórios de todas as
+        // fases internas (visão geral; o avanço continua fase a fase).
+        (
+          [
+            FaseLicitacao.PLANEJAMENTO,
+            FaseLicitacao.TERMO_REFERENCIA,
+            FaseLicitacao.PESQUISA_PRECOS,
+            FaseLicitacao.ANALISE_JURIDICA,
+            FaseLicitacao.APROVACAO_INTERNA,
+          ] as FaseLicitacao[]
+        )
+          .flatMap((f) => this.getDocumentosObrigatorios(f))
+          .map((tipo) => ({
+            tipo,
+            titulo: tipo as string,
+            obrigatorio: true,
+            fundamento: 'Art. 18',
+          }));
+
+    const docs = await this.documentoRepository.find({
+      where: { licitacao_id: licitacaoId, versao_atual: true },
+    });
+
+    const itens = checklist.map((item) => {
+      const doc = docs.find((d) => d.tipo === item.tipo);
+      const naoSeAplica = Boolean(doc?.dados_estruturados?.nao_se_aplica);
+      const status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' =
+        naoSeAplica
+          ? 'NAO_SE_APLICA'
+          : doc && this.documentoPresente(doc)
+            ? 'OK'
+            : doc
+              ? 'EM_ELABORACAO'
+              : 'PENDENTE';
+      return {
+        ...item,
+        status,
+        documento_id: doc?.id,
+        justificativa: doc?.dados_estruturados?.justificativa_nao_se_aplica,
+      };
+    });
+
+    // Obrigatórios não admitem "não se aplica" — precisam estar OK.
+    const pendentes = itens.filter((i) => i.obrigatorio && i.status !== 'OK');
+
+    return {
+      modalidade: licitacao.modalidade as string,
+      contratacao_direta: contratacaoDireta,
+      fase: licitacao.fase,
+      fase_interna_concluida: licitacao.fase_interna_concluida || false,
+      itens,
+      pode_divulgar: pendentes.length === 0,
+      pendentes: pendentes.map((p) => `${p.titulo} (${p.fundamento})`),
+    };
+  }
+
+  /**
+   * Marca um documento facultativo da instrução como "não se aplica",
+   * com justificativa registrada nos autos (exigência do Art. 72 — os
+   * incisos "se for o caso" pedem motivação quando dispensados).
+   */
+  async marcarNaoSeAplica(
+    licitacaoId: string,
+    tipo: TipoDocumentoFaseInterna,
+    justificativa: string,
+    usuario?: { id?: string; nome?: string },
+    desfazer?: boolean,
+  ) {
+    const licitacao = await this.licitacaoRepository.findOneBy({
+      id: licitacaoId,
+    });
+    if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+    if (!this.isContratacaoDireta(licitacao)) {
+      throw new BadRequestException(
+        'Dispensa de documento só se aplica à contratação direta (Art. 72)',
+      );
+    }
+
+    const item = this.getChecklistContratacaoDireta().find(
+      (i) => i.tipo === tipo,
+    );
+    if (!item) {
+      throw new BadRequestException('Documento fora do checklist do Art. 72');
+    }
+    if (item.obrigatorio) {
+      throw new BadRequestException(
+        `${item.titulo} é obrigatório (${item.fundamento}) e não pode ser dispensado`,
+      );
+    }
+
+    let doc = await this.documentoRepository.findOne({
+      where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
+    });
+
+    if (desfazer) {
+      if (doc?.dados_estruturados?.nao_se_aplica) {
+        doc.dados_estruturados = {
+          ...doc.dados_estruturados,
+          nao_se_aplica: false,
+        };
+        doc.status = StatusDocumento.EM_ELABORACAO;
+        doc.titulo = item.titulo;
+        await this.documentoRepository.save(doc);
+      }
+      return this.getInstrucao(licitacaoId);
+    }
+
+    if (!justificativa || !justificativa.trim()) {
+      throw new BadRequestException(
+        'Informe a justificativa — ela fica registrada nos autos',
+      );
+    }
+
+    if (!doc) {
+      doc = this.documentoRepository.create({
+        licitacao_id: licitacaoId,
+        tipo,
+        titulo: item.titulo,
+        origem: OrigemDocumento.INTERNO,
+        versao: 1,
+        versao_atual: true,
+        obrigatorio: false,
+      });
+    }
+
+    doc.titulo = `${item.titulo} — Não se aplica`;
+    doc.descricao = justificativa.trim();
+    doc.dados_estruturados = {
+      ...(doc.dados_estruturados || {}),
+      nao_se_aplica: true,
+      justificativa_nao_se_aplica: justificativa.trim(),
+    };
+    doc.status = StatusDocumento.APROVADO;
+    doc.aprovador_id = usuario?.id;
+    doc.aprovador_nome = usuario?.nome;
+    doc.data_aprovacao = new Date();
+    doc.observacao_aprovacao = `Não se aplica: ${justificativa.trim()}`;
+    await this.documentoRepository.save(doc);
+
+    return this.getInstrucao(licitacaoId);
+  }
+
+  // ========================================
   // CRIACAO DE DOCUMENTOS
   // ========================================
 
@@ -116,7 +392,7 @@ export class FaseInternaService {
       versao: existente ? existente.versao + 1 : 1,
       versao_atual: true,
       versao_anterior_id: existente?.id,
-      obrigatorio: this.isDocumentoObrigatorio(licitacao.fase, tipo),
+      obrigatorio: this.isDocumentoObrigatorio(licitacao, tipo),
       criado_por_id: criadorId,
       criado_por_nome: criadorNome,
     });
@@ -125,10 +401,16 @@ export class FaseInternaService {
   }
 
   private isDocumentoObrigatorio(
-    fase: FaseLicitacao,
+    licitacao: Licitacao,
     tipo: TipoDocumentoFaseInterna,
   ): boolean {
-    const obrigatorios = this.getDocumentosObrigatorios(fase);
+    if (this.isContratacaoDireta(licitacao)) {
+      const item = this.getChecklistContratacaoDireta().find(
+        (i) => i.tipo === tipo,
+      );
+      return item?.obrigatorio || false;
+    }
+    const obrigatorios = this.getDocumentosObrigatorios(licitacao.fase);
     return obrigatorios.includes(tipo);
   }
 
@@ -168,7 +450,7 @@ export class FaseInternaService {
       hash_arquivo: hashArquivo,
       versao: 1,
       versao_atual: true,
-      obrigatorio: this.isDocumentoObrigatorio(licitacao.fase, tipo),
+      obrigatorio: this.isDocumentoObrigatorio(licitacao, tipo),
     });
 
     return await this.documentoRepository.save(documento);
@@ -310,6 +592,21 @@ export class FaseInternaService {
       throw new NotFoundException('Licitacao nao encontrada');
     }
 
+    // Contratação direta: completude = checklist do Art. 72 (processo
+    // inteiro, sem rito por fases).
+    if (this.isContratacaoDireta(licitacao)) {
+      const instrucao = await this.getInstrucao(licitacaoId);
+      return {
+        completa: instrucao.pode_divulgar,
+        documentosPendentes: instrucao.itens
+          .filter((i) => i.obrigatorio && i.status !== 'OK')
+          .map((i) => i.tipo),
+        documentosAprovados: instrucao.itens
+          .filter((i) => i.status === 'OK')
+          .map((i) => i.tipo),
+      };
+    }
+
     const documentosObrigatorios = this.getDocumentosObrigatorios(
       licitacao.fase,
     );
@@ -340,6 +637,20 @@ export class FaseInternaService {
     });
     if (!licitacao) {
       throw new NotFoundException('Licitacao nao encontrada');
+    }
+
+    // Contratação direta: instrução em ETAPA ÚNICA (Art. 72) — completou o
+    // checklist, o processo vai direto para "pronto para divulgar".
+    if (this.isContratacaoDireta(licitacao)) {
+      const instrucao = await this.getInstrucao(licitacaoId);
+      if (!instrucao.pode_divulgar) {
+        throw new BadRequestException(
+          `Instrução incompleta (Art. 72): ${instrucao.pendentes.join('; ')}`,
+        );
+      }
+      licitacao.fase = FaseLicitacao.APROVACAO_INTERNA;
+      licitacao.fase_interna_concluida = true;
+      return await this.licitacaoRepository.save(licitacao);
     }
 
     const verificacao = await this.verificarFaseCompleta(licitacaoId);

@@ -213,6 +213,34 @@ export class FaseInternaController {
     );
   }
 
+  // === INSTRUÇÃO DO PROCESSO (Art. 72 — contratação direta) ===
+
+  @Get(':licitacaoId/instrucao')
+  async getInstrucao(@Param('licitacaoId') licitacaoId: string) {
+    return this.faseInternaService.getInstrucao(licitacaoId);
+  }
+
+  @Post(':licitacaoId/instrucao/:tipo/nao-se-aplica')
+  async marcarNaoSeAplica(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('tipo') tipo: TipoDocumentoFaseInterna,
+    @Body()
+    body: {
+      justificativa?: string;
+      desfazer?: boolean;
+      usuarioId?: string;
+      usuarioNome?: string;
+    },
+  ) {
+    return this.faseInternaService.marcarNaoSeAplica(
+      licitacaoId,
+      tipo,
+      body?.justificativa || '',
+      { id: body?.usuarioId, nome: body?.usuarioNome },
+      body?.desfazer,
+    );
+  }
+
   // === VERIFICACAO E AVANCO ===
 
   @Get(':licitacaoId/verificar')

@@ -12,12 +12,14 @@ import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
 import { DispensaGateway } from './dispensa.gateway';
 import { ContratosModule } from '../contratos/contratos.module';
 import { PncpModule } from '../pncp/pncp.module';
+import { FaseInternaModule } from '../fase-interna/fase-interna.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem]),
     forwardRef(() => ContratosModule),
     PncpModule,
+    FaseInternaModule,
   ],
   controllers: [LicitacoesController],
   providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway],
