@@ -1153,6 +1153,8 @@ export class PncpService implements OnModuleInit {
           percentualDesconto: 0,
           // Indicadores obrigatórios do resultado (o PNCP exige explicitamente)
           aplicacaoMargemPreferencia: false,
+          aplicacaoBeneficioMeEpp: false,
+          aplicacaoCriterioDesempate: false,
           indicadorSubcontratacao: false,
           tipoPessoaId: ni.length === 11 ? 'PF' : 'PJ',
           porteFornecedorId: porte === 'ME' ? 1 : porte === 'EPP' ? 2 : 3,
