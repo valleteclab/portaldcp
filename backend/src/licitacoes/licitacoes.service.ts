@@ -1,10 +1,10 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Licitacao, FaseLicitacao, ModalidadeLicitacao, TipoContratacao, CriterioJulgamento } from './entities/licitacao.entity';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
-import { ItemLicitacao, UnidadeMedida } from '../itens/entities/item-licitacao.entity';
+import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
@@ -38,6 +38,8 @@ export class LicitacoesService {
     private readonly demandaRepository: Repository<Demanda>,
     @Inject(forwardRef(() => ContratosService))
     private readonly contratosService: ContratosService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   // === CRUD ===
@@ -634,6 +636,200 @@ export class LicitacoesService {
     }
 
     return licitacaoSalva;
+  }
+
+  // ============================================================================
+  // DEGRAU 1 — COCKPIT DO PROCESSO + SELEÇÃO EXTERNA
+  // ============================================================================
+
+  /**
+   * Visão agregada do processo de contratação inteiro (o "fio condutor"):
+   * demanda/PCA → fase interna (documentos) → seleção → contratos → atas.
+   * Alimenta a tela /orgao/processos/[id].
+   */
+  async processoCompleto(id: string): Promise<any> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id },
+      relations: ['item_pca', 'demanda'],
+    });
+    if (!licitacao) throw new NotFoundException('Processo não encontrado');
+
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: id },
+      order: { numero_item: 'ASC' } as any,
+    });
+
+    const [documentos, contratos, atas] = await Promise.all([
+      this.dataSource.query(
+        `SELECT id, tipo, titulo, status, origem, created_at
+         FROM documentos_fase_interna WHERE licitacao_id = $1 ORDER BY created_at ASC`,
+        [id],
+      ),
+      this.dataSource.query(
+        `SELECT id, numero_contrato, fornecedor_razao_social, valor_global, status,
+                data_vigencia_inicio, data_vigencia_fim
+         FROM contratos WHERE licitacao_id = $1 ORDER BY numero_contrato ASC`,
+        [id],
+      ),
+      this.dataSource.query(
+        `SELECT id, numero_ata, fornecedor_razao_social, valor_total, status
+         FROM atas_registro_preco WHERE licitacao_id = $1 ORDER BY numero_ata ASC`,
+        [id],
+      ),
+    ]);
+
+    // Checklist do processo (o que está feito / o que falta)
+    const fasesInternas = [
+      FaseLicitacao.PLANEJAMENTO,
+      FaseLicitacao.TERMO_REFERENCIA,
+      FaseLicitacao.PESQUISA_PRECOS,
+      FaseLicitacao.ANALISE_JURIDICA,
+      FaseLicitacao.APROVACAO_INTERNA,
+    ];
+    const itensComVencedor = itens.filter((i) => i.fornecedor_vencedor_id).length;
+    const checklist = {
+      vinculado_pca: !!licitacao.item_pca_id || licitacao.sem_pca === true,
+      possui_itens: itens.length > 0,
+      possui_documentos: documentos.length > 0,
+      fase_interna_concluida: !fasesInternas.includes(licitacao.fase),
+      resultado_registrado: itensComVencedor > 0,
+      homologado: !!licitacao.data_homologacao,
+      contrato_gerado: contratos.length > 0,
+    };
+
+    return {
+      licitacao: {
+        id: licitacao.id,
+        numero_processo: licitacao.numero_processo,
+        numero_edital: licitacao.numero_edital,
+        objeto: licitacao.objeto,
+        modalidade: licitacao.modalidade,
+        fase: licitacao.fase,
+        srp: (licitacao as any).srp ?? false,
+        valor_total_estimado: licitacao.valor_total_estimado,
+        valor_homologado: licitacao.valor_homologado,
+        data_homologacao: licitacao.data_homologacao,
+        selecao_externa: licitacao.selecao_externa,
+        plataforma_externa: licitacao.plataforma_externa,
+        numero_processo_externo: licitacao.numero_processo_externo,
+        url_externa: licitacao.url_externa,
+      },
+      item_pca: licitacao.item_pca
+        ? {
+            id: licitacao.item_pca.id,
+            numero_item: (licitacao.item_pca as any).numero_item,
+            descricao_objeto: (licitacao.item_pca as any).descricao_objeto,
+            valor_estimado: (licitacao.item_pca as any).valor_estimado,
+          }
+        : null,
+      demanda: licitacao.demanda
+        ? {
+            id: licitacao.demanda.id,
+            titulo: (licitacao.demanda as any).titulo,
+            status: licitacao.demanda.status,
+          }
+        : null,
+      itens: itens.map((i) => ({
+        id: i.id,
+        numero_item: (i as any).numero_item,
+        descricao: (i as any).descricao,
+        quantidade: (i as any).quantidade,
+        unidade_medida: (i as any).unidade_medida,
+        valor_unitario_estimado: i.valor_unitario_estimado,
+        valor_unitario_homologado: i.valor_unitario_homologado,
+        valor_total_homologado: i.valor_total_homologado,
+        fornecedor_vencedor_id: i.fornecedor_vencedor_id,
+        fornecedor_vencedor_nome: i.fornecedor_vencedor_nome,
+        status: i.status,
+      })),
+      documentos,
+      contratos,
+      atas,
+      checklist,
+    };
+  }
+
+  /**
+   * Registra o resultado de uma seleção realizada FORA do sistema
+   * (pregão em outra plataforma): marca vencedor e valor por item
+   * (status ADJUDICADO) e leva a licitação à fase ADJUDICACAO.
+   * Depois, o fluxo normal de homologar() gera o contrato automaticamente.
+   */
+  async registrarResultadoExterno(
+    id: string,
+    dto: {
+      plataforma_externa?: string;
+      numero_processo_externo?: string;
+      url_externa?: string;
+      itens: Array<{
+        item_id: string;
+        fornecedor_id: string;
+        valor_unitario: number;
+      }>;
+    },
+  ): Promise<any> {
+    const licitacao = await this.findOne(id);
+    if (!dto.itens?.length) {
+      throw new BadRequestException('Informe ao menos um item com vencedor');
+    }
+    if (licitacao.data_homologacao) {
+      throw new BadRequestException(
+        'Licitação já homologada — não é possível alterar o resultado',
+      );
+    }
+
+    const resultados: Array<{ item: string; fornecedor: string; valor_total: number }> = [];
+
+    for (const r of dto.itens) {
+      const item = await this.itemRepository.findOne({
+        where: { id: r.item_id, licitacao_id: id },
+      });
+      if (!item) {
+        throw new BadRequestException(`Item ${r.item_id} não pertence a esta licitação`);
+      }
+      const valorUnit = Number(r.valor_unitario);
+      if (!(valorUnit > 0)) {
+        throw new BadRequestException(
+          `Valor unitário inválido para o item ${(item as any).numero_item}`,
+        );
+      }
+      const forn = await this.dataSource.query(
+        `SELECT id, razao_social FROM fornecedores WHERE id = $1`,
+        [r.fornecedor_id],
+      );
+      if (!forn.length) {
+        throw new BadRequestException(`Fornecedor ${r.fornecedor_id} não encontrado`);
+      }
+
+      item.fornecedor_vencedor_id = r.fornecedor_id;
+      item.fornecedor_vencedor_nome = forn[0].razao_social;
+      item.valor_unitario_homologado = valorUnit;
+      item.valor_total_homologado =
+        Math.round(valorUnit * Number((item as any).quantidade || 0) * 100) / 100;
+      item.status = StatusItem.ADJUDICADO;
+      await this.itemRepository.save(item);
+
+      resultados.push({
+        item: String((item as any).numero_item),
+        fornecedor: forn[0].razao_social,
+        valor_total: item.valor_total_homologado,
+      });
+    }
+
+    licitacao.selecao_externa = true;
+    if (dto.plataforma_externa !== undefined)
+      licitacao.plataforma_externa = dto.plataforma_externa || null;
+    if (dto.numero_processo_externo !== undefined)
+      licitacao.numero_processo_externo = dto.numero_processo_externo || null;
+    if (dto.url_externa !== undefined) licitacao.url_externa = dto.url_externa || null;
+    licitacao.fase = FaseLicitacao.ADJUDICACAO;
+    await this.licitacaoRepository.save(licitacao);
+
+    this.logger.log(
+      `Resultado externo registrado na licitação ${licitacao.numero_processo}: ${resultados.length} item(ns) adjudicado(s)`,
+    );
+
+    return { licitacao_id: id, fase: licitacao.fase, resultados };
   }
 
   async suspender(id: string, motivo: string): Promise<Licitacao> {
