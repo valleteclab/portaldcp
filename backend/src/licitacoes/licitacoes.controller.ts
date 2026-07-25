@@ -102,6 +102,12 @@ export class LicitacoesController {
     return await this.licitacoesService.processoCompleto(id);
   }
 
+  /** Dispensa eletrônica: julga propostas por menor preço por item e adjudica (art. 75 §3º) */
+  @Post(':id/julgar-dispensa')
+  async julgarDispensa(@Param('id') id: string): Promise<any> {
+    return await this.licitacoesService.julgarDispensa(id);
+  }
+
   /** Seleção externa: registra vencedores/valores de disputa realizada fora do sistema */
   @Post(':id/resultado-externo')
   async registrarResultadoExterno(
