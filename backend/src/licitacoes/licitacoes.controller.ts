@@ -96,6 +96,27 @@ export class LicitacoesController {
     return await this.licitacoesService.homologar(id, body.valor_homologado);
   }
 
+  /** Cockpit: visão agregada do processo inteiro (demanda/PCA → docs → seleção → contratos) */
+  @Get(':id/processo-completo')
+  async processoCompleto(@Param('id') id: string): Promise<any> {
+    return await this.licitacoesService.processoCompleto(id);
+  }
+
+  /** Seleção externa: registra vencedores/valores de disputa realizada fora do sistema */
+  @Post(':id/resultado-externo')
+  async registrarResultadoExterno(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      plataforma_externa?: string;
+      numero_processo_externo?: string;
+      url_externa?: string;
+      itens: Array<{ item_id: string; fornecedor_id: string; valor_unitario: number }>;
+    },
+  ): Promise<any> {
+    return await this.licitacoesService.registrarResultadoExterno(id, body);
+  }
+
   @Put(':id/suspender')
   async suspender(
     @Param('id') id: string,

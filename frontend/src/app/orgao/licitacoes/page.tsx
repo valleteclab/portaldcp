@@ -338,6 +338,12 @@ function LicitacoesOrgaoPageContent() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <Link href={`/orgao/processos/${lic.id}`}>
+                        <Button variant="outline" size="sm" className="text-blue-700 border-blue-200 hover:bg-blue-50" title="Visão completa: planejamento → seleção → contrato">
+                          <FileText className="h-4 w-4 mr-1" />
+                          Processo
+                        </Button>
+                      </Link>
                       <Link href={`/orgao/licitacoes/${lic.id}`}>
                         <Button variant="outline" size="sm">
                           <Eye className="h-4 w-4 mr-1" />

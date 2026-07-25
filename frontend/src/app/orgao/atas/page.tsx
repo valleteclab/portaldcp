@@ -53,6 +53,7 @@ interface Ata {
 }
 
 import { API_URL, authFetch } from '@/lib/api'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 
 const STATUS_ATA = {
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800' },
@@ -76,6 +77,67 @@ export default function AtasOrgaoPage() {
     valorTotal: 0,
     aVencer30Dias: 0
   })
+
+  // Nova ata a partir de licitação SRP homologada
+  const [modalNovaAta, setModalNovaAta] = useState(false)
+  const [licitacoesSrp, setLicitacoesSrp] = useState<Array<{ id: string; numero_processo: string; objeto: string }>>([])
+  const [fornecedoresOpt, setFornecedoresOpt] = useState<Array<{ id: string; razao_social: string; cpf_cnpj?: string }>>([])
+  const [novaAta, setNovaAta] = useState({ licitacao_id: '', fornecedor_id: '', data_vigencia_inicio: '', data_vigencia_fim: '', valor_total: '' })
+  const [salvandoAta, setSalvandoAta] = useState(false)
+
+  const abrirModalNovaAta = async () => {
+    setModalNovaAta(true)
+    try {
+      const [resLic, resForn] = await Promise.all([
+        authFetch(`${API_URL}/api/licitacoes?limit=200`),
+        authFetch(`${API_URL}/api/fornecedores?status=APROVADO`),
+      ])
+      if (resLic.ok) {
+        const j = await resLic.json()
+        const lista = Array.isArray(j) ? j : j?.data || []
+        setLicitacoesSrp(lista.filter((l: any) => l.srp))
+      }
+      if (resForn.ok) {
+        const lista = await resForn.json()
+        setFornecedoresOpt(Array.isArray(lista) ? lista : lista?.data || [])
+      }
+    } catch { /* selects ficam vazios */ }
+  }
+
+  const criarNovaAta = async () => {
+    if (!novaAta.licitacao_id || !novaAta.fornecedor_id || !novaAta.data_vigencia_inicio || !novaAta.data_vigencia_fim) {
+      alert('Preencha licitação, fornecedor e vigência.')
+      return
+    }
+    setSalvandoAta(true)
+    try {
+      const forn = fornecedoresOpt.find((f) => f.id === novaAta.fornecedor_id)
+      const res = await authFetch(`${API_URL}/api/atas/licitacao/${novaAta.licitacao_id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fornecedor_id: novaAta.fornecedor_id,
+          fornecedor_razao_social: forn?.razao_social,
+          fornecedor_cnpj: forn?.cpf_cnpj,
+          data_vigencia_inicio: novaAta.data_vigencia_inicio,
+          data_vigencia_fim: novaAta.data_vigencia_fim,
+          valor_total: novaAta.valor_total ? Number(String(novaAta.valor_total).replace(',', '.')) : undefined,
+          status: 'VIGENTE',
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        throw new Error(err?.message || `HTTP ${res.status}`)
+      }
+      setModalNovaAta(false)
+      setNovaAta({ licitacao_id: '', fornecedor_id: '', data_vigencia_inicio: '', data_vigencia_fim: '', valor_total: '' })
+      await carregarDados()
+    } catch (e: any) {
+      alert(`Erro ao criar ata: ${e.message}`)
+    } finally {
+      setSalvandoAta(false)
+    }
+  }
 
   useEffect(() => {
     carregarDados()
@@ -175,13 +237,70 @@ export default function AtasOrgaoPage() {
           <h1 className="text-2xl font-bold">Atas de Registro de Preço</h1>
           <p className="text-gray-600">Gerencie as atas SRP do órgão</p>
         </div>
-        <Button asChild>
-          <Link href="/orgao/atas/nova">
-            <Plus className="w-4 h-4 mr-2" />
-            Nova Ata
-          </Link>
+        <Button onClick={abrirModalNovaAta}>
+          <Plus className="w-4 h-4 mr-2" />
+          Nova Ata
         </Button>
       </div>
+
+      {/* Modal: Nova Ata a partir de licitação SRP */}
+      <Dialog open={modalNovaAta} onOpenChange={setModalNovaAta}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nova Ata de Registro de Preço</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-500 -mt-2">A ata é criada a partir de uma licitação SRP. O número é gerado automaticamente.</p>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-gray-500">Licitação (SRP)</label>
+              <select
+                className="w-full border rounded-md h-9 px-2 text-sm bg-white"
+                value={novaAta.licitacao_id}
+                onChange={(e) => setNovaAta((p) => ({ ...p, licitacao_id: e.target.value }))}
+              >
+                <option value="">— selecionar —</option>
+                {licitacoesSrp.map((l) => (
+                  <option key={l.id} value={l.id}>{l.numero_processo} — {l.objeto?.slice(0, 60)}</option>
+                ))}
+              </select>
+              {licitacoesSrp.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Nenhuma licitação marcada como SRP encontrada.</p>
+              )}
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Fornecedor</label>
+              <select
+                className="w-full border rounded-md h-9 px-2 text-sm bg-white"
+                value={novaAta.fornecedor_id}
+                onChange={(e) => setNovaAta((p) => ({ ...p, fornecedor_id: e.target.value }))}
+              >
+                <option value="">— selecionar —</option>
+                {fornecedoresOpt.map((f) => (
+                  <option key={f.id} value={f.id}>{f.razao_social}{f.cpf_cnpj ? ` (${f.cpf_cnpj})` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500">Vigência — início</label>
+                <Input type="date" value={novaAta.data_vigencia_inicio} onChange={(e) => setNovaAta((p) => ({ ...p, data_vigencia_inicio: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500">Vigência — fim</label>
+                <Input type="date" value={novaAta.data_vigencia_fim} onChange={(e) => setNovaAta((p) => ({ ...p, data_vigencia_fim: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500">Valor total (opcional)</label>
+              <Input inputMode="decimal" placeholder="0,00" value={novaAta.valor_total} onChange={(e) => setNovaAta((p) => ({ ...p, valor_total: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalNovaAta(false)}>Cancelar</Button>
+            <Button onClick={criarNovaAta} disabled={salvandoAta}>{salvandoAta ? 'Criando…' : 'Criar ata'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Cards de Resumo */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

@@ -1,7 +1,36 @@
 # Licitação fim a fim no Portal DCP — Estudo, Diagnóstico e Plano
 
-> Data: 06/07/2026 · Base legal: Lei 14.133/2021, LC 123/2006, IN SEGES/ME 73/2022
+> Data: 06/07/2026 · Revisão estratégica: 24/07/2026 · Base legal: Lei 14.133/2021, LC 123/2006, IN SEGES/ME 73/2022
 > Documentos relacionados: `docs/plano-fase-interna-fluidez.md` (aprovado), `docs/SALA_DISPUTA_FUNCIONAL.md`, `docs/PNCP-INTEGRACAO.md`
+
+## 0. ESTRATÉGIA DE PRODUTO — OS 3 DEGRAUS (revisão 24/07/2026 — APROVADA)
+
+**Reposicionamento:** o produto NÃO é a sala de disputa — é o **processo eletrônico de contratação**. A disputa é uma etapa, que pode inclusive ocorrer fora do sistema. A força validada em produção está antes (planejamento/fase interna com IA) e depois (contrato → medição → pagamento) da disputa.
+
+**Diagnóstico da estagnação (24/07):** o código está mais pronto do que parece — a cadeia Demanda→PCA→Licitação→Contrato está ligada por FK e as Fases 0/1 do roadmap foram mergeadas (recursos, homologação, ME/EPP, parâmetros). O que trava a adoção não é falta de feature, e sim:
+1. **Ausência de fio condutor**: nenhuma tela conta a história completa de uma contratação (cockpit). Módulos soltos: demandas, pca, fase-interna, licitacoes, contratos, atas.
+2. **Dispensa (o que as câmaras mais fazem) é a parte mais fraca**: módulo `contratacao-direta` órfão — sem coleta de propostas, sem UI de gestão no /orgao, homologação não gera contrato.
+3. **Sem "seleção externa"**: pregão feito em outra plataforma (BLL/BNC/Compras.gov — realidade das câmaras) não tem como entrar no sistema ⇒ módulo "tudo ou nada".
+4. Fragmentação acumulada: 2 UIs de fase interna, 3 salas de disputa, 2 caminhos de dispensa. Cada tentativa criou superfície nova em vez de fechar ciclo.
+5. Quebras menores: botão "Nova Ata" (ARP) aponta para página inexistente; migrations pendentes para `synchronize=false`.
+
+**Estratégia de adoção incremental (cada degrau é utilizável e vendável sozinho):**
+
+### Degrau 1 — Cockpit do Processo + Seleção Externa (zero risco jurídico; destrava clientes HOJE)
+- **Cockpit**: tela única do processo (`/orgao/processos/[id]`) com a linha do tempo Demanda/PCA → Planejamento (docs da fase interna) → Seleção → Contratos → Execução, com checklist do que falta e links para os módulos existentes. Endpoint agregador `GET /licitacoes/:id/processo-completo`. Entrada pelo botão "Processo" nas listas de licitações e fase-interna.
+- **Seleção externa**: flag `selecao_externa` na licitação (+ plataforma/nº externo). Fluxo: fase interna no sistema → disputa fora → **registrar resultado** (vencedor + valor por item, com busca/cadastro de fornecedor por CNPJ) → homologar → **contrato automático** (reusa `gerarContratoAutomatico`) → cai na execução já validada.
+- Consertar o elo ARP (botão "Nova Ata" → usar `criarAPartirDaLicitacao`).
+
+### Degrau 2 — Dispensa eletrônica fim a fim (baixo risco, alto volume; o piloto real)
+- Um caminho só: modalidade `DISPENSA_ELETRONICA` dentro de licitações (aposentar o módulo `contratacao-direta` órfão).
+- Cotação com prazo (art. 75 §3º), fornecedor envia proposta pelo portal do fornecedor existente, adjudicação, homologação → contrato automático. Publicação do aviso de contratação direta no PNCP (escopo bem menor que o pregão).
+
+### Degrau 3 — Pregão completo no sistema (somente com degraus 1–2 rodando em cliente real)
+- Sala única v3 (motor v2), PNCP compra/resultado, simulador com robôs em CI, modo treinamento — conforme Fases 1–3 abaixo.
+
+**Melhor forma de uso (jornada do cliente):** entra registrando o que já faz (Degrau 1) → migra as dispensas para dentro (Degrau 2) → só então o pregão (Degrau 3). Fim do big bang.
+
+---
 
 ## 1. Objetivo
 

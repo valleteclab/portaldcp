@@ -392,6 +392,26 @@ export class Licitacao {
   @Column({ type: 'uuid', nullable: true })
   item_pca_id: string;
 
+  // ============================================================================
+  // SELEÇÃO EXTERNA (Degrau 1) — disputa realizada FORA do sistema
+  // (ex.: BLL, BNC, Compras.gov). A fase interna e o contrato ficam no Portal;
+  // o resultado é registrado manualmente e a homologação gera o contrato.
+  // ============================================================================
+  @Column({ default: false })
+  selecao_externa: boolean;
+
+  /** Plataforma onde a disputa ocorreu (ex.: "BLL Compras", "Compras.gov.br") */
+  @Column({ type: 'varchar', nullable: true, length: 120 })
+  plataforma_externa: string | null;
+
+  /** Nº do processo/pregão na plataforma externa */
+  @Column({ type: 'varchar', nullable: true, length: 60 })
+  numero_processo_externo: string | null;
+
+  /** Link para o processo na plataforma externa */
+  @Column({ type: 'varchar', nullable: true, length: 300 })
+  url_externa: string | null;
+
   /**
    * Flag para indicar se a licitação não possui vinculação com PCA
    * 
