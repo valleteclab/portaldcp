@@ -249,6 +249,12 @@ function PncpPageContent() {
     }
   }
 
+  // Base do portal público no MESMO ambiente configurado no backend
+  // (config.ambiente vem de /api/pncp/config/status, derivado de PNCP_API_URL)
+  const pncpPortalBase = config?.ambiente === 'PRODUÇÃO'
+    ? 'https://pncp.gov.br'
+    : 'https://treina.pncp.gov.br'
+
   // Erros filtrados para o órgão atual (usa entidade_id casando com PCA deste órgão)
   const errosFiltrados = erros.filter((erro) => {
     if (!erro.entidade_id) return true
@@ -541,7 +547,7 @@ function PncpPageContent() {
         let linkFinal = link
         if (!linkFinal && ano && sequencial) {
           const cnpj = orgaoAtual?.cnpj?.replace(/\D/g, '') || ''
-          linkFinal = `https://treina.pncp.gov.br/app/editais/${cnpj}/${ano}/${sequencial}`
+          linkFinal = `${pncpPortalBase}/app/editais/${cnpj}/${ano}/${sequencial}`
         }
         
         // Recarregar dados ANTES de mostrar o alert para atualizar a lista
@@ -1380,7 +1386,7 @@ function PncpPageContent() {
 
                                   return (
                                     <a
-                                      href={`https://treina.pncp.gov.br/app/pca/${cnpjPncp}/${pca.ano_exercicio}/${pca.sequencial_pncp}`}
+                                      href={`${pncpPortalBase}/app/pca/${cnpjPncp}/${pca.ano_exercicio}/${pca.sequencial_pncp}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                     >
@@ -1519,7 +1525,7 @@ function PncpPageContent() {
                             size="sm"
                             onClick={() => {
                               const cnpj = orgaoAtual?.cnpj?.replace(/\D/g, '') || ''
-                              const link = `https://treina.pncp.gov.br/app/editais/${cnpj}/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`
+                              const link = licitacao.link_pncp || `${pncpPortalBase}/app/editais/${cnpj}/${licitacao.ano_compra_pncp}/${licitacao.sequencial_compra_pncp}`
                               window.open(link, '_blank')
                             }}
                             disabled={!licitacao.ano_compra_pncp || !licitacao.sequencial_compra_pncp}
