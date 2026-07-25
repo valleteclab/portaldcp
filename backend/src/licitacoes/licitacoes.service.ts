@@ -596,6 +596,10 @@ export class LicitacoesService {
     }
 
     licitacao.fase = FaseLicitacao.PUBLICADO;
+    // A publicação encerra, por definição, a fase interna (Art. 18 → fase
+    // externa). A flag é exigida pela validação do PNCP; o fluxo da
+    // fase-interna também a define ao concluir.
+    licitacao.fase_interna_concluida = true;
     licitacao.data_publicacao_edital = new Date(dados.data_publicacao_edital);
     licitacao.data_limite_impugnacao = new Date(dados.data_limite_impugnacao);
     licitacao.data_inicio_acolhimento = new Date(dados.data_inicio_acolhimento);
