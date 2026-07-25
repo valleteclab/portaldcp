@@ -243,6 +243,22 @@ export class PncpService implements OnModuleInit {
     this.initializeAxiosWithUrl(baseURL);
   }
 
+  /**
+   * Base do portal público do PNCP (links /app/...), derivada do ambiente
+   * configurado em PNCP_API_URL — treina.pncp.gov.br ou pncp.gov.br.
+   * Fonte única: ao virar produção, basta trocar PNCP_API_URL.
+   */
+  private getPortalBaseUrl(): string {
+    return this.configService.get<string>('PNCP_API_URL')?.includes('treina')
+      ? 'https://treina.pncp.gov.br'
+      : 'https://pncp.gov.br';
+  }
+
+  /** Base da API pública de consulta, no mesmo ambiente de PNCP_API_URL. */
+  private getConsultaBaseUrl(): string {
+    return `${this.getPortalBaseUrl()}/api/consulta/v1`;
+  }
+
   private initializeAxiosWithUrl(baseURL: string) {
     this.axiosInstance = axios.create({
       baseURL,
@@ -721,10 +737,7 @@ export class PncpService implements OnModuleInit {
 
       // Gerar link do PNCP
       const cnpjLimpo = cnpj.replace(/\D/g, '');
-      const baseUrl = this.configService.get<string>('PNCP_API_URL')?.includes('treina') 
-        ? 'https://treina.pncp.gov.br' 
-        : 'https://pncp.gov.br';
-      const linkPncp = `${baseUrl}/app/editais/${cnpjLimpo}/${anoCompra}/${sequencialCompra}`;
+      const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpjLimpo}/${anoCompra}/${sequencialCompra}`;
 
       // Atualizar licitação com número de controle PNCP e mudar fase para PUBLICADO
       // Conforme Art. 17 da Lei 14.133/2021, a publicação do edital marca o início da fase externa
@@ -762,10 +775,7 @@ export class PncpService implements OnModuleInit {
         const numeroControlePNCP = `${cnpjExistente}-${unidadeExistente}-${sequencialStr.padStart(6, '0')}/${anoStr}`;
         
         // Gerar link
-        const baseUrl = this.configService.get<string>('PNCP_API_URL')?.includes('treina') 
-          ? 'https://treina.pncp.gov.br' 
-          : 'https://pncp.gov.br';
-        const linkPncp = `${baseUrl}/app/editais/${cnpjExistente}/${anoExistente}/${sequencialExistente}`;
+        const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpjExistente}/${anoExistente}/${sequencialExistente}`;
         
         // Vincular automaticamente
         await this.licitacaoRepository.update(licitacaoId, {
@@ -826,10 +836,7 @@ export class PncpService implements OnModuleInit {
 
     // Gerar link do PNCP
     const cnpj = licitacao.orgao?.cnpj?.replace(/\D/g, '') || '';
-    const baseUrl = this.configService.get<string>('PNCP_API_URL')?.includes('treina') 
-      ? 'https://treina.pncp.gov.br' 
-      : 'https://pncp.gov.br';
-    const linkPncp = `${baseUrl}/app/editais/${cnpj}/${anoCompra}/${sequencialCompra}`;
+    const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpj}/${anoCompra}/${sequencialCompra}`;
 
     // Atualizar licitação
     await this.licitacaoRepository.update(licitacaoId, {
@@ -2184,7 +2191,7 @@ export class PncpService implements OnModuleInit {
       return {
         sucesso: true,
         numeroControlePNCP,
-        mensagem: `Compra incluída com sucesso. Link: https://treina.pncp.gov.br/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`,
+        mensagem: `Compra incluída com sucesso. Link: ${this.getPortalBaseUrl()}/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`,
         dados: { anoCompra, sequencialCompra }
       };
     } catch (error) {
@@ -2321,7 +2328,7 @@ export class PncpService implements OnModuleInit {
       
       // Consultar quantidade de itens via API de consulta do PNCP
       const response = await axios.get(
-        `https://treina.pncp.gov.br/api/consulta/v1/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}/itens/quantidade`,
+        `${this.getConsultaBaseUrl()}/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}/itens/quantidade`,
         {
           headers: { 'Authorization': `Bearer ${this.token}` }
         }
@@ -2587,7 +2594,7 @@ export class PncpService implements OnModuleInit {
         encontrado: true,
         compra: response.data,
         numeroControlePNCP: response.data?.numeroControlePNCP || response.data?.numeroControle,
-        link: `https://treina.pncp.gov.br/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`
+        link: `${this.getPortalBaseUrl()}/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`
       };
     } catch (error: any) {
       if (error.response?.status === 404) {
@@ -2611,10 +2618,7 @@ export class PncpService implements OnModuleInit {
     sequencial: number
   ): Promise<void> {
     const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    const baseUrl = this.configService.get<string>('PNCP_API_URL')?.includes('treina') 
-      ? 'https://treina.pncp.gov.br' 
-      : 'https://pncp.gov.br';
-    const linkPncp = `${baseUrl}/app/editais/${cnpj?.replace(/\D/g, '')}/${ano}/${sequencial}`;
+    const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpj?.replace(/\D/g, '')}/${ano}/${sequencial}`;
     
     await this.licitacaoRepository.update(licitacaoId, {
       numero_controle_pncp: numeroControlePNCP,
@@ -2680,7 +2684,7 @@ export class PncpService implements OnModuleInit {
 
       return {
         sucesso: true,
-        mensagem: `Resultado incluído com sucesso. Link: https://treina.pncp.gov.br/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`,
+        mensagem: `Resultado incluído com sucesso. Link: ${this.getPortalBaseUrl()}/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`,
         dados: response.data
       };
     } catch (error) {
@@ -2780,7 +2784,7 @@ export class PncpService implements OnModuleInit {
 
       return {
         sucesso: true,
-        mensagem: `Ata incluída com sucesso. Link: https://treina.pncp.gov.br/app/atas/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}/${sequencialAta}`,
+        mensagem: `Ata incluída com sucesso. Link: ${this.getPortalBaseUrl()}/app/atas/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}/${sequencialAta}`,
         dados: { sequencialAta, ...response.data }
       };
     } catch (error) {
