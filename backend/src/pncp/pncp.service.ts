@@ -1145,6 +1145,9 @@ export class PncpService implements OnModuleInit {
             item.valor_total_homologado ??
               Number(item.valor_unitario_homologado) * Number(item.quantidade || 0),
           ),
+          // Critério menor preço: sem desconto — mas o campo é OBRIGATÓRIO para
+          // o PNCP ("Percentual de desconto inválido" quando ausente).
+          percentualDesconto: 0,
           indicadorSubcontratacao: false,
           tipoPessoa: ni.length === 11 ? 'PF' : 'PJ',
           porteFornecedor: porte,
