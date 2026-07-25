@@ -26,7 +26,6 @@ import { ContratosModule } from './contratos/contratos.module';
 import { AtasModule } from './atas/atas.module';
 import { PcaModule } from './pca/pca.module';
 import { CredenciamentoModule } from './credenciamento/credenciamento.module';
-import { ContratacaoDiretaModule } from './contratacao-direta/contratacao-direta.module';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { DemandasModule } from './demandas/demandas.module';
 import { SeedModule } from './seed/seed.module';
@@ -131,7 +130,6 @@ import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-lic
     AtasModule,
     PcaModule,
     CredenciamentoModule,
-    ContratacaoDiretaModule,
     CatalogoModule,
     DemandasModule,
     SeedModule,

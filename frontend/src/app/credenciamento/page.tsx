@@ -122,9 +122,6 @@ export default function CredenciamentoPublicoPage() {
               <Button variant="outline" asChild>
                 <Link href="/licitacoes">Licitações</Link>
               </Button>
-              <Button variant="outline" asChild>
-                <Link href="/contratacao-direta">Contratação Direta</Link>
-              </Button>
             </div>
           </div>
         </div>
