@@ -8,15 +8,17 @@ import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda } from '../demandas/entities/demanda.entity';
 import { DispensaLance } from './entities/dispensa-lance.entity';
+import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
+import { DispensaGateway } from './dispensa.gateway';
 import { ContratosModule } from '../contratos/contratos.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance]),
+    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem]),
     forwardRef(() => ContratosModule)
   ],
   controllers: [LicitacoesController],
-  providers: [LicitacoesService, LicitacoesSchedulerService],
+  providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService],
 })
 export class LicitacoesModule {}

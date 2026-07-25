@@ -246,6 +246,53 @@ export default function CockpitProcessoPage() {
   }
 
   const [painelLances, setPainelLances] = useState<any>(null)
+  const [mensagensDispensa, setMensagensDispensa] = useState<any[]>([])
+  const [novaMensagemOrgao, setNovaMensagemOrgao] = useState("")
+
+  const carregarMensagensDispensa = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`)
+      if (res.ok) setMensagensDispensa(await res.json())
+    } catch { /* mantém */ }
+  }, [id])
+
+  // Durante a fase de lances: painel e chat se atualizam sozinhos (sem clique)
+  useEffect(() => {
+    if (!dados || dados.licitacao.modalidade !== "DISPENSA_ELETRONICA") return
+    carregarMensagensDispensa()
+    const fim = dados.licitacao.dispensa_lances_fim ? new Date(dados.licitacao.dispensa_lances_fim) : null
+    const lancesAberta = fim ? new Date() < fim : false
+    if (!lancesAberta) return
+    atualizarPainelLances()
+    const p1 = setInterval(atualizarPainelLances, 3000)
+    const p2 = setInterval(carregarMensagensDispensa, 5000)
+    return () => { clearInterval(p1); clearInterval(p2) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dados, carregarMensagensDispensa])
+
+  const enviarMensagemOrgao = async () => {
+    const texto = novaMensagemOrgao.trim()
+    if (!texto) return
+    try {
+      let autor = "Órgão"
+      try {
+        const u = JSON.parse(localStorage.getItem("usuario") || "{}")
+        const o = JSON.parse(localStorage.getItem("orgao") || "{}")
+        autor = u?.nome || o?.nome || "Órgão"
+      } catch { /* usa default */ }
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autor_tipo: "ORGAO", autor_nome: autor, mensagem: texto }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      setNovaMensagemOrgao("")
+      await carregarMensagensDispensa()
+    } catch (e: any) {
+      alert(`Mensagem não enviada: ${e.message}`)
+    }
+  }
 
   const abrirLances = async () => {
     const min = prompt("Abrir a fase de LANCES da dispensa (opcional — modelo IN SEGES 67/2021).\n\nDuração em MINUTOS (padrão 360 = 6 horas):", "360")
@@ -565,8 +612,34 @@ export default function CockpitProcessoPage() {
                                 </table>
                               </div>
                             )}
+                            {/* Chat da sessão (registrado nos autos; negociação pós-lances) */}
+                            <div className="border rounded bg-white">
+                              <div className="px-3 py-1.5 border-b text-xs font-medium text-gray-600">💬 Chat da sessão <span className="font-normal text-gray-400">— registrado no processo; use para avisos e para negociar com o melhor classificado após os lances</span></div>
+                              <div className="p-2 max-h-40 overflow-y-auto space-y-1.5">
+                                {mensagensDispensa.length === 0 && <p className="text-[11px] text-gray-400">Nenhuma mensagem.</p>}
+                                {mensagensDispensa.map((m: any) => (
+                                  <div key={m.id} className="text-xs">
+                                    <span className={`font-medium ${m.autor_tipo === "ORGAO" ? "text-blue-700" : "text-gray-700"}`}>{m.autor_tipo === "ORGAO" ? "🏛️ " : ""}{m.autor_nome}</span>
+                                    <span className="text-gray-400"> {m.created_at ? new Date(m.created_at).toLocaleTimeString("pt-BR") : ""}: </span>
+                                    <span>{m.mensagem}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-2 p-2 border-t">
+                                <Input
+                                  placeholder="Mensagem aos fornecedores (fica registrada)…"
+                                  value={novaMensagemOrgao}
+                                  onChange={(e) => setNovaMensagemOrgao(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") enviarMensagemOrgao() }}
+                                  className="h-8 text-sm"
+                                  maxLength={1000}
+                                />
+                                <Button size="sm" className="h-8" onClick={enviarMensagemOrgao} disabled={!novaMensagemOrgao.trim()}>Enviar</Button>
+                              </div>
+                            </div>
+
                             <p className="text-[11px] text-gray-400">
-                              O fornecedor envia a proposta pelo Portal do Fornecedor (Licitações → esta dispensa). Após o prazo, você pode (opcionalmente) abrir a <b>fase de lances</b> — cada fornecedor reduz o próprio valor, com o menor valor público e anônimo. O julgamento adjudica o menor valor final por item; a homologação gera o contrato automaticamente.
+                              O fornecedor envia a proposta pelo Portal do Fornecedor (Licitações → esta dispensa). Após o prazo, você pode (opcionalmente) abrir a <b>fase de lances</b> — cada fornecedor reduz o próprio valor, com o menor valor público e anônimo, em tempo real. O julgamento adjudica o menor valor final por item; a homologação gera o contrato automaticamente.
                             </p>
                           </div>
                         )

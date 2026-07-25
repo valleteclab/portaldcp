@@ -6,6 +6,8 @@ import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dt
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item-licitacao.entity';
 import { DispensaLance } from './entities/dispensa-lance.entity';
+import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
+import { DispensaGateway } from './dispensa.gateway';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
@@ -39,6 +41,9 @@ export class LicitacoesService {
     private readonly demandaRepository: Repository<Demanda>,
     @InjectRepository(DispensaLance)
     private readonly dispensaLanceRepository: Repository<DispensaLance>,
+    @InjectRepository(DispensaMensagem)
+    private readonly dispensaMensagemRepository: Repository<DispensaMensagem>,
+    private readonly dispensaGateway: DispensaGateway,
     @Inject(forwardRef(() => ContratosService))
     private readonly contratosService: ContratosService,
     @InjectDataSource()
@@ -1087,6 +1092,10 @@ export class LicitacoesService {
     licitacao.dispensa_lances_inicio = new Date();
     licitacao.dispensa_lances_fim = new Date(Date.now() + duracao * 60_000);
     await this.licitacaoRepository.save(licitacao);
+    this.dispensaGateway.emitirJanela(id, {
+      dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
+      dispensa_lances_fim: licitacao.dispensa_lances_fim,
+    });
     this.logger.log(
       `Dispensa ${licitacao.numero_processo}: fase de lances aberta por ${duracao}min (até ${licitacao.dispensa_lances_fim.toISOString()})`,
     );
@@ -1157,7 +1166,125 @@ export class LicitacoesService {
       valor_unitario: valor,
     });
     await this.dispensaLanceRepository.save(lance);
+
+    // Push em tempo real: novo menor valor do item (anônimo) para a sala
+    try {
+      const [agregado] = await this.dataSource.query(
+        `SELECT MIN(x.valor) AS menor, COUNT(*) FILTER (WHERE x.origem='LANCE') AS n_lances
+         FROM (
+           SELECT pi.valor_unitario AS valor, 'PROPOSTA' AS origem
+           FROM proposta_itens pi JOIN propostas p ON p.id = pi.proposta_id
+           WHERE p.licitacao_id = $1 AND pi.item_licitacao_id = $2
+             AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
+           UNION ALL
+           SELECT dl.valor_unitario, 'LANCE'
+           FROM dispensa_lances dl WHERE dl.licitacao_id = $1 AND dl.item_licitacao_id = $2
+         ) x`,
+        [id, dto.item_licitacao_id],
+      );
+      this.dispensaGateway.emitirPainelItem(id, {
+        item_licitacao_id: dto.item_licitacao_id,
+        menor_valor: agregado?.menor != null ? Number(agregado.menor) : null,
+        total_lances: Number(agregado?.n_lances || 0),
+      });
+    } catch { /* push é best-effort; o polling cobre */ }
+
     return { ok: true, valor_unitario: valor, seu_valor_anterior: meuMenor };
+  }
+
+  /** Chat da dispensa — lista pública (autoria do fornecedor anônima durante os lances). */
+  async listarMensagensDispensa(id: string): Promise<any[]> {
+    const licitacao = await this.findOne(id);
+    const lancesAbertos = !!(
+      licitacao.dispensa_lances_fim &&
+      new Date() < new Date(licitacao.dispensa_lances_fim)
+    );
+    const msgs = await this.dispensaMensagemRepository.find({
+      where: { licitacao_id: id },
+      order: { created_at: 'ASC' },
+      take: 500,
+    });
+    // Anonimiza fornecedores enquanto a janela de lances está aberta
+    const apelidos = new Map<string, string>();
+    let n = 0;
+    for (const m of msgs) {
+      if (m.autor_tipo === 'FORNECEDOR' && m.fornecedor_id && !apelidos.has(m.fornecedor_id)) {
+        n += 1;
+        apelidos.set(m.fornecedor_id, `Fornecedor ${n}`);
+      }
+    }
+    return msgs.map((m) => ({
+      id: m.id,
+      autor_tipo: m.autor_tipo,
+      autor_nome:
+        m.autor_tipo === 'FORNECEDOR' && lancesAbertos
+          ? apelidos.get(m.fornecedor_id || '') || 'Fornecedor'
+          : m.autor_nome,
+      fornecedor_id: lancesAbertos ? undefined : m.fornecedor_id,
+      mensagem: m.mensagem,
+      created_at: m.created_at,
+    }));
+  }
+
+  /** Chat da dispensa — envio (órgão ou fornecedor com proposta válida). Registrado nos autos. */
+  async enviarMensagemDispensa(
+    id: string,
+    dto: {
+      autor_tipo: 'ORGAO' | 'FORNECEDOR';
+      fornecedor_id?: string;
+      autor_nome?: string;
+      mensagem: string;
+    },
+  ): Promise<any> {
+    const licitacao = await this.findOne(id);
+    const texto = (dto.mensagem || '').trim();
+    if (!texto) throw new BadRequestException('Mensagem vazia');
+    if (texto.length > 1000) throw new BadRequestException('Mensagem muito longa (máx. 1000 caracteres)');
+    if (licitacao.data_homologacao) {
+      throw new BadRequestException('Licitação já homologada — chat encerrado');
+    }
+
+    let autorNome = (dto.autor_nome || '').trim();
+    if (dto.autor_tipo === 'FORNECEDOR') {
+      if (!dto.fornecedor_id) throw new BadRequestException('fornecedor_id obrigatório');
+      const prop = await this.dataSource.query(
+        `SELECT f.razao_social FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id
+         WHERE p.licitacao_id = $1 AND p.fornecedor_id = $2
+           AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA') LIMIT 1`,
+        [id, dto.fornecedor_id],
+      );
+      if (!prop.length) {
+        throw new BadRequestException('Apenas fornecedores com proposta válida podem enviar mensagens');
+      }
+      autorNome = prop[0].razao_social;
+    } else if (!autorNome) {
+      autorNome = 'Órgão';
+    }
+
+    const msg = this.dispensaMensagemRepository.create({
+      licitacao_id: id,
+      autor_tipo: dto.autor_tipo,
+      fornecedor_id: dto.autor_tipo === 'FORNECEDOR' ? dto.fornecedor_id || null : null,
+      autor_nome: autorNome,
+      mensagem: texto,
+    });
+    await this.dispensaMensagemRepository.save(msg);
+
+    // Push (com autoria mascarada se a janela de lances estiver aberta)
+    const lancesAbertos = !!(
+      licitacao.dispensa_lances_fim &&
+      new Date() < new Date(licitacao.dispensa_lances_fim)
+    );
+    this.dispensaGateway.emitirMensagem(id, {
+      id: msg.id,
+      autor_tipo: msg.autor_tipo,
+      autor_nome:
+        msg.autor_tipo === 'FORNECEDOR' && lancesAbertos ? 'Fornecedor' : msg.autor_nome,
+      mensagem: msg.mensagem,
+      created_at: msg.created_at,
+    });
+
+    return { ok: true, id: msg.id };
   }
 
   /**
@@ -1212,6 +1339,9 @@ export class LicitacoesService {
 
     return {
       aberta,
+      // Relógio do SERVIDOR: o cliente calcula o offset e o countdown não sofre
+      // com relógio errado no computador do fornecedor.
+      server_time: agora.toISOString(),
       dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
       dispensa_lances_fim: licitacao.dispensa_lances_fim,
       itens: itens.map((i) => ({
