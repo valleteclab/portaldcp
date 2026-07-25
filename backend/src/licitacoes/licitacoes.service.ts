@@ -10,6 +10,7 @@ import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
 import { DispensaGateway } from './dispensa.gateway';
 import { gerarAtaDispensaPdf } from './ata-dispensa-pdf';
 import { PncpService } from '../pncp/pncp.service';
+import { FaseInternaService } from '../fase-interna/fase-interna.service';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
@@ -51,6 +52,7 @@ export class LicitacoesService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly pncpService: PncpService,
+    private readonly faseInternaService: FaseInternaService,
   ) {}
 
   // === CRUD ===
@@ -575,6 +577,21 @@ export class LicitacoesService {
     // Valida se está na fase correta
     if (licitacao.fase !== FaseLicitacao.APROVACAO_INTERNA) {
       throw new BadRequestException('Licitação precisa estar aprovada internamente para publicar edital');
+    }
+
+    // Contratação direta: a divulgação exige a instrução mínima do Art. 72
+    // (DFD, estimativa de despesa e autorização). O checklist da instrução é
+    // o gate — igual ao card de pendências do Compras.gov.
+    if (
+      licitacao.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA ||
+      licitacao.modalidade === ModalidadeLicitacao.INEXIGIBILIDADE
+    ) {
+      const instrucao = await this.faseInternaService.getInstrucao(id);
+      if (!instrucao.pode_divulgar) {
+        throw new BadRequestException(
+          `Instrução do processo incompleta (Art. 72 da Lei 14.133/2021). Pendências: ${instrucao.pendentes.join('; ')}`,
+        );
+      }
     }
 
     // Dispensa eletrônica (art. 75 §3º): prazo MÍNIMO de 3 dias úteis entre a

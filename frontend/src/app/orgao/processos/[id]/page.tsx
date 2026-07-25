@@ -246,6 +246,124 @@ export default function CockpitProcessoPage() {
     }
   }
 
+  // === Instrução do processo (Art. 72 — contratação direta) ===
+  const [instrucao, setInstrucao] = useState<{
+    contratacao_direta: boolean
+    itens: Array<{ tipo: string; titulo: string; obrigatorio: boolean; fundamento: string; status: string; justificativa?: string }>
+    pode_divulgar: boolean
+    pendentes: string[]
+  } | null>(null)
+  const [naoSeAplicaLoading, setNaoSeAplicaLoading] = useState<string | null>(null)
+  const [modalDivulgar, setModalDivulgar] = useState(false)
+  const [fimPropostas, setFimPropostas] = useState("")
+  const [divulgando, setDivulgando] = useState(false)
+
+  useEffect(() => {
+    if (!dados) return
+    const m = dados.licitacao.modalidade
+    if (m !== "DISPENSA_ELETRONICA" && m !== "INEXIGIBILIDADE") return
+    authFetch(`${API_URL}/api/fase-interna/${id}/instrucao`)
+      .then(async (r) => { if (r.ok) setInstrucao(await r.json()) })
+      .catch(() => { /* card da instrução fica oculto */ })
+  }, [dados, id])
+
+  const marcarNaoSeAplica = async (tipo: string, titulo: string) => {
+    const j = prompt(`Marcar "${titulo}" como NÃO SE APLICA a esta contratação?\n\nInforme a justificativa (fica registrada nos autos — Art. 72):`)
+    if (!j || !j.trim()) return
+    setNaoSeAplicaLoading(tipo)
+    try {
+      let usuario: any = {}
+      try { usuario = JSON.parse(localStorage.getItem("usuario") || "{}") } catch { /* segue sem autor */ }
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/instrucao/${tipo}/nao-se-aplica`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ justificativa: j.trim(), usuarioId: usuario?.id, usuarioNome: usuario?.nome }),
+      })
+      const jj = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(jj?.message || `HTTP ${res.status}`)
+      setInstrucao(jj)
+    } catch (e: any) {
+      alert(`Erro: ${e.message}`)
+    } finally {
+      setNaoSeAplicaLoading(null)
+    }
+  }
+
+  const desfazerNaoSeAplica = async (tipo: string) => {
+    setNaoSeAplicaLoading(tipo)
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/instrucao/${tipo}/nao-se-aplica`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ desfazer: true }),
+      })
+      const jj = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(jj?.message || `HTTP ${res.status}`)
+      setInstrucao(jj)
+    } catch (e: any) {
+      alert(`Erro: ${e.message}`)
+    } finally {
+      setNaoSeAplicaLoading(null)
+    }
+  }
+
+  const addDiasUteis = (d: Date, n: number) => {
+    const r = new Date(d)
+    let add = 0
+    while (add < n) {
+      r.setDate(r.getDate() + 1)
+      const dow = r.getDay()
+      if (dow !== 0 && dow !== 6) add++
+    }
+    return r
+  }
+
+  const abrirModalDivulgar = () => {
+    // Sugere o mínimo legal (3 dias úteis, art. 75 §3º) com 1h de folga
+    const min = addDiasUteis(new Date(), 3)
+    min.setHours(min.getHours() + 1)
+    const pad = (x: number) => String(x).padStart(2, "0")
+    setFimPropostas(`${min.getFullYear()}-${pad(min.getMonth() + 1)}-${pad(min.getDate())}T${pad(min.getHours())}:${pad(min.getMinutes())}`)
+    setModalDivulgar(true)
+  }
+
+  const divulgarAviso = async () => {
+    if (!dados || !fimPropostas) return
+    setDivulgando(true)
+    try {
+      // Etapa única da contratação direta: conclui a instrução se ainda não concluída
+      if (dados.licitacao.fase !== "APROVACAO_INTERNA") {
+        const ra = await authFetch(`${API_URL}/api/fase-interna/${id}/avancar`, { method: "PUT" })
+        if (!ra.ok) {
+          const e = await ra.json().catch(() => null)
+          throw new Error(e?.message || `HTTP ${ra.status}`)
+        }
+      }
+      const agora = new Date().toISOString()
+      const fim = new Date(fimPropostas).toISOString()
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/publicar-edital`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data_publicacao_edital: agora,
+          data_limite_impugnacao: fim,
+          data_inicio_acolhimento: agora,
+          data_fim_acolhimento: fim,
+          data_abertura_sessao: fim,
+        }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      setModalDivulgar(false)
+      alert("Aviso divulgado!\n\nO prazo de propostas está aberto para os fornecedores e o aviso está sendo publicado automaticamente no PNCP (acompanhe o status no painel da seleção).")
+      await carregar()
+    } catch (e: any) {
+      alert(`Erro ao divulgar: ${e.message}`)
+    } finally {
+      setDivulgando(false)
+    }
+  }
+
   const [painelLances, setPainelLances] = useState<any>(null)
   const [mensagensDispensa, setMensagensDispensa] = useState<any[]>([])
   const [novaMensagemOrgao, setNovaMensagemOrgao] = useState("")
@@ -531,6 +649,78 @@ export default function CockpitProcessoPage() {
                     <p className="text-sm text-gray-600 mt-0.5">{et.resumo}</p>
                     <p className="text-xs text-gray-400">{et.extra}</p>
 
+                    {/* Instrução do processo (Art. 72) — contratação direta em etapa única */}
+                    {et.titulo === "Fase interna (documentos)" &&
+                      instrucao?.contratacao_direta &&
+                      ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS", "ANALISE_JURIDICA", "APROVACAO_INTERNA"].includes(dados.licitacao.fase) && (
+                        <div className="mt-3 border rounded-md p-3 bg-slate-50 space-y-2">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <span className="text-sm font-medium text-gray-700">
+                              📋 Instrução do processo — contratação direta (Art. 72)
+                            </span>
+                            {dados.licitacao.modalidade === "DISPENSA_ELETRONICA" && (
+                              <Button
+                                size="sm"
+                                onClick={abrirModalDivulgar}
+                                disabled={!instrucao.pode_divulgar}
+                                title={instrucao.pode_divulgar ? "Abre o prazo de propostas e publica o aviso no PNCP" : `Pendências: ${instrucao.pendentes.join("; ")}`}
+                              >
+                                📢 Divulgar aviso da dispensa
+                              </Button>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            {instrucao.itens.map((it) => (
+                              <div key={it.tipo} className="flex items-center justify-between gap-2 text-xs bg-white border rounded px-2 py-1.5">
+                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                  {it.status === "OK"
+                                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                                    : it.status === "NAO_SE_APLICA"
+                                      ? <span className="text-gray-400 shrink-0" title="Não se aplica">∅</span>
+                                      : <Circle className={`w-3.5 h-3.5 shrink-0 ${it.obrigatorio ? "text-amber-500" : "text-gray-300"}`} />}
+                                  <span className={it.status === "NAO_SE_APLICA" ? "line-through text-gray-400" : ""}>{it.titulo}</span>
+                                  <span className="text-gray-400">({it.fundamento})</span>
+                                  {it.obrigatorio && (
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-300 text-amber-700">obrigatório</Badge>
+                                  )}
+                                  {it.status === "NAO_SE_APLICA" && it.justificativa && (
+                                    <span className="text-gray-400 truncate max-w-[220px]" title={it.justificativa}>— {it.justificativa}</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {it.status !== "NAO_SE_APLICA" && it.status !== "OK" && !it.obrigatorio && (
+                                    <button
+                                      type="button"
+                                      className="text-[11px] text-gray-500 hover:underline disabled:opacity-50"
+                                      disabled={naoSeAplicaLoading === it.tipo}
+                                      onClick={() => marcarNaoSeAplica(it.tipo, it.titulo)}
+                                    >
+                                      não se aplica
+                                    </button>
+                                  )}
+                                  {it.status === "NAO_SE_APLICA" && (
+                                    <button
+                                      type="button"
+                                      className="text-[11px] text-gray-500 hover:underline disabled:opacity-50"
+                                      disabled={naoSeAplicaLoading === it.tipo}
+                                      onClick={() => desfazerNaoSeAplica(it.tipo)}
+                                    >
+                                      desfazer
+                                    </button>
+                                  )}
+                                  <Link href={`/orgao/fase-interna/processos/${id}`} className="text-[11px] text-blue-600 hover:underline">abrir</Link>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-gray-400">
+                            Mínimo para divulgar: <b>DFD, estimativa de despesa e autorização</b>. Os demais são &quot;se for o caso&quot; — marque
+                            &quot;não se aplica&quot; com justificativa (fica registrada nos autos). Ao divulgar, o aviso é publicado
+                            automaticamente no PNCP e abre o prazo de propostas (mínimo 3 dias úteis — art. 75, §3º).
+                          </p>
+                        </div>
+                      )}
+
                     {/* Painel da DISPENSA ELETRÔNICA: prazo, propostas e julgamento */}
                     {et.titulo.startsWith("Seleção") &&
                       dados.licitacao.modalidade === "DISPENSA_ELETRONICA" &&
@@ -773,6 +963,40 @@ export default function CockpitProcessoPage() {
           </ol>
         </CardContent>
       </Card>
+
+      {/* Modal: divulgar aviso da dispensa */}
+      <Dialog open={modalDivulgar} onOpenChange={setModalDivulgar}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Divulgar aviso da dispensa</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              A divulgação conclui a instrução, abre o prazo de propostas no Portal do Fornecedor
+              e publica o aviso de contratação direta <b>automaticamente no PNCP</b>.
+            </p>
+            <div>
+              <label className="text-sm font-medium">Receber propostas até</label>
+              <Input
+                type="datetime-local"
+                value={fimPropostas}
+                onChange={(e) => setFimPropostas(e.target.value)}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Mínimo de 3 dias úteis a partir de agora (art. 75, §3º) — já sugerido no campo.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalDivulgar(false)} disabled={divulgando}>Cancelar</Button>
+            <Button onClick={divulgarAviso} disabled={divulgando || !fimPropostas}>
+              {divulgando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Divulgar agora
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: registrar resultado externo */}
       <Dialog open={modalResultado} onOpenChange={setModalResultado}>
