@@ -79,66 +79,14 @@ export class PncpController {
 
   @Post('compras/:licitacaoId/completo')
   async enviarCompraCompleta(@Param('licitacaoId') licitacaoId: string) {
-    // Envia compra + itens em sequência
-    const resultadoCompra = await this.pncpService.enviarCompra(licitacaoId);
-    
-    console.log('[PNCP] Resultado enviarCompra:', JSON.stringify(resultadoCompra));
-    
-    if (resultadoCompra.sucesso) {
-      let numeroControlePNCP = resultadoCompra.numeroControlePNCP;
-      let link = resultadoCompra.link;
-      let ano = resultadoCompra.ano;
-      let sequencial = resultadoCompra.sequencial;
-      
-      // Se não veio o número de controle, consultar no PNCP
-      if (!numeroControlePNCP && ano && sequencial) {
-        try {
-          const consulta = await this.pncpService.consultarCompra(String(ano), String(sequencial));
-          if (consulta?.numeroControlePNCP) {
-            numeroControlePNCP = consulta.numeroControlePNCP;
-            // Atualizar na licitação
-            await this.pncpService.atualizarNumeroControleLicitacao(
-              licitacaoId, 
-              consulta.numeroControlePNCP, 
-              ano as number, 
-              sequencial as number
-            );
-          }
-        } catch (e) {
-          console.log('Não foi possível consultar compra após envio:', e.message);
-        }
-      }
-      
-      try {
-        const resultadoItens = await this.pncpService.enviarItens(licitacaoId);
-        const resposta = {
-          sucesso: true,
-          numeroControlePNCP,
-          ano,
-          sequencial,
-          link,
-          compra: resultadoCompra,
-          itens: resultadoItens
-        };
-        console.log('[PNCP] Resposta final ao frontend:', JSON.stringify(resposta));
-        return resposta;
-      } catch (error) {
-        const resposta = {
-          sucesso: true,
-          numeroControlePNCP,
-          ano,
-          sequencial,
-          link,
-          compra: resultadoCompra,
-          itens: { sucesso: false, erro: error.message }
-        };
-        console.log('[PNCP] Resposta final ao frontend (erro itens):', JSON.stringify(resposta));
-        return resposta;
-      }
-    }
-    
-    console.log('[PNCP] Retornando resultadoCompra direto:', JSON.stringify(resultadoCompra));
-    return resultadoCompra;
+    // Lógica movida para o service (D5) — usada também pelo disparo automático
+    return await this.pncpService.enviarCompraCompleta(licitacaoId);
+  }
+
+  /** D5: envia o resultado por item (vencedores/valores) após a homologação */
+  @Post('compras/:licitacaoId/resultados-homologacao')
+  async enviarResultadoHomologacao(@Param('licitacaoId') licitacaoId: string) {
+    return await this.pncpService.enviarResultadoHomologacao(licitacaoId);
   }
 
   // Vincular manualmente uma licitação já enviada ao PNCP

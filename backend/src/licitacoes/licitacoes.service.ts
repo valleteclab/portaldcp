@@ -9,6 +9,7 @@ import { DispensaLance } from './entities/dispensa-lance.entity';
 import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
 import { DispensaGateway } from './dispensa.gateway';
 import { gerarAtaDispensaPdf } from './ata-dispensa-pdf';
+import { PncpService } from '../pncp/pncp.service';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
@@ -49,6 +50,7 @@ export class LicitacoesService {
     private readonly contratosService: ContratosService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly pncpService: PncpService,
   ) {}
 
   // === CRUD ===
@@ -603,7 +605,28 @@ export class LicitacoesService {
       licitacao.link_pncp = dados.link_pncp;
     }
 
-    return await this.licitacaoRepository.save(licitacao);
+    const salva = await this.licitacaoRepository.save(licitacao);
+
+    // D5 — efeito de transição: DISPENSA publica o aviso de contratação direta
+    // no PNCP automaticamente (compra + itens + aviso PDF). Fire-and-forget:
+    // falha NÃO bloqueia a publicação — fica registrada em pncp_sync e visível
+    // no cockpit, com botão de reenvio.
+    if (licitacao.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+      this.pncpService
+        .enviarCompraCompleta(id)
+        .then((r: any) =>
+          this.logger.log(
+            `[PNCP] Aviso da dispensa ${licitacao.numero_processo} enviado: ${r?.numeroControlePNCP || 'sem nº controle'}`,
+          ),
+        )
+        .catch((e: any) =>
+          this.logger.warn(
+            `[PNCP] Falha ao publicar aviso da dispensa ${licitacao.numero_processo}: ${e.message} (reenvie pelo cockpit)`,
+          ),
+        );
+    }
+
+    return salva;
   }
 
   async iniciarDisputa(id: string): Promise<Licitacao> {
@@ -674,6 +697,24 @@ export class LicitacoesService {
       this.logger.error(`Erro ao gerar contratos automaticamente para licitação ${id}:`, error);
     }
 
+    // D5 — efeito de transição: envia o RESULTADO por item ao PNCP na
+    // homologação (exceto seleção externa — nesse caso a plataforma de origem
+    // é responsável pela publicação). Fire-and-forget com registro em pncp_sync.
+    if (!licitacao.selecao_externa) {
+      this.pncpService
+        .enviarResultadoHomologacao(id)
+        .then((r: any) =>
+          this.logger.log(
+            `[PNCP] Resultado da licitação ${licitacao.numero_processo}: ${r?.enviados}/${r?.total} item(ns) enviados`,
+          ),
+        )
+        .catch((e: any) =>
+          this.logger.warn(
+            `[PNCP] Resultado da licitação ${licitacao.numero_processo} não enviado: ${e.message} (reenvie pelo cockpit)`,
+          ),
+        );
+    }
+
     return licitacaoSalva;
   }
 
@@ -723,6 +764,13 @@ export class LicitacoesService {
         [id],
       ),
     ]);
+
+    // Status das publicações no PNCP (D5): compra, itens, resultados…
+    const pncp = await this.dataSource.query(
+      `SELECT tipo, status, numero_controle_pncp, erro_mensagem, tentativas, updated_at
+       FROM pncp_sync WHERE licitacao_id = $1 ORDER BY created_at DESC LIMIT 10`,
+      [id],
+    );
 
     // Checklist do processo (o que está feito / o que falta)
     const fasesInternas = [
@@ -796,6 +844,7 @@ export class LicitacoesService {
       documentos,
       contratos,
       atas,
+      pncp,
       // Sigilo: enquanto o acolhimento está aberto, o órgão vê QUEM propôs,
       // mas não os valores (evita direcionamento antes da abertura).
       propostas: (() => {

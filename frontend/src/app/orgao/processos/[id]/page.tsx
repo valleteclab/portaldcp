@@ -68,6 +68,7 @@ interface ProcessoCompleto {
   atas: Array<{ id: string; numero_ata: string; fornecedor_razao_social?: string; valor_total?: number; status?: string }>
   propostas: Array<{ id: string; status: string; valor_total_proposta?: number | null; data_envio?: string; razao_social: string; sigilo?: boolean }>
   propostas_em_sigilo?: boolean
+  pncp?: Array<{ tipo: string; status: string; numero_controle_pncp?: string | null; erro_mensagem?: string | null; tentativas?: number; updated_at?: string }>
   checklist: {
     vinculado_pca: boolean
     possui_itens: boolean
@@ -317,6 +318,26 @@ export default function CockpitProcessoPage() {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/lances/painel`)
       if (res.ok) setPainelLances(await res.json())
     } catch { /* mantém painel anterior */ }
+  }
+
+  const [enviandoPncp, setEnviandoPncp] = useState<string | null>(null)
+
+  const enviarPncp = async (acao: "aviso" | "resultado") => {
+    const rota = acao === "aviso" ? "completo" : "resultados-homologacao"
+    setEnviandoPncp(acao)
+    try {
+      const res = await authFetch(`${API_URL}/api/pncp/compras/${id}/${rota}`, { method: "POST" })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      alert(acao === "aviso"
+        ? `Aviso enviado ao PNCP${j?.numeroControlePNCP ? ` — nº de controle ${j.numeroControlePNCP}` : ""}.`
+        : `Resultado: ${j?.enviados}/${j?.total} item(ns) enviados ao PNCP.`)
+      await carregar()
+    } catch (e: any) {
+      alert(`PNCP: ${e.message}\n\nVerifique as credenciais em Configurações → PNCP e tente novamente.`)
+    } finally {
+      setEnviandoPncp(null)
+    }
   }
 
   const desclassificarProposta = async (propostaId: string, fornecedor: string) => {
@@ -652,6 +673,46 @@ export default function CockpitProcessoPage() {
                           </div>
                         )
                       })()}
+
+                    {/* PNCP (D5): status das publicações + reenvio */}
+                    {et.titulo.startsWith("Seleção") &&
+                      dados.licitacao.modalidade === "DISPENSA_ELETRONICA" &&
+                      !dados.licitacao.selecao_externa &&
+                      checklist.fase_interna_concluida && (
+                        <div className="mt-3 border rounded-md p-2.5 bg-white">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap text-xs">
+                              <span className="font-medium text-gray-600">PNCP:</span>
+                              {(dados.pncp || []).length === 0 && (
+                                <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">aviso ainda não publicado</span>
+                              )}
+                              {(dados.pncp || []).map((s, ix) => (
+                                <span
+                                  key={ix}
+                                  title={s.erro_mensagem || ""}
+                                  className={`rounded px-1.5 py-0.5 border ${s.status === "ENVIADO" ? "text-green-700 bg-green-50 border-green-200" : s.status === "ERRO" ? "text-red-700 bg-red-50 border-red-200" : "text-gray-600 bg-gray-50 border-gray-200"}`}
+                                >
+                                  {s.tipo} {s.status === "ENVIADO" ? "✓" : s.status === "ERRO" ? "✗" : "…"}
+                                  {s.numero_controle_pncp ? ` ${s.numero_controle_pncp}` : ""}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => enviarPncp("aviso")} disabled={enviandoPncp !== null}>
+                                {enviandoPncp === "aviso" ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+                                {(dados.pncp || []).some((s) => s.tipo === "COMPRA" && s.status === "ENVIADO") ? "Reenviar aviso" : "Publicar aviso no PNCP"}
+                              </Button>
+                              {checklist.homologado && (
+                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => enviarPncp("resultado")} disabled={enviandoPncp !== null}>
+                                  {enviandoPncp === "resultado" ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+                                  Enviar resultado
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-1">Publicado automaticamente ao publicar o aviso e ao homologar — os botões servem para reenvio em caso de falha.</p>
+                        </div>
+                      )}
 
                     {/* Conteúdo específico por etapa */}
                     {et.titulo.startsWith("Seleção") && dados.itens.length > 0 && (
