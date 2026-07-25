@@ -243,6 +243,27 @@ export default function CockpitProcessoPage() {
     }
   }
 
+  const desclassificarProposta = async (propostaId: string, fornecedor: string) => {
+    const motivo = prompt(`Desclassificar a proposta de ${fornecedor}?\n\nInforme o MOTIVO (obrigatório, ficará registrado):`)
+    if (!motivo || !motivo.trim()) return
+    try {
+      const fd = new FormData()
+      fd.append("motivo", motivo.trim())
+      const res = await authFetch(`${API_URL}/api/propostas/${propostaId}/desclassificar`, {
+        method: "PUT",
+        body: fd,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => null)
+        throw new Error(err?.message || `HTTP ${res.status}`)
+      }
+      alert("Proposta desclassificada. Se já houve julgamento, use 'Rejulgar' para recalcular os vencedores.")
+      await carregar()
+    } catch (e: any) {
+      alert(`Erro ao desclassificar: ${e.message}`)
+    }
+  }
+
   const etapas = useMemo(() => {
     if (!dados) return []
     const c = dados.checklist
@@ -458,7 +479,19 @@ export default function CockpitProcessoPage() {
                                         <td className="px-3 py-1.5 text-right whitespace-nowrap">{p.valor_total_proposta != null ? fmtMoeda(p.valor_total_proposta) : "—"}</td>
                                         <td className="px-3 py-1.5 whitespace-nowrap">{p.data_envio ? new Date(p.data_envio).toLocaleString("pt-BR") : "—"}</td>
                                         <td className="px-3 py-1.5">
-                                          <Badge variant="outline" className={p.status === "VENCEDORA" ? "border-green-400 text-green-700" : p.status === "DESCLASSIFICADA" ? "border-red-300 text-red-600" : ""}>{p.status}</Badge>
+                                          <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className={p.status === "VENCEDORA" ? "border-green-400 text-green-700" : p.status === "DESCLASSIFICADA" ? "border-red-300 text-red-600" : ""}>{p.status}</Badge>
+                                            {!aberto && p.id && p.status !== "DESCLASSIFICADA" && p.status !== "CANCELADA" && (
+                                              <button
+                                                type="button"
+                                                onClick={() => desclassificarProposta(p.id, p.razao_social)}
+                                                className="text-[11px] text-red-600 hover:underline"
+                                                title="Desclassificar com motivo registrado"
+                                              >
+                                                desclassificar
+                                              </button>
+                                            )}
+                                          </div>
                                         </td>
                                       </tr>
                                     ))}

@@ -546,12 +546,42 @@ export class LicitacoesService {
     return await this.licitacaoRepository.save(licitacao);
   }
 
+  /** Soma N dias ÚTEIS (seg–sex) a uma data. Feriados não são considerados. */
+  private adicionarDiasUteis(base: Date, dias: number): Date {
+    const d = new Date(base);
+    let somados = 0;
+    while (somados < dias) {
+      d.setDate(d.getDate() + 1);
+      const dow = d.getDay();
+      if (dow !== 0 && dow !== 6) somados++;
+    }
+    return d;
+  }
+
   async publicarEdital(id: string, dados: PublicarEditalDto): Promise<Licitacao> {
     const licitacao = await this.findOne(id);
 
     // Valida se está na fase correta
     if (licitacao.fase !== FaseLicitacao.APROVACAO_INTERNA) {
       throw new BadRequestException('Licitação precisa estar aprovada internamente para publicar edital');
+    }
+
+    // Dispensa eletrônica (art. 75 §3º): prazo MÍNIMO de 3 dias úteis entre a
+    // divulgação do aviso e o fim do recebimento de propostas.
+    if (licitacao.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+      const corte = dados.data_fim_acolhimento || dados.data_abertura_sessao;
+      if (corte) {
+        const minimo = this.adicionarDiasUteis(
+          new Date(dados.data_publicacao_edital || Date.now()),
+          3,
+        );
+        if (new Date(corte) < minimo) {
+          throw new BadRequestException(
+            `Dispensa eletrônica exige no mínimo 3 dias úteis para recebimento de propostas (art. 75, §3º). ` +
+              `Prazo mínimo: ${minimo.toLocaleDateString('pt-BR')}`,
+          );
+        }
+      }
     }
 
     licitacao.fase = FaseLicitacao.PUBLICADO;
