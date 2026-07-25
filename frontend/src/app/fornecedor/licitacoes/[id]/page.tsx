@@ -348,6 +348,14 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {/* Dispensa: sala de lances aberta */}
+          {(licitacao as any).dispensa_lances_fim && new Date((licitacao as any).dispensa_lances_fim) > new Date() && (
+            <Link href={`/fornecedor/licitacoes/${licitacao.id}/lances`}>
+              <Button className="bg-green-600 hover:bg-green-700 animate-pulse">
+                ⚡ Fase de lances aberta — Entrar
+              </Button>
+            </Link>
+          )}
           {/* Esclarecimentos - disponível em várias fases */}
           {['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS'].includes(licitacao.fase) && (
             <Link href={`/fornecedor/licitacoes/${licitacao.id}/esclarecimentos`}>

@@ -40,11 +40,16 @@ export class PropostasService {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
     });
+    const agora = new Date();
+    // Durante a fase de LANCES da dispensa, as rotas públicas seguem sigilosas —
+    // a informação pública é o painel anônimo (menor valor por item).
+    const lancesFim = (licitacao as any)?.dispensa_lances_fim;
+    if (lancesFim && agora < new Date(lancesFim)) return true;
     const corte =
       (licitacao as any)?.data_fim_acolhimento || licitacao?.data_abertura_sessao;
     if (!corte) return false;
     const d = new Date(corte);
-    return !isNaN(d.getTime()) && new Date() < d;
+    return !isNaN(d.getTime()) && agora < d;
   }
 
   private async validarAntesAberturaSessao(licitacaoId: string): Promise<void> {

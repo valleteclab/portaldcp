@@ -5,6 +5,7 @@ import { Licitacao, FaseLicitacao, ModalidadeLicitacao, TipoContratacao, Criteri
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item-licitacao.entity';
+import { DispensaLance } from './entities/dispensa-lance.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
@@ -36,6 +37,8 @@ export class LicitacoesService {
     private readonly loteRepository: Repository<LoteLicitacao>,
     @InjectRepository(Demanda)
     private readonly demandaRepository: Repository<Demanda>,
+    @InjectRepository(DispensaLance)
+    private readonly dispensaLanceRepository: Repository<DispensaLance>,
     @Inject(forwardRef(() => ContratosService))
     private readonly contratosService: ContratosService,
     @InjectDataSource()
@@ -753,6 +756,8 @@ export class LicitacoesService {
         tipo_contratacao: licitacao.tipo_contratacao,
         data_fim_acolhimento: licitacao.data_fim_acolhimento,
         data_abertura_sessao: licitacao.data_abertura_sessao,
+        dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
+        dispensa_lances_fim: licitacao.dispensa_lances_fim,
       },
       item_pca: licitacao.item_pca
         ? {
@@ -912,6 +917,16 @@ export class LicitacoesService {
       );
     }
 
+    // Se houver fase de lances aberta, ela precisa ter encerrado
+    if (
+      licitacao.dispensa_lances_fim &&
+      new Date() < new Date(licitacao.dispensa_lances_fim)
+    ) {
+      throw new BadRequestException(
+        `A fase de lances está aberta até ${new Date(licitacao.dispensa_lances_fim).toLocaleString('pt-BR')} — julgue após o encerramento`,
+      );
+    }
+
     // Propostas válidas (por item), ordenadas por menor valor unitário
     const linhas: Array<{
       item_licitacao_id: string;
@@ -935,10 +950,53 @@ export class LicitacoesService {
     }
 
     const itens = await this.itemRepository.find({ where: { licitacao_id: id } });
-    const vencedorPorItem = new Map<string, (typeof linhas)[number]>();
+
+    // Fase de lances: o valor final de cada fornecedor no item é o MENOR entre
+    // a proposta inicial e os seus próprios lances (modelo IN SEGES 67/2021).
+    const lances = await this.dispensaLanceRepository.find({
+      where: { licitacao_id: id },
+    });
+    const dadosFornecedor = new Map<string, { proposta_id: string; razao_social: string }>();
     for (const l of linhas) {
-      if (!vencedorPorItem.has(l.item_licitacao_id)) {
-        vencedorPorItem.set(l.item_licitacao_id, l); // primeira = menor valor
+      if (!dadosFornecedor.has(l.fornecedor_id)) {
+        dadosFornecedor.set(l.fornecedor_id, {
+          proposta_id: l.proposta_id,
+          razao_social: l.razao_social,
+        });
+      }
+    }
+    // melhor valor por (item, fornecedor): começa nas propostas…
+    const melhorPorItemFornecedor = new Map<string, (typeof linhas)[number]>();
+    const chave = (item: string, forn: string) => `${item}|${forn}`;
+    for (const l of linhas) {
+      const k = chave(l.item_licitacao_id, l.fornecedor_id);
+      const atual = melhorPorItemFornecedor.get(k);
+      if (!atual || Number(l.valor_unitario) < Number(atual.valor_unitario)) {
+        melhorPorItemFornecedor.set(k, l);
+      }
+    }
+    // …e é reduzido pelos lances (só de fornecedores com proposta válida)
+    for (const lance of lances) {
+      const forn = dadosFornecedor.get(lance.fornecedor_id);
+      if (!forn) continue; // lance de quem não tem proposta válida não conta
+      const k = chave(lance.item_licitacao_id, lance.fornecedor_id);
+      const atual = melhorPorItemFornecedor.get(k);
+      if (atual && Number(lance.valor_unitario) < Number(atual.valor_unitario)) {
+        melhorPorItemFornecedor.set(k, {
+          item_licitacao_id: lance.item_licitacao_id,
+          valor_unitario: String(lance.valor_unitario),
+          proposta_id: forn.proposta_id,
+          fornecedor_id: lance.fornecedor_id,
+          razao_social: forn.razao_social,
+        });
+      }
+    }
+    // vencedor do item = menor valor final entre os fornecedores
+    const vencedorPorItem = new Map<string, (typeof linhas)[number]>();
+    for (const cand of melhorPorItemFornecedor.values()) {
+      const atual = vencedorPorItem.get(cand.item_licitacao_id);
+      if (!atual || Number(cand.valor_unitario) < Number(atual.valor_unitario)) {
+        vencedorPorItem.set(cand.item_licitacao_id, cand);
       }
     }
 
@@ -998,6 +1056,173 @@ export class LicitacoesService {
       fase: licitacao.fase,
       adjudicados,
       itens_sem_proposta: semProposta,
+    };
+  }
+
+  /**
+   * Abre a fase de LANCES da dispensa (opcional — modelo IN SEGES 67/2021).
+   * Só após o fim do acolhimento de propostas; duração parametrizada em minutos.
+   */
+  async abrirLancesDispensa(id: string, duracaoMinutos: number): Promise<any> {
+    const licitacao = await this.findOne(id);
+    if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+      throw new BadRequestException('Fase de lances disponível apenas para Dispensa Eletrônica');
+    }
+    if (licitacao.data_homologacao) {
+      throw new BadRequestException('Licitação já homologada');
+    }
+    const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
+    if (corte && new Date() < new Date(corte)) {
+      throw new BadRequestException(
+        'A fase de lances só pode ser aberta após o fim do recebimento de propostas',
+      );
+    }
+    if (
+      licitacao.dispensa_lances_fim &&
+      new Date() < new Date(licitacao.dispensa_lances_fim)
+    ) {
+      throw new BadRequestException('Já existe uma fase de lances aberta');
+    }
+    const duracao = Math.max(5, Math.min(24 * 60, Number(duracaoMinutos) || 360));
+    licitacao.dispensa_lances_inicio = new Date();
+    licitacao.dispensa_lances_fim = new Date(Date.now() + duracao * 60_000);
+    await this.licitacaoRepository.save(licitacao);
+    this.logger.log(
+      `Dispensa ${licitacao.numero_processo}: fase de lances aberta por ${duracao}min (até ${licitacao.dispensa_lances_fim.toISOString()})`,
+    );
+    return {
+      dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
+      dispensa_lances_fim: licitacao.dispensa_lances_fim,
+      duracao_minutos: duracao,
+    };
+  }
+
+  /**
+   * Registra um lance do fornecedor na dispensa: precisa ter proposta válida,
+   * a janela precisa estar aberta e o valor deve ser MENOR que o último valor
+   * do próprio fornecedor no item (proposta inicial ou lance anterior).
+   */
+  async registrarLanceDispensa(
+    id: string,
+    dto: { item_licitacao_id: string; fornecedor_id: string; valor_unitario: number },
+  ): Promise<any> {
+    const licitacao = await this.findOne(id);
+    if (
+      !licitacao.dispensa_lances_fim ||
+      new Date() >= new Date(licitacao.dispensa_lances_fim)
+    ) {
+      throw new BadRequestException('A fase de lances não está aberta');
+    }
+    const valor = Number(dto.valor_unitario);
+    if (!(valor > 0)) throw new BadRequestException('Valor de lance inválido');
+
+    // Proposta válida do fornecedor com o item
+    const proposta = await this.dataSource.query(
+      `SELECT p.id, pi.valor_unitario
+       FROM propostas p
+       JOIN proposta_itens pi ON pi.proposta_id = p.id AND pi.item_licitacao_id = $2
+       WHERE p.licitacao_id = $1 AND p.fornecedor_id = $3
+         AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
+       LIMIT 1`,
+      [id, dto.item_licitacao_id, dto.fornecedor_id],
+    );
+    if (!proposta.length) {
+      throw new BadRequestException(
+        'Apenas fornecedores com proposta válida para o item podem dar lances',
+      );
+    }
+
+    // Último valor do próprio fornecedor no item (proposta ∪ lances)
+    const meusLances = await this.dispensaLanceRepository.find({
+      where: {
+        licitacao_id: id,
+        item_licitacao_id: dto.item_licitacao_id,
+        fornecedor_id: dto.fornecedor_id,
+      },
+    });
+    const meuMenor = Math.min(
+      Number(proposta[0].valor_unitario),
+      ...meusLances.map((l) => Number(l.valor_unitario)),
+    );
+    if (valor >= meuMenor) {
+      throw new BadRequestException(
+        `O lance deve ser menor que o seu valor atual (${meuMenor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`,
+      );
+    }
+
+    const lance = this.dispensaLanceRepository.create({
+      licitacao_id: id,
+      item_licitacao_id: dto.item_licitacao_id,
+      fornecedor_id: dto.fornecedor_id,
+      valor_unitario: valor,
+    });
+    await this.dispensaLanceRepository.save(lance);
+    return { ok: true, valor_unitario: valor, seu_valor_anterior: meuMenor };
+  }
+
+  /**
+   * Painel público (ANÔNIMO) da fase de lances: menor valor atual e nº de
+   * lances por item. Com fornecedorId, inclui o valor atual DAQUELE fornecedor.
+   */
+  async painelLancesDispensa(id: string, fornecedorId?: string): Promise<any> {
+    const licitacao = await this.findOne(id);
+    const agora = new Date();
+    const aberta = !!(
+      licitacao.dispensa_lances_fim &&
+      agora < new Date(licitacao.dispensa_lances_fim)
+    );
+
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: id },
+      order: { numero_item: 'ASC' } as any,
+    });
+    const menores = await this.dataSource.query(
+      `SELECT x.item_licitacao_id, MIN(x.valor) AS menor, COUNT(*) FILTER (WHERE x.origem='LANCE') AS n_lances
+       FROM (
+         SELECT pi.item_licitacao_id, pi.valor_unitario AS valor, 'PROPOSTA' AS origem
+         FROM proposta_itens pi JOIN propostas p ON p.id = pi.proposta_id
+         WHERE p.licitacao_id = $1 AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
+         UNION ALL
+         SELECT dl.item_licitacao_id, dl.valor_unitario, 'LANCE'
+         FROM dispensa_lances dl WHERE dl.licitacao_id = $1
+       ) x GROUP BY x.item_licitacao_id`,
+      [id],
+    );
+    const meus = fornecedorId
+      ? await this.dataSource.query(
+          `SELECT x.item_licitacao_id, MIN(x.valor) AS meu_valor
+           FROM (
+             SELECT pi.item_licitacao_id, pi.valor_unitario AS valor
+             FROM proposta_itens pi JOIN propostas p ON p.id = pi.proposta_id
+             WHERE p.licitacao_id = $1 AND p.fornecedor_id = $2
+               AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
+             UNION ALL
+             SELECT dl.item_licitacao_id, dl.valor_unitario
+             FROM dispensa_lances dl WHERE dl.licitacao_id = $1 AND dl.fornecedor_id = $2
+           ) x GROUP BY x.item_licitacao_id`,
+          [id, fornecedorId],
+        )
+      : [];
+    const mapMenor = new Map<string, any>(
+      menores.map((m: any) => [m.item_licitacao_id, m]),
+    );
+    const mapMeu = new Map<string, any>(
+      meus.map((m: any) => [m.item_licitacao_id, m.meu_valor]),
+    );
+
+    return {
+      aberta,
+      dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
+      dispensa_lances_fim: licitacao.dispensa_lances_fim,
+      itens: itens.map((i) => ({
+        item_licitacao_id: i.id,
+        numero_item: (i as any).numero_item,
+        descricao: (i as any).descricao_resumida || (i as any).descricao_detalhada || (i as any).descricao,
+        quantidade: (i as any).quantidade,
+        menor_valor: mapMenor.get(i.id)?.menor != null ? Number(mapMenor.get(i.id).menor) : null,
+        total_lances: Number(mapMenor.get(i.id)?.n_lances || 0),
+        meu_valor: mapMeu.get(i.id) != null ? Number(mapMeu.get(i.id)) : undefined,
+      })),
     };
   }
 

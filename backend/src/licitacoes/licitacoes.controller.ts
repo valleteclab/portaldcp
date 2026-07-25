@@ -108,6 +108,34 @@ export class LicitacoesController {
     return await this.licitacoesService.julgarDispensa(id);
   }
 
+  /** Dispensa: abre a fase de lances (opcional, modelo IN SEGES 67/2021) */
+  @Post(':id/dispensa/abrir-lances')
+  async abrirLancesDispensa(
+    @Param('id') id: string,
+    @Body() body: { duracao_minutos?: number },
+  ): Promise<any> {
+    return await this.licitacoesService.abrirLancesDispensa(id, body?.duracao_minutos ?? 360);
+  }
+
+  /** Dispensa: fornecedor registra lance (menor que o próprio valor atual) */
+  @Post(':id/dispensa/lances')
+  async registrarLanceDispensa(
+    @Param('id') id: string,
+    @Body() body: { item_licitacao_id: string; fornecedor_id: string; valor_unitario: number },
+  ): Promise<any> {
+    return await this.licitacoesService.registrarLanceDispensa(id, body);
+  }
+
+  /** Dispensa: painel anônimo da fase de lances (menor valor por item) */
+  @Public()
+  @Get(':id/dispensa/lances/painel')
+  async painelLancesDispensa(
+    @Param('id') id: string,
+    @Query('fornecedorId') fornecedorId?: string,
+  ): Promise<any> {
+    return await this.licitacoesService.painelLancesDispensa(id, fornecedorId);
+  }
+
   /** Seleção externa: registra vencedores/valores de disputa realizada fora do sistema */
   @Post(':id/resultado-externo')
   async registrarResultadoExterno(
