@@ -659,7 +659,7 @@ export class LicitacoesService {
       order: { numero_item: 'ASC' } as any,
     });
 
-    const [documentos, contratos, atas] = await Promise.all([
+    const [documentos, contratos, atas, propostas] = await Promise.all([
       this.dataSource.query(
         `SELECT id, tipo, titulo, status, origem, created_at
          FROM documentos_fase_interna WHERE licitacao_id = $1 ORDER BY created_at ASC`,
@@ -674,6 +674,13 @@ export class LicitacoesService {
       this.dataSource.query(
         `SELECT id, numero_ata, fornecedor_razao_social, valor_total, status
          FROM atas_registro_preco WHERE licitacao_id = $1 ORDER BY numero_ata ASC`,
+        [id],
+      ),
+      this.dataSource.query(
+        `SELECT p.id, p.status, p.valor_total_proposta, p.data_envio, f.razao_social
+         FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id
+         WHERE p.licitacao_id = $1 AND p.status <> 'RASCUNHO'
+         ORDER BY p.valor_total_proposta ASC NULLS LAST`,
         [id],
       ),
     ]);
@@ -713,6 +720,9 @@ export class LicitacoesService {
         plataforma_externa: licitacao.plataforma_externa,
         numero_processo_externo: licitacao.numero_processo_externo,
         url_externa: licitacao.url_externa,
+        tipo_contratacao: licitacao.tipo_contratacao,
+        data_fim_acolhimento: licitacao.data_fim_acolhimento,
+        data_abertura_sessao: licitacao.data_abertura_sessao,
       },
       item_pca: licitacao.item_pca
         ? {
@@ -745,6 +755,7 @@ export class LicitacoesService {
       documentos,
       contratos,
       atas,
+      propostas,
       checklist,
     };
   }
@@ -830,6 +841,122 @@ export class LicitacoesService {
     );
 
     return { licitacao_id: id, fase: licitacao.fase, resultados };
+  }
+
+  /**
+   * DEGRAU 2 — DISPENSA ELETRÔNICA (Lei 14.133, art. 75 §3º).
+   * Julga as propostas recebidas por MENOR PREÇO UNITÁRIO por item e adjudica:
+   * grava vencedor/valor homologado em cada item (status ADJUDICADO), marca as
+   * propostas vencedoras e leva a licitação à fase ADJUDICACAO. Depois, o
+   * homologar() existente gera o(s) contrato(s) automaticamente.
+   */
+  async julgarDispensa(id: string): Promise<any> {
+    const licitacao = await this.findOne(id);
+
+    if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+      throw new BadRequestException(
+        'Julgamento automático por menor preço disponível apenas para Dispensa Eletrônica',
+      );
+    }
+    if (licitacao.data_homologacao) {
+      throw new BadRequestException('Licitação já homologada');
+    }
+
+    // Prazo de acolhimento precisa ter encerrado (art. 75 §3º)
+    const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
+    if (corte && new Date() < new Date(corte)) {
+      throw new BadRequestException(
+        `O prazo de recebimento de propostas ainda está aberto (encerra em ${new Date(corte).toLocaleString('pt-BR')})`,
+      );
+    }
+
+    // Propostas válidas (por item), ordenadas por menor valor unitário
+    const linhas: Array<{
+      item_licitacao_id: string;
+      valor_unitario: string;
+      proposta_id: string;
+      fornecedor_id: string;
+      razao_social: string;
+    }> = await this.dataSource.query(
+      `SELECT pi.item_licitacao_id, pi.valor_unitario, p.id AS proposta_id,
+              p.fornecedor_id, f.razao_social
+       FROM proposta_itens pi
+       JOIN propostas p ON p.id = pi.proposta_id
+       JOIN fornecedores f ON f.id = p.fornecedor_id
+       WHERE p.licitacao_id = $1
+         AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
+       ORDER BY pi.item_licitacao_id, pi.valor_unitario ASC, p.data_envio ASC NULLS LAST`,
+      [id],
+    );
+    if (linhas.length === 0) {
+      throw new BadRequestException('Nenhuma proposta válida recebida para julgamento');
+    }
+
+    const itens = await this.itemRepository.find({ where: { licitacao_id: id } });
+    const vencedorPorItem = new Map<string, (typeof linhas)[number]>();
+    for (const l of linhas) {
+      if (!vencedorPorItem.has(l.item_licitacao_id)) {
+        vencedorPorItem.set(l.item_licitacao_id, l); // primeira = menor valor
+      }
+    }
+
+    const adjudicados: Array<{ item: number; fornecedor: string; valor_unitario: number; valor_total: number }> = [];
+    const semProposta: number[] = [];
+    const propostasVencedoras = new Set<string>();
+
+    for (const item of itens) {
+      const v = vencedorPorItem.get(item.id);
+      if (!v) {
+        semProposta.push((item as any).numero_item);
+        continue;
+      }
+      const valorUnit = Number(v.valor_unitario);
+      item.fornecedor_vencedor_id = v.fornecedor_id;
+      item.fornecedor_vencedor_nome = v.razao_social;
+      item.valor_unitario_homologado = valorUnit;
+      item.valor_total_homologado =
+        Math.round(valorUnit * Number((item as any).quantidade || 0) * 100) / 100;
+      item.status = StatusItem.ADJUDICADO;
+      await this.itemRepository.save(item);
+      propostasVencedoras.add(v.proposta_id);
+      adjudicados.push({
+        item: (item as any).numero_item,
+        fornecedor: v.razao_social,
+        valor_unitario: valorUnit,
+        valor_total: item.valor_total_homologado,
+      });
+    }
+
+    if (adjudicados.length === 0) {
+      throw new BadRequestException('Nenhum item pôde ser adjudicado (itens sem proposta válida)');
+    }
+
+    // Marca propostas vencedoras (ao menos 1 item) e classifica as demais válidas
+    if (propostasVencedoras.size > 0) {
+      await this.dataSource.query(
+        `UPDATE propostas SET status = 'VENCEDORA' WHERE id = ANY($1::uuid[])`,
+        [[...propostasVencedoras]],
+      );
+      await this.dataSource.query(
+        `UPDATE propostas SET status = 'CLASSIFICADA'
+         WHERE licitacao_id = $1 AND status IN ('ENVIADA','RECEBIDA','EM_ANALISE')`,
+        [id],
+      );
+    }
+
+    licitacao.fase = FaseLicitacao.ADJUDICACAO;
+    await this.licitacaoRepository.save(licitacao);
+
+    this.logger.log(
+      `Dispensa ${licitacao.numero_processo} julgada: ${adjudicados.length} item(ns) adjudicado(s), ${semProposta.length} sem proposta`,
+    );
+
+    return {
+      licitacao_id: id,
+      fase: licitacao.fase,
+      adjudicados,
+      itens_sem_proposta: semProposta,
+    };
   }
 
   async suspender(id: string, motivo: string): Promise<Licitacao> {

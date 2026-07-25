@@ -39,6 +39,9 @@ interface ProcessoCompleto {
     plataforma_externa?: string | null
     numero_processo_externo?: string | null
     url_externa?: string | null
+    tipo_contratacao?: string
+    data_fim_acolhimento?: string | null
+    data_abertura_sessao?: string | null
   }
   item_pca?: { id: string; numero_item: number; descricao_objeto: string; valor_estimado: number } | null
   demanda?: { id: string; titulo?: string; status: string } | null
@@ -61,6 +64,7 @@ interface ProcessoCompleto {
     valor_global?: number; status?: string
   }>
   atas: Array<{ id: string; numero_ata: string; fornecedor_razao_social?: string; valor_total?: number; status?: string }>
+  propostas: Array<{ id: string; status: string; valor_total_proposta?: number; data_envio?: string; razao_social: string }>
   checklist: {
     vinculado_pca: boolean
     possui_itens: boolean
@@ -95,6 +99,8 @@ export default function CockpitProcessoPage() {
   const [linhas, setLinhas] = useState<Record<string, { fornecedor_id: string; valor_unitario: string }>>({})
   const [salvando, setSalvando] = useState(false)
   const [homologando, setHomologando] = useState(false)
+  const [julgando, setJulgando] = useState(false)
+  const [limiteDispensa, setLimiteDispensa] = useState<{ chave: string; valor: number } | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -116,6 +122,22 @@ export default function CockpitProcessoPage() {
       setPlataforma(j.licitacao.plataforma_externa || "")
       setNumeroExterno(j.licitacao.numero_processo_externo || "")
       setUrlExterna(j.licitacao.url_externa || "")
+
+      // Limite legal do art. 75 (aviso de conformidade da dispensa)
+      if (j.licitacao.modalidade === "DISPENSA_ELETRONICA") {
+        try {
+          const tc = (j.licitacao.tipo_contratacao || "").toUpperCase()
+          const chave = tc.includes("OBRA") || tc.includes("ENGENHARIA")
+            ? "DISPENSA_OBRAS_ENGENHARIA"
+            : "DISPENSA_COMPRAS_SERVICOS"
+          const orgao = JSON.parse(localStorage.getItem("orgao") || "{}")
+          const rl = await authFetch(`${API_URL}/api/parametros-licitacao/limites/vigente?chave=${chave}${orgao?.id ? `&orgaoId=${orgao.id}` : ""}`)
+          if (rl.ok) {
+            const lim = await rl.json()
+            if (lim?.valor != null) setLimiteDispensa({ chave, valor: Number(lim.valor) })
+          }
+        } catch { /* aviso de limite é opcional */ }
+      }
     } catch (e: any) {
       setErro(e.message || "Erro ao carregar o processo")
     } finally {
@@ -200,6 +222,26 @@ export default function CockpitProcessoPage() {
     }
   }
 
+  const julgarDispensa = async () => {
+    if (!dados) return
+    if (!confirm("Julgar as propostas por MENOR PREÇO unitário por item?\n\nO vencedor de cada item será adjudicado automaticamente. Você poderá revisar antes de homologar.")) return
+    setJulgando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/julgar-dispensa`, { method: "POST" })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      const semProposta = j?.itens_sem_proposta?.length
+        ? `\n\nItens SEM proposta (ficaram de fora): ${j.itens_sem_proposta.join(", ")}`
+        : ""
+      alert(`Julgamento concluído: ${j?.adjudicados?.length || 0} item(ns) adjudicado(s).${semProposta}`)
+      await carregar()
+    } catch (e: any) {
+      alert(`Erro no julgamento: ${e.message}`)
+    } finally {
+      setJulgando(false)
+    }
+  }
+
   const etapas = useMemo(() => {
     if (!dados) return []
     const c = dados.checklist
@@ -226,11 +268,17 @@ export default function CockpitProcessoPage() {
       },
       {
         icone: Gavel,
-        titulo: dados.licitacao.selecao_externa ? "Seleção (externa)" : "Seleção do fornecedor",
+        titulo: dados.licitacao.selecao_externa
+          ? "Seleção (externa)"
+          : dados.licitacao.modalidade === "DISPENSA_ELETRONICA"
+            ? "Seleção (dispensa eletrônica)"
+            : "Seleção do fornecedor",
         feito: c.resultado_registrado,
         resumo: dados.licitacao.selecao_externa
           ? `Disputa realizada em ${dados.licitacao.plataforma_externa || "plataforma externa"}${dados.licitacao.numero_processo_externo ? ` — nº ${dados.licitacao.numero_processo_externo}` : ""}`
-          : `Modalidade ${dados.licitacao.modalidade} conduzida no sistema — fase ${dados.licitacao.fase}`,
+          : dados.licitacao.modalidade === "DISPENSA_ELETRONICA"
+            ? `Art. 75 §3º — cotação eletrônica pelo portal do fornecedor${(dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao) ? ` · propostas até ${new Date((dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao)!).toLocaleString("pt-BR")}` : ""}`
+            : `Modalidade ${dados.licitacao.modalidade} conduzida no sistema — fase ${dados.licitacao.fase}`,
         extra: c.resultado_registrado
           ? `${dados.itens.filter(i => i.fornecedor_vencedor_id).length} item(ns) com vencedor definido`
           : "Resultado ainda não registrado",
@@ -355,6 +403,71 @@ export default function CockpitProcessoPage() {
                     </div>
                     <p className="text-sm text-gray-600 mt-0.5">{et.resumo}</p>
                     <p className="text-xs text-gray-400">{et.extra}</p>
+
+                    {/* Painel da DISPENSA ELETRÔNICA: prazo, propostas e julgamento */}
+                    {et.titulo.startsWith("Seleção") &&
+                      dados.licitacao.modalidade === "DISPENSA_ELETRONICA" &&
+                      !dados.licitacao.selecao_externa &&
+                      !checklist.homologado && (() => {
+                        const prazoFim = dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao
+                        const aberto = prazoFim ? new Date() < new Date(prazoFim) : false
+                        const totalEstimado = Number(dados.licitacao.valor_total_estimado || 0)
+                        const excedeLimite = limiteDispensa != null && totalEstimado > limiteDispensa.valor
+                        return (
+                          <div className="mt-3 border rounded-md p-3 bg-slate-50 space-y-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div className="text-sm">
+                                <span className={`font-medium ${aberto ? "text-blue-700" : "text-gray-700"}`}>
+                                  {aberto ? "⏳ Recebendo propostas" : "Prazo de propostas encerrado"}
+                                </span>
+                                <span className="text-gray-500"> · {dados.propostas.length} proposta(s) recebida(s)</span>
+                              </div>
+                              <Button size="sm" onClick={julgarDispensa} disabled={julgando || aberto || dados.propostas.length === 0}
+                                title={aberto ? "Disponível após o fim do prazo de propostas" : dados.propostas.length === 0 ? "Sem propostas recebidas" : ""}>
+                                {julgando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Gavel className="w-4 h-4 mr-1" />}
+                                {checklist.resultado_registrado ? "Rejulgar (menor preço)" : "Julgar propostas (menor preço)"}
+                              </Button>
+                            </div>
+                            {excedeLimite && (
+                              <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
+                                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                                <span>
+                                  Valor estimado ({fmtMoeda(totalEstimado)}) <b>excede o limite vigente de dispensa</b> ({fmtMoeda(limiteDispensa!.valor)} — {limiteDispensa!.chave === "DISPENSA_OBRAS_ENGENHARIA" ? "art. 75, I" : "art. 75, II"}). Verifique o enquadramento legal antes de prosseguir.
+                                </span>
+                              </div>
+                            )}
+                            {dados.propostas.length > 0 && (
+                              <div className="border rounded bg-white overflow-x-auto">
+                                <table className="w-full text-xs">
+                                  <thead className="bg-gray-50 text-gray-500">
+                                    <tr>
+                                      <th className="text-left px-3 py-1.5">Fornecedor</th>
+                                      <th className="text-right px-3 py-1.5">Valor global</th>
+                                      <th className="text-left px-3 py-1.5">Enviada em</th>
+                                      <th className="text-left px-3 py-1.5">Situação</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {dados.propostas.map((p) => (
+                                      <tr key={p.id} className="border-t">
+                                        <td className="px-3 py-1.5">{p.razao_social}</td>
+                                        <td className="px-3 py-1.5 text-right whitespace-nowrap">{p.valor_total_proposta != null ? fmtMoeda(p.valor_total_proposta) : "—"}</td>
+                                        <td className="px-3 py-1.5 whitespace-nowrap">{p.data_envio ? new Date(p.data_envio).toLocaleString("pt-BR") : "—"}</td>
+                                        <td className="px-3 py-1.5">
+                                          <Badge variant="outline" className={p.status === "VENCEDORA" ? "border-green-400 text-green-700" : p.status === "DESCLASSIFICADA" ? "border-red-300 text-red-600" : ""}>{p.status}</Badge>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                            <p className="text-[11px] text-gray-400">
+                              O fornecedor envia a proposta pelo Portal do Fornecedor (Licitações → esta dispensa). O julgamento adjudica o menor preço unitário por item; a homologação gera o contrato automaticamente.
+                            </p>
+                          </div>
+                        )
+                      })()}
 
                     {/* Conteúdo específico por etapa */}
                     {et.titulo.startsWith("Seleção") && dados.itens.length > 0 && (
