@@ -217,7 +217,12 @@ export default function SalaLancesDispensaPage() {
               <TimerReset className="w-4 h-4 mr-1" /> {fmtRestante(restanteMs)}
             </Badge>
           ) : (
-            <Badge variant="outline" className="text-gray-500">Fase de lances encerrada</Badge>
+            <>
+              <Badge variant="outline" className="text-gray-500">Fase de lances encerrada</Badge>
+              <a href={`${API_URL}/api/licitacoes/${id}/dispensa/ata`} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" title="Disponível após o julgamento">Ata da sessão (PDF)</Button>
+              </a>
+            </>
           )}
         </div>
       </div>

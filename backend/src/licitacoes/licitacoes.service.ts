@@ -8,6 +8,7 @@ import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item
 import { DispensaLance } from './entities/dispensa-lance.entity';
 import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
 import { DispensaGateway } from './dispensa.gateway';
+import { gerarAtaDispensaPdf } from './ata-dispensa-pdf';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
@@ -1190,6 +1191,62 @@ export class LicitacoesService {
     } catch { /* push é best-effort; o polling cobre */ }
 
     return { ok: true, valor_unitario: valor, seu_valor_anterior: meuMenor };
+  }
+
+  /**
+   * ATA DA SESSÃO da dispensa em PDF — gerada automaticamente dos registros
+   * (propostas, lances com autoria, chat e resultado). Disponível após o
+   * julgamento (antes disso os dados são sigilosos/incompletos).
+   */
+  async gerarAtaDispensa(id: string): Promise<Buffer> {
+    const licitacao = await this.findOne(id);
+    if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+      throw new BadRequestException('Ata de dispensa disponível apenas para Dispensa Eletrônica');
+    }
+    const itens = await this.itemRepository.find({
+      where: { licitacao_id: id },
+      order: { numero_item: 'ASC' } as any,
+    });
+    const houveJulgamento =
+      !!licitacao.data_homologacao || itens.some((i) => i.fornecedor_vencedor_id);
+    if (!houveJulgamento) {
+      throw new BadRequestException('A ata fica disponível após o julgamento das propostas');
+    }
+
+    const [orgaoRow, propostas, lances, mensagens] = await Promise.all([
+      this.dataSource.query(`SELECT nome FROM orgaos WHERE id = $1`, [licitacao.orgao_id]),
+      this.dataSource.query(
+        `SELECT f.razao_social, f.cpf_cnpj, p.valor_total_proposta, p.status,
+                p.data_envio, p.motivo_desclassificacao
+         FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id
+         WHERE p.licitacao_id = $1 AND p.status <> 'RASCUNHO'
+         ORDER BY p.valor_total_proposta ASC NULLS LAST`,
+        [id],
+      ),
+      this.dataSource.query(
+        `SELECT dl.created_at, il.numero_item, f.razao_social, dl.valor_unitario
+         FROM dispensa_lances dl
+         JOIN itens_licitacao il ON il.id = dl.item_licitacao_id
+         JOIN fornecedores f ON f.id = dl.fornecedor_id
+         WHERE dl.licitacao_id = $1
+         ORDER BY dl.created_at ASC`,
+        [id],
+      ),
+      this.dataSource.query(
+        `SELECT created_at, autor_tipo, autor_nome, mensagem
+         FROM dispensa_mensagens WHERE licitacao_id = $1 ORDER BY created_at ASC`,
+        [id],
+      ),
+    ]);
+
+    return gerarAtaDispensaPdf({
+      orgao_nome: orgaoRow?.[0]?.nome || 'Órgão',
+      licitacao,
+      itens,
+      propostas,
+      lances,
+      mensagens,
+    });
   }
 
   /** Chat da dispensa — lista pública (autoria do fornecedor anônima durante os lances). */

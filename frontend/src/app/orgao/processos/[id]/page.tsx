@@ -451,6 +451,14 @@ export default function CockpitProcessoPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          {licitacao.modalidade === "DISPENSA_ELETRONICA" && checklist.resultado_registrado && (
+            <a href={`${API_URL}/api/licitacoes/${id}/dispensa/ata`} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" title="Ata da sessão gerada automaticamente dos registros (propostas, lances, chat e resultado)">
+                <FileText className="w-4 h-4 mr-2" />
+                Ata da sessão (PDF)
+              </Button>
+            </a>
+          )}
           {podeRegistrarResultado && (
             <Button variant="outline" onClick={abrirModalResultado}>
               <Gavel className="w-4 h-4 mr-2" />
