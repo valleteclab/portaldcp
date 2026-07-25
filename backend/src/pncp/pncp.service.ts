@@ -422,7 +422,9 @@ export class PncpService implements OnModuleInit {
     }
 
     // === MODALIDADE ===
-    const modalidadesValidas = ['PREGAO_ELETRONICO', 'CONCORRENCIA', 'CONCURSO', 'LEILAO', 'DIALOGO_COMPETITIVO'];
+    // Fonte única: o mesmo dicionário usado no mapeamento do envio
+    // (antes era uma lista hardcoded que não conhecia DISPENSA_ELETRONICA).
+    const modalidadesValidas = Object.keys(MODALIDADE_SISTEMA_PARA_PNCP);
     if (modalidadesValidas.includes(licitacao.modalidade)) {
       checklist.push({ campo: 'Modalidade', status: 'ok', mensagem: licitacao.modalidade });
     } else {
@@ -517,6 +519,17 @@ export class PncpService implements OnModuleInit {
     // Primeiro validar
     const validacao = await this.validarLicitacaoParaPNCP(licitacaoId);
     if (!validacao.valido) {
+      // Registra a falha de VALIDAÇÃO em pncp_sync (senão o cockpit fica sem
+      // nenhum vestígio do porquê de a compra não ter sido enviada).
+      try {
+        const syncErro = this.pncpSyncRepository.create({
+          tipo: TipoSincronizacao.COMPRA,
+          licitacao_id: licitacaoId,
+          status: StatusSincronizacao.ERRO,
+          erro_mensagem: `Validação pré-envio: ${validacao.erros.join('; ')}`,
+        });
+        await this.pncpSyncRepository.save(syncErro);
+      } catch { /* registro é best-effort */ }
       throw new HttpException(
         `Licitação não pode ser enviada ao PNCP:\n${validacao.erros.join('\n')}`,
         HttpStatus.BAD_REQUEST
