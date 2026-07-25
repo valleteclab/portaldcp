@@ -183,12 +183,20 @@ function LicitacoesOrgaoPageContent() {
           <h1 className="text-2xl font-bold text-slate-800">Licitações</h1>
           <p className="text-muted-foreground">Gerencie os processos licitatórios do órgão</p>
         </div>
-        <Link href="/orgao/licitacoes/nova">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Nova Licitação
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/orgao/licitacoes/nova?modalidade=DISPENSA_ELETRONICA">
+            <Button className="bg-green-600 hover:bg-green-700" title="Cotação eletrônica do art. 75 §3º — prazo, propostas, julgamento e contrato automáticos">
+              <Plus className="mr-2 h-4 w-4" />
+              Nova Dispensa
+            </Button>
+          </Link>
+          <Link href="/orgao/licitacoes/nova">
+            <Button variant="outline">
+              <Plus className="mr-2 h-4 w-4" />
+              Nova Licitação
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Stats */}

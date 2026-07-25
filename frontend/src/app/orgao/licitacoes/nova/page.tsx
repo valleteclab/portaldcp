@@ -130,7 +130,8 @@ export default function NovaLicitacaoPage() {
   })
 
   const [classificacao, setClassificacao] = useState<Classificacao>({
-    modalidade: 'PREGAO_ELETRONICO',
+    // Atalho "Nova Dispensa": /orgao/licitacoes/nova?modalidade=DISPENSA_ELETRONICA
+    modalidade: (searchParams.get('modalidade') as Classificacao['modalidade']) || 'PREGAO_ELETRONICO',
     tipo_contratacao: 'COMPRA',
     criterio_julgamento: 'MENOR_PRECO',
     modo_disputa: 'ABERTO',
