@@ -1445,13 +1445,16 @@ export class PncpService implements OnModuleInit {
     
     this.logger.log(`[mapearLicitacaoParaCompra] Modalidade: ${licitacao.modalidade}, tipoInstrumento: ${tipoInstrumento}`);
 
-    // Determinar modo de disputa
-    // 1=Aberto, 2=Fechado, 3=Aberto-Fechado, 4=Fechado-Aberto, 5=Não se aplica
+    // Determinar modo de disputa (tabela de domínio PNCP):
+    // 1=Aberto, 2=Fechado, 3=Aberto-Fechado, 4=Dispensa Com Disputa, 5=Não se aplica, 6=Fechado-Aberto
+    // Conformidade exigida pelo PNCP: instrumento 2 (Aviso de Contratação
+    // Direta) ↔ modo 4; instrumento 3 (Ato que autoriza) ↔ modo 5.
     let modoDisputa = 1; // Aberto por padrão
-    if (licitacao.modo_disputa === 'FECHADO') modoDisputa = 2;
+    if (tipoInstrumento === 2) modoDisputa = 4; // Dispensa com disputa
+    else if (tipoInstrumento === 3) modoDisputa = 5; // Não se aplica
+    else if (licitacao.modo_disputa === 'FECHADO') modoDisputa = 2;
     else if (licitacao.modo_disputa === 'ABERTO_FECHADO') modoDisputa = 3;
-    else if (licitacao.modo_disputa === 'FECHADO_ABERTO') modoDisputa = 4;
-    else if (licitacao.modalidade === 'DISPENSA' || licitacao.modalidade === 'INEXIGIBILIDADE') modoDisputa = 5;
+    else if (licitacao.modo_disputa === 'FECHADO_ABERTO') modoDisputa = 6;
 
     // Calcular valor total se não informado
     let valorTotal = parseFloat(licitacao.valor_total_estimado) || 0;
