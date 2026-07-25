@@ -50,6 +50,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { API_URL, authFetch } from '@/lib/api'
+import { linkEditalPncp } from '@/lib/pncp'
 import EditarLicitacaoModal from '@/components/licitacao/EditarLicitacaoModal'
 
 // Fases conforme Lei 14.133/2021 - Art. 17
@@ -90,6 +91,7 @@ interface Licitacao {
   created_at: string
   enviado_pncp?: boolean
   numero_controle_pncp?: string
+  link_pncp?: string
   sequencial_compra_pncp?: number
   ano_compra_pncp?: number
   orgao?: {
@@ -1050,8 +1052,8 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                   </p>
                 </div>
               </div>
-              <a 
-                href={`https://pncp.gov.br/app/editais/${licitacao.numero_controle_pncp}`}
+              <a
+                href={linkEditalPncp(licitacao) || "#"}
                 target="_blank"
                 rel="noopener noreferrer"
               >

@@ -497,4 +497,23 @@ export const pncpService = {
   },
 };
 
+/**
+ * Link público do edital/aviso desta licitação no portal PNCP.
+ *
+ * SEMPRE preferir `link_pncp` salvo pelo backend — só ele sabe o ambiente
+ * (treina.pncp.gov.br × pncp.gov.br, derivado de PNCP_API_URL). Fallback:
+ * deriva cnpj/ano/sequencial do nº de controle (CNPJ-1-SEQUENCIAL/ANO);
+ * o nº de controle NÃO é um caminho válido do portal.
+ * Fallback usa treina (ambiente atual); registros novos sempre têm link_pncp.
+ */
+export function linkEditalPncp(lic: {
+  link_pncp?: string | null;
+  numero_controle_pncp?: string | null;
+}): string | null {
+  if (lic.link_pncp) return lic.link_pncp;
+  const m = String(lic.numero_controle_pncp || '').match(/^(\d{14})-\d+-(\d+)\/(\d{4})$/);
+  if (!m) return null;
+  return `https://treina.pncp.gov.br/app/editais/${m[1]}/${m[3]}/${Number(m[2])}`;
+}
+
 export default pncpService;
