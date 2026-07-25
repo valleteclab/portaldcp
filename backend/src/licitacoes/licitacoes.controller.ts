@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { LicitacoesService } from './licitacoes.service';
 import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
@@ -134,6 +135,19 @@ export class LicitacoesController {
     @Query('fornecedorId') fornecedorId?: string,
   ): Promise<any> {
     return await this.licitacoesService.painelLancesDispensa(id, fornecedorId);
+  }
+
+  /** Dispensa: ATA DA SESSÃO em PDF (gerada dos registros; disponível após o julgamento) */
+  @Public()
+  @Get(':id/dispensa/ata')
+  async ataDispensa(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    const pdf = await this.licitacoesService.gerarAtaDispensa(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="ata-dispensa-${id}.pdf"`,
+      'Content-Length': String(pdf.length),
+    });
+    res.send(pdf);
   }
 
   /** Dispensa: chat registrado nos autos (autoria anônima durante os lances) */
