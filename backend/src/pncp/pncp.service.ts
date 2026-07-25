@@ -1008,8 +1008,11 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('Compra não foi enviada ao PNCP ainda', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    
+    // CNPJ do ÓRGÃO DA LICITAÇÃO (o env é só fallback — usar o CNPJ errado
+    // gera "Usuário não está habilitado a publicar para o órgão X")
+    const licDoc = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
+    const cnpj = (licDoc?.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+
     const FormData = require('form-data');
     const formData = new FormData();
     formData.append('tipoDocumentoId', tipoDocumentoId.toString());
@@ -1083,8 +1086,14 @@ export class PncpService implements OnModuleInit {
       try {
         itens = await this.enviarItens(licitacaoId);
       } catch (e: any) {
-        this.logger.warn(`[enviarCompraCompleta] envio de itens falhou: ${e.message}`);
-        itens = { sucesso: false, erro: e.message };
+        // "Número do item já utilizado" = os itens JÁ entraram embutidos no
+        // JSON da compra (inclusão única) — é sucesso, não erro.
+        if (String(e.message || '').includes('já utilizado')) {
+          itens = { sucesso: true, observacao: 'Itens incluídos junto com a compra' };
+        } else {
+          this.logger.warn(`[enviarCompraCompleta] envio de itens falhou: ${e.message}`);
+          itens = { sucesso: false, erro: e.message };
+        }
       }
     }
     return { ...resultadoCompra, numeroControlePNCP, itens };
@@ -1171,7 +1180,10 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('Compra não foi enviada ao PNCP ainda', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    // CNPJ do ÓRGÃO DA LICITAÇÃO (o env é só fallback — o CNPJ errado gera
+    // "Usuário não está habilitado a publicar para o órgão X")
+    const licRes = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
+    const cnpj = (licRes?.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
 
     try {
       const response = await this.axiosInstance.post(
