@@ -125,9 +125,13 @@ export class LicitacoesController {
   @Post(':id/dispensa/abrir-lances')
   async abrirLancesDispensa(
     @Param('id') id: string,
-    @Body() body: { duracao_minutos?: number },
+    @Body() body: { duracao_minutos?: number; prorrogacao_minutos?: number },
   ): Promise<any> {
-    return await this.licitacoesService.abrirLancesDispensa(id, body?.duracao_minutos ?? 360);
+    return await this.licitacoesService.abrirLancesDispensa(
+      id,
+      body?.duracao_minutos ?? 360,
+      body?.prorrogacao_minutos,
+    );
   }
 
   /** Dispensa: fornecedor registra lance (menor que o próprio valor atual) */

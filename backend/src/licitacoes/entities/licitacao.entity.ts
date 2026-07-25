@@ -423,6 +423,16 @@ export class Licitacao {
   dispensa_lances_fim: Date | null;
 
   /**
+   * Prorrogação automática da janela de lances (minutos). Lance recebido nos
+   * últimos N minutos empurra o fim para +N minutos, sucessivamente (modelo do
+   * modo de disputa aberto, art. 56 §1º da Lei 14.133 — a IN 67/2021 federal
+   * encerra sem prorrogação, por isso é OPCIONAL e definida ao abrir a janela).
+   * null/0 = sem prorrogação (encerramento seco, padrão IN 67).
+   */
+  @Column({ type: 'int', nullable: true })
+  dispensa_lances_prorrogacao_min: number | null;
+
+  /**
    * Flag para indicar se a licitação não possui vinculação com PCA
    * 
    * Lei 14.133/2021, Art. 12, §1º:
