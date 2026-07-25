@@ -339,7 +339,14 @@ export class PncpService implements OnModuleInit {
       return this.token;
     } catch (error: any) {
       this.logger.error('Erro ao fazer login no PNCP', error.response?.data || error.message);
-      throw new HttpException('Falha na autenticação PNCP', HttpStatus.UNAUTHORIZED);
+      // Distinguir REDE de CREDENCIAL — um timeout aparecia como "falha na
+      // autenticação" e mascarava a causa real (ex.: instabilidade do treina).
+      const detalhe = error.code
+        ? `rede: ${error.code}`
+        : error.response?.status
+          ? `HTTP ${error.response.status}`
+          : error.message?.slice(0, 80) || 'erro desconhecido';
+      throw new HttpException(`Falha na autenticação PNCP (${detalhe})`, HttpStatus.UNAUTHORIZED);
     }
   }
 
@@ -1474,7 +1481,20 @@ export class PncpService implements OnModuleInit {
       dataAberturaProposta: dataInicioPropostas,
       dataEncerramentoProposta: dataFimPropostas,
       informacaoComplementar: licitacao.informacoes_complementares || '',
-      amparoLegalId: 1, // 1 = Lei nº 14.133/2021, Art. 28, caput
+      // Amparo legal CONSISTENTE com a modalidade (tabela de domínio do PNCP —
+      // o PNCP rejeita com "Não há conformidade entre Instrumento, Modalidade e
+      // Amparo" quando divergem): licitações comuns → 1 (Art. 28, caput);
+      // dispensa → Art. 75 (18 = inciso I obras/eng.; 19 = inciso II demais);
+      // inexigibilidade → 13 (Art. 74, I).
+      amparoLegalId: (() => {
+        const mod = (licitacao.modalidade || '').toUpperCase();
+        if (mod.includes('DISPENSA')) {
+          const tc = (licitacao.tipo_contratacao || '').toUpperCase();
+          return tc.includes('OBRA') || tc.includes('ENGENHARIA') ? 18 : 19;
+        }
+        if (mod.includes('INEXIGIBILIDADE')) return 13;
+        return 1; // Lei nº 14.133/2021, Art. 28, caput
+      })(),
       linkSistemaOrigem: `${this.configService.get('APP_URL') || 'http://localhost:3000'}/licitacoes/${licitacao.id}`,
       itensCompra: itensCompra
     } as any;
