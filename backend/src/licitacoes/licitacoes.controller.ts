@@ -40,6 +40,18 @@ export class LicitacoesController {
     return await this.licitacoesService.findAll({ fase: faseNormalizada, orgao_id: orgao_id || orgaoId });
   }
 
+  // ⚠️ Rotas literais precisam vir ANTES de ':id' — senão "publicas" é tratado
+  // como um id (uuid inválido → 500). Bug corrigido em 25/07/2026.
+  @Public()
+  @Get('publicas')
+  async findPublicas(
+    @Query('modalidade') modalidade?: string,
+    @Query('orgao_id') orgao_id?: string,
+    @Query('uf') uf?: string
+  ): Promise<Licitacao[]> {
+    return await this.licitacoesService.findPublicas({ modalidade, orgao_id, uf });
+  }
+
   @Public()
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<Licitacao> {
@@ -235,13 +247,5 @@ export class LicitacoesController {
   }
 
   // === ENDPOINTS PÚBLICOS ===
-  @Public()
-  @Get('publicas')
-  async findPublicas(
-    @Query('modalidade') modalidade?: string,
-    @Query('orgao_id') orgao_id?: string,
-    @Query('uf') uf?: string
-  ): Promise<Licitacao[]> {
-    return await this.licitacoesService.findPublicas({ modalidade, orgao_id, uf });
-  }
+  // (rota 'publicas' movida para ANTES de ':id' — ver comentário lá em cima)
 }
