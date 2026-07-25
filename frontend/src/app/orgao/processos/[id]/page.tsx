@@ -42,6 +42,8 @@ interface ProcessoCompleto {
     tipo_contratacao?: string
     data_fim_acolhimento?: string | null
     data_abertura_sessao?: string | null
+    dispensa_lances_inicio?: string | null
+    dispensa_lances_fim?: string | null
   }
   item_pca?: { id: string; numero_item: number; descricao_objeto: string; valor_estimado: number } | null
   demanda?: { id: string; titulo?: string; status: string } | null
@@ -243,6 +245,33 @@ export default function CockpitProcessoPage() {
     }
   }
 
+  const [painelLances, setPainelLances] = useState<any>(null)
+
+  const abrirLances = async () => {
+    const min = prompt("Abrir a fase de LANCES da dispensa (opcional — modelo IN SEGES 67/2021).\n\nDuração em MINUTOS (padrão 360 = 6 horas):", "360")
+    if (min == null) return
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/abrir-lances`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duracao_minutos: Number(min) || 360 }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      alert(`Fase de lances aberta até ${new Date(j.dispensa_lances_fim).toLocaleString("pt-BR")}. Os fornecedores com proposta válida podem reduzir seus valores na sala de lances.`)
+      await carregar()
+    } catch (e: any) {
+      alert(`Erro ao abrir lances: ${e.message}`)
+    }
+  }
+
+  const atualizarPainelLances = async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/lances/painel`)
+      if (res.ok) setPainelLances(await res.json())
+    } catch { /* mantém painel anterior */ }
+  }
+
   const desclassificarProposta = async (propostaId: string, fornecedor: string) => {
     const motivo = prompt(`Desclassificar a proposta de ${fornecedor}?\n\nInforme o MOTIVO (obrigatório, ficará registrado):`)
     if (!motivo || !motivo.trim()) return
@@ -433,6 +462,8 @@ export default function CockpitProcessoPage() {
                       !checklist.homologado && (() => {
                         const prazoFim = dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao
                         const aberto = prazoFim ? new Date() < new Date(prazoFim) : false
+                        const lancesFim = dados.licitacao.dispensa_lances_fim ? new Date(dados.licitacao.dispensa_lances_fim) : null
+                        const lancesAberta = lancesFim ? new Date() < lancesFim : false
                         const totalEstimado = Number(dados.licitacao.valor_total_estimado || 0)
                         const excedeLimite = limiteDispensa != null && totalEstimado > limiteDispensa.valor
                         return (
@@ -440,19 +471,54 @@ export default function CockpitProcessoPage() {
                             <div className="flex items-center justify-between flex-wrap gap-2">
                               <div className="text-sm">
                                 <span className={`font-medium ${aberto ? "text-blue-700" : "text-gray-700"}`}>
-                                  {aberto ? "⏳ Recebendo propostas" : "Prazo de propostas encerrado"}
+                                  {aberto ? "⏳ Recebendo propostas" : lancesAberta ? "⚡ Fase de lances aberta" : "Prazo de propostas encerrado"}
                                 </span>
                                 <span className="text-gray-500"> · {dados.propostas.length} proposta(s) recebida(s)</span>
+                                {lancesAberta && lancesFim && (
+                                  <span className="ml-2 text-xs text-green-800 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">lances até {lancesFim.toLocaleString("pt-BR")}</span>
+                                )}
                                 {dados.propostas_em_sigilo && (
                                   <span className="ml-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">🔒 valores sigilosos até o fim do prazo</span>
                                 )}
                               </div>
-                              <Button size="sm" onClick={julgarDispensa} disabled={julgando || aberto || dados.propostas.length === 0}
-                                title={aberto ? "Disponível após o fim do prazo de propostas" : dados.propostas.length === 0 ? "Sem propostas recebidas" : ""}>
-                                {julgando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Gavel className="w-4 h-4 mr-1" />}
-                                {checklist.resultado_registrado ? "Rejulgar (menor preço)" : "Julgar propostas (menor preço)"}
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                {!aberto && !lancesFim && !checklist.resultado_registrado && dados.propostas.length > 0 && (
+                                  <Button size="sm" variant="outline" onClick={abrirLances} title="Opcional (modelo IN SEGES 67/2021): janela para os fornecedores reduzirem os próprios valores">
+                                    ⚡ Abrir fase de lances
+                                  </Button>
+                                )}
+                                {lancesAberta && (
+                                  <Button size="sm" variant="outline" onClick={atualizarPainelLances}>Atualizar painel</Button>
+                                )}
+                                <Button size="sm" onClick={julgarDispensa} disabled={julgando || aberto || lancesAberta || dados.propostas.length === 0}
+                                  title={aberto ? "Disponível após o fim do prazo de propostas" : lancesAberta ? "Disponível após o fim da fase de lances" : dados.propostas.length === 0 ? "Sem propostas recebidas" : ""}>
+                                  {julgando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Gavel className="w-4 h-4 mr-1" />}
+                                  {checklist.resultado_registrado ? "Rejulgar (menor preço)" : "Julgar propostas (menor preço)"}
+                                </Button>
+                              </div>
                             </div>
+                            {lancesAberta && painelLances?.itens?.length > 0 && (
+                              <div className="border rounded bg-white overflow-x-auto">
+                                <table className="w-full text-xs">
+                                  <thead className="bg-gray-50 text-gray-500">
+                                    <tr>
+                                      <th className="text-left px-3 py-1.5">Item</th>
+                                      <th className="text-right px-3 py-1.5">Menor valor atual</th>
+                                      <th className="text-right px-3 py-1.5">Lances</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {painelLances.itens.map((it: any) => (
+                                      <tr key={it.item_licitacao_id} className="border-t">
+                                        <td className="px-3 py-1.5">{it.numero_item} — {String(it.descricao || "").slice(0, 60)}</td>
+                                        <td className="px-3 py-1.5 text-right whitespace-nowrap font-medium text-green-700">{it.menor_valor != null ? fmtMoeda(it.menor_valor) : "—"}</td>
+                                        <td className="px-3 py-1.5 text-right">{it.total_lances}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
                             {excedeLimite && (
                               <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
                                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -500,7 +566,7 @@ export default function CockpitProcessoPage() {
                               </div>
                             )}
                             <p className="text-[11px] text-gray-400">
-                              O fornecedor envia a proposta pelo Portal do Fornecedor (Licitações → esta dispensa). O julgamento adjudica o menor preço unitário por item; a homologação gera o contrato automaticamente.
+                              O fornecedor envia a proposta pelo Portal do Fornecedor (Licitações → esta dispensa). Após o prazo, você pode (opcionalmente) abrir a <b>fase de lances</b> — cada fornecedor reduz o próprio valor, com o menor valor público e anônimo. O julgamento adjudica o menor valor final por item; a homologação gera o contrato automaticamente.
                             </p>
                           </div>
                         )

@@ -412,6 +412,16 @@ export class Licitacao {
   @Column({ type: 'varchar', nullable: true, length: 300 })
   url_externa: string | null;
 
+  // ============================================================================
+  // DISPENSA ELETRÔNICA — fase de LANCES (opcional, espelha IN SEGES 67/2021)
+  // Janela aberta pelo órgão após o fim do acolhimento de propostas.
+  // ============================================================================
+  @Column({ type: 'timestamp', nullable: true })
+  dispensa_lances_inicio: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  dispensa_lances_fim: Date | null;
+
   /**
    * Flag para indicar se a licitação não possui vinculação com PCA
    * 
