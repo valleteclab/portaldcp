@@ -1135,7 +1135,11 @@ export class PncpService implements OnModuleInit {
             ? 'ME'
             : 'DEMAIS';
 
-        const dto: ResultadoItemDto = {
+        // Nomes de campo CONFORME O MANUAL DO PNCP (6.6 — resultado do item):
+        // o PNCP exige os identificadores com sufixo Id (tipoPessoaId,
+        // porteFornecedorId numérico) — os aliases antigos são mantidos por
+        // compatibilidade e ignorados pelo PNCP.
+        const dto: any = {
           dataResultado: hoje,
           niFornecedor: ni,
           nomeRazaoSocialFornecedor: forn.razao_social,
@@ -1145,13 +1149,17 @@ export class PncpService implements OnModuleInit {
             item.valor_total_homologado ??
               Number(item.valor_unitario_homologado) * Number(item.quantidade || 0),
           ),
-          // Critério menor preço: sem desconto — mas o campo é OBRIGATÓRIO para
-          // o PNCP ("Percentual de desconto inválido" quando ausente).
+          // Menor preço: sem desconto — campo obrigatório (0)
           percentualDesconto: 0,
           indicadorSubcontratacao: false,
+          tipoPessoaId: ni.length === 11 ? 'PF' : 'PJ',
+          porteFornecedorId: porte === 'ME' ? 1 : porte === 'EPP' ? 2 : 3,
+          codigoPais: 'BRA',
+          situacaoCompraItemResultadoId: 1, // 1 = Informado
+          ordemClassificacao: 1,
+          // aliases legados (ignorados pelo PNCP)
           tipoPessoa: ni.length === 11 ? 'PF' : 'PJ',
           porteFornecedor: porte,
-          ordemClassificacao: 1,
         };
         const r = await this.enviarResultado(licitacaoId, (item as any).numero_item, dto);
         resultados.push({ item: (item as any).numero_item, sucesso: !!r?.sucesso });
