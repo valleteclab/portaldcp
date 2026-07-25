@@ -9,12 +9,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
+import { io, type Socket } from "socket.io-client"
 import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { ArrowLeft, Gavel, Loader2, TimerReset, TrendingDown } from "lucide-react"
+import { ArrowLeft, Gavel, Loader2, TimerReset, TrendingDown, MessageSquare, Wifi, WifiOff } from "lucide-react"
 
 interface ItemPainel {
   item_licitacao_id: string
@@ -46,7 +47,15 @@ export default function SalaLancesDispensaPage() {
   const [valores, setValores] = useState<Record<string, string>>({})
   const [enviando, setEnviando] = useState<string | null>(null)
   const [agora, setAgora] = useState(Date.now())
+  const [wsOk, setWsOk] = useState(false)
+  const [mensagens, setMensagens] = useState<any[]>([])
+  const [novaMensagem, setNovaMensagem] = useState("")
+  const [enviandoMsg, setEnviandoMsg] = useState(false)
   const fornecedorRef = useRef<any>(null)
+  const socketRef = useRef<Socket | null>(null)
+  /** Offset relógio-servidor: countdown imune a relógio errado no PC do fornecedor */
+  const offsetRef = useRef(0)
+  const chatEndRef = useRef<HTMLDivElement | null>(null)
 
   const carregarPainel = useCallback(async () => {
     try {
@@ -54,8 +63,19 @@ export default function SalaLancesDispensaPage() {
       const res = await authFetch(
         `${API_URL}/api/licitacoes/${id}/dispensa/lances/painel${fornecedor?.id ? `?fornecedorId=${fornecedor.id}` : ""}`,
       )
-      if (res.ok) setPainel(await res.json())
+      if (res.ok) {
+        const j = await res.json()
+        if (j.server_time) offsetRef.current = new Date(j.server_time).getTime() - Date.now()
+        setPainel(j)
+      }
     } catch { /* mantém o painel anterior */ }
+  }, [id])
+
+  const carregarMensagens = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`)
+      if (res.ok) setMensagens(await res.json())
+    } catch { /* mantém */ }
   }, [id])
 
   useEffect(() => {
@@ -65,10 +85,60 @@ export default function SalaLancesDispensaPage() {
       .then(setLicitacao)
       .catch(() => null)
     carregarPainel()
-    const pollPainel = setInterval(carregarPainel, 5000)
+    carregarMensagens()
+
+    // ── Tempo real: WebSocket (push instantâneo); polling fica como retaguarda ──
+    const wsUrl = API_URL.replace("/api", "").replace("http", "ws")
+    const socket = io(`${wsUrl}/dispensa`, { transports: ["websocket", "polling"] })
+    socketRef.current = socket
+    socket.on("connect", () => { setWsOk(true); socket.emit("entrar_sala", { licitacaoId: id }) })
+    socket.on("disconnect", () => setWsOk(false))
+    socket.on("sala_ok", (d: any) => { if (d?.server_time) offsetRef.current = new Date(d.server_time).getTime() - Date.now() })
+    socket.on("painel_atualizado", (d: any) => {
+      if (d?.server_time) offsetRef.current = new Date(d.server_time).getTime() - Date.now()
+      setPainel((p) => p ? {
+        ...p,
+        itens: p.itens.map((it) => it.item_licitacao_id === d.item_licitacao_id
+          ? { ...it, menor_valor: d.menor_valor, total_lances: d.total_lances }
+          : it),
+      } : p)
+    })
+    socket.on("chat", (m: any) => setMensagens((prev) => [...prev, m]))
+    socket.on("janela", (d: any) => {
+      if (d?.server_time) offsetRef.current = new Date(d.server_time).getTime() - Date.now()
+      setPainel((p) => p ? { ...p, aberta: true, dispensa_lances_inicio: d.dispensa_lances_inicio, dispensa_lances_fim: d.dispensa_lances_fim } : p)
+    })
+
+    // Retaguarda: se o socket cair, o polling de 10s mantém tudo atualizado
+    const pollPainel = setInterval(carregarPainel, 10000)
     const tick = setInterval(() => setAgora(Date.now()), 1000)
-    return () => { clearInterval(pollPainel); clearInterval(tick) }
-  }, [id, carregarPainel])
+    return () => { socket.disconnect(); clearInterval(pollPainel); clearInterval(tick) }
+  }, [id, carregarPainel, carregarMensagens])
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [mensagens])
+
+  const enviarMensagem = async () => {
+    const fornecedor = fornecedorRef.current
+    const texto = novaMensagem.trim()
+    if (!texto || !fornecedor?.id) return
+    setEnviandoMsg(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autor_tipo: "FORNECEDOR", fornecedor_id: fornecedor.id, mensagem: texto }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      setNovaMensagem("")
+      // a própria mensagem chega pelo socket; fallback:
+      if (!wsOk) await carregarMensagens()
+    } catch (e: any) {
+      alert(`Mensagem não enviada: ${e.message}`)
+    } finally {
+      setEnviandoMsg(false)
+    }
+  }
 
   const enviarLance = async (item: ItemPainel) => {
     const fornecedor = fornecedorRef.current
@@ -105,8 +175,9 @@ export default function SalaLancesDispensaPage() {
     }
   }
 
+  // Countdown pelo relógio do SERVIDOR (agora local + offset)
   const fim = painel?.dispensa_lances_fim ? new Date(painel.dispensa_lances_fim).getTime() : null
-  const restanteMs = fim ? Math.max(0, fim - agora) : null
+  const restanteMs = fim ? Math.max(0, fim - (agora + offsetRef.current)) : null
   const fmtRestante = (ms: number) => {
     const s = Math.floor(ms / 1000)
     const h = Math.floor(s / 3600)
@@ -136,13 +207,19 @@ export default function SalaLancesDispensaPage() {
           </h1>
           <p className="text-sm text-gray-500 truncate">{licitacao?.numero_processo} · {licitacao?.objeto}</p>
         </div>
-        {painel.aberta && restanteMs != null ? (
-          <Badge className="bg-green-100 text-green-800 hover:bg-green-100 text-base px-3 py-1 font-mono">
-            <TimerReset className="w-4 h-4 mr-1" /> {fmtRestante(restanteMs)}
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={wsOk ? "border-green-300 text-green-700" : "border-amber-300 text-amber-700"} title={wsOk ? "Atualização instantânea via conexão em tempo real" : "Reconectando — atualizando a cada 10s"}>
+            {wsOk ? <Wifi className="w-3.5 h-3.5 mr-1" /> : <WifiOff className="w-3.5 h-3.5 mr-1" />}
+            {wsOk ? "AO VIVO" : "reconectando"}
           </Badge>
-        ) : (
-          <Badge variant="outline" className="text-gray-500">Fase de lances encerrada</Badge>
-        )}
+          {painel.aberta && restanteMs != null ? (
+            <Badge className="bg-green-100 text-green-800 hover:bg-green-100 text-base px-3 py-1 font-mono" title="Cronômetro sincronizado com o relógio do servidor">
+              <TimerReset className="w-4 h-4 mr-1" /> {fmtRestante(restanteMs)}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-gray-500">Fase de lances encerrada</Badge>
+          )}
+        </div>
       </div>
 
       <Card>
@@ -199,6 +276,45 @@ export default function SalaLancesDispensaPage() {
             )
           })}
           {painel.itens.length === 0 && <p className="text-sm text-gray-500">Nenhum item encontrado.</p>}
+        </CardContent>
+      </Card>
+
+      {/* Chat da sessão — registrado nos autos; autoria anônima durante os lances */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <MessageSquare className="w-4 h-4" /> Chat da sessão
+            <span className="text-xs font-normal text-gray-400">— mensagens registradas no processo; durante os lances a identidade dos fornecedores fica anônima</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="border rounded-md bg-slate-50 p-3 h-56 overflow-y-auto space-y-2">
+            {mensagens.length === 0 && <p className="text-xs text-gray-400">Nenhuma mensagem ainda.</p>}
+            {mensagens.map((m) => (
+              <div key={m.id} className={`text-sm max-w-[85%] ${m.autor_tipo === "ORGAO" ? "" : "ml-auto text-right"}`}>
+                <div className={`inline-block px-3 py-1.5 rounded-md ${m.autor_tipo === "ORGAO" ? "bg-blue-50 border border-blue-100" : "bg-white border"}`}>
+                  <span className="block text-[10px] uppercase tracking-wide text-gray-400">
+                    {m.autor_tipo === "ORGAO" ? `🏛️ ${m.autor_nome}` : m.autor_nome}
+                    {" · "}{m.created_at ? new Date(m.created_at).toLocaleTimeString("pt-BR") : ""}
+                  </span>
+                  {m.mensagem}
+                </div>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <Input
+              placeholder="Mensagem ao órgão (fica registrada no processo)…"
+              value={novaMensagem}
+              onChange={(e) => setNovaMensagem(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") enviarMensagem() }}
+              maxLength={1000}
+            />
+            <Button size="sm" onClick={enviarMensagem} disabled={enviandoMsg || !novaMensagem.trim()}>
+              {enviandoMsg ? <Loader2 className="w-4 h-4 animate-spin" /> : "Enviar"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

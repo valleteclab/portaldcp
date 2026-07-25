@@ -136,6 +136,28 @@ export class LicitacoesController {
     return await this.licitacoesService.painelLancesDispensa(id, fornecedorId);
   }
 
+  /** Dispensa: chat registrado nos autos (autoria anônima durante os lances) */
+  @Public()
+  @Get(':id/dispensa/mensagens')
+  async listarMensagensDispensa(@Param('id') id: string): Promise<any[]> {
+    return await this.licitacoesService.listarMensagensDispensa(id);
+  }
+
+  /** Dispensa: envia mensagem no chat (órgão ou fornecedor com proposta válida) */
+  @Post(':id/dispensa/mensagens')
+  async enviarMensagemDispensa(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      autor_tipo: 'ORGAO' | 'FORNECEDOR';
+      fornecedor_id?: string;
+      autor_nome?: string;
+      mensagem: string;
+    },
+  ): Promise<any> {
+    return await this.licitacoesService.enviarMensagemDispensa(id, body);
+  }
+
   /** Seleção externa: registra vencedores/valores de disputa realizada fora do sistema */
   @Post(':id/resultado-externo')
   async registrarResultadoExterno(
