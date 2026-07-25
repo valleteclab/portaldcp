@@ -64,7 +64,8 @@ interface ProcessoCompleto {
     valor_global?: number; status?: string
   }>
   atas: Array<{ id: string; numero_ata: string; fornecedor_razao_social?: string; valor_total?: number; status?: string }>
-  propostas: Array<{ id: string; status: string; valor_total_proposta?: number; data_envio?: string; razao_social: string }>
+  propostas: Array<{ id: string; status: string; valor_total_proposta?: number | null; data_envio?: string; razao_social: string; sigilo?: boolean }>
+  propostas_em_sigilo?: boolean
   checklist: {
     vinculado_pca: boolean
     possui_itens: boolean
@@ -421,6 +422,9 @@ export default function CockpitProcessoPage() {
                                   {aberto ? "⏳ Recebendo propostas" : "Prazo de propostas encerrado"}
                                 </span>
                                 <span className="text-gray-500"> · {dados.propostas.length} proposta(s) recebida(s)</span>
+                                {dados.propostas_em_sigilo && (
+                                  <span className="ml-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">🔒 valores sigilosos até o fim do prazo</span>
+                                )}
                               </div>
                               <Button size="sm" onClick={julgarDispensa} disabled={julgando || aberto || dados.propostas.length === 0}
                                 title={aberto ? "Disponível após o fim do prazo de propostas" : dados.propostas.length === 0 ? "Sem propostas recebidas" : ""}>
