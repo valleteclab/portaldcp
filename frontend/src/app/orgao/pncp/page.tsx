@@ -36,7 +36,7 @@ import {
   ScrollText,
   ShoppingCart
 } from 'lucide-react'
-import { pncpService, MODALIDADES, MODO_DISPUTA } from '@/lib/pncp'
+import { pncpService, MODALIDADES, MODO_DISPUTA, linkEditalPncp } from '@/lib/pncp'
 import type { Compra, ItemCompra, Resultado, Ata, ItemAta, AtaRetificacao, Contrato, ItemPca, Pca } from '@/lib/pncp'
 
 interface SyncRecord {
@@ -1716,7 +1716,7 @@ function PncpPageContent() {
                           </DialogContent>
                         </Dialog>
                         <Button variant="outline" size="sm" asChild>
-                          <a href={`https://pncp.gov.br/app/editais/${licitacao.numero_controle_pncp}`} target="_blank">
+                          <a href={linkEditalPncp(licitacao) || "#"} target="_blank" rel="noopener noreferrer">
                             <ExternalLink className="w-4 h-4 mr-2" />
                             Ver no PNCP
                           </a>
@@ -1889,7 +1889,7 @@ function PncpPageContent() {
                           </DialogContent>
                         </Dialog>
                         <Button variant="outline" size="sm" asChild>
-                          <a href={`https://pncp.gov.br/app/editais/${licitacao.numero_controle_pncp}`} target="_blank">
+                          <a href={linkEditalPncp(licitacao) || "#"} target="_blank" rel="noopener noreferrer">
                             <ExternalLink className="w-4 h-4 mr-2" />
                             Ver no PNCP
                           </a>

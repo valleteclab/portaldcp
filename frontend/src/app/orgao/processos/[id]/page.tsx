@@ -44,6 +44,7 @@ interface ProcessoCompleto {
     data_abertura_sessao?: string | null
     dispensa_lances_inicio?: string | null
     dispensa_lances_fim?: string | null
+    link_pncp?: string | null
   }
   item_pca?: { id: string; numero_item: number; descricao_objeto: string; valor_estimado: number } | null
   demanda?: { id: string; titulo?: string; status: string } | null
@@ -876,16 +877,23 @@ export default function CockpitProcessoPage() {
                               {(dados.pncp || []).length === 0 && (
                                 <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">aviso ainda não publicado</span>
                               )}
-                              {(dados.pncp || []).map((s, ix) => (
-                                <span
-                                  key={ix}
-                                  title={s.erro_mensagem || ""}
-                                  className={`rounded px-1.5 py-0.5 border ${s.status === "ENVIADO" ? "text-green-700 bg-green-50 border-green-200" : s.status === "ERRO" ? "text-red-700 bg-red-50 border-red-200" : "text-gray-600 bg-gray-50 border-gray-200"}`}
-                                >
-                                  {s.tipo} {s.status === "ENVIADO" ? "✓" : s.status === "ERRO" ? "✗" : "…"}
-                                  {s.numero_controle_pncp ? ` ${s.numero_controle_pncp}` : ""}
-                                </span>
-                              ))}
+                              {(dados.pncp || []).map((s, ix) => {
+                                const chip = (
+                                  <span
+                                    key={ix}
+                                    title={s.erro_mensagem || (s.status === "ENVIADO" && dados.licitacao.link_pncp ? "Abrir no portal PNCP" : "")}
+                                    className={`rounded px-1.5 py-0.5 border ${s.status === "ENVIADO" ? "text-green-700 bg-green-50 border-green-200" : s.status === "ERRO" ? "text-red-700 bg-red-50 border-red-200" : "text-gray-600 bg-gray-50 border-gray-200"}`}
+                                  >
+                                    {s.tipo} {s.status === "ENVIADO" ? "✓" : s.status === "ERRO" ? "✗" : "…"}
+                                    {s.numero_controle_pncp ? ` ${s.numero_controle_pncp}` : ""}
+                                  </span>
+                                )
+                                return s.status === "ENVIADO" && dados.licitacao.link_pncp ? (
+                                  <a key={ix} href={dados.licitacao.link_pncp} target="_blank" rel="noopener noreferrer" className="hover:opacity-75">
+                                    {chip}
+                                  </a>
+                                ) : chip
+                              })}
                             </div>
                             <div className="flex gap-2">
                               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => enviarPncp("aviso")} disabled={enviandoPncp !== null}>
