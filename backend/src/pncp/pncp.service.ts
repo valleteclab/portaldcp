@@ -1,6 +1,7 @@
 import { Injectable, Logger, HttpException, HttpStatus, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { gerarAvisoDispensaPdf } from '../licitacoes/aviso-dispensa-pdf';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { PncpSync, TipoSincronizacao, StatusSincronizacao } from './entities/pncp-sync.entity';
@@ -44,6 +45,8 @@ export class PncpService implements OnModuleInit {
     private pcaRepository: Repository<PlanoContratacaoAnual>,
     private configService: ConfigService,
     private systemConfigService: SystemConfigService,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {
     // Debug: verificar se as variáveis estão sendo lidas
     this.logger.log(`[INIT] ConfigService PNCP_LOGIN: ${this.configService.get('PNCP_LOGIN') ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
@@ -588,10 +591,36 @@ export class PncpService implements OnModuleInit {
         contentType: 'application/json'
       });
       
-      // Criar PDF mínimo válido para o documento obrigatório
-      const pdfContent = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
+      // Documento obrigatório do PNCP:
+      // - DISPENSA/INEXIGIBILIDADE: gera o AVISO DE CONTRATAÇÃO DIRETA real
+      //   (PDF com identificação, objeto, itens e prazos) a partir dos dados.
+      // - Demais modalidades: mantém o PDF mínimo (até o edital real ser anexado
+      //   pela rota de documentos).
+      const ehContratacaoDireta = (licitacao.modalidade || '')
+        .toUpperCase()
+        .match(/DISPENSA|INEXIGIBILIDADE/);
+      let pdfContent: Buffer;
+      let nomeArquivoDoc = 'edital.pdf';
+      if (ehContratacaoDireta) {
+        try {
+          pdfContent = gerarAvisoDispensaPdf({
+            orgao_nome: licitacao.orgao?.nome || 'Órgão',
+            orgao_cnpj: licitacao.orgao?.cnpj,
+            licitacao,
+            itens: licitacao.itens || [],
+            url_sistema: this.configService.get<string>('FRONTEND_URL') || undefined,
+          });
+          nomeArquivoDoc = 'aviso-contratacao-direta.pdf';
+          this.logger.log(`[enviarCompra] Aviso de contratação direta gerado (${pdfContent.length} bytes)`);
+        } catch (e: any) {
+          this.logger.warn(`[enviarCompra] Falha ao gerar aviso real (${e.message}) — usando PDF mínimo`);
+          pdfContent = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
+        }
+      } else {
+        pdfContent = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
+      }
       formData.append('documento', pdfContent, {
-        filename: 'edital.pdf',
+        filename: nomeArquivoDoc,
         contentType: 'application/pdf'
       });
 
@@ -1001,6 +1030,113 @@ export class PncpService implements OnModuleInit {
   }
 
   // ============ RESULTADO ============
+
+  /**
+   * D5 — Efeito de transição: envia COMPRA + ITENS numa chamada só (usado
+   * automaticamente ao publicar a dispensa e pelo botão de reenvio do cockpit).
+   */
+  async enviarCompraCompleta(licitacaoId: string): Promise<any> {
+    const resultadoCompra = await this.enviarCompra(licitacaoId);
+    let numeroControlePNCP = resultadoCompra.numeroControlePNCP;
+    const ano = resultadoCompra.ano;
+    const sequencial = resultadoCompra.sequencial;
+
+    if (!numeroControlePNCP && ano && sequencial) {
+      try {
+        const consulta = await this.consultarCompra(String(ano), String(sequencial));
+        if (consulta?.numeroControlePNCP) {
+          numeroControlePNCP = consulta.numeroControlePNCP;
+          await this.atualizarNumeroControleLicitacao(
+            licitacaoId,
+            consulta.numeroControlePNCP,
+            ano as number,
+            sequencial as number,
+          );
+        }
+      } catch (e: any) {
+        this.logger.warn(`[enviarCompraCompleta] consulta pós-envio falhou: ${e.message}`);
+      }
+    }
+
+    let itens: any = null;
+    if (resultadoCompra.sucesso) {
+      try {
+        itens = await this.enviarItens(licitacaoId);
+      } catch (e: any) {
+        this.logger.warn(`[enviarCompraCompleta] envio de itens falhou: ${e.message}`);
+        itens = { sucesso: false, erro: e.message };
+      }
+    }
+    return { ...resultadoCompra, numeroControlePNCP, itens };
+  }
+
+  /**
+   * D5 — Efeito de transição: na HOMOLOGAÇÃO, envia o resultado por item
+   * (vencedor/valores homologados) ao PNCP. Exige a compra já enviada.
+   */
+  async enviarResultadoHomologacao(licitacaoId: string): Promise<any> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['itens'],
+    });
+    if (!licitacao) throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
+
+    const vencedores = (licitacao.itens || []).filter(
+      (i: any) => i.fornecedor_vencedor_id && i.valor_unitario_homologado != null,
+    );
+    if (vencedores.length === 0) {
+      throw new HttpException('Nenhum item com vencedor/valor homologado', HttpStatus.BAD_REQUEST);
+    }
+
+    const hoje = new Date().toISOString().split('T')[0];
+    const resultados: Array<{ item: number; sucesso: boolean; erro?: string }> = [];
+
+    for (const item of vencedores as any[]) {
+      try {
+        const [forn] = await this.dataSource.query(
+          `SELECT cpf_cnpj, razao_social, porte FROM fornecedores WHERE id = $1`,
+          [item.fornecedor_vencedor_id],
+        );
+        if (!forn) throw new Error('Fornecedor vencedor não encontrado');
+        const ni = String(forn.cpf_cnpj || '').replace(/\D/g, '');
+        const porteRaw = String(forn.porte || '').toUpperCase();
+        const porte: 'ME' | 'EPP' | 'DEMAIS' = porteRaw.includes('EPP')
+          ? 'EPP'
+          : porteRaw === 'ME' || porteRaw.includes('MICRO')
+            ? 'ME'
+            : 'DEMAIS';
+
+        const dto: ResultadoItemDto = {
+          dataResultado: hoje,
+          niFornecedor: ni,
+          nomeRazaoSocialFornecedor: forn.razao_social,
+          quantidadeHomologada: Number(item.quantidade || 0),
+          valorUnitarioHomologado: Number(item.valor_unitario_homologado),
+          valorTotalHomologado: Number(
+            item.valor_total_homologado ??
+              Number(item.valor_unitario_homologado) * Number(item.quantidade || 0),
+          ),
+          indicadorSubcontratacao: false,
+          tipoPessoa: ni.length === 11 ? 'PF' : 'PJ',
+          porteFornecedor: porte,
+          ordemClassificacao: 1,
+        };
+        const r = await this.enviarResultado(licitacaoId, (item as any).numero_item, dto);
+        resultados.push({ item: (item as any).numero_item, sucesso: !!r?.sucesso });
+      } catch (e: any) {
+        this.logger.warn(
+          `[enviarResultadoHomologacao] item ${(item as any).numero_item}: ${e.message}`,
+        );
+        resultados.push({ item: (item as any).numero_item, sucesso: false, erro: e.message?.slice(0, 200) });
+      }
+    }
+
+    const okCount = resultados.filter((r) => r.sucesso).length;
+    this.logger.log(
+      `[enviarResultadoHomologacao] licitação ${licitacaoId}: ${okCount}/${resultados.length} resultado(s) enviados`,
+    );
+    return { sucesso: okCount > 0, total: resultados.length, enviados: okCount, resultados };
+  }
 
   async enviarResultado(licitacaoId: string, itemNumero: number, resultado: ResultadoItemDto): Promise<PncpResponseDto> {
     const sync = await this.pncpSyncRepository.findOne({
