@@ -755,7 +755,19 @@ export class LicitacoesService {
       documentos,
       contratos,
       atas,
-      propostas,
+      // Sigilo: enquanto o acolhimento está aberto, o órgão vê QUEM propôs,
+      // mas não os valores (evita direcionamento antes da abertura).
+      propostas: (() => {
+        const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
+        const emSigilo = corte ? new Date() < new Date(corte) : false;
+        return emSigilo
+          ? propostas.map((p: any) => ({ ...p, valor_total_proposta: null, sigilo: true }))
+          : propostas;
+      })(),
+      propostas_em_sigilo: (() => {
+        const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
+        return corte ? new Date() < new Date(corte) : false;
+      })(),
       checklist,
     };
   }

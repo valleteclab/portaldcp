@@ -31,6 +31,22 @@ export class PropostasService {
     private readonly itensService: ItensService,
   ) {}
 
+  /**
+   * SIGILO DAS PROPOSTAS (art. 55/63 e art. 75 §3º): antes do fim do
+   * acolhimento (ou da abertura da sessão), o conteúdo das propostas não pode
+   * ser exposto — as rotas públicas por licitação/item retornam dados mascarados.
+   */
+  private async emSigiloDePropostas(licitacaoId: string): Promise<boolean> {
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+    });
+    const corte =
+      (licitacao as any)?.data_fim_acolhimento || licitacao?.data_abertura_sessao;
+    if (!corte) return false;
+    const d = new Date(corte);
+    return !isNaN(d.getTime()) && new Date() < d;
+  }
+
   private async validarAntesAberturaSessao(licitacaoId: string): Promise<void> {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
@@ -125,6 +141,29 @@ export class PropostasService {
   }
 
   async findByLicitacao(licitacaoId: string): Promise<Proposta[]> {
+    // Rota pública: durante o sigilo, expõe apenas a EXISTÊNCIA das propostas
+    // (sem id, autor, valores ou itens) — impede que concorrentes vejam o
+    // conteúdo antes do fim do acolhimento.
+    if (await this.emSigiloDePropostas(licitacaoId)) {
+      const sigilosas = await this.propostaRepository.find({
+        where: { licitacao_id: licitacaoId },
+        select: ['id', 'status', 'data_envio'],
+        order: { data_envio: 'ASC' },
+      });
+      return sigilosas.map(
+        (p) =>
+          ({
+            id: null,
+            status: p.status,
+            data_envio: p.data_envio,
+            fornecedor: null,
+            valor_total_proposta: null,
+            itens_proposta: [],
+            sigilo: true,
+          }) as any,
+      );
+    }
+
     const propostas = await this.propostaRepository.find({
       where: { licitacao_id: licitacaoId },
       relations: ['fornecedor', 'itens', 'itens.item_licitacao'],
@@ -324,6 +363,14 @@ export class PropostasService {
       relations: ['proposta', 'proposta.fornecedor'],
       order: { valor_unitario: 'ASC' }
     });
+
+    // Rota pública: ranking só após o fim do acolhimento (sigilo das propostas)
+    if (propostaItens.length > 0) {
+      const licitacaoId = propostaItens[0].proposta?.licitacao_id;
+      if (licitacaoId && (await this.emSigiloDePropostas(licitacaoId))) {
+        return [];
+      }
+    }
 
     return propostaItens
       .filter(pi => pi.proposta.status !== StatusProposta.DESCLASSIFICADA && 
