@@ -262,6 +262,32 @@ export class ContratosController {
     return { message: 'Contrato excluído com sucesso' };
   }
 
+  // ============ ASSINATURA ELETRÔNICA DO TERMO ============
+
+  /**
+   * Gera o TERMO DE CONTRATO em PDF e solicita a assinatura de todas as
+   * partes pelo assinador do sistema. Dados do responsável do órgão vêm no
+   * body (nome/cpf/email/telefone — pré-preenchidos no cockpit).
+   */
+  @Post(':id/solicitar-assinaturas')
+  async solicitarAssinaturas(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      usuario?: { nome?: string; cpf?: string; email?: string; telefone?: string };
+      signatarios_extra?: Array<{ nome: string; cpf_cnpj?: string; email?: string; telefone?: string; is_orgao_user?: boolean }>;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(id);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.solicitarAssinaturasContrato(
+      id,
+      { id: request.user.sub, ...(body?.usuario || {}) },
+      body?.signatarios_extra,
+    );
+  }
+
   // ============ LIBERAÇÃO DE CONTRATOS ============
 
   @Post(':id/liberar')

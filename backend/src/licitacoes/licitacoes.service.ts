@@ -783,9 +783,19 @@ export class LicitacoesService {
         [id],
       ),
       this.dataSource.query(
-        `SELECT id, numero_contrato, fornecedor_razao_social, valor_global, status,
-                data_vigencia_inicio, data_vigencia_fim
-         FROM contratos WHERE licitacao_id = $1 ORDER BY numero_contrato ASC`,
+        `SELECT c.id, c.numero_contrato, c.fornecedor_razao_social, c.valor_global, c.status,
+                c.data_vigencia_inicio, c.data_vigencia_fim, c.data_assinatura,
+                c.arquivo_contrato, c.documento_assinatura_id,
+                da.status AS assinatura_status, da.arquivo_assinado_url,
+                (SELECT COUNT(*) FROM signatarios_documento s
+                  WHERE s.documento_id = da.id AND s.status = 'ASSINADO') AS assinados,
+                (SELECT COUNT(*) FROM signatarios_documento s
+                  WHERE s.documento_id = da.id) AS total_signatarios,
+                (SELECT string_agg(s.nome || CASE WHEN s.status = 'ASSINADO' THEN ' ✓' ELSE ' ⏳' END, ' · ' ORDER BY s.created_at)
+                  FROM signatarios_documento s WHERE s.documento_id = da.id) AS signatarios_resumo
+         FROM contratos c
+         LEFT JOIN documentos_assinatura da ON da.id = c.documento_assinatura_id
+         WHERE c.licitacao_id = $1 ORDER BY c.numero_contrato ASC`,
         [id],
       ),
       this.dataSource.query(

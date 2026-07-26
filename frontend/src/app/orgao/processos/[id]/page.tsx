@@ -65,6 +65,14 @@ interface ProcessoCompleto {
   contratos: Array<{
     id: string; numero_contrato: string; fornecedor_razao_social?: string
     valor_global?: number; status?: string
+    data_assinatura?: string | null
+    arquivo_contrato?: string | null
+    documento_assinatura_id?: string | null
+    assinatura_status?: string | null
+    arquivo_assinado_url?: string | null
+    assinados?: number | string | null
+    total_signatarios?: number | string | null
+    signatarios_resumo?: string | null
   }>
   atas: Array<{ id: string; numero_ata: string; fornecedor_razao_social?: string; valor_total?: number; status?: string }>
   propostas: Array<{ id: string; status: string; valor_total_proposta?: number | null; data_envio?: string; razao_social: string; sigilo?: boolean }>
@@ -362,6 +370,50 @@ export default function CockpitProcessoPage() {
       alert(`Erro ao divulgar: ${e.message}`)
     } finally {
       setDivulgando(false)
+    }
+  }
+
+  // === Assinatura eletrônica do termo de contrato ===
+  const [assinandoContrato, setAssinandoContrato] = useState<string | null>(null)
+
+  const solicitarAssinaturasContrato = async (ct: { id: string; numero_contrato: string; fornecedor_razao_social?: string }) => {
+    let usuario: any = {}
+    try { usuario = JSON.parse(localStorage.getItem("usuario") || "{}") } catch { /* segue */ }
+    const nome = usuario?.nome || prompt("Nome do responsável do órgão que assinará o contrato:")
+    if (!nome) return
+    if (!confirm(
+      `Gerar o TERMO DE CONTRATO ${ct.numero_contrato} em PDF e solicitar as assinaturas eletrônicas?\n\n` +
+      `Signatários:\n• ${nome} (órgão — assina pelo Portal de Assinaturas)\n• ${ct.fornecedor_razao_social || "Fornecedor"} (recebe o link por e-mail)\n\n` +
+      `Quando todos assinarem, a data de assinatura é registrada e o contrato é publicado automaticamente no PNCP (art. 94 — condição de eficácia).`,
+    )) return
+    setAssinandoContrato(ct.id)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${ct.id}/solicitar-assinaturas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usuario: { nome, cpf: usuario?.cpf, email: usuario?.email, telefone: usuario?.telefone } }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      alert(j?.ja_existente
+        ? "Já existe uma solicitação de assinatura ativa para este contrato — acompanhe o progresso aqui no cockpit."
+        : `Termo gerado e assinaturas solicitadas!\n\n${(j?.signatarios || []).map((s: any) => `• ${s.nome}`).join("\n")}\n\nO fornecedor recebe o link por e-mail; você assina pelo Portal de Assinaturas.`)
+      await carregar()
+    } catch (e: any) {
+      alert(`Erro ao solicitar assinaturas: ${e.message}`)
+    } finally {
+      setAssinandoContrato(null)
+    }
+  }
+
+  const reenviarNotificacoesAssinatura = async (documentoId: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/portal-assinaturas/${documentoId}/reenviar`, { method: "POST" })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      alert(`Notificações reenviadas (${j?.enviados ?? "ok"}).`)
+    } catch (e: any) {
+      alert(`Erro ao reenviar: ${e.message}`)
     }
   }
 
@@ -954,12 +1006,61 @@ export default function CockpitProcessoPage() {
 
                     {et.titulo === "Homologação e contratos" && dados.contratos.length > 0 && (
                       <div className="mt-3 space-y-2">
-                        {dados.contratos.map((ct) => (
-                          <Link key={ct.id} href={`/orgao/contratos/${ct.id}`} className="flex items-center justify-between border rounded-md px-3 py-2 hover:bg-gray-50">
-                            <span className="text-sm font-medium">Contrato {ct.numero_contrato} — {ct.fornecedor_razao_social}</span>
-                            <span className="text-sm text-gray-500">{fmtMoeda(ct.valor_global)} · {ct.status}</span>
-                          </Link>
-                        ))}
+                        {dados.contratos.map((ct) => {
+                          const concluido = ct.assinatura_status === "CONCLUIDO"
+                          const emAssinatura = !!ct.documento_assinatura_id && !concluido
+                          return (
+                            <div key={ct.id} className="border rounded-md px-3 py-2 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <Link href={`/orgao/contratos/${ct.id}`} className="text-sm font-medium hover:underline">
+                                  Contrato {ct.numero_contrato} — {ct.fornecedor_razao_social}
+                                </Link>
+                                <span className="text-sm text-gray-500">{fmtMoeda(ct.valor_global)} · {ct.status}</span>
+                              </div>
+                              {/* Fluxo do termo: gerar → assinar (todas as partes) → PNCP */}
+                              <div className="flex items-center gap-2 flex-wrap text-xs">
+                                {!ct.documento_assinatura_id && (
+                                  <Button size="sm" variant="outline" className="h-7 text-xs"
+                                    disabled={assinandoContrato === ct.id}
+                                    onClick={() => solicitarAssinaturasContrato(ct)}
+                                    title="Gera o termo de contrato em PDF e envia para assinatura eletrônica do órgão e do fornecedor">
+                                    {assinandoContrato === ct.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : "📝 "}
+                                    Gerar termo e colher assinaturas
+                                  </Button>
+                                )}
+                                {emAssinatura && (
+                                  <>
+                                    <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                                      ✍️ Assinaturas: {ct.assinados ?? 0}/{ct.total_signatarios ?? 0}
+                                    </span>
+                                    {ct.signatarios_resumo && <span className="text-gray-500">{ct.signatarios_resumo}</span>}
+                                    {ct.arquivo_contrato && (
+                                      <a href={`${API_URL}/uploads/${ct.arquivo_contrato}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">termo (PDF)</a>
+                                    )}
+                                    <Link href="/assinador/painel" className="text-blue-600 hover:underline">assinar/acompanhar</Link>
+                                    <button type="button" className="text-gray-500 hover:underline"
+                                      onClick={() => reenviarNotificacoesAssinatura(ct.documento_assinatura_id!)}>
+                                      reenviar notificações
+                                    </button>
+                                  </>
+                                )}
+                                {concluido && (
+                                  <>
+                                    <span className="text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">
+                                      ✅ Assinado por todas as partes{ct.data_assinatura ? ` em ${new Date(ct.data_assinatura).toLocaleDateString("pt-BR")}` : ""}
+                                    </span>
+                                    {(ct.arquivo_assinado_url || ct.arquivo_contrato) && (
+                                      <a href={`${API_URL}/uploads/${ct.arquivo_assinado_url || ct.arquivo_contrato}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                        termo assinado (PDF)
+                                      </a>
+                                    )}
+                                    <span className="text-gray-400">publicação no PNCP disparada automaticamente (art. 94)</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
                         {dados.atas.map((ata) => (
                           <div key={ata.id} className="flex items-center justify-between border rounded-md px-3 py-2 bg-amber-50/50">
                             <span className="text-sm font-medium">Ata {ata.numero_ata} — {ata.fornecedor_razao_social}</span>

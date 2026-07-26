@@ -7,12 +7,14 @@ import { DocumentoAssinatura } from '../assinaturas/entities/documento-assinatur
 import { SignatarioDocumento } from '../assinaturas/entities/signatario-documento.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { AssinaturasModule } from '../assinaturas/assinaturas.module';
+import { PncpModule } from '../pncp/pncp.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DocumentoAssinatura, SignatarioDocumento]),
     NotificacoesModule,
     AssinaturasModule,
+    PncpModule,
   ],
   controllers: [PortalAssinaturasController, PublicAssinaturasController],
   providers: [PortalAssinaturasService],
