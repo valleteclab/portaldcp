@@ -734,6 +734,22 @@ export class LicitacoesService {
             `[PNCP] Resultado da licitação ${licitacao.numero_processo} não enviado: ${e.message} (reenvie pelo cockpit)`,
           ),
         );
+
+      // Contratos gerados na homologação também vão ao PNCP (art. 94: a
+      // divulgação é condição de eficácia — 10 dias úteis na contratação
+      // direta). Fire-and-forget com registro em pncp_sync.
+      this.pncpService
+        .enviarContratosHomologacao(id)
+        .then((r: any) =>
+          this.logger.log(
+            `[PNCP] Contratos da licitação ${licitacao.numero_processo}: ${r?.enviados}/${r?.total} enviado(s)`,
+          ),
+        )
+        .catch((e: any) =>
+          this.logger.warn(
+            `[PNCP] Contratos da licitação ${licitacao.numero_processo} não enviados: ${e.message} (reenvie pelo cockpit)`,
+          ),
+        );
     }
 
     return licitacaoSalva;

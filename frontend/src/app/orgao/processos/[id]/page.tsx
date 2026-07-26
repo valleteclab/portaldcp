@@ -446,8 +446,8 @@ export default function CockpitProcessoPage() {
 
   const [enviandoPncp, setEnviandoPncp] = useState<string | null>(null)
 
-  const enviarPncp = async (acao: "aviso" | "resultado") => {
-    const rota = acao === "aviso" ? "completo" : "resultados-homologacao"
+  const enviarPncp = async (acao: "aviso" | "resultado" | "contratos") => {
+    const rota = acao === "aviso" ? "completo" : acao === "resultado" ? "resultados-homologacao" : "contratos"
     setEnviandoPncp(acao)
     try {
       const res = await authFetch(`${API_URL}/api/pncp/compras/${id}/${rota}`, { method: "POST" })
@@ -455,7 +455,9 @@ export default function CockpitProcessoPage() {
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
       alert(acao === "aviso"
         ? `Aviso enviado ao PNCP${j?.numeroControlePNCP ? ` — nº de controle ${j.numeroControlePNCP}` : ""}.`
-        : `Resultado: ${j?.enviados}/${j?.total} item(ns) enviados ao PNCP.`)
+        : acao === "resultado"
+          ? `Resultado: ${j?.enviados}/${j?.total} item(ns) enviados ao PNCP.`
+          : `Contratos: ${j?.enviados}/${j?.total} publicado(s) no PNCP (art. 94 — condição de eficácia).`)
       await carregar()
     } catch (e: any) {
       alert(`PNCP: ${e.message}\n\nVerifique as credenciais em Configurações → PNCP e tente novamente.`)
@@ -911,9 +913,16 @@ export default function CockpitProcessoPage() {
                                   Enviar resultado
                                 </Button>
                               )}
+                              {checklist.contrato_gerado && (
+                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => enviarPncp("contratos")} disabled={enviandoPncp !== null}
+                                  title="Art. 94 da Lei 14.133: a divulgação no PNCP é condição de eficácia do contrato (10 dias úteis na contratação direta)">
+                                  {enviandoPncp === "contratos" ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+                                  Enviar contratos
+                                </Button>
+                              )}
                             </div>
                           </div>
-                          <p className="text-[10px] text-gray-400 mt-1">Publicado automaticamente ao publicar o aviso e ao homologar — os botões servem para reenvio em caso de falha.</p>
+                          <p className="text-[10px] text-gray-400 mt-1">Publicação automática: aviso ao divulgar; resultado e contratos ao homologar (art. 94 — a divulgação do contrato no PNCP é condição de eficácia). Os botões servem para reenvio em caso de falha.</p>
                         </div>
                       )}
 
