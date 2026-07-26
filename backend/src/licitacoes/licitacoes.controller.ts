@@ -33,11 +33,12 @@ export class LicitacoesController {
   async findAll(
     @Query('fase') fase?: FaseLicitacao | 'HOMOLOGADA',
     @Query('orgao_id') orgao_id?: string,
-    @Query('orgaoId') orgaoId?: string
+    @Query('orgaoId') orgaoId?: string,
+    @Query('demanda_id') demanda_id?: string
   ): Promise<Licitacao[]> {
     const faseNormalizada =
       fase === 'HOMOLOGADA' ? FaseLicitacao.HOMOLOGACAO : fase;
-    return await this.licitacoesService.findAll({ fase: faseNormalizada, orgao_id: orgao_id || orgaoId });
+    return await this.licitacoesService.findAll({ fase: faseNormalizada, orgao_id: orgao_id || orgaoId, demanda_id });
   }
 
   // ⚠️ Rotas literais precisam vir ANTES de ':id' — senão "publicas" é tratado
