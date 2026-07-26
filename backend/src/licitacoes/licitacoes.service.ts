@@ -161,6 +161,16 @@ export class LicitacoesService {
       );
     }
 
+    // Uma demanda origina UM processo — evita duplicar por clique repetido
+    const jaExiste = await this.licitacaoRepository.findOne({
+      where: { demanda_id: dto.demanda_id },
+    });
+    if (jaExiste) {
+      throw new ConflictException(
+        `Esta demanda já originou o processo ${jaExiste.numero_processo}`,
+      );
+    }
+
     const itens = demanda.itens || [];
 
     // 3. Gera/valida numero_processo
@@ -219,7 +229,12 @@ export class LicitacoesService {
       demanda_id: demanda.id,
       numero_processo,
       modalidade: dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO,
-      tipo_contratacao: dto.tipo_contratacao ?? TipoContratacao.COMPRA,
+      // Deriva da natureza dos itens quando não informado
+      tipo_contratacao:
+        dto.tipo_contratacao ??
+        (itens.some((i) => i.categoria === 'SERVICO')
+          ? TipoContratacao.SERVICO
+          : TipoContratacao.COMPRA),
       criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
       fase: FaseLicitacao.PLANEJAMENTO,
       ano,
@@ -262,6 +277,36 @@ export class LicitacoesService {
       await this.itemRepository.save(itensLicitacao);
     }
 
+    // 7.5 DFD gerado automaticamente da própria demanda — a instrução do
+    // Art. 72 nasce com o primeiro obrigatório pronto (campos alinhados às
+    // regras de conformidade do DFD: demanda/quantidade/previsao).
+    try {
+      const qtdResumo = itens
+        .map((i) => `${i.descricao_objeto} — ${Number(i.quantidade_estimada) || 1} ${i.unidade_medida || 'UN'}`)
+        .join('; ');
+      const previsao = demanda.data_desejada_contratacao
+        ? new Date(demanda.data_desejada_contratacao).toLocaleDateString('pt-BR')
+        : `Ano de referência ${demanda.ano_referencia}`;
+      const dadosDfd = {
+        demanda: `${demanda.descricao_sucinta_objeto || objeto}\n\nUnidade requisitante: ${demanda.unidade_requisitante}${demanda.responsavel_nome ? `\nResponsável: ${demanda.responsavel_nome}` : ''}${demanda.observacoes ? `\n\nObservações: ${demanda.observacoes}` : ''}`,
+        quantidade: qtdResumo,
+        previsao,
+        data: new Date().toISOString().split('T')[0],
+      };
+      await this.dataSource.query(
+        `INSERT INTO documentos_fase_interna
+           (licitacao_id, tipo, titulo, descricao, dados_estruturados, status, origem, versao, versao_atual, obrigatorio)
+         VALUES ($1, 'DFD', 'Formalização da Demanda (DFD)', $2, $3, 'EM_ELABORACAO', 'INTERNO', 1, true, true)`,
+        [
+          licitacaoSalva.id,
+          `${dadosDfd.demanda}\n\nQuantidades: ${dadosDfd.quantidade}\n\nPrevisão: ${dadosDfd.previsao}`,
+          JSON.stringify(dadosDfd),
+        ],
+      );
+    } catch (e: any) {
+      this.logger.warn(`DFD automático da demanda não gerado: ${e.message}`);
+    }
+
     // 8. Retorna a licitação recarregada com os itens
     const resultado = await this.licitacaoRepository.findOne({
       where: { id: licitacaoSalva.id },
@@ -270,10 +315,11 @@ export class LicitacoesService {
     return resultado!;
   }
 
-  async findAll(filtros?: { fase?: FaseLicitacao; orgao_id?: string }): Promise<Licitacao[]> {
+  async findAll(filtros?: { fase?: FaseLicitacao; orgao_id?: string; demanda_id?: string }): Promise<Licitacao[]> {
     const where: any = {};
     if (filtros?.fase) where.fase = filtros.fase;
     if (filtros?.orgao_id) where.orgao_id = filtros.orgao_id;
+    if (filtros?.demanda_id) where.demanda_id = filtros.demanda_id;
 
     return await this.licitacaoRepository.find({
       where,

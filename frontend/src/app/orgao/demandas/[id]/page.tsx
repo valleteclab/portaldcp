@@ -978,6 +978,56 @@ export default function DetalheDemandaPage() {
 
   useEffect(() => { carregarDemanda() }, [carregarDemanda])
 
+  // ── Iniciar contratação a partir da demanda (ponte demanda → processo) ────
+  const [processoVinculado, setProcessoVinculado] = useState<{ id: string; numero_processo: string; modalidade: string } | null>(null)
+  const [modalIniciar, setModalIniciar] = useState(false)
+  const [modalidadeEscolhida, setModalidadeEscolhida] = useState('')
+  const [limiteDispensa, setLimiteDispensa] = useState<number | null>(null)
+  const [iniciando, setIniciando] = useState(false)
+
+  useEffect(() => {
+    if (!demanda?.id) return
+    // Processo já iniciado a partir desta demanda?
+    authFetch(`${API_URL}/api/licitacoes?demanda_id=${demanda.id}`)
+      .then(async (r) => {
+        if (!r.ok) return
+        const lista = await r.json()
+        if (Array.isArray(lista) && lista.length > 0) {
+          setProcessoVinculado({ id: lista[0].id, numero_processo: lista[0].numero_processo, modalidade: lista[0].modalidade })
+        }
+      })
+      .catch(() => { /* segue sem vínculo */ })
+    // Limite vigente da dispensa (para sugerir a modalidade)
+    authFetch(`${API_URL}/api/parametros-licitacao/limites/vigente?chave=DISPENSA_COMPRAS_SERVICOS${orgaoId ? `&orgaoId=${orgaoId}` : ''}`)
+      .then(async (r) => { if (r.ok) { const l = await r.json(); if (l?.valor != null) setLimiteDispensa(Number(l.valor)) } })
+      .catch(() => { /* sugestão fica sem limite */ })
+  }, [demanda?.id, orgaoId])
+
+  const abrirModalIniciar = () => {
+    const total = (demanda?.itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
+    // Sugestão: dentro do limite do art. 75 → dispensa; acima → pregão
+    setModalidadeEscolhida(limiteDispensa != null && total > limiteDispensa ? 'PREGAO_ELETRONICO' : 'DISPENSA_ELETRONICA')
+    setModalIniciar(true)
+  }
+
+  const iniciarContratacao = async () => {
+    if (!demanda || !modalidadeEscolhida) return
+    setIniciando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/a-partir-de-demanda`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ demanda_id: demanda.id, modalidade: modalidadeEscolhida }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      router.push(`/orgao/processos/${j.id}`)
+    } catch (e: any) {
+      alert(`Não foi possível iniciar a contratação: ${e.message}`)
+      setIniciando(false)
+    }
+  }
+
   const salvarDadosDemanda = async (dados: Partial<Demanda>) => {
     if (!demanda) return
     setSalvando(true)
@@ -1284,6 +1334,19 @@ export default function DetalheDemandaPage() {
                 Enviar DFD
               </Button>
             )}
+            {(demanda.status === 'APROVADA' || demanda.status === 'CONSOLIDADA') && (
+              processoVinculado ? (
+                <Button size="sm" variant="outline" onClick={() => router.push(`/orgao/processos/${processoVinculado.id}`)}
+                  title={`Processo ${processoVinculado.numero_processo} iniciado a partir desta demanda`}>
+                  Ver processo {processoVinculado.numero_processo}
+                </Button>
+              ) : (
+                <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={abrirModalIniciar}
+                  title="Cria o processo de contratação já vinculado e pré-preenchido com os itens desta demanda">
+                  🚀 Iniciar contratação
+                </Button>
+              )
+            )}
           </div>
         </div>
 
@@ -1583,6 +1646,53 @@ export default function DetalheDemandaPage() {
               </p>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal: Iniciar contratação a partir da demanda ─────────────────── */}
+      <Dialog open={modalIniciar} onOpenChange={setModalIniciar}>
+        <DialogContent className="max-w-lg">
+          <h2 className="text-lg font-semibold">Iniciar contratação</h2>
+          <p className="text-sm text-gray-600 -mt-1">
+            O processo nasce <b>vinculado a esta demanda</b> e pré-preenchido: itens, quantidades,
+            valores estimados e o DFD gerado automaticamente. Valor total estimado:{' '}
+            <b>{fmt((demanda?.itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0))}</b>.
+          </p>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold">Modalidade da contratação</label>
+            {[
+              { valor: 'DISPENSA_ELETRONICA', nome: 'Dispensa Eletrônica', desc: 'Art. 75 — contratação direta com disputa; aviso publicado automaticamente no PNCP' },
+              { valor: 'PREGAO_ELETRONICO', nome: 'Pregão Eletrônico', desc: 'Art. 28, I — modalidade padrão para bens e serviços comuns' },
+              { valor: 'INEXIGIBILIDADE', nome: 'Inexigibilidade', desc: 'Art. 74 — inviabilidade de competição (fornecedor exclusivo, credenciamento…)' },
+              { valor: 'CONCORRENCIA', nome: 'Concorrência', desc: 'Art. 28, II — obras e serviços especiais' },
+            ].map((m) => (
+              <button
+                key={m.valor}
+                type="button"
+                onClick={() => setModalidadeEscolhida(m.valor)}
+                className={`w-full text-left border rounded-md px-3 py-2 hover:bg-gray-50 ${modalidadeEscolhida === m.valor ? 'border-blue-600 bg-blue-50' : ''}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{m.nome}</span>
+                  {modalidadeEscolhida === m.valor && <CheckCircle className="h-4 w-4 text-blue-600" />}
+                </div>
+                <p className="text-xs text-gray-500">{m.desc}</p>
+              </button>
+            ))}
+            {limiteDispensa != null && (
+              <p className="text-xs text-gray-400">
+                💡 Sugestão automática pelo limite vigente da dispensa ({fmt(limiteDispensa)} — art. 75, II).
+                A escolha é sua: nem toda demanda vira dispensa.
+              </p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setModalIniciar(false)} disabled={iniciando}>Cancelar</Button>
+            <Button onClick={iniciarContratacao} disabled={iniciando || !modalidadeEscolhida} className="bg-green-600 hover:bg-green-700">
+              {iniciando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+              Criar processo e abrir cockpit
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
