@@ -1261,8 +1261,15 @@ export class PncpService implements OnModuleInit {
       const valorGlobal = Number(c.valor_global ?? c.valor_inicial) || 0;
 
       const dto: any = {
-        // Vínculo com a compra publicada (obrigatório)
+        // Vínculo com a compra publicada (o PNCP exige a referência explícita)
         numeroControlePNCPCompra: syncCompra.numero_controle_pncp,
+        cnpjCompra: cnpj,
+        anoCompra: Number(syncCompra.ano_compra),
+        sequencialCompra: Number(syncCompra.sequencial_compra),
+        processo: lic.numero_processo,
+        // Indicadores obrigatórios do contrato (false = não se aplica)
+        frutoAdesao: false,
+        temRemanejamento: false,
         anoContrato,
         numeroContratoEmpenho: c.numero_contrato,
         tipoContratoId: 1, // 1 = Contrato (termo inicial)
