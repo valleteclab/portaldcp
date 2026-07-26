@@ -263,7 +263,15 @@ export class Contrato {
 
   // Documentos
   @Column({ nullable: true })
-  arquivo_contrato: string; // Caminho do PDF
+  arquivo_contrato: string; // Caminho do PDF (termo gerado; substituído pelo assinado ao concluir)
+
+  /**
+   * Documento do assinador eletrônico vinculado ao termo deste contrato
+   * (documentos_assinatura.id). Quando CONCLUÍDO, data_assinatura passa a
+   * ser a data real da última assinatura e o PNCP é acionado (art. 94).
+   */
+  @Column({ type: 'uuid', nullable: true })
+  documento_assinatura_id: string | null;
 
   // Integração PNCP
   @Column({ nullable: true })

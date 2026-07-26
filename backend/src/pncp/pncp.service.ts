@@ -1189,6 +1189,140 @@ export class PncpService implements OnModuleInit {
     return { sucesso: okCount > 0, total: resultados.length, enviados: okCount, resultados };
   }
 
+  /**
+   * D5 — CONTRATOS NO PNCP (art. 94 da Lei 14.133): a divulgação no PNCP é
+   * condição de EFICÁCIA do contrato (10 dias úteis na contratação direta,
+   * 20 na licitação). Envia todos os contratos da licitação vinculados à
+   * compra já publicada; contratos já enviados são pulados (sem duplicar).
+   * Chamado automaticamente na homologação (fire-and-forget) e pelo cockpit.
+   */
+  async enviarContratosHomologacao(licitacaoId: string): Promise<any> {
+    const syncCompra = await this.pncpSyncRepository.findOne({
+      where: {
+        licitacao_id: licitacaoId,
+        tipo: TipoSincronizacao.COMPRA,
+        status: StatusSincronizacao.ENVIADO,
+      },
+    });
+    if (!syncCompra?.numero_controle_pncp) {
+      throw new HttpException('Compra não foi enviada ao PNCP ainda', HttpStatus.BAD_REQUEST);
+    }
+
+    const lic = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['orgao'],
+    });
+    if (!lic) throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
+    const cnpj = (lic.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+
+    const contratos = await this.dataSource.query(
+      `SELECT id, numero_contrato, objeto, valor_inicial, valor_global,
+              data_assinatura, data_vigencia_inicio, data_vigencia_fim,
+              fornecedor_cnpj, fornecedor_razao_social
+       FROM contratos WHERE licitacao_id = $1 ORDER BY numero_contrato ASC`,
+      [licitacaoId],
+    );
+    if (!contratos.length) {
+      throw new HttpException('Nenhum contrato gerado para esta licitação', HttpStatus.BAD_REQUEST);
+    }
+
+    // Categoria do processo conforme a natureza do objeto (tabela do PNCP)
+    const tc = String(lic.tipo_contratacao || '').toUpperCase();
+    const categoriaProcessoId = tc.includes('OBRA')
+      ? 7 // Obras
+      : tc.includes('SERVICO') || tc.includes('SERVIÇO')
+        ? 9 // Serviços
+        : 2; // Compras
+
+    const dataStr = (d: any) =>
+      d ? new Date(d).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+
+    const resultados: Array<{ contrato: string; sucesso: boolean; numeroControlePNCP?: string; erro?: string }> = [];
+
+    for (const c of contratos) {
+      // Já enviado? Não duplica no PNCP.
+      const jaEnviado = await this.pncpSyncRepository.findOne({
+        where: {
+          licitacao_id: licitacaoId,
+          tipo: TipoSincronizacao.CONTRATO,
+          entidade_id: c.id,
+          status: StatusSincronizacao.ENVIADO,
+        },
+      });
+      if (jaEnviado) {
+        resultados.push({ contrato: c.numero_contrato, sucesso: true, numeroControlePNCP: jaEnviado.numero_controle_pncp || undefined });
+        continue;
+      }
+
+      const ni = String(c.fornecedor_cnpj || '').replace(/\D/g, '');
+      // "040/2026" → ano 2026; fallback: ano da assinatura
+      const anoMatch = String(c.numero_contrato || '').match(/\/(\d{4})$/);
+      const anoContrato = anoMatch ? Number(anoMatch[1]) : new Date(c.data_assinatura || Date.now()).getFullYear();
+      const valorGlobal = Number(c.valor_global ?? c.valor_inicial) || 0;
+
+      const dto: any = {
+        // Vínculo com a compra publicada (obrigatório)
+        numeroControlePNCPCompra: syncCompra.numero_controle_pncp,
+        anoContrato,
+        numeroContratoEmpenho: c.numero_contrato,
+        tipoContratoId: 1, // 1 = Contrato (termo inicial)
+        categoriaProcessoId,
+        receita: false,
+        codigoUnidade: lic.codigo_unidade_compradora || '1',
+        niFornecedor: ni,
+        tipoPessoaFornecedor: ni.length === 11 ? 'PF' : 'PJ',
+        nomeRazaoSocialFornecedor: c.fornecedor_razao_social,
+        objetoContrato: c.objeto || lic.objeto,
+        valorInicial: Number(c.valor_inicial) || valorGlobal,
+        numeroParcelas: 1,
+        valorParcela: valorGlobal,
+        valorGlobal,
+        dataAssinatura: dataStr(c.data_assinatura),
+        dataVigenciaInicio: dataStr(c.data_vigencia_inicio),
+        dataVigenciaFim: dataStr(c.data_vigencia_fim),
+      };
+
+      try {
+        await this.getValidToken();
+        const response = await this.axiosInstance.post(`/orgaos/${cnpj}/contratos`, dto);
+        const numeroControle =
+          response.data?.numeroControlePNCP ||
+          response.headers?.location?.split('/contratos/')?.[1] ||
+          null;
+        await this.pncpSyncRepository.save(
+          this.pncpSyncRepository.create({
+            tipo: TipoSincronizacao.CONTRATO,
+            licitacao_id: licitacaoId,
+            entidade_id: c.id,
+            status: StatusSincronizacao.ENVIADO,
+            payload_enviado: dto,
+            resposta_pncp: response.data,
+            numero_controle_pncp: numeroControle,
+          }),
+        );
+        this.logger.log(`[PNCP] Contrato ${c.numero_contrato} publicado (${numeroControle || 'sem nº controle'})`);
+        resultados.push({ contrato: c.numero_contrato, sucesso: true, numeroControlePNCP: numeroControle || undefined });
+      } catch (e: any) {
+        const erro = this.extrairMensagemErro(e);
+        await this.pncpSyncRepository.save(
+          this.pncpSyncRepository.create({
+            tipo: TipoSincronizacao.CONTRATO,
+            licitacao_id: licitacaoId,
+            entidade_id: c.id,
+            status: StatusSincronizacao.ERRO,
+            payload_enviado: dto,
+            erro_mensagem: String(erro).slice(0, 500),
+          }),
+        );
+        this.logger.warn(`[PNCP] Contrato ${c.numero_contrato} não publicado: ${erro}`);
+        resultados.push({ contrato: c.numero_contrato, sucesso: false, erro: String(erro).slice(0, 200) });
+      }
+    }
+
+    const okCount = resultados.filter((r) => r.sucesso).length;
+    return { sucesso: okCount > 0, total: resultados.length, enviados: okCount, resultados };
+  }
+
   async enviarResultado(licitacaoId: string, itemNumero: number, resultado: ResultadoItemDto): Promise<PncpResponseDto> {
     const sync = await this.pncpSyncRepository.findOne({
       where: { 

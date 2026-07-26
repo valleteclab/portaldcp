@@ -76,6 +76,7 @@ import { PreOsPublicidadeService } from './pre-os-publicidade.service';
 import { PreOsFornecedorController, PreOsOrgaoController } from './pre-os-publicidade.controller';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { Notificacao } from '../notificacoes/entities/notificacao.entity';
+import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { Notificacao } from '../notificacoes/entities/notificacao.entity';
     FornecedoresModule,
     SystemConfigModule,
     WhatsAppModule,
+    PortalAssinaturasModule,
   ],
   controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, PreOsFornecedorController, PreOsOrgaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
   providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, PreOsPublicidadeService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],

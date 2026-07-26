@@ -89,6 +89,12 @@ export class PncpController {
     return await this.pncpService.enviarResultadoHomologacao(licitacaoId);
   }
 
+  /** D5: publica os contratos da licitação no PNCP (art. 94 — eficácia) */
+  @Post('compras/:licitacaoId/contratos')
+  async enviarContratosHomologacao(@Param('licitacaoId') licitacaoId: string) {
+    return await this.pncpService.enviarContratosHomologacao(licitacaoId);
+  }
+
   // Vincular manualmente uma licitação já enviada ao PNCP
   @Post('compras/:licitacaoId/vincular')
   async vincularLicitacaoPNCP(

@@ -21,6 +21,12 @@ import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { Proposta, StatusProposta } from '../propostas/entities/proposta.entity';
+import { PortalAssinaturasService } from '../portal-assinaturas/portal-assinaturas.service';
+import {
+  gerarTermoContratoPdf,
+  POSICAO_ASSINATURA_CONTRATANTE,
+  POSICAO_ASSINATURA_CONTRATADA,
+} from './contrato-pdf';
 
 @Injectable()
 export class ContratosService implements OnModuleInit {
@@ -63,6 +69,7 @@ export class ContratosService implements OnModuleInit {
     @InjectRepository(PropostaItem)
     private propostaItemRepository: Repository<PropostaItem>,
     private notificacoesService: NotificacoesService,
+    private portalAssinaturasService: PortalAssinaturasService,
   ) {
     if (!fs.existsSync(this.uploadPath)) {
       fs.mkdirSync(this.uploadPath, { recursive: true });
@@ -1802,6 +1809,126 @@ export class ContratosService implements OnModuleInit {
    * Idempotente: se já houver contratos para a licitação, retorna os
    * existentes sem recriar.
    */
+  /**
+   * CONTRATO FIM A FIM — gera o TERMO DE CONTRATO em PDF e solicita a
+   * assinatura de TODAS as partes pelo assinador eletrônico do sistema
+   * (órgão por OTP interno; fornecedor por link com token + código).
+   * Ao concluir as assinaturas, o portal-assinaturas atualiza a data de
+   * assinatura do contrato e dispara a publicação no PNCP (art. 94).
+   */
+  async solicitarAssinaturasContrato(
+    contratoId: string,
+    usuario?: { id?: string; nome?: string; cpf?: string; email?: string; telefone?: string },
+    signatariosExtra?: Array<{ nome: string; cpf_cnpj?: string; email?: string; telefone?: string; is_orgao_user?: boolean }>,
+  ): Promise<any> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      relations: ['orgao'],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+
+    // Idempotente: já existe fluxo de assinatura ativo → devolve o estado
+    if (contrato.documento_assinatura_id) {
+      const docAtual = await this.portalAssinaturasService
+        .obterDocumento(contrato.documento_assinatura_id, contrato.orgao_id)
+        .catch(() => null);
+      if (docAtual && docAtual.status !== 'CANCELADO') {
+        return {
+          ja_existente: true,
+          documento_assinatura_id: docAtual.id,
+          status: docAtual.status,
+          signatarios: (docAtual.signatarios || []).map((s: any) => ({ nome: s.nome, status: s.status })),
+        };
+      }
+    }
+
+    const licitacao = contrato.licitacao_id
+      ? await this.licitacaoRepository.findOneBy({ id: contrato.licitacao_id })
+      : null;
+    const fornecedor = (contrato as any).fornecedor_id
+      ? await this.fornecedorRepository.findOneBy({ id: (contrato as any).fornecedor_id })
+      : null;
+    const itens = contrato.licitacao_id && (contrato as any).fornecedor_id
+      ? await this.itemRepository.find({
+          where: {
+            licitacao_id: contrato.licitacao_id,
+            fornecedor_vencedor_id: (contrato as any).fornecedor_id,
+          } as any,
+          order: { numero_item: 'ASC' } as any,
+        })
+      : [];
+
+    // 1. Termo de contrato em PDF (página final com posições de assinatura)
+    const { buffer, ultimaPagina } = gerarTermoContratoPdf({
+      contrato,
+      orgao: (contrato as any).orgao,
+      licitacao,
+      itens,
+      responsavel_orgao: { nome: usuario?.nome },
+    });
+    const dir = path.join(this.uploadPath, contratoId);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const nomeArq = `termo-contrato-${String(contrato.numero_contrato || contratoId).replace(/[^\w-]/g, '_')}.pdf`;
+    fs.writeFileSync(path.join(dir, nomeArq), buffer);
+    const relPath = `contratos/${contratoId}/${nomeArq}`; // relativo à raiz de uploads
+
+    // 2. Signatários: responsável do órgão + representante do fornecedor
+    //    (dados do cadastro) + extras informados (ex.: testemunhas)
+    const signatarios = [
+      {
+        nome: usuario?.nome || 'Responsável do órgão',
+        cpf_cnpj: usuario?.cpf,
+        email: usuario?.email,
+        telefone: usuario?.telefone,
+        is_orgao_user: true,
+        pagina_assinatura: ultimaPagina,
+        ...POSICAO_ASSINATURA_CONTRATANTE,
+      },
+      {
+        nome: fornecedor?.razao_social || contrato.fornecedor_razao_social || 'Fornecedor',
+        cpf_cnpj: fornecedor?.cpf_cnpj || contrato.fornecedor_cnpj,
+        email: (fornecedor as any)?.email,
+        telefone: (fornecedor as any)?.telefone,
+        is_orgao_user: false,
+        pagina_assinatura: ultimaPagina,
+        ...POSICAO_ASSINATURA_CONTRATADA,
+      },
+      ...(signatariosExtra || []).map((s, i) => ({
+        ...s,
+        pagina_assinatura: ultimaPagina,
+        pos_x: 0.5,
+        pos_y: Math.min(0.92, 0.8 + i * 0.08),
+      })),
+    ];
+
+    // 3. Documento no assinador (mesmo fluxo do portal de assinaturas)
+    const docAss = await this.portalAssinaturasService.criarDocumento(
+      contrato.orgao_id,
+      usuario?.id as string,
+      {
+        titulo: `Contrato ${contrato.numero_contrato} — ${String(contrato.objeto || '').slice(0, 80)}`,
+        descricao: `Termo de contrato ${contrato.numero_contrato} (processo ${contrato.numero_processo || '—'}). Assinatura eletrônica das partes — Lei nº 14.133/2021.`,
+        signatarios,
+      } as any,
+      relPath,
+    );
+    await this.portalAssinaturasService.dispararNotificacoesAssinatura(docAss.id);
+
+    contrato.documento_assinatura_id = docAss.id;
+    contrato.arquivo_contrato = relPath;
+    await this.contratoRepository.save(contrato);
+
+    this.logger.log(
+      `Contrato ${contrato.numero_contrato}: termo gerado e assinaturas solicitadas (${signatarios.length} signatário(s))`,
+    );
+    return {
+      sucesso: true,
+      documento_assinatura_id: docAss.id,
+      termo_url: `/uploads/${relPath}`,
+      signatarios: (docAss.signatarios || []).map((s: any) => ({ nome: s.nome, status: s.status })),
+    };
+  }
+
   async gerarContratoAutomatico(licitacaoId: string): Promise<Contrato[]> {
     try {
       // Idempotência: se já existem contratos, retorna-os

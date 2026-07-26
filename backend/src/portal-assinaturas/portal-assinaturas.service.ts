@@ -8,6 +8,7 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
+import { PncpService } from '../pncp/pncp.service';
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import * as crypto from 'crypto';
@@ -26,6 +27,7 @@ export class PortalAssinaturasService {
     private readonly dataSource: DataSource,
     private readonly notificacoesService: NotificacoesService,
     private readonly assinaturasService: AssinaturasService,
+    private readonly pncpService: PncpService,
   ) {}
 
   private normalizarEmail(email?: string | null): string {
@@ -339,6 +341,11 @@ export class PortalAssinaturasService {
         status: StatusDocumentoAssinatura.CONCLUIDO,
         arquivo_assinado_url: pdfUrl,
       });
+      // Efeitos de conclusão (ex.: contrato vinculado → data de assinatura
+      // real + publicação no PNCP). Fire-and-forget.
+      this.aoConcluirDocumento(signatario.documento.id, pdfUrl).catch((e: any) =>
+        this.logger.warn(`Efeitos de conclusão do documento: ${e.message}`),
+      );
     }
 
     // Notificar após assinatura (assíncrono)
@@ -476,6 +483,11 @@ export class PortalAssinaturasService {
         status: StatusDocumentoAssinatura.CONCLUIDO,
         arquivo_assinado_url: pdfUrl,
       });
+      // Efeitos de conclusão (ex.: contrato vinculado → data de assinatura
+      // real + publicação no PNCP). Fire-and-forget.
+      this.aoConcluirDocumento(signatario.documento.id, pdfUrl).catch((e: any) =>
+        this.logger.warn(`Efeitos de conclusão do documento: ${e.message}`),
+      );
     }
 
     // Notificar após assinatura (assíncrono)
@@ -484,6 +496,42 @@ export class PortalAssinaturasService {
     );
 
     return { sucesso: true, pdf_url: pdfUrl };
+  }
+
+  /**
+   * Efeitos da conclusão de um documento (todas as partes assinaram).
+   * CONTRATO vinculado (contratos.documento_assinatura_id): a data de
+   * assinatura do contrato passa a ser a REAL (agora), o termo assinado
+   * substitui o arquivo do contrato e a publicação no PNCP é disparada —
+   * art. 94 da Lei 14.133/2021: a divulgação é condição de eficácia.
+   */
+  private async aoConcluirDocumento(documentoId: string, arquivoAssinadoUrl?: string): Promise<void> {
+    const [ctr] = await this.dataSource.query(
+      `SELECT id, licitacao_id, numero_contrato FROM contratos WHERE documento_assinatura_id = $1`,
+      [documentoId],
+    );
+    if (!ctr) return;
+
+    await this.dataSource.query(
+      `UPDATE contratos
+       SET data_assinatura = NOW(), arquivo_contrato = COALESCE($2, arquivo_contrato)
+       WHERE id = $1`,
+      [ctr.id, arquivoAssinadoUrl || null],
+    );
+    this.logger.log(
+      `Contrato ${ctr.numero_contrato}: termo assinado por todas as partes — data de assinatura atualizada`,
+    );
+
+    if (ctr.licitacao_id) {
+      this.pncpService
+        .enviarContratosHomologacao(ctr.licitacao_id)
+        .then((r: any) =>
+          this.logger.log(`[PNCP] Contratos pós-assinatura: ${r?.enviados}/${r?.total} publicado(s)`),
+        )
+        .catch((e: any) =>
+          this.logger.warn(`[PNCP] Contrato assinado não publicado: ${e.message} (reenvie pelo cockpit)`),
+        );
+    }
   }
 
   // =============================================
