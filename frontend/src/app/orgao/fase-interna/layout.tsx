@@ -10,6 +10,10 @@ export default function FaseInternaLayout({ children }: { children: React.ReactN
   const [copilotoAberto, setCopilotoAberto] = useState(true)
   const pathname = usePathname()
 
+  // Telas com assistente de IA EMBUTIDA (ex.: editor de documentos tem o
+  // Procura+ AI próprio, com contexto do documento) — não duplicar o chat.
+  const temAssistentePropria = pathname.includes("/editor")
+
   const contexto = (() => {
     if (pathname.includes("/editor")) return "Usuário está editando um documento da fase interna."
     if (pathname.includes("/riscos")) return "Usuário está no Mapa de Riscos."
@@ -29,8 +33,8 @@ export default function FaseInternaLayout({ children }: { children: React.ReactN
         {children}
       </main>
 
-      {/* Copiloto IA */}
-      {copilotoAberto ? (
+      {/* Copiloto IA (oculto onde a tela já tem o assistente embutido) */}
+      {!temAssistentePropria && (copilotoAberto ? (
         <div className="w-80 shrink-0 flex flex-col overflow-hidden">
           <CopilotoIA contexto={contexto} onClose={() => setCopilotoAberto(false)} />
         </div>
@@ -42,7 +46,7 @@ export default function FaseInternaLayout({ children }: { children: React.ReactN
         >
           <Sparkles className="w-5 h-5" />
         </button>
-      )}
+      ))}
     </div>
   )
 }

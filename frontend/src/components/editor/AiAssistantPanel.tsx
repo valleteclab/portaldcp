@@ -58,7 +58,10 @@ export function AiAssistantPanel({ editor, tipoDocumento, contexto }: AiAssistan
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // Rola só o container do chat (scrollIntoView rolaria a página inteira)
+    if (mensagens.length === 0) return
+    const cont = endRef.current?.closest('.overflow-y-auto') as HTMLElement | null
+    if (cont) cont.scrollTop = cont.scrollHeight
   }, [mensagens])
 
   const enviar = async (texto?: string) => {
