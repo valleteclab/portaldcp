@@ -13,7 +13,18 @@ import { loadEnv, Narrador, clicarPrimeiro } from './lib.mjs'
 const env = loadEnv()
 const OBJETO = `QA-ROBO ${new Date().toLocaleString('pt-BR')} — aquisição de cadeiras ergonômicas para o setor administrativo`
 
-const browser = await chromium.launch({ headless: false, slowMo: env.slowMo })
+// Usa o navegador que já existe na máquina (Chrome → Edge → Chromium baixado);
+// assim o robô roda sem depender do download do Playwright.
+async function abrirNavegador() {
+  const opts = { headless: false, slowMo: env.slowMo }
+  for (const channel of ['chrome', 'msedge', undefined]) {
+    try {
+      return await chromium.launch({ ...opts, ...(channel ? { channel } : {}) })
+    } catch { /* tenta o próximo */ }
+  }
+  throw new Error('Nenhum navegador encontrado — rode: npx playwright install chromium')
+}
+const browser = await abrirNavegador()
 const context = await browser.newContext({ viewport: { width: 1440, height: 860 } })
 const page = await context.newPage()
 const qa = new Narrador(page, 'dispensa')
