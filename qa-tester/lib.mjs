@@ -68,7 +68,14 @@ export class Narrador {
     console.log(`\n▶ ${tag}`)
     await this.banner(`🤖 QA Tester — ${tag}`)
     try {
-      await fn()
+      const r = await fn()
+      // Passo pode se declarar não-aplicável ao estado atual (ex.: demanda
+      // já aprovada não tem edição): retorna { pular: 'motivo' }
+      if (r && typeof r === 'object' && r.pular) {
+        console.log(`  ⏭️  pulado — ${r.pular}`)
+        this.resultados.push({ passo: tag, ok: true, pulado: r.pular })
+        return
+      }
       await this.shot(titulo)
       console.log(`  ✅ ok`)
       this.resultados.push({ passo: tag, ok: true })
@@ -111,7 +118,8 @@ export class Narrador {
     console.log(`RELATÓRIO — ${this.nomeFluxo}: ${ok}/${this.resultados.length} passos automáticos` +
       (assistidos ? ` (${assistidos} com assistência humana)` : ''))
     for (const r of this.resultados) {
-      console.log(`  ${r.ok ? '✅' : r.assistido ? '🤝' : '❌'} ${r.passo}${r.erro ? ` — ${r.erro}` : ''}`)
+      const icone = r.pulado ? '⏭️ ' : r.ok ? '✅' : r.assistido ? '🤝' : '❌'
+      console.log(`  ${icone} ${r.passo}${r.pulado ? ` — ${r.pulado}` : ''}${r.erro ? ` — ${r.erro}` : ''}`)
     }
     console.log(`Screenshots em qa-tester/screenshots/`)
     console.log('═'.repeat(60))
