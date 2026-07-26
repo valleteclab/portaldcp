@@ -984,6 +984,7 @@ export default function DetalheDemandaPage() {
   const [modalidadeEscolhida, setModalidadeEscolhida] = useState('')
   const [limiteDispensa, setLimiteDispensa] = useState<number | null>(null)
   const [iniciando, setIniciando] = useState(false)
+  const [prepararAutomatico, setPrepararAutomatico] = useState(true)
 
   useEffect(() => {
     if (!demanda?.id) return
@@ -1021,6 +1022,13 @@ export default function DetalheDemandaPage() {
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      // Modo co-work: dispara a preparação automática em background
+      // (pesquisa de preços real + rascunhos IA) antes de abrir o cockpit
+      if (prepararAutomatico && j?.id) {
+        try {
+          await authFetch(`${API_URL}/api/fase-interna/${j.id}/preparar-automatico`, { method: 'POST' })
+        } catch { /* cockpit permite disparar de novo */ }
+      }
       router.push(`/orgao/processos/${j.id}`)
     } catch (e: any) {
       alert(`Não foi possível iniciar a contratação: ${e.message}`)
@@ -1686,6 +1694,24 @@ export default function DetalheDemandaPage() {
               </p>
             )}
           </div>
+
+          {/* Modo co-work: o copiloto prepara o processo inteiro */}
+          <label className="flex items-start gap-2.5 rounded-lg border border-[#c5d4eb] bg-[#f6f9fd] p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[#1351b4]"
+              checked={prepararAutomatico}
+              onChange={(e) => setPrepararAutomatico(e.target.checked)}
+            />
+            <span className="text-xs leading-relaxed">
+              <span className="font-semibold text-[#1351b4]">🤖 Preparar tudo automaticamente (copiloto)</span>
+              <br />
+              <span className="text-gray-600">
+                O sistema pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do
+                ETP, TR e autorização — você só revisa e aprova. Nada é publicado sem a sua validação.
+              </span>
+            </span>
+          </label>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setModalIniciar(false)} disabled={iniciando}>Cancelar</Button>
             <Button onClick={iniciarContratacao} disabled={iniciando || !modalidadeEscolhida} className="bg-green-600 hover:bg-green-700">

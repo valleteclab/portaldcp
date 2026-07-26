@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SystemConfigModule } from '../system-config/system-config.module';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
+import { IaModule } from '../ia/ia.module';
+import { PreparacaoAutomaticaService } from './preparacao-automatica.service';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
 import { ModeloDocumento } from './entities/modelo-documento.entity';
@@ -49,6 +51,7 @@ import {
   imports: [
     SystemConfigModule,
     NotificacoesModule,
+    IaModule,
     TypeOrmModule.forFeature([
       DocumentoFaseInterna,
       LogFaseInterna,
@@ -73,6 +76,7 @@ import {
   ],
   providers: [
     FaseInternaService,
+    PreparacaoAutomaticaService,
     ModeloDocumentoService,
     TramitacaoService,
     AprovacaoService,
@@ -96,6 +100,7 @@ import {
   ],
   exports: [
     FaseInternaService,
+    PreparacaoAutomaticaService,
     DerivacaoService,
     AuditLogService,
     GeradorDocumentoService,
