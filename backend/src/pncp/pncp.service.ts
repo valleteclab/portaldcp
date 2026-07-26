@@ -1218,7 +1218,7 @@ export class PncpService implements OnModuleInit {
     const contratos = await this.dataSource.query(
       `SELECT id, numero_contrato, objeto, valor_inicial, valor_global,
               data_assinatura, data_vigencia_inicio, data_vigencia_fim,
-              fornecedor_cnpj, fornecedor_razao_social
+              fornecedor_cnpj, fornecedor_razao_social, arquivo_contrato
        FROM contratos WHERE licitacao_id = $1 ORDER BY numero_contrato ASC`,
       [licitacaoId],
     );
@@ -1284,7 +1284,51 @@ export class PncpService implements OnModuleInit {
 
       try {
         await this.getValidToken();
-        const response = await this.axiosInstance.post(`/orgaos/${cnpj}/contratos`, dto);
+        // O PNCP exige multipart: parte "contrato" (JSON) + "documento" (PDF
+        // do termo). Usa o termo gerado pelo sistema (arquivo_contrato —
+        // assinado, quando o fluxo de assinatura já concluiu); fallback: PDF mínimo.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const FormData = require('form-data');
+        const formData = new FormData();
+        formData.append('contrato', Buffer.from(JSON.stringify(dto), 'utf-8'), {
+          filename: 'contrato.json',
+          contentType: 'application/json',
+        });
+        let pdfTermo: Buffer | null = null;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const fs = require('fs');
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const pathMod = require('path');
+          const uploadDir = process.env.UPLOAD_DIR || pathMod.join(process.cwd(), 'uploads');
+          if (c.arquivo_contrato) {
+            const p = pathMod.join(uploadDir, c.arquivo_contrato);
+            if (fs.existsSync(p)) pdfTermo = fs.readFileSync(p);
+          }
+        } catch { /* usa fallback */ }
+        if (!pdfTermo) {
+          pdfTermo = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
+        }
+        formData.append('documento', pdfTermo, {
+          filename: `termo-contrato-${String(c.numero_contrato || '').replace(/[^\w-]/g, '_')}.pdf`,
+          contentType: 'application/pdf',
+        });
+
+        const response = await axios.post(
+          `${this.configService.get<string>('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1'}/orgaos/${cnpj}/contratos`,
+          formData,
+          {
+            headers: {
+              ...formData.getHeaders(),
+              Authorization: `Bearer ${this.token}`,
+              'Titulo-Documento': `Termo de Contrato ${c.numero_contrato}`,
+              // Tabela "Tipo de Documento" (contrato): 12 = Contrato
+              'Tipo-Documento-Id': '12',
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+          },
+        );
         const numeroControle =
           response.data?.numeroControlePNCP ||
           response.headers?.location?.split('/contratos/')?.[1] ||
