@@ -392,6 +392,56 @@ export function DocumentoSeccionado({
     }
   }, [secoes, conteudo, tituloDocumento, licitacao, tipo, handleInserirNaSecao])
 
+  // ─── Melhorar com IA (por seção) ──────────────────────────────────────────
+  // Padrão ContratAI: o usuário escreve 1 linha (até "me ajude") e a IA
+  // expande em texto formal fundamentado, usando os dados do processo.
+
+  const [melhorandoSecao, setMelhorandoSecao] = useState<string | null>(null)
+
+  const melhorarSecaoComIA = useCallback(
+    async (secaoId: string) => {
+      const s = secoes.find((x) => x.id === secaoId)
+      if (!s || melhorandoSecao) return
+      const textoAtual = (conteudo[secaoId] || '').replace(/<[^>]+>/g, ' ').trim()
+      setMelhorandoSecao(secaoId)
+      try {
+        const prompt =
+          `Você é o Procura+ AI, especialista na Lei nº 14.133/2021. ` +
+          (textoAtual.length > 3
+            ? `Melhore e expanda o texto do usuário para a seção "${s.titulo.replace(/\s*\*$/, '')}" (${s.fundamentoLegal}) do documento ${tituloDocumento}. ` +
+              `Preserve TODOS os fatos e intenções do texto original; eleve para linguagem formal de contratação pública, complete o que faltar. `
+            : `Redija a seção "${s.titulo.replace(/\s*\*$/, '')}" (${s.fundamentoLegal}) do documento ${tituloDocumento}. `) +
+          `Responda APENAS com o texto final, em HTML simples (<p>, <ul>, <li>), sem título, sem preâmbulo e sem comentários.\n\n` +
+          `Processo: ${licitacao?.numero_processo || '—'}\nObjeto: ${licitacao?.objeto || '—'}\n` +
+          `Modalidade: ${licitacao?.modalidade || '—'}\n` +
+          (licitacao?.valor_estimado ? `Valor estimado: R$ ${Number(licitacao.valor_estimado).toLocaleString('pt-BR')}\n` : '') +
+          (s.placeholder ? `Orientação da seção: ${s.placeholder}\n` : '') +
+          (textoAtual ? `\nTexto do usuário:\n${textoAtual}` : '')
+        const res = await authFetch(`${API_URL}/api/ia/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mensagens: [{ role: 'user', content: prompt }], tipoDocumento: tipo }),
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        const texto = String(data.resposta || '').trim()
+        if (!texto) throw new Error('resposta vazia')
+        const html = texto.startsWith('<')
+          ? texto
+          : `<p>${texto.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br/>')}</p>`
+        // Substitui o conteúdo da seção (o usuário segue editando; auto-save)
+        setConteudo((prev) => ({ ...prev, [secaoId]: html }))
+        setInserirConteudo((prev) => ({ ...prev, [secaoId]: html }))
+        salvarSecao(secaoId, html)
+      } catch {
+        alert('Não foi possível melhorar o texto agora — tente novamente ou use o painel Procura+ AI ao lado.')
+      } finally {
+        setMelhorandoSecao(null)
+      }
+    },
+    [secoes, conteudo, melhorandoSecao, tituloDocumento, licitacao, tipo, salvarSecao],
+  )
+
   // ─── Cálculo de progresso ──────────────────────────────────────────────────
 
   const secoesObrigatorias = secoes.filter((s) => s.obrigatorio)
@@ -541,6 +591,9 @@ export function DocumentoSeccionado({
               value={inserirConteudo[secao.id] ?? conteudo[secao.id] ?? ''}
               saveStatus={saveStatus[secao.id] || 'idle'}
               onChange={(html) => handleSecaoChange(secao.id, html)}
+              melhorando={melhorandoSecao === secao.id}
+              melhorarDesabilitado={melhorandoSecao !== null || gerando}
+              onMelhorar={() => melhorarSecaoComIA(secao.id)}
             />
           ))}
 
@@ -688,14 +741,21 @@ function SecaoCard({
   value,
   saveStatus,
   onChange,
+  melhorando,
+  melhorarDesabilitado,
+  onMelhorar,
 }: {
   secao: SecaoTemplate
   value: string
   saveStatus: SaveStatus
   onChange: (html: string) => void
+  melhorando: boolean
+  melhorarDesabilitado: boolean
+  onMelhorar: () => void
 }) {
   const temConteudo = value.replace(/<[^>]+>/g, '').trim().length > 0
   const vazia = secao.obrigatorio && !temConteudo
+  const [mostrarOrientacao, setMostrarOrientacao] = useState(false)
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
@@ -725,9 +785,29 @@ function SecaoCard({
           <p className="text-[10px] text-gray-400 mt-0.5">{secao.fundamentoLegal}</p>
         </div>
 
-        {/* Indicador de save */}
-        <SaveIndicator status={saveStatus} />
+        <div className="flex items-center gap-2 shrink-0">
+          <SaveIndicator status={saveStatus} />
+          {secao.placeholder && (
+            <button
+              type="button"
+              onClick={() => setMostrarOrientacao((v) => !v)}
+              className={`text-[11px] font-medium transition-colors ${
+                mostrarOrientacao ? 'text-[#1351b4]' : 'text-gray-400 hover:text-gray-600'
+              }`}
+              title="Orientações sobre o que escrever nesta seção"
+            >
+              ? Orientações
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Orientação da seção (helper que não some ao digitar) */}
+      {mostrarOrientacao && secao.placeholder && (
+        <div className="px-4 py-2.5 bg-[#f6f9fd] border-b border-[#dbe8fb] text-xs text-gray-600 leading-relaxed">
+          💡 {secao.placeholder}
+        </div>
+      )}
 
       {/* Editor da seção */}
       <div className="p-3">
@@ -736,6 +816,24 @@ function SecaoCard({
           onChange={onChange}
           placeholder={secao.placeholder}
         />
+        {/* Melhorar com IA: escreva 1 linha (ou nada) e a IA expande em texto
+            formal usando os dados do processo — padrão ContratAI */}
+        <div className="flex justify-end mt-2">
+          <button
+            type="button"
+            onClick={onMelhorar}
+            disabled={melhorarDesabilitado}
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc] text-[#1351b4] transition-colors disabled:opacity-50"
+            title={temConteudo ? 'A IA melhora e expande o seu texto, preservando os fatos' : 'A IA redige esta seção a partir dos dados do processo'}
+          >
+            {melhorando ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Sparkles className="w-3 h-3" />
+            )}
+            {melhorando ? 'Melhorando…' : temConteudo ? 'Melhorar com IA' : 'Redigir com IA'}
+          </button>
+        </div>
       </div>
     </div>
   )
