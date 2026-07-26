@@ -3,7 +3,10 @@
  * Abre um navegador REAL na sua tela e trabalha como um usuário:
  *   login do órgão → nova demanda → item → enviar DFD → aprovar →
  *   iniciar contratação (com copiloto) → acompanhar a preparação no cockpit.
- * Onde um clique falhar, ele PEDE SUA AJUDA (faz você a ação e aperta ENTER).
+ *
+ * ESTADO-ADAPTATIVO: cada passo confere o estado da tela (ex.: demanda já
+ * aprovada não tem edição) e se marca como ⏭️ pulado quando não se aplica.
+ * Onde um clique falhar de verdade, ele PEDE SUA AJUDA (você faz e dá ENTER).
  *
  * Rodar:  cd qa-tester && npm run setup (1ª vez) && npm run dispensa
  */
@@ -11,10 +14,10 @@ import { chromium } from 'playwright'
 import { loadEnv, Narrador, clicarPrimeiro } from './lib.mjs'
 
 const env = loadEnv()
-const OBJETO = `QA-ROBO ${new Date().toLocaleString('pt-BR')} — aquisição de cadeiras ergonômicas para o setor administrativo`
+const SETOR = `Setor QA ${Date.now().toString().slice(-5)}`
+const OBJETO = `QA-ROBO — aquisição de cadeiras ergonômicas para o ${SETOR}`
 
-// Usa o navegador que já existe na máquina (Chrome → Edge → Chromium baixado);
-// assim o robô roda sem depender do download do Playwright.
+// Usa o navegador que já existe na máquina (Chrome → Edge → Chromium baixado)
 async function abrirNavegador() {
   const opts = { headless: false, slowMo: env.slowMo }
   for (const channel of ['chrome', 'msedge', undefined]) {
@@ -29,6 +32,23 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 860 
 const page = await context.newPage()
 const qa = new Narrador(page, 'dispensa')
 
+/** Chama a API do portal COM O TOKEN DA SESSÃO logada (fallback confiável). */
+async function api(caminho) {
+  return page.evaluate(async (caminho) => {
+    const token = localStorage.getItem('access_token') || localStorage.getItem('orgao_token')
+    const res = await fetch(`/api${caminho}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    return res.ok ? res.json() : null
+  }, caminho)
+}
+
+/** Status atual da demanda aberta (badge do cabeçalho). */
+async function statusDemanda() {
+  for (const s of ['Rascunho', 'Enviada', 'Em Análise', 'Aprovada', 'Consolidada', 'Rejeitada']) {
+    if (await page.getByText(s, { exact: true }).first().isVisible().catch(() => false)) return s.toUpperCase()
+  }
+  return null
+}
+
 console.log('🤖 QA Tester do Portal DCP — acompanhe o navegador que acabou de abrir.')
 
 await qa.passo('Login do órgão', async () => {
@@ -39,38 +59,42 @@ await qa.passo('Login do órgão', async () => {
   await page.waitForURL(/\/orgao(\/|$)/, { timeout: 20000 })
 })
 
-await qa.passo('Abrir Demandas e criar nova demanda', async () => {
+await qa.passo('Criar nova demanda (o modal navega para ela)', async () => {
   await page.goto(`${env.url}/orgao/demandas`, { waitUntil: 'domcontentloaded' })
   await clicarPrimeiro(page, [page.getByRole('button', { name: /nova demanda/i })])
-  // Modal: setor requisitante (texto livre) + descrição
   const inputSetor = page.getByPlaceholder(/departamento de ti/i)
   await inputSetor.waitFor({ state: 'visible', timeout: 8000 })
-  await inputSetor.fill('Setor de Testes QA')
+  await inputSetor.fill(SETOR)
   const desc = page.getByPlaceholder(/aquisição de notebooks/i)
   if (await desc.isVisible().catch(() => false)) await desc.fill(OBJETO)
   await clicarPrimeiro(page, [
-    page.getByRole('button', { name: /^criar/i }),
-    page.getByRole('button', { name: /salvar/i }),
+    page.getByRole('button', { name: 'Criar Demanda' }),
+    page.getByRole('button', { name: /criar demanda/i }),
   ])
-  await page.waitForTimeout(1500)
+  // Ao criar, a tela navega direto para a demanda
+  await page.waitForURL(/\/orgao\/demandas\/[0-9a-f-]{36}/, { timeout: 20000 })
 })
 
-await qa.passo('Abrir a demanda criada', async () => {
-  // Se o modal já navegou para a demanda, ótimo; senão clica na primeira da lista
-  if (!/\/orgao\/demandas\/[0-9a-f-]{36}/.test(page.url())) {
-    await clicarPrimeiro(page, [
-      page.getByText('Setor de Testes QA').first(),
-      page.locator('a[href*="/orgao/demandas/"]').first(),
-    ])
-  }
-  await page.waitForURL(/\/orgao\/demandas\/[0-9a-f-]{36}/, { timeout: 15000 })
+await qa.passo('Garantir que estamos na demanda certa', async () => {
+  if (/\/orgao\/demandas\/[0-9a-f-]{36}/.test(page.url())) return
+  // Fallback confiável: acha a demanda pela API usando o token da sessão
+  const orgao = await page.evaluate(() => JSON.parse(localStorage.getItem('orgao') || '{}'))
+  const lista = await api(`/demandas?orgaoId=${orgao?.id || ''}`)
+  const minha = (Array.isArray(lista) ? lista : lista?.data || []).find(
+    (d) => d.unidade_requisitante === SETOR,
+  )
+  if (!minha) throw new Error('demanda criada não foi encontrada na lista')
+  await page.goto(`${env.url}/orgao/demandas/${minha.id}`, { waitUntil: 'domcontentloaded' })
 })
 
-await qa.passo('Garantir descrição do objeto', async () => {
+const urlDemanda = () => page.url().match(/\/orgao\/demandas\/[0-9a-f-]{36}/) ? page.url() : null
+
+await qa.passo('Preencher descrição do objeto', async () => {
+  const st = await statusDemanda()
+  if (st && st !== 'RASCUNHO') return { pular: `demanda está ${st} (sem edição)` }
   const area = page.locator('textarea').first()
   await area.waitFor({ state: 'visible', timeout: 8000 })
-  const atual = await area.inputValue()
-  if (!atual || atual.trim().length < 10) {
+  if (((await area.inputValue()) || '').trim().length < 10) {
     await area.fill(OBJETO)
     await area.blur()
     await page.waitForTimeout(1200)
@@ -78,55 +102,60 @@ await qa.passo('Garantir descrição do objeto', async () => {
 })
 
 await qa.passo('Adicionar um item à demanda (catálogo)', async () => {
-  await clicarPrimeiro(page, [
-    page.getByRole('button', { name: /adicionar item/i }),
-    page.getByRole('button', { name: /adicionar/i }),
-  ])
-  // Busca no catálogo
-  const busca = page.locator('input[placeholder*="usca" i], input[type="search"]').last()
+  const st = await statusDemanda()
+  if (st && st !== 'RASCUNHO') return { pular: `demanda está ${st} (sem edição)` }
+  // Vai à seção Materiais/Serviços e abre o diálogo
+  await clicarPrimeiro(page, [page.getByText(/materiais\/serviços/i).first()], 4000).catch(() => {})
+  await clicarPrimeiro(page, [page.getByRole('button', { name: /^adicionar$/i }), page.getByRole('button', { name: /adicionar item/i })])
+  // Busca no catálogo (federal) e seleciona o primeiro resultado
+  const busca = page.locator('div[role="dialog"] input').first()
   await busca.waitFor({ state: 'visible', timeout: 8000 })
   await busca.fill('cadeira')
   await page.keyboard.press('Enter')
-  await page.waitForTimeout(3500)
-  // Seleciona o primeiro resultado
+  await page.waitForTimeout(4000)
   await clicarPrimeiro(page, [
-    page.getByRole('button', { name: /selecionar|usar|escolher/i }).first(),
-    page.locator('[class*="cursor-pointer"]').filter({ hasText: /cadeira/i }).first(),
+    page.locator('div[role="dialog"]').getByRole('button', { name: /selecionar|usar|escolher/i }).first(),
+    page.locator('div[role="dialog"] [class*="cursor-pointer"]').filter({ hasText: /cadeira/i }).first(),
   ], 6000)
-  // Formulário do item: quantidade e valor
-  const numeros = page.locator('input[type="number"]')
-  const qtd = numeros.first()
-  await qtd.waitFor({ state: 'visible', timeout: 8000 })
-  await qtd.fill('20')
+  // Formulário: quantidade e valor
+  const numeros = page.locator('div[role="dialog"] input[type="number"]')
+  await numeros.first().waitFor({ state: 'visible', timeout: 8000 })
+  await numeros.first().fill('20')
   if ((await numeros.count()) > 1) await numeros.nth(1).fill('850')
-  await clicarPrimeiro(page, [
-    page.getByRole('button', { name: /adicionar à demanda|confirmar|adicionar$/i }).last(),
-  ])
+  await clicarPrimeiro(page, [page.getByRole('button', { name: /adicionar à demanda/i })])
   await page.waitForTimeout(1500)
 })
 
 await qa.passo('Enviar DFD para aprovação', async () => {
+  const st = await statusDemanda()
+  if (st && st !== 'RASCUNHO') return { pular: `demanda está ${st}` }
   await clicarPrimeiro(page, [page.getByRole('button', { name: /enviar dfd/i })])
   await page.waitForTimeout(1500)
 })
 
-const urlDemanda = page.url()
+const demandaUrl = urlDemanda()
 
 await qa.passo('Aprovar a demanda (tela de Aprovações)', async () => {
+  const st = await statusDemanda()
+  if (st === 'APROVADA' || st === 'CONSOLIDADA') return { pular: `demanda já está ${st}` }
   await page.goto(`${env.url}/orgao/aprovacoes`, { waitUntil: 'domcontentloaded' })
-  // Encontra o card da nossa demanda e aprova
-  await clicarPrimeiro(page, [
-    page.getByText('Setor de Testes QA').first(),
-    page.getByText(/QA-ROBO/).first(),
-  ], 8000).catch(() => { /* pode já listar botões direto */ })
+  await page.waitForTimeout(1500)
+  // Expande o card da nossa demanda, se necessário, e aprova
+  await clicarPrimeiro(page, [page.getByText(SETOR).first()], 6000).catch(() => {})
   await clicarPrimeiro(page, [page.getByRole('button', { name: /^aprovar/i }).first()], 8000)
   await page.waitForTimeout(1500)
 })
 
 await qa.passo('Iniciar contratação com o COPILOTO', async () => {
-  await page.goto(urlDemanda, { waitUntil: 'domcontentloaded' })
+  await page.goto(demandaUrl || `${env.url}/orgao/demandas`, { waitUntil: 'domcontentloaded' })
+  // Se já existe processo, o botão vira "Ver processo NNN"
+  const verProcesso = page.getByRole('button', { name: /ver processo/i })
+  if (await verProcesso.isVisible().catch(() => false)) {
+    await verProcesso.click()
+    await page.waitForURL(/\/orgao\/processos\/[0-9a-f-]{36}/, { timeout: 20000 })
+    return { pular: 'processo já existia — abri o cockpit' }
+  }
   await clicarPrimeiro(page, [page.getByRole('button', { name: /iniciar contratação/i })], 10000)
-  // Modal: Dispensa Eletrônica já vem sugerida; garante o copiloto marcado
   await page.waitForTimeout(800)
   const checkbox = page.locator('label:has-text("copiloto") input[type="checkbox"]')
   if (await checkbox.isVisible().catch(() => false)) {
@@ -142,15 +171,16 @@ await qa.passo('Acompanhar o copiloto no cockpit (até 6 min)', async () => {
   while (Date.now() < fim) {
     const concluido = await page
       .getByText(/preparado pelo copiloto|revise os itens sugeridos/i)
-      .first()
-      .isVisible()
-      .catch(() => false)
+      .first().isVisible().catch(() => false)
     if (concluido) return
+    const semCopiloto = !(await page.getByText(/copiloto/i).first().isVisible().catch(() => false))
+    const prontaDivulgar = await page.getByRole('button', { name: /divulgar aviso/i }).isEnabled().catch(() => false)
+    if (semCopiloto && prontaDivulgar) return { pular: 'instrução já estava pronta (sem copiloto em execução)' }
     const erro = await page.getByText(/preparação automática falhou/i).first().isVisible().catch(() => false)
     if (erro) throw new Error('copiloto reportou ERRO no cockpit')
     await page.waitForTimeout(5000)
   }
-  throw new Error('copiloto não concluiu em 6 minutos (pode ainda estar rodando — veja o cockpit)')
+  throw new Error('copiloto não concluiu em 6 minutos (veja o cockpit)')
 })
 
 await qa.passo('Conferir a instrução do art. 72 (checklist)', async () => {
