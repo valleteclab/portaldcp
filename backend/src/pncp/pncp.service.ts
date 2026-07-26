@@ -1275,7 +1275,13 @@ export class PncpService implements OnModuleInit {
         tipoContratoId: 1, // 1 = Contrato (termo inicial)
         categoriaProcessoId,
         receita: false,
-        codigoUnidade: lic.codigo_unidade_compradora || '1',
+        // MESMA unidade da compra publicada (o PNCP valida contra o cadastro
+        // do órgão) — fonte: payload da compra enviada; fallback: licitação/órgão
+        codigoUnidade:
+          (syncCompra.payload_enviado as any)?.codigoUnidadeCompradora ||
+          lic.codigo_unidade_compradora ||
+          (lic as any).orgao?.pncp_codigo_unidade ||
+          '1',
         niFornecedor: ni,
         tipoPessoaFornecedor: ni.length === 11 ? 'PF' : 'PJ',
         nomeRazaoSocialFornecedor: c.fornecedor_razao_social,
