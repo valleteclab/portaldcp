@@ -92,9 +92,10 @@ export function AssistenteIA() {
   }, [aberto, usuario])
 
   useEffect(() => {
-    if (aberto) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
+    // Rola só o container do chat (scrollIntoView rolaria a página inteira)
+    if (!aberto || mensagens.length === 0) return
+    const cont = messagesEndRef.current?.closest('.overflow-y-auto') as HTMLElement | null
+    if (cont) cont.scrollTop = cont.scrollHeight
   }, [mensagens, aberto])
 
   const enviarMensagem = useCallback(

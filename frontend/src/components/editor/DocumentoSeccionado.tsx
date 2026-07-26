@@ -4,9 +4,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Loader2,
   AlertTriangle,
-  FileText,
   Eye,
   Wand2,
+  Sparkles,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -320,6 +320,78 @@ export function DocumentoSeccionado({
     }
   }, [idsSelecionados, licitacaoId, tipo])
 
+  // ─── Gerar documento completo com IA ──────────────────────────────────────
+  // Um clique redige TODAS as seções vazias a partir dos dados do processo —
+  // o servidor revisa em vez de redigir do zero (rascunho fundamentado).
+
+  const [gerando, setGerando] = useState(false)
+  const [gerandoInfo, setGerandoInfo] = useState<string | null>(null)
+
+  const gerarDocumentoCompleto = useCallback(async () => {
+    const vazias = secoes.filter(
+      (s) => (conteudo[s.id] || '').replace(/<[^>]+>/g, '').trim().length <= 10,
+    )
+    if (vazias.length === 0) {
+      alert('Todas as seções já têm conteúdo. Para regenerar uma seção, apague o texto dela e gere novamente.')
+      return
+    }
+    if (
+      !confirm(
+        `Gerar rascunho com IA para ${vazias.length} seção(ões) vazia(s) do ${tituloDocumento}?\n\n` +
+          'O texto é um RASCUNHO fundamentado nos dados do processo (objeto, itens, demanda). ' +
+          'Revise cada seção antes de enviar para aprovação — a responsabilidade pelo conteúdo é do servidor.',
+      )
+    )
+      return
+
+    setGerando(true)
+    let geradas = 0
+    try {
+      for (let i = 0; i < vazias.length; i++) {
+        const s = vazias[i]
+        setGerandoInfo(`Gerando ${i + 1}/${vazias.length}: ${s.titulo.replace(/\s*\*$/, '')}…`)
+        try {
+          const prompt =
+            `Você é o Procura+ AI, especialista na Lei nº 14.133/2021. ` +
+            `Redija a seção "${s.titulo.replace(/\s*\*$/, '')}" (${s.fundamentoLegal}) do documento ${tituloDocumento} para o processo abaixo. ` +
+            `Responda APENAS com o texto final da seção, em HTML simples (<p>, <ul>, <li>), sem título, sem preâmbulo e sem comentários. ` +
+            `Texto objetivo, formal e fundamentado.\n\n` +
+            `Processo: ${licitacao?.numero_processo || '—'}\n` +
+            `Objeto: ${licitacao?.objeto || '—'}\n` +
+            `Modalidade: ${licitacao?.modalidade || '—'} · Critério: ${licitacao?.criterio_julgamento || '—'}\n` +
+            (licitacao?.valor_estimado ? `Valor estimado: R$ ${Number(licitacao.valor_estimado).toLocaleString('pt-BR')}\n` : '') +
+            (s.placeholder ? `Orientação da seção: ${s.placeholder}\n` : '')
+          const res = await authFetch(`${API_URL}/api/ia/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mensagens: [{ role: 'user', content: prompt }],
+              tipoDocumento: tipo,
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json()
+            const texto = String(data.resposta || '').trim()
+            if (texto) {
+              handleInserirNaSecao(s.id, texto.startsWith('<') ? texto : `<p>${texto.replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br/>')}</p>`)
+              geradas++
+            }
+          }
+        } catch {
+          // segue para a próxima seção; o usuário vê o que ficou vazio
+        }
+      }
+    } finally {
+      setGerando(false)
+      setGerandoInfo(
+        geradas > 0
+          ? `✓ ${geradas} seção(ões) geradas — revise o conteúdo antes de aprovar`
+          : 'Não foi possível gerar — tente pelo painel Procura+ AI ao lado',
+      )
+      setTimeout(() => setGerandoInfo(null), 8000)
+    }
+  }, [secoes, conteudo, tituloDocumento, licitacao, tipo, handleInserirNaSecao])
+
   // ─── Cálculo de progresso ──────────────────────────────────────────────────
 
   const secoesObrigatorias = secoes.filter((s) => s.obrigatorio)
@@ -356,45 +428,50 @@ export function DocumentoSeccionado({
     <div className="flex h-full overflow-hidden">
       {/* ── Coluna principal: seções ── */}
       <div className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
-        {/* Cabeçalho do documento */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 shrink-0">
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 mb-0.5">
-                <FileText className="w-4 h-4 text-[#1351b4] shrink-0" />
-                <h2 className="text-sm font-semibold text-gray-900 truncate">{tituloDocumento}</h2>
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#1351b4]/10 text-[#1351b4] shrink-0">
-                  {tipo}
-                </span>
+        {/* Cabeçalho de ações — o título/tipo já aparece na barra superior da
+            página; aqui ficam só o progresso e as ações do documento */}
+        <div className="bg-white border-b border-gray-200 px-6 py-3 sticky top-0 z-10 shrink-0">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="w-28 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    progresso >= 80
+                      ? 'bg-green-500'
+                      : progresso >= 50
+                        ? 'bg-amber-400'
+                        : 'bg-[#1351b4]'
+                  }`}
+                  style={{ width: `${progresso}%` }}
+                />
               </div>
+              <span className="text-[11px] text-gray-500">{progresso}%</span>
               {template.artigo && (
-                <p className="text-[11px] text-gray-400">{template.artigo}</p>
+                <span className="text-[11px] text-gray-400 hidden sm:inline">· {template.artigo}</span>
               )}
             </div>
 
-            {/* Progresso + botão PDF */}
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="w-24 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      progresso >= 80
-                        ? 'bg-green-500'
-                        : progresso >= 50
-                          ? 'bg-amber-400'
-                          : 'bg-[#1351b4]'
-                    }`}
-                    style={{ width: `${progresso}%` }}
-                  />
-                </div>
-                <span className="text-[11px] text-gray-500 w-8">{progresso}%</span>
-              </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                size="sm"
+                className="h-7 text-xs gap-1.5 bg-[#1351b4] hover:bg-[#0c326f]"
+                onClick={gerarDocumentoCompleto}
+                disabled={gerando}
+                title="A IA redige um rascunho para todas as seções vazias a partir dos dados do processo — você revisa antes de aprovar"
+              >
+                {gerando ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                Gerar documento com IA
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
                 className="h-7 text-xs gap-1.5"
                 onClick={buscarSeed}
-                disabled={seedLoading}
+                disabled={seedLoading || gerando}
                 title="Preencher as seções a partir dos documentos e da demanda já cadastrados"
               >
                 {seedLoading ? (
@@ -402,7 +479,7 @@ export function DocumentoSeccionado({
                 ) : (
                   <Wand2 className="w-3.5 h-3.5" />
                 )}
-                Preencher dos anteriores
+                Herdar dos anteriores
               </Button>
               <Button
                 variant="outline"
@@ -419,6 +496,14 @@ export function DocumentoSeccionado({
               </Button>
             </div>
           </div>
+
+          {/* Status da geração com IA */}
+          {gerandoInfo && (
+            <p className="text-xs text-[#1351b4] mt-2 flex items-center gap-1.5">
+              {gerando && <Loader2 className="w-3 h-3 animate-spin" />}
+              {gerandoInfo}
+            </p>
+          )}
 
           {/* Intro legal */}
           {template.intro && (

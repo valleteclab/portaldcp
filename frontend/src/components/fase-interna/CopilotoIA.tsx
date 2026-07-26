@@ -30,7 +30,11 @@ export function CopilotoIA({ contexto, onClose }: CopilotoIAProps) {
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" })
+    // Rola SOMENTE o container do chat — scrollIntoView rolaria a página
+    // inteira junto (a tela "pulava" a cada mensagem/clique).
+    if (mensagens.length === 0) return
+    const cont = endRef.current?.closest(".overflow-y-auto") as HTMLElement | null
+    if (cont) cont.scrollTop = cont.scrollHeight
   }, [mensagens])
 
   const enviar = async (texto?: string) => {
