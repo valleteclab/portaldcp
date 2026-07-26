@@ -1139,7 +1139,11 @@ export class LicitacoesService {
    * Abre a fase de LANCES da dispensa (opcional — modelo IN SEGES 67/2021).
    * Só após o fim do acolhimento de propostas; duração parametrizada em minutos.
    */
-  async abrirLancesDispensa(id: string, duracaoMinutos: number): Promise<any> {
+  async abrirLancesDispensa(
+    id: string,
+    duracaoMinutos: number,
+    prorrogacaoMinutos?: number,
+  ): Promise<any> {
     const licitacao = await this.findOne(id);
     if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
       throw new BadRequestException('Fase de lances disponível apenas para Dispensa Eletrônica');
@@ -1160,20 +1164,39 @@ export class LicitacoesService {
       throw new BadRequestException('Já existe uma fase de lances aberta');
     }
     const duracao = Math.max(5, Math.min(24 * 60, Number(duracaoMinutos) || 360));
+    // Prorrogação automática OPCIONAL (0 = encerramento seco, padrão IN 67)
+    const prorrogacao = Math.max(0, Math.min(60, Number(prorrogacaoMinutos ?? 0)));
     licitacao.dispensa_lances_inicio = new Date();
     licitacao.dispensa_lances_fim = new Date(Date.now() + duracao * 60_000);
+    licitacao.dispensa_lances_prorrogacao_min = prorrogacao || null;
     await this.licitacaoRepository.save(licitacao);
     this.dispensaGateway.emitirJanela(id, {
       dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
       dispensa_lances_fim: licitacao.dispensa_lances_fim,
     });
+    // Regra da sessão registrada nos autos (chat entra na ata)
+    try {
+      const fimStr = licitacao.dispensa_lances_fim.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      await this.dispensaMensagemRepository.save(
+        this.dispensaMensagemRepository.create({
+          licitacao_id: id,
+          autor_tipo: 'ORGAO',
+          fornecedor_id: null,
+          autor_nome: 'Sistema',
+          mensagem: prorrogacao
+            ? `Fase de lances aberta até ${fimStr} (horário de Brasília). Regra da sessão: lance recebido nos últimos ${prorrogacao} min prorroga automaticamente a janela por mais ${prorrogacao} min, sucessivamente, até não haver novos lances.`
+            : `Fase de lances aberta até ${fimStr} (horário de Brasília). Encerramento no horário previsto, sem prorrogação automática (modelo IN SEGES 67/2021).`,
+        }),
+      );
+    } catch { /* registro é best-effort */ }
     this.logger.log(
-      `Dispensa ${licitacao.numero_processo}: fase de lances aberta por ${duracao}min (até ${licitacao.dispensa_lances_fim.toISOString()})`,
+      `Dispensa ${licitacao.numero_processo}: fase de lances aberta por ${duracao}min (até ${licitacao.dispensa_lances_fim.toISOString()}, prorrogação=${prorrogacao || 'sem'})`,
     );
     return {
       dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
       dispensa_lances_fim: licitacao.dispensa_lances_fim,
       duracao_minutos: duracao,
+      prorrogacao_minutos: prorrogacao || null,
     };
   }
 
@@ -1238,6 +1261,37 @@ export class LicitacoesService {
     });
     await this.dispensaLanceRepository.save(lance);
 
+    // Prorrogação automática (regra da sessão, anunciada na abertura): lance
+    // nos últimos N minutos empurra o fim para +N minutos, sucessivamente.
+    let novoFim: Date | null = null;
+    const prorrogacaoMin = Number(licitacao.dispensa_lances_prorrogacao_min || 0);
+    if (
+      prorrogacaoMin > 0 &&
+      new Date(licitacao.dispensa_lances_fim).getTime() - Date.now() <= prorrogacaoMin * 60_000
+    ) {
+      novoFim = new Date(Date.now() + prorrogacaoMin * 60_000);
+      await this.licitacaoRepository.update(id, { dispensa_lances_fim: novoFim });
+      this.dispensaGateway.emitirJanela(id, {
+        dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
+        dispensa_lances_fim: novoFim,
+      });
+      try {
+        const msg = await this.dispensaMensagemRepository.save(
+          this.dispensaMensagemRepository.create({
+            licitacao_id: id,
+            autor_tipo: 'ORGAO',
+            fornecedor_id: null,
+            autor_nome: 'Sistema',
+            mensagem: `⏱ Janela prorrogada automaticamente até ${novoFim.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} — lance recebido nos últimos ${prorrogacaoMin} min (regra da sessão).`,
+          }),
+        );
+        this.dispensaGateway.emitirMensagem(id, msg);
+      } catch { /* registro é best-effort */ }
+      this.logger.log(
+        `Dispensa ${licitacao.numero_processo}: janela de lances prorrogada até ${novoFim.toISOString()}`,
+      );
+    }
+
     // Push em tempo real: novo menor valor do item (anônimo) para a sala
     try {
       const [agregado] = await this.dataSource.query(
@@ -1260,7 +1314,12 @@ export class LicitacoesService {
       });
     } catch { /* push é best-effort; o polling cobre */ }
 
-    return { ok: true, valor_unitario: valor, seu_valor_anterior: meuMenor };
+    return {
+      ok: true,
+      valor_unitario: valor,
+      seu_valor_anterior: meuMenor,
+      ...(novoFim ? { dispensa_lances_fim: novoFim, prorrogada: true } : {}),
+    };
   }
 
   /**

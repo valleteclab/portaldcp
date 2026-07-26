@@ -417,15 +417,20 @@ export default function CockpitProcessoPage() {
   const abrirLances = async () => {
     const min = prompt("Abrir a fase de LANCES da dispensa (opcional — modelo IN SEGES 67/2021).\n\nDuração em MINUTOS (padrão 360 = 6 horas):", "360")
     if (min == null) return
+    const pror = prompt(
+      "PRORROGAÇÃO AUTOMÁTICA (opcional): lance recebido nos últimos N minutos prorroga a janela por mais N minutos, sucessivamente (modelo do modo de disputa aberto).\n\nMinutos de prorrogação (0 = sem prorrogação, encerramento no horário — padrão IN 67):",
+      "2",
+    )
+    if (pror == null) return
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/abrir-lances`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duracao_minutos: Number(min) || 360 }),
+        body: JSON.stringify({ duracao_minutos: Number(min) || 360, prorrogacao_minutos: Number(pror) || 0 }),
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      alert(`Fase de lances aberta até ${new Date(j.dispensa_lances_fim).toLocaleString("pt-BR")}. Os fornecedores com proposta válida podem reduzir seus valores na sala de lances.`)
+      alert(`Fase de lances aberta até ${new Date(j.dispensa_lances_fim).toLocaleString("pt-BR")}.${j.prorrogacao_minutos ? ` Prorrogação automática de ${j.prorrogacao_minutos} min ativada (regra registrada no chat da sessão).` : " Sem prorrogação automática."} Os fornecedores com proposta válida podem reduzir seus valores na sala de lances.`)
       await carregar()
     } catch (e: any) {
       alert(`Erro ao abrir lances: ${e.message}`)
