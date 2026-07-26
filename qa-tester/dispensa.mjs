@@ -14,8 +14,9 @@ import { chromium } from 'playwright'
 import { loadEnv, Narrador, clicarPrimeiro } from './lib.mjs'
 
 const env = loadEnv()
-const SETOR = `Setor QA ${Date.now().toString().slice(-5)}`
-const OBJETO = `QA-ROBO — aquisição de cadeiras ergonômicas para o ${SETOR}`
+const TAG = `QA-${Date.now().toString().slice(-5)}`
+const SETOR = `Setor ${TAG}`
+const OBJETO = `${TAG} QA-ROBO — aquisição de cadeiras ergonômicas para o setor administrativo`
 
 // Usa o navegador que já existe na máquina (Chrome → Edge → Chromium baixado)
 async function abrirNavegador() {
@@ -31,6 +32,13 @@ const browser = await abrirNavegador()
 const context = await browser.newContext({ viewport: { width: 1440, height: 860 } })
 const page = await context.newPage()
 const qa = new Narrador(page, 'dispensa')
+
+/** Navega e ESPERA a página carregar de verdade (rede parada + respiro). */
+async function irPara(url) {
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+  await page.waitForTimeout(1200)
+}
 
 /** Chama a API do portal COM O TOKEN DA SESSÃO logada (fallback confiável). */
 async function api(caminho) {
@@ -60,19 +68,39 @@ await qa.passo('Login do órgão', async () => {
 })
 
 await qa.passo('Criar nova demanda (o modal navega para ela)', async () => {
-  await page.goto(`${env.url}/orgao/demandas`, { waitUntil: 'domcontentloaded' })
+  await irPara(`${env.url}/orgao/demandas`)
   await clicarPrimeiro(page, [page.getByRole('button', { name: /nova demanda/i })])
-  const inputSetor = page.getByPlaceholder(/departamento de ti/i)
-  await inputSetor.waitFor({ state: 'visible', timeout: 8000 })
-  await inputSetor.fill(SETOR)
+  const modal = page.locator('div[role="dialog"]')
+  await modal.waitFor({ state: 'visible', timeout: 8000 })
+  await page.waitForTimeout(800) // deixa o modal montar (setores etc.)
+
+  // Unidade Requisitante: SELECT quando o órgão tem setores cadastrados;
+  // campo de texto livre quando não tem. Trata os dois.
+  const combo = modal.locator('button[role="combobox"]').first()
+  if (await combo.isVisible().catch(() => false)) {
+    await combo.click()
+    const opcao = page.locator('[role="option"]').first()
+    await opcao.waitFor({ state: 'visible', timeout: 6000 })
+    await opcao.click()
+    await page.waitForTimeout(400)
+  } else {
+    const inputSetor = page.getByPlaceholder(/departamento de ti/i)
+    await inputSetor.waitFor({ state: 'visible', timeout: 6000 })
+    await inputSetor.fill(SETOR)
+  }
+
   const desc = page.getByPlaceholder(/aquisição de notebooks/i)
-  if (await desc.isVisible().catch(() => false)) await desc.fill(OBJETO)
+  await desc.waitFor({ state: 'visible', timeout: 6000 })
+  await desc.fill(OBJETO)
+
   await clicarPrimeiro(page, [
     page.getByRole('button', { name: 'Criar Demanda' }),
     page.getByRole('button', { name: /criar demanda/i }),
   ])
   // Ao criar, a tela navega direto para a demanda
-  await page.waitForURL(/\/orgao\/demandas\/[0-9a-f-]{36}/, { timeout: 20000 })
+  await page.waitForURL(/\/orgao\/demandas\/[0-9a-f-]{36}/, { timeout: 25000 })
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+  await page.waitForTimeout(1200)
 })
 
 await qa.passo('Garantir que estamos na demanda certa', async () => {
@@ -81,10 +109,10 @@ await qa.passo('Garantir que estamos na demanda certa', async () => {
   const orgao = await page.evaluate(() => JSON.parse(localStorage.getItem('orgao') || '{}'))
   const lista = await api(`/demandas?orgaoId=${orgao?.id || ''}`)
   const minha = (Array.isArray(lista) ? lista : lista?.data || []).find(
-    (d) => d.unidade_requisitante === SETOR,
+    (d) => (d.descricao_sucinta_objeto || '').includes(TAG) || d.unidade_requisitante === SETOR,
   )
   if (!minha) throw new Error('demanda criada não foi encontrada na lista')
-  await page.goto(`${env.url}/orgao/demandas/${minha.id}`, { waitUntil: 'domcontentloaded' })
+  await irPara(`${env.url}/orgao/demandas/${minha.id}`)
 })
 
 const urlDemanda = () => page.url().match(/\/orgao\/demandas\/[0-9a-f-]{36}/) ? page.url() : null
@@ -138,16 +166,18 @@ const demandaUrl = urlDemanda()
 await qa.passo('Aprovar a demanda (tela de Aprovações)', async () => {
   const st = await statusDemanda()
   if (st === 'APROVADA' || st === 'CONSOLIDADA') return { pular: `demanda já está ${st}` }
-  await page.goto(`${env.url}/orgao/aprovacoes`, { waitUntil: 'domcontentloaded' })
-  await page.waitForTimeout(1500)
-  // Expande o card da nossa demanda, se necessário, e aprova
-  await clicarPrimeiro(page, [page.getByText(SETOR).first()], 6000).catch(() => {})
+  await irPara(`${env.url}/orgao/aprovacoes`)
+  // Expande o card da nossa demanda (pela TAG única da rodada) e aprova
+  await clicarPrimeiro(page, [
+    page.getByText(TAG).first(),
+    page.getByText(SETOR).first(),
+  ], 6000).catch(() => {})
   await clicarPrimeiro(page, [page.getByRole('button', { name: /^aprovar/i }).first()], 8000)
   await page.waitForTimeout(1500)
 })
 
 await qa.passo('Iniciar contratação com o COPILOTO', async () => {
-  await page.goto(demandaUrl || `${env.url}/orgao/demandas`, { waitUntil: 'domcontentloaded' })
+  await irPara(demandaUrl || `${env.url}/orgao/demandas`)
   // Se já existe processo, o botão vira "Ver processo NNN"
   const verProcesso = page.getByRole('button', { name: /ver processo/i })
   if (await verProcesso.isVisible().catch(() => false)) {
