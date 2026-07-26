@@ -45,6 +45,13 @@ interface ProcessoCompleto {
     dispensa_lances_inicio?: string | null
     dispensa_lances_fim?: string | null
     link_pncp?: string | null
+    preparacao_automatica?: {
+      status: 'EXECUTANDO' | 'CONCLUIDA' | 'ERRO'
+      etapa?: string
+      log?: string[]
+      erro?: string
+      concluida_em?: string
+    } | null
   }
   item_pca?: { id: string; numero_item: number; descricao_objeto: string; valor_estimado: number } | null
   demanda?: { id: string; titulo?: string; status: string } | null
@@ -159,6 +166,39 @@ export default function CockpitProcessoPage() {
   }, [id])
 
   useEffect(() => { if (id) carregar() }, [id, carregar])
+
+  // === Copiloto (preparação automática): poll silencioso enquanto executa ===
+  const [disparandoCopiloto, setDisparandoCopiloto] = useState(false)
+
+  useEffect(() => {
+    if (dados?.licitacao.preparacao_automatica?.status !== "EXECUTANDO") return
+    const t = setInterval(async () => {
+      try {
+        const res = await authFetch(`${API_URL}/api/licitacoes/${id}/processo-completo`)
+        if (res.ok) setDados((await res.json()) as ProcessoCompleto)
+      } catch { /* mantém o estado atual */ }
+    }, 5000)
+    return () => clearInterval(t)
+  }, [dados?.licitacao.preparacao_automatica?.status, id])
+
+  const dispararCopiloto = async () => {
+    if (!confirm(
+      "🤖 Preparar o processo automaticamente?\n\n" +
+      "O copiloto pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do ETP, TR e autorização. " +
+      "Tudo fica marcado como SUGERIDO para você revisar — nada é publicado sem a sua validação.",
+    )) return
+    setDisparandoCopiloto(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/preparar-automatico`, { method: "POST" })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      await carregar()
+    } catch (e: any) {
+      alert(`Erro ao iniciar o copiloto: ${e.message}`)
+    } finally {
+      setDisparandoCopiloto(false)
+    }
+  }
 
   const abrirModalResultado = async () => {
     setModalResultado(true)
@@ -673,6 +713,53 @@ export default function CockpitProcessoPage() {
         </div>
       </div>
 
+      {/* Copiloto: status da preparação automática */}
+      {licitacao.preparacao_automatica && (
+        <Card className={
+          licitacao.preparacao_automatica.status === "EXECUTANDO"
+            ? "border-blue-200 bg-blue-50/50"
+            : licitacao.preparacao_automatica.status === "CONCLUIDA"
+              ? "border-green-200 bg-green-50/40"
+              : "border-red-200 bg-red-50/40"
+        }>
+          <CardContent className="py-3">
+            {licitacao.preparacao_automatica.status === "EXECUTANDO" && (
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-600 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-blue-900">🤖 Copiloto preparando o processo…</p>
+                  <p className="text-xs text-blue-700">{licitacao.preparacao_automatica.etapa || "Trabalhando…"}</p>
+                </div>
+              </div>
+            )}
+            {licitacao.preparacao_automatica.status === "CONCLUIDA" && (
+              <div>
+                <p className="text-sm font-medium text-green-800">
+                  🤖 Processo preparado pelo copiloto — <b>revise os itens sugeridos antes de aprovar</b>
+                </p>
+                {(licitacao.preparacao_automatica.log || []).length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {(licitacao.preparacao_automatica.log || []).map((l, i) => (
+                      <li key={i} className="text-xs text-green-700">• {l}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {licitacao.preparacao_automatica.status === "ERRO" && (
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm text-red-700">
+                  🤖 A preparação automática falhou: {licitacao.preparacao_automatica.erro || "erro desconhecido"}
+                </p>
+                <Button size="sm" variant="outline" onClick={dispararCopiloto} disabled={disparandoCopiloto}>
+                  Tentar de novo
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Linha do tempo */}
       <Card>
         <CardHeader><CardTitle className="text-base">Linha do tempo da contratação</CardTitle></CardHeader>
@@ -718,6 +805,13 @@ export default function CockpitProcessoPage() {
                             <span className="text-sm font-medium text-gray-700">
                               📋 Instrução do processo — contratação direta (Art. 72)
                             </span>
+                            {!instrucao.pode_divulgar && !dados.licitacao.preparacao_automatica && (
+                              <Button size="sm" variant="outline" onClick={dispararCopiloto} disabled={disparandoCopiloto}
+                                title="O copiloto pesquisa preços em fontes reais e redige os rascunhos dos documentos — você só revisa">
+                                {disparandoCopiloto ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : "🤖 "}
+                                Preparar automaticamente
+                              </Button>
+                            )}
                             {dados.licitacao.modalidade === "DISPENSA_ELETRONICA" && (
                               <Button
                                 size="sm"

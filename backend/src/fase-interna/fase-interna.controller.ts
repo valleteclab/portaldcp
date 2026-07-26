@@ -16,6 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
 import { FaseInternaService } from './fase-interna.service';
+import { PreparacaoAutomaticaService } from './preparacao-automatica.service';
 import { DerivacaoService } from './derivacao.service';
 import {
   TipoDocumentoFaseInterna,
@@ -30,10 +31,21 @@ import { Public } from '../auth/public.decorator';
 export class FaseInternaController {
   constructor(
     private readonly faseInternaService: FaseInternaService,
+    private readonly preparacaoAutomaticaService: PreparacaoAutomaticaService,
     private readonly derivacaoService: DerivacaoService,
     private readonly pesquisaPrecosAgentService: PesquisaPrecosAgentService,
     private readonly geradorPpService: GeradorPpService,
   ) {}
+
+  /**
+   * MODO CO-WORK: prepara o processo inteiro em background (pesquisa de
+   * preços real + rascunhos IA) e deixa tudo sugerido p/ revisão.
+   * Acompanhe por licitacao.preparacao_automatica (processo-completo).
+   */
+  @Post(':licitacaoId/preparar-automatico')
+  async prepararAutomatico(@Param('licitacaoId') licitacaoId: string) {
+    return this.preparacaoAutomaticaService.iniciar(licitacaoId);
+  }
 
   // === DOCUMENTOS ===
 

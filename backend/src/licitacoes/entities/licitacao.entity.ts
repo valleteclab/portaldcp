@@ -423,6 +423,14 @@ export class Licitacao {
   dispensa_lances_fim: Date | null;
 
   /**
+   * MODO CO-WORK (copiloto): status/progresso da preparação automática do
+   * processo (pesquisa de preços + rascunhos IA da instrução) —
+   * { status: EXECUTANDO|CONCLUIDA|ERRO, etapa, log[], iniciada_em, concluida_em }.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  preparacao_automatica: any;
+
+  /**
    * Prorrogação automática da janela de lances (minutos). Lance recebido nos
    * últimos N minutos empurra o fim para +N minutos, sucessivamente (modelo do
    * modo de disputa aberto, art. 56 §1º da Lei 14.133 — a IN 67/2021 federal
