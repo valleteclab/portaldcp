@@ -77,7 +77,8 @@ export class DemandasService {
       responsavel_telefone: dados.responsavel_telefone,
       observacoes: dados.observacoes,
       descricao_sucinta_objeto: dados.descricao_sucinta_objeto,
-      data_desejada_contratacao: dados.data_desejada_contratacao as any,
+      // '' viraria data inválida no Postgres (500 sem explicação p/ o usuário)
+      data_desejada_contratacao: (dados.data_desejada_contratacao || null) as any,
       renovacao_contrato: !!dados.renovacao_contrato,
       status: StatusDemanda.RASCUNHO,
     });

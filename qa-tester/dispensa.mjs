@@ -93,6 +93,11 @@ await qa.passo('Criar nova demanda (o modal navega para ela)', async () => {
   await desc.waitFor({ state: 'visible', timeout: 6000 })
   await desc.fill(OBJETO)
 
+  // Data desejada (+45 dias) — exercita o campo de data do formulário
+  const data = new Date(Date.now() + 45 * 864e5).toISOString().split('T')[0]
+  const inputData = modal.locator('input[type="date"]').first()
+  if (await inputData.isVisible().catch(() => false)) await inputData.fill(data)
+
   await clicarPrimeiro(page, [
     page.getByRole('button', { name: 'Criar Demanda' }),
     page.getByRole('button', { name: /criar demanda/i }),

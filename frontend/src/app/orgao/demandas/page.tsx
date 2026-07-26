@@ -225,14 +225,18 @@ function DemandasPageContent() {
 
     setSalvando(true)
     try {
+      // Campos de data vazios NÃO podem ir como '' (o banco rejeita a data
+      // inválida e o usuário via só um erro genérico) — omite quando vazio
+      const payload: Record<string, unknown> = {
+        orgaoId,
+        ano_referencia: anoSelecionado,
+        ...novaDemanda,
+      }
+      if (!novaDemanda.data_desejada_contratacao) delete payload.data_desejada_contratacao
       const response = await authFetch(`${API_URL}/api/demandas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orgaoId,
-          ano_referencia: anoSelecionado,
-          ...novaDemanda
-        })
+        body: JSON.stringify(payload)
       })
 
       if (response.ok) {
@@ -252,7 +256,8 @@ function DemandasPageContent() {
         router.push(`/orgao/demandas/${demandaCriada.id}`)
       } else {
         const err = await response.json().catch(() => ({}))
-        alert(err.message || 'Erro ao criar demanda')
+        const msg = Array.isArray(err.message) ? err.message.join('\n') : err.message
+        alert(msg || 'Erro ao criar demanda — verifique os campos obrigatórios (*)')
       }
     } catch (error) {
       console.error('Erro ao criar demanda:', error)
@@ -653,7 +658,7 @@ function DemandasPageContent() {
                 </Select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Data Desejada</label>
+                <label className="block text-sm font-medium mb-1">Data Desejada <span className="text-gray-400 font-normal">(opcional)</span></label>
                 <Input
                   type="date"
                   value={novaDemanda.data_desejada_contratacao}
