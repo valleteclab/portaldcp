@@ -1,0 +1,14 @@
+{
+  "name": "portaldcp-qa-tester",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "QA Tester visual (RPA) do Portal DCP — abre um navegador real e executa o fluxo como um usuário, com narração na tela",
+  "scripts": {
+    "setup": "npm install && npx playwright install chromium",
+    "dispensa": "node dispensa.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
