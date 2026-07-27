@@ -321,7 +321,11 @@ export default function CockpitProcessoPage() {
   // === Instrução do processo (Art. 72 — contratação direta) ===
   const [instrucao, setInstrucao] = useState<{
     contratacao_direta: boolean
-    itens: Array<{ tipo: string; titulo: string; obrigatorio: boolean; fundamento: string; status: string; justificativa?: string }>
+    itens: Array<{
+      tipo: string; titulo: string; obrigatorio: boolean; fundamento: string; status: string; justificativa?: string
+      exige_aprovacao?: boolean
+      aprovacao?: { etapa: number; total: number; etapa_nome: string; responsavel: string | null }
+    }>
     pode_divulgar: boolean
     pendentes: string[]
   } | null>(null)
@@ -859,9 +863,22 @@ export default function CockpitProcessoPage() {
                                     ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
                                     : it.status === "NAO_SE_APLICA"
                                       ? <span className="text-gray-400 shrink-0" title="Não se aplica">∅</span>
-                                      : <Circle className={`w-3.5 h-3.5 shrink-0 ${it.obrigatorio ? "text-amber-500" : "text-gray-300"}`} />}
+                                      : it.status === "EM_APROVACAO"
+                                        ? <span className="text-amber-600 shrink-0" title="Em tramitação de aprovação">✍️</span>
+                                        : <Circle className={`w-3.5 h-3.5 shrink-0 ${it.obrigatorio ? "text-amber-500" : "text-gray-300"}`} />}
                                   <span className={it.status === "NAO_SE_APLICA" ? "line-through text-gray-400" : ""}>{it.titulo}</span>
                                   <span className="text-gray-400">({it.fundamento})</span>
+                                  {it.status === "EM_APROVACAO" && (
+                                    <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                                      em aprovação{it.aprovacao ? ` — ${it.aprovacao.etapa_nome} (${it.aprovacao.etapa}/${it.aprovacao.total})${it.aprovacao.responsavel ? ` · ${it.aprovacao.responsavel}` : ""}` : ""}
+                                    </span>
+                                  )}
+                                  {it.status === "EM_ELABORACAO" && it.exige_aprovacao && (
+                                    <span className="text-[10px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5"
+                                      title="Este tipo de documento tem fluxo de aprovação configurado — abra e envie para aprovação">
+                                      aguarda envio p/ aprovação
+                                    </span>
+                                  )}
                                   {it.obrigatorio && (
                                     <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-300 text-amber-700">obrigatório</Badge>
                                   )}
