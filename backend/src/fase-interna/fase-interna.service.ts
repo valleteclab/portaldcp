@@ -257,9 +257,11 @@ export class FaseInternaService {
       titulo: string;
       obrigatorio: boolean;
       fundamento: string;
-      status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA';
+      status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO';
       documento_id?: string;
       justificativa?: string;
+      exige_aprovacao?: boolean;
+      aprovacao?: { etapa: number; total: number; etapa_nome: string; responsavel: string | null };
     }>;
     pode_divulgar: boolean;
     pendentes: string[];
@@ -295,22 +297,81 @@ export class FaseInternaService {
       where: { licitacao_id: licitacaoId, versao_atual: true },
     });
 
+    // Fluxos de aprovação configurados pelo órgão (Configurações → Fluxos):
+    // quando existe fluxo para o tipo (ou fluxo genérico), o documento SÓ
+    // conta como pronto depois de APROVADO na tramitação.
+    const manager = this.documentoRepository.manager;
+    const fluxos: Array<{ tipo_documento: string | null }> = await manager
+      .query(
+        `SELECT tipo_documento FROM fluxos_aprovacao_documento
+         WHERE orgao_id = $1 AND ativo = true`,
+        [licitacao.orgao_id],
+      )
+      .catch(() => []);
+    const temFluxoGenerico = fluxos.some((f) => f.tipo_documento === null);
+    const tiposComFluxo = new Set(fluxos.map((f) => f.tipo_documento).filter(Boolean));
+
+    // Etapa em análise de cada documento em tramitação (p/ mostrar quem está com o processo)
+    const etapasAtuais: Array<{
+      documento_id: string;
+      ordem: number;
+      nome: string;
+      setor_nome: string | null;
+      usuario_nome: string | null;
+      total: string;
+    }> = await manager
+      .query(
+        `SELECT e.documento_id, e.ordem, e.nome, e.setor_nome, e.usuario_nome,
+                (SELECT COUNT(*) FROM aprovacoes_documento t
+                  WHERE t.documento_id = e.documento_id AND t.status <> 'CANCELADA') AS total
+         FROM aprovacoes_documento e
+         WHERE e.licitacao_id = $1 AND e.status = 'EM_ANALISE'`,
+        [licitacaoId],
+      )
+      .catch(() => []);
+
     const itens = checklist.map((item) => {
       const doc = docs.find((d) => d.tipo === item.tipo);
       const naoSeAplica = Boolean(doc?.dados_estruturados?.nao_se_aplica);
-      const status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' =
-        naoSeAplica
-          ? 'NAO_SE_APLICA'
-          : doc && this.documentoPresente(doc)
-            ? 'OK'
-            : doc
-              ? 'EM_ELABORACAO'
-              : 'PENDENTE';
+      const exigeAprovacao = temFluxoGenerico || tiposComFluxo.has(item.tipo as string);
+      let status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO';
+      let aprovacao:
+        | { etapa: number; total: number; etapa_nome: string; responsavel: string | null }
+        | undefined;
+
+      if (naoSeAplica) {
+        status = 'NAO_SE_APLICA';
+      } else if (!doc) {
+        status = 'PENDENTE';
+      } else if (exigeAprovacao) {
+        // Com fluxo configurado, o rito manda: pronto = APROVADO/IMPORTADO
+        if (doc.status === StatusDocumento.APROVADO || doc.status === StatusDocumento.IMPORTADO) {
+          status = 'OK';
+        } else if (doc.status === StatusDocumento.AGUARDANDO_APROVACAO) {
+          status = 'EM_APROVACAO';
+          const etapa = etapasAtuais.find((e) => e.documento_id === doc.id);
+          if (etapa) {
+            aprovacao = {
+              etapa: Number(etapa.ordem),
+              total: Number(etapa.total),
+              etapa_nome: etapa.nome,
+              responsavel: etapa.usuario_nome || etapa.setor_nome || null,
+            };
+          }
+        } else {
+          status = 'EM_ELABORACAO';
+        }
+      } else {
+        status = this.documentoPresente(doc) ? 'OK' : 'EM_ELABORACAO';
+      }
+
       return {
         ...item,
         status,
         documento_id: doc?.id,
         justificativa: doc?.dados_estruturados?.justificativa_nao_se_aplica,
+        exige_aprovacao: exigeAprovacao,
+        aprovacao,
       };
     });
 
@@ -324,7 +385,9 @@ export class FaseInternaService {
       fase_interna_concluida: licitacao.fase_interna_concluida || false,
       itens,
       pode_divulgar: pendentes.length === 0,
-      pendentes: pendentes.map((p) => `${p.titulo} (${p.fundamento})`),
+      pendentes: pendentes.map(
+        (p) => `${p.titulo} (${p.fundamento})${p.status === 'EM_APROVACAO' ? ' — em aprovação' : ''}`,
+      ),
     };
   }
 
