@@ -167,6 +167,29 @@ export default function CockpitProcessoPage() {
 
   useEffect(() => { if (id) carregar() }, [id, carregar])
 
+  // === Autos do processo: download do PDF compilado (autenticado) ===
+  const [baixandoProcesso, setBaixandoProcesso] = useState(false)
+  const baixarProcessoPdf = async () => {
+    setBaixandoProcesso(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/processo-pdf`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `processo-${dados?.licitacao.numero_processo?.replace(/\W+/g, "-") || id}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      alert(`Não foi possível gerar os autos agora: ${e.message}`)
+    } finally {
+      setBaixandoProcesso(false)
+    }
+  }
+
   // === Copiloto (preparação automática): poll silencioso enquanto executa ===
   const [disparandoCopiloto, setDisparandoCopiloto] = useState(false)
 
@@ -690,6 +713,11 @@ export default function CockpitProcessoPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={baixarProcessoPdf} disabled={baixandoProcesso}
+            title="Autos do processo em PDF único: capa, sumário e todas as peças (DFD, ETP, TR, pesquisa de preços, autorização, aviso, ata, contratos e publicações no PNCP)">
+            {baixandoProcesso ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+            Baixar processo (PDF)
+          </Button>
           {licitacao.modalidade === "DISPENSA_ELETRONICA" && checklist.resultado_registrado && (
             <a href={`${API_URL}/api/licitacoes/${id}/dispensa/ata`} target="_blank" rel="noopener noreferrer">
               <Button variant="outline" title="Ata da sessão gerada automaticamente dos registros (propostas, lances, chat e resultado)">
