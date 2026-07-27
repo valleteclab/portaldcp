@@ -1144,6 +1144,60 @@ export default function DetalheDemandaPage() {
 
   useEffect(() => { carregarDemanda() }, [carregarDemanda])
 
+  // ── Aprovar/Rejeitar direto na página (o aprovador não precisa voltar) ────
+  const [decidindo, setDecidindo] = useState(false)
+
+  const aprovarAqui = async () => {
+    if (!demanda || decidindo) return
+    let aprovador = 'Aprovador'
+    try {
+      const u = JSON.parse(localStorage.getItem('usuario') || '{}')
+      const o = JSON.parse(localStorage.getItem('orgao') || '{}')
+      aprovador = u?.nome || o?.nome || 'Aprovador'
+    } catch { /* usa default */ }
+    if (!confirm(`Aprovar a demanda de ${demanda.unidade_requisitante}?`)) return
+    setDecidindo(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/aprovar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ aprovadoPor: aprovador }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || `HTTP ${res.status}`)
+      }
+      await carregarDemanda()
+    } catch (e: any) {
+      alert(`Erro ao aprovar: ${e.message}`)
+    } finally {
+      setDecidindo(false)
+    }
+  }
+
+  const rejeitarAqui = async () => {
+    if (!demanda || decidindo) return
+    const motivo = prompt('Motivo da rejeição (fica registrado e visível ao requisitante):')
+    if (!motivo || !motivo.trim()) return
+    setDecidindo(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/rejeitar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: motivo.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || `HTTP ${res.status}`)
+      }
+      await carregarDemanda()
+    } catch (e: any) {
+      alert(`Erro ao rejeitar: ${e.message}`)
+    } finally {
+      setDecidindo(false)
+    }
+  }
+
   // ── Acompanhamento (PCA → processo → contrato) ────────────────────────────
   const [acomp, setAcomp] = useState<any>(null)
   useEffect(() => {
@@ -1501,9 +1555,26 @@ export default function DetalheDemandaPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.push('/orgao/demandas')}>
+            <Button variant="outline" size="sm"
+              onClick={() => (window.history.length > 1 ? router.back() : router.push('/orgao/demandas'))}
+              title="Volta para a tela anterior (lista, aprovações…)">
               Voltar
             </Button>
+            {/* Aprovador decide AQUI mesmo — sem precisar voltar à central */}
+            {(demanda.status === 'ENVIADA' || demanda.status === 'EM_ANALISE') && (
+              <>
+                <Button size="sm" className="bg-green-600 hover:bg-green-700"
+                  onClick={aprovarAqui} disabled={decidindo}>
+                  {decidindo ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-1.5" />}
+                  Aprovar
+                </Button>
+                <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50"
+                  onClick={rejeitarAqui} disabled={decidindo}>
+                  <XCircle className="h-4 w-4 mr-1.5" />
+                  Rejeitar
+                </Button>
+              </>
+            )}
             {podeEditar && (
               <Button
                 size="sm"

@@ -179,6 +179,7 @@ interface DemandaAprovacao {
   responsavel_nome?: string;
   status: 'ENVIADA' | 'EM_ANALISE';
   observacoes?: string;
+  descricao_sucinta_objeto?: string;
   data_envio?: string;
   created_at: string;
   itens: {
@@ -1103,6 +1104,11 @@ export default function CentralAprovacoesPage() {
                           <p className="text-sm text-gray-500">
                             PCA {demanda.ano_referencia} • Responsável: {demanda.responsavel_nome || 'Não informado'}
                           </p>
+                          {demanda.descricao_sucinta_objeto && (
+                            <p className="text-sm text-gray-700 mt-1.5 whitespace-pre-wrap break-words">
+                              {demanda.descricao_sucinta_objeto}
+                            </p>
+                          )}
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-xs text-gray-500">{demanda.itens?.length || 0} itens</p>
@@ -1113,7 +1119,7 @@ export default function CentralAprovacoesPage() {
                       {demanda.observacoes && (
                         <div className="mt-4 rounded-lg bg-gray-50 border p-3">
                           <p className="text-xs font-medium text-gray-500 mb-1">Justificativa</p>
-                          <p className="text-sm text-gray-700 line-clamp-3 whitespace-pre-wrap">{demanda.observacoes}</p>
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{demanda.observacoes}</p>
                         </div>
                       )}
 
