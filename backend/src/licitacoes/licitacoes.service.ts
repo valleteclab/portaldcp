@@ -11,6 +11,8 @@ import { DispensaGateway } from './dispensa.gateway';
 import { gerarAtaDispensaPdf } from './ata-dispensa-pdf';
 import { PncpService } from '../pncp/pncp.service';
 import { FaseInternaService } from '../fase-interna/fase-interna.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
@@ -53,7 +55,38 @@ export class LicitacoesService {
     private readonly dataSource: DataSource,
     private readonly pncpService: PncpService,
     private readonly faseInternaService: FaseInternaService,
+    private readonly notificacoesService: NotificacoesService,
   ) {}
+
+  /**
+   * Marco do ciclo da demanda de origem (transparência p/ o requisitante):
+   * avisa o setor que pediu quando a contratação avança. Best-effort.
+   */
+  private async notificarDemandaOrigem(
+    licitacao: Licitacao,
+    tipo: TipoNotificacao,
+    titulo: string,
+    mensagem: string,
+  ): Promise<void> {
+    if (!licitacao.demanda_id) return;
+    try {
+      const demanda = await this.demandaRepository.findOneBy({ id: licitacao.demanda_id });
+      if (!demanda) return;
+      await this.notificacoesService.criar({
+        orgao_id: licitacao.orgao_id,
+        usuario_id: licitacao.orgao_id,
+        usuario_email: (demanda as any).responsavel_email || undefined,
+        tipo,
+        titulo,
+        mensagem,
+        entidade_tipo: 'DEMANDA',
+        entidade_id: demanda.id,
+        link: `/orgao/demandas/${demanda.id}`,
+      } as any);
+    } catch (e: any) {
+      this.logger.warn(`Notificação da demanda de origem não enviada: ${e.message}`);
+    }
+  }
 
   // === CRUD ===
   async create(createDto: CreateLicitacaoDto): Promise<Licitacao> {
@@ -674,6 +707,14 @@ export class LicitacoesService {
 
     const salva = await this.licitacaoRepository.save(licitacao);
 
+    // Avisa o setor requisitante da demanda de origem (fire-and-forget)
+    this.notificarDemandaOrigem(
+      licitacao,
+      TipoNotificacao.DEMANDA_EM_CONTRATACAO,
+      'Sua demanda entrou em contratação 📢',
+      `O processo ${licitacao.numero_processo} foi divulgado — prazo de propostas aberto até ${new Date(dados.data_fim_acolhimento).toLocaleString('pt-BR')}.`,
+    ).catch(() => undefined);
+
     // D5 — efeito de transição: DISPENSA publica o aviso de contratação direta
     // no PNCP automaticamente (compra + itens + aviso PDF). Fire-and-forget:
     // falha NÃO bloqueia a publicação — fica registrada em pncp_sync e visível
@@ -758,6 +799,13 @@ export class LicitacoesService {
         this.logger.log(
           `${contratos.length} contrato(s) gerado(s) automaticamente para licitação ${id}: ${numeros}`,
         );
+        // Avisa o setor requisitante da demanda de origem
+        this.notificarDemandaOrigem(
+          licitacao,
+          TipoNotificacao.DEMANDA_CONTRATADA,
+          'Sua demanda foi contratada ✅',
+          `O processo ${licitacao.numero_processo} foi homologado e gerou o(s) contrato(s) ${numeros}.`,
+        ).catch(() => undefined);
       }
     } catch (error) {
       // Não falha a homologação se houver erro na geração dos contratos

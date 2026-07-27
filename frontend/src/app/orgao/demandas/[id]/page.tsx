@@ -1133,6 +1133,15 @@ export default function DetalheDemandaPage() {
 
   useEffect(() => { carregarDemanda() }, [carregarDemanda])
 
+  // ── Acompanhamento (PCA → processo → contrato) ────────────────────────────
+  const [acomp, setAcomp] = useState<any>(null)
+  useEffect(() => {
+    if (!demanda?.id || demanda.status === 'RASCUNHO') return
+    authFetch(`${API_URL}/api/demandas/${demanda.id}/acompanhamento`)
+      .then(async (r) => { if (r.ok) setAcomp(await r.json()) })
+      .catch(() => { /* card fica oculto */ })
+  }, [demanda?.id, demanda?.status])
+
   // ── Iniciar contratação a partir da demanda (ponte demanda → processo) ────
   const [processoVinculado, setProcessoVinculado] = useState<{ id: string; numero_processo: string; modalidade: string } | null>(null)
   const [modalIniciar, setModalIniciar] = useState(false)
@@ -1515,6 +1524,74 @@ export default function DetalheDemandaPage() {
 
         {/* ── Conteúdo da seção ────────────────────────────────────────── */}
         <div className="flex-1 p-6">
+
+          {/* ── Acompanhamento: o requisitante VÊ o pedido andando ───────── */}
+          {acomp && demanda.status !== 'RASCUNHO' && (
+            <div className="max-w-5xl mb-5 bg-white rounded-lg border shadow-sm px-5 py-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Acompanhamento da demanda
+              </p>
+              <div className="flex items-center gap-2 flex-wrap text-sm">
+                {/* 1. Aprovação */}
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
+                  demanda.status === 'REJEITADA'
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : acomp.demanda.data_aprovacao
+                      ? 'bg-green-50 text-green-700 border-green-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}>
+                  {demanda.status === 'REJEITADA' ? '✗ Rejeitada' : acomp.demanda.data_aprovacao ? '✓ Aprovada' : '⏳ Em aprovação'}
+                  {acomp.demanda.data_aprovacao && (
+                    <span className="font-normal opacity-75">
+                      {new Date(acomp.demanda.data_aprovacao).toLocaleDateString('pt-BR')}
+                    </span>
+                  )}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+                {/* 2. PCA */}
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
+                  acomp.pca.consolidada ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                }`}>
+                  {acomp.pca.consolidada
+                    ? `✓ No PCA ${acomp.pca.itens[0]?.ano_exercicio || ''} (item ${acomp.pca.itens.map((i: any) => i.numero_item).join(', ')})`
+                    : '○ PCA — não consolidada'}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+                {/* 3. Contratação */}
+                {acomp.processo ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/orgao/processos/${acomp.processo.id}`)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 transition-colors"
+                    title="Abrir o cockpit do processo"
+                  >
+                    {acomp.processo.data_homologacao ? '✓' : '⏳'} Processo {acomp.processo.numero_processo} · {String(acomp.processo.fase || '').replaceAll('_', ' ').toLowerCase()}
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium bg-gray-50 text-gray-500 border-gray-200">
+                    ○ Contratação não iniciada
+                  </span>
+                )}
+                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+                {/* 4. Contrato */}
+                {acomp.contratos.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/orgao/contratos/${acomp.contratos[0].id}`)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-green-50 text-green-700 border-green-200 hover:bg-green-100 transition-colors"
+                    title="Abrir o contrato"
+                  >
+                    ✓ Contrato {acomp.contratos.map((c: any) => c.numero_contrato).join(', ')}
+                    {acomp.contratos.some((c: any) => c.assinatura_status === 'CONCLUIDO') && ' · assinado'}
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium bg-gray-50 text-gray-500 border-gray-200">
+                    ○ Contrato
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ── Seção 1: Informações Gerais ─────────────────────────────── */}
           {secaoAtiva === 1 && (

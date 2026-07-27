@@ -1,10 +1,14 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda } from './entities/demanda.entity';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 
 @Injectable()
 export class DemandasService {
+  private readonly logger = new Logger(DemandasService.name);
+
   constructor(
     @InjectRepository(Demanda)
     private demandaRepository: Repository<Demanda>,
@@ -12,7 +16,34 @@ export class DemandasService {
     private itemDemandaRepository: Repository<ItemDemanda>,
     @InjectRepository(ContratacaoFutura)
     private contratacaoFuturaRepository: Repository<ContratacaoFutura>,
+    @InjectDataSource()
+    private dataSource: DataSource,
+    private notificacoesService: NotificacoesService,
   ) {}
+
+  /** Notifica o setor requisitante nos marcos do ciclo da demanda (best-effort). */
+  private async notificarRequisitante(
+    demanda: Demanda,
+    tipo: TipoNotificacao,
+    titulo: string,
+    mensagem: string,
+  ): Promise<void> {
+    try {
+      await this.notificacoesService.criar({
+        orgao_id: demanda.orgao_id,
+        usuario_id: demanda.orgao_id, // sino do órgão lista por orgao_id
+        usuario_email: demanda.responsavel_email || undefined,
+        tipo,
+        titulo,
+        mensagem,
+        entidade_tipo: 'DEMANDA',
+        entidade_id: demanda.id,
+        link: `/orgao/demandas/${demanda.id}`,
+      } as any);
+    } catch (e: any) {
+      this.logger.warn(`Notificação da demanda não enviada: ${e.message}`);
+    }
+  }
 
   // ==================== DEMANDAS ====================
 
@@ -157,7 +188,14 @@ export class DemandasService {
     demanda.aprovado_por = aprovadoPor;
     demanda.motivo_rejeicao = undefined as any;
 
-    return this.demandaRepository.save(demanda);
+    const salva = await this.demandaRepository.save(demanda);
+    await this.notificarRequisitante(
+      salva,
+      TipoNotificacao.DEMANDA_APROVADA,
+      'Demanda aprovada ✅',
+      `A demanda "${salva.descricao_sucinta_objeto || salva.unidade_requisitante}" foi aprovada por ${aprovadoPor}. Acompanhe o andamento na página da demanda.`,
+    );
+    return salva;
   }
 
   async rejeitar(id: string, motivo: string): Promise<Demanda> {
@@ -170,7 +208,14 @@ export class DemandasService {
     demanda.status = StatusDemanda.REJEITADA;
     demanda.motivo_rejeicao = motivo;
 
-    return this.demandaRepository.save(demanda);
+    const salva = await this.demandaRepository.save(demanda);
+    await this.notificarRequisitante(
+      salva,
+      TipoNotificacao.DEMANDA_REJEITADA,
+      'Demanda rejeitada',
+      `A demanda "${salva.descricao_sucinta_objeto || salva.unidade_requisitante}" foi rejeitada. Motivo: ${motivo}`,
+    );
+    return salva;
   }
 
   async voltarParaRascunho(id: string): Promise<Demanda> {
@@ -187,6 +232,67 @@ export class DemandasService {
     demanda.motivo_rejeicao = undefined as any;
 
     return this.demandaRepository.save(demanda);
+  }
+
+  // ==================== ACOMPANHAMENTO (transparência p/ o requisitante) ====================
+
+  /**
+   * Linha do tempo da demanda depois de aprovada: PCA → processo → contrato.
+   * Os vínculos já existem no banco (itens_demanda.item_pca_id,
+   * licitacoes.demanda_id, contratos.licitacao_id) — aqui só expomos a cadeia.
+   */
+  async acompanhamento(id: string): Promise<any> {
+    const demanda = await this.findOne(id);
+
+    // PCA: itens consolidados a partir desta demanda
+    const itensPca = await this.dataSource.query(
+      `SELECT ip.numero_item, ip.descricao_objeto, p.ano_exercicio, p.status AS pca_status
+       FROM itens_demanda idem
+       JOIN itens_pca ip ON ip.id = idem.item_pca_id
+       LEFT JOIN planos_contratacao_anual p ON p.id = ip.pca_id
+       WHERE idem.demanda_id = $1
+       ORDER BY ip.numero_item ASC`,
+      [id],
+    ).catch(() => []);
+
+    // Processo originado desta demanda
+    const [licitacao] = await this.dataSource.query(
+      `SELECT id, numero_processo, modalidade, fase, valor_total_estimado,
+              data_publicacao_edital, data_homologacao, valor_homologado,
+              numero_controle_pncp, link_pncp
+       FROM licitacoes WHERE demanda_id = $1 ORDER BY created_at ASC LIMIT 1`,
+      [id],
+    ).catch(() => [null]);
+
+    // Contratos do processo
+    const contratos = licitacao
+      ? await this.dataSource.query(
+          `SELECT c.id, c.numero_contrato, c.status, c.data_assinatura,
+                  c.fornecedor_razao_social, c.valor_global,
+                  da.status AS assinatura_status
+           FROM contratos c
+           LEFT JOIN documentos_assinatura da ON da.id = c.documento_assinatura_id
+           WHERE c.licitacao_id = $1 ORDER BY c.numero_contrato ASC`,
+          [licitacao.id],
+        ).catch(() => [])
+      : [];
+
+    return {
+      demanda: {
+        id: demanda.id,
+        status: demanda.status,
+        data_envio: demanda.data_envio,
+        data_aprovacao: demanda.data_aprovacao,
+        aprovado_por: demanda.aprovado_por,
+        motivo_rejeicao: demanda.motivo_rejeicao,
+      },
+      pca: {
+        consolidada: itensPca.length > 0,
+        itens: itensPca,
+      },
+      processo: licitacao || null,
+      contratos,
+    };
   }
 
   // ==================== ITENS DA DEMANDA ====================
