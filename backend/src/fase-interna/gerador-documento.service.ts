@@ -9,6 +9,7 @@ import PDFDocument = require('pdfkit');
 import { DocumentoFaseInterna, TipoDocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 import { AuditLogService, ContextoUsuario } from './audit-log.service';
+import { ModeloDocumentoService } from './modelo-documento.service';
 
 import { EtpDados } from './types/etp-dados.type';
 import { TrDados } from './types/tr-dados.type';
@@ -38,7 +39,67 @@ export class GeradorDocumentoService {
     @InjectRepository(DocumentoFaseInterna)
     private readonly docRepo: Repository<DocumentoFaseInterna>,
     private readonly auditLog: AuditLogService,
+    private readonly modeloDocumentoService: ModeloDocumentoService,
   ) {}
+
+  /**
+   * Cabeçalho/rodapé do PDF conforme o MODELO configurado pelo órgão em
+   * Configurações → Modelos de documento (fallback: modelo padrão do
+   * sistema; último recurso: identificação real do órgão — nunca mais o
+   * placeholder genérico). Variáveis {{...}} são substituídas.
+   */
+  private async resolverEstiloDocumento(doc: DocumentoFaseInterna): Promise<{
+    cabecalhoLinhas: string[];
+    rodapeTexto: string | null;
+  }> {
+    const lic: any = (doc as any).licitacao || {};
+    const orgao: any = lic.orgao || {};
+    const stripHtml = (html: string) =>
+      html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(p|div|h[1-6])>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .trim();
+    const vars: Record<string, string> = {
+      orgao_nome: orgao.nome || 'Órgão',
+      orgao_cnpj: orgao.cnpj || '',
+      numero_processo: lic.numero_processo || doc.licitacao_id,
+      numero_edital: lic.numero_edital || '',
+      documento_titulo: doc.titulo || doc.tipo,
+      data: new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+    };
+    const aplicarVars = (texto: string) =>
+      texto.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => vars[k] ?? '');
+
+    try {
+      const modelo = await this.modeloDocumentoService.resolverModelo(
+        lic.orgao_id || null,
+        doc.tipo,
+      );
+      const cabecalho = modelo?.cabecalho_html ? aplicarVars(stripHtml(modelo.cabecalho_html)) : '';
+      const rodape = modelo?.rodape_html ? aplicarVars(stripHtml(modelo.rodape_html)) : null;
+      const cabecalhoLinhas = cabecalho
+        ? cabecalho.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 3)
+        : [];
+      if (cabecalhoLinhas.length > 0 || rodape) {
+        return {
+          cabecalhoLinhas:
+            cabecalhoLinhas.length > 0
+              ? cabecalhoLinhas
+              : [vars.orgao_nome, `Processo nº ${vars.numero_processo}`],
+          rodapeTexto: rodape,
+        };
+      }
+    } catch (e: any) {
+      this.logger.warn(`Modelo de documento não resolvido (${doc.tipo}): ${e.message}`);
+    }
+    // Fallback: identificação REAL do órgão
+    return {
+      cabecalhoLinhas: [vars.orgao_nome, `Processo nº ${vars.numero_processo}`],
+      rodapeTexto: null,
+    };
+  }
 
   // ============================================================================
   // API PÚBLICA
@@ -56,7 +117,8 @@ export class GeradorDocumentoService {
     const caminho = path.join(dir, `${documento.id}.pdf`);
 
     const html = this.renderPorTipo(documento, licitacaoNumero);
-    await this.escreverPdf(caminho, documento, licitacaoNumero, html);
+    const estilo = await this.resolverEstiloDocumento(documento);
+    await this.escreverPdf(caminho, documento, licitacaoNumero, html, estilo);
 
     const hash = await this.calcularHashArquivo(caminho);
     documento.arquivo_pdf_path = caminho;
@@ -121,7 +183,7 @@ export class GeradorDocumentoService {
   private async carregarDocumento(documentoId: string): Promise<DocumentoFaseInterna> {
     const doc = await this.docRepo.findOne({
       where: { id: documentoId },
-      relations: ['licitacao'],
+      relations: ['licitacao', 'licitacao.orgao'],
     });
     if (!doc) throw new NotFoundException(`Documento ${documentoId} não encontrado`);
     return doc;
@@ -153,6 +215,7 @@ export class GeradorDocumentoService {
     documento: DocumentoFaseInterna,
     licitacaoNumero: string,
     htmlConteudo: string,
+    estilo?: { cabecalhoLinhas: string[]; rodapeTexto: string | null },
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
@@ -170,7 +233,12 @@ export class GeradorDocumentoService {
         const stream = fs.createWriteStream(caminho);
         pdf.pipe(stream);
 
-        // Cabeçalho institucional + rodapé em todas as páginas
+        // Cabeçalho institucional + rodapé em todas as páginas — seguem o
+        // MODELO configurado pelo órgão (Configurações → Modelos de documento)
+        const linhasCabecalho =
+          estilo?.cabecalhoLinhas?.length
+            ? estilo.cabecalhoLinhas
+            : ['Documento da Fase Interna', `Licitação nº ${licitacaoNumero}`];
         const desenharCabecalhoRodape = () => {
           const original = (pdf as any).page;
           // Cabeçalho
@@ -179,12 +247,13 @@ export class GeradorDocumentoService {
             .fontSize(9)
             .fillColor('#444')
             .font('Times-Bold')
-            .text('PORTAL DCP — Departamento Central de Pregão', 60, 30, { align: 'left' });
-          pdf
-            .font('Times-Roman')
-            .fontSize(8)
-            .fillColor('#666')
-            .text(`Licitação nº ${licitacaoNumero}`, 60, 44, { align: 'left' });
+            .text(linhasCabecalho[0], 60, 30, { align: 'left' });
+          pdf.font('Times-Roman').fontSize(8).fillColor('#666');
+          let yCab = 44;
+          for (const linha of linhasCabecalho.slice(1)) {
+            pdf.text(linha, 60, yCab, { align: 'left' });
+            yCab += 12;
+          }
           pdf
             .moveTo(60, original.height - 70)
             .lineTo(original.width - 60, original.height - 70)
@@ -201,7 +270,8 @@ export class GeradorDocumentoService {
             .fillColor('#666')
             .font('Times-Italic')
             .text(
-              `Gerado em ${new Date().toLocaleString('pt-BR')} — Fundamento: Lei nº 14.133/2021`,
+              estilo?.rodapeTexto ||
+                `Gerado em ${new Date().toLocaleString('pt-BR')} — Fundamento: Lei nº 14.133/2021`,
               60,
               rodapeY,
               { align: 'left', width: original.width - 120 },
