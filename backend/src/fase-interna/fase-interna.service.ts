@@ -3,6 +3,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import axios from 'axios';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import {
@@ -75,6 +76,67 @@ export class FaseInternaService {
     };
 
     return documentosPorFase[fase] || [];
+  }
+
+  // ========================================
+  // PREÇO DE REFERÊNCIA RÁPIDO (dados abertos Compras.gov.br)
+  // ========================================
+
+  /**
+   * Consulta leve de preço de referência por código CATMAT/CATSER — usada
+   * no cadastro de itens da demanda para o servidor não estimar no chute.
+   * Fonte: módulo Pesquisa de Preços dos dados abertos do Compras.gov.br
+   * (compras públicas reais). Sem cache/persistência: consulta pontual.
+   */
+  async consultarPrecoReferencia(
+    codigo: string,
+    tipo?: string,
+  ): Promise<{
+    encontrado: boolean;
+    mediana?: number;
+    minimo?: number;
+    maximo?: number;
+    amostras?: number;
+    fonte?: string;
+  }> {
+    const cod = String(codigo || '').trim();
+    if (!cod) return { encontrado: false };
+    const base = 'https://dadosabertos.compras.gov.br';
+    const material = '/modulo-pesquisa-preco/1_consultarMaterial';
+    const servico = '/modulo-pesquisa-preco/3_consultarServico';
+    const endpoints =
+      String(tipo || '').toUpperCase() === 'SERVICO' ? [servico, material] : [material, servico];
+
+    for (const path of endpoints) {
+      try {
+        const res = await axios.get(`${base}${path}`, {
+          timeout: 12000,
+          params: { codigoItemCatalogo: cod, pagina: 1, tamanhoPagina: 30 },
+        });
+        const raw: any[] = Array.isArray(res.data)
+          ? res.data
+          : res.data?.resultado || res.data?.dados || res.data?.itens || [];
+        const valores = raw
+          .map((r) => Number(r?.precoUnitario || r?.valorUnitario || 0))
+          .filter((v) => v > 0)
+          .sort((a, b) => a - b);
+        if (!valores.length) continue;
+        const mid = Math.floor(valores.length / 2);
+        const mediana =
+          valores.length % 2 ? valores[mid] : (valores[mid - 1] + valores[mid]) / 2;
+        return {
+          encontrado: true,
+          mediana: Number(mediana.toFixed(2)),
+          minimo: valores[0],
+          maximo: valores[valores.length - 1],
+          amostras: valores.length,
+          fonte: 'Pesquisa de Preços — Compras.gov.br (dados abertos)',
+        };
+      } catch {
+        // tenta o próximo endpoint; indisponibilidade não pode travar o cadastro
+      }
+    }
+    return { encontrado: false };
   }
 
   // ========================================
