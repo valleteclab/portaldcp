@@ -21,6 +21,14 @@ export class DemandasService {
     private notificacoesService: NotificacoesService,
   ) {}
 
+  /** Permissão de aprovar/rejeitar demandas (login de usuário do órgão). */
+  async usuarioPodeAprovarDemandas(usuarioId: string): Promise<boolean> {
+    const [u] = await this.dataSource
+      .query(`SELECT pode_aprovar_demandas FROM usuarios WHERE id = $1`, [usuarioId])
+      .catch(() => [null]);
+    return !!u?.pode_aprovar_demandas;
+  }
+
   /** Notifica o setor requisitante nos marcos do ciclo da demanda (best-effort). */
   private async notificarRequisitante(
     demanda: Demanda,

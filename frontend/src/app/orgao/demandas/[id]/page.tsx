@@ -1146,6 +1146,15 @@ export default function DetalheDemandaPage() {
 
   // ── Aprovar/Rejeitar direto na página (o aprovador não precisa voltar) ────
   const [decidindo, setDecidindo] = useState(false)
+  // Permissão: login direto do órgão sempre pode; usuário precisa da flag
+  const [podeAprovar, setPodeAprovar] = useState(false)
+  useEffect(() => {
+    try {
+      const u = localStorage.getItem('usuario')
+      if (!u) { setPodeAprovar(true); return } // login direto do órgão
+      setPodeAprovar(JSON.parse(u)?.pode_aprovar_demandas === true)
+    } catch { setPodeAprovar(false) }
+  }, [])
 
   const aprovarAqui = async () => {
     if (!demanda || decidindo) return
@@ -1561,7 +1570,7 @@ export default function DetalheDemandaPage() {
               Voltar
             </Button>
             {/* Aprovador decide AQUI mesmo — sem precisar voltar à central */}
-            {(demanda.status === 'ENVIADA' || demanda.status === 'EM_ANALISE') && (
+            {podeAprovar && (demanda.status === 'ENVIADA' || demanda.status === 'EM_ANALISE') && (
               <>
                 <Button size="sm" className="bg-green-600 hover:bg-green-700"
                   onClick={aprovarAqui} disabled={decidindo}>

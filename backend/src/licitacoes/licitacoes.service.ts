@@ -953,6 +953,8 @@ export class LicitacoesService {
         data_abertura_sessao: licitacao.data_abertura_sessao,
         dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
         dispensa_lances_fim: licitacao.dispensa_lances_fim,
+        link_pncp: (licitacao as any).link_pncp ?? null,
+        preparacao_automatica: (licitacao as any).preparacao_automatica ?? null,
       },
       item_pca: licitacao.item_pca
         ? {
