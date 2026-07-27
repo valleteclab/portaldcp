@@ -217,6 +217,12 @@ export class FaseInternaService {
         obrigatorio: false,
         fundamento: 'Art. 72, VI e VII',
       },
+      {
+        tipo: TipoDocumentoFaseInterna.DESIGNACAO_PREGOEIRO,
+        titulo: 'Portaria de designação (agente de contratação/equipe/fiscais)',
+        obrigatorio: false,
+        fundamento: 'Art. 8º',
+      },
     ];
   }
 
