@@ -56,6 +56,21 @@ Entrada única em linguagem humana ("O que você precisa? Quanto custa? Para qua
 ### UX-7 — Consolidação das 2 UIs de fase interna
 Aposentar a navegação duplicada (dossiê × wizard) quando UX-3/4 estiverem no ar — o wizard de perguntas vira O caminho, o editor seccionado vira a revisão.
 
+## Benchmark: processo administrativo REAL (Câmara de Mansidão/BA — Dispensa 002/2026)
+
+Usuário forneceu os autos completos de uma dispensa real (PDF, 2 partes; texto extraído em análise de 26/07/2026). Fluxo documental identificado e mapeamento:
+
+1. **Capa/números/portarias de nomeação** → capa automática dos autos ✅; portarias adicionadas ao checklist art. 72 como opcional (tipo DP, Art. 8º) ✅
+2. **DFD** (setor, necessidade, natureza, modalidade sugerida, gestor/fiscal, **campo "Necessidade do ETP: necessário/dispensado + hipóteses tipificadas do art. 75"**) → nosso DFD cobre o núcleo; enriquecer via Modelos de documento; **ACHADO: oferecer hipóteses prontas no "não se aplica" do ETP** (hoje é justificativa livre)
+3. **Solicitação de pesquisa ao setor de compras** → tramitação/fluxos de aprovação (existentes e agora encaixados)
+4. **Pesquisa de preços** (responsável, fontes, similares, metodologia, mapa, valor) → cobertura completa ✅ (agente PNCP)
+5. **Justificativa de dispensa do ETP/riscos nos autos** → é exatamente o nosso "não se aplica" com justificativa ✅ (validação do desenho)
+6. **TR** completo → ✅
+7. **Disponibilidade orçamentária pelo setor contábil** → tipo DO no checklist + fluxo de aprovação com etapa "Setor Contábil"
+8. **Aviso com TR anexo** → aviso+PNCP ✅; **pendência: anexar o TR como documento adicional da compra no PNCP**
+
+Pendências deste benchmark: (a) hipóteses tipificadas no "não se aplica" do ETP; (b) TR anexo ao aviso no PNCP; (c) seções extras do DFD via modelo padrão (natureza, gestor/fiscal, avaliação do ETP).
+
 ## Decisões de arquitetura
 
 - **Um roteiro, dois modos**: o schema de perguntas do UX-3 alimenta tanto o formulário (estruturado) quanto o agente (conversacional). Nunca duplicar o conhecimento.
