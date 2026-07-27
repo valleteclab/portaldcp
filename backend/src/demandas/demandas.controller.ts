@@ -165,11 +165,25 @@ export class DemandasController {
     return this.demandasService.iniciarAnalise(id);
   }
 
+  /**
+   * Aprovar/rejeitar exige permissão: login direto do ÓRGÃO e ADMIN sempre
+   * podem; usuário do órgão precisa da flag pode_aprovar_demandas.
+   */
+  private async exigirPermissaoAprovacao(user: JwtPayload): Promise<void> {
+    if (user.type === UserType.ORGAO || user.type === UserType.ADMIN) return;
+    const pode = await this.demandasService.usuarioPodeAprovarDemandas(user.sub);
+    if (!pode) {
+      throw new ForbiddenException('Você não tem permissão para aprovar demandas');
+    }
+  }
+
   @Patch(':id/aprovar')
   async aprovar(
     @Param('id') id: string,
     @Body() body: { aprovadoPor: string },
+    @Req() request: { user: JwtPayload },
   ) {
+    await this.exigirPermissaoAprovacao(request.user);
     return this.demandasService.aprovar(id, body.aprovadoPor);
   }
 
@@ -177,7 +191,9 @@ export class DemandasController {
   async rejeitar(
     @Param('id') id: string,
     @Body() body: { motivo: string },
+    @Req() request: { user: JwtPayload },
   ) {
+    await this.exigirPermissaoAprovacao(request.user);
     return this.demandasService.rejeitar(id, body.motivo);
   }
 
