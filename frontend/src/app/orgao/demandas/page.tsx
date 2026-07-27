@@ -541,10 +541,10 @@ function DemandasPageContent() {
                         {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                         <Building2 className="h-5 w-5 text-gray-400" />
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <h3 className="font-medium">{demanda.unidade_requisitante}</h3>
                         {demanda.descricao_sucinta_objeto && (
-                          <p className="text-sm text-gray-700 mt-1 line-clamp-1">
+                          <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap break-words">
                             {demanda.descricao_sucinta_objeto}
                           </p>
                         )}
