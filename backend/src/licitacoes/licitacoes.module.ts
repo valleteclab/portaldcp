@@ -14,6 +14,7 @@ import { ContratosModule } from '../contratos/contratos.module';
 import { PncpModule } from '../pncp/pncp.module';
 import { FaseInternaModule } from '../fase-interna/fase-interna.module';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
+import { ProcessoPdfService } from './processo-pdf.service';
 
 @Module({
   imports: [
@@ -24,7 +25,7 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
     NotificacoesModule,
   ],
   controllers: [LicitacoesController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway],
+  providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway, ProcessoPdfService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService],
 })
 export class LicitacoesModule {}
