@@ -1103,6 +1103,17 @@ export default function DetalheDemandaPage() {
 
   // ── Estado do layout DFD ──────────────────────────────────────────────────
   const [secaoAtiva, setSecaoAtiva] = useState<1 | 2 | 3 | 4>(3)
+  // Abre na PRIMEIRA seção incompleta (só na chegada — depois o usuário manda)
+  const secaoInicialDefinida = useRef(false)
+  useEffect(() => {
+    if (!demanda || secaoInicialDefinida.current) return
+    secaoInicialDefinida.current = true
+    if (demanda.status !== 'RASCUNHO') return // leitura: mantém padrão (itens)
+    if (!demanda.descricao_sucinta_objeto?.trim()) setSecaoAtiva(1)
+    else if (!demanda.observacoes?.trim()) setSecaoAtiva(2)
+    else if ((demanda.itens?.length ?? 0) === 0) setSecaoAtiva(3)
+    else setSecaoAtiva(4)
+  }, [demanda])
   const [dialogAdicionar, setDialogAdicionar] = useState(false)
   const [filtroItens, setFiltroItens] = useState('')
   const [tabTipo, setTabTipo] = useState<'MATERIAL' | 'SERVICO'>('MATERIAL')

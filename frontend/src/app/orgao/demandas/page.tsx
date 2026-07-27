@@ -189,6 +189,43 @@ function DemandasPageContent() {
     }
   }
 
+  const [melhorandoJustificativa, setMelhorandoJustificativa] = useState(false)
+
+  const melhorarJustificativaComIA = async () => {
+    if (melhorandoJustificativa) return
+    setMelhorandoJustificativa(true)
+    try {
+      const atual = novaDemanda.observacoes.trim()
+      const res = await authFetch(`${API_URL}/api/ia/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensagens: [{
+            role: 'user',
+            content:
+              `Você redige justificativas de necessidade para demandas de contratação pública (Art. 18, I, Lei 14.133/2021). ` +
+              (atual
+                ? `Melhore e desenvolva o texto do usuário, preservando os fatos. `
+                : `Redija a justificativa a partir do objeto informado. `) +
+              `Texto formal e objetivo, 1 a 2 parágrafos. Responda APENAS com o texto final.\n\n` +
+              `Objeto: ${novaDemanda.descricao_sucinta_objeto || 'não informado'}\n` +
+              `Setor: ${novaDemanda.unidade_requisitante || 'não informado'}\n` +
+              (atual ? `\nTexto do usuário:\n${atual}` : ''),
+          }],
+          tipoDocumento: 'DFD',
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const novo = String(data.resposta || '').trim()
+      if (novo) setNovaDemanda((d) => ({ ...d, observacoes: novo }))
+    } catch {
+      alert('Não foi possível gerar agora — você pode preencher depois, na seção 2 da demanda.')
+    } finally {
+      setMelhorandoJustificativa(false)
+    }
+  }
+
   // orgaoId carregado do localStorage (mesmo padrão do PCA)
   const [orgaoId, setOrgaoId] = useState('')
 
@@ -768,13 +805,31 @@ function DemandasPageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Observações</label>
+              <label className="block text-sm font-medium mb-1">
+                Justificativa da Necessidade <span className="text-gray-400 font-normal">(Art. 18, I — opcional aqui, editável depois)</span>
+              </label>
               <Textarea
                 value={novaDemanda.observacoes}
                 onChange={(e) => setNovaDemanda({...novaDemanda, observacoes: e.target.value})}
-                placeholder="Informações adicionais sobre a demanda..."
+                placeholder="Por que essa contratação é necessária? Escreva do seu jeito — a IA formaliza."
                 rows={3}
               />
+              <div className="flex justify-end mt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
+                  onClick={melhorarJustificativaComIA}
+                  disabled={melhorandoJustificativa || (!novaDemanda.observacoes.trim() && !novaDemanda.descricao_sucinta_objeto.trim())}
+                  title="A IA redige/melhora a justificativa usando o objeto informado acima"
+                >
+                  {melhorandoJustificativa
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <Sparkles className="h-3 w-3" />}
+                  {melhorandoJustificativa ? 'Gerando…' : novaDemanda.observacoes.trim() ? 'Melhorar com IA' : 'Redigir com IA'}
+                </Button>
+              </div>
             </div>
           </div>
 
