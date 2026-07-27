@@ -56,8 +56,6 @@ Entrada única em linguagem humana ("O que você precisa? Quanto custa? Para qua
 ### UX-7 — Consolidação das 2 UIs de fase interna
 Aposentar a navegação duplicada (dossiê × wizard) quando UX-3/4 estiverem no ar — o wizard de perguntas vira O caminho, o editor seccionado vira a revisão.
 
-<<<<<<< Updated upstream
-=======
 ## Benchmark: processo administrativo REAL (Câmara de Mansidão/BA — Dispensa 002/2026)
 
 Usuário forneceu os autos completos de uma dispensa real (PDF, 2 partes; texto extraído em análise de 26/07/2026). Fluxo documental identificado e mapeamento:
@@ -86,7 +84,6 @@ Pendências deste benchmark: (a) hipóteses tipificadas no "não se aplica" do E
 
 Pendências parte 02: (d) extrato DO pronto (dispensa+contrato); (e) atos formais em PDF (termo de dispensa/homologação); (f) certidões do vencedor anexadas aos autos; (g) anexos-modelo no aviso.
 
->>>>>>> Stashed changes
 ## Decisões de arquitetura
 
 - **Um roteiro, dois modos**: o schema de perguntas do UX-3 alimenta tanto o formulário (estruturado) quanto o agente (conversacional). Nunca duplicar o conhecimento.
