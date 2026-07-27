@@ -115,6 +115,12 @@ export class DemandasController {
     return this.demandasService.findOne(id);
   }
 
+  /** Linha do tempo pós-aprovação: PCA → processo → contrato */
+  @Get(':id/acompanhamento')
+  async acompanhamento(@Param('id') id: string) {
+    return this.demandasService.acompanhamento(id);
+  }
+
   @Post()
   async create(
     @Body() dados: {

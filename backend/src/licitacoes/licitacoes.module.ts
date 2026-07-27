@@ -13,6 +13,7 @@ import { DispensaGateway } from './dispensa.gateway';
 import { ContratosModule } from '../contratos/contratos.module';
 import { PncpModule } from '../pncp/pncp.module';
 import { FaseInternaModule } from '../fase-interna/fase-interna.module';
+import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { FaseInternaModule } from '../fase-interna/fase-interna.module';
     forwardRef(() => ContratosModule),
     PncpModule,
     FaseInternaModule,
+    NotificacoesModule,
   ],
   controllers: [LicitacoesController],
   providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway],
