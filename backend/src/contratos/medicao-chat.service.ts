@@ -2991,7 +2991,7 @@ ${tabela}
     fornecedorId: string,
   ) {
     const draft = (session.draft || {}) as MedicaoChatDraft;
-    await this.corrigirNotaFiscalValorIncoerente(contrato, draft);
+    await this.validarCoerenciaNotaFiscal(contrato, draft);
     const payload = this.converterDraftParaPayload(contrato, draft, fornecedorId);
 
     if (!this.podeMaterializar(contrato, payload)) {
@@ -3027,31 +3027,109 @@ ${tabela}
     return medicaoId;
   }
 
-  private async corrigirNotaFiscalValorIncoerente(
+  /**
+   * Divergência entre o valor da NF e o que os itens medidos somam.
+   * Retorna null quando está coerente. Não altera o rascunho.
+   */
+  private async analisarDivergenciaNotaFiscal(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ): Promise<{
+    valorNf: number;
+    valorItens: number;
+    quantidadeSugerida: number | null;
+    itemDescricao: string | null;
+    valorUnitario: number | null;
+  } | null> {
+    const valorNf = Number(draft.nota_fiscal_valor || 0);
+    if (!(valorNf > 0)) return null;
+
+    let valorItens = Number(draft.valor_medido || 0);
+    if (!(valorItens > 0)) {
+      const valorNfOriginal = draft.nota_fiscal_valor;
+      draft.nota_fiscal_valor = null;
+      valorItens = await this.calcularValorBaseDiscriminacaoDraft(contrato, draft);
+      draft.nota_fiscal_valor = valorNfOriginal;
+    }
+    if (!(valorItens > 0)) return null;
+
+    const divergente =
+      valorItens > valorNf * 10 || valorNf > valorItens * 10;
+    if (!divergente) return null;
+
+    // Contrato por itens com um único item medido: a NF sugere a quantidade
+    // correta (valor da NF ÷ valor unitário) — foi o caso da MED-2026-0006,
+    // onde 15.040 ÷ 47 = 320 un e o sistema registrou "1 mês".
+    let quantidadeSugerida: number | null = null;
+    let itemDescricao: string | null = null;
+    let valorUnitario: number | null = null;
+    const itens = Array.isArray(draft.itens) ? draft.itens : [];
+    if (itens.length === 1 && (itens[0] as any)?.item_cronograma_id) {
+      const itemCronograma = await this.itemCronogramaRepository.findOne({
+        where: { id: (itens[0] as any).item_cronograma_id },
+      });
+      const vu = Number(itemCronograma?.valor_unitario || 0);
+      if (itemCronograma && vu > 0) {
+        valorUnitario = vu;
+        itemDescricao = String(itemCronograma.descricao || '').slice(0, 60);
+        quantidadeSugerida = Math.round((valorNf / vu) * 100) / 100;
+      }
+    }
+
+    return { valorNf, valorItens, quantidadeSugerida, itemDescricao, valorUnitario };
+  }
+
+  /** Mensagem de alerta para o chat quando NF e itens divergem (ou null). */
+  private async montarAlertaDivergenciaNf(
+    contrato: Contrato,
+    draft: MedicaoChatDraft,
+  ): Promise<string | null> {
+    const d = await this.analisarDivergenciaNotaFiscal(contrato, draft);
+    if (!d) return null;
+    const fmt = (v: number) =>
+      v.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    if (d.quantidadeSugerida && d.valorUnitario) {
+      return (
+        `⚠️ Os números não fecham: a NF é de **R$ ${fmt(d.valorNf)}**, mas a quantidade informada resulta em **R$ ${fmt(d.valorItens)}**. ` +
+        `Pelo valor da nota, seriam **${d.quantidadeSugerida}** de "${d.itemDescricao}" (R$ ${fmt(d.valorUnitario)}/un). ` +
+        `Me confirme a quantidade correta — por exemplo: **item 1 = ${d.quantidadeSugerida}**.`
+      );
+    }
+    return (
+      `⚠️ Os números não fecham: a NF é de **R$ ${fmt(d.valorNf)}**, mas os itens medidos somam **R$ ${fmt(d.valorItens)}**. ` +
+      `Revise a quantidade medida ou o valor da nota antes de seguir.`
+    );
+  }
+
+  /**
+   * NUNCA sobrescreve a NF em silêncio.
+   *
+   * A versão anterior, ao ver divergência de 10× entre a NF e os itens,
+   * substituía o valor da NOTA FISCAL pelo valor dos itens sem avisar
+   * ninguém — foi assim que a MED-2026-0006 gravou R$ 47,00 no lugar dos
+   * R$ 15.040,00 que a IA tinha lido corretamente da nota. A nota é
+   * documento fiscal: quem está errado é o preenchimento, não ela.
+   * Agora a medição é bloqueada com um erro explicativo e acionável.
+   */
+  private async validarCoerenciaNotaFiscal(
     contrato: Contrato,
     draft: MedicaoChatDraft,
   ) {
-    const valorNf = Number(draft.nota_fiscal_valor || 0);
-    if (!(valorNf > 0)) return;
+    const d = await this.analisarDivergenciaNotaFiscal(contrato, draft);
+    if (!d) return;
 
-    let valorReferencia = Number(draft.valor_medido || 0);
+    const fmt = (v: number) =>
+      v.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    const sugestao =
+      d.quantidadeSugerida && d.valorUnitario
+        ? ` Pelo valor da nota, a quantidade seria **${d.quantidadeSugerida}** de "${d.itemDescricao}" (R$ ${fmt(d.valorUnitario)}/un).`
+        : '';
 
-    if (!(valorReferencia > 0)) {
-      const valorNfOriginal = draft.nota_fiscal_valor;
-      draft.nota_fiscal_valor = null;
-      valorReferencia = await this.calcularValorBaseDiscriminacaoDraft(
-        contrato,
-        draft,
-      );
-      draft.nota_fiscal_valor = valorNfOriginal;
-    }
-
-    if (
-      valorReferencia > 0 &&
-      (valorReferencia > valorNf * 10 || valorNf > valorReferencia * 10)
-    ) {
-      draft.nota_fiscal_valor = Math.round(valorReferencia * 100) / 100;
-    }
+    throw new BadRequestException(
+      `A nota fiscal é de R$ ${fmt(d.valorNf)}, mas os itens medidos somam R$ ${fmt(d.valorItens)}.` +
+        `${sugestao} Ajuste a quantidade medida (ou o valor da NF) antes de enviar — ` +
+        `não vou alterar o valor da nota por conta própria.`,
+    );
   }
 
   private async salvarDiscriminacoesDoDraft(
@@ -3336,6 +3414,11 @@ ${tabela}
     const pendencia = this.determinarEtapaAtual(draft, contrato);
     const contexto = await this.carregarContextoAssistido(contrato);
     const resumoContrato = this.montarResumoContextoContrato(contexto);
+
+    // Avisa cedo quando a NF e os itens não fecham (em vez de deixar o erro
+    // aparecer só no envio) — com a quantidade que a nota sugere.
+    const alerta = await this.montarAlertaDivergenciaNf(contrato, draft);
+    if (alerta) return alerta;
 
     if (pendencia === 'MEDICAO') {
       if (this.medicaoService.isServicoContinuado(contrato)) {
@@ -4052,13 +4135,51 @@ ${tabela}
     return limpo;
   }
 
-  private extrairMoeda(texto: string) {
-    const matches = texto.match(
-      /\d{1,3}(?:\.\d{3})*,\d{1,2}|\d+,\d{1,2}|\d+\.\d{1,2}|\d+/g,
-    );
-    if (!matches || matches.length === 0) return null;
-    const last = matches[matches.length - 1];
-    return this.parseNumeroDecimalBr(last);
+  /**
+   * Extrai um valor monetário do texto.
+   *
+   * A versão anterior pegava o ÚLTIMO número da frase e quebrava o formato
+   * brasileiro sem centavos: "R$ 15.040" virava ['15','15.04','0'] → 0, e
+   * "valor 15.040,00 nf 15" retornava 15 (o número da nota). Isso participou
+   * do erro da MED-2026-0006 (NF de R$ 15.040,00 gravada errada).
+   *
+   * Agora cada candidato é pontuado pelo contexto (R$, "valor/total/bruto") e
+   * pelo formato (1.234,56 e 15.040 são claramente monetários), e vence o de
+   * maior confiança — não a posição na frase.
+   */
+  private extrairMoeda(texto: string): number | null {
+    if (!texto) return null;
+    const padrao =
+      /(\d{1,3}(?:\.\d{3})+,\d{1,2}|\d+,\d{1,2}|\d{1,3}(?:\.\d{3})+|\d+(?:\.\d{1,2})?)/g;
+
+    let melhor: { valor: number; peso: number } | null = null;
+    let m: RegExpExecArray | null;
+    while ((m = padrao.exec(texto)) !== null) {
+      const bruto = m[1];
+      const antes = texto.slice(Math.max(0, m.index - 14), m.index).toLowerCase();
+
+      let peso = 0;
+      if (/r\$\s*$/.test(antes)) peso += 3;
+      if (/(valor|total|bruto|l[ií]quido|nota)\D{0,6}$/.test(antes)) peso += 2;
+      if (bruto.includes(',')) peso += 2; // 1.234,56 / 15,04
+      else if (/^\d{1,3}(?:\.\d{3})+$/.test(bruto)) peso += 2; // 15.040 (milhar BR)
+
+      // Número colado em "nº/n°/item/parcela" é identificador, não dinheiro
+      if (/(n[º°o]\.?|item|parcela|nf)\s*$/.test(antes)) peso -= 3;
+
+      const valor = this.parseNumeroDecimalBr(bruto);
+      if (!Number.isFinite(valor)) continue;
+      // Desempate: maior peso; em empate, o maior valor (evita pegar "15" de "nf 15")
+      if (
+        !melhor ||
+        peso > melhor.peso ||
+        (peso === melhor.peso && valor > melhor.valor)
+      ) {
+        melhor = { valor, peso };
+      }
+    }
+
+    return melhor ? melhor.valor : null;
   }
 
   private extrairMoedaIgnorandoDatas(texto: string) {
@@ -4699,6 +4820,12 @@ ${tabela}
     if (!limpo) return 0;
     if (limpo.includes(',')) {
       return Number(limpo.replace(/\./g, '').replace(',', '.')) || 0;
+    }
+    // Sem vírgula: ponto como separador de MILHAR quando os grupos têm 3
+    // dígitos ("15.040" = quinze mil e quarenta, não 15,04). Antes o Number()
+    // direto devolvia 15.04 — origem do valor errado da MED-2026-0006.
+    if (/^\d{1,3}(?:\.\d{3})+$/.test(limpo)) {
+      return Number(limpo.replace(/\./g, '')) || 0;
     }
     return Number(limpo) || 0;
   }
