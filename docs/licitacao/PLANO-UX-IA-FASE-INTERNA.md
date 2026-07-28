@@ -56,6 +56,34 @@ Entrada única em linguagem humana ("O que você precisa? Quanto custa? Para qua
 ### UX-7 — Consolidação das 2 UIs de fase interna
 Aposentar a navegação duplicada (dossiê × wizard) quando UX-3/4 estiverem no ar — o wizard de perguntas vira O caminho, o editor seccionado vira a revisão.
 
+## Benchmark: processo administrativo REAL (Câmara de Mansidão/BA — Dispensa 002/2026)
+
+Usuário forneceu os autos completos de uma dispensa real (PDF, 2 partes; texto extraído em análise de 26/07/2026). Fluxo documental identificado e mapeamento:
+
+1. **Capa/números/portarias de nomeação** → capa automática dos autos ✅; portarias adicionadas ao checklist art. 72 como opcional (tipo DP, Art. 8º) ✅
+2. **DFD** (setor, necessidade, natureza, modalidade sugerida, gestor/fiscal, **campo "Necessidade do ETP: necessário/dispensado + hipóteses tipificadas do art. 75"**) → nosso DFD cobre o núcleo; enriquecer via Modelos de documento; **ACHADO: oferecer hipóteses prontas no "não se aplica" do ETP** (hoje é justificativa livre)
+3. **Solicitação de pesquisa ao setor de compras** → tramitação/fluxos de aprovação (existentes e agora encaixados)
+4. **Pesquisa de preços** (responsável, fontes, similares, metodologia, mapa, valor) → cobertura completa ✅ (agente PNCP)
+5. **Justificativa de dispensa do ETP/riscos nos autos** → é exatamente o nosso "não se aplica" com justificativa ✅ (validação do desenho)
+6. **TR** completo → ✅
+7. **Disponibilidade orçamentária pelo setor contábil** → tipo DO no checklist + fluxo de aprovação com etapa "Setor Contábil"
+8. **Aviso com TR anexo** → aviso+PNCP ✅; **pendência: anexar o TR como documento adicional da compra no PNCP**
+
+Pendências deste benchmark: (a) hipóteses tipificadas no "não se aplica" do ETP; (b) TR anexo ao aviso no PNCP; (c) seções extras do DFD via modelo padrão (natureza, gestor/fiscal, avaliação do ETP).
+
+### Parte 02 (fase externa → contrato → publicações) — analisada 27/07/2026
+
+9. **Edital/Aviso com anexos** (modelo de proposta, declaração conjunta, minuta de contrato) → aviso ✅; anexos como modelos: parcial
+10. **Publicação no DO do Legislativo** (3 dias úteis, proposta por e-mail) → nossa dispensa eletrônica é superior (proposta digital, sigilo, lances); PNCP ✅; DO municipal é externo — **pendência: gerar EXTRATO pronto p/ colar no DO** (dispensa+contrato, como no processo real)
+11. **Declaração Conjunta do fornecedor** (8 declarações) → 6 já existiam na proposta digital; **custos trabalhistas (III) e responsabilidade pela proposta (IV) adicionadas em 27/07/2026** ✅ (obrigatórias no envio)
+12. **Habilitação (certidões) nos autos** → cadastro/credenciamento do fornecedor ✅; anexar certidões do vencedor aos autos: parcial
+13. **Despacho ao CONTROLE INTERNO + parecer de conformidade → ratificação** → mapear como fluxo de aprovação (etapa "Controle Interno") — o motor já suporta
+14. **Termo de dispensa → ratificação → homologação/adjudicação → autorização** (atos da autoridade em PDF) → temos julgamento+homologação+ata; **pendência: gerar os ATOS FORMAIS em PDF nos autos** (termo de dispensa, homologação)
+15. **Contrato com fiscal designado por portaria** → termo automático + assinatura eletrônica ✅ (superior); designação do fiscal na cláusula ✅ (fiscal_responsavel)
+16. **Extrato de dispensa e de contrato no DO** → ver item 10
+
+Pendências parte 02: (d) extrato DO pronto (dispensa+contrato); (e) atos formais em PDF (termo de dispensa/homologação); (f) certidões do vencedor anexadas aos autos; (g) anexos-modelo no aviso.
+
 ## Decisões de arquitetura
 
 - **Um roteiro, dois modos**: o schema de perguntas do UX-3 alimenta tanto o formulário (estruturado) quanto o agente (conversacional). Nunca duplicar o conhecimento.

@@ -70,6 +70,14 @@ export class CreatePropostaDto {
   @IsOptional()
   declaracao_reserva_cargos?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  declaracao_custos_trabalhistas?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  declaracao_responsabilidade?: boolean;
+
   // Endereço de Entrega
   @IsString()
   @IsOptional()
