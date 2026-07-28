@@ -687,13 +687,21 @@ export class MedicaoService {
     const quantidadesCiclo =
       await this.calcularQuantidadeAprovadaPorItem(contratoId, dataRenovacao);
 
-    return itens.map((item) =>
-      anexarOs({
+    // O baseline do item (quantidade_medida / valor_migracao_reais) é zerado na
+    // renovação de ciclo, então o que estiver gravado pertence ao ciclo corrente:
+    // é migração (executado fora do sistema) + aprovações deste ciclo.
+    // Zerar esses campos aqui escondia do usuário a migração que ele acabou de
+    // cadastrar — o item aparecia sem nada medido enquanto o ciclo não tivesse
+    // medições. Mantemos o maior entre o gravado e o aprovado no ciclo: assim a
+    // migração aparece e um baseline defasado nunca reduz o que já foi aprovado.
+    return itens.map((item) => {
+      const aprovadoCiclo = quantidadesCiclo.get(item.id) || 0;
+      const baseline = Number(item.quantidade_medida) || 0;
+      return anexarOs({
         ...item,
-        quantidade_medida: quantidadesCiclo.get(item.id) || 0,
-        valor_migracao_reais: 0,
-      } as ItemCronograma),
-    );
+        quantidade_medida: Math.max(baseline, aprovadoCiclo),
+      } as ItemCronograma);
+    });
   }
 
   async criarItemCronograma(

@@ -1453,8 +1453,9 @@ export default function DetalheContratoOrgaoPage() {
                     {(contrato as any).ciclo_ativo ? (
                       Number(contrato.valor_executado_anterior || 0) > 0 && (
                         <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
-                          <p className="text-sm text-amber-700">Ajuste Migração (ciclo anterior)</p>
+                          <p className="text-sm text-amber-700">Ajuste Migração (já executado)</p>
                           <p className="text-xl font-bold text-amber-700">{formatarMoeda(contrato.valor_executado_anterior || 0)}</p>
+                          <p className="text-xs text-amber-600 mt-1">Já descontado do saldo do ciclo</p>
                           {contrato.observacao_ajuste && (
                             <p className="text-xs text-amber-600 mt-1">{contrato.observacao_ajuste}</p>
                           )}
