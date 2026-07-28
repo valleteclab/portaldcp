@@ -790,7 +790,13 @@ export class ContratosService implements OnModuleInit {
   private async obterValorComprometidoCiclo(contrato: Contrato, dataRenovacao: Date): Promise<number> {
     if (contrato.modalidade_execucao === ModalidadeExecucao.MEDICAO) {
       const { comprometido } = await this.somarValorMedicoesCiclo(contrato.id, dataRenovacao);
-      return comprometido;
+      // Migração do ciclo corrente: contrato importado de outro sistema já vem
+      // com parcelas pagas. Sem somar aqui, o saldo do ciclo fica maior que o
+      // real e o órgão consegue medir além do que o contrato ainda deve.
+      // Usa a migração DO ITEM (e não contrato.valor_executado_anterior) porque
+      // a renovação de ciclo zera valor_migracao_reais dos itens — assim a
+      // migração do sistema anterior NÃO atravessa para o ciclo seguinte.
+      return comprometido + (await this.somarMigracaoItensCronograma(contrato.id, dataRenovacao));
     }
 
     if (contrato.modalidade_execucao === ModalidadeExecucao.ORDEM_SERVICO) {
@@ -798,6 +804,62 @@ export class ContratosService implements OnModuleInit {
     }
 
     return 0;
+  }
+
+  /**
+   * Valor migrado (executado fora do sistema) do ciclo CORRENTE, por item.
+   *
+   * - MENSAL com valor_migracao_reais informado: usa o valor declarado pelo admin
+   *   (esse campo não é tocado pelas aprovações, então não há dupla contagem).
+   * - Demais: itens_cronograma.quantidade_medida acumula migração + aprovações,
+   *   então descontamos as quantidades já aprovadas NO CICLO para isolar a migração
+   *   (sem esse desconto, medição aprovada seria contada duas vezes no saldo).
+   *
+   * A renovação de ciclo zera quantidade_medida/valor_migracao_reais dos itens,
+   * de modo que a migração vinda de outro sistema não atravessa para o novo ciclo.
+   */
+  private async somarMigracaoItensCronograma(
+    contratoId: string,
+    dataRenovacao?: Date | null,
+  ): Promise<number> {
+    const corteIso = dataRenovacao
+      ? dataRenovacao.toISOString().slice(0, 10)
+      : null;
+    const row = await this.itemCronogramaRepository
+      .createQueryBuilder('ic')
+      .leftJoin(
+        (sub) =>
+          sub
+            .select('imi.item_cronograma_id', 'item_id')
+            .addSelect('COALESCE(SUM(imi.quantidade_medida), 0)', 'qtd')
+            .from('itens_medicao_item', 'imi')
+            .innerJoin('medicoes', 'm', 'm.id = imi.medicao_id')
+            .where('m.contrato_id = :contratoId')
+            .andWhere("m.status = 'APROVADA'")
+            .andWhere(
+              corteIso ? 'm.periodo_inicio >= :corteIso' : '1=1',
+              corteIso ? { corteIso } : {},
+            )
+            .groupBy('imi.item_cronograma_id'),
+        'apr',
+        'apr.item_id = ic.id',
+      )
+      .select(
+        `COALESCE(SUM(
+           CASE WHEN COALESCE(ic.valor_migracao_reais, 0) > 0
+                THEN ic.valor_migracao_reais
+                ELSE GREATEST(
+                       0,
+                       COALESCE(ic.quantidade_medida, 0) - COALESCE(apr.qtd, 0)
+                     ) * COALESCE(ic.valor_unitario, 0)
+           END
+         ), 0)`,
+        'total',
+      )
+      .where('ic.contrato_id = :contratoId', { contratoId })
+      .setParameters(corteIso ? { contratoId, corteIso } : { contratoId })
+      .getRawOne<{ total: string }>();
+    return Math.round((Number(row?.total) || 0) * 100) / 100;
   }
 
   private async somarValorOrdensServico(contratoId: string, dataInicio?: Date): Promise<number> {
