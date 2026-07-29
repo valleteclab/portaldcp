@@ -34,6 +34,40 @@ function centavosParaReaisTrunc2(centavos: number): number {
   return Number((centavos / 100).toFixed(2));
 }
 
+function diasFiscaisNoPeriodoPorValor(itens: any[] | undefined): number | null {
+  const mensais = (itens || []).filter(
+    (item: any) =>
+      String(item?.unidade || '').trim().toUpperCase() === 'MENSAL',
+  );
+  if (mensais.length === 0) return null;
+
+  let valorPeriodoCent = 0;
+  let valorTotalCent = 0;
+  for (const item of mensais) {
+    const valorUnitario = Number(item.valor_unitario) || 0;
+    valorPeriodoCent +=
+      item.valor_no_periodo !== undefined && item.valor_no_periodo !== null
+        ? Math.round(truncarMoedaReais2Casas(Number(item.valor_no_periodo)) * 100)
+        : produtoQuantidadeValorUnitarioCentavos(
+            item.quantidade_no_periodo,
+            valorUnitario,
+          );
+    valorTotalCent +=
+      item.valor_total_item !== undefined && item.valor_total_item !== null
+        ? Math.round(truncarMoedaReais2Casas(Number(item.valor_total_item)) * 100)
+        : produtoQuantidadeValorUnitarioCentavos(
+            item.quantidade_total_contrato,
+            valorUnitario,
+          );
+  }
+
+  if (valorTotalCent <= 0) return null;
+  return Math.min(
+    360,
+    Math.max(0, Math.round((valorPeriodoCent / valorTotalCent) * 360)),
+  );
+}
+
 /** EXECUÇÃO FINANCEIRA: 2 casas; trunc (sem arredondar). */
 function fmtExecFinanceira(v: number): string {
   const truncado = truncarMoedaReais2Casas(v);
@@ -827,7 +861,10 @@ export async function gerarBoletimMedicaoPdf(
     if (porQuantidade) {
       txtFiscalNoPeriodo = txtFiscalAtePeriodo = txtFiscalAExecutar = '';
     } else {
-      const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim));
+      const diasPeriodoPorValor = diasFiscaisNoPeriodoPorValor(dados.itens);
+      const diasPeriodo = diasPeriodoPorValor !== null
+        ? Math.max(1, diasPeriodoPorValor)
+        : Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim));
       txtFiscalNoPeriodo = fmtTempo(diasPeriodo);
       if (dados.execucao_fiscal) {
         txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados);
