@@ -143,6 +143,8 @@ interface EtapaItem {
 interface ItemCronograma {
   id: string;
   numero_item: number;
+  lote_numero?: number | null;
+  lote_descricao?: string | null;
   descricao: string;
   unidade_medida: string;
   quantidade: number;
@@ -632,6 +634,8 @@ export default function TabMedicao({
   });
   const [formItemCronograma, setFormItemCronograma] = useState({
     numero_item: "",
+    lote_numero: "",
+    lote_descricao: "",
     descricao: "",
     unidade_medida: "UNIDADE",
     quantidade: "",
@@ -1576,6 +1580,9 @@ export default function TabMedicao({
         Math.abs(Number(item.valor_total) - totalCalculadoItem) <= 1;
       setFormItemCronograma({
         numero_item: String(item.numero_item),
+        lote_numero:
+          item.lote_numero != null ? String(item.lote_numero) : "",
+        lote_descricao: item.lote_descricao || "",
         descricao: item.descricao,
         unidade_medida: item.unidade_medida,
         quantidade: String(item.quantidade),
@@ -1610,6 +1617,8 @@ export default function TabMedicao({
       setUnidadeClausulaBase("METROS");
       setFormItemCronograma({
         numero_item: "",
+        lote_numero: "",
+        lote_descricao: "",
         descricao: "",
         unidade_medida: "UNIDADE",
         quantidade: "",
@@ -1853,13 +1862,17 @@ export default function TabMedicao({
     setActionLoading(true);
     try {
       const payload = {
-        ...(editandoItemCronograma &&
-          formItemCronograma.numero_item !== "" && {
-            numero_item:
-              parseInt(formItemCronograma.numero_item) ||
-              editandoItemCronograma.numero_item,
-          }),
+        ...(formItemCronograma.numero_item !== "" && {
+          numero_item:
+            parseInt(formItemCronograma.numero_item) ||
+            editandoItemCronograma?.numero_item ||
+            proximoNumeroItemCronograma,
+        }),
         descricao: formItemCronograma.descricao,
+        lote_numero: formItemCronograma.lote_numero
+          ? parseInt(formItemCronograma.lote_numero, 10)
+          : null,
+        lote_descricao: formItemCronograma.lote_descricao.trim() || null,
         unidade_medida: unidadePayload,
         quantidade: qtd,
         valor_unitario: vlUnit,
@@ -3085,6 +3098,7 @@ export default function TabMedicao({
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-12">#</TableHead>
+                      <TableHead className="w-24">Lote</TableHead>
                       <TableHead className="min-w-[200px] max-w-[400px]">
                         Descrição
                       </TableHead>
@@ -3116,11 +3130,28 @@ export default function TabMedicao({
                   </TableHeader>
                   <TableBody>
                     {[...itensCronograma]
-                      .sort((a, b) => a.numero_item - b.numero_item)
+                      .sort(
+                        (a, b) =>
+                          (a.lote_numero ?? Number.MAX_SAFE_INTEGER) -
+                            (b.lote_numero ?? Number.MAX_SAFE_INTEGER) ||
+                          a.numero_item - b.numero_item,
+                      )
                       .map((i) => (
                         <TableRow key={i.id}>
                           <TableCell className="font-medium">
                             {i.numero_item}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {i.lote_numero != null ? (
+                              <Badge
+                                variant="outline"
+                                title={i.lote_descricao || undefined}
+                              >
+                                Lote {i.lote_numero}
+                              </Badge>
+                            ) : (
+                              <span className="text-gray-300">-</span>
+                            )}
                           </TableCell>
                           <TableCell className="whitespace-normal break-words min-w-[200px] max-w-[400px]">
                             {i.descricao}
@@ -4078,7 +4109,7 @@ export default function TabMedicao({
                 </span>
               </div>
             </div>
-            {editandoItemCronograma && !modoClausulaContrato && (
+            {!modoClausulaContrato && (
               <div className="space-y-2">
                 <Label>Nº Item</Label>
                 <Input
@@ -4092,10 +4123,42 @@ export default function TabMedicao({
                       numero_item: e.target.value,
                     })
                   }
+                  placeholder={String(proximoNumeroItemCronograma)}
                   className="w-24"
                 />
               </div>
             )}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Lote nº</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Ex: 1"
+                  value={formItemCronograma.lote_numero}
+                  onChange={(e) =>
+                    setFormItemCronograma({
+                      ...formItemCronograma,
+                      lote_numero: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Descrição do lote</Label>
+                <Input
+                  placeholder="Ex: Mão de obra"
+                  value={formItemCronograma.lote_descricao}
+                  onChange={(e) =>
+                    setFormItemCronograma({
+                      ...formItemCronograma,
+                      lote_descricao: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </div>
             {!modoClausulaContrato && (
               <div className="space-y-2">
                 <Label>Descrição *</Label>
@@ -5232,6 +5295,9 @@ export default function TabMedicao({
                         <TableHead className="w-12 text-center font-bold text-xs uppercase">
                           Item
                         </TableHead>
+                        <TableHead className="w-20 text-center font-bold text-xs uppercase">
+                          Lote
+                        </TableHead>
                         <TableHead className="font-bold text-xs uppercase">
                           Descrição
                         </TableHead>
@@ -5261,7 +5327,17 @@ export default function TabMedicao({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {itensCronograma.map((ic, idx) => {
+                      {[...itensCronograma]
+                        .sort(
+                          (a, b) =>
+                            (a.lote_numero ?? Number.MAX_SAFE_INTEGER) -
+                              (b.lote_numero ?? Number.MAX_SAFE_INTEGER) ||
+                            a.numero_item - b.numero_item,
+                        )
+                        .map((ic) => {
+                          const idx = itensCronograma.findIndex(
+                            (item) => item.id === ic.id,
+                          );
                         const itemState = formMedicao.itens[idx] as
                           | {
                               item_cronograma_id: string;
@@ -5305,6 +5381,18 @@ export default function TabMedicao({
                           >
                             <TableCell className="text-center font-mono text-sm font-medium">
                               {ic.numero_item}
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              {ic.lote_numero != null ? (
+                                <Badge
+                                  variant="outline"
+                                  title={ic.lote_descricao || undefined}
+                                >
+                                  {ic.lote_numero}
+                                </Badge>
+                              ) : (
+                                <span className="text-gray-300">-</span>
+                              )}
                             </TableCell>
                             <TableCell className="whitespace-normal break-words min-w-[200px]">
                               <p className="text-sm font-medium">

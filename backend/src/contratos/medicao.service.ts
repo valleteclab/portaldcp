@@ -640,7 +640,7 @@ export class MedicaoService {
     const contrato = await this.validarContratoMedicao(contratoId);
     const itens = await this.itemCronogramaRepository.find({
       where: { contrato_id: contratoId },
-      order: { numero_item: 'ASC' },
+      order: { lote_numero: 'ASC', numero_item: 'ASC' },
     });
 
     // OS de origem de cada item (contratos de publicidade/OS: itens nascem por
@@ -803,6 +803,14 @@ export class MedicaoService {
     const item = this.itemCronogramaRepository.create({
       contrato_id: contratoId,
       numero_item: numeroItem,
+      lote_numero:
+        dados.lote_numero !== undefined &&
+        dados.lote_numero !== null &&
+        Number.isFinite(Number(dados.lote_numero)) &&
+        Number(dados.lote_numero) > 0
+          ? Math.trunc(Number(dados.lote_numero))
+          : null,
+      lote_descricao: dados.lote_descricao?.trim() || null,
       descricao: dados.descricao || '',
       unidade_medida: dados.unidade_medida || 'UNIDADE',
       quantidade,
@@ -907,6 +915,8 @@ export class MedicaoService {
     const {
       frequencia_execucao: feRaw,
       numero_execucoes: neRaw,
+      lote_numero: loteNumeroRaw,
+      lote_descricao: loteDescricaoRaw,
       valor_total: _valorTotalRaw,
       preservar_valor_total: _preservarValorTotalRaw,
       ...dadosSemFreq
@@ -930,6 +940,19 @@ export class MedicaoService {
           : null;
     } else if (!isMensal) {
       item.numero_execucoes = quantidadeMeses;
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, 'lote_numero')) {
+      const loteNumero = Number(loteNumeroRaw);
+      item.lote_numero =
+        Number.isFinite(loteNumero) && loteNumero > 0
+          ? Math.trunc(loteNumero)
+          : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, 'lote_descricao')) {
+      item.lote_descricao =
+        loteDescricaoRaw != null && String(loteDescricaoRaw).trim()
+          ? String(loteDescricaoRaw).trim().slice(0, 255)
+          : null;
     }
     return this.itemCronogramaRepository.save(item);
   }
