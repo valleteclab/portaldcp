@@ -7361,6 +7361,10 @@ export class MedicaoService {
             }
           }
 
+          // Em ciclo renovado, item MENSAL só possui migração quando ela foi
+          // declarada em valor_migracao_reais. A diferença entre
+          // item.quantidade_medida e as medições aprovadas pode conter
+          // arredondamento de período parcial (ex.: 7/30) e não é baseline.
           const quantidadeMigracao =
             unidadeMedida === 'MENSAL' &&
             Number((item as any).valor_migracao_reais || 0) > 0
@@ -7368,13 +7372,15 @@ export class MedicaoService {
                 ? Number((item as any).valor_migracao_reais || 0) /
                   Number(item.valor_unitario)
                 : 0
-              : possuiMedicaoAprovadaPosteriorReferencia
+              : unidadeMedida === 'MENSAL' && dataCorteCiclo
                 ? 0
-              : Math.max(
-                  0,
-                  (Number(item.quantidade_medida) || 0) -
-                    quantidadeAprovadaHistorica,
-                );
+                : possuiMedicaoAprovadaPosteriorReferencia
+                  ? 0
+                  : Math.max(
+                      0,
+                      (Number(item.quantidade_medida) || 0) -
+                        quantidadeAprovadaHistorica,
+                    );
           const centMigracao =
             unidadeMedida === 'MENSAL' &&
             Number((item as any).valor_migracao_reais || 0) > 0
