@@ -47,6 +47,67 @@ const formatarCnpj = (valor: string | null | undefined) => {
     : digitos;
 };
 
+const composicaoPadrao = (valorUnitario: number) => {
+  const padroes = [
+    {
+      total: 12681.29,
+      salario_base: 3904.33,
+      acumulo_funcao: 0,
+      encargos: 1858.8,
+      indenizacao: 122.85,
+      ausencias_legais: 622.69,
+      aso_farda: 251.83,
+      vale_transporte: 0,
+      vale_alimentacao: 563.43,
+      taxa_administracao_lucro: 4577.46,
+      tributos: 779.9,
+    },
+    {
+      total: 7725.96,
+      salario_base: 1621,
+      acumulo_funcao: 648.4,
+      encargos: 1045.05,
+      indenizacao: 71.4,
+      ausencias_legais: 368.1,
+      aso_farda: 144.66,
+      vale_transporte: 0,
+      vale_alimentacao: 563.43,
+      taxa_administracao_lucro: 2788.77,
+      tributos: 475.15,
+    },
+    {
+      total: 13565.2,
+      salario_base: 4189.69,
+      acumulo_funcao: 0,
+      encargos: 2000.84,
+      indenizacao: 131.83,
+      ausencias_legais: 667.12,
+      aso_farda: 281.51,
+      vale_transporte: 0,
+      vale_alimentacao: 563.43,
+      taxa_administracao_lucro: 4896.52,
+      tributos: 834.26,
+    },
+  ];
+  return (
+    padroes.find(
+      (padrao) => Math.abs(padrao.total - Number(valorUnitario)) < 0.02,
+    ) || {
+      total: Number(valorUnitario),
+      salario_base: 0,
+      acumulo_funcao: 0,
+      encargos: 0,
+      indenizacao: 0,
+      ausencias_legais: 0,
+      aso_farda: 0,
+      vale_transporte: 0,
+      vale_alimentacao: 0,
+      taxa_administracao_lucro: Number(valorUnitario),
+      tributos: 0,
+    }
+  );
+};
+
 @Injectable()
 export class MedicaoEquipeService {
   constructor(
@@ -115,7 +176,7 @@ export class MedicaoEquipeService {
     }
     if (!Array.isArray(dados.funcionarios) || dados.funcionarios.length === 0) {
       throw new BadRequestException(
-        'Informe pelo menos um funcionário para o Lote 1',
+        'Informe pelo menos um funcionário',
       );
     }
 
@@ -135,22 +196,45 @@ export class MedicaoEquipeService {
       );
     }
     const itemPorId = new Map(itens.map((item) => [item.id, item]));
-    if (itens.some((item) => Number(item.lote_numero) !== 1)) {
+    const contrato = medicao.contrato;
+    if (!contrato.exige_relacao_funcionarios) {
       throw new BadRequestException(
-        'A relação de funcionários deve conter somente itens do Lote 1',
+        'Este contrato não está configurado para exigir relação de funcionários',
+      );
+    }
+    const loteConfigurado = contrato.lote_relacao_funcionarios;
+    if (
+      loteConfigurado !== null &&
+      itens.some(
+        (item) => Number(item.lote_numero) !== Number(loteConfigurado),
+      )
+    ) {
+      throw new BadRequestException(
+        `A relação de funcionários deve conter somente itens do Lote ${loteConfigurado}`,
       );
     }
 
-    const linhas = dados.funcionarios.map((entrada) =>
-      this.normalizarLinha(entrada, itemPorId.get(entrada.item_cronograma_id)!),
+    const entradasComPosto = this.atribuirPostosAutomaticamente(
+      dados.funcionarios,
+      itemPorId,
     );
+    const linhas = entradasComPosto.map((entrada) => {
+      const item = itemPorId.get(entrada.item_cronograma_id)!;
+      return this.normalizarLinha(
+        this.completarComposicaoFinanceira(entrada, item),
+        item,
+      );
+    });
     this.validarCapacidade(linhas, itemPorId);
-    await this.validarConciliacaoLinhas(medicaoId, linhas);
+    await this.validarConciliacaoLinhas(
+      medicaoId,
+      linhas,
+      loteConfigurado,
+    );
 
     let equipe = await this.equipeRepository.findOne({
       where: { medicao_id: medicaoId },
     });
-    const contrato = medicao.contrato;
     const orgaoNome =
       (contrato as any)?.orgao?.razao_social ||
       (contrato as any)?.orgao?.nome_fantasia ||
@@ -195,31 +279,50 @@ export class MedicaoEquipeService {
     return this.buscarPorMedicao(medicaoId);
   }
 
-  async validarObrigatoriaParaLote1(medicaoId: string) {
+  async validarObrigatoriaParaContrato(medicaoId: string) {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    const contrato = medicao.contrato;
+    if (!contrato?.exige_relacao_funcionarios) return;
+
     const itensMedicao = await this.itemMedicaoRepository.find({
       where: { medicao_id: medicaoId },
       relations: ['itemCronograma'],
     });
-    const possuiLote1 = itensMedicao.some(
+    const loteConfigurado = contrato.lote_relacao_funcionarios;
+    const possuiItemSujeito = itensMedicao.some(
       (item) =>
-        Number(item.itemCronograma?.lote_numero) === 1 &&
+        (loteConfigurado === null ||
+          Number(item.itemCronograma?.lote_numero) ===
+            Number(loteConfigurado)) &&
         Number(item.quantidade_medida) > 0,
     );
-    if (!possuiLote1) return;
+    if (!possuiItemSujeito) return;
 
     const equipe = await this.equipeRepository.findOne({
       where: { medicao_id: medicaoId },
       relations: ['funcionarios'],
     });
     if (!equipe || !equipe.funcionarios?.length) {
+      const complemento =
+        loteConfigurado === null ? '' : ` do Lote ${loteConfigurado}`;
       throw new BadRequestException(
-        'Informe a relação mensal de funcionários do Lote 1 antes de submeter a medição',
+        `Informe a relação mensal de funcionários${complemento} antes de submeter a medição`,
       );
     }
     await this.validarConciliacaoMedicao(medicaoId);
   }
 
   async validarConciliacaoMedicao(medicaoId: string) {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    const loteConfigurado = medicao.contrato?.lote_relacao_funcionarios;
     const equipe = await this.equipeRepository.findOne({
       where: { medicao_id: medicaoId },
       relations: ['funcionarios'],
@@ -258,12 +361,14 @@ export class MedicaoEquipeService {
     }
     for (const itemMedicao of itensMedicao) {
       if (
-        Number(itemMedicao.itemCronograma?.lote_numero) === 1 &&
+        (loteConfigurado === null ||
+          Number(itemMedicao.itemCronograma?.lote_numero) ===
+            Number(loteConfigurado)) &&
         Number(itemMedicao.quantidade_medida) > 0 &&
         !resumoEquipe.has(itemMedicao.item_cronograma_id)
       ) {
         throw new BadRequestException(
-          `O item ${itemMedicao.itemCronograma.numero_item} do Lote 1 foi medido, mas não possui funcionários vinculados`,
+          `O item ${itemMedicao.itemCronograma.numero_item} foi medido, mas não possui funcionários vinculados`,
         );
       }
     }
@@ -272,6 +377,7 @@ export class MedicaoEquipeService {
   private async validarConciliacaoLinhas(
     medicaoId: string,
     linhas: Partial<MedicaoEquipeFuncionario>[],
+    loteConfigurado: number | null,
   ) {
     const itensMedicao = await this.itemMedicaoRepository.find({
       where: { medicao_id: medicaoId },
@@ -306,12 +412,14 @@ export class MedicaoEquipeService {
     }
     for (const itemMedicao of itensMedicao) {
       if (
-        Number(itemMedicao.itemCronograma?.lote_numero) === 1 &&
+        (loteConfigurado === null ||
+          Number(itemMedicao.itemCronograma?.lote_numero) ===
+            Number(loteConfigurado)) &&
         Number(itemMedicao.quantidade_medida) > 0 &&
         !resumoEquipe.has(itemMedicao.item_cronograma_id)
       ) {
         throw new BadRequestException(
-          `O item ${itemMedicao.itemCronograma.numero_item} do Lote 1 foi medido, mas não possui funcionários vinculados`,
+          `O item ${itemMedicao.itemCronograma.numero_item} foi medido, mas não possui funcionários vinculados`,
         );
       }
     }
@@ -322,7 +430,7 @@ export class MedicaoEquipeService {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Portal DCP';
     workbook.created = new Date();
-    const sheet = workbook.addWorksheet('Medição Lote 1', {
+    const sheet = workbook.addWorksheet('Relação funcionários', {
       pageSetup: {
         orientation: 'landscape',
         paperSize: 8 as any,
@@ -668,6 +776,113 @@ export class MedicaoEquipeService {
       valor_total: valorContrato,
       observacoes: entrada.observacoes?.trim() || null,
     };
+  }
+
+  private completarComposicaoFinanceira(
+    entrada: LinhaEquipeInput,
+    item: ItemCronograma,
+  ): LinhaEquipeInput {
+    const camposFinanceiros: Array<keyof MedicaoEquipeFuncionario> = [
+      'salario_base',
+      'salario_proporcional',
+      'acumulo_funcao',
+      'salario_total',
+      'encargos',
+      'indenizacao',
+      'ausencias_legais',
+      'aso_farda',
+      'vale_transporte',
+      'vale_alimentacao',
+      'taxa_administracao_lucro',
+      'tributos',
+    ];
+    if (camposFinanceiros.some((campo) => entrada[campo] !== undefined)) {
+      return entrada;
+    }
+
+    const dias = Number(entrada.dias_trabalhados);
+    const fator = dias / 30;
+    const perfil = composicaoPadrao(Number(item.valor_unitario));
+    const proporcional = (valor: number) => dinheiro(valor * fator);
+    return {
+      ...entrada,
+      salario_base: perfil.salario_base,
+      salario_proporcional: proporcional(perfil.salario_base),
+      acumulo_funcao: proporcional(perfil.acumulo_funcao),
+      salario_total: proporcional(
+        perfil.salario_base + perfil.acumulo_funcao,
+      ),
+      encargos: proporcional(perfil.encargos),
+      indenizacao: proporcional(perfil.indenizacao),
+      ausencias_legais: proporcional(perfil.ausencias_legais),
+      aso_farda: proporcional(perfil.aso_farda),
+      vale_transporte: proporcional(perfil.vale_transporte),
+      vale_alimentacao: proporcional(perfil.vale_alimentacao),
+      taxa_administracao_lucro: proporcional(
+        perfil.taxa_administracao_lucro,
+      ),
+      tributos: proporcional(perfil.tributos),
+    };
+  }
+
+  private atribuirPostosAutomaticamente(
+    entradas: LinhaEquipeInput[],
+    itemPorId: Map<string, ItemCronograma>,
+  ): LinhaEquipeInput[] {
+    const ocupacao = new Map<string, Map<number, number>>();
+    const resultado = entradas.map((entrada) => ({ ...entrada }));
+
+    for (const entrada of resultado) {
+      const item = itemPorId.get(entrada.item_cronograma_id)!;
+      const limitePostos = Math.max(1, Math.ceil(Number(item.quantidade)));
+      const posto = Number(entrada.posto_numero || 0);
+      if (!posto) continue;
+      if (!Number.isInteger(posto) || posto < 1 || posto > limitePostos) {
+        throw new BadRequestException(
+          `Posto inválido para ${entrada.nome}. O item permite postos de 1 a ${limitePostos}`,
+        );
+      }
+      const porPosto =
+        ocupacao.get(item.id) || new Map<number, number>();
+      const diasAcumulados =
+        Number(porPosto.get(posto) || 0) +
+        Number(entrada.dias_trabalhados || 0);
+      if (diasAcumulados > 30.0001) {
+        throw new BadRequestException(
+          `O posto ${posto} do cargo "${item.descricao}" ultrapassa 30 dias no período`,
+        );
+      }
+      porPosto.set(posto, diasAcumulados);
+      ocupacao.set(item.id, porPosto);
+    }
+
+    for (const entrada of resultado) {
+      if (Number(entrada.posto_numero || 0)) continue;
+      const item = itemPorId.get(entrada.item_cronograma_id)!;
+      const limitePostos = Math.max(1, Math.ceil(Number(item.quantidade)));
+      const dias = Number(entrada.dias_trabalhados || 0);
+      const porPosto =
+        ocupacao.get(item.id) || new Map<number, number>();
+      let postoEscolhido = 0;
+      for (let posto = 1; posto <= limitePostos; posto++) {
+        if (Number(porPosto.get(posto) || 0) + dias <= 30.0001) {
+          postoEscolhido = posto;
+          break;
+        }
+      }
+      if (!postoEscolhido) {
+        throw new BadRequestException(
+          `Não há posto disponível para ${entrada.nome} no cargo "${item.descricao}". Confira os dias trabalhados`,
+        );
+      }
+      entrada.posto_numero = postoEscolhido;
+      porPosto.set(
+        postoEscolhido,
+        Number(porPosto.get(postoEscolhido) || 0) + dias,
+      );
+      ocupacao.set(item.id, porPosto);
+    }
+    return resultado;
   }
 
   private validarCapacidade(

@@ -7,7 +7,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -31141,6 +31145,15 @@ async function createMeasurement(contractId, dados) {
     body: JSON.stringify(dados)
   });
 }
+async function getPreviousTeam(contractId) {
+  return apiFetch(`/contratos/${contractId}/equipe/ultima`);
+}
+async function saveMeasurementTeam(measurementId, equipe) {
+  return apiFetch(`/medicoes/${measurementId}/equipe`, {
+    method: "PUT",
+    body: JSON.stringify(equipe)
+  });
+}
 async function submitMeasurement(measurementId) {
   return apiFetch(`/medicoes/${measurementId}/enviar`, { method: "POST" });
 }
@@ -31175,12 +31188,64 @@ async function getMeasurementStatus(measurementId) {
 var server = new Server(
   {
     name: "portaldcp-mcp",
-    version: "1.0.0"
+    version: "1.1.0"
   },
   {
     capabilities: { tools: {} }
   }
 );
+var TEAM_SCHEMA = {
+  type: "object",
+  description: "Rela\xE7\xE3o mensal exigida somente quando regras_medicao.equipe_funcionarios.exigida=true e houver execu\xE7\xE3o no lote configurado.",
+  properties: {
+    fechamento_fatura: { type: "string" },
+    responsavel_legal: { type: "string" },
+    data_emissao: {
+      type: "string",
+      description: "Data no formato YYYY-MM-DD"
+    },
+    percentual_iss: { type: "number", default: 2.5 },
+    percentual_ir: { type: "number", default: 4.8 },
+    retencao_inss: { type: "number", default: 0 },
+    funcionarios: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          item_cronograma_id: {
+            type: "string",
+            description: "UUID do item/cargo sujeito \xE0 rela\xE7\xE3o de funcion\xE1rios"
+          },
+          nome: { type: "string" },
+          posto_numero: {
+            type: "number",
+            description: "Opcional. Se omitido, o Portal DCP distribui os postos automaticamente."
+          },
+          inicio_prestacao_servicos: {
+            type: "string",
+            description: "Data YYYY-MM-DD"
+          },
+          lotacao: { type: "string" },
+          situacao: { type: "string", default: "ATIVO" },
+          carga_horaria_semanal: {
+            type: "number",
+            default: 30
+          },
+          dias_trabalhados: {
+            type: "number",
+            description: "Quantidade de dias no m\xEAs, entre 0,01 e 30"
+          }
+        },
+        required: [
+          "item_cronograma_id",
+          "nome",
+          "dias_trabalhados"
+        ]
+      }
+    }
+  },
+  required: ["funcionarios"]
+};
 var TOOLS = [
   {
     name: "list_contracts",
@@ -31193,7 +31258,7 @@ var TOOLS = [
   },
   {
     name: "get_contract",
-    description: "Retorna detalhes completos de um contrato: itens do cronograma com saldos, etapas, saldo dispon\xEDvel e as \xFAltimas 10 medi\xE7\xF5es. Use para saber o item_cronograma_id antes de criar uma medi\xE7\xE3o.",
+    description: "Retorna detalhes completos de um contrato: itens do cronograma com saldos, lote_numero, regras_medicao, etapas, saldo dispon\xEDvel e as \xFAltimas 10 medi\xE7\xF5es. Use para saber o item_cronograma_id antes de criar uma medi\xE7\xE3o.",
     inputSchema: {
       type: "object",
       properties: {
@@ -31207,7 +31272,7 @@ var TOOLS = [
   },
   {
     name: "create_measurement",
-    description: "Cria uma nova medi\xE7\xE3o (rascunho) para um contrato. Se enviar_imediatamente=true, assina digitalmente e submete para aprova\xE7\xE3o do fiscal em uma \xFAnica opera\xE7\xE3o. Para contratos CONTINUADO (servi\xE7o mensal), informe valor_medido. Para contratos ITEM_QUANTIDADE, informe itens[] com item_cronograma_id e quantidade_medida.",
+    description: "Cria uma nova medi\xE7\xE3o (rascunho) para um contrato. Se enviar_imediatamente=true, assina digitalmente e submete para aprova\xE7\xE3o do fiscal em uma \xFAnica opera\xE7\xE3o. Para contratos CONTINUADO (servi\xE7o mensal), informe valor_medido. Para contratos ITEM_QUANTIDADE, informe itens[] com item_cronograma_id e quantidade_medida. Informe equipe somente quando regras_medicao.equipe_funcionarios.exigida=true e houver execu\xE7\xE3o no lote configurado.",
     inputSchema: {
       type: "object",
       properties: {
@@ -31261,12 +31326,42 @@ var TOOLS = [
             required: ["item_cronograma_id", "quantidade_medida"]
           }
         },
+        equipe: TEAM_SCHEMA,
         enviar_imediatamente: {
           type: "boolean",
           description: "Se true, assina e envia a medi\xE7\xE3o para aprova\xE7\xE3o do fiscal imediatamente ap\xF3s criar o rascunho. Padr\xE3o: false (cria apenas o rascunho)."
         }
       },
       required: ["contract_id", "periodo_inicio", "periodo_fim"]
+    }
+  },
+  {
+    name: "get_previous_team",
+    description: "Retorna a \xFAltima rela\xE7\xE3o mensal de funcion\xE1rios de um contrato. Use como base quando o fornecedor quiser copiar a equipe do m\xEAs anterior; revise nomes, datas e dias antes de salvar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contract_id: {
+          type: "string",
+          description: "UUID do contrato"
+        }
+      },
+      required: ["contract_id"]
+    }
+  },
+  {
+    name: "save_measurement_team",
+    description: "Cria ou atualiza a rela\xE7\xE3o de funcion\xE1rios de uma medi\xE7\xE3o cujo contrato exige esse controle. A composi\xE7\xE3o financeira e os n\xFAmeros dos postos s\xE3o calculados automaticamente quando omitidos.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        measurement_id: {
+          type: "string",
+          description: "UUID da medi\xE7\xE3o em rascunho ou devolvida"
+        },
+        equipe: TEAM_SCHEMA
+      },
+      required: ["measurement_id", "equipe"]
     }
   },
   {
@@ -31344,6 +31439,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "create_measurement": {
         const { contract_id, ...dados } = args;
         result = await createMeasurement(contract_id, dados);
+        break;
+      }
+      case "get_previous_team": {
+        const { contract_id } = args;
+        result = await getPreviousTeam(contract_id);
+        break;
+      }
+      case "save_measurement_team": {
+        const { measurement_id, equipe } = args;
+        result = await saveMeasurementTeam(measurement_id, equipe);
         break;
       }
       case "submit_measurement": {

@@ -78,6 +78,8 @@ interface Contrato {
   status: string;
   categoria: string;
   modalidade_execucao: string;
+  exige_relacao_funcionarios?: boolean;
+  lote_relacao_funcionarios?: number | null;
   boletim_por_quantidade?: boolean;
   arredondar_calculo?: boolean;
   valor_global: number;
@@ -647,9 +649,15 @@ export default function FornecedorContratoDetalhePage() {
           return acc + valorItemEtapaMedicao(item, etapa);
         }, 0);
 
-  const itensLote1 = itensCronograma.filter(
-    (item) => Number(item.lote_numero) === 1,
-  );
+  const loteRelacaoFuncionarios =
+    contrato?.lote_relacao_funcionarios ?? null;
+  const itensRelacaoFuncionarios = contrato?.exige_relacao_funcionarios
+    ? itensCronograma.filter(
+        (item) =>
+          loteRelacaoFuncionarios === null ||
+          Number(item.lote_numero) === Number(loteRelacaoFuncionarios),
+      )
+    : [];
 
   const atualizarEquipeMedicao = (equipe: EquipeMedicaoForm) => {
     setEquipeMedicao(equipe);
@@ -662,7 +670,11 @@ export default function FornecedorContratoDetalhePage() {
     setNovaMedicao((anterior) => ({
       ...anterior,
       itens: itensCronograma.map((item, indice) => {
-        if (Number(item.lote_numero) === 1) {
+        if (
+          contrato?.exige_relacao_funcionarios &&
+          (loteRelacaoFuncionarios === null ||
+            Number(item.lote_numero) === Number(loteRelacaoFuncionarios))
+        ) {
           return (
             calculados.get(item.id) || {
               item_cronograma_id: item.id,
@@ -1269,8 +1281,13 @@ export default function FornecedorContratoDetalhePage() {
           setSubmitting(false);
           return;
         }
-        if (lotesAtivos.has(1) && equipeMedicao.funcionarios.length === 0) {
-          alert('Informe a relação de funcionários do Lote 1 antes de salvar a medição.');
+        const exigeEquipeNestaMedicao = itensComQtd.some((item) =>
+          itensRelacaoFuncionarios.some(
+            (itemEquipe) => itemEquipe.id === item.item_cronograma_id,
+          ),
+        );
+        if (exigeEquipeNestaMedicao && equipeMedicao.funcionarios.length === 0) {
+          alert('Informe a relação de funcionários exigida por este contrato antes de salvar a medição.');
           setSubmitting(false);
           return;
         }
@@ -1471,8 +1488,13 @@ export default function FornecedorContratoDetalhePage() {
         setSubmitting(false);
         return;
       }
-      if (lotesAtivosEnvio.has(1) && equipeMedicao.funcionarios.length === 0) {
-        alert('Informe a relação de funcionários do Lote 1 antes de enviar para ateste.');
+      const exigeEquipeNoEnvio = itensAtivosEnvio.some((item) =>
+        itensRelacaoFuncionarios.some(
+          (itemEquipe) => itemEquipe.id === item.item_cronograma_id,
+        ),
+      );
+      if (exigeEquipeNoEnvio && equipeMedicao.funcionarios.length === 0) {
+        alert('Informe a relação de funcionários exigida por este contrato antes de enviar para ateste.');
         setSubmitting(false);
         return;
       }
@@ -1839,7 +1861,7 @@ export default function FornecedorContratoDetalhePage() {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `medicao-lote-1-${medicao.numero_medicao}.${formato}`;
+    link.download = `relacao-funcionarios-medicao-${medicao.numero_medicao}.${formato}`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -3245,12 +3267,13 @@ export default function FornecedorContratoDetalhePage() {
             )}
 
             {/* Execução Fiscal e Financeira */}
-            {usarItensCronograma && itensLote1.length > 0 && (
+            {usarItensCronograma && itensRelacaoFuncionarios.length > 0 && (
               <EquipeLoteMedicao
                 contratoId={contratoId}
                 fornecedorId={fornecedor?.id || ''}
                 medicaoId={medicaoParaEditar?.id}
-                itens={itensLote1}
+                itens={itensRelacaoFuncionarios}
+                loteNumero={loteRelacaoFuncionarios}
                 value={equipeMedicao}
                 onChange={atualizarEquipeMedicao}
               />

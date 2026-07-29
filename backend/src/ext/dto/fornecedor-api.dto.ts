@@ -87,6 +87,12 @@ export class ItemCronogramaResponseDto {
 
   @ApiProperty({ example: 12000 })
   valor_total: number;
+
+  @ApiPropertyOptional({ example: 1 })
+  lote_numero?: number;
+
+  @ApiPropertyOptional({ example: 'Serviços com dedicação de mão de obra' })
+  lote_descricao?: string;
 }
 
 export class ContratoDetalheResponseDto extends ContratoResumoResponseDto {
@@ -98,6 +104,12 @@ export class ContratoDetalheResponseDto extends ContratoResumoResponseDto {
 
   @ApiProperty({ type: [ItemCronogramaResponseDto] })
   itens_cronograma: ItemCronogramaResponseDto[];
+
+  @ApiProperty({
+    description:
+      'Regras que o agente deve aplicar ao montar a medição, incluindo separação por lote e exigência de funcionários.',
+  })
+  regras_medicao: Record<string, any>;
 
   @ApiProperty({ type: 'array', items: { type: 'object' } })
   etapas: any[];
@@ -123,6 +135,61 @@ export class DiscriminacaoRequestDto {
 
   @ApiPropertyOptional({ example: 735.79 })
   valor?: number;
+}
+
+export class FuncionarioEquipeRequestDto {
+  @ApiProperty({ description: 'UUID do item/cargo sujeito à relação' })
+  item_cronograma_id: string;
+
+  @ApiProperty({ example: 'AGNALDO PEREIRA DOS SANTOS' })
+  nome: string;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description:
+      'Número da vaga. Se omitido, o Portal DCP distribui automaticamente.',
+  })
+  posto_numero?: number;
+
+  @ApiPropertyOptional({ example: '2025-09-20' })
+  inicio_prestacao_servicos?: string;
+
+  @ApiPropertyOptional({ example: 'RÁDIO E TV CÂMARA' })
+  lotacao?: string;
+
+  @ApiPropertyOptional({ example: 'ATIVO' })
+  situacao?: string;
+
+  @ApiPropertyOptional({ example: 30 })
+  carga_horaria_semanal?: number;
+
+  @ApiProperty({ example: 30, description: 'De 0,01 a 30 dias' })
+  dias_trabalhados: number;
+}
+
+export class EquipeMedicaoRequestDto {
+  @ApiPropertyOptional({
+    example: 'CÂMARA MUNICIPAL DE LUÍS EDUARDO MAGALHÃES-BA',
+  })
+  fechamento_fatura?: string;
+
+  @ApiPropertyOptional({ example: 'AUGUSTO LOPES DA ROCHA ISENSEE' })
+  responsavel_legal?: string;
+
+  @ApiPropertyOptional({ example: '2026-07-29' })
+  data_emissao?: string;
+
+  @ApiPropertyOptional({ example: 2.5 })
+  percentual_iss?: number;
+
+  @ApiPropertyOptional({ example: 4.8 })
+  percentual_ir?: number;
+
+  @ApiPropertyOptional({ example: 1430.19 })
+  retencao_inss?: number;
+
+  @ApiProperty({ type: [FuncionarioEquipeRequestDto] })
+  funcionarios: FuncionarioEquipeRequestDto[];
 }
 
 export class CriarMedicaoRequestDto {
@@ -155,6 +222,13 @@ export class CriarMedicaoRequestDto {
     description: 'Composicao financeira da despesa (ISS, despesas operacionais, servicos, etc.). Se percentuais forem informados, os valores sao calculados automaticamente a partir do valor_medido ou nota_fiscal_valor.',
   })
   discriminacoes?: DiscriminacaoRequestDto[];
+
+  @ApiPropertyOptional({
+    type: EquipeMedicaoRequestDto,
+    description:
+      'Relação mensal de funcionários. Obrigatória somente quando o contrato estiver configurado para esse controle e houver execução no lote indicado.',
+  })
+  equipe?: EquipeMedicaoRequestDto;
 
   @ApiPropertyOptional({ example: false })
   enviar_imediatamente?: boolean;

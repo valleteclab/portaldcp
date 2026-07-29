@@ -184,7 +184,7 @@ describe('MedicaoEquipeService', () => {
     expect(xlsx.length).toBeGreaterThan(10_000);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(xlsx as any);
-    const planilha = workbook.getWorksheet('Medição Lote 1')!;
+    const planilha = workbook.getWorksheet('Relação funcionários')!;
     expect(planilha.getCell('U12').formula).toContain("'Parâmetros'!J2");
     expect(planilha.getCell('R4').formula).toBe('SUM(U12:U200)');
 
@@ -203,7 +203,14 @@ describe('MedicaoEquipeService', () => {
     const serviceValidacao = new MedicaoEquipeService(
       { findOne: jest.fn().mockResolvedValue(null) } as any,
       {} as any,
-      {} as any,
+      {
+        findOne: jest.fn().mockResolvedValue({
+          contrato: {
+            exige_relacao_funcionarios: true,
+            lote_relacao_funcionarios: 1,
+          },
+        }),
+      } as any,
       {} as any,
       {} as any,
       {
@@ -218,9 +225,118 @@ describe('MedicaoEquipeService', () => {
     );
 
     await expect(
-      serviceValidacao.validarObrigatoriaParaLote1('medicao'),
+      serviceValidacao.validarObrigatoriaParaContrato('medicao'),
     ).rejects.toThrow(
       'Informe a relação mensal de funcionários do Lote 1 antes de submeter a medição',
     );
+  });
+
+  it('não solicita funcionários em contrato não configurado, mesmo que tenha Lote 1', async () => {
+    const serviceValidacao = new MedicaoEquipeService(
+      { findOne: jest.fn().mockResolvedValue(null) } as any,
+      {} as any,
+      {
+        findOne: jest.fn().mockResolvedValue({
+          contrato: {
+            exige_relacao_funcionarios: false,
+            lote_relacao_funcionarios: null,
+          },
+        }),
+      } as any,
+      {} as any,
+      {} as any,
+      {
+        find: jest.fn().mockResolvedValue([
+          {
+            item_cronograma_id: 'lote-2',
+            quantidade_medida: 1,
+            itemCronograma: { lote_numero: 1 },
+          },
+        ]),
+      } as any,
+    );
+
+    await expect(
+      serviceValidacao.validarObrigatoriaParaContrato('medicao'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('só solicita funcionários no lote indicado pela configuração do contrato', async () => {
+    const serviceValidacao = new MedicaoEquipeService(
+      { findOne: jest.fn().mockResolvedValue(null) } as any,
+      {} as any,
+      {
+        findOne: jest.fn().mockResolvedValue({
+          contrato: {
+            exige_relacao_funcionarios: true,
+            lote_relacao_funcionarios: 2,
+          },
+        }),
+      } as any,
+      {} as any,
+      {} as any,
+      {
+        find: jest.fn().mockResolvedValue([
+          {
+            item_cronograma_id: 'lote-1',
+            quantidade_medida: 1,
+            itemCronograma: { lote_numero: 1 },
+          },
+        ]),
+      } as any,
+    );
+
+    await expect(
+      serviceValidacao.validarObrigatoriaParaContrato('medicao'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('distribui postos automaticamente e reutiliza a vaga em substituição parcial', () => {
+    const itemDoisPostos = {
+      ...itens.produtor,
+      quantidade: 2,
+    };
+    const entradas = [
+      {
+        item_cronograma_id: itemDoisPostos.id,
+        nome: 'FUNCIONÁRIO A',
+        dias_trabalhados: 30,
+      },
+      {
+        item_cronograma_id: itemDoisPostos.id,
+        nome: 'FUNCIONÁRIO B',
+        dias_trabalhados: 10,
+      },
+      {
+        item_cronograma_id: itemDoisPostos.id,
+        nome: 'FUNCIONÁRIO C',
+        dias_trabalhados: 20,
+      },
+    ];
+    const resultado = (service as any).atribuirPostosAutomaticamente(
+      entradas,
+      new Map([[itemDoisPostos.id, itemDoisPostos]]),
+    );
+    expect(resultado.map((linha: any) => linha.posto_numero)).toEqual([
+      1, 2, 2,
+    ]);
+  });
+
+  it('calcula a composição financeira quando o MCP envia apenas funcionário e dias', () => {
+    const entrada = (service as any).completarComposicaoFinanceira(
+      {
+        item_cronograma_id: itens.produtor.id,
+        nome: 'FUNCIONÁRIO MCP',
+        dias_trabalhados: 10,
+      },
+      itens.produtor,
+    );
+    const normalizada = (service as any).normalizarLinha(
+      entrada,
+      itens.produtor,
+    );
+    expect(normalizada.posto_numero).toBeNull();
+    expect(normalizada.salario_proporcional).toBe(1301.44);
+    expect(normalizada.valor_total).toBe(4227.1);
   });
 });

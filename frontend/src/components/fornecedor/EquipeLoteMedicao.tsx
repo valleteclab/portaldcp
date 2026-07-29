@@ -185,6 +185,7 @@ export default function EquipeLoteMedicao({
   value,
   onChange,
   medicaoId,
+  loteNumero,
 }: {
   contratoId: string;
   fornecedorId: string;
@@ -192,6 +193,7 @@ export default function EquipeLoteMedicao({
   value: EquipeMedicaoForm;
   onChange: (value: EquipeMedicaoForm) => void;
   medicaoId?: string;
+  loteNumero?: number | null;
 }) {
   const [copiando, setCopiando] = useState(false);
   const total = useMemo(
@@ -205,12 +207,42 @@ export default function EquipeLoteMedicao({
     onChange({ ...value, funcionarios });
   };
 
+  const encontrarPostoDisponivel = (
+    item: ItemEquipeLote,
+    dias: number,
+    ignorarIndice?: number,
+  ) => {
+    const ocupacao = new Map<number, number>();
+    value.funcionarios.forEach((funcionario, indice) => {
+      if (
+        indice === ignorarIndice ||
+        funcionario.item_cronograma_id !== item.id ||
+        !funcionario.posto_numero
+      ) {
+        return;
+      }
+      ocupacao.set(
+        funcionario.posto_numero,
+        Number(ocupacao.get(funcionario.posto_numero) || 0) +
+          Number(funcionario.dias_trabalhados || 0),
+      );
+    });
+    const limite = Math.max(1, Math.ceil(Number(item.quantidade)));
+    for (let posto = 1; posto <= limite; posto++) {
+      if (Number(ocupacao.get(posto) || 0) + dias <= 30.0001) {
+        return posto;
+      }
+    }
+    return null;
+  };
+
   const adicionar = () => {
     const item = itens[0];
     if (!item) return;
     const linha = aplicarDias(
       {
         item_cronograma_id: item.id,
+        posto_numero: encontrarPostoDisponivel(item, 30),
         nome: "",
         cargo_funcao: item.descricao,
         inicio_prestacao_servicos: "",
@@ -275,7 +307,10 @@ export default function EquipeLoteMedicao({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="flex items-center gap-2 font-semibold text-amber-950">
-            <Users className="h-5 w-5" /> Relação de funcionários - Lote 1
+            <Users className="h-5 w-5" /> Relação de funcionários
+            {loteNumero !== null && loteNumero !== undefined
+              ? ` - Lote ${loteNumero}`
+              : ""}
           </h3>
           <p className="text-xs text-amber-800">
             Cada funcionário é vinculado ao cargo contratual. Dias parciais são calculados sobre 30 dias.
@@ -312,7 +347,15 @@ export default function EquipeLoteMedicao({
                     value={linha.item_cronograma_id}
                     onChange={(e) => {
                       const novoItem = itens.find((i) => i.id === e.target.value)!;
-                      const atualizada = aplicarDias({ ...linha, item_cronograma_id: novoItem.id }, novoItem, linha.dias_trabalhados);
+                      const atualizada = aplicarDias({
+                        ...linha,
+                        item_cronograma_id: novoItem.id,
+                        posto_numero: encontrarPostoDisponivel(
+                          novoItem,
+                          linha.dias_trabalhados,
+                          indice,
+                        ),
+                      }, novoItem, linha.dias_trabalhados);
                       const funcionarios = [...value.funcionarios]; funcionarios[indice] = atualizada;
                       onChange({ ...value, funcionarios });
                     }}
@@ -321,10 +364,15 @@ export default function EquipeLoteMedicao({
                   </select>
                 </div>
                 <div className="md:col-span-2"><Label>Início</Label><Input type="date" value={linha.inicio_prestacao_servicos || ""} onChange={(e) => alterarLinha(indice, { inicio_prestacao_servicos: e.target.value })} /></div>
-                <div className="md:col-span-1"><Label>Posto</Label><Input type="number" min="1" value={linha.posto_numero || ""} onChange={(e) => alterarLinha(indice, { posto_numero: Number(e.target.value) || null })} /></div>
+                <div className="md:col-span-1"><Label>Posto</Label><Input type="number" min="1" max={Math.max(1, Math.ceil(Number(item.quantidade)))} placeholder="Auto" value={linha.posto_numero || ""} onChange={(e) => alterarLinha(indice, { posto_numero: Number(e.target.value) || null })} /></div>
                 <div className="md:col-span-1"><Label>Dias</Label><Input type="number" min="0.01" max="30" step="0.01" value={linha.dias_trabalhados} onChange={(e) => {
                   const dias = Number(e.target.value) || 0;
-                  const funcionarios = [...value.funcionarios]; funcionarios[indice] = aplicarDias(linha, item, dias);
+                  const funcionarios = [...value.funcionarios]; funcionarios[indice] = aplicarDias({
+                    ...linha,
+                    posto_numero:
+                      encontrarPostoDisponivel(item, dias, indice) ||
+                      linha.posto_numero,
+                  }, item, dias);
                   onChange({ ...value, funcionarios });
                 }} /></div>
                 <div className="md:col-span-1"><Label>C.H.</Label><Input type="number" value={linha.carga_horaria_semanal} onChange={(e) => alterarLinha(indice, { carga_horaria_semanal: Number(e.target.value) || 0 })} /></div>

@@ -93,6 +93,8 @@ export default function EditarContratoPage() {
     modalidade_licitacao: '',
     boletim_por_quantidade: false,
     arredondar_calculo: true,
+    exige_relacao_funcionarios: false,
+    lote_relacao_funcionarios: '',
   })
 
   // Remuneração de publicidade (Lei 12.232/2010)
@@ -164,6 +166,10 @@ export default function EditarContratoPage() {
           modalidade_licitacao: contrato.licitacao?.modalidade || contrato.modalidade_licitacao || '__NONE__',
           boletim_por_quantidade: contrato.boletim_por_quantidade || false,
           arredondar_calculo: contrato.arredondar_calculo ?? true,
+          exige_relacao_funcionarios:
+            contrato.exige_relacao_funcionarios || false,
+          lote_relacao_funcionarios:
+            contrato.lote_relacao_funcionarios?.toString() || '',
         })
         // Remuneração de publicidade
         const rp = contrato.remuneracao_publicidade
@@ -359,6 +365,12 @@ export default function EditarContratoPage() {
         modalidade_licitacao: (formData.modalidade_licitacao && formData.modalidade_licitacao !== '__NONE__') ? formData.modalidade_licitacao : null,
         boletim_por_quantidade: formData.boletim_por_quantidade || false,
         arredondar_calculo: formData.arredondar_calculo ?? true,
+        exige_relacao_funcionarios: formData.exige_relacao_funcionarios,
+        lote_relacao_funcionarios:
+          formData.exige_relacao_funcionarios &&
+          formData.lote_relacao_funcionarios
+            ? Number(formData.lote_relacao_funcionarios)
+            : null,
       }
 
       // Remuneração de publicidade (Lei 12.232/2010)
@@ -531,6 +543,36 @@ export default function EditarContratoPage() {
                 </Label>
               </div>
             )}
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="exige_relacao_funcionarios"
+                  checked={formData.exige_relacao_funcionarios}
+                  onChange={(e) => handleInputChange('exige_relacao_funcionarios', e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="exige_relacao_funcionarios" className="cursor-pointer font-normal text-sm">
+                  Exigir relação mensal de funcionários na medição
+                </Label>
+              </div>
+              {formData.exige_relacao_funcionarios && (
+                <div className="ml-6 max-w-xs space-y-1">
+                  <Label htmlFor="lote_relacao_funcionarios">Lote dos funcionários (opcional)</Label>
+                  <Input
+                    id="lote_relacao_funcionarios"
+                    type="number"
+                    min="1"
+                    placeholder="Ex.: 1"
+                    value={formData.lote_relacao_funcionarios}
+                    onChange={(e) => handleInputChange('lote_relacao_funcionarios', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Deixe vazio quando a regra valer para todos os itens do contrato.
+                  </p>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2 pt-2">
               <input
                 type="checkbox"

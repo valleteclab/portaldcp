@@ -10,6 +10,8 @@ import {
   listContracts,
   getContract,
   createMeasurement,
+  getPreviousTeam,
+  saveMeasurementTeam,
   submitMeasurement,
   uploadDocument,
   getMeasurementStatus,
@@ -18,12 +20,67 @@ import {
 const server = new Server(
   {
     name: 'portaldcp-mcp',
-    version: '1.0.0',
+    version: '1.1.0',
   },
   {
     capabilities: { tools: {} },
   },
 );
+
+const TEAM_SCHEMA = {
+  type: 'object' as const,
+  description:
+    'Relação mensal exigida somente quando regras_medicao.equipe_funcionarios.exigida=true e houver execução no lote configurado.',
+  properties: {
+    fechamento_fatura: { type: 'string' as const },
+    responsavel_legal: { type: 'string' as const },
+    data_emissao: {
+      type: 'string' as const,
+      description: 'Data no formato YYYY-MM-DD',
+    },
+    percentual_iss: { type: 'number' as const, default: 2.5 },
+    percentual_ir: { type: 'number' as const, default: 4.8 },
+    retencao_inss: { type: 'number' as const, default: 0 },
+    funcionarios: {
+      type: 'array' as const,
+      items: {
+        type: 'object' as const,
+        properties: {
+          item_cronograma_id: {
+            type: 'string' as const,
+            description: 'UUID do item/cargo sujeito à relação de funcionários',
+          },
+          nome: { type: 'string' as const },
+          posto_numero: {
+            type: 'number' as const,
+            description:
+              'Opcional. Se omitido, o Portal DCP distribui os postos automaticamente.',
+          },
+          inicio_prestacao_servicos: {
+            type: 'string' as const,
+            description: 'Data YYYY-MM-DD',
+          },
+          lotacao: { type: 'string' as const },
+          situacao: { type: 'string' as const, default: 'ATIVO' },
+          carga_horaria_semanal: {
+            type: 'number' as const,
+            default: 30,
+          },
+          dias_trabalhados: {
+            type: 'number' as const,
+            description: 'Quantidade de dias no mês, entre 0,01 e 30',
+          },
+        },
+        required: [
+          'item_cronograma_id',
+          'nome',
+          'dias_trabalhados',
+        ],
+      },
+    },
+  },
+  required: ['funcionarios'],
+};
 
 const TOOLS: Tool[] = [
   {
@@ -41,7 +98,7 @@ const TOOLS: Tool[] = [
     name: 'get_contract',
     description:
       'Retorna detalhes completos de um contrato: itens do cronograma com saldos, ' +
-      'etapas, saldo disponível e as últimas 10 medições. ' +
+      'lote_numero, regras_medicao, etapas, saldo disponível e as últimas 10 medições. ' +
       'Use para saber o item_cronograma_id antes de criar uma medição.',
     inputSchema: {
       type: 'object',
@@ -60,7 +117,8 @@ const TOOLS: Tool[] = [
       'Cria uma nova medição (rascunho) para um contrato. ' +
       'Se enviar_imediatamente=true, assina digitalmente e submete para aprovação do fiscal em uma única operação. ' +
       'Para contratos CONTINUADO (serviço mensal), informe valor_medido. ' +
-      'Para contratos ITEM_QUANTIDADE, informe itens[] com item_cronograma_id e quantidade_medida.',
+      'Para contratos ITEM_QUANTIDADE, informe itens[] com item_cronograma_id e quantidade_medida. ' +
+      'Informe equipe somente quando regras_medicao.equipe_funcionarios.exigida=true e houver execução no lote configurado.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -114,6 +172,7 @@ const TOOLS: Tool[] = [
             required: ['item_cronograma_id', 'quantidade_medida'],
           },
         },
+        equipe: TEAM_SCHEMA,
         enviar_imediatamente: {
           type: 'boolean',
           description:
@@ -122,6 +181,39 @@ const TOOLS: Tool[] = [
         },
       },
       required: ['contract_id', 'periodo_inicio', 'periodo_fim'],
+    },
+  },
+  {
+    name: 'get_previous_team',
+    description:
+      'Retorna a última relação mensal de funcionários de um contrato. ' +
+      'Use como base quando o fornecedor quiser copiar a equipe do mês anterior; revise nomes, datas e dias antes de salvar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contract_id: {
+          type: 'string',
+          description: 'UUID do contrato',
+        },
+      },
+      required: ['contract_id'],
+    },
+  },
+  {
+    name: 'save_measurement_team',
+    description:
+      'Cria ou atualiza a relação de funcionários de uma medição cujo contrato exige esse controle. ' +
+      'A composição financeira e os números dos postos são calculados automaticamente quando omitidos.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        measurement_id: {
+          type: 'string',
+          description: 'UUID da medição em rascunho ou devolvida',
+        },
+        equipe: TEAM_SCHEMA,
+      },
+      required: ['measurement_id', 'equipe'],
     },
   },
   {
@@ -220,9 +312,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           observacoes?: string;
           valor_medido?: number;
           itens?: Array<{ item_cronograma_id: string; quantidade_medida: number }>;
+          equipe?: any;
           enviar_imediatamente?: boolean;
         };
         result = await createMeasurement(contract_id, dados);
+        break;
+      }
+
+      case 'get_previous_team': {
+        const { contract_id } = args as { contract_id: string };
+        result = await getPreviousTeam(contract_id);
+        break;
+      }
+
+      case 'save_measurement_team': {
+        const { measurement_id, equipe } = args as {
+          measurement_id: string;
+          equipe: any;
+        };
+        result = await saveMeasurementTeam(measurement_id, equipe);
         break;
       }
 

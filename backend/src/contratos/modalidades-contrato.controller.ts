@@ -752,7 +752,7 @@ export class ModalidadesContratoController {
     const arquivo = await this.medicaoEquipeService.gerarXlsx(medicaoId);
     return new StreamableFile(arquivo, {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      disposition: `attachment; filename="medicao-lote-1-${medicao.numero_medicao}.xlsx"`,
+      disposition: `attachment; filename="relacao-funcionarios-medicao-${medicao.numero_medicao}.xlsx"`,
     });
   }
 
@@ -770,7 +770,7 @@ export class ModalidadesContratoController {
     const arquivo = await this.medicaoEquipeService.gerarPdf(medicaoId);
     return new StreamableFile(arquivo, {
       type: 'application/pdf',
-      disposition: `attachment; filename="medicao-lote-1-${medicao.numero_medicao}.pdf"`,
+      disposition: `attachment; filename="relacao-funcionarios-medicao-${medicao.numero_medicao}.pdf"`,
     });
   }
 

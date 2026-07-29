@@ -6,6 +6,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.listContracts = listContracts;
 exports.getContract = getContract;
 exports.createMeasurement = createMeasurement;
+exports.getPreviousTeam = getPreviousTeam;
+exports.saveMeasurementTeam = saveMeasurementTeam;
 exports.submitMeasurement = submitMeasurement;
 exports.uploadDocument = uploadDocument;
 exports.getMeasurementStatus = getMeasurementStatus;
@@ -53,6 +55,15 @@ async function createMeasurement(contractId, dados) {
     return apiFetch(`/contratos/${contractId}/medicoes`, {
         method: 'POST',
         body: JSON.stringify(dados),
+    });
+}
+async function getPreviousTeam(contractId) {
+    return apiFetch(`/contratos/${contractId}/equipe/ultima`);
+}
+async function saveMeasurementTeam(measurementId, equipe) {
+    return apiFetch(`/medicoes/${measurementId}/equipe`, {
+        method: 'PUT',
+        body: JSON.stringify(equipe),
     });
 }
 async function submitMeasurement(measurementId) {

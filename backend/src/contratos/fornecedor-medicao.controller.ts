@@ -194,7 +194,7 @@ export class FornecedorMedicaoController {
     const arquivo = await this.medicaoEquipeService.gerarXlsx(medicaoId);
     return new StreamableFile(arquivo, {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      disposition: `attachment; filename="medicao-lote-1-${medicao.numero_medicao}.xlsx"`,
+      disposition: `attachment; filename="relacao-funcionarios-medicao-${medicao.numero_medicao}.xlsx"`,
     });
   }
 
@@ -211,7 +211,7 @@ export class FornecedorMedicaoController {
     const arquivo = await this.medicaoEquipeService.gerarPdf(medicaoId);
     return new StreamableFile(arquivo, {
       type: 'application/pdf',
-      disposition: `attachment; filename="medicao-lote-1-${medicao.numero_medicao}.pdf"`,
+      disposition: `attachment; filename="relacao-funcionarios-medicao-${medicao.numero_medicao}.pdf"`,
     });
   }
 
@@ -302,7 +302,7 @@ export class FornecedorMedicaoController {
       medicao.contrato_id,
       body.fornecedor_id,
     );
-    await this.medicaoEquipeService.validarObrigatoriaParaLote1(medicaoId);
+    await this.medicaoEquipeService.validarObrigatoriaParaContrato(medicaoId);
     return this.medicaoService.submeterMedicao(medicaoId, body.fornecedor_id, body);
   }
 
@@ -762,7 +762,7 @@ export class FornecedorMedicaoController {
       medicao.contrato_id,
       body.fornecedor_id,
     );
-    await this.medicaoEquipeService.validarObrigatoriaParaLote1(medicaoId);
+    await this.medicaoEquipeService.validarObrigatoriaParaContrato(medicaoId);
     return this.medicaoService.validarOtpAssinaturaMedicao(medicaoId, body.fornecedor_id, body.codigo);
   }
 

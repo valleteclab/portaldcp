@@ -131,6 +131,12 @@ export class Contrato {
   })
   modalidade_execucao: ModalidadeExecucao;
 
+  @Column({ type: 'boolean', default: false })
+  exige_relacao_funcionarios: boolean;
+
+  @Column({ type: 'int', nullable: true, default: null })
+  lote_relacao_funcionarios: number | null;
+
   @Column({
     type: 'enum',
     enum: StatusContrato,

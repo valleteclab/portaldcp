@@ -57,12 +57,48 @@ export async function createMeasurement(
     observacoes?: string;
     valor_medido?: number;
     itens?: Array<{ item_cronograma_id: string; quantidade_medida: number }>;
+    equipe?: MeasurementTeamInput;
     enviar_imediatamente?: boolean;
   },
 ): Promise<any> {
   return apiFetch(`/contratos/${contractId}/medicoes`, {
     method: 'POST',
     body: JSON.stringify(dados),
+  });
+}
+
+export interface MeasurementEmployeeInput {
+  item_cronograma_id: string;
+  nome: string;
+  posto_numero?: number;
+  inicio_prestacao_servicos?: string;
+  lotacao?: string;
+  situacao?: string;
+  carga_horaria_semanal?: number;
+  dias_trabalhados: number;
+}
+
+export interface MeasurementTeamInput {
+  fechamento_fatura?: string;
+  responsavel_legal?: string;
+  data_emissao?: string;
+  percentual_iss?: number;
+  percentual_ir?: number;
+  retencao_inss?: number;
+  funcionarios: MeasurementEmployeeInput[];
+}
+
+export async function getPreviousTeam(contractId: string): Promise<any> {
+  return apiFetch(`/contratos/${contractId}/equipe/ultima`);
+}
+
+export async function saveMeasurementTeam(
+  measurementId: string,
+  equipe: MeasurementTeamInput,
+): Promise<any> {
+  return apiFetch(`/medicoes/${measurementId}/equipe`, {
+    method: 'PUT',
+    body: JSON.stringify(equipe),
   });
 }
 

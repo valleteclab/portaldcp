@@ -765,7 +765,7 @@ export default function TabMedicao({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `medicao-lote-1-${modalDetalhe.numero_medicao}.${formato}`;
+      link.download = `relacao-funcionarios-medicao-${modalDetalhe.numero_medicao}.${formato}`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (erro) {
@@ -7524,7 +7524,7 @@ export default function TabMedicao({
               {equipeDetalheDisponivel && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
                   <p className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">
-                    Relação mensal de funcionários — Lote 1
+                    Relação mensal de funcionários
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button
