@@ -19,7 +19,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import * as path from 'path';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -41,12 +41,14 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
+import { MedicaoEquipeService } from './medicao-equipe.service';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
 export class ModalidadesContratoController {
   constructor(
     private readonly medicaoService: MedicaoService,
+    private readonly medicaoEquipeService: MedicaoEquipeService,
     private readonly atestacaoService: AtestacaoService,
     private readonly licencaService: LicencaControleService,
     private readonly osService: OrdemServicoContratoService,
@@ -83,6 +85,24 @@ export class ModalidadesContratoController {
       return orgaoId;
     }
     throw new ForbiddenException('NÃ£o foi possÃ­vel identificar o Ã³rgÃ£o do usuÃ¡rio');
+  }
+
+  private async validarAcessoMedicaoOrgao(
+    medicaoId: string,
+    user: JwtPayload,
+    orgaoIdParam?: string,
+  ): Promise<Medicao> {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+    });
+    if (!contrato) {
+      throw new NotFoundException('Contrato não encontrado');
+    }
+    if (contrato.orgao_id !== this.getOrgaoId(user, orgaoIdParam)) {
+      throw new ForbiddenException('Você não tem acesso a esta medição');
+    }
+    return medicao;
   }
 
   private parseNumerosEmpenhos(valor: unknown): string[] {
@@ -702,6 +722,56 @@ export class ModalidadesContratoController {
   @Get('medicoes/:medicaoId')
   async buscarMedicao(@Param('medicaoId') medicaoId: string) {
     return this.medicaoService.buscarMedicao(medicaoId);
+  }
+
+  @Get('medicoes/:medicaoId/equipe')
+  async buscarEquipeMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    await this.validarAcessoMedicaoOrgao(
+      medicaoId,
+      request.user,
+      orgaoIdParam,
+    );
+    return this.medicaoEquipeService.buscarPorMedicao(medicaoId);
+  }
+
+  @Get('medicoes/:medicaoId/equipe/xlsx')
+  async baixarEquipeXlsx(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const medicao = await this.validarAcessoMedicaoOrgao(
+      medicaoId,
+      request.user,
+      orgaoIdParam,
+    );
+    const arquivo = await this.medicaoEquipeService.gerarXlsx(medicaoId);
+    return new StreamableFile(arquivo, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="medicao-lote-1-${medicao.numero_medicao}.xlsx"`,
+    });
+  }
+
+  @Get('medicoes/:medicaoId/equipe/pdf')
+  async baixarEquipePdf(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const medicao = await this.validarAcessoMedicaoOrgao(
+      medicaoId,
+      request.user,
+      orgaoIdParam,
+    );
+    const arquivo = await this.medicaoEquipeService.gerarPdf(medicaoId);
+    return new StreamableFile(arquivo, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="medicao-lote-1-${medicao.numero_medicao}.pdf"`,
+    });
   }
 
   @Get('medicoes/:medicaoId/boletim-oficial/download')

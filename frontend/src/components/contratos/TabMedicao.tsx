@@ -49,6 +49,7 @@ import {
   Trash2,
   BarChart3,
   FileText,
+  FileSpreadsheet,
   AlertTriangle,
   Calendar,
   MapPin,
@@ -525,6 +526,7 @@ export default function TabMedicao({
   const [modalDevolver, setModalDevolver] = useState<Medicao | null>(null);
   const [modalDetalhe, setModalDetalhe] = useState<Medicao | null>(null);
   const [discriminacoesDetalhe, setDiscriminacoesDetalhe] = useState<any[]>([]);
+  const [equipeDetalheDisponivel, setEquipeDetalheDisponivel] = useState(false);
   const [execucaoFinanceira, setExecucaoFinanceira] = useState<any>(null);
   const [editandoDiscriminacao, setEditandoDiscriminacao] = useState<
     string | null
@@ -725,23 +727,54 @@ export default function TabMedicao({
     setModalDetalhe(m);
     setAnexosMedicao([]);
     setDiscriminacoesDetalhe([]);
+    setEquipeDetalheDisponivel(false);
     setExecucaoFinanceira(null);
     setEditandoDiscriminacao(null);
     setMotivoCorrecao("");
     setLoadingAnexos(true);
     try {
-      const [anexosRes, discRes, execRes] = await Promise.all([
+      const [anexosRes, discRes, execRes, equipeRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/anexos`),
         authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/discriminacoes`),
         authFetch(
           `${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${m.id}`,
         ),
+        authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/equipe`),
       ]);
       if (anexosRes.ok) setAnexosMedicao(await anexosRes.json());
       if (discRes.ok) setDiscriminacoesDetalhe(await discRes.json());
       if (execRes.ok) setExecucaoFinanceira(await execRes.json());
+      if (equipeRes.ok) {
+        setEquipeDetalheDisponivel(Boolean(await equipeRes.json()));
+      }
     } catch {}
     setLoadingAnexos(false);
+  };
+
+  const baixarRelacaoEquipe = async (formato: "xlsx" | "pdf") => {
+    if (!modalDetalhe) return;
+    try {
+      const resposta = await authFetch(
+        `${API_URL}/api/contratos/medicoes/${modalDetalhe.id}/equipe/${formato}`,
+      );
+      if (!resposta.ok) {
+        const erro = await resposta.json().catch(() => null);
+        throw new Error(erro?.message || "Não foi possível gerar o arquivo");
+      }
+      const blob = await resposta.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `medicao-lote-1-${modalDetalhe.numero_medicao}.${formato}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (erro) {
+      alert(
+        erro instanceof Error
+          ? erro.message
+          : "Erro ao baixar a relação da equipe",
+      );
+    }
   };
 
   const handleCorrigirDiscriminacao = async (
@@ -7487,6 +7520,34 @@ export default function TabMedicao({
                   </p>
                 </div>
               </div>
+
+              {equipeDetalheDisponivel && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">
+                    Relação mensal de funcionários — Lote 1
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => baixarRelacaoEquipe("xlsx")}
+                    >
+                      <FileSpreadsheet className="mr-2 h-4 w-4" />
+                      Baixar Excel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => baixarRelacaoEquipe("pdf")}
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      Baixar PDF
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Itens da Medição (Cronograma) */}
               {(modalDetalhe as any).itens &&

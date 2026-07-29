@@ -14,6 +14,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  StreamableFile,
 } from '@nestjs/common';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -29,6 +30,7 @@ import { In, Repository } from 'typeorm';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { AnexoMedicao, TipoAnexoMedicao } from './entities/anexo-medicao.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
+import { MedicaoEquipeService } from './medicao-equipe.service';
 
 // Diretório de uploads — mesmo do UploadModule
 const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
@@ -51,6 +53,7 @@ export class FornecedorMedicaoController {
     private readonly contratosService: ContratosService,
     private readonly uploadService: UploadService,
     private readonly medicaoChatService: MedicaoChatService,
+    private readonly medicaoEquipeService: MedicaoEquipeService,
     @InjectRepository(Contrato)
     private readonly contratoRepository: Repository<Contrato>,
     @InjectRepository(AnexoMedicao)
@@ -149,6 +152,69 @@ export class FornecedorMedicaoController {
    * Busca detalhe de uma medição.
    * GET /api/fornecedor/contratos/medicoes/:medicaoId
    */
+  @Get('medicoes/:medicaoId/equipe')
+  async buscarEquipeMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    if (!fornecedorId) {
+      throw new BadRequestException('fornecedorId é obrigatório');
+    }
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    await this.validarAcessoFornecedor(medicao.contrato_id, fornecedorId);
+    return this.medicaoEquipeService.buscarPorMedicao(medicaoId);
+  }
+
+  @Put('medicoes/:medicaoId/equipe')
+  async salvarEquipeMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: any,
+  ) {
+    if (!body.fornecedor_id) {
+      throw new BadRequestException('fornecedor_id é obrigatório');
+    }
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    await this.validarAcessoFornecedor(
+      medicao.contrato_id,
+      body.fornecedor_id,
+    );
+    return this.medicaoEquipeService.salvar(medicaoId, body);
+  }
+
+  @Get('medicoes/:medicaoId/equipe/xlsx')
+  async baixarEquipeXlsx(
+    @Param('medicaoId') medicaoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    if (!fornecedorId) {
+      throw new BadRequestException('fornecedorId é obrigatório');
+    }
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    await this.validarAcessoFornecedor(medicao.contrato_id, fornecedorId);
+    const arquivo = await this.medicaoEquipeService.gerarXlsx(medicaoId);
+    return new StreamableFile(arquivo, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="medicao-lote-1-${medicao.numero_medicao}.xlsx"`,
+    });
+  }
+
+  @Get('medicoes/:medicaoId/equipe/pdf')
+  async baixarEquipePdf(
+    @Param('medicaoId') medicaoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+  ) {
+    if (!fornecedorId) {
+      throw new BadRequestException('fornecedorId é obrigatório');
+    }
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    await this.validarAcessoFornecedor(medicao.contrato_id, fornecedorId);
+    const arquivo = await this.medicaoEquipeService.gerarPdf(medicaoId);
+    return new StreamableFile(arquivo, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="medicao-lote-1-${medicao.numero_medicao}.pdf"`,
+    });
+  }
+
   @Get('medicoes/:medicaoId')
   async buscarMedicao(@Param('medicaoId') medicaoId: string) {
     return this.medicaoService.buscarMedicao(medicaoId);
@@ -228,6 +294,15 @@ export class FornecedorMedicaoController {
       nota_fiscal_data?: string;
     },
   ) {
+    if (!body.fornecedor_id) {
+      throw new BadRequestException('fornecedor_id é obrigatório');
+    }
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    await this.validarAcessoFornecedor(
+      medicao.contrato_id,
+      body.fornecedor_id,
+    );
+    await this.medicaoEquipeService.validarObrigatoriaParaLote1(medicaoId);
     return this.medicaoService.submeterMedicao(medicaoId, body.fornecedor_id, body);
   }
 
@@ -582,6 +657,22 @@ export class FornecedorMedicaoController {
    * Lista medições de um contrato (filtrado pelo fornecedor).
    * GET /api/fornecedor/contratos/:contratoId/medicoes?fornecedorId=X
    */
+  @Get(':contratoId/equipe/ultima')
+  async buscarUltimaEquipeContrato(
+    @Param('contratoId') contratoId: string,
+    @Query('fornecedorId') fornecedorId: string,
+    @Query('excluirMedicaoId') excluirMedicaoId?: string,
+  ) {
+    if (!fornecedorId) {
+      throw new BadRequestException('fornecedorId é obrigatório');
+    }
+    await this.validarAcessoFornecedor(contratoId, fornecedorId);
+    return this.medicaoEquipeService.buscarUltimaEquipe(
+      contratoId,
+      excluirMedicaoId,
+    );
+  }
+
   @Get(':contratoId/medicoes')
   async listarMedicoes(
     @Param('contratoId') contratoId: string,
@@ -666,6 +757,12 @@ export class FornecedorMedicaoController {
   ) {
     if (!body.fornecedor_id) throw new BadRequestException('fornecedor_id é obrigatório');
     if (!body.codigo) throw new BadRequestException('codigo é obrigatório');
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    await this.validarAcessoFornecedor(
+      medicao.contrato_id,
+      body.fornecedor_id,
+    );
+    await this.medicaoEquipeService.validarObrigatoriaParaLote1(medicaoId);
     return this.medicaoService.validarOtpAssinaturaMedicao(medicaoId, body.fornecedor_id, body.codigo);
   }
 

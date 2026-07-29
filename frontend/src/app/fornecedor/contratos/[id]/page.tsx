@@ -4,6 +4,11 @@ import { useState, useEffect, Fragment } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import PreOsFornecedorSection from '@/components/fornecedor/PreOsFornecedorSection';
+import EquipeLoteMedicao, {
+  calcularItensEquipe,
+  equipeVazia,
+  type EquipeMedicaoForm,
+} from '@/components/fornecedor/EquipeLoteMedicao';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -57,6 +62,7 @@ import {
   Copy,
   ShoppingCart,
   ExternalLink,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
 import { textoFrequenciaNaTela, textoUnidadeCronogramaNaTela } from '@/lib/cronograma-contrato';
@@ -127,6 +133,8 @@ type ItemMedicaoCronogramaState = {
 interface ItemCronograma {
   id: string;
   numero_item: number;
+  lote_numero?: number | null;
+  lote_descricao?: string | null;
   descricao: string;
   unidade_medida: string;
   quantidade: number;
@@ -545,6 +553,9 @@ export default function FornecedorContratoDetalhePage() {
     valor_medido: '',
     itens: [] as (ItemMedicaoEtapaState | ItemMedicaoCronogramaState)[],
   });
+  const [equipeMedicao, setEquipeMedicao] = useState<EquipeMedicaoForm>(
+    equipeVazia(),
+  );
   // Discriminação de Despesas
   const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([]);
   // Medição por OS (publicidade): fornecedor escolhe a OS autorizada que está medindo
@@ -635,6 +646,41 @@ export default function FornecedorContratoDetalhePage() {
           if (!etapa || !('etapa_id' in item)) return acc;
           return acc + valorItemEtapaMedicao(item, etapa);
         }, 0);
+
+  const itensLote1 = itensCronograma.filter(
+    (item) => Number(item.lote_numero) === 1,
+  );
+
+  const atualizarEquipeMedicao = (equipe: EquipeMedicaoForm) => {
+    setEquipeMedicao(equipe);
+    const calculados = new Map(
+      calcularItensEquipe(equipe.funcionarios).map((item) => [
+        item.item_cronograma_id,
+        item,
+      ]),
+    );
+    setNovaMedicao((anterior) => ({
+      ...anterior,
+      itens: itensCronograma.map((item, indice) => {
+        if (Number(item.lote_numero) === 1) {
+          return (
+            calculados.get(item.id) || {
+              item_cronograma_id: item.id,
+              quantidade_medida: 0,
+              modo_input: 'quantidade' as const,
+              valor_override: 0,
+            }
+          );
+        }
+        return (
+          anterior.itens[indice] || {
+            item_cronograma_id: item.id,
+            quantidade_medida: 0,
+          }
+        );
+      }),
+    }));
+  };
 
   // Determina o tipo de medição atual com base nos itens já preenchidos (mensal vs quantidade)
   const tipoMedicaoAtual: 'mensal' | 'quantidade' | null = (() => {
@@ -1209,6 +1255,25 @@ export default function FornecedorContratoDetalhePage() {
             valor_medido_override: i.valor_override,
           }));
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        const lotesAtivos = new Set(
+          itensComQtd.map((item) =>
+            Number(
+              itensCronograma.find(
+                (cronograma) => cronograma.id === item.item_cronograma_id,
+              )?.lote_numero || 0,
+            ),
+          ),
+        );
+        if (lotesAtivos.size > 1) {
+          alert('Os lotes devem ser medidos separadamente. Mantenha nesta medição somente os itens de um lote.');
+          setSubmitting(false);
+          return;
+        }
+        if (lotesAtivos.has(1) && equipeMedicao.funcionarios.length === 0) {
+          alert('Informe a relação de funcionários do Lote 1 antes de salvar a medição.');
+          setSubmitting(false);
+          return;
+        }
         // Validar que não há mistura de tipos (mensal vs quantidade)
         const itensMensaisNoSubmit = itensComQtd.filter(item => {
           const ic = itensCronograma.find(c => c.id === item.item_cronograma_id);
@@ -1269,6 +1334,32 @@ export default function FornecedorContratoDetalhePage() {
 
       if (res.ok) {
         const medicaoSalva = await res.json();
+        if (equipeMedicao.funcionarios.length > 0 && medicaoSalva?.id) {
+          const respostaEquipe = await authFetch(
+            `${API_URL}/api/fornecedor/contratos/medicoes/${medicaoSalva.id}/equipe`,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...equipeMedicao,
+                fornecedor_id: fornecedor.id,
+                empresa_nome: fornecedor.razao_social || fornecedor.nome,
+                empresa_cnpj: fornecedor.cnpj || fornecedor.cpf_cnpj,
+                competencia: novaMedicao.competencia,
+                periodo_inicio: novaMedicao.periodo_inicio,
+                periodo_fim: novaMedicao.periodo_fim,
+              }),
+            },
+          );
+          if (!respostaEquipe.ok) {
+            const erroEquipe = await respostaEquipe.json().catch(() => ({}));
+            setMedicaoParaEditar(medicaoSalva);
+            throw new Error(
+              erroEquipe.message ||
+                'A medição foi salva como rascunho, mas a equipe precisa ser corrigida.',
+            );
+          }
+        }
         if (discriminacoes.length > 0 && medicaoSalva?.id) {
           try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoSalva.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
         }
@@ -1278,6 +1369,7 @@ export default function FornecedorContratoDetalhePage() {
         }
         setModalNovaMedicao(false);
         setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+        setEquipeMedicao(equipeVazia());
         setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]); setMedicaoParaEditar(null); carregarDados();
         
         if (medicaoParaEditar) {
@@ -1287,7 +1379,7 @@ export default function FornecedorContratoDetalhePage() {
         const err = await res.json(); alert(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
       }
     } catch (error) {
-      alert(`Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+      alert(error instanceof Error ? error.message : `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
     } finally {
       setSubmitting(false);
     }
@@ -1360,6 +1452,30 @@ export default function FornecedorContratoDetalhePage() {
     if (!fornecedor) return;
     setSubmitting(true);
     try {
+      const itensAtivosEnvio = novaMedicao.itens.filter(
+        (item): item is ItemMedicaoCronogramaState =>
+          'item_cronograma_id' in item &&
+          Number(item.quantidade_medida || 0) > 0,
+      );
+      const lotesAtivosEnvio = new Set(
+        itensAtivosEnvio.map((item) =>
+          Number(
+            itensCronograma.find(
+              (cronograma) => cronograma.id === item.item_cronograma_id,
+            )?.lote_numero || 0,
+          ),
+        ),
+      );
+      if (lotesAtivosEnvio.size > 1) {
+        alert('Os lotes devem ser medidos separadamente. Mantenha nesta medição somente os itens de um lote.');
+        setSubmitting(false);
+        return;
+      }
+      if (lotesAtivosEnvio.has(1) && equipeMedicao.funcionarios.length === 0) {
+        alert('Informe a relação de funcionários do Lote 1 antes de enviar para ateste.');
+        setSubmitting(false);
+        return;
+      }
       if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
         alert('Informe o período de início e fim da medição');
         setSubmitting(false);
@@ -1525,6 +1641,33 @@ export default function FornecedorContratoDetalhePage() {
       }
       const medicaoCriada = await resCriar.json();
 
+      if (equipeMedicao.funcionarios.length > 0 && medicaoCriada?.id) {
+        const respostaEquipe = await authFetch(
+          `${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/equipe`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...equipeMedicao,
+              fornecedor_id: fornecedor.id,
+              empresa_nome: fornecedor.razao_social || fornecedor.nome,
+              empresa_cnpj: fornecedor.cnpj || fornecedor.cpf_cnpj,
+              competencia: novaMedicao.competencia,
+              periodo_inicio: novaMedicao.periodo_inicio,
+              periodo_fim: novaMedicao.periodo_fim,
+            }),
+          },
+        );
+        if (!respostaEquipe.ok) {
+          const erroEquipe = await respostaEquipe.json().catch(() => ({}));
+          setMedicaoParaEditar(medicaoCriada);
+          throw new Error(
+            erroEquipe.message ||
+              'A medição foi salva como rascunho, mas a equipe precisa ser corrigida.',
+          );
+        }
+      }
+
       if (discriminacoes.length > 0 && medicaoCriada?.id) {
         try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
       }
@@ -1538,6 +1681,7 @@ export default function FornecedorContratoDetalhePage() {
       // preventing pointer-events:none from getting stuck on body.
       setModalNovaMedicao(false);
       setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+      setEquipeMedicao(equipeVazia());
       setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]); setMedicaoParaEditar(null);
       const medicaoIdParaOtp = medicaoCriada.id;
       setTimeout(() => { abrirModalOtp(medicaoIdParaOtp); }, 150);
@@ -1678,9 +1822,34 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  const baixarPlanilhaEquipe = async (
+    medicao: Medicao,
+    formato: 'xlsx' | 'pdf' = 'xlsx',
+  ) => {
+    if (!fornecedor) return;
+    const resposta = await authFetch(
+      `${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/equipe/${formato}?fornecedorId=${fornecedor.id}`,
+    );
+    if (!resposta.ok) {
+      const erro = await resposta.json().catch(() => ({}));
+      alert(erro.message || 'Esta medição não possui relação de funcionários.');
+      return;
+    }
+    const blob = await resposta.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `medicao-lote-1-${medicao.numero_medicao}.${formato}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const abrirModalNovaMedicao = async () => {
     setOsMedicao('');
     setRetencoesNf(null);
+    setEquipeMedicao(equipeVazia());
     setNovaMedicao({
       periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
@@ -1835,15 +2004,17 @@ export default function FornecedorContratoDetalhePage() {
       const fornecedorData = localStorage.getItem('fornecedor');
       const fornecedorAtual = fornecedor || (fornecedorData ? JSON.parse(fornecedorData) : null);
       const fornecedorIdAtual = fornecedorAtual?.id || '';
-      const [res, discriminacoesRes] = await Promise.all([
+      const [res, discriminacoesRes, equipeRes] = await Promise.all([
         authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
         authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedorIdAtual}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/equipe?fornecedorId=${fornecedorIdAtual}`),
       ]);
       if (res.ok) {
         const medicaoCompleta = await res.json();
         const discriminacoesExistentes = discriminacoesRes.ok
           ? await discriminacoesRes.json()
           : [];
+        const equipeExistente = equipeRes.ok ? await equipeRes.json() : null;
         
         // Preparar nova medição com os dados da devolvida
         setNovaMedicao({
@@ -1879,6 +2050,37 @@ export default function FornecedorContratoDetalhePage() {
           valor: Number(item.valor) || 0,
           percentual: Number(item.percentual) || 0,
         })));
+        setEquipeMedicao(
+          equipeExistente
+            ? {
+                fechamento_fatura: equipeExistente.fechamento_fatura || '',
+                responsavel_legal: equipeExistente.responsavel_legal || '',
+                data_emissao: String(equipeExistente.data_emissao || '').slice(0, 10),
+                percentual_iss: Number(equipeExistente.percentual_iss || 0),
+                percentual_ir: Number(equipeExistente.percentual_ir || 0),
+                retencao_inss: Number(equipeExistente.retencao_inss || 0),
+                funcionarios: (equipeExistente.funcionarios || []).map((linha: any) => ({
+                  ...linha,
+                  inicio_prestacao_servicos: String(linha.inicio_prestacao_servicos || '').slice(0, 10),
+                  carga_horaria_semanal: Number(linha.carga_horaria_semanal || 0),
+                  dias_trabalhados: Number(linha.dias_trabalhados || 0),
+                  salario_base: Number(linha.salario_base || 0),
+                  salario_proporcional: Number(linha.salario_proporcional || 0),
+                  acumulo_funcao: Number(linha.acumulo_funcao || 0),
+                  salario_total: Number(linha.salario_total || 0),
+                  encargos: Number(linha.encargos || 0),
+                  indenizacao: Number(linha.indenizacao || 0),
+                  ausencias_legais: Number(linha.ausencias_legais || 0),
+                  aso_farda: Number(linha.aso_farda || 0),
+                  vale_transporte: Number(linha.vale_transporte || 0),
+                  vale_alimentacao: Number(linha.vale_alimentacao || 0),
+                  taxa_administracao_lucro: Number(linha.taxa_administracao_lucro || 0),
+                  tributos: Number(linha.tributos || 0),
+                  valor_total: Number(linha.valor_total || 0),
+                })),
+              }
+            : equipeVazia(),
+        );
         setMedicaoParaEditar(medicao);
         await reaproveitarAnexosExistentes(medicao.id);
         await carregarExecucaoFinanceira(medicao.id);
@@ -3043,6 +3245,17 @@ export default function FornecedorContratoDetalhePage() {
             )}
 
             {/* Execução Fiscal e Financeira */}
+            {usarItensCronograma && itensLote1.length > 0 && (
+              <EquipeLoteMedicao
+                contratoId={contratoId}
+                fornecedorId={fornecedor?.id || ''}
+                medicaoId={medicaoParaEditar?.id}
+                itens={itensLote1}
+                value={equipeMedicao}
+                onChange={atualizarEquipeMedicao}
+              />
+            )}
+
             {novaMedicao.periodo_inicio && novaMedicao.periodo_fim && contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim && (
               <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
@@ -3751,7 +3964,25 @@ export default function FornecedorContratoDetalhePage() {
 
           {/* Botão Baixar PDF */}
           {medicaoDetalhe && (
-            <div className="flex justify-end pt-2 border-t">
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                onClick={() => baixarPlanilhaEquipe(medicaoDetalhe)}
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Planilha da equipe
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-amber-700 border-amber-200 hover:bg-amber-50"
+                onClick={() => baixarPlanilhaEquipe(medicaoDetalhe, 'pdf')}
+              >
+                <FileText className="w-4 h-4" />
+                PDF da equipe
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
