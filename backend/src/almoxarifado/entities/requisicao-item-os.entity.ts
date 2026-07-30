@@ -44,9 +44,9 @@ export class RequisicaoItemOS {
   @Column({ nullable: true })
   item_cronograma_id: string | null;
 
-  // scale 6: permite representar frações exatas (ex.: funcionário parcial na OS
-  // de mão de obra) de forma que quantidade × valor_unitário feche nos centavos.
-  @Column({ type: 'decimal', precision: 15, scale: 6 })
+  // 12 casas preservam conversões de valor para frações de mês/dias-posto
+  // de forma que quantidade × valor_unitário feche nos centavos.
+  @Column({ type: 'decimal', precision: 18, scale: 12 })
   quantidade_solicitada: number;
 
   @Column({ type: 'int', nullable: true, default: null })

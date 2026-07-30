@@ -90,8 +90,18 @@ export class RequisicaoService {
     private readonly medicaoService: MedicaoService,
   ) {}
 
-  /** Soma quantidade_solicitada por item_cronograma de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. Público para a tela de nova OS exibir o saldo já descontando o comprometido (mesma conta da validação). */
+  /** Início da vigência renovada; OS anteriores permanecem no histórico sem consumir o novo ciclo. */
+  private async obterInicioCicloVigente(contratoId: string): Promise<Date | null> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      select: { id: true, data_renovacao_ciclo: true },
+    });
+    return contrato?.data_renovacao_ciclo || null;
+  }
+
+  /** Soma quantidade_solicitada por item_cronograma de OS ativas da vigência atual. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
   async somarQuantidadeComprometidaPorItemOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+    const inicioCicloVigente = await this.obterInicioCicloVigente(contratoId);
     const statusMedicoesQueConsomemOS = [
       'SUBMETIDA',
       'AGUARDANDO_ATESTE',
@@ -125,6 +135,9 @@ export class RequisicaoService {
         )`,
         { statusMedicoesQueConsomemOS },
       );
+    if (inicioCicloVigente) {
+      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente });
+    }
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
     const rows = await qb.groupBy('rio.item_cronograma_id').getRawMany<{ id: string; total: string }>();
     const mapa = new Map<string, number>();
@@ -132,8 +145,84 @@ export class RequisicaoService {
     return mapa;
   }
 
+  /** Lista as OS parciais da vigência atual que compõem o saldo comprometido de cada item. */
+  async detalharQuantidadeComprometidaPorItemOS(
+    contratoId: string,
+    excludeRequisicaoId?: string,
+  ): Promise<Record<string, Array<{
+    requisicao_id: string;
+    numero: string;
+    status: string;
+    quantidade: number;
+  }>>> {
+    const inicioCicloVigente = await this.obterInicioCicloVigente(contratoId);
+    const statusMedicoesQueConsomemOS = [
+      'SUBMETIDA',
+      'AGUARDANDO_ATESTE',
+      'PARCIALMENTE_ATESTADA',
+      'AGUARDANDO_APROVACAO',
+      'APROVADA',
+    ];
+    const qb = this.requisicaoItemOSRepository
+      .createQueryBuilder('rio')
+      .select('rio.item_cronograma_id', 'item_cronograma_id')
+      .addSelect('rio.quantidade_solicitada', 'quantidade')
+      .addSelect('r.id', 'requisicao_id')
+      .addSelect('r.numero', 'numero')
+      .addSelect('r.status', 'status')
+      .innerJoin('rio.requisicao', 'r')
+      .where('r.contrato_id = :contratoId', { contratoId })
+      .andWhere('r.tipo = :tipo', { tipo: TipoRequisicao.ORDEM_SERVICO })
+      .andWhere('r.status IN (:...status)', {
+        status: [
+          StatusRequisicao.RASCUNHO,
+          StatusRequisicao.AGUARDANDO_AUTORIZACAO,
+          StatusRequisicao.AUTORIZADA,
+        ],
+      })
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobal", { modoGlobal: 'ORDEM_GLOBAL' })
+      .andWhere(
+        `NOT EXISTS (
+          SELECT 1 FROM medicoes m
+          WHERE m.requisicao_id = r.id
+            AND m.status IN (:...statusMedicoesQueConsomemOS)
+        )`,
+        { statusMedicoesQueConsomemOS },
+      )
+      .orderBy('r.created_at', 'ASC');
+    if (inicioCicloVigente) {
+      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente });
+    }
+    if (excludeRequisicaoId) {
+      qb.andWhere('r.id != :excludeRequisicaoId', { excludeRequisicaoId });
+    }
+    const rows = await qb.getRawMany<{
+      item_cronograma_id: string;
+      quantidade: string;
+      requisicao_id: string;
+      numero: string;
+      status: string;
+    }>();
+    return rows.reduce<Record<string, Array<{
+      requisicao_id: string;
+      numero: string;
+      status: string;
+      quantidade: number;
+    }>>>((resultado, row) => {
+      if (!resultado[row.item_cronograma_id]) resultado[row.item_cronograma_id] = [];
+      resultado[row.item_cronograma_id].push({
+        requisicao_id: row.requisicao_id,
+        numero: row.numero,
+        status: row.status,
+        quantidade: Number(row.quantidade),
+      });
+      return resultado;
+    }, {});
+  }
+
   /** Soma valor_solicitado por etapa_id de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
   private async somarValorComprometidoPorEtapaOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+    const inicioCicloVigente = await this.obterInicioCicloVigente(contratoId);
     const statusMedicoesQueConsomemOS = [
       'SUBMETIDA',
       'AGUARDANDO_ATESTE',
@@ -167,6 +256,9 @@ export class RequisicaoService {
         )`,
         { statusMedicoesQueConsomemOS },
       );
+    if (inicioCicloVigente) {
+      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente });
+    }
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
     const rows = await qb.groupBy('reo.etapa_id').getRawMany<{ id: string; total: string }>();
     const mapa = new Map<string, number>();

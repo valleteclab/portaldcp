@@ -309,6 +309,18 @@ export class AlmoxarifadoController {
     return Object.fromEntries(mapa);
   }
 
+  /** OS parciais da vigência atual que compõem o saldo comprometido por item. */
+  @Get('requisicoes/comprometido-os-detalhes/:contratoId')
+  async getComprometidoOSDetalhes(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Query('excluirRequisicaoId') excluirRequisicaoId?: string,
+  ) {
+    return this.requisicaoService.detalharQuantidadeComprometidaPorItemOS(
+      contratoId,
+      excluirRequisicaoId,
+    );
+  }
+
   @Get('requisicoes/:id')
   async getRequisicao(@Param('id', ParseUUIDPipe) id: string) {
     return this.requisicaoService.findOne(id);
