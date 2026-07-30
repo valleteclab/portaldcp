@@ -77,7 +77,7 @@ async function main() {
       );
     } else if (etapa === 'ata') {
       const [sync] = await dataSource.query(
-        `SELECT ano_compra, sequencial_compra
+        `SELECT ano_compra, sequencial_compra, numero_controle_pncp
            FROM pncp_sync
           WHERE licitacao_id = $1 AND tipo = 'COMPRA' AND status = 'ENVIADO'
           ORDER BY created_at DESC LIMIT 1`,
@@ -89,23 +89,40 @@ async function main() {
         String(sync.sequencial_compra),
         {
           cnpj_orgao: CNPJ_ORGAO,
+          licitacao_id: IDS.licitacao,
+          numero_controle_compra: sync.numero_controle_pncp,
           numero_ata: 'ARP-HOMOLOG-001/2026',
           ano_ata: 2026,
           data_assinatura: '2026-08-25',
           data_vigencia_inicio: '2026-08-25',
           data_vigencia_fim: '2027-08-24',
-          cnpj_fornecedor: CNPJ_FORNECEDOR,
-          nome_fornecedor: 'FORNECEDOR FICTÍCIO - HOMOLOGAÇÃO PNCP',
-          situacao_id: 1,
-          tipo_pessoa_id: 2,
-          itens: [
-            {
-              numero_item: 1,
-              quantidade: 5,
-              valor_unitario: 4800,
-              valor_total: 24000,
-            },
-          ],
+          codigo_unidade: '1',
+          possibilidade_adesao: false,
+        },
+      );
+    } else if (etapa === 'retificar-ata') {
+      const [sync] = await dataSource.query(
+        `SELECT ano_compra, sequencial_compra, resposta_pncp
+           FROM pncp_sync
+          WHERE licitacao_id = $1 AND tipo = 'ATA' AND status = 'ENVIADO'
+          ORDER BY created_at DESC LIMIT 1`,
+        [IDS.licitacao],
+      );
+      const sequencialAta = sync?.resposta_pncp?.sequencialAta;
+      if (!sequencialAta) throw new Error('Ata ainda não foi enviada ao PNCP');
+      resultado = await pncp.retificarAtaRegistroPreco(
+        String(sync.ano_compra),
+        String(sync.sequencial_compra),
+        String(sequencialAta),
+        {
+          cnpj_orgao: CNPJ_ORGAO,
+          numero_ata: 'ARP-HOMOLOG-001/2026',
+          ano_ata: 2026,
+          data_assinatura: '2026-08-25',
+          data_vigencia_inicio: '2026-08-25',
+          data_vigencia_fim: '2027-08-24',
+          possibilidade_adesao: false,
+          justificativa: 'Retificação para validação da integração PortalDCP',
         },
       );
     } else if (etapa === 'contrato') {

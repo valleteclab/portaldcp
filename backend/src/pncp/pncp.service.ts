@@ -1239,6 +1239,24 @@ export class PncpService implements OnModuleInit {
     const dataStr = (d: any) =>
       d ? new Date(d).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
+    const syncAta = lic.srp
+      ? await this.pncpSyncRepository.findOne({
+          where: {
+            licitacao_id: licitacaoId,
+            tipo: TipoSincronizacao.ATA,
+            status: StatusSincronizacao.ENVIADO,
+          },
+          order: { created_at: 'DESC' },
+        })
+      : null;
+    const sequencialAta = syncAta?.resposta_pncp?.sequencialAta;
+    if (lic.srp && !sequencialAta) {
+      throw new HttpException(
+        'Contratação SRP ainda não possui ata publicada no PNCP',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const resultados: Array<{ contrato: string; sucesso: boolean; numeroControlePNCP?: string; erro?: string }> = [];
 
     for (const c of contratos) {
@@ -1271,6 +1289,7 @@ export class PncpService implements OnModuleInit {
         processo: lic.numero_processo,
         // Indicadores obrigatórios do contrato (false = não se aplica)
         frutoAdesao: false,
+        ...(sequencialAta ? { sequencialAta: Number(sequencialAta) } : {}),
         temRemanejamento: false,
         anoContrato,
         numeroContratoEmpenho: c.numero_contrato,
@@ -3004,6 +3023,24 @@ export class PncpService implements OnModuleInit {
         location.match(/\/atas\/(\d+)\/?$/)?.[1];
 
       this.logger.log(`Ata de Registro de Preço incluída: ${sequencialAta}`);
+      if (ata.licitacao_id) {
+        const numeroControleAta = ata.numero_controle_compra && sequencialAta
+          ? `${ata.numero_controle_compra}-${String(sequencialAta).padStart(6, '0')}`
+          : null;
+        await this.pncpSyncRepository.save(
+          this.pncpSyncRepository.create({
+            tipo: TipoSincronizacao.ATA,
+            licitacao_id: ata.licitacao_id,
+            entidade_id: ata.entidade_id || null,
+            status: StatusSincronizacao.ENVIADO,
+            numero_controle_pncp: numeroControleAta,
+            ano_compra: Number(anoCompra),
+            sequencial_compra: Number(sequencialCompra),
+            payload_enviado: ataDto,
+            resposta_pncp: { sequencialAta, location, ...response.data },
+          }),
+        );
+      }
 
       return {
         sucesso: true,
