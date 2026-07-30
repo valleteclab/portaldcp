@@ -2947,38 +2947,68 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
 
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
     const ataDto = {
       numeroAtaRegistroPreco: ata.numero_ata,
       anoAta: ata.ano_ata || new Date().getFullYear(),
       dataAssinatura: ata.data_assinatura,
       dataVigenciaInicio: ata.data_vigencia_inicio,
       dataVigenciaFim: ata.data_vigencia_fim,
-      niFornecedor: ata.cnpj_fornecedor?.replace(/\D/g, ''),
-      nomeRazaoSocialFornecedor: ata.nome_fornecedor,
-      situacaoAtaId: ata.situacao_id || 1, // 1 = Vigente
-      tipoPessoaId: ata.tipo_pessoa_id || 2, // 2 = Pessoa Jurídica
-      itensAta: (ata.itens || []).map((item: any) => ({
-        numeroItem: item.numero_item,
-        quantidade: parseFloat(item.quantidade) || 1,
-        valorUnitario: parseFloat(item.valor_unitario) || 0,
-        valorTotal: parseFloat(item.valor_total) || (parseFloat(item.quantidade) * parseFloat(item.valor_unitario)) || 0,
-      }))
+      possibilidadeAdesao: Boolean(ata.possibilidade_adesao),
+      partesEnvolvidas: ata.partes_envolvidas || [
+        {
+          tipoParteEnvolvidaId: 1,
+          cnpj: cnpjLimpo,
+          codigoUnidadeCompradora: String(ata.codigo_unidade || '1'),
+        },
+      ],
     };
 
     try {
-      const response = await this.axiosInstance.post(
-        `/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}/atas`,
-        ataDto
+      await this.getValidToken();
+      // A API PNCP v2.5 exige multipart: metadados JSON na parte "ata"
+      // e o arquivo correspondente na parte "documento".
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const FormData = require('form-data');
+      const formData = new FormData();
+      formData.append('ata', Buffer.from(JSON.stringify(ataDto), 'utf-8'), {
+        filename: 'ata.json',
+        contentType: 'application/json',
+      });
+      const pdfAta = ata.arquivo_buffer || Buffer.from(
+        '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF',
+      );
+      formData.append('documento', pdfAta, {
+        filename: ata.nome_arquivo || 'ata-registro-precos.pdf',
+        contentType: 'application/pdf',
+      });
+
+      const response = await axios.post(
+        `${this.configService.get<string>('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1'}/orgaos/${cnpjLimpo}/compras/${anoCompra}/${sequencialCompra}/atas`,
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+            Authorization: `Bearer ${this.token}`,
+            'Titulo-Documento': ata.titulo_documento || `Ata de Registro de Precos ${ata.numero_ata}`,
+            'Tipo-Documento-Id': '11',
+          },
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        },
       );
 
-      const sequencialAta = response.data?.sequencialAta;
+      const location = response.headers?.location || '';
+      const sequencialAta =
+        response.data?.sequencialAta ||
+        location.match(/\/atas\/(\d+)\/?$/)?.[1];
 
       this.logger.log(`Ata de Registro de Preço incluída: ${sequencialAta}`);
 
       return {
         sucesso: true,
-        mensagem: `Ata incluída com sucesso. Link: ${this.getPortalBaseUrl()}/app/atas/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}/${sequencialAta}`,
-        dados: { sequencialAta, ...response.data }
+        mensagem: `Ata incluída com sucesso. Link: ${this.getPortalBaseUrl()}/app/atas/${cnpjLimpo}/${anoCompra}/${sequencialCompra}/${sequencialAta}`,
+        dados: { sequencialAta, location, ...response.data }
       };
     } catch (error) {
       throw new HttpException(
@@ -2999,12 +3029,11 @@ export class PncpService implements OnModuleInit {
       numeroAtaRegistroPreco: ata.numero_ata,
       anoAta: ata.ano_ata || new Date().getFullYear(),
       dataAssinatura: ata.data_assinatura,
-      dataVigenciaInicio: ata.data_vigencia_inicio,
-      dataVigenciaFim: ata.data_vigencia_fim,
+      dataInicioVigencia: ata.data_vigencia_inicio,
+      dataFimVigencia: ata.data_vigencia_fim,
+      possibilidadeAdesao: Boolean(ata.possibilidade_adesao),
       justificativa: ata.justificativa || 'Retificação de dados da ata',
     };
-    
-    if (ata.situacao_id) ataDto.situacaoAtaId = ata.situacao_id;
     
     this.logger.log(`Retificando ata: ${JSON.stringify(ataDto)}`);
 
