@@ -67,13 +67,15 @@ async function main() {
       if (!pca?.sequencial_pncp) {
         throw new Error('PCA ainda não possui sequencial no PNCP');
       }
-      resultado = await pncp.retificarPCA(
+      const [item] = await dataSource.query(
+        `SELECT * FROM itens_pca WHERE pca_id = $1 AND numero_item = 1`,
+        [IDS.pca],
+      );
+      resultado = await pncp.retificarItemPCA(
         String(pca.ano_exercicio),
         String(pca.sequencial_pncp),
-        {
-          codigo_unidade: '1',
-          data_publicacao: '2026-07-30',
-        },
+        '1',
+        item,
       );
     } else if (etapa === 'ata') {
       const [sync] = await dataSource.query(

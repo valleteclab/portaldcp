@@ -873,7 +873,11 @@ export class PncpService implements OnModuleInit {
     // Priorizar CNPJ do órgão da licitação
     const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
     const cnpjLimpo = cnpj.replace(/\D/g, '');
-    const compraDto = this.mapearLicitacaoParaCompra(licitacao, cnpj);
+    const compraDto: any = {
+      ...this.mapearLicitacaoParaCompra(licitacao, cnpj),
+      situacaoCompraId: 1,
+      justificativa: 'Retificação de dados pela plataforma PortalDCP',
+    };
     
     this.logger.log(`[atualizarCompra] Atualizando compra ${sync.ano_compra}/${sync.sequencial_compra}`);
     this.logger.log(`[atualizarCompra] sigilo_orcamento=${licitacao.sigilo_orcamento}`);
@@ -1270,6 +1274,12 @@ export class PncpService implements OnModuleInit {
         },
       });
       if (jaEnviado) {
+        if (/^\d{4}\/\d+$/.test(jaEnviado.numero_controle_pncp || '')) {
+          const [ano, sequencial] = jaEnviado.numero_controle_pncp.split('/');
+          jaEnviado.numero_controle_pncp =
+            `${cnpj}-2-${String(sequencial).padStart(6, '0')}/${ano}`;
+          await this.pncpSyncRepository.save(jaEnviado);
+        }
         resultados.push({ contrato: c.numero_contrato, sucesso: true, numeroControlePNCP: jaEnviado.numero_controle_pncp || undefined });
         continue;
       }
@@ -1363,10 +1373,13 @@ export class PncpService implements OnModuleInit {
             maxBodyLength: Infinity,
           },
         );
+        const locationContrato = response.headers?.location || '';
+        const locationMatch = locationContrato.match(/\/contratos\/(\d+)\/(\d+)\/?$/);
         const numeroControle =
           response.data?.numeroControlePNCP ||
-          response.headers?.location?.split('/contratos/')?.[1] ||
-          null;
+          (locationMatch
+            ? `${cnpj}-2-${String(locationMatch[2]).padStart(6, '0')}/${locationMatch[1]}`
+            : null);
         await this.pncpSyncRepository.save(
           this.pncpSyncRepository.create({
             tipo: TipoSincronizacao.CONTRATO,
@@ -2244,10 +2257,7 @@ export class PncpService implements OnModuleInit {
   }
 
   async retificarItemPCA(anoPca: string, sequencialPca: string, numeroItem: string, item: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca);
 
     const valorUnitario = parseFloat(item.valor_unitario_estimado) || parseFloat(item.valor_estimado) || undefined;
     const quantidade = parseFloat(item.quantidade_estimada) || undefined;
@@ -3031,9 +3041,9 @@ export class PncpService implements OnModuleInit {
           this.pncpSyncRepository.create({
             tipo: TipoSincronizacao.ATA,
             licitacao_id: ata.licitacao_id,
-            entidade_id: ata.entidade_id || null,
+            entidade_id: ata.entidade_id || undefined,
             status: StatusSincronizacao.ENVIADO,
-            numero_controle_pncp: numeroControleAta,
+            numero_controle_pncp: numeroControleAta || undefined,
             ano_compra: Number(anoCompra),
             sequencial_compra: Number(sequencialCompra),
             payload_enviado: ataDto,
@@ -3066,8 +3076,8 @@ export class PncpService implements OnModuleInit {
       numeroAtaRegistroPreco: ata.numero_ata,
       anoAta: ata.ano_ata || new Date().getFullYear(),
       dataAssinatura: ata.data_assinatura,
-      dataInicioVigencia: ata.data_vigencia_inicio,
-      dataFimVigencia: ata.data_vigencia_fim,
+      dataVigenciaInicio: ata.data_vigencia_inicio,
+      dataVigenciaFim: ata.data_vigencia_fim,
       possibilidadeAdesao: Boolean(ata.possibilidade_adesao),
       justificativa: ata.justificativa || 'Retificação de dados da ata',
     };
