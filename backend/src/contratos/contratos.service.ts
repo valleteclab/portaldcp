@@ -1260,12 +1260,16 @@ export class ContratosService implements OnModuleInit {
       if (ajuste.modo === 'SELECIONADOS' && !especifico) continue;
       const valorAnterior = Number(item.valor_unitario);
       const quantidadeAnterior = Number(item.quantidade_contratada);
-      const valorNovo = especifico?.novo_valor_unitario != null
+      const valorNovoCalculado = especifico?.novo_valor_unitario != null
         ? Number(especifico.novo_valor_unitario)
         : valorAnterior * (1 + percentualPreco / 100);
-      const quantidadeNova = especifico?.nova_quantidade != null
+      const quantidadeNovaCalculada = especifico?.nova_quantidade != null
         ? Number(especifico.nova_quantidade)
         : quantidadeAnterior * (1 + percentualQuantidade / 100);
+      // itens_contrato persiste preço e quantidade com 4 casas; o total deve
+      // ser calculado sobre os mesmos valores que ficarão gravados.
+      const valorNovo = Math.round(valorNovoCalculado * 1e4) / 1e4;
+      const quantidadeNova = Math.round(quantidadeNovaCalculada * 1e4) / 1e4;
       if (valorNovo < 0 || quantidadeNova < 0) throw new BadRequestException(`Valores inválidos no item ${item.numero_item}`);
       detalhes.push({
         tipo: 'ITEM_CONTRATO',
