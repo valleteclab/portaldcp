@@ -831,6 +831,25 @@ export class AlmoxarifadoController {
     return this.ordemService.regenerarPdf(id);
   }
 
+  @Post('ordens/:id/atualizar-valores-contrato')
+  async atualizarValoresOrdemConformeContrato(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const ordem = await this.ordemService.findOne(id);
+    if (request.user.type !== UserType.ADMIN) {
+      const orgaoId = this.getOrgaoId(request.user);
+      if (ordem.orgao_id !== orgaoId) {
+        throw new ForbiddenException('Ordem não pertence a este órgão');
+      }
+    }
+    return this.ordemService.atualizarValoresConformeContrato(
+      id,
+      request.user.sub,
+      request.user.email || 'Sistema',
+    );
+  }
+
   @Post('ordens/:id/cancelar')
   async cancelarOrdem(
     @Req() request: { user: JwtPayload },

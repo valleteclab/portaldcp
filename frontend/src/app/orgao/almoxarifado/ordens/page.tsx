@@ -26,6 +26,7 @@ import {
   Receipt,
   Link2,
   Plus,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -444,6 +445,38 @@ function OrdensList() {
       alert('Erro ao regenerar PDF.');
     } finally {
       setSalvandoDatas(false);
+    }
+  };
+
+  const handleAtualizarValoresContrato = async (ordem: OrdemFornecimento) => {
+    const confirmado = confirm(
+      `Atualizar os preços da ${ordem.numero} conforme os valores atuais do contrato? ` +
+      'A requisição de origem também será atualizada e o PDF será regenerado. ' +
+      'O documento enviado anteriormente deverá ser desconsiderado.',
+    );
+    if (!confirmado) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/almoxarifado/ordens/${ordem.id}/atualizar-valores-contrato`,
+        { method: 'POST' },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.message || 'Erro ao atualizar os valores da ordem.');
+        return;
+      }
+      await carregarOrdens();
+      alert(
+        `Valores atualizados com sucesso!\n` +
+        `Anterior: ${formatarMoeda(Number(data.valor_anterior))}\n` +
+        `Novo: ${formatarMoeda(Number(data.valor_novo))}\n` +
+        `${data.itens_atualizados} item(ns) atualizado(s).`,
+      );
+    } catch {
+      alert('Erro ao atualizar os valores da ordem.');
+    } finally {
+      setProcessando(false);
     }
   };
 
@@ -941,6 +974,20 @@ function OrdensList() {
                           >
                             <Calendar className="h-4 w-4" />
                           </Button>
+
+                          {['EMITIDA', 'ENVIADA'].includes(ordem.status) &&
+                            Number(ordem.valor_entregue || 0) === 0 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-cyan-700 hover:text-cyan-800"
+                              onClick={() => handleAtualizarValoresContrato(ordem)}
+                              disabled={processando}
+                              title="Atualizar preços conforme o contrato e regenerar PDF"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          )}
                           
                           {/* Registrar Recebimento - leva para página de recebimento da ordem */}
                           {acoes.registrarRecebimento && (

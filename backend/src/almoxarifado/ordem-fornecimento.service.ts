@@ -4,6 +4,7 @@ import { Repository, DataSource, In } from 'typeorm';
 import { OrdemFornecimento, StatusOrdemFornecimento, TipoOrdem } from './entities/ordem-fornecimento.entity';
 import { NotaFiscalFornecedor, StatusNotaFiscalFornecedor } from './entities/nota-fiscal-fornecedor.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from './entities/requisicao.entity';
+import { ItemRequisicao } from './entities/item-requisicao.entity';
 import { Recebimento, StatusRecebimento } from './entities/recebimento.entity';
 import { HistoricoOrdemFornecimento, TipoAcaoOrdem } from './entities/historico-ordem.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
@@ -1577,6 +1578,182 @@ Gestão de Contratos</p>`,
     await this.ordemRepository.update(id, { caminho_pdf: caminho });
     this.logger.log(`PDF da ordem ${ordem.numero} regenerado.`);
     return { caminho_pdf: caminho };
+  }
+
+  /**
+   * Atualiza os preços copiados na requisição e na OF conforme os valores
+   * vigentes dos itens do contrato. As quantidades permanecem inalteradas.
+   */
+  async atualizarValoresConformeContrato(
+    id: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<{
+    ordem: OrdemFornecimento;
+    valor_anterior: number;
+    valor_novo: number;
+    itens_atualizados: number;
+    caminho_pdf: string | null;
+  }> {
+    const resultado = await this.dataSource.transaction(async (manager) => {
+      const ordemRepository = manager.getRepository(OrdemFornecimento);
+      const ordem = await ordemRepository.findOne({
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!ordem) throw new NotFoundException('Ordem de fornecimento não encontrada');
+      if (![StatusOrdemFornecimento.EMITIDA, StatusOrdemFornecimento.ENVIADA].includes(ordem.status)) {
+        throw new BadRequestException(
+          'Os valores só podem ser atualizados em ordens emitidas ou enviadas, antes do recebimento',
+        );
+      }
+      if (
+        Number(ordem.valor_entregue || 0) > 0 ||
+        (ordem.itens || []).some((item) => Number(item.quantidade_entregue || 0) > 0)
+      ) {
+        throw new BadRequestException('A ordem já possui entrega e não pode ter seus valores atualizados');
+      }
+
+      const [notas, recebimentos] = await Promise.all([
+        manager.getRepository(NotaFiscalFornecedor).count({
+          where: { ordem_fornecimento_id: id },
+        }),
+        manager.getRepository(Recebimento).count({
+          where: { ordem_fornecimento_id: id },
+        }),
+      ]);
+      if (notas > 0 || recebimentos > 0) {
+        throw new BadRequestException(
+          'A ordem já possui nota fiscal ou recebimento. Cancele esses registros antes de atualizar os valores',
+        );
+      }
+
+      const idsItens = (ordem.itens || [])
+        .map((item) => item.item_contrato_id)
+        .filter(Boolean);
+      if (idsItens.length === 0) {
+        throw new BadRequestException('A ordem não possui itens vinculados ao contrato');
+      }
+      const itensContrato = await manager.getRepository(ItemContrato).find({
+        where: { id: In(idsItens), contrato_id: ordem.contrato_id },
+      });
+      const itensContratoPorId = new Map(itensContrato.map((item) => [item.id, item]));
+      if (itensContratoPorId.size !== new Set(idsItens).size) {
+        throw new BadRequestException(
+          'Um ou mais itens da ordem não foram encontrados no contrato atual',
+        );
+      }
+
+      const valorAnterior = Number(ordem.valor_total);
+      const alteracoes: Array<{
+        item_contrato_id: string;
+        descricao: string;
+        valor_anterior: number;
+        valor_novo: number;
+        total_anterior: number;
+        total_novo: number;
+      }> = [];
+      const novosItens = ordem.itens.map((item) => {
+        const itemContrato = itensContratoPorId.get(item.item_contrato_id)!;
+        const valorNovo = Math.round(Number(itemContrato.valor_unitario) * 10000) / 10000;
+        const totalNovo = Math.round(Number(item.quantidade) * valorNovo * 100) / 100;
+        if (
+          Math.abs(Number(item.valor_unitario) - valorNovo) > 0.0001 ||
+          Math.abs(Number(item.valor_total) - totalNovo) > 0.01
+        ) {
+          alteracoes.push({
+            item_contrato_id: item.item_contrato_id,
+            descricao: item.descricao,
+            valor_anterior: Number(item.valor_unitario),
+            valor_novo: valorNovo,
+            total_anterior: Number(item.valor_total),
+            total_novo: totalNovo,
+          });
+        }
+        return {
+          ...item,
+          valor_unitario: valorNovo,
+          valor_total: totalNovo,
+        };
+      });
+      const valorNovo = Math.round(
+        novosItens.reduce((total, item) => total + Number(item.valor_total), 0) * 100,
+      ) / 100;
+
+      ordem.itens = novosItens;
+      ordem.valor_total = valorNovo;
+      await ordemRepository.save(ordem);
+
+      if (ordem.requisicao_id) {
+        const requisicaoRepository = manager.getRepository(Requisicao);
+        const requisicao = await requisicaoRepository.findOne({
+          where: { id: ordem.requisicao_id },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!requisicao) {
+          throw new BadRequestException('A requisição de origem da ordem não foi encontrada');
+        }
+        const itensRequisicaoRepository = manager.getRepository(ItemRequisicao);
+        const itensRequisicao = await itensRequisicaoRepository.find({
+          where: { requisicao_id: requisicao.id },
+        });
+        for (const item of itensRequisicao) {
+          if (!item.item_contrato_id) continue;
+          const itemContrato = itensContratoPorId.get(item.item_contrato_id);
+          if (!itemContrato) continue;
+          const preco = Math.round(Number(itemContrato.valor_unitario) * 10000) / 10000;
+          const quantidade = Number(item.quantidade_autorizada ?? item.quantidade_solicitada);
+          item.valor_unitario = preco;
+          item.valor_total_estimado = Math.round(quantidade * preco * 100) / 100;
+        }
+        await itensRequisicaoRepository.save(itensRequisicao);
+        requisicao.valor_total_estimado = valorNovo;
+        await requisicaoRepository.save(requisicao);
+      }
+
+      const historico = manager.getRepository(HistoricoOrdemFornecimento).create({
+        ordem_fornecimento_id: id,
+        tipo_acao: TipoAcaoOrdem.ITEM_ALTERADO,
+        descricao: `Valores da ${ordem.numero} atualizados conforme os itens vigentes do contrato`,
+        detalhes: JSON.stringify({
+          valor_anterior: valorAnterior,
+          valor_novo: valorNovo,
+          alteracoes,
+        }),
+        usuario_id: usuarioId,
+        usuario_nome: usuarioNome,
+        usuario_tipo: 'orgao',
+      });
+      await manager.getRepository(HistoricoOrdemFornecimento).save(historico);
+
+      return {
+        valorAnterior,
+        valorNovo,
+        itensAtualizados: alteracoes.length,
+      };
+    });
+
+    let caminhoPdf: string | null = null;
+    try {
+      caminhoPdf = await this.pdfOrdemService.gerarPdf(id);
+      await this.ordemRepository.update(id, { caminho_pdf: caminhoPdf });
+    } catch (error) {
+      this.logger.warn(
+        `Valores da ordem ${id} atualizados, mas o PDF não foi regenerado: ${(error as Error).message}`,
+      );
+    }
+
+    this.logger.log(
+      `Valores da ordem ${id} atualizados conforme contrato por ${usuarioNome}: ` +
+      `${resultado.valorAnterior} -> ${resultado.valorNovo}`,
+    );
+    return {
+      ordem: await this.findOne(id),
+      valor_anterior: resultado.valorAnterior,
+      valor_novo: resultado.valorNovo,
+      itens_atualizados: resultado.itensAtualizados,
+      caminho_pdf: caminhoPdf,
+    };
   }
 
   async removerItemAvulso(ordemId: string, itemId: string): Promise<OrdemFornecimento> {
