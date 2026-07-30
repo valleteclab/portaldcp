@@ -147,6 +147,10 @@ async function seed() {
           valor_orcamentario_exercicio = 25000.00,
           valor_estimado = 25000.00,
           quantidade_estimada = 5,
+          data_prevista_inicio = '2027-10-01',
+          data_prevista_conclusao = '2027-12-31',
+          data_desejada_contratacao = '2027-10-01',
+          codigo_grupo = 'TI-2027',
           updated_at = CURRENT_TIMESTAMP
       `,
       [IDS.itemPca, IDS.pca],
