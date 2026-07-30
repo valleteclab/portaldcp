@@ -1,6 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus, OnModuleInit } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { gerarAvisoDispensaPdf } from '../licitacoes/aviso-dispensa-pdf';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance, AxiosError } from 'axios';
@@ -588,7 +588,10 @@ export class PncpService implements OnModuleInit {
       where: { 
         licitacao_id: licitacaoId, 
         tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ])
       }
     });
 
@@ -950,7 +953,10 @@ export class PncpService implements OnModuleInit {
       where: { 
         licitacao_id: licitacaoId, 
         tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ])
       }
     });
 
@@ -1012,7 +1018,10 @@ export class PncpService implements OnModuleInit {
       where: { 
         licitacao_id: licitacaoId, 
         tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ])
       }
     });
 
@@ -1047,7 +1056,10 @@ export class PncpService implements OnModuleInit {
       const syncDoc = this.pncpSyncRepository.create({
         tipo: TipoSincronizacao.DOCUMENTO,
         licitacao_id: licitacaoId,
-        status: StatusSincronizacao.ENVIADO,
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ]),
         payload_enviado: { tipoDocumentoId, nomeArquivo },
         resposta_pncp: response.data,
         numero_controle_pncp: sync.numero_controle_pncp
@@ -1420,7 +1432,10 @@ export class PncpService implements OnModuleInit {
       where: { 
         licitacao_id: licitacaoId, 
         tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ])
       }
     });
 
