@@ -129,6 +129,24 @@ async function main() {
       );
     } else if (etapa === 'contrato') {
       resultado = await pncp.enviarContratosHomologacao(IDS.licitacao);
+    } else if (etapa === 'retificar-contrato') {
+      const [sync] = await dataSource.query(
+        `SELECT numero_controle_pncp
+           FROM pncp_sync
+          WHERE licitacao_id = $1 AND tipo = 'CONTRATO' AND status = 'ENVIADO'
+          ORDER BY created_at DESC LIMIT 1`,
+        [IDS.licitacao],
+      );
+      const match = String(sync?.numero_controle_pncp || '').match(
+        /-2-(\d+)\/(\d{4})$/,
+      );
+      if (!match) throw new Error('Contrato ainda não foi enviado ao PNCP');
+      resultado = await pncp.retificarContrato(match[2], String(Number(match[1])), {
+        cnpj_orgao: CNPJ_ORGAO,
+        informacao_complementar:
+          'Registro fictício retificado para validação da integração PortalDCP.',
+        justificativa: 'Retificação para homologação da integração PortalDCP',
+      });
     } else if (etapa === 'resumo') {
       const [licitacao] = await dataSource.query(
         `SELECT numero_controle_pncp, ano_compra_pncp, sequencial_compra_pncp,

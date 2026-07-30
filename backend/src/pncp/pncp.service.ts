@@ -3186,15 +3186,27 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
 
-    const contratoDto = {
-      objetoContrato: contrato.objeto,
-      valorInicial: parseFloat(contrato.valor_inicial) || undefined,
-      valorGlobal: parseFloat(contrato.valor_global) || undefined,
-      dataVigenciaFim: contrato.data_vigencia_fim,
+    const contratoDto: any = {
+      justificativa:
+        contrato.justificativa ||
+        'Retificação de dados pela plataforma PortalDCP',
     };
+    if (contrato.objeto) contratoDto.objetoContrato = contrato.objeto;
+    if (contrato.valor_inicial !== undefined) {
+      contratoDto.valorInicial = parseFloat(contrato.valor_inicial);
+    }
+    if (contrato.valor_global !== undefined) {
+      contratoDto.valorGlobal = parseFloat(contrato.valor_global);
+    }
+    if (contrato.data_vigencia_fim) {
+      contratoDto.dataVigenciaFim = contrato.data_vigencia_fim;
+    }
+    if (contrato.informacao_complementar) {
+      contratoDto.informacaoComplementar = contrato.informacao_complementar;
+    }
 
     try {
-      await this.axiosInstance.put(
+      await this.axiosInstance.patch(
         `/orgaos/${cnpj.replace(/\D/g, '')}/contratos/${anoContrato}/${sequencialContrato}`,
         contratoDto
       );
