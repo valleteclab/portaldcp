@@ -405,9 +405,15 @@ export class PncpController {
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
     @Param('sequencialAta') sequencialAta: string,
-    @Body() body: { justificativa: string }
+    @Body() body: { justificativa: string; cnpj_orgao?: string }
   ) {
-    return this.pncpService.excluirAtaRegistroPreco(anoCompra, sequencialCompra, sequencialAta, body.justificativa);
+    return this.pncpService.excluirAtaRegistroPreco(
+      anoCompra,
+      sequencialCompra,
+      sequencialAta,
+      body.justificativa,
+      body.cnpj_orgao,
+    );
   }
 
   // ============ CONTRATOS - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
@@ -430,9 +436,14 @@ export class PncpController {
   async excluirContrato(
     @Param('anoContrato') anoContrato: string,
     @Param('sequencialContrato') sequencialContrato: string,
-    @Body() body: { justificativa: string }
+    @Body() body: { justificativa: string; cnpj_orgao?: string }
   ) {
-    return this.pncpService.excluirContrato(anoContrato, sequencialContrato, body.justificativa);
+    return this.pncpService.excluirContrato(
+      anoContrato,
+      sequencialContrato,
+      body.justificativa,
+      body.cnpj_orgao,
+    );
   }
 
   @Get('contratos/:anoContrato/:sequencialContrato')

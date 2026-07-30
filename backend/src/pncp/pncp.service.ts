@@ -2940,7 +2940,7 @@ export class PncpService implements OnModuleInit {
   // ============ ATA DE REGISTRO DE PREÇO ============
 
   async incluirAtaRegistroPreco(anoCompra: string, sequencialCompra: string, ata: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = ata.cnpj_orgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -2987,7 +2987,7 @@ export class PncpService implements OnModuleInit {
   }
 
   async retificarAtaRegistroPreco(anoCompra: string, sequencialCompra: string, sequencialAta: string, ata: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = ata.cnpj_orgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -3026,8 +3026,14 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async excluirAtaRegistroPreco(anoCompra: string, sequencialCompra: string, sequencialAta: string, justificativa: string): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+  async excluirAtaRegistroPreco(
+    anoCompra: string,
+    sequencialCompra: string,
+    sequencialAta: string,
+    justificativa: string,
+    cnpjOrgao?: string,
+  ): Promise<PncpResponseDto> {
+    const cnpj = cnpjOrgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -3055,7 +3061,7 @@ export class PncpService implements OnModuleInit {
   // ============ CONTRATOS - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
 
   async incluirContrato(contrato: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = contrato.cnpj_orgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -3097,7 +3103,7 @@ export class PncpService implements OnModuleInit {
   }
 
   async retificarContrato(anoContrato: string, sequencialContrato: string, contrato: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = contrato.cnpj_orgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -3129,8 +3135,13 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async excluirContrato(anoContrato: string, sequencialContrato: string, justificativa: string): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+  async excluirContrato(
+    anoContrato: string,
+    sequencialContrato: string,
+    justificativa: string,
+    cnpjOrgao?: string,
+  ): Promise<PncpResponseDto> {
+    const cnpj = cnpjOrgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
