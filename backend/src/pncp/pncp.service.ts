@@ -922,6 +922,7 @@ export class PncpService implements OnModuleInit {
       sync.status = StatusSincronizacao.ATUALIZADO;
       sync.resposta_pncp = response.data;
       sync.payload_enviado = compraDto;
+      sync.erro_mensagem = null as any;
       await this.pncpSyncRepository.save(sync);
 
       return {
@@ -2035,7 +2036,9 @@ export class PncpService implements OnModuleInit {
                                  response.data?.numeroControle ||
                                  response.data?.numeroControlePca ||
                                  response.data?.numeroControlePlano ||
-                                 (cnpjEnvio && sequencial ? `${cnpjEnvio}-${pcaEntity.ano_exercicio}-${sequencial}` : null);
+                                 (cnpjEnvio && sequencial
+                                   ? `${cnpjEnvio}-0-${String(sequencial).padStart(6, '0')}/${pcaEntity.ano_exercicio}`
+                                   : null);
 
       sync.status = StatusSincronizacao.ENVIADO;
       sync.resposta_pncp = response.data;

@@ -147,6 +147,21 @@ async function main() {
           'Registro fictício retificado para validação da integração PortalDCP.',
         justificativa: 'Retificação para homologação da integração PortalDCP',
       });
+    } else if (etapa === 'corrigir-controles') {
+      const numeroPca = `${CNPJ_ORGAO}-0-000001/2027`;
+      await dataSource.query(
+        `UPDATE planos_contratacao_anual
+            SET numero_controle_pncp = $2
+          WHERE id = $1`,
+        [IDS.pca, numeroPca],
+      );
+      await dataSource.query(
+        `UPDATE pncp_sync
+            SET numero_controle_pncp = $2
+          WHERE entidade_id = $1 AND tipo = 'PCA' AND status = 'ENVIADO'`,
+        [IDS.pca, numeroPca],
+      );
+      resultado = { numeroControlePca: numeroPca };
     } else if (etapa === 'resumo') {
       const [licitacao] = await dataSource.query(
         `SELECT numero_controle_pncp, ano_compra_pncp, sequencial_compra_pncp,
