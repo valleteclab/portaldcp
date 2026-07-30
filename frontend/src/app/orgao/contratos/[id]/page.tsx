@@ -83,7 +83,17 @@ interface TermoAditivo {
   nova_data_vigencia_fim?: string | null
   data_assinatura: string
   status: string
+  ajuste_itens_status?: string
+  ajuste_itens_modo?: string | null
   created_at: string
+}
+
+type AjusteItensForm = {
+  modo: 'PENDENTE' | 'SEM_ALTERACAO' | 'TODOS' | 'SELECIONADOS'
+  percentual_preco: string
+  percentual_quantidade: string
+  justificativa_sem_alteracao: string
+  itens: Record<string, { selecionado: boolean; novo_valor_unitario: string; nova_quantidade: string }>
 }
 
 interface ItemContrato {
@@ -390,6 +400,22 @@ export default function DetalheContratoOrgaoPage() {
   const [modalSinapro, setModalSinapro] = useState(false)
   const [modalEditTermo, setModalEditTermo] = useState<TermoAditivo | null>(null)
   const [modalCancelarTermo, setModalCancelarTermo] = useState<TermoAditivo | null>(null)
+  const [modalConciliarTermo, setModalConciliarTermo] = useState<TermoAditivo | null>(null)
+  const ajusteItensInicial: AjusteItensForm = {
+    modo: 'PENDENTE',
+    percentual_preco: '',
+    percentual_quantidade: '',
+    justificativa_sem_alteracao: '',
+    itens: {},
+  }
+  const [ajusteItensForm, setAjusteItensForm] = useState<AjusteItensForm>(ajusteItensInicial)
+  const [conciliacaoItens, setConciliacaoItens] = useState<{
+    valor_global: number
+    total_itens: number
+    diferenca: number
+    possui_itens: boolean
+    termos_pendentes: Array<{ id: string; numero_termo: string }>
+  } | null>(null)
   const [modalAditivosPortal, setModalAditivosPortal] = useState<{
     open: boolean
     aditivos: Array<{ nome: string; tipo: string; valor: string; vigencia: string; fiscal: string; pdf_url: string }>
@@ -525,17 +551,19 @@ export default function DetalheContratoOrgaoPage() {
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const [contratoRes, termosRes, historicoRes, documentosRes] = await Promise.all([
+      const [contratoRes, termosRes, historicoRes, documentosRes, conciliacaoRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/${id}`),
         authFetch(`${API_URL}/api/contratos/${id}/termos`),
         authFetch(`${API_URL}/api/contratos/${id}/historico`),
-        authFetch(`${API_URL}/api/contratos/${id}/documentos`)
+        authFetch(`${API_URL}/api/contratos/${id}/documentos`),
+        authFetch(`${API_URL}/api/contratos/${id}/conciliacao-itens`)
       ])
       if (contratoRes.ok) setContrato(await contratoRes.json())
       if (termosRes.ok) setTermos(await termosRes.json())
       if (historicoRes.ok) setHistorico(await historicoRes.json())
       if (documentosRes.ok) setDocumentos(await documentosRes.json())
       else setDocumentos([])
+      if (conciliacaoRes.ok) setConciliacaoItens(await conciliacaoRes.json())
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
@@ -589,6 +617,20 @@ export default function DetalheContratoOrgaoPage() {
     return Math.ceil((fim.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
   }
 
+  const montarAjusteItensPayload = () => ({
+    modo: ajusteItensForm.modo,
+    percentual_preco: parseFloat(ajusteItensForm.percentual_preco) || 0,
+    percentual_quantidade: parseFloat(ajusteItensForm.percentual_quantidade) || 0,
+    justificativa_sem_alteracao: ajusteItensForm.justificativa_sem_alteracao,
+    itens: Object.entries(ajusteItensForm.itens)
+      .filter(([, item]) => item.selecionado)
+      .map(([item_id, item]) => ({
+        item_id,
+        novo_valor_unitario: item.novo_valor_unitario !== '' ? parseFloat(item.novo_valor_unitario) : undefined,
+        nova_quantidade: item.nova_quantidade !== '' ? parseFloat(item.nova_quantidade) : undefined,
+      })),
+  })
+
   const handleCriarTermo = async () => {
     setLoadingAction(true)
     try {
@@ -619,6 +661,7 @@ export default function DetalheContratoOrgaoPage() {
         valor_supressao: ehRenovacaoCiclo && ehAditivoPrazo ? null : valorSupressao,
         nova_data_vigencia_fim: novoTermo.nova_data_vigencia_fim || null,
         data_assinatura: novoTermo.data_assinatura,
+        ajuste_itens: montarAjusteItensPayload(),
       }
       const res = await authFetch(`${API_URL}/api/contratos/${id}/termos`, {
         method: 'POST',
@@ -626,6 +669,7 @@ export default function DetalheContratoOrgaoPage() {
       })
       if (res.ok) {
         setModalTermo(false)
+        setAjusteItensForm(ajusteItensInicial)
         setNovoTermo({ tipo: 'ADITIVO_PRAZO', renovacao_ciclo: false, objeto: '', justificativa: '', valor_acrescimo: '', valor_supressao: '', modo_acrescimo: 'incremento', modo_supressao: 'incremento', novo_valor_global_acrescimo: '', novo_valor_global_supressao: '', percentual_acrescimo: '', percentual_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
         carregarDados()
       } else {
@@ -635,6 +679,28 @@ export default function DetalheContratoOrgaoPage() {
     } catch (error) {
       console.error('Erro ao criar termo:', error)
       alert('Erro ao criar termo aditivo')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleConciliarItensTermo = async () => {
+    if (!modalConciliarTermo) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${id}/termos/${modalConciliarTermo.id}/ajuste-itens`,
+        { method: 'PATCH', body: JSON.stringify(montarAjusteItensPayload()) },
+      )
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.message || 'Erro ao conciliar os itens')
+      }
+      setModalConciliarTermo(null)
+      setAjusteItensForm(ajusteItensInicial)
+      carregarDados()
+    } catch (error: any) {
+      alert(error.message || 'Erro ao conciliar os itens')
     } finally {
       setLoadingAction(false)
     }
@@ -1229,6 +1295,111 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
+  const renderFormularioAjusteItens = () => (
+    <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+      <div>
+        <Label>Como o aditivo afeta os itens? *</Label>
+        <Select
+          value={ajusteItensForm.modo}
+          onValueChange={(modo: AjusteItensForm['modo']) =>
+            setAjusteItensForm(prev => ({ ...prev, modo }))
+          }
+        >
+          <SelectTrigger className="mt-1 bg-white"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PENDENTE">Decidir depois — marcar como pendente</SelectItem>
+            <SelectItem value="SEM_ALTERACAO">Não altera preços nem quantidades</SelectItem>
+            <SelectItem value="TODOS">Aplica a todos os itens</SelectItem>
+            <SelectItem value="SELECIONADOS">Aplica somente aos itens selecionados</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {ajusteItensForm.modo === 'PENDENTE' && (
+        <p className="text-xs font-medium text-amber-800">
+          O contrato ficará com alerta de divergência até os itens serem conciliados.
+        </p>
+      )}
+      {ajusteItensForm.modo === 'SEM_ALTERACAO' && (
+        <div>
+          <Label>Justificativa *</Label>
+          <Textarea
+            className="mt-1 bg-white"
+            value={ajusteItensForm.justificativa_sem_alteracao}
+            onChange={e => setAjusteItensForm(prev => ({ ...prev, justificativa_sem_alteracao: e.target.value }))}
+            placeholder="Ex.: aditivo somente de prazo, sem reajuste e sem acréscimo quantitativo."
+          />
+        </div>
+      )}
+      {ajusteItensForm.modo === 'TODOS' && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Reajuste de preço (%)</Label>
+            <Input className="mt-1 bg-white" type="number" step="0.0001" value={ajusteItensForm.percentual_preco}
+              onChange={e => setAjusteItensForm(prev => ({ ...prev, percentual_preco: e.target.value }))} placeholder="Ex.: 4,39" />
+          </div>
+          <div>
+            <Label>Acréscimo de quantidade (%)</Label>
+            <Input className="mt-1 bg-white" type="number" step="0.0001" value={ajusteItensForm.percentual_quantidade}
+              onChange={e => setAjusteItensForm(prev => ({ ...prev, percentual_quantidade: e.target.value }))} placeholder="Ex.: 25" />
+          </div>
+        </div>
+      )}
+      {ajusteItensForm.modo === 'SELECIONADOS' && (
+        <div className="max-h-72 overflow-auto rounded border bg-white">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-gray-100">
+              <tr>
+                <th className="p-2 text-left">Item</th>
+                <th className="p-2 text-right">Preço atual</th>
+                <th className="p-2 text-right">Novo preço</th>
+                <th className="p-2 text-right">Qtd. atual</th>
+                <th className="p-2 text-right">Nova qtd.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(contrato?.itens || []).map(item => {
+                const ajuste = ajusteItensForm.itens[item.id] || {
+                  selecionado: false,
+                  novo_valor_unitario: String(item.valor_unitario),
+                  nova_quantidade: String(item.quantidade_contratada),
+                }
+                return (
+                  <tr key={item.id} className="border-t">
+                    <td className="p-2">
+                      <label className="flex items-center gap-2">
+                        <Checkbox
+                          checked={ajuste.selecionado}
+                          onCheckedChange={checked => setAjusteItensForm(prev => ({
+                            ...prev,
+                            itens: {
+                              ...prev.itens,
+                              [item.id]: { ...ajuste, selecionado: checked === true },
+                            },
+                          }))}
+                        />
+                        <span>{item.numero_item}. {item.descricao.slice(0, 45)}</span>
+                      </label>
+                    </td>
+                    <td className="p-2 text-right">{formatarMoeda(item.valor_unitario)}</td>
+                    <td className="p-2"><Input className="h-8 text-right" type="number" step="0.0001" disabled={!ajuste.selecionado}
+                      value={ajuste.novo_valor_unitario} onChange={e => setAjusteItensForm(prev => ({
+                        ...prev, itens: { ...prev.itens, [item.id]: { ...ajuste, novo_valor_unitario: e.target.value } },
+                      }))} /></td>
+                    <td className="p-2 text-right">{Number(item.quantidade_contratada).toLocaleString('pt-BR')}</td>
+                    <td className="p-2"><Input className="h-8 text-right" type="number" step="0.0001" disabled={!ajuste.selecionado}
+                      value={ajuste.nova_quantidade} onChange={e => setAjusteItensForm(prev => ({
+                        ...prev, itens: { ...prev.itens, [item.id]: { ...ajuste, nova_quantidade: e.target.value } },
+                      }))} /></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+
   if (loading) {
     return (
       <div className="p-8 text-center">
@@ -1372,6 +1543,26 @@ export default function DetalheContratoOrgaoPage() {
           onApplied={(qtd) => { alert(`${qtd} item(ns) gerado(s) no contrato.`); carregarDados() }}
         />
       )}
+
+      {conciliacaoItens?.possui_itens &&
+        (Math.abs(conciliacaoItens.diferenca) > 0.01 || conciliacaoItens.termos_pendentes.length > 0) && (
+          <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertCircle className="h-5 w-5" />
+              Valor global diferente da soma dos itens
+            </div>
+            <p className="mt-1 text-sm">
+              Global: {formatarMoeda(conciliacaoItens.valor_global)} · Itens: {formatarMoeda(conciliacaoItens.total_itens)}
+              {' '}· Diferença: {formatarMoeda(conciliacaoItens.diferenca)}.
+              Revise os itens antes de emitir novos pedidos.
+            </p>
+            {conciliacaoItens.termos_pendentes.length > 0 && tabAtivo !== 'termos' && (
+              <Button variant="outline" size="sm" className="mt-2 border-red-300" onClick={() => setTabAtivo('termos')}>
+                Conciliar aditivo
+              </Button>
+            )}
+          </div>
+        )}
 
       <Tabs value={tabAtivo} onValueChange={setTabAtivo} className="space-y-6">
         <TabsList>
@@ -1958,6 +2149,9 @@ export default function DetalheContratoOrgaoPage() {
                           <FileText className="w-5 h-5 text-blue-500" />
                           <span className="font-medium">{termo.numero_termo}</span>
                           <Badge variant="outline">{getTipoTermoLabel(termo.tipo)}</Badge>
+                          {termo.ajuste_itens_status === 'PENDENTE' && (
+                            <Badge variant="destructive">Itens pendentes</Badge>
+                          )}
                           {termo.status === 'CANCELADO' && <Badge variant="destructive">Cancelado</Badge>}
                         </div>
                         <p className="text-gray-600 mb-4">{termo.objeto}</p>
@@ -1976,6 +2170,19 @@ export default function DetalheContratoOrgaoPage() {
                       </div>
                       {termo.status !== 'CANCELADO' ? (
                         <div className="flex gap-1">
+                          {termo.ajuste_itens_status === 'PENDENTE' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-amber-400 text-amber-800"
+                              onClick={() => {
+                                setAjusteItensForm(ajusteItensInicial)
+                                setModalConciliarTermo(termo)
+                              }}
+                            >
+                              <Calculator className="w-4 h-4 mr-1" />Ajustar itens
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm" onClick={() => { setNovoDocumento(d => ({ ...d, termo_aditivo_id: termo.id, tipo: 'TERMO_ADITIVO' })); setModalDocumento(true) }}><FileUp className="w-4 h-4 mr-1" />Doc</Button>
                           <Button variant="outline" size="sm" onClick={() => setModalEditTermo({ ...termo })}><Pencil className="w-4 h-4 mr-1" />Editar</Button>
                           <Button variant="outline" size="sm" className="text-red-600" onClick={() => setModalCancelarTermo(termo)}><X className="w-4 h-4 mr-1" />Cancelar</Button>
@@ -2770,6 +2977,7 @@ export default function DetalheContratoOrgaoPage() {
                 </div>
               </div>
             )}
+            {renderFormularioAjusteItens()}
             <div className="space-y-2">
               <Label>Nova Data de Vigência</Label>
               <Input type="date" value={novoTermo.nova_data_vigencia_fim} onChange={(e) => setNovoTermo({...novoTermo, nova_data_vigencia_fim: e.target.value})} />
@@ -2780,6 +2988,25 @@ export default function DetalheContratoOrgaoPage() {
             <Button variant="outline" onClick={() => setModalTermo(false)}>Cancelar</Button>
             <Button onClick={handleCriarTermo} disabled={loadingAction}>
               {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Criar Termo Aditivo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!modalConciliarTermo} onOpenChange={open => !open && setModalConciliarTermo(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Conciliar itens — {modalConciliarTermo?.numero_termo}</DialogTitle>
+            <DialogDescription>
+              Informe quais preços e quantidades foram efetivamente alterados pelo aditivo.
+            </DialogDescription>
+          </DialogHeader>
+          {renderFormularioAjusteItens()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalConciliarTermo(null)}>Cancelar</Button>
+            <Button onClick={handleConciliarItensTermo} disabled={loadingAction || ajusteItensForm.modo === 'PENDENTE'}>
+              {loadingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Aplicar aos itens
             </Button>
           </DialogFooter>
         </DialogContent>

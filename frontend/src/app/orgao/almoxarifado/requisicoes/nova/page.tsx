@@ -535,6 +535,13 @@ function NovaRequisicaoForm() {
   const [comprometidoDetalhes, setComprometidoDetalhes] = useState<
     Record<string, ComprometimentoOSDetalhe[]>
   >({});
+  const [alertaConciliacaoItens, setAlertaConciliacaoItens] = useState<{
+    valor_global: number;
+    total_itens: number;
+    diferenca: number;
+    possui_itens: boolean;
+    termos_pendentes: Array<{ id: string; numero_termo: string }>;
+  } | null>(null);
   const [etapasOS, setEtapasOS] = useState<any[]>([]);
   const [carregandoCronograma, setCarregandoCronograma] = useState(false);
   const [modoOS, setModoOS] = useState<'ORDEM_GLOBAL' | 'ORDEM_DEMANDA' | null>(null);
@@ -557,6 +564,16 @@ function NovaRequisicaoForm() {
   const temItensControladosPorFuncionarios = itensCronograma.some(
     itemControladoPorFuncionarios,
   );
+
+  useEffect(() => {
+    if (!contratoSelecionado?.id) {
+      setAlertaConciliacaoItens(null);
+      return;
+    }
+    authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/conciliacao-itens`)
+      .then(async res => setAlertaConciliacaoItens(res.ok ? await res.json() : null))
+      .catch(() => setAlertaConciliacaoItens(null));
+  }, [contratoSelecionado?.id]);
   const STEPS = isOS ? ['Contrato', 'Dados da OS', 'Resumo'] : ['Contrato', 'Itens', 'Dados', 'Resumo'];
   const anoAtual = new Date().getFullYear();
 
@@ -2686,6 +2703,30 @@ function NovaRequisicaoForm() {
           }}
         />
       )}
+
+      {alertaConciliacaoItens &&
+        alertaConciliacaoItens.possui_itens &&
+        (Math.abs(Number(alertaConciliacaoItens.diferenca || 0)) > 0.01 ||
+          alertaConciliacaoItens.termos_pendentes?.length > 0) && (
+          <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertTriangle className="h-5 w-5" />
+              Atenção: valor global diferente da soma dos itens
+            </div>
+            <p className="mt-1 text-sm">
+              Global: {formatarMoeda(alertaConciliacaoItens.valor_global)} · Itens:{' '}
+              {formatarMoeda(alertaConciliacaoItens.total_itens)} · Diferença:{' '}
+              {formatarMoeda(alertaConciliacaoItens.diferenca)}. Confirme o
+              reajuste do aditivo antes de emitir o pedido ou a OS.
+            </p>
+            <Link
+              href={`/orgao/contratos/${contratoSelecionado?.id}?tab=termos`}
+              className="mt-2 inline-block text-sm font-medium underline"
+            >
+              Abrir conciliação do aditivo
+            </Link>
+          </div>
+        )}
 
       {carregandoCronograma ? (
         <Card>

@@ -28,6 +28,18 @@ import {
   POSICAO_ASSINATURA_CONTRATADA,
 } from './contrato-pdf';
 
+type AjusteItensAditivo = {
+  modo: 'PENDENTE' | 'SEM_ALTERACAO' | 'TODOS' | 'SELECIONADOS';
+  percentual_preco?: number;
+  percentual_quantidade?: number;
+  justificativa_sem_alteracao?: string;
+  itens?: Array<{
+    item_id: string;
+    novo_valor_unitario?: number;
+    nova_quantidade?: number;
+  }>;
+};
+
 @Injectable()
 export class ContratosService implements OnModuleInit {
   private readonly logger = new Logger(ContratosService.name);
@@ -1094,8 +1106,17 @@ export class ContratosService implements OnModuleInit {
 
   // ============ TERMOS ADITIVOS ============
 
-  async criarTermoAditivo(contratoId: string, dados: Partial<TermoAditivo>): Promise<TermoAditivo> {
+  async criarTermoAditivo(
+    contratoId: string,
+    dados: Partial<TermoAditivo> & { ajuste_itens?: AjusteItensAditivo },
+  ): Promise<TermoAditivo> {
     const contrato = await this.findOne(contratoId);
+    const ajusteItens = dados.ajuste_itens;
+    const possuiItens =
+      (await this.itemContratoRepository.count({ where: { contrato_id: contratoId } })) > 0 ||
+      (await this.itemCronogramaRepository.count({ where: { contrato_id: contratoId } })) > 0;
+    const dadosTermo = { ...dados } as any;
+    delete dadosTermo.ajuste_itens;
 
     // Gerar número do termo: usar primeiro "gap" disponível para permitir reutilizar números de termos excluídos
     const todosTermos = await this.termoAditivoRepository.find({
@@ -1107,18 +1128,29 @@ export class ContratosService implements OnModuleInit {
     while (sequenciaisUsados.has(sequencial)) sequencial++;
     const numeroTermo = `${sequencial}º ${dados.tipo === TipoTermoAditivo.APOSTILAMENTO ? 'Apostilamento' : 'Termo Aditivo'}`;
 
-    const termo = this.termoAditivoRepository.create({
-      ...dados,
+    const termo: TermoAditivo = this.termoAditivoRepository.create({
+      ...dadosTermo,
       contrato_id: contratoId,
       sequencial,
       numero_termo: numeroTermo,
       justificativa: dados.justificativa ?? dados.objeto ?? undefined,
-    });
+      ajuste_itens_status: !possuiItens
+        ? 'NAO_APLICAVEL'
+        : ajusteItens?.modo && ajusteItens.modo !== 'PENDENTE'
+          ? ajusteItens.modo
+          : (Number(dados.valor_acrescimo) || Number(dados.valor_supressao))
+            ? 'PENDENTE'
+            : 'NAO_APLICAVEL',
+      ajuste_itens_modo: possuiItens ? ajusteItens?.modo || null : null,
+    } as Partial<TermoAditivo>);
 
     const termoSalvo = await this.termoAditivoRepository.save(termo);
 
     // Atualizar valores do contrato
     await this.atualizarValoresContrato(contrato, termoSalvo);
+    if (possuiItens && ajusteItens && ajusteItens.modo !== 'PENDENTE') {
+      await this.aplicarAjusteItensAditivo(contrato, termoSalvo, ajusteItens);
+    }
 
     await this.registrarHistorico({
       contrato_id: contratoId,
@@ -1128,6 +1160,174 @@ export class ContratosService implements OnModuleInit {
     });
 
     return termoSalvo;
+  }
+
+  async conciliarItensTermo(
+    contratoId: string,
+    termoId: string,
+    ajuste: AjusteItensAditivo,
+  ): Promise<TermoAditivo> {
+    const contrato = await this.findOne(contratoId);
+    const termo = await this.findTermoAditivo(termoId);
+    if (termo.contrato_id !== contratoId) {
+      throw new NotFoundException('Termo aditivo não pertence a este contrato');
+    }
+    if (termo.status === StatusTermoAditivo.CANCELADO) {
+      throw new BadRequestException('Não é possível ajustar itens de um termo cancelado');
+    }
+    if ((termo.ajuste_itens_detalhes || []).length > 0) {
+      throw new BadRequestException('Os itens deste termo já foram ajustados');
+    }
+    await this.aplicarAjusteItensAditivo(contrato, termo, ajuste);
+    return this.findTermoAditivo(termoId);
+  }
+
+  async obterConciliacaoItens(contratoId: string): Promise<{
+    valor_global: number;
+    total_itens: number;
+    diferenca: number;
+    possui_itens: boolean;
+    termos_pendentes: Array<{ id: string; numero_termo: string }>;
+  }> {
+    const contrato = await this.findOne(contratoId);
+    const [itensContrato, itensCronograma, termosPendentes] = await Promise.all([
+      this.itemContratoRepository.find({ where: { contrato_id: contratoId } }),
+      this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } }),
+      this.termoAditivoRepository.find({
+        where: {
+          contrato_id: contratoId,
+          status: Not(StatusTermoAditivo.CANCELADO),
+          ajuste_itens_status: 'PENDENTE',
+        },
+        order: { sequencial: 'ASC' },
+      }),
+    ]);
+    const totalItensContrato = itensContrato.reduce((s, item) => s + Number(item.valor_total || 0), 0);
+    const totalItensCronograma = itensCronograma.reduce((s, item) => s + Number(item.valor_total || 0), 0);
+    const totalItens = totalItensContrato + totalItensCronograma;
+    return {
+      valor_global: Number(contrato.valor_global || 0),
+      total_itens: Math.round(totalItens * 100) / 100,
+      diferenca: Math.round((Number(contrato.valor_global || 0) - totalItens) * 100) / 100,
+      possui_itens: itensContrato.length + itensCronograma.length > 0,
+      termos_pendentes: termosPendentes.map((termo) => ({
+        id: termo.id,
+        numero_termo: termo.numero_termo,
+      })),
+    };
+  }
+
+  private async aplicarAjusteItensAditivo(
+    contrato: Contrato,
+    termo: TermoAditivo,
+    ajuste: AjusteItensAditivo,
+  ): Promise<void> {
+    if (ajuste.modo === 'SEM_ALTERACAO') {
+      if (!ajuste.justificativa_sem_alteracao?.trim()) {
+        throw new BadRequestException('Informe por que o aditivo não altera os itens');
+      }
+      termo.ajuste_itens_status = 'SEM_ALTERACAO';
+      termo.ajuste_itens_modo = 'SEM_ALTERACAO';
+      termo.observacoes = [termo.observacoes, `Itens sem alteração: ${ajuste.justificativa_sem_alteracao.trim()}`]
+        .filter(Boolean)
+        .join('\n');
+      await this.termoAditivoRepository.save(termo);
+      return;
+    }
+
+    if (!['TODOS', 'SELECIONADOS'].includes(ajuste.modo)) {
+      termo.ajuste_itens_status = 'PENDENTE';
+      termo.ajuste_itens_modo = 'PENDENTE';
+      await this.termoAditivoRepository.save(termo);
+      return;
+    }
+
+    const percentualPreco = Number(ajuste.percentual_preco || 0);
+    const percentualQuantidade = Number(ajuste.percentual_quantidade || 0);
+    const especificos = new Map((ajuste.itens || []).map((item) => [item.item_id, item]));
+    if (ajuste.modo === 'SELECIONADOS' && especificos.size === 0) {
+      throw new BadRequestException('Selecione pelo menos um item afetado pelo aditivo');
+    }
+
+    const [itensContrato, itensCronograma] = await Promise.all([
+      this.itemContratoRepository.find({ where: { contrato_id: contrato.id }, order: { numero_item: 'ASC' } }),
+      this.itemCronogramaRepository.find({ where: { contrato_id: contrato.id }, order: { numero_item: 'ASC' } }),
+    ]);
+    const detalhes: any[] = [];
+
+    for (const item of itensContrato) {
+      const especifico = especificos.get(item.id);
+      if (ajuste.modo === 'SELECIONADOS' && !especifico) continue;
+      const valorAnterior = Number(item.valor_unitario);
+      const quantidadeAnterior = Number(item.quantidade_contratada);
+      const valorNovo = especifico?.novo_valor_unitario != null
+        ? Number(especifico.novo_valor_unitario)
+        : valorAnterior * (1 + percentualPreco / 100);
+      const quantidadeNova = especifico?.nova_quantidade != null
+        ? Number(especifico.nova_quantidade)
+        : quantidadeAnterior * (1 + percentualQuantidade / 100);
+      if (valorNovo < 0 || quantidadeNova < 0) throw new BadRequestException(`Valores inválidos no item ${item.numero_item}`);
+      detalhes.push({
+        tipo: 'ITEM_CONTRATO',
+        item_id: item.id,
+        numero_item: item.numero_item,
+        valor_unitario_anterior: valorAnterior,
+        valor_unitario_novo: valorNovo,
+        quantidade_anterior: quantidadeAnterior,
+        quantidade_nova: quantidadeNova,
+        valor_total_anterior: Number(item.valor_total),
+        valor_total_novo: Math.round(valorNovo * quantidadeNova * 100) / 100,
+      });
+      item.valor_unitario = valorNovo;
+      item.quantidade_contratada = quantidadeNova;
+      item.valor_total = Math.round(valorNovo * quantidadeNova * 100) / 100;
+      item.saldo_disponivel = Math.max(
+        0,
+        quantidadeNova - Number(item.quantidade_empenhada || 0) - Number(item.quantidade_entregue || 0),
+      );
+    }
+
+    for (const item of itensCronograma) {
+      const especifico = especificos.get(item.id);
+      if (ajuste.modo === 'SELECIONADOS' && !especifico) continue;
+      const valorAnterior = Number(item.valor_unitario);
+      const quantidadeAnterior = Number(item.quantidade);
+      const valorNovo = especifico?.novo_valor_unitario != null
+        ? Number(especifico.novo_valor_unitario)
+        : valorAnterior * (1 + percentualPreco / 100);
+      const quantidadeNova = especifico?.nova_quantidade != null
+        ? Number(especifico.nova_quantidade)
+        : quantidadeAnterior * (1 + percentualQuantidade / 100);
+      const multiplicador = Number(item.quantidade_meses || item.numero_execucoes || 1);
+      const valorMensalNovo = Math.round(valorNovo * quantidadeNova * 100) / 100;
+      detalhes.push({
+        tipo: 'ITEM_CRONOGRAMA',
+        item_id: item.id,
+        numero_item: item.numero_item,
+        valor_unitario_anterior: valorAnterior,
+        valor_unitario_novo: valorNovo,
+        quantidade_anterior: quantidadeAnterior,
+        quantidade_nova: quantidadeNova,
+        valor_total_anterior: Number(item.valor_total),
+        valor_total_novo: Math.round(valorMensalNovo * multiplicador * 100) / 100,
+      });
+      item.valor_unitario = valorNovo;
+      item.quantidade = quantidadeNova;
+      item.valor_mensal = valorMensalNovo;
+      item.valor_total = Math.round(valorMensalNovo * multiplicador * 100) / 100;
+    }
+
+    if (detalhes.length === 0) {
+      throw new BadRequestException('O contrato não possui itens para aplicar o ajuste');
+    }
+    await Promise.all([
+      itensContrato.length ? this.itemContratoRepository.save(itensContrato) : Promise.resolve(),
+      itensCronograma.length ? this.itemCronogramaRepository.save(itensCronograma) : Promise.resolve(),
+    ]);
+    termo.ajuste_itens_status = ajuste.modo;
+    termo.ajuste_itens_modo = ajuste.modo;
+    termo.ajuste_itens_detalhes = detalhes;
+    await this.termoAditivoRepository.save(termo);
   }
 
   async excluirTermoAditivo(contratoId: string, termoId: string): Promise<{ message: string }> {
@@ -1247,6 +1447,34 @@ export class ContratosService implements OnModuleInit {
   }
 
   private async reverterEfeitosTermo(contrato: Contrato, termo: TermoAditivo): Promise<void> {
+    // Restaura preços e quantidades anteriores registrados no snapshot do termo.
+    for (const detalhe of termo.ajuste_itens_detalhes || []) {
+      if (detalhe.tipo === 'ITEM_CONTRATO') {
+        const item = await this.itemContratoRepository.findOne({ where: { id: detalhe.item_id } });
+        if (!item) continue;
+        item.valor_unitario = detalhe.valor_unitario_anterior;
+        item.quantidade_contratada = detalhe.quantidade_anterior;
+        item.valor_total = detalhe.valor_total_anterior;
+        item.saldo_disponivel = Math.max(
+          0,
+          detalhe.quantidade_anterior -
+            Number(item.quantidade_empenhada || 0) -
+            Number(item.quantidade_entregue || 0),
+        );
+        await this.itemContratoRepository.save(item);
+      } else {
+        const item = await this.itemCronogramaRepository.findOne({ where: { id: detalhe.item_id } });
+        if (!item) continue;
+        item.valor_unitario = detalhe.valor_unitario_anterior;
+        item.quantidade = detalhe.quantidade_anterior;
+        item.valor_total = detalhe.valor_total_anterior;
+        item.valor_mensal = Math.round(
+          detalhe.valor_unitario_anterior * detalhe.quantidade_anterior * 100,
+        ) / 100;
+        await this.itemCronogramaRepository.save(item);
+      }
+    }
+
     // Renovação de ciclo: restaura a data de renovação do ciclo anterior (se houver)
     if (termo.renovacao_ciclo) {
       const termosRenovacao = await this.termoAditivoRepository.find({

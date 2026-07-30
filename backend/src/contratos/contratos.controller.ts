@@ -391,6 +391,28 @@ export class ContratosController {
     return this.contratosService.findTermosAditivos(contratoId);
   }
 
+  @Get(':contratoId/conciliacao-itens')
+  async obterConciliacaoItens(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.obterConciliacaoItens(contratoId);
+  }
+
+  @Patch(':contratoId/termos/:termoId/ajuste-itens')
+  async conciliarItensTermo(
+    @Param('contratoId') contratoId: string,
+    @Param('termoId') termoId: string,
+    @Body() ajuste: any,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.conciliarItensTermo(contratoId, termoId, ajuste);
+  }
+
   @Get('termos/:id')
   async findTermoAditivo(@Param('id') id: string) {
     return this.contratosService.findTermoAditivo(id);
