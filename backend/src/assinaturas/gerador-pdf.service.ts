@@ -248,7 +248,10 @@ export class GeradorPdfService {
             .text('Itens da Ordem de Serviço:', marginL, doc.y, { width: contentW });
           doc.moveDown(0.3);
           const arredondar = dadosOS.contrato?.arredondar_calculo ?? true;
-          this.escreverTabelaItensOS(doc, itensParaRender, arredondar);
+          const configuracaoMaoDeObra = dadosOS.contrato?.exige_relacao_funcionarios
+            ? { loteNumero: dadosOS.contrato.lote_relacao_funcionarios ?? null }
+            : undefined;
+          this.escreverTabelaItensOS(doc, itensParaRender, arredondar, configuracaoMaoDeObra);
         }
 
         // ── ASSINATURAS (nova página se restar menos de 180pt) ────────────────
@@ -829,12 +832,17 @@ export class GeradorPdfService {
     return nome;
   }
 
-  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; descricao_avulso?: string | null; quantidade_avulso?: number | null; valor_unitario_avulso?: number | null; valor_total_avulso?: number | null; itemCronograma?: { numero_item?: number; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true): void {
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; descricao_avulso?: string | null; quantidade_avulso?: number | null; valor_unitario_avulso?: number | null; valor_total_avulso?: number | null; itemCronograma?: { numero_item?: number; lote_numero?: number | null; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true, configuracaoMaoDeObra?: { loteNumero: number | null }): void {
     const pageWidth = doc.page.width - 100;
     const colNum   = pageWidth * 0.05;
-    const colDesc  = pageWidth * 0.39;
-    const colUnid  = pageWidth * 0.10;
-    const colQtd   = pageWidth * 0.11;
+    const temMaoDeObra = itensOS.some((item) => {
+      if (!configuracaoMaoDeObra || !item.itemCronograma) return false;
+      return configuracaoMaoDeObra.loteNumero == null ||
+        Number(item.itemCronograma.lote_numero) === Number(configuracaoMaoDeObra.loteNumero);
+    });
+    const colDesc  = pageWidth * (temMaoDeObra ? 0.34 : 0.39);
+    const colUnid  = pageWidth * (temMaoDeObra ? 0.09 : 0.10);
+    const colQtd   = pageWidth * (temMaoDeObra ? 0.17 : 0.11);
     const colValor = pageWidth * 0.17;
     const colTotal = pageWidth * 0.18;
 
@@ -852,7 +860,7 @@ export class GeradorPdfService {
     doc.text('#',           x0 + 3, headerY + 5, { width: colNum - 4 });
     doc.text('Descrição',   x1 + 3, headerY + 5, { width: colDesc - 6 });
     doc.text('Unidade',     x2,     headerY - 13 + 5, { width: colUnid,  align: 'center' });
-    doc.text('Qtd.',        x3,     headerY - 13 + 5, { width: colQtd,   align: 'right' });
+    doc.text(temMaoDeObra ? 'Composição' : 'Qtd.', x3, headerY - 13 + 5, { width: colQtd, align: 'right' });
     doc.text('Valor Unit.', x4,     headerY - 13 + 5, { width: colValor, align: 'right' });
     doc.text('Total',       x5,     headerY - 13 + 5, { width: colTotal, align: 'right' });
     doc.y = headerY + 20;
@@ -872,14 +880,27 @@ export class GeradorPdfService {
       const desc = (isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-')) +
         (temMemorial ? `\n${memorial}` : '');
       const qtd  = isAvulso ? Number(item.quantidade_avulso ?? 0) : Number(item.quantidade_solicitada);
+      const isMaoDeObra =
+        !isAvulso &&
+        !!configuracaoMaoDeObra &&
+        (configuracaoMaoDeObra.loteNumero == null ||
+          Number(ic.lote_numero) === Number(configuracaoMaoDeObra.loteNumero));
       // MENSAL fracionado (período parcial): exibe em DIAS comerciais (ex.: 0,2333 mês → 7 dias).
       // Apenas exibição — o valor continua calculado pela fração exata.
       const isMensalFracionado =
+        !isMaoDeObra &&
         !isAvulso &&
         String(ic.unidade_medida || '').toUpperCase() === 'MENSAL' &&
         qtd > 0 &&
         Math.abs(qtd - Math.round(qtd)) > 0.0001;
-      const unid = isMensalFracionado ? 'DIAS' : (isAvulso ? '-' : (ic.unidade_medida || '-'));
+      const unid = isMaoDeObra
+        ? 'POSTO'
+        : (isMensalFracionado ? 'DIAS' : (isAvulso ? '-' : (ic.unidade_medida || '-')));
+      const quantidadeExibida = isMaoDeObra
+        ? this.formatarComposicaoPostos(qtd)
+        : (isMensalFracionado
+          ? String(Math.round(qtd * 30))
+          : qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }));
       const vlUnit = isAvulso ? Number(item.valor_unitario_avulso ?? 0) : Number(ic.valor_unitario ?? 0);
       const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
       // total: avulso usa valor_total_avulso; cronograma usa qtd × vlUnit (qtd já inclui meses × qty/período)
@@ -890,7 +911,8 @@ export class GeradorPdfService {
 
       doc.fontSize(8);
       const descHeight = doc.heightOfString(desc, { width: colDesc - 6 });
-      const rowH = Math.max(descHeight, 12);
+      const qtdHeight = doc.heightOfString(quantidadeExibida, { width: colQtd - 4 });
+      const rowH = Math.max(descHeight, qtdHeight, 12);
 
       if (doc.y + rowH + 4 > doc.page.height - 80) {
         doc.addPage(); doc.y = 50;
@@ -900,12 +922,7 @@ export class GeradorPdfService {
       doc.text(ic.numero_item != null ? String(ic.numero_item) : '-', x0 + 3, rowY, { width: colNum - 4 });
       doc.text(desc,  x1 + 3, rowY, { width: colDesc - 6 });
       doc.text(unid,  x2, rowY, { width: colUnid,  align: 'center' });
-      doc.text(
-        isMensalFracionado
-          ? String(Math.round(qtd * 30))
-          : qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
-        x3, rowY, { width: colQtd, align: 'right' }
-      );
+      doc.text(quantidadeExibida, x3, rowY, { width: colQtd, align: 'right' });
       doc.text(
         vlUnit > 0 ? `R$ ${vlUnit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-',
         x4, rowY, { width: colValor, align: 'right' }
@@ -929,7 +946,36 @@ export class GeradorPdfService {
       x5, doc.y - 14 + 5, { width: colTotal, align: 'right' }
     );
     doc.y += 20;
+    if (temMaoDeObra) {
+      doc.moveDown(0.35);
+      doc.fontSize(7).font('Helvetica').fillColor('#4b5563').text(
+        'Nos itens de mão de obra, posto/mês corresponde a 30 dias. Dias-posto indicam período parcial e não fração de pessoa.',
+        x0,
+        doc.y,
+        { width: pageWidth },
+      );
+    }
     doc.moveDown(0.5);
+  }
+
+  private formatarComposicaoPostos(quantidadeEquivalente: number): string {
+    if (!Number.isFinite(quantidadeEquivalente) || quantidadeEquivalente <= 0) {
+      return '0 postos/mês';
+    }
+
+    const totalDiasPosto = Math.round(quantidadeEquivalente * 30);
+    const postosInteiros = Math.floor(totalDiasPosto / 30);
+    const diasPosto = totalDiasPosto % 30;
+    const partes: string[] = [];
+
+    if (postosInteiros > 0) {
+      partes.push(`${postosInteiros} ${postosInteiros === 1 ? 'posto/mês' : 'postos/mês'}`);
+    }
+    if (diasPosto > 0) {
+      partes.push(`${diasPosto} ${diasPosto === 1 ? 'dia-posto' : 'dias-posto'}`);
+    }
+
+    return partes.join(' + ') || '0 postos/mês';
   }
 
   /**
