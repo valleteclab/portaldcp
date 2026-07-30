@@ -1031,7 +1031,9 @@ export class PncpService implements OnModuleInit {
         formData,
         {
           headers: {
-            ...formData.getHeaders()
+            ...formData.getHeaders(),
+            'Titulo-Documento': nomeArquivo,
+            'Tipo-Documento-Id': String(tipoDocumentoId),
           }
         }
       );

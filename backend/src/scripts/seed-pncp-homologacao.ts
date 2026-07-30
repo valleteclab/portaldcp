@@ -98,7 +98,7 @@ async function seed() {
           responsavel_cargo, valor_total_estimado, quantidade_itens,
           enviado_pncp, observacoes
         ) VALUES (
-          $1, $2, '1', 'Transparência', 2026, 'PCA-HOMOLOG-3087/2026',
+          $1, $2, '1', 'Transparência', 2027, 'PCA-HOMOLOG-3087/2027',
           'APROVADO', '2026-07-30', '2026-07-30', 'Responsável Fictício',
           'Responsável por Homologação', 25000.00, 1, false,
           'PLANO FICTÍCIO SEM VALIDADE JURÍDICA - PNCP TREINAMENTO.'
@@ -107,6 +107,8 @@ async function seed() {
           orgao_id = EXCLUDED.orgao_id,
           codigo_unidade = '1',
           nome_unidade = 'Transparência',
+          ano_exercicio = 2027,
+          numero_pca = 'PCA-HOMOLOG-3087/2027',
           status = CASE
             WHEN planos_contratacao_anual.enviado_pncp THEN planos_contratacao_anual.status
             ELSE 'APROVADO'
@@ -135,8 +137,8 @@ async function seed() {
           'Item criado exclusivamente para testar a integração do PortalDCP.',
           'OUTROS', 'MATERIAL', '7010', 'EQUIPAMENTOS DE INFORMÁTICA',
           5000.0000, 25000.00, 'Transparência', 25000.00, 5, 'UNIDADE',
-          '2026-10-01', '2026-12-31', 'PREGAO_ELETRONICO', true, 3,
-          'TI-2026', 'Equipamentos de Tecnologia', 'NAO', '2026-10-01',
+          '2027-10-01', '2027-12-31', 'PREGAO_ELETRONICO', true, 3,
+          'TI-2027', 'Equipamentos de Tecnologia', 'NAO', '2027-10-01',
           'ITEM FICTÍCIO SEM VALIDADE JURÍDICA - PNCP TREINAMENTO.'
         )
         ON CONFLICT (id) DO UPDATE SET
