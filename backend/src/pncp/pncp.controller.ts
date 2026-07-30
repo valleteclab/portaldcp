@@ -493,6 +493,18 @@ export class PncpController {
     return this.pncpService.vincularEnte(cnpj);
   }
 
+  @Post('usuario/associar-orgao-local')
+  async associarOrgaoLocal(
+    @Body() body: {
+      cnpjEnte: string;
+      orgaoId: string;
+      codigoUnidade: string;
+      reassociar?: boolean;
+    },
+  ) {
+    return this.pncpService.associarEnteAoOrgaoLocal(body);
+  }
+
   // ============ CONFIGURAÇÃO ============
 
   @Get('config/status')

@@ -162,6 +162,12 @@ async function main() {
         [IDS.pca, numeroPca],
       );
       resultado = { numeroControlePca: numeroPca };
+    } else if (etapa === 'associar-orgao') {
+      resultado = await pncp.associarEnteAoOrgaoLocal({
+        cnpjEnte: CNPJ_ORGAO,
+        orgaoId: 'e1000000-0000-4000-8000-000000000001',
+        codigoUnidade: '1',
+      });
     } else if (etapa === 'resumo') {
       const [licitacao] = await dataSource.query(
         `SELECT numero_controle_pncp, ano_compra_pncp, sequencial_compra_pncp,

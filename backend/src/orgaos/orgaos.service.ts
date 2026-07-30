@@ -193,11 +193,15 @@ export class OrgaosService {
   async vincularPNCP(id: string, config: {
     pncp_vinculado: boolean;
     pncp_codigo_unidade: string;
+    pncp_cnpj_orgao?: string;
   }): Promise<Orgao> {
     const orgao = await this.findOne(id);
     
     orgao.pncp_vinculado = config.pncp_vinculado;
     orgao.pncp_codigo_unidade = config.pncp_codigo_unidade || '1';
+    orgao.pncp_cnpj_orgao = config.pncp_vinculado
+      ? (config.pncp_cnpj_orgao || orgao.cnpj || '').replace(/\D/g, '')
+      : undefined as any;
     orgao.pncp_data_vinculacao = config.pncp_vinculado ? new Date() : undefined as any;
     orgao.pncp_status = config.pncp_vinculado ? 'VINCULADO' : 'PENDENTE';
     

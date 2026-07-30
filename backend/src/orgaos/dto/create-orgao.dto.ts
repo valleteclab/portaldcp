@@ -137,6 +137,10 @@ export class CreateOrgaoDto {
   @IsOptional()
   pncp_codigo_unidade?: string;
 
+  @IsString()
+  @IsOptional()
+  pncp_cnpj_orgao?: string;
+
   @IsOptional()
   ativo?: boolean;
 }

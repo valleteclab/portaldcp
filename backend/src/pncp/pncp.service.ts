@@ -8,6 +8,7 @@ import { PncpSync, TipoSincronizacao, StatusSincronizacao } from './entities/pnc
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 import { SystemConfigService } from '../system-config/system-config.service';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 import {
   CompraDto,
   ItemCompraDto,
@@ -43,6 +44,8 @@ export class PncpService implements OnModuleInit {
     private licitacaoRepository: Repository<Licitacao>,
     @InjectRepository(PlanoContratacaoAnual)
     private pcaRepository: Repository<PlanoContratacaoAnual>,
+    @InjectRepository(Orgao)
+    private orgaoRepository: Repository<Orgao>,
     private configService: ConfigService,
     private systemConfigService: SystemConfigService,
     @InjectDataSource()
@@ -254,6 +257,16 @@ export class PncpService implements OnModuleInit {
       : 'https://pncp.gov.br';
   }
 
+  /**
+   * O CNPJ jurídico do cadastro local não deve ser sobrescrito quando um
+   * órgão é associado a um ente de homologação (ou a outro ente autorizado).
+   * pncp_cnpj_orgao guarda exclusivamente a identidade usada nas APIs PNCP.
+   */
+  private obterCnpjPncpDoOrgao(orgao?: Partial<Orgao> | null): string {
+    return String(orgao?.pncp_cnpj_orgao || orgao?.cnpj || '')
+      .replace(/\D/g, '');
+  }
+
   /** Base da API pública de consulta, no mesmo ambiente de PNCP_API_URL. */
   private getConsultaBaseUrl(): string {
     return `${this.getPortalBaseUrl()}/api/consulta/v1`;
@@ -408,8 +421,8 @@ export class PncpService implements OnModuleInit {
     const checklist: { campo: string; status: 'ok' | 'erro' | 'aviso'; mensagem: string }[] = [];
 
     // === DADOS DO ÓRGÃO ===
-    if (licitacao.orgao?.cnpj) {
-      const cnpjLimpo = licitacao.orgao.cnpj.replace(/\D/g, '');
+    if (this.obterCnpjPncpDoOrgao(licitacao.orgao)) {
+      const cnpjLimpo = this.obterCnpjPncpDoOrgao(licitacao.orgao);
       if (cnpjLimpo.length === 14) {
         checklist.push({ campo: 'CNPJ do Órgão', status: 'ok', mensagem: `CNPJ: ${cnpjLimpo}` });
       } else {
@@ -523,7 +536,7 @@ export class PncpService implements OnModuleInit {
     // Se válido, gerar preview dos dados que serão enviados
     let dadosEnvio = null;
     if (valido) {
-      const cnpj = licitacao.orgao?.cnpj || '';
+      const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao);
       dadosEnvio = this.mapearLicitacaoParaCompra(licitacao, cnpj);
     }
 
@@ -576,7 +589,8 @@ export class PncpService implements OnModuleInit {
     }
 
     // Priorizar CNPJ do órgão da licitação, não da plataforma
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado. Verifique se o órgão da licitação possui CNPJ cadastrado.', HttpStatus.BAD_REQUEST);
     }
@@ -644,7 +658,7 @@ export class PncpService implements OnModuleInit {
         try {
           pdfContent = gerarAvisoDispensaPdf({
             orgao_nome: licitacao.orgao?.nome || 'Órgão',
-            orgao_cnpj: licitacao.orgao?.cnpj,
+            orgao_cnpj: this.obterCnpjPncpDoOrgao(licitacao.orgao),
             licitacao,
             itens: licitacao.itens || [],
             url_sistema: this.configService.get<string>('FRONTEND_URL') || undefined,
@@ -838,7 +852,7 @@ export class PncpService implements OnModuleInit {
     }
 
     // Gerar link do PNCP
-    const cnpj = licitacao.orgao?.cnpj?.replace(/\D/g, '') || '';
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao);
     const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpj}/${anoCompra}/${sequencialCompra}`;
 
     // Atualizar licitação
@@ -874,7 +888,8 @@ export class PncpService implements OnModuleInit {
     }
 
     // Priorizar CNPJ do órgão da licitação
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
     const cnpjLimpo = cnpj.replace(/\D/g, '');
     const compraDto: any = {
       ...this.mapearLicitacaoParaCompra(licitacao, cnpj),
@@ -974,7 +989,8 @@ export class PncpService implements OnModuleInit {
     }
 
     // Priorizar CNPJ do órgão da licitação
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO');
     const itensDto = licitacao.itens.map((item, index) => this.mapearItemParaPNCP(item, index + 1, licitacao));
 
     try {
@@ -1032,7 +1048,8 @@ export class PncpService implements OnModuleInit {
     // CNPJ do ÓRGÃO DA LICITAÇÃO (o env é só fallback — usar o CNPJ errado
     // gera "Usuário não está habilitado a publicar para o órgão X")
     const licDoc = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
-    const cnpj = (licDoc?.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+    const cnpj = this.obterCnpjPncpDoOrgao(licDoc?.orgao) ||
+      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
 
     const FormData = require('form-data');
     const formData = new FormData();
@@ -1056,10 +1073,7 @@ export class PncpService implements OnModuleInit {
       const syncDoc = this.pncpSyncRepository.create({
         tipo: TipoSincronizacao.DOCUMENTO,
         licitacao_id: licitacaoId,
-        status: In([
-          StatusSincronizacao.ENVIADO,
-          StatusSincronizacao.ATUALIZADO,
-        ]),
+        status: StatusSincronizacao.ENVIADO,
         payload_enviado: { tipoDocumentoId, nomeArquivo },
         resposta_pncp: response.data,
         numero_controle_pncp: sync.numero_controle_pncp
@@ -1232,7 +1246,8 @@ export class PncpService implements OnModuleInit {
       relations: ['orgao'],
     });
     if (!lic) throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
-    const cnpj = (lic.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+    const cnpj = this.obterCnpjPncpDoOrgao(lic.orgao) ||
+      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
 
     const contratos = await this.dataSource.query(
       `SELECT id, numero_contrato, objeto, valor_inicial, valor_global,
@@ -1446,7 +1461,8 @@ export class PncpService implements OnModuleInit {
     // CNPJ do ÓRGÃO DA LICITAÇÃO (o env é só fallback — o CNPJ errado gera
     // "Usuário não está habilitado a publicar para o órgão X")
     const licRes = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
-    const cnpj = (licRes?.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+    const cnpj = this.obterCnpjPncpDoOrgao(licRes?.orgao) ||
+      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
 
     try {
       const response = await this.axiosInstance.post(
@@ -1915,11 +1931,11 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('PCA não está vinculado a um órgão', HttpStatus.BAD_REQUEST);
     }
 
-    this.logger.log(`[ENVIAR-PCA] Órgão: ${orgao.nome} (CNPJ: ${orgao.cnpj})`);
+    this.logger.log(`[ENVIAR-PCA] Órgão: ${orgao.nome} (CNPJ PNCP: ${this.obterCnpjPncpDoOrgao(orgao)})`);
     this.logger.log(`[ENVIAR-PCA] pncp_vinculado: ${orgao.pncp_vinculado}, pncp_codigo_unidade: ${orgao.pncp_codigo_unidade}`);
 
     const cnpjPadrao = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    const cnpjOrgaoLimpo = (orgao.cnpj || '').replace(/\D/g, '');
+    const cnpjOrgaoLimpo = this.obterCnpjPncpDoOrgao(orgao);
     const cnpjPadraoLimpo = (cnpjPadrao || '').replace(/\D/g, '');
 
     if (!cnpjPadraoLimpo) {
@@ -2260,8 +2276,8 @@ export class PncpService implements OnModuleInit {
     const cnpjPadrao = this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
     const cnpjPadraoLimpo = cnpjPadrao.replace(/\D/g, '');
 
-    if (pca?.orgao?.cnpj) {
-      const cnpjOrgaoLimpo = pca.orgao.cnpj.replace(/\D/g, '');
+    if (this.obterCnpjPncpDoOrgao(pca?.orgao)) {
+      const cnpjOrgaoLimpo = this.obterCnpjPncpDoOrgao(pca?.orgao);
       if (cnpjOrgaoLimpo && cnpjOrgaoLimpo !== '12345678000199') {
         return cnpjOrgaoLimpo;
       }
@@ -2451,8 +2467,8 @@ export class PncpService implements OnModuleInit {
         where: { id: compra.licitacaoId },
         relations: ['orgao']
       });
-      if (licitacao?.orgao?.cnpj) {
-        cnpj = licitacao.orgao.cnpj;
+      if (this.obterCnpjPncpDoOrgao(licitacao?.orgao)) {
+        cnpj = this.obterCnpjPncpDoOrgao(licitacao?.orgao);
       }
     }
 
@@ -2604,7 +2620,8 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('Licitação não encontrada', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO');
     
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
@@ -2670,7 +2687,8 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('Licitação não encontrada', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO');
     
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
@@ -2769,8 +2787,8 @@ export class PncpService implements OnModuleInit {
         where: { id: licitacaoId },
         relations: ['orgao']
       });
-      if (licitacao?.orgao?.cnpj) {
-        cnpj = licitacao.orgao.cnpj;
+      if (this.obterCnpjPncpDoOrgao(licitacao?.orgao)) {
+        cnpj = this.obterCnpjPncpDoOrgao(licitacao?.orgao);
       }
     }
 
@@ -3627,7 +3645,10 @@ export class PncpService implements OnModuleInit {
     };
 
     try {
-      const response = await this.axiosInstance.put(`/usuarios/${idUsuario}`, updateDto);
+      const response = await this.axiosInstance.post(
+        `/usuarios/${idUsuario}/orgaos`,
+        updateDto,
+      );
       this.logger.log(`Entes autorizados atualizados: ${cnpjsLimpos.join(', ')}`);
       return {
         sucesso: true,
@@ -3663,10 +3684,110 @@ export class PncpService implements OnModuleInit {
       };
     }
     
-    // Adicionar o novo CNPJ
-    const novosEntes = [...cnpjsAtuais, cnpjLimpo];
-    
-    return this.atualizarEntesAutorizados(novosEntes);
+    // O endpoint de inclusão recebe somente os novos entes; reenviar os já
+    // existentes pode ser recusado como duplicidade pelo PNCP.
+    return this.atualizarEntesAutorizados([cnpjLimpo]);
+  }
+
+  async associarEnteAoOrgaoLocal(dados: {
+    cnpjEnte: string;
+    orgaoId: string;
+    codigoUnidade: string;
+    reassociar?: boolean;
+  }): Promise<any> {
+    const cnpjEnte = String(dados.cnpjEnte || '').replace(/\D/g, '');
+    const codigoUnidade = String(dados.codigoUnidade || '').trim();
+    if (cnpjEnte.length !== 14) {
+      throw new HttpException('CNPJ do ente PNCP inválido', HttpStatus.BAD_REQUEST);
+    }
+    if (!dados.orgaoId || !codigoUnidade) {
+      throw new HttpException(
+        'Selecione o órgão local e a unidade PNCP',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const consultaUsuario = await this.consultarUsuario();
+    const entes = consultaUsuario.entesAutorizados || [];
+    const enteAutorizado = entes.find((ente: any) => {
+      const cnpj = typeof ente === 'string' ? ente : ente?.cnpj;
+      return String(cnpj || '').replace(/\D/g, '') === cnpjEnte;
+    });
+    if (!enteAutorizado) {
+      throw new HttpException(
+        'O CNPJ informado ainda não está entre os entes autorizados deste usuário PNCP',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    await this.getValidToken();
+    const unidadesResponse = await this.axiosInstance.get(
+      `/orgaos/${cnpjEnte}/unidades`,
+    );
+    const unidades = Array.isArray(unidadesResponse.data)
+      ? unidadesResponse.data
+      : [];
+    const unidade = unidades.find(
+      (item: any) => String(item.codigoUnidade) === codigoUnidade,
+    );
+    if (!unidade) {
+      throw new HttpException(
+        `A unidade ${codigoUnidade} não pertence ao ente autorizado`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const orgaoLocal = await this.orgaoRepository.findOne({
+      where: { id: dados.orgaoId },
+    });
+    if (!orgaoLocal) {
+      throw new HttpException('Órgão local não encontrado', HttpStatus.NOT_FOUND);
+    }
+
+    const vinculoExistente = await this.orgaoRepository.findOne({
+      where: { pncp_cnpj_orgao: cnpjEnte, pncp_vinculado: true },
+    });
+    if (vinculoExistente && vinculoExistente.id !== orgaoLocal.id) {
+      if (!dados.reassociar) {
+        throw new HttpException(
+          {
+            codigo: 'ENTE_JA_ASSOCIADO',
+            message: `O ente já está associado ao órgão local "${vinculoExistente.nome}"`,
+            orgaoAtual: {
+              id: vinculoExistente.id,
+              nome: vinculoExistente.nome,
+            },
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+      vinculoExistente.pncp_vinculado = false;
+      vinculoExistente.pncp_cnpj_orgao = undefined as any;
+      vinculoExistente.pncp_codigo_unidade = undefined as any;
+      vinculoExistente.pncp_status = 'PENDENTE';
+      vinculoExistente.pncp_data_vinculacao = undefined as any;
+      await this.orgaoRepository.save(vinculoExistente);
+    }
+
+    orgaoLocal.pncp_vinculado = true;
+    orgaoLocal.pncp_cnpj_orgao = cnpjEnte;
+    orgaoLocal.pncp_codigo_unidade = codigoUnidade;
+    orgaoLocal.pncp_status = 'VINCULADO';
+    orgaoLocal.pncp_data_vinculacao = new Date();
+    await this.orgaoRepository.save(orgaoLocal);
+
+    return {
+      sucesso: true,
+      mensagem: 'Ente PNCP associado ao órgão local com sucesso',
+      vinculo: {
+        orgaoId: orgaoLocal.id,
+        orgaoNome: orgaoLocal.nome,
+        cnpjLocal: orgaoLocal.cnpj,
+        cnpjPncp: cnpjEnte,
+        codigoUnidade,
+        nomeUnidade: unidade.nomeUnidade || null,
+      },
+    };
   }
 
   // ============ UNIDADES DO ÓRGÃO ============

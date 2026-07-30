@@ -118,6 +118,16 @@ interface ConfigStatus {
   loginConfigurado: boolean
 }
 
+interface OrgaoLocal {
+  id: string
+  nome: string
+  cnpj: string
+  ativo?: boolean
+  pncp_vinculado?: boolean
+  pncp_cnpj_orgao?: string
+  pncp_codigo_unidade?: string
+}
+
 export default function AdminPNCPPage() {
   const [loading, setLoading] = useState(true)
   const [loadingUnidades, setLoadingUnidades] = useState<string | null>(null)
@@ -150,7 +160,13 @@ export default function AdminPNCPPage() {
   
   // Estado para rastrear órgãos já cadastrados no sistema
   const [orgaosCadastrados, setOrgaosCadastrados] = useState<Record<string, string>>({}) // cnpj -> id
-  const [cadastrandoOrgao, setCadastrandoOrgao] = useState<string | null>(null)
+  const [orgaosLocais, setOrgaosLocais] = useState<OrgaoLocal[]>([])
+  const [novoCnpjEnte, setNovoCnpjEnte] = useState('')
+  const [vinculandoEnte, setVinculandoEnte] = useState(false)
+  const [showAssociarOrgao, setShowAssociarOrgao] = useState(false)
+  const [orgaoLocalSelecionado, setOrgaoLocalSelecionado] = useState('')
+  const [unidadeSelecionada, setUnidadeSelecionada] = useState('')
+  const [associandoOrgao, setAssociandoOrgao] = useState(false)
   
   // Estado para configuração manual de credenciais PNCP
   const [pncpCredentials, setPncpCredentials] = useState({
@@ -225,67 +241,11 @@ export default function AdminPNCPPage() {
             mapa[cnpjLimpo] = o.id
           }
         })
+        setOrgaosLocais(orgaosList)
         setOrgaosCadastrados(mapa)
       }
     } catch (error) {
       console.error('Erro ao carregar órgãos cadastrados:', error)
-    }
-  }
-
-  const cadastrarOrgaoDoENTE = async (ente: EnteAutorizado) => {
-    const cnpjLimpo = ente.cnpj.replace(/\D/g, '')
-    
-    // Verificar se já existe
-    if (orgaosCadastrados[cnpjLimpo]) {
-      alert('Este órgão já está cadastrado no sistema!')
-      return
-    }
-
-    setCadastrandoOrgao(cnpjLimpo)
-    try {
-      // Buscar detalhes da unidade para pegar município/UF
-      const detalhes = orgaosDetalhes[ente.cnpj]
-      const unidade = detalhes?.unidades?.[0]
-
-      const dadosOrgao = {
-        nome: ente.razaoSocial,
-        cnpj: cnpjLimpo, // Enviar apenas números
-        codigo: cnpjLimpo.substring(0, 10),
-        tipo: 'PREFEITURA',
-        esfera: 'MUNICIPAL',
-        logradouro: 'A definir',
-        bairro: 'Centro',
-        cidade: unidade?.municipio?.nome || 'A definir',
-        uf: unidade?.municipio?.uf?.siglaUF || 'SP',
-        cep: '00000-000',
-        responsavel_nome: 'A definir',
-        responsavel_cpf: '000.000.000-00',
-        ativo: true,
-        pncp_vinculado: true,
-        pncp_codigo_unidade: unidade?.codigoUnidade || '1',
-      }
-
-      const response = await adminFetch(`${API_URL}/api/orgaos`, {
-        method: 'POST',
-        body: JSON.stringify(dadosOrgao),
-      })
-
-      if (response.ok) {
-        const novoOrgao = await response.json()
-        setOrgaosCadastrados(prev => ({
-          ...prev,
-          [cnpjLimpo]: novoOrgao.id
-        }))
-        alert(`✅ Órgão "${ente.razaoSocial}" cadastrado com sucesso!\n\nAgora você pode criar usuários para este órgão.`)
-      } else {
-        const error = await response.json()
-        alert(`❌ Erro ao cadastrar órgão: ${error.message || 'Erro desconhecido'}`)
-      }
-    } catch (error: any) {
-      console.error('Erro ao cadastrar órgão:', error)
-      alert(`❌ Erro ao cadastrar órgão: ${error.message}`)
-    } finally {
-      setCadastrandoOrgao(null)
     }
   }
 
@@ -341,6 +301,107 @@ export default function AdminPNCPPage() {
     }
   }
 
+  const autorizarNovoEnte = async () => {
+    const cnpj = novoCnpjEnte.replace(/\D/g, '')
+    if (cnpj.length !== 14) {
+      alert('Informe um CNPJ válido com 14 dígitos.')
+      return
+    }
+    setVinculandoEnte(true)
+    try {
+      const response = await adminFetch(`${API_URL}/api/pncp/usuario/vincular-ente/${cnpj}`, {
+        method: 'POST',
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.message || 'Não foi possível autorizar o ente no PNCP')
+      }
+      setNovoCnpjEnte('')
+      await carregarDados()
+      alert(data.mensagem || 'Ente autorizado com sucesso.')
+    } catch (error: any) {
+      alert(`Erro ao autorizar ente: ${error.message}`)
+    } finally {
+      setVinculandoEnte(false)
+    }
+  }
+
+  const abrirAssociacaoOrgao = async (ente: EnteAutorizado) => {
+    setOrgaoSelecionado(ente)
+    let detalhes = orgaosDetalhes[ente.cnpj]
+    if (!detalhes) {
+      await carregarUnidades(ente.cnpj)
+      const response = await adminFetch(`${API_URL}/api/pncp/orgaos/${ente.cnpj}/unidades`)
+      if (response.ok) {
+        const data = await response.json()
+        detalhes = {
+          cnpj: ente.cnpj,
+          razaoSocial: ente.razaoSocial,
+          unidades: data.unidades || [],
+        }
+      }
+    }
+    const cnpjLimpo = ente.cnpj.replace(/\D/g, '')
+    const vinculoAtual = orgaosLocais.find(
+      (orgao) => orgao.pncp_cnpj_orgao?.replace(/\D/g, '') === cnpjLimpo,
+    )
+    const mesmoCnpj = orgaosLocais.find(
+      (orgao) => orgao.cnpj?.replace(/\D/g, '') === cnpjLimpo,
+    )
+    const sugerido = vinculoAtual || mesmoCnpj
+    setOrgaoLocalSelecionado(sugerido?.id || '')
+    setUnidadeSelecionada(
+      sugerido?.pncp_codigo_unidade ||
+      detalhes?.unidades?.[0]?.codigoUnidade ||
+      '',
+    )
+    setShowAssociarOrgao(true)
+  }
+
+  const associarEnteAoOrgao = async (reassociar = false) => {
+    if (!orgaoSelecionado || !orgaoLocalSelecionado || !unidadeSelecionada) {
+      alert('Selecione o órgão do PortalDCP e a unidade do PNCP.')
+      return
+    }
+    setAssociandoOrgao(true)
+    try {
+      const response = await adminFetch(`${API_URL}/api/pncp/usuario/associar-orgao-local`, {
+        method: 'POST',
+        body: JSON.stringify({
+          cnpjEnte: orgaoSelecionado.cnpj,
+          orgaoId: orgaoLocalSelecionado,
+          codigoUnidade: unidadeSelecionada,
+          reassociar,
+        }),
+      })
+      const data = await response.json()
+      if (response.status === 409 && !reassociar) {
+        const detalhe = typeof data.message === 'object' ? data.message : data
+        const confirmar = confirm(
+          `${detalhe.message || 'Este ente já está associado a outro órgão.'}\n\nDeseja transferir o vínculo para o órgão selecionado?`,
+        )
+        if (confirmar) {
+          setAssociandoOrgao(false)
+          await associarEnteAoOrgao(true)
+        }
+        return
+      }
+      if (!response.ok) {
+        const mensagem = typeof data.message === 'object'
+          ? data.message.message
+          : data.message
+        throw new Error(mensagem || 'Não foi possível salvar a associação')
+      }
+      await carregarOrgaosCadastrados()
+      setShowAssociarOrgao(false)
+      alert(data.mensagem || 'Associação salva com sucesso.')
+    } catch (error: any) {
+      alert(`Erro ao associar órgão: ${error.message}`)
+    } finally {
+      setAssociandoOrgao(false)
+    }
+  }
+
   const formatarCNPJ = (cnpj: string) => {
     const numeros = cnpj.replace(/\D/g, '')
     return numeros.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
@@ -350,51 +411,6 @@ export default function AdminPNCPPage() {
     navigator.clipboard.writeText(texto)
     setCopiado(id)
     setTimeout(() => setCopiado(null), 2000)
-  }
-
-  const sincronizarUnidadePlataforma = async () => {
-    if (!orgaoSelecionado) return
-
-    const detalhes = orgaosDetalhes[orgaoSelecionado.cnpj]
-    const unidade = detalhes?.unidades?.[0]
-    if (!unidade) {
-      alert('Nenhuma unidade encontrada para este órgão no PNCP.')
-      return
-    }
-
-    try {
-      // Buscar órgão local pelo CNPJ
-      const orgaosRes = await adminFetch(`${API_URL}/api/orgaos`)
-      if (!orgaosRes.ok) {
-        throw new Error('Erro ao carregar órgãos locais')
-      }
-      const orgaos = await orgaosRes.json()
-      const orgaoLocal = orgaos.find((o: any) => o.cnpj.replace(/\D/g, '') === orgaoSelecionado.cnpj)
-
-      if (!orgaoLocal) {
-        alert('Órgão ainda não está cadastrado na plataforma. Crie o órgão primeiro.')
-        return
-      }
-
-      // Atualizar vínculo PNCP do órgão local com o código de unidade retornado pelo PNCP
-      const vinculoRes = await adminFetch(`${API_URL}/api/orgaos/${orgaoLocal.id}/pncp`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          pncp_vinculado: true,
-          pncp_codigo_unidade: unidade.codigoUnidade || '1',
-        }),
-      })
-
-      if (vinculoRes.ok) {
-        alert(`✅ Unidade ${unidade.codigoUnidade} sincronizada como padrão na plataforma para este órgão.`)
-      } else {
-        const error = await vinculoRes.json()
-        alert('Erro ao salvar vínculo PNCP no órgão: ' + (error.message || 'Erro desconhecido'))
-      }
-    } catch (error: any) {
-      console.error('Erro ao sincronizar unidade:', error)
-      alert('Erro ao sincronizar unidade: ' + error.message)
-    }
   }
 
   // Funções para gerenciar credenciais PNCP da PLATAFORMA
@@ -851,6 +867,45 @@ export default function AdminPNCPPage() {
               )}
             </div>
           </div>
+          <div className="mt-4 rounded-lg border bg-slate-50 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end">
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="novo-cnpj-ente">Autorizar novo ente no usuário PNCP</Label>
+                <Input
+                  id="novo-cnpj-ente"
+                  value={novoCnpjEnte}
+                  onChange={(event) => setNovoCnpjEnte(event.target.value)}
+                  placeholder="CNPJ do órgão, somente números ou formatado"
+                  disabled={!usuario?.gestaoEnteAutorizado || vinculandoEnte}
+                />
+              </div>
+              <Button
+                onClick={autorizarNovoEnte}
+                disabled={
+                  !usuario?.gestaoEnteAutorizado ||
+                  vinculandoEnte ||
+                  novoCnpjEnte.replace(/\D/g, '').length !== 14
+                }
+              >
+                {vinculandoEnte ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="mr-2 h-4 w-4" />
+                )}
+                Autorizar ente
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-slate-600">
+              Esta ação inclui o CNPJ entre os entes autorizados da credencial PNCP.
+              Depois, associe o ente a um órgão já cadastrado no PortalDCP.
+            </p>
+            {!usuario?.gestaoEnteAutorizado && (
+              <p className="mt-2 text-xs font-medium text-amber-700">
+                A credencial atual não possui permissão de gestão de entes; nesse caso,
+                a autorização precisa ser solicitada ao PNCP.
+              </p>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {pncpCredentials.apiUrl ? (
@@ -1081,7 +1136,7 @@ export default function AdminPNCPPage() {
                   <TableHead>Razão Social</TableHead>
                   <TableHead>Unidades</TableHead>
                   <TableHead>Status PNCP</TableHead>
-                  <TableHead>Cadastro</TableHead>
+                  <TableHead>Órgão no PortalDCP</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1091,6 +1146,11 @@ export default function AdminPNCPPage() {
                   const temUnidades = detalhes?.unidades && detalhes.unidades.length > 0
                   const cnpjLimpo = ente.cnpj.replace(/\D/g, '')
                   const jaCadastrado = !!orgaosCadastrados[cnpjLimpo]
+                  const vinculoLocal = orgaosLocais.find(
+                    (orgao) =>
+                      orgao.pncp_vinculado &&
+                      orgao.pncp_cnpj_orgao?.replace(/\D/g, '') === cnpjLimpo,
+                  )
                   
                   return (
                     <TableRow key={ente.id}>
@@ -1135,32 +1195,33 @@ export default function AdminPNCPPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {jaCadastrado ? (
-                          <Badge className="bg-blue-100 text-blue-800">
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Cadastrado
-                          </Badge>
+                        {vinculoLocal ? (
+                          <div>
+                            <p className="text-sm font-medium">{vinculoLocal.nome}</p>
+                            <p className="text-xs text-gray-500">
+                              Unidade {vinculoLocal.pncp_codigo_unidade}
+                            </p>
+                          </div>
+                        ) : jaCadastrado ? (
+                          <Badge variant="outline">Cadastro encontrado</Badge>
                         ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => cadastrarOrgaoDoENTE(ente)}
-                            disabled={cadastrandoOrgao === cnpjLimpo || !temUnidades}
-                            title={!temUnidades ? 'Órgão precisa ter unidade no PNCP' : 'Cadastrar órgão no sistema'}
-                          >
-                            {cadastrandoOrgao === cnpjLimpo ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <>
-                                <Building2 className="w-4 h-4 mr-1" />
-                                Cadastrar
-                              </>
-                            )}
-                          </Button>
+                          <Badge className="bg-amber-100 text-amber-800">
+                            Não associado
+                          </Badge>
                         )}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant={vinculoLocal ? 'outline' : 'default'}
+                            size="sm"
+                            onClick={() => abrirAssociacaoOrgao(ente)}
+                            disabled={!temUnidades}
+                            title={!temUnidades ? 'O ente precisa possuir unidade no PNCP' : 'Associar a um órgão do PortalDCP'}
+                          >
+                            <Link2 className="w-4 h-4 mr-1" />
+                            {vinculoLocal ? 'Alterar vínculo' : 'Associar'}
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -1195,6 +1256,117 @@ export default function AdminPNCPPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Associação entre ente autorizado no PNCP e órgão já existente */}
+      <Dialog open={showAssociarOrgao} onOpenChange={setShowAssociarOrgao}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Associar ente PNCP ao PortalDCP
+            </DialogTitle>
+            <DialogDescription>
+              O CNPJ jurídico do órgão local será preservado. O CNPJ abaixo será
+              utilizado exclusivamente nas operações da API do PNCP.
+            </DialogDescription>
+          </DialogHeader>
+
+          {orgaoSelecionado && (
+            <div className="space-y-5">
+              <div className="rounded-lg border bg-slate-50 p-4">
+                <p className="font-medium">{orgaoSelecionado.razaoSocial}</p>
+                <p className="font-mono text-sm text-slate-600">
+                  {formatarCNPJ(orgaoSelecionado.cnpj)}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Órgão já cadastrado no PortalDCP</Label>
+                <Select
+                  value={orgaoLocalSelecionado}
+                  onValueChange={setOrgaoLocalSelecionado}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o órgão local" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {orgaosLocais
+                      .filter((orgao) => orgao.ativo !== false)
+                      .map((orgao) => (
+                        <SelectItem key={orgao.id} value={orgao.id}>
+                          {orgao.nome} — {formatarCNPJ(orgao.cnpj)}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Unidade compradora do PNCP</Label>
+                <Select
+                  value={unidadeSelecionada}
+                  onValueChange={setUnidadeSelecionada}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione a unidade" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(orgaosDetalhes[orgaoSelecionado.cnpj]?.unidades || []).map(
+                      (unidade) => (
+                        <SelectItem
+                          key={unidade.codigoUnidade}
+                          value={String(unidade.codigoUnidade)}
+                        >
+                          {unidade.codigoUnidade} — {unidade.nomeUnidade}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {orgaoLocalSelecionado && (() => {
+                const local = orgaosLocais.find(
+                  (orgao) => orgao.id === orgaoLocalSelecionado,
+                )
+                const cnpjDiferente =
+                  local?.cnpj?.replace(/\D/g, '') !==
+                  orgaoSelecionado.cnpj.replace(/\D/g, '')
+                return cnpjDiferente ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    Os CNPJs são diferentes. Use esta opção somente em treinamento
+                    ou quando o ente PNCP realmente representar este órgão local.
+                  </div>
+                ) : null
+              })()}
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAssociarOrgao(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={() => associarEnteAoOrgao(false)}
+                  disabled={
+                    associandoOrgao ||
+                    !orgaoLocalSelecionado ||
+                    !unidadeSelecionada
+                  }
+                >
+                  {associandoOrgao ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  Salvar associação
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de Detalhes do Órgão */}
       <Dialog open={showDetalhesOrgao} onOpenChange={setShowDetalhesOrgao}>
@@ -1270,10 +1442,13 @@ export default function AdminPNCPPage() {
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
-                    onClick={sincronizarUnidadePlataforma}
+                    onClick={() => {
+                      setShowDetalhesOrgao(false)
+                      abrirAssociacaoOrgao(orgaoSelecionado)
+                    }}
                   >
                     <Link2 className="w-4 h-4 mr-1" />
-                    Usar esta unidade na plataforma
+                    Associar a órgão do PortalDCP
                   </Button>
                   <Button variant="outline" onClick={() => setShowDetalhesOrgao(false)}>
                     Fechar
