@@ -108,8 +108,8 @@ export default function DetalheLicitacaoPublicaPage() {
     setLoading(true)
     try {
       const [licRes, docsRes] = await Promise.all([
-        fetch(`${API_URL}/api/licitacoes/${id}`),
-        fetch(`${API_URL}/api/documentos/licitacao/${id}?publicos=true`)
+        fetch(`${API_URL}/api/licitacoes/publicas/${id}`),
+        fetch(`${API_URL}/api/documentos/licitacao/${id}/publicos`)
       ])
 
       if (licRes.ok) {

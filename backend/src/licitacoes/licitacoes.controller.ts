@@ -30,7 +30,6 @@ export class LicitacoesController {
     return this.licitacoesService.criarAPartirDeDemanda(dto);
   }
 
-  @Public()
   @Get()
   async findAll(
     @Query('fase') fase?: FaseLicitacao | 'HOMOLOGADA',
@@ -56,6 +55,11 @@ export class LicitacoesController {
   }
 
   @Public()
+  @Get('publicas/:id')
+  async findPublicaById(@Param('id') id: string): Promise<Licitacao> {
+    return await this.licitacoesService.findPublicaById(id);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<Licitacao> {
     return await this.licitacoesService.findOne(id);

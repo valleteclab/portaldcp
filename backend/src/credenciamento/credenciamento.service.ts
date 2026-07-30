@@ -67,6 +67,30 @@ export class CredenciamentoService {
 
     const query = this.credenciamentoRepository.createQueryBuilder('c')
       .leftJoinAndSelect('c.orgao', 'orgao')
+      .select([
+        'c.id',
+        'c.numero_edital',
+        'c.ano',
+        'c.sequencial',
+        'c.numero_processo',
+        'c.tipo',
+        'c.status',
+        'c.objeto',
+        'c.objeto_detalhado',
+        'c.valor_estimado',
+        'c.data_publicacao',
+        'c.data_inicio_inscricoes',
+        'c.data_fim_inscricoes',
+        'c.inscricao_permanente',
+        'c.edital_url',
+        'c.anexos_url',
+        'c.amparo_legal',
+        'orgao.id',
+        'orgao.nome',
+        'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
+      ])
       .where('c.status IN (:...status)', { status: statusPublicos });
 
     if (filtros?.tipo) {
@@ -78,6 +102,59 @@ export class CredenciamentoService {
     }
 
     return query.orderBy('c.data_publicacao', 'DESC').getMany();
+  }
+
+  async findPublicoById(id: string): Promise<Credenciamento> {
+    const statusPublicos = [
+      StatusCredenciamento.PUBLICADO,
+      StatusCredenciamento.EM_ANDAMENTO,
+    ];
+
+    const credenciamento = await this.credenciamentoRepository
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.orgao', 'orgao')
+      .select([
+        'c.id',
+        'c.numero_edital',
+        'c.ano',
+        'c.sequencial',
+        'c.numero_processo',
+        'c.tipo',
+        'c.status',
+        'c.objeto',
+        'c.objeto_detalhado',
+        'c.justificativa',
+        'c.requisitos_habilitacao',
+        'c.requisitos_tecnicos',
+        'c.documentos_exigidos',
+        'c.valor_estimado',
+        'c.forma_pagamento',
+        'c.data_publicacao',
+        'c.data_inicio_inscricoes',
+        'c.data_fim_inscricoes',
+        'c.data_resultado',
+        'c.inscricao_permanente',
+        'c.responsavel_nome',
+        'c.responsavel_cargo',
+        'c.responsavel_email',
+        'c.edital_url',
+        'c.anexos_url',
+        'c.amparo_legal',
+        'orgao.id',
+        'orgao.nome',
+        'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
+      ])
+      .where('c.id = :id', { id })
+      .andWhere('c.status IN (:...status)', { status: statusPublicos })
+      .getOne();
+
+    if (!credenciamento) {
+      throw new NotFoundException('Credenciamento público não encontrado');
+    }
+
+    return credenciamento;
   }
 
   async findOne(id: string): Promise<Credenciamento> {

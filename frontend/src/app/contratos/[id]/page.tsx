@@ -33,6 +33,7 @@ interface TermoAditivo {
   valor_supressao: number
   data_assinatura: string
   status: string
+  arquivo_termo?: string
 }
 
 interface Contrato {
@@ -58,6 +59,7 @@ interface Contrato {
   amparo_legal: string
   fiscal_nome: string
   gestor_nome: string
+  arquivo_contrato?: string
   orgao: {
     id: string
     nome: string
@@ -93,7 +95,7 @@ export default function DetalheContratoPublicoPage() {
     try {
       const [contratoRes, termosRes] = await Promise.all([
         fetch(`${API_URL}/api/contratos/publicos/${id}`),
-        fetch(`${API_URL}/api/contratos/${id}/termos`)
+        fetch(`${API_URL}/api/contratos/publicos/${id}/termos`)
       ])
 
       if (contratoRes.ok) {
@@ -206,10 +208,14 @@ export default function DetalheContratoPublicoPage() {
               <p className="text-gray-600">Processo: {contrato.numero_processo}</p>
             </div>
             
-            <Button>
-              <Download className="w-4 h-4 mr-2" />
-              Baixar Contrato
-            </Button>
+            {contrato.arquivo_contrato && (
+              <Button asChild>
+                <a href={contrato.arquivo_contrato} target="_blank" rel="noreferrer">
+                  <Download className="w-4 h-4 mr-2" />
+                  Baixar Contrato
+                </a>
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -305,6 +311,16 @@ export default function DetalheContratoPublicoPage() {
                             <span className="text-red-600">
                               - {formatarMoeda(termo.valor_supressao)}
                             </span>
+                          )}
+                          {termo.arquivo_termo && (
+                            <a
+                              href={termo.arquivo_termo}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:underline"
+                            >
+                              Baixar termo
+                            </a>
                           )}
                         </div>
                       </div>

@@ -33,6 +33,8 @@ interface Credenciamento {
   data_fim_inscricoes: string
   inscricao_permanente: boolean
   valor_estimado: number
+  edital_url?: string
+  anexos_url?: string
   orgao: {
     id: string
     nome: string
@@ -250,10 +252,14 @@ export default function CredenciamentoPublicoPage() {
                           Ver Detalhes
                         </Link>
                       </Button>
-                      <Button variant="outline" size="sm">
-                        <Download className="w-4 h-4 mr-2" />
-                        Baixar Edital
-                      </Button>
+                      {cred.edital_url && (
+                        <Button variant="outline" size="sm" asChild>
+                          <a href={cred.edital_url} target="_blank" rel="noreferrer">
+                            <Download className="w-4 h-4 mr-2" />
+                            Baixar Edital
+                          </a>
+                        </Button>
+                      )}
                       {cred.status === 'EM_ANDAMENTO' && (
                         <Button variant="secondary" size="sm" asChild>
                           <Link href={`/credenciamento/${cred.id}/inscrever`}>

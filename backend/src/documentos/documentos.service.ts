@@ -204,6 +204,31 @@ export class DocumentosService {
     });
   }
 
+  async findByLicitacaoPublicos(licitacaoId: string): Promise<DocumentoLicitacao[]> {
+    return this.documentoRepository
+      .createQueryBuilder('doc')
+      .select([
+        'doc.id',
+        'doc.tipo',
+        'doc.titulo',
+        'doc.descricao',
+        'doc.nome_original',
+        'doc.mime_type',
+        'doc.tamanho_bytes',
+        'doc.hash_arquivo',
+        'doc.versao',
+        'doc.numero_documento',
+        'doc.data_documento',
+        'doc.data_publicacao',
+      ])
+      .where('doc.licitacao_id = :licitacaoId', { licitacaoId })
+      .andWhere('doc.publico = :publico', { publico: true })
+      .andWhere('doc.status = :status', { status: StatusDocumento.PUBLICADO })
+      .orderBy('doc.tipo', 'ASC')
+      .addOrderBy('doc.versao', 'DESC')
+      .getMany();
+  }
+
   async findByTipo(licitacaoId: string, tipo: TipoDocumentoLicitacao): Promise<DocumentoLicitacao[]> {
     return this.documentoRepository.find({
       where: { licitacao_id: licitacaoId, tipo },
@@ -296,6 +321,29 @@ export class DocumentosService {
     const query = this.documentoRepository.createQueryBuilder('doc')
       .leftJoinAndSelect('doc.licitacao', 'licitacao')
       .leftJoinAndSelect('licitacao.orgao', 'orgao')
+      .select([
+        'doc.id',
+        'doc.tipo',
+        'doc.titulo',
+        'doc.descricao',
+        'doc.nome_original',
+        'doc.mime_type',
+        'doc.tamanho_bytes',
+        'doc.hash_arquivo',
+        'doc.versao',
+        'doc.numero_documento',
+        'doc.data_documento',
+        'doc.data_publicacao',
+        'licitacao.id',
+        'licitacao.numero_processo',
+        'licitacao.numero_edital',
+        'licitacao.objeto',
+        'orgao.id',
+        'orgao.nome',
+        'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
+      ])
       .where('doc.publico = :publico', { publico: true })
       .andWhere('doc.status = :status', { status: StatusDocumento.PUBLICADO });
 

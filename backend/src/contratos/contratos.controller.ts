@@ -748,6 +748,13 @@ export class ContratosController {
   }
 
   @Public()
+  @Get('publicos/:id/termos')
+  async findTermosAditivosPublicos(@Param('id') id: string) {
+    await this.contratosService.findPublicoById(id);
+    return this.contratosService.findTermosAditivosPublicos(id);
+  }
+
+  @Public()
   @Get('publicos/:id')
   async findPublicoById(@Param('id') id: string) {
     return this.contratosService.findPublicoById(id);

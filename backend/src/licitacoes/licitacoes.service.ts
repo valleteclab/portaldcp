@@ -1854,7 +1854,28 @@ export class LicitacoesService {
 
     const query = this.licitacaoRepository.createQueryBuilder('licitacao')
       .leftJoinAndSelect('licitacao.orgao', 'orgao')
-      .leftJoinAndSelect('licitacao.itens', 'itens')
+      .select([
+        'licitacao.id',
+        'licitacao.numero_processo',
+        'licitacao.numero_edital',
+        'licitacao.ano',
+        'licitacao.sequencial',
+        'licitacao.objeto',
+        'licitacao.modalidade',
+        'licitacao.tipo_contratacao',
+        'licitacao.criterio_julgamento',
+        'licitacao.modo_disputa',
+        'licitacao.fase',
+        'licitacao.valor_total_estimado',
+        'licitacao.data_publicacao_edital',
+        'licitacao.data_abertura_sessao',
+        'licitacao.srp',
+        'orgao.id',
+        'orgao.nome',
+        'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
+      ])
       .where('licitacao.fase IN (:...fases)', { fases: fasesPublicas });
 
     if (filtros?.modalidade) {
@@ -1870,5 +1891,88 @@ export class LicitacoesService {
     }
 
     return query.orderBy('licitacao.data_abertura_sessao', 'DESC').getMany();
+  }
+
+  async findPublicaById(id: string): Promise<Licitacao> {
+    const fasesPublicas = [
+      FaseLicitacao.PUBLICADO,
+      FaseLicitacao.IMPUGNACAO,
+      FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
+      FaseLicitacao.ANALISE_PROPOSTAS,
+      FaseLicitacao.EM_DISPUTA,
+      FaseLicitacao.JULGAMENTO,
+      FaseLicitacao.HABILITACAO,
+      FaseLicitacao.RECURSO,
+      FaseLicitacao.ADJUDICACAO,
+      FaseLicitacao.HOMOLOGACAO,
+      FaseLicitacao.CONCLUIDO,
+      FaseLicitacao.DESERTO,
+      FaseLicitacao.FRACASSADO,
+      FaseLicitacao.REVOGADO,
+      FaseLicitacao.ANULADO,
+    ];
+
+    const licitacao = await this.licitacaoRepository
+      .createQueryBuilder('licitacao')
+      .leftJoinAndSelect('licitacao.orgao', 'orgao')
+      .leftJoinAndSelect('licitacao.itens', 'itens')
+      .select([
+        'licitacao.id',
+        'licitacao.numero_processo',
+        'licitacao.numero_edital',
+        'licitacao.ano',
+        'licitacao.sequencial',
+        'licitacao.objeto',
+        'licitacao.objeto_detalhado',
+        'licitacao.modalidade',
+        'licitacao.tipo_contratacao',
+        'licitacao.criterio_julgamento',
+        'licitacao.modo_disputa',
+        'licitacao.fase',
+        'licitacao.valor_total_estimado',
+        'licitacao.sigilo_orcamento',
+        'licitacao.data_publicacao_edital',
+        'licitacao.data_limite_impugnacao',
+        'licitacao.data_inicio_acolhimento',
+        'licitacao.data_fim_acolhimento',
+        'licitacao.data_abertura_sessao',
+        'licitacao.pregoeiro_nome',
+        'licitacao.exclusivo_mpe',
+        'licitacao.tratamento_diferenciado_mpe',
+        'licitacao.srp',
+        'orgao.id',
+        'orgao.nome',
+        'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
+        'orgao.logradouro',
+        'orgao.numero',
+        'orgao.bairro',
+        'orgao.cep',
+        'orgao.telefone',
+        'orgao.email',
+        'itens.id',
+        'itens.numero_item',
+        'itens.numero_lote',
+        'itens.descricao_resumida',
+        'itens.descricao_detalhada',
+        'itens.unidade_medida',
+        'itens.quantidade',
+        'itens.valor_unitario_estimado',
+        'itens.valor_total_estimado',
+        'itens.codigo_catmat',
+        'itens.codigo_catser',
+        'itens.codigo_catalogo',
+        'itens.tipo_participacao',
+      ])
+      .where('licitacao.id = :id', { id })
+      .andWhere('licitacao.fase IN (:...fases)', { fases: fasesPublicas })
+      .getOne();
+
+    if (!licitacao) {
+      throw new NotFoundException('Licitação pública não encontrada');
+    }
+
+    return licitacao;
   }
 }

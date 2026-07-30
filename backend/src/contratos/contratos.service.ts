@@ -1500,6 +1500,35 @@ export class ContratosService implements OnModuleInit {
     });
   }
 
+  async findTermosAditivosPublicos(contratoId: string): Promise<TermoAditivo[]> {
+    return this.termoAditivoRepository
+      .createQueryBuilder('termo')
+      .select([
+        'termo.id',
+        'termo.numero_termo',
+        'termo.sequencial',
+        'termo.tipo',
+        'termo.status',
+        'termo.objeto',
+        'termo.valor_acrescimo',
+        'termo.valor_supressao',
+        'termo.percentual_acrescimo',
+        'termo.percentual_supressao',
+        'termo.prazo_acrescimo_dias',
+        'termo.nova_data_vigencia_fim',
+        'termo.data_assinatura',
+        'termo.data_publicacao',
+        'termo.data_vigencia_inicio',
+        'termo.data_vigencia_fim',
+        'termo.amparo_legal',
+        'termo.arquivo_termo',
+      ])
+      .where('termo.contrato_id = :contratoId', { contratoId })
+      .andWhere('termo.status != :cancelado', { cancelado: StatusTermoAditivo.CANCELADO })
+      .orderBy('termo.sequencial', 'ASC')
+      .getMany();
+  }
+
   async findTermoAditivo(id: string): Promise<TermoAditivo> {
     const termo = await this.termoAditivoRepository.findOne({
       where: { id },
@@ -1873,6 +1902,7 @@ export class ContratosService implements OnModuleInit {
         data_vigencia_inicio: true,
         data_vigencia_fim: true,
         data_publicacao: true,
+        arquivo_contrato: true,
         fornecedor_cnpj: true,
         fornecedor_razao_social: true,
         numero_processo: true,
