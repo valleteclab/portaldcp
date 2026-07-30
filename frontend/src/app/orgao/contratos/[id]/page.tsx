@@ -92,6 +92,8 @@ type AjusteItensForm = {
   modo: 'PENDENTE' | 'SEM_ALTERACAO' | 'TODOS' | 'SELECIONADOS'
   percentual_preco: string
   percentual_quantidade: string
+  arredondamento_preco: 'PRECISAO_4' | 'ARREDONDAR_2' | 'TRUNCAR_2'
+  arredondamento_quantidade: 'DECIMAL_4' | 'INTEIRO_SEM_EXCEDER' | 'INTEIRO_PROXIMO' | 'INTEIRO_ACIMA'
   justificativa_sem_alteracao: string
   itens: Record<string, { selecionado: boolean; novo_valor_unitario: string; nova_quantidade: string }>
 }
@@ -405,6 +407,8 @@ export default function DetalheContratoOrgaoPage() {
     modo: 'PENDENTE',
     percentual_preco: '',
     percentual_quantidade: '',
+    arredondamento_preco: 'ARREDONDAR_2',
+    arredondamento_quantidade: 'INTEIRO_SEM_EXCEDER',
     justificativa_sem_alteracao: '',
     itens: {},
   }
@@ -621,6 +625,8 @@ export default function DetalheContratoOrgaoPage() {
     modo: ajusteItensForm.modo,
     percentual_preco: parseFloat(ajusteItensForm.percentual_preco) || 0,
     percentual_quantidade: parseFloat(ajusteItensForm.percentual_quantidade) || 0,
+    arredondamento_preco: ajusteItensForm.arredondamento_preco,
+    arredondamento_quantidade: ajusteItensForm.arredondamento_quantidade,
     justificativa_sem_alteracao: ajusteItensForm.justificativa_sem_alteracao,
     itens: Object.entries(ajusteItensForm.itens)
       .filter(([, item]) => item.selecionado)
@@ -701,6 +707,31 @@ export default function DetalheContratoOrgaoPage() {
       carregarDados()
     } catch (error: any) {
       alert(error.message || 'Erro ao conciliar os itens')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleReabrirAjusteItensTermo = async (termo: TermoAditivo) => {
+    const confirmado = window.confirm(
+      `Reabrir o ajuste de ${termo.numero_termo}? Os itens voltarão aos valores anteriores para uma nova conferência.`,
+    )
+    if (!confirmado) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${id}/termos/${termo.id}/reabrir-ajuste-itens`,
+        { method: 'PATCH' },
+      )
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.message || 'Erro ao reabrir o ajuste dos itens')
+      }
+      setAjusteItensForm(ajusteItensInicial)
+      await carregarDados()
+      alert('Ajuste reaberto. Clique em “Ajustar itens” para informar os valores corretos.')
+    } catch (error: any) {
+      alert(error.message || 'Erro ao reabrir o ajuste dos itens')
     } finally {
       setLoadingAction(false)
     }
@@ -1295,7 +1326,39 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
-  const renderFormularioAjusteItens = () => (
+  const renderFormularioAjusteItens = () => {
+    const arredondar = (valor: number, casas: number) => {
+      const fator = 10 ** casas
+      return Math.round((valor + Number.EPSILON) * fator) / fator
+    }
+    const truncar = (valor: number, casas: number) => {
+      const fator = 10 ** casas
+      return (valor >= 0 ? Math.floor(valor * fator) : Math.ceil(valor * fator)) / fator
+    }
+    const calcularPrecoPrevisto = (valor: number) => {
+      const calculado = valor * (1 + (parseFloat(ajusteItensForm.percentual_preco) || 0) / 100)
+      if (ajusteItensForm.arredondamento_preco === 'ARREDONDAR_2') return arredondar(calculado, 2)
+      if (ajusteItensForm.arredondamento_preco === 'TRUNCAR_2') return truncar(calculado, 2)
+      return arredondar(calculado, 4)
+    }
+    const calcularQuantidadePrevista = (quantidade: number) => {
+      const percentual = parseFloat(ajusteItensForm.percentual_quantidade) || 0
+      const calculada = quantidade * (1 + percentual / 100)
+      if (ajusteItensForm.arredondamento_quantidade === 'INTEIRO_PROXIMO') return Math.round(calculada)
+      if (ajusteItensForm.arredondamento_quantidade === 'INTEIRO_ACIMA') return Math.ceil(calculada)
+      if (ajusteItensForm.arredondamento_quantidade === 'INTEIRO_SEM_EXCEDER') {
+        return percentual >= 0 ? Math.floor(calculada) : Math.ceil(calculada)
+      }
+      return arredondar(calculada, 4)
+    }
+    const previaTodos = (contrato?.itens || []).map(item => {
+      const valor = calcularPrecoPrevisto(Number(item.valor_unitario))
+      const quantidade = calcularQuantidadePrevista(Number(item.quantidade_contratada))
+      return { item, valor, quantidade, total: arredondar(valor * quantidade, 2) }
+    })
+    const totalPrevisto = previaTodos.reduce((total, linha) => total + linha.total, 0)
+
+    return (
     <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
       <div>
         <Label>Como o aditivo afeta os itens? *</Label>
@@ -1331,21 +1394,103 @@ export default function DetalheContratoOrgaoPage() {
         </div>
       )}
       {ajusteItensForm.modo === 'TODOS' && (
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Reajuste de preço (%)</Label>
-            <Input className="mt-1 bg-white" type="number" step="0.0001" value={ajusteItensForm.percentual_preco}
-              onChange={e => setAjusteItensForm(prev => ({ ...prev, percentual_preco: e.target.value }))} placeholder="Ex.: 4,39" />
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <Label>Reajuste de preço (%)</Label>
+              <Input className="mt-1 bg-white" type="number" step="0.0001" value={ajusteItensForm.percentual_preco}
+                onChange={e => setAjusteItensForm(prev => ({ ...prev, percentual_preco: e.target.value }))} placeholder="Ex.: 4,39" />
+            </div>
+            <div>
+              <Label>Tratamento do novo preço</Label>
+              <Select value={ajusteItensForm.arredondamento_preco}
+                onValueChange={(arredondamento_preco: AjusteItensForm['arredondamento_preco']) =>
+                  setAjusteItensForm(prev => ({ ...prev, arredondamento_preco }))
+                }>
+                <SelectTrigger className="mt-1 bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ARREDONDAR_2">Arredondar para centavos</SelectItem>
+                  <SelectItem value="TRUNCAR_2">Truncar em centavos, conforme tabela</SelectItem>
+                  <SelectItem value="PRECISAO_4">Manter quatro casas decimais</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div>
-            <Label>Acréscimo de quantidade (%)</Label>
-            <Input className="mt-1 bg-white" type="number" step="0.0001" value={ajusteItensForm.percentual_quantidade}
-              onChange={e => setAjusteItensForm(prev => ({ ...prev, percentual_quantidade: e.target.value }))} placeholder="Ex.: 25" />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <Label>Acréscimo de quantidade (%)</Label>
+              <Input className="mt-1 bg-white" type="number" step="0.0001" value={ajusteItensForm.percentual_quantidade}
+                onChange={e => setAjusteItensForm(prev => ({ ...prev, percentual_quantidade: e.target.value }))} placeholder="Ex.: 25" />
+            </div>
+            <div>
+              <Label>Tratamento da quantidade fracionada</Label>
+              <Select value={ajusteItensForm.arredondamento_quantidade}
+                onValueChange={(arredondamento_quantidade: AjusteItensForm['arredondamento_quantidade']) =>
+                  setAjusteItensForm(prev => ({ ...prev, arredondamento_quantidade }))
+                }>
+                <SelectTrigger className="mt-1 bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INTEIRO_SEM_EXCEDER">Inteiro sem ultrapassar o percentual</SelectItem>
+                  <SelectItem value="INTEIRO_PROXIMO">Inteiro mais próximo</SelectItem>
+                  <SelectItem value="INTEIRO_ACIMA">Inteiro acima</SelectItem>
+                  <SelectItem value="DECIMAL_4">Permitir quantidade decimal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <p className="text-xs text-amber-800">
+            Para bens indivisíveis, prefira “inteiro sem ultrapassar”. Se o aditivo trouxer uma tabela com
+            quantidades diferentes, use “itens selecionados” e informe os valores exatos do documento.
+          </p>
+          <div className="max-h-56 overflow-auto rounded border bg-white">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-100">
+                <tr>
+                  <th className="p-2 text-left">Prévia</th>
+                  <th className="p-2 text-right">Preço novo</th>
+                  <th className="p-2 text-right">Qtd. nova</th>
+                  <th className="p-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previaTodos.map(({ item, valor, quantidade, total }) => (
+                  <tr key={item.id} className="border-t">
+                    <td className="p-2">{item.numero_item}. {item.descricao.slice(0, 55)}</td>
+                    <td className="p-2 text-right">{formatarMoeda(valor)}</td>
+                    <td className="p-2 text-right">{quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
+                    <td className="p-2 text-right">{formatarMoeda(total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="sticky bottom-0 border-t bg-emerald-50 font-semibold">
+                <tr>
+                  <td className="p-2" colSpan={3}>Total previsto dos itens</td>
+                  <td className="p-2 text-right">{formatarMoeda(totalPrevisto)}</td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
       )}
       {ajusteItensForm.modo === 'SELECIONADOS' && (
-        <div className="max-h-72 overflow-auto rounded border bg-white">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-amber-800">Informe os valores exatos da tabela assinada.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => {
+              const todos = Object.fromEntries((contrato?.itens || []).map(item => [
+                item.id,
+                {
+                  selecionado: true,
+                  novo_valor_unitario: String(item.valor_unitario),
+                  nova_quantidade: String(item.quantidade_contratada),
+                },
+              ]))
+              setAjusteItensForm(prev => ({ ...prev, itens: todos }))
+            }}>
+              Selecionar todos
+            </Button>
+          </div>
+          <div className="max-h-72 overflow-auto rounded border bg-white">
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-gray-100">
               <tr>
@@ -1395,10 +1540,12 @@ export default function DetalheContratoOrgaoPage() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
-  )
+    )
+  }
 
   if (loading) {
     return (
@@ -2181,6 +2328,17 @@ export default function DetalheContratoOrgaoPage() {
                               }}
                             >
                               <Calculator className="w-4 h-4 mr-1" />Ajustar itens
+                            </Button>
+                          )}
+                          {['TODOS', 'SELECIONADOS'].includes(termo.ajuste_itens_status || '') && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-blue-300 text-blue-700"
+                              disabled={loadingAction}
+                              onClick={() => handleReabrirAjusteItensTermo(termo)}
+                            >
+                              <RefreshCw className="w-4 h-4 mr-1" />Corrigir itens
                             </Button>
                           )}
                           <Button variant="outline" size="sm" onClick={() => { setNovoDocumento(d => ({ ...d, termo_aditivo_id: termo.id, tipo: 'TERMO_ADITIVO' })); setModalDocumento(true) }}><FileUp className="w-4 h-4 mr-1" />Doc</Button>

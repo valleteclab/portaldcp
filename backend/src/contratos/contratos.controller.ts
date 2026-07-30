@@ -413,6 +413,17 @@ export class ContratosController {
     return this.contratosService.conciliarItensTermo(contratoId, termoId, ajuste);
   }
 
+  @Patch(':contratoId/termos/:termoId/reabrir-ajuste-itens')
+  async reabrirAjusteItensTermo(
+    @Param('contratoId') contratoId: string,
+    @Param('termoId') termoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const contrato = await this.contratosService.findOne(contratoId);
+    this.validarPropriedade(request.user, contrato.orgao_id);
+    return this.contratosService.reabrirAjusteItensTermo(contratoId, termoId);
+  }
+
   @Get('termos/:id')
   async findTermoAditivo(@Param('id') id: string) {
     return this.contratosService.findTermoAditivo(id);
