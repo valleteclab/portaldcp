@@ -922,6 +922,7 @@ export class GeradorPdfService {
           valorUnitario: number | null,
           valorLinha: number | null,
           subitem = false,
+          casasValorUnitario = 2,
         ) => {
           doc.fontSize(8);
           const descHeight = doc.heightOfString(descricao, { width: colDesc - 6 });
@@ -943,7 +944,10 @@ export class GeradorPdfService {
           doc.text(composicao, x3, rowY, { width: colQtd, align: 'right' });
           doc.text(
             valorUnitario != null
-              ? `R$ ${valorUnitario.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              ? `R$ ${valorUnitario.toLocaleString('pt-BR', {
+                  minimumFractionDigits: casasValorUnitario,
+                  maximumFractionDigits: casasValorUnitario,
+                })}`
               : '-',
             x4, rowY, { width: colValor, align: 'right' },
           );
@@ -980,6 +984,7 @@ export class GeradorPdfService {
             totalPeriodoParcial / diasParciais,
             totalPeriodoParcial,
             true,
+            4,
           );
         }
         continue;
