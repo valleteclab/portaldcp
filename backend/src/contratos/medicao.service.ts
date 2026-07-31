@@ -636,8 +636,17 @@ export class MedicaoService {
     return count > 0;
   }
 
+  /**
+   * Listagem é leitura: não aplica as travas de escrita de medição. Contratos na
+   * modalidade ORDEM_SERVICO (e os com status bloqueado) têm itens de cronograma
+   * e precisam exibi-los — validarContratoMedicao devolvia 400 e a tela ficava
+   * vazia sem explicação. As travas continuam valendo para criar/editar/excluir.
+   */
   async listarItensCronograma(contratoId: string): Promise<ItemCronograma[]> {
-    const contrato = await this.validarContratoMedicao(contratoId);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
     const itens = await this.itemCronogramaRepository.find({
       where: { contrato_id: contratoId },
       order: { lote_numero: 'ASC', numero_item: 'ASC' },
