@@ -877,8 +877,6 @@ export class GeradorPdfService {
       // (valor de referência da tabela + percentual) sob a descrição — cláusula 4.3
       const memorial = (ic as any).observacoes as string | undefined;
       const temMemorial = !!memorial && /^(SINAPRO|Terceiros|Mídia)/.test(memorial);
-      const desc = (isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-')) +
-        (temMemorial ? `\n${memorial}` : '');
       const qtd  = isAvulso ? Number(item.quantidade_avulso ?? 0) : Number(item.quantidade_solicitada);
       const isMaoDeObra =
         !isAvulso &&
@@ -901,6 +899,10 @@ export class GeradorPdfService {
         : (isMensalFracionado
           ? String(Math.round(qtd * 30))
           : qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }));
+      const temSubitemParcial = isMaoDeObra && Math.round(qtd * 30) % 30 > 0;
+      const desc = (isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-')) +
+        (temMemorial ? `\n${memorial}` : '') +
+        (temSubitemParcial ? '\n↳ Subitem — período parcial do posto' : '');
       const vlUnit = isAvulso ? Number(item.valor_unitario_avulso ?? 0) : Number(ic.valor_unitario ?? 0);
       const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
       // total: avulso usa valor_total_avulso; cronograma usa qtd × vlUnit (qtd já inclui meses × qty/período)
@@ -949,7 +951,7 @@ export class GeradorPdfService {
     if (temMaoDeObra) {
       doc.moveDown(0.35);
       doc.fontSize(7).font('Helvetica').fillColor('#4b5563').text(
-        'Nos itens de mão de obra, posto/mês corresponde a 30 dias. Dias-posto indicam período parcial e não fração de pessoa.',
+        'Nos itens de mão de obra, cada posto/mês corresponde a um funcionário por 30 dias. O subitem informa o posto adicional executado apenas durante parte do mês.',
         x0,
         doc.y,
         { width: pageWidth },
@@ -960,22 +962,26 @@ export class GeradorPdfService {
 
   private formatarComposicaoPostos(quantidadeEquivalente: number): string {
     if (!Number.isFinite(quantidadeEquivalente) || quantidadeEquivalente <= 0) {
-      return '0 postos/mês';
+      return '0 postos';
     }
 
     const totalDiasPosto = Math.round(quantidadeEquivalente * 30);
     const postosInteiros = Math.floor(totalDiasPosto / 30);
     const diasPosto = totalDiasPosto % 30;
-    const partes: string[] = [];
+    const linhas: string[] = [];
 
     if (postosInteiros > 0) {
-      partes.push(`${postosInteiros} ${postosInteiros === 1 ? 'posto/mês' : 'postos/mês'}`);
+      linhas.push(
+        `${postosInteiros} ${postosInteiros === 1 ? 'posto' : 'postos'} — mês integral`,
+      );
     }
     if (diasPosto > 0) {
-      partes.push(`${diasPosto} ${diasPosto === 1 ? 'dia-posto' : 'dias-posto'}`);
+      linhas.push(
+        `1 funcionário (1 posto) — ${diasPosto} ${diasPosto === 1 ? 'dia trabalhado' : 'dias trabalhados'}`,
+      );
     }
 
-    return partes.join(' + ') || '0 postos/mês';
+    return linhas.join('\n') || '0 postos';
   }
 
   /**
