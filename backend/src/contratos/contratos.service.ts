@@ -1306,12 +1306,14 @@ export class ContratosService implements OnModuleInit {
   async obterConciliacaoItens(contratoId: string): Promise<{
     valor_global: number;
     total_itens: number;
+    ajustes_fora_itens: number;
+    total_conciliado: number;
     diferenca: number;
     possui_itens: boolean;
     termos_pendentes: Array<{ id: string; numero_termo: string }>;
   }> {
     const contrato = await this.findOne(contratoId);
-    const [itensContrato, itensCronograma, termosPendentes] = await Promise.all([
+    const [itensContrato, itensCronograma, termosPendentes, termosAtivos] = await Promise.all([
       this.itemContratoRepository.find({ where: { contrato_id: contratoId } }),
       this.itemCronogramaRepository.find({ where: { contrato_id: contratoId } }),
       this.termoAditivoRepository.find({
@@ -1322,14 +1324,31 @@ export class ContratosService implements OnModuleInit {
         },
         order: { sequencial: 'ASC' },
       }),
+      this.termoAditivoRepository.find({
+        where: {
+          contrato_id: contratoId,
+          status: Not(StatusTermoAditivo.CANCELADO),
+        },
+      }),
     ]);
     const totalItensContrato = itensContrato.reduce((s, item) => s + Number(item.valor_total || 0), 0);
     const totalItensCronograma = itensCronograma.reduce((s, item) => s + Number(item.valor_total || 0), 0);
     const totalItens = totalItensContrato + totalItensCronograma;
+    // Um aditivo de renovacao pode conter verbas que nao pertencem aos itens do
+    // novo ciclo (por exemplo, diferencas retroativas da vigencia anterior).
+    // Quando o termo separa o valor recorrente em valor_ciclo, essas verbas nao
+    // devem ser acusadas como erro na conciliacao dos itens.
+    const ajustesForaItens = termosAtivos.reduce((total, termo) => {
+      if (!termo.renovacao_ciclo || !Number(termo.valor_ciclo)) return total;
+      return total + Number(termo.valor_acrescimo || 0) - Number(termo.valor_supressao || 0);
+    }, 0);
+    const totalConciliado = totalItens + ajustesForaItens;
     return {
       valor_global: Number(contrato.valor_global || 0),
       total_itens: Math.round(totalItens * 100) / 100,
-      diferenca: Math.round((Number(contrato.valor_global || 0) - totalItens) * 100) / 100,
+      ajustes_fora_itens: Math.round(ajustesForaItens * 100) / 100,
+      total_conciliado: Math.round(totalConciliado * 100) / 100,
+      diferenca: Math.round((Number(contrato.valor_global || 0) - totalConciliado) * 100) / 100,
       possui_itens: itensContrato.length + itensCronograma.length > 0,
       termos_pendentes: termosPendentes.map((termo) => ({
         id: termo.id,
