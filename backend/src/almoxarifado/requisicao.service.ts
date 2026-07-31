@@ -7,7 +7,7 @@ import { RequisicaoEtapaOS } from './entities/requisicao-etapa-os.entity';
 import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
-import { Contrato, StatusContrato } from '../contratos/entities/contrato.entity';
+import { Contrato, ModalidadeExecucao, StatusContrato } from '../contratos/entities/contrato.entity';
 import { MedicaoService } from '../contratos/medicao.service';
 import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
 import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
@@ -91,17 +91,23 @@ export class RequisicaoService {
   ) {}
 
   /** Início da vigência renovada; OS anteriores permanecem no histórico sem consumir o novo ciclo. */
-  private async obterInicioCicloVigente(contratoId: string): Promise<Date | null> {
+  private async obterContextoCicloVigente(contratoId: string): Promise<{
+    inicio: Date | null;
+    modalidade: ModalidadeExecucao | null;
+  }> {
     const contrato = await this.contratoRepository.findOne({
       where: { id: contratoId },
-      select: { id: true, data_renovacao_ciclo: true },
+      select: { id: true, data_renovacao_ciclo: true, modalidade_execucao: true },
     });
-    return contrato?.data_renovacao_ciclo || null;
+    return {
+      inicio: contrato?.data_renovacao_ciclo || null,
+      modalidade: contrato?.modalidade_execucao || null,
+    };
   }
 
   /** Soma quantidade_solicitada por item_cronograma de OS ativas da vigência atual. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
   async somarQuantidadeComprometidaPorItemOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
-    const inicioCicloVigente = await this.obterInicioCicloVigente(contratoId);
+    const contextoCiclo = await this.obterContextoCicloVigente(contratoId);
     const statusMedicoesQueConsomemOS = [
       'SUBMETIDA',
       'AGUARDANDO_ATESTE',
@@ -123,11 +129,12 @@ export class RequisicaoService {
           StatusRequisicao.AUTORIZADA,
         ],
       })
-      // Exclui OS de modo ORDEM_GLOBAL do comprometido: a global é uma "liberação"
-      // inicial e NÃO deve reservar saldo contra OS parciais. O saldo real do
-      // contrato é regido pelas medições aprovadas (quantidade_medida).
-      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' })
-      .andWhere(
+      // A OS global é somente a liberação inicial e não reserva saldo contra
+      // as OS parciais. Em MEDICAO, a reserva migra para a medição vinculada;
+      // em ORDEM_SERVICO, a própria OS continua sendo a fonte do consumo.
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' });
+    if (contextoCiclo.modalidade !== ModalidadeExecucao.ORDEM_SERVICO) {
+      qb.andWhere(
         `NOT EXISTS (
           SELECT 1 FROM medicoes m
           WHERE m.requisicao_id = r.id
@@ -135,8 +142,9 @@ export class RequisicaoService {
         )`,
         { statusMedicoesQueConsomemOS },
       );
-    if (inicioCicloVigente) {
-      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente });
+    }
+    if (contextoCiclo.inicio) {
+      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente: contextoCiclo.inicio });
     }
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
     const rows = await qb.groupBy('rio.item_cronograma_id').getRawMany<{ id: string; total: string }>();
@@ -155,7 +163,7 @@ export class RequisicaoService {
     status: string;
     quantidade: number;
   }>>> {
-    const inicioCicloVigente = await this.obterInicioCicloVigente(contratoId);
+    const contextoCiclo = await this.obterContextoCicloVigente(contratoId);
     const statusMedicoesQueConsomemOS = [
       'SUBMETIDA',
       'AGUARDANDO_ATESTE',
@@ -180,18 +188,20 @@ export class RequisicaoService {
           StatusRequisicao.AUTORIZADA,
         ],
       })
-      .andWhere("COALESCE(r.modo_os, '') != :modoGlobal", { modoGlobal: 'ORDEM_GLOBAL' })
-      .andWhere(
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobal", { modoGlobal: 'ORDEM_GLOBAL' });
+    if (contextoCiclo.modalidade !== ModalidadeExecucao.ORDEM_SERVICO) {
+      qb.andWhere(
         `NOT EXISTS (
           SELECT 1 FROM medicoes m
           WHERE m.requisicao_id = r.id
             AND m.status IN (:...statusMedicoesQueConsomemOS)
         )`,
         { statusMedicoesQueConsomemOS },
-      )
-      .orderBy('r.created_at', 'ASC');
-    if (inicioCicloVigente) {
-      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente });
+      );
+    }
+    qb.orderBy('r.created_at', 'ASC');
+    if (contextoCiclo.inicio) {
+      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente: contextoCiclo.inicio });
     }
     if (excludeRequisicaoId) {
       qb.andWhere('r.id != :excludeRequisicaoId', { excludeRequisicaoId });
@@ -222,7 +232,7 @@ export class RequisicaoService {
 
   /** Soma valor_solicitado por etapa_id de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
   private async somarValorComprometidoPorEtapaOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
-    const inicioCicloVigente = await this.obterInicioCicloVigente(contratoId);
+    const contextoCiclo = await this.obterContextoCicloVigente(contratoId);
     const statusMedicoesQueConsomemOS = [
       'SUBMETIDA',
       'AGUARDANDO_ATESTE',
@@ -244,11 +254,12 @@ export class RequisicaoService {
           StatusRequisicao.AUTORIZADA,
         ],
       })
-      // Exclui OS de modo ORDEM_GLOBAL do comprometido: a global é uma "liberação"
-      // inicial e NÃO deve reservar saldo contra OS parciais. O saldo real do
-      // contrato é regido pelas medições aprovadas (quantidade_medida).
-      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' })
-      .andWhere(
+      // A OS global é somente a liberação inicial e não reserva saldo contra
+      // as OS parciais. Em MEDICAO, a reserva migra para a medição vinculada;
+      // em ORDEM_SERVICO, a própria OS continua sendo a fonte do consumo.
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' });
+    if (contextoCiclo.modalidade !== ModalidadeExecucao.ORDEM_SERVICO) {
+      qb.andWhere(
         `NOT EXISTS (
           SELECT 1 FROM medicoes m
           WHERE m.requisicao_id = r.id
@@ -256,8 +267,9 @@ export class RequisicaoService {
         )`,
         { statusMedicoesQueConsomemOS },
       );
-    if (inicioCicloVigente) {
-      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente });
+    }
+    if (contextoCiclo.inicio) {
+      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente: contextoCiclo.inicio });
     }
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
     const rows = await qb.groupBy('reo.etapa_id').getRawMany<{ id: string; total: string }>();
