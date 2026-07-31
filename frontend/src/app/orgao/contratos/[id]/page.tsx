@@ -63,6 +63,7 @@ import TabMedicao from '@/components/contratos/TabMedicao'
 import TabAtestacao from '@/components/contratos/TabAtestacao'
 import TabLicencas from '@/components/contratos/TabLicencas'
 import TabOrdensServico from '@/components/contratos/TabOrdensServico'
+import TabItensOrdemServico from '@/components/contratos/TabItensOrdemServico'
 import TabRequisicoes from '@/components/contratos/TabRequisicoes'
 import TabRelatorios from '@/components/contratos/TabRelatorios'
 import SimuladorPedidoModal from '@/components/contratos/SimuladorPedidoModal'
@@ -357,7 +358,7 @@ const TIPOS_TERMO = [
   { value: 'SUSPENSAO', label: 'Suspensão' },
 ]
 
-const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'requisicoes', 'historico', 'empenhos', 'relatorios']
+const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'itens-os', 'ordens-servico', 'termos', 'documentos', 'requisicoes', 'historico', 'empenhos', 'relatorios']
 
 export default function DetalheContratoOrgaoPage() {
   const params = useParams()
@@ -1727,7 +1728,10 @@ export default function DetalheContratoOrgaoPage() {
             <TabsTrigger value="licencas">Licenças</TabsTrigger>
           )}
           {contrato.modalidade_execucao === 'ORDEM_SERVICO' && (
-            <TabsTrigger value="ordens-servico">Ordens de Serviço</TabsTrigger>
+            <>
+              <TabsTrigger value="itens-os">Itens da OS</TabsTrigger>
+              <TabsTrigger value="ordens-servico">Ordens de Serviço</TabsTrigger>
+            </>
           )}
           <TabsTrigger value="termos">Termos Aditivos ({termos.length})</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
@@ -2500,9 +2504,14 @@ export default function DetalheContratoOrgaoPage() {
         )}
 
         {contrato.modalidade_execucao === 'ORDEM_SERVICO' && (
-          <TabsContent value="ordens-servico">
-            <TabOrdensServico contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
-          </TabsContent>
+          <>
+            <TabsContent value="itens-os">
+              <TabItensOrdemServico contratoId={contrato.id} />
+            </TabsContent>
+            <TabsContent value="ordens-servico">
+              <TabOrdensServico contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
+            </TabsContent>
+          </>
         )}
 
         <TabsContent value="requisicoes">
