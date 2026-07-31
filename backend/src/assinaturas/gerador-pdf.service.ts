@@ -841,8 +841,8 @@ export class GeradorPdfService {
         Number(item.itemCronograma.lote_numero) === Number(configuracaoMaoDeObra.loteNumero);
     });
     const colDesc  = pageWidth * (temMaoDeObra ? 0.34 : 0.39);
-    const colUnid  = pageWidth * (temMaoDeObra ? 0.09 : 0.10);
-    const colQtd   = pageWidth * (temMaoDeObra ? 0.17 : 0.11);
+    const colUnid  = pageWidth * (temMaoDeObra ? 0.11 : 0.10);
+    const colQtd   = pageWidth * (temMaoDeObra ? 0.15 : 0.11);
     const colValor = pageWidth * 0.17;
     const colTotal = pageWidth * 0.18;
 
@@ -964,29 +964,73 @@ export class GeradorPdfService {
 
         // Mantém o item contratual como linha principal. Quando todo o período
         // é parcial, a linha funciona como cabeçalho e o valor fica no subitem.
+        const composicaoItemPrincipal = postosInteiros > 0
+          ? `${postosInteiros} ${postosInteiros === 1 ? 'funcionário' : 'funcionários'}`
+          : 'Período parcial';
+        const composicaoSubitem = diasParciais > 0
+          ? `1 funcionário\n${diasParciais} ${diasParciais === 1 ? 'dia trabalhado' : 'dias trabalhados'}`
+          : '';
+
+        // Item e subitem devem permanecer juntos para que a célula consolidada
+        // de total possa ocupar visualmente as duas linhas.
+        if (diasParciais > 0) {
+          doc.fontSize(8);
+          const alturaItem = Math.max(
+            doc.heightOfString(desc, { width: colDesc - 6 }),
+            doc.heightOfString(composicaoItemPrincipal, { width: colQtd - 4 }),
+            12,
+          ) + 5;
+          const alturaSubitem = Math.max(
+            doc.heightOfString('Subitem — período parcial do posto', { width: colDesc - 6 }),
+            doc.heightOfString(composicaoSubitem, { width: colQtd - 4 }),
+            12,
+          ) + 5;
+          if (doc.y + alturaItem + alturaSubitem > doc.page.height - 80) {
+            doc.addPage(); doc.y = 50;
+          }
+        }
+
+        const inicioGrupoY = doc.y;
         renderizarLinha(
           ic.numero_item != null ? String(ic.numero_item) : '-',
           desc,
           'POSTO/MÊS',
-          postosInteiros > 0
-            ? `${postosInteiros} ${postosInteiros === 1 ? 'funcionário' : 'funcionários'}`
-            : 'Período parcial',
+          composicaoItemPrincipal,
           postosInteiros > 0 ? vlUnit : null,
-          // O total aparece uma única vez e já consolida item + subitem.
-          total,
+          diasParciais > 0 ? null : total,
         );
 
         if (diasParciais > 0) {
           renderizarLinha(
             ic.numero_item != null ? `${ic.numero_item}.1` : '-',
-            '↳ Subitem — período parcial do posto',
+            'Subitem — período parcial do posto',
             'DIA',
-            `1 funcionário\n${diasParciais} ${diasParciais === 1 ? 'dia trabalhado' : 'dias trabalhados'}`,
+            composicaoSubitem,
             totalPeriodoParcial / diasParciais,
             null,
             true,
             4,
           );
+
+          const fimGrupoY = doc.y;
+          const alturaGrupo = fimGrupoY - inicioGrupoY - 1;
+          const totalTexto = `R$ ${total.toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`;
+          doc.rect(x5, inicioGrupoY, colTotal, alturaGrupo)
+            .fillAndStroke('#ffffff', '#e5e7eb');
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
+          const alturaTotalTexto = doc.heightOfString(totalTexto, { width: colTotal - 6 });
+          doc.text(
+            totalTexto,
+            x5 + 3,
+            inicioGrupoY + Math.max(2, (alturaGrupo - alturaTotalTexto) / 2),
+            { width: colTotal - 6, align: 'center' },
+          );
+          // A escrita da célula mesclada altera doc.y; restaura o fluxo abaixo
+          // do subitem para os próximos itens da tabela.
+          doc.y = fimGrupoY;
         }
         continue;
       }
