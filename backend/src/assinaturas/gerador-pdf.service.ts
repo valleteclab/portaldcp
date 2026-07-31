@@ -891,18 +891,12 @@ export class GeradorPdfService {
         String(ic.unidade_medida || '').toUpperCase() === 'MENSAL' &&
         qtd > 0 &&
         Math.abs(qtd - Math.round(qtd)) > 0.0001;
-      const unid = isMaoDeObra
-        ? 'POSTO'
-        : (isMensalFracionado ? 'DIAS' : (isAvulso ? '-' : (ic.unidade_medida || '-')));
-      const quantidadeExibida = isMaoDeObra
-        ? this.formatarComposicaoPostos(qtd)
-        : (isMensalFracionado
-          ? String(Math.round(qtd * 30))
-          : qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }));
-      const temSubitemParcial = isMaoDeObra && Math.round(qtd * 30) % 30 > 0;
+      const unid = isMensalFracionado ? 'DIAS' : (isAvulso ? '-' : (ic.unidade_medida || '-'));
+      const quantidadeExibida = isMensalFracionado
+        ? String(Math.round(qtd * 30))
+        : qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
       const desc = (isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-')) +
-        (temMemorial ? `\n${memorial}` : '') +
-        (temSubitemParcial ? '\n↳ Subitem — período parcial do posto' : '');
+        (temMemorial ? `\n${memorial}` : '');
       const vlUnit = isAvulso ? Number(item.valor_unitario_avulso ?? 0) : Number(ic.valor_unitario ?? 0);
       const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
       // total: avulso usa valor_total_avulso; cronograma usa qtd × vlUnit (qtd já inclui meses × qty/período)
@@ -910,6 +904,86 @@ export class GeradorPdfService {
         ? Number(item.valor_total_avulso ?? 0)
         : (item.total_override !== undefined ? item.total_override : ap(qtd * vlUnit));
       totalGeral  += total;
+
+      if (isMaoDeObra) {
+        const totalDiasPosto = Math.round(qtd * 30);
+        const postosInteiros = Math.floor(totalDiasPosto / 30);
+        const diasParciais = totalDiasPosto % 30;
+        const totalPostosInteiros = ap(postosInteiros * vlUnit);
+        // O restante é obtido do total original para preservar exatamente os
+        // centavos da OS, inclusive quando o contrato usa truncamento.
+        const totalPeriodoParcial = Math.round((total - totalPostosInteiros) * 100) / 100;
+
+        const renderizarLinha = (
+          numero: string,
+          descricao: string,
+          unidade: string,
+          composicao: string,
+          valorUnitario: number | null,
+          valorLinha: number | null,
+          subitem = false,
+        ) => {
+          doc.fontSize(8);
+          const descHeight = doc.heightOfString(descricao, { width: colDesc - 6 });
+          const qtdHeight = doc.heightOfString(composicao, { width: colQtd - 4 });
+          const rowH = Math.max(descHeight, qtdHeight, 12);
+
+          if (doc.y + rowH + 4 > doc.page.height - 80) {
+            doc.addPage(); doc.y = 50;
+          }
+
+          const rowY = doc.y + 2;
+          if (subitem) {
+            doc.rect(x0, doc.y, pageWidth, rowH + 3).fill('#f9fafb');
+          }
+          doc.font(subitem ? 'Helvetica-Oblique' : 'Helvetica').fillColor('#374151');
+          doc.text(numero, x0 + 3, rowY, { width: colNum - 4 });
+          doc.text(descricao, x1 + 3, rowY, { width: colDesc - 6 });
+          doc.text(unidade, x2, rowY, { width: colUnid, align: 'center' });
+          doc.text(composicao, x3, rowY, { width: colQtd, align: 'right' });
+          doc.text(
+            valorUnitario != null
+              ? `R$ ${valorUnitario.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : '-',
+            x4, rowY, { width: colValor, align: 'right' },
+          );
+          doc.text(
+            valorLinha != null
+              ? `R$ ${valorLinha.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : '-',
+            x5, rowY, { width: colTotal, align: 'right' },
+          );
+          doc.y = rowY + rowH + 2;
+          doc.moveTo(x0, doc.y).lineTo(x0 + pageWidth, doc.y).lineWidth(0.3).stroke('#e5e7eb');
+          doc.y += 1;
+        };
+
+        // Mantém o item contratual como linha principal. Quando todo o período
+        // é parcial, a linha funciona como cabeçalho e o valor fica no subitem.
+        renderizarLinha(
+          ic.numero_item != null ? String(ic.numero_item) : '-',
+          desc,
+          'POSTO/MÊS',
+          postosInteiros > 0
+            ? `${postosInteiros} ${postosInteiros === 1 ? 'funcionário' : 'funcionários'}`
+            : 'Período parcial',
+          postosInteiros > 0 ? vlUnit : null,
+          postosInteiros > 0 ? totalPostosInteiros : null,
+        );
+
+        if (diasParciais > 0) {
+          renderizarLinha(
+            ic.numero_item != null ? `${ic.numero_item}.1` : '-',
+            '↳ Subitem — período parcial do posto',
+            'DIA',
+            `1 funcionário\n${diasParciais} ${diasParciais === 1 ? 'dia trabalhado' : 'dias trabalhados'}`,
+            totalPeriodoParcial / diasParciais,
+            totalPeriodoParcial,
+            true,
+          );
+        }
+        continue;
+      }
 
       doc.fontSize(8);
       const descHeight = doc.heightOfString(desc, { width: colDesc - 6 });
@@ -958,30 +1032,6 @@ export class GeradorPdfService {
       );
     }
     doc.moveDown(0.5);
-  }
-
-  private formatarComposicaoPostos(quantidadeEquivalente: number): string {
-    if (!Number.isFinite(quantidadeEquivalente) || quantidadeEquivalente <= 0) {
-      return '0 postos';
-    }
-
-    const totalDiasPosto = Math.round(quantidadeEquivalente * 30);
-    const postosInteiros = Math.floor(totalDiasPosto / 30);
-    const diasPosto = totalDiasPosto % 30;
-    const linhas: string[] = [];
-
-    if (postosInteiros > 0) {
-      linhas.push(
-        `${postosInteiros} ${postosInteiros === 1 ? 'posto' : 'postos'} — mês integral`,
-      );
-    }
-    if (diasPosto > 0) {
-      linhas.push(
-        `1 funcionário (1 posto) — ${diasPosto} ${diasPosto === 1 ? 'dia trabalhado' : 'dias trabalhados'}`,
-      );
-    }
-
-    return linhas.join('\n') || '0 postos';
   }
 
   /**
