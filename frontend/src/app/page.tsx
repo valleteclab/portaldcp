@@ -1,4 +1,7 @@
 import Link from "next/link"
+import type { Metadata } from "next"
+import { headers } from "next/headers"
+import CmlemHome from "@/components/home/CmlemHome"
 
 const recursos = [
   {
@@ -19,7 +22,38 @@ const recursos = [
   },
 ]
 
-export default function Home() {
+async function getRequestHostname() {
+  const requestHeaders = await headers()
+  return (requestHeaders.get("x-forwarded-host") || requestHeaders.get("host") || "")
+    .split(",")[0]
+    .trim()
+    .split(":")[0]
+    .toLowerCase()
+}
+
+function isCmlemHostname(hostname: string) {
+  return hostname === "compras.cmlem.gov.br" || hostname.endsWith(".cmlem.ba.gov.br")
+}
+
+export async function generateMetadata(): Promise<Metadata> {
+  const hostname = await getRequestHostname()
+  if (isCmlemHostname(hostname)) {
+    return {
+      title: "Portal de Compras Públicas | Câmara Municipal de Luís Eduardo Magalhães",
+      description:
+        "Portal oficial para licitações, contratos, credenciamentos e compras públicas da Câmara Municipal de Luís Eduardo Magalhães.",
+    }
+  }
+  return {}
+}
+
+export default async function Home() {
+  const hostname = await getRequestHostname()
+
+  if (isCmlemHostname(hostname)) {
+    return <CmlemHome />
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
