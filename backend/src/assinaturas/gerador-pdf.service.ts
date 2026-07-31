@@ -972,7 +972,8 @@ export class GeradorPdfService {
             ? `${postosInteiros} ${postosInteiros === 1 ? 'funcionário' : 'funcionários'}`
             : 'Período parcial',
           postosInteiros > 0 ? vlUnit : null,
-          postosInteiros > 0 ? totalPostosInteiros : null,
+          // O total aparece uma única vez e já consolida item + subitem.
+          total,
         );
 
         if (diasParciais > 0) {
@@ -982,7 +983,7 @@ export class GeradorPdfService {
             'DIA',
             `1 funcionário\n${diasParciais} ${diasParciais === 1 ? 'dia trabalhado' : 'dias trabalhados'}`,
             totalPeriodoParcial / diasParciais,
-            totalPeriodoParcial,
+            null,
             true,
             4,
           );
@@ -1030,7 +1031,7 @@ export class GeradorPdfService {
     if (temMaoDeObra) {
       doc.moveDown(0.35);
       doc.fontSize(7).font('Helvetica').fillColor('#4b5563').text(
-        'Nos itens de mão de obra, cada posto/mês corresponde a um funcionário por 30 dias. O subitem informa o posto adicional executado apenas durante parte do mês.',
+        'Nos itens de mão de obra, cada posto/mês corresponde a um funcionário por 30 dias. O valor total do item consolida os postos integrais e o período parcial indicado no subitem.',
         x0,
         doc.y,
         { width: pageWidth },
