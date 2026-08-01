@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Orgao } from '../orgaos/entities/orgao.entity';
-import { createDecipheriv } from 'crypto';
+import { decryptTextOrRaw } from '../common/crypto.util';
 import { ZApiProvider } from './providers/zapi.provider';
 import { MetaChatwootProvider } from './providers/meta-chatwoot.provider';
 import { IWhatsAppProvider, WhatsAppButtonAction, WhatsAppConfig } from './whatsapp.interfaces';
@@ -20,24 +20,8 @@ export class WhatsAppService {
     private readonly systemConfigService: SystemConfigService,
   ) {}
 
-  private getEncryptionKey(): string {
-    return process.env.PNCP_ENCRYPTION_KEY || 'licitafacil-pncp-encryption-key-32';
-  }
-
   private decryptText(encryptedText: string): string {
-    if (!encryptedText || !encryptedText.includes(':')) return encryptedText;
-    try {
-      const key = Buffer.from(this.getEncryptionKey().padEnd(32, '0').substring(0, 32));
-      const textParts = encryptedText.split(':');
-      const iv = Buffer.from(textParts.shift()!, 'hex');
-      const encrypted = textParts.join(':');
-      const decipher = createDecipheriv('aes-256-cbc', key, iv);
-      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
-      return decrypted;
-    } catch {
-      return encryptedText;
-    }
+    return decryptTextOrRaw(encryptedText);
   }
 
   private getProvider(providerName: string) {

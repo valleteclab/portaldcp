@@ -13,12 +13,14 @@ import {
   HttpStatus,
   Req,
   ForbiddenException,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PncpService } from './pncp.service';
 import { ResultadoItemDto, ContratoDto, TIPO_DOCUMENTO } from './dto/pncp.dto';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { RequireModule } from '../auth/require-module.decorator';
+import { AdminGuard } from '../auth/admin.guard';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
 
@@ -38,13 +40,17 @@ export class PncpController {
   }
 
   // ============ CREDENCIAIS PNCP DA PLATAFORMA ============
+  // Credencial única da plataforma inteira: só o admin mexe. O @RequireModule
+  // do controller não servia de trava — libera qualquer órgão com o módulo PNCP.
 
   @Get('credentials')
+  @UseGuards(AdminGuard)
   getPlatformCredentials() {
     return this.pncpService.getPlatformCredentials();
   }
 
   @Put('credentials')
+  @UseGuards(AdminGuard)
   async setPlatformCredentials(@Body() body: {
     apiUrl?: string;
     login?: string;
@@ -56,6 +62,7 @@ export class PncpController {
   }
 
   @Post('credentials/test')
+  @UseGuards(AdminGuard)
   async testPlatformConnection() {
     return this.pncpService.testPlatformConnection();
   }
@@ -519,8 +526,10 @@ export class PncpController {
   }
 
   @Post('config-update')
+  @UseGuards(AdminGuard)
   async atualizarConfiguracao(@Body() config: any) {
-    console.log('[CONTROLLER] atualizarConfiguracao chamado com:', config);
+    // Não logar o corpo: aqui trafega a senha da plataforma no PNCP.
+    console.log('[CONTROLLER] atualizarConfiguracao chamado');
     return this.pncpService.atualizarConfiguracao(config);
   }
 

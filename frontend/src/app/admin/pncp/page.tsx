@@ -181,15 +181,10 @@ export default function AdminPNCPPage() {
 
   useEffect(() => {
     carregarDados()
-    // Carregar credenciais do localStorage
-    const savedCredentials = localStorage.getItem('pncp_credentials')
-    if (savedCredentials) {
-      try {
-        setPncpCredentials(JSON.parse(savedCredentials))
-      } catch (error) {
-        console.error('Erro ao carregar credenciais do localStorage:', error)
-      }
-    }
+    // As credenciais vivem no backend (cifradas). Versões antigas desta tela
+    // guardavam login e SENHA no localStorage; apaga o resíduo do navegador.
+    localStorage.removeItem('pncp_credentials')
+    carregarCredenciaisPNCP()
   }, [])
 
   const carregarDados = async () => {
@@ -925,18 +920,19 @@ export default function AdminPNCPPage() {
                 </div>
                 <div>
                   <Label className="text-gray-500">Status</Label>
-                  <p className="font-medium text-sm text-green-600">✅ Configurado no localStorage</p>
+                  <p className="font-medium text-sm text-green-600">✅ Configurado no servidor</p>
                 </div>
               </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                <div className="flex items-center gap-2 text-amber-800">
-                  <AlertCircle className="w-4 h-4" />
-                  <span className="text-sm font-medium">Aviso de Segurança</span>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Shield className="w-4 h-4" />
+                  <span className="text-sm font-medium">Armazenamento</span>
                 </div>
-                <p className="text-xs text-amber-700 mt-1">
-                  As credenciais estão armazenadas no localStorage do navegador. 
-                  Esta configuração é apenas para desenvolvimento local. 
-                  Em produção, use variáveis de ambiente no servidor.
+                <p className="text-xs text-slate-600 mt-1">
+                  A senha fica cifrada no banco do servidor e nunca é devolvida
+                  para o navegador — por isso o campo aparece em branco ao
+                  reabrir o formulário. Para trocá-la, basta digitar a nova.
+                  Só o administrador da plataforma acessa esta área.
                 </p>
               </div>
             </div>
