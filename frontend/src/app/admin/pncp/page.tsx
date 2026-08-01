@@ -128,6 +128,52 @@ interface OrgaoLocal {
   pncp_codigo_unidade?: string
 }
 
+/**
+ * Ambientes oficiais do PNCP. A URL era digitada à mão num campo de texto —
+ * um caractere errado publicava contrato real no ambiente de treinamento (ou
+ * o contrário) sem nada na tela avisando.
+ */
+const AMBIENTES_PNCP = [
+  {
+    id: 'PRODUCAO',
+    label: 'Produção',
+    url: 'https://pncp.gov.br/api/pncp/v1',
+    descricao: 'Publicações valem oficialmente',
+  },
+  {
+    id: 'TREINAMENTO',
+    label: 'Treinamento',
+    url: 'https://treina.pncp.gov.br/api/pncp/v1',
+    descricao: 'Homologação — nada publicado aqui tem validade',
+  },
+] as const
+
+type ModoAmbiente = 'PRODUCAO' | 'TREINAMENTO' | 'OUTRA'
+
+const normalizarUrl = (url: string) => (url || '').trim().replace(/\/+$/, '')
+
+const ambienteDaUrl = (url: string) =>
+  AMBIENTES_PNCP.find((amb) => amb.url === normalizarUrl(url))
+
+const modoDaUrl = (url: string): ModoAmbiente =>
+  ambienteDaUrl(url)?.id ?? 'OUTRA'
+
+function SeloAmbiente({ url }: { url: string }) {
+  const ambiente = ambienteDaUrl(url)
+  if (!ambiente) {
+    return (
+      <Badge variant="outline" className="border-slate-400 text-slate-700">
+        URL personalizada
+      </Badge>
+    )
+  }
+  return ambiente.id === 'PRODUCAO' ? (
+    <Badge className="bg-red-600 hover:bg-red-600">🔴 PRODUÇÃO</Badge>
+  ) : (
+    <Badge className="bg-amber-500 hover:bg-amber-500">🟡 TREINAMENTO</Badge>
+  )
+}
+
 export default function AdminPNCPPage() {
   const [loading, setLoading] = useState(true)
   const [loadingUnidades, setLoadingUnidades] = useState<string | null>(null)
@@ -178,6 +224,14 @@ export default function AdminPNCPPage() {
   })
   const [showCredentialsForm, setShowCredentialsForm] = useState(false)
   const [savingCredentials, setSavingCredentials] = useState(false)
+  const [modoAmbiente, setModoAmbiente] = useState<ModoAmbiente>('TREINAMENTO')
+
+  const selecionarAmbiente = (modo: ModoAmbiente) => {
+    setModoAmbiente(modo)
+    const ambiente = AMBIENTES_PNCP.find((amb) => amb.id === modo)
+    // "Outra" limpa o campo para o usuário digitar; os oficiais preenchem sozinhos.
+    setPncpCredentials((prev) => ({ ...prev, apiUrl: ambiente ? ambiente.url : '' }))
+  }
 
   useEffect(() => {
     carregarDados()
@@ -418,6 +472,15 @@ export default function AdminPNCPPage() {
         return
       }
 
+      // Trocar de ambiente muda para onde TODA publicação vai; vale confirmar.
+      const ambiente = ambienteDaUrl(pncpCredentials.apiUrl)
+      if (ambiente?.id === 'PRODUCAO' && !confirm(
+        'Apontar a plataforma para o ambiente de PRODUÇÃO do PNCP?\n\n' +
+        'A partir daí, PCA, contratações, atas e contratos publicados valem oficialmente.'
+      )) {
+        return
+      }
+
       // Salvar credenciais da plataforma no backend
       const response = await adminFetch(`${API_URL}/api/pncp/credentials`, {
         method: 'PUT',
@@ -461,6 +524,7 @@ export default function AdminPNCPPage() {
           senha: '', // Não retornamos a senha do backend por segurança
           cnpjOrgao: credentials.cnpjOrgao || ''
         })
+        setModoAmbiente(modoDaUrl(credentials.apiUrl || ''))
       }
     } catch (error) {
       console.error('Erro ao carregar credenciais PNCP:', error)
@@ -836,10 +900,12 @@ export default function AdminPNCPPage() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Shield className="w-5 h-5" />
-                Configuração Manual de Credenciais PNCP
+                Credenciais PNCP da plataforma
+                {pncpCredentials.apiUrl && <SeloAmbiente url={pncpCredentials.apiUrl} />}
               </CardTitle>
               <CardDescription>
-                Configure as credenciais do PNCP manualmente (apenas para desenvolvimento local)
+                Credencial única usada por toda a plataforma. O ambiente escolhido
+                aqui define para onde vão todas as publicações.
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -849,15 +915,22 @@ export default function AdminPNCPPage() {
                   Testar Conexão
                 </Button>
               )}
-              {pncpCredentials.apiUrl ? (
+              {/* Com credencial configurada só existia "Limpar": trocar de
+                  ambiente exigia apagar tudo antes. */}
+              <Button
+                variant={pncpCredentials.apiUrl ? 'outline' : 'default'}
+                onClick={() => {
+                  setModoAmbiente(modoDaUrl(pncpCredentials.apiUrl))
+                  setShowCredentialsForm(true)
+                }}
+              >
+                <Shield className="w-4 h-4 mr-2" />
+                {pncpCredentials.apiUrl ? 'Alterar Credenciais' : 'Configurar Credenciais'}
+              </Button>
+              {pncpCredentials.apiUrl && (
                 <Button variant="destructive" onClick={limparCredenciaisPNCP}>
                   <XCircle className="w-4 h-4 mr-2" />
                   Limpar Credenciais
-                </Button>
-              ) : (
-                <Button onClick={() => setShowCredentialsForm(true)}>
-                  <Shield className="w-4 h-4 mr-2" />
-                  Configurar Credenciais
                 </Button>
               )}
             </div>
@@ -907,8 +980,11 @@ export default function AdminPNCPPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-gray-500">URL da API</Label>
-                  <p className="font-medium text-sm">{pncpCredentials.apiUrl}</p>
+                  <Label className="text-gray-500">Ambiente</Label>
+                  <div className="flex items-center gap-2">
+                    <SeloAmbiente url={pncpCredentials.apiUrl} />
+                    <span className="text-xs text-gray-500">{pncpCredentials.apiUrl}</span>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-gray-500">Login</Label>
@@ -961,15 +1037,38 @@ export default function AdminPNCPPage() {
           
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>URL da API PNCP *</Label>
-                <Input
-                  value={pncpCredentials.apiUrl}
-                  onChange={(e) => setPncpCredentials({...pncpCredentials, apiUrl: e.target.value})}
-                  placeholder="https://treina.pncp.gov.br/api/pncp/v1"
-                />
+              <div className="space-y-2 md:col-span-2">
+                <Label>Ambiente do PNCP *</Label>
+                <Select value={modoAmbiente} onValueChange={(v) => selecionarAmbiente(v as ModoAmbiente)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o ambiente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AMBIENTES_PNCP.map((amb) => (
+                      <SelectItem key={amb.id} value={amb.id}>
+                        {amb.label} — {amb.descricao}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="OUTRA">Outra URL (avançado)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {modoAmbiente === 'OUTRA' ? (
+                  <Input
+                    value={pncpCredentials.apiUrl}
+                    onChange={(e) => setPncpCredentials({...pncpCredentials, apiUrl: e.target.value})}
+                    placeholder="https://treina.pncp.gov.br/api/pncp/v1"
+                  />
+                ) : (
+                  <p className="text-xs text-gray-500">{pncpCredentials.apiUrl}</p>
+                )}
+                {modoAmbiente === 'PRODUCAO' && (
+                  <p className="text-xs font-medium text-red-700">
+                    Atenção: tudo que for publicado passa a valer oficialmente.
+                    Use a credencial de produção liberada pelo PNCP.
+                  </p>
+                )}
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Login PNCP *</Label>
                 <Input
