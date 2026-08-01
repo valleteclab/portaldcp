@@ -1,8 +1,24 @@
-import { Controller, Get, Put, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Put, Post, Body, Param, Req, ForbiddenException, HttpException, HttpStatus, UseGuards } from '@nestjs/common';
 import { SystemConfigService } from './system-config.service';
 import { SystemConfig } from './entities/system-config.entity';
+import { AdminGuard, PermiteOrgao } from '../auth/admin.guard';
+import { JwtPayload, UserType } from '../auth/auth.service';
 
+/**
+ * Chaves que um órgão pode ler/gravar pelas rotas genéricas `:key`. Tudo que
+ * não estiver aqui é exclusivo do admin — em especial os segredos
+ * (PNCP_SENHA, IA_API_KEY, WHATSAPP_ZAPI_*).
+ */
+const CHAVES_LIBERADAS_ORGAO = ['FATOR_TRANSPARENCIA_ID'];
+
+/** Chaves cujo valor nunca é devolvido pela API, nem para o admin. */
+const ehChaveSecreta = (key: string) =>
+  /SENHA|PASSWORD|TOKEN|SECRET|_KEY$|API_KEY/i.test(key);
+
+// Guard no controller inteiro: rota nova nasce restrita ao admin. Para abrir
+// uma rota ao órgão é preciso marcar @PermiteOrgao() explicitamente.
 @Controller('system-config')
+@UseGuards(AdminGuard)
 export class SystemConfigController {
   constructor(private readonly systemConfigService: SystemConfigService) {}
 
@@ -119,32 +135,78 @@ export class SystemConfigController {
   @Get()
   async getAllConfigs(): Promise<SystemConfig[]> {
     try {
-      return await this.systemConfigService.getAllConfigs();
+      const configs = await this.systemConfigService.getAllConfigs();
+      // Esta rota devolvia a tabela inteira, com a senha do PNCP, a API key da
+      // IA e os tokens do WhatsApp em texto (cifrado, mas devolvido). Nenhuma
+      // tela precisa do valor de um segredo — só de saber que está preenchido.
+      return configs.map((config) =>
+        ehChaveSecreta(config.key)
+          ? ({ ...config, value: config.value ? '••••••••' : '' } as SystemConfig)
+          : config,
+      );
     } catch (error: any) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
   @Get(':key')
-  async getConfig(@Body() body: { key: string }) {
+  @PermiteOrgao()
+  async getConfig(
+    @Param('key') key: string,
+    @Req() request: any,
+    @Body() body?: { key?: string },
+  ) {
+    // O `key` vinha do body num GET (sempre vazio), então esta rota nunca
+    // devolvia nada. Passa a ler o parâmetro de rota, que é o que o frontend manda.
+    const chave = this.validarChaveGenerica(key || body?.key, request?.user);
     try {
-      const value = await this.systemConfigService.getValue(body.key);
+      const value = await this.systemConfigService.getValue(chave);
       if (value === null) {
         throw new HttpException('Configuração não encontrada', HttpStatus.NOT_FOUND);
       }
-      return { key: body.key, value };
+      return { key: chave, value };
     } catch (error: any) {
+      if (error instanceof HttpException) throw error;
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
   @Put(':key')
-  async setConfig(@Body() body: { key: string; value: string; description?: string }) {
+  @PermiteOrgao()
+  async setConfig(
+    @Param('key') key: string,
+    @Req() request: any,
+    @Body() body: { key?: string; value: string; description?: string },
+  ) {
+    const chave = this.validarChaveGenerica(key || body.key, request?.user);
     try {
-      const config = await this.systemConfigService.setValue(body.key, body.value, body.description);
+      const config = await this.systemConfigService.setValue(chave, body.value, body.description);
       return { success: true, config };
     } catch (error: any) {
       throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  }
+
+  /**
+   * As rotas `:key` são as únicas abertas ao órgão (@PermiteOrgao), então elas
+   * mesmas precisam limitar QUAL chave ele alcança — senão a liberação valeria
+   * para os segredos também. Segredo não passa nem para o admin: cada um tem
+   * sua rota própria, que cifra o valor antes de gravar.
+   */
+  private validarChaveGenerica(chave: string | undefined, user?: JwtPayload): string {
+    if (!chave) {
+      throw new HttpException('Chave não informada', HttpStatus.BAD_REQUEST);
+    }
+    if (ehChaveSecreta(chave)) {
+      throw new ForbiddenException(
+        'Use a rota específica desta credencial para lê-la ou gravá-la',
+      );
+    }
+    if (user?.type !== UserType.ADMIN && !CHAVES_LIBERADAS_ORGAO.includes(chave)) {
+      throw new ForbiddenException(
+        'Configuração restrita ao administrador da plataforma',
+      );
+    }
+    return chave;
   }
 }

@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SystemConfig } from './entities/system-config.entity';
-import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { encryptText, decryptTextOrNull } from '../common/crypto.util';
 
 @Injectable()
 export class SystemConfigService {
@@ -15,28 +15,19 @@ export class SystemConfigService {
 
   // ============ CRIPTOGRAFIA ============
   
-  private getEncryptionKey(): string {
-    return process.env.PNCP_ENCRYPTION_KEY || 'licitafacil-pncp-encryption-key-32';
-  }
-
   private encryptText(text: string): string {
-    const key = Buffer.from(this.getEncryptionKey().padEnd(32, '0').substring(0, 32));
-    const iv = randomBytes(16);
-    const cipher = createCipheriv('aes-256-cbc', key, iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
+    return encryptText(text);
   }
 
-  private decryptText(encryptedText: string): string {
-    const key = Buffer.from(this.getEncryptionKey().padEnd(32, '0').substring(0, 32));
-    const textParts = encryptedText.split(':');
-    const iv = Buffer.from(textParts.shift()!, 'hex');
-    const encrypted = textParts.join(':');
-    const decipher = createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+  /** Null quando o valor não abre com nenhuma das chaves conhecidas. */
+  private decryptText(encryptedText: string): string | null {
+    const valor = decryptTextOrNull(encryptedText);
+    if (valor === null) {
+      console.warn(
+        '[SystemConfigService] Valor cifrado ilegível — regrave a credencial pela tela do admin.',
+      );
+    }
+    return valor;
   }
 
   async getValue(key: string): Promise<string | null> {

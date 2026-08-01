@@ -166,9 +166,15 @@ export class PncpService implements OnModuleInit {
       await this.systemConfigService.setPncpCredentials(credentials);
       this.logger.log('[PLATFORM] Credenciais da plataforma salvas no banco de dados');
     } catch (error) {
+      // Antes o erro só ia para o log e a tela dizia "salvas com sucesso" — a
+      // credencial sumia no próximo restart sem ninguém perceber.
       this.logger.error(`[PLATFORM] Erro ao salvar credenciais no banco: ${error.message}`);
+      throw new HttpException(
+        `Credenciais não foram salvas: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
-    
+
     this.logger.log('[PLATFORM] Credenciais da plataforma atualizadas');
   }
 
