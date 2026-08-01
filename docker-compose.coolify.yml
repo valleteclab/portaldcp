@@ -66,6 +66,10 @@ services:
       PNCP_LOGIN: ${PNCP_LOGIN:-}
       PNCP_SENHA: ${PNCP_SENHA:-}
       PNCP_CNPJ_ORGAO: ${PNCP_CNPJ_ORGAO:-}
+      # Cifra os segredos guardados no banco (senha do PNCP, API key da IA,
+      # tokens do WhatsApp, senhas SMTP/IMAP dos órgãos). Sem ela o backend cai
+      # na chave de fallback que está no código — e recusa gravar segredo novo.
+      PNCP_ENCRYPTION_KEY: ${PNCP_ENCRYPTION_KEY:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-}
