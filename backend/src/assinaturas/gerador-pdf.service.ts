@@ -922,7 +922,6 @@ export class GeradorPdfService {
           valorUnitario: number | null,
           valorLinha: number | null,
           subitem = false,
-          casasValorUnitario = 2,
         ) => {
           doc.fontSize(8);
           const descHeight = doc.heightOfString(descricao, { width: colDesc - 6 });
@@ -945,8 +944,8 @@ export class GeradorPdfService {
           doc.text(
             valorUnitario != null
               ? `R$ ${valorUnitario.toLocaleString('pt-BR', {
-                  minimumFractionDigits: casasValorUnitario,
-                  maximumFractionDigits: casasValorUnitario,
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
                 })}`
               : '-',
             x4, rowY, { width: colValor, align: 'right' },
@@ -970,6 +969,16 @@ export class GeradorPdfService {
         const composicaoSubitem = diasParciais > 0
           ? `1 funcionário\n${diasParciais} ${diasParciais === 1 ? 'dia trabalhado' : 'dias trabalhados'}`
           : '';
+        // O subitem é cobrado pelo período inteiro, não por diária: a diária
+        // raramente cabe em 2 casas (ex.: 2.575,32 / 10 = 257,532) e exibi-la
+        // arredondada faria a conta do leitor não fechar com o total. A média
+        // diária fica na descrição, como referência.
+        const descricaoSubitem = diasParciais > 0
+          ? `Subitem — período parcial do posto (média de R$ ${(totalPeriodoParcial / diasParciais).toLocaleString('pt-BR', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}/dia)`
+          : '';
 
         // Item e subitem devem permanecer juntos para que a célula consolidada
         // de total possa ocupar visualmente as duas linhas.
@@ -981,7 +990,7 @@ export class GeradorPdfService {
             12,
           ) + 5;
           const alturaSubitem = Math.max(
-            doc.heightOfString('Subitem — período parcial do posto', { width: colDesc - 6 }),
+            doc.heightOfString(descricaoSubitem, { width: colDesc - 6 }),
             doc.heightOfString(composicaoSubitem, { width: colQtd - 4 }),
             12,
           ) + 5;
@@ -1003,13 +1012,12 @@ export class GeradorPdfService {
         if (diasParciais > 0) {
           renderizarLinha(
             ic.numero_item != null ? `${ic.numero_item}.1` : '-',
-            'Subitem — período parcial do posto',
-            'DIA',
+            descricaoSubitem,
+            'PERÍODO',
             composicaoSubitem,
-            totalPeriodoParcial / diasParciais,
+            totalPeriodoParcial,
             null,
             true,
-            4,
           );
 
           const fimGrupoY = doc.y;
@@ -1075,7 +1083,7 @@ export class GeradorPdfService {
     if (temMaoDeObra) {
       doc.moveDown(0.35);
       doc.fontSize(7).font('Helvetica').fillColor('#4b5563').text(
-        'Nos itens de mão de obra, cada posto/mês corresponde a um funcionário por 30 dias. O valor total do item consolida os postos integrais e o período parcial indicado no subitem.',
+        'Nos itens de mão de obra, cada posto/mês corresponde a um funcionário por 30 dias. O período parcial é cobrado pelo valor do período (não por diária) e o valor total do item consolida os postos integrais e esse subitem.',
         x0,
         doc.y,
         { width: pageWidth },
