@@ -1339,7 +1339,16 @@ export class ContratosService implements OnModuleInit {
     // Quando o termo separa o valor recorrente em valor_ciclo, essas verbas nao
     // devem ser acusadas como erro na conciliacao dos itens.
     const ajustesForaItens = termosAtivos.reduce((total, termo) => {
-      if (!termo.renovacao_ciclo || !Number(termo.valor_ciclo)) return total;
+      if (!termo.renovacao_ciclo) return total;
+      // valor_ciclo é informativo e nem sempre está preenchido — o formulário só
+      // passou a gravá-lo depois, então termos antigos de renovação ficaram sem.
+      // O resto do sistema já trata a ausência caindo para valor_acrescimo
+      // (medicao.service, valorGlobalDoCiclo); só esta conciliação exigia o campo
+      // e, sem ele, acusava divergência falsa: o ciclo anterior ficava sem
+      // contrapartida nos itens, que representam apenas o ciclo vigente.
+      const valorCiclo =
+        Number(termo.valor_ciclo) || Number(termo.valor_acrescimo) || 0;
+      if (!valorCiclo) return total;
       return total + Number(termo.valor_acrescimo || 0) - Number(termo.valor_supressao || 0);
     }, 0);
     const totalConciliado = totalItens + ajustesForaItens;
