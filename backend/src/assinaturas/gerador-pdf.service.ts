@@ -846,8 +846,20 @@ export class GeradorPdfService {
       return configuracaoMaoDeObra.loteNumero == null ||
         Number(item.itemCronograma.lote_numero) === Number(configuracaoMaoDeObra.loteNumero);
     });
-    const colDesc  = pageWidth * (temMaoDeObra ? 0.34 : 0.39);
-    const colUnid  = pageWidth * (temMaoDeObra ? 0.11 : 0.10);
+    // A coluna de unidade tem rótulo configurável por contrato ("Classificação",
+    // por exemplo). Na largura fixa o texto quebrava e a última letra caía para
+    // a linha de baixo, então a coluna cresce o necessário e a Descrição cede o
+    // espaço — ela é a mais larga e a que melhor absorve a perda.
+    const colDescBase = pageWidth * (temMaoDeObra ? 0.34 : 0.39);
+    const colUnidBase = pageWidth * (temMaoDeObra ? 0.11 : 0.10);
+    const larguraRotulo =
+      doc.font('Helvetica-Bold').fontSize(8).widthOfString(rotuloUnidade) + 8;
+    const extraUnid = Math.min(
+      Math.max(0, larguraRotulo - colUnidBase),
+      colDescBase * 0.25,
+    );
+    const colDesc  = colDescBase - extraUnid;
+    const colUnid  = colUnidBase + extraUnid;
     const colQtd   = pageWidth * (temMaoDeObra ? 0.15 : 0.11);
     const colValor = pageWidth * 0.17;
     const colTotal = pageWidth * 0.18;
@@ -865,7 +877,15 @@ export class GeradorPdfService {
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
     doc.text('#',           x0 + 3, headerY + 5, { width: colNum - 4 });
     doc.text('Descrição',   x1 + 3, headerY + 5, { width: colDesc - 6 });
-    doc.text(rotuloUnidade, x2,     headerY - 13 + 5, { width: colUnid,  align: 'center' });
+    // Rótulo muito longo (o campo aceita até 40 caracteres) ainda não caberia
+    // depois do alargamento: reduz a fonte só desta célula, sem quebrar linha.
+    const fonteRotulo =
+      doc.widthOfString(rotuloUnidade) > colUnid - 4
+        ? Math.max(5.5, (8 * (colUnid - 4)) / doc.widthOfString(rotuloUnidade))
+        : 8;
+    doc.fontSize(fonteRotulo);
+    doc.text(rotuloUnidade, x2,     headerY - 13 + 5 + (8 - fonteRotulo) * 0.5, { width: colUnid,  align: 'center', lineBreak: false });
+    doc.fontSize(8);
     doc.text(temMaoDeObra ? 'Composição' : 'Qtd.', x3, headerY - 13 + 5, { width: colQtd, align: 'right' });
     doc.text('Valor Unit.', x4,     headerY - 13 + 5, { width: colValor, align: 'right' });
     doc.text('Total',       x5,     headerY - 13 + 5, { width: colTotal, align: 'right' });
