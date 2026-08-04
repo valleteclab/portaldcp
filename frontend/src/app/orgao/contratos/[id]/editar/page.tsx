@@ -95,6 +95,7 @@ export default function EditarContratoPage() {
     arredondar_calculo: true,
     exige_relacao_funcionarios: false,
     lote_relacao_funcionarios: '',
+    rotulo_unidade_itens: '',
   })
 
   // Remuneração de publicidade (Lei 12.232/2010)
@@ -170,6 +171,7 @@ export default function EditarContratoPage() {
             contrato.exige_relacao_funcionarios || false,
           lote_relacao_funcionarios:
             contrato.lote_relacao_funcionarios?.toString() || '',
+          rotulo_unidade_itens: contrato.rotulo_unidade_itens || '',
         })
         // Remuneração de publicidade
         const rp = contrato.remuneracao_publicidade
@@ -371,6 +373,7 @@ export default function EditarContratoPage() {
           formData.lote_relacao_funcionarios
             ? Number(formData.lote_relacao_funcionarios)
             : null,
+        rotulo_unidade_itens: formData.rotulo_unidade_itens?.trim() || null,
       }
 
       // Remuneração de publicidade (Lei 12.232/2010)
@@ -584,6 +587,21 @@ export default function EditarContratoPage() {
               <Label htmlFor="arredondar_calculo" className="cursor-pointer font-normal text-sm">
                 Arredondar valores calculados (valor mensal/total)
               </Label>
+            </div>
+            <div className="space-y-2 pt-2">
+              <Label htmlFor="rotulo_unidade_itens">Rótulo da coluna &quot;Unidade&quot; na OS</Label>
+              <Input
+                id="rotulo_unidade_itens"
+                value={formData.rotulo_unidade_itens}
+                onChange={(e) => handleInputChange('rotulo_unidade_itens', e.target.value)}
+                placeholder="Unidade"
+                maxLength={40}
+              />
+              <p className="text-xs text-gray-500">
+                Muda o título da coluna na tabela de itens da Ordem de Serviço. Em
+                contratos de serviço, &quot;Classificação&quot; costuma descrever melhor que
+                &quot;Unidade&quot;. Vazio mantém &quot;Unidade&quot;.
+              </p>
             </div>
           </CardContent>
         </Card>

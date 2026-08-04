@@ -251,7 +251,13 @@ export class GeradorPdfService {
           const configuracaoMaoDeObra = dadosOS.contrato?.exige_relacao_funcionarios
             ? { loteNumero: dadosOS.contrato.lote_relacao_funcionarios ?? null }
             : undefined;
-          this.escreverTabelaItensOS(doc, itensParaRender, arredondar, configuracaoMaoDeObra);
+          this.escreverTabelaItensOS(
+            doc,
+            itensParaRender,
+            arredondar,
+            configuracaoMaoDeObra,
+            dadosOS.contrato?.rotulo_unidade_itens || undefined,
+          );
         }
 
         // ── ASSINATURAS (nova página se restar menos de 180pt) ────────────────
@@ -832,7 +838,7 @@ export class GeradorPdfService {
     return nome;
   }
 
-  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; descricao_avulso?: string | null; quantidade_avulso?: number | null; valor_unitario_avulso?: number | null; valor_total_avulso?: number | null; itemCronograma?: { numero_item?: number; lote_numero?: number | null; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true, configuracaoMaoDeObra?: { loteNumero: number | null }): void {
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; descricao_avulso?: string | null; quantidade_avulso?: number | null; valor_unitario_avulso?: number | null; valor_total_avulso?: number | null; itemCronograma?: { numero_item?: number; lote_numero?: number | null; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true, configuracaoMaoDeObra?: { loteNumero: number | null }, rotuloUnidade = 'Unidade'): void {
     const pageWidth = doc.page.width - 100;
     const colNum   = pageWidth * 0.05;
     const temMaoDeObra = itensOS.some((item) => {
@@ -859,7 +865,7 @@ export class GeradorPdfService {
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
     doc.text('#',           x0 + 3, headerY + 5, { width: colNum - 4 });
     doc.text('Descrição',   x1 + 3, headerY + 5, { width: colDesc - 6 });
-    doc.text('Unidade',     x2,     headerY - 13 + 5, { width: colUnid,  align: 'center' });
+    doc.text(rotuloUnidade, x2,     headerY - 13 + 5, { width: colUnid,  align: 'center' });
     doc.text(temMaoDeObra ? 'Composição' : 'Qtd.', x3, headerY - 13 + 5, { width: colQtd, align: 'right' });
     doc.text('Valor Unit.', x4,     headerY - 13 + 5, { width: colValor, align: 'right' });
     doc.text('Total',       x5,     headerY - 13 + 5, { width: colTotal, align: 'right' });
