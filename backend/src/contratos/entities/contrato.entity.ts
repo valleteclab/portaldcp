@@ -137,6 +137,14 @@ export class Contrato {
   @Column({ type: 'int', nullable: true, default: null })
   lote_relacao_funcionarios: number | null;
 
+  /**
+   * Rótulo da coluna "Unidade" na tabela de itens da OS. Em contratos cujos
+   * itens são serviços (unidade SERVICO), "Unidade" descreve mal o conteúdo e
+   * o órgão prefere "Classificação". Vazio mantém "Unidade".
+   */
+  @Column({ type: 'varchar', length: 40, nullable: true, default: null })
+  rotulo_unidade_itens: string | null;
+
   @Column({
     type: 'enum',
     enum: StatusContrato,
