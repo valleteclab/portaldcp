@@ -3912,6 +3912,12 @@ export class MedicaoService {
           ? totalNoPeriodoPdf
           : Number(medicao.valor_medido || 0),
       execucao_financeira_totais: execucaoFinanceiraTotaisCorrigidos,
+      // Override manual de totais (corrigirExecucaoFiscal). Passado à parte para
+      // que o PDF possa priorizá-lo na linha TOTAL mesmo quando há itens exibidos
+      // (caso contrário o total seria recomputado da soma dos itens, ignorando a
+      // correção manual do fiscal).
+      execucao_financeira_totais_override:
+        (medicao.execucao_fiscal as any)?.totais_financeiros || undefined,
       nota_fiscal_numero: medicao.nota_fiscal_numero || undefined,
       nota_fiscal_valor: medicao.nota_fiscal_valor
         ? Number(medicao.nota_fiscal_valor)
