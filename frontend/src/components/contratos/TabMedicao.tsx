@@ -1246,7 +1246,10 @@ export default function TabMedicao({
       );
       if (res.ok) {
         const data = await res.json();
-        setPdfRegeneradoUrl(`${API_URL}${data.pdf_url}`);
+        // Cache-busting: a URL do boletim é estática (mesmo caminho a cada
+        // regeneração), então sem um parâmetro variável o navegador reexibe o
+        // PDF antigo em cache. O ?t= força o download do arquivo recém-gerado.
+        setPdfRegeneradoUrl(`${API_URL}${data.pdf_url}?t=${Date.now()}`);
         carregarDados();
       } else {
         const err = await res.json().catch(() => ({}));
