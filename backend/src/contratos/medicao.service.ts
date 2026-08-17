@@ -3990,10 +3990,19 @@ export class MedicaoService {
       (contrato as any).tabela_referencia_id && itensParaPdf.length > 0
         ? Number(contrato.valor_global || 0)
         : 0;
+    // O saldo do teto desconta o acumulado do CONTRATO, não a soma dos itens
+    // impressos neste boletim. Em publicidade os itens nascem por OS, então cada
+    // medição imprime apenas os itens da sua própria OS — com acumulado
+    // individual zero. Somando só esses itens, o saldo ignorava tudo o que foi
+    // medido nas OS anteriores e chegava a SUBIR de uma medição para a seguinte
+    // (012/2026: a 2ª medição mostrava saldo maior que a 1ª).
+    const acumuladoContratoPdf = Number(
+      execucaoFinanceiraAtual?.totais?.ate_periodo ?? totalAtePeriodoPdf,
+    );
     const saldoTetoPublicidade =
       tetoPublicidade > 0
         ? truncarMoedaReais2Casas(
-            Math.max(0, tetoPublicidade - totalAtePeriodoPdf),
+            Math.max(0, tetoPublicidade - acumuladoContratoPdf),
           )
         : undefined;
     if (tetoPublicidade > 0) {

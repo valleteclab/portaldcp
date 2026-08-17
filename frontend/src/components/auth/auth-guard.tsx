@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { Loader2, Building2 } from "lucide-react"
+import { hasValidSession, logout } from "@/lib/api"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -26,12 +27,23 @@ export function AuthGuard({ children, userType }: AuthGuardProps) {
 
     const storageKey = userType === 'fornecedor' ? 'fornecedor' : 'orgao'
     const userData = localStorage.getItem(storageKey)
+    const loginPath = userType === 'fornecedor' ? '/login' : '/orgao-login'
 
     if (!userData) {
       // Não está logado, redireciona para login
-      const loginPath = userType === 'fornecedor' ? '/login' : '/orgao-login'
       router.replace(loginPath)
       // NÃO seta isReady para true - mantém na tela de loading
+      return
+    }
+
+    // O objeto do usuário no localStorage não expira: sozinho, ele mantinha a
+    // pessoa "logada" indefinidamente. Com o token vencido, o sistema abria
+    // normalmente e todas as telas vinham vazias (cada requisição dava 401),
+    // dando a impressão de que os contratos haviam sumido. A sessão agora vale
+    // pelo token.
+    if (!hasValidSession()) {
+      logout()
+      router.replace(`${loginPath}?sessao=expirada`)
       return
     }
 
@@ -45,7 +57,6 @@ export function AuthGuard({ children, userType }: AuthGuardProps) {
       }
     } catch (e) {
       localStorage.removeItem(storageKey)
-      const loginPath = userType === 'fornecedor' ? '/login' : '/orgao-login'
       router.replace(loginPath)
     }
   }, [pathname, router, userType])
