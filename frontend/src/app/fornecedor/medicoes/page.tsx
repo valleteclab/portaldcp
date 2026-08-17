@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
@@ -44,19 +44,26 @@ export default function FornecedorMedicoesPage() {
   const [overviews, setOverviews] = useState<ContratoMedicaoOverview[]>([])
   const [modalCompras, setModalCompras] = useState<ContratoMedicaoOverview | null>(null)
   const [buscandoOrdem, setBuscandoOrdem] = useState(false)
+  const [erroCarregamento, setErroCarregamento] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    setErroCarregamento(null)
+    try {
+      setOverviews(await carregarOverviewMedicoesFornecedor())
+    } catch (e) {
+      // Sem isso a tela mostrava "nenhum contrato" quando na verdade a busca
+      // falhou — foi o que fez um fornecedor achar que o contrato sumiu.
+      setErroCarregamento(e instanceof Error ? e.message : 'Não foi possível carregar seus contratos.')
+      setOverviews([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    const carregar = async () => {
-      setLoading(true)
-      try {
-        setOverviews(await carregarOverviewMedicoesFornecedor())
-      } finally {
-        setLoading(false)
-      }
-    }
-
     carregar()
-  }, [])
+  }, [carregar])
 
   const pendentes = useMemo(
     () => overviews.filter((item) => item.devolvidaEditavel || item.rascunho || item.temNovaMedicaoDisponivel),
@@ -133,6 +140,18 @@ export default function FornecedorMedicoesPage() {
           </Link>
         </Button>
       </div>
+
+      {erroCarregamento && (
+        <div className="flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {erroCarregamento}
+          </span>
+          <Button size="sm" variant="outline" className="border-red-300" onClick={carregar}>
+            Tentar novamente
+          </Button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>

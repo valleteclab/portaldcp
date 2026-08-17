@@ -39,6 +39,42 @@ export function getAuthToken(): string | null {
 }
 
 /**
+ * Lê o `exp` do JWT sem chamar a API. Retorna null se o token for ilegível.
+ */
+function getTokenExp(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const json = JSON.parse(
+      decodeURIComponent(
+        atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join(''),
+      ),
+    );
+    return typeof json?.exp === 'number' ? json.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sessão válida = token presente E dentro da validade.
+ *
+ * Antes bastava existir o objeto do usuário no localStorage — e esse objeto não
+ * expira. Com o token vencido (7 dias), a pessoa continuava entrando sem pedir
+ * login e via todas as telas vazias, porque cada requisição voltava 401.
+ */
+export function hasValidSession(): boolean {
+  const token = getAuthToken();
+  if (!token) return false;
+  const exp = getTokenExp(token);
+  if (exp === null) return true; // token opaco: deixa a API decidir
+  return exp * 1000 > Date.now();
+}
+
+/**
  * Obtém o token de admin do localStorage
  */
 export function getAdminToken(): string | null {
@@ -134,11 +170,26 @@ export async function authFetch(url: string, options?: RequestInit): Promise<Res
     headers,
   });
   
-  // NOTA: Não limpamos tokens automaticamente em 401 porque:
-  // - Fornecedores podem receber 401 em rotas de órgão
-  // - O token pode ser válido, apenas o endpoint específico não é autorizado
-  // A lógica de logout deve ser tratada pelo componente que faz a requisição
-  
+  // 401 com token VENCIDO = sessão expirada: limpa tudo e manda para o login.
+  // Quando o token ainda está dentro da validade, o 401 é da rota (fornecedor
+  // batendo em rota de órgão, por exemplo) e não pode derrubar a sessão — era
+  // esse caso que impedia qualquer limpeza aqui. Sem essa distinção, o usuário
+  // ficava "meio logado": sem token válido, mas com o objeto do usuário no
+  // navegador, vendo todas as telas vazias e sem nunca voltar ao login.
+  if (
+    response.status === 401 &&
+    typeof window !== 'undefined' &&
+    !hasValidSession()
+  ) {
+    const path = window.location.pathname;
+    const naTelaPublica = /\/login|\/orgao-login|\/cadastro/.test(path);
+    logout();
+    if (!naTelaPublica) {
+      const destino = path.startsWith('/orgao') ? '/orgao-login' : '/login';
+      window.location.replace(`${destino}?sessao=expirada`);
+    }
+  }
+
   return response;
 }
 
