@@ -4005,13 +4005,10 @@ export class MedicaoService {
             Math.max(0, tetoPublicidade - acumuladoContratoPdf),
           )
         : undefined;
-    if (tetoPublicidade > 0) {
-      // Publicidade: numero_item do cronograma é contador global de todas as
-      // OS — no boletim a numeração recomeça em 1
-      itensParaPdf.forEach((it: any, i: number) => {
-        it.numero = i + 1;
-      });
-    }
+    // A numeração do boletim é a do cronograma do contrato, inclusive em
+    // publicidade. Recomeçar em 1 deixava o boletim mais limpo, mas impedia
+    // conferir item por item contra o contrato: o "Conceito e tema da campanha"
+    // é o item 19 no contrato e saía como 1 no PDF.
     const totalPrevistoCent = itensParaPdf.reduce((s: number, i: any) => {
       const vu = Number(i.valor_unitario) || 0;
       const ct =
@@ -4069,12 +4066,12 @@ export class MedicaoService {
     }
 
     // Itens contratados (para bloco ITENS CONTRATADOS) — espelho do cronograma na UI
-    // Publicidade: numeração do boletim recomeça em 1 (numero_item do
-    // cronograma é contador global de todas as OS) e a lista traz apenas os
-    // itens da OS que está sendo medida
-    const renumerarPublicidade = !!(contrato as any).tabela_referencia_id;
+    // Publicidade: a lista traz apenas os itens da OS que está sendo medida,
+    // mantendo a numeração do cronograma para permitir a conferência com o
+    // contrato (o numero_item é contador global de todas as OS).
+    const publicidadeListaPorOs = !!(contrato as any).tabela_referencia_id;
     let icParaContratados = icMigracao;
-    if (renumerarPublicidade && (medicao as any).requisicao_id) {
+    if (publicidadeListaPorOs && (medicao as any).requisicao_id) {
       try {
         const rowsOsMedida: Array<{ item_cronograma_id: string }> =
           await this.itemCronogramaRepository.manager.query(
@@ -4094,7 +4091,7 @@ export class MedicaoService {
       }
     }
     const itensContratados = icParaContratados.map((ic, idx) => ({
-      numero: renumerarPublicidade ? idx + 1 : ic.numero_item || idx + 1,
+      numero: ic.numero_item || idx + 1,
       descricao: ic.descricao || '',
       unidade: ic.unidade_medida || '',
       unidade_exibicao: textoUnidadeCronogramaPdf(ic.unidade_medida),
