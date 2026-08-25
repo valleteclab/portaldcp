@@ -5,6 +5,7 @@ import { IaService } from '../ia/ia.service';
 import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import { TipoPessoa } from '../fornecedores/entities/enums';
 import { ItemContrato, UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
 // Extração robusta usando pdfjs-dist (Mozilla PDF.js) com fallback para pdf-parse
@@ -66,7 +67,7 @@ REGRAS JSON — EXTREMAMENTE IMPORTANTE:
 COMO IDENTIFICAR OS CAMPOS:
 - "numero_contrato": o número do contrato EXATAMENTE como consta no documento físico (ex: "CONTRATO Nº 012/2026", "Contrato nº 35/2025" → "012/2026", "035/2025"). Preserve o formato/zeros à esquerda do documento. Se não houver, use null. NÃO invente nem sequencie.
 - "objeto": trecho que começa com "tem por objeto" ou "cujo objeto é" ou "objeto:" no contrato
-- "fornecedor_cnpj": CNPJ da empresa contratada (não do órgão contratante)
+- "fornecedor_cnpj": documento do CONTRATADO (não do órgão contratante): CNPJ com 14 dígitos quando for empresa, ou CPF com 11 dígitos quando for pessoa física (contrato de profissional autônomo, inexigibilidade de notório saber etc.)
 - "fornecedor_razao_social": razão social da empresa contratada
 - "valor_global": valor total do contrato (soma de todos os meses/parcelas)
 - "valor_inicial": mesmo que valor_global se não especificado separadamente
@@ -91,7 +92,7 @@ Schema de retorno (JSON puro e válido):
 {
   "numero_contrato": "012/2026",
   "objeto": "texto exato do objeto do contrato",
-  "fornecedor_cnpj": "somente digitos sem pontuacao ou null",
+  "fornecedor_cnpj": "somente digitos sem pontuacao, 14 (CNPJ) ou 11 (CPF), ou null",
   "fornecedor_razao_social": "nome completo ou null",
   "tipo": "CONTRATO",
   "categoria": "SERVICOS",
@@ -497,11 +498,19 @@ export class ImportarContratoIaService {
       let fornecedor: Fornecedor | null = await this.fornecedorRepo.findOne({ where: { cpf_cnpj: cnpj } });
 
       if (!fornecedor) {
-        this.logger.log(`Criando fornecedor placeholder para CNPJ ${cnpj}`);
+        // 11 dígitos = CPF (contratado pessoa física, comum em inexigibilidade de
+        // profissional). Sem isso o cadastro nascia como JURIDICA — padrão da
+        // coluna tipo_pessoa — com um CPF no campo de CNPJ.
+        const ehPessoaFisica = cnpj.length === 11;
+        const nome = dados.fornecedor_razao_social || 'A PREENCHER';
+        this.logger.log(
+          `Criando fornecedor placeholder para ${ehPessoaFisica ? 'CPF' : 'CNPJ'} ${cnpj}`,
+        );
         const novo = this.fornecedorRepo.create({
+          tipo_pessoa: ehPessoaFisica ? TipoPessoa.FISICA : TipoPessoa.JURIDICA,
           cpf_cnpj: cnpj,
-          razao_social: dados.fornecedor_razao_social || 'A PREENCHER',
-          nome_fantasia: dados.fornecedor_razao_social || 'A PREENCHER',
+          razao_social: nome,
+          nome_fantasia: nome,
           logradouro: 'A PREENCHER',
           numero: '0',
           bairro: 'A PREENCHER',
@@ -510,8 +519,8 @@ export class ImportarContratoIaService {
           cep: '00000000',
           telefone: '00000000000',
           email: `${cnpj}@apreencher.com`,
-          representante_nome: 'A PREENCHER',
-          representante_cpf: '00000000000',
+          representante_nome: ehPessoaFisica ? nome : 'A PREENCHER',
+          representante_cpf: ehPessoaFisica ? cnpj : '00000000000',
           representante_cargo: 'A PREENCHER',
           representante_email: `${cnpj}@apreencher.com`,
           representante_telefone: '00000000000',
@@ -527,7 +536,7 @@ export class ImportarContratoIaService {
     }
 
     if (!fornecedorId) {
-      throw new BadRequestException('Fornecedor não identificado. Informe o CNPJ para continuar.');
+      throw new BadRequestException('Fornecedor não identificado. Informe o CNPJ (empresa) ou o CPF (pessoa física) para continuar.');
     }
 
     if (!fornecedorSnapshot) {
