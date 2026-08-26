@@ -255,6 +255,8 @@ function desenharQuadroAssinaturas(
     dataHora: string;
     pendente: boolean;
     codigoValidacao?: string;
+    /** Termo que o signatário declara ao assinar (impresso dentro da caixa). */
+    declaracao?: string;
   }>,
   urlValidacao?: string,
   qrDataUrl?: string,
@@ -303,12 +305,17 @@ function desenharQuadroAssinaturas(
     } else {
       const linhasNome = doc.splitTextToSize(a.nome, boxW - 5);
       const numLinhasNome = Math.min(linhasNome.length, 2);
+      doc.setFontSize(5.2);
+      const linhasDeclaracao = a.declaracao
+        ? doc.splitTextToSize(a.declaracao, boxW - 6)
+        : [];
       boxH = 5 + 3.5
         + numLinhasNome * 3.1
         + (a.cargo ? 2.8 : 0)
         + (a.identificacao ? 2.8 : 0)
         + (a.dataHora ? 2.8 : 0)   // data/hora (omitida quando vazia)
         + 2.8   // assinatura válida
+        + (linhasDeclaracao.length ? 1.5 + linhasDeclaracao.length * 2.4 : 0)
         + 2.5;  // padding inferior
     }
     maxBoxH = Math.max(maxBoxH, boxH);
@@ -353,6 +360,18 @@ function desenharQuadroAssinaturas(
       doc.setFontSize(5.5);
       doc.setTextColor(22, 163, 74);
       doc.text('✓  Assinatura eletrônica válida', bx + 3, ly);
+      ly += 2.8;
+
+      // Termo declarado por quem assina — o que o fornecedor/fiscal atesta ao
+      // aplicar a assinatura eletrônica neste boletim.
+      if (a.declaracao) {
+        ly += 1.5;
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(5.2);
+        doc.setTextColor(75, 85, 99);
+        const linhas = doc.splitTextToSize(a.declaracao, boxW - 6);
+        doc.text(linhas, bx + 3, ly);
+      }
     }
   }
   dy += maxBoxH + 3;
@@ -1197,6 +1216,8 @@ export async function gerarBoletimMedicaoPdf(
       dataHora: aForn?.data_hora || '',
       pendente: !aForn,
       codigoValidacao: aForn?.codigo_validacao,
+      declaracao:
+        'Declaro para os devidos fins de direito a veracidade das informações constantes neste documento.',
     },
     {
       titulo: 'FISCAL DE CONTRATO',
@@ -1207,6 +1228,8 @@ export async function gerarBoletimMedicaoPdf(
       dataHora: aFisc?.data_hora || '',
       pendente: !aFisc,
       codigoValidacao: aFisc?.codigo_validacao,
+      declaracao:
+        'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
     },
     ...(aEng
       ? [{
