@@ -762,14 +762,42 @@ export class FornecedoresService {
    * Consulta CNPJ na API e cria com dados completos. Se CNPJ não for encontrado, cria com dados mínimos.
    */
   async cadastroRapidoOrgao(cnpj: string, razao_social: string): Promise<Fornecedor> {
-    const cnpjLimpo = this.normalizarCnpjEntrada(cnpj);
-    if (cnpjLimpo.length !== 14) {
-      throw new BadRequestException('CNPJ deve ter 14 dígitos');
+    const digitos = (cnpj || '').replace(/\D/g, '');
+    // Contratado pessoa física (CPF) existe em inexigibilidade de profissional —
+    // o cadastro rápido só aceitava CNPJ e travava esses contratos.
+    const ehPessoaFisica = digitos.length === 11;
+    const cnpjLimpo = ehPessoaFisica ? digitos : this.normalizarCnpjEntrada(cnpj);
+    if (!ehPessoaFisica && cnpjLimpo.length !== 14) {
+      throw new BadRequestException(
+        'Informe um CNPJ (14 dígitos) ou um CPF (11 dígitos)',
+      );
     }
 
     const existing = await this.fornecedorRepository.findOne({ where: { cpf_cnpj: cnpjLimpo } });
     if (existing) {
       return existing;
+    }
+
+    // Não há consulta pública de CPF como a de CNPJ: grava direto com o que foi
+    // informado, e o próprio contratado responde como representante.
+    if (ehPessoaFisica) {
+      const nome = razao_social.trim() || 'A informar';
+      return await this.fornecedorRepository.save({
+        cpf_cnpj: cnpjLimpo,
+        razao_social: nome,
+        tipo_pessoa: TipoPessoa.FISICA,
+        status: StatusCadastro.APROVADO,
+        logradouro: 'A informar',
+        bairro: 'A informar',
+        cidade: 'A informar',
+        uf: 'BA',
+        cep: '00000-000',
+        telefone: '0000000000',
+        email: 'a.informar@email.com',
+        representante_nome: nome,
+        representante_cpf: cnpjLimpo,
+        ativo: true,
+      } as any);
     }
 
     try {

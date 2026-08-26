@@ -256,12 +256,14 @@ export default function NovoContratoPage() {
     if (fornecedorExistente) return
     const cnpj = novoFornecedorCnpj.replace(/\D/g, '')
     const razao = novoFornecedorRazao.trim()
-    if (cnpj.length !== 14) {
-      setErroNovoFornecedor('CNPJ deve ter 14 dígitos')
+    // Contratado pode ser pessoa física (CPF, 11 dígitos) — caso de
+    // inexigibilidade de profissional autônomo.
+    if (cnpj.length !== 14 && cnpj.length !== 11) {
+      setErroNovoFornecedor('Informe um CNPJ (14 dígitos) ou um CPF (11 dígitos)')
       return
     }
     if (!razao) {
-      setErroNovoFornecedor('Informe a razão social')
+      setErroNovoFornecedor(cnpj.length === 11 ? 'Informe o nome do contratado' : 'Informe a razão social')
       return
     }
     setSalvandoFornecedor(true)
@@ -703,16 +705,21 @@ export default function NovoContratoPage() {
                     </div>
                   )}
                   <div className="space-y-2">
-                    <Label htmlFor="novo-cnpj">CNPJ *</Label>
+                    <Label htmlFor="novo-cnpj">CNPJ ou CPF *</Label>
                     <div className="flex gap-2">
                       <Input
                         id="novo-cnpj"
-                        placeholder="00.000.000/0001-00"
+                        placeholder="CNPJ 00.000.000/0001-00 ou CPF 000.000.000-00"
                         value={novoFornecedorCnpj}
                         onChange={(e) => {
                           const v = e.target.value.replace(/\D/g, '')
                           if (v.length <= 14) {
-                            setNovoFornecedorCnpj(v.length >= 14 ? v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : v)
+                            const formatado = v.length === 14
+                              ? v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+                              : v.length === 11
+                                ? v.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+                                : v
+                            setNovoFornecedorCnpj(formatado)
                             setFornecedorExistente(null)
                           }
                         }}
@@ -725,7 +732,9 @@ export default function NovoContratoPage() {
                     {consultandoCnpj && <p className="text-xs text-muted-foreground">Buscando na Receita Federal...</p>}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="novo-razao">Razão Social *</Label>
+                    <Label htmlFor="novo-razao">
+                      {novoFornecedorCnpj.replace(/\D/g, '').length === 11 ? 'Nome do contratado *' : 'Razão Social *'}
+                    </Label>
                     <Input
                       id="novo-razao"
                       placeholder="Nome da empresa (preenchido automaticamente ao buscar CNPJ)"
