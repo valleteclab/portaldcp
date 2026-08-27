@@ -761,6 +761,17 @@ Gere a versão revisada e melhorada:`;
       }
 
       const data = await response.json();
+      // finish_reason 'length' = a resposta bateu no teto de max_tokens e foi
+      // cortada no meio. Sem este aviso o corte passava despercebido: o parser de
+      // recuperação salvava os itens completos e os demais sumiam em silêncio
+      // (contrato de 38 itens importava 25).
+      const finishReason = data.choices?.[0]?.finish_reason;
+      if (finishReason === 'length') {
+        this.logger.warn(
+          `[chatComArquivo] resposta truncada pelo limite de ${maxTokens} tokens — ` +
+            'a lista extraída pode estar incompleta',
+        );
+      }
       return data.choices[0]?.message?.content || '';
     } catch (error) {
       console.error('Erro ao chamar OpenRouter (chatComArquivo):', error);

@@ -85,6 +85,10 @@ async function extrairTextoPdf(buffer: Buffer, logger: Logger): Promise<string> 
   return '';
 }
 
+/** Teto de resposta da extração. Um contrato de material com 40+ itens produz
+ *  JSON bem maior que os 4000 tokens do padrão. */
+const MAX_TOKENS_EXTRACAO = 16000;
+
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021 e 8.666/93).
 Sua tarefa é extrair dados de um contrato administrativo público e retornar APENAS JSON válido, sem markdown, sem explicações, sem texto extra.
 
@@ -124,7 +128,10 @@ COMO IDENTIFICAR OS CAMPOS:
 - Use ITEM_QUANTIDADE apenas para COMPRAS de produtos físicos
 - "numero_processo": número do processo licitatório (ex: 027/2023, Pregão 010/2023)
 - "amparo_legal": lei citada no contrato (ex: Lei 14.133/2021, Lei 8.666/93)
-- "itens": array de objetos, cada um representando um item do contrato
+- "itens": array de objetos, cada um representando um item do contrato.
+  IMPORTANTE: liste TODOS os itens da tabela, do primeiro ao último, sem resumir,
+  sem agrupar e sem usar reticências. Se a tabela numera os itens de 1 a N, o
+  array deve ter exatamente N objetos. Não interrompa a lista por ser longa.
 
 IMPORTANTE SOBRE ITENS:
 - Na "descricao" de cada item, INCLUA a localização/destino quando disponível no documento
@@ -432,7 +439,16 @@ export class ImportarContratoIaService {
         this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
 
         if (textoExtraido.trim().length >= 200) {
-          respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
+          // Contrato de material chega a dezenas de itens; com o teto padrão de 4000
+          // a lista era cortada no meio e o parser de recuperação devolvia só os
+          // itens completos (38 no documento, 25 importados).
+          respostaIA = await this.iaService.chatComArquivo(
+            SYSTEM_PROMPT_EXTRACAO,
+            undefined,
+            undefined,
+            textoExtraido,
+            MAX_TOKENS_EXTRACAO,
+          );
         } else {
           this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
           try {
@@ -451,7 +467,13 @@ export class ImportarContratoIaService {
         }
       } else {
         const imagemBase64 = file.buffer.toString('base64');
-        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, imagemBase64, file.mimetype);
+        respostaIA = await this.iaService.chatComArquivo(
+          SYSTEM_PROMPT_EXTRACAO,
+          imagemBase64,
+          file.mimetype,
+          undefined,
+          MAX_TOKENS_EXTRACAO,
+        );
       }
     } catch (error: any) {
       this.logger.error(`Falha ao consultar IA na importação de contrato: ${error?.message || error}`);
@@ -523,7 +545,24 @@ export class ImportarContratoIaService {
       numero_processo: dadosExtraidos.numero_processo || undefined,
       amparo_legal: dadosExtraidos.amparo_legal || undefined,
       itens: Array.isArray(dadosExtraidos.itens) ? dadosExtraidos.itens : [],
-      pendencias: Array.isArray(dadosExtraidos.pendencias) ? dadosExtraidos.pendencias : [],
+      pendencias: (() => {
+        const lista = Array.isArray(dadosExtraidos.pendencias) ? [...dadosExtraidos.pendencias] : [];
+        // A numeração da tabela é a régua: se o documento vai até o item N e o
+        // array veio com menos, a lista foi cortada. Avisar na tela evita que o
+        // usuário só descubra conferindo item a item depois de salvar.
+        const itensLidos = Array.isArray(dadosExtraidos.itens) ? dadosExtraidos.itens : [];
+        const maiorNumero = itensLidos.reduce(
+          (max: number, it: any) => Math.max(max, Number(it?.numero_item) || 0),
+          0,
+        );
+        if (maiorNumero > itensLidos.length) {
+          lista.push(
+            `A tabela vai até o item ${maiorNumero}, mas apenas ${itensLidos.length} foram lidos. ` +
+              'Confira a lista e inclua os que faltarem antes de salvar.',
+          );
+        }
+        return lista;
+      })(),
     };
   }
 
