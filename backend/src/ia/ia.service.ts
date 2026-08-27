@@ -939,13 +939,17 @@ Gere a versão revisada e melhorada:`;
     fs.writeFileSync(tempPdf, buffer);
 
     try {
+      // JPEG a 150 DPI no lugar de PNG a 200: página de contrato escaneado sai
+      // com algumas centenas de KB em vez de vários MB, e a leitura por Vision
+      // não perde qualidade. Com PNG, 10 páginas estouravam o teto de 30 MB por
+      // requisição da API e voltavam 413.
       await execPromise(
-        `pdftoppm -png -r 200 -l ${maxPaginas} "${tempPdf}" "${outputPrefix}"`,
+        `pdftoppm -jpeg -jpegopt quality=80 -r 150 -l ${maxPaginas} "${tempPdf}" "${outputPrefix}"`,
         { timeout: 60000 },
       );
 
       const files = fs.readdirSync(tempDir)
-        .filter((f: string) => f.startsWith('page') && f.endsWith('.png'))
+        .filter((f: string) => f.startsWith('page') && (f.endsWith('.jpg') || f.endsWith('.jpeg')))
         .sort();
 
       const imagens: string[] = [];
@@ -954,7 +958,10 @@ Gere a versão revisada e melhorada:`;
         imagens.push(imgBuffer.toString('base64'));
       }
 
-      this.logger.log(`[converterPdfParaImagens] Convertidas ${imagens.length} páginas para PNG`);
+      const totalMb = imagens.reduce((soma, img) => soma + img.length, 0) / (1024 * 1024);
+      this.logger.log(
+        `[converterPdfParaImagens] Convertidas ${imagens.length} páginas para JPEG (${totalMb.toFixed(1)} MB em base64)`,
+      );
       return imagens;
     } catch (err: any) {
       this.logger.warn(`[converterPdfParaImagens] pdftoppm não disponível ou falhou: ${err.message}`);
@@ -980,19 +987,46 @@ Gere a versão revisada e melhorada:`;
       throw new Error('Nenhuma imagem fornecida para Vision');
     }
 
-    const maxPorRequisicao = 10;
+    // A API recusa acima de 30 MB por requisição (413). Contar páginas não
+    // protege disso — uma página pesada vale por várias leves —, então o lote é
+    // fechado por PESO acumulado, com margem para o texto do prompt.
+    const MAX_BYTES_POR_LOTE = 20 * 1024 * 1024;
+    const MAX_PAGINAS_POR_LOTE = 10;
+    const tamanhoDe = (img: string) => Math.ceil((img.length * 3) / 4); // base64 → bytes
 
-    if (imagensBase64.length <= maxPorRequisicao) {
-      return this.enviarLoteImagens(apiKey, model, systemPrompt, imagensBase64);
+    const lotes: string[][] = [];
+    let atual: string[] = [];
+    let bytesAtual = 0;
+    for (const img of imagensBase64) {
+      const bytes = tamanhoDe(img);
+      const estouraPeso = atual.length > 0 && bytesAtual + bytes > MAX_BYTES_POR_LOTE;
+      const estouraPaginas = atual.length >= MAX_PAGINAS_POR_LOTE;
+      if (estouraPeso || estouraPaginas) {
+        lotes.push(atual);
+        atual = [];
+        bytesAtual = 0;
+      }
+      atual.push(img);
+      bytesAtual += bytes;
+    }
+    if (atual.length > 0) lotes.push(atual);
+
+    if (lotes.length === 1) {
+      return this.enviarLoteImagens(apiKey, model, systemPrompt, lotes[0]);
     }
 
-    this.logger.log(`[chatComImagensPdf] PDF com ${imagensBase64.length} páginas — dividindo em lotes de ${maxPorRequisicao}`);
+    this.logger.log(
+      `[chatComImagensPdf] PDF com ${imagensBase64.length} páginas — dividido em ${lotes.length} lotes por tamanho`,
+    );
     const partes: string[] = [];
 
-    for (let i = 0; i < imagensBase64.length; i += maxPorRequisicao) {
-      const lote = imagensBase64.slice(i, i + maxPorRequisicao);
-      const numeroParte = Math.floor(i / maxPorRequisicao) + 1;
-      const totalPartes = Math.ceil(imagensBase64.length / maxPorRequisicao);
+    let paginaInicial = 0;
+    for (let idx = 0; idx < lotes.length; idx++) {
+      const lote = lotes[idx];
+      const i = paginaInicial;
+      paginaInicial += lote.length;
+      const numeroParte = idx + 1;
+      const totalPartes = lotes.length;
 
       const promptLote = `${systemPrompt}\n\n[Parte ${numeroParte} de ${totalPartes} — páginas ${i + 1} a ${i + lote.length} de ${imagensBase64.length}. ${instrucaoBatch}]`;
 
@@ -1017,7 +1051,7 @@ Gere a versão revisada e melhorada:`;
       { type: 'text', text: prompt },
       ...imagens.map((img) => ({
         type: 'image_url',
-        image_url: { url: `data:image/png;base64,${img}` },
+        image_url: { url: `data:image/jpeg;base64,${img}` },
       })),
     ];
 
@@ -1113,7 +1147,7 @@ Gere a versão revisada e melhorada:`;
     const imagens = await this.converterPdfParaImagens(pdfBuffer);
 
     if (imagens.length > 0) {
-      this.logger.log(`[chatComPdfEscaneado] Usando Vision com ${imagens.length} imagens PNG`);
+      this.logger.log(`[chatComPdfEscaneado] Usando Vision com ${imagens.length} imagens JPEG`);
       return this.chatComImagensPdf(systemPrompt, imagens, instrucaoBatch);
     }
 
@@ -1179,12 +1213,12 @@ INSTRUÇÕES:
         const imagens = await this.converterPdfParaImagens(pdfBuffer);
 
         if (imagens.length > 0) {
-          this.logger.log(`[analisarContrato] Usando ${imagens.length} imagens PNG para Vision`);
+          this.logger.log(`[analisarContrato] Usando ${imagens.length} imagens JPEG para Vision`);
           const userContent: Array<any> = [
             { type: 'text', text: promptVision },
             ...imagens.map((img) => ({
               type: 'image_url',
-              image_url: { url: `data:image/png;base64,${img}` },
+              image_url: { url: `data:image/jpeg;base64,${img}` },
             })),
           ];
           messages = [{ role: 'user', content: userContent }];

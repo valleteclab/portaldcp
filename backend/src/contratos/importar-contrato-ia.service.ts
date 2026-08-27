@@ -9,7 +9,8 @@ import { TipoPessoa } from '../fornecedores/entities/enums';
 import { ItemContrato, UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
 // Extração robusta usando pdfjs-dist (Mozilla PDF.js) com fallback para pdf-parse
-async function extrairTextoPdf(buffer: Buffer): Promise<string> {
+async function extrairTextoPdf(buffer: Buffer, logger: Logger): Promise<string> {
+  const motivos: string[] = [];
   // Tentativa 1: pdfjs-dist (mais robusto, suporta PDFs complexos)
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -24,8 +25,9 @@ async function extrairTextoPdf(buffer: Buffer): Promise<string> {
       text += pageText + '\n';
     }
     if (text.trim().length > 0) return text;
+    motivos.push(`pdfjs: 0 caracteres em ${pdfDoc.numPages} página(s)`);
   } catch (e: any) {
-    // fallback para pdf-parse
+    motivos.push(`pdfjs falhou: ${e?.message || e}`);
   }
 
   // Tentativa 2: pdf-parse
@@ -36,9 +38,15 @@ async function extrairTextoPdf(buffer: Buffer): Promise<string> {
     if (fn) {
       const result = await fn(buffer);
       if (result?.text?.trim().length > 0) return result.text;
+      motivos.push('pdf-parse: 0 caracteres');
     }
-  } catch { /* ignora */ }
+  } catch (e: any) {
+    motivos.push(`pdf-parse falhou: ${e?.message || e}`);
+  }
 
+  // Sem isto a falha era silenciosa: o PDF caía no caminho de imagens sem que
+  // ninguém soubesse por que a leitura de texto não funcionou.
+  logger.warn(`[extrairTextoPdf] nenhum texto extraído — ${motivos.join(' | ')}`);
   return '';
 }
 
@@ -385,7 +393,7 @@ export class ImportarContratoIaService {
 
     try {
       if (file.mimetype === 'application/pdf') {
-        const textoExtraido = await extrairTextoPdf(file.buffer);
+        const textoExtraido = await extrairTextoPdf(file.buffer, this.logger);
         this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
 
         if (textoExtraido.trim().length >= 200) {
