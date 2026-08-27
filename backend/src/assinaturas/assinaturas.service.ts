@@ -24,6 +24,19 @@ export class AssinaturasService {
   // 1. Geração e Envio de OTP via WhatsApp
   // ==========================================
 
+  /**
+   * Ambiente de teste pode registrar o código no log quando a entrega falha, para
+   * não travar a homologação sem canal configurado. NUNCA vale em produção: o OTP
+   * é o que sustenta a validade da assinatura (Lei 14.063/2020), então a checagem
+   * de NODE_ENV impede que a variável ligue isso na produção por engano.
+   */
+  private podeRegistrarOtpNoLog(): boolean {
+    return (
+      process.env.ASSINATURA_OTP_DEBUG === 'true' &&
+      process.env.NODE_ENV !== 'production'
+    );
+  }
+
   async solicitarOtp(orgaoId: string, telefone: string, usuarioNome: string): Promise<boolean> {
     const telefoneLimpo = telefone.replace(/\D/g, '');
     if (telefoneLimpo.length < 10) {
@@ -57,6 +70,12 @@ export class AssinaturasService {
 
     if (!enviado) {
       this.logger.error(`Falha ao enviar OTP para ${telefoneLimpo}`);
+      if (this.podeRegistrarOtpNoLog()) {
+        this.logger.warn(
+          `[ASSINATURA_OTP_DEBUG] envio falhou — código de ${usuarioNome} (${telefoneLimpo}): ${codigo}`,
+        );
+        return true;
+      }
       throw new BadRequestException('Não foi possível enviar o código via WhatsApp. Verifique se o número está correto e possui WhatsApp ativo.');
     }
 
@@ -106,6 +125,11 @@ export class AssinaturasService {
     } catch (error) {
       this.logger.warn(`Falha ao enviar OTP por email para ${email}: ${error.message}`);
       // Não falha — o código já foi gerado no cache, pode ter sido enviado via WhatsApp
+      if (this.podeRegistrarOtpNoLog()) {
+        this.logger.warn(
+          `[ASSINATURA_OTP_DEBUG] envio falhou — código de ${usuarioNome} (${email}): ${codigoGerado}`,
+        );
+      }
     }
 
     return true;
