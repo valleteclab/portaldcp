@@ -44,6 +44,41 @@ async function extrairTextoPdf(buffer: Buffer, logger: Logger): Promise<string> 
     motivos.push(`pdf-parse falhou: ${e?.message || e}`);
   }
 
+  // Tentativa 3: pdftotext (poppler). Implementação independente das duas
+  // bibliotecas JS e comprovadamente mais tolerante com PDF digitalizado que
+  // passou por OCR — caso do 015/2026, cujo texto é selecionável no leitor mas
+  // voltava vazio pelo pdfjs e pelo pdf-parse.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const os = require('os');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { execFileSync } = require('child_process');
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdftxt-'));
+    const arquivo = path.join(dir, 'in.pdf');
+    try {
+      fs.writeFileSync(arquivo, buffer);
+      // "-" envia o resultado para stdout; -layout preserva colunas de tabelas
+      const saida = execFileSync('pdftotext', ['-layout', '-enc', 'UTF-8', arquivo, '-'], {
+        timeout: 30000,
+        maxBuffer: 20 * 1024 * 1024,
+      }).toString('utf8');
+      if (saida.trim().length > 0) {
+        logger.log(`[extrairTextoPdf] texto obtido via pdftotext (${saida.length} chars) após ${motivos.join(' | ')}`);
+        return saida;
+      }
+      motivos.push('pdftotext: 0 caracteres');
+    } finally {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignora */ }
+    }
+  } catch (e: any) {
+    motivos.push(`pdftotext falhou: ${e?.message || e}`);
+  }
+
   // Sem isto a falha era silenciosa: o PDF caía no caminho de imagens sem que
   // ninguém soubesse por que a leitura de texto não funcionou.
   logger.warn(`[extrairTextoPdf] nenhum texto extraído — ${motivos.join(' | ')}`);
