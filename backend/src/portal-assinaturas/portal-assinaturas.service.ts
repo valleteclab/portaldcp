@@ -402,15 +402,28 @@ export class PortalAssinaturasService {
 
     const orgaoId = signatario.documento.orgao_id;
 
-    if (signatario.telefone) {
-      await this.assinaturasService.solicitarOtp(orgaoId, signatario.telefone, signatario.nome);
-      return { canal: 'whatsapp' };
-    } else if (signatario.email) {
-      await this.assinaturasService.solicitarOtpEmail(orgaoId, signatario.email, signatario.nome);
-      return { canal: 'email' };
-    } else {
+    if (!signatario.telefone && !signatario.email) {
       throw new BadRequestException('Signatário sem telefone nem e-mail cadastrado.');
     }
+
+    // WhatsApp primeiro, quando há telefone. Mas sem cair para o e-mail o
+    // signatário ficava travado se o envio falhasse — número sem WhatsApp,
+    // integração indisponível ou credenciais ausentes no ambiente. Tendo e-mail
+    // cadastrado, ele passa a ser a alternativa em vez de um beco sem saída.
+    if (signatario.telefone) {
+      try {
+        await this.assinaturasService.solicitarOtp(orgaoId, signatario.telefone, signatario.nome);
+        return { canal: 'whatsapp' };
+      } catch (erro: any) {
+        if (!signatario.email) throw erro;
+        this.logger.warn(
+          `OTP por WhatsApp falhou para ${signatario.nome} (${erro?.message || erro}); tentando e-mail`,
+        );
+      }
+    }
+
+    await this.assinaturasService.solicitarOtpEmail(orgaoId, signatario.email, signatario.nome);
+    return { canal: 'email' };
   }
 
   async assinarDocumento(
