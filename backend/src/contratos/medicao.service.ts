@@ -1171,7 +1171,12 @@ export class MedicaoService {
       .andWhere('m.status = :status', { status: StatusMedicao.APROVADA })
       .andWhere('m.periodo_inicio <= :fim', { fim })
       .andWhere('m.periodo_fim >= :inicio', { inicio })
-      .andWhere('ic.contrato_id = :contratoId', { contratoId });
+      .andWhere('ic.contrato_id = :contratoId', { contratoId })
+      // Só item medido por tempo bloqueia o período. Item por quantidade pode
+      // aparecer em duas medições do mesmo mês (dois eventos, duas notas).
+      .andWhere('UPPER(ic.unidade_medida) IN (:...unidadesTempo)', {
+        unidadesTempo: this.UNIDADES_MEDIDAS_POR_TEMPO,
+      });
 
     if (medicaoIdIgnorado) {
       qbItens.andWhere('m.id <> :medicaoIdIgnorado', { medicaoIdIgnorado });
@@ -1222,11 +1227,32 @@ export class MedicaoService {
     const escopoItemInformado =
       escopo &&
       Object.prototype.hasOwnProperty.call(escopo, 'itemCronogramaIds');
-    const itemCronogramaIds = escopoItemInformado
+    const itemCronogramaIdsInformados = escopoItemInformado
       ? this.normalizarItemCronogramaIds(escopo.itemCronogramaIds)
       : medicaoIdIgnorado
         ? await this.obterItemCronogramaIdsMedicao(medicaoIdIgnorado)
         : [];
+
+    // A trava de período só faz sentido onde o período É a medida. Em contrato
+    // por demanda (coffee break, eventos) o mesmo mês pode ter duas execuções e
+    // duas notas; o que limita é o saldo de quantidade, checado à parte.
+    const itemCronogramaIds = await this.filtrarItensMedidosPorTempo(
+      contratoId,
+      itemCronogramaIdsInformados,
+    );
+    if (
+      itemCronogramaIdsInformados.length > 0 &&
+      itemCronogramaIds.length === 0
+    ) {
+      return;
+    }
+    if (
+      itemCronogramaIdsInformados.length === 0 &&
+      (await this.usarItensCronograma(contratoId)) &&
+      !(await this.contratoTemItemMedidoPorTempo(contratoId))
+    ) {
+      return;
+    }
 
     const query = this.medicaoRepository
       .createQueryBuilder('m')
@@ -6051,6 +6077,52 @@ export class MedicaoService {
   isServicoContinuado(contrato: Contrato): boolean {
     return [ModalidadeExecucao.CONTINUADO, ModalidadeExecucao.LICENCA].includes(
       contrato.modalidade_execucao,
+    );
+  }
+
+  /**
+   * Unidades em que a própria unidade medida é um período — medir o mesmo mês
+   * duas vezes duplicaria a execução. Em item cobrado por quantidade (PESSOA,
+   * UN, HORA...) quem limita é o saldo de quantidade, não o calendário: um
+   * contrato de coffee break pode ter dois eventos e duas notas no mesmo mês.
+   */
+  private readonly UNIDADES_MEDIDAS_POR_TEMPO = [
+    'MENSAL',
+    'MES',
+    'MÊS',
+    'POSTO',
+  ];
+
+  private ehUnidadeMedidaPorTempo(unidade?: string | null): boolean {
+    if (!unidade) return false;
+    const normalizada = unidade.trim().toUpperCase();
+    return this.UNIDADES_MEDIDAS_POR_TEMPO.includes(normalizada);
+  }
+
+  /** Dos ids informados, devolve só os que são medidos por tempo. */
+  private async filtrarItensMedidosPorTempo(
+    contratoId: string,
+    itemCronogramaIds: string[],
+  ): Promise<string[]> {
+    if (itemCronogramaIds.length === 0) return [];
+    const itens = await this.itemCronogramaRepository.find({
+      where: { contrato_id: contratoId, id: In(itemCronogramaIds) },
+      select: ['id', 'unidade_medida'],
+    });
+    return itens
+      .filter((item) => this.ehUnidadeMedidaPorTempo(item.unidade_medida))
+      .map((item) => item.id);
+  }
+
+  private async contratoTemItemMedidoPorTempo(
+    contratoId: string,
+  ): Promise<boolean> {
+    const itens = await this.itemCronogramaRepository.find({
+      where: { contrato_id: contratoId },
+      select: ['id', 'unidade_medida'],
+    });
+    return itens.some((item) =>
+      this.ehUnidadeMedidaPorTempo(item.unidade_medida),
     );
   }
 
