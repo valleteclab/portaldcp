@@ -859,12 +859,6 @@ export class MedicaoService {
         ? Number(dados.valor_unitario)
         : Number(item.valor_unitario);
 
-    if (quantidade < quantidadeMedida - 0.0001) {
-      throw new BadRequestException(
-        `Quantidade (${quantidade}) não pode ser menor que a já medida (${quantidadeMedida.toFixed(2)})`,
-      );
-    }
-
     const unidade =
       (dados as any).unidade_medida !== undefined
         ? (dados as any).unidade_medida
@@ -877,6 +871,19 @@ export class MedicaoService {
           ? Number(dados.quantidade_meses)
           : null
         : item.quantidade_meses;
+
+    // O contratado é quantidade × nº de execuções, e é ele que se compara com o
+    // medido. Comparar só a quantidade impedia editar item recorrente: em POSTO
+    // com 12 meses, `quantidade` são os postos (1) e `quantidade_medida` são
+    // postos × meses (5), então um reajuste era recusado com "Quantidade (1) não
+    // pode ser menor que a já medida (5.00)" mesmo havendo 12 contratados.
+    const quantidadeTotalContratada = quantidade * (Number(quantidadeMeses) || 1);
+
+    if (quantidadeTotalContratada < quantidadeMedida - 0.0001) {
+      throw new BadRequestException(
+        `A quantidade total do item (${quantidadeTotalContratada.toFixed(2)}) não pode ser menor que a já medida (${quantidadeMedida.toFixed(2)})`,
+      );
+    }
     // MENSAL: Valor Mensal = preço/mês (Valor Unitário), Valor Total = Qtd(meses) × Valor Unitário
     // OUTROS: Valor Mensal = Qtd × Valor Unitário, Valor Total = Valor Mensal × Qtd. Meses
     const rawMensal = isMensal ? valorUnitario : quantidade * valorUnitario;
