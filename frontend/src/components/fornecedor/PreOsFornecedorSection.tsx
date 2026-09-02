@@ -207,12 +207,14 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDis
 
       {/* Formulário da pré-OS */}
       <Dialog open={formAberto} onOpenChange={setFormAberto}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        {/* flex + corpo rolável: os botões ficam sempre visíveis, mesmo em tela pequena
+            (dvh desconta a barra do navegador no celular; vh não). */}
+        <DialogContent className="max-w-2xl max-h-[85dvh] flex flex-col overflow-hidden">
           <DialogHeader>
             <DialogTitle>{editando ? `Editar pré-OS #${editando.sequencial}` : 'Nova pré-OS'}</DialogTitle>
             <DialogDescription>Descreva a campanha/ação e monte os serviços. O órgão analisará antes da emissão da OS.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1">
             <div><Label>Título / campanha *</Label><Input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: OS 01 — Criação — Campanha Rede Câmara" /></div>
             <div><Label>Justificativa</Label><Textarea value={justificativa} onChange={(e) => setJustificativa(e.target.value)} className="h-20" placeholder="Contexto/objetivo da ação (opcional)" /></div>
             <div className="border rounded-md p-3">
@@ -234,7 +236,7 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDis
               )}
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 gap-2 border-t pt-3">
             <Button variant="outline" onClick={() => setFormAberto(false)}>Cancelar</Button>
             <Button variant="outline" onClick={() => salvar(false)} disabled={salvando}>Salvar rascunho</Button>
             <Button onClick={() => salvar(true)} disabled={salvando}>
