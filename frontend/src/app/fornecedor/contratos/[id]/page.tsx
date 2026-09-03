@@ -2599,6 +2599,10 @@ export default function FornecedorContratoDetalhePage() {
                 new Map(
                   itensCronograma
                     .filter(ic => ic.os_id && (ic.os_status === 'AUTORIZADA' || ic.os_status === 'ORDEM_GERADA'))
+                    // OS por demanda já vinculada a uma medição sai da lista
+                    // (só ORDEM_GLOBAL aceita várias); a OS da medição em
+                    // edição continua selecionável.
+                    .filter(ic => !(ic as any).os_consumida || ic.os_id === osMedicao)
                     .map(ic => [ic.os_id as string, ic.os_numero as string]),
                 ).entries(),
               );

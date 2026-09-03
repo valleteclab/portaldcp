@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Not } from 'typeorm';
 import {
   Contrato,
   ModalidadeExecucao,
@@ -273,6 +273,14 @@ export class MedicaoService {
             StatusRequisicao.ORDEM_GERADA,
           ],
         })
+        // OS por demanda (parcial) já vinculada a uma medição não pode receber
+        // outra — só a ORDEM_GLOBAL cobre várias medições.
+        .andWhere(
+          `(r.modo_os = 'ORDEM_GLOBAL' OR NOT EXISTS (
+            SELECT 1 FROM medicoes m
+             WHERE m.requisicao_id = r.id AND m.status <> 'REJEITADA'
+          ))`,
+        )
         .orderBy(
           `CASE WHEN r.status = '${StatusRequisicao.AUTORIZADA}' THEN 0 ELSE 1 END`,
           'ASC',
@@ -647,7 +655,7 @@ export class MedicaoService {
     // OS autorizada — permite à tela de medição agrupar as linhas por OS)
     const osPorItem = new Map<
       string,
-      { os_id: string; os_numero: string; os_status: string }
+      { os_id: string; os_numero: string; os_status: string; os_consumida: boolean }
     >();
     try {
       const rows: Array<{
@@ -655,9 +663,14 @@ export class MedicaoService {
         os_id: string;
         os_numero: string;
         os_status: string;
+        os_consumida: boolean;
       }> = await this.itemCronogramaRepository.manager.query(
         `SELECT rio.item_cronograma_id AS item_id, r.id AS os_id,
-                r.numero AS os_numero, r.status AS os_status
+                r.numero AS os_numero, r.status AS os_status,
+                (COALESCE(r.modo_os, '') <> 'ORDEM_GLOBAL' AND EXISTS (
+                   SELECT 1 FROM medicoes m
+                    WHERE m.requisicao_id = r.id AND m.status <> 'REJEITADA'
+                 )) AS os_consumida
          FROM requisicao_itens_os rio
          JOIN requisicoes r ON r.id = rio.requisicao_id
          WHERE r.contrato_id = $1 AND r.tipo = 'ORDEM_SERVICO'
@@ -670,6 +683,7 @@ export class MedicaoService {
             os_id: row.os_id,
             os_numero: row.os_numero,
             os_status: row.os_status,
+            os_consumida: !!row.os_consumida,
           });
         }
       }
@@ -1476,6 +1490,24 @@ export class MedicaoService {
           throw new BadRequestException(
             `A OS ${reqEscolhida.numero} ainda não está autorizada — apenas OS autorizadas podem ser medidas`,
           );
+        }
+        // OS por demanda (parcial) aceita UMA medição; só a ORDEM_GLOBAL
+        // (liberação geral) cobre várias medições.
+        if (String(reqEscolhida.modo_os || '') !== 'ORDEM_GLOBAL') {
+          const medicaoExistente = await this.medicaoRepository.findOne({
+            where: {
+              requisicao_id: reqEscolhida.id,
+              status: Not(StatusMedicao.REJEITADA),
+            } as any,
+            select: ['id', 'numero_medicao', 'status'] as any,
+          });
+          if (medicaoExistente) {
+            throw new BadRequestException(
+              `A OS ${reqEscolhida.numero} já está vinculada à medição #${medicaoExistente.numero_medicao} ` +
+                `(${medicaoExistente.status}). OS por demanda aceita apenas uma medição — ` +
+                `solicite uma nova OS ao órgão para medir outra execução.`,
+            );
+          }
         }
         osVinculada = this.normalizarOSRequisicao(reqEscolhida);
       } else {
