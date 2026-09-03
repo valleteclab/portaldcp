@@ -158,6 +158,110 @@ export class ConciliacaoFatorScheduler {
     return notificadas;
   }
 
+  /**
+   * Diário às 8h — sentido inverso da checagem das 7h30: pagamento liquidado
+   * na contabilidade SEM medição correspondente no sistema (ex.: NF paga com a
+   * OS ainda "autorizada" aguardando medição — caso TOYOLEM 001/2026).
+   */
+  @Cron('0 8 * * *', { name: 'pagamentos-sem-medicao' })
+  async verificarPagamentosSemMedicaoTodosOrgaos(): Promise<void> {
+    const orgaoIds: { orgao_id: string }[] = await this.contratoRepo
+      .createQueryBuilder('c')
+      .select('DISTINCT c.orgao_id', 'orgao_id')
+      .where('c.modalidade_execucao = :m', { m: ModalidadeExecucao.MEDICAO })
+      .andWhere("c.status = 'VIGENTE'")
+      .getRawMany();
+
+    this.logger.log(
+      `Verificação de pagamentos sem medição — ${orgaoIds.length} órgão(s)`,
+    );
+    for (const { orgao_id } of orgaoIds) {
+      try {
+        await this.verificarPagamentosSemMedicaoOrgao(orgao_id);
+      } catch (e) {
+        this.logger.error(
+          `Falha na verificação de pagamentos sem medição do órgão ${orgao_id}: ${(e as any).message}`,
+        );
+      }
+    }
+  }
+
+  async verificarPagamentosSemMedicaoOrgao(orgaoId: string): Promise<number> {
+    const alertas = await this.conciliacao.verificarPagamentosSemMedicao(orgaoId);
+    if (alertas.length === 0) return 0;
+
+    const orgao = await this.orgaoRepo.findOne({
+      where: { id: orgaoId },
+      select: ['id', 'whatsapp_responsavel_medicoes'],
+    });
+    const usuarios = await this.usuarioRepo.find({
+      where: { orgao_id: orgaoId, ativo: true },
+      select: ['id', 'email', 'telefone'],
+    });
+
+    let notificadas = 0;
+    for (const a of alertas) {
+      const corte = new Date();
+      corte.setDate(corte.getDate() - DIAS_DEDUPE);
+      const jaNotificada = await this.notificacaoRepo.count({
+        where: {
+          tipo: TipoNotificacao.PAGAMENTO_SEM_MEDICAO,
+          entidade_id: a.contrato_id,
+          created_at: MoreThan(corte),
+        },
+      });
+      if (jaNotificada > 0) continue;
+
+      const titulo = `Pagamento sem medição no contrato ${a.numero_contrato}`;
+      const sugestaoOS = a.os_provavel
+        ? ` A ${a.os_provavel.numero} (${this.brl(a.os_provavel.valor)}) está autorizada e aguardando medição — provável origem: registre a medição dela ou marque a OS como atendida fora do sistema.`
+        : ' Verifique qual parcela foi paga sem medição e registre-a no sistema.';
+      const mensagem =
+        `A contabilidade liquidou ${this.brl(a.liquidado_fator)} do contrato ${a.numero_contrato} ` +
+        `(${a.fornecedor}), mas o sistema registra apenas ${this.brl(a.total_sistema)} em medições — ` +
+        `${this.brl(a.excedente)} pagos sem medição correspondente.${sugestaoOS}`;
+
+      try {
+        await this.notificacoes.criarParaMultiplos(usuarios, {
+          orgao_id: orgaoId,
+          tipo: TipoNotificacao.PAGAMENTO_SEM_MEDICAO,
+          titulo,
+          mensagem,
+          prioridade: PrioridadeNotificacao.ALTA,
+          entidade_tipo: 'contrato',
+          entidade_id: a.contrato_id,
+          link: `/orgao/contratos/${a.contrato_id}?tab=empenhos`,
+          metadata: {
+            contrato_numero: a.numero_contrato,
+            excedente: a.excedente,
+            os_provavel: a.os_provavel?.numero || null,
+          },
+        } as any);
+      } catch (e) {
+        this.logger.error(`Erro ao criar notificação: ${(e as any).message}`);
+      }
+
+      const zap = orgao?.whatsapp_responsavel_medicoes?.replace(/\D/g, '');
+      if (zap) {
+        try {
+          await this.whatsapp.enviar(orgaoId, {
+            to: zap,
+            mensagem: `🚨 *Portal DCP — Pagamento sem medição*\n\n${mensagem}`,
+          });
+        } catch (e) {
+          this.logger.warn(`WhatsApp não enviado (${zap}): ${(e as any).message}`);
+        }
+      }
+      notificadas++;
+    }
+    if (notificadas > 0) {
+      this.logger.log(
+        `Órgão ${orgaoId}: ${notificadas} alerta(s) de pagamento sem medição enviado(s)`,
+      );
+    }
+    return notificadas;
+  }
+
   private brl(v: number): string {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
   }

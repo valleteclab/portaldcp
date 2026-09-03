@@ -1710,6 +1710,107 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
    * NÃO permite cancelar:
    * - ATENDIDA_PARCIAL / ATENDIDA (deve estornar recebimento primeiro manualmente)
    */
+  /**
+   * Marca uma OS AUTORIZADA como ATENDIDA quando a execução foi paga fora do
+   * sistema (NF liquidada na contabilidade sem medição). A OS deixa de reservar
+   * saldo e o consumo dos itens é registrado em quantidade_medida — o mesmo
+   * efeito que a medição aprovada teria. Fica rastro no histórico da requisição
+   * e nas observações. (Caso TOYOLEM 001/2026 / VEREDA OS-0074.)
+   */
+  async atenderForaDoSistema(
+    id: string,
+    motivo: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<Requisicao> {
+    const requisicao = await this.findOne(id);
+
+    if (requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO) {
+      throw new BadRequestException('Apenas ordens de serviço podem ser marcadas como atendidas fora do sistema.');
+    }
+    if (requisicao.status !== StatusRequisicao.AUTORIZADA) {
+      throw new BadRequestException(
+        `Apenas OS autorizada pode ser marcada como atendida fora do sistema. Status atual: ${requisicao.status}.`,
+      );
+    }
+    if (!motivo || motivo.trim().length < 10) {
+      throw new BadRequestException('Informe o motivo (mínimo 10 caracteres) — ex.: número da NF e data do pagamento.');
+    }
+    // OS com medição ativa não está "paga por fora": o fluxo normal dá conta.
+    const medicoesAtivas: Array<{ count: string }> = await this.dataSource.query(
+      `SELECT COUNT(*) AS count FROM medicoes
+        WHERE requisicao_id = $1 AND status NOT IN ('REJEITADA', 'CANCELADA')`,
+      [id],
+    );
+    if (Number(medicoesAtivas?.[0]?.count || 0) > 0) {
+      throw new BadRequestException(
+        'Esta OS já tem medição vinculada — conclua o fluxo pela medição em vez de marcá-la como atendida fora do sistema.',
+      );
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      // Consome o saldo dos itens como a medição aprovada consumiria:
+      // itens por tempo somam os meses solicitados; itens por quantidade, a quantidade.
+      const itensOS: Array<{
+        item_cronograma_id: string;
+        quantidade_solicitada: string;
+        meses_solicitados: string | null;
+        unidade_medida: string | null;
+      }> = await queryRunner.query(
+        `SELECT rio.item_cronograma_id, rio.quantidade_solicitada, rio.meses_solicitados, ic.unidade_medida
+           FROM requisicao_itens_os rio
+           JOIN itens_cronograma ic ON ic.id = rio.item_cronograma_id
+          WHERE rio.requisicao_id = $1 AND rio.item_cronograma_id IS NOT NULL`,
+        [id],
+      );
+      const unidadesPorTempo = ['MENSAL', 'MES', 'MÊS', 'POSTO'];
+      for (const item of itensOS) {
+        const porTempo = unidadesPorTempo.includes((item.unidade_medida || '').trim().toUpperCase());
+        const incremento = porTempo
+          ? Number(item.meses_solicitados || item.quantidade_solicitada || 0)
+          : Number(item.quantidade_solicitada || 0);
+        if (incremento > 0) {
+          await queryRunner.query(
+            `UPDATE itens_cronograma SET quantidade_medida = COALESCE(quantidade_medida, 0) + $1 WHERE id = $2`,
+            [incremento, item.item_cronograma_id],
+          );
+        }
+      }
+
+      const carimbo =
+        `OS atendida fora do sistema em ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} ` +
+        `por ${usuarioNome}. Motivo: ${motivo.trim()}`;
+      await queryRunner.query(
+        `UPDATE requisicoes
+            SET status = 'ATENDIDA',
+                observacoes = CASE WHEN COALESCE(observacoes, '') = '' THEN $1 ELSE observacoes || E'\n' || $1 END
+          WHERE id = $2`,
+        [carimbo, id],
+      );
+
+      await queryRunner.manager.save(HistoricoRequisicao, {
+        requisicao_id: id,
+        tipo_acao: 'ATENDIDA_FORA_SISTEMA',
+        descricao: `OS ${requisicao.numero} marcada como atendida fora do sistema (saldo dos itens consumido).`,
+        detalhes: motivo.trim(),
+        usuario_id: usuarioId,
+        usuario_nome: usuarioNome,
+      });
+
+      await queryRunner.commitTransaction();
+      this.logger.log(`OS ${requisicao.numero} atendida fora do sistema por ${usuarioNome}`);
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async cancelar(id: string, motivo: string, requerPermissaoEspecial: boolean = false): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
 
@@ -2116,10 +2217,38 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       // Continua sem as ordens se houver erro - não quebra a listagem
     }
 
+    // Medições vinculadas às OS (badge "aguardando medição" no frontend)
+    try {
+      const osIds = requisicoes
+        .filter((r) => r.tipo === TipoRequisicao.ORDEM_SERVICO)
+        .map((r) => r.id);
+      if (osIds.length > 0) {
+        const medicoes: Array<{ requisicao_id: string; id: string; numero_medicao: number; status: string }> =
+          await this.dataSource.query(
+            `SELECT requisicao_id, id, numero_medicao, status FROM medicoes
+              WHERE requisicao_id = ANY($1) AND status NOT IN ('REJEITADA', 'CANCELADA')`,
+            [osIds],
+          );
+        const porRequisicao = new Map<string, any[]>();
+        for (const m of medicoes) {
+          const lista = porRequisicao.get(m.requisicao_id) || [];
+          lista.push({ id: m.id, numero_medicao: m.numero_medicao, status: m.status });
+          porRequisicao.set(m.requisicao_id, lista);
+        }
+        for (const req of requisicoes) {
+          if (req.tipo === TipoRequisicao.ORDEM_SERVICO) {
+            (req as any).medicoes_vinculadas = porRequisicao.get(req.id) || [];
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Erro ao carregar medições das OS (não crítico): ${error.message}`);
+    }
+
     for (const req of requisicoes) {
       await this.normalizarStatusLegadoOS(req);
     }
-    
+
     return requisicoes;
   }
 

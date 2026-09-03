@@ -480,6 +480,83 @@ export class ConciliacaoFatorService {
   }
 
   /**
+   * Contratos cujo LIQUIDADO no portal supera o registrado no sistema
+   * (migração + medições aprovadas do exercício) — pagamento sem medição
+   * correspondente. Quando o excedente bate com o valor de uma OS AUTORIZADA
+   * ainda sem medição, a OS é apontada como provável origem (caso TOYOLEM
+   * 001/2026: NF paga com a OS aguardando medição).
+   */
+  async verificarPagamentosSemMedicao(orgaoId: string): Promise<Array<{
+    contrato_id: string;
+    numero_contrato: string;
+    fornecedor: string;
+    excedente: number;
+    liquidado_fator: number;
+    total_sistema: number;
+    os_provavel: { id: string; numero: string; valor: number } | null;
+  }>> {
+    const contratos = await this.contratoRepo.find({
+      where: {
+        orgao_id: orgaoId,
+        modalidade_execucao: ModalidadeExecucao.MEDICAO,
+        status: 'VIGENTE' as any,
+      },
+      select: ['id', 'numero_contrato', 'fornecedor_razao_social'],
+    });
+
+    const alertas: any[] = [];
+    for (const c of contratos) {
+      let conc: ConciliacaoResultado;
+      try {
+        conc = await this.conciliarContrato(c.id);
+      } catch {
+        continue;
+      }
+      // Só o sentido "liquidado > sistema"; renovação de ciclo no exercício já
+      // sai como CONCILIADO do conciliarContrato e não chega aqui.
+      if (conc.status !== 'DIVERGENTE' || conc.diferenca >= 0) continue;
+      const excedente = r2(-conc.diferenca);
+
+      // OS autorizada sem medição ativa cujo valor bate com o excedente
+      let osProvavel: { id: string; numero: string; valor: number } | null = null;
+      try {
+        const rows: Array<{ id: string; numero: string; valor: string }> =
+          await this.contratoRepo.manager.query(
+            `SELECT r.id, r.numero, r.valor_total_estimado AS valor
+               FROM requisicoes r
+              WHERE r.contrato_id = $1
+                AND r.tipo = 'ORDEM_SERVICO'
+                AND r.status = 'AUTORIZADA'
+                AND NOT EXISTS (
+                  SELECT 1 FROM medicoes m
+                   WHERE m.requisicao_id = r.id
+                     AND m.status NOT IN ('REJEITADA', 'CANCELADA')
+                )
+              ORDER BY ABS(r.valor_total_estimado - $2) ASC
+              LIMIT 1`,
+            [c.id, excedente],
+          );
+        if (rows.length > 0 && Math.abs(Number(rows[0].valor) - excedente) <= 0.05) {
+          osProvavel = { id: rows[0].id, numero: rows[0].numero, valor: r2(Number(rows[0].valor)) };
+        }
+      } catch {
+        /* melhor sem a OS do que sem o alerta */
+      }
+
+      alertas.push({
+        contrato_id: c.id,
+        numero_contrato: c.numero_contrato,
+        fornecedor: c.fornecedor_razao_social,
+        excedente,
+        liquidado_fator: conc.fator.total_liquidado,
+        total_sistema: conc.sistema.total_no_exercicio,
+        os_provavel: osProvavel,
+      });
+    }
+    return alertas;
+  }
+
+  /**
    * Auditoria em lote: roda as checagens internas (e opcionalmente a conciliação
    * Fator) em todos os contratos de MEDICAO do órgão.
    */
