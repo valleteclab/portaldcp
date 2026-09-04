@@ -3421,7 +3421,20 @@ export class MedicaoService {
           if (ic) {
             const qtdNova =
               Number(ic.quantidade_medida) + Number(imi.quantidade_medida);
-            ic.quantidade_medida = Math.min(qtdNova, Number(ic.quantidade));
+            // Teto = quantidade × nº de execuções/meses. Usar só ic.quantidade
+            // decepava itens recorrentes para UMA execução a cada aprovação,
+            // engolindo inclusive migração registrada (caso TOYOLEM 001/2026:
+            // 5.662,8 + 2.831,4 virava 2.831,4).
+            const quantidadeTotal =
+              (Number(ic.quantidade) || 0) *
+              (Number(ic.quantidade_meses) || 1);
+            if (qtdNova > quantidadeTotal + 0.0001) {
+              this.logger.warn(
+                `Aprovação da medição ${medicaoId}: quantidade_medida do item ${ic.numero_item} ` +
+                  `(${qtdNova.toFixed(4)}) excede o total contratado (${quantidadeTotal.toFixed(4)}) — aparado no teto`,
+              );
+            }
+            ic.quantidade_medida = Math.min(qtdNova, quantidadeTotal);
             await this.itemCronogramaRepository.save(ic);
           }
         }
