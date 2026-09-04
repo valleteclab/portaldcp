@@ -7039,6 +7039,75 @@ export class MedicaoService {
   }
 
   /**
+   * Corrige as DATAS das assinaturas digitais do boletim (ex.: assinatura
+   * registrada no sistema num dia, mas formalizada em outro). Altera somente
+   * data_assinatura — nome, papel e código de validação ficam intactos.
+   * Motivo obrigatório (fica no log); limpa o PDF para forçar regeneração
+   * com as novas datas.
+   */
+  async corrigirDatasAssinaturas(
+    medicaoId: string,
+    dados: {
+      assinaturas: Array<{ id: string; data_assinatura: string }>;
+      motivo?: string;
+    },
+    fiscalNome: string,
+    orgaoId: string,
+  ): Promise<any[]> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (medicao.contrato && medicao.contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException(
+        'Você não tem permissão para corrigir esta medição',
+      );
+    }
+    if (!Array.isArray(dados.assinaturas) || dados.assinaturas.length === 0) {
+      throw new BadRequestException('Informe ao menos uma assinatura para corrigir');
+    }
+    if (!dados.motivo || dados.motivo.trim().length < 5) {
+      throw new BadRequestException('Informe o motivo da correção das datas');
+    }
+
+    for (const item of dados.assinaturas) {
+      const assinatura = await this.assinaturaDigitalRepository.findOne({
+        where: {
+          id: item.id,
+          entidade_tipo: EntidadeTipo.MEDICAO,
+          entidade_id: medicaoId,
+        },
+      });
+      if (!assinatura) {
+        throw new NotFoundException(
+          'Assinatura não encontrada nesta medição',
+        );
+      }
+      const novaData = new Date(item.data_assinatura);
+      if (Number.isNaN(novaData.getTime())) {
+        throw new BadRequestException(
+          `Data inválida para a assinatura de ${assinatura.usuario_nome}`,
+        );
+      }
+      await this.assinaturaDigitalRepository.update(assinatura.id, {
+        data_assinatura: novaData,
+      });
+      this.logger.log(
+        `Data da assinatura ${assinatura.papel_assinante} (${assinatura.usuario_nome}) da medição ${medicaoId} ` +
+          `alterada de ${new Date(assinatura.data_assinatura).toISOString()} para ${novaData.toISOString()} ` +
+          `por ${fiscalNome}. Motivo: ${dados.motivo.trim()}`,
+      );
+    }
+
+    // Boletim precisa ser regenerado para imprimir as novas datas
+    await this.medicaoRepository.update(medicaoId, {
+      boletim_pdf_url: null,
+    } as any);
+    return this.listarAssinaturasMedicao(medicaoId);
+  }
+
+  /**
    * Atualiza o JSON execucao_fiscal de uma medição (corrige vigência e dias calculados).
    */
   async corrigirExecucaoFiscal(
