@@ -1635,7 +1635,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     // OS com medição ativa não está "paga por fora": o fluxo normal dá conta.
     const medicoesAtivas: Array<{ count: string }> = await this.dataSource.query(
       `SELECT COUNT(*) AS count FROM medicoes
-        WHERE requisicao_id = $1 AND status NOT IN ('REJEITADA', 'CANCELADA')`,
+        WHERE requisicao_id = $1 AND status <> 'REJEITADA'`,
       [id],
     );
     if (Number(medicoesAtivas?.[0]?.count || 0) > 0) {
@@ -2122,7 +2122,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         const medicoes: Array<{ requisicao_id: string; id: string; numero_medicao: number; status: string }> =
           await this.dataSource.query(
             `SELECT requisicao_id, id, numero_medicao, status FROM medicoes
-              WHERE requisicao_id = ANY($1) AND status NOT IN ('REJEITADA', 'CANCELADA')`,
+              WHERE requisicao_id = ANY($1) AND status <> 'REJEITADA'`,
             [osIds],
           );
         const porRequisicao = new Map<string, any[]>();
