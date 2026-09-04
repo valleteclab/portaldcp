@@ -774,6 +774,25 @@ export class ModalidadesContratoController {
     return this.medicaoService.corrigirCabecalho(medicaoId, body, request.user.sub, fiscalNome, orgaoId);
   }
 
+  /**
+   * Fiscal corrige as datas das assinaturas digitais do boletim.
+   * PATCH /api/contratos/medicoes/:medicaoId/assinaturas/datas
+   */
+  @Patch('medicoes/:medicaoId/assinaturas/datas')
+  async corrigirDatasAssinaturasMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      assinaturas: Array<{ id: string; data_assinatura: string }>;
+      motivo?: string;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+    return this.medicaoService.corrigirDatasAssinaturas(medicaoId, body, fiscalNome, orgaoId);
+  }
+
   @Patch('medicoes/:medicaoId/execucao-fiscal')
   async corrigirExecucaoFiscalMedicao(
     @Param('medicaoId') medicaoId: string,

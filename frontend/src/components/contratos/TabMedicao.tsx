@@ -532,7 +532,7 @@ export default function TabMedicao({
   // Corrigir Boletim
   const [modalCorrigir, setModalCorrigir] = useState<Medicao | null>(null);
   const [abaCorrigir, setAbaCorrigir] = useState<
-    "cabecalho" | "itens_cronograma" | "execucao_fiscal" | "discriminacoes"
+    "cabecalho" | "itens_cronograma" | "execucao_fiscal" | "discriminacoes" | "assinaturas"
   >("cabecalho");
   const [cabecalhoForm, setCabecalhoForm] = useState({
     competencia: "",
@@ -549,6 +549,11 @@ export default function TabMedicao({
   >([]);
   const [discValorTotalCorrigir, setDiscValorTotalCorrigir] = useState("");
   const [motivoDiscCorrigir, setMotivoDiscCorrigir] = useState("");
+  // Aba Assinaturas: datas editáveis das assinaturas digitais do boletim
+  const [assinaturasCorrigir, setAssinaturasCorrigir] = useState<
+    { id: string; papel: string; nome: string; data_original: string; nova_data: string }[]
+  >([]);
+  const [motivoAssinaturas, setMotivoAssinaturas] = useState("");
   const [salvandoCorrecao, setSalvandoCorrecao] = useState(false);
   const [pdfRegeneradoUrl, setPdfRegeneradoUrl] = useState<string | null>(null);
   const [regenerandoPdf, setRegenerandoPdf] = useState(false);
@@ -775,10 +780,47 @@ export default function TabMedicao({
     }
   };
 
+  // datetime-local no fuso de Brasília (convenção do sistema p/ PDFs e telas)
+  const paraDatetimeLocalBrasilia = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "";
+      // sv-SE gera "YYYY-MM-DD HH:mm:ss"
+      return d
+        .toLocaleString("sv-SE", { timeZone: "America/Sao_Paulo" })
+        .slice(0, 16)
+        .replace(" ", "T");
+    } catch {
+      return "";
+    }
+  };
+
   const abrirModalCorrigir = async (m: Medicao) => {
     setModalCorrigir(m);
     setAbaCorrigir("cabecalho");
     setPdfRegeneradoUrl(null);
+    // Assinaturas digitais (datas editáveis)
+    setAssinaturasCorrigir([]);
+    setMotivoAssinaturas("");
+    try {
+      const resAss = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/assinaturas`);
+      if (resAss.ok) {
+        const lista = await resAss.json();
+        if (Array.isArray(lista)) {
+          setAssinaturasCorrigir(
+            lista.map((a: any) => ({
+              id: a.id,
+              papel: a.papel_assinante || "",
+              nome: a.usuario_nome || "",
+              data_original: a.data_assinatura,
+              nova_data: paraDatetimeLocalBrasilia(a.data_assinatura),
+            })),
+          );
+        }
+      }
+    } catch {
+      /* aba mostra vazio */
+    }
     setCabecalhoForm({
       competencia: m.competencia ?? "",
       periodo_inicio: m.periodo_inicio ? m.periodo_inicio.slice(0, 10) : "",
@@ -1034,6 +1076,60 @@ export default function TabMedicao({
       }
     } catch {
       alert("Erro ao salvar cabeçalho");
+    } finally {
+      setSalvandoCorrecao(false);
+    }
+  };
+
+  const salvarDatasAssinaturas = async () => {
+    if (!modalCorrigir) return;
+    if (!motivoAssinaturas.trim() || motivoAssinaturas.trim().length < 5) {
+      alert("Informe o motivo da correção das datas (mínimo 5 caracteres)");
+      return;
+    }
+    const alteradas = assinaturasCorrigir.filter(
+      (a) => a.nova_data && a.nova_data !== paraDatetimeLocalBrasilia(a.data_original),
+    );
+    if (alteradas.length === 0) {
+      alert("Nenhuma data foi alterada.");
+      return;
+    }
+    setSalvandoCorrecao(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/assinaturas/datas`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            // envia com offset de Brasília — convenção do sistema
+            assinaturas: alteradas.map((a) => ({
+              id: a.id,
+              data_assinatura: `${a.nova_data}:00-03:00`,
+            })),
+            motivo: motivoAssinaturas.trim(),
+          }),
+        },
+      );
+      if (res.ok) {
+        const lista = await res.json().catch(() => null);
+        if (Array.isArray(lista)) {
+          setAssinaturasCorrigir(
+            lista.map((a: any) => ({
+              id: a.id,
+              papel: a.papel_assinante || "",
+              nome: a.usuario_nome || "",
+              data_original: a.data_assinatura,
+              nova_data: paraDatetimeLocalBrasilia(a.data_assinatura),
+            })),
+          );
+        }
+        alert('Datas salvas! Clique em "Regenerar PDF" para atualizar o boletim com as novas datas.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || "Erro ao salvar as datas das assinaturas");
+      }
+    } catch {
+      alert("Erro ao salvar as datas das assinaturas");
     } finally {
       setSalvandoCorrecao(false);
     }
@@ -7932,6 +8028,7 @@ export default function TabMedicao({
                 { id: "itens_cronograma", label: "Itens do Contrato" },
                 { id: "execucao_fiscal", label: "Execução Fiscal" },
                 { id: "discriminacoes", label: "Discriminações" },
+                { id: "assinaturas", label: "Assinaturas" },
               ] as const
             ).map(({ id, label }) => (
               <button
@@ -8591,6 +8688,83 @@ export default function TabMedicao({
             )}
 
             {/* Aba Discriminações */}
+            {/* Aba Assinaturas — corrigir datas das assinaturas digitais */}
+            {abaCorrigir === "assinaturas" && (
+              <div className="space-y-4 px-1">
+                <p className="text-sm text-gray-600">
+                  Corrija a <strong>data/hora</strong> das assinaturas digitais do boletim
+                  (fuso de Brasília). Nome, papel e código de validação não mudam.
+                  Depois de salvar, use <strong>Regenerar PDF</strong> para o boletim
+                  sair com as novas datas.
+                </p>
+                {assinaturasCorrigir.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic py-6 text-center">
+                    Esta medição ainda não tem assinaturas digitais registradas.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {assinaturasCorrigir.map((a, i) => {
+                      const papelLabel =
+                        ({
+                          FORNECEDOR: "Fornecedor / Contratado",
+                          FISCAL: "Fiscal do Contrato",
+                          GESTOR: "Gestor do Contrato",
+                          ENGENHEIRO: "Engenheiro Responsável",
+                        } as Record<string, string>)[a.papel] || a.papel;
+                      const alterada =
+                        a.nova_data !== paraDatetimeLocalBrasilia(a.data_original);
+                      return (
+                        <div
+                          key={a.id}
+                          className={`border rounded-lg p-3 flex flex-wrap items-center gap-3 ${alterada ? "border-violet-300 bg-violet-50/40" : ""}`}
+                        >
+                          <div className="flex-1 min-w-[220px]">
+                            <p className="text-sm font-medium">{a.nome}</p>
+                            <p className="text-xs text-gray-500">{papelLabel}</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs text-gray-500">Data/hora da assinatura</Label>
+                            <Input
+                              type="datetime-local"
+                              className="h-9"
+                              value={a.nova_data}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setAssinaturasCorrigir((prev) =>
+                                  prev.map((x, j) => (j === i ? { ...x, nova_data: v } : x)),
+                                );
+                              }}
+                            />
+                          </div>
+                          {alterada && (
+                            <span className="text-xs text-violet-700 font-medium">alterada</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div className="space-y-1">
+                      <Label>Motivo da correção *</Label>
+                      <Textarea
+                        rows={2}
+                        placeholder="Ex.: assinatura formalizada em 15/08, registrada no sistema apenas em 20/08."
+                        value={motivoAssinaturas}
+                        onChange={(e) => setMotivoAssinaturas(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={salvarDatasAssinaturas}
+                        disabled={salvandoCorrecao}
+                        className="bg-violet-600 hover:bg-violet-700"
+                      >
+                        {salvandoCorrecao ? "Salvando..." : "Salvar datas"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {abaCorrigir === "discriminacoes" && (
               <div className="space-y-3 px-1">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
