@@ -1503,7 +1503,7 @@ Gestão de Contratos</p>`,
    * Corrige a data de emissão e/ou a data/hora do quadro de assinaturas da OF e
    * regenera o PDF. Tratamento de fuso (Brasília, UTC-3):
    * - data_emissao (coluna date): grava o dia literal (o render foi corrigido para não deslocar);
-   * - data_assinatura (timestamp): grava em UTC = horaBRT + 3h, para o PDF exibir a hora de Brasília.
+   * - data_assinatura (timestamp): grava a hora de Brasília LITERAL (render também corrigido).
    */
   async corrigirDatas(
     id: string,
@@ -1533,15 +1533,12 @@ Gestão de Contratos</p>`,
         throw new BadRequestException('Data/hora da assinatura deve estar no formato YYYY-MM-DDTHH:mm.');
       }
       const [, ano, mes, dia, hora, min, seg] = m;
-      // O PDF (formatarDataHora) interpreta o valor gravado como UTC e subtrai 3h para BRT.
-      // Logo, para exibir a hora de Brasília T, gravamos o "relógio" = T + 3h como STRING
-      // literal — o Postgres armazena timestamp-without-tz sem converter fuso (ao contrário
-      // de um objeto Date, que o TypeORM serializa em horário local, "comendo" os +3h).
-      const alvoUtc = new Date(
-        Date.UTC(Number(ano), Number(mes) - 1, Number(dia), Number(hora) + 3, Number(min), Number(seg || '0')),
-      );
-      const p2 = (n: number) => String(n).padStart(2, '0');
-      const dataAssinStr = `${alvoUtc.getUTCFullYear()}-${p2(alvoUtc.getUTCMonth() + 1)}-${p2(alvoUtc.getUTCDate())} ${p2(alvoUtc.getUTCHours())}:${p2(alvoUtc.getUTCMinutes())}:${p2(alvoUtc.getUTCSeconds())}`;
+      // O render (formatarDataHora) foi corrigido: node e postgres rodam em
+      // America/Sao_Paulo, então o relógio gravado no timestamp naive É a hora
+      // de Brasília exibida. Gravamos a hora digitada LITERAL, como string
+      // (um objeto Date seria serializado pelo TypeORM em horário local, o que
+      // aqui daria no mesmo, mas a string deixa a intenção explícita).
+      const dataAssinStr = `${ano}-${mes}-${dia} ${hora}:${min}:${seg || '00'}`;
       const corrigidas = await this.assinaturasService.corrigirDataAssinaturasPorEntidade(
         id,
         EntidadeTipo.ORDEM_FORNECIMENTO,

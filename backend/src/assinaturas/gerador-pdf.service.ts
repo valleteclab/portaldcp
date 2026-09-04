@@ -791,17 +791,14 @@ export class GeradorPdfService {
 
   private formatarDataHora(data: Date): string {
     const d = data instanceof Date ? data : new Date(data as any);
-    // timestamp without time zone: pg driver interpreta como LOCAL.
-    // Desfaz offset local para obter UTC real, depois converte para BRT.
-    const trueUtcMs = d.getTime() - d.getTimezoneOffset() * 60 * 1000;
-    const brt = new Date(trueUtcMs - 3 * 60 * 60 * 1000);
-    const dd = String(brt.getUTCDate()).padStart(2, '0');
-    const mm = String(brt.getUTCMonth() + 1).padStart(2, '0');
-    const yyyy = brt.getUTCFullYear();
-    const hh = String(brt.getUTCHours()).padStart(2, '0');
-    const mi = String(brt.getUTCMinutes()).padStart(2, '0');
-    const ss = String(brt.getUTCSeconds()).padStart(2, '0');
-    return `${dd}/${mm}/${yyyy}, ${hh}:${mi}:${ss}`;
+    // Node e Postgres rodam no MESMO fuso (TZ do compose): o timestamp naive
+    // gravado em local e parseado em local devolve o instante real — basta
+    // formatar em Brasília. A aritmética manual anterior assumia coluna em
+    // UTC e imprimia as datas 3h a menos.
+    const s = d.toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const [dia, hora] = s.split(' ');
+    const [yyyy, mm, dd] = dia.split('-');
+    return `${dd}/${mm}/${yyyy}, ${hora}`;
   }
 
   /**
