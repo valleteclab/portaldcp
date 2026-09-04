@@ -530,7 +530,7 @@ export class ConciliacaoFatorService {
                 AND NOT EXISTS (
                   SELECT 1 FROM medicoes m
                    WHERE m.requisicao_id = r.id
-                     AND m.status NOT IN ('REJEITADA', 'CANCELADA')
+                     AND m.status <> 'REJEITADA'
                 )
               ORDER BY ABS(r.valor_total_estimado - $2) ASC
               LIMIT 1`,
