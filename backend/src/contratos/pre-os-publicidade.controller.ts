@@ -56,6 +56,11 @@ export class PreOsFornecedorController {
     });
     if (!contrato) throw new NotFoundException('Contrato não encontrado');
     if (contrato.fornecedor_id !== fornecedorId) throw new ForbiddenException('Sem acesso a este contrato');
+    // Só contrato de publicidade (Lei 12.232) tem pré-OS: precisa de tabela de
+    // referência ou remuneração configurada — senão a seção não deve aparecer.
+    if (!contrato.tabela_referencia_id && !contrato.remuneracao_publicidade) {
+      throw new NotFoundException('Contrato não é de publicidade');
+    }
     const itens = contrato.tabela_referencia_id
       ? await this.tabelaReferencia.listarItens(contrato.tabela_referencia_id)
       : [];

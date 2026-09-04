@@ -79,7 +79,13 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDis
     try {
       const resPub = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/tabela-publicidade?${qs}`)
       if (!resPub.ok) { setPub(null); onDisponivel?.(false); return } // contrato não é de publicidade
-      setPub(await resPub.json())
+      const dadosPub = await resPub.json()
+      // Cinto de segurança: sem tabela de referência nem remuneração configurada,
+      // não é contrato de publicidade — a seção não aparece.
+      if (!dadosPub?.tabela_referencia_id && !dadosPub?.remuneracao_publicidade) {
+        setPub(null); onDisponivel?.(false); return
+      }
+      setPub(dadosPub)
       onDisponivel?.(true)
       const resLista = await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/pre-os?${qs}`)
       if (resLista.ok) setLista(await resLista.json())
