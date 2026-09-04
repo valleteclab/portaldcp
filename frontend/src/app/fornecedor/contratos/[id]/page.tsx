@@ -2048,22 +2048,34 @@ export default function FornecedorContratoDetalhePage() {
           nota_fiscal_valor: medicaoCompleta.nota_fiscal_valor ? String(medicaoCompleta.nota_fiscal_valor) : (medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : ''),
           nota_fiscal_data: medicaoCompleta.nota_fiscal_data || medicao.nota_fiscal_data || '',
           valor_medido: String(medicaoCompleta.valor_medido || medicao.valor_medido || ''),
-          itens: medicaoCompleta.itens?.map((item: any) => {
-            if (item.tipo_item === 'item_cronograma') {
-              return {
-                item_cronograma_id: item.item_cronograma_id,
-                quantidade_medida: item.quantidade_medida || 0,
-                modo_input: 'quantidade',
-              };
-            } else {
-              return {
-                etapa_id: item.etapa_id,
-                percentual_executado_atual: item.percentual_executado_atual || 0,
-                valor_executado_atual: item.valor_executado_atual || 0,
-                modo_input: 'percentual',
-              };
-            }
-          }) || [],
+          // A UI da planilha indexa novaMedicao.itens pela POSIÇÃO do item/etapa
+          // (mesmo alinhamento do abrirModalNovaMedicao). Um rascunho criado pelo
+          // órgão pode ter menos itens que o cronograma — usar a lista crua da
+          // medição desalinhava tudo e criava buracos no array ao editar (crash).
+          itens: isServicoContinuado
+            ? []
+            : usarItensCronograma
+              ? itensCronograma.map(ic => {
+                  const salvo = medicaoCompleta.itens?.find(
+                    (item: any) => item.item_cronograma_id === ic.id,
+                  );
+                  return {
+                    item_cronograma_id: ic.id,
+                    quantidade_medida: salvo?.quantidade_medida || 0,
+                    modo_input: 'quantidade' as const,
+                  };
+                })
+              : etapas.map(e => {
+                  const salvo = medicaoCompleta.itens?.find(
+                    (item: any) => item.etapa_id === e.id,
+                  );
+                  return {
+                    etapa_id: e.id,
+                    percentual_executado_atual: salvo?.percentual_executado_atual || 0,
+                    valor_executado_atual: salvo?.valor_executado_atual || 0,
+                    modo_input: 'percentual' as const,
+                  };
+                }),
         });
         
         // Setar a medição original para atualização
@@ -2107,9 +2119,9 @@ export default function FornecedorContratoDetalhePage() {
         await reaproveitarAnexosExistentes(medicao.id);
         await carregarExecucaoFinanceira(medicao.id);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao carregar medição:', error);
-      alert('Erro ao carregar dados da medição para edição.');
+      alert(`Erro ao carregar dados da medição para edição.${error?.message ? `\nDetalhe: ${error.message}` : ''}`);
     }
   };
 
