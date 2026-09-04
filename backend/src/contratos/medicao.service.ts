@@ -3712,15 +3712,14 @@ export class MedicaoService {
     // convertemos para BRT (UTC-3). Funciona tanto em servidor UTC quanto BRT.
     const fmtDataBR = (date: Date) => {
       const d = date instanceof Date ? date : new Date(date as any);
-      const trueUtcMs = d.getTime() - d.getTimezoneOffset() * 60 * 1000;
-      const brt = new Date(trueUtcMs - 3 * 60 * 60 * 1000);
-      const dd = String(brt.getUTCDate()).padStart(2, '0');
-      const mm = String(brt.getUTCMonth() + 1).padStart(2, '0');
-      const yyyy = brt.getUTCFullYear();
-      const hh = String(brt.getUTCHours()).padStart(2, '0');
-      const mi = String(brt.getUTCMinutes()).padStart(2, '0');
-      const ss = String(brt.getUTCSeconds()).padStart(2, '0');
-      return `${dd}/${mm}/${yyyy}, ${hh}:${mi}:${ss}`;
+      // Node e Postgres rodam no MESMO fuso (TZ do compose): o Date parseado
+      // já é o instante real da assinatura — basta formatar em Brasília.
+      // A aritmética manual anterior assumia coluna gravada em UTC e imprimia
+      // as assinaturas 3h a menos (10:54 virava 07:54).
+      const s = d.toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+      const [data, hora] = s.split(' ');
+      const [yyyy, mm, dd] = data.split('-');
+      return `${dd}/${mm}/${yyyy}, ${hora}`;
     };
 
     // Itens da medição (para bloco EXECUÇÃO FISCAL / FINANCEIRA)
