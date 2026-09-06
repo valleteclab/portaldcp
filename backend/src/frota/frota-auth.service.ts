@@ -10,7 +10,7 @@ import { FrotaCredencial, TipoCredencialFrota } from './entities/frota-credencia
 import { FrotaAcessoLog, AcaoFrotaLog } from './entities/frota-acesso-log.entity';
 import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
-import { fimDoMesBrasil, mesAtualBrasil } from './frota.utils';
+import { fimDoMesBrasil, mesAtualBrasil, intervaloDoMes } from './frota.utils';
 import { FrotaNotificacaoService } from './frota-notificacao.service';
 
 export interface FrotaJwtPayload {
@@ -336,7 +336,7 @@ export class FrotaAuthService {
     });
 
     const doMes = todasRequisicoes.filter(r =>
-      r.data_requisicao >= `${ano}-${m}-01` && r.data_requisicao <= `${ano}-${m}-31`,
+      r.data_requisicao >= intervaloDoMes(mes).inicio && r.data_requisicao <= intervaloDoMes(mes).fim,
     );
 
     const litrosUsados = doMes

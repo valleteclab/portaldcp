@@ -24,3 +24,17 @@ export function mesAtualBrasil(): string {
   const parts = Object.fromEntries(fmt.formatToParts(new Date()).map((p) => [p.type, p.value]));
   return `${parts.year}-${parts.month}`;
 }
+
+/**
+ * Primeiro e último dia de um mês 'YYYY-MM' como 'YYYY-MM-DD'.
+ * Nunca usar "-31" fixo: setembro/abril/junho/novembro têm 30 dias e o
+ * Postgres rejeita "2026-09-31" — a listagem de requisições ficava vazia.
+ */
+export function intervaloDoMes(mes: string): { inicio: string; fim: string } {
+  const [anoStr, mesStr] = String(mes || '').split('-');
+  const ano = parseInt(anoStr, 10);
+  const m = parseInt(mesStr, 10);
+  const ultimoDia = new Date(Date.UTC(ano, m, 0)).getUTCDate(); // dia 0 do mês seguinte
+  const mm = String(m).padStart(2, '0');
+  return { inicio: `${ano}-${mm}-01`, fim: `${ano}-${mm}-${String(ultimoDia).padStart(2, '0')}` };
+}
