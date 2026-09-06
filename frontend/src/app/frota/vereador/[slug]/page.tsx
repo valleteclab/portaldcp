@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { Loader2, Fuel, ClipboardList, Home, User, ChevronRight, CheckCircle, Clock, XCircle, Lock, LogOut, ExternalLink, Share2 } from 'lucide-react'
 import { API_URL } from '@/lib/api'
+import { QrCodeImg } from '../../QrCodeImg'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -32,10 +33,6 @@ const fmtLitros = (v: number) => `${Number(v || 0).toLocaleString('pt-BR', { min
 const fmtData = (d: string) => d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: TZ_BRASIL }) : ''
 const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-function getQrUrl(token: string, origin: string) {
-  const url = `${origin}/frota/req/${token}`
-  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(url)}`
-}
 
 function compartilharWhatsApp(token: string, codigo?: string) {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -404,11 +401,11 @@ export default function VereadorSlugPage() {
                 </div>
                 {exibir.token_acesso && origin && (
                   <div className="flex-shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={getQrUrl(exibir.token_acesso, origin)}
+                    <QrCodeImg
+                      value={`${origin}/frota/req/${exibir.token_acesso}`}
+                      size={112}
                       alt="QR Code para o posto"
-                      className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg border-2 border-slate-200"
+                      className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg border-2 border-slate-200 bg-white"
                     />
                   </div>
                 )}
