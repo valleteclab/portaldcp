@@ -9,7 +9,7 @@ import { FrotaContrato } from './entities/frota-contrato.entity';
 import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
 import { ContratosService } from '../contratos/contratos.service';
 import { UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
-import { fimDoMesBrasil, mesAtualBrasil } from './frota.utils';
+import { fimDoMesBrasil, mesAtualBrasil, intervaloDoMes } from './frota.utils';
 import { FrotaCredencial } from './entities/frota-credencial.entity';
 import { FrotaNotificacaoService } from './frota-notificacao.service';
 
@@ -398,8 +398,8 @@ export class FrotaService {
     const where: any = { orgao_id: orgaoId };
     if (status && status !== 'TODOS') where.status = status;
     if (mes) {
-      const [ano, m] = mes.split('-');
-      where.data_requisicao = Between(`${ano}-${m}-01`, `${ano}-${m}-31`);
+      const { inicio, fim } = intervaloDoMes(mes);
+      where.data_requisicao = Between(inicio, fim);
     }
     return this.requisicaoRepository.find({
       where,
@@ -711,9 +711,7 @@ export class FrotaService {
 
   async obterDashboardPosto(orgaoId: string, mes?: string) {
     const mesAtual = mes || new Date().toISOString().slice(0, 7);
-    const [ano, m] = mesAtual.split('-');
-    const dataInicio = `${ano}-${m}-01`;
-    const dataFim = `${ano}-${m}-31`;
+    const { inicio: dataInicio, fim: dataFim } = intervaloDoMes(mesAtual);
 
     const contratoAtivo = await this.obterContratoAtivo(orgaoId);
 
@@ -771,9 +769,7 @@ export class FrotaService {
   // ============================================================
 
   async gerarDadosRelatorioSiga(orgaoId: string, mes: string) {
-    const [ano, m] = mes.split('-');
-    const dataInicio = `${ano}-${m}-01`;
-    const dataFim = `${ano}-${m}-31`;
+    const { inicio: dataInicio, fim: dataFim } = intervaloDoMes(mes);
 
     const contratoAtivo = await this.obterContratoAtivo(orgaoId);
     const requisicoes = await this.requisicaoRepository.find({
