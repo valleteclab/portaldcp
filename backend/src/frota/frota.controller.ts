@@ -342,6 +342,18 @@ export class FrotaController {
     return { message: 'Credencial excluída' };
   }
 
+  /** Gestor libera litros extras para um vereador no mês corrente (auditado + aviso no WhatsApp) */
+  @Put('credenciais/:id/cota-extra')
+  async liberarCotaExtra(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: { user: JwtPayload },
+    @Body() body: { litros: number; motivo?: string },
+  ) {
+    return this.frotaAuthService.liberarCotaExtra(
+      id, this.getOrgaoId(req.user), Number(body?.litros), body?.motivo || '', this.getUserName(req.user),
+    );
+  }
+
   @Get('credenciais/logs')
   async listarLogs(
     @Req() req: { user: JwtPayload },

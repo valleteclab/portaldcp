@@ -104,6 +104,10 @@ export class CreateOrgaoDto {
   @IsOptional()
   whatsapp_responsavel_medicoes?: string;
 
+  @IsString()
+  @IsOptional()
+  whatsapp_responsavel_frota?: string;
+
   // Responsável Legal - tornando opcional com valores padrão
   @IsString()
   @IsOptional()

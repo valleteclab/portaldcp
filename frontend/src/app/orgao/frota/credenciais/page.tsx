@@ -12,6 +12,11 @@ interface Credencial {
   codigo_acesso: string
   solicitante_cargo?: string
   cota_mensal_litros?: number
+  telefone_whatsapp?: string | null
+  cota_extra_litros?: number
+  cota_extra_mes?: string | null
+  cota_extra_motivo?: string | null
+  cota_extra_liberada_por?: string | null
   url_slug?: string
   contrato_id?: string | null
   contrato?: { id: string; numero_contrato: string; fornecedor_nome: string } | null
@@ -19,6 +24,13 @@ interface Credencial {
   ultimo_acesso?: string
   created_at: string
 }
+
+/** Mês corrente 'YYYY-MM' em horário de Brasília — a cota extra vale só nele */
+const mesAtual = (() => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit' })
+    .formatToParts(new Date()).map(x => [x.type, x.value]))
+  return `${p.year}-${p.month}`
+})()
 
 interface ContratoSimples {
   id: string
@@ -80,6 +92,14 @@ export default function FrotaCredenciaisPage() {
   const [formSenha, setFormSenha] = useState('')
   const [formCargo, setFormCargo] = useState('')
   const [formCota, setFormCota] = useState('')
+  const [formTelefone, setFormTelefone] = useState('')
+
+  // Liberar cota extra (vereador)
+  const [modalExtra, setModalExtra] = useState<Credencial | null>(null)
+  const [extraLitros, setExtraLitros] = useState('')
+  const [extraMotivo, setExtraMotivo] = useState('')
+  const [salvandoExtra, setSalvandoExtra] = useState(false)
+  const [erroExtra, setErroExtra] = useState('')
   const [formSlug, setFormSlug] = useState('')
   const [formAtivo, setFormAtivo] = useState(true)
   const [formContratoId, setFormContratoId] = useState<string>('')
@@ -150,6 +170,7 @@ export default function FrotaCredenciaisPage() {
     setFormSenha('')
     setFormCargo('')
     setFormCota('')
+    setFormTelefone('')
     setFormSlug('')
     setFormAtivo(true)
     setFormContratoId('')
@@ -166,6 +187,7 @@ export default function FrotaCredenciaisPage() {
     setFormSenha('')
     setFormCargo(c.solicitante_cargo || '')
     setFormCota(c.cota_mensal_litros?.toString() || '')
+    setFormTelefone(c.telefone_whatsapp || '')
     setFormSlug(c.url_slug || '')
     setFormAtivo(c.ativo)
     setFormContratoId(c.contrato_id || '')
@@ -175,6 +197,31 @@ export default function FrotaCredenciaisPage() {
   }
 
   // ─── Salvar ───────────────────────────────────────────────────────────────
+
+  async function handleLiberarExtra(e: React.FormEvent) {
+    e.preventDefault()
+    if (!modalExtra) return
+    setSalvandoExtra(true)
+    setErroExtra('')
+    try {
+      const res = await fetch(`/api/frota/credenciais/${modalExtra.id}/cota-extra`, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({ litros: parseFloat(extraLitros.replace(',', '.')), motivo: extraMotivo.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setErroExtra(err.message || 'Erro ao liberar cota extra.')
+        setSalvandoExtra(false)
+        return
+      }
+      setModalExtra(null)
+      carregarCredenciais()
+    } catch {
+      setErroExtra('Erro ao conectar ao servidor.')
+    }
+    setSalvandoExtra(false)
+  }
 
   async function handleSalvar(e: React.FormEvent) {
     e.preventDefault()
@@ -187,6 +234,7 @@ export default function FrotaCredenciaisPage() {
       codigo_acesso: formCodigo.trim(),
       solicitante_cargo: formCargo.trim() || undefined,
       cota_mensal_litros: formCota ? parseFloat(formCota) : undefined,
+      telefone_whatsapp: formTelefone.trim() || null,
       url_slug: formSlug.trim() || undefined,
       ativo: formAtivo,
       contrato_id: formContratoId || null,
@@ -372,6 +420,15 @@ export default function FrotaCredenciaisPage() {
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
+                      {Number(c.cota_mensal_litros) > 0 && (
+                        <button
+                          onClick={() => { setModalExtra(c); setExtraLitros(''); setExtraMotivo(''); setErroExtra('') }}
+                          className="text-emerald-700 hover:text-emerald-900 text-sm px-2 py-1 rounded border border-emerald-200 hover:border-emerald-400 transition-colors"
+                          title="Liberar litros a mais para este vereador no mês corrente"
+                        >
+                          Cota extra
+                        </button>
+                      )}
                       <button
                         onClick={() => abrirEditar(c)}
                         className="text-gray-500 hover:text-blue-600 text-sm px-2 py-1 rounded border border-gray-200 hover:border-blue-300 transition-colors"
@@ -479,8 +536,18 @@ export default function FrotaCredenciaisPage() {
                       <div className="text-sm text-gray-500 space-y-0.5">
                         <div>Código: <code className="bg-gray-100 px-1 rounded text-xs">{c.codigo_acesso}</code></div>
                         {c.cota_mensal_litros && (
-                          <div>Cota mensal: <strong className="text-gray-700">{Number(c.cota_mensal_litros).toFixed(3).replace('.', ',')} L</strong></div>
+                          <div>Cota mensal: <strong className="text-gray-700">{Number(c.cota_mensal_litros).toFixed(3).replace('.', ',')} L</strong>
+                            {c.cota_extra_mes === mesAtual && Number(c.cota_extra_litros) > 0 && (
+                              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                title={`${c.cota_extra_motivo || ''} — liberado por ${c.cota_extra_liberada_por || ''}`}>
+                                +{Number(c.cota_extra_litros).toFixed(3).replace('.', ',')} L extra este mês
+                              </span>
+                            )}
+                          </div>
                         )}
+                        <div>WhatsApp: {c.telefone_whatsapp
+                          ? <strong className="text-gray-700">{c.telefone_whatsapp}</strong>
+                          : <span className="text-amber-600">não cadastrado — sem avisos</span>}</div>
                         {c.url_slug && (
                           <div className="flex items-center gap-2">
                             <span>Link:</span>
@@ -692,7 +759,18 @@ export default function FrotaCredenciaisPage() {
                       placeholder="Ex: 150.000"
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <p className="text-xs text-gray-400 mt-1">Limite de litros que este vereador pode solicitar por mês.</p>
+                    <p className="text-xs text-gray-400 mt-1">Limite de litros que este vereador pode solicitar por mês. Acima disso o pedido é bloqueado — use "Cota extra" para liberar mais.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">WhatsApp do vereador</label>
+                    <input
+                      type="tel"
+                      value={formTelefone}
+                      onChange={e => setFormTelefone(e.target.value)}
+                      placeholder="Ex: 77999990000 (DDD + número)"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Recebe aviso quando o pedido for aprovado, negado ou abastecido.</p>
                   </div>
                 </>
               )}
@@ -772,6 +850,59 @@ export default function FrotaCredenciaisPage() {
                   className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-lg text-sm font-medium"
                 >
                   {salvando ? 'Salvando...' : editando ? 'Salvar alterações' : 'Criar credencial'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Modal: liberar cota extra ───────────────────────────────────── */}
+      {modalExtra && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={e => { if (e.target === e.currentTarget) setModalExtra(null) }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-1">Liberar cota extra</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              {modalExtra.nome} · cota de {Number(modalExtra.cota_mensal_litros || 0).toFixed(3).replace('.', ',')} L/mês
+              {modalExtra.cota_extra_mes === mesAtual && Number(modalExtra.cota_extra_litros) > 0 && (
+                <> · já liberados {Number(modalExtra.cota_extra_litros).toFixed(3).replace('.', ',')} L extras este mês</>
+              )}
+            </p>
+            <form onSubmit={handleLiberarExtra} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Litros a mais (só neste mês)</label>
+                <input
+                  type="number" step="0.001" min="0.001" required
+                  value={extraLitros}
+                  onChange={e => setExtraLitros(e.target.value)}
+                  placeholder="Ex: 50"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Motivo *</label>
+                <textarea
+                  rows={2} required
+                  value={extraMotivo}
+                  onChange={e => setExtraMotivo(e.target.value)}
+                  placeholder="Ex.: viagem oficial a Salvador na semana de 15/09"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+                />
+                <p className="text-xs text-gray-400 mt-1">Fica registrado no log com seu nome; o vereador recebe o aviso no WhatsApp.</p>
+              </div>
+              {erroExtra && <p className="text-sm text-red-600">{erroExtra}</p>}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setModalExtra(null)}
+                  className="flex-1 py-2 border border-gray-200 rounded-lg text-gray-600 text-sm hover:bg-gray-50">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={salvandoExtra}
+                  className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-lg text-sm font-medium">
+                  {salvandoExtra ? 'Liberando...' : 'Liberar'}
                 </button>
               </div>
             </form>

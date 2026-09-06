@@ -203,6 +203,10 @@ export class Orgao {
   @Column({ length: 20, nullable: true })
   whatsapp_responsavel_medicoes: string;
 
+  /** WhatsApp do gestor responsável pela frota — recebe os pedidos de combustível dos vereadores */
+  @Column({ length: 20, nullable: true })
+  whatsapp_responsavel_frota: string;
+
   // ============ CONFIGURAÇÕES DE DISPUTA ============
   
   @Column({ default: true })
