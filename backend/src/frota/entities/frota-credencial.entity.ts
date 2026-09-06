@@ -40,20 +40,20 @@ export class FrotaCredencial {
   cota_mensal_litros: number;
 
   /** WhatsApp do vereador (DDD + número) — recebe aprovação/negação/abastecimento */
-  @Column({ length: 20, nullable: true })
+  @Column({ type: 'varchar', length: 20, nullable: true })
   telefone_whatsapp: string | null;
 
   /** Litros extras liberados pelo gestor, válidos só no mês cota_extra_mes ('YYYY-MM') */
   @Column({ type: 'decimal', precision: 10, scale: 3, default: 0 })
   cota_extra_litros: number;
 
-  @Column({ length: 7, nullable: true })
+  @Column({ type: 'varchar', length: 7, nullable: true })
   cota_extra_mes: string | null;
 
   @Column({ type: 'text', nullable: true })
   cota_extra_motivo: string | null;
 
-  @Column({ length: 255, nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true })
   cota_extra_liberada_por: string | null;
 
   @Column({ type: 'timestamptz', nullable: true })
