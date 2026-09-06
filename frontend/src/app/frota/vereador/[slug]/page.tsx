@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { Loader2, Fuel, ClipboardList, Home, User, ChevronRight, CheckCircle, Clock, XCircle, Lock, LogOut, ExternalLink, Share2 } from 'lucide-react'
 import { API_URL } from '@/lib/api'
+import { QrCodeImg } from '../../QrCodeImg'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,8 @@ interface Requisicao {
 }
 interface VereadorData {
   credencial: CredencialInfo; mes: string; cota_mensal: number; litros_usados: number
+  cota_extra?: number; cota_extra_motivo?: string | null; cota_total?: number
+  litros_comprometidos?: number; litros_disponiveis?: number | null
   autorizacao_ativa: Requisicao | null; requisicoes: Requisicao[]
 }
 
@@ -30,10 +33,6 @@ const fmtLitros = (v: number) => `${Number(v || 0).toLocaleString('pt-BR', { min
 const fmtData = (d: string) => d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: TZ_BRASIL }) : ''
 const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-function getQrUrl(token: string, origin: string) {
-  const url = `${origin}/frota/req/${token}`
-  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(url)}`
-}
 
 function compartilharWhatsApp(token: string, codigo?: string) {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -294,8 +293,14 @@ export default function VereadorSlugPage() {
   const { credencial, mes, cota_mensal, litros_usados, requisicoes } = data
   const requisicoesAprovadas = requisicoes.filter(r => r.status === 'AUTORIZADO')
   const exibir = requisicoesAprovadas.find(r => r.id === requisicaoSelecionada?.id) ?? requisicoesAprovadas[0] ?? null
-  const percentoCota = cota_mensal > 0 ? Math.min((litros_usados / cota_mensal) * 100, 100) : 0
-  const litrosDisp = Math.max(0, cota_mensal - litros_usados)
+  const cotaExtra = Number(data.cota_extra || 0)
+  const cotaTotal = data.cota_total ?? cota_mensal
+  const litrosComprometidos = Number(data.litros_comprometidos || 0)
+  const percentoCota = cotaTotal > 0 ? Math.min(((litros_usados + litrosComprometidos) / cotaTotal) * 100, 100) : 0
+  // Disponível já desconta pedidos abertos (pendentes/autorizados) — é o que o backend bloqueia
+  const litrosDisp = data.litros_disponiveis != null ? data.litros_disponiveis : Math.max(0, cotaTotal - litros_usados - litrosComprometidos)
+  const qtdPedido = qtdSelecionada === 'outro' ? (parseFloat(qtdOutro) || 0) : qtdSelecionada
+  const excedeCota = cota_mensal > 0 && qtdPedido > litrosDisp + 0.0005
   const mesLabel = new Date(`${mes}-15`).toLocaleString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()
   const ordemUrl = exibir?.token_acesso
     ? `${typeof window !== 'undefined' ? window.location.origin : ''}/frota/req/${exibir.token_acesso}`
@@ -329,7 +334,7 @@ export default function VereadorSlugPage() {
               <p className="text-slate-400 text-xs uppercase tracking-wide">LITROS UTILIZADOS</p>
               <p className="text-white text-3xl font-bold mt-1">
                 {fmtLitros(litros_usados)}
-                {cota_mensal > 0 && <span className="text-slate-400 text-lg font-normal"> / {fmtLitros(cota_mensal)}</span>}
+                {cota_mensal > 0 && <span className="text-slate-400 text-lg font-normal"> / {fmtLitros(cotaTotal)}</span>}
               </p>
             </div>
             {cota_mensal > 0 && (
@@ -339,9 +344,14 @@ export default function VereadorSlugPage() {
                     style={{ width: `${percentoCota}%` }} />
                 </div>
                 <div className="flex justify-between text-xs text-slate-400">
-                  <span>{percentoCota.toFixed(0)}% utilizado</span>
+                  <span>{percentoCota.toFixed(0)}% utilizado{litrosComprometidos > 0 ? ` (${fmtLitros(litrosComprometidos)} em pedidos abertos)` : ''}</span>
                   <span>{fmtLitros(litrosDisp)} disponíveis</span>
                 </div>
+                {cotaExtra > 0 && (
+                  <p className="text-xs text-emerald-300">
+                    +{fmtLitros(cotaExtra)} extras liberados pelo gestor este mês{data.cota_extra_motivo ? ` — ${data.cota_extra_motivo}` : ''}
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -391,11 +401,11 @@ export default function VereadorSlugPage() {
                 </div>
                 {exibir.token_acesso && origin && (
                   <div className="flex-shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={getQrUrl(exibir.token_acesso, origin)}
+                    <QrCodeImg
+                      value={`${origin}/frota/req/${exibir.token_acesso}`}
+                      size={112}
                       alt="QR Code para o posto"
-                      className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg border-2 border-slate-200"
+                      className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg border-2 border-slate-200 bg-white"
                     />
                   </div>
                 )}
@@ -586,8 +596,15 @@ export default function VereadorSlugPage() {
               onChange={e => setFormPedido({ ...formPedido, observacoes: e.target.value })} />
           </div>
 
+          {excedeCota && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              Sua cota do mês não cobre este pedido: restam <strong>{fmtLitros(litrosDisp)}</strong>
+              {litrosComprometidos > 0 ? ` (${fmtLitros(litrosComprometidos)} já estão em pedidos abertos)` : ''}.
+              Reduza a quantidade ou peça ao gestor uma liberação extra.
+            </p>
+          )}
           <button onClick={handleEnviarPedido}
-            disabled={enviandoPedido || !formPedido.veiculo_placa || !formPedido.finalidade || (qtdSelecionada === 'outro' && !qtdOutro)}
+            disabled={enviandoPedido || excedeCota || !formPedido.veiculo_placa || !formPedido.finalidade || (qtdSelecionada === 'outro' && !qtdOutro)}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold py-4 rounded-xl flex items-center justify-center gap-2">
             {enviandoPedido ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Fuel className="w-5 h-5" /> Enviar Pedido para Aprovação</>}
           </button>

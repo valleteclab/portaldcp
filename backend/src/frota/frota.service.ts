@@ -9,7 +9,9 @@ import { FrotaContrato } from './entities/frota-contrato.entity';
 import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
 import { ContratosService } from '../contratos/contratos.service';
 import { UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
-import { fimDoMesBrasil } from './frota.utils';
+import { fimDoMesBrasil, mesAtualBrasil } from './frota.utils';
+import { FrotaCredencial } from './entities/frota-credencial.entity';
+import { FrotaNotificacaoService } from './frota-notificacao.service';
 
 @Injectable()
 export class FrotaService {
@@ -26,6 +28,7 @@ export class FrotaService {
     private requisicaoRepository: Repository<FrotaRequisicao>,
     private contratosService: ContratosService,
     private dataSource: DataSource,
+    private notificacao: FrotaNotificacaoService,
   ) {}
 
   // ============================================================
@@ -441,25 +444,68 @@ export class FrotaService {
     }
 
     const data_requisicao = dados.data_requisicao || new Date().toISOString().split('T')[0];
-    // O código é sequencial por contagem: dois pedidos no mesmo instante podem
-    // calcular o mesmo número. O índice único barra o segundo — recalcula e tenta de novo.
-    let codigoAtual = codigo;
-    for (let tentativa = 0; ; tentativa++) {
-      const requisicao = this.requisicaoRepository.create({
-        ...dados,
-        codigo: codigoAtual,
-        data_requisicao,
-        status: StatusRequisicaoFrota.PENDENTE,
-        orgao_id: orgaoId,
-      });
-      try {
-        return await this.requisicaoRepository.save(requisicao);
-      } catch (err: any) {
-        const colisao = err?.code === '23505' && String(err?.detail || '').includes('(codigo)');
-        if (!colisao || tentativa >= 4) throw err;
-        codigoAtual = await this.gerarCodigoRequisicao(orgaoId);
+    const credencialId: string | undefined = dados.credencial_solicitante_id;
+
+    const salvo = await this.dataSource.transaction(async (manager) => {
+      // Cota mensal do vereador: bloqueia acima do limite (cota + extra liberada pelo
+      // gestor no mês), contando o que já abasteceu E os pedidos ainda abertos.
+      // Lock na credencial: dois pedidos simultâneos do mesmo vereador não passam juntos.
+      if (credencialId) {
+        const cred = await manager.findOne(FrotaCredencial, {
+          where: { id: credencialId, orgao_id: orgaoId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        const cotaMensal = Number(cred?.cota_mensal_litros || 0);
+        if (cred && cotaMensal > 0) {
+          const mes = mesAtualBrasil();
+          const row = await manager
+            .createQueryBuilder(FrotaRequisicao, 'r')
+            .select(
+              "COALESCE(SUM(CASE WHEN r.status = 'ABASTECIDO' THEN r.quantidade_abastecida ELSE r.quantidade_autorizada END), 0)",
+              'total',
+            )
+            .where('r.credencial_solicitante_id = :cid', { cid: credencialId })
+            .andWhere("r.status IN ('PENDENTE', 'AUTORIZADO', 'ABASTECIDO')")
+            .andWhere("to_char(r.data_requisicao, 'YYYY-MM') = :mes", { mes })
+            .getRawOne<{ total: string }>();
+          const usado = Number(row?.total || 0);
+          const extra = cred.cota_extra_mes === mes ? Number(cred.cota_extra_litros || 0) : 0;
+          const limite = cotaMensal + extra;
+          const disponivel = Math.max(0, limite - usado);
+          const pedido = Number(dados.quantidade_autorizada) || 0;
+          const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+          if (pedido > disponivel + 0.0005) {
+            throw new BadRequestException(
+              `Cota do mês esgotada: você ainda tem ${fmt(disponivel)} L disponíveis de ${fmt(limite)} L ` +
+              `(${fmt(usado)} L já abastecidos ou em pedidos abertos). Reduza a quantidade ou peça ao gestor uma liberação extra.`,
+            );
+          }
+        }
       }
-    }
+
+      // O código é sequencial por contagem: dois pedidos no mesmo instante podem
+      // calcular o mesmo número. O índice único barra o segundo — recalcula e tenta de novo.
+      let codigoAtual = codigo;
+      for (let tentativa = 0; ; tentativa++) {
+        const requisicao = manager.create(FrotaRequisicao, {
+          ...dados,
+          codigo: codigoAtual,
+          data_requisicao,
+          status: StatusRequisicaoFrota.PENDENTE,
+          orgao_id: orgaoId,
+        });
+        try {
+          return await manager.save(FrotaRequisicao, requisicao);
+        } catch (err: any) {
+          const colisao = err?.code === '23505' && String(err?.detail || '').includes('(codigo)');
+          if (!colisao || tentativa >= 4) throw err;
+          codigoAtual = await this.gerarCodigoRequisicao(orgaoId);
+        }
+      }
+    });
+
+    if (credencialId) void this.notificacao.novoPedidoParaGestor(salvo);
+    return salvo;
   }
 
   async atualizarRequisicao(id: string, orgaoId: string, dados: any) {
@@ -512,6 +558,9 @@ export class FrotaService {
       // Validade: até o fim do mês da autorização em horário Brasil (regra: usar dentro do mês)
       req.token_expiry = fimDoMesBrasil();
       return manager.save(FrotaRequisicao, req);
+    }).then((salvo) => {
+      void this.notificacao.pedidoAutorizado(salvo);
+      return salvo;
     });
   }
 
@@ -523,7 +572,9 @@ export class FrotaService {
     }
     req.status = StatusRequisicaoFrota.NEGADO;
     req.motivo_negacao = motivoNegacao;
-    return this.requisicaoRepository.save(req);
+    const salvo = await this.requisicaoRepository.save(req);
+    void this.notificacao.pedidoNegado(salvo);
+    return salvo;
   }
 
   async cancelarRequisicao(id: string, orgaoId: string) {
@@ -647,6 +698,9 @@ export class FrotaService {
           await manager.save(Veiculo, veiculo);
         }
       }
+      return salvo;
+    }).then((salvo) => {
+      void this.notificacao.abastecimentoConfirmado(salvo);
       return salvo;
     });
   }

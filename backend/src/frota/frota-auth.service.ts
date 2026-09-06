@@ -10,7 +10,8 @@ import { FrotaCredencial, TipoCredencialFrota } from './entities/frota-credencia
 import { FrotaAcessoLog, AcaoFrotaLog } from './entities/frota-acesso-log.entity';
 import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
-import { fimDoMesBrasil } from './frota.utils';
+import { fimDoMesBrasil, mesAtualBrasil } from './frota.utils';
+import { FrotaNotificacaoService } from './frota-notificacao.service';
 
 export interface FrotaJwtPayload {
   sub: string;         // credencial_id
@@ -31,6 +32,7 @@ export class FrotaAuthService {
     @InjectRepository(Orgao)
     private orgaoRepo: Repository<Orgao>,
     private jwtService: JwtService,
+    private notificacao: FrotaNotificacaoService,
   ) {}
 
   // ================================================================
@@ -43,7 +45,8 @@ export class FrotaAuthService {
       order: { tipo: 'ASC', nome: 'ASC' },
       select: ['id', 'tipo', 'nome', 'codigo_acesso', 'solicitante_cargo',
                'cota_mensal_litros', 'veiculo_ids', 'url_slug', 'ativo', 'ultimo_acesso', 'created_at',
-               'contrato_id'],
+               'contrato_id', 'telefone_whatsapp', 'cota_extra_litros', 'cota_extra_mes',
+               'cota_extra_motivo', 'cota_extra_liberada_por', 'cota_extra_liberada_em'],
       relations: { contrato: true },
     });
   }
@@ -79,6 +82,7 @@ export class FrotaAuthService {
       senha_hash,
       solicitante_cargo: dados.solicitante_cargo,
       cota_mensal_litros: dados.cota_mensal_litros,
+      telefone_whatsapp: String(dados.telefone_whatsapp || '').replace(/\D/g, '') || null,
       veiculo_ids: dados.veiculo_ids,
       url_slug,
       ativo: dados.ativo ?? true,
@@ -96,6 +100,14 @@ export class FrotaAuthService {
       delete dados.senha;
     }
     if (dados.codigo_acesso) dados.codigo_acesso = dados.codigo_acesso.toUpperCase();
+    if (dados.telefone_whatsapp !== undefined) {
+      dados.telefone_whatsapp = String(dados.telefone_whatsapp || '').replace(/\D/g, '') || null;
+    }
+    // Liberação extra só pelo endpoint próprio (auditado); órgão nunca muda por aqui.
+    for (const k of ['cota_extra_litros', 'cota_extra_mes', 'cota_extra_motivo',
+                     'cota_extra_liberada_por', 'cota_extra_liberada_em', 'orgao_id', 'id']) {
+      delete dados[k];
+    }
 
     Object.assign(credencial, dados);
     return this.credencialRepo.save(credencial);
@@ -331,6 +343,16 @@ export class FrotaAuthService {
       .filter(r => r.status === StatusRequisicaoFrota.ABASTECIDO)
       .reduce((s, r) => s + Number(r.quantidade_abastecida || 0), 0);
 
+    // Pedidos abertos (pendentes/autorizados) também contam contra a cota — senão
+    // o vereador empilha pedidos até o gestor aprovar.
+    const litrosComprometidos = doMes
+      .filter(r => r.status === StatusRequisicaoFrota.PENDENTE || r.status === StatusRequisicaoFrota.AUTORIZADO)
+      .reduce((s, r) => s + Number(r.quantidade_autorizada || 0), 0);
+    const cotaMensal = Number(credencial.cota_mensal_litros || 0);
+    const cotaExtra = credencial.cota_extra_mes === mes ? Number(credencial.cota_extra_litros || 0) : 0;
+    const cotaTotal = cotaMensal + cotaExtra;
+    const litrosDisponiveis = cotaMensal > 0 ? Math.max(0, cotaTotal - litrosUsados - litrosComprometidos) : null;
+
     const autorizacaoAtiva = todasRequisicoes.find(r => r.status === StatusRequisicaoFrota.AUTORIZADO) || null;
 
     return {
@@ -343,11 +365,51 @@ export class FrotaAuthService {
         veiculo_ids: credencial.veiculo_ids || [],
       },
       mes,
-      cota_mensal: Number(credencial.cota_mensal_litros || 0),
+      cota_mensal: cotaMensal,
+      cota_extra: cotaExtra,
+      cota_extra_motivo: cotaExtra > 0 ? credencial.cota_extra_motivo : null,
+      cota_total: cotaTotal,
+      litros_comprometidos: litrosComprometidos,
+      /** null = sem limite configurado */
+      litros_disponiveis: litrosDisponiveis,
       litros_usados: litrosUsados,
       autorizacao_ativa: autorizacaoAtiva,
       requisicoes: todasRequisicoes,
     };
+  }
+
+  // ================================================================
+  // COTA EXTRA (gestor libera litros a mais no mês corrente)
+  // ================================================================
+
+  async liberarCotaExtra(credencialId: string, orgaoId: string, litros: number, motivo: string, liberadoPor: string) {
+    const credencial = await this.credencialRepo.findOne({ where: { id: credencialId, orgao_id: orgaoId } });
+    if (!credencial) throw new NotFoundException('Credencial não encontrada');
+    if (credencial.tipo !== TipoCredencialFrota.VEREADOR) {
+      throw new BadRequestException('Cota extra só se aplica a credencial de vereador');
+    }
+    if (!Number.isFinite(litros) || litros <= 0) {
+      throw new BadRequestException('Informe a quantidade de litros a liberar (maior que zero)');
+    }
+    if (!motivo || motivo.trim().length < 5) {
+      throw new BadRequestException('Informe o motivo da liberação (mínimo 5 caracteres)');
+    }
+    const mes = mesAtualBrasil();
+    // Extra acumula dentro do mês; virou o mês, começa do zero.
+    const anterior = credencial.cota_extra_mes === mes ? Number(credencial.cota_extra_litros || 0) : 0;
+    credencial.cota_extra_litros = anterior + litros;
+    credencial.cota_extra_mes = mes;
+    credencial.cota_extra_motivo = motivo.trim();
+    credencial.cota_extra_liberada_por = liberadoPor;
+    credencial.cota_extra_liberada_em = new Date();
+    const salva = await this.credencialRepo.save(credencial);
+
+    await this.log(credencial.id, orgaoId, 'painel', liberadoPor, AcaoFrotaLog.LIBERAR_COTA_EXTRA,
+      { litros, motivo: motivo.trim(), mes, total_extra_mes: salva.cota_extra_litros }, true);
+    void this.notificacao.cotaExtraLiberada(salva, litros, motivo.trim(), liberadoPor);
+
+    const { senha_hash, ...publica } = salva as any;
+    return publica;
   }
 
   // ================================================================
