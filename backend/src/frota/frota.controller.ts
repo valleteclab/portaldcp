@@ -29,8 +29,15 @@ export class FrotaController {
     throw new Error('Órgão não identificado');
   }
 
-  private getUserName(user: JwtPayload): string {
-    return (user as any).nome || (user as any).name || 'Sistema';
+  /** Nome de quem age (autorizou, liberou cota…). O JWT não carrega nome — busca o usuário. */
+  private async getUserName(user: JwtPayload): Promise<string> {
+    const doToken = (user as any).nome || (user as any).name;
+    if (doToken) return doToken;
+    if (user.type === UserType.USUARIO || user.sub) {
+      const u = await this.usuarioRepository.findOne({ where: { id: user.sub }, select: ['id', 'nome', 'email'] });
+      if (u?.nome || u?.email) return u.nome || u.email;
+    }
+    return user.type === UserType.ORGAO ? 'Gestor do órgão' : 'Sistema';
   }
 
   // ========== RESUMO GERAL ==========
@@ -213,7 +220,7 @@ export class FrotaController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: { user: JwtPayload },
   ) {
-    const nome = this.getUserName(req.user);
+    const nome = await this.getUserName(req.user);
     return this.frotaService.autorizarRequisicao(id, this.getOrgaoId(req.user), nome);
   }
 
@@ -350,7 +357,7 @@ export class FrotaController {
     @Body() body: { litros: number; motivo?: string },
   ) {
     return this.frotaAuthService.liberarCotaExtra(
-      id, this.getOrgaoId(req.user), Number(body?.litros), body?.motivo || '', this.getUserName(req.user),
+      id, this.getOrgaoId(req.user), Number(body?.litros), body?.motivo || '', await this.getUserName(req.user),
     );
   }
 
