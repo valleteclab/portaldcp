@@ -65,11 +65,14 @@ export class FrotaPublicController {
     return this.frotaAuth.obterInfoVereadorPortal(slug);
   }
 
+  /** Login: limite por IP contra força bruta (senha do vereador/posto) */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('auth-vereador/:slug')
   async loginVereador(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
     return this.frotaAuth.loginPorSlugVereador(slug, body.senha, getIp(req), getUserAgent(req));
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('auth-vereador-portal/:slug')
   async loginVereadorPortal(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
     return this.frotaAuth.loginVereadorPortal(
@@ -86,12 +89,14 @@ export class FrotaPublicController {
   // ================================================================
 
   /** Login genérico: orgaoId + codigoAcesso + senha */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('auth')
   async login(@Body() body: any, @Req() req: Request) {
     return this.frotaAuth.login(body.orgaoId, body.codigoAcesso, body.senha, getIp(req), getUserAgent(req));
   }
 
   /** Login do posto pelo slug da URL */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('auth-posto/:slug')
   async loginPosto(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
     return this.frotaAuth.loginPorSlug(slug, body.senha, getIp(req), getUserAgent(req));
@@ -101,10 +106,35 @@ export class FrotaPublicController {
   // QR CODE — VERIFICAÇÃO PÚBLICA (para quando o motorista mostra o QR)
   // ================================================================
 
-  /** Retorna dados da requisição pelo token do QR (sem autenticação, apenas com o token) */
+  /**
+   * Retorna dados da requisição pelo token do QR (sem autenticação, apenas com o token).
+   * Só o que a tela da autorização mostra — sem contrato (preço/fornecedor),
+   * sem ids internos do órgão e sem o token de novo.
+   */
   @Get('req/:token')
   async verificarToken(@Param('token') token: string) {
-    return this.frotaAuth.verificarTokenAcesso(token);
+    const r = await this.frotaAuth.verificarTokenAcesso(token);
+    return {
+      id: r.id,
+      codigo: r.codigo,
+      codigo_posto: r.codigo_posto,
+      status: r.status,
+      solicitante_nome: r.solicitante_nome,
+      solicitante_cargo: r.solicitante_cargo,
+      veiculo_placa: r.veiculo_placa,
+      veiculo_modelo: r.veiculo_modelo,
+      veiculo_chassi: r.veiculo_chassi,
+      veiculo_renavam: r.veiculo_renavam,
+      tipo_combustivel: r.tipo_combustivel,
+      quantidade_autorizada: r.quantidade_autorizada,
+      finalidade: r.finalidade,
+      data_requisicao: r.data_requisicao,
+      data_autorizacao: r.data_autorizacao,
+      autorizado_por: r.autorizado_por,
+      token_expiry: r.token_expiry,
+      orgao_nome: r.orgao_nome,
+      orgao_logo: r.orgao_logo,
+    };
   }
 
   /** Confirmação de abastecimento via QR — requer token de posto válido */
@@ -135,7 +165,7 @@ export class FrotaPublicController {
   // ================================================================
 
   /** Rate limit mais restrito para mitigar brute-force em codigo_posto (6 chars) */
-  @Throttle([{ limit: 15, ttl: 60000 }])
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
   @Get('posto/verificar/:codigo')
   async postoVerificarCodigo(
     @Param('codigo') codigo: string,

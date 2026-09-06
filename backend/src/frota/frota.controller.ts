@@ -248,7 +248,7 @@ export class FrotaController {
 
   @Get('requisicoes/verificar/:codigo')
   async verificarCodigo(@Param('codigo') codigo: string, @Req() req: { user: JwtPayload }) {
-    return this.frotaService.verificarCodigo(codigo, this.getOrgaoId(req.user));
+    return this.frotaService.verificarCodigo(codigo, this.getOrgaoId(req.user), true);
   }
 
   @Put('requisicoes/:id/confirmar-abastecimento')
