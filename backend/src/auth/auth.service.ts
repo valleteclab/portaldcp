@@ -306,9 +306,13 @@ export class AuthService {
    * Valida token JWT e retorna payload
    */
   async validateToken(payload: JwtPayload): Promise<JwtPayload> {
-    // Validações adicionais podem ser feitas aqui
-    // Por exemplo, verificar se o usuário ainda existe e está ativo
-    
+    // Tokens de outras áreas assinados com o mesmo segredo (ex.: FROTA_POSTO /
+    // FROTA_VEREADOR do painel do posto) NÃO valem aqui: eles carregam orgaoId
+    // e passariam como usuário do órgão em qualquer rota autenticada.
+    if (!Object.values(UserType).includes(payload?.type as UserType)) {
+      throw new UnauthorizedException('Token não válido para esta área');
+    }
+
     // Admin não precisa validação adicional
     if (payload.type === UserType.ADMIN) {
       return payload;
