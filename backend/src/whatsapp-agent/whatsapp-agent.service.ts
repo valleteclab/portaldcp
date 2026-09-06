@@ -363,13 +363,28 @@ Digite o número da opção desejada.`;
     }
   }
 
-  /** Compara dois telefones pelo sufixo (tolera DDI/formatação diferentes). */
+  /**
+   * Compara dois telefones pelo sufixo (tolera DDI/formatação diferentes) e
+   * pelo NONO DÍGITO: o WhatsApp às vezes reporta o número sem o 9 celular
+   * (55 77 98755764) enquanto o cadastro tem o 9 (77 9 9875-5764) — o comando
+   * /ia off do admin caía no fluxo normal da IA por causa disso.
+   */
   private telefoneBate(a: string, b: string): boolean {
     const da = (a || '').replace(/\D/g, '');
     const db = (b || '').replace(/\D/g, '');
     if (!da || !db) return false;
     const n = Math.min(da.length, db.length, 11);
-    return n >= 8 && da.slice(-n) === db.slice(-n);
+    if (n >= 8 && da.slice(-n) === db.slice(-n)) return true;
+    // Normaliza para DDD + 8 dígitos finais (sem DDI 55 e sem o nono dígito)
+    const norm = (s: string) => {
+      let x = s;
+      if (x.length >= 12 && x.startsWith('55')) x = x.slice(2);
+      if (x.length === 11) x = x.slice(0, 2) + x.slice(3);
+      return x.length === 10 ? x : '';
+    };
+    const na = norm(da);
+    const nb = norm(db);
+    return !!na && na === nb;
   }
 
   /**
