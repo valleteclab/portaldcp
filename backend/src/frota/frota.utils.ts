@@ -13,3 +13,14 @@ export function fimDoMesBrasil(): Date {
   // 31/03 23:59:59.999 BRT = 01/04 02:59:59.999 UTC
   return new Date(Date.UTC(y, m, 1, 2, 59, 59, 999));
 }
+
+/** Mês atual no formato 'YYYY-MM' em horário de Brasília (America/Sao_Paulo) */
+export function mesAtualBrasil(): string {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(new Date()).map((p) => [p.type, p.value]));
+  return `${parts.year}-${parts.month}`;
+}

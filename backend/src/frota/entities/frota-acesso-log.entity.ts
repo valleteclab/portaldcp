@@ -12,6 +12,7 @@ export enum AcaoFrotaLog {
   CRIAR_REQUISICAO = 'CRIAR_REQUISICAO',
   ALTERAR_SENHA = 'ALTERAR_SENHA',
   VER_QR = 'VER_QR',
+  LIBERAR_COTA_EXTRA = 'LIBERAR_COTA_EXTRA',
 }
 
 @Entity('frota_acessos_log')

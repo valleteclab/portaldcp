@@ -103,6 +103,7 @@ export default function ConfiguracoesPage() {
     email: '',
     site: '',
     whatsapp_responsavel_medicoes: '' as string | null,
+    whatsapp_responsavel_frota: '' as string | null,
     logo_url: '' as string | null,
   })
   const [loading, setLoading] = useState(true)
@@ -126,6 +127,7 @@ export default function ConfiguracoesPage() {
           email: dados.email || dados.email_login || '',
           site: dados.site || '',
           whatsapp_responsavel_medicoes: dados.whatsapp_responsavel_medicoes || '',
+          whatsapp_responsavel_frota: dados.whatsapp_responsavel_frota || '',
           logo_url: dados.logo_url || null,
         }
         setOrgao(orgaoAtual)
@@ -149,6 +151,7 @@ export default function ConfiguracoesPage() {
           email: dados.email || dados.email_login || '',
           site: dados.site || '',
           whatsapp_responsavel_medicoes: dados.whatsapp_responsavel_medicoes || '',
+          whatsapp_responsavel_frota: dados.whatsapp_responsavel_frota || '',
           logo_url: dados.logo_url || null,
         })
       }
@@ -285,6 +288,7 @@ export default function ConfiguracoesPage() {
           email: orgao.email,
           site: orgao.site,
           whatsapp_responsavel_medicoes: orgao.whatsapp_responsavel_medicoes || null,
+          whatsapp_responsavel_frota: orgao.whatsapp_responsavel_frota || null,
         }),
       })
       if (res.ok) {
@@ -607,6 +611,17 @@ export default function ConfiguracoesPage() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Recebe alerta quando uma medição aprovada há mais de 15 dias ainda não constar liquidada no portal da transparência (processo de pagamento possivelmente não encaminhado à contabilidade).
+                  </p>
+                </div>
+                <div className="col-span-2 space-y-2">
+                  <Label>WhatsApp do responsável pela frota</Label>
+                  <Input
+                    placeholder="Ex.: 77999990000 (DDD + número)"
+                    value={orgao.whatsapp_responsavel_frota || ''}
+                    onChange={(e) => setOrgao({...orgao, whatsapp_responsavel_frota: e.target.value})}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Recebe no WhatsApp cada pedido de combustível feito por vereador, com o link para aprovar ou negar.
                   </p>
                 </div>
               </div>
