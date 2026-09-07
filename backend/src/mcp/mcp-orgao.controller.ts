@@ -1,4 +1,4 @@
-import { Controller, All, Query, Req, Res } from '@nestjs/common';
+import { Controller, All, Get, Query, Req, Res } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual } from 'typeorm';
@@ -88,6 +88,86 @@ export class McpOrgaoController {
     const server = this.criarServidor(chave);
     await server.connect(transport);
     await transport.handleRequest(req as any, res as any, req.body);
+  }
+
+  /**
+   * Endpoint para o Copilot Studio (e conectores Power Platform):
+   * - STATELESS: cada POST cria transporte + servidor novos (nada de Mcp-Session-Id);
+   * - respostas em application/json (o SDK responde em text/event-stream por padrão
+   *   e devolve 406 se o cliente não aceitar SSE — o conector manda só application/json);
+   * - chave por X-Api-Key, Authorization: Bearer ou ?api_key=.
+   * Mesmas ferramentas do /api/mcp/orgao.
+   */
+  @All('orgao/copilot')
+  async handleCopilot(
+    @Query('api_key') apiKeyQuery: string,
+    @Req() req: ExpressRequest,
+    @Res() res: ExpressResponse,
+  ) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Api-Key, Mcp-Session-Id');
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Methods', 'POST, DELETE, OPTIONS');
+      res.status(204).end();
+      return;
+    }
+    const xApiKey = String(req.headers['x-api-key'] || '').trim();
+    const bearer = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    const chave = await this.chaves.autenticar(xApiKey || bearer || apiKeyQuery);
+    if (!chave) {
+      res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Chave de integração inválida ou revogada.' }, id: null });
+      return;
+    }
+    if (req.method === 'DELETE') { res.status(200).json({ ok: true }); return; }
+    if (req.method !== 'POST') {
+      res.status(405).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Use POST com JSON-RPC (servidor sem sessão; sem stream GET).' }, id: null });
+      return;
+    }
+    // O SDK exige Accept com application/json E text/event-stream; normaliza para
+    // clientes que mandam só um deles (ou nenhum).
+    req.headers['accept'] = 'application/json, text/event-stream';
+    if (!String(req.headers['content-type'] || '').includes('application/json')) {
+      req.headers['content-type'] = 'application/json';
+    }
+
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    const server = this.criarServidor(chave);
+    res.on('close', () => { transport.close().catch(() => undefined); server.close().catch(() => undefined); });
+    await server.connect(transport);
+    await transport.handleRequest(req as any, res as any, req.body);
+  }
+
+  /** OpenAPI (Swagger 2.0) do endpoint acima, para criar um conector personalizado no Power Apps. */
+  @Get('orgao/copilot/openapi.json')
+  openapiCopilot(@Req() req: ExpressRequest, @Res() res: ExpressResponse) {
+    const host = String(req.headers['x-forwarded-host'] || req.headers['host'] || 'compras.cmlem.ba.gov.br').split(',')[0].trim();
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.json({
+      swagger: '2.0',
+      info: {
+        title: 'Portal DCP — Contratos do órgão (MCP)',
+        description: 'Consulta somente leitura da carteira de contratos do órgão: vigências, saldos, medições, aditivos.',
+        version: '1.0.0',
+      },
+      host,
+      basePath: '/',
+      schemes: ['https'],
+      paths: {
+        '/api/mcp/orgao/copilot': {
+          post: {
+            summary: 'Portal DCP — contratos do órgão',
+            'x-ms-agentic-protocol': 'mcp-streamable-1.0',
+            operationId: 'InvokeMCP',
+            responses: { '200': { description: 'Success' } },
+          },
+        },
+      },
+      securityDefinitions: { apiKey: { type: 'apiKey', in: 'header', name: 'X-Api-Key' } },
+      security: [{ apiKey: [] }],
+    });
   }
 
   // ───────────────────────────────────────────────────────────────────────
