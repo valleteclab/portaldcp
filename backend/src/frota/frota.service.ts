@@ -496,6 +496,20 @@ export class FrotaService {
   async criarRequisicao(orgaoId: string, dados: any) {
     const codigo = await this.gerarCodigoRequisicao(orgaoId);
 
+    // Pedido do app vem só com a placa: acha o veículo cadastrado (ignora hífen,
+    // espaço e caixa) para vincular — sem isso o km nunca chegava ao cadastro.
+    if (!dados.veiculo_id && dados.veiculo_placa) {
+      const placaNorm = String(dados.veiculo_placa).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (placaNorm) {
+        const v = await this.veiculoRepository
+          .createQueryBuilder('v')
+          .where('v.orgao_id = :orgaoId', { orgaoId })
+          .andWhere("regexp_replace(upper(v.placa), '[^A-Z0-9]', '', 'g') = :placa", { placa: placaNorm })
+          .getOne();
+        if (v) dados.veiculo_id = v.id;
+      }
+    }
+
     // Se informou veiculo_id, preenche dados do veículo automaticamente
     if (dados.veiculo_id) {
       const veiculo = await this.veiculoRepository.findOne({
@@ -580,7 +594,17 @@ export class FrotaService {
           orgao_id: orgaoId,
         });
         try {
-          return await manager.save(FrotaRequisicao, requisicao);
+          const criado = await manager.save(FrotaRequisicao, requisicao);
+          // Leitura do hodômetro informada no pedido vale como km atual do veículo
+          // (se for maior que a registrada) — a confirmação no posto atualiza de novo.
+          const kmPedido = Number(dados.km_hodometro) || 0;
+          if (criado.veiculo_id && kmPedido > 0) {
+            const veic = await manager.findOne(Veiculo, { where: { id: criado.veiculo_id } });
+            if (veic && kmPedido > Number(veic.km_atual || 0)) {
+              await manager.update(Veiculo, veic.id, { km_atual: kmPedido });
+            }
+          }
+          return criado;
         } catch (err: any) {
           const colisao = err?.code === '23505' && String(err?.detail || '').includes('(codigo)');
           if (!colisao || tentativa >= 4) throw err;
