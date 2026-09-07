@@ -277,6 +277,42 @@ export class FrotaPublicController {
     return result;
   }
 
+  /** Veículos que o vereador pode escolher no pedido */
+  @Get('vereador/veiculos')
+  async vereadorVeiculos(@Headers('authorization') auth: string) {
+    const payload = getVereadorPayload(bearerToken(auth), this.frotaAuth);
+    return this.frotaService.listarVeiculosParaVereador(payload.orgaoId, payload.sub);
+  }
+
+  /** Vereador cancela um pedido seu ainda pendente (libera a cota) */
+  @Put('vereador/requisicao/:id/cancelar')
+  async vereadorCancelarRequisicao(
+    @Param('id') id: string,
+    @Headers('authorization') auth: string,
+    @Req() req: Request,
+  ) {
+    const payload = getVereadorPayload(bearerToken(auth), this.frotaAuth);
+    const result = await this.frotaService.cancelarRequisicaoDoVereador(id, payload.orgaoId, payload.sub);
+    await this.frotaAuth.log(payload.sub, payload.orgaoId, getIp(req), getUserAgent(req),
+      AcaoFrotaLog.CANCELAR_REQUISICAO, { codigo: result.codigo }, true);
+    return result;
+  }
+
+  /** Vereador pede litros a mais ao gestor (WhatsApp). Limitado para não virar spam. */
+  @Throttle({ default: { limit: 3, ttl: 600000 } })
+  @Post('vereador/solicitar-cota-extra')
+  async vereadorSolicitarCotaExtra(
+    @Body() body: { litros: number; motivo?: string },
+    @Headers('authorization') auth: string,
+    @Req() req: Request,
+  ) {
+    const payload = getVereadorPayload(bearerToken(auth), this.frotaAuth);
+    const result = await this.frotaAuth.solicitarCotaExtra(payload.sub, payload.orgaoId, Number(body?.litros), body?.motivo || '');
+    await this.frotaAuth.log(payload.sub, payload.orgaoId, getIp(req), getUserAgent(req),
+      AcaoFrotaLog.SOLICITAR_COTA_EXTRA, { litros: Number(body?.litros), motivo: body?.motivo || '', gestor_avisado: result.gestor_avisado }, true);
+    return result;
+  }
+
   @Put('vereador/senha')
   async vereadorAlterarSenha(@Body() body: any, @Headers('authorization') auth: string, @Req() req: Request) {
     const payload = getVereadorPayload(bearerToken(auth), this.frotaAuth);

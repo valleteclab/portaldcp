@@ -118,6 +118,29 @@ export class FrotaNotificacaoService {
     await this.enviar(alvo.orgaoId, alvo.telefone, msg, 'abastecimento confirmado');
   }
 
+  /** Vereador pediu liberação extra → gestor responsável. Devolve se havia para quem avisar. */
+  async solicitacaoCotaExtraParaGestor(
+    credencial: FrotaCredencial,
+    litros: number,
+    motivo: string,
+    resumo: { cota_total: number; litros_disponiveis: number | null; litros_usados: number; litros_comprometidos: number },
+  ): Promise<boolean> {
+    const orgao = await this.orgaoRepo.findOne({
+      where: { id: credencial.orgao_id },
+      select: ['id', 'whatsapp_responsavel_frota'],
+    });
+    if (!orgao?.whatsapp_responsavel_frota) return false;
+    const msg =
+      `🟡 *Pedido de liberação de cota*\n\n` +
+      `${credencial.nome}${credencial.solicitante_cargo ? ` (${credencial.solicitante_cargo})` : ''} pede *+${this.litros(litros)}* neste mês.\n` +
+      (motivo ? `Motivo: ${motivo}\n` : '') +
+      `\nCota do mês: ${this.litros(resumo.cota_total)} · usados ${this.litros(resumo.litros_usados)} · em pedidos abertos ${this.litros(resumo.litros_comprometidos)}` +
+      (resumo.litros_disponiveis != null ? ` · disponível ${this.litros(resumo.litros_disponiveis)}` : '') + `\n\n` +
+      `Liberar (botão "Cota extra" na credencial): ${this.baseUrl}/orgao/frota/credenciais`;
+    await this.enviar(credencial.orgao_id, orgao.whatsapp_responsavel_frota, msg, 'pedido de cota extra');
+    return true;
+  }
+
   /** Gestor liberou litros extras no mês → vereador */
   async cotaExtraLiberada(credencial: FrotaCredencial, litros: number, motivo: string, liberadoPor: string): Promise<void> {
     if (!credencial.telefone_whatsapp) return;
