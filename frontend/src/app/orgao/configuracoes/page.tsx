@@ -722,9 +722,6 @@ export default function ConfiguracoesPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="setores" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Integração com IA (MCP)</CardTitle>
@@ -782,6 +779,9 @@ export default function ConfiguracoesPage() {
               </p>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="setores" className="space-y-4">
 
           <Card>
             <CardHeader>
