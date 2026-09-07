@@ -270,6 +270,45 @@ export default function ConfiguracoesPage() {
   const [savingSetor, setSavingSetor] = useState(false)
   const [savingOrgao, setSavingOrgao] = useState(false)
 
+  // ── Chaves de integração (MCP / agentes de IA) ─────────────────────────
+  const [mcpKeys, setMcpKeys] = useState<{ id: string; nome: string; prefixo: string; criado_por?: string | null; ultimo_uso?: string | null; revogada_em?: string | null; created_at: string }[]>([])
+  const [mcpNome, setMcpNome] = useState('')
+  const [mcpGerando, setMcpGerando] = useState(false)
+  const [mcpChaveNova, setMcpChaveNova] = useState<string | null>(null)
+
+  const carregarMcpKeys = async (orgaoId: string) => {
+    try {
+      const res = await authFetch(`${API_URL}/api/orgaos/${orgaoId}/mcp-keys`)
+      if (res.ok) setMcpKeys(await res.json())
+    } catch { /* ignore */ }
+  }
+  useEffect(() => { if (orgao.id) carregarMcpKeys(orgao.id) }, [orgao.id])
+
+  const gerarMcpKey = async () => {
+    if (!orgao.id) return
+    setMcpGerando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}/mcp-keys`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome: mcpNome.trim() }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(json.message || 'Erro ao gerar chave'); return }
+      setMcpChaveNova(json.api_key)
+      setMcpNome('')
+      carregarMcpKeys(orgao.id)
+    } finally { setMcpGerando(false) }
+  }
+
+  const revogarMcpKey = async (id: string) => {
+    if (!orgao.id || !confirm('Revogar esta chave? Quem a usa perde o acesso na hora.')) return
+    const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}/mcp-keys/${id}`, { method: 'DELETE' })
+    if (res.ok) { toast.success('Chave revogada'); carregarMcpKeys(orgao.id) } else toast.error('Erro ao revogar')
+  }
+
+  const mcpConfigSnippet = (chave: string) => JSON.stringify({
+    servers: { portaldcp: { type: 'http', url: `${typeof window !== 'undefined' ? window.location.origin : ''}/api/mcp/orgao`, headers: { Authorization: `Bearer ${chave}` } } },
+  }, null, 2)
+
   const salvarDadosOrgao = async () => {
     if (!orgao.id) return
     setSavingOrgao(true)
@@ -686,6 +725,64 @@ export default function ConfiguracoesPage() {
         </TabsContent>
 
         <TabsContent value="setores" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Integração com IA (MCP)</CardTitle>
+              <CardDescription>
+                Chaves para agentes (Copilot, Claude, etc.) consultarem a carteira de contratos do órgão — vigências, saldos, medições, aditivos. Somente leitura.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input placeholder='Nome da chave — ex.: "Copilot da Secretaria"' value={mcpNome} onChange={(e) => setMcpNome(e.target.value)} />
+                <Button onClick={gerarMcpKey} disabled={mcpGerando || mcpNome.trim().length < 3 || !orgao.id}>
+                  {mcpGerando ? 'Gerando...' : 'Gerar chave'}
+                </Button>
+              </div>
+
+              {mcpChaveNova && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-3">
+                  <p className="text-sm font-semibold text-amber-900">Copie agora — a chave não será mostrada de novo.</p>
+                  <div className="flex gap-2 items-center">
+                    <code className="flex-1 break-all text-xs bg-white border rounded px-2 py-1">{mcpChaveNova}</code>
+                    <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(mcpChaveNova); toast.success('Chave copiada') }}>Copiar</Button>
+                  </div>
+                  <p className="text-xs text-amber-900">Configuração pronta para o VS Code / Copilot Chat (<code>.vscode/mcp.json</code>):</p>
+                  <div className="flex gap-2 items-start">
+                    <pre className="flex-1 overflow-x-auto text-xs bg-white border rounded p-2">{mcpConfigSnippet(mcpChaveNova)}</pre>
+                    <Button variant="outline" size="sm" onClick={() => { navigator.clipboard.writeText(mcpConfigSnippet(mcpChaveNova)); toast.success('Configuração copiada') }}>Copiar</Button>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setMcpChaveNova(null)}>Já copiei, fechar</Button>
+                </div>
+              )}
+
+              {mcpKeys.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma chave gerada.</p>
+              ) : (
+                <div className="divide-y rounded-lg border">
+                  {mcpKeys.map((k) => (
+                    <div key={k.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                      <div>
+                        <span className="font-medium">{k.nome}</span>{' '}
+                        <code className="text-xs text-muted-foreground">{k.prefixo}…</code>
+                        <p className="text-xs text-muted-foreground">
+                          criada em {new Date(k.created_at).toLocaleDateString('pt-BR')}{k.criado_por ? ` por ${k.criado_por}` : ''}
+                          {k.ultimo_uso ? ` · último uso ${new Date(k.ultimo_uso).toLocaleString('pt-BR')}` : ' · nunca usada'}
+                        </p>
+                      </div>
+                      {k.revogada_em
+                        ? <span className="text-xs text-red-600">revogada em {new Date(k.revogada_em).toLocaleDateString('pt-BR')}</span>
+                        : <Button variant="outline" size="sm" onClick={() => revogarMcpKey(k.id)}>Revogar</Button>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Endpoint: <code>{typeof window !== 'undefined' ? window.location.origin : ''}/api/mcp/orgao</code> · autenticação por header <code>Authorization: Bearer &lt;chave&gt;</code> · ferramentas: listar_contratos, contrato, contratos_vencendo, medicoes, resumo.
+              </p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
