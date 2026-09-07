@@ -124,11 +124,20 @@ export class McpOrgaoController {
       return;
     }
     // O SDK exige Accept com application/json E text/event-stream; normaliza para
-    // clientes que mandam só um deles (ou nenhum).
-    req.headers['accept'] = 'application/json, text/event-stream';
-    if (!String(req.headers['content-type'] || '').includes('application/json')) {
-      req.headers['content-type'] = 'application/json';
+    // clientes que mandam só um deles (ou nenhum). O adaptador Node do SDK (Hono
+    // getRequestListener) monta o Request a partir de req.rawHeaders — é ele que
+    // precisa ser reescrito, não só req.headers.
+    const raw: string[] = (req as any).rawHeaders || [];
+    const filtrados: string[] = [];
+    for (let i = 0; i + 1 < raw.length; i += 2) {
+      const nome = String(raw[i]).toLowerCase();
+      if (nome === 'accept' || nome === 'content-type') continue;
+      filtrados.push(raw[i], raw[i + 1]);
     }
+    filtrados.push('Accept', 'application/json, text/event-stream', 'Content-Type', 'application/json');
+    (req as any).rawHeaders = filtrados;
+    req.headers['accept'] = 'application/json, text/event-stream';
+    req.headers['content-type'] = 'application/json';
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
