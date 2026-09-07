@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, ILike, Like, Or, DataSource } from 'typeorm';
+import { Repository, Between, ILike, Like, Or, DataSource, In } from 'typeorm';
 import * as crypto from 'crypto';
 import { Veiculo } from './entities/veiculo.entity';
 import { Abastecimento } from './entities/abastecimento.entity';
@@ -29,6 +29,8 @@ export class FrotaService {
     private contratosService: ContratosService,
     private dataSource: DataSource,
     private notificacao: FrotaNotificacaoService,
+    @InjectRepository(FrotaCredencial)
+    private credencialRepository: Repository<FrotaCredencial>,
   ) {}
 
   // ============================================================
@@ -401,11 +403,94 @@ export class FrotaService {
       const { inicio, fim } = intervaloDoMes(mes);
       where.data_requisicao = Between(inicio, fim);
     }
-    return this.requisicaoRepository.find({
+    const lista = await this.requisicaoRepository.find({
       where,
       relations: ['contrato'],
       order: { created_at: 'DESC' },
     });
+    // Contexto para o gestor decidir: cota do vereador no mês corrente
+    // (usados, em pedidos abertos, disponível) ao lado de cada pedido dele.
+    const credIds = Array.from(new Set(lista.map((r) => r.credencial_solicitante_id).filter(Boolean))) as string[];
+    if (credIds.length > 0) {
+      const resumo = await this.resumoCotaPorCredencial(credIds, mesAtualBrasil());
+      for (const r of lista) {
+        const c = r.credencial_solicitante_id ? resumo.get(r.credencial_solicitante_id) : undefined;
+        if (c) (r as any).cota_solicitante = c;
+      }
+    }
+    return lista;
+  }
+
+  /**
+   * Cota do mês por credencial de vereador: cota + extra (do mês), litros já
+   * abastecidos, litros em pedidos abertos (pendentes/autorizados) e disponível.
+   * disponivel = null quando a credencial não tem cota configurada.
+   */
+  async resumoCotaPorCredencial(credencialIds: string[], mes: string) {
+    const mapa = new Map<string, {
+      cota_mensal: number; cota_extra: number; cota_total: number;
+      usados: number; abertos: number; disponivel: number | null;
+    }>();
+    if (credencialIds.length === 0) return mapa;
+    const creds = await this.credencialRepository.find({
+      where: { id: In(credencialIds) },
+      select: ['id', 'cota_mensal_litros', 'cota_extra_litros', 'cota_extra_mes'],
+    });
+    const somas: Array<{ cid: string; usados: string; abertos: string }> = await this.requisicaoRepository
+      .createQueryBuilder('r')
+      .select('r.credencial_solicitante_id', 'cid')
+      .addSelect("COALESCE(SUM(CASE WHEN r.status = 'ABASTECIDO' THEN r.quantidade_abastecida ELSE 0 END), 0)", 'usados')
+      .addSelect("COALESCE(SUM(CASE WHEN r.status IN ('PENDENTE', 'AUTORIZADO') THEN r.quantidade_autorizada ELSE 0 END), 0)", 'abertos')
+      .where('r.credencial_solicitante_id IN (:...ids)', { ids: credencialIds })
+      .andWhere("to_char(r.data_requisicao, 'YYYY-MM') = :mes", { mes })
+      .groupBy('r.credencial_solicitante_id')
+      .getRawMany();
+    const porCred = new Map(somas.map((x) => [x.cid, x]));
+    for (const c of creds) {
+      const cotaMensal = Number(c.cota_mensal_litros || 0);
+      const extra = c.cota_extra_mes === mes ? Number(c.cota_extra_litros || 0) : 0;
+      const usados = Number(porCred.get(c.id)?.usados || 0);
+      const abertos = Number(porCred.get(c.id)?.abertos || 0);
+      const total = cotaMensal + extra;
+      mapa.set(c.id, {
+        cota_mensal: cotaMensal, cota_extra: extra, cota_total: total, usados, abertos,
+        disponivel: cotaMensal > 0 ? Math.max(0, total - usados - abertos) : null,
+      });
+    }
+    return mapa;
+  }
+
+  /** Vereador desiste de um pedido seu ainda pendente — libera a cota comprometida na hora. */
+  async cancelarRequisicaoDoVereador(id: string, orgaoId: string, credencialId: string) {
+    const req = await this.requisicaoRepository.findOne({
+      where: { id, orgao_id: orgaoId, credencial_solicitante_id: credencialId },
+    });
+    if (!req) throw new NotFoundException('Pedido não encontrado');
+    if (req.status !== StatusRequisicaoFrota.PENDENTE) {
+      throw new BadRequestException(
+        req.status === StatusRequisicaoFrota.AUTORIZADO
+          ? 'Este pedido já foi autorizado — peça ao gestor para cancelar.'
+          : 'Só é possível cancelar pedidos ainda pendentes.',
+      );
+    }
+    req.status = StatusRequisicaoFrota.CANCELADO;
+    return this.requisicaoRepository.save(req);
+  }
+
+  /** Veículos que o vereador pode escolher: os vinculados à credencial ou, sem vínculo, todos os ativos do órgão. */
+  async listarVeiculosParaVereador(orgaoId: string, credencialId: string) {
+    const cred = await this.credencialRepository.findOne({
+      where: { id: credencialId, orgao_id: orgaoId },
+      select: ['id', 'veiculo_ids'],
+    });
+    const vinculados = (cred?.veiculo_ids || []).filter(Boolean);
+    const where: any = { orgao_id: orgaoId, ativo: true };
+    if (vinculados.length > 0) where.id = In(vinculados);
+    const lista = await this.veiculoRepository.find({ where, order: { placa: 'ASC' } });
+    return lista.map((v) => ({
+      id: v.id, placa: v.placa, modelo: v.modelo, marca: v.marca,
+      tipo_combustivel: v.tipo_combustivel, km_atual: v.km_atual,
+    }));
   }
 
   async criarRequisicao(orgaoId: string, dados: any) {

@@ -412,6 +412,27 @@ export class FrotaAuthService {
     return publica;
   }
 
+  /** Vereador pede litros a mais ao gestor (vai por WhatsApp; a liberação continua sendo do gestor). */
+  async solicitarCotaExtra(credencialId: string, orgaoId: string, litros: number, motivo: string) {
+    const credencial = await this.credencialRepo.findOne({ where: { id: credencialId, orgao_id: orgaoId } });
+    if (!credencial) throw new NotFoundException('Credencial não encontrada');
+    if (!Number.isFinite(litros) || litros <= 0) {
+      throw new BadRequestException('Informe quantos litros a mais você precisa');
+    }
+    if (!motivo || motivo.trim().length < 5) {
+      throw new BadRequestException('Explique o motivo em poucas palavras (mínimo 5 caracteres)');
+    }
+    const dados = await this.obterDadosVereador(credencialId, orgaoId);
+    const resumo = {
+      cota_total: Number(dados.cota_total || 0),
+      litros_disponiveis: dados.litros_disponiveis,
+      litros_usados: Number(dados.litros_usados || 0),
+      litros_comprometidos: Number(dados.litros_comprometidos || 0),
+    };
+    const gestorAvisado = await this.notificacao.solicitacaoCotaExtraParaGestor(credencial, litros, motivo.trim(), resumo);
+    return { ok: true, gestor_avisado: gestorAvisado };
+  }
+
   // ================================================================
   // LOGS
   // ================================================================
