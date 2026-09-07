@@ -64,7 +64,7 @@ export class McpController {
     @Res() res: ExpressResponse,
   ) {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Api-Key, Mcp-Session-Id');
 
     // OPTIONS preflight (browser / Cursor via webview)
     if (req.method === 'OPTIONS') {
@@ -93,7 +93,10 @@ export class McpController {
       return;
     }
 
-    // Autentica via api_key na query
+    // Autentica pela chave do fornecedor: X-Api-Key ou Authorization: Bearer (preferidos) ou ?api_key= (legado)
+    const xApiKey = String(req.headers['x-api-key'] || '').trim();
+    const bearer = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+    apiKey = xApiKey || bearer || apiKey;
     const fornecedor = await this.autenticar(apiKey);
     if (!fornecedor) {
       res.status(401).json({ error: 'API key inválida ou revogada.' });

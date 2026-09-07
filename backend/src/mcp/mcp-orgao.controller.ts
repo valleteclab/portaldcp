@@ -22,7 +22,7 @@ import { OrgaoApiKey } from './entities/orgao-api-key.entity';
 /**
  * MCP do ÓRGÃO — somente leitura da carteira de contratos (vigências, saldos,
  * medições, aditivos). Streamable HTTP em /api/mcp/orgao.
- * Autenticação: `Authorization: Bearer <chave>` (preferido) ou `?api_key=`.
+ * Autenticação: `X-Api-Key: <chave>`, `Authorization: Bearer <chave>` ou `?api_key=`.
  * As chaves são geradas em Configurações do órgão e guardadas como hash.
  */
 @Public()
@@ -49,7 +49,7 @@ export class McpOrgaoController {
     @Res() res: ExpressResponse,
   ) {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Mcp-Session-Id');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Api-Key, Mcp-Session-Id');
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
       res.status(204).end();
@@ -71,8 +71,10 @@ export class McpOrgaoController {
       return;
     }
 
+    // Aceita: X-Api-Key (clientes que só mandam esse header), Authorization: Bearer, ou ?api_key=
+    const xApiKey = String(req.headers['x-api-key'] || '').trim();
     const bearer = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
-    const chave = await this.chaves.autenticar(bearer || apiKeyQuery);
+    const chave = await this.chaves.autenticar(xApiKey || bearer || apiKeyQuery);
     if (!chave) {
       res.status(401).json({ error: 'Chave de integração inválida ou revogada.' });
       return;
