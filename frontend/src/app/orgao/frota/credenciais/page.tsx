@@ -420,15 +420,6 @@ export default function FrotaCredenciaisPage() {
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      {Number(c.cota_mensal_litros) > 0 && (
-                        <button
-                          onClick={() => { setModalExtra(c); setExtraLitros(''); setExtraMotivo(''); setErroExtra('') }}
-                          className="text-emerald-700 hover:text-emerald-900 text-sm px-2 py-1 rounded border border-emerald-200 hover:border-emerald-400 transition-colors"
-                          title="Liberar litros a mais para este vereador no mês corrente"
-                        >
-                          Cota extra
-                        </button>
-                      )}
                       <button
                         onClick={() => abrirEditar(c)}
                         className="text-gray-500 hover:text-blue-600 text-sm px-2 py-1 rounded border border-gray-200 hover:border-blue-300 transition-colors"
@@ -574,6 +565,15 @@ export default function FrotaCredenciaisPage() {
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
+                      {Number(c.cota_mensal_litros) > 0 && (
+                        <button
+                          onClick={() => { setModalExtra(c); setExtraLitros(''); setExtraMotivo(''); setErroExtra('') }}
+                          className="text-emerald-700 hover:text-emerald-900 text-sm px-2 py-1 rounded border border-emerald-200 hover:border-emerald-400 transition-colors"
+                          title="Liberar litros a mais para este vereador no mês corrente"
+                        >
+                          Cota extra
+                        </button>
+                      )}
                       <button
                         onClick={() => abrirEditar(c)}
                         className="text-gray-500 hover:text-blue-600 text-sm px-2 py-1 rounded border border-gray-200 hover:border-blue-300 transition-colors"
