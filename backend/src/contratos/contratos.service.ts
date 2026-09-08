@@ -1704,8 +1704,32 @@ export class ContratosService implements OnModuleInit {
         contrato.data_vigencia_fim = anteriorComVigencia.nova_data_vigencia_fim as any;
       }
       // Se não houver termo anterior com vigência, mantém o atual (usuário pode ajustar manualmente)
+      this.sincronizarStatusPorVigencia(contrato);
     }
     await this.contratoRepository.save(contrato);
+  }
+
+  /**
+   * Alinha VIGENTE ⇄ ENCERRADO/VENCIDO com a data de fim de vigência.
+   * Só mexe nesses três status — RESCINDIDO, SUSPENSO, CANCELADO, RASCUNHO e
+   * AGUARDANDO_LIBERACAO são decisões do usuário e ficam como estão.
+   */
+  private sincronizarStatusPorVigencia(contrato: Contrato): void {
+    const fim = contrato.data_vigencia_fim ? this.normalizarData(contrato.data_vigencia_fim) : null;
+    const hoje = this.normalizarData(new Date());
+    const porVigencia = [StatusContrato.VIGENTE, StatusContrato.ENCERRADO, StatusContrato.VENCIDO];
+    if (!porVigencia.includes(contrato.status)) return;
+    if (!fim || fim >= hoje!) {
+      if (contrato.status !== StatusContrato.VIGENTE) {
+        this.logger.log(
+          `[vigencia] Contrato ${contrato.numero_contrato}: ${contrato.status} → VIGENTE (fim ${fim || 'indeterminado'})`,
+        );
+        contrato.status = StatusContrato.VIGENTE;
+      }
+    } else if (contrato.status === StatusContrato.VIGENTE) {
+      this.logger.log(`[vigencia] Contrato ${contrato.numero_contrato}: VIGENTE → ENCERRADO (fim ${fim})`);
+      contrato.status = StatusContrato.ENCERRADO;
+    }
   }
 
   // ============ DOCUMENTOS DO CONTRATO ============
@@ -1840,10 +1864,10 @@ export class ContratosService implements OnModuleInit {
 
     if (termo.nova_data_vigencia_fim) {
       contrato.data_vigencia_fim = termo.nova_data_vigencia_fim;
-      // Se o contrato estava vencido e o aditivo prorroga a vigência para o futuro, reativar
-      if (contrato.status === StatusContrato.VENCIDO && new Date(termo.nova_data_vigencia_fim) > new Date()) {
-        contrato.status = StatusContrato.VIGENTE;
-      }
+      // Se o contrato estava vencido/encerrado por vigência e o aditivo prorroga
+      // para o futuro, reativar. (ENCERRADO acontece na importação: o status é
+      // calculado pela vigência original antes de os aditivos entrarem.)
+      this.sincronizarStatusPorVigencia(contrato);
     }
 
     if (termo.tipo === TipoTermoAditivo.RESCISAO) {
