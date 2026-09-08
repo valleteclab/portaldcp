@@ -2754,6 +2754,18 @@ export class ContratosService implements OnModuleInit {
       );
     }
 
+    // Verificar se o contrato foi importado para o módulo de frota (FK sem cascade → 500)
+    const frotaVinculada = await this.contratoRepository.query(
+      `SELECT COUNT(*) as total FROM frota_contratos_abastecimento WHERE contrato_id = $1`,
+      [contratoId],
+    );
+
+    if (Number(frotaVinculada[0]?.total || 0) > 0) {
+      throw new BadRequestException(
+        'Não é possível excluir este contrato pois ele está vinculado ao módulo de Frota (contrato de abastecimento). Exclua primeiro o contrato de abastecimento em Frota → Contratos.',
+      );
+    }
+
     // Registrar histórico antes da exclusão
     await this.registrarHistorico({
       contrato_id: contratoId,
