@@ -661,19 +661,16 @@ export class MedicaoService {
     });
 
     // OS de origem de cada item (contratos de publicidade/OS: itens nascem por
-    // OS autorizada — permite à tela de medição agrupar as linhas por OS)
-    const osPorItem = new Map<
-      string,
-      { os_id: string; os_numero: string; os_status: string; os_consumida: boolean }
-    >();
+    // OS autorizada — permite à tela de medição agrupar as linhas por OS).
+    // Um mesmo item pode ter várias OS (serviço por demanda executado mais de
+    // uma vez, ex.: 028/2025 com OS-0007/0235/0240 no mesmo item): os_vinculadas
+    // traz todas; os_* traz a OS "principal" — a primeira autorizada ainda não
+    // consumida por medição (ou a primeira, se todas já foram consumidas).
+    // Antes só a primeira OS era exposta e, consumida, o item sumia da seleção.
+    type OsDoItem = { os_id: string; os_numero: string; os_status: string; os_consumida: boolean };
+    const osPorItem = new Map<string, OsDoItem[]>();
     try {
-      const rows: Array<{
-        item_id: string;
-        os_id: string;
-        os_numero: string;
-        os_status: string;
-        os_consumida: boolean;
-      }> = await this.itemCronogramaRepository.manager.query(
+      const rows: Array<{ item_id: string } & OsDoItem> = await this.itemCronogramaRepository.manager.query(
         `SELECT rio.item_cronograma_id AS item_id, r.id AS os_id,
                 r.numero AS os_numero, r.status AS os_status,
                 (COALESCE(r.modo_os, '') <> 'ORDEM_GLOBAL' AND EXISTS (
@@ -687,21 +684,24 @@ export class MedicaoService {
         [contratoId],
       );
       for (const row of rows) {
-        if (!osPorItem.has(row.item_id)) {
-          osPorItem.set(row.item_id, {
-            os_id: row.os_id,
-            os_numero: row.os_numero,
-            os_status: row.os_status,
-            os_consumida: !!row.os_consumida,
-          });
-        }
+        const lista = osPorItem.get(row.item_id) || [];
+        lista.push({
+          os_id: row.os_id,
+          os_numero: row.os_numero,
+          os_status: row.os_status,
+          os_consumida: !!row.os_consumida,
+        });
+        osPorItem.set(row.item_id, lista);
       }
     } catch (e) {
       this.logger.warn(`OS por item indisponível: ${e.message}`);
     }
     const anexarOs = (item: ItemCronograma): ItemCronograma => {
-      const os = osPorItem.get(item.id);
-      return (os ? { ...item, ...os } : item) as ItemCronograma;
+      const lista = osPorItem.get(item.id);
+      if (!lista?.length) return item;
+      const principal =
+        lista.find((o) => ['AUTORIZADA', 'ORDEM_GERADA'].includes(o.os_status) && !o.os_consumida) || lista[0];
+      return { ...item, ...principal, os_vinculadas: lista } as ItemCronograma;
     };
 
     const dataRenovacao = this.obterDataRenovacaoCiclo(contrato);

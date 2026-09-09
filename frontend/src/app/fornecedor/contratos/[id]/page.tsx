@@ -150,6 +150,28 @@ interface ItemCronograma {
   os_id?: string;
   os_numero?: string;
   os_status?: string;
+  os_consumida?: boolean;
+  /** Todas as OS que contêm o item (serviço por demanda pode ter várias). */
+  os_vinculadas?: OsVinculada[];
+}
+
+interface OsVinculada {
+  os_id: string;
+  os_numero: string;
+  os_status: string;
+  os_consumida: boolean;
+}
+
+/** OS que contêm o item — cai para os_* quando o backend não mandou a lista. */
+function osDoItem(ic: ItemCronograma): OsVinculada[] {
+  if (ic.os_vinculadas?.length) return ic.os_vinculadas;
+  if (!ic.os_id) return [];
+  return [{ os_id: ic.os_id, os_numero: ic.os_numero || '', os_status: ic.os_status || '', os_consumida: !!ic.os_consumida }];
+}
+
+/** O item pertence à OS selecionada? (um item pode estar em mais de uma OS) */
+function itemNaOs(ic: ItemCronograma | undefined, osId: string): boolean {
+  return !!ic && osDoItem(ic).some(o => o.os_id === osId);
 }
 
 interface Medicao {
@@ -1259,7 +1281,7 @@ export default function FornecedorContratoDetalhePage() {
             // de outras OS podem ter ficado no estado — ex.: botão Proporcional)
             if (!itensCronograma.some(c => c.os_id)) return true;
             const ic = itensCronograma.find(c => c.id === i.item_cronograma_id);
-            return ic?.os_id === osMedicao;
+            return itemNaOs(ic, osMedicao);
           })
           .map(i => ({
             item_cronograma_id: i.item_cronograma_id,
@@ -1594,7 +1616,7 @@ export default function FornecedorContratoDetalhePage() {
             // de outras OS podem ter ficado no estado — ex.: botão Proporcional)
             if (!itensCronograma.some(c => c.os_id)) return true;
             const ic = itensCronograma.find(c => c.id === i.item_cronograma_id);
-            return ic?.os_id === osMedicao;
+            return itemNaOs(ic, osMedicao);
           })
           .map(i => ({
             item_cronograma_id: i.item_cronograma_id,
@@ -2705,7 +2727,7 @@ export default function FornecedorContratoDetalhePage() {
                           const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
                           if (!ic) return acc;
                           // Medição por OS: total considera apenas a OS selecionada
-                          if (itensCronograma.some(c => c.os_id) && ic.os_id !== osMedicao) return acc;
+                          if (itensCronograma.some(c => c.os_id) && !itemNaOs(ic, osMedicao)) return acc;
                           return acc + item.quantidade_medida * Number(ic.valor_unitario);
                         }, 0)
                       : novaMedicao.itens.reduce((acc, item, idx) => {
@@ -2834,12 +2856,13 @@ export default function FornecedorContratoDetalhePage() {
               const osAutorizadas = Array.from(
                 new Map(
                   itensCronograma
-                    .filter(ic => ic.os_id && (ic.os_status === 'AUTORIZADA' || ic.os_status === 'ORDEM_GERADA'))
+                    .flatMap(osDoItem)
+                    .filter(o => o.os_status === 'AUTORIZADA' || o.os_status === 'ORDEM_GERADA')
                     // OS por demanda já vinculada a uma medição sai da lista
                     // (só ORDEM_GLOBAL aceita várias); a OS da medição em
                     // edição continua selecionável.
-                    .filter(ic => !(ic as any).os_consumida || ic.os_id === osMedicao)
-                    .map(ic => [ic.os_id as string, ic.os_numero as string]),
+                    .filter(o => !o.os_consumida || o.os_id === osMedicao)
+                    .map(o => [o.os_id, o.os_numero] as [string, string]),
                 ).entries(),
               );
               return (
@@ -2918,7 +2941,7 @@ export default function FornecedorContratoDetalhePage() {
                     );
                     const itens = itensCronograma.map((ic, idx) => {
                       // Medição por OS: Proporcional preenche apenas itens da OS selecionada
-                      if (itensCronograma.some(c => c.os_id) && ic.os_id !== osMedicao) {
+                      if (itensCronograma.some(c => c.os_id) && !itemNaOs(ic, osMedicao)) {
                         return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
                       }
                       const qtdTotal = Number(ic.quantidade);
@@ -2985,7 +3008,7 @@ export default function FornecedorContratoDetalhePage() {
                 <TableBody>
                   {itensCronograma.map((ic, idx) => {
                     // Medição por OS: exibe apenas itens da OS selecionada (índices preservados)
-                    if (itensCronograma.some(i => i.os_id) && ic.os_id !== osMedicao) return null;
+                    if (itensCronograma.some(i => i.os_id) && !itemNaOs(ic, osMedicao)) return null;
                     const itemState = novaMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number } | undefined;
                     const qtdMedida = itemState?.quantidade_medida || 0;
                     const valorOverride = itemState?.valor_override;
@@ -3008,14 +3031,19 @@ export default function FornecedorContratoDetalhePage() {
                     const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual;
                     const unidadeTela = textoUnidadeCronogramaNaTela(ic.unidade_medida);
                     // Agrupamento por OS (publicidade: itens nascem por Ordem de Serviço)
-                    const osAnterior = idx > 0 ? itensCronograma[idx - 1].os_numero : undefined;
-                    const mostrarCabecalhoOs = !!ic.os_numero && ic.os_numero !== osAnterior;
+                    // Com OS selecionada, o cabeçalho mostra a OS que está sendo medida
+                    // (o item pode pertencer a várias).
+                    const numeroOsDoItem = (c: ItemCronograma) =>
+                      (osMedicao && osDoItem(c).find(o => o.os_id === osMedicao)?.os_numero) || c.os_numero;
+                    const osAnterior = idx > 0 ? numeroOsDoItem(itensCronograma[idx - 1]) : undefined;
+                    const osNumeroAtual = numeroOsDoItem(ic);
+                    const mostrarCabecalhoOs = !!osNumeroAtual && osNumeroAtual !== osAnterior;
                     return (
                       <Fragment key={ic.id}>
                       {mostrarCabecalhoOs && (
                         <TableRow className="bg-indigo-50/80 hover:bg-indigo-50/80">
                           <TableCell colSpan={9} className="py-1.5 text-xs font-bold text-indigo-800">
-                            {ic.os_numero} — itens desta Ordem de Serviço (medição total ou parcial)
+                            {osNumeroAtual} — itens desta Ordem de Serviço (medição total ou parcial)
                           </TableCell>
                         </TableRow>
                       )}
