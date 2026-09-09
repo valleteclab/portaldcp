@@ -241,6 +241,10 @@ function derivarCompetencia(periodoInicio: string): string {
 
 // ---- Quadro de Assinaturas (idêntico ao frontend + QR Code) ----
 
+/** Declaração do signatário dentro da caixa: tamanho da fonte (pt) e entrelinha (mm). */
+const DECLARACAO_FONTE = 6.8;
+const DECLARACAO_ENTRELINHA = 3.2;
+
 function desenharQuadroAssinaturas(
   doc: jsPDF,
   y: number,
@@ -305,7 +309,7 @@ function desenharQuadroAssinaturas(
     } else {
       const linhasNome = doc.splitTextToSize(a.nome, boxW - 5);
       const numLinhasNome = Math.min(linhasNome.length, 2);
-      doc.setFontSize(5.2);
+      doc.setFontSize(DECLARACAO_FONTE);
       const linhasDeclaracao = a.declaracao
         ? doc.splitTextToSize(a.declaracao, boxW - 6)
         : [];
@@ -315,7 +319,7 @@ function desenharQuadroAssinaturas(
         + (a.identificacao ? 2.8 : 0)
         + (a.dataHora ? 2.8 : 0)   // data/hora (omitida quando vazia)
         + 2.8   // assinatura válida
-        + (linhasDeclaracao.length ? 1.5 + linhasDeclaracao.length * 2.4 : 0)
+        + (linhasDeclaracao.length ? 1.5 + linhasDeclaracao.length * DECLARACAO_ENTRELINHA : 0)
         + 2.5;  // padding inferior
     }
     maxBoxH = Math.max(maxBoxH, boxH);
@@ -367,10 +371,10 @@ function desenharQuadroAssinaturas(
       if (a.declaracao) {
         ly += 1.5;
         doc.setFont('helvetica', 'italic');
-        doc.setFontSize(5.2);
-        doc.setTextColor(75, 85, 99);
+        doc.setFontSize(DECLARACAO_FONTE);
+        doc.setTextColor(55, 65, 81);
         const linhas = doc.splitTextToSize(a.declaracao, boxW - 6);
-        doc.text(linhas, bx + 3, ly);
+        doc.text(linhas, bx + 3, ly, { lineHeightFactor: DECLARACAO_ENTRELINHA / (DECLARACAO_FONTE * 0.3528) });
       }
     }
   }
