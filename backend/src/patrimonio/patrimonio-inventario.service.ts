@@ -263,6 +263,7 @@ export class PatrimonioInventarioService {
         b ? { id: b.id, plaqueta: b.plaqueta, descricao: b.descricao, setor_nome: b.setor?.nome || b.localizacao_nome || null } : null;
       setores.push({
         id: s.id,
+        setor_id: s.setor_id,
         setor_nome: s.setor_nome,
         status: s.status,
         responsavel_nome: s.responsavel_nome,

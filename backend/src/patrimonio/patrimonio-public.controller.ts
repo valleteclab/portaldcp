@@ -2,17 +2,33 @@ import { Controller, Get, Post, Body, Param } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/public.decorator';
 import { PatrimonioInventarioService } from './patrimonio-inventario.service';
+import { PatrimonioMovimentacaoService } from './patrimonio-movimentacao.service';
 
 /**
  * Rotas públicas do patrimônio (sem JWT):
  * - /p/<id> do QR da plaqueta → dados básicos do bem;
- * - conferência do inventário pelo link com token do setor (app no celular).
+ * - conferência do inventário pelo link com token do setor (app no celular);
+ * - aceite de transferência pelo link com token do lote.
  * O token de 64 hex é a credencial; as rotas têm limite por IP.
  */
 @Controller('patrimonio-pub')
 @Public()
 export class PatrimonioPublicController {
-  constructor(private readonly inventario: PatrimonioInventarioService) {}
+  constructor(
+    private readonly inventario: PatrimonioInventarioService,
+    private readonly movimentacao: PatrimonioMovimentacaoService,
+  ) {}
+
+  @Get('movimentacao/:token')
+  lote(@Param('token') token: string) {
+    return this.movimentacao.obterLotePorToken(token);
+  }
+
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Post('movimentacao/:token/responder')
+  responder(@Param('token') token: string, @Body() body: any) {
+    return this.movimentacao.responderLote(token, { nome: body?.nome, aceitar: !!body?.aceitar, motivo: body?.motivo });
+  }
 
   @Get('bem/:id')
   bem(@Param('id') id: string) {

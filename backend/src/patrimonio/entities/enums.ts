@@ -56,6 +56,33 @@ export enum OrigemLeitura {
   MANUAL = 'MANUAL',
 }
 
+// ─── Movimentações (ciclo de vida do bem) ─────────────────────────────
+
+export enum TipoMovimentacao {
+  TRANSFERENCIA = 'TRANSFERENCIA',
+  BAIXA = 'BAIXA',
+  EMPRESTIMO = 'EMPRESTIMO',
+}
+
+export enum StatusMovimentacao {
+  /** Transferência aguardando aceite do destino. */
+  PENDENTE = 'PENDENTE',
+  ACEITA = 'ACEITA',
+  RECUSADA = 'RECUSADA',
+  CANCELADA = 'CANCELADA',
+  /** Empréstimo em curso (bem fora do setor). */
+  EM_ANDAMENTO = 'EM_ANDAMENTO',
+  CONCLUIDA = 'CONCLUIDA',
+}
+
+export enum MotivoBaixa {
+  INSERVIVEL = 'INSERVIVEL',
+  ALIENACAO = 'ALIENACAO',
+  DOACAO = 'DOACAO',
+  FURTO_EXTRAVIO = 'FURTO_EXTRAVIO',
+  OUTRO = 'OUTRO',
+}
+
 /** Resultado da leitura em relação ao cadastro. */
 export enum SituacaoLeitura {
   /** Bem do setor, encontrado no setor. */

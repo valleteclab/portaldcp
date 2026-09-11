@@ -79,13 +79,93 @@ export async function listarCategorias() {
   return res.json();
 }
 
-export async function criarCategoria(data: { nome: string }) {
+export type CategoriaInput = { nome?: string; vida_util_anos?: number | null; valor_residual_pct?: number; conta_contabil?: string | null };
+
+export async function criarCategoria(data: CategoriaInput & { nome: string }) {
   const res = await authFetch(`${baseUrl()}/categorias`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error('Erro ao criar categoria');
+  return res.json();
+}
+
+export async function atualizarCategoria(id: string, data: CategoriaInput) {
+  const res = await authFetch(`${baseUrl()}/categorias/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao atualizar categoria');
+  return json;
+}
+
+// ─── MOVIMENTAÇÕES (transferência, baixa, empréstimo) ──
+
+async function postJson(url: string, data: any) {
+  const res = await authFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro na operação');
+  return json;
+}
+
+export async function listarMovimentacoes(filtros?: { tipo?: string; status?: string; bem_id?: string; setor_id?: string }) {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filtros || {})) if (v) params.set(k, v);
+  const qs = params.toString();
+  const res = await authFetch(`${baseUrl()}/movimentacoes${qs ? '?' + qs : ''}`);
+  if (!res.ok) throw new Error('Erro ao listar movimentações');
+  return res.json();
+}
+
+export function solicitarTransferencia(data: { bem_ids: string[]; setor_destino_id: string; responsavel_destino_nome?: string; responsavel_destino_telefone?: string; motivo?: string; aceite_imediato?: boolean; inventario_id?: string }) {
+  return postJson(`${baseUrl()}/movimentacoes/transferencia`, data) as Promise<{ lote_id: string; aplicada: boolean; link: string | null; enviado: boolean; movimentacoes: number }>;
+}
+
+export function reenviarLinkTransferencia(loteId: string) {
+  return postJson(`${baseUrl()}/movimentacoes/lote/${loteId}/reenviar-link`, {}) as Promise<{ enviado: boolean; link: string; motivo?: string }>;
+}
+
+export function cancelarMovimentacao(id: string) {
+  return postJson(`${baseUrl()}/movimentacoes/${id}/cancelar`, {});
+}
+
+export function baixarBem(data: { bem_id: string; motivo_baixa: string; motivo: string; documento_url?: string; data_baixa?: string; inventario_id?: string }) {
+  return postJson(`${baseUrl()}/movimentacoes/baixa`, data);
+}
+
+export function emprestarBem(data: { bem_id: string; destino_texto: string; responsavel_destino_nome?: string; data_prevista_retorno: string; motivo?: string }) {
+  return postJson(`${baseUrl()}/movimentacoes/emprestimo`, data);
+}
+
+export function devolverEmprestimo(id: string) {
+  return postJson(`${baseUrl()}/movimentacoes/${id}/devolver`, {});
+}
+
+export async function emprestimosVencidos() {
+  const res = await authFetch(`${baseUrl()}/movimentacoes/emprestimos-vencidos`);
+  if (!res.ok) throw new Error('Erro ao listar empréstimos vencidos');
+  return res.json();
+}
+
+/** Abre um PDF autenticado em nova aba (termos). */
+export async function abrirPdf(caminho: string) {
+  const res = await authFetch(`${baseUrl()}/${caminho}`);
+  if (!res.ok) throw new Error('Erro ao gerar o documento');
+  const blob = await res.blob();
+  window.open(URL.createObjectURL(blob), '_blank');
+}
+
+export const urlTermoTransferencia = (loteId: string) => `movimentacoes/lote/${loteId}/termo`;
+export const urlTermoBaixa = (movId: string) => `movimentacoes/${movId}/termo-baixa`;
+export const urlTermoResponsabilidade = (setorId: string, responsavel?: string) =>
+  `movimentacoes/setores/${setorId}/termo-responsabilidade${responsavel ? `?responsavel=${encodeURIComponent(responsavel)}` : ''}`;
+
+export async function relatorioDepreciacao(data?: string) {
+  const res = await authFetch(`${baseUrl()}/relatorios/depreciacao${data ? `?data=${data}` : ''}`);
+  if (!res.ok) throw new Error('Erro ao obter depreciação');
   return res.json();
 }
 

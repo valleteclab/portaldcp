@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Plus, Search, Tag, FileText, Wrench, Building2, Users, Handshake, FolderOpen, ClipboardCheck, Upload } from "lucide-react"
+import { Plus, Search, Tag, FileText, Wrench, Building2, Users, Handshake, FolderOpen, ClipboardCheck, Upload, ArrowRightLeft } from "lucide-react"
 import { useRef } from "react"
 import { importarPlanilha } from "@/services/patrimonio.service"
 import { Button } from "@/components/ui/button"
@@ -144,6 +144,9 @@ export default function PatrimonioPage() {
         <div className="flex flex-wrap gap-2 justify-end">
           <Link href="/orgao/patrimonio/inventarios">
             <Button variant="outline"><ClipboardCheck className="h-4 w-4 mr-2" />Inventários</Button>
+          </Link>
+          <Link href="/orgao/patrimonio/movimentacoes">
+            <Button variant="outline"><ArrowRightLeft className="h-4 w-4 mr-2" />Movimentações{resumo?.transferencias_pendentes ? ` (${resumo.transferencias_pendentes})` : ""}</Button>
           </Link>
           <input ref={inputPlanilha} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImportar} />
           <Button variant="outline" onClick={() => inputPlanilha.current?.click()} disabled={importando} title="Colunas: plaqueta, descricao, categoria, setor, responsavel, marca, modelo, serie, valor, data_aquisicao, nota_fiscal, estado, observacoes">

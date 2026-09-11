@@ -417,6 +417,15 @@ export class PatrimonioController {
     );
   }
 
+  /** Posição de depreciação linear por categoria e por bem (NBC TSP 07). */
+  @Get('relatorios/depreciacao')
+  async relatorioDepreciacao(
+    @Param('orgaoId') orgaoId: string,
+    @Query('data') data?: string,
+  ) {
+    return this.relatoriosService.depreciacao(orgaoId, data);
+  }
+
   @Get('relatorios/locacoes-vencendo')
   async relatorioLocacoesVencendo(@Param('orgaoId') orgaoId: string) {
     return this.relatoriosService.locacoesVencendo(orgaoId);

@@ -35,6 +35,11 @@ import { obterBem, criarManutencao, atualizarBem, listarSetores, enviarFotoBem }
 import { useRef } from "react"
 import { Camera, QrCode } from "lucide-react"
 import { API_URL } from "@/lib/api"
+import { BemAcoes } from "../movimentacoes/BemAcoes"
+import { listarMovimentacoes, devolverEmprestimo, abrirPdf, urlTermoTransferencia, urlTermoBaixa } from "@/services/patrimonio.service"
+
+const TIPO_MOV: Record<string, string> = { TRANSFERENCIA: "Transferência", BAIXA: "Baixa", EMPRESTIMO: "Empréstimo" }
+const STATUS_MOV: Record<string, string> = { PENDENTE: "aguardando aceite", ACEITA: "aceita", RECUSADA: "recusada", CANCELADA: "cancelada", EM_ANDAMENTO: "em andamento", CONCLUIDA: "concluída" }
 
 const ESTADO_LABELS: Record<string, string> = { BOM: "Bom", REGULAR: "Regular", RUIM: "Ruim", INSERVIVEL: "Inservível" }
 const fmtMoeda = (v: any) => (v == null || v === "" ? "-" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }))
@@ -76,10 +81,13 @@ export default function DetalheBemPage() {
   const [enviandoFoto, setEnviandoFoto] = useState(false)
   const inputFoto = useRef<HTMLInputElement>(null)
 
+  const [movs, setMovs] = useState<any[]>([])
+
   const carregarBem = async () => {
     try {
       const data = await obterBem(params.id as string)
       setBem(data)
+      listarMovimentacoes({ bem_id: params.id as string }).then(setMovs).catch(() => setMovs([]))
     } catch (error) {
       console.error("Erro ao carregar bem:", error)
     } finally {
@@ -143,13 +151,29 @@ export default function DetalheBemPage() {
         <Badge className={STATUS_COLORS[bem.status] || ""}>
           {bem.status?.replace(/_/g, " ")}
         </Badge>
+      </div>
+      <div className="flex flex-wrap gap-2">
         <a href={`/p/${bem.id}`} target="_blank" rel="noreferrer">
           <Button variant="outline" title="Página que o QR da plaqueta abre"><QrCode className="h-4 w-4 mr-2" />Página do QR</Button>
         </a>
-        <Button variant="outline" onClick={() => setManutDialog(true)}>
+        <Button variant="outline" onClick={() => setManutDialog(true)} disabled={bem.status === "BAIXADO"}>
           <Wrench className="h-4 w-4 mr-2" />Enviar para Manutenção
         </Button>
+        <BemAcoes bem={bem} onDone={carregarBem} />
       </div>
+      {bem.emprestado_ate && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900 flex items-center justify-between gap-3">
+          <span>Emprestado para <strong>{bem.emprestado_para}</strong> · retorno previsto {fmtData(bem.emprestado_ate)}{new Date(String(bem.emprestado_ate).slice(0, 10) + "T23:59:59") < new Date() ? <span className="ml-2 font-semibold text-red-700">(atrasado)</span> : null}</span>
+          {movs.find((m) => m.tipo === "EMPRESTIMO" && m.status === "EM_ANDAMENTO") && (
+            <Button size="sm" variant="outline" onClick={async () => { try { await devolverEmprestimo(movs.find((m) => m.tipo === "EMPRESTIMO" && m.status === "EM_ANDAMENTO").id); carregarBem() } catch (e: any) { alert(e.message) } }}>Registrar devolução</Button>
+          )}
+        </div>
+      )}
+      {bem.status === "BAIXADO" && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-900">
+          Bem baixado em {fmtData(bem.data_baixa)}{bem.motivo_baixa ? ` · ${bem.motivo_baixa.replace(/_/g, " ").toLowerCase()}` : ""}.
+        </div>
+      )}
 
       {/* Informações do Bem */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -233,6 +257,47 @@ export default function DetalheBemPage() {
                     <TableCell>{m.data_entrada ? new Date(m.data_entrada).toLocaleDateString("pt-BR") : "-"}</TableCell>
                     <TableCell>{m.data_saida ? new Date(m.data_saida).toLocaleDateString("pt-BR") : "-"}</TableCell>
                     <TableCell>{m.data_retorno ? new Date(m.data_retorno).toLocaleDateString("pt-BR") : "-"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Movimentações */}
+      {movs.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Movimentações</CardTitle></CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Detalhe</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Quem</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {movs.map((m: any) => (
+                  <TableRow key={m.id}>
+                    <TableCell className="text-sm">{new Date(m.created_at).toLocaleDateString("pt-BR")}</TableCell>
+                    <TableCell><Badge variant="outline">{TIPO_MOV[m.tipo] || m.tipo}</Badge></TableCell>
+                    <TableCell className="text-sm">
+                      {m.tipo === "TRANSFERENCIA" && <>{m.setor_origem_nome || "sem setor"} → {m.setor_destino_nome}</>}
+                      {m.tipo === "EMPRESTIMO" && <>{m.destino_texto} · retorno {fmtData(m.data_prevista_retorno)}{m.data_retorno ? ` · devolvido ${fmtData(m.data_retorno)}` : ""}</>}
+                      {m.tipo === "BAIXA" && <>{m.motivo}</>}
+                    </TableCell>
+                    <TableCell className="text-sm">{STATUS_MOV[m.status] || m.status}{m.recusa_motivo ? ` — ${m.recusa_motivo}` : ""}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{m.solicitado_por}{m.aceito_por && m.aceito_por !== m.solicitado_por ? ` / ${m.aceito_por}` : ""}</TableCell>
+                    <TableCell>
+                      {m.tipo === "TRANSFERENCIA" && m.status === "ACEITA" && <Button size="sm" variant="ghost" onClick={() => abrirPdf(urlTermoTransferencia(m.lote_id)).catch((e) => alert(e.message))}>Termo</Button>}
+                      {m.tipo === "BAIXA" && <Button size="sm" variant="ghost" onClick={() => abrirPdf(urlTermoBaixa(m.id)).catch((e) => alert(e.message))}>Termo</Button>}
+                      {m.tipo === "TRANSFERENCIA" && m.status === "PENDENTE" && m.link_aceite && <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(m.link_aceite); alert("Link de aceite copiado") }}>Copiar link</Button>}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
