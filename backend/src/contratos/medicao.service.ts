@@ -8014,6 +8014,14 @@ export class MedicaoService {
    * Motivo obrigatório (fica no log); limpa o PDF para forçar regeneração
    * com as novas datas.
    */
+  /** 'AAAA-MM-DD HH:MM:SS' (ou Date) como 'DD/MM/AAAA HH:MM', para o histórico. */
+  private formatarDataHoraBr(valor: Date | string | null | undefined): string {
+    const texto = String(valor ?? '');
+    const m = texto.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`;
+    return texto || '-';
+  }
+
   async corrigirDatasAssinaturas(
     medicaoId: string,
     dados: {
@@ -8040,6 +8048,7 @@ export class MedicaoService {
       throw new BadRequestException('Informe o motivo da correção das datas');
     }
 
+    const mudancas: string[] = [];
     for (const item of dados.assinaturas) {
       const assinatura = await this.assinaturaDigitalRepository.findOne({
         where: {
@@ -8064,10 +8073,30 @@ export class MedicaoService {
       await this.assinaturaDigitalRepository.update(assinatura.id, {
         data_assinatura: novaData as any,
       });
+      const anterior = this.formatarDataHoraBr(assinatura.data_assinatura);
+      mudancas.push(
+        `${assinatura.usuario_nome} (${assinatura.papel_assinante}): ${anterior} → ${this.formatarDataHoraBr(novaData)}`,
+      );
       this.logger.log(
         `Data da assinatura ${assinatura.papel_assinante} (${assinatura.usuario_nome}) da medição ${medicaoId} ` +
           `alterada de ${assinatura.data_assinatura} para ${novaData} ` +
           `por ${fiscalNome}. Motivo: ${dados.motivo.trim()}`,
+      );
+    }
+
+    // Rastro no histórico do contrato: até aqui a correção só existia no log do
+    // servidor, que some a cada reinício — não dava para saber quem mudou o quê.
+    if (medicao.contrato_id && mudancas.length > 0) {
+      await this.historicoContratoRepository.save(
+        this.historicoContratoRepository.create({
+          contrato_id: medicao.contrato_id,
+          tipo_acao: 'EDITADO',
+          descricao:
+            `Medição ${medicao.numero_medicao}: data(s) de assinatura corrigida(s) por ${fiscalNome} — ` +
+            `${mudancas.join('; ')} — motivo: ${dados.motivo.trim()}`,
+          detalhes: JSON.stringify({ medicao_id: medicaoId, alteracoes: mudancas }),
+          usuario_nome: fiscalNome,
+        } as any),
       );
     }
 

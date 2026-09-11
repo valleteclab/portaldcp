@@ -602,6 +602,11 @@ export default function TabMedicao({
     { id: string; papel: string; nome: string; data_original: string; nova_data: string }[]
   >([]);
   const [motivoAssinaturas, setMotivoAssinaturas] = useState("");
+  // Aviso da aba Assinaturas na própria tela: com alert() o usuário fechava sem
+  // ler, achava que tinha salvo e regenerava o boletim com as datas antigas.
+  const [avisoAssinaturas, setAvisoAssinaturas] = useState<
+    { tipo: "erro" | "ok"; texto: string } | null
+  >(null);
   const [salvandoCorrecao, setSalvandoCorrecao] = useState(false);
   const [pdfRegeneradoUrl, setPdfRegeneradoUrl] = useState<string | null>(null);
   const [regenerandoPdf, setRegenerandoPdf] = useState(false);
@@ -1022,6 +1027,7 @@ export default function TabMedicao({
     // Assinaturas digitais (datas editáveis)
     setAssinaturasCorrigir([]);
     setMotivoAssinaturas("");
+    setAvisoAssinaturas(null);
     try {
       const resAss = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/assinaturas`);
       if (resAss.ok) {
@@ -1371,15 +1377,19 @@ export default function TabMedicao({
 
   const salvarDatasAssinaturas = async () => {
     if (!modalCorrigir) return;
+    setAvisoAssinaturas(null);
     if (!motivoAssinaturas.trim() || motivoAssinaturas.trim().length < 5) {
-      alert("Informe o motivo da correção das datas (mínimo 5 caracteres)");
+      setAvisoAssinaturas({
+        tipo: "erro",
+        texto: "Informe o motivo da correção (mínimo 5 caracteres) para poder salvar as datas.",
+      });
       return;
     }
     const alteradas = assinaturasCorrigir.filter(
       (a) => a.nova_data && a.nova_data !== paraDatetimeLocalBrasilia(a.data_original),
     );
     if (alteradas.length === 0) {
-      alert("Nenhuma data foi alterada.");
+      setAvisoAssinaturas({ tipo: "erro", texto: "Nenhuma data foi alterada." });
       return;
     }
     setSalvandoCorrecao(true);
@@ -1411,13 +1421,20 @@ export default function TabMedicao({
             })),
           );
         }
-        alert('Datas salvas! Clique em "Regenerar PDF" para atualizar o boletim com as novas datas.');
+        setMotivoAssinaturas("");
+        setAvisoAssinaturas({
+          tipo: "ok",
+          texto: `${alteradas.length} data(s) salva(s). Agora clique em "Regenerar PDF" para o boletim sair com as novas datas.`,
+        });
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || "Erro ao salvar as datas das assinaturas");
+        setAvisoAssinaturas({
+          tipo: "erro",
+          texto: err.message || "Erro ao salvar as datas das assinaturas",
+        });
       }
     } catch {
-      alert("Erro ao salvar as datas das assinaturas");
+      setAvisoAssinaturas({ tipo: "erro", texto: "Erro ao salvar as datas das assinaturas" });
     } finally {
       setSalvandoCorrecao(false);
     }
@@ -1642,6 +1659,19 @@ export default function TabMedicao({
 
   const regenerarBoletim = async () => {
     if (!modalCorrigir) return;
+    // Sem isso, o boletim sai com as datas antigas e parece que a correção
+    // "não funcionou" — quando na verdade ela nunca chegou a ser salva.
+    const naoSalvas = assinaturasCorrigir.filter(
+      (a) => a.nova_data && a.nova_data !== paraDatetimeLocalBrasilia(a.data_original),
+    );
+    if (naoSalvas.length > 0) {
+      setAbaCorrigir("assinaturas");
+      setAvisoAssinaturas({
+        tipo: "erro",
+        texto: `Há ${naoSalvas.length} data(s) de assinatura alterada(s) que ainda não foram salvas. Informe o motivo e clique em "Salvar datas" antes de regenerar o PDF.`,
+      });
+      return;
+    }
     setRegenerandoPdf(true);
     setPdfRegeneradoUrl(null);
     try {
@@ -9438,17 +9468,53 @@ export default function TabMedicao({
                         rows={2}
                         placeholder="Ex.: assinatura formalizada em 15/08, registrada no sistema apenas em 20/08."
                         value={motivoAssinaturas}
-                        onChange={(e) => setMotivoAssinaturas(e.target.value)}
+                        onChange={(e) => {
+                          setMotivoAssinaturas(e.target.value);
+                          if (avisoAssinaturas?.tipo === "erro") setAvisoAssinaturas(null);
+                        }}
                       />
                     </div>
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={salvarDatasAssinaturas}
-                        disabled={salvandoCorrecao}
-                        className="bg-violet-600 hover:bg-violet-700"
+                    {avisoAssinaturas && (
+                      <p
+                        role="alert"
+                        className={`rounded p-2 text-sm ${
+                          avisoAssinaturas.tipo === "ok"
+                            ? "bg-green-50 text-green-800"
+                            : "bg-red-50 text-red-800"
+                        }`}
                       >
-                        {salvandoCorrecao ? "Salvando..." : "Salvar datas"}
-                      </Button>
+                        {avisoAssinaturas.texto}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-3">
+                      {(() => {
+                        const alteradasAgora = assinaturasCorrigir.filter(
+                          (a) =>
+                            a.nova_data &&
+                            a.nova_data !== paraDatetimeLocalBrasilia(a.data_original),
+                        ).length;
+                        const faltaMotivo = motivoAssinaturas.trim().length < 5;
+                        return (
+                          <>
+                            {alteradasAgora > 0 && faltaMotivo && (
+                              <span className="text-xs text-gray-500">
+                                Informe o motivo para liberar o salvamento.
+                              </span>
+                            )}
+                            <Button
+                              onClick={salvarDatasAssinaturas}
+                              disabled={salvandoCorrecao || alteradasAgora === 0 || faltaMotivo}
+                              className="bg-violet-600 hover:bg-violet-700"
+                            >
+                              {salvandoCorrecao
+                                ? "Salvando..."
+                                : alteradasAgora > 0
+                                  ? `Salvar ${alteradasAgora} data(s)`
+                                  : "Salvar datas"}
+                            </Button>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
