@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Plus, Search, Tag, FileText, Wrench, Building2, Users, Handshake, FolderOpen } from "lucide-react"
+import { Plus, Search, Tag, FileText, Wrench, Building2, Users, Handshake, FolderOpen, ClipboardCheck, Upload } from "lucide-react"
+import { useRef } from "react"
+import { importarPlanilha } from "@/services/patrimonio.service"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -70,6 +72,25 @@ export default function PatrimonioPage() {
   const [filtroStatus, setFiltroStatus] = useState<string>("todos")
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todos")
   const [excluirDialog, setExcluirDialog] = useState<string | null>(null)
+  const [importando, setImportando] = useState(false)
+  const [resultadoImport, setResultadoImport] = useState<{ total: number; criados: number; atualizados: number; erros: { linha: number; erro: string }[] } | null>(null)
+  const inputPlanilha = useRef<HTMLInputElement>(null)
+
+  const handleImportar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setImportando(true)
+    try {
+      const r = await importarPlanilha(file)
+      setResultadoImport(r)
+      carregarDados()
+    } catch (err: any) {
+      alert(err?.message || "Erro ao importar planilha")
+    } finally {
+      setImportando(false)
+    }
+  }
 
   const carregarDados = async () => {
     setLoading(true)
@@ -120,7 +141,14 @@ export default function PatrimonioPage() {
           <h1 className="text-2xl font-bold">Controle de Patrimônio</h1>
           <p className="text-muted-foreground">Gestão de bens patrimoniais do órgão</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 justify-end">
+          <Link href="/orgao/patrimonio/inventarios">
+            <Button variant="outline"><ClipboardCheck className="h-4 w-4 mr-2" />Inventários</Button>
+          </Link>
+          <input ref={inputPlanilha} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImportar} />
+          <Button variant="outline" onClick={() => inputPlanilha.current?.click()} disabled={importando} title="Colunas: plaqueta, descricao, categoria, setor, responsavel, marca, modelo, serie, valor, data_aquisicao, nota_fiscal, estado, observacoes">
+            <Upload className="h-4 w-4 mr-2" />{importando ? "Importando..." : "Importar planilha"}
+          </Button>
           <Link href="/orgao/patrimonio/etiquetas">
             <Button variant="outline"><Tag className="h-4 w-4 mr-2" />Etiquetas</Button>
           </Link>
@@ -234,7 +262,7 @@ export default function PatrimonioPage() {
               <TableHead>Tipo</TableHead>
               <TableHead>Categoria</TableHead>
               <TableHead>Qtd</TableHead>
-              <TableHead>Localização</TableHead>
+              <TableHead>Setor</TableHead>
               <TableHead>Responsável</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Ações</TableHead>
@@ -264,7 +292,8 @@ export default function PatrimonioPage() {
                   <TableCell>{bem.categoria?.nome || "-"}</TableCell>
                   <TableCell>{bem.quantidade}</TableCell>
                   <TableCell className="text-sm">
-                    {bem.localizacao_nome ? `${bem.localizacao_nome}${bem.localizacao_codigo ? ` (${bem.localizacao_codigo})` : ''}` : "-"}
+                    {bem.setor?.nome || bem.localizacao_nome || <span className="text-amber-600" title="Sem setor: não entra no inventário">sem setor</span>}
+                    {bem.setor?.nome && bem.localizacao_nome ? <span className="block text-xs text-muted-foreground">{bem.localizacao_nome}</span> : null}
                   </TableCell>
                   <TableCell className="text-sm">{bem.responsavel_nome || "-"}</TableCell>
                   <TableCell>
@@ -293,6 +322,24 @@ export default function PatrimonioPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Resultado da importação */}
+      <Dialog open={!!resultadoImport} onOpenChange={() => setResultadoImport(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Importação concluída</DialogTitle>
+            <DialogDescription>
+              {resultadoImport?.total} linha(s): {resultadoImport?.criados} bem(ns) criado(s), {resultadoImport?.atualizados} atualizado(s), {resultadoImport?.erros.length} com erro.
+            </DialogDescription>
+          </DialogHeader>
+          {resultadoImport && resultadoImport.erros.length > 0 && (
+            <div className="max-h-60 overflow-y-auto text-sm border rounded p-2 space-y-1">
+              {resultadoImport.erros.map((e, i) => <div key={i}><span className="font-mono">linha {e.linha}</span>: {e.erro}</div>)}
+            </div>
+          )}
+          <DialogFooter><Button onClick={() => setResultadoImport(null)}>Fechar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog de exclusão */}
       <Dialog open={!!excluirDialog} onOpenChange={() => setExcluirDialog(null)}>

@@ -10,8 +10,18 @@ import {
   Res,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage, memoryStorage } from 'multer';
+import { join, extname } from 'path';
+import { mkdirSync } from 'fs';
+import type { Response } from 'express';
+import { GerarZplDto } from './dto/gerar-etiqueta.dto';
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 import { PatrimonioService } from './patrimonio.service';
 import { PatrimonioEtiquetasService } from './patrimonio-etiquetas.service';
 import { PatrimonioRelatoriosService } from './patrimonio-relatorios.service';
@@ -46,14 +56,76 @@ export class PatrimonioController {
     @Query('tipo') tipo?: TipoBem,
     @Query('status') status?: StatusBem,
     @Query('categoria_id') categoria_id?: string,
+    @Query('setor_id') setor_id?: string,
     @Query('busca') busca?: string,
   ) {
     return this.patrimonioService.listarBens(orgaoId, {
       tipo,
       status,
       categoria_id,
+      setor_id,
       busca,
     });
+  }
+
+  /** Próximo número de plaqueta (para mostrar no formulário antes de salvar). */
+  @Get('proxima-plaqueta')
+  async proximaPlaqueta(@Param('orgaoId') orgaoId: string) {
+    return { plaqueta: await this.patrimonioService.proximaPlaqueta(orgaoId) };
+  }
+
+  /** Carga inicial por planilha (xlsx/xls/csv). */
+  @Post('importar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const ok = /\.(xlsx|xls|csv)$/i.test(file.originalname || '');
+        cb(ok ? null : new BadRequestException('Envie uma planilha .xlsx, .xls ou .csv'), ok);
+      },
+    }),
+  )
+  async importar(
+    @Param('orgaoId') orgaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
+  ) {
+    if (!file?.buffer) throw new BadRequestException('Nenhum arquivo enviado');
+    return this.patrimonioService.importarPlanilha(orgaoId, file.buffer, user?.nome || 'Sistema');
+  }
+
+  /** Foto do bem (jpg/png até 10 MB), servida em /api/uploads/patrimonio/<orgao>/<arquivo>. */
+  @Post('bem/:id/foto')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (req, _file, cb) => {
+          const dir = join(UPLOAD_DIR, 'patrimonio', String(req.params.orgaoId).replace(/[^a-zA-Z0-9-]/g, ''));
+          mkdirSync(dir, { recursive: true });
+          cb(null, dir);
+        },
+        filename: (req, file, cb) => {
+          const ext = (extname(file.originalname || '') || '.jpg').toLowerCase();
+          cb(null, `${String(req.params.id).replace(/[^a-zA-Z0-9-]/g, '')}-${Date.now()}${ext}`);
+        },
+      }),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const ok = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(file.mimetype);
+        cb(ok ? null : new BadRequestException('Envie uma imagem JPG, PNG ou WEBP'), ok);
+      },
+    }),
+  )
+  async foto(
+    @Param('orgaoId') orgaoId: string,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
+  ) {
+    if (!file) throw new BadRequestException('Nenhuma imagem enviada');
+    const url = `/api/uploads/patrimonio/${orgaoId}/${file.filename}`;
+    return this.patrimonioService.salvarFoto(orgaoId, id, url, user?.nome || 'Sistema');
   }
 
   @Get('bem/:id')
@@ -308,6 +380,21 @@ export class PatrimonioController {
       'Content-Disposition': `inline; filename=etiquetas-patrimonio.pdf`,
     });
     res.send(pdfBuffer);
+  }
+
+  /** Arquivo ZPL para a impressora de etiquetas Zebra do órgão. */
+  @Post('etiquetas/zpl')
+  async gerarZpl(
+    @Param('orgaoId') orgaoId: string,
+    @Body() dto: GerarZplDto,
+    @Res() res: Response,
+  ) {
+    const zpl = await this.etiquetasService.gerarZpl(orgaoId, dto);
+    res.set({
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename=plaquetas-${dto.bem_ids.length}.zpl`,
+    });
+    res.send(zpl);
   }
 
   // ─── RELATÓRIOS ──────────────────────────────────────

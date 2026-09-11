@@ -20,12 +20,14 @@ export async function listarBens(filtros?: {
   tipo?: string;
   status?: string;
   categoria_id?: string;
+  setor_id?: string;
   busca?: string;
 }) {
   const params = new URLSearchParams();
   if (filtros?.tipo) params.set('tipo', filtros.tipo);
   if (filtros?.status) params.set('status', filtros.status);
   if (filtros?.categoria_id) params.set('categoria_id', filtros.categoria_id);
+  if (filtros?.setor_id) params.set('setor_id', filtros.setor_id);
   if (filtros?.busca) params.set('busca', filtros.busca);
   const qs = params.toString();
   const res = await authFetch(`${baseUrl()}${qs ? '?' + qs : ''}`);
@@ -45,8 +47,9 @@ export async function criarBem(data: any) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Erro ao criar bem');
-  return res.json();
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao criar bem');
+  return json;
 }
 
 export async function atualizarBem(id: string, data: any) {
@@ -55,8 +58,9 @@ export async function atualizarBem(id: string, data: any) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Erro ao atualizar bem');
-  return res.json();
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao atualizar bem');
+  return json;
 }
 
 export async function excluirBem(id: string) {
@@ -182,6 +186,115 @@ export async function gerarEtiquetas(data: {
   });
   if (!res.ok) throw new Error('Erro ao gerar etiquetas');
   return res.blob();
+}
+
+export async function gerarZpl(data: { bem_ids: string[]; largura_mm?: number; altura_mm?: number; dpi?: number }) {
+  const res = await authFetch(`${baseUrl()}/etiquetas/zpl`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Erro ao gerar ZPL');
+  return res.text();
+}
+
+// ─── CADASTRO: PLAQUETA, PLANILHA, FOTO, SETORES ───────
+
+export async function proximaPlaqueta(): Promise<string> {
+  const res = await authFetch(`${baseUrl()}/proxima-plaqueta`);
+  if (!res.ok) throw new Error('Erro ao obter próxima plaqueta');
+  return (await res.json()).plaqueta;
+}
+
+export async function importarPlanilha(file: File) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await authFetch(`${baseUrl()}/importar`, { method: 'POST', body: fd });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao importar planilha');
+  return json as { total: number; criados: number; atualizados: number; erros: { linha: number; erro: string }[] };
+}
+
+export async function enviarFotoBem(bemId: string, file: File) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/foto`, { method: 'POST', body: fd });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao enviar foto');
+  return json as { foto_url: string };
+}
+
+export async function listarSetores() {
+  const res = await authFetch(`${API_URL}/api/orgaos/${getOrgaoId()}/setores`);
+  if (!res.ok) throw new Error('Erro ao listar setores');
+  return res.json() as Promise<{ id: string; codigo: string; nome: string }[]>;
+}
+
+// ─── INVENTÁRIOS (campanhas de conferência) ────────────
+
+export async function listarInventarios() {
+  const res = await authFetch(`${baseUrl()}/inventarios`);
+  if (!res.ok) throw new Error('Erro ao listar inventários');
+  return res.json();
+}
+
+export async function criarInventario(data: {
+  nome: string;
+  ano: number;
+  comissao?: string;
+  observacoes?: string;
+  setores: { setor_id?: string; setor_nome?: string; responsavel_nome?: string; responsavel_telefone?: string }[];
+}) {
+  const res = await authFetch(`${baseUrl()}/inventarios`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao criar inventário');
+  return json;
+}
+
+export async function obterInventario(id: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}`);
+  if (!res.ok) throw new Error('Erro ao obter inventário');
+  return res.json();
+}
+
+export async function divergenciasInventario(id: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/divergencias`);
+  if (!res.ok) throw new Error('Erro ao obter divergências');
+  return res.json();
+}
+
+export async function fecharInventario(id: string, forcar = false) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/fechar${forcar ? '?forcar=true' : ''}`, { method: 'POST' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao fechar inventário');
+  return json;
+}
+
+export async function atualizarSetorInventario(id: string, setorId: string, data: { responsavel_nome?: string; responsavel_telefone?: string; observacoes?: string }) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/setores/${setorId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Erro ao atualizar setor');
+  return res.json();
+}
+
+export async function enviarLinkSetorInventario(id: string, setorId: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/setores/${setorId}/enviar-link`, { method: 'POST' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao enviar link');
+  return json as { enviado: boolean; link: string; motivo?: string };
+}
+
+export async function reabrirSetorInventario(id: string, setorId: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/setores/${setorId}/reabrir`, { method: 'POST' });
+  if (!res.ok) throw new Error('Erro ao reabrir setor');
+  return res.json();
 }
 
 // ─── RELATÓRIOS ────────────────────────────────────────

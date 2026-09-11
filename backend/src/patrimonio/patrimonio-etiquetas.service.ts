@@ -1,10 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
-import * as PDFDocument from 'pdfkit';
+import PDFDocument = require('pdfkit');
+import * as QRCode from 'qrcode';
 import { BemPatrimonial } from './entities/bem-patrimonial.entity';
-import { GerarEtiquetaDto } from './dto/gerar-etiqueta.dto';
+import { GerarEtiquetaDto, GerarZplDto } from './dto/gerar-etiqueta.dto';
 import { TipoEtiqueta } from './entities/enums';
+
+/** URL pública do bem — é o conteúdo do QR code da plaqueta. */
+export function urlPublicaDoBem(bemId: string): string {
+  const base = process.env.APP_URL || process.env.FRONTEND_URL || 'https://portaldcp.com.br';
+  return `${base.replace(/\/$/, '')}/p/${bemId}`;
+}
+
+/** mm → pontos do PDF (1 pt = 1/72 pol). */
+const MM = 72 / 25.4;
 
 @Injectable()
 export class PatrimonioEtiquetasService {
@@ -13,20 +23,187 @@ export class PatrimonioEtiquetasService {
     private readonly bemRepository: Repository<BemPatrimonial>,
   ) {}
 
+  private async carregarBens(orgaoId: string, ids: string[]) {
+    const bens = await this.bemRepository.find({
+      where: { id: In(ids), orgao_id: orgaoId },
+      relations: ['categoria', 'setor', 'orgao', 'locacoes', 'servidores', 'comodatos'],
+    });
+    if (!bens.length) throw new BadRequestException('Nenhum bem encontrado para etiquetar');
+    // mantém a ordem pedida (útil para a sequência de impressão)
+    const pos = new Map(ids.map((id, i) => [id, i]));
+    return bens.sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
+  }
+
   async gerarEtiquetas(
     orgaoId: string,
     dto: GerarEtiquetaDto,
   ): Promise<Buffer> {
-    const bens = await this.bemRepository.find({
-      where: { id: In(dto.bem_ids), orgao_id: orgaoId },
-      relations: ['categoria', 'locacoes', 'servidores', 'comodatos'],
-    });
+    const bens = await this.carregarBens(orgaoId, dto.bem_ids);
 
+    if (dto.tipo === TipoEtiqueta.PLAQUETA) {
+      return dto.formato === 'folha_a4'
+        ? this.gerarPlaquetasA4(bens)
+        : this.gerarPlaquetasIndividuais(bens);
+    }
     if (dto.formato === 'folha_a4') {
       return this.gerarFolhaA4(bens, dto.tipo);
     }
     return this.gerarIndividual(bens, dto.tipo);
   }
+
+  // ─── PLAQUETA COM QR CODE ──────────────────────────────────────────
+
+  private async qrPng(bem: BemPatrimonial): Promise<Buffer> {
+    return QRCode.toBuffer(urlPublicaDoBem(bem.id), {
+      errorCorrectionLevel: 'M',
+      margin: 0,
+      width: 360,
+    });
+  }
+
+  /** Etiqueta 50 × 25 mm, uma por página (impressora de etiquetas). */
+  private async gerarPlaquetasIndividuais(bens: BemPatrimonial[]): Promise<Buffer> {
+    const w = 50 * MM;
+    const h = 25 * MM;
+    const doc = new PDFDocument({ size: [w, h], margin: 0 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+    for (let i = 0; i < bens.length; i++) {
+      if (i > 0) doc.addPage({ size: [w, h], margin: 0 });
+      await this.desenharPlaqueta(doc, bens[i], 0, 0, w, h, false);
+    }
+    doc.end();
+    return new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
+  }
+
+  /** Folha A4 com etiquetas 50 × 25 mm (3 colunas × 10 linhas), para papel adesivo. */
+  private async gerarPlaquetasA4(bens: BemPatrimonial[]): Promise<Buffer> {
+    const doc = new PDFDocument({ size: 'A4', margin: 0 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (c: Buffer) => chunks.push(c));
+
+    const etW = 50 * MM;
+    const etH = 25 * MM;
+    const colunas = 3;
+    const linhas = 10;
+    const gapX = 6 * MM;
+    const gapY = 3 * MM;
+    const totalW = colunas * etW + (colunas - 1) * gapX;
+    const totalH = linhas * etH + (linhas - 1) * gapY;
+    const x0 = (doc.page.width - totalW) / 2;
+    const y0 = (doc.page.height - totalH) / 2;
+    const porPagina = colunas * linhas;
+
+    for (let i = 0; i < bens.length; i++) {
+      const p = i % porPagina;
+      if (i > 0 && p === 0) doc.addPage({ size: 'A4', margin: 0 });
+      const x = x0 + (p % colunas) * (etW + gapX);
+      const y = y0 + Math.floor(p / colunas) * (etH + gapY);
+      await this.desenharPlaqueta(doc, bens[i], x, y, etW, etH, true);
+    }
+    doc.end();
+    return new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
+  }
+
+  private async desenharPlaqueta(
+    doc: PDFKit.PDFDocument,
+    bem: BemPatrimonial,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    borda: boolean,
+  ) {
+    const pad = 1.6 * MM;
+    if (borda) doc.rect(x, y, w, h).lineWidth(0.4).stroke('#9ca3af');
+
+    // QR à esquerda ocupando a altura útil
+    const qrSize = h - pad * 2;
+    const png = await this.qrPng(bem);
+    doc.image(png, x + pad, y + pad, { width: qrSize, height: qrSize });
+
+    // Texto à direita
+    const tx = x + pad + qrSize + pad;
+    const tw = w - (tx - x) - pad;
+    const orgaoNome = (bem.orgao?.nome_fantasia || bem.orgao?.nome || 'PATRIMÔNIO').toUpperCase();
+
+    doc.fillColor('#111827').font('Helvetica-Bold').fontSize(5.2)
+      .text(orgaoNome, tx, y + pad, { width: tw, height: 7, ellipsis: true, lineBreak: false });
+    doc.font('Helvetica').fontSize(4.6).fillColor('#374151')
+      .text('PATRIMÔNIO Nº', tx, y + pad + 7, { width: tw, lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#111827')
+      .text(bem.plaqueta || '—', tx, y + pad + 12.5, { width: tw, lineBreak: false });
+    doc.font('Helvetica').fontSize(4.8).fillColor('#374151')
+      .text(bem.descricao || '', tx, y + pad + 28.5, { width: tw, height: 12, ellipsis: true });
+    const setor = bem.setor?.nome || bem.localizacao_nome || '';
+    if (setor) {
+      doc.font('Helvetica-Oblique').fontSize(4.4).fillColor('#6b7280')
+        .text(setor, tx, y + h - pad - 5.5, { width: tw, lineBreak: false, ellipsis: true });
+    }
+  }
+
+  // ─── ZPL (impressora Zebra) ────────────────────────────────────────
+
+  /**
+   * Gera o arquivo ZPL com uma etiqueta por bem, no tamanho da etiqueta do
+   * órgão. Envie para a impressora pelo Zebra Setup Utilities, pelo driver
+   * ("imprimir arquivo") ou pelo Zebra Browser Print.
+   */
+  async gerarZpl(orgaoId: string, dto: GerarZplDto): Promise<string> {
+    const bens = await this.carregarBens(orgaoId, dto.bem_ids);
+    const dpi = dto.dpi === 300 ? 300 : 203;
+    const dpmm = dpi / 25.4;
+    const larguraMm = dto.largura_mm || 50;
+    const alturaMm = dto.altura_mm || 25;
+    const W = Math.round(larguraMm * dpmm);
+    const H = Math.round(alturaMm * dpmm);
+    const m = Math.round(1.5 * dpmm); // margem
+    // QR: ~33 módulos (versão 3 + quieto) cabendo na altura útil
+    const mag = Math.max(2, Math.min(10, Math.floor((H - 2 * m) / 33)));
+    const qrLado = mag * 33;
+    const tx = m + qrLado + Math.round(1.5 * dpmm);
+    const tw = Math.max(40, W - tx - m);
+
+    const esc = (s: string) =>
+      String(s || '')
+        .replace(/[\^~\\]/g, ' ')
+        .replace(/\r?\n/g, ' ')
+        .trim();
+
+    const fonte = (mm: number) => Math.max(8, Math.round(mm * dpmm));
+    const h1 = fonte(1.9); // órgão
+    const h2 = fonte(1.6); // rótulo
+    const h3 = fonte(4.2); // número
+    const h4 = fonte(1.7); // descrição
+
+    const blocos = bens.map((bem) => {
+      const orgaoNome = esc((bem.orgao?.nome_fantasia || bem.orgao?.nome || 'PATRIMÔNIO').toUpperCase());
+      const setor = esc(bem.setor?.nome || bem.localizacao_nome || '');
+      const y1 = m;
+      const y2 = y1 + h1 + Math.round(0.4 * dpmm);
+      const y3 = y2 + h2 + Math.round(0.3 * dpmm);
+      const y4 = y3 + h3 + Math.round(0.6 * dpmm);
+      const linhasDesc = setor ? 1 : 2;
+      const y5 = H - m - h4;
+      return [
+        '^XA',
+        '^CI28',
+        `^PW${W}`,
+        `^LL${H}`,
+        '^LH0,0',
+        `^FO${m},${m}^BQN,2,${mag}^FDQA,${esc(urlPublicaDoBem(bem.id))}^FS`,
+        `^FO${tx},${y1}^A0N,${h1},${h1}^FB${tw},1,0,L,0^FD${orgaoNome}^FS`,
+        `^FO${tx},${y2}^A0N,${h2},${h2}^FDPATRIMÔNIO Nº^FS`,
+        `^FO${tx},${y3}^A0N,${h3},${h3}^FD${esc(bem.plaqueta || '')}^FS`,
+        `^FO${tx},${y4}^A0N,${h4},${h4}^FB${tw},${linhasDesc},0,L,0^FD${esc(bem.descricao)}^FS`,
+        setor ? `^FO${tx},${y5}^A0N,${h4},${h4}^FB${tw},1,0,L,0^FD${setor}^FS` : '',
+        '^XZ',
+      ].filter(Boolean).join('\n');
+    });
+    return blocos.join('\n') + '\n';
+  }
+
+  // ─── ETIQUETAS DE SITUAÇÃO (texto) ─────────────────────────────────
 
   private async gerarIndividual(
     bens: BemPatrimonial[],
@@ -133,11 +310,13 @@ export class PatrimonioEtiquetasService {
     currentY = y + 28;
     doc.fillColor('#000').font('Helvetica').fontSize(7);
 
+    const setorNome = bem.setor?.nome || bem.localizacao_nome || '';
+
     switch (tipo) {
       case TipoEtiqueta.AVARIA:
         this.linhaEtiqueta(doc, innerX, currentY, maxWidth, 'Tipo de Defeito:', '');
         currentY += 14;
-        this.linhaEtiqueta(doc, innerX, currentY, maxWidth, 'Setor/Centro de Custo:', bem.localizacao_nome || '');
+        this.linhaEtiqueta(doc, innerX, currentY, maxWidth, 'Setor/Centro de Custo:', setorNome);
         currentY += 14;
         this.linhaEtiqueta(doc, innerX, currentY, maxWidth, 'Data de Identificação:', '');
         currentY += 14;
@@ -153,7 +332,7 @@ export class PatrimonioEtiquetasService {
         currentY += 14;
         this.linhaEtiqueta(doc, innerX, currentY, maxWidth, 'Status:', bem.status);
         currentY += 14;
-        this.linhaEtiqueta(doc, innerX, currentY, maxWidth, 'Localização:', bem.localizacao_nome || '-');
+        this.linhaEtiqueta(doc, innerX, currentY, maxWidth, 'Localização:', setorNome || '-');
         break;
 
       case TipoEtiqueta.BEM_PARTICULAR_SERVIDOR:
@@ -209,6 +388,7 @@ export class PatrimonioEtiquetasService {
 
   private getTituloEtiqueta(tipo: TipoEtiqueta): string {
     const titulos: Record<TipoEtiqueta, string> = {
+      [TipoEtiqueta.PLAQUETA]: 'PATRIMÔNIO',
       [TipoEtiqueta.AVARIA]: 'ETIQUETA DE AVARIA',
       [TipoEtiqueta.SITUACAO_PATRIMONIO]: 'SITUAÇÃO PATRIMÔNIO',
       [TipoEtiqueta.BEM_PARTICULAR_SERVIDOR]: 'BEM PARTICULAR - SERVIDOR',
@@ -220,6 +400,7 @@ export class PatrimonioEtiquetasService {
 
   private getCorEtiqueta(tipo: TipoEtiqueta): string {
     const cores: Record<TipoEtiqueta, string> = {
+      [TipoEtiqueta.PLAQUETA]: '#1f3a5f',
       [TipoEtiqueta.AVARIA]: '#dc2626',
       [TipoEtiqueta.SITUACAO_PATRIMONIO]: '#2563eb',
       [TipoEtiqueta.BEM_PARTICULAR_SERVIDOR]: '#9333ea',

@@ -14,28 +14,41 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { criarBem, listarCategorias } from "@/services/patrimonio.service"
+import { criarBem, listarCategorias, listarSetores, proximaPlaqueta } from "@/services/patrimonio.service"
 
 export default function NovoBemPage() {
   const router = useRouter()
   const [categorias, setCategorias] = useState<any[]>([])
+  const [setores, setSetores] = useState<{ id: string; nome: string; codigo: string }[]>([])
+  const [sugestaoPlaqueta, setSugestaoPlaqueta] = useState("")
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({
     plaqueta: "",
+    epc: "",
     descricao: "",
     categoria_id: "",
     tipo: "BEM_PROPRIO",
     quantidade: 1,
     estado_conservacao: "",
+    setor_id: "",
     localizacao_codigo: "",
     localizacao_nome: "",
     responsavel_nome: "",
     responsavel_cargo: "",
+    marca: "",
+    modelo: "",
+    numero_serie: "",
+    valor_aquisicao: "",
+    data_aquisicao: "",
+    nota_fiscal_numero: "",
+    fornecedor_nome: "",
     observacoes: "",
   })
 
   useEffect(() => {
     listarCategorias().then(setCategorias).catch(console.error)
+    listarSetores().then(setSetores).catch(() => setSetores([]))
+    proximaPlaqueta().then(setSugestaoPlaqueta).catch(() => {})
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -43,20 +56,16 @@ export default function NovoBemPage() {
     setLoading(true)
     try {
       const data: any = { ...form }
-      if (!data.plaqueta) delete data.plaqueta
-      if (!data.categoria_id) delete data.categoria_id
-      if (!data.estado_conservacao) delete data.estado_conservacao
-      if (!data.localizacao_codigo) delete data.localizacao_codigo
-      if (!data.localizacao_nome) delete data.localizacao_nome
-      if (!data.responsavel_nome) delete data.responsavel_nome
-      if (!data.responsavel_cargo) delete data.responsavel_cargo
-      if (!data.observacoes) delete data.observacoes
+      for (const k of Object.keys(data)) {
+        if (data[k] === "" || data[k] === null) delete data[k]
+      }
+      if (data.valor_aquisicao !== undefined) data.valor_aquisicao = parseFloat(String(data.valor_aquisicao).replace(",", "."))
 
       await criarBem(data)
       router.push("/orgao/patrimonio")
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao criar bem:", error)
-      alert("Erro ao criar bem")
+      alert(error?.message || "Erro ao criar bem")
     } finally {
       setLoading(false)
     }
@@ -79,10 +88,11 @@ export default function NovoBemPage() {
               <div>
                 <Label>Plaqueta</Label>
                 <Input
-                  placeholder="Código da plaqueta"
+                  placeholder={sugestaoPlaqueta ? `Automática: ${sugestaoPlaqueta}` : "Código da plaqueta"}
                   value={form.plaqueta}
                   onChange={(e) => setForm({ ...form, plaqueta: e.target.value })}
                 />
+                <p className="text-xs text-muted-foreground mt-1">Vazio = o sistema numera. Informe só para manter uma numeração já existente.</p>
               </div>
               <div>
                 <Label>Tipo *</Label>
@@ -154,21 +164,66 @@ export default function NovoBemPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Localização (Código)</Label>
-                <Input
-                  placeholder="Ex: CC-10031"
-                  value={form.localizacao_codigo}
-                  onChange={(e) => setForm({ ...form, localizacao_codigo: e.target.value })}
-                />
+                <Label>Setor *</Label>
+                <Select value={form.setor_id} onValueChange={(v) => setForm({ ...form, setor_id: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={setores.length ? "Selecione o setor" : "Cadastre setores em Configurações"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {setores.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">O inventário confere setor a setor: o bem só entra na lista do responsável se tiver setor.</p>
               </div>
               <div>
-                <Label>Localização (Nome)</Label>
+                <Label>Sala / localização (texto)</Label>
                 <Input
-                  placeholder="Ex: Compras"
+                  placeholder="Ex: Sala 12, 2º andar"
                   value={form.localizacao_nome}
                   onChange={(e) => setForm({ ...form, localizacao_nome: e.target.value })}
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label>Marca</Label>
+                <Input value={form.marca} onChange={(e) => setForm({ ...form, marca: e.target.value })} />
+              </div>
+              <div>
+                <Label>Modelo</Label>
+                <Input value={form.modelo} onChange={(e) => setForm({ ...form, modelo: e.target.value })} />
+              </div>
+              <div>
+                <Label>Nº de série</Label>
+                <Input value={form.numero_serie} onChange={(e) => setForm({ ...form, numero_serie: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <Label>Valor de aquisição (R$)</Label>
+                <Input inputMode="decimal" placeholder="0,00" value={form.valor_aquisicao} onChange={(e) => setForm({ ...form, valor_aquisicao: e.target.value })} />
+              </div>
+              <div>
+                <Label>Data de aquisição</Label>
+                <Input type="date" value={form.data_aquisicao} onChange={(e) => setForm({ ...form, data_aquisicao: e.target.value })} />
+              </div>
+              <div>
+                <Label>Nota fiscal</Label>
+                <Input value={form.nota_fiscal_numero} onChange={(e) => setForm({ ...form, nota_fiscal_numero: e.target.value })} />
+              </div>
+              <div>
+                <Label>Fornecedor</Label>
+                <Input value={form.fornecedor_nome} onChange={(e) => setForm({ ...form, fornecedor_nome: e.target.value })} />
+              </div>
+            </div>
+
+            <div>
+              <Label>Código RFID (EPC)</Label>
+              <Input placeholder="Preenchido quando a etiqueta tiver chip RFID" value={form.epc} onChange={(e) => setForm({ ...form, epc: e.target.value })} className="font-mono" />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
