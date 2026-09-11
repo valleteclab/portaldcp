@@ -5,13 +5,20 @@ import {
   IsInt,
   Min,
   IsUUID,
+  IsNumber,
+  IsDateString,
 } from 'class-validator';
 import { TipoBem, EstadoConservacao } from '../entities/enums';
 
 export class CriarBemDto {
+  /** Vazio = o sistema numera (próximo número do órgão). */
   @IsOptional()
   @IsString()
   plaqueta?: string;
+
+  @IsOptional()
+  @IsString()
+  epc?: string;
 
   @IsString()
   descricao: string;
@@ -33,6 +40,10 @@ export class CriarBemDto {
   estado_conservacao?: EstadoConservacao;
 
   @IsOptional()
+  @IsUUID()
+  setor_id?: string;
+
+  @IsOptional()
   @IsString()
   localizacao_codigo?: string;
 
@@ -47,6 +58,34 @@ export class CriarBemDto {
   @IsOptional()
   @IsString()
   responsavel_cargo?: string;
+
+  @IsOptional()
+  @IsString()
+  marca?: string;
+
+  @IsOptional()
+  @IsString()
+  modelo?: string;
+
+  @IsOptional()
+  @IsString()
+  numero_serie?: string;
+
+  @IsOptional()
+  @IsNumber()
+  valor_aquisicao?: number;
+
+  @IsOptional()
+  @IsDateString()
+  data_aquisicao?: string;
+
+  @IsOptional()
+  @IsString()
+  nota_fiscal_numero?: string;
+
+  @IsOptional()
+  @IsString()
+  fornecedor_nome?: string;
 
   @IsOptional()
   @IsString()

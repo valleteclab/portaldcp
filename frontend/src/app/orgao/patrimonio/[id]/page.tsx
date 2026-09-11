@@ -31,7 +31,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { obterBem, criarManutencao, atualizarBem } from "@/services/patrimonio.service"
+import { obterBem, criarManutencao, atualizarBem, listarSetores, enviarFotoBem } from "@/services/patrimonio.service"
+import { useRef } from "react"
+import { Camera, QrCode } from "lucide-react"
+import { API_URL } from "@/lib/api"
+
+const ESTADO_LABELS: Record<string, string> = { BOM: "Bom", REGULAR: "Regular", RUIM: "Ruim", INSERVIVEL: "Inservível" }
+const fmtMoeda = (v: any) => (v == null || v === "" ? "-" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }))
+const fmtData = (v: any) => (v ? new Date(String(v).slice(0, 10) + "T12:00:00").toLocaleDateString("pt-BR") : "-")
 
 const STATUS_COLORS: Record<string, string> = {
   ATIVO: "bg-green-100 text-green-800",
@@ -65,6 +72,9 @@ export default function DetalheBemPage() {
     motivo: "",
     data_entrada: new Date().toISOString().split("T")[0],
   })
+  const [setores, setSetores] = useState<{ id: string; nome: string }[]>([])
+  const [enviandoFoto, setEnviandoFoto] = useState(false)
+  const inputFoto = useRef<HTMLInputElement>(null)
 
   const carregarBem = async () => {
     try {
@@ -79,7 +89,25 @@ export default function DetalheBemPage() {
 
   useEffect(() => {
     carregarBem()
-  }, [params.id])
+    listarSetores().then(setSetores).catch(() => setSetores([]))
+  }, [params.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const trocarSetor = async (setorId: string) => {
+    try {
+      await atualizarBem(params.id as string, { setor_id: setorId || null })
+      carregarBem()
+    } catch (e: any) { alert(e?.message || "Erro ao alterar setor") }
+  }
+
+  const handleFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setEnviandoFoto(true)
+    try { await enviarFotoBem(params.id as string, file); carregarBem() }
+    catch (err: any) { alert(err?.message || "Erro ao enviar foto") }
+    finally { setEnviandoFoto(false) }
+  }
 
   const handleEnviarManutencao = async () => {
     try {
@@ -115,26 +143,60 @@ export default function DetalheBemPage() {
         <Badge className={STATUS_COLORS[bem.status] || ""}>
           {bem.status?.replace(/_/g, " ")}
         </Badge>
+        <a href={`/p/${bem.id}`} target="_blank" rel="noreferrer">
+          <Button variant="outline" title="Página que o QR da plaqueta abre"><QrCode className="h-4 w-4 mr-2" />Página do QR</Button>
+        </a>
         <Button variant="outline" onClick={() => setManutDialog(true)}>
           <Wrench className="h-4 w-4 mr-2" />Enviar para Manutenção
         </Button>
       </div>
 
       {/* Informações do Bem */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
           <CardHeader><CardTitle>Identificação</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex justify-between"><span className="text-muted-foreground">Plaqueta:</span><span>{bem.plaqueta || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Plaqueta:</span><span className="font-mono">{bem.plaqueta || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">RFID (EPC):</span><span className="font-mono text-xs">{bem.epc || "-"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Categoria:</span><span>{bem.categoria?.nome || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Marca / modelo:</span><span>{[bem.marca, bem.modelo].filter(Boolean).join(" ") || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Nº de série:</span><span className="font-mono text-xs">{bem.numero_serie || "-"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Quantidade:</span><span>{bem.quantidade}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Estado:</span><span>{bem.estado_conservacao || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Estado:</span><span>{ESTADO_LABELS[bem.estado_conservacao] || bem.estado_conservacao || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Última conferência:</span><span>{bem.ultima_conferencia_em ? new Date(bem.ultima_conferencia_em).toLocaleString("pt-BR") : "nunca"}</span></div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Aquisição</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between"><span className="text-muted-foreground">Valor:</span><span>{fmtMoeda(bem.valor_aquisicao)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Data:</span><span>{fmtData(bem.data_aquisicao)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Nota fiscal:</span><span>{bem.nota_fiscal_numero || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Fornecedor:</span><span className="text-right">{bem.fornecedor_nome || "-"}</span></div>
+            <div className="pt-2 border-t">
+              <input ref={inputFoto} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFoto} />
+              {bem.foto_url ? (
+                <img src={`${API_URL}${bem.foto_url}`} alt="Foto do bem" className="w-full max-h-40 object-cover rounded-md mb-2 cursor-pointer" onClick={() => inputFoto.current?.click()} />
+              ) : null}
+              <Button size="sm" variant="outline" onClick={() => inputFoto.current?.click()} disabled={enviandoFoto}>
+                <Camera className="h-4 w-4 mr-2" />{enviandoFoto ? "Enviando..." : bem.foto_url ? "Trocar foto" : "Adicionar foto"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>Localização e Responsável</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex justify-between"><span className="text-muted-foreground">Local:</span><span>{bem.localizacao_nome || "-"} {bem.localizacao_codigo ? `(${bem.localizacao_codigo})` : ""}</span></div>
+            <div>
+              <span className="text-muted-foreground text-sm">Setor (inventário):</span>
+              <Select value={bem.setor_id || ""} onValueChange={trocarSetor}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder={setores.length ? "Sem setor — selecione" : "Cadastre setores em Configurações"} /></SelectTrigger>
+                <SelectContent>
+                  {setores.map((s) => <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Sala / local:</span><span>{bem.localizacao_nome || "-"} {bem.localizacao_codigo ? `(${bem.localizacao_codigo})` : ""}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Responsável:</span><span>{bem.responsavel_nome || "-"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Cargo:</span><span>{bem.responsavel_cargo || "-"}</span></div>
             {bem.observacoes && <div className="pt-2 border-t"><span className="text-muted-foreground text-sm">Obs: </span><span className="text-sm">{bem.observacoes}</span></div>}

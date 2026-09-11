@@ -27,9 +27,45 @@ export enum StatusManutencao {
 }
 
 export enum TipoEtiqueta {
+  /** Plaqueta patrimonial com QR code (leitura pelo celular no inventário). */
+  PLAQUETA = 'PLAQUETA',
   AVARIA = 'AVARIA',
   SITUACAO_PATRIMONIO = 'SITUACAO_PATRIMONIO',
   BEM_PARTICULAR_SERVIDOR = 'BEM_PARTICULAR_SERVIDOR',
   BEM_LOCADO = 'BEM_LOCADO',
   BEM_COMODATO = 'BEM_COMODATO',
+}
+
+// ─── Inventário (campanha de conferência) ─────────────────────────────
+
+export enum StatusInventario {
+  ABERTO = 'ABERTO',
+  FECHADO = 'FECHADO',
+}
+
+export enum StatusInventarioSetor {
+  PENDENTE = 'PENDENTE',
+  EM_ANDAMENTO = 'EM_ANDAMENTO',
+  FECHADO = 'FECHADO',
+}
+
+/** Como a leitura chegou ao sistema. */
+export enum OrigemLeitura {
+  QR = 'QR',
+  RFID = 'RFID',
+  MANUAL = 'MANUAL',
+}
+
+/** Resultado da leitura em relação ao cadastro. */
+export enum SituacaoLeitura {
+  /** Bem do setor, encontrado no setor. */
+  ENCONTRADO = 'ENCONTRADO',
+  /** Bem cadastrado em outro setor, encontrado aqui. */
+  OUTRO_SETOR = 'OUTRO_SETOR',
+  /** Código lido não corresponde a nenhum bem. */
+  DESCONHECIDO = 'DESCONHECIDO',
+  /** Bem físico sem plaqueta, cadastrado na hora pela conferência. */
+  SEM_PLAQUETA = 'SEM_PLAQUETA',
+  /** Bem já baixado no cadastro, mas ainda presente. */
+  BAIXADO_PRESENTE = 'BAIXADO_PRESENTE',
 }
