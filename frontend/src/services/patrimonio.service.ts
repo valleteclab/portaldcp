@@ -304,6 +304,14 @@ export async function enviarFotoBem(bemId: string, file: File) {
   return json as { foto_url: string };
 }
 
+/** Acha o bem por qualquer código lido (URL do QR, plaqueta, EPC RFID). */
+export async function bemPorCodigo(codigo: string) {
+  const res = await authFetch(`${baseUrl()}/bem-por-codigo?codigo=${encodeURIComponent(codigo)}`);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao consultar código');
+  return json as { codigo: string; bem: { id: string; plaqueta: string | null; descricao: string; epc: string | null; setor_nome: string | null; categoria: string | null; status: string } | null };
+}
+
 export async function listarSetores() {
   const res = await authFetch(`${API_URL}/api/orgaos/${getOrgaoId()}/setores`);
   if (!res.ok) throw new Error('Erro ao listar setores');

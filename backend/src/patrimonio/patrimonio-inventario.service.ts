@@ -348,8 +348,13 @@ export class PatrimonioInventarioService {
     };
   }
 
-  /** Interpreta o que veio da câmera/leitor/teclado e acha o bem. */
-  private async resolverCodigo(orgaoId: string, codigoBruto: string): Promise<{ bem: BemPatrimonial | null; codigo: string }> {
+  /**
+   * Interpreta o que veio da câmera/leitor/teclado e acha o bem:
+   * URL do QR (/p/<uuid>), plaqueta (com ou sem zeros), EPC do chip RFID
+   * (igual ao gravado no bem, ou EPC em hex que codifica o número da plaqueta
+   * em ASCII/decimal, como o fornecedor grava nas etiquetas pré-codificadas).
+   */
+  async resolverCodigo(orgaoId: string, codigoBruto: string): Promise<{ bem: BemPatrimonial | null; codigo: string }> {
     const codigo = String(codigoBruto || '').trim();
     if (!codigo) throw new BadRequestException('Código vazio');
     // 1) URL do QR da plaqueta: .../p/<uuid>
@@ -369,14 +374,24 @@ export class PatrimonioInventarioService {
       .where('bem.orgao_id = :orgaoId', { orgaoId })
       .andWhere('(UPPER(bem.plaqueta) = :limpo OR UPPER(bem.epc) = :limpo)', { limpo });
     let bem = await qb.getOne();
-    if (!bem && /^\d+$/.test(limpo)) {
-      bem = await this.bemRepo
+    const porNumero = (num: string) => {
+      if (!/^\d{1,12}$/.test(num) || Number(num) === 0) return Promise.resolve(null);
+      return this.bemRepo
         .createQueryBuilder('bem')
         .leftJoinAndSelect('bem.setor', 'setor')
         .leftJoinAndSelect('bem.categoria', 'categoria')
         .where('bem.orgao_id = :orgaoId', { orgaoId })
-        .andWhere("bem.plaqueta ~ '^[0-9]+$' AND CAST(bem.plaqueta AS bigint) = :num", { num: Number(limpo) })
+        .andWhere("bem.plaqueta ~ '^[0-9]+$' AND CAST(bem.plaqueta AS bigint) = :num", { num: Number(num) })
         .getOne();
+    };
+    // 3) plaqueta digitada sem zeros à esquerda (ou EPC gravado só com dígitos)
+    if (!bem && /^\d+$/.test(limpo)) bem = await porNumero(limpo.replace(/^0+/, '') || '0');
+    // 4) EPC em hex (leitor RFID): o fornecedor grava o número da plaqueta em ASCII
+    //    (ex.: "CMLEM000482" → 434D4C454D303030343832) — decodifica e tenta o número
+    if (!bem && /^[0-9A-F]{8,64}$/.test(limpo) && limpo.length % 2 === 0) {
+      const ascii = Buffer.from(limpo, 'hex').toString('latin1').replace(/[^\x20-\x7e]/g, '');
+      const digitos = ascii.match(/\d{1,12}/g);
+      if (digitos?.length) bem = await porNumero(digitos[digitos.length - 1].replace(/^0+/, '') || '0');
     }
     return { bem, codigo };
   }

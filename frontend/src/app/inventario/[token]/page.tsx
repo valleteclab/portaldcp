@@ -163,11 +163,28 @@ export default function ConferenciaSetorPage() {
     registrar(raw, 'QR')
   }
 
+  /**
+   * Modo leitor (coletor Chainway C66 com Keyboard Emulator, leitor Bluetooth
+   * em modo HID, leitor de barras): cada leitura chega como texto + Enter.
+   * Um leitor RFID repete a mesma tag várias vezes por segundo: o que já foi
+   * registrado nesta sessão é ignorado sem ir ao servidor.
+   */
+  const lidosSessao = useRef<Set<string>>(new Set())
+  const [contadorLeitor, setContadorLeitor] = useState({ novas: 0, repetidas: 0 })
   const onTeclado = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter') return
+    if (e.key !== 'Enter' && e.key !== 'Tab') return
+    e.preventDefault()
     const v = (e.currentTarget.value || '').trim()
     e.currentTarget.value = ''
-    if (v) registrar(v, 'RFID')
+    if (!v) return
+    const chave = v.toUpperCase()
+    if (lidosSessao.current.has(chave)) {
+      setContadorLeitor((c) => ({ ...c, repetidas: c.repetidas + 1 }))
+      return
+    }
+    lidosSessao.current.add(chave)
+    setContadorLeitor((c) => ({ ...c, novas: c.novas + 1 }))
+    registrar(v, 'RFID')
   }
 
   const cadastrarSemPlaqueta = async () => {
@@ -221,6 +238,8 @@ export default function ConferenciaSetorPage() {
   const fechado = dados?.setor.status === 'FECHADO' || dados?.inventario.status === 'FECHADO'
 
   useEffect(() => { if (modoTeclado) tecladoRef.current?.focus() }, [modoTeclado])
+  // Depois de fechar o cartão de resultado, o foco volta ao campo do leitor
+  useEffect(() => { if (modoTeclado && !resultado) tecladoRef.current?.focus() }, [resultado, modoTeclado])
 
   // ─── telas de erro / carga ──────────────────────────────────────
   if (erroCarga) {
@@ -293,15 +312,21 @@ export default function ConferenciaSetorPage() {
             <p className="text-sm font-semibold flex items-center gap-2"><Keyboard className="w-4 h-4 text-amber-400" /> Leitor conectado (modo teclado)</p>
             <button onClick={() => setModoTeclado(false)} className="text-slate-400"><X className="w-4 h-4" /></button>
           </div>
-          <p className="text-xs text-slate-400 mt-1">Mantenha este campo em foco. Cada código lido pelo leitor RFID ou de barras entra aqui e é registrado automaticamente.</p>
+          <p className="text-xs text-slate-400 mt-1">Mantenha este campo em foco e aperte o gatilho do coletor (Chainway: ative o Keyboard Emulator com Enter ao final). Cada tag RFID ou código de barras lido é registrado; repetidas são ignoradas.</p>
           <input
             id="entrada-leitor"
             ref={tecladoRef}
             className="mt-2 w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-3 text-base font-mono"
             placeholder="Aguardando leitura…"
             autoComplete="off"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            inputMode="none"
             onKeyDown={onTeclado}
+            onBlur={() => setTimeout(() => { if (modoTeclado && !resultado && !modalPlaqueta && !modalSemPlaqueta && !modalFechar) tecladoRef.current?.focus() }, 150)}
           />
+          <p className="text-[11px] text-slate-500 mt-1">Nesta sessão: {contadorLeitor.novas} leitura(s) nova(s), {contadorLeitor.repetidas} repetida(s) ignorada(s).</p>
         </div>
       )}
 
