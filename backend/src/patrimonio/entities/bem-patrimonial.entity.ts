@@ -108,6 +108,19 @@ export class BemPatrimonial {
   @Column({ type: 'timestamp', nullable: true })
   ultima_conferencia_em: Date | null;
 
+  // ─── Empréstimo em curso / baixa ─────────────────────────────────
+  @Column({ type: 'varchar', nullable: true })
+  emprestado_para: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  emprestado_ate: Date | null;
+
+  @Column({ type: 'date', nullable: true })
+  data_baixa: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  motivo_baixa: string | null;
+
   @Column({ type: 'enum', enum: StatusBem, default: StatusBem.ATIVO })
   status: StatusBem;
 

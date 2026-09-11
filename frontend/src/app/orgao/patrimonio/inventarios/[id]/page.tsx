@@ -14,8 +14,10 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { toast } from "sonner"
 import {
   obterInventario, divergenciasInventario, fecharInventario, atualizarSetorInventario,
-  enviarLinkSetorInventario, reabrirSetorInventario,
+  enviarLinkSetorInventario, reabrirSetorInventario, abrirPdf, urlTermoResponsabilidade,
 } from "@/services/patrimonio.service"
+import { TransferenciaDialog, BaixaDialog } from "../../movimentacoes/BemAcoes"
+import { FileText } from "lucide-react"
 
 const STATUS_SETOR: Record<string, { label: string; cls: string }> = {
   PENDENTE: { label: "Não iniciado", cls: "bg-gray-100 text-gray-800" },
@@ -31,6 +33,8 @@ export default function InventarioDetalhePage() {
   const [aba, setAba] = useState<"setores" | "divergencias">("setores")
   const [editando, setEditando] = useState<any>(null)
   const [editForm, setEditForm] = useState({ responsavel_nome: "", responsavel_telefone: "" })
+  const [transf, setTransf] = useState<{ bem: any; setorId: string; setorNome: string } | null>(null)
+  const [baixa, setBaixa] = useState<{ bem: any; setorNome: string } | null>(null)
 
   const carregar = async () => {
     try {
@@ -165,19 +169,48 @@ export default function InventarioDetalhePage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm space-y-3">
+                  {s.setor_id && (
+                    <div className="flex justify-end">
+                      <Button size="sm" variant="outline" onClick={() => abrirPdf(urlTermoResponsabilidade(s.setor_id, s.fechado_por || s.responsavel_nome || "")).catch((e) => toast.error(e.message))}>
+                        <FileText className="h-3.5 w-3.5 mr-1" />Termo de responsabilidade do setor
+                      </Button>
+                    </div>
+                  )}
                   {vazio && <p className="text-muted-foreground">Sem divergências{s.status !== "FECHADO" ? " até agora" : ""}.</p>}
-                  <Lista titulo={`Não localizados (${s.nao_localizados.length})`} cor="text-red-700" itens={s.nao_localizados.map((b: any) => `${b.plaqueta || "—"} · ${b.descricao}`)} />
-                  <Lista titulo={`Encontrados de outro setor (${s.outro_setor.length})`} cor="text-amber-700" itens={s.outro_setor.map((b: any) => `${b.plaqueta || "—"} · ${b.descricao} — cadastrado em ${b.setor_cadastro_nome || "?"}`)} />
-                  <Lista titulo={`Sem plaqueta, cadastrados na conferência (${s.sem_plaqueta.length})`} cor="text-sky-700" itens={s.sem_plaqueta.map((b: any) => `${b.plaqueta || "—"} · ${b.descricao}`)} />
-                  <Lista titulo={`Códigos não cadastrados (${s.desconhecidos.length})`} cor="text-rose-700" itens={s.desconhecidos.map((d: any) => d.codigo_lido)} />
-                  <Lista titulo={`Baixados, mas presentes (${s.baixados_presentes.length})`} cor="text-purple-700" itens={s.baixados_presentes.map((b: any) => `${b.plaqueta || "—"} · ${b.descricao}`)} />
-                  <Lista titulo={`Estado ruim ou inservível (${s.estado_ruim.length})`} cor="text-orange-700" itens={s.estado_ruim.map((b: any) => `${b.plaqueta || "—"} · ${b.descricao} (${b.estado_conservacao})`)} />
+                  <Lista titulo={`Não localizados (${s.nao_localizados.length})`} cor="text-red-700"
+                    itens={s.nao_localizados.map((b: any) => ({ texto: `${b.plaqueta || "—"} · ${b.descricao}`, acao: aberta ? { rotulo: "Registrar baixa", onClick: () => setBaixa({ bem: b, setorNome: s.setor_nome }) } : undefined }))} />
+                  <Lista titulo={`Encontrados de outro setor (${s.outro_setor.length})`} cor="text-amber-700"
+                    itens={s.outro_setor.map((b: any) => ({ texto: `${b.plaqueta || "—"} · ${b.descricao} — cadastrado em ${b.setor_cadastro_nome || "?"}`, acao: aberta && s.setor_id && b.id ? { rotulo: `Transferir para ${s.setor_nome}`, onClick: () => setTransf({ bem: b, setorId: s.setor_id, setorNome: s.setor_nome }) } : undefined }))} />
+                  <Lista titulo={`Sem plaqueta, cadastrados na conferência (${s.sem_plaqueta.length})`} cor="text-sky-700" itens={s.sem_plaqueta.map((b: any) => ({ texto: `${b.plaqueta || "—"} · ${b.descricao} — imprimir plaqueta` }))} />
+                  <Lista titulo={`Códigos não cadastrados (${s.desconhecidos.length})`} cor="text-rose-700" itens={s.desconhecidos.map((d: any) => ({ texto: d.codigo_lido }))} />
+                  <Lista titulo={`Baixados, mas presentes (${s.baixados_presentes.length})`} cor="text-purple-700" itens={s.baixados_presentes.map((b: any) => ({ texto: `${b.plaqueta || "—"} · ${b.descricao}` }))} />
+                  <Lista titulo={`Estado ruim ou inservível (${s.estado_ruim.length})`} cor="text-orange-700"
+                    itens={s.estado_ruim.map((b: any) => ({ texto: `${b.plaqueta || "—"} · ${b.descricao} (${b.estado_conservacao})`, acao: aberta && b.id && b.estado_conservacao === "INSERVIVEL" ? { rotulo: "Registrar baixa", onClick: () => setBaixa({ bem: b, setorNome: s.setor_nome }) } : undefined }))} />
                 </CardContent>
               </Card>
             )
           })}
         </div>
       )}
+
+      <TransferenciaDialog
+        bens={transf ? [transf.bem] : []}
+        open={!!transf}
+        onClose={() => setTransf(null)}
+        onDone={carregar}
+        setorDestinoId={transf?.setorId}
+        motivoInicial={transf ? `Inventário ${inv.ano}: encontrado em ${transf.setorNome}` : ""}
+        inventarioId={id}
+        aceiteImediatoInicial
+      />
+      <BaixaDialog
+        bem={baixa?.bem || null}
+        open={!!baixa}
+        onClose={() => setBaixa(null)}
+        onDone={carregar}
+        inventarioId={id}
+        motivoInicial={baixa ? `Inventário ${inv.ano}: não localizado na conferência do setor ${baixa.setorNome}` : ""}
+      />
 
       <Dialog open={!!editando} onOpenChange={() => setEditando(null)}>
         <DialogContent>
@@ -205,12 +238,19 @@ function Resumo({ titulo, valor, cor }: { titulo: string; valor: number; cor?: s
   )
 }
 
-function Lista({ titulo, cor, itens }: { titulo: string; cor: string; itens: string[] }) {
+function Lista({ titulo, cor, itens }: { titulo: string; cor: string; itens: { texto: string; acao?: { rotulo: string; onClick: () => void } }[] }) {
   if (!itens.length) return null
   return (
     <div>
       <p className={`font-semibold ${cor}`}>{titulo}</p>
-      <ul className="list-disc pl-5 text-muted-foreground">{itens.map((t, i) => <li key={i}>{t}</li>)}</ul>
+      <ul className="list-disc pl-5 text-muted-foreground space-y-0.5">
+        {itens.map((t, i) => (
+          <li key={i}>
+            {t.texto}
+            {t.acao && <button onClick={t.acao.onClick} className="ml-2 text-xs text-blue-700 underline underline-offset-2">{t.acao.rotulo}</button>}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

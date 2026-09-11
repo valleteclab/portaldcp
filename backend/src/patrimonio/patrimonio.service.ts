@@ -417,12 +417,22 @@ export class PatrimonioService {
     const categoria = await this.categoriaRepository.findOne({
       where: { id: categoriaId, orgao_id: orgaoId, sistema: false },
     });
-    if (!categoria)
-      throw new NotFoundException(
-        'Categoria não encontrada ou é do sistema',
-      );
-    categoria.nome = dto.nome;
+    if (!categoria) {
+      // Categorias do sistema: só os parâmetros de depreciação podem ser ajustados pelo órgão
+      const sistema = await this.categoriaRepository.findOne({ where: { id: categoriaId, sistema: true } });
+      if (!sistema) throw new NotFoundException('Categoria não encontrada');
+      this.aplicarParametrosDepreciacao(sistema, dto);
+      return this.categoriaRepository.save(sistema);
+    }
+    if (dto.nome) categoria.nome = dto.nome;
+    this.aplicarParametrosDepreciacao(categoria, dto);
     return this.categoriaRepository.save(categoria);
+  }
+
+  private aplicarParametrosDepreciacao(categoria: CategoriaBem, dto: CriarCategoriaDto) {
+    if (dto.vida_util_anos !== undefined) categoria.vida_util_anos = dto.vida_util_anos ? Number(dto.vida_util_anos) : null;
+    if (dto.valor_residual_pct !== undefined && dto.valor_residual_pct !== null) categoria.valor_residual_pct = Number(dto.valor_residual_pct);
+    if (dto.conta_contabil !== undefined) categoria.conta_contabil = dto.conta_contabil?.trim() || null;
   }
 
   async desativarCategoria(orgaoId: string, categoriaId: string) {
