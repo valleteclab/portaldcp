@@ -25,6 +25,7 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 import { PatrimonioService } from './patrimonio.service';
 import { PatrimonioEtiquetasService } from './patrimonio-etiquetas.service';
 import { PatrimonioRelatoriosService } from './patrimonio-relatorios.service';
+import { PatrimonioInventarioService } from './patrimonio-inventario.service';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -46,7 +47,23 @@ export class PatrimonioController {
     private readonly patrimonioService: PatrimonioService,
     private readonly etiquetasService: PatrimonioEtiquetasService,
     private readonly relatoriosService: PatrimonioRelatoriosService,
+    private readonly inventarioService: PatrimonioInventarioService,
   ) {}
+
+  /**
+   * Acha o bem por qualquer código lido (URL do QR, plaqueta, EPC RFID).
+   * Usado pela tela de associação de tags RFID no coletor.
+   */
+  @Get('bem-por-codigo')
+  async bemPorCodigo(@Param('orgaoId') orgaoId: string, @Query('codigo') codigo: string) {
+    const { bem, codigo: lido } = await this.inventarioService.resolverCodigo(orgaoId, codigo);
+    return {
+      codigo: lido,
+      bem: bem
+        ? { id: bem.id, plaqueta: bem.plaqueta, descricao: bem.descricao, epc: bem.epc, setor_nome: bem.setor?.nome || bem.localizacao_nome || null, categoria: bem.categoria?.nome || null, status: bem.status }
+        : null,
+    };
+  }
 
   // ─── BENS ────────────────────────────────────────────
 

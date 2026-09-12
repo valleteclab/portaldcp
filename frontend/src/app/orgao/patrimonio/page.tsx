@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { Plus, Search, Tag, FileText, Wrench, Building2, Users, Handshake, FolderOpen, ClipboardCheck, Upload, ArrowRightLeft } from "lucide-react"
+import { Plus, Search, Tag, FileText, Wrench, Building2, Users, Handshake, FolderOpen, ClipboardCheck, Upload, ArrowRightLeft, Radio } from "lucide-react"
 import { useRef } from "react"
 import { importarPlanilha } from "@/services/patrimonio.service"
 import { Button } from "@/components/ui/button"
@@ -154,6 +154,9 @@ export default function PatrimonioPage() {
           </Button>
           <Link href="/orgao/patrimonio/etiquetas">
             <Button variant="outline"><Tag className="h-4 w-4 mr-2" />Etiquetas</Button>
+          </Link>
+          <Link href="/orgao/patrimonio/rfid">
+            <Button variant="outline"><Radio className="h-4 w-4 mr-2" />RFID</Button>
           </Link>
           <Link href="/orgao/patrimonio/relatorios">
             <Button variant="outline"><FileText className="h-4 w-4 mr-2" />Relatórios</Button>
