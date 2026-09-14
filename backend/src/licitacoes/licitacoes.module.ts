@@ -15,17 +15,22 @@ import { PncpModule } from '../pncp/pncp.module';
 import { FaseInternaModule } from '../fase-interna/fase-interna.module';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { ProcessoPdfService } from './processo-pdf.service';
+import { IntegracaoPlataformaLicitacao } from './entities/integracao-plataforma.entity';
+import { BllIntegracaoService } from './bll-integracao.service';
+import { BllIntegracaoController } from './bll-integracao.controller';
+import { FornecedoresModule } from '../fornecedores/fornecedores.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem]),
+    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao]),
     forwardRef(() => ContratosModule),
     PncpModule,
     FaseInternaModule,
     NotificacoesModule,
+    FornecedoresModule,
   ],
-  controllers: [LicitacoesController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway, ProcessoPdfService],
+  controllers: [LicitacoesController, BllIntegracaoController],
+  providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway, ProcessoPdfService, BllIntegracaoService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService],
 })
 export class LicitacoesModule {}
