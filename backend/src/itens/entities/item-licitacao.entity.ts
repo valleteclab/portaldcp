@@ -292,6 +292,10 @@ export class ItemLicitacao {
   @Column({ nullable: true })
   fornecedor_vencedor_nome: string;
 
+  /** Marca ofertada pelo vencedor (vem do resultado da plataforma externa). */
+  @Column({ type: 'varchar', nullable: true })
+  marca_vencedora: string | null;
+
   // Observações
   @Column({ type: 'text', nullable: true })
   observacoes: string;

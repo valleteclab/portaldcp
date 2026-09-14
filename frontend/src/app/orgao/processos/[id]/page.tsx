@@ -22,6 +22,7 @@ import {
   ArrowLeft, ClipboardList, FileText, Gavel, FileSignature, Activity,
   CheckCircle2, Circle, ExternalLink, Loader2, AlertTriangle,
 } from "lucide-react"
+import { BllIntegracao } from "./BllIntegracao"
 
 interface ProcessoCompleto {
   licitacao: {
@@ -744,6 +745,11 @@ export default function CockpitProcessoPage() {
           )}
         </div>
       </div>
+
+      {/* Disputa em plataforma externa: troca de arquivos com a BLL Compras */}
+      {licitacao.modalidade !== "DISPENSA_ELETRONICA" && checklist.possui_itens && (
+        <BllIntegracao licitacaoId={id} homologado={!!checklist.homologado} onAtualizado={carregar} />
+      )}
 
       {/* Copiloto: status da preparação automática */}
       {licitacao.preparacao_automatica && (
