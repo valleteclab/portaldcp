@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/public.decorator';
 import { PatrimonioInventarioService } from './patrimonio-inventario.service';
@@ -76,6 +78,31 @@ export class PatrimonioPublicController {
       modelo: body?.modelo,
       numero_serie: body?.numero_serie,
     });
+  }
+
+  /**
+   * Foto de uma leitura da conferência (multipart `file`, jpg/png/webp até 10 MB).
+   * Fica em memória e o service grava na pasta do órgão do token.
+   */
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @Post('inventario/:token/leituras/:leituraId/foto')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const ok = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(file.mimetype);
+        cb(ok ? null : new BadRequestException('Envie uma imagem JPG, PNG ou WEBP'), ok);
+      },
+    }),
+  )
+  fotoLeitura(
+    @Param('token') token: string,
+    @Param('leituraId') leituraId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: any,
+  ) {
+    return this.inventario.salvarFotoLeitura(token, leituraId, file, { lido_por: body?.lido_por, legenda: body?.legenda });
   }
 
   @Throttle({ default: { limit: 20, ttl: 60000 } })

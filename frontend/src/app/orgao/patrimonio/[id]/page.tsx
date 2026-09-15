@@ -31,9 +31,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { obterBem, criarManutencao, atualizarBem, listarSetores, enviarFotoBem } from "@/services/patrimonio.service"
+import {
+  obterBem, criarManutencao, atualizarBem, listarSetores,
+  listarFotosBem, adicionarFotoBem, definirCapaFotoBem, excluirFotoBem,
+  ORIGEM_FOTO_LABELS, type FotoBem, type OrigemFotoBem,
+} from "@/services/patrimonio.service"
 import { useRef } from "react"
-import { Camera, QrCode } from "lucide-react"
+import { Camera, QrCode, Star, Trash2, ImageIcon } from "lucide-react"
+import { toast } from "sonner"
 import { API_URL } from "@/lib/api"
 import { BemAcoes } from "../movimentacoes/BemAcoes"
 import { listarMovimentacoes, devolverEmprestimo, abrirPdf, urlTermoTransferencia, urlTermoBaixa } from "@/services/patrimonio.service"
@@ -78,16 +83,30 @@ export default function DetalheBemPage() {
     data_entrada: new Date().toISOString().split("T")[0],
   })
   const [setores, setSetores] = useState<{ id: string; nome: string }[]>([])
+  const [movs, setMovs] = useState<any[]>([])
+
+  // Galeria de fotos
+  const [fotos, setFotos] = useState<FotoBem[]>([])
+  const [fotoDialog, setFotoDialog] = useState(false)
+  const [fotoArquivo, setFotoArquivo] = useState<File | null>(null)
+  const [fotoPreview, setFotoPreview] = useState<string | null>(null)
+  const [fotoOrigem, setFotoOrigem] = useState<OrigemFotoBem>("CADASTRO")
+  const [fotoLegenda, setFotoLegenda] = useState("")
   const [enviandoFoto, setEnviandoFoto] = useState(false)
+  const [fotoAcao, setFotoAcao] = useState<string | null>(null) // id da foto em ação (capa/excluir)
   const inputFoto = useRef<HTMLInputElement>(null)
 
-  const [movs, setMovs] = useState<any[]>([])
+  const carregarFotos = async () => {
+    try { setFotos(await listarFotosBem(params.id as string)) }
+    catch { setFotos([]) }
+  }
 
   const carregarBem = async () => {
     try {
       const data = await obterBem(params.id as string)
       setBem(data)
       listarMovimentacoes({ bem_id: params.id as string }).then(setMovs).catch(() => setMovs([]))
+      carregarFotos()
     } catch (error) {
       console.error("Erro ao carregar bem:", error)
     } finally {
@@ -107,14 +126,51 @@ export default function DetalheBemPage() {
     } catch (e: any) { alert(e?.message || "Erro ao alterar setor") }
   }
 
-  const handleFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ""
-    if (!file) return
+  const abrirDialogFoto = () => {
+    setFotoArquivo(null)
+    setFotoPreview(null)
+    setFotoOrigem("CADASTRO")
+    setFotoLegenda("")
+    setFotoDialog(true)
+  }
+
+  const escolherArquivoFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null
+    setFotoArquivo(file)
+    setFotoPreview(file ? URL.createObjectURL(file) : null)
+  }
+
+  const handleEnviarFoto = async () => {
+    if (!fotoArquivo) return
     setEnviandoFoto(true)
-    try { await enviarFotoBem(params.id as string, file); carregarBem() }
-    catch (err: any) { alert(err?.message || "Erro ao enviar foto") }
+    try {
+      await adicionarFotoBem(params.id as string, fotoArquivo, fotoOrigem, fotoLegenda || undefined)
+      toast.success("Foto adicionada")
+      setFotoDialog(false)
+      carregarBem()
+    } catch (err: any) { toast.error(err?.message || "Erro ao enviar foto") }
     finally { setEnviandoFoto(false) }
+  }
+
+  const handleDefinirCapa = async (fotoId: string) => {
+    setFotoAcao(fotoId)
+    try {
+      await definirCapaFotoBem(params.id as string, fotoId)
+      toast.success("Capa atualizada")
+      carregarBem()
+    } catch (err: any) { toast.error(err?.message || "Erro ao definir capa") }
+    finally { setFotoAcao(null) }
+  }
+
+  const handleExcluirFoto = async (fotoId: string) => {
+    if (!confirm("Excluir esta foto? Esta ação não pode ser desfeita.")) return
+    setFotoAcao(fotoId)
+    try {
+      await excluirFotoBem(params.id as string, fotoId)
+      toast.success("Foto excluída")
+      carregarBem()
+    } catch (err: any) { toast.error(err?.message || "Erro ao excluir foto") }
+    finally { setFotoAcao(null) }
   }
 
   const handleEnviarManutencao = async () => {
@@ -197,15 +253,14 @@ export default function DetalheBemPage() {
             <div className="flex justify-between"><span className="text-muted-foreground">Data:</span><span>{fmtData(bem.data_aquisicao)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Nota fiscal:</span><span>{bem.nota_fiscal_numero || "-"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Fornecedor:</span><span className="text-right">{bem.fornecedor_nome || "-"}</span></div>
-            <div className="pt-2 border-t">
-              <input ref={inputFoto} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFoto} />
-              {bem.foto_url ? (
-                <img src={`${API_URL}${bem.foto_url}`} alt="Foto do bem" className="w-full max-h-40 object-cover rounded-md mb-2 cursor-pointer" onClick={() => inputFoto.current?.click()} />
-              ) : null}
-              <Button size="sm" variant="outline" onClick={() => inputFoto.current?.click()} disabled={enviandoFoto}>
-                <Camera className="h-4 w-4 mr-2" />{enviandoFoto ? "Enviando..." : bem.foto_url ? "Trocar foto" : "Adicionar foto"}
-              </Button>
-            </div>
+            {bem.foto_url && (
+              <div className="pt-2 border-t flex items-center gap-3">
+                <a href={`${API_URL}${bem.foto_url}`} target="_blank" rel="noreferrer">
+                  <img src={`${API_URL}${bem.foto_url}`} alt="Capa do bem" className="w-16 h-16 object-cover rounded-md border" />
+                </a>
+                <span className="text-xs text-muted-foreground">Foto de capa. Gerencie as fotos no card abaixo.</span>
+              </div>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -227,6 +282,55 @@ export default function DetalheBemPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Fotos */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+          <CardTitle>Fotos{fotos.length ? ` (${fotos.length})` : ""}</CardTitle>
+          <Button size="sm" variant="outline" onClick={abrirDialogFoto}>
+            <Camera className="h-4 w-4 mr-2" />Adicionar foto
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {fotos.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-sm gap-2">
+              <ImageIcon className="h-8 w-8" />
+              <span>Nenhuma foto cadastrada para este bem.</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {fotos.map((f) => (
+                <div key={f.id} className="rounded-lg border overflow-hidden flex flex-col">
+                  <a href={`${API_URL}${f.url}`} target="_blank" rel="noreferrer" className="relative block bg-muted">
+                    <img src={`${API_URL}${f.url}`} alt={f.legenda || "Foto do bem"} className="w-full h-36 object-cover" />
+                    {f.capa && (
+                      <Badge className="absolute top-2 left-2 bg-amber-500 text-white hover:bg-amber-500"><Star className="h-3 w-3 mr-1" />capa</Badge>
+                    )}
+                  </a>
+                  <div className="p-2 text-xs space-y-1 flex-1">
+                    {f.legenda && <p className="font-medium leading-snug">{f.legenda}</p>}
+                    <p className="text-muted-foreground">
+                      <Badge variant="outline" className="mr-1 text-[10px] px-1.5 py-0">{ORIGEM_FOTO_LABELS[f.origem] || f.origem}</Badge>
+                      {new Date(f.created_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                    </p>
+                    {f.tirada_por && <p className="text-muted-foreground truncate" title={f.tirada_por}>por {f.tirada_por}</p>}
+                  </div>
+                  <div className="flex border-t divide-x">
+                    {!f.capa && (
+                      <Button size="sm" variant="ghost" className="flex-1 rounded-none h-8 text-xs" disabled={fotoAcao === f.id} onClick={() => handleDefinirCapa(f.id)}>
+                        <Star className="h-3.5 w-3.5 mr-1" />Definir capa
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" className="flex-1 rounded-none h-8 text-xs text-red-600 hover:text-red-700" disabled={fotoAcao === f.id} onClick={() => handleExcluirFoto(f.id)}>
+                      <Trash2 className="h-3.5 w-3.5 mr-1" />Excluir
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Manutenções */}
       {bem.manutencoes?.length > 0 && (
@@ -324,6 +428,47 @@ export default function DetalheBemPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Dialog: adicionar foto */}
+      <Dialog open={fotoDialog} onOpenChange={(v) => { if (!enviandoFoto) setFotoDialog(v) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Adicionar foto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Imagem *</Label>
+              <input ref={inputFoto} type="file" accept="image/*" capture="environment" className="hidden" onChange={escolherArquivoFoto} />
+              <div className="mt-1 flex items-center gap-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => inputFoto.current?.click()} disabled={enviandoFoto}>
+                  <Camera className="h-4 w-4 mr-2" />{fotoArquivo ? "Trocar imagem" : "Escolher ou fotografar"}
+                </Button>
+                <span className="text-xs text-muted-foreground truncate">{fotoArquivo?.name || "Nenhum arquivo selecionado"}</span>
+              </div>
+              {fotoPreview && <img src={fotoPreview} alt="Pré-visualização" className="mt-2 w-full max-h-48 object-contain rounded-md border bg-muted" />}
+            </div>
+            <div>
+              <Label>Origem</Label>
+              <Select value={fotoOrigem} onValueChange={(v) => setFotoOrigem(v as OrigemFotoBem)}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(ORIGEM_FOTO_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Legenda (opcional)</Label>
+              <Input value={fotoLegenda} onChange={(e) => setFotoLegenda(e.target.value)} placeholder="Ex.: lateral esquerda com avaria" maxLength={200} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFotoDialog(false)} disabled={enviandoFoto}>Cancelar</Button>
+            <Button onClick={handleEnviarFoto} disabled={!fotoArquivo || enviandoFoto}>
+              {enviandoFoto ? "Enviando..." : "Enviar foto"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog manutenção */}
       <Dialog open={manutDialog} onOpenChange={setManutDialog}>

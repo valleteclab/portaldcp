@@ -7,6 +7,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { randomBytes } from 'crypto';
+import { join } from 'path';
+import { mkdirSync, writeFileSync } from 'fs';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { Setor } from '../orgaos/entities/setor.entity';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -23,6 +25,9 @@ import {
 } from './entities/enums';
 import { CriarInventarioDto, AtualizarSetorInventarioDto } from './dto/criar-inventario.dto';
 import { PatrimonioService } from './patrimonio.service';
+import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
 function appUrl(): string {
   return (process.env.APP_URL || process.env.FRONTEND_URL || 'https://portaldcp.com.br').replace(/\/$/, '');
@@ -52,6 +57,7 @@ export class PatrimonioInventarioService {
     @InjectRepository(BemPatrimonial) private readonly bemRepo: Repository<BemPatrimonial>,
     @InjectRepository(Setor) private readonly setorRepo: Repository<Setor>,
     @InjectRepository(Orgao) private readonly orgaoRepo: Repository<Orgao>,
+    @InjectRepository(FotoBem) private readonly fotoRepo: Repository<FotoBem>,
     private readonly patrimonioService: PatrimonioService,
     private readonly whatsapp: WhatsAppService,
   ) {}
@@ -342,10 +348,56 @@ export class PatrimonioInventarioService {
         setor_cadastro_nome: l.setor_cadastro_nome,
         estado_conservacao: l.estado_conservacao,
         observacao: l.observacao,
+        foto_url: l.foto_url,
         created_at: l.created_at,
         bem: l.bem ? bem(l.bem) : null,
       })),
     };
+  }
+
+  /**
+   * Foto tirada na conferência (celular): grava o arquivo em
+   * uploads/patrimonio/<orgaoId>/leitura-<leituraId>-<timestamp>.<ext>, liga à
+   * leitura e, se a leitura tem bem, entra na galeria do bem (origem INVENTARIO).
+   */
+  async salvarFotoLeitura(
+    token: string,
+    leituraId: string,
+    arquivo: { buffer: Buffer; mimetype: string; originalname?: string; size: number } | undefined,
+    input: { lido_por?: string; legenda?: string },
+  ) {
+    const s = await this.setorPorToken(token);
+    this.exigirAberto(s);
+    if (!arquivo?.buffer?.length) throw new BadRequestException('Nenhuma imagem enviada');
+    if (arquivo.buffer.length > 10 * 1024 * 1024) throw new BadRequestException('Imagem acima de 10 MB');
+    const EXT_POR_MIME: Record<string, string> = { 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+    const ext = EXT_POR_MIME[arquivo.mimetype];
+    if (!ext) throw new BadRequestException('Envie uma imagem JPG, PNG ou WEBP');
+    if (!/^[0-9a-f-]{36}$/i.test(leituraId || '')) throw new NotFoundException('Leitura não encontrada');
+    const leitura = await this.leituraRepo.findOne({ where: { id: leituraId, inventario_setor_id: s.id } });
+    if (!leitura) throw new NotFoundException('Leitura não encontrada neste setor');
+
+    const orgaoDir = String(s.orgao_id).replace(/[^a-zA-Z0-9-]/g, '');
+    const dir = join(UPLOAD_DIR, 'patrimonio', orgaoDir);
+    mkdirSync(dir, { recursive: true });
+    const nome = `leitura-${leitura.id.replace(/[^a-zA-Z0-9-]/g, '')}-${Date.now()}${ext}`;
+    writeFileSync(join(dir, nome), arquivo.buffer);
+    const url = `/api/uploads/patrimonio/${orgaoDir}/${nome}`;
+
+    leitura.foto_url = url;
+    if (input.lido_por && !leitura.lido_por) leitura.lido_por = input.lido_por.slice(0, 120);
+    await this.leituraRepo.save(leitura);
+
+    if (leitura.bem_id) {
+      await this.patrimonioService.adicionarFoto(s.orgao_id, leitura.bem_id, {
+        url,
+        origem: OrigemFotoBem.INVENTARIO,
+        inventario_leitura_id: leitura.id,
+        legenda: input.legenda?.trim() || `Conferência do inventário ${s.inventario.ano} (${s.setor_nome})`,
+        tirada_por: input.lido_por?.trim() || s.responsavel_nome || 'Conferência de inventário',
+      });
+    }
+    return { foto_url: url };
   }
 
   /**
@@ -573,6 +625,7 @@ export class PatrimonioInventarioService {
     if (!/^[0-9a-f-]{36}$/i.test(bemId)) throw new NotFoundException('Bem não encontrado');
     const bem = await this.bemRepo.findOne({ where: { id: bemId }, relations: ['categoria', 'setor', 'orgao'] });
     if (!bem) throw new NotFoundException('Bem não encontrado');
+    const fotos = await this.fotoRepo.find({ where: { bem_id: bem.id }, order: { created_at: 'DESC' } });
     // Campanha aberta no setor do bem? Então a página pode abrir a conferência.
     let conferencia: { link: string; setor_nome: string; ano: number } | null = null;
     if (bem.setor_id) {
@@ -601,6 +654,7 @@ export class PatrimonioInventarioService {
       marca: bem.marca,
       modelo: bem.modelo,
       foto_url: bem.foto_url,
+      fotos: fotos.map((f) => ({ url: f.url, origem: f.origem, legenda: f.legenda, created_at: f.created_at })),
       ultima_conferencia_em: bem.ultima_conferencia_em,
       orgao: { nome: bem.orgao?.nome_fantasia || bem.orgao?.nome || '', logo_url: bem.orgao?.logo_url || null },
       conferencia,

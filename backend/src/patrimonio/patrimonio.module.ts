@@ -17,6 +17,7 @@ import { LocacaoBem } from './entities/locacao-bem.entity';
 import { ServidorBem } from './entities/servidor-bem.entity';
 import { ComodatoBem } from './entities/comodato-bem.entity';
 import { HistoricoBem } from './entities/historico-bem.entity';
+import { FotoBem } from './entities/foto-bem.entity';
 import { Inventario, InventarioSetor, InventarioLeitura } from './entities/inventario.entity';
 import { Setor } from '../orgaos/entities/setor.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
@@ -32,6 +33,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
       ServidorBem,
       ComodatoBem,
       HistoricoBem,
+      FotoBem,
       Inventario,
       InventarioSetor,
       InventarioLeitura,

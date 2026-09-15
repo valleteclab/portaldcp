@@ -24,7 +24,7 @@ const somDe = (situacao?: Situacao | null): Som =>
 
 type Situacao = 'ENCONTRADO' | 'OUTRO_SETOR' | 'DESCONHECIDO' | 'SEM_PLAQUETA' | 'BAIXADO_PRESENTE'
 type Bem = { id: string; plaqueta: string | null; descricao: string; categoria: string | null; estado_conservacao: string | null; foto_url: string | null; marca?: string | null; modelo?: string | null; situacao?: Situacao | null; lido_em?: string | null }
-type Leitura = { id: string; situacao: Situacao; origem: string; codigo_lido: string; setor_cadastro_nome: string | null; estado_conservacao: string | null; observacao: string | null; created_at: string; bem: Bem | null }
+type Leitura = { id: string; situacao: Situacao; origem: string; codigo_lido: string; setor_cadastro_nome: string | null; estado_conservacao: string | null; observacao: string | null; created_at: string; foto_url?: string | null; bem: Bem | null }
 type Dados = {
   orgao: { nome: string; logo_url: string | null }
   inventario: { id: string; nome: string; ano: number; status: 'ABERTO' | 'FECHADO' }
@@ -33,7 +33,7 @@ type Dados = {
   bens: Bem[]
   leituras: Leitura[]
 }
-type Resultado = { situacao: Situacao; repetida?: boolean; bem: { id: string; plaqueta: string | null; descricao: string; categoria: string | null; setor_nome: string | null; status: string; foto_url: string | null } | null; codigo?: string; offline?: boolean; erro?: string }
+type Resultado = { situacao: Situacao; repetida?: boolean; leitura?: { id: string; foto_url?: string | null } | null; bem: { id: string; plaqueta: string | null; descricao: string; categoria: string | null; setor_nome: string | null; status: string; foto_url: string | null } | null; codigo?: string; offline?: boolean; erro?: string }
 type ItemFila = { codigo: string; origem: 'QR' | 'RFID' | 'MANUAL'; estado_conservacao?: string; observacao?: string; lido_por?: string; t: number }
 
 const SIT: Record<Situacao, { label: string; cor: string; icone: React.ReactNode; dica: string }> = {
@@ -375,6 +375,37 @@ export default function ConferenciaSetorPage() {
     try { localStorage.setItem(LS_NOME, v) } catch { /* privado */ }
   }
 
+  /**
+   * Foto da leitura: tirada no cartão de resultado e anexada à leitura
+   * recém-registrada (fica visível na comissão e na página do QR).
+   */
+  const inputFotoLeitura = useRef<HTMLInputElement>(null)
+  const [fotoLeitura, setFotoLeitura] = useState<{ leituraId: string; url: string | null; enviando: boolean; erro: string }>({ leituraId: '', url: null, enviando: false, erro: '' })
+  useEffect(() => {
+    // novo resultado: zera o estado da foto (mantém a que veio do servidor, se houver)
+    setFotoLeitura({ leituraId: resultado?.leitura?.id || '', url: resultado?.leitura?.foto_url || null, enviando: false, erro: '' })
+  }, [resultado?.leitura?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const enviarFotoLeitura = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    const leituraId = resultado?.leitura?.id
+    if (!file || !leituraId) return
+    setFotoLeitura({ leituraId, url: null, enviando: true, erro: '' })
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      if (nome) fd.append('lido_por', nome)
+      const res = await fetch(`${PUB}/inventario/${token}/leituras/${leituraId}/foto`, { method: 'POST', body: fd })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.message || 'Erro ao enviar a foto')
+      setFotoLeitura({ leituraId, url: json.foto_url || null, enviando: false, erro: '' })
+      carregar()
+    } catch (err: any) {
+      setFotoLeitura({ leituraId, url: null, enviando: false, erro: err?.message || 'Não foi possível enviar a foto' })
+    }
+  }
+
   // ─── derivados ──────────────────────────────────────────────────
   const pendentes = useMemo(() => (dados?.bens || []).filter((b) => !b.situacao), [dados])
   const lidos = useMemo(() => (dados?.bens || []).filter((b) => b.situacao === 'ENCONTRADO'), [dados])
@@ -641,14 +672,21 @@ export default function ConferenciaSetorPage() {
         {aba === 'divergencias' && (
           divergencias.length === 0 ? <p className="text-sm text-slate-400 py-6 text-center">Nenhuma divergência registrada.</p>
           : divergencias.map((l) => (
-            <div key={l.id} className="rounded-xl bg-slate-800 border border-slate-700 px-3 py-2.5">
-              <div className="flex items-center gap-2">
-                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full text-white ${SIT[l.situacao].cor}`}>{SIT[l.situacao].label}</span>
-                <span className="text-xs text-slate-400">{new Date(l.created_at).toLocaleString('pt-BR')}</span>
+            <div key={l.id} className="rounded-xl bg-slate-800 border border-slate-700 px-3 py-2.5 flex gap-3">
+              {l.foto_url && (
+                <a href={`${API_URL}${l.foto_url}`} target="_blank" rel="noreferrer" className="shrink-0">
+                  <img src={`${API_URL}${l.foto_url}`} alt="" className="w-14 h-14 rounded-lg object-cover bg-slate-700" />
+                </a>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full text-white ${SIT[l.situacao].cor}`}>{SIT[l.situacao].label}</span>
+                  <span className="text-xs text-slate-400">{new Date(l.created_at).toLocaleString('pt-BR')}</span>
+                </div>
+                <p className="text-sm mt-1">{l.bem ? `${l.bem.plaqueta || ''} ${l.bem.descricao}`.trim() : <span className="font-mono">{l.codigo_lido}</span>}</p>
+                {l.setor_cadastro_nome && l.situacao === 'OUTRO_SETOR' && <p className="text-xs text-amber-300">Cadastrado em: {l.setor_cadastro_nome}</p>}
+                {l.observacao && <p className="text-xs text-slate-400">{l.observacao}</p>}
               </div>
-              <p className="text-sm mt-1">{l.bem ? `${l.bem.plaqueta || ''} ${l.bem.descricao}`.trim() : <span className="font-mono">{l.codigo_lido}</span>}</p>
-              {l.setor_cadastro_nome && l.situacao === 'OUTRO_SETOR' && <p className="text-xs text-amber-300">Cadastrado em: {l.setor_cadastro_nome}</p>}
-              {l.observacao && <p className="text-xs text-slate-400">{l.observacao}</p>}
             </div>
           ))
         )}
@@ -735,6 +773,29 @@ export default function ConferenciaSetorPage() {
                   </div>
                 ) : (
                   <p className="mt-4 font-mono text-sm text-slate-300 break-all">{resultado.codigo}</p>
+                )}
+                {resultado.bem && resultado.leitura?.id && (
+                  <div className="mt-4 flex items-center gap-3">
+                    <input ref={inputFotoLeitura} type="file" accept="image/*" capture="environment" className="hidden" onChange={enviarFotoLeitura} />
+                    {fotoLeitura.url ? (
+                      <a href={`${API_URL}${fotoLeitura.url}`} target="_blank" rel="noreferrer" className="shrink-0">
+                        <img src={`${API_URL}${fotoLeitura.url}`} alt="Foto da leitura" className="w-16 h-16 rounded-lg object-cover bg-slate-700 border border-emerald-500/60" />
+                      </a>
+                    ) : fotoLeitura.enviando ? (
+                      <div className="w-16 h-16 rounded-lg bg-slate-700 flex items-center justify-center shrink-0"><Loader2 className="w-6 h-6 animate-spin text-amber-400" /></div>
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <button
+                        onClick={() => inputFotoLeitura.current?.click()}
+                        disabled={fotoLeitura.enviando}
+                        className="rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-50 px-3 py-2 text-sm flex items-center gap-2"
+                      >
+                        <Camera className="w-4 h-4 text-amber-300" />{fotoLeitura.enviando ? 'Enviando foto…' : fotoLeitura.url ? 'Fotografar de novo' : 'Fotografar'}
+                      </button>
+                      {fotoLeitura.erro && <p className="text-xs text-rose-300 mt-1">{fotoLeitura.erro}</p>}
+                      {!fotoLeitura.erro && !fotoLeitura.url && !fotoLeitura.enviando && <p className="text-[11px] text-slate-500 mt-1">Opcional: registra o estado do bem nesta conferência.</p>}
+                    </div>
+                  </div>
                 )}
                 {resultado.bem && resultado.situacao !== 'DESCONHECIDO' && (
                   <div className="mt-4">

@@ -15,6 +15,7 @@ import { LocacaoBem } from './entities/locacao-bem.entity';
 import { ServidorBem } from './entities/servidor-bem.entity';
 import { ComodatoBem } from './entities/comodato-bem.entity';
 import { HistoricoBem } from './entities/historico-bem.entity';
+import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
 import { StatusBem, StatusManutencao, TipoBem, EstadoConservacao } from './entities/enums';
 import { CriarBemDto } from './dto/criar-bem.dto';
 import { AtualizarBemDto } from './dto/atualizar-bem.dto';
@@ -44,6 +45,8 @@ export class PatrimonioService {
     private readonly historicoRepository: Repository<HistoricoBem>,
     @InjectRepository(Setor)
     private readonly setorRepository: Repository<Setor>,
+    @InjectRepository(FotoBem)
+    private readonly fotoRepository: Repository<FotoBem>,
   ) {}
 
   // ─── BENS ────────────────────────────────────────────
@@ -233,12 +236,104 @@ export class PatrimonioService {
     return { message: 'Bem excluído com sucesso' };
   }
 
+  /**
+   * "Trocar a foto" (comportamento antigo): entra na galeria como CADASTRO e
+   * SEMPRE vira a capa do bem.
+   */
   async salvarFoto(orgaoId: string, bemId: string, fotoUrl: string, usuarioNome: string) {
-    const bem = await this.obterBem(orgaoId, bemId);
-    bem.foto_url = fotoUrl;
-    await this.bemRepository.save(bem);
-    await this.registrarHistorico(bemId, orgaoId, 'FOTO', 'Foto do bem atualizada', usuarioNome);
+    const foto = await this.adicionarFoto(orgaoId, bemId, {
+      url: fotoUrl,
+      origem: OrigemFotoBem.CADASTRO,
+      tirada_por: usuarioNome,
+    });
+    if (!foto.capa) await this.definirCapa(orgaoId, bemId, foto.id, usuarioNome);
     return { foto_url: fotoUrl };
+  }
+
+  // ─── GALERIA DE FOTOS ────────────────────────────────
+
+  private async bemDoOrgao(orgaoId: string, bemId: string) {
+    const bem = await this.bemRepository.findOne({ where: { id: bemId, orgao_id: orgaoId } });
+    if (!bem) throw new NotFoundException('Bem não encontrado');
+    return bem;
+  }
+
+  private comCapa(foto: FotoBem, bem: BemPatrimonial) {
+    return { ...foto, capa: !!bem.foto_url && foto.url === bem.foto_url };
+  }
+
+  /** Fotos do bem, da mais recente para a mais antiga, marcando qual é a capa. */
+  async listarFotos(orgaoId: string, bemId: string) {
+    const bem = await this.bemDoOrgao(orgaoId, bemId);
+    const fotos = await this.fotoRepository.find({ where: { bem_id: bemId, orgao_id: orgaoId }, order: { created_at: 'DESC' } });
+    return fotos.map((f) => this.comCapa(f, bem));
+  }
+
+  /** Acrescenta uma foto à galeria; se o bem ainda não tem capa, esta vira a capa. */
+  async adicionarFoto(
+    orgaoId: string,
+    bemId: string,
+    dados: { url: string; origem?: OrigemFotoBem | string; legenda?: string | null; tirada_por?: string | null; inventario_leitura_id?: string | null },
+  ) {
+    const bem = await this.bemDoOrgao(orgaoId, bemId);
+    const url = String(dados.url || '').trim();
+    if (!url) throw new BadRequestException('URL da foto vazia');
+    const origem = Object.values(OrigemFotoBem).includes(dados.origem as OrigemFotoBem)
+      ? (dados.origem as OrigemFotoBem)
+      : OrigemFotoBem.CADASTRO;
+    const foto = await this.fotoRepository.save(
+      this.fotoRepository.create({
+        bem_id: bemId,
+        orgao_id: orgaoId,
+        url,
+        origem,
+        legenda: dados.legenda?.trim() || null,
+        tirada_por: dados.tirada_por?.trim().slice(0, 120) || null,
+        inventario_leitura_id: dados.inventario_leitura_id || null,
+      }),
+    );
+    if (!bem.foto_url) {
+      bem.foto_url = url;
+      await this.bemRepository.save(bem);
+    }
+    await this.registrarHistorico(
+      bemId,
+      orgaoId,
+      'FOTO',
+      `Foto adicionada (${origem.toLowerCase()})${foto.legenda ? `: ${foto.legenda}` : ''}`,
+      foto.tirada_por || 'Sistema',
+    );
+    return this.comCapa(foto, bem);
+  }
+
+  private async fotoDoBem(orgaoId: string, bemId: string, fotoId: string) {
+    const foto = await this.fotoRepository.findOne({ where: { id: fotoId, bem_id: bemId, orgao_id: orgaoId } });
+    if (!foto) throw new NotFoundException('Foto não encontrada');
+    return foto;
+  }
+
+  async definirCapa(orgaoId: string, bemId: string, fotoId: string, usuarioNome = 'Sistema') {
+    const bem = await this.bemDoOrgao(orgaoId, bemId);
+    const foto = await this.fotoDoBem(orgaoId, bemId, fotoId);
+    bem.foto_url = foto.url;
+    await this.bemRepository.save(bem);
+    await this.registrarHistorico(bemId, orgaoId, 'FOTO', 'Foto de capa do bem alterada', usuarioNome);
+    return this.comCapa(foto, bem);
+  }
+
+  /** Remove a foto da galeria (o arquivo físico fica); se era a capa, a mais recente restante assume. */
+  async excluirFoto(orgaoId: string, bemId: string, fotoId: string, usuarioNome = 'Sistema') {
+    const bem = await this.bemDoOrgao(orgaoId, bemId);
+    const foto = await this.fotoDoBem(orgaoId, bemId, fotoId);
+    const eraCapa = !!bem.foto_url && foto.url === bem.foto_url;
+    await this.fotoRepository.remove(foto);
+    if (eraCapa) {
+      const restante = await this.fotoRepository.findOne({ where: { bem_id: bemId, orgao_id: orgaoId }, order: { created_at: 'DESC' } });
+      bem.foto_url = restante?.url || null;
+      await this.bemRepository.save(bem);
+    }
+    await this.registrarHistorico(bemId, orgaoId, 'FOTO', 'Foto removida da galeria', usuarioNome);
+    return { message: 'Foto excluída', foto_url: bem.foto_url };
   }
 
   /**
