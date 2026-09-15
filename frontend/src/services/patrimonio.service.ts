@@ -304,6 +304,60 @@ export async function enviarFotoBem(bemId: string, file: File) {
   return json as { foto_url: string };
 }
 
+// ─── FOTOS DO BEM (galeria) ─────────────────────────────
+
+export type OrigemFotoBem = 'CADASTRO' | 'INVENTARIO' | 'MANUTENCAO' | 'BAIXA' | 'MOVIMENTACAO' | 'OUTRO';
+
+export type FotoBem = {
+  id: string;
+  url: string;
+  origem: OrigemFotoBem | string;
+  legenda: string | null;
+  tirada_por: string | null;
+  created_at: string;
+  capa: boolean;
+};
+
+export const ORIGEM_FOTO_LABELS: Record<string, string> = {
+  CADASTRO: 'Cadastro',
+  INVENTARIO: 'Inventário',
+  MANUTENCAO: 'Manutenção',
+  BAIXA: 'Baixa',
+  MOVIMENTACAO: 'Movimentação',
+  OUTRO: 'Outro',
+};
+
+export async function listarFotosBem(bemId: string): Promise<FotoBem[]> {
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/fotos`);
+  if (!res.ok) throw new Error('Erro ao listar fotos');
+  return res.json();
+}
+
+export async function adicionarFotoBem(bemId: string, file: File, origem: OrigemFotoBem, legenda?: string): Promise<FotoBem> {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('origem', origem);
+  if (legenda && legenda.trim()) fd.append('legenda', legenda.trim());
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/fotos`, { method: 'POST', body: fd });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao adicionar foto');
+  return json;
+}
+
+export async function definirCapaFotoBem(bemId: string, fotoId: string) {
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/fotos/${fotoId}/capa`, { method: 'PUT' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao definir capa');
+  return json;
+}
+
+export async function excluirFotoBem(bemId: string, fotoId: string) {
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/fotos/${fotoId}`, { method: 'DELETE' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao excluir foto');
+  return json;
+}
+
 /** Acha o bem por qualquer código lido (URL do QR, plaqueta, EPC RFID). */
 export async function bemPorCodigo(codigo: string) {
   const res = await authFetch(`${baseUrl()}/bem-por-codigo?codigo=${encodeURIComponent(codigo)}`);
