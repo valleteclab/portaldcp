@@ -96,3 +96,16 @@ export enum SituacaoLeitura {
   /** Bem já baixado no cadastro, mas ainda presente. */
   BAIXADO_PRESENTE = 'BAIXADO_PRESENTE',
 }
+
+// ─── Aquisição (cadastro do bem) ──────────────────────────────────────
+
+/** Como o bem entrou no patrimônio (campo opcional do cadastro). */
+export enum TipoAquisicaoBem {
+  COMPRA = 'COMPRA',
+  DOACAO = 'DOACAO',
+  CESSAO = 'CESSAO',
+  COMODATO = 'COMODATO',
+  PERMUTA = 'PERMUTA',
+  PRODUCAO_PROPRIA = 'PRODUCAO_PROPRIA',
+  OUTRO = 'OUTRO',
+}

@@ -6,6 +6,7 @@ import { ManutencaoBem } from './entities/manutencao-bem.entity';
 import { LocacaoBem } from './entities/locacao-bem.entity';
 import { MovimentacaoBem } from './entities/movimentacao-bem.entity';
 import { StatusBem, StatusMovimentacao, TipoMovimentacao } from './entities/enums';
+import { calcularDepreciacao, faltasDepreciacao, parametrosEfetivos } from './depreciacao.util';
 
 @Injectable()
 export class PatrimonioRelatoriosService {
@@ -21,10 +22,11 @@ export class PatrimonioRelatoriosService {
   ) {}
 
   /**
-   * Depreciação linear por vida útil da categoria (NBC TSP 07), posição na
-   * data de referência. Meses contados a partir do mês seguinte ao da
-   * aquisição; depreciável = valor × (1 − residual%). Bens sem valor, data ou
-   * vida útil ficam na lista "sem parâmetros" para o órgão completar.
+   * Depreciação linear por vida útil (NBC TSP 07), posição na data de
+   * referência — cálculo em `calcularDepreciacao` (depreciacao.util.ts):
+   * parâmetros do bem (vida útil, residual, conta) prevalecem; se nulos,
+   * valem os da categoria. Bens sem valor, data ou vida útil ficam na lista
+   * "sem parâmetros" para o órgão completar.
    */
   async depreciacao(orgaoId: string, dataRef?: string) {
     const ref = dataRef ? new Date(dataRef + 'T12:00:00') : new Date();
@@ -33,43 +35,34 @@ export class PatrimonioRelatoriosService {
       relations: ['categoria', 'setor'],
       order: { plaqueta: 'ASC' },
     });
-    const mesesEntre = (de: Date, ate: Date) => {
-      const m = (ate.getFullYear() - de.getFullYear()) * 12 + (ate.getMonth() - de.getMonth());
-      return Math.max(0, m); // mês da aquisição não deprecia
-    };
     const itens: any[] = [];
     const semParametros: any[] = [];
     const porCategoria = new Map<string, { categoria: string; conta_contabil: string | null; vida_util_anos: number | null; quantidade: number; valor_aquisicao: number; depreciacao_acumulada: number; valor_liquido: number }>();
     for (const b of bens) {
       const valor = b.valor_aquisicao != null ? Number(b.valor_aquisicao) : null;
-      const vida = b.categoria?.vida_util_anos || null;
+      const dep = calcularDepreciacao(b, b.categoria, ref);
       const catNome = b.categoria?.nome || 'Sem categoria';
       const chave = b.categoria?.id || 'sem';
       if (!porCategoria.has(chave)) {
-        porCategoria.set(chave, { categoria: catNome, conta_contabil: b.categoria?.conta_contabil || null, vida_util_anos: vida, quantidade: 0, valor_aquisicao: 0, depreciacao_acumulada: 0, valor_liquido: 0 });
+        porCategoria.set(chave, { categoria: catNome, conta_contabil: b.categoria?.conta_contabil || null, vida_util_anos: b.categoria?.vida_util_anos || null, quantidade: 0, valor_aquisicao: 0, depreciacao_acumulada: 0, valor_liquido: 0 });
       }
       const agg = porCategoria.get(chave)!;
       agg.quantidade++;
-      if (valor == null || !b.data_aquisicao || !vida) {
-        semParametros.push({ id: b.id, plaqueta: b.plaqueta, descricao: b.descricao, categoria: catNome, falta: [valor == null && 'valor', !b.data_aquisicao && 'data de aquisição', !vida && 'vida útil da categoria'].filter(Boolean) });
+      if (!dep || valor == null) {
+        semParametros.push({ id: b.id, plaqueta: b.plaqueta, descricao: b.descricao, categoria: catNome, falta: faltasDepreciacao(b, b.categoria) });
         if (valor != null) { agg.valor_aquisicao += valor; agg.valor_liquido += valor; }
         continue;
       }
-      const residualPct = Number(b.categoria?.valor_residual_pct ?? 10);
-      const depreciavel = valor * (1 - residualPct / 100);
-      const mensal = depreciavel / (vida * 12);
-      const meses = mesesEntre(new Date(String(b.data_aquisicao).slice(0, 10) + 'T12:00:00'), ref);
-      const acumulada = Math.min(depreciavel, mensal * meses);
-      const liquido = valor - acumulada;
       itens.push({
         id: b.id, plaqueta: b.plaqueta, descricao: b.descricao, categoria: catNome, setor: b.setor?.nome || b.localizacao_nome || null,
-        data_aquisicao: b.data_aquisicao, valor_aquisicao: +valor.toFixed(2), vida_util_anos: vida, residual_pct: residualPct,
-        meses_depreciados: Math.min(meses, vida * 12), depreciacao_mensal: +mensal.toFixed(2), depreciacao_acumulada: +acumulada.toFixed(2), valor_liquido: +liquido.toFixed(2),
-        totalmente_depreciado: acumulada >= depreciavel - 0.005,
+        data_aquisicao: b.data_aquisicao, valor_aquisicao: +valor.toFixed(2), vida_util_anos: dep.vida_util_anos, residual_pct: dep.valor_residual_pct,
+        conta_contabil: dep.conta_contabil, taxa_anual_pct: dep.taxa_anual_pct, origem_parametros: dep.origem_parametros,
+        meses_depreciados: dep.meses_depreciados, depreciacao_mensal: dep.depreciacao_mensal, depreciacao_acumulada: dep.depreciacao_acumulada, valor_liquido: dep.valor_atual,
+        totalmente_depreciado: dep.totalmente_depreciado,
       });
       agg.valor_aquisicao += valor;
-      agg.depreciacao_acumulada += acumulada;
-      agg.valor_liquido += liquido;
+      agg.depreciacao_acumulada += dep.depreciacao_acumulada;
+      agg.valor_liquido += dep.valor_atual;
     }
     const categorias = Array.from(porCategoria.values()).map((c) => ({
       ...c,
@@ -137,10 +130,15 @@ export class PatrimonioRelatoriosService {
 
     const hoje0 = new Date();
     hoje0.setHours(0, 0, 0, 0);
-    const [emprestimosVencidos, transferenciasPendentes, semSetor] = await Promise.all([
+    const hojeIso = hoje0.toISOString().slice(0, 10);
+    const em30Iso = em30dias.toISOString().slice(0, 10);
+    const ativos = [StatusBem.ATIVO, StatusBem.EM_MANUTENCAO];
+    const [emprestimosVencidos, transferenciasPendentes, semSetor, garantiasVencendo, segurosVencendo] = await Promise.all([
       this.movRepository.count({ where: { orgao_id: orgaoId, tipo: TipoMovimentacao.EMPRESTIMO, status: StatusMovimentacao.EM_ANDAMENTO, data_prevista_retorno: LessThan(hoje0) } }),
       this.movRepository.count({ where: { orgao_id: orgaoId, tipo: TipoMovimentacao.TRANSFERENCIA, status: StatusMovimentacao.PENDENTE } }),
       this.bemRepository.createQueryBuilder('b').where('b.orgao_id = :orgaoId AND b.setor_id IS NULL AND b.status <> :baixado', { orgaoId, baixado: StatusBem.BAIXADO }).getCount(),
+      this.bemRepository.createQueryBuilder('b').where('b.orgao_id = :orgaoId AND b.status IN (:...ativos) AND b.garantia_ate BETWEEN :de AND :ate', { orgaoId, ativos, de: hojeIso, ate: em30Iso }).getCount(),
+      this.bemRepository.createQueryBuilder('b').where('b.orgao_id = :orgaoId AND b.status IN (:...ativos) AND b.seguro_vigencia_fim BETWEEN :de AND :ate', { orgaoId, ativos, de: hojeIso, ate: em30Iso }).getCount(),
     ]);
 
     return {
@@ -153,6 +151,8 @@ export class PatrimonioRelatoriosService {
       emprestimos_vencidos: emprestimosVencidos,
       transferencias_pendentes: transferenciasPendentes,
       bens_sem_setor: semSetor,
+      garantias_vencendo_30dias: garantiasVencendo,
+      seguros_vencendo_30dias: segurosVencendo,
     };
   }
 

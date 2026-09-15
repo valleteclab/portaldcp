@@ -20,6 +20,7 @@ import {
   StatusBem,
   MotivoBaixa,
 } from './entities/enums';
+import { calcularDepreciacao } from './depreciacao.util';
 import { SolicitarTransferenciaDto, BaixarBemDto, EmprestarBemDto } from './dto/movimentacao.dto';
 
 function appUrl(): string {
@@ -495,6 +496,9 @@ export class PatrimonioMovimentacaoService {
     doc.text(`Categoria: ${m.bem?.categoria?.nome || '—'}`);
     doc.text(`Setor de origem: ${m.setor_origem_nome || '—'}${m.responsavel_origem_nome ? ` (${m.responsavel_origem_nome})` : ''}`);
     doc.text(`Valor de aquisição: ${m.bem?.valor_aquisicao != null ? fmtMoeda(m.bem.valor_aquisicao) : '—'}${m.bem?.data_aquisicao ? ` em ${fmtData(m.bem.data_aquisicao)}` : ''}`);
+    const dep = m.bem ? calcularDepreciacao(m.bem, m.bem.categoria, m.bem.data_baixa ? new Date(String(m.bem.data_baixa).slice(0, 10) + 'T12:00:00') : new Date()) : null;
+    if (dep) doc.text(`Valor atual (depreciado): ${fmtMoeda(dep.valor_atual)} · depreciação acumulada ${fmtMoeda(dep.depreciacao_acumulada)} (${dep.meses_depreciados} meses, vida útil ${dep.vida_util_anos} anos)`);
+    if (m.bem?.corresponsavel_nome) doc.text(`Corresponsável: ${m.bem.corresponsavel_nome}`);
     doc.text(`Motivo da baixa: ${m.motivo_baixa ? MOTIVO_BAIXA_LABEL[m.motivo_baixa] : '—'}`);
     doc.text(`Justificativa: ${m.motivo || '—'}`);
     doc.text(`Data da baixa: ${fmtData(m.bem?.data_baixa)} · registrada por ${m.solicitado_por || '—'} em ${fmtDataHora(m.created_at)}`);

@@ -17,7 +17,7 @@ import { LocacaoBem } from './locacao-bem.entity';
 import { ServidorBem } from './servidor-bem.entity';
 import { ComodatoBem } from './comodato-bem.entity';
 import { HistoricoBem } from './historico-bem.entity';
-import { TipoBem, EstadoConservacao, StatusBem } from './enums';
+import { TipoBem, EstadoConservacao, StatusBem, TipoAquisicaoBem } from './enums';
 
 @Entity('bens_patrimoniais')
 @Index('IDX_bens_orgao_plaqueta', ['orgao_id', 'plaqueta'])
@@ -103,6 +103,61 @@ export class BemPatrimonial {
 
   @Column({ type: 'varchar', nullable: true })
   foto_url: string | null;
+
+  // ─── Dados do legado: aquisição / contabilidade (todos opcionais) ─────
+  /** Como o bem entrou no patrimônio (compra, doação, cessão…). */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  tipo_aquisicao: TipoAquisicaoBem | null;
+
+  /** Licitação de origem (uuid de `licitacoes`, sem relação para evitar ciclo). */
+  @Column({ type: 'uuid', nullable: true })
+  licitacao_id: string | null;
+
+  /** Contrato de origem (uuid de `contratos`, sem relação para evitar ciclo). */
+  @Column({ type: 'uuid', nullable: true })
+  contrato_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  processo_pagamento: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  data_pagamento: Date | null;
+
+  /** Nº da despesa na contabilidade. */
+  @Column({ type: 'varchar', nullable: true })
+  referencia_contabil: string | null;
+
+  // ─── Depreciação por bem (quando nulos, valem os da categoria) ────────
+  @Column({ type: 'varchar', nullable: true })
+  conta_contabil: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  vida_util_anos: number | null;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  valor_residual_pct: number | null;
+
+  // ─── Corresponsável, garantia e seguro ────────────────────────────────
+  @Column({ type: 'varchar', nullable: true })
+  corresponsavel_nome: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  garantia_ate: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  seguro_seguradora: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  seguro_apolice: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  seguro_vigencia_inicio: Date | null;
+
+  @Column({ type: 'date', nullable: true })
+  seguro_vigencia_fim: Date | null;
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  seguro_valor: number | null;
 
   /** Última vez que o bem foi lido em uma campanha de inventário. */
   @Column({ type: 'timestamp', nullable: true })
