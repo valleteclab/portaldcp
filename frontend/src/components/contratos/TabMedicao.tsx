@@ -77,6 +77,7 @@ import Link from "next/link";
 import { API_URL, authFetch } from "@/lib/api";
 import { derivarCompetencia } from "@/lib/pdf-medicao";
 import ConciliacaoFatorCard from "@/components/contratos/ConciliacaoFatorCard";
+import ModalMedicaoRetroativa from "@/components/contratos/ModalMedicaoRetroativa";
 import {
   mesesVigenciaContrato,
   execucoesSugeridasPorFrequencia,
@@ -189,6 +190,8 @@ interface Medicao {
   data_devolucao?: string;
   status: string;
   created_at: string;
+  lancamento_retroativo?: boolean;
+  retroativo_motivo?: string | null;
   itens?: any[];
   execucao_fiscal?: {
     vigencia_inicio?: string;
@@ -504,13 +507,31 @@ export default function TabMedicao({
 
   // Verificar se o usuário logado tem permissão de excluir medições
   const [podeExcluirMedicao, setPodeExcluirMedicao] = useState(false);
+  // Mesma permissão de cancelar/estornar: libera o lançamento retroativo (ação de suporte)
+  const [podeCancelarEstornar, setPodeCancelarEstornar] = useState(false);
+  const [modalRetroativa, setModalRetroativa] = useState(false);
   useEffect(() => {
     try {
       const u = JSON.parse(localStorage.getItem("usuario") || "{}");
       setPodeExcluirMedicao(u.pode_excluir_medicao === true);
+      setPodeCancelarEstornar(u.pode_cancelar_estornar === true);
     } catch {
       setPodeExcluirMedicao(false);
+      setPodeCancelarEstornar(false);
     }
+    // Confirma na API (fonte da verdade) e atualiza o cache do localStorage
+    (async () => {
+      try {
+        const res = await authFetch(`${API_URL}/api/usuarios/me`);
+        if (!res.ok) return;
+        const usuario = await res.json();
+        setPodeExcluirMedicao(usuario.pode_excluir_medicao === true);
+        setPodeCancelarEstornar(usuario.pode_cancelar_estornar === true);
+        localStorage.setItem("usuario", JSON.stringify(usuario));
+      } catch {
+        /* mantém o valor do cache */
+      }
+    })();
   }, []);
 
   // Modais
@@ -3155,6 +3176,18 @@ export default function TabMedicao({
                     <Badge className={STATUS_MEDICAO[m.status]?.cor}>
                       {STATUS_MEDICAO[m.status]?.label}
                     </Badge>
+                    {m.lancamento_retroativo && (
+                      <Badge
+                        className="bg-amber-100 text-amber-800"
+                        title={
+                          m.retroativo_motivo ||
+                          "Medição registrada retroativamente"
+                        }
+                      >
+                        <History className="w-3 h-3 mr-1" />
+                        Retroativa
+                      </Badge>
+                    )}
                     {m.fornecedor_nome && (
                       <span className="text-xs text-gray-500">
                         por{" "}
@@ -3644,16 +3677,37 @@ export default function TabMedicao({
                 fiscal. A aprovação final é feita na Central de Aprovações.
               </CardDescription>
             </div>
-            <Button
-              onClick={abrirModalMedicao}
-              size="sm"
-              disabled={
-                !isServicoContinuado && (!temCronograma || !temOSAutorizada)
-              }
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Nova Medição {isServicoContinuado ? "" : "(Fiscal)"}
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {podeCancelarEstornar && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                    onClick={() => setModalRetroativa(true)}
+                  >
+                    <History className="w-4 h-4 mr-1" />
+                    Registrar medição retroativa
+                  </Button>
+                )}
+                <Button
+                  onClick={abrirModalMedicao}
+                  size="sm"
+                  disabled={
+                    !isServicoContinuado && (!temCronograma || !temOSAutorizada)
+                  }
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Nova Medição {isServicoContinuado ? "" : "(Fiscal)"}
+                </Button>
+              </div>
+              {podeCancelarEstornar && (
+                <p className="text-xs text-amber-700 text-right max-w-xs">
+                  Ação de suporte: registra uma medição já aprovada para o saldo
+                  acompanhar um pagamento feito fora do sistema.
+                </p>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -3713,6 +3767,18 @@ export default function TabMedicao({
                             <StatusIcon className="w-3 h-3 mr-1" />
                             {statusInfo.label}
                           </Badge>
+                          {m.lancamento_retroativo && (
+                            <Badge
+                              className="bg-amber-100 text-amber-800"
+                              title={
+                                m.retroativo_motivo ||
+                                "Medição registrada retroativamente"
+                              }
+                            >
+                              <History className="w-3 h-3 mr-1" />
+                              Retroativa
+                            </Badge>
+                          )}
                           {m.fornecedor_nome && (
                             <span className="text-xs text-gray-400">
                               Fornecedor: {m.fornecedor_nome}
@@ -7675,9 +7741,23 @@ export default function TabMedicao({
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Status</p>
-                  <Badge className={STATUS_MEDICAO[modalDetalhe.status]?.cor}>
-                    {STATUS_MEDICAO[modalDetalhe.status]?.label}
-                  </Badge>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className={STATUS_MEDICAO[modalDetalhe.status]?.cor}>
+                      {STATUS_MEDICAO[modalDetalhe.status]?.label}
+                    </Badge>
+                    {modalDetalhe.lancamento_retroativo && (
+                      <Badge
+                        className="bg-amber-100 text-amber-800"
+                        title={
+                          modalDetalhe.retroativo_motivo ||
+                          "Medição registrada retroativamente"
+                        }
+                      >
+                        <History className="w-3 h-3 mr-1" />
+                        Retroativa
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Valor Medido</p>
@@ -9270,6 +9350,16 @@ export default function TabMedicao({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Medição retroativa (ação de suporte) */}
+      {podeCancelarEstornar && (
+        <ModalMedicaoRetroativa
+          contratoId={contratoId}
+          open={modalRetroativa}
+          onOpenChange={setModalRetroativa}
+          onSucesso={carregarDados}
+        />
+      )}
     </div>
   );
 }

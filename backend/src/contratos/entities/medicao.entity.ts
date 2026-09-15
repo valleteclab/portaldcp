@@ -268,6 +268,27 @@ export class Medicao {
   @Column({ type: 'timestamp', nullable: true })
   data_devolucao: Date;
 
+  // ============ LANÇAMENTO RETROATIVO (suporte) ============
+  // Medição registrada já APROVADA por usuário de suporte, sem passar pelo
+  // fluxo de submissão/ateste/aprovação. Usado quando a execução foi paga na
+  // contabilidade (NF liquidada) sem medição no sistema e o saldo/histórico
+  // precisam refletir a contabilidade.
+
+  @Column({ type: 'boolean', default: false })
+  lancamento_retroativo: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  retroativo_motivo: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  retroativo_por_id: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  retroativo_por_nome: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  retroativo_em: Date | null;
+
   // ============ AUDITORIA ============
 
   @Column({ nullable: true })
