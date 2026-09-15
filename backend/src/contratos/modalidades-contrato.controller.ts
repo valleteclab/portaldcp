@@ -938,10 +938,13 @@ export class ModalidadesContratoController {
       usuario.nome || usuario.email,
       orgaoId,
     );
+    // `aviso` vem preenchido quando o período informado é anterior ao corte do
+    // ciclo vigente — a medição vale, mas não consome o saldo do ciclo atual.
     return {
       ...medicao,
-      mensagem:
-        'Medição registrada retroativamente já aprovada. O saldo foi consumido e o motivo ficou registrado no histórico do contrato.',
+      mensagem: medicao.aviso
+        ? `Medição registrada retroativamente já aprovada, mas ATENÇÃO: ${medicao.aviso}`
+        : 'Medição registrada retroativamente já aprovada. O saldo foi consumido e o motivo ficou registrado no histórico do contrato.',
     };
   }
 

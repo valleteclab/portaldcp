@@ -78,9 +78,13 @@ import {
   type LinhaItemOsForaSistema,
 } from './consumo-ciclo.util';
 import {
+  avisoPeriodoForaDoCiclo,
   calcularItensMedicaoRetroativa,
+  normalizarDataPura,
+  sugerirPeriodoDaOrdem,
   validarMotivoRetroativo,
   validarOsMedicaoRetroativa,
+  type PeriodoSugerido,
 } from './medicao-retroativa.util';
 import {
   HistoricoContrato,
@@ -7360,8 +7364,12 @@ export class MedicaoService {
       numero: string;
       data_solicitacao: Date | null;
       valor_total_estimado: number | null;
+      /** Período sugerido (1º ao último dia do mês da OS) — evita digitar período de outro mês/ciclo. */
+      periodo_sugerido: PeriodoSugerido | null;
       itens: Array<{ item_cronograma_id: string; quantidade_solicitada: number }>;
     }>;
+    /** Corte do ciclo vigente: medição com periodo_inicio anterior não consome o saldo do ciclo. */
+    ciclo: { tem_renovacao: boolean; data_corte: string | null };
     proximo_numero_medicao: number;
   }> {
     const contrato = await this.contratoRepository.findOne({
@@ -7446,6 +7454,7 @@ export class MedicaoService {
       numero: string;
       data_solicitacao: Date | null;
       valor_total_estimado: number | null;
+      periodo_sugerido: PeriodoSugerido | null;
       itens: Array<{ item_cronograma_id: string; quantidade_solicitada: number }>;
     }> = [];
 
@@ -7488,6 +7497,9 @@ export class MedicaoService {
           os.valor_total_estimado != null
             ? Number(os.valor_total_estimado)
             : null,
+        // Sugestão pelo mês da OS. Se a OS for anterior ao corte do ciclo,
+        // sugere assim mesmo — é informação para o suporte, não regra.
+        periodo_sugerido: sugerirPeriodoDaOrdem(os.data_solicitacao ?? null),
         itens: itensPorOs.get(os.id) || [],
       }));
     }
@@ -7497,10 +7509,18 @@ export class MedicaoService {
       order: { numero_medicao: 'DESC' },
     });
 
+    // Mesma normalização do corte usada em calcularQuantidadeAprovadaPorItem:
+    // data pura 'YYYY-MM-DD', para não recuar um dia por fuso.
+    const dataRenovacaoCiclo = this.obterDataRenovacaoCiclo(contrato);
+
     return {
       usa_itens_cronograma: usaItensCronograma,
       itens,
       ordens_sem_medicao: ordensSemMedicao,
+      ciclo: {
+        tem_renovacao: !!dataRenovacaoCiclo,
+        data_corte: normalizarDataPura(dataRenovacaoCiclo),
+      },
       proximo_numero_medicao: ultimaMedicao
         ? Number(ultimaMedicao.numero_medicao) + 1
         : 1,
@@ -7534,7 +7554,7 @@ export class MedicaoService {
     usuarioId: string,
     usuarioNome: string,
     orgaoId: string,
-  ): Promise<Medicao> {
+  ): Promise<Medicao & { aviso?: string }> {
     const contrato = await this.contratoRepository.findOne({
       where: { id: contratoId },
     });
@@ -7669,6 +7689,19 @@ export class MedicaoService {
       0,
     );
 
+    // Período anterior ao corte do ciclo NÃO bloqueia (pode ser regularização do
+    // ciclo anterior), mas precisa avisar: nesse caso a medição não entra no
+    // consumo do ciclo vigente e o saldo do item não cai (caso Ata 001/2025).
+    const avisoForaDoCiclo = avisoPeriodoForaDoCiclo(
+      dto.periodo_inicio,
+      this.obterDataRenovacaoCiclo(contrato),
+    );
+    if (avisoForaDoCiclo) {
+      this.logger.warn(
+        `[medicao-retroativa] Contrato ${contrato.numero_contrato}: ${avisoForaDoCiclo}`,
+      );
+    }
+
     const agora = new Date();
     const notaFiscalNumero = String(dto.nota_fiscal_numero || '').trim() || null;
     const notaFiscalData = String(dto.nota_fiscal_data || '').trim() || null;
@@ -7747,7 +7780,8 @@ export class MedicaoService {
             `valor R$ ${valorMedido.toFixed(2)}, ` +
             `OS ${osVinculada?.numero || 'nenhuma'}` +
             (notaFiscalNumero ? `, NF ${notaFiscalNumero}` : '') +
-            ` — motivo: ${motivo}`,
+            ` — motivo: ${motivo}` +
+            (avisoForaDoCiclo ? ` — ATENÇÃO: ${avisoForaDoCiclo}` : ''),
           detalhes: JSON.stringify({
             medicao_id: salva.id,
             numero_medicao: numeroMedicao,
@@ -7758,6 +7792,7 @@ export class MedicaoService {
             nota_fiscal_numero: notaFiscalNumero,
             itens: itensParaSalvar,
             motivo,
+            aviso_fora_do_ciclo: avisoForaDoCiclo,
           }),
           usuario_id: usuarioId,
           usuario_nome: usuarioNome,
@@ -7774,7 +7809,11 @@ export class MedicaoService {
         `criada já APROVADA por ${usuarioNome}. Motivo: ${motivo}`,
     );
 
-    return this.buscarMedicaoCompleta(medicaoId);
+    const completa = await this.buscarMedicaoCompleta(medicaoId);
+    if (avisoForaDoCiclo) {
+      return Object.assign(completa, { aviso: avisoForaDoCiclo });
+    }
+    return completa;
   }
 
   /**

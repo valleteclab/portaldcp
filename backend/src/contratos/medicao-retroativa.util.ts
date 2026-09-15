@@ -145,3 +145,88 @@ export function calcularItensMedicaoRetroativa(
     percentual_fisico_medido: percentualFisicoMedido,
   };
 }
+
+// ============================================================================
+// PERÍODO x CICLO DO CONTRATO
+// ============================================================================
+//
+// Caso real (Ata 001/2025, OS-0116/2026): o suporte digitou o período
+// 01/05/2026 a 30/05/2026 para uma OS de 22/06/2026, num contrato com renovação
+// de ciclo em 14/05/2026. Como o consumo do ciclo só soma medições com
+// periodo_inicio >= a data de corte, a medição ficou FORA do ciclo e o saldo do
+// item subiu em vez de cair. As funções abaixo existem para sugerir o período
+// certo a partir da data da OS e para avisar quando o período informado cai
+// antes do corte (aviso, não bloqueio: uma medição retroativa pode legitimamente
+// pertencer ao ciclo anterior).
+
+export interface PeriodoSugerido {
+  /** Primeiro dia do mês da OS, em 'YYYY-MM-DD'. */
+  inicio: string;
+  /** Último dia do mesmo mês, em 'YYYY-MM-DD'. */
+  fim: string;
+}
+
+/**
+ * Normaliza uma data para 'YYYY-MM-DD' comparável como data pura.
+ * Strings já vêm no formato ISO (o driver devolve date como 'YYYY-MM-DD');
+ * objetos Date usam o ISO em UTC — a mesma normalização do corte de ciclo em
+ * `calcularQuantidadeAprovadaPorItem`, para não recuar um dia por fuso.
+ */
+export function normalizarDataPura(
+  valor: string | Date | null | undefined,
+): string | null {
+  if (!valor) return null;
+  if (valor instanceof Date) {
+    return Number.isNaN(valor.getTime())
+      ? null
+      : valor.toISOString().slice(0, 10);
+  }
+  const texto = String(valor).trim();
+  if (!texto) return null;
+  const casa = texto.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (casa) return `${casa[1]}-${casa[2]}-${casa[3]}`;
+  const data = new Date(texto);
+  return Number.isNaN(data.getTime()) ? null : data.toISOString().slice(0, 10);
+}
+
+/**
+ * Período sugerido a partir da data da ordem de serviço: do primeiro ao último
+ * dia do mês da OS. É só sugestão — o suporte continua podendo editar.
+ */
+export function sugerirPeriodoDaOrdem(
+  dataOrdem: string | Date | null | undefined,
+): PeriodoSugerido | null {
+  const pura = normalizarDataPura(dataOrdem);
+  if (!pura) return null;
+  const ano = Number(pura.slice(0, 4));
+  const mes = Number(pura.slice(5, 7));
+  if (!ano || !mes || mes < 1 || mes > 12) return null;
+  // Dia 0 do mês seguinte = último dia do mês (cobre dezembro e fevereiro bissexto).
+  const ultimoDia = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const mesTexto = String(mes).padStart(2, '0');
+  return {
+    inicio: `${ano}-${mesTexto}-01`,
+    fim: `${ano}-${mesTexto}-${String(ultimoDia).padStart(2, '0')}`,
+  };
+}
+
+/**
+ * Devolve o texto do aviso quando o período informado começa ANTES do corte do
+ * ciclo vigente — nesse caso a medição não entra no consumo do ciclo atual.
+ * Retorna null quando não há ciclo ou quando o período está dentro dele.
+ */
+export function avisoPeriodoForaDoCiclo(
+  periodoInicio: string | Date | null | undefined,
+  dataCorteCiclo: string | Date | null | undefined,
+): string | null {
+  const inicio = normalizarDataPura(periodoInicio);
+  const corte = normalizarDataPura(dataCorteCiclo);
+  if (!inicio || !corte) return null;
+  if (inicio >= corte) return null;
+  const parteBR = (iso: string) => iso.split('-').reverse().join('/');
+  return (
+    `O período informado começa em ${parteBR(inicio)}, antes do início do ciclo vigente ` +
+    `(${parteBR(corte)}). Esta medição ficou FORA do ciclo atual e por isso NÃO consome ` +
+    `o saldo do ciclo vigente. Se a execução é do ciclo atual, corrija o período da medição.`
+  );
+}

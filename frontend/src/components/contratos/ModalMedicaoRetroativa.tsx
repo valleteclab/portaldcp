@@ -47,6 +47,8 @@ interface OrdemSemMedicao {
   numero: string;
   data_solicitacao: string;
   valor_total_estimado: number;
+  /** Período sugerido pelo backend: 1º ao último dia do mês da OS. */
+  periodo_sugerido: { inicio: string; fim: string } | null;
   itens: Array<{ item_cronograma_id: string; quantidade_solicitada: number }>;
 }
 
@@ -54,6 +56,8 @@ interface ContextoRetroativa {
   usa_itens_cronograma: boolean;
   itens: ItemContexto[];
   ordens_sem_medicao: OrdemSemMedicao[];
+  /** Corte do ciclo vigente ('YYYY-MM-DD'); medição anterior a ele não consome o saldo do ciclo. */
+  ciclo?: { tem_renovacao: boolean; data_corte: string | null };
   proximo_numero_medicao: number;
 }
 
@@ -150,6 +154,12 @@ export default function ModalMedicaoRetroativa({
     if (valor === SEM_OS) return;
     const os = contexto?.ordens_sem_medicao.find((o) => o.id === valor);
     if (!os) return;
+    // Período do mês da OS: o erro real foi digitar um mês anterior ao corte do
+    // ciclo e a medição não consumir o saldo. Continua editável.
+    if (os.periodo_sugerido) {
+      setPeriodoInicio(os.periodo_sugerido.inicio);
+      setPeriodoFim(os.periodo_sugerido.fim);
+    }
     if (usaItens) {
       const novas: Record<string, string> = {};
       for (const i of os.itens || []) {
@@ -179,6 +189,15 @@ export default function ModalMedicaoRetroativa({
     if (usaItens) return linhas.reduce((s, l) => s + l.valor, 0);
     return numeroOuZero(valorMedido);
   }, [usaItens, linhas, valorMedido]);
+
+  const dataCorteCiclo =
+    contexto?.ciclo?.tem_renovacao && contexto.ciclo.data_corte
+      ? contexto.ciclo.data_corte
+      : null;
+  // Comparação como texto 'YYYY-MM-DD' (ordem lexicográfica = ordem cronológica),
+  // sem Date, para não deslocar o dia por fuso.
+  const periodoAntesDoCiclo =
+    !!dataCorteCiclo && !!periodoInicio && periodoInicio < dataCorteCiclo;
 
   const motivoValido = motivo.trim().length >= 10;
   const podeEnviar = motivoValido && total > 0 && !salvando && !carregando;
@@ -234,11 +253,14 @@ export default function ModalMedicaoRetroativa({
         );
       }
       const numero = data?.numero_medicao;
-      toast.success(
-        numero
-          ? `${numero}ª medição registrada retroativamente e já aprovada.`
-          : "Medição registrada retroativamente e já aprovada.",
-      );
+      const base = numero
+        ? `${numero}ª medição registrada retroativamente e já aprovada.`
+        : "Medição registrada retroativamente e já aprovada.";
+      if (typeof data?.aviso === "string" && data.aviso) {
+        toast.warning(`${base} ${data.aviso}`, { duration: 12000 });
+      } else {
+        toast.success(base);
+      }
       onOpenChange(false);
       onSucesso();
     } catch (e: any) {
@@ -329,6 +351,13 @@ export default function ModalMedicaoRetroativa({
                 />
               </div>
             </div>
+
+            {dataCorteCiclo && (
+              <p className="-mt-3 text-xs text-gray-500">
+                Ciclo vigente desde {formatarDataBR(dataCorteCiclo)}. Medição com
+                período anterior a essa data pertence ao ciclo anterior.
+              </p>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
@@ -473,6 +502,24 @@ export default function ModalMedicaoRetroativa({
                 medição.
               </p>
             </div>
+
+            {periodoAntesDoCiclo && (
+              <div className="flex gap-3 p-3 rounded-lg border-2 border-amber-400 bg-amber-100 text-amber-900 text-sm">
+                <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+                <p>
+                  <strong>
+                    Este período é anterior ao início do ciclo vigente
+                    {dataCorteCiclo
+                      ? ` (${formatarDataBR(dataCorteCiclo)})`
+                      : ""}
+                    .
+                  </strong>{" "}
+                  A medição não vai consumir o saldo do ciclo atual. Se a
+                  execução é do ciclo vigente, corrija o período antes de
+                  registrar.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
