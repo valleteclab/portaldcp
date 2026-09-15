@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import {
   Camera, Keyboard, Loader2, X, CheckCircle2, AlertTriangle, HelpCircle, PackagePlus,
-  ClipboardCheck, RefreshCw, WifiOff, Search, ScanLine,
+  ClipboardCheck, RefreshCw, WifiOff, Search, ScanLine, Volume2, VolumeX,
 } from 'lucide-react'
 import { API_URL } from '@/lib/api'
 
@@ -16,6 +16,11 @@ const Scanner = dynamic(
 
 const PUB = `${API_URL}/api/patrimonio-pub`
 const LS_NOME = 'inventario_nome_conferente'
+const LS_MUDO = 'inventario_mudo'
+
+type Som = 'ok' | 'outro' | 'erro'
+const somDe = (situacao?: Situacao | null): Som =>
+  situacao === 'ENCONTRADO' || situacao === 'SEM_PLAQUETA' ? 'ok' : situacao === 'OUTRO_SETOR' || situacao === 'BAIXADO_PRESENTE' ? 'outro' : 'erro'
 
 type Situacao = 'ENCONTRADO' | 'OUTRO_SETOR' | 'DESCONHECIDO' | 'SEM_PLAQUETA' | 'BAIXADO_PRESENTE'
 type Bem = { id: string; plaqueta: string | null; descricao: string; categoria: string | null; estado_conservacao: string | null; foto_url: string | null; marca?: string | null; modelo?: string | null; situacao?: Situacao | null; lido_em?: string | null }
@@ -72,6 +77,48 @@ export default function ConferenciaSetorPage() {
   const [erroAcao, setErroAcao] = useState('')
   const tecladoRef = useRef<HTMLInputElement>(null)
   const ultimaLeitura = useRef<{ codigo: string; t: number }>({ codigo: '', t: 0 })
+
+  /**
+   * Sons gerados no aparelho (Web Audio, sem arquivo, funciona offline):
+   * bipe agudo = do setor, dois tons = outro setor / baixado, grave = desconhecido
+   * ou erro. No iPhone o áudio só toca depois de um toque: o contexto é criado
+   * nos botões de ação. Vibração curta acompanha no Android.
+   */
+  const [mudo, setMudo] = useState(false)
+  const mudoRef = useRef(false) // lido dentro de callbacks memoizados
+  const audioCtx = useRef<AudioContext | null>(null)
+  useEffect(() => { try { const m = localStorage.getItem(LS_MUDO) === '1'; setMudo(m); mudoRef.current = m } catch { /* privado */ } }, [])
+  useEffect(() => { mudoRef.current = mudo }, [mudo])
+  const desbloquearAudio = () => {
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext
+      if (!Ctx) return
+      if (!audioCtx.current) audioCtx.current = new Ctx()
+      if (audioCtx.current!.state === 'suspended') audioCtx.current!.resume()
+    } catch { /* sem áudio */ }
+  }
+  const alternarMudo = () => {
+    desbloquearAudio()
+    setMudo((m) => { try { localStorage.setItem(LS_MUDO, m ? '0' : '1') } catch { /* privado */ } return !m })
+  }
+  const tocar = (som: Som) => {
+    if (mudoRef.current) return
+    try { navigator.vibrate?.(som === 'ok' ? 40 : som === 'outro' ? [40, 60, 40] : [120, 40, 120]) } catch { /* sem vibração */ }
+    const ctx = audioCtx.current
+    if (!ctx || ctx.state !== 'running') return
+    const nota = (freq: number, inicio: number, dur: number, tipo: OscillatorType = 'sine', ganho = 0.25) => {
+      const o = ctx.createOscillator(); const g = ctx.createGain()
+      o.type = tipo; o.frequency.value = freq
+      g.gain.setValueAtTime(0, ctx.currentTime + inicio)
+      g.gain.linearRampToValueAtTime(ganho, ctx.currentTime + inicio + 0.01)
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + inicio + dur)
+      o.connect(g); g.connect(ctx.destination)
+      o.start(ctx.currentTime + inicio); o.stop(ctx.currentTime + inicio + dur + 0.02)
+    }
+    if (som === 'ok') nota(1046, 0, 0.09)
+    else if (som === 'outro') { nota(660, 0, 0.1); nota(520, 0.13, 0.14) }
+    else nota(220, 0, 0.28, 'sawtooth', 0.18)
+  }
 
   const carregar = useCallback(async () => {
     try {
@@ -144,13 +191,16 @@ export default function ConferenciaSetorPage() {
     try {
       const r = await postLeitura({ codigo: limpo, origem, ...extras })
       setResultado({ ...r, codigo: limpo })
+      tocar(somDe(r.situacao))
       carregar()
     } catch (e: any) {
       if (e?.status) {
         setResultado({ situacao: 'DESCONHECIDO', bem: null, codigo: limpo, erro: e.message })
+        tocar('erro')
       } else {
         salvarFila([...fila, { codigo: limpo, origem, ...extras, lido_por: nome || undefined, t: agora }])
         setResultado({ situacao: 'ENCONTRADO', bem: null, codigo: limpo, offline: true })
+        tocar('outro')
       }
     } finally {
       setEnviando(false)
@@ -189,6 +239,8 @@ export default function ConferenciaSetorPage() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw Object.assign(new Error(json?.message || 'Erro no lote'), { status: res.status })
       const rs: ResultadoVarredura[] = json.resultados || []
+      const novas = rs.filter((r) => !r.repetida)
+      if (novas.length) tocar(novas.some((r) => !r.situacao || r.situacao === 'DESCONHECIDO') ? 'erro' : novas.some((r) => r.situacao === 'OUTRO_SETOR' || r.situacao === 'BAIXADO_PRESENTE') ? 'outro' : 'ok')
       setVarreduraLog((l) => [...rs.slice().reverse(), ...l].slice(0, 200))
       setVarreduraCont((c) => ({
         lidas: c.lidas + (json.novas || 0),
@@ -229,6 +281,7 @@ export default function ConferenciaSetorPage() {
   }
 
   const iniciarVarredura = () => {
+    desbloquearAudio()
     setResumoVarredura(null)
     setVarreduraLog([])
     setVarreduraCont({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0 })
@@ -366,6 +419,9 @@ export default function ConferenciaSetorPage() {
             <h1 className="text-lg font-bold leading-tight truncate">{dados.setor.nome}</h1>
           </div>
           {!online && <span title="Sem internet" className="text-amber-300"><WifiOff className="w-5 h-5" /></span>}
+          <button onClick={alternarMudo} aria-label={mudo ? 'Ativar sons' : 'Silenciar'} className={`p-1.5 rounded-lg ${mudo ? 'text-slate-400' : 'text-amber-300'}`}>
+            {mudo ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </button>
         </div>
         <div className="mt-3">
           <div className="flex justify-between text-xs text-blue-100 mb-1">
@@ -612,12 +668,12 @@ export default function ConferenciaSetorPage() {
         <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
           <div className="grid grid-cols-5 gap-1.5 mb-2">
             <button onClick={() => setModalPlaqueta(true)} className="rounded-xl bg-slate-800 py-2 text-[11px] flex flex-col items-center gap-1"><Keyboard className="w-5 h-5" />Digitar</button>
-            <button onClick={() => setModoTeclado((v) => !v)} className={`rounded-xl py-2 text-[11px] flex flex-col items-center gap-1 ${modoTeclado ? 'bg-amber-500/30 text-amber-200' : 'bg-slate-800'}`}><ScanLine className="w-5 h-5" />Leitor</button>
+            <button onClick={() => { desbloquearAudio(); setModoTeclado((v) => !v) }} className={`rounded-xl py-2 text-[11px] flex flex-col items-center gap-1 ${modoTeclado ? 'bg-amber-500/30 text-amber-200' : 'bg-slate-800'}`}><ScanLine className="w-5 h-5" />Leitor</button>
             <button onClick={iniciarVarredura} className="rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 py-2 text-[11px] flex flex-col items-center gap-1"><RefreshCw className="w-5 h-5" />Varrer sala</button>
             <button onClick={() => setModalSemPlaqueta(true)} className="rounded-xl bg-slate-800 py-2 text-[11px] flex flex-col items-center gap-1"><PackagePlus className="w-5 h-5" />Sem plaq.</button>
             <button onClick={() => { setFecharForm({ nome: nome || dados.setor.responsavel_nome || '', observacoes: '' }); setModalFechar(true) }} className="rounded-xl bg-slate-800 py-2 text-[11px] flex flex-col items-center gap-1"><ClipboardCheck className="w-5 h-5" />Finalizar</button>
           </div>
-          <button onClick={() => setScannerAberto(true)} className="w-full rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-4 flex items-center justify-center gap-2 text-base">
+          <button onClick={() => { desbloquearAudio(); setScannerAberto(true) }} className="w-full rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-4 flex items-center justify-center gap-2 text-base">
             <Camera className="w-6 h-6" /> Ler plaqueta (QR)
           </button>
         </nav>
