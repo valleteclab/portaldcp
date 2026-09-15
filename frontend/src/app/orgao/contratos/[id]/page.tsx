@@ -172,6 +172,8 @@ interface Contrato {
   itens?: ItemContrato[]
   total_itens?: number
   tabela_referencia_id?: string | null
+  /** Nº do processo licitatório como aparece no Portal da Transparência */
+  processo_licitatorio_portal?: string | null
   remuneracao_publicidade?: {
     desconto_tabela_pct?: number
     honorario_producao_pct?: number
@@ -209,6 +211,32 @@ interface HistoricoContrato {
 
 type FaseDespesa = 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO'
 
+/** Como o empenho do portal foi vinculado a este contrato */
+type ConfirmacaoEmpenho = 'CONTRATO' | 'HISTORICO' | 'PROCESSO' | 'NAO_CONFIRMADO'
+
+const CONFIRMACAO_LABELS: Record<ConfirmacaoEmpenho, { label: string; cor: string; ajuda: string }> = {
+  CONTRATO: {
+    label: 'Contrato',
+    cor: 'bg-green-100 text-green-800 border-green-200',
+    ajuda: 'O portal informou o nº do contrato no detalhe da despesa.',
+  },
+  HISTORICO: {
+    label: 'Histórico',
+    cor: 'bg-blue-100 text-blue-800 border-blue-200',
+    ajuda: 'O portal não informou o nº do contrato, mas o histórico da despesa cita este instrumento.',
+  },
+  PROCESSO: {
+    label: 'Processo',
+    cor: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    ajuda: 'Vinculado pelo processo licitatório informado no cadastro do contrato.',
+  },
+  NAO_CONFIRMADO: {
+    label: 'Não confirmado',
+    cor: 'bg-amber-100 text-amber-900 border-amber-300',
+    ajuda: 'Não foi possível ligar esta despesa ao contrato; ela não entra nos totais.',
+  },
+}
+
 interface EmpenhoFator {
   numero_liquidacao: string
   numero_empenho: string
@@ -224,6 +252,12 @@ interface EmpenhoFator {
   numero_processo: string
   modalidade: string
   elemento_despesa: string
+  /** Processo licitatório informado no portal (ex: "006-2025-PE") */
+  processo_licitatorio?: string
+  /** Como a despesa foi ligada a este contrato */
+  confirmacao?: ConfirmacaoEmpenho
+  /** Nº da OS citada no histórico do portal, quando houver */
+  os_citada?: string
 }
 
 interface RequisicaoVinculada {
@@ -300,6 +334,8 @@ interface ResumoEmpenhos {
     quantidade_empenhos: number
     quantidade_liquidacoes: number
     quantidade_pagamentos: number
+    total_nao_confirmado?: number
+    quantidade_nao_confirmada?: number
   }
   por_ano: ResumoAnoEmpenhos[]
   grupos_exercicio: GrupoExercicio[]
@@ -386,6 +422,8 @@ export default function DetalheContratoOrgaoPage() {
   const [simuladorEmpenho, setSimuladorEmpenho] = useState<EmpenhoComposto | null>(null)
   const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
   const [empenhosBuscados, setEmpenhosBuscados] = useState(false)
+  const [processoPortalEdit, setProcessoPortalEdit] = useState('')
+  const [salvandoProcessoPortal, setSalvandoProcessoPortal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingAction, setLoadingAction] = useState(false)
   
@@ -526,6 +564,10 @@ export default function DetalheContratoOrgaoPage() {
     }
   }, [tabAtivo, id])
 
+  useEffect(() => {
+    setProcessoPortalEdit(contrato?.processo_licitatorio_portal || '')
+  }, [contrato?.processo_licitatorio_portal])
+
   const buscarEmpenhos = async () => {
     setLoadingEmpenhos(true)
     setEmpenhosBuscados(true)
@@ -550,6 +592,34 @@ export default function DetalheContratoOrgaoPage() {
       setGruposExercicio([])
     } finally {
       setLoadingEmpenhos(false)
+    }
+  }
+
+  /**
+   * Salva o nº do processo licitatório como ele aparece no portal e refaz a
+   * busca — assim as despesas sem "Nº Contrato" (atas de registro de preços)
+   * passam a ser confirmadas pelo processo.
+   */
+  const salvarProcessoPortal = async () => {
+    const valor = processoPortalEdit.trim()
+    setSalvandoProcessoPortal(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ processo_licitatorio_portal: valor || null }),
+      })
+      if (res.ok) {
+        setContrato(prev => (prev ? { ...prev, processo_licitatorio_portal: valor || null } : null))
+        setEmpenhosBuscados(false)
+        await buscarEmpenhos()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao salvar o processo licitatório')
+      }
+    } catch {
+      alert('Erro ao salvar o processo licitatório')
+    } finally {
+      setSalvandoProcessoPortal(false)
     }
   }
 
@@ -2979,6 +3049,45 @@ export default function DetalheContratoOrgaoPage() {
                     </div>
                   )}
 
+                  {/* Aviso: o portal não informou o nº do contrato (atas de registro de preços) */}
+                  {empenhos.some(e => e.confirmacao === 'NAO_CONFIRMADO') && (
+                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm w-full">
+                          <p className="font-medium text-amber-900">
+                            {empenhos.filter(e => e.confirmacao === 'NAO_CONFIRMADO' && e.fase_tipo === 'EMPENHO').length} empenho(s) sem confirmação
+                          </p>
+                          <p className="text-amber-800 mt-0.5">
+                            O portal não preencheu o <strong>Nº Contrato</strong> no detalhe dessas despesas — comum em
+                            atas de registro de preços, em que só aparece o processo licitatório. Elas são exibidas
+                            abaixo, mas <strong>não entram nos totais</strong>.
+                          </p>
+                          <p className="text-amber-800 mt-2">
+                            Informe o processo licitatório como ele aparece no portal para vincular automaticamente:
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <Input
+                              value={processoPortalEdit}
+                              onChange={(e) => setProcessoPortalEdit(e.target.value)}
+                              placeholder="Ex: 006-2025-PE"
+                              className="h-9 w-48 bg-white"
+                            />
+                            <Button
+                              size="sm"
+                              onClick={salvarProcessoPortal}
+                              disabled={salvandoProcessoPortal}
+                            >
+                              {salvandoProcessoPortal
+                                ? <Loader2 className="w-4 h-4 animate-spin" />
+                                : 'Salvar e buscar'}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Tabela */}
                   <div className="overflow-x-auto rounded-md border">
                     <table className="w-full text-sm">
@@ -2987,6 +3096,7 @@ export default function DetalheContratoOrgaoPage() {
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Data</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Nº Liquidação</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Fase</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600">Vínculo</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Credor</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600 hidden md:table-cell">Nº Processo</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600 hidden lg:table-cell">Elemento</th>
@@ -3007,8 +3117,13 @@ export default function DetalheContratoOrgaoPage() {
                             PAGAMENTO: 'Pagamento',
                             OUTRO: e.fase,
                           }
+                          const confirmacao = CONFIRMACAO_LABELS[e.confirmacao ?? 'CONTRATO'] ?? CONFIRMACAO_LABELS.CONTRATO
+                          const naoConfirmado = e.confirmacao === 'NAO_CONFIRMADO'
                           return (
-                            <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                            <tr
+                              key={i}
+                              className={`border-b last:border-0 ${naoConfirmado ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-gray-50'}`}
+                            >
                               <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{e.data}</td>
                               <td className="px-3 py-2 font-mono text-xs">
                                 {e.numero_liquidacao || <span className="text-gray-400">—</span>}
@@ -3019,8 +3134,22 @@ export default function DetalheContratoOrgaoPage() {
                                 </Badge>
                               </td>
                               <td className="px-3 py-2">
+                                <Badge
+                                  variant="outline"
+                                  title={confirmacao.ajuda}
+                                  className={`text-xs whitespace-nowrap ${confirmacao.cor}`}
+                                >
+                                  {confirmacao.label}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-2">
                                 <p className="font-medium text-gray-800 whitespace-normal break-words">{e.credor}</p>
                                 {e.cnpj && <p className="text-xs text-gray-400 font-mono">{e.cnpj}</p>}
+                                {e.os_citada && (
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    OS citada: <span className="font-mono">{e.os_citada}</span>
+                                  </p>
+                                )}
                               </td>
                               <td className="px-3 py-2 text-gray-600 text-xs hidden md:table-cell">{e.numero_processo || '—'}</td>
                               <td className="px-3 py-2 text-gray-600 text-xs hidden lg:table-cell whitespace-normal break-words">{e.elemento_despesa || '—'}</td>

@@ -4,6 +4,22 @@ import { SystemConfigService } from '../system-config/system-config.service';
 
 export type FaseDespesa = 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO';
 
+/**
+ * Como o registro do portal foi vinculado ao contrato/ata alvo:
+ * - CONTRATO: o dialog informou o "Nº Contrato" e ele casa com o alvo
+ * - HISTORICO: o dialog não informou contrato, mas o texto livre (bem/serviço,
+ *   histórico de liquidação/pagamento) cita o número do contrato/ata
+ * - PROCESSO: o dialog não informou contrato, mas o "Processo Licitatório"
+ *   casa com o campo `processo_licitatorio_portal` do contrato
+ * - NAO_CONFIRMADO: nenhuma das anteriores — o registro é exibido, mas não
+ *   entra nos totais (o gestor decide)
+ */
+export type ConfirmacaoEmpenho =
+  | 'CONTRATO'
+  | 'HISTORICO'
+  | 'PROCESSO'
+  | 'NAO_CONFIRMADO';
+
 export interface EmpenhoFator {
   numero_liquidacao: string;
   /** Nº Empenho extraído do dialog (só preenchido quando fase_tipo === 'EMPENHO') */
@@ -20,6 +36,17 @@ export interface EmpenhoFator {
   numero_processo: string;
   modalidade: string;
   elemento_despesa: string;
+  /** Processo licitatório informado no dialog (ex: "006-2025-PE"). Pode vir vazio. */
+  processo_licitatorio: string;
+  /** Como este registro foi vinculado ao contrato alvo */
+  confirmacao: ConfirmacaoEmpenho;
+  /** Nº da OS citada no histórico do portal, quando houver (ex: "OS-0224/2026") */
+  os_citada?: string;
+  /**
+   * Texto livre do dialog (bem/serviço + históricos) usado na confirmação por
+   * HISTORICO. Removido antes de devolver ao cliente para não inflar o payload.
+   */
+  texto_confirmacao?: string;
 }
 
 /** Empenho composto: agrupa o empenho original com suas liquidações, pagamentos e estornos */
@@ -117,6 +144,10 @@ export interface ResumoEmpenhos {
     quantidade_empenhos: number;
     quantidade_liquidacoes: number;
     quantidade_pagamentos: number;
+    /** Soma dos empenhos (fase EMPENHO) que o portal nao permitiu confirmar */
+    total_nao_confirmado: number;
+    /** Quantidade de empenhos (fase EMPENHO) nao confirmados */
+    quantidade_nao_confirmada: number;
   };
   por_ano: ResumoAnoEmpenhos[];
   /** Exercícios (anos) agrupados com seus empenhos, anulações, liquidações e pagamentos */
@@ -137,6 +168,8 @@ export class FatorTransparenciaService {
     /** Ano do contrato. Busca este ano + ano atual quando forem diferentes. */
     ano?: number;
     fornecedor?: string;
+    /** No do processo licitatorio como aparece no portal (ex: "006-2025-PE") */
+    processoLicitatorioPortal?: string;
   }): Promise<EmpenhoFator[]> {
     const orgId = await this.systemConfig.getValue('FATOR_TRANSPARENCIA_ID');
     if (!orgId) {
@@ -149,15 +182,19 @@ export class FatorTransparenciaService {
     const anoContrato = params.ano ?? new Date().getFullYear();
     const anoAtual = new Date().getFullYear();
 
-    // Busca todos os anos do intervalo [anoContrato … anoAtual]
-    // Contratos de longa duração (aditivos) podem ter empenhos em qualquer ano do período
-    const anoInicio = Math.min(anoContrato, anoAtual);
-    const anoFim = Math.max(anoContrato, anoAtual);
-    const anos: number[] = [];
-    for (let a = anoInicio; a <= anoFim; a++) anos.push(a);
-
     // Normaliza o número de contrato para NNN/AAAA (remove sufixos "3ªAD", "TA", etc.)
     const nContratoNormalizado = this.normalizarNumeroContrato(params.nContrato);
+
+    // Busca todos os anos do intervalo [menor ano … ano atual].
+    // O campo `ano` do contrato nem sempre bate com o ano do número (atas
+    // renovadas ficam com ano=2026 mas são "001/2025"), então o piso é o menor
+    // entre os dois — senão o ano da assinatura nunca seria consultado.
+    const anoDoNumero = this.anoDoNumeroContrato(nContratoNormalizado);
+    const anoBase = anoDoNumero ? Math.min(anoContrato, anoDoNumero) : anoContrato;
+    const anoInicio = Math.min(anoBase, anoAtual);
+    const anoFim = Math.max(anoBase, anoAtual);
+    const anos: number[] = [];
+    for (let a = anoInicio; a <= anoFim; a++) anos.push(a);
 
     // Estratégia: NÃO enviar nContrato ao portal (match exato falha com variações tipo
     // "028/2023 3ºAD", "028-2023-ADITIVO" etc). Busca por CNPJ apenas e filtra localmente
@@ -168,29 +205,118 @@ export class FatorTransparenciaService {
       anos.map((ano) => this.buscarPorAno(orgId, paramsSemContrato, ano)),
     );
 
-    // Mescla, deduplica e filtra pelo número de contrato normalizado
+    // Mescla, deduplica e CLASSIFICA (não descarta) pelo número de contrato
     const todos = resultadosPorAno.flat();
     const chaveContratoAlvo = this.chaveContrato(nContratoNormalizado);
+    const chaveTextoAlvo = this.chaveNumeroAno(nContratoNormalizado);
+    const chaveProcessoAlvo = (params.processoLicitatorioPortal ?? '').replace(
+      /\D/g,
+      '',
+    );
 
     const vistos = new Set<string>();
-    return todos.filter((e, idx) => {
-      // Filtra por número de contrato quando disponível no dialog
-      if (chaveContratoAlvo) {
-        const chaveEmpenho = this.chaveContrato(e.numero_contrato);
-        // Aceita: (a) match exato, (b) numero_contrato do empenho começa com o alvo
-        //         (ex: "028/2023-3ADITIVO" bate com "028/2023"),
-        //         (c) dialog não informou contrato (chaveEmpenho vazia) → descarta
-        if (!chaveEmpenho) return false;
-        if (!chaveEmpenho.startsWith(chaveContratoAlvo)) return false;
-      }
-
-      // Chave composta: numero_liquidacao se repete entre anos (reseta a cada exercício),
-      // então usamos empenho + data + fase + valor + nº para diferenciar
+    const unicos = todos.filter((e, idx) => {
+      // Chave composta: numero_liquidacao se repete entre anos (reseta a cada
+      // exercício), então usamos empenho + data + fase + valor + nº para diferenciar
       const chave = `${e.numero_empenho}|${e.data}|${e.fase_tipo}|${e.numero_liquidacao || idx}|${e.valor}`;
       if (vistos.has(chave)) return false;
       vistos.add(chave);
       return true;
     });
+
+    for (const e of unicos) {
+      e.confirmacao = this.classificarConfirmacao(e, {
+        chaveContrato: chaveContratoAlvo,
+        chaveTexto: chaveTextoAlvo,
+        chaveProcesso: chaveProcessoAlvo,
+      });
+      // Texto auxiliar serve só para a classificação — não vai para o cliente
+      delete e.texto_confirmacao;
+    }
+
+    return unicos;
+  }
+
+  /**
+   * Decide como o registro do portal se liga ao contrato alvo.
+   * Ordem: contrato do dialog → texto livre (histórico) → processo licitatório.
+   */
+  private classificarConfirmacao(
+    e: EmpenhoFator,
+    alvo: { chaveContrato: string; chaveTexto: string; chaveProcesso: string },
+  ): ConfirmacaoEmpenho {
+    // Sem alvo (busca aberta por CNPJ): não há o que confirmar
+    if (!alvo.chaveContrato) return 'CONTRATO';
+
+    const chaveEmpenho = this.chaveContrato(e.numero_contrato);
+    if (chaveEmpenho && chaveEmpenho.startsWith(alvo.chaveContrato)) {
+      return 'CONTRATO';
+    }
+
+    // Dialog informou OUTRO contrato → não é deste contrato
+    if (chaveEmpenho) return 'NAO_CONFIRMADO';
+
+    // Dialog sem "Nº Contrato" (caso das atas de registro de preços):
+    // procura o número do contrato/ata no texto livre do portal
+    if (alvo.chaveTexto) {
+      const chavesTexto = this.extrairChavesNumeroAno(e.texto_confirmacao ?? '');
+      if (chavesTexto.includes(alvo.chaveTexto)) return 'HISTORICO';
+    }
+
+    // Último recurso: processo licitatório informado no cadastro do contrato
+    if (alvo.chaveProcesso) {
+      const chaveProcEmpenho = (e.processo_licitatorio || '').replace(/\D/g, '');
+      if (chaveProcEmpenho && chaveProcEmpenho === alvo.chaveProcesso) {
+        return 'PROCESSO';
+      }
+    }
+
+    return 'NAO_CONFIRMADO';
+  }
+
+  /** Ano embutido no número do contrato normalizado ("001/2025" → 2025) */
+  private anoDoNumeroContrato(numero?: string): number | null {
+    const m = (numero ?? '').match(/^\d{1,4}[\/-](\d{4})$/);
+    if (!m) return null;
+    const ano = parseInt(m[1], 10);
+    return ano >= 1990 && ano <= 2999 ? ano : null;
+  }
+
+  /**
+   * Chave NNNAAAA a partir de "NNN/AAAA" ou "NNN-AAAA", com o número
+   * preenchido com zeros à esquerda ("1/2025" e "001/2025" → "0012025").
+   */
+  private chaveNumeroAno(numero?: string): string {
+    const m = (numero ?? '').match(/(\d{1,4})\s*[\/-]\s*(\d{4})/);
+    if (!m) return '';
+    const num = String(parseInt(m[1], 10));
+    return `${num.padStart(3, '0')}${m[2]}`;
+  }
+
+  /** Todas as sequências NNN/AAAA de um texto livre, normalizadas em chaves */
+  private extrairChavesNumeroAno(texto: string): string[] {
+    const chaves: string[] = [];
+    const regex = /(\d{1,4})\s*[\/-]\s*(\d{4})/g;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(texto)) !== null) {
+      const num = String(parseInt(m[1], 10));
+      chaves.push(`${num.padStart(3, '0')}${m[2]}`);
+    }
+    return chaves;
+  }
+
+  /**
+   * Nº da ordem de serviço citada no histórico do portal.
+   * Aceita "OS-0224/2026", "OS 0224/2026" e "ORDEM DE SERVIÇO Nº 003".
+   */
+  private extrairOsCitada(texto: string): string {
+    const comBarra = texto.match(/OS[-\s]?(\d{3,4}\/\d{4})/i);
+    if (comBarra) return `OS-${comBarra[1]}`;
+    const porExtenso = texto.match(
+      /ORDEM\s+DE\s+SERVI[ÇC]O\s*(?:N[º°o.]*\s*)?(\d{1,4}(?:\/\d{4})?)/i,
+    );
+    if (porExtenso) return `OS-${porExtenso[1]}`;
+    return '';
   }
 
   /**
@@ -297,6 +423,15 @@ export class FatorTransparenciaService {
 
       const numeroEmpenho = detalhe.numero_empenho || numeroEmpenhoTd.trim();
       const credorLimpo = this.limparHtml(credor.trim());
+
+      // Texto livre do dialog: bem/serviço + históricos de liquidação/pagamento.
+      // É nele que as atas de registro de preços citam o instrumento e a OS,
+      // já que o campo "Nº Contrato" vem vazio nesses casos.
+      const historicos = this.extrairHistoricosDialog(conteudoDialog);
+      const textoLivre = [detalhe.bem_servico ?? '', ...historicos]
+        .filter(Boolean)
+        .join(' | ');
+
       const base = {
         numero_empenho: numeroEmpenho,
         credor: credorLimpo,
@@ -306,7 +441,11 @@ export class FatorTransparenciaService {
         numero_processo: detalhe.numero_processo ?? '',
         modalidade: detalhe.modalidade ?? '',
         elemento_despesa: detalhe.elemento_despesa ?? '',
+        processo_licitatorio: detalhe.processo_licitatorio ?? '',
+        confirmacao: 'NAO_CONFIRMADO' as ConfirmacaoEmpenho,
+        texto_confirmacao: textoLivre,
       };
+      const osDoDialog = this.extrairOsCitada(textoLivre);
 
       resultados.push({
         ...base,
@@ -316,6 +455,7 @@ export class FatorTransparenciaService {
         fase_tipo: 'EMPENHO',
         valor: this.parseValorBrasileiro(valorEmpenhadoBr),
         valor_formatado: valorEmpenhadoBr.trim(),
+        os_citada: osDoDialog || undefined,
       });
 
       for (const liq of this.extrairMovimentosSubempenho(conteudoDialog, 'liquidacao')) {
@@ -327,6 +467,7 @@ export class FatorTransparenciaService {
           fase_tipo: 'LIQUIDACAO',
           valor: liq.valor,
           valor_formatado: liq.valor_formatado,
+          os_citada: this.extrairOsCitada(liq.historico) || osDoDialog || undefined,
         });
       }
 
@@ -339,6 +480,7 @@ export class FatorTransparenciaService {
           fase_tipo: 'PAGAMENTO',
           valor: pag.valor,
           valor_formatado: pag.valor_formatado,
+          os_citada: this.extrairOsCitada(pag.historico) || osDoDialog || undefined,
         });
       }
     }
@@ -350,24 +492,37 @@ export class FatorTransparenciaService {
   private extrairMovimentosSubempenho(
     conteudoDialog: string,
     tipo: 'liquidacao' | 'pagamento',
-  ): Array<{ data: string; subempenho: string; valor: number; valor_formatado: string }> {
+  ): Array<{ data: string; subempenho: string; historico: string; valor: number; valor_formatado: string }> {
     const prefixo = tipo === 'liquidacao' ? 'liq' : 'pag';
     const pattern = new RegExp(
-      `class='linha-${tipo}'[\\s\\S]*?class='${prefixo}-data'[^>]*>\\s*([\\d/]+)\\s*<[\\s\\S]*?class='${prefixo}-sub'[^>]*>\\s*([^<]*?)\\s*<[\\s\\S]*?class='${prefixo}-valor'[^>]*>\\s*R\\$\\s*([-\\d.,]+)`,
+      `class='linha-${tipo}'[\\s\\S]*?class='${prefixo}-data'[^>]*>\\s*([\\d/]+)\\s*<[\\s\\S]*?class='${prefixo}-sub'[^>]*>\\s*([^<]*?)\\s*<[\\s\\S]*?class='${prefixo}-historico'[^>]*>([\\s\\S]*?)<\\/div>[\\s\\S]*?class='${prefixo}-valor'[^>]*>\\s*R\\$\\s*([-\\d.,]+)`,
       'g',
     );
 
-    const movimentos: Array<{ data: string; subempenho: string; valor: number; valor_formatado: string }> = [];
+    const movimentos: Array<{ data: string; subempenho: string; historico: string; valor: number; valor_formatado: string }> = [];
     let m: RegExpExecArray | null;
     while ((m = pattern.exec(conteudoDialog)) !== null) {
       movimentos.push({
         data: m[1].trim(),
         subempenho: m[2].trim(),
-        valor: this.parseValorBrasileiro(m[3]),
-        valor_formatado: `R$ ${m[3].trim()}`,
+        historico: this.limparHtml(m[3]),
+        valor: this.parseValorBrasileiro(m[4]),
+        valor_formatado: `R$ ${m[4].trim()}`,
       });
     }
     return movimentos;
+  }
+
+  /** Históricos (texto livre) das linhas de liquidação e pagamento do dialog */
+  private extrairHistoricosDialog(conteudoDialog: string): string[] {
+    const textos: string[] = [];
+    const pattern = /class='(?:liq|pag)-historico'[^>]*>([\s\S]*?)<\/div>/g;
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(conteudoDialog)) !== null) {
+      const texto = this.limparHtml(m[1]);
+      if (texto) textos.push(texto);
+    }
+    return textos;
   }
 
   private parseValorBrasileiro(valorBr: string): number {
@@ -405,6 +560,12 @@ export class FatorTransparenciaService {
         this.extrairCampo(
           conteudo,
           /<strong>Elemento de Despesa:<\/strong>\s*(.*?)<\/p>/,
+        ),
+      ),
+      processo_licitatorio: this.limparHtml(
+        this.extrairCampo(
+          conteudo,
+          /<strong>Processo Licitatório:<\/strong>\s*([^<]*)/,
         ),
       ),
     };
@@ -449,6 +610,10 @@ export class FatorTransparenciaService {
         numero_processo: nprocesso.trim(),
         modalidade: detalhe.modalidade ?? '',
         elemento_despesa: detalhe.elemento_despesa ?? '',
+        processo_licitatorio: detalhe.processo_licitatorio ?? '',
+        confirmacao: 'NAO_CONFIRMADO',
+        texto_confirmacao: detalhe.bem_servico ?? '',
+        os_citada: this.extrairOsCitada(detalhe.bem_servico ?? '') || undefined,
       });
     }
 
@@ -561,9 +726,18 @@ export class FatorTransparenciaService {
     const valorGlobal = Number(opts.valor_global ?? 0);
     const anoContrato = opts.ano_contrato ?? anoAtual;
 
-    const total_empenhado = empenhos.filter(e => e.fase_tipo === 'EMPENHO').reduce((s, e) => s + e.valor, 0);
-    const total_liquidado = empenhos.filter(e => e.fase_tipo === 'LIQUIDACAO').reduce((s, e) => s + e.valor, 0);
-    const total_pago = empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').reduce((s, e) => s + e.valor, 0);
+    // Somente registros confirmados entram nos totais e na execução orçamentária.
+    // Os não confirmados continuam na lista (`empenhos`) para o gestor avaliar.
+    const confirmados = empenhos.filter(e => e.confirmacao !== 'NAO_CONFIRMADO');
+    const naoConfirmados = empenhos.filter(e => e.confirmacao === 'NAO_CONFIRMADO');
+
+    const total_empenhado = confirmados.filter(e => e.fase_tipo === 'EMPENHO').reduce((s, e) => s + e.valor, 0);
+    const total_liquidado = confirmados.filter(e => e.fase_tipo === 'LIQUIDACAO').reduce((s, e) => s + e.valor, 0);
+    const total_pago = confirmados.filter(e => e.fase_tipo === 'PAGAMENTO').reduce((s, e) => s + e.valor, 0);
+
+    const empenhosNaoConfirmados = naoConfirmados.filter(e => e.fase_tipo === 'EMPENHO');
+    const total_nao_confirmado = empenhosNaoConfirmados.reduce((s, e) => s + e.valor, 0);
+    const quantidade_nao_confirmada = empenhosNaoConfirmados.length;
 
     const saldo_empenhado = total_empenhado - total_pago;
     const saldo_a_empenhar = Math.max(0, valorGlobal - total_empenhado);
@@ -577,7 +751,7 @@ export class FatorTransparenciaService {
 
     // Agrupa por ano calendário (cada registro fica no seu ano)
     const porAnoMap = new Map<number, ResumoAnoEmpenhos>();
-    for (const e of empenhos) {
+    for (const e of confirmados) {
       const dataPartes = (e.data || '').split('/');
       if (dataPartes.length !== 3) continue;
       const mes = parseInt(dataPartes[1], 10) || 0;
@@ -609,7 +783,7 @@ export class FatorTransparenciaService {
     }
     const por_ano = Array.from(porAnoMap.values()).sort((a, b) => a.ano - b.ano);
 
-    const grupos_exercicio = this.agruparPorExercicio(empenhos, anoAtual);
+    const grupos_exercicio = this.agruparPorExercicio(confirmados, anoAtual);
 
     return {
       empenhos,
@@ -625,9 +799,11 @@ export class FatorTransparenciaService {
         percentual_execucao_orcamentaria,
         percentual_execucao_financeira,
         requer_novo_empenho_anual,
-        quantidade_empenhos: empenhos.filter(e => e.fase_tipo === 'EMPENHO').length,
-        quantidade_liquidacoes: empenhos.filter(e => e.fase_tipo === 'LIQUIDACAO').length,
-        quantidade_pagamentos: empenhos.filter(e => e.fase_tipo === 'PAGAMENTO').length,
+        quantidade_empenhos: confirmados.filter(e => e.fase_tipo === 'EMPENHO').length,
+        quantidade_liquidacoes: confirmados.filter(e => e.fase_tipo === 'LIQUIDACAO').length,
+        quantidade_pagamentos: confirmados.filter(e => e.fase_tipo === 'PAGAMENTO').length,
+        total_nao_confirmado,
+        quantidade_nao_confirmada,
       },
       por_ano,
       grupos_exercicio,

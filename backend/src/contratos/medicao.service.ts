@@ -69,6 +69,15 @@ import {
   truncarMoedaReais2Casas,
   valorPorFrequenciaItemCronograma,
 } from './cronograma-medicao-pdf.util';
+import {
+  agruparConsumoForaSistema,
+  somarMapasConsumo,
+  type LinhaItemOsForaSistema,
+} from './consumo-ciclo.util';
+import {
+  HistoricoContrato,
+  TipoAcaoContrato,
+} from './entities/historico-contrato.entity';
 
 @Injectable()
 export class MedicaoService {
@@ -117,6 +126,8 @@ export class MedicaoService {
     private documentoContratoRepository: Repository<DocumentoContrato>,
     @InjectRepository(TermoAditivo)
     private termoAditivoRepository: Repository<TermoAditivo>,
+    @InjectRepository(HistoricoContrato)
+    private historicoContratoRepository: Repository<HistoricoContrato>,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
     private geradorPdfService: GeradorPdfService,
@@ -5744,6 +5755,36 @@ export class MedicaoService {
     return mapa;
   }
 
+  /**
+   * Quantidades consumidas por OS marcadas como ATENDIDAS FORA DO SISTEMA
+   * (paga sem medição) dentro do ciclo vigente — ver `consumo-ciclo.util.ts`.
+   * Só faz sentido quando há corte de ciclo: sem ciclo, o consumo dessas OS já
+   * está em `itens_cronograma.quantidade_medida`.
+   */
+  private async calcularQuantidadeForaSistemaPorItem(
+    contratoId: string,
+    dataCorteCiclo: Date,
+  ): Promise<Map<string, number>> {
+    const corteIso = dataCorteCiclo.toISOString().slice(0, 10);
+    const linhas: LinhaItemOsForaSistema[] = await this.requisicaoRepository.manager.query(
+      `SELECT rio.item_cronograma_id,
+              rio.quantidade_solicitada,
+              rio.meses_solicitados,
+              ic.unidade_medida
+         FROM requisicao_itens_os rio
+         JOIN requisicoes r ON r.id = rio.requisicao_id
+         JOIN itens_cronograma ic ON ic.id = rio.item_cronograma_id
+        WHERE r.contrato_id = $1
+          AND r.tipo = 'ORDEM_SERVICO'
+          AND r.consumo_fora_sistema_em IS NOT NULL
+          AND r.status = 'ATENDIDA'
+          AND rio.item_cronograma_id IS NOT NULL
+          AND r.data_solicitacao >= $2`,
+      [contratoId, corteIso],
+    );
+    return agruparConsumoForaSistema(linhas);
+  }
+
   private async calcularQuantidadeAprovadaPorItem(
     contratoId: string,
     dataCorteCiclo?: Date | null,
@@ -5775,6 +5816,19 @@ export class MedicaoService {
     const mapa = new Map<string, number>();
     for (const row of results) {
       mapa.set(row.item_cronograma_id, Number(row.total_quantidade));
+    }
+
+    // Dentro de um ciclo, as OS pagas por fora (atendidas fora do sistema) também
+    // consomem saldo: elas não geram itens_medicao_item e deixam de ser
+    // "comprometidas" ao virar ATENDIDA, então precisam ser somadas aqui.
+    // Sem dupla contagem: uma OS com medição ativa não pode ser marcada como
+    // atendida fora do sistema (validado em RequisicaoService.atenderForaDoSistema).
+    if (dataCorteCiclo) {
+      const foraSistema = await this.calcularQuantidadeForaSistemaPorItem(
+        contratoId,
+        dataCorteCiclo,
+      );
+      return somarMapasConsumo(mapa, foraSistema);
     }
     return mapa;
   }
@@ -7048,6 +7102,185 @@ export class MedicaoService {
       `Cabeçalho corrigido por ${fiscalNome} na medição ${medicaoId}`,
     );
     return this.medicaoRepository.findOne({ where: { id: medicaoId } });
+  }
+
+  /**
+   * Lista as OS (requisições tipo ORDEM_SERVICO) do contrato para o seletor de
+   * troca de OS da medição, indicando quais já têm medição ativa vinculada.
+   */
+  async listarOrdensServicoDoContrato(
+    contratoId: string,
+    orgaoId: string,
+  ): Promise<
+    Array<{
+      id: string;
+      numero: string;
+      data_solicitacao: Date | null;
+      valor_total_estimado: number | null;
+      status: string;
+      medicao_vinculada: { id: string; numero_medicao: number | null; status: string } | null;
+    }>
+  > {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a este contrato');
+    }
+
+    const ordens = await this.requisicaoRepository.find({
+      where: { contrato_id: contratoId, tipo: TipoRequisicao.ORDEM_SERVICO },
+      order: { data_solicitacao: 'DESC', created_at: 'DESC' },
+    });
+    if (ordens.length === 0) return [];
+
+    const medicoes = await this.medicaoRepository.find({
+      where: {
+        contrato_id: contratoId,
+        requisicao_id: In(ordens.map((o) => o.id)),
+        status: Not(StatusMedicao.REJEITADA),
+      },
+      select: ['id', 'numero_medicao', 'status', 'requisicao_id'],
+    });
+    const porRequisicao = new Map(medicoes.map((m) => [m.requisicao_id, m]));
+
+    return ordens.map((os) => {
+      const medicao = porRequisicao.get(os.id);
+      return {
+        id: os.id,
+        numero: os.numero,
+        data_solicitacao: os.data_solicitacao ?? null,
+        valor_total_estimado:
+          os.valor_total_estimado != null ? Number(os.valor_total_estimado) : null,
+        status: os.status,
+        medicao_vinculada: medicao
+          ? {
+              id: medicao.id,
+              numero_medicao: medicao.numero_medicao ?? null,
+              status: medicao.status,
+            }
+          : null,
+      };
+    });
+  }
+
+  /**
+   * Troca (ou desvincula) a ORDEM DE SERVIÇO consumida por uma medição.
+   *
+   * Por que existe: `medicoes.requisicao_id` é gravado na criação da medição e não
+   * havia tela para corrigi-lo. Quando ficava errado, a OS correta continuava
+   * contada como COMPROMETIDA e travava o saldo do item (ata 001/2025 prendeu
+   * 1.020 de 3.300 unidades; antes disso, contrato 028/2025). Corrigir aqui
+   * recoloca o consumo na OS certa e libera o saldo da OS errada.
+   *
+   * Passar `requisicaoId = null` desvincula a medição de qualquer OS.
+   */
+  async trocarOrdemServico(
+    medicaoId: string,
+    requisicaoId: string | null,
+    motivo: string,
+    usuarioId: string,
+    usuarioNome: string,
+    orgaoId: string,
+  ): Promise<Medicao> {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+      relations: ['contrato'],
+    });
+    if (!medicao) throw new NotFoundException('Medição não encontrada');
+    if (!medicao.contrato || medicao.contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException(
+        'Você não tem permissão para corrigir esta medição',
+      );
+    }
+    if (!motivo || motivo.trim().length < 10) {
+      throw new BadRequestException(
+        'Informe o motivo da troca (mínimo 10 caracteres).',
+      );
+    }
+
+    const novaOsId = requisicaoId ? requisicaoId.trim() : null;
+    const antigaOsId = medicao.requisicao_id || null;
+    if (novaOsId === antigaOsId) {
+      throw new BadRequestException(
+        'A ordem de serviço informada já é a vinculada a esta medição.',
+      );
+    }
+
+    let novaOs: Requisicao | null = null;
+    if (novaOsId) {
+      novaOs = await this.requisicaoRepository.findOne({
+        where: { id: novaOsId },
+      });
+      if (!novaOs) throw new NotFoundException('Ordem de serviço não encontrada');
+      if (novaOs.contrato_id !== medicao.contrato_id) {
+        throw new BadRequestException(
+          'A ordem de serviço escolhida pertence a outro contrato.',
+        );
+      }
+      if (novaOs.tipo !== TipoRequisicao.ORDEM_SERVICO) {
+        throw new BadRequestException(
+          'A requisição escolhida não é uma ordem de serviço.',
+        );
+      }
+      // Uma OS só pode sustentar uma medição ativa: medição REJEITADA não conta.
+      const jaVinculada = await this.medicaoRepository.findOne({
+        where: {
+          requisicao_id: novaOs.id,
+          status: Not(StatusMedicao.REJEITADA),
+          id: Not(medicaoId),
+        },
+        select: ['id', 'numero_medicao'],
+      });
+      if (jaVinculada) {
+        throw new BadRequestException(
+          `A OS ${novaOs.numero} já está vinculada à ${jaVinculada.numero_medicao || '?'}ª medição. ` +
+            'Desvincule aquela medição antes de reaproveitar esta OS.',
+        );
+      }
+    }
+
+    let antigaOs: Requisicao | null = null;
+    if (antigaOsId) {
+      antigaOs = await this.requisicaoRepository.findOne({
+        where: { id: antigaOsId },
+      });
+    }
+
+    await this.medicaoRepository.update(medicaoId, {
+      requisicao_id: novaOsId as any,
+      // O boletim imprime a OS: força regeneração do PDF.
+      boletim_pdf_url: null,
+    } as any);
+
+    const de = antigaOs?.numero || (antigaOsId ? antigaOsId : 'nenhuma');
+    const para = novaOs?.numero || 'nenhuma (desvinculada)';
+    const rotuloMedicao = medicao.numero_medicao
+      ? `Medição ${medicao.numero_medicao}`
+      : `Medição ${medicaoId}`;
+
+    await this.historicoContratoRepository.save(
+      this.historicoContratoRepository.create({
+        contrato_id: medicao.contrato_id,
+        tipo_acao: TipoAcaoContrato.EDITADO,
+        descricao: `${rotuloMedicao}: OS trocada de ${de} para ${para} — motivo: ${motivo.trim()}`,
+        detalhes: JSON.stringify({
+          medicao_id: medicaoId,
+          requisicao_anterior_id: antigaOsId,
+          requisicao_nova_id: novaOsId,
+          motivo: motivo.trim(),
+        }),
+        usuario_id: usuarioId,
+        usuario_nome: usuarioNome,
+      }),
+    );
+
+    this.logger.log(
+      `[troca-os] ${rotuloMedicao} (${medicaoId}): OS ${de} -> ${para} por ${usuarioNome}. Motivo: ${motivo.trim()}`,
+    );
+
+    return (await this.medicaoRepository.findOne({ where: { id: medicaoId } }))!;
   }
 
   /**

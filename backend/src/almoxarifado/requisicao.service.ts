@@ -1783,9 +1783,14 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       const carimbo =
         `OS atendida fora do sistema em ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} ` +
         `por ${usuarioNome}. Motivo: ${motivo.trim()}`;
+      // consumo_fora_sistema_em marca a OS para o cálculo de saldo por CICLO.
+      // Sem ela, em contrato com renovação de ciclo o consumo desta OS ficaria
+      // invisível (o ciclo só soma itens_medicao_item de medições APROVADAS) e o
+      // saldo seria LIBERADO em vez de consumido ao mudar o status para ATENDIDA.
       await queryRunner.query(
         `UPDATE requisicoes
             SET status = 'ATENDIDA',
+                consumo_fora_sistema_em = COALESCE(consumo_fora_sistema_em, NOW()),
                 observacoes = CASE WHEN COALESCE(observacoes, '') = '' THEN $1 ELSE observacoes || E'\n' || $1 END
           WHERE id = $2`,
         [carimbo, id],

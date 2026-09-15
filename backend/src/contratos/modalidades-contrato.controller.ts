@@ -845,6 +845,43 @@ export class ModalidadesContratoController {
   }
 
   /**
+   * Lista as OS do contrato para o seletor de troca de OS da medição.
+   * GET /api/contratos/:contratoId/ordens-servico-requisicao
+   */
+  @Get(':contratoId/ordens-servico-requisicao')
+  async listarOrdensServicoRequisicao(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.listarOrdensServicoDoContrato(contratoId, orgaoId);
+  }
+
+  /**
+   * Troca (ou desvincula) a ordem de serviço consumida por uma medição.
+   * PATCH /api/contratos/medicoes/:medicaoId/os
+   */
+  @Patch('medicoes/:medicaoId/os')
+  async trocarOrdemServicoMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { requisicao_id: string | null; motivo: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+    return this.medicaoService.trocarOrdemServico(
+      medicaoId,
+      body?.requisicao_id ?? null,
+      body?.motivo || '',
+      request.user.sub,
+      fiscalNome,
+      orgaoId,
+    );
+  }
+
+  /**
    * Fiscal corrige as datas das assinaturas digitais do boletim.
    * PATCH /api/contratos/medicoes/:medicaoId/assinaturas/datas
    */
@@ -1606,7 +1643,14 @@ export class ModalidadesContratoController {
   ) {
     const contrato = await this.contratoRepository.findOne({
       where: { id: contratoId },
-      select: ['id', 'numero_contrato', 'fornecedor_cnpj', 'ano', 'valor_global'],
+      select: [
+        'id',
+        'numero_contrato',
+        'fornecedor_cnpj',
+        'ano',
+        'valor_global',
+        'processo_licitatorio_portal',
+      ],
     });
     if (!contrato) {
       throw new NotFoundException('Contrato nÃ£o encontrado');
@@ -1619,6 +1663,8 @@ export class ModalidadesContratoController {
       nContrato: contrato.numero_contrato,
       cpfcnpj: contrato.fornecedor_cnpj,
       ano: anoConsulta,
+      processoLicitatorioPortal:
+        contrato.processo_licitatorio_portal ?? undefined,
     });
 
     const resumo = this.fatorTransparencia.calcularResumo(empenhos, {

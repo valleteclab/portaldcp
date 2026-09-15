@@ -275,6 +275,15 @@ export class Contrato {
   @Column({ nullable: true, length: 50 })
   modalidade_licitacao: string;
 
+  /**
+   * Nº do processo licitatório como aparece no Portal da Transparência
+   * (ex: "006-2025-PE"). Opcional: serve para confirmar empenhos quando o
+   * portal não preenche o "Nº Contrato" no detalhe da despesa — caso das
+   * atas de registro de preços.
+   */
+  @Column({ type: 'varchar', length: 60, nullable: true, default: null })
+  processo_licitatorio_portal: string | null;
+
   // Documentos
   @Column({ nullable: true })
   arquivo_contrato: string; // Caminho do PDF (termo gerado; substituído pelo assinado ao concluir)

@@ -536,8 +536,31 @@ export default function TabMedicao({
   // Corrigir Boletim
   const [modalCorrigir, setModalCorrigir] = useState<Medicao | null>(null);
   const [abaCorrigir, setAbaCorrigir] = useState<
-    "cabecalho" | "itens_cronograma" | "execucao_fiscal" | "discriminacoes" | "assinaturas"
+    | "cabecalho"
+    | "ordem_servico"
+    | "itens_cronograma"
+    | "execucao_fiscal"
+    | "discriminacoes"
+    | "assinaturas"
   >("cabecalho");
+  // Aba "Ordem de Serviço": troca da OS consumida pela medição
+  type OsDoContrato = {
+    id: string;
+    numero: string;
+    data_solicitacao: string | null;
+    valor_total_estimado: number | null;
+    status: string;
+    medicao_vinculada: {
+      id: string;
+      numero_medicao: number | null;
+      status: string;
+    } | null;
+  };
+  const [osDoContrato, setOsDoContrato] = useState<OsDoContrato[]>([]);
+  const [carregandoOsContrato, setCarregandoOsContrato] = useState(false);
+  const [osSelecionadaTroca, setOsSelecionadaTroca] = useState<string>("");
+  const [motivoTrocaOs, setMotivoTrocaOs] = useState("");
+  const [salvandoTrocaOs, setSalvandoTrocaOs] = useState(false);
   const [cabecalhoForm, setCabecalhoForm] = useState({
     competencia: "",
     periodo_inicio: "",
@@ -1047,6 +1070,74 @@ export default function TabMedicao({
       m.valor_medido != null ? String(m.valor_medido) : "",
     );
     setMotivoDiscCorrigir("");
+    // Aba "Ordem de Serviço": lista as OS do contrato para permitir a troca
+    setOsSelecionadaTroca((m as any).requisicao_id ?? "");
+    setMotivoTrocaOs("");
+    setCarregandoOsContrato(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${contratoId}/ordens-servico-requisicao`,
+      );
+      setOsDoContrato(res.ok ? await res.json() : []);
+    } catch {
+      setOsDoContrato([]);
+    } finally {
+      setCarregandoOsContrato(false);
+    }
+  };
+
+  /**
+   * Troca (ou desvincula) a OS consumida pela medição. Corrige o caso em que a
+   * medição foi criada apontando para a OS errada — a OS certa ficava presa como
+   * "comprometida" e travava o saldo do item.
+   */
+  const salvarTrocaOs = async () => {
+    if (!modalCorrigir) return;
+    const atual = (modalCorrigir as any).requisicao_id ?? "";
+    const nova = osSelecionadaTroca || "";
+    if (nova === atual) {
+      alert("Selecione uma OS diferente da atual (ou 'Nenhuma' para desvincular).");
+      return;
+    }
+    if (motivoTrocaOs.trim().length < 10) {
+      alert("Informe o motivo da troca (mínimo 10 caracteres).");
+      return;
+    }
+    const escolhida = osDoContrato.find((o) => o.id === nova);
+    const rotulo = escolhida ? `OS ${escolhida.numero}` : "nenhuma OS (desvincular)";
+    if (
+      !confirm(
+        `Vincular esta medição a ${rotulo}?\n\n` +
+          "Isso recalcula o saldo dos itens: a OS anterior deixa de ser consumida por " +
+          "esta medição e a nova passa a ser.",
+      )
+    )
+      return;
+    setSalvandoTrocaOs(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/os`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            requisicao_id: nova || null,
+            motivo: motivoTrocaOs.trim(),
+          }),
+        },
+      );
+      if (res.ok) {
+        alert("OS da medição atualizada. O saldo dos itens foi recalculado.");
+        setModalCorrigir(null);
+        carregarDados();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || "Erro ao trocar a OS da medição");
+      }
+    } catch {
+      alert("Erro ao trocar a OS da medição");
+    } finally {
+      setSalvandoTrocaOs(false);
+    }
   };
 
   const salvarCabecalho = async () => {
@@ -8174,6 +8265,7 @@ export default function TabMedicao({
             {(
               [
                 { id: "cabecalho", label: "Cabeçalho" },
+                { id: "ordem_servico", label: "Ordem de Serviço" },
                 { id: "itens_cronograma", label: "Itens do Contrato" },
                 { id: "execucao_fiscal", label: "Execução Fiscal" },
                 { id: "discriminacoes", label: "Discriminações" },
@@ -8316,6 +8408,106 @@ export default function TabMedicao({
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     ) : null}
                     Salvar Cabeçalho
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Aba Ordem de Serviço — trocar a OS consumida pela medição */}
+            {abaCorrigir === "ordem_servico" && (
+              <div className="space-y-4 px-1">
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  <strong>Atenção:</strong> trocar a OS desta medição recalcula o
+                  saldo dos itens do contrato. A OS anterior deixa de ser
+                  consumida por esta medição (e volta a contar como comprometida,
+                  se ainda estiver em aberto) e a nova passa a ser consumida. Use
+                  quando a medição foi criada apontando para a OS errada.
+                </div>
+
+                <div className="space-y-1">
+                  <Label>OS vinculada hoje</Label>
+                  <div className="text-sm text-gray-700">
+                    {(() => {
+                      const atualId = (modalCorrigir as any)?.requisicao_id;
+                      if (!atualId)
+                        return (
+                          <span className="text-gray-500">
+                            Nenhuma OS vinculada
+                          </span>
+                        );
+                      const atual = osDoContrato.find((o) => o.id === atualId);
+                      return atual
+                        ? `OS ${atual.numero} — ${formatarData(atual.data_solicitacao)} — ${formatarMoeda(atual.valor_total_estimado ?? 0)}`
+                        : atualId;
+                    })()}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Nova OS</Label>
+                  {carregandoOsContrato ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Carregando OS do
+                      contrato...
+                    </div>
+                  ) : osDoContrato.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      Este contrato não tem ordens de serviço cadastradas.
+                    </p>
+                  ) : (
+                    <select
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                      value={osSelecionadaTroca}
+                      onChange={(e) => setOsSelecionadaTroca(e.target.value)}
+                    >
+                      <option value="">— Nenhuma (desvincular) —</option>
+                      {osDoContrato.map((os) => {
+                        const ocupadaPorOutra =
+                          !!os.medicao_vinculada &&
+                          os.medicao_vinculada.id !== modalCorrigir?.id;
+                        return (
+                          <option
+                            key={os.id}
+                            value={os.id}
+                            disabled={ocupadaPorOutra}
+                          >
+                            {`OS ${os.numero} — ${formatarData(os.data_solicitacao)} — ${formatarMoeda(os.valor_total_estimado ?? 0)} — ${os.status}`}
+                            {os.medicao_vinculada
+                              ? ` — já medida (${os.medicao_vinculada.numero_medicao ?? "?"}ª medição)`
+                              : " — sem medição"}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
+                  <p className="text-[11px] text-gray-500">
+                    OS que já têm medição ativa aparecem desabilitadas.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Motivo da troca (obrigatório)</Label>
+                  <Textarea
+                    rows={3}
+                    placeholder="ex: medição criada na OS 0140 por engano; o serviço medido é o da OS 0152"
+                    value={motivoTrocaOs}
+                    onChange={(e) => setMotivoTrocaOs(e.target.value)}
+                  />
+                  <p className="text-[11px] text-gray-500">
+                    Mínimo de 10 caracteres. Fica registrado no histórico do
+                    contrato.
+                  </p>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={salvarTrocaOs}
+                    disabled={salvandoTrocaOs || carregandoOsContrato}
+                  >
+                    {salvandoTrocaOs ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : null}
+                    Trocar OS desta medição
                   </Button>
                 </div>
               </div>
