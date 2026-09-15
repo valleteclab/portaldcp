@@ -1,5 +1,8 @@
 import {
+  avisoPeriodoForaDoCiclo,
   calcularItensMedicaoRetroativa,
+  normalizarDataPura,
+  sugerirPeriodoDaOrdem,
   validarMotivoRetroativo,
   validarOsMedicaoRetroativa,
   type ItemCronogramaRetroativo,
@@ -193,5 +196,97 @@ describe('lançamento retroativo de medição — validações', () => {
         ORDEM_SERVICO,
       ),
     ).not.toThrow();
+  });
+});
+
+describe('lançamento retroativo de medição — período sugerido pela data da OS', () => {
+  it('sugere do primeiro ao último dia do mês da OS', () => {
+    // Caso real: OS-0116/2026 é de 22/06/2026 — o suporte digitou 01/05 a 30/05.
+    expect(sugerirPeriodoDaOrdem('2026-06-22')).toEqual({
+      inicio: '2026-06-01',
+      fim: '2026-06-30',
+    });
+  });
+
+  it('mês de 31 dias', () => {
+    expect(sugerirPeriodoDaOrdem('2026-01-15')).toEqual({
+      inicio: '2026-01-01',
+      fim: '2026-01-31',
+    });
+  });
+
+  it('dezembro não vira janeiro do ano seguinte', () => {
+    expect(sugerirPeriodoDaOrdem('2026-12-31')).toEqual({
+      inicio: '2026-12-01',
+      fim: '2026-12-31',
+    });
+  });
+
+  it('fevereiro comum tem 28 dias e bissexto tem 29', () => {
+    expect(sugerirPeriodoDaOrdem('2026-02-10')).toEqual({
+      inicio: '2026-02-01',
+      fim: '2026-02-28',
+    });
+    expect(sugerirPeriodoDaOrdem('2024-02-29')).toEqual({
+      inicio: '2024-02-01',
+      fim: '2024-02-29',
+    });
+    // 2100 não é bissexto (regra dos séculos).
+    expect(sugerirPeriodoDaOrdem('2100-02-05')).toEqual({
+      inicio: '2100-02-01',
+      fim: '2100-02-28',
+    });
+  });
+
+  it('aceita Date e timestamp sem recuar um dia por fuso', () => {
+    expect(sugerirPeriodoDaOrdem(new Date('2026-06-22T00:00:00Z'))).toEqual({
+      inicio: '2026-06-01',
+      fim: '2026-06-30',
+    });
+    expect(sugerirPeriodoDaOrdem('2026-06-01T03:00:00.000Z')).toEqual({
+      inicio: '2026-06-01',
+      fim: '2026-06-30',
+    });
+  });
+
+  it('sugere mesmo quando a OS é anterior ao corte do ciclo (é informação, não regra)', () => {
+    expect(sugerirPeriodoDaOrdem('2026-04-03')).toEqual({
+      inicio: '2026-04-01',
+      fim: '2026-04-30',
+    });
+  });
+
+  it('devolve null sem data', () => {
+    expect(sugerirPeriodoDaOrdem(null)).toBe(null);
+    expect(sugerirPeriodoDaOrdem(undefined)).toBe(null);
+    expect(sugerirPeriodoDaOrdem('')).toBe(null);
+  });
+
+  it('normaliza data pura para YYYY-MM-DD', () => {
+    expect(normalizarDataPura('2026-05-14')).toBe('2026-05-14');
+    expect(normalizarDataPura('2026-05-14T10:20:30.000Z')).toBe('2026-05-14');
+    expect(normalizarDataPura(new Date('2026-05-14T00:00:00Z'))).toBe('2026-05-14');
+    expect(normalizarDataPura(null)).toBe(null);
+  });
+});
+
+describe('lançamento retroativo de medição — aviso de período fora do ciclo', () => {
+  const CORTE = '2026-05-14'; // renovação de ciclo da Ata 001/2025
+
+  it('avisa quando o período começa antes do corte do ciclo', () => {
+    const aviso = avisoPeriodoForaDoCiclo('2026-05-01', CORTE);
+    expect(typeof aviso === 'string').toBe(true);
+    expect(/01\/05\/2026/.test(String(aviso))).toBe(true);
+    expect(/14\/05\/2026/.test(String(aviso))).toBe(true);
+    expect(/NÃO consome/.test(String(aviso))).toBe(true);
+  });
+
+  it('não avisa quando o período começa no corte ou depois', () => {
+    expect(avisoPeriodoForaDoCiclo(CORTE, CORTE)).toBe(null);
+    expect(avisoPeriodoForaDoCiclo('2026-06-01', CORTE)).toBe(null);
+  });
+
+  it('não avisa quando o contrato não tem renovação de ciclo', () => {
+    expect(avisoPeriodoForaDoCiclo('2020-01-01', null)).toBe(null);
   });
 });
