@@ -25,6 +25,7 @@ import { CriarLocacaoDto } from './dto/criar-locacao.dto';
 import { CriarServidorBemDto } from './dto/criar-servidor-bem.dto';
 import { CriarComodatoDto } from './dto/criar-comodato.dto';
 import { CriarCategoriaDto } from './dto/criar-categoria.dto';
+import { calcularDepreciacao, parseTipoAquisicao } from './depreciacao.util';
 
 @Injectable()
 export class PatrimonioService {
@@ -92,7 +93,8 @@ export class PatrimonioService {
     return qb.getMany();
   }
 
-  async obterBem(orgaoId: string, bemId: string) {
+  /** Entidade crua (para editar/salvar). */
+  private async carregarBem(orgaoId: string, bemId: string) {
     const bem = await this.bemRepository.findOne({
       where: { id: bemId, orgao_id: orgaoId },
       relations: [
@@ -107,6 +109,36 @@ export class PatrimonioService {
     });
     if (!bem) throw new NotFoundException('Bem não encontrado');
     return bem;
+  }
+
+  /**
+   * Bem com `depreciacao` calculada na data de hoje (parâmetros do bem ou,
+   * se nulos, da categoria); null quando faltar valor, data ou vida útil.
+   */
+  async obterBem(orgaoId: string, bemId: string) {
+    const bem = await this.carregarBem(orgaoId, bemId);
+    return { ...bem, depreciacao: calcularDepreciacao(bem, bem.categoria) };
+  }
+
+  /** Licitação/contrato de origem: só a coluna uuid (sem relação), mas precisa existir e ser do órgão. */
+  private async validarOrigemAquisicao(
+    orgaoId: string,
+    dados: { licitacao_id?: string | null; contrato_id?: string | null },
+  ) {
+    if (dados.licitacao_id) {
+      const r = await this.bemRepository.query(
+        'SELECT 1 FROM "licitacoes" WHERE "id" = $1 AND "orgao_id" = $2 LIMIT 1',
+        [dados.licitacao_id, orgaoId],
+      );
+      if (!r?.length) throw new BadRequestException('Licitação não encontrada neste órgão');
+    }
+    if (dados.contrato_id) {
+      const r = await this.bemRepository.query(
+        'SELECT 1 FROM "contratos" WHERE "id" = $1 AND "orgao_id" = $2 LIMIT 1',
+        [dados.contrato_id, orgaoId],
+      );
+      if (!r?.length) throw new BadRequestException('Contrato não encontrado neste órgão');
+    }
   }
 
   /**
@@ -169,6 +201,7 @@ export class PatrimonioService {
     if (!dados.plaqueta) dados.plaqueta = await this.proximaPlaqueta(orgaoId);
     await this.garantirCodigosUnicos(orgaoId, dados.plaqueta, dados.epc);
     if (dados.setor_id) await this.validarSetor(orgaoId, dados.setor_id);
+    await this.validarOrigemAquisicao(orgaoId, dados);
 
     const bem = this.bemRepository.create({
       ...(dados as any),
@@ -199,7 +232,7 @@ export class PatrimonioService {
     dto: AtualizarBemDto,
     usuarioNome: string,
   ) {
-    const bem = await this.obterBem(orgaoId, bemId);
+    const bem = await this.carregarBem(orgaoId, bemId);
     const dados = this.normalizarCodigos(dto);
     if (dados.plaqueta === null) delete (dados as any).plaqueta; // nunca apaga a plaqueta
     await this.garantirCodigosUnicos(
@@ -209,6 +242,7 @@ export class PatrimonioService {
       bemId,
     );
     if (dados.setor_id) await this.validarSetor(orgaoId, dados.setor_id);
+    await this.validarOrigemAquisicao(orgaoId, dados);
     Object.assign(bem, dados);
     const salvo = await this.bemRepository.save(bem);
 
@@ -224,7 +258,7 @@ export class PatrimonioService {
   }
 
   async excluirBem(orgaoId: string, bemId: string, usuarioNome: string) {
-    const bem = await this.obterBem(orgaoId, bemId);
+    const bem = await this.carregarBem(orgaoId, bemId);
     await this.registrarHistorico(
       bemId,
       orgaoId,
@@ -340,7 +374,12 @@ export class PatrimonioService {
    * Carga inicial por planilha (xlsx/csv). Colunas reconhecidas pelo cabeçalho
    * (sem acento, sem maiúscula): plaqueta, descricao, categoria, setor, tipo,
    * estado, responsavel, cargo, marca, modelo, serie, valor, data_aquisicao,
-   * nota_fiscal, fornecedor, epc, observacoes. Só "descricao" é obrigatória;
+   * nota_fiscal, fornecedor, epc, observacoes; e os do cadastro legado:
+   * tipo_aquisicao, contrato (nº), licitacao/processo (nº), processo_pagamento,
+   * data_pagamento, empenho → referencia_contabil, conta_contabil/plano_de_contas,
+   * vida_util, residual, corresponsavel, garantia, seguradora, apolice,
+   * seguro_inicio, seguro_fim, seguro_valor, centro_de_custo (= setor).
+   * "valor_atual", "unidade", "secretaria" e "orgao" são ignorados. Só "descricao" é obrigatória;
    * plaqueta vazia recebe o próximo número; plaqueta já existente ATUALIZA o bem.
    */
   async importarPlanilha(orgaoId: string, arquivo: Buffer, usuarioNome: string) {
@@ -368,6 +407,24 @@ export class PatrimonioService {
       data_aquisicao: 'data_aquisicao', data_de_aquisicao: 'data_aquisicao', aquisicao: 'data_aquisicao', data: 'data_aquisicao',
       nota_fiscal: 'nota_fiscal', nf: 'nota_fiscal', n_nf: 'nota_fiscal', fornecedor: 'fornecedor',
       epc: 'epc', rfid: 'epc', observacoes: 'observacoes', observacao: 'observacoes', obs: 'observacoes',
+      // ─── cadastro legado ───
+      centro_de_custo: 'setor', centro_custo: 'setor',
+      tipo_aquisicao: 'tipo_aquisicao', tipo_de_aquisicao: 'tipo_aquisicao', forma_de_aquisicao: 'tipo_aquisicao', forma_aquisicao: 'tipo_aquisicao',
+      contrato: 'contrato', n_contrato: 'contrato', numero_contrato: 'contrato', numero_do_contrato: 'contrato',
+      licitacao: 'licitacao', processo: 'licitacao', n_processo: 'licitacao', numero_processo: 'licitacao', processo_licitatorio: 'licitacao',
+      processo_pagamento: 'processo_pagamento', proc_pagamento: 'processo_pagamento', processo_de_pagamento: 'processo_pagamento',
+      data_pagamento: 'data_pagamento', data_de_pagamento: 'data_pagamento', pagamento: 'data_pagamento',
+      // o cabeçalho do legado pode dizer "empenho"; o NOSSO campo é referencia_contabil
+      empenho: 'referencia_contabil', n_empenho: 'referencia_contabil', numero_empenho: 'referencia_contabil', referencia_contabil: 'referencia_contabil',
+      plano_de_contas: 'conta_contabil', conta_contabil: 'conta_contabil', conta: 'conta_contabil',
+      vida_util: 'vida_util', vida_util_anos: 'vida_util', vida_util_em_anos: 'vida_util',
+      residual: 'residual', vl_residual: 'residual', valor_residual: 'residual', valor_residual_pct: 'residual', residual_pct: 'residual',
+      corresponsavel: 'corresponsavel', co_responsavel: 'corresponsavel',
+      garantia: 'garantia', garantia_ate: 'garantia', data_garantia: 'garantia', fim_garantia: 'garantia',
+      seguradora: 'seguradora', apolice: 'apolice', n_apolice: 'apolice',
+      seguro_inicio: 'seguro_inicio', inicio_seguro: 'seguro_inicio', seguro_vigencia_inicio: 'seguro_inicio',
+      seguro_fim: 'seguro_fim', vigencia_seguro: 'seguro_fim', fim_seguro: 'seguro_fim', seguro_vigencia_fim: 'seguro_fim',
+      valor_segurado: 'seguro_valor', seguro_valor: 'seguro_valor', valor_seguro: 'seguro_valor',
     };
     const mapear = (linha: Record<string, any>) => {
       const out: Record<string, any> = {};
@@ -383,6 +440,33 @@ export class PatrimonioService {
       this.setorRepository.find({ where: { orgao_id: orgaoId } }),
     ]);
     const catPorNome = new Map(categorias.map((c) => [norm(c.nome), c]));
+    // Contrato/licitação de origem por número (cache por planilha; '' = não achou)
+    const contratoIdPorNumero = new Map<string, string>();
+    const licitacaoIdPorNumero = new Map<string, string>();
+    const buscarContratoId = async (numero: string): Promise<string | undefined> => {
+      const k = norm(numero);
+      if (!k) return undefined;
+      if (!contratoIdPorNumero.has(k)) {
+        const r = await this.bemRepository.query(
+          'SELECT "id" FROM "contratos" WHERE "orgao_id" = $1 AND "numero_contrato" = $2 ORDER BY "created_at" DESC LIMIT 1',
+          [orgaoId, numero.trim()],
+        );
+        contratoIdPorNumero.set(k, r?.[0]?.id || '');
+      }
+      return contratoIdPorNumero.get(k) || undefined;
+    };
+    const buscarLicitacaoId = async (numero: string): Promise<string | undefined> => {
+      const k = norm(numero);
+      if (!k) return undefined;
+      if (!licitacaoIdPorNumero.has(k)) {
+        const r = await this.bemRepository.query(
+          'SELECT "id" FROM "licitacoes" WHERE "orgao_id" = $1 AND "numero_processo" = $2 LIMIT 1',
+          [orgaoId, numero.trim()],
+        );
+        licitacaoIdPorNumero.set(k, r?.[0]?.id || '');
+      }
+      return licitacaoIdPorNumero.get(k) || undefined;
+    };
     const setorPorChave = new Map<string, Setor>();
     for (const s of setores) {
       setorPorChave.set(norm(s.nome), s);
@@ -444,6 +528,11 @@ export class PatrimonioService {
         const nomeSetor = String(l.setor || '').trim();
         const setor = nomeSetor ? setorPorChave.get(norm(nomeSetor)) : undefined;
 
+        const numContrato = String(l.contrato || '').trim();
+        const numLicitacao = String(l.licitacao || '').trim();
+        const vidaUtil = parseValor(l.vida_util);
+        const residual = parseValor(l.residual);
+
         const dados: any = {
           descricao,
           categoria_id: categoriaId,
@@ -462,6 +551,23 @@ export class PatrimonioService {
           fornecedor_nome: String(l.fornecedor || '').trim() || undefined,
           epc: String(l.epc || '').trim() || undefined,
           observacoes: String(l.observacoes || '').trim() || undefined,
+          // cadastro legado
+          tipo_aquisicao: parseTipoAquisicao(l.tipo_aquisicao),
+          contrato_id: numContrato ? await buscarContratoId(numContrato) : undefined,
+          licitacao_id: numLicitacao ? await buscarLicitacaoId(numLicitacao) : undefined,
+          processo_pagamento: String(l.processo_pagamento || '').trim() || undefined,
+          data_pagamento: parseData(l.data_pagamento) ?? undefined,
+          referencia_contabil: String(l.referencia_contabil || '').trim() || undefined,
+          conta_contabil: String(l.conta_contabil || '').trim() || undefined,
+          vida_util_anos: vidaUtil != null && vidaUtil >= 1 ? Math.round(vidaUtil) : undefined,
+          valor_residual_pct: residual != null && residual >= 0 && residual <= 100 ? residual : undefined,
+          corresponsavel_nome: String(l.corresponsavel || '').trim() || undefined,
+          garantia_ate: parseData(l.garantia) ?? undefined,
+          seguro_seguradora: String(l.seguradora || '').trim() || undefined,
+          seguro_apolice: String(l.apolice || '').trim() || undefined,
+          seguro_vigencia_inicio: parseData(l.seguro_inicio) ?? undefined,
+          seguro_vigencia_fim: parseData(l.seguro_fim) ?? undefined,
+          seguro_valor: parseValor(l.seguro_valor) ?? undefined,
         };
         for (const k of Object.keys(dados)) if (dados[k] === undefined) delete dados[k];
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { BarChart3, AlertTriangle, Wrench, Clock } from "lucide-react"
+import { BarChart3, AlertTriangle, Wrench, Clock, ShieldCheck, ShieldAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -89,7 +89,7 @@ export default function RelatoriosPatrimonioPage() {
       {/* Cards de resumo */}
       {resumo && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -128,6 +128,26 @@ export default function RelatoriosPatrimonioPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold">{Object.keys(resumo.por_categoria || {}).length}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4" />Garantias vencendo (30d)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-3xl font-bold ${(resumo.garantias_vencendo_30dias || 0) > 0 ? "text-amber-600" : ""}`}>{resumo.garantias_vencendo_30dias || 0}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <ShieldAlert className="h-4 w-4" />Seguros vencendo (30d)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-3xl font-bold ${(resumo.seguros_vencendo_30dias || 0) > 0 ? "text-amber-600" : ""}`}>{resumo.seguros_vencendo_30dias || 0}</div>
               </CardContent>
             </Card>
           </div>

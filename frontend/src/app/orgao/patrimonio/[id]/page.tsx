@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
-import { ArrowLeft, Wrench, Edit } from "lucide-react"
+import { ArrowLeft, Wrench, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,10 +32,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
-  obterBem, criarManutencao, atualizarBem, listarSetores,
+  obterBem, criarManutencao, atualizarBem, listarSetores, listarCategorias,
   listarFotosBem, adicionarFotoBem, definirCapaFotoBem, excluirFotoBem,
   ORIGEM_FOTO_LABELS, type FotoBem, type OrigemFotoBem,
 } from "@/services/patrimonio.service"
+import BemForm, { TIPO_AQUISICAO_LABELS } from "../BemForm"
 import { useRef } from "react"
 import { Camera, QrCode, Star, Trash2, ImageIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -49,6 +50,14 @@ const STATUS_MOV: Record<string, string> = { PENDENTE: "aguardando aceite", ACEI
 const ESTADO_LABELS: Record<string, string> = { BOM: "Bom", REGULAR: "Regular", RUIM: "Ruim", INSERVIVEL: "Inservível" }
 const fmtMoeda = (v: any) => (v == null || v === "" ? "-" : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }))
 const fmtData = (v: any) => (v ? new Date(String(v).slice(0, 10) + "T12:00:00").toLocaleDateString("pt-BR") : "-")
+const fmtPct = (v: any) => (v == null || v === "" ? "-" : `${Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`)
+/** Dias entre hoje e a data (negativo = já passou). */
+const diasAte = (v: any) => {
+  if (!v) return null
+  const alvo = new Date(String(v).slice(0, 10) + "T12:00:00")
+  const hoje = new Date(); hoje.setHours(12, 0, 0, 0)
+  return Math.round((alvo.getTime() - hoje.getTime()) / 86400000)
+}
 
 const STATUS_COLORS: Record<string, string> = {
   ATIVO: "bg-green-100 text-green-800",
@@ -83,7 +92,9 @@ export default function DetalheBemPage() {
     data_entrada: new Date().toISOString().split("T")[0],
   })
   const [setores, setSetores] = useState<{ id: string; nome: string }[]>([])
+  const [categorias, setCategorias] = useState<any[]>([])
   const [movs, setMovs] = useState<any[]>([])
+  const [editDialog, setEditDialog] = useState(false)
 
   // Galeria de fotos
   const [fotos, setFotos] = useState<FotoBem[]>([])
@@ -117,7 +128,19 @@ export default function DetalheBemPage() {
   useEffect(() => {
     carregarBem()
     listarSetores().then(setSetores).catch(() => setSetores([]))
+    listarCategorias().then(setCategorias).catch(() => setCategorias([]))
   }, [params.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSalvarEdicao = async (payload: Record<string, any>) => {
+    try {
+      await atualizarBem(params.id as string, payload)
+      toast.success("Dados do bem atualizados")
+      setEditDialog(false)
+      carregarBem()
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao salvar alterações")
+    }
+  }
 
   const trocarSetor = async (setorId: string) => {
     try {
@@ -204,6 +227,9 @@ export default function DetalheBemPage() {
             {bem.plaqueta ? `Plaqueta: ${bem.plaqueta}` : "Sem plaqueta"} | {bem.tipo?.replace(/_/g, " ")}
           </p>
         </div>
+        <Button variant="outline" size="sm" onClick={() => setEditDialog(true)} title="Editar os dados cadastrais do bem">
+          <Pencil className="h-4 w-4 mr-2" />Editar dados
+        </Button>
         <Badge className={STATUS_COLORS[bem.status] || ""}>
           {bem.status?.replace(/_/g, " ")}
         </Badge>
@@ -249,10 +275,24 @@ export default function DetalheBemPage() {
         <Card>
           <CardHeader><CardTitle>Aquisição</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            <div className="flex justify-between"><span className="text-muted-foreground">Tipo de aquisição:</span><span>{TIPO_AQUISICAO_LABELS[bem.tipo_aquisicao] || bem.tipo_aquisicao || "-"}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Licitação / processo:</span>
+              {bem.licitacao_id ? (
+                <Link href={`/orgao/processos/${bem.licitacao_id}`} className="text-blue-600 hover:underline text-right">{bem.licitacao?.numero_processo || "abrir processo"}</Link>
+              ) : <span>-</span>}
+            </div>
+            <div className="flex justify-between gap-3"><span className="text-muted-foreground">Contrato:</span>
+              {bem.contrato_id ? (
+                <Link href={`/orgao/contratos/${bem.contrato_id}`} className="text-blue-600 hover:underline text-right">{bem.contrato?.numero_contrato || "abrir contrato"}</Link>
+              ) : <span>-</span>}
+            </div>
             <div className="flex justify-between"><span className="text-muted-foreground">Valor:</span><span>{fmtMoeda(bem.valor_aquisicao)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Data:</span><span>{fmtData(bem.data_aquisicao)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Nota fiscal:</span><span>{bem.nota_fiscal_numero || "-"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Fornecedor:</span><span className="text-right">{bem.fornecedor_nome || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Processo de pagamento:</span><span className="text-right">{bem.processo_pagamento || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Data de pagamento:</span><span>{fmtData(bem.data_pagamento)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Nº da despesa (contabilidade):</span><span className="font-mono text-xs text-right">{bem.referencia_contabil || "-"}</span></div>
             {bem.foto_url && (
               <div className="pt-2 border-t flex items-center gap-3">
                 <a href={`${API_URL}${bem.foto_url}`} target="_blank" rel="noreferrer">
@@ -278,9 +318,93 @@ export default function DetalheBemPage() {
             <div className="flex justify-between"><span className="text-muted-foreground">Sala / local:</span><span>{bem.localizacao_nome || "-"} {bem.localizacao_codigo ? `(${bem.localizacao_codigo})` : ""}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Responsável:</span><span>{bem.responsavel_nome || "-"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Cargo:</span><span>{bem.responsavel_cargo || "-"}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Corresponsável:</span><span>{bem.corresponsavel_nome || "-"}</span></div>
             {bem.observacoes && <div className="pt-2 border-t"><span className="text-muted-foreground text-sm">Obs: </span><span className="text-sm">{bem.observacoes}</span></div>}
           </CardContent>
         </Card>
+
+        {/* Contábil e depreciação */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <CardTitle>Contábil e depreciação</CardTitle>
+            {bem.depreciacao && (
+              <Badge variant="outline" className="font-normal">
+                {bem.depreciacao.origem_parametros === "BEM" ? "parâmetros do bem" : "parâmetros da categoria"}
+              </Badge>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {bem.depreciacao ? (
+              <>
+                <div className="flex justify-between"><span className="text-muted-foreground">Conta contábil:</span><span className="font-mono text-xs">{bem.depreciacao.conta_contabil || "-"}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Vida útil:</span><span>{bem.depreciacao.vida_util_anos ? `${bem.depreciacao.vida_util_anos} anos` : "-"}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Valor residual:</span><span>{fmtPct(bem.depreciacao.valor_residual_pct)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Taxa anual:</span><span>{fmtPct(bem.depreciacao.taxa_anual_pct)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Meses depreciados:</span><span>{bem.depreciacao.meses_depreciados ?? "-"}{bem.depreciacao.vida_util_anos ? ` / ${bem.depreciacao.vida_util_anos * 12}` : ""}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Depreciação mensal:</span><span>{fmtMoeda(bem.depreciacao.depreciacao_mensal)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Depreciação acumulada:</span><span className="text-orange-700">{fmtMoeda(bem.depreciacao.depreciacao_acumulada)}</span></div>
+                <div className="flex justify-between items-baseline pt-2 border-t">
+                  <span className="text-muted-foreground">Valor atual:</span>
+                  <span className="text-lg font-bold text-green-700">{fmtMoeda(bem.depreciacao.valor_atual)}</span>
+                </div>
+                {bem.depreciacao.totalmente_depreciado && (
+                  <p className="text-xs text-muted-foreground">Bem totalmente depreciado: já atingiu o valor residual.</p>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground space-y-2">
+                <p>Sem cálculo de depreciação. Para calcular, o bem precisa de:</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li className={bem.valor_aquisicao ? "line-through opacity-60" : ""}>valor de aquisição</li>
+                  <li className={bem.data_aquisicao ? "line-through opacity-60" : ""}>data de aquisição</li>
+                  <li className={bem.vida_util_anos || bem.categoria?.vida_util_anos ? "line-through opacity-60" : ""}>vida útil (no bem ou na categoria)</li>
+                </ul>
+                <p>Complete em <button type="button" className="text-blue-600 hover:underline" onClick={() => setEditDialog(true)}>Editar dados</button>{!bem.categoria?.vida_util_anos && !bem.vida_util_anos ? " ou defina a vida útil da categoria em Configurações" : ""}.</p>
+                {bem.conta_contabil && <div className="flex justify-between text-foreground"><span className="text-muted-foreground">Conta contábil:</span><span className="font-mono text-xs">{bem.conta_contabil}</span></div>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Garantia e seguro */}
+        {(bem.garantia_ate || bem.seguro_seguradora || bem.seguro_apolice || bem.seguro_vigencia_inicio || bem.seguro_vigencia_fim || bem.seguro_valor != null) && (() => {
+          const dGar = diasAte(bem.garantia_ate)
+          const dSeg = diasAte(bem.seguro_vigencia_fim)
+          const garantiaVencida = dGar != null && dGar < 0
+          const garantiaVencendo = dGar != null && dGar >= 0 && dGar <= 30
+          const seguroVencido = dSeg != null && dSeg < 0
+          const seguroVencendo = dSeg != null && dSeg >= 0 && dSeg <= 30
+          return (
+            <Card>
+              <CardHeader><CardTitle>Garantia e seguro</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Garantia até:</span>
+                  <span className={garantiaVencida ? "text-red-700 font-semibold" : garantiaVencendo ? "text-amber-700 font-semibold" : ""}>
+                    {fmtData(bem.garantia_ate)}
+                    {garantiaVencida && " (vencida)"}
+                    {garantiaVencendo && ` (vence em ${dGar} dia${dGar === 1 ? "" : "s"})`}
+                  </span>
+                </div>
+                {(bem.seguro_seguradora || bem.seguro_apolice || bem.seguro_vigencia_inicio || bem.seguro_vigencia_fim || bem.seguro_valor != null) && (
+                  <>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Seguradora:</span><span className="text-right">{bem.seguro_seguradora || "-"}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Apólice:</span><span className="font-mono text-xs">{bem.seguro_apolice || "-"}</span></div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Vigência:</span>
+                      <span className={seguroVencido ? "text-red-700 font-semibold" : seguroVencendo ? "text-amber-700 font-semibold" : ""}>
+                        {fmtData(bem.seguro_vigencia_inicio)} a {fmtData(bem.seguro_vigencia_fim)}
+                        {seguroVencido && " (vencido)"}
+                        {seguroVencendo && ` (vence em ${dSeg} dia${dSeg === 1 ? "" : "s"})`}
+                      </span>
+                    </div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Valor segurado:</span><span>{fmtMoeda(bem.seguro_valor)}</span></div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })()}
       </div>
 
       {/* Fotos */}
@@ -467,6 +591,27 @@ export default function DetalheBemPage() {
               {enviandoFoto ? "Enviando..." : "Enviar foto"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: editar dados do bem */}
+      <Dialog open={editDialog} onOpenChange={setEditDialog}>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar dados do bem</DialogTitle>
+          </DialogHeader>
+          {editDialog && (
+            <BemForm
+              key={bem.id}
+              modo="editar"
+              compacto
+              initial={bem}
+              categorias={categorias}
+              setores={setores}
+              onSubmit={handleSalvarEdicao}
+              onCancel={() => setEditDialog(false)}
+            />
+          )}
         </DialogContent>
       </Dialog>
 
