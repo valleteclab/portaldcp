@@ -281,6 +281,16 @@ export class Requisicao {
   @Column({ type: 'timestamp', nullable: true })
   data_envio_fornecedor: Date | null;
 
+  /**
+   * Quando a OS foi marcada como "atendida fora do sistema" (paga sem medição).
+   * Serve de marcador para o cálculo de saldo por CICLO: em contrato com renovação
+   * de ciclo o consumo é somado das medições APROVADAS do ciclo, então a OS paga por
+   * fora precisa ser somada explicitamente — senão ela apenas deixa de ser
+   * "comprometida" (status vira ATENDIDA) e o saldo é liberado em vez de consumido.
+   */
+  @Column({ type: 'timestamp', nullable: true })
+  consumo_fora_sistema_em: Date | null;
+
   // ============================================================================
   // AUDITORIA
   // ============================================================================

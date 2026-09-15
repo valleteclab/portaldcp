@@ -293,9 +293,16 @@ export class ConciliacaoFatorService {
         nContrato: contrato.numero_contrato,
         cpfcnpj: contrato.fornecedor_cnpj,
         ano: contrato.ano ?? ano,
+        processoLicitatorioPortal:
+          contrato.processo_licitatorio_portal ?? undefined,
       });
-      if (empenhos.length > 0) {
-        const resumo = this.fator.calcularResumo(empenhos, {
+      // O portal agora devolve também despesas que não foi possível vincular ao
+      // contrato; a conciliação considera apenas as confirmadas.
+      const empenhosConfirmados = empenhos.filter(
+        (e) => e.confirmacao !== 'NAO_CONFIRMADO',
+      );
+      if (empenhosConfirmados.length > 0) {
+        const resumo = this.fator.calcularResumo(empenhosConfirmados, {
           valor_global: valorGlobal,
           ano_contrato: contrato.ano ?? ano,
         });
