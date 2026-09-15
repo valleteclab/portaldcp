@@ -399,6 +399,54 @@ export class PatrimonioInventarioService {
   async registrarLeitura(token: string, input: LeituraInput) {
     const s = await this.setorPorToken(token);
     this.exigirAberto(s);
+    const r = await this.processarLeitura(s, input);
+    await this.marcarEmAndamento(s);
+    return r;
+  }
+
+  /**
+   * Varredura de sala: várias tags de uma vez (leitor RFID). Cada código passa
+   * pela mesma classificação da leitura unitária; a resposta traz o resultado
+   * de cada um, para o app montar a lista ao vivo sem uma chamada por tag.
+   */
+  async registrarLeiturasLote(token: string, input: { codigos: string[]; origem?: OrigemLeitura; lido_por?: string }) {
+    const s = await this.setorPorToken(token);
+    this.exigirAberto(s);
+    const codigos = Array.from(new Set((input.codigos || []).map((c) => String(c || '').trim()).filter(Boolean))).slice(0, 500);
+    if (!codigos.length) throw new BadRequestException('Nenhum código informado');
+    const resultados: any[] = [];
+    for (const codigo of codigos) {
+      try {
+        const r = await this.processarLeitura(s, { codigo, origem: input.origem || OrigemLeitura.RFID, lido_por: input.lido_por });
+        resultados.push({ codigo, ...r });
+      } catch (err: any) {
+        resultados.push({ codigo, erro: err?.message || 'Falha ao registrar' });
+      }
+    }
+    await this.marcarEmAndamento(s);
+    const cont = (sit: SituacaoLeitura) => resultados.filter((r) => r.situacao === sit).length;
+    return {
+      total: resultados.length,
+      novas: resultados.filter((r) => r.situacao && !r.repetida).length,
+      repetidas: resultados.filter((r) => r.repetida).length,
+      encontrados: cont(SituacaoLeitura.ENCONTRADO),
+      outro_setor: cont(SituacaoLeitura.OUTRO_SETOR),
+      desconhecidos: cont(SituacaoLeitura.DESCONHECIDO),
+      baixados_presentes: cont(SituacaoLeitura.BAIXADO_PRESENTE),
+      resultados,
+    };
+  }
+
+  private async marcarEmAndamento(s: InventarioSetor) {
+    if (s.status === StatusInventarioSetor.PENDENTE) {
+      s.status = StatusInventarioSetor.EM_ANDAMENTO;
+      s.iniciado_em = new Date();
+      await this.invSetorRepo.save(s);
+    }
+  }
+
+  /** Classifica e grava uma leitura no setor já carregado (sem tocar no status do setor). */
+  private async processarLeitura(s: InventarioSetor, input: LeituraInput) {
     const { bem, codigo } = await this.resolverCodigo(s.orgao_id, input.codigo);
     const origem = input.origem && Object.values(OrigemLeitura).includes(input.origem) ? input.origem : OrigemLeitura.QR;
     const estado = input.estado_conservacao && Object.values(EstadoConservacao).includes(input.estado_conservacao) ? input.estado_conservacao : null;
@@ -437,11 +485,6 @@ export class PatrimonioInventarioService {
       bem.ultima_conferencia_em = new Date();
       if (estado) bem.estado_conservacao = estado;
       await this.bemRepo.save(bem);
-    }
-    if (s.status === StatusInventarioSetor.PENDENTE) {
-      s.status = StatusInventarioSetor.EM_ANDAMENTO;
-      s.iniciado_em = new Date();
-      await this.invSetorRepo.save(s);
     }
     return {
       repetida,

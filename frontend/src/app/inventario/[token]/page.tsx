@@ -160,7 +160,104 @@ export default function ConferenciaSetorPage() {
   const onScan = (codes: { rawValue: string }[]) => {
     const raw = codes?.[0]?.rawValue
     if (!raw || enviando) return
-    registrar(raw, 'QR')
+    capturar(raw, 'QR')
+  }
+
+  /**
+   * Modo varredura: as leituras (RFID, barras ou câmera) entram numa fila local
+   * e sobem em lotes a cada 1,5 s para a rota de lote; nada de cartão por tag.
+   * Ao encerrar, a sala é fechada com o resumo de irregularidades.
+   */
+  type ResultadoVarredura = { codigo: string; situacao?: Situacao; repetida?: boolean; erro?: string; bem?: { plaqueta: string | null; descricao: string; setor_nome: string | null } | null }
+  const [varrendo, setVarrendo] = useState(false)
+  const [varreduraLog, setVarreduraLog] = useState<ResultadoVarredura[]>([])
+  const [varreduraCont, setVarreduraCont] = useState({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0 })
+  const [enviandoLote, setEnviandoLote] = useState(false)
+  const [resumoVarredura, setResumoVarredura] = useState<null | { ausentes: Bem[]; outro_setor: Leitura[]; desconhecidos: Leitura[]; baixados: Leitura[] }>(null)
+  const bufferVarredura = useRef<string[]>([])
+  const varrendoRef = useRef(false)
+
+  const enviarLote = useCallback(async () => {
+    if (!bufferVarredura.current.length || enviandoLote) return
+    const codigos = bufferVarredura.current.splice(0, 200)
+    setEnviandoLote(true)
+    try {
+      const res = await fetch(`${PUB}/inventario/${token}/leituras-lote`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigos, origem: 'RFID', lido_por: nome || undefined }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw Object.assign(new Error(json?.message || 'Erro no lote'), { status: res.status })
+      const rs: ResultadoVarredura[] = json.resultados || []
+      setVarreduraLog((l) => [...rs.slice().reverse(), ...l].slice(0, 200))
+      setVarreduraCont((c) => ({
+        lidas: c.lidas + (json.novas || 0),
+        encontrados: c.encontrados + rs.filter((r) => r.situacao === 'ENCONTRADO' && !r.repetida).length,
+        outro_setor: c.outro_setor + rs.filter((r) => r.situacao === 'OUTRO_SETOR' && !r.repetida).length,
+        desconhecidos: c.desconhecidos + rs.filter((r) => r.situacao === 'DESCONHECIDO' && !r.repetida).length,
+        baixados: c.baixados + rs.filter((r) => r.situacao === 'BAIXADO_PRESENTE' && !r.repetida).length,
+        repetidas: c.repetidas + (json.repetidas || 0),
+      }))
+    } catch (e: any) {
+      if (e?.status) {
+        setErroAcao(e.message)
+      } else {
+        // sem internet: cada código vai para a fila normal e sobe depois
+        const agora = Date.now()
+        salvarFila([...fila, ...codigos.map((codigo) => ({ codigo, origem: 'RFID' as const, lido_por: nome || undefined, t: agora }))])
+        setVarreduraLog((l) => [...codigos.map((codigo) => ({ codigo, erro: 'guardado sem internet' })).reverse(), ...l].slice(0, 200))
+      }
+    } finally {
+      setEnviandoLote(false)
+    }
+  }, [token, nome, enviandoLote, fila]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!varrendo) return
+    const t = setInterval(enviarLote, 1500)
+    return () => clearInterval(t)
+  }, [varrendo, enviarLote])
+
+  const capturar = (codigo: string, origem: 'QR' | 'RFID' | 'MANUAL') => {
+    const limpo = String(codigo || '').trim()
+    if (!limpo) return
+    if (!varrendoRef.current) { registrar(limpo, origem); return }
+    const chave = limpo.toUpperCase()
+    if (lidosSessao.current.has(chave)) { setVarreduraCont((c) => ({ ...c, repetidas: c.repetidas + 1 })); return }
+    lidosSessao.current.add(chave)
+    bufferVarredura.current.push(limpo)
+  }
+
+  const iniciarVarredura = () => {
+    setResumoVarredura(null)
+    setVarreduraLog([])
+    setVarreduraCont({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0 })
+    bufferVarredura.current = []
+    varrendoRef.current = true
+    setVarrendo(true)
+    setModoTeclado(true)
+    setAba('pendentes')
+  }
+
+  const encerrarVarredura = async () => {
+    varrendoRef.current = false
+    await enviarLote()
+    // espera o lote em andamento terminar antes de fechar a sala
+    for (let i = 0; i < 20 && (bufferVarredura.current.length || enviandoLote); i++) await new Promise((r) => setTimeout(r, 250))
+    setVarrendo(false)
+    try {
+      const res = await fetch(`${PUB}/inventario/${token}`)
+      if (res.ok) {
+        const d: Dados = await res.json()
+        setDados(d)
+        setResumoVarredura({
+          ausentes: d.bens.filter((b) => !b.situacao),
+          outro_setor: d.leituras.filter((l) => l.situacao === 'OUTRO_SETOR'),
+          desconhecidos: d.leituras.filter((l) => l.situacao === 'DESCONHECIDO'),
+          baixados: d.leituras.filter((l) => l.situacao === 'BAIXADO_PRESENTE'),
+        })
+      }
+    } catch { /* mantém a tela; o usuário pode recarregar */ }
   }
 
   /**
@@ -177,6 +274,7 @@ export default function ConferenciaSetorPage() {
     const v = (e.currentTarget.value || '').trim()
     e.currentTarget.value = ''
     if (!v) return
+    if (varrendoRef.current) { capturar(v, 'RFID'); return }
     const chave = v.toUpperCase()
     if (lidosSessao.current.has(chave)) {
       setContadorLeitor((c) => ({ ...c, repetidas: c.repetidas + 1 }))
@@ -330,7 +428,111 @@ export default function ConferenciaSetorPage() {
         </div>
       )}
 
+      {/* Varredura de sala ao vivo */}
+      {varrendo && (
+        <section className="px-4 mt-4 space-y-3">
+          <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="rounded-xl bg-emerald-500/20 border border-emerald-500/40 py-2"><div className="text-2xl font-bold text-emerald-300">{varreduraCont.encontrados}</div><div className="text-[11px] text-emerald-200">do setor</div></div>
+            <div className="rounded-xl bg-amber-500/20 border border-amber-500/40 py-2"><div className="text-2xl font-bold text-amber-300">{varreduraCont.outro_setor}</div><div className="text-[11px] text-amber-200">outro setor</div></div>
+            <div className="rounded-xl bg-rose-500/20 border border-rose-500/40 py-2"><div className="text-2xl font-bold text-rose-300">{varreduraCont.desconhecidos}</div><div className="text-[11px] text-rose-200">desconhecidas</div></div>
+            <div className="rounded-xl bg-slate-700 py-2"><div className="text-2xl font-bold">{pendentes.length - varreduraCont.encontrados < 0 ? 0 : pendentes.length - varreduraCont.encontrados}</div><div className="text-[11px] text-slate-300">faltam</div></div>
+          </div>
+          <p className="text-xs text-slate-400 flex items-center gap-2">
+            {enviandoLote || bufferVarredura.current.length ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+            Varrendo a sala: aperte o gatilho e passe o leitor pelos bens. {varreduraCont.repetidas > 0 ? `${varreduraCont.repetidas} leitura(s) repetida(s) ignorada(s).` : ''}
+          </p>
+          <div className="rounded-xl bg-slate-800 border border-slate-700 divide-y divide-slate-700 max-h-[45vh] overflow-y-auto">
+            {varreduraLog.length === 0 && <p className="text-sm text-slate-400 p-4 text-center">Nenhuma tag lida ainda.</p>}
+            {varreduraLog.map((r, i) => (
+              <div key={`${r.codigo}-${i}`} className="px-3 py-2 flex items-center gap-2 text-sm">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${r.erro ? 'bg-slate-500' : r.situacao === 'ENCONTRADO' ? 'bg-emerald-400' : r.situacao === 'OUTRO_SETOR' ? 'bg-amber-400' : r.situacao === 'BAIXADO_PRESENTE' ? 'bg-purple-400' : 'bg-rose-400'}`} />
+                <span className="flex-1 min-w-0 truncate">
+                  {r.bem ? <><span className="font-mono text-amber-300">{r.bem.plaqueta || '—'}</span> {r.bem.descricao}</> : <span className="font-mono text-slate-300">{r.codigo}</span>}
+                  {r.situacao === 'OUTRO_SETOR' && r.bem?.setor_nome && <span className="text-xs text-amber-300"> · de {r.bem.setor_nome}</span>}
+                  {r.erro && <span className="text-xs text-slate-400"> · {r.erro}</span>}
+                </span>
+                {r.repetida && <span className="text-[10px] text-slate-500">já lido</span>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Resultado da sala após a varredura */}
+      {!varrendo && resumoVarredura && (
+        <section className="px-4 mt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-bold text-lg">Resultado da sala</h2>
+            <button onClick={() => setResumoVarredura(null)} className="text-xs text-slate-400 underline underline-offset-2">ver listas</button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-center">
+            <div className="rounded-xl bg-emerald-500/20 border border-emerald-500/40 py-2"><div className="text-2xl font-bold text-emerald-300">{lidos.length}</div><div className="text-[11px] text-emerald-200">conferidos de {total}</div></div>
+            <div className={`rounded-xl py-2 border ${resumoVarredura.ausentes.length ? 'bg-rose-500/20 border-rose-500/40' : 'bg-slate-700 border-slate-600'}`}><div className={`text-2xl font-bold ${resumoVarredura.ausentes.length ? 'text-rose-300' : ''}`}>{resumoVarredura.ausentes.length}</div><div className="text-[11px] text-slate-300">não localizados</div></div>
+          </div>
+          {resumoVarredura.ausentes.length > 0 && (
+            <div className="rounded-xl bg-slate-800 border border-rose-700/50">
+              <div className="px-3 py-2 text-sm font-semibold text-rose-300">Não localizados na sala</div>
+              <div className="divide-y divide-slate-700">
+                {resumoVarredura.ausentes.map((b) => (
+                  <div key={b.id} className="px-3 py-2 flex items-center gap-2 text-sm">
+                    <span className="font-mono text-amber-300 w-16 shrink-0">{b.plaqueta || '—'}</span>
+                    <span className="flex-1 min-w-0 truncate">{b.descricao}</span>
+                    {!fechado && <button onClick={() => registrar(b.plaqueta || b.id, 'MANUAL')} className="text-xs bg-slate-700 rounded-lg px-2 py-1">achei</button>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {resumoVarredura.outro_setor.length > 0 && (
+            <div className="rounded-xl bg-slate-800 border border-amber-700/50">
+              <div className="px-3 py-2 text-sm font-semibold text-amber-300">Bens de outro setor encontrados aqui</div>
+              <div className="divide-y divide-slate-700">
+                {resumoVarredura.outro_setor.map((l) => (
+                  <div key={l.id} className="px-3 py-2 text-sm">
+                    <span className="font-mono text-amber-300">{l.bem?.plaqueta || '—'}</span> {l.bem?.descricao}
+                    <div className="text-xs text-slate-400">cadastrado em {l.setor_cadastro_nome || '?'} · a comissão decide a transferência</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {resumoVarredura.desconhecidos.length > 0 && (
+            <div className="rounded-xl bg-slate-800 border border-rose-700/50">
+              <div className="px-3 py-2 text-sm font-semibold text-rose-300">Tags que ninguém conhece</div>
+              <div className="divide-y divide-slate-700">
+                {resumoVarredura.desconhecidos.map((l) => (
+                  <div key={l.id} className="px-3 py-2 flex items-center gap-2 text-sm">
+                    <span className="font-mono text-slate-300 flex-1 min-w-0 truncate">{l.codigo_lido}</span>
+                    {!fechado && <button onClick={() => { setNovoBem((n) => ({ ...n, observacao: `Tag lida na varredura: ${l.codigo_lido}` })); setModalSemPlaqueta(true) }} className="text-xs bg-slate-700 rounded-lg px-2 py-1">cadastrar</button>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {resumoVarredura.baixados.length > 0 && (
+            <div className="rounded-xl bg-slate-800 border border-purple-700/50">
+              <div className="px-3 py-2 text-sm font-semibold text-purple-300">Baixados, mas ainda na sala</div>
+              <div className="divide-y divide-slate-700">
+                {resumoVarredura.baixados.map((l) => (
+                  <div key={l.id} className="px-3 py-2 text-sm"><span className="font-mono text-amber-300">{l.bem?.plaqueta || '—'}</span> {l.bem?.descricao}</div>
+                ))}
+              </div>
+            </div>
+          )}
+          {resumoVarredura.ausentes.length === 0 && resumoVarredura.outro_setor.length === 0 && resumoVarredura.desconhecidos.length === 0 && resumoVarredura.baixados.length === 0 && (
+            <p className="text-sm text-emerald-300 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Sala conferida sem irregularidades.</p>
+          )}
+          {!fechado && (
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={iniciarVarredura} className="rounded-xl bg-slate-700 py-3 font-semibold text-sm">Varrer de novo</button>
+              <button onClick={() => { setFecharForm({ nome: nome || dados.setor.responsavel_nome || '', observacoes: '' }); setModalFechar(true) }} className="rounded-xl bg-emerald-500 text-slate-900 py-3 font-bold text-sm">Finalizar setor</button>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Abas + busca */}
+      {!varrendo && !resumoVarredura && (<>
       <div className="px-4 mt-4">
         <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-800 p-1 text-sm">
           {([
@@ -395,15 +597,25 @@ export default function ConferenciaSetorPage() {
           ))
         )}
       </main>
+      </>)}
 
       {/* Barra de ações */}
-      {!fechado && (
+      {!fechado && varrendo && (
         <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
-          <div className="grid grid-cols-4 gap-2 mb-2">
-            <button onClick={() => setModalPlaqueta(true)} className="rounded-xl bg-slate-800 py-2 text-xs flex flex-col items-center gap-1"><Keyboard className="w-5 h-5" />Digitar</button>
-            <button onClick={() => setModoTeclado((v) => !v)} className={`rounded-xl py-2 text-xs flex flex-col items-center gap-1 ${modoTeclado ? 'bg-amber-500/30 text-amber-200' : 'bg-slate-800'}`}><ScanLine className="w-5 h-5" />Leitor</button>
-            <button onClick={() => setModalSemPlaqueta(true)} className="rounded-xl bg-slate-800 py-2 text-xs flex flex-col items-center gap-1"><PackagePlus className="w-5 h-5" />Sem plaqueta</button>
-            <button onClick={() => { setFecharForm({ nome: nome || dados.setor.responsavel_nome || '', observacoes: '' }); setModalFechar(true) }} className="rounded-xl bg-slate-800 py-2 text-xs flex flex-col items-center gap-1"><ClipboardCheck className="w-5 h-5" />Finalizar</button>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setScannerAberto(true)} className="rounded-2xl bg-slate-800 py-4 font-semibold flex items-center justify-center gap-2"><Camera className="w-5 h-5" /> Ler QR</button>
+            <button onClick={encerrarVarredura} className="rounded-2xl bg-amber-500 text-slate-900 font-bold py-4 flex items-center justify-center gap-2"><ClipboardCheck className="w-5 h-5" /> Encerrar varredura</button>
+          </div>
+        </nav>
+      )}
+      {!fechado && !varrendo && !resumoVarredura && (
+        <nav className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-800 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+          <div className="grid grid-cols-5 gap-1.5 mb-2">
+            <button onClick={() => setModalPlaqueta(true)} className="rounded-xl bg-slate-800 py-2 text-[11px] flex flex-col items-center gap-1"><Keyboard className="w-5 h-5" />Digitar</button>
+            <button onClick={() => setModoTeclado((v) => !v)} className={`rounded-xl py-2 text-[11px] flex flex-col items-center gap-1 ${modoTeclado ? 'bg-amber-500/30 text-amber-200' : 'bg-slate-800'}`}><ScanLine className="w-5 h-5" />Leitor</button>
+            <button onClick={iniciarVarredura} className="rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 py-2 text-[11px] flex flex-col items-center gap-1"><RefreshCw className="w-5 h-5" />Varrer sala</button>
+            <button onClick={() => setModalSemPlaqueta(true)} className="rounded-xl bg-slate-800 py-2 text-[11px] flex flex-col items-center gap-1"><PackagePlus className="w-5 h-5" />Sem plaq.</button>
+            <button onClick={() => { setFecharForm({ nome: nome || dados.setor.responsavel_nome || '', observacoes: '' }); setModalFechar(true) }} className="rounded-xl bg-slate-800 py-2 text-[11px] flex flex-col items-center gap-1"><ClipboardCheck className="w-5 h-5" />Finalizar</button>
           </div>
           <button onClick={() => setScannerAberto(true)} className="w-full rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-4 flex items-center justify-center gap-2 text-base">
             <Camera className="w-6 h-6" /> Ler plaqueta (QR)
@@ -422,14 +634,14 @@ export default function ConferenciaSetorPage() {
             <Scanner
               onScan={onScan}
               onError={(err: unknown) => setErroAcao((err as Error)?.message || 'Erro ao acessar a câmera')}
-              paused={enviando || !!resultado}
+              paused={enviando || (!!resultado && !varrendo)}
               constraints={{ facingMode: 'environment' }}
               components={{ torch: true }}
               styles={{ container: { width: '100%', height: '100%' }, video: { objectFit: 'cover' } }}
             />
             {enviando && <div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-amber-400" /></div>}
           </div>
-          <div className="p-3 bg-black/80 text-center text-xs text-slate-300">{lidos.length} de {total} conferidos · a câmera continua aberta para o próximo bem</div>
+          <div className="p-3 bg-black/80 text-center text-xs text-slate-300">{varrendo ? `Varredura: ${varreduraCont.lidas} lida(s) · a câmera segue aberta` : `${lidos.length} de ${total} conferidos · a câmera continua aberta para o próximo bem`}</div>
         </div>
       )}
 

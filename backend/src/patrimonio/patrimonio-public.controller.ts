@@ -52,6 +52,17 @@ export class PatrimonioPublicController {
     });
   }
 
+  /** Varredura de sala: até 500 códigos por chamada (leitor RFID). */
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @Post('inventario/:token/leituras-lote')
+  leiturasLote(@Param('token') token: string, @Body() body: any) {
+    return this.inventario.registrarLeiturasLote(token, {
+      codigos: Array.isArray(body?.codigos) ? body.codigos : [],
+      origem: body?.origem,
+      lido_por: body?.lido_por,
+    });
+  }
+
   @Throttle({ default: { limit: 60, ttl: 60000 } })
   @Post('inventario/:token/sem-plaqueta')
   semPlaqueta(@Param('token') token: string, @Body() body: any) {
