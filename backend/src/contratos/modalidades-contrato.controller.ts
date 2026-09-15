@@ -882,6 +882,70 @@ export class ModalidadesContratoController {
   }
 
   /**
+   * Contexto da tela de lançamento retroativo de medição (suporte).
+   * GET /api/contratos/:contratoId/medicoes/retroativa/contexto
+   */
+  @Get(':contratoId/medicoes/retroativa/contexto')
+  async contextoMedicaoRetroativa(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.getContextoMedicaoRetroativa(contratoId, orgaoId);
+  }
+
+  /**
+   * Registra uma medição retroativa JÁ APROVADA (execução liquidada e paga na
+   * contabilidade sem medição no sistema). Porta de suporte: exige a mesma
+   * permissão especial do cancelamento/estorno.
+   * POST /api/contratos/:contratoId/medicoes/retroativa
+   */
+  @Post(':contratoId/medicoes/retroativa')
+  async registrarMedicaoRetroativa(
+    @Param('contratoId') contratoId: string,
+    @Body()
+    body: {
+      requisicao_id?: string | null;
+      periodo_inicio: string;
+      periodo_fim: string;
+      competencia?: string;
+      nota_fiscal_numero?: string;
+      nota_fiscal_valor?: number | null;
+      nota_fiscal_data?: string | null;
+      valor_medido?: number;
+      itens?: Array<{ item_cronograma_id: string; quantidade_medida: number }>;
+      motivo: string;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: request.user.sub },
+    });
+    if (!usuario) {
+      throw new BadRequestException('Usuário não encontrado');
+    }
+    if (!usuario.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Você não tem permissão para esta ação. Apenas usuários autorizados a cancelar/estornar podem registrar medição retroativa.',
+      );
+    }
+    const orgaoId = this.getOrgaoId(request.user);
+    const medicao = await this.medicaoService.registrarMedicaoRetroativa(
+      contratoId,
+      body,
+      usuario.id,
+      usuario.nome || usuario.email,
+      orgaoId,
+    );
+    return {
+      ...medicao,
+      mensagem:
+        'Medição registrada retroativamente já aprovada. O saldo foi consumido e o motivo ficou registrado no histórico do contrato.',
+    };
+  }
+
+  /**
    * Fiscal corrige as datas das assinaturas digitais do boletim.
    * PATCH /api/contratos/medicoes/:medicaoId/assinaturas/datas
    */

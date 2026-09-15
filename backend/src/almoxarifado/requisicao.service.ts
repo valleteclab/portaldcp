@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
+import { somarQuantidadeComprometidaPorItemOS } from './comprometido-os-item.util';
 import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } from './entities/requisicao.entity';
 import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
 import { RequisicaoEtapaOS } from './entities/requisicao-etapa-os.entity';
@@ -105,52 +106,20 @@ export class RequisicaoService {
     };
   }
 
-  /** Soma quantidade_solicitada por item_cronograma de OS ativas da vigência atual. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
+  /**
+   * Soma quantidade_solicitada por item_cronograma de OS ativas da vigência atual.
+   * A regra vive em `comprometido-os-item.util` porque a medição (lançamento
+   * retroativo) precisa exatamente do mesmo cálculo para montar o saldo por item.
+   * excludeRequisicaoId: ao editar, exclui a OS atual do somatório.
+   */
   async somarQuantidadeComprometidaPorItemOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
     const contextoCiclo = await this.obterContextoCicloVigente(contratoId);
-    const statusMedicoesQueConsomemOS = [
-      'SUBMETIDA',
-      'AGUARDANDO_ATESTE',
-      'PARCIALMENTE_ATESTADA',
-      'AGUARDANDO_APROVACAO',
-      'APROVADA',
-    ];
-    const qb = this.requisicaoItemOSRepository
-      .createQueryBuilder('rio')
-      .select('rio.item_cronograma_id', 'id')
-      .addSelect('COALESCE(SUM(rio.quantidade_solicitada), 0)', 'total')
-      .innerJoin('rio.requisicao', 'r')
-      .where('r.contrato_id = :cid', { cid: contratoId })
-      .andWhere('r.tipo = :tipo', { tipo: TipoRequisicao.ORDEM_SERVICO })
-      .andWhere('r.status IN (:...status)', {
-        status: [
-          StatusRequisicao.RASCUNHO,
-          StatusRequisicao.AGUARDANDO_AUTORIZACAO,
-          StatusRequisicao.AUTORIZADA,
-        ],
-      })
-      // A OS global é somente a liberação inicial e não reserva saldo contra
-      // as OS parciais. Em MEDICAO, a reserva migra para a medição vinculada;
-      // em ORDEM_SERVICO, a própria OS continua sendo a fonte do consumo.
-      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' });
-    if (contextoCiclo.modalidade !== ModalidadeExecucao.ORDEM_SERVICO) {
-      qb.andWhere(
-        `NOT EXISTS (
-          SELECT 1 FROM medicoes m
-          WHERE m.requisicao_id = r.id
-            AND m.status IN (:...statusMedicoesQueConsomemOS)
-        )`,
-        { statusMedicoesQueConsomemOS },
-      );
-    }
-    if (contextoCiclo.inicio) {
-      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente: contextoCiclo.inicio });
-    }
-    if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
-    const rows = await qb.groupBy('rio.item_cronograma_id').getRawMany<{ id: string; total: string }>();
-    const mapa = new Map<string, number>();
-    for (const r of rows) mapa.set(r.id, Number(r.total));
-    return mapa;
+    return somarQuantidadeComprometidaPorItemOS(
+      this.requisicaoItemOSRepository,
+      contratoId,
+      contextoCiclo,
+      excludeRequisicaoId,
+    );
   }
 
   /** Lista as OS parciais da vigência atual que compõem o saldo comprometido de cada item. */

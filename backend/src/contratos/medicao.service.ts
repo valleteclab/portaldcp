@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Not } from 'typeorm';
+import { Repository, In, Not, DataSource, EntityManager } from 'typeorm';
 import {
   Contrato,
   ModalidadeExecucao,
@@ -36,6 +36,8 @@ import {
   StatusRequisicao,
   TipoRequisicao,
 } from '../almoxarifado/entities/requisicao.entity';
+import { RequisicaoItemOS } from '../almoxarifado/entities/requisicao-item-os.entity';
+import { somarQuantidadeComprometidaPorItemOS } from '../almoxarifado/comprometido-os-item.util';
 import {
   OrdemServicoContrato,
   StatusOrdemServico,
@@ -71,9 +73,15 @@ import {
 } from './cronograma-medicao-pdf.util';
 import {
   agruparConsumoForaSistema,
+  resolverConsumoItem,
   somarMapasConsumo,
   type LinhaItemOsForaSistema,
 } from './consumo-ciclo.util';
+import {
+  calcularItensMedicaoRetroativa,
+  validarMotivoRetroativo,
+  validarOsMedicaoRetroativa,
+} from './medicao-retroativa.util';
 import {
   HistoricoContrato,
   TipoAcaoContrato,
@@ -128,6 +136,9 @@ export class MedicaoService {
     private termoAditivoRepository: Repository<TermoAditivo>,
     @InjectRepository(HistoricoContrato)
     private historicoContratoRepository: Repository<HistoricoContrato>,
+    @InjectRepository(RequisicaoItemOS)
+    private requisicaoItemOSRepository: Repository<RequisicaoItemOS>,
+    private dataSource: DataSource,
     private notificacoesService: NotificacoesService,
     private assinaturasService: AssinaturasService,
     private geradorPdfService: GeradorPdfService,
@@ -3389,6 +3400,102 @@ export class MedicaoService {
   // MEDIÇÕES — Aprovação do Gestor (Central de Aprovações)
   // ============================================================================
 
+  /**
+   * Aplica no cronograma o CONSUMO DE SALDO de uma medição que passou a valer
+   * como aprovada. É a única fonte da regra: usada tanto pela aprovação normal
+   * (`aprovarMedicao`) quanto pelo lançamento retroativo do suporte
+   * (`registrarMedicaoRetroativa`). Duplicar isso já causou saldo divergente.
+   *
+   * - Contrato com itens de cronograma: soma `quantidade_medida` do item com
+   *   teto `quantidade × quantidade_meses` (itens recorrentes medem a quantidade
+   *   cheia a cada execução — caso TOYOLEM 001/2026).
+   * - Contrato com etapas: acumula percentual/valor executado e move o status.
+   * - Serviço continuado: não há cronograma a consumir.
+   *
+   * `manager` permite rodar dentro de uma transação já aberta.
+   */
+  private async aplicarConsumoSaldoMedicaoAprovada(
+    medicaoId: string,
+    contratoId: string,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const contratoRepo = manager
+      ? manager.getRepository(Contrato)
+      : this.contratoRepository;
+    const itemMedicaoItemRepo = manager
+      ? manager.getRepository(ItemMedicaoItem)
+      : this.itemMedicaoItemRepository;
+    const itemCronogramaRepo = manager
+      ? manager.getRepository(ItemCronograma)
+      : this.itemCronogramaRepository;
+    const itemMedicaoRepo = manager
+      ? manager.getRepository(ItemMedicao)
+      : this.itemMedicaoRepository;
+    const etapaRepo = manager
+      ? manager.getRepository(EtapaCronograma)
+      : this.etapaRepository;
+
+    const contrato = await contratoRepo.findOne({ where: { id: contratoId } });
+    const servicoContinuado = contrato
+      ? this.isServicoContinuado(contrato)
+      : false;
+
+    // Atualizar etapas do cronograma (apenas para obras, serviços continuados não têm etapas)
+    if (servicoContinuado) return;
+
+    const usarItens = await this.usarItensCronograma(contratoId);
+    if (usarItens) {
+      const itensItem = await itemMedicaoItemRepo.find({
+        where: { medicao_id: medicaoId },
+        relations: ['itemCronograma'],
+      });
+      for (const imi of itensItem) {
+        const ic = imi.itemCronograma;
+        if (ic) {
+          const qtdNova =
+            Number(ic.quantidade_medida) + Number(imi.quantidade_medida);
+          // Teto = quantidade × nº de execuções/meses. Usar só ic.quantidade
+          // decepava itens recorrentes para UMA execução a cada aprovação,
+          // engolindo inclusive migração registrada (caso TOYOLEM 001/2026:
+          // 5.662,8 + 2.831,4 virava 2.831,4).
+          const quantidadeTotal =
+            (Number(ic.quantidade) || 0) * (Number(ic.quantidade_meses) || 1);
+          if (qtdNova > quantidadeTotal + 0.0001) {
+            this.logger.warn(
+              `Aprovação da medição ${medicaoId}: quantidade_medida do item ${ic.numero_item} ` +
+                `(${qtdNova.toFixed(4)}) excede o total contratado (${quantidadeTotal.toFixed(4)}) — aparado no teto`,
+            );
+          }
+          ic.quantidade_medida = Math.min(qtdNova, quantidadeTotal);
+          await itemCronogramaRepo.save(ic);
+        }
+      }
+      return;
+    }
+
+    const itensMedicao = await itemMedicaoRepo.find({
+      where: { medicao_id: medicaoId },
+    });
+
+    for (const item of itensMedicao) {
+      const etapa = await etapaRepo.findOne({ where: { id: item.etapa_id } });
+      if (etapa) {
+        etapa.percentual_executado = Number(item.percentual_executado_acumulado);
+        etapa.valor_executado =
+          Number(etapa.valor_executado) + Number(item.valor_medido);
+
+        if (Number(etapa.percentual_executado) >= 100) {
+          etapa.status = StatusEtapaCronograma.CONCLUIDA;
+          etapa.data_fim_real = new Date() as any;
+        } else if (Number(etapa.percentual_executado) > 0) {
+          etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
+        }
+
+        await etapaRepo.save(etapa);
+      }
+    }
+  }
+
   async aprovarMedicao(
     medicaoId: string,
     aprovadorId: string,
@@ -3415,68 +3522,10 @@ export class MedicaoService {
     const contrato = await this.contratoRepository.findOne({
       where: { id: medicao.contrato_id },
     });
-    const servicoContinuado = contrato
-      ? this.isServicoContinuado(contrato)
-      : false;
 
-    // Atualizar etapas do cronograma (apenas para obras, serviços continuados não têm etapas)
-    if (!servicoContinuado) {
-      const usarItens = await this.usarItensCronograma(medicao.contrato_id);
-      if (usarItens) {
-        const itensItem = await this.itemMedicaoItemRepository.find({
-          where: { medicao_id: medicaoId },
-          relations: ['itemCronograma'],
-        });
-        for (const imi of itensItem) {
-          const ic = imi.itemCronograma;
-          if (ic) {
-            const qtdNova =
-              Number(ic.quantidade_medida) + Number(imi.quantidade_medida);
-            // Teto = quantidade × nº de execuções/meses. Usar só ic.quantidade
-            // decepava itens recorrentes para UMA execução a cada aprovação,
-            // engolindo inclusive migração registrada (caso TOYOLEM 001/2026:
-            // 5.662,8 + 2.831,4 virava 2.831,4).
-            const quantidadeTotal =
-              (Number(ic.quantidade) || 0) *
-              (Number(ic.quantidade_meses) || 1);
-            if (qtdNova > quantidadeTotal + 0.0001) {
-              this.logger.warn(
-                `Aprovação da medição ${medicaoId}: quantidade_medida do item ${ic.numero_item} ` +
-                  `(${qtdNova.toFixed(4)}) excede o total contratado (${quantidadeTotal.toFixed(4)}) — aparado no teto`,
-              );
-            }
-            ic.quantidade_medida = Math.min(qtdNova, quantidadeTotal);
-            await this.itemCronogramaRepository.save(ic);
-          }
-        }
-      } else {
-        const itensMedicao = await this.itemMedicaoRepository.find({
-          where: { medicao_id: medicaoId },
-        });
+    // Consumo de saldo: mesma rotina usada pelo lançamento retroativo.
+    await this.aplicarConsumoSaldoMedicaoAprovada(medicaoId, medicao.contrato_id);
 
-        for (const item of itensMedicao) {
-          const etapa = await this.etapaRepository.findOne({
-            where: { id: item.etapa_id },
-          });
-          if (etapa) {
-            etapa.percentual_executado = Number(
-              item.percentual_executado_acumulado,
-            );
-            etapa.valor_executado =
-              Number(etapa.valor_executado) + Number(item.valor_medido);
-
-            if (Number(etapa.percentual_executado) >= 100) {
-              etapa.status = StatusEtapaCronograma.CONCLUIDA;
-              etapa.data_fim_real = new Date() as any;
-            } else if (Number(etapa.percentual_executado) > 0) {
-              etapa.status = StatusEtapaCronograma.MEDIDA_PARCIAL;
-            }
-
-            await this.etapaRepository.save(etapa);
-          }
-        }
-      }
-    }
     if (contrato) {
       this.logger.log(
         `Medição #${medicao.numero_medicao} aprovada: R$ ${medicao.valor_medido} consumido do contrato ${contrato.numero_contrato}`,
@@ -7281,6 +7330,451 @@ export class MedicaoService {
     );
 
     return (await this.medicaoRepository.findOne({ where: { id: medicaoId } }))!;
+  }
+
+  // ============================================================================
+  // LANÇAMENTO RETROATIVO DE MEDIÇÃO (suporte)
+  // ============================================================================
+
+  /**
+   * Dados que a tela de lançamento retroativo precisa: itens do cronograma com o
+   * saldo disponível (mesma regra do saldo do sistema: total contratado − consumo
+   * do ciclo − comprometido em OS abertas) e as OS que ainda não têm medição.
+   */
+  async getContextoMedicaoRetroativa(
+    contratoId: string,
+    orgaoId: string,
+  ): Promise<{
+    usa_itens_cronograma: boolean;
+    itens: Array<{
+      id: string;
+      numero_item: number;
+      descricao: string;
+      unidade_medida: string;
+      quantidade: number;
+      valor_unitario: number;
+      saldo_disponivel: number;
+    }>;
+    ordens_sem_medicao: Array<{
+      id: string;
+      numero: string;
+      data_solicitacao: Date | null;
+      valor_total_estimado: number | null;
+      itens: Array<{ item_cronograma_id: string; quantidade_solicitada: number }>;
+    }>;
+    proximo_numero_medicao: number;
+  }> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a este contrato');
+    }
+
+    const usaItensCronograma = await this.usarItensCronograma(contratoId);
+
+    let itens: Array<{
+      id: string;
+      numero_item: number;
+      descricao: string;
+      unidade_medida: string;
+      quantidade: number;
+      valor_unitario: number;
+      saldo_disponivel: number;
+    }> = [];
+
+    if (usaItensCronograma) {
+      const itensCronograma = await this.itemCronogramaRepository.find({
+        where: { contrato_id: contratoId },
+        order: { lote_numero: 'ASC', numero_item: 'ASC' },
+      });
+      // Mesma regra do saldo já existente: consumo do ciclo (ou acumulado do
+      // cronograma, quando não há ciclo) + o comprometido das OS abertas.
+      const consumoCiclo = await this.getConsumoCicloPorItem(contratoId);
+      const comprometidoPorItem = await somarQuantidadeComprometidaPorItemOS(
+        this.requisicaoItemOSRepository,
+        contratoId,
+        {
+          inicio: this.obterDataRenovacaoCiclo(contrato),
+          modalidade: contrato.modalidade_execucao ?? null,
+        },
+      );
+
+      itens = itensCronograma.map((item) => {
+        const quantidadeTotal =
+          (Number(item.quantidade) || 0) * (Number(item.quantidade_meses) || 1);
+        const consumido = resolverConsumoItem(
+          item.id,
+          item.quantidade_medida,
+          consumoCiclo,
+        );
+        const comprometido = comprometidoPorItem.get(item.id) || 0;
+        return {
+          id: item.id,
+          numero_item: Number(item.numero_item) || 0,
+          descricao: item.descricao,
+          unidade_medida: item.unidade_medida,
+          quantidade: Number(item.quantidade) || 0,
+          valor_unitario: Number(item.valor_unitario) || 0,
+          saldo_disponivel: Math.max(
+            0,
+            quantidadeTotal - consumido - comprometido,
+          ),
+        };
+      });
+    }
+
+    // OS do contrato que ainda não têm medição ativa — as candidatas ao lançamento.
+    const ordens = await this.requisicaoRepository.find({
+      where: {
+        contrato_id: contratoId,
+        tipo: TipoRequisicao.ORDEM_SERVICO,
+        status: Not(
+          In([
+            StatusRequisicao.CANCELADA,
+            StatusRequisicao.NEGADA,
+            StatusRequisicao.DEVOLVIDA,
+          ]),
+        ),
+      } as any,
+      order: { data_solicitacao: 'DESC', created_at: 'DESC' },
+    });
+
+    let ordensSemMedicao: Array<{
+      id: string;
+      numero: string;
+      data_solicitacao: Date | null;
+      valor_total_estimado: number | null;
+      itens: Array<{ item_cronograma_id: string; quantidade_solicitada: number }>;
+    }> = [];
+
+    if (ordens.length > 0) {
+      const medicoesVinculadas = await this.medicaoRepository.find({
+        where: {
+          contrato_id: contratoId,
+          requisicao_id: In(ordens.map((o) => o.id)),
+          status: Not(StatusMedicao.REJEITADA),
+        },
+        select: ['id', 'requisicao_id'],
+      });
+      const comMedicao = new Set(medicoesVinculadas.map((m) => m.requisicao_id));
+      const candidatas = ordens.filter((o) => !comMedicao.has(o.id));
+
+      const itensOs = candidatas.length
+        ? await this.requisicaoItemOSRepository.find({
+            where: { requisicao_id: In(candidatas.map((o) => o.id)) },
+          })
+        : [];
+      const itensPorOs = new Map<
+        string,
+        Array<{ item_cronograma_id: string; quantidade_solicitada: number }>
+      >();
+      for (const item of itensOs) {
+        if (!item.item_cronograma_id) continue;
+        const lista = itensPorOs.get(item.requisicao_id) || [];
+        lista.push({
+          item_cronograma_id: item.item_cronograma_id,
+          quantidade_solicitada: Number(item.quantidade_solicitada) || 0,
+        });
+        itensPorOs.set(item.requisicao_id, lista);
+      }
+
+      ordensSemMedicao = candidatas.map((os) => ({
+        id: os.id,
+        numero: os.numero,
+        data_solicitacao: os.data_solicitacao ?? null,
+        valor_total_estimado:
+          os.valor_total_estimado != null
+            ? Number(os.valor_total_estimado)
+            : null,
+        itens: itensPorOs.get(os.id) || [],
+      }));
+    }
+
+    const ultimaMedicao = await this.medicaoRepository.findOne({
+      where: { contrato_id: contratoId },
+      order: { numero_medicao: 'DESC' },
+    });
+
+    return {
+      usa_itens_cronograma: usaItensCronograma,
+      itens,
+      ordens_sem_medicao: ordensSemMedicao,
+      proximo_numero_medicao: ultimaMedicao
+        ? Number(ultimaMedicao.numero_medicao) + 1
+        : 1,
+    };
+  }
+
+  /**
+   * Registra uma medição JÁ APROVADA, sem submissão/ateste/aprovação e sem
+   * assinatura. Porta de SUPORTE (exige `pode_cancelar_estornar` no controller).
+   *
+   * Por que existe: na Ata de Registro de Preços 001/2025 a OS-0116/2026 foi
+   * liquidada e PAGA na contabilidade (NF 14, R$ 11.280,00, 240 unidades) sem
+   * nunca ter medição no sistema. Sem este registro o saldo do item continua
+   * "disponível" e o histórico não bate com a contabilidade. Não é atalho do
+   * fluxo normal: fica marcado como lançamento retroativo, com motivo e autoria.
+   */
+  async registrarMedicaoRetroativa(
+    contratoId: string,
+    dto: {
+      requisicao_id?: string | null;
+      periodo_inicio: string;
+      periodo_fim: string;
+      competencia?: string;
+      nota_fiscal_numero?: string;
+      nota_fiscal_valor?: number | null;
+      nota_fiscal_data?: string | null;
+      valor_medido?: number;
+      itens?: Array<{ item_cronograma_id: string; quantidade_medida: number }>;
+      motivo: string;
+    },
+    usuarioId: string,
+    usuarioNome: string,
+    orgaoId: string,
+  ): Promise<Medicao> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a este contrato');
+    }
+
+    const motivo = validarMotivoRetroativo(dto?.motivo);
+
+    if (!dto?.periodo_inicio || !dto?.periodo_fim) {
+      throw new BadRequestException('Informe o período da medição');
+    }
+
+    // Não pode colidir com outra medição aprovada do mesmo período.
+    await this.validarPeriodoSemMedicaoAprovada(
+      contratoId,
+      dto.periodo_inicio,
+      dto.periodo_fim,
+      null,
+      {
+        itemCronogramaIds: (dto.itens || [])
+          .map((i) => i?.item_cronograma_id)
+          .filter(Boolean) as string[],
+      },
+    );
+
+    // OS opcional: se informada, tem de ser deste contrato e ainda sem medição.
+    let osVinculada: Requisicao | null = null;
+    const requisicaoId = dto.requisicao_id
+      ? String(dto.requisicao_id).trim()
+      : null;
+    if (requisicaoId) {
+      osVinculada = await this.requisicaoRepository.findOne({
+        where: { id: requisicaoId },
+      });
+      const medicaoAtiva = osVinculada
+        ? await this.medicaoRepository.findOne({
+            where: {
+              requisicao_id: osVinculada.id,
+              status: Not(StatusMedicao.REJEITADA),
+            } as any,
+            select: ['id', 'numero_medicao', 'status'] as any,
+          })
+        : null;
+      validarOsMedicaoRetroativa(
+        osVinculada
+          ? {
+              id: osVinculada.id,
+              numero: osVinculada.numero,
+              contrato_id: String(osVinculada.contrato_id || ''),
+              tipo: String(osVinculada.tipo),
+              medicao_ativa: medicaoAtiva
+                ? {
+                    numero_medicao: medicaoAtiva.numero_medicao,
+                    status: String(medicaoAtiva.status),
+                  }
+                : null,
+            }
+          : null,
+        contratoId,
+        String(TipoRequisicao.ORDEM_SERVICO),
+      );
+    }
+
+    const usaItensCronograma = await this.usarItensCronograma(contratoId);
+
+    let valorMedido = 0;
+    let percentualFisicoMedido = 0;
+    let itensParaSalvar: Array<{
+      item_cronograma_id: string;
+      quantidade_medida: number;
+      valor_medido: number;
+    }> = [];
+
+    if (usaItensCronograma) {
+      const itensCronograma = await this.itemCronogramaRepository.find({
+        where: { contrato_id: contratoId },
+      });
+      const porId = new Map(itensCronograma.map((i) => [i.id, i]));
+      const calculado = calcularItensMedicaoRetroativa(
+        dto.itens,
+        (id) => porId.get(id) ?? null,
+        (item, quantidade) =>
+          this.calcularValorItemCronogramaMedicao(
+            contrato,
+            item as ItemCronograma,
+            quantidade,
+          ),
+      );
+      itensParaSalvar = calculado.itens;
+      valorMedido = calculado.valor_medido;
+      percentualFisicoMedido = calculado.percentual_fisico_medido;
+    } else {
+      valorMedido = Number(dto.valor_medido) || 0;
+      if (valorMedido <= 0) {
+        throw new BadRequestException(
+          'Informe o valor medido do lançamento retroativo.',
+        );
+      }
+      const valorGlobal =
+        Number(contrato.valor_global) || Number(contrato.valor_inicial) || 1;
+      percentualFisicoMedido = (valorMedido / valorGlobal) * 100;
+    }
+
+    // Numeração e acumulados seguem a convenção das demais medições do contrato.
+    const ultimaMedicao = await this.medicaoRepository.findOne({
+      where: { contrato_id: contratoId },
+      order: { numero_medicao: 'DESC' },
+    });
+    const numeroMedicao = ultimaMedicao
+      ? Number(ultimaMedicao.numero_medicao) + 1
+      : 1;
+
+    const medicoesAprovadas = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+    });
+    const dataCorteCiclo = this.obterDataCorteCicloAtual(
+      contrato,
+      dto.periodo_inicio,
+    );
+    const aprovadasDoCiclo = this.filtrarMedicoesPorCiclo(
+      medicoesAprovadas,
+      dataCorteCiclo,
+    );
+    const valorAcumuladoAnterior = aprovadasDoCiclo.reduce(
+      (soma, m) => soma + (Number(m.valor_medido) || 0),
+      0,
+    );
+    const percentualAcumuladoAnterior = aprovadasDoCiclo.reduce(
+      (soma, m) => soma + (Number(m.percentual_fisico_medido) || 0),
+      0,
+    );
+
+    const agora = new Date();
+    const notaFiscalNumero = String(dto.nota_fiscal_numero || '').trim() || null;
+    const notaFiscalData = String(dto.nota_fiscal_data || '').trim() || null;
+    const notaFiscalValor =
+      dto.nota_fiscal_valor !== undefined && dto.nota_fiscal_valor !== null
+        ? Number(dto.nota_fiscal_valor)
+        : null;
+
+    const medicaoId = await this.dataSource.transaction(async (manager) => {
+      const repoMedicao = manager.getRepository(Medicao);
+      const medicao = repoMedicao.create({
+        contrato_id: contratoId,
+        requisicao_id: requisicaoId as any,
+        numero_medicao: numeroMedicao,
+        periodo_inicio: dto.periodo_inicio as any,
+        periodo_fim: dto.periodo_fim as any,
+        competencia: dto.competencia || undefined,
+        valor_medido: valorMedido as any,
+        valor_acumulado_anterior: valorAcumuladoAnterior as any,
+        valor_acumulado_atual: (valorAcumuladoAnterior + valorMedido) as any,
+        percentual_fisico_medido: percentualFisicoMedido as any,
+        percentual_fisico_acumulado: (percentualAcumuladoAnterior +
+          percentualFisicoMedido) as any,
+        nota_fiscal_numero: notaFiscalNumero as any,
+        nota_fiscal_valor: notaFiscalValor as any,
+        nota_fiscal_data: notaFiscalData as any,
+        status: StatusMedicao.APROVADA,
+        aprovador_id: usuarioId,
+        aprovador_nome: `${usuarioNome} (lançamento retroativo pelo suporte)`,
+        data_aprovacao: agora as any,
+        data_medicao: dto.periodo_fim as any,
+        observacao_aprovador: `Lançamento retroativo pelo suporte — ${motivo}`,
+        usuario_cadastro_id: usuarioId,
+        usuario_cadastro_nome: usuarioNome,
+        fornecedor_id: contrato.fornecedor_id || undefined,
+        lancamento_retroativo: true,
+        retroativo_motivo: motivo,
+        retroativo_por_id: usuarioId,
+        retroativo_por_nome: usuarioNome,
+        retroativo_em: agora,
+      });
+      const salva = await repoMedicao.save(medicao);
+
+      if (itensParaSalvar.length > 0) {
+        const repoItens = manager.getRepository(ItemMedicaoItem);
+        const novosItens: ItemMedicaoItem[] = itensParaSalvar.map((item) =>
+          repoItens.create({
+            medicao_id: salva.id,
+            item_cronograma_id: item.item_cronograma_id,
+            quantidade_medida: item.quantidade_medida,
+            valor_medido: item.valor_medido,
+            // Já nasce aprovada: o ateste é o próprio ato do suporte.
+            atestado: true,
+            ateste_fiscal_nome: `${usuarioNome} (lançamento retroativo)`,
+            ateste_data: agora,
+          }),
+        );
+        await repoItens.save(novosItens);
+      }
+
+      // MESMA rotina de consumo da aprovação normal.
+      await this.aplicarConsumoSaldoMedicaoAprovada(
+        salva.id,
+        contratoId,
+        manager,
+      );
+
+      const repoHistorico = manager.getRepository(HistoricoContrato);
+      await repoHistorico.save(
+        repoHistorico.create({
+          contrato_id: contratoId,
+          tipo_acao: TipoAcaoContrato.EDITADO,
+          descricao:
+            `Medição ${numeroMedicao} registrada retroativamente pelo suporte (já aprovada): ` +
+            `período ${this.formatarDataPeriodoBR(dto.periodo_inicio)} a ${this.formatarDataPeriodoBR(dto.periodo_fim)}, ` +
+            `valor R$ ${valorMedido.toFixed(2)}, ` +
+            `OS ${osVinculada?.numero || 'nenhuma'}` +
+            (notaFiscalNumero ? `, NF ${notaFiscalNumero}` : '') +
+            ` — motivo: ${motivo}`,
+          detalhes: JSON.stringify({
+            medicao_id: salva.id,
+            numero_medicao: numeroMedicao,
+            requisicao_id: requisicaoId,
+            periodo_inicio: dto.periodo_inicio,
+            periodo_fim: dto.periodo_fim,
+            valor_medido: valorMedido,
+            nota_fiscal_numero: notaFiscalNumero,
+            itens: itensParaSalvar,
+            motivo,
+          }),
+          usuario_id: usuarioId,
+          usuario_nome: usuarioNome,
+        }),
+      );
+
+      return salva.id;
+    });
+
+    await this.recalcularAcumuladosMedicoesAprovadas(contratoId);
+
+    this.logger.log(
+      `[medicao-retroativa] Contrato ${contrato.numero_contrato}: medição ${numeroMedicao} (${medicaoId}) ` +
+        `criada já APROVADA por ${usuarioNome}. Motivo: ${motivo}`,
+    );
+
+    return this.buscarMedicaoCompleta(medicaoId);
   }
 
   /**
