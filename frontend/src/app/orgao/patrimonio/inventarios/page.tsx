@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, ClipboardCheck, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, ClipboardCheck, Plus, Search, Trash2, UserCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,6 +27,25 @@ export default function InventariosPage() {
   const [form, setForm] = useState({ nome: `Inventário ${new Date().getFullYear()}`, ano: new Date().getFullYear(), comissao: "", observacoes: "" })
   const [setores, setSetores] = useState<SetorForm[]>([])
   const [setorLivre, setSetorLivre] = useState("")
+  const [filtroSetor, setFiltroSetor] = useState("")
+  const [lote, setLote] = useState({ responsavel_nome: "", responsavel_telefone: "" })
+
+  const semAcento = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+  // Índices visíveis com o filtro: marcar/desmarcar e aplicar responsável agem só sobre eles
+  const visiveis = setores.map((s, i) => ({ s, i })).filter(({ s }) => !filtroSetor.trim() || semAcento(s.nome).includes(semAcento(filtroSetor.trim())))
+  const marcadosVisiveis = visiveis.filter(({ s }) => s.incluir).length
+  const totalMarcados = setores.filter((s) => s.incluir).length
+  const todosVisiveisMarcados = visiveis.length > 0 && marcadosVisiveis === visiveis.length
+  const marcarVisiveis = (incluir: boolean) => {
+    const alvo = new Set(visiveis.map((v) => v.i))
+    setSetores(setores.map((x, j) => (alvo.has(j) ? { ...x, incluir } : x)))
+  }
+  const aplicarResponsavel = () => {
+    const alvo = new Set(visiveis.filter(({ s }) => s.incluir).map((v) => v.i))
+    if (!alvo.size) { setErro("Marque os setores que ficam com este responsável"); return }
+    setErro("")
+    setSetores(setores.map((x, j) => (alvo.has(j) ? { ...x, responsavel_nome: lote.responsavel_nome, responsavel_telefone: lote.responsavel_telefone } : x)))
+  }
 
   const carregar = () => {
     setLoading(true)
@@ -38,7 +57,9 @@ export default function InventariosPage() {
     setErro("")
     try {
       const s = await listarSetores()
-      setSetores(s.map((x) => ({ setor_id: x.id, nome: x.nome, incluir: true, responsavel_nome: "", responsavel_telefone: "" })))
+      setSetores(s.map((x) => ({ setor_id: x.id, nome: x.nome, incluir: true, responsavel_nome: "", responsavel_telefone: "" })).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
+      setFiltroSetor("")
+      setLote({ responsavel_nome: "", responsavel_telefone: "" })
     } catch { setSetores([]) }
     setAberto(true)
   }
@@ -90,7 +111,7 @@ export default function InventariosPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><ClipboardCheck className="h-5 w-5" />Como funciona</CardTitle>
           <CardDescription>
-            A comissão abre a campanha e escolhe os setores. Cada responsável recebe um link por WhatsApp, abre no celular,
+            A comissão abre a campanha e escolhe os setores. Cada responsável recebe um link por WhatsApp (um só, mesmo que responda por vários setores), abre no celular,
             lê o QR das plaquetas (ou usa o leitor RFID) e finaliza o setor. O sistema aponta os bens não localizados,
             os encontrados em outro setor e os sem plaqueta. Quando todos os setores fecham, a comissão fecha a campanha.
           </CardDescription>
@@ -149,11 +170,40 @@ export default function InventariosPage() {
             <Textarea rows={2} value={form.comissao} onChange={(e) => setForm({ ...form, comissao: e.target.value })} placeholder="Ex.: Portaria 12/2026 — Maria (presidente), João, Ana" />
           </div>
 
-          <div className="border rounded-lg">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="h-4 w-4 absolute left-2.5 top-2.5 text-muted-foreground" />
+                <Input className="pl-8" value={filtroSetor} onChange={(e) => setFiltroSetor(e.target.value)} placeholder="Filtrar setores (ex.: gabinete)" />
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={() => marcarVisiveis(true)}>Marcar {filtroSetor.trim() ? "filtrados" : "todos"}</Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => marcarVisiveis(false)}>Desmarcar {filtroSetor.trim() ? "filtrados" : "todos"}</Button>
+              <span className="text-sm text-muted-foreground">{totalMarcados} de {setores.length} marcados</span>
+            </div>
+            <div className="rounded-lg border bg-muted/40 p-3">
+              <p className="text-sm font-medium flex items-center gap-1.5"><UserCheck className="h-4 w-4" />Mesmo responsável para vários setores</p>
+              <p className="text-xs text-muted-foreground mb-2">Preenche os setores marcados{filtroSetor.trim() ? " do filtro" : ""}. Quem responde por vários setores recebe um único WhatsApp e troca de setor dentro do app.</p>
+              <div className="flex flex-wrap gap-2">
+                <Input className="flex-1 min-w-[160px]" value={lote.responsavel_nome} onChange={(e) => setLote({ ...lote, responsavel_nome: e.target.value })} placeholder="Nome" />
+                <Input className="w-44" value={lote.responsavel_telefone} onChange={(e) => setLote({ ...lote, responsavel_telefone: e.target.value })} placeholder="77 9 9999-9999" />
+                <Button type="button" size="sm" variant="secondary" onClick={aplicarResponsavel} disabled={!lote.responsavel_nome.trim() && !lote.responsavel_telefone.trim()}>
+                  Aplicar a {marcadosVisiveis} setor{marcadosVisiveis === 1 ? "" : "es"}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="border rounded-lg max-h-[45vh] overflow-y-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-10"></TableHead>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      aria-label="Marcar ou desmarcar todos"
+                      checked={todosVisiveisMarcados ? true : marcadosVisiveis > 0 ? "indeterminate" : false}
+                      onCheckedChange={() => marcarVisiveis(!todosVisiveisMarcados)}
+                    />
+                  </TableHead>
                   <TableHead>Setor</TableHead>
                   <TableHead>Responsável pela conferência</TableHead>
                   <TableHead>WhatsApp</TableHead>
@@ -164,7 +214,10 @@ export default function InventariosPage() {
                 {setores.length === 0 && (
                   <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-4 text-sm">Nenhum setor cadastrado em Configurações → Setores. Adicione setores abaixo pelo nome.</TableCell></TableRow>
                 )}
-                {setores.map((s, i) => (
+                {setores.length > 0 && visiveis.length === 0 && (
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-4 text-sm">Nenhum setor com esse nome.</TableCell></TableRow>
+                )}
+                {visiveis.map(({ s, i }) => (
                   <TableRow key={`${s.setor_id}-${i}`} className={s.incluir ? "" : "opacity-50"}>
                     <TableCell><Checkbox checked={s.incluir} onCheckedChange={(v) => setSetores(setores.map((x, j) => j === i ? { ...x, incluir: !!v } : x))} /></TableCell>
                     <TableCell className="font-medium">{s.nome}{!s.setor_id && <span className="ml-2 text-xs text-muted-foreground">(sem cadastro)</span>}</TableCell>

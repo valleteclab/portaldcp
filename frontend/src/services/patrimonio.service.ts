@@ -430,7 +430,15 @@ export async function enviarLinkSetorInventario(id: string, setorId: string) {
   const res = await authFetch(`${baseUrl()}/inventarios/${id}/setores/${setorId}/enviar-link`, { method: 'POST' });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json?.message || 'Erro ao enviar link');
-  return json as { enviado: boolean; link: string; motivo?: string };
+  return json as { enviado: boolean; link: string; setores?: number; motivo?: string };
+}
+
+/** Um WhatsApp por responsável, listando todos os setores abertos dele. */
+export async function enviarLinksInventario(id: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/enviar-links`, { method: 'POST' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao enviar links');
+  return json as { pessoas: number; setores: number; falhas: string[]; sem_telefone: string[] };
 }
 
 export async function reabrirSetorInventario(id: string, setorId: string) {

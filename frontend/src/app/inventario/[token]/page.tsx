@@ -30,6 +30,8 @@ type Dados = {
   inventario: { id: string; nome: string; ano: number; status: 'ABERTO' | 'FECHADO' }
   setor: { id: string; nome: string; responsavel_nome: string | null; status: 'PENDENTE' | 'EM_ANDAMENTO' | 'FECHADO'; fechado_em: string | null; fechado_por: string | null; tem_cadastro: boolean }
   categorias: { id: string; nome: string }[]
+  /** Outros setores da mesma pessoa nesta campanha (vazio quando é só um). */
+  setores_do_responsavel?: { token: string; nome: string; status: 'PENDENTE' | 'EM_ANDAMENTO' | 'FECHADO'; atual: boolean }[]
   bens: Bem[]
   leituras: Leitura[]
 }
@@ -447,7 +449,30 @@ export default function ConferenciaSetorPage() {
           <ClipboardCheck className="w-6 h-6 text-amber-300 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[11px] uppercase tracking-wider text-blue-200 truncate">{dados.orgao.nome} · Inventário {dados.inventario.ano}</p>
-            <h1 className="text-lg font-bold leading-tight truncate">{dados.setor.nome}</h1>
+            {(dados.setores_do_responsavel?.length || 0) > 1 ? (
+              <label className="block">
+                <span className="sr-only">Trocar de setor</span>
+                <select
+                  value={token}
+                  onChange={(e) => {
+                    const destino = e.target.value
+                    if (destino === token) return
+                    if (fila.length && !confirm(`Há ${fila.length} leitura(s) guardada(s) sem internet neste setor. Elas continuam guardadas e são enviadas quando você voltar a ele. Trocar mesmo assim?`)) return
+                    window.location.href = `/inventario/${destino}`
+                  }}
+                  className="w-full max-w-full bg-transparent text-lg font-bold leading-tight truncate border-b border-dashed border-blue-300/60 focus:outline-none pr-6"
+                >
+                  {dados.setores_do_responsavel!.map((x) => (
+                    <option key={x.token} value={x.token} className="text-slate-900 text-base font-normal">
+                      {x.nome}{x.status === 'FECHADO' ? ' ✓ finalizado' : x.status === 'EM_ANDAMENTO' ? ' · em andamento' : ''}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-blue-200">Você confere {dados.setores_do_responsavel!.length} setores · toque no nome para trocar</span>
+              </label>
+            ) : (
+              <h1 className="text-lg font-bold leading-tight truncate">{dados.setor.nome}</h1>
+            )}
           </div>
           {!online && <span title="Sem internet" className="text-amber-300"><WifiOff className="w-5 h-5" /></span>}
           <button onClick={alternarMudo} aria-label={mudo ? 'Ativar sons' : 'Silenciar'} className={`p-1.5 rounded-lg ${mudo ? 'text-slate-400' : 'text-amber-300'}`}>

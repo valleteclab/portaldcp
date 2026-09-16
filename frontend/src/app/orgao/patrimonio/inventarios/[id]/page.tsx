@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { toast } from "sonner"
 import {
   obterInventario, divergenciasInventario, fecharInventario, atualizarSetorInventario,
-  enviarLinkSetorInventario, reabrirSetorInventario, abrirPdf, urlTermoResponsabilidade,
+  enviarLinkSetorInventario, enviarLinksInventario, reabrirSetorInventario, abrirPdf, urlTermoResponsabilidade,
 } from "@/services/patrimonio.service"
 import { TransferenciaDialog, BaixaDialog } from "../../movimentacoes/BemAcoes"
 import { FileText } from "lucide-react"
@@ -47,10 +47,25 @@ export default function InventarioDetalhePage() {
   const enviar = async (s: any) => {
     try {
       const r = await enviarLinkSetorInventario(id, s.id)
-      if (r.enviado) toast.success(`Link enviado para ${s.responsavel_nome || s.setor_nome}`)
+      if (r.enviado) toast.success((r.setores || 1) > 1
+        ? `Uma mensagem enviada para ${s.responsavel_nome || s.responsavel_telefone} com os ${r.setores} setores abertos dele`
+        : `Link enviado para ${s.responsavel_nome || s.setor_nome}`)
       else toast.warning(r.motivo || "Não foi possível enviar pelo WhatsApp. Copie o link.")
       carregar()
     } catch (e: any) { toast.error(e.message) }
+  }
+  const [enviandoTodos, setEnviandoTodos] = useState(false)
+  const enviarTodos = async () => {
+    if (!confirm("Enviar o link por WhatsApp a todos os responsáveis dos setores ainda abertos? Quem responde por vários setores recebe uma única mensagem.")) return
+    setEnviandoTodos(true)
+    try {
+      const r = await enviarLinksInventario(id)
+      if (r.pessoas) toast.success(`${r.pessoas} mensagem(ns) enviada(s), cobrindo ${r.setores} setor(es)`)
+      if (r.falhas.length) toast.error(`Não foi possível enviar para: ${r.falhas.join(", ")}`)
+      if (r.sem_telefone.length) toast.warning(`${r.sem_telefone.length} setor(es) sem WhatsApp do responsável: ${r.sem_telefone.join(", ")}`)
+      if (!r.pessoas && !r.falhas.length && !r.sem_telefone.length) toast.info("Nenhum setor aberto para avisar")
+      carregar()
+    } catch (e: any) { toast.error(e.message) } finally { setEnviandoTodos(false) }
   }
   const copiar = (link: string) => { navigator.clipboard.writeText(link); toast.success("Link copiado") }
   const reabrir = async (s: any) => {
@@ -98,6 +113,11 @@ export default function InventarioDetalhePage() {
       <div className="flex gap-2">
         <Button variant={aba === "setores" ? "default" : "outline"} size="sm" onClick={() => setAba("setores")}>Setores</Button>
         <Button variant={aba === "divergencias" ? "default" : "outline"} size="sm" onClick={() => setAba("divergencias")}>Relatório de divergências</Button>
+        {aberta && setoresAbertos > 0 && (
+          <Button size="sm" variant="outline" className="ml-auto" onClick={enviarTodos} disabled={enviandoTodos}>
+            <Send className="h-3.5 w-3.5 mr-1.5" />{enviandoTodos ? "Enviando..." : "Enviar links a todos"}
+          </Button>
+        )}
       </div>
 
       {aba === "setores" && (
