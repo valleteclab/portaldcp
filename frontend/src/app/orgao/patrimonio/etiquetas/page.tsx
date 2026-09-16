@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { Tag, Printer } from "lucide-react"
+import Link from "next/link"
+import { Tag, Printer, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -49,7 +50,7 @@ export default function EtiquetasPage() {
   const nomeSetor = (b: any) => b.setor?.nome || b.localizacao_nome || ""
   const setores = useMemo(
     () => Array.from(new Set(bens.map(nomeSetor).filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR")),
-    [bens], // eslint-disable-line react-hooks/exhaustive-deps
+    [bens],
   )
   // Lista visível: filtro de setor + busca, em ordem de setor e tombo (é a ordem de impressão)
   const visiveis = useMemo(() => {
@@ -60,7 +61,14 @@ export default function EtiquetasPage() {
       .sort((a: any, b: any) =>
         nomeSetor(a).localeCompare(nomeSetor(b), "pt-BR") ||
         String(a.plaqueta || "").localeCompare(String(b.plaqueta || ""), "pt-BR", { numeric: true }))
-  }, [bens, busca, filtroSetor]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bens, busca, filtroSetor])
+  // Paginação da lista (a seleção e o "marcar filtrados" continuam valendo para todas as páginas)
+  const POR_PAGINA = 50
+  const [pagina, setPagina] = useState(1)
+  const totalPaginas = Math.max(1, Math.ceil(visiveis.length / POR_PAGINA))
+  useEffect(() => { setPagina(1) }, [busca, filtroSetor])
+  useEffect(() => { if (pagina > totalPaginas) setPagina(totalPaginas) }, [pagina, totalPaginas])
+  const paginaAtual = visiveis.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
   const marcadosVisiveis = visiveis.filter((b: any) => selecionados.has(b.id)).length
   const todosVisiveisMarcados = visiveis.length > 0 && marcadosVisiveis === visiveis.length
   /** Ids selecionados na ordem de impressão (setor, tombo), inclusive os fora do filtro atual. */
@@ -141,7 +149,8 @@ export default function EtiquetasPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <Link href="/orgao/patrimonio"><Button variant="ghost" size="icon" aria-label="Voltar"><ArrowLeft className="h-5 w-5" /></Button></Link>
         <div>
           <h1 className="text-2xl font-bold">Etiquetas de Patrimônio</h1>
           <p className="text-muted-foreground">Selecione os bens e gere etiquetas para impressão</p>
@@ -304,7 +313,7 @@ export default function EtiquetasPage() {
                 <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{bens.length ? "Nenhum bem com esse filtro" : "Nenhum bem cadastrado"}</TableCell>
               </TableRow>
             ) : (
-              visiveis.map((bem: any) => (
+              paginaAtual.map((bem: any) => (
                 <TableRow key={bem.id} className={selecionados.has(bem.id) ? "bg-blue-50" : ""}>
                   <TableCell>
                     <Checkbox
@@ -334,6 +343,21 @@ export default function EtiquetasPage() {
           </TableBody>
         </Table>
       </div>
+
+      {visiveis.length > POR_PAGINA && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <span className="text-muted-foreground">
+            {(pagina - 1) * POR_PAGINA + 1}–{Math.min(pagina * POR_PAGINA, visiveis.length)} de {visiveis.length} bens
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPagina(1)} disabled={pagina === 1}>Primeira</Button>
+            <Button variant="outline" size="sm" onClick={() => setPagina(pagina - 1)} disabled={pagina === 1} aria-label="Página anterior"><ChevronLeft className="h-4 w-4" /></Button>
+            <span>Página {pagina} de {totalPaginas}</span>
+            <Button variant="outline" size="sm" onClick={() => setPagina(pagina + 1)} disabled={pagina === totalPaginas} aria-label="Próxima página"><ChevronRight className="h-4 w-4" /></Button>
+            <Button variant="outline" size="sm" onClick={() => setPagina(totalPaginas)} disabled={pagina === totalPaginas}>Última</Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
