@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike, Not } from 'typeorm';
-import * as XLSX from 'xlsx';
 import { Setor } from '../orgaos/entities/setor.entity';
 import { BemPatrimonial } from './entities/bem-patrimonial.entity';
 import { CategoriaBem } from './entities/categoria-bem.entity';
@@ -26,6 +25,14 @@ import { CriarServidorBemDto } from './dto/criar-servidor-bem.dto';
 import { CriarComodatoDto } from './dto/criar-comodato.dto';
 import { CriarCategoriaDto } from './dto/criar-categoria.dto';
 import { calcularDepreciacao, parseTipoAquisicao } from './depreciacao.util';
+import {
+  lerLinhasPlanilha,
+  normalizarChave,
+  parseValorPlanilha,
+  vidaUtilPorTaxa,
+  situacaoPorSetor,
+  juntarObservacoes,
+} from './importacao-bens.util';
 
 @Injectable()
 export class PatrimonioService {
@@ -196,7 +203,8 @@ export class PatrimonioService {
     return out;
   }
 
-  async criarBem(orgaoId: string, dto: CriarBemDto, usuarioNome: string) {
+  /** `retornarBem=false` na importação em lote: evita recarregar o bem com relações a cada linha. */
+  async criarBem(orgaoId: string, dto: CriarBemDto, usuarioNome: string, retornarBem = true) {
     const dados = this.normalizarCodigos(dto);
     if (!dados.plaqueta) dados.plaqueta = await this.proximaPlaqueta(orgaoId);
     await this.garantirCodigosUnicos(orgaoId, dados.plaqueta, dados.epc);
@@ -217,7 +225,7 @@ export class PatrimonioService {
       usuarioNome,
     );
 
-    return this.obterBem(orgaoId, salvo.id);
+    return retornarBem ? this.obterBem(orgaoId, salvo.id) : salvo;
   }
 
   private async validarSetor(orgaoId: string, setorId: string) {
@@ -379,36 +387,34 @@ export class PatrimonioService {
    * data_pagamento, empenho → referencia_contabil, conta_contabil/plano_de_contas,
    * vida_util, residual, corresponsavel, garantia, seguradora, apolice,
    * seguro_inicio, seguro_fim, seguro_valor, centro_de_custo (= setor).
+   * Relatório do sistema anterior: numero_patrimonio, valor_nota, estado_conservacao,
+   * codigo_centro_custo (código do setor) e depreciacao_percentual (taxa anual → vida útil).
+   * Setor que não existe é CRIADO quando a linha traz o código do setor. "Setores" que são
+   * situações (inservíveis, em localização, cedidos, imóveis) viram conservação/observação/
+   * categoria — ver importacao-bens.util.ts.
    * "valor_atual", "unidade", "secretaria" e "orgao" são ignorados. Só "descricao" é obrigatória;
    * plaqueta vazia recebe o próximo número; plaqueta já existente ATUALIZA o bem.
    */
   async importarPlanilha(orgaoId: string, arquivo: Buffer, usuarioNome: string) {
-    const wb = XLSX.read(arquivo, { type: 'buffer', cellDates: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    if (!ws) throw new BadRequestException('Planilha vazia');
-    const linhas: Record<string, any>[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    const linhas = lerLinhasPlanilha(arquivo);
     if (!linhas.length) throw new BadRequestException('Nenhuma linha encontrada na planilha');
 
-    const norm = (s: string) =>
-      String(s || '')
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_|_$/g, '');
+    const norm = normalizarChave;
     const ALIAS: Record<string, string> = {
-      plaqueta: 'plaqueta', n_plaqueta: 'plaqueta', numero: 'plaqueta', tombo: 'plaqueta', patrimonio: 'plaqueta', n_patrimonio: 'plaqueta',
+      plaqueta: 'plaqueta', n_plaqueta: 'plaqueta', numero: 'plaqueta', tombo: 'plaqueta', patrimonio: 'plaqueta', n_patrimonio: 'plaqueta', numero_patrimonio: 'plaqueta', numero_do_patrimonio: 'plaqueta',
       descricao: 'descricao', bem: 'descricao', item: 'descricao',
       categoria: 'categoria', setor: 'setor', departamento: 'setor', localizacao: 'setor', local: 'setor',
-      tipo: 'tipo', estado: 'estado', estado_de_conservacao: 'estado', conservacao: 'estado',
+      tipo: 'tipo', estado: 'estado', estado_de_conservacao: 'estado', estado_conservacao: 'estado', conservacao: 'estado',
       responsavel: 'responsavel', cargo: 'cargo', marca: 'marca', modelo: 'modelo',
       serie: 'serie', numero_de_serie: 'serie', n_serie: 'serie', numero_serie: 'serie',
-      valor: 'valor', valor_de_aquisicao: 'valor', valor_aquisicao: 'valor',
+      valor: 'valor', valor_de_aquisicao: 'valor', valor_aquisicao: 'valor', valor_nota: 'valor', valor_da_nota: 'valor',
       data_aquisicao: 'data_aquisicao', data_de_aquisicao: 'data_aquisicao', aquisicao: 'data_aquisicao', data: 'data_aquisicao',
       nota_fiscal: 'nota_fiscal', nf: 'nota_fiscal', n_nf: 'nota_fiscal', fornecedor: 'fornecedor',
       epc: 'epc', rfid: 'epc', observacoes: 'observacoes', observacao: 'observacoes', obs: 'observacoes',
       // ─── cadastro legado ───
       centro_de_custo: 'setor', centro_custo: 'setor',
+      codigo_centro_custo: 'codigo_setor', codigo_centro_de_custo: 'codigo_setor', codigo_setor: 'codigo_setor',
+      depreciacao_percentual: 'taxa_depreciacao', taxa_depreciacao: 'taxa_depreciacao', taxa_de_depreciacao: 'taxa_depreciacao', depreciacao_anual: 'taxa_depreciacao',
       tipo_aquisicao: 'tipo_aquisicao', tipo_de_aquisicao: 'tipo_aquisicao', forma_de_aquisicao: 'tipo_aquisicao', forma_aquisicao: 'tipo_aquisicao',
       contrato: 'contrato', n_contrato: 'contrato', numero_contrato: 'contrato', numero_do_contrato: 'contrato',
       licitacao: 'licitacao', processo: 'licitacao', n_processo: 'licitacao', numero_processo: 'licitacao', processo_licitatorio: 'licitacao',
@@ -473,11 +479,18 @@ export class PatrimonioService {
       if (s.codigo) setorPorChave.set(norm(s.codigo), s);
     }
 
-    const parseValor = (v: any): number | null => {
-      if (v === '' || v == null) return null;
-      if (typeof v === 'number') return v;
-      const n = parseFloat(String(v).replace(/[R$\s.]/g, '').replace(',', '.'));
-      return Number.isFinite(n) ? n : null;
+    const parseValor = parseValorPlanilha;
+    // Setor que falta é criado quando a planilha traz o código dele (centro de custo)
+    const obterOuCriarSetor = async (nome: string, codigo: string): Promise<Setor | undefined> => {
+      const achado = setorPorChave.get(norm(nome)) || (codigo ? setorPorChave.get(norm(codigo)) : undefined);
+      if (achado || !codigo) return achado;
+      const novo = await this.setorRepository.save(
+        this.setorRepository.create({ orgao_id: orgaoId, nome, codigo: codigo.slice(0, 50) }),
+      );
+      setorPorChave.set(norm(nome), novo);
+      setorPorChave.set(norm(novo.codigo), novo);
+      resultado.setores_criados.push(nome);
+      return novo;
     };
     const parseData = (v: any): string | null => {
       if (!v) return null;
@@ -505,7 +518,13 @@ export class PatrimonioService {
       return TipoBem.BEM_PROPRIO;
     };
 
-    const resultado = { total: linhas.length, criados: 0, atualizados: 0, erros: [] as { linha: number; erro: string }[] };
+    const resultado = {
+      total: linhas.length,
+      criados: 0,
+      atualizados: 0,
+      setores_criados: [] as string[],
+      erros: [] as { linha: number; erro: string }[],
+    };
     for (let i = 0; i < linhas.length; i++) {
       const l = mapear(linhas[i]);
       const numeroLinha = i + 2; // cabeçalho é a linha 1
@@ -515,8 +534,11 @@ export class PatrimonioService {
           if (Object.values(l).every((v) => String(v ?? '').trim() === '')) continue; // linha em branco
           throw new Error('descrição vazia');
         }
+        const nomeSetor = String(l.setor || '').trim();
+        const situacao = situacaoPorSetor(nomeSetor);
+        const depreciacao = vidaUtilPorTaxa(l.taxa_depreciacao);
         let categoriaId: string | undefined;
-        const nomeCat = String(l.categoria || '').trim();
+        const nomeCat = String(l.categoria || '').trim() || situacao.categoria || '';
         if (nomeCat) {
           let cat = catPorNome.get(norm(nomeCat));
           if (!cat) {
@@ -525,8 +547,8 @@ export class PatrimonioService {
           }
           categoriaId = cat.id;
         }
-        const nomeSetor = String(l.setor || '').trim();
-        const setor = nomeSetor ? setorPorChave.get(norm(nomeSetor)) : undefined;
+        const setor = nomeSetor ? await obterOuCriarSetor(nomeSetor, String(l.codigo_setor ?? '').trim()) : undefined;
+        const tipoAquisicao = parseTipoAquisicao(l.tipo_aquisicao) ?? (norm(l.tipo).startsWith('aquisic') ? parseTipoAquisicao(l.tipo) : undefined);
 
         const numContrato = String(l.contrato || '').trim();
         const numLicitacao = String(l.licitacao || '').trim();
@@ -537,7 +559,7 @@ export class PatrimonioService {
           descricao,
           categoria_id: categoriaId,
           tipo: parseTipo(l.tipo),
-          estado_conservacao: parseEstado(l.estado),
+          estado_conservacao: situacao.estado ?? parseEstado(l.estado),
           setor_id: setor?.id,
           localizacao_nome: !setor && nomeSetor ? nomeSetor : undefined,
           responsavel_nome: String(l.responsavel || '').trim() || undefined,
@@ -550,16 +572,16 @@ export class PatrimonioService {
           nota_fiscal_numero: String(l.nota_fiscal || '').trim() || undefined,
           fornecedor_nome: String(l.fornecedor || '').trim() || undefined,
           epc: String(l.epc || '').trim() || undefined,
-          observacoes: String(l.observacoes || '').trim() || undefined,
+          observacoes: juntarObservacoes(l.observacoes, situacao.observacao, depreciacao.observacao),
           // cadastro legado
-          tipo_aquisicao: parseTipoAquisicao(l.tipo_aquisicao),
+          tipo_aquisicao: tipoAquisicao,
           contrato_id: numContrato ? await buscarContratoId(numContrato) : undefined,
           licitacao_id: numLicitacao ? await buscarLicitacaoId(numLicitacao) : undefined,
           processo_pagamento: String(l.processo_pagamento || '').trim() || undefined,
           data_pagamento: parseData(l.data_pagamento) ?? undefined,
           referencia_contabil: String(l.referencia_contabil || '').trim() || undefined,
           conta_contabil: String(l.conta_contabil || '').trim() || undefined,
-          vida_util_anos: vidaUtil != null && vidaUtil >= 1 ? Math.round(vidaUtil) : undefined,
+          vida_util_anos: vidaUtil != null && vidaUtil >= 1 ? Math.round(vidaUtil) : depreciacao.vida_util_anos,
           valor_residual_pct: residual != null && residual >= 0 && residual <= 100 ? residual : undefined,
           corresponsavel_nome: String(l.corresponsavel || '').trim() || undefined,
           garantia_ate: parseData(l.garantia) ?? undefined,
@@ -579,7 +601,7 @@ export class PatrimonioService {
           await this.atualizarBem(orgaoId, existente.id, dados, usuarioNome);
           resultado.atualizados++;
         } else {
-          await this.criarBem(orgaoId, { ...dados, plaqueta: plaqueta || undefined }, usuarioNome);
+          await this.criarBem(orgaoId, { ...dados, plaqueta: plaqueta || undefined }, usuarioNome, false);
           resultado.criados++;
         }
       } catch (err: any) {

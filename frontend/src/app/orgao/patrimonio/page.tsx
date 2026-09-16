@@ -73,7 +73,7 @@ export default function PatrimonioPage() {
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todos")
   const [excluirDialog, setExcluirDialog] = useState<string | null>(null)
   const [importando, setImportando] = useState(false)
-  const [resultadoImport, setResultadoImport] = useState<{ total: number; criados: number; atualizados: number; erros: { linha: number; erro: string }[] } | null>(null)
+  const [resultadoImport, setResultadoImport] = useState<{ total: number; criados: number; atualizados: number; setores_criados?: string[]; erros: { linha: number; erro: string }[] } | null>(null)
   const inputPlanilha = useRef<HTMLInputElement>(null)
 
   const handleImportar = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -338,6 +338,12 @@ export default function PatrimonioPage() {
               {resultadoImport?.total} linha(s): {resultadoImport?.criados} bem(ns) criado(s), {resultadoImport?.atualizados} atualizado(s), {resultadoImport?.erros.length} com erro.
             </DialogDescription>
           </DialogHeader>
+          {!!resultadoImport?.setores_criados?.length && (
+            <div className="text-sm">
+              <p className="font-medium">{resultadoImport.setores_criados.length} setor(es) criado(s) a partir da planilha:</p>
+              <p className="text-muted-foreground max-h-24 overflow-y-auto">{resultadoImport.setores_criados.join(", ")}</p>
+            </div>
+          )}
           {resultadoImport && resultadoImport.erros.length > 0 && (
             <div className="max-h-60 overflow-y-auto text-sm border rounded p-2 space-y-1">
               {resultadoImport.erros.map((e, i) => <div key={i}><span className="font-mono">linha {e.linha}</span>: {e.erro}</div>)}

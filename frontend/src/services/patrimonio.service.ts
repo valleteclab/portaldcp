@@ -292,7 +292,7 @@ export async function importarPlanilha(file: File) {
   const res = await authFetch(`${baseUrl()}/importar`, { method: 'POST', body: fd });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json?.message || 'Erro ao importar planilha');
-  return json as { total: number; criados: number; atualizados: number; erros: { linha: number; erro: string }[] };
+  return json as { total: number; criados: number; atualizados: number; setores_criados?: string[]; erros: { linha: number; erro: string }[] };
 }
 
 export async function enviarFotoBem(bemId: string, file: File) {
