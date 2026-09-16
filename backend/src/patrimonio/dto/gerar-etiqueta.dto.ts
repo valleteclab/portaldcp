@@ -47,4 +47,9 @@ export class GerarZplDto {
   @IsOptional()
   @IsNumber()
   dpi?: number;
+
+  /** Imprime o EPC do chip RFID quando o bem tiver. */
+  @IsOptional()
+  @IsBoolean()
+  incluir_epc?: boolean;
 }

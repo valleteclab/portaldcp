@@ -270,7 +270,7 @@ export async function gerarEtiquetas(data: {
   return res.blob();
 }
 
-export async function gerarZpl(data: { bem_ids: string[]; largura_mm?: number; altura_mm?: number; dpi?: number }) {
+export async function gerarZpl(data: { bem_ids: string[]; largura_mm?: number; altura_mm?: number; dpi?: number; incluir_epc?: boolean }) {
   const res = await authFetch(`${baseUrl()}/etiquetas/zpl`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

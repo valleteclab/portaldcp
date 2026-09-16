@@ -75,7 +75,7 @@ export default function EtiquetasPage() {
     if (selecionados.size === 0) { alert("Selecione pelo menos um bem"); return }
     setGerando(true)
     try {
-      const texto = await gerarZpl({ bem_ids: idsEmOrdem(), ...zpl })
+      const texto = await gerarZpl({ bem_ids: idsEmOrdem(), ...zpl, incluir_epc: incluirEpc })
       const blob = new Blob([texto], { type: "text/plain;charset=utf-8" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -191,7 +191,7 @@ export default function EtiquetasPage() {
             {tipoEtiqueta === "PLAQUETA" && (
               <div className="min-w-[160px]">
                 <label className="text-sm font-medium mb-2 block">Tamanho</label>
-                <Select value={tamanho} onValueChange={(v: any) => setTamanho(v)}>
+                <Select value={tamanho} onValueChange={(v: any) => { setTamanho(v); const [l, a] = String(v).split("x").map(Number); setZpl((z) => ({ ...z, largura_mm: l, altura_mm: a })) }}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -226,8 +226,8 @@ export default function EtiquetasPage() {
             <div className="mt-4 rounded-lg border bg-muted/30 p-3">
               <p className="text-sm font-medium">Impressora de etiquetas Zebra (ZPL)</p>
               <p className="text-xs text-muted-foreground mb-2">
-                Gera um arquivo .zpl com uma plaqueta por bem (QR + número + descrição), no tamanho da etiqueta da impressora.
-                Envie pelo Zebra Setup Utilities, pelo driver ("imprimir arquivo") ou pelo Browser Print. O PDF acima serve para folha adesiva A4 (50 × 25 mm).
+                Gera um arquivo .zpl com o mesmo layout do PDF (brasão em preto e branco, tombo e QR), no tamanho da etiqueta da impressora.
+                Envie pelo Zebra Setup Utilities, pelo driver (&quot;imprimir arquivo&quot;) ou pelo Browser Print. Em 300 dpi o brasão sai mais nítido.
               </p>
               <div className="flex flex-wrap gap-3 items-end">
                 <div className="w-28">

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import PDFDocument = require('pdfkit');
@@ -6,9 +6,19 @@ import * as QRCode from 'qrcode';
 import { BemPatrimonial } from './entities/bem-patrimonial.entity';
 import { GerarEtiquetaDto, GerarZplDto } from './dto/gerar-etiqueta.dto';
 import { TipoEtiqueta } from './entities/enums';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { dimensoesPlaqueta, gradeA4, layoutPlaqueta, tomboImpresso, TamanhoPlaqueta } from './plaqueta-layout.util';
+import {
+  ImagemRgba,
+  caberNaCaixa,
+  decodificarImagem,
+  monocromatico,
+  paraPng,
+  recortarMargem,
+  reduzir,
+  zplGrafico,
+} from './brasao-imagem.util';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
@@ -28,6 +38,8 @@ const MM = 72 / 25.4;
 
 @Injectable()
 export class PatrimonioEtiquetasService {
+  private readonly logger = new Logger(PatrimonioEtiquetasService.name);
+
   constructor(
     @InjectRepository(BemPatrimonial)
     private readonly bemRepository: Repository<BemPatrimonial>,
@@ -72,12 +84,26 @@ export class PatrimonioEtiquetasService {
     });
   }
 
-  /** Caminho do brasão do órgão no disco (null se não houver). */
-  private caminhoLogo(bens: BemPatrimonial[]): string | null {
+  /** Brasão já decodificado e recortado, por arquivo (o JPEG original pode ter vários MB). */
+  private readonly cacheBrasao = new Map<string, { img: ImagemRgba; png: Buffer } | null>();
+
+  /** Brasão do órgão sem a margem branca, pronto para PDF (PNG) e ZPL; null se não houver. */
+  private brasao(bens: BemPatrimonial[]): { img: ImagemRgba; png: Buffer } | null {
     const url = bens.find((b) => b.orgao?.logo_url)?.orgao?.logo_url;
     if (!url) return null;
     const caminho = join(UPLOAD_DIR, url.replace(/^\/api\/uploads\//, ''));
-    return existsSync(caminho) ? caminho : null;
+    if (this.cacheBrasao.has(caminho)) return this.cacheBrasao.get(caminho)!;
+    let valor: { img: ImagemRgba; png: Buffer } | null = null;
+    try {
+      if (existsSync(caminho)) {
+        const img = reduzir(recortarMargem(decodificarImagem(readFileSync(caminho))), 900);
+        valor = { img, png: paraPng(img) };
+      }
+    } catch (err: any) {
+      this.logger.warn(`Brasão do órgão não pôde ser lido (${caminho}): ${err?.message}`);
+    }
+    this.cacheBrasao.set(caminho, valor);
+    return valor;
   }
 
   /** Uma etiqueta por página, no tamanho da etiqueta (impressora de etiquetas). */
@@ -86,7 +112,8 @@ export class PatrimonioEtiquetasService {
     const doc = new PDFDocument({ size: [w * MM, h * MM], margin: 0 });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
-    const logo = this.caminhoLogo(bens);
+    const brasao = this.brasao(bens);
+    const logo = brasao ? (doc as any).openImage(brasao.png) : null;
     for (let i = 0; i < bens.length; i++) {
       if (i > 0) doc.addPage({ size: [w * MM, h * MM], margin: 0 });
       await this.desenharPlaqueta(doc, bens[i], 0, 0, w, h, false, logo, opcoes);
@@ -102,7 +129,8 @@ export class PatrimonioEtiquetasService {
     const doc = new PDFDocument({ size: 'A4', margin: 0 });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
-    const logo = this.caminhoLogo(bens);
+    const brasao = this.brasao(bens);
+    const logo = brasao ? (doc as any).openImage(brasao.png) : null;
     for (let i = 0; i < bens.length; i++) {
       const p = i % g.porPagina;
       if (i > 0 && p === 0) doc.addPage({ size: 'A4', margin: 0 });
@@ -126,7 +154,7 @@ export class PatrimonioEtiquetasService {
     w: number,
     h: number,
     borda: boolean,
-    logo: string | null,
+    logo: any,
     opcoes: OpcoesPlaqueta,
   ) {
     const X = (mm: number) => (xMm + mm) * MM;
@@ -214,62 +242,105 @@ export class PatrimonioEtiquetasService {
   // ─── ZPL (impressora Zebra) ────────────────────────────────────────
 
   /**
-   * Gera o arquivo ZPL com uma etiqueta por bem, no tamanho da etiqueta do
-   * órgão. Envie para a impressora pelo Zebra Setup Utilities, pelo driver
-   * ("imprimir arquivo") ou pelo Zebra Browser Print.
+   * Arquivo ZPL com uma etiqueta por bem, no mesmo layout do PDF: brasão
+   * monocromático (pontilhado) à esquerda, textos no meio e QR à direita.
+   * O brasão vai uma vez para a memória da impressora (~DG) e cada etiqueta
+   * só o chama (^XG), para o arquivo não crescer com a quantidade de bens.
+   * Envie pelo Zebra Setup Utilities, pelo driver ou pelo Browser Print.
    */
   async gerarZpl(orgaoId: string, dto: GerarZplDto): Promise<string> {
     const bens = await this.carregarBens(orgaoId, dto.bem_ids);
     const dpi = dto.dpi === 300 ? 300 : 203;
     const dpmm = dpi / 25.4;
-    const larguraMm = dto.largura_mm || 50;
-    const alturaMm = dto.altura_mm || 25;
-    const W = Math.round(larguraMm * dpmm);
-    const H = Math.round(alturaMm * dpmm);
-    const m = Math.round(1.5 * dpmm); // margem
-    // QR: ~33 módulos (versão 3 + quieto) cabendo na altura útil
-    const mag = Math.max(2, Math.min(10, Math.floor((H - 2 * m) / 33)));
-    const qrLado = mag * 33;
-    const tx = m + qrLado + Math.round(1.5 * dpmm);
-    const tw = Math.max(40, W - tx - m);
+    const larguraMm = Math.min(110, Math.max(20, dto.largura_mm || 50));
+    const alturaMm = Math.min(110, Math.max(10, dto.altura_mm || 25));
+    const D = (mm: number) => Math.round(mm * dpmm);
+    const W = D(larguraMm);
+    const H = D(alturaMm);
 
-    const esc = (s: string) =>
-      String(s || '')
-        .replace(/[\^~\\]/g, ' ')
-        .replace(/\r?\n/g, ' ')
-        .trim();
+    const brasao = this.brasao(bens);
+    const L = layoutPlaqueta(larguraMm, alturaMm, !!brasao);
+    const esc = (v: string) => String(v || '').replace(/[\^~\\]/g, ' ').replace(/\r?\n/g, ' ').trim();
+    // Fonte 0 da Zebra: largura média ≈ 0,58 da altura; corta o texto para caber numa linha
+    const cortar = (texto: string, alturaDots: number, larguraDots: number) => {
+      const max = Math.max(1, Math.floor(larguraDots / (alturaDots * 0.58)));
+      return texto.length <= max ? texto : texto.slice(0, Math.max(1, max - 1)).trimEnd() + '…';
+    };
 
-    const fonte = (mm: number) => Math.max(8, Math.round(mm * dpmm));
-    const h1 = fonte(1.9); // órgão
-    const h2 = fonte(1.6); // rótulo
-    const h3 = fonte(4.2); // número
-    const h4 = fonte(1.7); // descrição
+    const cabecalho: string[] = [];
+    let grafico = '';
+    if (brasao && L.logo) {
+      const { width, height } = caberNaCaixa(brasao.img.width, brasao.img.height, D(L.logo.w), D(L.logo.h));
+      const gf = zplGrafico(monocromatico(brasao.img, width, height));
+      cabecalho.push(`~DGR:BRASAO.GRF,${gf.slice('^GFA,'.length).split(',')[1]},${Math.ceil(width / 8)},${gf.split(',').pop()}`);
+      const x = D(L.logo.x) + Math.round((D(L.logo.w) - width) / 2);
+      const y = Math.round((H - height) / 2);
+      grafico = `^FO${x},${y}^XGR:BRASAO.GRF,1,1^FS`;
+    }
+
+    const t = { x: D(L.texto.x), y: D(L.texto.y), w: D(L.texto.w), h: D(L.texto.h) };
+    const k = Math.min(1.35, Math.max(1, L.texto.h / 16.8));
+    const hTitulo = Math.max(10, D(1.75 * k));
+    const hRotulo = Math.max(9, D(1.25 * k));
+    const hPequeno = Math.max(9, D(1.2 * k));
 
     const blocos = bens.map((bem) => {
-      const orgaoNome = esc((bem.orgao?.nome_fantasia || bem.orgao?.nome || 'PATRIMÔNIO').toUpperCase());
-      const setor = esc(bem.setor?.nome || bem.localizacao_nome || '');
-      const y1 = m;
-      const y2 = y1 + h1 + Math.round(0.4 * dpmm);
-      const y3 = y2 + h2 + Math.round(0.3 * dpmm);
-      const y4 = y3 + h3 + Math.round(0.6 * dpmm);
-      const linhasDesc = setor ? 1 : 2;
-      const y5 = H - m - h4;
-      return [
-        '^XA',
-        '^CI28',
-        `^PW${W}`,
-        `^LL${H}`,
-        '^LH0,0',
-        `^FO${m},${m}^BQN,2,${mag}^FDQA,${esc(urlPublicaDoBem(bem.id))}^FS`,
-        `^FO${tx},${y1}^A0N,${h1},${h1}^FB${tw},1,0,L,0^FD${orgaoNome}^FS`,
-        `^FO${tx},${y2}^A0N,${h2},${h2}^FDPATRIMÔNIO Nº^FS`,
-        `^FO${tx},${y3}^A0N,${h3},${h3}^FD${esc(bem.plaqueta || '')}^FS`,
-        `^FO${tx},${y4}^A0N,${h4},${h4}^FB${tw},${linhasDesc},0,L,0^FD${esc(bem.descricao)}^FS`,
-        setor ? `^FO${tx},${y5}^A0N,${h4},${h4}^FB${tw},1,0,L,0^FD${setor}^FS` : '',
-        '^XZ',
-      ].filter(Boolean).join('\n');
+      const url = urlPublicaDoBem(bem.id);
+      const modulos = QRCode.create(url, { errorCorrectionLevel: 'M' }).modules.size;
+      const mag = Math.max(1, Math.min(10, Math.floor(D(L.qr.w) / modulos)));
+      const ladoQr = mag * modulos;
+      const qrX = D(L.qr.x) + D(L.qr.w) - ladoQr;
+      const qrY = Math.round((H - ladoQr) / 2);
+
+      const linhas: string[] = ['^XA', '^CI28', `^PW${W}`, `^LL${H}`, '^LH0,0'];
+      if (grafico) {
+        linhas.push(grafico);
+        linhas.push(`^FO${D(L.divisoria!)},${D(L.margem + 1)}^GB1,${H - 2 * D(L.margem + 1)},1^FS`);
+      }
+      linhas.push(`^FO${qrX},${qrY}^BQN,2,${mag}^FDMA,${esc(url)}^FS`);
+
+      let y = t.y;
+      const texto = (v: string, altura: number) => {
+        linhas.push(`^FO${t.x},${y}^A0N,${altura},${altura}^FD${esc(cortar(v, altura, t.w))}^FS`);
+      };
+      const orgaoNome = (bem.orgao?.nome_fantasia || bem.orgao?.nome || '').toUpperCase();
+      if (!grafico && orgaoNome) {
+        texto(orgaoNome, hRotulo);
+        y += Math.round(hRotulo * 1.2);
+      }
+      if ('PATRIMÔNIO PÚBLICO'.length * hTitulo * 0.58 <= t.w) {
+        texto('PATRIMÔNIO PÚBLICO', hTitulo);
+        y += Math.round(hTitulo * 1.15);
+      } else {
+        texto('PATRIMÔNIO', hTitulo);
+        y += Math.round(hTitulo * 1.05);
+        texto('PÚBLICO', hTitulo);
+        y += Math.round(hTitulo * 1.15);
+      }
+      texto('TOMBO', hRotulo);
+      y += Math.round(hRotulo * 1.1);
+
+      const tombo = tomboImpresso(bem.plaqueta);
+      const hTombo = Math.max(14, Math.min(D((L.cabeDescricao ? 6.5 : 4.2) * k), Math.floor(t.w / (tombo.length * 0.6))));
+      texto(tombo, hTombo);
+      y += Math.round(hTombo * 1.05);
+
+      const livre = t.y + t.h - y;
+      if (dto.incluir_epc && bem.epc) {
+        if (L.epcUmaLinha || livre < hPequeno * 2.1) {
+          texto(L.epcUmaLinha ? `EPC ${bem.epc}` : bem.epc, hPequeno);
+        } else {
+          texto(bem.epc.slice(0, 12), hPequeno);
+          y += Math.round(hPequeno * 1.1);
+          texto(bem.epc.slice(12), hPequeno);
+        }
+      } else if (livre >= hPequeno) {
+        texto(bem.descricao || '', hPequeno);
+      }
+      linhas.push('^XZ');
+      return linhas.join('\n');
     });
-    return blocos.join('\n') + '\n';
+    return [...cabecalho, ...blocos].join('\n') + '\n';
   }
 
   // ─── ETIQUETAS DE SITUAÇÃO (texto) ─────────────────────────────────
