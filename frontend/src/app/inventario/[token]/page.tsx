@@ -35,7 +35,7 @@ type Dados = {
   bens: Bem[]
   leituras: Leitura[]
 }
-type Resultado = { situacao: Situacao; repetida?: boolean; leitura?: { id: string; foto_url?: string | null } | null; bem: { id: string; plaqueta: string | null; descricao: string; categoria: string | null; setor_nome: string | null; status: string; foto_url: string | null } | null; codigo?: string; offline?: boolean; erro?: string }
+type Resultado = { situacao: Situacao; repetida?: boolean; leitura?: { id: string; foto_url?: string | null; estado_conservacao?: string | null } | null; bem: { id: string; plaqueta: string | null; descricao: string; categoria: string | null; setor_nome: string | null; status: string; foto_url: string | null; estado_conservacao?: string | null } | null; codigo?: string; offline?: boolean; erro?: string }
 type ItemFila = { codigo: string; origem: 'QR' | 'RFID' | 'MANUAL'; estado_conservacao?: string; observacao?: string; lido_por?: string; t: number }
 
 const SIT: Record<Situacao, { label: string; cor: string; icone: React.ReactNode; dica: string }> = {
@@ -79,6 +79,23 @@ export default function ConferenciaSetorPage() {
   const [erroAcao, setErroAcao] = useState('')
   const tecladoRef = useRef<HTMLInputElement>(null)
   const ultimaLeitura = useRef<{ codigo: string; t: number }>({ codigo: '', t: 0 })
+  /** Estado escolhido no cartão: só é salvo ao confirmar. */
+  const [estadoSel, setEstadoSel] = useState<string | null>(null)
+  const [salvandoCartao, setSalvandoCartao] = useState(false)
+  const [erroCartao, setErroCartao] = useState('')
+  /** Digitação em sequência: ao fechar o cartão, volta para o campo de digitar. */
+  const sequenciaDigitada = useRef(false)
+  /** Bem tocado na lista de pendentes, aguardando confirmação. */
+  const [previa, setPrevia] = useState<Bem | null>(null)
+  const [estadoPrevia, setEstadoPrevia] = useState<string | null>(null)
+  /** Aviso rápido que não bloqueia a tela (ex.: conferido pela lista). */
+  const [aviso, setAviso] = useState<{ texto: string; tom: 'ok' | 'erro' } | null>(null)
+  const avisoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mostrarAviso = (texto: string, tom: 'ok' | 'erro' = 'ok') => {
+    setAviso({ texto, tom })
+    if (avisoTimer.current) clearTimeout(avisoTimer.current)
+    avisoTimer.current = setTimeout(() => setAviso(null), 2800)
+  }
 
   /**
    * Sons gerados no aparelho (Web Audio, sem arquivo, funciona offline):
@@ -182,7 +199,7 @@ export default function ConferenciaSetorPage() {
 
   useEffect(() => { if (online && fila.length) esvaziarFila() }, [online]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const registrar = useCallback(async (codigo: string, origem: 'QR' | 'RFID' | 'MANUAL', extras?: { estado_conservacao?: string; observacao?: string }) => {
+  const registrar = useCallback(async (codigo: string, origem: 'QR' | 'RFID' | 'MANUAL', extras?: { estado_conservacao?: string; observacao?: string }, opcoes?: { semCartao?: boolean; rotulo?: string }) => {
     const limpo = String(codigo || '').trim()
     if (!limpo) return
     const agora = Date.now()
@@ -192,8 +209,9 @@ export default function ConferenciaSetorPage() {
     setErroAcao('')
     try {
       const r = await postLeitura({ codigo: limpo, origem, ...extras })
-      setResultado({ ...r, codigo: limpo })
       tocar(somDe(r.situacao))
+      if (opcoes?.semCartao && r.situacao === 'ENCONTRADO') mostrarAviso(`✓ ${opcoes.rotulo || limpo} conferido`)
+      else setResultado({ ...r, codigo: limpo })
       carregar()
     } catch (e: any) {
       if (e?.status) {
@@ -208,6 +226,81 @@ export default function ConferenciaSetorPage() {
       setEnviando(false)
     }
   }, [postLeitura, carregar, fila, nome]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cada cartão novo começa com o estado já gravado na leitura ou, se não houver, o do cadastro
+  useEffect(() => {
+    setEstadoSel(resultado?.leitura?.estado_conservacao ?? resultado?.bem?.estado_conservacao ?? null)
+    setErroCartao('')
+  }, [resultado])
+
+  const fecharCartao = () => {
+    setResultado(null)
+    if (sequenciaDigitada.current) setModalPlaqueta(true)
+  }
+
+  /** Confirma o cartão: grava o estado só se ele mudou em relação ao que já estava salvo. */
+  const confirmarCartao = async () => {
+    if (!resultado || salvandoCartao) return
+    const salvo = resultado.leitura?.estado_conservacao ?? resultado.bem?.estado_conservacao ?? null
+    const leituraId = resultado.leitura?.id
+    if (!estadoSel || estadoSel === salvo || !leituraId || !resultado.bem) { fecharCartao(); return }
+    setSalvandoCartao(true)
+    setErroCartao('')
+    try {
+      const res = await fetch(`${PUB}/inventario/${token}/leituras/${leituraId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado_conservacao: estadoSel }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { setErroCartao(json?.message || 'Não foi possível salvar o estado'); return }
+      carregar()
+      fecharCartao()
+    } catch {
+      // sem internet: vai na fila como releitura com o estado, que atualiza a mesma leitura
+      salvarFila([...fila, { codigo: resultado.bem.plaqueta || resultado.bem.id, origem: 'MANUAL', estado_conservacao: estadoSel, lido_por: nome || undefined, t: Date.now() }])
+      fecharCartao()
+    } finally {
+      setSalvandoCartao(false)
+    }
+  }
+
+  /** Leitura feita por engano: apaga e o bem volta a contar como pendente. */
+  const desfazerLeitura = async () => {
+    const leituraId = resultado?.leitura?.id
+    if (!resultado || !leituraId || salvandoCartao) return
+    setSalvandoCartao(true)
+    setErroCartao('')
+    try {
+      const res = await fetch(`${PUB}/inventario/${token}/leituras/${leituraId}`, { method: 'DELETE' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { setErroCartao(json?.message || 'Não foi possível desfazer'); return }
+      if (resultado.codigo) lidosSessao.current.delete(resultado.codigo.toUpperCase())
+      ultimaLeitura.current = { codigo: '', t: 0 }
+      mostrarAviso('Leitura desfeita', 'erro')
+      carregar()
+      fecharCartao()
+    } catch {
+      setErroCartao('Sem internet: não foi possível desfazer agora')
+    } finally {
+      setSalvandoCartao(false)
+    }
+  }
+
+  // Enter confirma o cartão (digitação e leitor em sequência)
+  useEffect(() => {
+    if (!resultado) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); confirmarCartao() } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const confirmarPrevia = () => {
+    if (!previa) return
+    const b = previa
+    const extras = estadoPrevia && estadoPrevia !== b.estado_conservacao ? { estado_conservacao: estadoPrevia } : undefined
+    setPrevia(null)
+    registrar(b.plaqueta || b.id, 'MANUAL', extras, { semCartao: true, rotulo: b.plaqueta || b.descricao })
+  }
 
   const onScan = (codes: { rawValue: string }[]) => {
     const raw = codes?.[0]?.rawValue
@@ -671,13 +764,13 @@ export default function ConferenciaSetorPage() {
           ) : filtrar(pendentes).length === 0 ? (
             <p className="text-sm text-slate-400 py-6 text-center">{busca ? 'Nada encontrado.' : 'Todos os bens do setor foram conferidos.'}</p>
           ) : filtrar(pendentes).map((b) => (
-            <button key={b.id} onClick={() => !fechado && registrar(b.plaqueta || b.id, 'MANUAL')} className="w-full text-left rounded-xl bg-slate-800 border border-slate-700 px-3 py-2.5 flex items-center gap-3">
+            <button key={b.id} onClick={() => { if (fechado) return; desbloquearAudio(); setPrevia(b); setEstadoPrevia(b.estado_conservacao || null) }} className="w-full text-left rounded-xl bg-slate-800 border border-slate-700 px-3 py-2.5 flex items-center gap-3">
               <span className="font-mono text-amber-300 text-sm w-16 shrink-0">{b.plaqueta || '—'}</span>
               <span className="flex-1 min-w-0">
                 <span className="block text-sm truncate">{b.descricao}</span>
                 <span className="block text-xs text-slate-400 truncate">{[b.categoria, b.marca, b.modelo].filter(Boolean).join(' · ')}</span>
               </span>
-              {!fechado && <span className="text-[11px] text-slate-400 shrink-0">marcar</span>}
+              {!fechado && <span className="text-[11px] text-slate-400 shrink-0">conferir</span>}
             </button>
           ))
         )}
@@ -766,8 +859,8 @@ export default function ConferenciaSetorPage() {
 
       {/* Resultado da leitura */}
       {resultado && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60" onClick={() => setResultado(null)}>
-          <div className="w-full max-w-md bg-slate-800 rounded-t-3xl p-5 pb-[max(20px,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60">
+          <div className="w-full max-w-md bg-slate-800 rounded-t-3xl p-5 pb-[max(20px,env(safe-area-inset-bottom))]">
             {resultado.offline ? (
               <>
                 <div className="flex items-center gap-3 text-amber-300"><WifiOff className="w-7 h-7" /><p className="font-bold text-lg">Guardado sem internet</p></div>
@@ -824,26 +917,64 @@ export default function ConferenciaSetorPage() {
                 )}
                 {resultado.bem && resultado.situacao !== 'DESCONHECIDO' && (
                   <div className="mt-4">
-                    <p className="text-xs text-slate-400 mb-1">Estado de conservação (opcional)</p>
-                    <div className="grid grid-cols-4 gap-2">
-                      {ESTADOS.map((e) => (
-                        <button key={e.v} onClick={() => registrar(resultado.codigo || resultado.bem!.id, 'MANUAL', { estado_conservacao: e.v })} className="rounded-lg bg-slate-700 hover:bg-slate-600 py-2 text-xs">{e.l}</button>
-                      ))}
-                    </div>
+                    <p className="text-xs text-slate-400 mb-1">Estado de conservação <span className="text-slate-500">· toque para escolher, salva ao confirmar</span></p>
+                    <SeletorEstado valor={estadoSel} onChange={setEstadoSel} />
                   </div>
                 )}
               </>
             )}
-            <button onClick={() => setResultado(null)} className="mt-5 w-full rounded-xl bg-amber-500 text-slate-900 font-bold py-3">Próximo bem</button>
+            {erroCartao && <p className="mt-3 text-sm text-rose-300">{erroCartao}</p>}
+            {!resultado.offline && !resultado.erro && resultado.leitura?.id && !resultado.repetida && (
+              <p className="mt-4 text-[11px] text-emerald-300/80 flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Leitura registrada. Leu ou digitou errado? Toque em Desfazer.</p>
+            )}
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              {!resultado.offline && resultado.leitura?.id && !resultado.repetida ? (
+                <button onClick={desfazerLeitura} disabled={salvandoCartao} className="rounded-xl bg-slate-700 text-slate-200 py-3 text-sm disabled:opacity-50">Desfazer</button>
+              ) : <span />}
+              <button onClick={confirmarCartao} disabled={salvandoCartao} className="col-span-2 rounded-xl bg-amber-500 text-slate-900 font-bold py-3 disabled:opacity-60 flex items-center justify-center gap-2">
+                {salvandoCartao && <Loader2 className="w-4 h-4 animate-spin" />}
+                {sequenciaDigitada.current ? 'Confirmar e digitar outro' : 'Confirmar e próximo'}
+              </button>
+            </div>
+            <p className="mt-2 text-center text-[11px] text-slate-500">Enter também confirma</p>
           </div>
         </div>
       )}
 
+      {/* Aviso rápido, não bloqueia */}
+      {aviso && (
+        <div className={`fixed top-[max(12px,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[70] rounded-full px-4 py-2 text-sm font-semibold shadow-lg ${aviso.tom === 'ok' ? 'bg-emerald-500 text-slate-900' : 'bg-slate-200 text-slate-900'}`}>
+          {aviso.texto}
+        </div>
+      )}
+
+      {/* Prévia: bem tocado na lista de pendentes, só conta depois de confirmar */}
+      {previa && (
+        <Modal titulo="Conferir este bem?" onClose={() => setPrevia(null)}>
+          <div className="flex gap-3">
+            {previa.foto_url && <img src={`${API_URL}${previa.foto_url}`} alt="" className="w-16 h-16 rounded-lg object-cover bg-slate-700" />}
+            <div className="min-w-0">
+              <p className="font-mono text-amber-300">{previa.plaqueta || 'sem plaqueta'}</p>
+              <p className="font-semibold leading-snug">{previa.descricao}</p>
+              <p className="text-xs text-slate-400">{[previa.categoria, previa.marca, previa.modelo].filter(Boolean).join(' · ')}</p>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400 mt-4 mb-1">Estado de conservação</p>
+          <SeletorEstado valor={estadoPrevia} onChange={setEstadoPrevia} />
+          <p className="text-[11px] text-slate-500 mt-3">Confirme só se o bem está fisicamente à sua frente.</p>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <button onClick={() => setPrevia(null)} className="rounded-xl bg-slate-700 py-3 text-sm">Cancelar</button>
+            <button onClick={confirmarPrevia} className="col-span-2 rounded-xl bg-amber-500 text-slate-900 font-bold py-3">Confirmar conferência</button>
+          </div>
+        </Modal>
+      )}
+
       {/* Modal: digitar plaqueta */}
       {modalPlaqueta && (
-        <Modal titulo="Digitar plaqueta ou código" onClose={() => setModalPlaqueta(false)}>
-          <input id="plaqueta-digitada" autoFocus value={plaquetaDigitada} onChange={(e) => setPlaquetaDigitada(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { setModalPlaqueta(false); registrar(plaquetaDigitada, 'MANUAL'); setPlaquetaDigitada('') } }} placeholder="Ex.: 000482" inputMode="text" className="w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-3 text-lg font-mono" />
-          <button onClick={() => { setModalPlaqueta(false); registrar(plaquetaDigitada, 'MANUAL'); setPlaquetaDigitada('') }} className="mt-3 w-full rounded-xl bg-amber-500 text-slate-900 font-bold py-3">Registrar</button>
+        <Modal titulo="Digitar plaqueta ou código" onClose={() => { sequenciaDigitada.current = false; setModalPlaqueta(false) }}>
+          <input id="plaqueta-digitada" autoFocus value={plaquetaDigitada} onChange={(e) => setPlaquetaDigitada(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (!plaquetaDigitada.trim()) return; sequenciaDigitada.current = true; setModalPlaqueta(false); registrar(plaquetaDigitada, 'MANUAL'); setPlaquetaDigitada('') } }} placeholder="Ex.: 000482" inputMode="text" className="w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-3 text-lg font-mono" />
+          <button onClick={() => { if (!plaquetaDigitada.trim()) return; sequenciaDigitada.current = true; setModalPlaqueta(false); registrar(plaquetaDigitada, 'MANUAL'); setPlaquetaDigitada('') }} className="mt-3 w-full rounded-xl bg-amber-500 text-slate-900 font-bold py-3">Registrar</button>
+          <p className="mt-2 text-[11px] text-slate-400 text-center">Digite o tombo e aperte Enter. No cartão, Enter confirma e este campo volta para o próximo.</p>
         </Modal>
       )}
 
@@ -902,6 +1033,29 @@ function Modal({ titulo, onClose, children }: { titulo: string; onClose: () => v
         </div>
         {children}
       </div>
+    </div>
+  )
+}
+
+/** Botões de estado de conservação com o escolhido destacado. Não salva nada sozinho. */
+function SeletorEstado({ valor, onChange }: { valor: string | null; onChange: (v: string) => void }) {
+  return (
+    <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Estado de conservação">
+      {ESTADOS.map((e) => {
+        const ativo = valor === e.v
+        return (
+          <button
+            key={e.v}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            onClick={() => onChange(e.v)}
+            className={`rounded-lg py-2.5 text-xs border transition-colors ${ativo ? 'bg-amber-500 border-amber-300 text-slate-900 font-bold' : 'bg-slate-700 border-transparent text-slate-200'}`}
+          >
+            {ativo ? '● ' : ''}{e.l}
+          </button>
+        )
+      })}
     </div>
   )
 }
