@@ -51,6 +51,12 @@ export class PatrimonioInventarioController {
     return this.service.atualizarSetor(orgaoId, id, setorId, dto);
   }
 
+  /** Um WhatsApp por responsável, com todos os setores abertos dele. */
+  @Post(':id/enviar-links')
+  enviarLinks(@Param('orgaoId') orgaoId: string, @Param('id') id: string) {
+    return this.service.enviarLinks(orgaoId, id);
+  }
+
   @Post(':id/setores/:setorId/enviar-link')
   enviarLink(@Param('orgaoId') orgaoId: string, @Param('id') id: string, @Param('setorId') setorId: string) {
     return this.service.enviarLink(orgaoId, id, setorId);

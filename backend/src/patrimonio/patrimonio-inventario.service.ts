@@ -25,6 +25,7 @@ import {
 } from './entities/enums';
 import { CriarInventarioDto, AtualizarSetorInventarioDto } from './dto/criar-inventario.dto';
 import { PatrimonioService } from './patrimonio.service';
+import { agruparPorResponsavel, chaveTelefone, mensagemConvite } from './inventario-responsavel.util';
 import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
@@ -198,33 +199,79 @@ export class PatrimonioInventarioService {
     return this.resumoDoSetor(s);
   }
 
-  /** Manda o link de conferência por WhatsApp para o responsável do setor. */
+  /**
+   * Manda o link de conferência por WhatsApp para o responsável do setor.
+   * Se a mesma pessoa (mesmo WhatsApp) responde por outros setores ainda
+   * abertos, vai UMA mensagem listando todos: o link abre este setor e o app
+   * troca para os demais.
+   */
   async enviarLink(orgaoId: string, inventarioId: string, setorId: string) {
     const inv = await this.carregar(orgaoId, inventarioId);
     const s = inv.setores.find((x) => x.id === setorId);
     if (!s) throw new NotFoundException('Setor da campanha não encontrado');
     const link = `${appUrl()}/inventario/${s.token_acesso}`;
     if (!s.responsavel_telefone) {
-      return { enviado: false, link, motivo: 'Setor sem telefone do responsável' };
+      return { enviado: false, link, setores: 0, motivo: 'Setor sem telefone do responsável' };
     }
+    const chave = chaveTelefone(s.responsavel_telefone);
+    const { grupos } = agruparPorResponsavel(inv.setores);
+    const doResponsavel = grupos.find((g) => chaveTelefone(g.telefone) === chave)?.setores || [s];
+    const setores = doResponsavel.some((x) => x.id === s.id) ? doResponsavel : [s, ...doResponsavel];
+    const enviado = await this.enviarConvite(orgaoId, inv, s, setores);
+    return { enviado, link, setores: setores.length };
+  }
+
+  /**
+   * Envia os links de todos os setores ainda abertos, uma mensagem por
+   * responsável (agrupado pelo WhatsApp).
+   */
+  async enviarLinks(orgaoId: string, inventarioId: string) {
+    const inv = await this.carregar(orgaoId, inventarioId);
+    if (inv.status === StatusInventario.FECHADO) throw new BadRequestException('Campanha já fechada');
+    const { grupos, semTelefone } = agruparPorResponsavel(inv.setores);
+    const falhas: string[] = [];
+    let pessoas = 0;
+    let setoresAvisados = 0;
+    for (const g of grupos) {
+      const ok = await this.enviarConvite(orgaoId, inv, g.setores[0], g.setores);
+      if (ok) {
+        pessoas++;
+        setoresAvisados += g.setores.length;
+      } else {
+        falhas.push(g.nome || g.telefone);
+      }
+    }
+    return {
+      pessoas,
+      setores: setoresAvisados,
+      falhas,
+      sem_telefone: semTelefone.map((x) => x.setor_nome),
+    };
+  }
+
+  private async enviarConvite(orgaoId: string, inv: Inventario, principal: InventarioSetor, setores: InventarioSetor[]) {
     const orgao = await this.orgaoRepo.findOne({ where: { id: orgaoId }, select: ['id', 'nome', 'nome_fantasia'] });
-    const mensagem =
-      `📋 *Inventário ${inv.ano} — ${orgao?.nome_fantasia || orgao?.nome || 'Portal DCP'}*\n\n` +
-      `Olá${s.responsavel_nome ? `, ${s.responsavel_nome}` : ''}! Você é responsável pela conferência do setor *${s.setor_nome}*.\n\n` +
-      `Abra o link no celular, aponte a câmera para o QR de cada plaqueta e finalize quando terminar:\n${link}\n\n` +
-      `_Se preferir, instale como aplicativo pelo aviso que aparece na tela._`;
+    const telefone = principal.responsavel_telefone as string;
+    const mensagem = mensagemConvite({
+      ano: inv.ano,
+      orgaoNome: orgao?.nome_fantasia || orgao?.nome || 'Portal DCP',
+      responsavelNome: principal.responsavel_nome || setores.find((x) => x.responsavel_nome)?.responsavel_nome || null,
+      setores: setores.map((x) => x.setor_nome),
+      link: `${appUrl()}/inventario/${principal.token_acesso}`,
+    });
     let enviado = false;
     try {
-      enviado = await this.whatsapp.enviar(orgaoId, { to: s.responsavel_telefone, mensagem });
-      if (!enviado) enviado = await this.whatsapp.enviarSistema(s.responsavel_telefone, mensagem);
+      enviado = await this.whatsapp.enviar(orgaoId, { to: telefone, mensagem });
+      if (!enviado) enviado = await this.whatsapp.enviarSistema(telefone, mensagem);
     } catch (err: any) {
-      this.logger.warn(`WhatsApp do inventário não enviado (${s.setor_nome}): ${err?.message}`);
+      this.logger.warn(`WhatsApp do inventário não enviado (${principal.setor_nome}): ${err?.message}`);
     }
     if (enviado) {
-      s.link_enviado_em = new Date();
-      await this.invSetorRepo.save(s);
+      const agora = new Date();
+      for (const x of setores) x.link_enviado_em = agora;
+      await this.invSetorRepo.save(setores);
     }
-    return { enviado, link };
+    return enviado;
   }
 
   async reabrirSetor(orgaoId: string, inventarioId: string, setorId: string) {
@@ -302,6 +349,21 @@ export class PatrimonioInventarioService {
     if (s.status === StatusInventarioSetor.FECHADO) throw new BadRequestException('A conferência deste setor já foi finalizada');
   }
 
+  /**
+   * Setores da mesma campanha com o mesmo WhatsApp do responsável (inclui o
+   * atual). Quem tem o link de um deles é a mesma pessoa, então pode trocar.
+   */
+  private async setoresDoMesmoResponsavel(s: InventarioSetor) {
+    const chave = chaveTelefone(s.responsavel_telefone);
+    if (!chave) return [];
+    const irmaos = await this.invSetorRepo.find({ where: { inventario_id: s.inventario_id } });
+    const meus = irmaos
+      .filter((x) => chaveTelefone(x.responsavel_telefone) === chave)
+      .sort((a, b) => a.setor_nome.localeCompare(b.setor_nome, 'pt-BR'));
+    if (meus.length < 2) return [];
+    return meus.map((x) => ({ token: x.token_acesso, nome: x.setor_nome, status: x.status, atual: x.id === s.id }));
+  }
+
   /** Tela do setor: bens a conferir e o que já foi lido. */
   async obterPorToken(token: string) {
     const s = await this.setorPorToken(token);
@@ -322,8 +384,10 @@ export class PatrimonioInventarioService {
       marca: b.marca,
       modelo: b.modelo,
     });
+    const setoresDoResponsavel = await this.setoresDoMesmoResponsavel(s);
     return {
       orgao: { nome: orgao?.nome_fantasia || orgao?.nome || '', logo_url: orgao?.logo_url || null },
+      setores_do_responsavel: setoresDoResponsavel,
       inventario: { id: s.inventario.id, nome: s.inventario.nome, ano: s.inventario.ano, status: s.inventario.status },
       setor: {
         id: s.id,
