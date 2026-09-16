@@ -122,41 +122,57 @@ await qa.passo('Garantir que estamos na demanda certa', async () => {
 
 const urlDemanda = () => page.url().match(/\/orgao\/demandas\/[0-9a-f-]{36}/) ? page.url() : null
 
-await qa.passo('Preencher descrição do objeto', async () => {
+await qa.passo('Conferir Informações Gerais (descrição veio do modal)', async () => {
   const st = await statusDemanda()
   if (st && st !== 'RASCUNHO') return { pular: `demanda está ${st} (sem edição)` }
+  // A demanda abre na seção 3 — vai à seção 1 para conferir a descrição
+  await clicarPrimeiro(page, [page.getByText('Informações Gerais').first()], 5000)
+  await page.waitForTimeout(800)
   const area = page.locator('textarea').first()
   await area.waitFor({ state: 'visible', timeout: 8000 })
-  if (((await area.inputValue()) || '').trim().length < 10) {
-    await area.fill(OBJETO)
-    await area.blur()
-    await page.waitForTimeout(1200)
-  }
+  const atual = ((await area.inputValue()) || '').trim()
+  if (atual.length >= 10) return { pular: 'descrição já preenchida na criação' }
+  await area.fill(OBJETO)
+  await area.blur()
+  await page.waitForTimeout(1200)
 })
 
-await qa.passo('Adicionar um item à demanda (catálogo)', async () => {
+await qa.passo('Adicionar um item à demanda (catálogo federal)', async () => {
   const st = await statusDemanda()
   if (st && st !== 'RASCUNHO') return { pular: `demanda está ${st} (sem edição)` }
-  // Vai à seção Materiais/Serviços e abre o diálogo
-  await clicarPrimeiro(page, [page.getByText(/materiais\/serviços/i).first()], 4000).catch(() => {})
-  await clicarPrimeiro(page, [page.getByRole('button', { name: /^adicionar$/i }), page.getByRole('button', { name: /adicionar item/i })])
-  // Busca no catálogo (federal) e seleciona o primeiro resultado
-  const busca = page.locator('div[role="dialog"] input').first()
+  // Seção Materiais/Serviços (a tela já costuma abrir nela)
+  await clicarPrimeiro(page, [page.getByText('Materiais/Serviços').first()], 5000).catch(() => {})
+  await page.waitForTimeout(800)
+  await clicarPrimeiro(page, [
+    page.getByRole('button', { name: /adicionar primeiro item/i }),
+    page.getByRole('button', { name: /^\+?\s*adicionar$/i }),
+  ])
+  const dialog = page.locator('div[role="dialog"]')
+  await dialog.waitFor({ state: 'visible', timeout: 8000 })
+
+  // Busca (auto-pesquisa com debounce — não precisa de Enter)
+  const busca = dialog.getByPlaceholder(/buscar pelo código ou descrição/i)
   await busca.waitFor({ state: 'visible', timeout: 8000 })
   await busca.fill('cadeira')
-  await page.keyboard.press('Enter')
-  await page.waitForTimeout(4000)
-  await clicarPrimeiro(page, [
-    page.locator('div[role="dialog"]').getByRole('button', { name: /selecionar|usar|escolher/i }).first(),
-    page.locator('div[role="dialog"] [class*="cursor-pointer"]').filter({ hasText: /cadeira/i }).first(),
-  ], 6000)
-  // Formulário: quantidade e valor
-  const numeros = page.locator('div[role="dialog"] input[type="number"]')
+  await page.waitForTimeout(4000) // deixa a busca no catálogo responder
+
+  // Se aparecer a lista de PDMs, entra no primeiro; depois escolhe o 1º item
+  const pdm = dialog.getByRole('button', { name: /^PDM:/i }).first()
+  if (await pdm.isVisible().catch(() => false)) {
+    await pdm.click()
+    await page.waitForTimeout(3500) // carrega os itens do PDM
+  }
+  const primeiroItem = dialog.locator('.divide-y button').first()
+  await primeiroItem.waitFor({ state: 'visible', timeout: 10000 })
+  await primeiroItem.click()
+
+  // Formulário do item: Quantidade e Valor Unitário
+  const numeros = dialog.locator('input[type="number"]')
   await numeros.first().waitFor({ state: 'visible', timeout: 8000 })
   await numeros.first().fill('20')
   if ((await numeros.count()) > 1) await numeros.nth(1).fill('850')
   await clicarPrimeiro(page, [page.getByRole('button', { name: /adicionar à demanda/i })])
-  await page.waitForTimeout(1500)
+  await page.waitForTimeout(2000)
 })
 
 await qa.passo('Enviar DFD para aprovação', async () => {

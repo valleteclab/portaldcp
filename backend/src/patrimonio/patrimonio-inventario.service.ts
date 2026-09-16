@@ -615,9 +615,45 @@ export class PatrimonioInventarioService {
             setor_nome: bem.setor?.nome || bem.localizacao_nome || null,
             status: bem.status,
             foto_url: bem.foto_url,
+            estado_conservacao: bem.estado_conservacao,
           }
         : null,
     };
+  }
+
+  private async leituraDoToken(token: string, leituraId: string) {
+    if (!/^[0-9a-f-]{36}$/i.test(leituraId || '')) throw new NotFoundException('Leitura não encontrada');
+    const s = await this.setorPorToken(token);
+    this.exigirAberto(s);
+    const leitura = await this.leituraRepo.findOne({ where: { id: leituraId, inventario_setor_id: s.id } });
+    if (!leitura) throw new NotFoundException('Leitura não encontrada neste setor');
+    return { s, leitura };
+  }
+
+  /**
+   * Ajuste de uma leitura já registrada (estado de conservação e observação),
+   * confirmado no cartão do app. Não relê o código nem muda a situação.
+   */
+  async atualizarLeitura(token: string, leituraId: string, input: { estado_conservacao?: string | null; observacao?: string | null }) {
+    const { leitura } = await this.leituraDoToken(token, leituraId);
+    if (input.estado_conservacao !== undefined) {
+      const estado = input.estado_conservacao as EstadoConservacao | null;
+      if (estado !== null && !Object.values(EstadoConservacao).includes(estado)) {
+        throw new BadRequestException('Estado de conservação inválido');
+      }
+      leitura.estado_conservacao = estado;
+      if (estado && leitura.bem_id) await this.bemRepo.update({ id: leitura.bem_id }, { estado_conservacao: estado });
+    }
+    if (input.observacao !== undefined) leitura.observacao = input.observacao?.trim() || null;
+    await this.leituraRepo.save(leitura);
+    return { id: leitura.id, estado_conservacao: leitura.estado_conservacao, observacao: leitura.observacao };
+  }
+
+  /** Leitura feita por engano (plaqueta digitada errada, toque errado): remove. */
+  async desfazerLeitura(token: string, leituraId: string) {
+    const { leitura } = await this.leituraDoToken(token, leituraId);
+    await this.leituraRepo.remove(leitura);
+    return { ok: true };
   }
 
   /** Bem físico sem plaqueta: cadastra na hora, já no setor, e registra a leitura. */

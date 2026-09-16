@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Throttle } from '@nestjs/throttler';
@@ -103,6 +103,23 @@ export class PatrimonioPublicController {
     @Body() body: any,
   ) {
     return this.inventario.salvarFotoLeitura(token, leituraId, file, { lido_por: body?.lido_por, legenda: body?.legenda });
+  }
+
+  /** Confirma o estado de conservação/observação de uma leitura já feita. */
+  @Throttle({ default: { limit: 240, ttl: 60000 } })
+  @Patch('inventario/:token/leituras/:leituraId')
+  atualizarLeitura(@Param('token') token: string, @Param('leituraId') leituraId: string, @Body() body: any) {
+    return this.inventario.atualizarLeitura(token, leituraId, {
+      estado_conservacao: body?.estado_conservacao,
+      observacao: body?.observacao,
+    });
+  }
+
+  /** Desfaz uma leitura feita por engano. */
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
+  @Delete('inventario/:token/leituras/:leituraId')
+  desfazerLeitura(@Param('token') token: string, @Param('leituraId') leituraId: string) {
+    return this.inventario.desfazerLeitura(token, leituraId);
   }
 
   @Throttle({ default: { limit: 20, ttl: 60000 } })
