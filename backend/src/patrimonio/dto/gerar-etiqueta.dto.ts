@@ -1,4 +1,4 @@
-import { IsArray, IsEnum, IsString, IsUUID, IsOptional, IsNumber, Min, Max } from 'class-validator';
+import { IsArray, IsEnum, IsString, IsUUID, IsOptional, IsNumber, Min, Max, IsIn, IsBoolean } from 'class-validator';
 import { TipoEtiqueta } from '../entities/enums';
 
 export class GerarEtiquetaDto {
@@ -11,6 +11,16 @@ export class GerarEtiquetaDto {
 
   @IsString()
   formato: 'individual' | 'folha_a4';
+
+  /** Plaqueta com QR: tamanho da etiqueta em mm (padrão 50x25). */
+  @IsOptional()
+  @IsIn(['50x20', '50x25', '100x25'])
+  tamanho?: '50x20' | '50x25' | '100x25';
+
+  /** Plaqueta com QR: imprime o EPC do chip RFID quando o bem tiver. */
+  @IsOptional()
+  @IsBoolean()
+  incluir_epc?: boolean;
 }
 
 /** Etiqueta para a impressora Zebra do órgão (ZPL), uma etiqueta por bem. */

@@ -258,6 +258,8 @@ export async function gerarEtiquetas(data: {
   tipo: string;
   bem_ids: string[];
   formato: 'individual' | 'folha_a4';
+  tamanho?: '50x20' | '50x25' | '100x25';
+  incluir_epc?: boolean;
 }) {
   const res = await authFetch(`${baseUrl()}/etiquetas/gerar`, {
     method: 'POST',

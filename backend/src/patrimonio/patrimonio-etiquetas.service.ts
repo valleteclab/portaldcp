@@ -6,6 +6,16 @@ import * as QRCode from 'qrcode';
 import { BemPatrimonial } from './entities/bem-patrimonial.entity';
 import { GerarEtiquetaDto, GerarZplDto } from './dto/gerar-etiqueta.dto';
 import { TipoEtiqueta } from './entities/enums';
+import { existsSync } from 'fs';
+import { join } from 'path';
+import { dimensoesPlaqueta, gradeA4, layoutPlaqueta, tomboImpresso, TamanhoPlaqueta } from './plaqueta-layout.util';
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+
+interface OpcoesPlaqueta {
+  tamanho: TamanhoPlaqueta;
+  incluir_epc: boolean;
+}
 
 /** URL pública do bem — é o conteúdo do QR code da plaqueta. */
 export function urlPublicaDoBem(bemId: string): string {
@@ -41,9 +51,10 @@ export class PatrimonioEtiquetasService {
     const bens = await this.carregarBens(orgaoId, dto.bem_ids);
 
     if (dto.tipo === TipoEtiqueta.PLAQUETA) {
+      const opcoes: OpcoesPlaqueta = { tamanho: dimensoesPlaqueta(dto.tamanho).tamanho, incluir_epc: !!dto.incluir_epc };
       return dto.formato === 'folha_a4'
-        ? this.gerarPlaquetasA4(bens)
-        : this.gerarPlaquetasIndividuais(bens);
+        ? this.gerarPlaquetasA4(bens, opcoes)
+        : this.gerarPlaquetasIndividuais(bens, opcoes);
     }
     if (dto.formato === 'folha_a4') {
       return this.gerarFolhaA4(bens, dto.tipo);
@@ -61,84 +72,142 @@ export class PatrimonioEtiquetasService {
     });
   }
 
-  /** Etiqueta 50 × 25 mm, uma por página (impressora de etiquetas). */
-  private async gerarPlaquetasIndividuais(bens: BemPatrimonial[]): Promise<Buffer> {
-    const w = 50 * MM;
-    const h = 25 * MM;
-    const doc = new PDFDocument({ size: [w, h], margin: 0 });
+  /** Caminho do brasão do órgão no disco (null se não houver). */
+  private caminhoLogo(bens: BemPatrimonial[]): string | null {
+    const url = bens.find((b) => b.orgao?.logo_url)?.orgao?.logo_url;
+    if (!url) return null;
+    const caminho = join(UPLOAD_DIR, url.replace(/^\/api\/uploads\//, ''));
+    return existsSync(caminho) ? caminho : null;
+  }
+
+  /** Uma etiqueta por página, no tamanho da etiqueta (impressora de etiquetas). */
+  private async gerarPlaquetasIndividuais(bens: BemPatrimonial[], opcoes: OpcoesPlaqueta): Promise<Buffer> {
+    const { w, h } = dimensoesPlaqueta(opcoes.tamanho);
+    const doc = new PDFDocument({ size: [w * MM, h * MM], margin: 0 });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
+    const logo = this.caminhoLogo(bens);
     for (let i = 0; i < bens.length; i++) {
-      if (i > 0) doc.addPage({ size: [w, h], margin: 0 });
-      await this.desenharPlaqueta(doc, bens[i], 0, 0, w, h, false);
+      if (i > 0) doc.addPage({ size: [w * MM, h * MM], margin: 0 });
+      await this.desenharPlaqueta(doc, bens[i], 0, 0, w, h, false, logo, opcoes);
     }
     doc.end();
     return new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
   }
 
-  /** Folha A4 com etiquetas 50 × 25 mm (3 colunas × 10 linhas), para papel adesivo. */
-  private async gerarPlaquetasA4(bens: BemPatrimonial[]): Promise<Buffer> {
+  /** Folha A4 adesiva com a grade que couber no tamanho escolhido. */
+  private async gerarPlaquetasA4(bens: BemPatrimonial[], opcoes: OpcoesPlaqueta): Promise<Buffer> {
+    const { w, h } = dimensoesPlaqueta(opcoes.tamanho);
+    const g = gradeA4(w, h);
     const doc = new PDFDocument({ size: 'A4', margin: 0 });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
-
-    const etW = 50 * MM;
-    const etH = 25 * MM;
-    const colunas = 3;
-    const linhas = 10;
-    const gapX = 6 * MM;
-    const gapY = 3 * MM;
-    const totalW = colunas * etW + (colunas - 1) * gapX;
-    const totalH = linhas * etH + (linhas - 1) * gapY;
-    const x0 = (doc.page.width - totalW) / 2;
-    const y0 = (doc.page.height - totalH) / 2;
-    const porPagina = colunas * linhas;
-
+    const logo = this.caminhoLogo(bens);
     for (let i = 0; i < bens.length; i++) {
-      const p = i % porPagina;
+      const p = i % g.porPagina;
       if (i > 0 && p === 0) doc.addPage({ size: 'A4', margin: 0 });
-      const x = x0 + (p % colunas) * (etW + gapX);
-      const y = y0 + Math.floor(p / colunas) * (etH + gapY);
-      await this.desenharPlaqueta(doc, bens[i], x, y, etW, etH, true);
+      const x = g.x0 + (p % g.colunas) * (w + g.espaco);
+      const y = g.y0 + Math.floor(p / g.colunas) * (h + g.espaco);
+      await this.desenharPlaqueta(doc, bens[i], x, y, w, h, true, logo, opcoes);
     }
     doc.end();
     return new Promise((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
   }
 
+  /**
+   * Plaqueta: brasão do órgão à esquerda, "PATRIMÔNIO PÚBLICO", tombo em
+   * destaque e EPC (opcional) no meio, QR à direita. Coordenadas em mm.
+   */
   private async desenharPlaqueta(
     doc: PDFKit.PDFDocument,
     bem: BemPatrimonial,
-    x: number,
-    y: number,
+    xMm: number,
+    yMm: number,
     w: number,
     h: number,
     borda: boolean,
+    logo: string | null,
+    opcoes: OpcoesPlaqueta,
   ) {
-    const pad = 1.6 * MM;
-    if (borda) doc.rect(x, y, w, h).lineWidth(0.4).stroke('#9ca3af');
+    const X = (mm: number) => (xMm + mm) * MM;
+    const Y = (mm: number) => (yMm + mm) * MM;
+    const pt = (capMm: number) => (capMm * MM) / 0.72; // altura de maiúscula → corpo da fonte
+    if (borda) doc.roundedRect(X(0), Y(0), w * MM, h * MM, 1.5 * MM).lineWidth(0.3).stroke('#c4c4c4');
 
-    // QR à esquerda ocupando a altura útil
-    const qrSize = h - pad * 2;
+    let L = layoutPlaqueta(w, h, !!logo);
+    if (logo && L.logo) {
+      try {
+        doc.image(logo, X(L.logo.x), Y(L.logo.y), { fit: [L.logo.w * MM, L.logo.h * MM], align: 'center', valign: 'center' });
+        doc.moveTo(X(L.divisoria!), Y(L.margem + 1)).lineTo(X(L.divisoria!), Y(h - L.margem - 1)).lineWidth(0.3).stroke('#cfcfcf');
+      } catch {
+        L = layoutPlaqueta(w, h, false);
+      }
+    }
+
     const png = await this.qrPng(bem);
-    doc.image(png, x + pad, y + pad, { width: qrSize, height: qrSize });
+    doc.image(png, X(L.qr.x), Y(L.qr.y), { width: L.qr.w * MM, height: L.qr.h * MM });
 
-    // Texto à direita
-    const tx = x + pad + qrSize + pad;
-    const tw = w - (tx - x) - pad;
-    const orgaoNome = (bem.orgao?.nome_fantasia || bem.orgao?.nome || 'PATRIMÔNIO').toUpperCase();
+    const t = L.texto;
+    const k = Math.min(1.35, Math.max(1, t.h / 16.8)); // etiquetas mais altas ganham letra maior
+    const larguraPt = t.w * MM;
+    // pdfkit quebra linha mesmo com lineBreak:false; corta à mão para caber numa linha só
+    const linha = (texto: string, x: number, yMm: number) => {
+      let v = texto;
+      if (doc.widthOfString(v) > larguraPt) {
+        while (v.length > 1 && doc.widthOfString(v + '…') > larguraPt) v = v.slice(0, -1);
+        v = v.trimEnd() + '…';
+      }
+      doc.text(v, x, Y(yMm), { lineBreak: false });
+    };
+    let y = t.y;
 
-    doc.fillColor('#111827').font('Helvetica-Bold').fontSize(5.2)
-      .text(orgaoNome, tx, y + pad, { width: tw, height: 7, ellipsis: true, lineBreak: false });
-    doc.font('Helvetica').fontSize(4.6).fillColor('#374151')
-      .text('PATRIMÔNIO Nº', tx, y + pad + 7, { width: tw, lineBreak: false });
-    doc.font('Helvetica-Bold').fontSize(13).fillColor('#111827')
-      .text(bem.plaqueta || '—', tx, y + pad + 12.5, { width: tw, lineBreak: false });
-    doc.font('Helvetica').fontSize(4.8).fillColor('#374151')
-      .text(bem.descricao || '', tx, y + pad + 28.5, { width: tw, height: 12, ellipsis: true });
-    const setor = bem.setor?.nome || bem.localizacao_nome || '';
-    if (setor) {
-      doc.font('Helvetica-Oblique').fontSize(4.4).fillColor('#6b7280')
-        .text(setor, tx, y + h - pad - 5.5, { width: tw, lineBreak: false, ellipsis: true });
+    // Sem brasão, o nome do órgão entra acima do título
+    const orgaoNome = (bem.orgao?.nome_fantasia || bem.orgao?.nome || '').toUpperCase();
+    if (!logo && orgaoNome) {
+      doc.font('Helvetica-Bold').fontSize(pt(1.0 * k)).fillColor('#111827');
+      linha(orgaoNome, X(t.x), y);
+      y += 1.0 * k * 1.55;
+    }
+    doc.font('Helvetica-Bold').fontSize(pt(1.3 * k)).fillColor('#12268c');
+    if (doc.widthOfString('PATRIMÔNIO PÚBLICO') <= t.w * MM) {
+      linha('PATRIMÔNIO PÚBLICO', X(t.x), y);
+      y += 1.3 * k * 1.5;
+    } else {
+      linha('PATRIMÔNIO', X(t.x), y);
+      y += 1.3 * k * 1.4;
+      linha('PÚBLICO', X(t.x), y);
+      y += 1.3 * k * 1.5;
+    }
+    y += 0.3 * k;
+    doc.font('Helvetica').fontSize(pt(0.9 * k)).fillColor('#555555');
+    linha('TOMBO', X(t.x), y);
+    y += 0.9 * k * 1.45;
+
+    // Tombo: o maior corpo que couber na largura
+    const tombo = tomboImpresso(bem.plaqueta);
+    let capTombo = (L.cabeDescricao ? 5 : 3.1) * k;
+    doc.font('Helvetica-Bold');
+    while (capTombo > 1.5 && doc.fontSize(pt(capTombo)).widthOfString(tombo) > t.w * MM) capTombo -= 0.1;
+    doc.fillColor('#000000');
+    linha(tombo, X(t.x), y);
+    y += capTombo * 1.4;
+
+    const resto = t.y + t.h - y; // mm livres até a margem de baixo
+    const pequeno = 0.85 * k;
+    doc.font('Helvetica').fontSize(pt(pequeno)).fillColor('#000000');
+    if (opcoes.incluir_epc && bem.epc) {
+      if (L.epcUmaLinha) {
+        linha(`EPC ${bem.epc}`, X(t.x), y);
+      } else if (resto >= pequeno * 2.6) {
+        linha(bem.epc.slice(0, 12), X(t.x), y);
+        linha(bem.epc.slice(12), X(t.x), y + pequeno * 1.45);
+      } else {
+        linha(bem.epc, X(t.x), y);
+      }
+    } else if (resto >= pequeno * 1.3) {
+      // Sem EPC: a descrição ajuda a colar a etiqueta no bem certo
+      doc.fillColor('#444444');
+      linha(bem.descricao || '', X(t.x), y);
     }
   }
 

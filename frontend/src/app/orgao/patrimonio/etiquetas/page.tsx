@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Tag, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -42,12 +42,40 @@ export default function EtiquetasPage() {
   const [gerando, setGerando] = useState(false)
   const [zpl, setZpl] = useState({ largura_mm: 50, altura_mm: 25, dpi: 203 })
   const [busca, setBusca] = useState("")
+  const [filtroSetor, setFiltroSetor] = useState("todos")
+  const [tamanho, setTamanho] = useState<"50x20" | "50x25" | "100x25">("50x25")
+  const [incluirEpc, setIncluirEpc] = useState(false)
+
+  const nomeSetor = (b: any) => b.setor?.nome || b.localizacao_nome || ""
+  const setores = useMemo(
+    () => Array.from(new Set(bens.map(nomeSetor).filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [bens], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  // Lista visível: filtro de setor + busca, em ordem de setor e tombo (é a ordem de impressão)
+  const visiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return bens
+      .filter((b: any) => filtroSetor === "todos" || nomeSetor(b) === filtroSetor)
+      .filter((b: any) => !q || [b.plaqueta, b.descricao, nomeSetor(b)].some((v) => String(v || "").toLowerCase().includes(q)))
+      .sort((a: any, b: any) =>
+        nomeSetor(a).localeCompare(nomeSetor(b), "pt-BR") ||
+        String(a.plaqueta || "").localeCompare(String(b.plaqueta || ""), "pt-BR", { numeric: true }))
+  }, [bens, busca, filtroSetor]) // eslint-disable-line react-hooks/exhaustive-deps
+  const marcadosVisiveis = visiveis.filter((b: any) => selecionados.has(b.id)).length
+  const todosVisiveisMarcados = visiveis.length > 0 && marcadosVisiveis === visiveis.length
+  /** Ids selecionados na ordem de impressão (setor, tombo), inclusive os fora do filtro atual. */
+  const idsEmOrdem = () => {
+    const ordem = [...bens].sort((a: any, b: any) =>
+      nomeSetor(a).localeCompare(nomeSetor(b), "pt-BR") ||
+      String(a.plaqueta || "").localeCompare(String(b.plaqueta || ""), "pt-BR", { numeric: true }))
+    return ordem.filter((b: any) => selecionados.has(b.id)).map((b: any) => b.id)
+  }
 
   const handleZpl = async () => {
     if (selecionados.size === 0) { alert("Selecione pelo menos um bem"); return }
     setGerando(true)
     try {
-      const texto = await gerarZpl({ bem_ids: Array.from(selecionados), ...zpl })
+      const texto = await gerarZpl({ bem_ids: idsEmOrdem(), ...zpl })
       const blob = new Blob([texto], { type: "text/plain;charset=utf-8" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -80,12 +108,12 @@ export default function EtiquetasPage() {
     setSelecionados(novo)
   }
 
+  /** Marca ou desmarca só o que está visível (filtro de setor e busca). */
   const toggleTodos = () => {
-    if (selecionados.size === bens.length) {
-      setSelecionados(new Set())
-    } else {
-      setSelecionados(new Set(bens.map((b: any) => b.id)))
-    }
+    const novo = new Set(selecionados)
+    if (todosVisiveisMarcados) visiveis.forEach((b: any) => novo.delete(b.id))
+    else visiveis.forEach((b: any) => novo.add(b.id))
+    setSelecionados(novo)
   }
 
   const handleGerar = async () => {
@@ -97,8 +125,9 @@ export default function EtiquetasPage() {
     try {
       const blob = await gerarEtiquetas({
         tipo: tipoEtiqueta,
-        bem_ids: Array.from(selecionados),
+        bem_ids: idsEmOrdem(),
         formato,
+        ...(tipoEtiqueta === "PLAQUETA" ? { tamanho, incluir_epc: incluirEpc } : {}),
       })
       const url = URL.createObjectURL(blob)
       window.open(url, "_blank")
@@ -154,16 +183,44 @@ export default function EtiquetasPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="folha_a4">Folha A4 (múltiplas)</SelectItem>
-                  <SelectItem value="individual">Individual</SelectItem>
+                  <SelectItem value="folha_a4">Folha A4 adesiva</SelectItem>
+                  <SelectItem value="individual">Uma por página (impressora de etiquetas)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {tipoEtiqueta === "PLAQUETA" && (
+              <div className="min-w-[160px]">
+                <label className="text-sm font-medium mb-2 block">Tamanho</label>
+                <Select value={tamanho} onValueChange={(v: any) => setTamanho(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="50x20">50 × 20 mm</SelectItem>
+                    <SelectItem value="50x25">50 × 25 mm</SelectItem>
+                    <SelectItem value="100x25">100 × 25 mm</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <Button onClick={handleGerar} disabled={gerando || selecionados.size === 0}>
               <Printer className="h-4 w-4 mr-2" />
               {gerando ? "Gerando..." : `Gerar PDF (${selecionados.size})`}
             </Button>
           </div>
+
+          {tipoEtiqueta === "PLAQUETA" && (
+            <div className="mt-4 space-y-1 text-sm">
+              <label className="flex items-center gap-2">
+                <Checkbox checked={incluirEpc} onCheckedChange={(v) => setIncluirEpc(!!v)} />
+                Imprimir o código RFID (EPC) nos bens que tiverem tag
+              </label>
+              <p className="text-xs text-muted-foreground">
+                A plaqueta leva o brasão do órgão (cadastrado nas configurações), &quot;PATRIMÔNIO PÚBLICO&quot;, o tombo e o QR code,
+                que abre a ficha do bem e é lido pela câmera na conferência do inventário. Sem RFID, é só imprimir e colar.
+              </p>
+            </div>
+          )}
 
           {tipoEtiqueta === "PLAQUETA" && (
             <div className="mt-4 rounded-lg border bg-muted/30 p-3">
@@ -200,7 +257,23 @@ export default function EtiquetasPage() {
         </CardContent>
       </Card>
 
-      <Input placeholder="Filtrar por plaqueta, descrição ou setor" value={busca} onChange={(e) => setBusca(e.target.value)} className="max-w-md" />
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={filtroSetor} onValueChange={setFiltroSetor}>
+          <SelectTrigger className="w-72">
+            <SelectValue placeholder="Setor" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos os setores</SelectItem>
+            {setores.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Input placeholder="Filtrar por plaqueta ou descrição" value={busca} onChange={(e) => setBusca(e.target.value)} className="max-w-sm" />
+        <Button variant="outline" size="sm" onClick={toggleTodos} disabled={!visiveis.length}>
+          {todosVisiveisMarcados ? "Desmarcar" : "Marcar"} {visiveis.length} {filtroSetor !== "todos" || busca.trim() ? "filtrados" : "todos"}
+        </Button>
+        <span className="text-sm text-muted-foreground">{selecionados.size} selecionado(s)</span>
+        {selecionados.size > 0 && <Button variant="ghost" size="sm" onClick={() => setSelecionados(new Set())}>Limpar seleção</Button>}
+      </div>
 
       {/* Tabela de seleção */}
       <div className="border rounded-lg">
@@ -209,7 +282,7 @@ export default function EtiquetasPage() {
             <TableRow>
               <TableHead className="w-[50px]">
                 <Checkbox
-                  checked={bens.length > 0 && selecionados.size === bens.length}
+                  checked={todosVisiveisMarcados ? true : marcadosVisiveis > 0 ? "indeterminate" : false}
                   onCheckedChange={toggleTodos}
                 />
               </TableHead>
@@ -226,16 +299,12 @@ export default function EtiquetasPage() {
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Carregando...</TableCell>
               </TableRow>
-            ) : bens.length === 0 ? (
+            ) : visiveis.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhum bem cadastrado</TableCell>
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">{bens.length ? "Nenhum bem com esse filtro" : "Nenhum bem cadastrado"}</TableCell>
               </TableRow>
             ) : (
-              bens.filter((bem: any) => {
-                const q = busca.trim().toLowerCase()
-                if (!q) return true
-                return [bem.plaqueta, bem.descricao, bem.setor?.nome, bem.localizacao_nome].some((v) => String(v || "").toLowerCase().includes(q))
-              }).map((bem: any) => (
+              visiveis.map((bem: any) => (
                 <TableRow key={bem.id} className={selecionados.has(bem.id) ? "bg-blue-50" : ""}>
                   <TableCell>
                     <Checkbox
