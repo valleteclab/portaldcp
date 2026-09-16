@@ -1,13 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
+import { somarQuantidadeComprometidaPorItemOS } from './comprometido-os-item.util';
 import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } from './entities/requisicao.entity';
 import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
 import { RequisicaoEtapaOS } from './entities/requisicao-etapa-os.entity';
 import { ItemRequisicao, StatusItemRequisicao } from './entities/item-requisicao.entity';
 import { ItemContrato } from './entities/item-contrato.entity';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
-import { Contrato, StatusContrato } from '../contratos/entities/contrato.entity';
+import { Contrato, ModalidadeExecucao, StatusContrato } from '../contratos/entities/contrato.entity';
 import { MedicaoService } from '../contratos/medicao.service';
 import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
 import { EtapaCronograma } from '../contratos/entities/etapa-cronograma.entity';
@@ -90,8 +91,48 @@ export class RequisicaoService {
     private readonly medicaoService: MedicaoService,
   ) {}
 
-  /** Soma quantidade_solicitada por item_cronograma de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. Público para a tela de nova OS exibir o saldo já descontando o comprometido (mesma conta da validação). */
+  /** Início da vigência renovada; OS anteriores permanecem no histórico sem consumir o novo ciclo. */
+  private async obterContextoCicloVigente(contratoId: string): Promise<{
+    inicio: Date | null;
+    modalidade: ModalidadeExecucao | null;
+  }> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      select: { id: true, data_renovacao_ciclo: true, modalidade_execucao: true },
+    });
+    return {
+      inicio: contrato?.data_renovacao_ciclo || null,
+      modalidade: contrato?.modalidade_execucao || null,
+    };
+  }
+
+  /**
+   * Soma quantidade_solicitada por item_cronograma de OS ativas da vigência atual.
+   * A regra vive em `comprometido-os-item.util` porque a medição (lançamento
+   * retroativo) precisa exatamente do mesmo cálculo para montar o saldo por item.
+   * excludeRequisicaoId: ao editar, exclui a OS atual do somatório.
+   */
   async somarQuantidadeComprometidaPorItemOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+    const contextoCiclo = await this.obterContextoCicloVigente(contratoId);
+    return somarQuantidadeComprometidaPorItemOS(
+      this.requisicaoItemOSRepository,
+      contratoId,
+      contextoCiclo,
+      excludeRequisicaoId,
+    );
+  }
+
+  /** Lista as OS parciais da vigência atual que compõem o saldo comprometido de cada item. */
+  async detalharQuantidadeComprometidaPorItemOS(
+    contratoId: string,
+    excludeRequisicaoId?: string,
+  ): Promise<Record<string, Array<{
+    requisicao_id: string;
+    numero: string;
+    status: string;
+    quantidade: number;
+  }>>> {
+    const contextoCiclo = await this.obterContextoCicloVigente(contratoId);
     const statusMedicoesQueConsomemOS = [
       'SUBMETIDA',
       'AGUARDANDO_ATESTE',
@@ -101,10 +142,13 @@ export class RequisicaoService {
     ];
     const qb = this.requisicaoItemOSRepository
       .createQueryBuilder('rio')
-      .select('rio.item_cronograma_id', 'id')
-      .addSelect('COALESCE(SUM(rio.quantidade_solicitada), 0)', 'total')
+      .select('rio.item_cronograma_id', 'item_cronograma_id')
+      .addSelect('rio.quantidade_solicitada', 'quantidade')
+      .addSelect('r.id', 'requisicao_id')
+      .addSelect('r.numero', 'numero')
+      .addSelect('r.status', 'status')
       .innerJoin('rio.requisicao', 'r')
-      .where('r.contrato_id = :cid', { cid: contratoId })
+      .where('r.contrato_id = :contratoId', { contratoId })
       .andWhere('r.tipo = :tipo', { tipo: TipoRequisicao.ORDEM_SERVICO })
       .andWhere('r.status IN (:...status)', {
         status: [
@@ -113,11 +157,9 @@ export class RequisicaoService {
           StatusRequisicao.AUTORIZADA,
         ],
       })
-      // Exclui OS de modo ORDEM_GLOBAL do comprometido: a global é uma "liberação"
-      // inicial e NÃO deve reservar saldo contra OS parciais. O saldo real do
-      // contrato é regido pelas medições aprovadas (quantidade_medida).
-      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' })
-      .andWhere(
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobal", { modoGlobal: 'ORDEM_GLOBAL' });
+    if (contextoCiclo.modalidade !== ModalidadeExecucao.ORDEM_SERVICO) {
+      qb.andWhere(
         `NOT EXISTS (
           SELECT 1 FROM medicoes m
           WHERE m.requisicao_id = r.id
@@ -125,15 +167,41 @@ export class RequisicaoService {
         )`,
         { statusMedicoesQueConsomemOS },
       );
-    if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
-    const rows = await qb.groupBy('rio.item_cronograma_id').getRawMany<{ id: string; total: string }>();
-    const mapa = new Map<string, number>();
-    for (const r of rows) mapa.set(r.id, Number(r.total));
-    return mapa;
+    }
+    qb.orderBy('r.created_at', 'ASC');
+    if (contextoCiclo.inicio) {
+      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente: contextoCiclo.inicio });
+    }
+    if (excludeRequisicaoId) {
+      qb.andWhere('r.id != :excludeRequisicaoId', { excludeRequisicaoId });
+    }
+    const rows = await qb.getRawMany<{
+      item_cronograma_id: string;
+      quantidade: string;
+      requisicao_id: string;
+      numero: string;
+      status: string;
+    }>();
+    return rows.reduce<Record<string, Array<{
+      requisicao_id: string;
+      numero: string;
+      status: string;
+      quantidade: number;
+    }>>>((resultado, row) => {
+      if (!resultado[row.item_cronograma_id]) resultado[row.item_cronograma_id] = [];
+      resultado[row.item_cronograma_id].push({
+        requisicao_id: row.requisicao_id,
+        numero: row.numero,
+        status: row.status,
+        quantidade: Number(row.quantidade),
+      });
+      return resultado;
+    }, {});
   }
 
   /** Soma valor_solicitado por etapa_id de OS ativas do contrato. excludeRequisicaoId: ao editar, exclui a OS atual do somatório. */
   private async somarValorComprometidoPorEtapaOS(contratoId: string, excludeRequisicaoId?: string): Promise<Map<string, number>> {
+    const contextoCiclo = await this.obterContextoCicloVigente(contratoId);
     const statusMedicoesQueConsomemOS = [
       'SUBMETIDA',
       'AGUARDANDO_ATESTE',
@@ -155,11 +223,12 @@ export class RequisicaoService {
           StatusRequisicao.AUTORIZADA,
         ],
       })
-      // Exclui OS de modo ORDEM_GLOBAL do comprometido: a global é uma "liberação"
-      // inicial e NÃO deve reservar saldo contra OS parciais. O saldo real do
-      // contrato é regido pelas medições aprovadas (quantidade_medida).
-      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' })
-      .andWhere(
+      // A OS global é somente a liberação inicial e não reserva saldo contra
+      // as OS parciais. Em MEDICAO, a reserva migra para a medição vinculada;
+      // em ORDEM_SERVICO, a própria OS continua sendo a fonte do consumo.
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' });
+    if (contextoCiclo.modalidade !== ModalidadeExecucao.ORDEM_SERVICO) {
+      qb.andWhere(
         `NOT EXISTS (
           SELECT 1 FROM medicoes m
           WHERE m.requisicao_id = r.id
@@ -167,6 +236,10 @@ export class RequisicaoService {
         )`,
         { statusMedicoesQueConsomemOS },
       );
+    }
+    if (contextoCiclo.inicio) {
+      qb.andWhere('r.data_solicitacao >= :inicioCicloVigente', { inicioCicloVigente: contextoCiclo.inicio });
+    }
     if (excludeRequisicaoId) qb.andWhere('r.id != :excludeId', { excludeId: excludeRequisicaoId });
     const rows = await qb.groupBy('reo.etapa_id').getRawMany<{ id: string; total: string }>();
     const mapa = new Map<string, number>();
@@ -1606,6 +1679,112 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
    * NÃO permite cancelar:
    * - ATENDIDA_PARCIAL / ATENDIDA (deve estornar recebimento primeiro manualmente)
    */
+  /**
+   * Marca uma OS AUTORIZADA como ATENDIDA quando a execução foi paga fora do
+   * sistema (NF liquidada na contabilidade sem medição). A OS deixa de reservar
+   * saldo e o consumo dos itens é registrado em quantidade_medida — o mesmo
+   * efeito que a medição aprovada teria. Fica rastro no histórico da requisição
+   * e nas observações. (Caso TOYOLEM 001/2026 / VEREDA OS-0074.)
+   */
+  async atenderForaDoSistema(
+    id: string,
+    motivo: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<Requisicao> {
+    const requisicao = await this.findOne(id);
+
+    if (requisicao.tipo !== TipoRequisicao.ORDEM_SERVICO) {
+      throw new BadRequestException('Apenas ordens de serviço podem ser marcadas como atendidas fora do sistema.');
+    }
+    if (requisicao.status !== StatusRequisicao.AUTORIZADA) {
+      throw new BadRequestException(
+        `Apenas OS autorizada pode ser marcada como atendida fora do sistema. Status atual: ${requisicao.status}.`,
+      );
+    }
+    if (!motivo || motivo.trim().length < 10) {
+      throw new BadRequestException('Informe o motivo (mínimo 10 caracteres) — ex.: número da NF e data do pagamento.');
+    }
+    // OS com medição ativa não está "paga por fora": o fluxo normal dá conta.
+    const medicoesAtivas: Array<{ count: string }> = await this.dataSource.query(
+      `SELECT COUNT(*) AS count FROM medicoes
+        WHERE requisicao_id = $1 AND status <> 'REJEITADA'`,
+      [id],
+    );
+    if (Number(medicoesAtivas?.[0]?.count || 0) > 0) {
+      throw new BadRequestException(
+        'Esta OS já tem medição vinculada — conclua o fluxo pela medição em vez de marcá-la como atendida fora do sistema.',
+      );
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      // Consome o saldo dos itens como a medição aprovada consumiria:
+      // itens por tempo somam os meses solicitados; itens por quantidade, a quantidade.
+      const itensOS: Array<{
+        item_cronograma_id: string;
+        quantidade_solicitada: string;
+        meses_solicitados: string | null;
+        unidade_medida: string | null;
+      }> = await queryRunner.query(
+        `SELECT rio.item_cronograma_id, rio.quantidade_solicitada, rio.meses_solicitados, ic.unidade_medida
+           FROM requisicao_itens_os rio
+           JOIN itens_cronograma ic ON ic.id = rio.item_cronograma_id
+          WHERE rio.requisicao_id = $1 AND rio.item_cronograma_id IS NOT NULL`,
+        [id],
+      );
+      const unidadesPorTempo = ['MENSAL', 'MES', 'MÊS', 'POSTO'];
+      for (const item of itensOS) {
+        const porTempo = unidadesPorTempo.includes((item.unidade_medida || '').trim().toUpperCase());
+        const incremento = porTempo
+          ? Number(item.meses_solicitados || item.quantidade_solicitada || 0)
+          : Number(item.quantidade_solicitada || 0);
+        if (incremento > 0) {
+          await queryRunner.query(
+            `UPDATE itens_cronograma SET quantidade_medida = COALESCE(quantidade_medida, 0) + $1 WHERE id = $2`,
+            [incremento, item.item_cronograma_id],
+          );
+        }
+      }
+
+      const carimbo =
+        `OS atendida fora do sistema em ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} ` +
+        `por ${usuarioNome}. Motivo: ${motivo.trim()}`;
+      // consumo_fora_sistema_em marca a OS para o cálculo de saldo por CICLO.
+      // Sem ela, em contrato com renovação de ciclo o consumo desta OS ficaria
+      // invisível (o ciclo só soma itens_medicao_item de medições APROVADAS) e o
+      // saldo seria LIBERADO em vez de consumido ao mudar o status para ATENDIDA.
+      await queryRunner.query(
+        `UPDATE requisicoes
+            SET status = 'ATENDIDA',
+                consumo_fora_sistema_em = COALESCE(consumo_fora_sistema_em, NOW()),
+                observacoes = CASE WHEN COALESCE(observacoes, '') = '' THEN $1 ELSE observacoes || E'\n' || $1 END
+          WHERE id = $2`,
+        [carimbo, id],
+      );
+
+      await queryRunner.manager.save(HistoricoRequisicao, {
+        requisicao_id: id,
+        tipo_acao: 'ATENDIDA_FORA_SISTEMA',
+        descricao: `OS ${requisicao.numero} marcada como atendida fora do sistema (saldo dos itens consumido).`,
+        detalhes: motivo.trim(),
+        usuario_id: usuarioId,
+        usuario_nome: usuarioNome,
+      });
+
+      await queryRunner.commitTransaction();
+      this.logger.log(`OS ${requisicao.numero} atendida fora do sistema por ${usuarioNome}`);
+      return this.findOne(id);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async cancelar(id: string, motivo: string, requerPermissaoEspecial: boolean = false): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
 
@@ -2012,10 +2191,38 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       // Continua sem as ordens se houver erro - não quebra a listagem
     }
 
+    // Medições vinculadas às OS (badge "aguardando medição" no frontend)
+    try {
+      const osIds = requisicoes
+        .filter((r) => r.tipo === TipoRequisicao.ORDEM_SERVICO)
+        .map((r) => r.id);
+      if (osIds.length > 0) {
+        const medicoes: Array<{ requisicao_id: string; id: string; numero_medicao: number; status: string }> =
+          await this.dataSource.query(
+            `SELECT requisicao_id, id, numero_medicao, status FROM medicoes
+              WHERE requisicao_id = ANY($1) AND status <> 'REJEITADA'`,
+            [osIds],
+          );
+        const porRequisicao = new Map<string, any[]>();
+        for (const m of medicoes) {
+          const lista = porRequisicao.get(m.requisicao_id) || [];
+          lista.push({ id: m.id, numero_medicao: m.numero_medicao, status: m.status });
+          porRequisicao.set(m.requisicao_id, lista);
+        }
+        for (const req of requisicoes) {
+          if (req.tipo === TipoRequisicao.ORDEM_SERVICO) {
+            (req as any).medicoes_vinculadas = porRequisicao.get(req.id) || [];
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Erro ao carregar medições das OS (não crítico): ${error.message}`);
+    }
+
     for (const req of requisicoes) {
       await this.normalizarStatusLegadoOS(req);
     }
-    
+
     return requisicoes;
   }
 

@@ -94,6 +94,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
     inexistenciaFatos: false,
     menor: false,
     reservaCargos: false,
+    custosTrabalhistas: false,
+    responsabilidade: false,
   })
 
   const [itensPropostos, setItensPropostos] = useState<Array<{
@@ -177,7 +179,13 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
   const canProceed = () => {
     if (currentStep === 1) {
       // Integridade é opcional (Art. 60 - apenas contratos acima de R$ 200 milhões)
-      return declaracoes.termos && declaracoes.inexistenciaFatos && declaracoes.menor
+      return (
+        declaracoes.termos &&
+        declaracoes.inexistenciaFatos &&
+        declaracoes.menor &&
+        declaracoes.custosTrabalhistas &&
+        declaracoes.responsabilidade
+      )
     }
     if (currentStep === 2) {
       return itensPropostos.length > 0 && itensPropostos.every(item => item.valorProposto > 0)
@@ -215,6 +223,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         declaracao_inexistencia_fatos: declaracoes.inexistenciaFatos,
         declaracao_menor: declaracoes.menor,
         declaracao_reserva_cargos: declaracoes.reservaCargos,
+        declaracao_custos_trabalhistas: declaracoes.custosTrabalhistas,
+        declaracao_responsabilidade: declaracoes.responsabilidade,
         valor_total_proposta: calcularTotalProposta(),
         itens: itensPropostos.map(item => ({
           item_licitacao_id: item.id,
@@ -407,9 +417,37 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                     Declaro que nao emprego menor de 18 anos em trabalho noturno, perigoso ou insalubre.
                   </p>
                 </div>
-                <Switch 
-                  checked={declaracoes.menor} 
-                  onCheckedChange={(v) => setDeclaracoes({...declaracoes, menor: v})} 
+                <Switch
+                  checked={declaracoes.menor}
+                  onCheckedChange={(v) => setDeclaracoes({...declaracoes, menor: v})}
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex-1">
+                  <Label className="font-medium">Custos Trabalhistas *</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Declaro que a proposta compreende a integralidade dos custos para atendimento dos
+                    direitos trabalhistas (Constituição, leis trabalhistas, normas infralegais e convenções coletivas vigentes).
+                  </p>
+                </div>
+                <Switch
+                  checked={declaracoes.custosTrabalhistas}
+                  onCheckedChange={(v) => setDeclaracoes({...declaracoes, custosTrabalhistas: v})}
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex-1">
+                  <Label className="font-medium">Responsabilidade pela Proposta *</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Assumo total responsabilidade pela proposta e declaro que nos valores estão inclusos todos os
+                    custos operacionais, encargos previdenciários, trabalhistas, tributários e comerciais.
+                  </p>
+                </div>
+                <Switch
+                  checked={declaracoes.responsabilidade}
+                  onCheckedChange={(v) => setDeclaracoes({...declaracoes, responsabilidade: v})}
                 />
               </div>
             </div>
@@ -507,6 +545,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                   {declaracoes.integridade && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Programa de Integridade</li>}
                   {declaracoes.inexistenciaFatos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Inexistencia de Fatos</li>}
                   {declaracoes.menor && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Trabalho de Menor</li>}
+                  {declaracoes.custosTrabalhistas && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Custos Trabalhistas</li>}
+                  {declaracoes.responsabilidade && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Responsabilidade pela Proposta</li>}
                 </ul>
               </div>
               <div>

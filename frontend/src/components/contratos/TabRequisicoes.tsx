@@ -38,6 +38,7 @@ interface Requisicao {
   itens: any[]
   itensOS: any[]
   etapasOS: any[]
+  medicoes_vinculadas?: { id: string; numero_medicao: number; status: string }[]
   created_at: string
 }
 
@@ -98,6 +99,22 @@ function formatarData(d: string | Date | null) {
 
 function normalizarNumeroEmpenho(valor: string) {
   return valor.replace(/[-/]\d{4}$/, '')
+}
+
+function diasDesde(d: string | null) {
+  if (!d) return null
+  const inicio = new Date(String(d).split('T')[0] + 'T00:00:00-03:00').getTime()
+  if (Number.isNaN(inicio)) return null
+  return Math.max(0, Math.floor((Date.now() - inicio) / 86400000))
+}
+
+/** OS autorizada sem nenhuma medição ativa vinculada — aguardando medição. */
+function osAguardandoMedicao(req: Requisicao) {
+  return (
+    req.tipo === 'ORDEM_SERVICO' &&
+    req.status === 'AUTORIZADA' &&
+    (!req.medicoes_vinculadas || req.medicoes_vinculadas.length === 0)
+  )
 }
 
 const STATUS_REQ: Record<string, { label: string; cor: string }> = {
@@ -169,6 +186,12 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
 
   // Expandir detalhes
   const [expandido, setExpandido] = useState<string | null>(null)
+
+  // Modal "OS atendida fora do sistema"
+  const [modalAtenderFora, setModalAtenderFora] = useState<Requisicao | null>(null)
+  const [motivoAtenderFora, setMotivoAtenderFora] = useState('')
+  const [salvandoAtenderFora, setSalvandoAtenderFora] = useState(false)
+  const [erroAtenderFora, setErroAtenderFora] = useState<string | null>(null)
 
   const carregarDados = useCallback(async () => {
     setLoading(true)
@@ -398,6 +421,15 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
                                 {empenhos.length} empenho{empenhos.length > 1 ? 's' : ''}
                               </span>
                             )}
+                            {osAguardandoMedicao(req) && (() => {
+                              const dias = diasDesde(req.data_autorizacao || req.created_at)
+                              return (
+                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  Aguardando medição{dias != null ? ` há ${dias} dia${dias === 1 ? '' : 's'}` : ''}
+                                </span>
+                              )
+                            })()}
                           </div>
                           <div className="flex items-center gap-3 text-sm text-gray-500">
                             <span>{formatarMoeda(req.valor_total_estimado)}</span>
@@ -485,10 +517,20 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
                           )}
 
                           {/* Ações */}
-                          <div className="flex gap-2 pt-2">
+                          <div className="flex gap-2 pt-2 flex-wrap">
                             <Button variant="outline" size="sm" onClick={() => abrirDetalhe(req)}>
                               <History className="w-3.5 h-3.5 mr-1" /> Histórico
                             </Button>
+                            {osAguardandoMedicao(req) && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                                onClick={() => { setModalAtenderFora(req); setMotivoAtenderFora(''); setErroAtenderFora(null) }}
+                              >
+                                <AlertTriangle className="w-3.5 h-3.5 mr-1" /> Atendida fora do sistema
+                              </Button>
+                            )}
                           </div>
                         </div>
                       )}
@@ -695,6 +737,65 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
           </CardContent>
         </Card>
       )}
+
+      {/* ==================== MODAL: OS ATENDIDA FORA DO SISTEMA ==================== */}
+      <Dialog open={!!modalAtenderFora} onOpenChange={() => setModalAtenderFora(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+              OS atendida fora do sistema — {modalAtenderFora?.numero}
+            </DialogTitle>
+            <DialogDescription>
+              Use quando a execução desta OS já foi paga pela contabilidade sem medição no sistema.
+              A OS será marcada como atendida e o saldo dos itens será consumido — o mesmo efeito
+              que a medição aprovada teria. A ação fica registrada no histórico.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Motivo *</p>
+            <textarea
+              className="w-full border rounded-md p-2 text-sm h-24"
+              placeholder="Ex.: NF 307 emitida em 10/07/2026, liquidada e paga em 20/07/2026 (empenho 66)."
+              value={motivoAtenderFora}
+              onChange={(e) => setMotivoAtenderFora(e.target.value)}
+            />
+            {erroAtenderFora && <p className="text-sm text-red-600">{erroAtenderFora}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalAtenderFora(null)} disabled={salvandoAtenderFora}>Cancelar</Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700"
+              disabled={salvandoAtenderFora || motivoAtenderFora.trim().length < 10}
+              onClick={async () => {
+                if (!modalAtenderFora) return
+                setSalvandoAtenderFora(true)
+                setErroAtenderFora(null)
+                try {
+                  const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${modalAtenderFora.id}/atender-fora-sistema`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ motivo: motivoAtenderFora.trim() }),
+                  })
+                  if (!res.ok) {
+                    const data = await res.json().catch(() => null)
+                    throw new Error(data?.message || 'Erro ao marcar OS como atendida')
+                  }
+                  setModalAtenderFora(null)
+                  await carregarDados()
+                } catch (e: any) {
+                  setErroAtenderFora(e?.message || 'Erro ao marcar OS como atendida')
+                } finally {
+                  setSalvandoAtenderFora(false)
+                }
+              }}
+            >
+              {salvandoAtenderFora ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <AlertTriangle className="w-4 h-4 mr-1" />}
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ==================== MODAL: HISTÓRICO ==================== */}
       <Dialog open={!!detalheReq} onOpenChange={() => setDetalheReq(null)}>

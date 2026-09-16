@@ -1,6 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus, OnModuleInit } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { gerarAvisoDispensaPdf } from '../licitacoes/aviso-dispensa-pdf';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance, AxiosError } from 'axios';
@@ -8,6 +8,7 @@ import { PncpSync, TipoSincronizacao, StatusSincronizacao } from './entities/pnc
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 import { SystemConfigService } from '../system-config/system-config.service';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 import {
   CompraDto,
   ItemCompraDto,
@@ -43,6 +44,8 @@ export class PncpService implements OnModuleInit {
     private licitacaoRepository: Repository<Licitacao>,
     @InjectRepository(PlanoContratacaoAnual)
     private pcaRepository: Repository<PlanoContratacaoAnual>,
+    @InjectRepository(Orgao)
+    private orgaoRepository: Repository<Orgao>,
     private configService: ConfigService,
     private systemConfigService: SystemConfigService,
     @InjectDataSource()
@@ -163,9 +166,15 @@ export class PncpService implements OnModuleInit {
       await this.systemConfigService.setPncpCredentials(credentials);
       this.logger.log('[PLATFORM] Credenciais da plataforma salvas no banco de dados');
     } catch (error) {
+      // Antes o erro só ia para o log e a tela dizia "salvas com sucesso" — a
+      // credencial sumia no próximo restart sem ninguém perceber.
       this.logger.error(`[PLATFORM] Erro ao salvar credenciais no banco: ${error.message}`);
+      throw new HttpException(
+        `Credenciais não foram salvas: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
-    
+
     this.logger.log('[PLATFORM] Credenciais da plataforma atualizadas');
   }
 
@@ -252,6 +261,16 @@ export class PncpService implements OnModuleInit {
     return this.configService.get<string>('PNCP_API_URL')?.includes('treina')
       ? 'https://treina.pncp.gov.br'
       : 'https://pncp.gov.br';
+  }
+
+  /**
+   * O CNPJ jurídico do cadastro local não deve ser sobrescrito quando um
+   * órgão é associado a um ente de homologação (ou a outro ente autorizado).
+   * pncp_cnpj_orgao guarda exclusivamente a identidade usada nas APIs PNCP.
+   */
+  private obterCnpjPncpDoOrgao(orgao?: Partial<Orgao> | null): string {
+    return String(orgao?.pncp_cnpj_orgao || orgao?.cnpj || '')
+      .replace(/\D/g, '');
   }
 
   /** Base da API pública de consulta, no mesmo ambiente de PNCP_API_URL. */
@@ -408,8 +427,8 @@ export class PncpService implements OnModuleInit {
     const checklist: { campo: string; status: 'ok' | 'erro' | 'aviso'; mensagem: string }[] = [];
 
     // === DADOS DO ÓRGÃO ===
-    if (licitacao.orgao?.cnpj) {
-      const cnpjLimpo = licitacao.orgao.cnpj.replace(/\D/g, '');
+    if (this.obterCnpjPncpDoOrgao(licitacao.orgao)) {
+      const cnpjLimpo = this.obterCnpjPncpDoOrgao(licitacao.orgao);
       if (cnpjLimpo.length === 14) {
         checklist.push({ campo: 'CNPJ do Órgão', status: 'ok', mensagem: `CNPJ: ${cnpjLimpo}` });
       } else {
@@ -523,7 +542,7 @@ export class PncpService implements OnModuleInit {
     // Se válido, gerar preview dos dados que serão enviados
     let dadosEnvio = null;
     if (valido) {
-      const cnpj = licitacao.orgao?.cnpj || '';
+      const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao);
       dadosEnvio = this.mapearLicitacaoParaCompra(licitacao, cnpj);
     }
 
@@ -576,7 +595,8 @@ export class PncpService implements OnModuleInit {
     }
 
     // Priorizar CNPJ do órgão da licitação, não da plataforma
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado. Verifique se o órgão da licitação possui CNPJ cadastrado.', HttpStatus.BAD_REQUEST);
     }
@@ -588,7 +608,10 @@ export class PncpService implements OnModuleInit {
       where: { 
         licitacao_id: licitacaoId, 
         tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ])
       }
     });
 
@@ -641,7 +664,7 @@ export class PncpService implements OnModuleInit {
         try {
           pdfContent = gerarAvisoDispensaPdf({
             orgao_nome: licitacao.orgao?.nome || 'Órgão',
-            orgao_cnpj: licitacao.orgao?.cnpj,
+            orgao_cnpj: this.obterCnpjPncpDoOrgao(licitacao.orgao),
             licitacao,
             itens: licitacao.itens || [],
             url_sistema: this.configService.get<string>('FRONTEND_URL') || undefined,
@@ -835,7 +858,7 @@ export class PncpService implements OnModuleInit {
     }
 
     // Gerar link do PNCP
-    const cnpj = licitacao.orgao?.cnpj?.replace(/\D/g, '') || '';
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao);
     const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpj}/${anoCompra}/${sequencialCompra}`;
 
     // Atualizar licitação
@@ -871,9 +894,14 @@ export class PncpService implements OnModuleInit {
     }
 
     // Priorizar CNPJ do órgão da licitação
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
     const cnpjLimpo = cnpj.replace(/\D/g, '');
-    const compraDto = this.mapearLicitacaoParaCompra(licitacao, cnpj);
+    const compraDto: any = {
+      ...this.mapearLicitacaoParaCompra(licitacao, cnpj),
+      situacaoCompraId: 1,
+      justificativa: 'Retificação de dados pela plataforma PortalDCP',
+    };
     
     this.logger.log(`[atualizarCompra] Atualizando compra ${sync.ano_compra}/${sync.sequencial_compra}`);
     this.logger.log(`[atualizarCompra] sigilo_orcamento=${licitacao.sigilo_orcamento}`);
@@ -918,6 +946,7 @@ export class PncpService implements OnModuleInit {
       sync.status = StatusSincronizacao.ATUALIZADO;
       sync.resposta_pncp = response.data;
       sync.payload_enviado = compraDto;
+      sync.erro_mensagem = null as any;
       await this.pncpSyncRepository.save(sync);
 
       return {
@@ -945,7 +974,10 @@ export class PncpService implements OnModuleInit {
       where: { 
         licitacao_id: licitacaoId, 
         tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ])
       }
     });
 
@@ -963,7 +995,8 @@ export class PncpService implements OnModuleInit {
     }
 
     // Priorizar CNPJ do órgão da licitação
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO');
     const itensDto = licitacao.itens.map((item, index) => this.mapearItemParaPNCP(item, index + 1, licitacao));
 
     try {
@@ -1007,7 +1040,10 @@ export class PncpService implements OnModuleInit {
       where: { 
         licitacao_id: licitacaoId, 
         tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ])
       }
     });
 
@@ -1018,7 +1054,8 @@ export class PncpService implements OnModuleInit {
     // CNPJ do ÓRGÃO DA LICITAÇÃO (o env é só fallback — usar o CNPJ errado
     // gera "Usuário não está habilitado a publicar para o órgão X")
     const licDoc = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
-    const cnpj = (licDoc?.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+    const cnpj = this.obterCnpjPncpDoOrgao(licDoc?.orgao) ||
+      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
 
     const FormData = require('form-data');
     const formData = new FormData();
@@ -1031,7 +1068,9 @@ export class PncpService implements OnModuleInit {
         formData,
         {
           headers: {
-            ...formData.getHeaders()
+            ...formData.getHeaders(),
+            'Titulo-Documento': nomeArquivo,
+            'Tipo-Documento-Id': String(tipoDocumentoId),
           }
         }
       );
@@ -1213,7 +1252,8 @@ export class PncpService implements OnModuleInit {
       relations: ['orgao'],
     });
     if (!lic) throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
-    const cnpj = (lic.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+    const cnpj = this.obterCnpjPncpDoOrgao(lic.orgao) ||
+      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
 
     const contratos = await this.dataSource.query(
       `SELECT id, numero_contrato, objeto, valor_inicial, valor_global,
@@ -1237,6 +1277,24 @@ export class PncpService implements OnModuleInit {
     const dataStr = (d: any) =>
       d ? new Date(d).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
+    const syncAta = lic.srp
+      ? await this.pncpSyncRepository.findOne({
+          where: {
+            licitacao_id: licitacaoId,
+            tipo: TipoSincronizacao.ATA,
+            status: StatusSincronizacao.ENVIADO,
+          },
+          order: { created_at: 'DESC' },
+        })
+      : null;
+    const sequencialAta = syncAta?.resposta_pncp?.sequencialAta;
+    if (lic.srp && !sequencialAta) {
+      throw new HttpException(
+        'Contratação SRP ainda não possui ata publicada no PNCP',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const resultados: Array<{ contrato: string; sucesso: boolean; numeroControlePNCP?: string; erro?: string }> = [];
 
     for (const c of contratos) {
@@ -1250,6 +1308,12 @@ export class PncpService implements OnModuleInit {
         },
       });
       if (jaEnviado) {
+        if (/^\d{4}\/\d+$/.test(jaEnviado.numero_controle_pncp || '')) {
+          const [ano, sequencial] = jaEnviado.numero_controle_pncp.split('/');
+          jaEnviado.numero_controle_pncp =
+            `${cnpj}-2-${String(sequencial).padStart(6, '0')}/${ano}`;
+          await this.pncpSyncRepository.save(jaEnviado);
+        }
         resultados.push({ contrato: c.numero_contrato, sucesso: true, numeroControlePNCP: jaEnviado.numero_controle_pncp || undefined });
         continue;
       }
@@ -1269,6 +1333,7 @@ export class PncpService implements OnModuleInit {
         processo: lic.numero_processo,
         // Indicadores obrigatórios do contrato (false = não se aplica)
         frutoAdesao: false,
+        ...(sequencialAta ? { sequencialAta: Number(sequencialAta) } : {}),
         temRemanejamento: false,
         anoContrato,
         numeroContratoEmpenho: c.numero_contrato,
@@ -1342,10 +1407,13 @@ export class PncpService implements OnModuleInit {
             maxBodyLength: Infinity,
           },
         );
+        const locationContrato = response.headers?.location || '';
+        const locationMatch = locationContrato.match(/\/contratos\/(\d+)\/(\d+)\/?$/);
         const numeroControle =
           response.data?.numeroControlePNCP ||
-          response.headers?.location?.split('/contratos/')?.[1] ||
-          null;
+          (locationMatch
+            ? `${cnpj}-2-${String(locationMatch[2]).padStart(6, '0')}/${locationMatch[1]}`
+            : null);
         await this.pncpSyncRepository.save(
           this.pncpSyncRepository.create({
             tipo: TipoSincronizacao.CONTRATO,
@@ -1385,7 +1453,10 @@ export class PncpService implements OnModuleInit {
       where: { 
         licitacao_id: licitacaoId, 
         tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO
+        status: In([
+          StatusSincronizacao.ENVIADO,
+          StatusSincronizacao.ATUALIZADO,
+        ])
       }
     });
 
@@ -1396,7 +1467,8 @@ export class PncpService implements OnModuleInit {
     // CNPJ do ÓRGÃO DA LICITAÇÃO (o env é só fallback — o CNPJ errado gera
     // "Usuário não está habilitado a publicar para o órgão X")
     const licRes = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
-    const cnpj = (licRes?.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+    const cnpj = this.obterCnpjPncpDoOrgao(licRes?.orgao) ||
+      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
 
     try {
       const response = await this.axiosInstance.post(
@@ -1865,11 +1937,11 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('PCA não está vinculado a um órgão', HttpStatus.BAD_REQUEST);
     }
 
-    this.logger.log(`[ENVIAR-PCA] Órgão: ${orgao.nome} (CNPJ: ${orgao.cnpj})`);
+    this.logger.log(`[ENVIAR-PCA] Órgão: ${orgao.nome} (CNPJ PNCP: ${this.obterCnpjPncpDoOrgao(orgao)})`);
     this.logger.log(`[ENVIAR-PCA] pncp_vinculado: ${orgao.pncp_vinculado}, pncp_codigo_unidade: ${orgao.pncp_codigo_unidade}`);
 
     const cnpjPadrao = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    const cnpjOrgaoLimpo = (orgao.cnpj || '').replace(/\D/g, '');
+    const cnpjOrgaoLimpo = this.obterCnpjPncpDoOrgao(orgao);
     const cnpjPadraoLimpo = (cnpjPadrao || '').replace(/\D/g, '');
 
     if (!cnpjPadraoLimpo) {
@@ -2001,7 +2073,9 @@ export class PncpService implements OnModuleInit {
                                  response.data?.numeroControle ||
                                  response.data?.numeroControlePca ||
                                  response.data?.numeroControlePlano ||
-                                 (cnpjEnvio && sequencial ? `${cnpjEnvio}-${pcaEntity.ano_exercicio}-${sequencial}` : null);
+                                 (cnpjEnvio && sequencial
+                                   ? `${cnpjEnvio}-0-${String(sequencial).padStart(6, '0')}/${pcaEntity.ano_exercicio}`
+                                   : null);
 
       sync.status = StatusSincronizacao.ENVIADO;
       sync.resposta_pncp = response.data;
@@ -2208,8 +2282,8 @@ export class PncpService implements OnModuleInit {
     const cnpjPadrao = this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
     const cnpjPadraoLimpo = cnpjPadrao.replace(/\D/g, '');
 
-    if (pca?.orgao?.cnpj) {
-      const cnpjOrgaoLimpo = pca.orgao.cnpj.replace(/\D/g, '');
+    if (this.obterCnpjPncpDoOrgao(pca?.orgao)) {
+      const cnpjOrgaoLimpo = this.obterCnpjPncpDoOrgao(pca?.orgao);
       if (cnpjOrgaoLimpo && cnpjOrgaoLimpo !== '12345678000199') {
         return cnpjOrgaoLimpo;
       }
@@ -2223,10 +2297,7 @@ export class PncpService implements OnModuleInit {
   }
 
   async retificarItemPCA(anoPca: string, sequencialPca: string, numeroItem: string, item: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca);
 
     const valorUnitario = parseFloat(item.valor_unitario_estimado) || parseFloat(item.valor_estimado) || undefined;
     const quantidade = parseFloat(item.quantidade_estimada) || undefined;
@@ -2402,8 +2473,8 @@ export class PncpService implements OnModuleInit {
         where: { id: compra.licitacaoId },
         relations: ['orgao']
       });
-      if (licitacao?.orgao?.cnpj) {
-        cnpj = licitacao.orgao.cnpj;
+      if (this.obterCnpjPncpDoOrgao(licitacao?.orgao)) {
+        cnpj = this.obterCnpjPncpDoOrgao(licitacao?.orgao);
       }
     }
 
@@ -2555,7 +2626,8 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('Licitação não encontrada', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO');
     
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
@@ -2621,7 +2693,8 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('Licitação não encontrada', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = licitacao.orgao?.cnpj || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+      this.configService.get<string>('PNCP_CNPJ_ORGAO');
     
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
@@ -2720,8 +2793,8 @@ export class PncpService implements OnModuleInit {
         where: { id: licitacaoId },
         relations: ['orgao']
       });
-      if (licitacao?.orgao?.cnpj) {
-        cnpj = licitacao.orgao.cnpj;
+      if (this.obterCnpjPncpDoOrgao(licitacao?.orgao)) {
+        cnpj = this.obterCnpjPncpDoOrgao(licitacao?.orgao);
       }
     }
 
@@ -2940,43 +3013,91 @@ export class PncpService implements OnModuleInit {
   // ============ ATA DE REGISTRO DE PREÇO ============
 
   async incluirAtaRegistroPreco(anoCompra: string, sequencialCompra: string, ata: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = ata.cnpj_orgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
 
+    const cnpjLimpo = cnpj.replace(/\D/g, '');
     const ataDto = {
       numeroAtaRegistroPreco: ata.numero_ata,
       anoAta: ata.ano_ata || new Date().getFullYear(),
       dataAssinatura: ata.data_assinatura,
       dataVigenciaInicio: ata.data_vigencia_inicio,
       dataVigenciaFim: ata.data_vigencia_fim,
-      niFornecedor: ata.cnpj_fornecedor?.replace(/\D/g, ''),
-      nomeRazaoSocialFornecedor: ata.nome_fornecedor,
-      situacaoAtaId: ata.situacao_id || 1, // 1 = Vigente
-      tipoPessoaId: ata.tipo_pessoa_id || 2, // 2 = Pessoa Jurídica
-      itensAta: (ata.itens || []).map((item: any) => ({
-        numeroItem: item.numero_item,
-        quantidade: parseFloat(item.quantidade) || 1,
-        valorUnitario: parseFloat(item.valor_unitario) || 0,
-        valorTotal: parseFloat(item.valor_total) || (parseFloat(item.quantidade) * parseFloat(item.valor_unitario)) || 0,
-      }))
+      possibilidadeAdesao: Boolean(ata.possibilidade_adesao),
+      partesEnvolvidas: ata.partes_envolvidas || [
+        {
+          tipoParteEnvolvidaId: 1,
+          cnpj: cnpjLimpo,
+          codigoUnidadeCompradora: String(ata.codigo_unidade || '1'),
+        },
+      ],
     };
 
     try {
-      const response = await this.axiosInstance.post(
-        `/orgaos/${cnpj.replace(/\D/g, '')}/compras/${anoCompra}/${sequencialCompra}/atas`,
-        ataDto
+      await this.getValidToken();
+      // A API PNCP v2.5 exige multipart: metadados JSON na parte "ata"
+      // e o arquivo correspondente na parte "documento".
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const FormData = require('form-data');
+      const formData = new FormData();
+      formData.append('ata', Buffer.from(JSON.stringify(ataDto), 'utf-8'), {
+        filename: 'ata.json',
+        contentType: 'application/json',
+      });
+      const pdfAta = ata.arquivo_buffer || Buffer.from(
+        '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF',
+      );
+      formData.append('documento', pdfAta, {
+        filename: ata.nome_arquivo || 'ata-registro-precos.pdf',
+        contentType: 'application/pdf',
+      });
+
+      const response = await axios.post(
+        `${this.configService.get<string>('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1'}/orgaos/${cnpjLimpo}/compras/${anoCompra}/${sequencialCompra}/atas`,
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+            Authorization: `Bearer ${this.token}`,
+            'Titulo-Documento': ata.titulo_documento || `Ata de Registro de Precos ${ata.numero_ata}`,
+            'Tipo-Documento-Id': '11',
+          },
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        },
       );
 
-      const sequencialAta = response.data?.sequencialAta;
+      const location = response.headers?.location || '';
+      const sequencialAta =
+        response.data?.sequencialAta ||
+        location.match(/\/atas\/(\d+)\/?$/)?.[1];
 
       this.logger.log(`Ata de Registro de Preço incluída: ${sequencialAta}`);
+      if (ata.licitacao_id) {
+        const numeroControleAta = ata.numero_controle_compra && sequencialAta
+          ? `${ata.numero_controle_compra}-${String(sequencialAta).padStart(6, '0')}`
+          : null;
+        await this.pncpSyncRepository.save(
+          this.pncpSyncRepository.create({
+            tipo: TipoSincronizacao.ATA,
+            licitacao_id: ata.licitacao_id,
+            entidade_id: ata.entidade_id || undefined,
+            status: StatusSincronizacao.ENVIADO,
+            numero_controle_pncp: numeroControleAta || undefined,
+            ano_compra: Number(anoCompra),
+            sequencial_compra: Number(sequencialCompra),
+            payload_enviado: ataDto,
+            resposta_pncp: { sequencialAta, location, ...response.data },
+          }),
+        );
+      }
 
       return {
         sucesso: true,
-        mensagem: `Ata incluída com sucesso. Link: ${this.getPortalBaseUrl()}/app/atas/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}/${sequencialAta}`,
-        dados: { sequencialAta, ...response.data }
+        mensagem: `Ata incluída com sucesso. Link: ${this.getPortalBaseUrl()}/app/atas/${cnpjLimpo}/${anoCompra}/${sequencialCompra}/${sequencialAta}`,
+        dados: { sequencialAta, location, ...response.data }
       };
     } catch (error) {
       throw new HttpException(
@@ -2987,7 +3108,7 @@ export class PncpService implements OnModuleInit {
   }
 
   async retificarAtaRegistroPreco(anoCompra: string, sequencialCompra: string, sequencialAta: string, ata: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = ata.cnpj_orgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -2999,10 +3120,9 @@ export class PncpService implements OnModuleInit {
       dataAssinatura: ata.data_assinatura,
       dataVigenciaInicio: ata.data_vigencia_inicio,
       dataVigenciaFim: ata.data_vigencia_fim,
+      possibilidadeAdesao: Boolean(ata.possibilidade_adesao),
       justificativa: ata.justificativa || 'Retificação de dados da ata',
     };
-    
-    if (ata.situacao_id) ataDto.situacaoAtaId = ata.situacao_id;
     
     this.logger.log(`Retificando ata: ${JSON.stringify(ataDto)}`);
 
@@ -3026,8 +3146,14 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async excluirAtaRegistroPreco(anoCompra: string, sequencialCompra: string, sequencialAta: string, justificativa: string): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+  async excluirAtaRegistroPreco(
+    anoCompra: string,
+    sequencialCompra: string,
+    sequencialAta: string,
+    justificativa: string,
+    cnpjOrgao?: string,
+  ): Promise<PncpResponseDto> {
+    const cnpj = cnpjOrgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -3055,7 +3181,7 @@ export class PncpService implements OnModuleInit {
   // ============ CONTRATOS - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
 
   async incluirContrato(contrato: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = contrato.cnpj_orgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -3097,20 +3223,32 @@ export class PncpService implements OnModuleInit {
   }
 
   async retificarContrato(anoContrato: string, sequencialContrato: string, contrato: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    const cnpj = contrato.cnpj_orgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
 
-    const contratoDto = {
-      objetoContrato: contrato.objeto,
-      valorInicial: parseFloat(contrato.valor_inicial) || undefined,
-      valorGlobal: parseFloat(contrato.valor_global) || undefined,
-      dataVigenciaFim: contrato.data_vigencia_fim,
+    const contratoDto: any = {
+      justificativa:
+        contrato.justificativa ||
+        'Retificação de dados pela plataforma PortalDCP',
     };
+    if (contrato.objeto) contratoDto.objetoContrato = contrato.objeto;
+    if (contrato.valor_inicial !== undefined) {
+      contratoDto.valorInicial = parseFloat(contrato.valor_inicial);
+    }
+    if (contrato.valor_global !== undefined) {
+      contratoDto.valorGlobal = parseFloat(contrato.valor_global);
+    }
+    if (contrato.data_vigencia_fim) {
+      contratoDto.dataVigenciaFim = contrato.data_vigencia_fim;
+    }
+    if (contrato.informacao_complementar) {
+      contratoDto.informacaoComplementar = contrato.informacao_complementar;
+    }
 
     try {
-      await this.axiosInstance.put(
+      await this.axiosInstance.patch(
         `/orgaos/${cnpj.replace(/\D/g, '')}/contratos/${anoContrato}/${sequencialContrato}`,
         contratoDto
       );
@@ -3129,8 +3267,13 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async excluirContrato(anoContrato: string, sequencialContrato: string, justificativa: string): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+  async excluirContrato(
+    anoContrato: string,
+    sequencialContrato: string,
+    justificativa: string,
+    cnpjOrgao?: string,
+  ): Promise<PncpResponseDto> {
+    const cnpj = cnpjOrgao || this.configService.get<string>('PNCP_CNPJ_ORGAO');
     if (!cnpj) {
       throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
     }
@@ -3508,7 +3651,10 @@ export class PncpService implements OnModuleInit {
     };
 
     try {
-      const response = await this.axiosInstance.put(`/usuarios/${idUsuario}`, updateDto);
+      const response = await this.axiosInstance.post(
+        `/usuarios/${idUsuario}/orgaos`,
+        updateDto,
+      );
       this.logger.log(`Entes autorizados atualizados: ${cnpjsLimpos.join(', ')}`);
       return {
         sucesso: true,
@@ -3544,10 +3690,110 @@ export class PncpService implements OnModuleInit {
       };
     }
     
-    // Adicionar o novo CNPJ
-    const novosEntes = [...cnpjsAtuais, cnpjLimpo];
-    
-    return this.atualizarEntesAutorizados(novosEntes);
+    // O endpoint de inclusão recebe somente os novos entes; reenviar os já
+    // existentes pode ser recusado como duplicidade pelo PNCP.
+    return this.atualizarEntesAutorizados([cnpjLimpo]);
+  }
+
+  async associarEnteAoOrgaoLocal(dados: {
+    cnpjEnte: string;
+    orgaoId: string;
+    codigoUnidade: string;
+    reassociar?: boolean;
+  }): Promise<any> {
+    const cnpjEnte = String(dados.cnpjEnte || '').replace(/\D/g, '');
+    const codigoUnidade = String(dados.codigoUnidade || '').trim();
+    if (cnpjEnte.length !== 14) {
+      throw new HttpException('CNPJ do ente PNCP inválido', HttpStatus.BAD_REQUEST);
+    }
+    if (!dados.orgaoId || !codigoUnidade) {
+      throw new HttpException(
+        'Selecione o órgão local e a unidade PNCP',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const consultaUsuario = await this.consultarUsuario();
+    const entes = consultaUsuario.entesAutorizados || [];
+    const enteAutorizado = entes.find((ente: any) => {
+      const cnpj = typeof ente === 'string' ? ente : ente?.cnpj;
+      return String(cnpj || '').replace(/\D/g, '') === cnpjEnte;
+    });
+    if (!enteAutorizado) {
+      throw new HttpException(
+        'O CNPJ informado ainda não está entre os entes autorizados deste usuário PNCP',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    await this.getValidToken();
+    const unidadesResponse = await this.axiosInstance.get(
+      `/orgaos/${cnpjEnte}/unidades`,
+    );
+    const unidades = Array.isArray(unidadesResponse.data)
+      ? unidadesResponse.data
+      : [];
+    const unidade = unidades.find(
+      (item: any) => String(item.codigoUnidade) === codigoUnidade,
+    );
+    if (!unidade) {
+      throw new HttpException(
+        `A unidade ${codigoUnidade} não pertence ao ente autorizado`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const orgaoLocal = await this.orgaoRepository.findOne({
+      where: { id: dados.orgaoId },
+    });
+    if (!orgaoLocal) {
+      throw new HttpException('Órgão local não encontrado', HttpStatus.NOT_FOUND);
+    }
+
+    const vinculoExistente = await this.orgaoRepository.findOne({
+      where: { pncp_cnpj_orgao: cnpjEnte, pncp_vinculado: true },
+    });
+    if (vinculoExistente && vinculoExistente.id !== orgaoLocal.id) {
+      if (!dados.reassociar) {
+        throw new HttpException(
+          {
+            codigo: 'ENTE_JA_ASSOCIADO',
+            message: `O ente já está associado ao órgão local "${vinculoExistente.nome}"`,
+            orgaoAtual: {
+              id: vinculoExistente.id,
+              nome: vinculoExistente.nome,
+            },
+          },
+          HttpStatus.CONFLICT,
+        );
+      }
+      vinculoExistente.pncp_vinculado = false;
+      vinculoExistente.pncp_cnpj_orgao = undefined as any;
+      vinculoExistente.pncp_codigo_unidade = undefined as any;
+      vinculoExistente.pncp_status = 'PENDENTE';
+      vinculoExistente.pncp_data_vinculacao = undefined as any;
+      await this.orgaoRepository.save(vinculoExistente);
+    }
+
+    orgaoLocal.pncp_vinculado = true;
+    orgaoLocal.pncp_cnpj_orgao = cnpjEnte;
+    orgaoLocal.pncp_codigo_unidade = codigoUnidade;
+    orgaoLocal.pncp_status = 'VINCULADO';
+    orgaoLocal.pncp_data_vinculacao = new Date();
+    await this.orgaoRepository.save(orgaoLocal);
+
+    return {
+      sucesso: true,
+      mensagem: 'Ente PNCP associado ao órgão local com sucesso',
+      vinculo: {
+        orgaoId: orgaoLocal.id,
+        orgaoNome: orgaoLocal.nome,
+        cnpjLocal: orgaoLocal.cnpj,
+        cnpjPncp: cnpjEnte,
+        codigoUnidade,
+        nomeUnidade: unidade.nomeUnidade || null,
+      },
+    };
   }
 
   // ============ UNIDADES DO ÓRGÃO ============

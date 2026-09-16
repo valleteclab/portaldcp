@@ -2,9 +2,11 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike } from 'typeorm';
+import { Repository, ILike, Not } from 'typeorm';
+import { Setor } from '../orgaos/entities/setor.entity';
 import { BemPatrimonial } from './entities/bem-patrimonial.entity';
 import { CategoriaBem } from './entities/categoria-bem.entity';
 import { ManutencaoBem } from './entities/manutencao-bem.entity';
@@ -12,7 +14,8 @@ import { LocacaoBem } from './entities/locacao-bem.entity';
 import { ServidorBem } from './entities/servidor-bem.entity';
 import { ComodatoBem } from './entities/comodato-bem.entity';
 import { HistoricoBem } from './entities/historico-bem.entity';
-import { StatusBem, StatusManutencao, TipoBem } from './entities/enums';
+import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
+import { StatusBem, StatusManutencao, TipoBem, EstadoConservacao } from './entities/enums';
 import { CriarBemDto } from './dto/criar-bem.dto';
 import { AtualizarBemDto } from './dto/atualizar-bem.dto';
 import { CriarManutencaoDto } from './dto/criar-manutencao.dto';
@@ -21,6 +24,15 @@ import { CriarLocacaoDto } from './dto/criar-locacao.dto';
 import { CriarServidorBemDto } from './dto/criar-servidor-bem.dto';
 import { CriarComodatoDto } from './dto/criar-comodato.dto';
 import { CriarCategoriaDto } from './dto/criar-categoria.dto';
+import { calcularDepreciacao, parseTipoAquisicao } from './depreciacao.util';
+import {
+  lerLinhasPlanilha,
+  normalizarChave,
+  parseValorPlanilha,
+  vidaUtilPorTaxa,
+  situacaoPorSetor,
+  juntarObservacoes,
+} from './importacao-bens.util';
 
 @Injectable()
 export class PatrimonioService {
@@ -39,6 +51,10 @@ export class PatrimonioService {
     private readonly comodatoRepository: Repository<ComodatoBem>,
     @InjectRepository(HistoricoBem)
     private readonly historicoRepository: Repository<HistoricoBem>,
+    @InjectRepository(Setor)
+    private readonly setorRepository: Repository<Setor>,
+    @InjectRepository(FotoBem)
+    private readonly fotoRepository: Repository<FotoBem>,
   ) {}
 
   // ─── BENS ────────────────────────────────────────────
@@ -49,12 +65,14 @@ export class PatrimonioService {
       tipo?: TipoBem;
       status?: StatusBem;
       categoria_id?: string;
+      setor_id?: string;
       busca?: string;
     },
   ) {
     const qb = this.bemRepository
       .createQueryBuilder('bem')
       .leftJoinAndSelect('bem.categoria', 'categoria')
+      .leftJoinAndSelect('bem.setor', 'setor')
       .where('bem.orgao_id = :orgaoId', { orgaoId });
 
     if (filtros?.tipo) {
@@ -68,9 +86,12 @@ export class PatrimonioService {
         categoriaId: filtros.categoria_id,
       });
     }
+    if (filtros?.setor_id) {
+      qb.andWhere('bem.setor_id = :setorId', { setorId: filtros.setor_id });
+    }
     if (filtros?.busca) {
       qb.andWhere(
-        '(bem.descricao ILIKE :busca OR bem.plaqueta ILIKE :busca)',
+        '(bem.descricao ILIKE :busca OR bem.plaqueta ILIKE :busca OR bem.epc ILIKE :busca OR bem.numero_serie ILIKE :busca)',
         { busca: `%${filtros.busca}%` },
       );
     }
@@ -79,11 +100,13 @@ export class PatrimonioService {
     return qb.getMany();
   }
 
-  async obterBem(orgaoId: string, bemId: string) {
+  /** Entidade crua (para editar/salvar). */
+  private async carregarBem(orgaoId: string, bemId: string) {
     const bem = await this.bemRepository.findOne({
       where: { id: bemId, orgao_id: orgaoId },
       relations: [
         'categoria',
+        'setor',
         'manutencoes',
         'locacoes',
         'servidores',
@@ -95,22 +118,120 @@ export class PatrimonioService {
     return bem;
   }
 
-  async criarBem(orgaoId: string, dto: CriarBemDto, usuarioNome: string) {
+  /**
+   * Bem com `depreciacao` calculada na data de hoje (parâmetros do bem ou,
+   * se nulos, da categoria); null quando faltar valor, data ou vida útil.
+   */
+  async obterBem(orgaoId: string, bemId: string) {
+    const bem = await this.carregarBem(orgaoId, bemId);
+    return { ...bem, depreciacao: calcularDepreciacao(bem, bem.categoria) };
+  }
+
+  /** Licitação/contrato de origem: só a coluna uuid (sem relação), mas precisa existir e ser do órgão. */
+  private async validarOrigemAquisicao(
+    orgaoId: string,
+    dados: { licitacao_id?: string | null; contrato_id?: string | null },
+  ) {
+    if (dados.licitacao_id) {
+      const r = await this.bemRepository.query(
+        'SELECT 1 FROM "licitacoes" WHERE "id" = $1 AND "orgao_id" = $2 LIMIT 1',
+        [dados.licitacao_id, orgaoId],
+      );
+      if (!r?.length) throw new BadRequestException('Licitação não encontrada neste órgão');
+    }
+    if (dados.contrato_id) {
+      const r = await this.bemRepository.query(
+        'SELECT 1 FROM "contratos" WHERE "id" = $1 AND "orgao_id" = $2 LIMIT 1',
+        [dados.contrato_id, orgaoId],
+      );
+      if (!r?.length) throw new BadRequestException('Contrato não encontrado neste órgão');
+    }
+  }
+
+  /**
+   * Próximo número de plaqueta do órgão: maior plaqueta numérica + 1,
+   * com 6 dígitos (000001, 000002…). Plaquetas antigas com letras não
+   * entram na conta, então uma numeração legada convive com a nova.
+   */
+  async proximaPlaqueta(orgaoId: string): Promise<string> {
+    const row = await this.bemRepository
+      .createQueryBuilder('bem')
+      .select("MAX(CAST(bem.plaqueta AS bigint))", 'maior')
+      .where('bem.orgao_id = :orgaoId', { orgaoId })
+      .andWhere("bem.plaqueta ~ '^[0-9]{1,12}$'")
+      .getRawOne<{ maior: string | null }>();
+    const proximo = Number(row?.maior || 0) + 1;
+    return String(proximo).padStart(6, '0');
+  }
+
+  /** Plaqueta e EPC são únicos por órgão (409 quando repetir). */
+  private async garantirCodigosUnicos(
+    orgaoId: string,
+    plaqueta?: string | null,
+    epc?: string | null,
+    ignorarBemId?: string,
+  ) {
+    const filtroId = ignorarBemId ? { id: Not(ignorarBemId) } : {};
+    if (plaqueta) {
+      const existe = await this.bemRepository.findOne({
+        where: { orgao_id: orgaoId, plaqueta, ...filtroId },
+        select: ['id', 'descricao'],
+      });
+      if (existe) {
+        throw new ConflictException(
+          `A plaqueta ${plaqueta} já está em uso: "${existe.descricao}"`,
+        );
+      }
+    }
+    if (epc) {
+      const existe = await this.bemRepository.findOne({
+        where: { orgao_id: orgaoId, epc, ...filtroId },
+        select: ['id', 'descricao'],
+      });
+      if (existe) {
+        throw new ConflictException(
+          `O código RFID ${epc} já está vinculado a "${existe.descricao}"`,
+        );
+      }
+    }
+  }
+
+  private normalizarCodigos<T extends { plaqueta?: string | null; epc?: string | null }>(dto: T): T {
+    const out: any = { ...dto };
+    if (typeof out.plaqueta === 'string') out.plaqueta = out.plaqueta.trim() || null;
+    if (typeof out.epc === 'string') out.epc = out.epc.trim().toUpperCase() || null;
+    return out;
+  }
+
+  /** `retornarBem=false` na importação em lote: evita recarregar o bem com relações a cada linha. */
+  async criarBem(orgaoId: string, dto: CriarBemDto, usuarioNome: string, retornarBem = true) {
+    const dados = this.normalizarCodigos(dto);
+    if (!dados.plaqueta) dados.plaqueta = await this.proximaPlaqueta(orgaoId);
+    await this.garantirCodigosUnicos(orgaoId, dados.plaqueta, dados.epc);
+    if (dados.setor_id) await this.validarSetor(orgaoId, dados.setor_id);
+    await this.validarOrigemAquisicao(orgaoId, dados);
+
     const bem = this.bemRepository.create({
-      ...dto,
+      ...(dados as any),
       orgao_id: orgaoId,
-    });
+    }) as unknown as BemPatrimonial;
     const salvo = await this.bemRepository.save(bem);
 
     await this.registrarHistorico(
       salvo.id,
       orgaoId,
       'CRIADO',
-      `Bem "${salvo.descricao}" cadastrado`,
+      `Bem "${salvo.descricao}" cadastrado (plaqueta ${salvo.plaqueta})`,
       usuarioNome,
     );
 
-    return salvo;
+    return retornarBem ? this.obterBem(orgaoId, salvo.id) : salvo;
+  }
+
+  private async validarSetor(orgaoId: string, setorId: string) {
+    const setor = await this.setorRepository.findOne({ where: { id: setorId, orgao_id: orgaoId } });
+    if (!setor) throw new BadRequestException('Setor não pertence a este órgão');
+    return setor;
   }
 
   async atualizarBem(
@@ -119,8 +240,18 @@ export class PatrimonioService {
     dto: AtualizarBemDto,
     usuarioNome: string,
   ) {
-    const bem = await this.obterBem(orgaoId, bemId);
-    Object.assign(bem, dto);
+    const bem = await this.carregarBem(orgaoId, bemId);
+    const dados = this.normalizarCodigos(dto);
+    if (dados.plaqueta === null) delete (dados as any).plaqueta; // nunca apaga a plaqueta
+    await this.garantirCodigosUnicos(
+      orgaoId,
+      dados.plaqueta !== undefined ? dados.plaqueta : undefined,
+      dados.epc !== undefined ? dados.epc : undefined,
+      bemId,
+    );
+    if (dados.setor_id) await this.validarSetor(orgaoId, dados.setor_id);
+    await this.validarOrigemAquisicao(orgaoId, dados);
+    Object.assign(bem, dados);
     const salvo = await this.bemRepository.save(bem);
 
     await this.registrarHistorico(
@@ -135,7 +266,7 @@ export class PatrimonioService {
   }
 
   async excluirBem(orgaoId: string, bemId: string, usuarioNome: string) {
-    const bem = await this.obterBem(orgaoId, bemId);
+    const bem = await this.carregarBem(orgaoId, bemId);
     await this.registrarHistorico(
       bemId,
       orgaoId,
@@ -145,6 +276,339 @@ export class PatrimonioService {
     );
     await this.bemRepository.remove(bem);
     return { message: 'Bem excluído com sucesso' };
+  }
+
+  /**
+   * "Trocar a foto" (comportamento antigo): entra na galeria como CADASTRO e
+   * SEMPRE vira a capa do bem.
+   */
+  async salvarFoto(orgaoId: string, bemId: string, fotoUrl: string, usuarioNome: string) {
+    const foto = await this.adicionarFoto(orgaoId, bemId, {
+      url: fotoUrl,
+      origem: OrigemFotoBem.CADASTRO,
+      tirada_por: usuarioNome,
+    });
+    if (!foto.capa) await this.definirCapa(orgaoId, bemId, foto.id, usuarioNome);
+    return { foto_url: fotoUrl };
+  }
+
+  // ─── GALERIA DE FOTOS ────────────────────────────────
+
+  private async bemDoOrgao(orgaoId: string, bemId: string) {
+    const bem = await this.bemRepository.findOne({ where: { id: bemId, orgao_id: orgaoId } });
+    if (!bem) throw new NotFoundException('Bem não encontrado');
+    return bem;
+  }
+
+  private comCapa(foto: FotoBem, bem: BemPatrimonial) {
+    return { ...foto, capa: !!bem.foto_url && foto.url === bem.foto_url };
+  }
+
+  /** Fotos do bem, da mais recente para a mais antiga, marcando qual é a capa. */
+  async listarFotos(orgaoId: string, bemId: string) {
+    const bem = await this.bemDoOrgao(orgaoId, bemId);
+    const fotos = await this.fotoRepository.find({ where: { bem_id: bemId, orgao_id: orgaoId }, order: { created_at: 'DESC' } });
+    return fotos.map((f) => this.comCapa(f, bem));
+  }
+
+  /** Acrescenta uma foto à galeria; se o bem ainda não tem capa, esta vira a capa. */
+  async adicionarFoto(
+    orgaoId: string,
+    bemId: string,
+    dados: { url: string; origem?: OrigemFotoBem | string; legenda?: string | null; tirada_por?: string | null; inventario_leitura_id?: string | null },
+  ) {
+    const bem = await this.bemDoOrgao(orgaoId, bemId);
+    const url = String(dados.url || '').trim();
+    if (!url) throw new BadRequestException('URL da foto vazia');
+    const origem = Object.values(OrigemFotoBem).includes(dados.origem as OrigemFotoBem)
+      ? (dados.origem as OrigemFotoBem)
+      : OrigemFotoBem.CADASTRO;
+    const foto = await this.fotoRepository.save(
+      this.fotoRepository.create({
+        bem_id: bemId,
+        orgao_id: orgaoId,
+        url,
+        origem,
+        legenda: dados.legenda?.trim() || null,
+        tirada_por: dados.tirada_por?.trim().slice(0, 120) || null,
+        inventario_leitura_id: dados.inventario_leitura_id || null,
+      }),
+    );
+    if (!bem.foto_url) {
+      bem.foto_url = url;
+      await this.bemRepository.save(bem);
+    }
+    await this.registrarHistorico(
+      bemId,
+      orgaoId,
+      'FOTO',
+      `Foto adicionada (${origem.toLowerCase()})${foto.legenda ? `: ${foto.legenda}` : ''}`,
+      foto.tirada_por || 'Sistema',
+    );
+    return this.comCapa(foto, bem);
+  }
+
+  private async fotoDoBem(orgaoId: string, bemId: string, fotoId: string) {
+    const foto = await this.fotoRepository.findOne({ where: { id: fotoId, bem_id: bemId, orgao_id: orgaoId } });
+    if (!foto) throw new NotFoundException('Foto não encontrada');
+    return foto;
+  }
+
+  async definirCapa(orgaoId: string, bemId: string, fotoId: string, usuarioNome = 'Sistema') {
+    const bem = await this.bemDoOrgao(orgaoId, bemId);
+    const foto = await this.fotoDoBem(orgaoId, bemId, fotoId);
+    bem.foto_url = foto.url;
+    await this.bemRepository.save(bem);
+    await this.registrarHistorico(bemId, orgaoId, 'FOTO', 'Foto de capa do bem alterada', usuarioNome);
+    return this.comCapa(foto, bem);
+  }
+
+  /** Remove a foto da galeria (o arquivo físico fica); se era a capa, a mais recente restante assume. */
+  async excluirFoto(orgaoId: string, bemId: string, fotoId: string, usuarioNome = 'Sistema') {
+    const bem = await this.bemDoOrgao(orgaoId, bemId);
+    const foto = await this.fotoDoBem(orgaoId, bemId, fotoId);
+    const eraCapa = !!bem.foto_url && foto.url === bem.foto_url;
+    await this.fotoRepository.remove(foto);
+    if (eraCapa) {
+      const restante = await this.fotoRepository.findOne({ where: { bem_id: bemId, orgao_id: orgaoId }, order: { created_at: 'DESC' } });
+      bem.foto_url = restante?.url || null;
+      await this.bemRepository.save(bem);
+    }
+    await this.registrarHistorico(bemId, orgaoId, 'FOTO', 'Foto removida da galeria', usuarioNome);
+    return { message: 'Foto excluída', foto_url: bem.foto_url };
+  }
+
+  /**
+   * Carga inicial por planilha (xlsx/csv). Colunas reconhecidas pelo cabeçalho
+   * (sem acento, sem maiúscula): plaqueta, descricao, categoria, setor, tipo,
+   * estado, responsavel, cargo, marca, modelo, serie, valor, data_aquisicao,
+   * nota_fiscal, fornecedor, epc, observacoes; e os do cadastro legado:
+   * tipo_aquisicao, contrato (nº), licitacao/processo (nº), processo_pagamento,
+   * data_pagamento, empenho → referencia_contabil, conta_contabil/plano_de_contas,
+   * vida_util, residual, corresponsavel, garantia, seguradora, apolice,
+   * seguro_inicio, seguro_fim, seguro_valor, centro_de_custo (= setor).
+   * Relatório do sistema anterior: numero_patrimonio, valor_nota, estado_conservacao,
+   * codigo_centro_custo (código do setor) e depreciacao_percentual (taxa anual → vida útil).
+   * Setor que não existe é CRIADO quando a linha traz o código do setor. "Setores" que são
+   * situações (inservíveis, em localização, cedidos, imóveis) viram conservação/observação/
+   * categoria — ver importacao-bens.util.ts.
+   * "valor_atual", "unidade", "secretaria" e "orgao" são ignorados. Só "descricao" é obrigatória;
+   * plaqueta vazia recebe o próximo número; plaqueta já existente ATUALIZA o bem.
+   */
+  async importarPlanilha(orgaoId: string, arquivo: Buffer, usuarioNome: string) {
+    const linhas = lerLinhasPlanilha(arquivo);
+    if (!linhas.length) throw new BadRequestException('Nenhuma linha encontrada na planilha');
+
+    const norm = normalizarChave;
+    const ALIAS: Record<string, string> = {
+      plaqueta: 'plaqueta', n_plaqueta: 'plaqueta', numero: 'plaqueta', tombo: 'plaqueta', patrimonio: 'plaqueta', n_patrimonio: 'plaqueta', numero_patrimonio: 'plaqueta', numero_do_patrimonio: 'plaqueta',
+      descricao: 'descricao', bem: 'descricao', item: 'descricao',
+      categoria: 'categoria', setor: 'setor', departamento: 'setor', localizacao: 'setor', local: 'setor',
+      tipo: 'tipo', estado: 'estado', estado_de_conservacao: 'estado', estado_conservacao: 'estado', conservacao: 'estado',
+      responsavel: 'responsavel', cargo: 'cargo', marca: 'marca', modelo: 'modelo',
+      serie: 'serie', numero_de_serie: 'serie', n_serie: 'serie', numero_serie: 'serie',
+      valor: 'valor', valor_de_aquisicao: 'valor', valor_aquisicao: 'valor', valor_nota: 'valor', valor_da_nota: 'valor',
+      data_aquisicao: 'data_aquisicao', data_de_aquisicao: 'data_aquisicao', aquisicao: 'data_aquisicao', data: 'data_aquisicao',
+      nota_fiscal: 'nota_fiscal', nf: 'nota_fiscal', n_nf: 'nota_fiscal', fornecedor: 'fornecedor',
+      epc: 'epc', rfid: 'epc', observacoes: 'observacoes', observacao: 'observacoes', obs: 'observacoes',
+      // ─── cadastro legado ───
+      centro_de_custo: 'setor', centro_custo: 'setor',
+      codigo_centro_custo: 'codigo_setor', codigo_centro_de_custo: 'codigo_setor', codigo_setor: 'codigo_setor',
+      depreciacao_percentual: 'taxa_depreciacao', taxa_depreciacao: 'taxa_depreciacao', taxa_de_depreciacao: 'taxa_depreciacao', depreciacao_anual: 'taxa_depreciacao',
+      tipo_aquisicao: 'tipo_aquisicao', tipo_de_aquisicao: 'tipo_aquisicao', forma_de_aquisicao: 'tipo_aquisicao', forma_aquisicao: 'tipo_aquisicao',
+      contrato: 'contrato', n_contrato: 'contrato', numero_contrato: 'contrato', numero_do_contrato: 'contrato',
+      licitacao: 'licitacao', processo: 'licitacao', n_processo: 'licitacao', numero_processo: 'licitacao', processo_licitatorio: 'licitacao',
+      processo_pagamento: 'processo_pagamento', proc_pagamento: 'processo_pagamento', processo_de_pagamento: 'processo_pagamento',
+      data_pagamento: 'data_pagamento', data_de_pagamento: 'data_pagamento', pagamento: 'data_pagamento',
+      // o cabeçalho do legado pode dizer "empenho"; o NOSSO campo é referencia_contabil
+      empenho: 'referencia_contabil', n_empenho: 'referencia_contabil', numero_empenho: 'referencia_contabil', referencia_contabil: 'referencia_contabil',
+      plano_de_contas: 'conta_contabil', conta_contabil: 'conta_contabil', conta: 'conta_contabil',
+      vida_util: 'vida_util', vida_util_anos: 'vida_util', vida_util_em_anos: 'vida_util',
+      residual: 'residual', vl_residual: 'residual', valor_residual: 'residual', valor_residual_pct: 'residual', residual_pct: 'residual',
+      corresponsavel: 'corresponsavel', co_responsavel: 'corresponsavel',
+      garantia: 'garantia', garantia_ate: 'garantia', data_garantia: 'garantia', fim_garantia: 'garantia',
+      seguradora: 'seguradora', apolice: 'apolice', n_apolice: 'apolice',
+      seguro_inicio: 'seguro_inicio', inicio_seguro: 'seguro_inicio', seguro_vigencia_inicio: 'seguro_inicio',
+      seguro_fim: 'seguro_fim', vigencia_seguro: 'seguro_fim', fim_seguro: 'seguro_fim', seguro_vigencia_fim: 'seguro_fim',
+      valor_segurado: 'seguro_valor', seguro_valor: 'seguro_valor', valor_seguro: 'seguro_valor',
+    };
+    const mapear = (linha: Record<string, any>) => {
+      const out: Record<string, any> = {};
+      for (const [k, v] of Object.entries(linha)) {
+        const chave = ALIAS[norm(k)];
+        if (chave) out[chave] = v;
+      }
+      return out;
+    };
+
+    const [categorias, setores] = await Promise.all([
+      this.listarCategorias(orgaoId),
+      this.setorRepository.find({ where: { orgao_id: orgaoId } }),
+    ]);
+    const catPorNome = new Map(categorias.map((c) => [norm(c.nome), c]));
+    // Contrato/licitação de origem por número (cache por planilha; '' = não achou)
+    const contratoIdPorNumero = new Map<string, string>();
+    const licitacaoIdPorNumero = new Map<string, string>();
+    const buscarContratoId = async (numero: string): Promise<string | undefined> => {
+      const k = norm(numero);
+      if (!k) return undefined;
+      if (!contratoIdPorNumero.has(k)) {
+        const r = await this.bemRepository.query(
+          'SELECT "id" FROM "contratos" WHERE "orgao_id" = $1 AND "numero_contrato" = $2 ORDER BY "created_at" DESC LIMIT 1',
+          [orgaoId, numero.trim()],
+        );
+        contratoIdPorNumero.set(k, r?.[0]?.id || '');
+      }
+      return contratoIdPorNumero.get(k) || undefined;
+    };
+    const buscarLicitacaoId = async (numero: string): Promise<string | undefined> => {
+      const k = norm(numero);
+      if (!k) return undefined;
+      if (!licitacaoIdPorNumero.has(k)) {
+        const r = await this.bemRepository.query(
+          'SELECT "id" FROM "licitacoes" WHERE "orgao_id" = $1 AND "numero_processo" = $2 LIMIT 1',
+          [orgaoId, numero.trim()],
+        );
+        licitacaoIdPorNumero.set(k, r?.[0]?.id || '');
+      }
+      return licitacaoIdPorNumero.get(k) || undefined;
+    };
+    const setorPorChave = new Map<string, Setor>();
+    for (const s of setores) {
+      setorPorChave.set(norm(s.nome), s);
+      if (s.codigo) setorPorChave.set(norm(s.codigo), s);
+    }
+
+    const parseValor = parseValorPlanilha;
+    // Setor que falta é criado quando a planilha traz o código dele (centro de custo)
+    const obterOuCriarSetor = async (nome: string, codigo: string): Promise<Setor | undefined> => {
+      const achado = setorPorChave.get(norm(nome)) || (codigo ? setorPorChave.get(norm(codigo)) : undefined);
+      if (achado || !codigo) return achado;
+      const novo = await this.setorRepository.save(
+        this.setorRepository.create({ orgao_id: orgaoId, nome, codigo: codigo.slice(0, 50) }),
+      );
+      setorPorChave.set(norm(nome), novo);
+      setorPorChave.set(norm(novo.codigo), novo);
+      resultado.setores_criados.push(nome);
+      return novo;
+    };
+    const parseData = (v: any): string | null => {
+      if (!v) return null;
+      if (v instanceof Date) return v.toISOString().slice(0, 10);
+      const s = String(v).trim();
+      const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+      return null;
+    };
+    const parseEstado = (v: any): EstadoConservacao | undefined => {
+      const s = norm(v);
+      if (!s) return undefined;
+      if (s.startsWith('bom') || s === 'otimo' || s === 'novo') return EstadoConservacao.BOM;
+      if (s.startsWith('reg')) return EstadoConservacao.REGULAR;
+      if (s.startsWith('ruim') || s.startsWith('mau') || s.startsWith('pessimo')) return EstadoConservacao.RUIM;
+      if (s.startsWith('inserv')) return EstadoConservacao.INSERVIVEL;
+      return undefined;
+    };
+    const parseTipo = (v: any): TipoBem => {
+      const s = norm(v);
+      if (s.includes('loc')) return TipoBem.BEM_LOCADO;
+      if (s.includes('comod')) return TipoBem.BEM_COMODATO;
+      if (s.includes('servidor') || s.includes('particular')) return TipoBem.BEM_SERVIDOR;
+      return TipoBem.BEM_PROPRIO;
+    };
+
+    const resultado = {
+      total: linhas.length,
+      criados: 0,
+      atualizados: 0,
+      setores_criados: [] as string[],
+      erros: [] as { linha: number; erro: string }[],
+    };
+    for (let i = 0; i < linhas.length; i++) {
+      const l = mapear(linhas[i]);
+      const numeroLinha = i + 2; // cabeçalho é a linha 1
+      try {
+        const descricao = String(l.descricao || '').trim();
+        if (!descricao) {
+          if (Object.values(l).every((v) => String(v ?? '').trim() === '')) continue; // linha em branco
+          throw new Error('descrição vazia');
+        }
+        const nomeSetor = String(l.setor || '').trim();
+        const situacao = situacaoPorSetor(nomeSetor);
+        const depreciacao = vidaUtilPorTaxa(l.taxa_depreciacao);
+        let categoriaId: string | undefined;
+        const nomeCat = String(l.categoria || '').trim() || situacao.categoria || '';
+        if (nomeCat) {
+          let cat = catPorNome.get(norm(nomeCat));
+          if (!cat) {
+            cat = await this.criarCategoria(orgaoId, { nome: nomeCat });
+            catPorNome.set(norm(nomeCat), cat);
+          }
+          categoriaId = cat.id;
+        }
+        const setor = nomeSetor ? await obterOuCriarSetor(nomeSetor, String(l.codigo_setor ?? '').trim()) : undefined;
+        const tipoAquisicao = parseTipoAquisicao(l.tipo_aquisicao) ?? (norm(l.tipo).startsWith('aquisic') ? parseTipoAquisicao(l.tipo) : undefined);
+
+        const numContrato = String(l.contrato || '').trim();
+        const numLicitacao = String(l.licitacao || '').trim();
+        const vidaUtil = parseValor(l.vida_util);
+        const residual = parseValor(l.residual);
+
+        const dados: any = {
+          descricao,
+          categoria_id: categoriaId,
+          tipo: parseTipo(l.tipo),
+          estado_conservacao: situacao.estado ?? parseEstado(l.estado),
+          setor_id: setor?.id,
+          localizacao_nome: !setor && nomeSetor ? nomeSetor : undefined,
+          responsavel_nome: String(l.responsavel || '').trim() || undefined,
+          responsavel_cargo: String(l.cargo || '').trim() || undefined,
+          marca: String(l.marca || '').trim() || undefined,
+          modelo: String(l.modelo || '').trim() || undefined,
+          numero_serie: String(l.serie || '').trim() || undefined,
+          valor_aquisicao: parseValor(l.valor) ?? undefined,
+          data_aquisicao: parseData(l.data_aquisicao) ?? undefined,
+          nota_fiscal_numero: String(l.nota_fiscal || '').trim() || undefined,
+          fornecedor_nome: String(l.fornecedor || '').trim() || undefined,
+          epc: String(l.epc || '').trim() || undefined,
+          observacoes: juntarObservacoes(l.observacoes, situacao.observacao, depreciacao.observacao),
+          // cadastro legado
+          tipo_aquisicao: tipoAquisicao,
+          contrato_id: numContrato ? await buscarContratoId(numContrato) : undefined,
+          licitacao_id: numLicitacao ? await buscarLicitacaoId(numLicitacao) : undefined,
+          processo_pagamento: String(l.processo_pagamento || '').trim() || undefined,
+          data_pagamento: parseData(l.data_pagamento) ?? undefined,
+          referencia_contabil: String(l.referencia_contabil || '').trim() || undefined,
+          conta_contabil: String(l.conta_contabil || '').trim() || undefined,
+          vida_util_anos: vidaUtil != null && vidaUtil >= 1 ? Math.round(vidaUtil) : depreciacao.vida_util_anos,
+          valor_residual_pct: residual != null && residual >= 0 && residual <= 100 ? residual : undefined,
+          corresponsavel_nome: String(l.corresponsavel || '').trim() || undefined,
+          garantia_ate: parseData(l.garantia) ?? undefined,
+          seguro_seguradora: String(l.seguradora || '').trim() || undefined,
+          seguro_apolice: String(l.apolice || '').trim() || undefined,
+          seguro_vigencia_inicio: parseData(l.seguro_inicio) ?? undefined,
+          seguro_vigencia_fim: parseData(l.seguro_fim) ?? undefined,
+          seguro_valor: parseValor(l.seguro_valor) ?? undefined,
+        };
+        for (const k of Object.keys(dados)) if (dados[k] === undefined) delete dados[k];
+
+        const plaqueta = String(l.plaqueta ?? '').trim();
+        const existente = plaqueta
+          ? await this.bemRepository.findOne({ where: { orgao_id: orgaoId, plaqueta } })
+          : null;
+        if (existente) {
+          await this.atualizarBem(orgaoId, existente.id, dados, usuarioNome);
+          resultado.atualizados++;
+        } else {
+          await this.criarBem(orgaoId, { ...dados, plaqueta: plaqueta || undefined }, usuarioNome, false);
+          resultado.criados++;
+        }
+      } catch (err: any) {
+        resultado.erros.push({ linha: numeroLinha, erro: err?.message || String(err) });
+      }
+    }
+    return resultado;
   }
 
   // ─── CATEGORIAS ──────────────────────────────────────
@@ -176,12 +640,22 @@ export class PatrimonioService {
     const categoria = await this.categoriaRepository.findOne({
       where: { id: categoriaId, orgao_id: orgaoId, sistema: false },
     });
-    if (!categoria)
-      throw new NotFoundException(
-        'Categoria não encontrada ou é do sistema',
-      );
-    categoria.nome = dto.nome;
+    if (!categoria) {
+      // Categorias do sistema: só os parâmetros de depreciação podem ser ajustados pelo órgão
+      const sistema = await this.categoriaRepository.findOne({ where: { id: categoriaId, sistema: true } });
+      if (!sistema) throw new NotFoundException('Categoria não encontrada');
+      this.aplicarParametrosDepreciacao(sistema, dto);
+      return this.categoriaRepository.save(sistema);
+    }
+    if (dto.nome) categoria.nome = dto.nome;
+    this.aplicarParametrosDepreciacao(categoria, dto);
     return this.categoriaRepository.save(categoria);
+  }
+
+  private aplicarParametrosDepreciacao(categoria: CategoriaBem, dto: CriarCategoriaDto) {
+    if (dto.vida_util_anos !== undefined) categoria.vida_util_anos = dto.vida_util_anos ? Number(dto.vida_util_anos) : null;
+    if (dto.valor_residual_pct !== undefined && dto.valor_residual_pct !== null) categoria.valor_residual_pct = Number(dto.valor_residual_pct);
+    if (dto.conta_contabil !== undefined) categoria.conta_contabil = dto.conta_contabil?.trim() || null;
   }
 
   async desativarCategoria(orgaoId: string, categoriaId: string) {

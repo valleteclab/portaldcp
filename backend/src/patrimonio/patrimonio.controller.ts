@@ -10,11 +10,47 @@ import {
   Res,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage, memoryStorage } from 'multer';
+import { join, extname } from 'path';
+import { mkdirSync } from 'fs';
+import type { Response } from 'express';
+import { GerarZplDto } from './dto/gerar-etiqueta.dto';
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+
+/**
+ * Upload de imagem do bem (jpg/png/webp até 10 MB) gravada em
+ * uploads/patrimonio/<orgaoId>/<bemId>-<timestamp>.<ext>. Compartilhado pelas
+ * rotas de foto (capa) e de galeria.
+ */
+const uploadFotoBem = () =>
+  FileInterceptor('file', {
+    storage: diskStorage({
+      destination: (req, _file, cb) => {
+        const dir = join(UPLOAD_DIR, 'patrimonio', String(req.params.orgaoId).replace(/[^a-zA-Z0-9-]/g, ''));
+        mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+      },
+      filename: (req, file, cb) => {
+        const ext = (extname(file.originalname || '') || '.jpg').toLowerCase();
+        cb(null, `${String(req.params.id).replace(/[^a-zA-Z0-9-]/g, '')}-${Date.now()}${ext}`);
+      },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const ok = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(file.mimetype);
+      cb(ok ? null : new BadRequestException('Envie uma imagem JPG, PNG ou WEBP'), ok);
+    },
+  });
 import { PatrimonioService } from './patrimonio.service';
 import { PatrimonioEtiquetasService } from './patrimonio-etiquetas.service';
 import { PatrimonioRelatoriosService } from './patrimonio-relatorios.service';
+import { PatrimonioInventarioService } from './patrimonio-inventario.service';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -28,6 +64,7 @@ import { CriarComodatoDto } from './dto/criar-comodato.dto';
 import { CriarCategoriaDto } from './dto/criar-categoria.dto';
 import { GerarEtiquetaDto } from './dto/gerar-etiqueta.dto';
 import { TipoBem, StatusBem, StatusManutencao } from './entities/enums';
+import { OrigemFotoBem } from './entities/foto-bem.entity';
 
 @Controller('orgaos/:orgaoId/patrimonio')
 @RequireModule(ModuloSistema.PATRIMONIO)
@@ -36,7 +73,23 @@ export class PatrimonioController {
     private readonly patrimonioService: PatrimonioService,
     private readonly etiquetasService: PatrimonioEtiquetasService,
     private readonly relatoriosService: PatrimonioRelatoriosService,
+    private readonly inventarioService: PatrimonioInventarioService,
   ) {}
+
+  /**
+   * Acha o bem por qualquer código lido (URL do QR, plaqueta, EPC RFID).
+   * Usado pela tela de associação de tags RFID no coletor.
+   */
+  @Get('bem-por-codigo')
+  async bemPorCodigo(@Param('orgaoId') orgaoId: string, @Query('codigo') codigo: string) {
+    const { bem, codigo: lido } = await this.inventarioService.resolverCodigo(orgaoId, codigo);
+    return {
+      codigo: lido,
+      bem: bem
+        ? { id: bem.id, plaqueta: bem.plaqueta, descricao: bem.descricao, epc: bem.epc, setor_nome: bem.setor?.nome || bem.localizacao_nome || null, categoria: bem.categoria?.nome || null, status: bem.status }
+        : null,
+    };
+  }
 
   // ─── BENS ────────────────────────────────────────────
 
@@ -46,14 +99,105 @@ export class PatrimonioController {
     @Query('tipo') tipo?: TipoBem,
     @Query('status') status?: StatusBem,
     @Query('categoria_id') categoria_id?: string,
+    @Query('setor_id') setor_id?: string,
     @Query('busca') busca?: string,
   ) {
     return this.patrimonioService.listarBens(orgaoId, {
       tipo,
       status,
       categoria_id,
+      setor_id,
       busca,
     });
+  }
+
+  /** Próximo número de plaqueta (para mostrar no formulário antes de salvar). */
+  @Get('proxima-plaqueta')
+  async proximaPlaqueta(@Param('orgaoId') orgaoId: string) {
+    return { plaqueta: await this.patrimonioService.proximaPlaqueta(orgaoId) };
+  }
+
+  /** Carga inicial por planilha (xlsx/xls/csv). */
+  @Post('importar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const ok = /\.(xlsx|xls|csv)$/i.test(file.originalname || '');
+        cb(ok ? null : new BadRequestException('Envie uma planilha .xlsx, .xls ou .csv'), ok);
+      },
+    }),
+  )
+  async importar(
+    @Param('orgaoId') orgaoId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
+  ) {
+    if (!file?.buffer) throw new BadRequestException('Nenhum arquivo enviado');
+    return this.patrimonioService.importarPlanilha(orgaoId, file.buffer, user?.nome || 'Sistema');
+  }
+
+  /** Foto do bem (jpg/png até 10 MB), servida em /api/uploads/patrimonio/<orgao>/<arquivo>. */
+  @Post('bem/:id/foto')
+  @UseInterceptors(uploadFotoBem())
+  async foto(
+    @Param('orgaoId') orgaoId: string,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: any,
+  ) {
+    if (!file) throw new BadRequestException('Nenhuma imagem enviada');
+    const url = `/api/uploads/patrimonio/${orgaoId}/${file.filename}`;
+    return this.patrimonioService.salvarFoto(orgaoId, id, url, user?.nome || 'Sistema');
+  }
+
+  // ─── GALERIA DE FOTOS DO BEM ─────────────────────────
+
+  @Get('bem/:id/fotos')
+  async listarFotos(@Param('orgaoId') orgaoId: string, @Param('id') id: string) {
+    return this.patrimonioService.listarFotos(orgaoId, id);
+  }
+
+  /** Nova foto na galeria (não troca a capa, salvo se o bem ainda não tiver). Body: origem, legenda. */
+  @Post('bem/:id/fotos')
+  @UseInterceptors(uploadFotoBem())
+  async adicionarFoto(
+    @Param('orgaoId') orgaoId: string,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { origem?: string; legenda?: string },
+    @CurrentUser() user: any,
+  ) {
+    if (!file) throw new BadRequestException('Nenhuma imagem enviada');
+    const url = `/api/uploads/patrimonio/${orgaoId}/${file.filename}`;
+    return this.patrimonioService.adicionarFoto(orgaoId, id, {
+      url,
+      origem: body?.origem || OrigemFotoBem.CADASTRO,
+      legenda: body?.legenda,
+      tirada_por: user?.nome || 'Sistema',
+    });
+  }
+
+  @Put('bem/:id/fotos/:fotoId/capa')
+  async definirCapa(
+    @Param('orgaoId') orgaoId: string,
+    @Param('id') id: string,
+    @Param('fotoId') fotoId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.patrimonioService.definirCapa(orgaoId, id, fotoId, user?.nome || 'Sistema');
+  }
+
+  @Delete('bem/:id/fotos/:fotoId')
+  @HttpCode(HttpStatus.OK)
+  async excluirFoto(
+    @Param('orgaoId') orgaoId: string,
+    @Param('id') id: string,
+    @Param('fotoId') fotoId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.patrimonioService.excluirFoto(orgaoId, id, fotoId, user?.nome || 'Sistema');
   }
 
   @Get('bem/:id')
@@ -310,6 +454,21 @@ export class PatrimonioController {
     res.send(pdfBuffer);
   }
 
+  /** Arquivo ZPL para a impressora de etiquetas Zebra do órgão. */
+  @Post('etiquetas/zpl')
+  async gerarZpl(
+    @Param('orgaoId') orgaoId: string,
+    @Body() dto: GerarZplDto,
+    @Res() res: Response,
+  ) {
+    const zpl = await this.etiquetasService.gerarZpl(orgaoId, dto);
+    res.set({
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename=plaquetas-${dto.bem_ids.length}.zpl`,
+    });
+    res.send(zpl);
+  }
+
   // ─── RELATÓRIOS ──────────────────────────────────────
 
   @Get('relatorios/resumo')
@@ -328,6 +487,15 @@ export class PatrimonioController {
       dataInicio,
       dataFim,
     );
+  }
+
+  /** Posição de depreciação linear por categoria e por bem (NBC TSP 07). */
+  @Get('relatorios/depreciacao')
+  async relatorioDepreciacao(
+    @Param('orgaoId') orgaoId: string,
+    @Query('data') data?: string,
+  ) {
+    return this.relatoriosService.depreciacao(orgaoId, data);
   }
 
   @Get('relatorios/locacoes-vencendo')

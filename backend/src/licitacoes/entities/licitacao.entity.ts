@@ -412,6 +412,21 @@ export class Licitacao {
   @Column({ type: 'varchar', nullable: true, length: 300 })
   url_externa: string | null;
 
+  // Dados pedidos pelo leiaute das plataformas de disputa (BLL e similares),
+  // preenchidos na exportação do edital. Só informativos para o portal.
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  entrega_local: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  entrega_prazo: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  garantia_produto: string | null;
+
+  /** Vigência da ata em meses (registro de preços). */
+  @Column({ type: 'int', nullable: true })
+  ata_vigencia_meses: number | null;
+
   // ============================================================================
   // DISPENSA ELETRÔNICA — fase de LANCES (opcional, espelha IN SEGES 67/2021)
   // Janela aberta pelo órgão após o fim do acolhimento de propostas.

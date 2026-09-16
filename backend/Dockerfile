@@ -32,6 +32,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/src/ext/api-docs-content.md ./dist/src/ext/api-docs-content.md
+COPY --from=builder /app/demo-docs ./demo-docs
 
 # Criar diretório de uploads local (fallback)
 RUN mkdir -p /app/uploads && chown -R nestjs:nodejs /app/uploads

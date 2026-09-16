@@ -4,6 +4,7 @@ import { FrotaController } from './frota.controller';
 import { FrotaPublicController } from './frota-public.controller';
 import { FrotaService } from './frota.service';
 import { FrotaAuthService } from './frota-auth.service';
+import { FrotaNotificacaoService } from './frota-notificacao.service';
 import { Veiculo } from './entities/veiculo.entity';
 import { Abastecimento } from './entities/abastecimento.entity';
 import { Manutencao } from './entities/manutencao.entity';
@@ -28,7 +29,7 @@ import { ContratosModule } from '../contratos/contratos.module';
     ContratosModule, // fornece acesso a contratos existentes
   ],
   controllers: [FrotaController, FrotaPublicController],
-  providers: [FrotaService, FrotaAuthService],
+  providers: [FrotaService, FrotaAuthService, FrotaNotificacaoService],
   exports: [FrotaService, FrotaAuthService],
 })
 export class FrotaModule {}

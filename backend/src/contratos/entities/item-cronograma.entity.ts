@@ -37,6 +37,12 @@ export class ItemCronograma {
   @Column({ type: 'int' })
   numero_item: number;
 
+  @Column({ type: 'int', nullable: true, default: null })
+  lote_numero: number | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true, default: null })
+  lote_descricao: string | null;
+
   @Column({ type: 'text' })
   descricao: string;
 
@@ -71,7 +77,13 @@ export class ItemCronograma {
   quantidade_medida: number;
 
   /** Valor exato do ajuste de migração para itens mensais, preservando medições parciais em R$. */
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, default: null })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    default: null,
+  })
   valor_migracao_reais: number | null;
 
   @Column({ type: 'text', nullable: true })
@@ -85,4 +97,11 @@ export class ItemCronograma {
 }
 
 /** Unidades pré-cadastradas para itens do cronograma */
-export const UNIDADES_CRONOGRAMA = ['HORA', 'MENSAL', 'LITROS', 'METROS', 'SERVICO', 'UNIDADE'] as const;
+export const UNIDADES_CRONOGRAMA = [
+  'HORA',
+  'MENSAL',
+  'LITROS',
+  'METROS',
+  'SERVICO',
+  'UNIDADE',
+] as const;

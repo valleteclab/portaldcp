@@ -49,6 +49,7 @@ import {
   Trash2,
   BarChart3,
   FileText,
+  FileSpreadsheet,
   AlertTriangle,
   Calendar,
   MapPin,
@@ -76,6 +77,7 @@ import Link from "next/link";
 import { API_URL, authFetch } from "@/lib/api";
 import { derivarCompetencia } from "@/lib/pdf-medicao";
 import ConciliacaoFatorCard from "@/components/contratos/ConciliacaoFatorCard";
+import ModalMedicaoRetroativa from "@/components/contratos/ModalMedicaoRetroativa";
 import {
   mesesVigenciaContrato,
   execucoesSugeridasPorFrequencia,
@@ -143,6 +145,8 @@ interface EtapaItem {
 interface ItemCronograma {
   id: string;
   numero_item: number;
+  lote_numero?: number | null;
+  lote_descricao?: string | null;
   descricao: string;
   unidade_medida: string;
   quantidade: number;
@@ -186,6 +190,8 @@ interface Medicao {
   data_devolucao?: string;
   status: string;
   created_at: string;
+  lancamento_retroativo?: boolean;
+  retroativo_motivo?: string | null;
   itens?: any[];
   execucao_fiscal?: {
     vigencia_inicio?: string;
@@ -501,13 +507,31 @@ export default function TabMedicao({
 
   // Verificar se o usuário logado tem permissão de excluir medições
   const [podeExcluirMedicao, setPodeExcluirMedicao] = useState(false);
+  // Mesma permissão de cancelar/estornar: libera o lançamento retroativo (ação de suporte)
+  const [podeCancelarEstornar, setPodeCancelarEstornar] = useState(false);
+  const [modalRetroativa, setModalRetroativa] = useState(false);
   useEffect(() => {
     try {
       const u = JSON.parse(localStorage.getItem("usuario") || "{}");
       setPodeExcluirMedicao(u.pode_excluir_medicao === true);
+      setPodeCancelarEstornar(u.pode_cancelar_estornar === true);
     } catch {
       setPodeExcluirMedicao(false);
+      setPodeCancelarEstornar(false);
     }
+    // Confirma na API (fonte da verdade) e atualiza o cache do localStorage
+    (async () => {
+      try {
+        const res = await authFetch(`${API_URL}/api/usuarios/me`);
+        if (!res.ok) return;
+        const usuario = await res.json();
+        setPodeExcluirMedicao(usuario.pode_excluir_medicao === true);
+        setPodeCancelarEstornar(usuario.pode_cancelar_estornar === true);
+        localStorage.setItem("usuario", JSON.stringify(usuario));
+      } catch {
+        /* mantém o valor do cache */
+      }
+    })();
   }, []);
 
   // Modais
@@ -523,6 +547,7 @@ export default function TabMedicao({
   const [modalDevolver, setModalDevolver] = useState<Medicao | null>(null);
   const [modalDetalhe, setModalDetalhe] = useState<Medicao | null>(null);
   const [discriminacoesDetalhe, setDiscriminacoesDetalhe] = useState<any[]>([]);
+  const [equipeDetalheDisponivel, setEquipeDetalheDisponivel] = useState(false);
   const [execucaoFinanceira, setExecucaoFinanceira] = useState<any>(null);
   const [editandoDiscriminacao, setEditandoDiscriminacao] = useState<
     string | null
@@ -532,8 +557,31 @@ export default function TabMedicao({
   // Corrigir Boletim
   const [modalCorrigir, setModalCorrigir] = useState<Medicao | null>(null);
   const [abaCorrigir, setAbaCorrigir] = useState<
-    "cabecalho" | "itens_cronograma" | "execucao_fiscal" | "discriminacoes"
+    | "cabecalho"
+    | "ordem_servico"
+    | "itens_cronograma"
+    | "execucao_fiscal"
+    | "discriminacoes"
+    | "assinaturas"
   >("cabecalho");
+  // Aba "Ordem de Serviço": troca da OS consumida pela medição
+  type OsDoContrato = {
+    id: string;
+    numero: string;
+    data_solicitacao: string | null;
+    valor_total_estimado: number | null;
+    status: string;
+    medicao_vinculada: {
+      id: string;
+      numero_medicao: number | null;
+      status: string;
+    } | null;
+  };
+  const [osDoContrato, setOsDoContrato] = useState<OsDoContrato[]>([]);
+  const [carregandoOsContrato, setCarregandoOsContrato] = useState(false);
+  const [osSelecionadaTroca, setOsSelecionadaTroca] = useState<string>("");
+  const [motivoTrocaOs, setMotivoTrocaOs] = useState("");
+  const [salvandoTrocaOs, setSalvandoTrocaOs] = useState(false);
   const [cabecalhoForm, setCabecalhoForm] = useState({
     competencia: "",
     periodo_inicio: "",
@@ -549,6 +597,11 @@ export default function TabMedicao({
   >([]);
   const [discValorTotalCorrigir, setDiscValorTotalCorrigir] = useState("");
   const [motivoDiscCorrigir, setMotivoDiscCorrigir] = useState("");
+  // Aba Assinaturas: datas editáveis das assinaturas digitais do boletim
+  const [assinaturasCorrigir, setAssinaturasCorrigir] = useState<
+    { id: string; papel: string; nome: string; data_original: string; nova_data: string }[]
+  >([]);
+  const [motivoAssinaturas, setMotivoAssinaturas] = useState("");
   const [salvandoCorrecao, setSalvandoCorrecao] = useState(false);
   const [pdfRegeneradoUrl, setPdfRegeneradoUrl] = useState<string | null>(null);
   const [regenerandoPdf, setRegenerandoPdf] = useState(false);
@@ -632,6 +685,8 @@ export default function TabMedicao({
   });
   const [formItemCronograma, setFormItemCronograma] = useState({
     numero_item: "",
+    lote_numero: "",
+    lote_descricao: "",
     descricao: "",
     unidade_medida: "UNIDADE",
     quantidade: "",
@@ -721,23 +776,54 @@ export default function TabMedicao({
     setModalDetalhe(m);
     setAnexosMedicao([]);
     setDiscriminacoesDetalhe([]);
+    setEquipeDetalheDisponivel(false);
     setExecucaoFinanceira(null);
     setEditandoDiscriminacao(null);
     setMotivoCorrecao("");
     setLoadingAnexos(true);
     try {
-      const [anexosRes, discRes, execRes] = await Promise.all([
+      const [anexosRes, discRes, execRes, equipeRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/anexos`),
         authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/discriminacoes`),
         authFetch(
           `${API_URL}/api/contratos/${contratoId}/execucao-financeira?medicaoId=${m.id}`,
         ),
+        authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/equipe`),
       ]);
       if (anexosRes.ok) setAnexosMedicao(await anexosRes.json());
       if (discRes.ok) setDiscriminacoesDetalhe(await discRes.json());
       if (execRes.ok) setExecucaoFinanceira(await execRes.json());
+      if (equipeRes.ok) {
+        setEquipeDetalheDisponivel(Boolean(await equipeRes.json()));
+      }
     } catch {}
     setLoadingAnexos(false);
+  };
+
+  const baixarRelacaoEquipe = async (formato: "xlsx" | "pdf") => {
+    if (!modalDetalhe) return;
+    try {
+      const resposta = await authFetch(
+        `${API_URL}/api/contratos/medicoes/${modalDetalhe.id}/equipe/${formato}`,
+      );
+      if (!resposta.ok) {
+        const erro = await resposta.json().catch(() => null);
+        throw new Error(erro?.message || "Não foi possível gerar o arquivo");
+      }
+      const blob = await resposta.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `relacao-funcionarios-medicao-${modalDetalhe.numero_medicao}.${formato}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (erro) {
+      alert(
+        erro instanceof Error
+          ? erro.message
+          : "Erro ao baixar a relação da equipe",
+      );
+    }
   };
 
   const handleCorrigirDiscriminacao = async (
@@ -775,10 +861,47 @@ export default function TabMedicao({
     }
   };
 
+  // datetime-local no fuso de Brasília (convenção do sistema p/ PDFs e telas)
+  const paraDatetimeLocalBrasilia = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "";
+      // sv-SE gera "YYYY-MM-DD HH:mm:ss"
+      return d
+        .toLocaleString("sv-SE", { timeZone: "America/Sao_Paulo" })
+        .slice(0, 16)
+        .replace(" ", "T");
+    } catch {
+      return "";
+    }
+  };
+
   const abrirModalCorrigir = async (m: Medicao) => {
     setModalCorrigir(m);
     setAbaCorrigir("cabecalho");
     setPdfRegeneradoUrl(null);
+    // Assinaturas digitais (datas editáveis)
+    setAssinaturasCorrigir([]);
+    setMotivoAssinaturas("");
+    try {
+      const resAss = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/assinaturas`);
+      if (resAss.ok) {
+        const lista = await resAss.json();
+        if (Array.isArray(lista)) {
+          setAssinaturasCorrigir(
+            lista.map((a: any) => ({
+              id: a.id,
+              papel: a.papel_assinante || "",
+              nome: a.usuario_nome || "",
+              data_original: a.data_assinatura,
+              nova_data: paraDatetimeLocalBrasilia(a.data_assinatura),
+            })),
+          );
+        }
+      }
+    } catch {
+      /* aba mostra vazio */
+    }
     setCabecalhoForm({
       competencia: m.competencia ?? "",
       periodo_inicio: m.periodo_inicio ? m.periodo_inicio.slice(0, 10) : "",
@@ -968,6 +1091,74 @@ export default function TabMedicao({
       m.valor_medido != null ? String(m.valor_medido) : "",
     );
     setMotivoDiscCorrigir("");
+    // Aba "Ordem de Serviço": lista as OS do contrato para permitir a troca
+    setOsSelecionadaTroca((m as any).requisicao_id ?? "");
+    setMotivoTrocaOs("");
+    setCarregandoOsContrato(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${contratoId}/ordens-servico-requisicao`,
+      );
+      setOsDoContrato(res.ok ? await res.json() : []);
+    } catch {
+      setOsDoContrato([]);
+    } finally {
+      setCarregandoOsContrato(false);
+    }
+  };
+
+  /**
+   * Troca (ou desvincula) a OS consumida pela medição. Corrige o caso em que a
+   * medição foi criada apontando para a OS errada — a OS certa ficava presa como
+   * "comprometida" e travava o saldo do item.
+   */
+  const salvarTrocaOs = async () => {
+    if (!modalCorrigir) return;
+    const atual = (modalCorrigir as any).requisicao_id ?? "";
+    const nova = osSelecionadaTroca || "";
+    if (nova === atual) {
+      alert("Selecione uma OS diferente da atual (ou 'Nenhuma' para desvincular).");
+      return;
+    }
+    if (motivoTrocaOs.trim().length < 10) {
+      alert("Informe o motivo da troca (mínimo 10 caracteres).");
+      return;
+    }
+    const escolhida = osDoContrato.find((o) => o.id === nova);
+    const rotulo = escolhida ? `OS ${escolhida.numero}` : "nenhuma OS (desvincular)";
+    if (
+      !confirm(
+        `Vincular esta medição a ${rotulo}?\n\n` +
+          "Isso recalcula o saldo dos itens: a OS anterior deixa de ser consumida por " +
+          "esta medição e a nova passa a ser.",
+      )
+    )
+      return;
+    setSalvandoTrocaOs(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/os`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            requisicao_id: nova || null,
+            motivo: motivoTrocaOs.trim(),
+          }),
+        },
+      );
+      if (res.ok) {
+        alert("OS da medição atualizada. O saldo dos itens foi recalculado.");
+        setModalCorrigir(null);
+        carregarDados();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || "Erro ao trocar a OS da medição");
+      }
+    } catch {
+      alert("Erro ao trocar a OS da medição");
+    } finally {
+      setSalvandoTrocaOs(false);
+    }
   };
 
   const salvarCabecalho = async () => {
@@ -1034,6 +1225,60 @@ export default function TabMedicao({
       }
     } catch {
       alert("Erro ao salvar cabeçalho");
+    } finally {
+      setSalvandoCorrecao(false);
+    }
+  };
+
+  const salvarDatasAssinaturas = async () => {
+    if (!modalCorrigir) return;
+    if (!motivoAssinaturas.trim() || motivoAssinaturas.trim().length < 5) {
+      alert("Informe o motivo da correção das datas (mínimo 5 caracteres)");
+      return;
+    }
+    const alteradas = assinaturasCorrigir.filter(
+      (a) => a.nova_data && a.nova_data !== paraDatetimeLocalBrasilia(a.data_original),
+    );
+    if (alteradas.length === 0) {
+      alert("Nenhuma data foi alterada.");
+      return;
+    }
+    setSalvandoCorrecao(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/medicoes/${modalCorrigir.id}/assinaturas/datas`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            // envia com offset de Brasília — convenção do sistema
+            assinaturas: alteradas.map((a) => ({
+              id: a.id,
+              data_assinatura: `${a.nova_data}:00-03:00`,
+            })),
+            motivo: motivoAssinaturas.trim(),
+          }),
+        },
+      );
+      if (res.ok) {
+        const lista = await res.json().catch(() => null);
+        if (Array.isArray(lista)) {
+          setAssinaturasCorrigir(
+            lista.map((a: any) => ({
+              id: a.id,
+              papel: a.papel_assinante || "",
+              nome: a.usuario_nome || "",
+              data_original: a.data_assinatura,
+              nova_data: paraDatetimeLocalBrasilia(a.data_assinatura),
+            })),
+          );
+        }
+        alert('Datas salvas! Clique em "Regenerar PDF" para atualizar o boletim com as novas datas.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.message || "Erro ao salvar as datas das assinaturas");
+      }
+    } catch {
+      alert("Erro ao salvar as datas das assinaturas");
     } finally {
       setSalvandoCorrecao(false);
     }
@@ -1576,6 +1821,9 @@ export default function TabMedicao({
         Math.abs(Number(item.valor_total) - totalCalculadoItem) <= 1;
       setFormItemCronograma({
         numero_item: String(item.numero_item),
+        lote_numero:
+          item.lote_numero != null ? String(item.lote_numero) : "",
+        lote_descricao: item.lote_descricao || "",
         descricao: item.descricao,
         unidade_medida: item.unidade_medida,
         quantidade: String(item.quantidade),
@@ -1610,6 +1858,8 @@ export default function TabMedicao({
       setUnidadeClausulaBase("METROS");
       setFormItemCronograma({
         numero_item: "",
+        lote_numero: "",
+        lote_descricao: "",
         descricao: "",
         unidade_medida: "UNIDADE",
         quantidade: "",
@@ -1853,13 +2103,17 @@ export default function TabMedicao({
     setActionLoading(true);
     try {
       const payload = {
-        ...(editandoItemCronograma &&
-          formItemCronograma.numero_item !== "" && {
-            numero_item:
-              parseInt(formItemCronograma.numero_item) ||
-              editandoItemCronograma.numero_item,
-          }),
+        ...(formItemCronograma.numero_item !== "" && {
+          numero_item:
+            parseInt(formItemCronograma.numero_item) ||
+            editandoItemCronograma?.numero_item ||
+            proximoNumeroItemCronograma,
+        }),
         descricao: formItemCronograma.descricao,
+        lote_numero: formItemCronograma.lote_numero
+          ? parseInt(formItemCronograma.lote_numero, 10)
+          : null,
+        lote_descricao: formItemCronograma.lote_descricao.trim() || null,
         unidade_medida: unidadePayload,
         quantidade: qtd,
         valor_unitario: vlUnit,
@@ -2922,6 +3176,18 @@ export default function TabMedicao({
                     <Badge className={STATUS_MEDICAO[m.status]?.cor}>
                       {STATUS_MEDICAO[m.status]?.label}
                     </Badge>
+                    {m.lancamento_retroativo && (
+                      <Badge
+                        className="bg-amber-100 text-amber-800"
+                        title={
+                          m.retroativo_motivo ||
+                          "Medição registrada retroativamente"
+                        }
+                      >
+                        <History className="w-3 h-3 mr-1" />
+                        Retroativa
+                      </Badge>
+                    )}
                     {m.fornecedor_nome && (
                       <span className="text-xs text-gray-500">
                         por{" "}
@@ -3085,6 +3351,7 @@ export default function TabMedicao({
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-12">#</TableHead>
+                      <TableHead className="w-24">Lote</TableHead>
                       <TableHead className="min-w-[200px] max-w-[400px]">
                         Descrição
                       </TableHead>
@@ -3116,11 +3383,28 @@ export default function TabMedicao({
                   </TableHeader>
                   <TableBody>
                     {[...itensCronograma]
-                      .sort((a, b) => a.numero_item - b.numero_item)
+                      .sort(
+                        (a, b) =>
+                          (a.lote_numero ?? Number.MAX_SAFE_INTEGER) -
+                            (b.lote_numero ?? Number.MAX_SAFE_INTEGER) ||
+                          a.numero_item - b.numero_item,
+                      )
                       .map((i) => (
                         <TableRow key={i.id}>
                           <TableCell className="font-medium">
                             {i.numero_item}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {i.lote_numero != null ? (
+                              <Badge
+                                variant="outline"
+                                title={i.lote_descricao || undefined}
+                              >
+                                Lote {i.lote_numero}
+                              </Badge>
+                            ) : (
+                              <span className="text-gray-300">-</span>
+                            )}
                           </TableCell>
                           <TableCell className="whitespace-normal break-words min-w-[200px] max-w-[400px]">
                             {i.descricao}
@@ -3393,16 +3677,37 @@ export default function TabMedicao({
                 fiscal. A aprovação final é feita na Central de Aprovações.
               </CardDescription>
             </div>
-            <Button
-              onClick={abrirModalMedicao}
-              size="sm"
-              disabled={
-                !isServicoContinuado && (!temCronograma || !temOSAutorizada)
-              }
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Nova Medição {isServicoContinuado ? "" : "(Fiscal)"}
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {podeCancelarEstornar && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                    onClick={() => setModalRetroativa(true)}
+                  >
+                    <History className="w-4 h-4 mr-1" />
+                    Registrar medição retroativa
+                  </Button>
+                )}
+                <Button
+                  onClick={abrirModalMedicao}
+                  size="sm"
+                  disabled={
+                    !isServicoContinuado && (!temCronograma || !temOSAutorizada)
+                  }
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Nova Medição {isServicoContinuado ? "" : "(Fiscal)"}
+                </Button>
+              </div>
+              {podeCancelarEstornar && (
+                <p className="text-xs text-amber-700 text-right max-w-xs">
+                  Ação de suporte: registra uma medição já aprovada para o saldo
+                  acompanhar um pagamento feito fora do sistema.
+                </p>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -3462,6 +3767,18 @@ export default function TabMedicao({
                             <StatusIcon className="w-3 h-3 mr-1" />
                             {statusInfo.label}
                           </Badge>
+                          {m.lancamento_retroativo && (
+                            <Badge
+                              className="bg-amber-100 text-amber-800"
+                              title={
+                                m.retroativo_motivo ||
+                                "Medição registrada retroativamente"
+                              }
+                            >
+                              <History className="w-3 h-3 mr-1" />
+                              Retroativa
+                            </Badge>
+                          )}
                           {m.fornecedor_nome && (
                             <span className="text-xs text-gray-400">
                               Fornecedor: {m.fornecedor_nome}
@@ -4078,7 +4395,7 @@ export default function TabMedicao({
                 </span>
               </div>
             </div>
-            {editandoItemCronograma && !modoClausulaContrato && (
+            {!modoClausulaContrato && (
               <div className="space-y-2">
                 <Label>Nº Item</Label>
                 <Input
@@ -4092,10 +4409,42 @@ export default function TabMedicao({
                       numero_item: e.target.value,
                     })
                   }
+                  placeholder={String(proximoNumeroItemCronograma)}
                   className="w-24"
                 />
               </div>
             )}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Lote nº</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="Ex: 1"
+                  value={formItemCronograma.lote_numero}
+                  onChange={(e) =>
+                    setFormItemCronograma({
+                      ...formItemCronograma,
+                      lote_numero: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Descrição do lote</Label>
+                <Input
+                  placeholder="Ex: Mão de obra"
+                  value={formItemCronograma.lote_descricao}
+                  onChange={(e) =>
+                    setFormItemCronograma({
+                      ...formItemCronograma,
+                      lote_descricao: e.target.value,
+                    })
+                  }
+                />
+              </div>
+            </div>
             {!modoClausulaContrato && (
               <div className="space-y-2">
                 <Label>Descrição *</Label>
@@ -5232,6 +5581,9 @@ export default function TabMedicao({
                         <TableHead className="w-12 text-center font-bold text-xs uppercase">
                           Item
                         </TableHead>
+                        <TableHead className="w-20 text-center font-bold text-xs uppercase">
+                          Lote
+                        </TableHead>
                         <TableHead className="font-bold text-xs uppercase">
                           Descrição
                         </TableHead>
@@ -5261,7 +5613,17 @@ export default function TabMedicao({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {itensCronograma.map((ic, idx) => {
+                      {[...itensCronograma]
+                        .sort(
+                          (a, b) =>
+                            (a.lote_numero ?? Number.MAX_SAFE_INTEGER) -
+                              (b.lote_numero ?? Number.MAX_SAFE_INTEGER) ||
+                            a.numero_item - b.numero_item,
+                        )
+                        .map((ic) => {
+                          const idx = itensCronograma.findIndex(
+                            (item) => item.id === ic.id,
+                          );
                         const itemState = formMedicao.itens[idx] as
                           | {
                               item_cronograma_id: string;
@@ -5305,6 +5667,18 @@ export default function TabMedicao({
                           >
                             <TableCell className="text-center font-mono text-sm font-medium">
                               {ic.numero_item}
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              {ic.lote_numero != null ? (
+                                <Badge
+                                  variant="outline"
+                                  title={ic.lote_descricao || undefined}
+                                >
+                                  {ic.lote_numero}
+                                </Badge>
+                              ) : (
+                                <span className="text-gray-300">-</span>
+                              )}
                             </TableCell>
                             <TableCell className="whitespace-normal break-words min-w-[200px]">
                               <p className="text-sm font-medium">
@@ -7367,9 +7741,23 @@ export default function TabMedicao({
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Status</p>
-                  <Badge className={STATUS_MEDICAO[modalDetalhe.status]?.cor}>
-                    {STATUS_MEDICAO[modalDetalhe.status]?.label}
-                  </Badge>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className={STATUS_MEDICAO[modalDetalhe.status]?.cor}>
+                      {STATUS_MEDICAO[modalDetalhe.status]?.label}
+                    </Badge>
+                    {modalDetalhe.lancamento_retroativo && (
+                      <Badge
+                        className="bg-amber-100 text-amber-800"
+                        title={
+                          modalDetalhe.retroativo_motivo ||
+                          "Medição registrada retroativamente"
+                        }
+                      >
+                        <History className="w-3 h-3 mr-1" />
+                        Retroativa
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Valor Medido</p>
@@ -7399,6 +7787,34 @@ export default function TabMedicao({
                   </p>
                 </div>
               </div>
+
+              {equipeDetalheDisponivel && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">
+                    Relação mensal de funcionários
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => baixarRelacaoEquipe("xlsx")}
+                    >
+                      <FileSpreadsheet className="mr-2 h-4 w-4" />
+                      Baixar Excel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => baixarRelacaoEquipe("pdf")}
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      Baixar PDF
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Itens da Medição (Cronograma) */}
               {(modalDetalhe as any).itens &&
@@ -7929,9 +8345,11 @@ export default function TabMedicao({
             {(
               [
                 { id: "cabecalho", label: "Cabeçalho" },
+                { id: "ordem_servico", label: "Ordem de Serviço" },
                 { id: "itens_cronograma", label: "Itens do Contrato" },
                 { id: "execucao_fiscal", label: "Execução Fiscal" },
                 { id: "discriminacoes", label: "Discriminações" },
+                { id: "assinaturas", label: "Assinaturas" },
               ] as const
             ).map(({ id, label }) => (
               <button
@@ -8070,6 +8488,106 @@ export default function TabMedicao({
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     ) : null}
                     Salvar Cabeçalho
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Aba Ordem de Serviço — trocar a OS consumida pela medição */}
+            {abaCorrigir === "ordem_servico" && (
+              <div className="space-y-4 px-1">
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  <strong>Atenção:</strong> trocar a OS desta medição recalcula o
+                  saldo dos itens do contrato. A OS anterior deixa de ser
+                  consumida por esta medição (e volta a contar como comprometida,
+                  se ainda estiver em aberto) e a nova passa a ser consumida. Use
+                  quando a medição foi criada apontando para a OS errada.
+                </div>
+
+                <div className="space-y-1">
+                  <Label>OS vinculada hoje</Label>
+                  <div className="text-sm text-gray-700">
+                    {(() => {
+                      const atualId = (modalCorrigir as any)?.requisicao_id;
+                      if (!atualId)
+                        return (
+                          <span className="text-gray-500">
+                            Nenhuma OS vinculada
+                          </span>
+                        );
+                      const atual = osDoContrato.find((o) => o.id === atualId);
+                      return atual
+                        ? `OS ${atual.numero} — ${formatarData(atual.data_solicitacao)} — ${formatarMoeda(atual.valor_total_estimado ?? 0)}`
+                        : atualId;
+                    })()}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Nova OS</Label>
+                  {carregandoOsContrato ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Carregando OS do
+                      contrato...
+                    </div>
+                  ) : osDoContrato.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      Este contrato não tem ordens de serviço cadastradas.
+                    </p>
+                  ) : (
+                    <select
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                      value={osSelecionadaTroca}
+                      onChange={(e) => setOsSelecionadaTroca(e.target.value)}
+                    >
+                      <option value="">— Nenhuma (desvincular) —</option>
+                      {osDoContrato.map((os) => {
+                        const ocupadaPorOutra =
+                          !!os.medicao_vinculada &&
+                          os.medicao_vinculada.id !== modalCorrigir?.id;
+                        return (
+                          <option
+                            key={os.id}
+                            value={os.id}
+                            disabled={ocupadaPorOutra}
+                          >
+                            {`OS ${os.numero} — ${formatarData(os.data_solicitacao)} — ${formatarMoeda(os.valor_total_estimado ?? 0)} — ${os.status}`}
+                            {os.medicao_vinculada
+                              ? ` — já medida (${os.medicao_vinculada.numero_medicao ?? "?"}ª medição)`
+                              : " — sem medição"}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
+                  <p className="text-[11px] text-gray-500">
+                    OS que já têm medição ativa aparecem desabilitadas.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Motivo da troca (obrigatório)</Label>
+                  <Textarea
+                    rows={3}
+                    placeholder="ex: medição criada na OS 0140 por engano; o serviço medido é o da OS 0152"
+                    value={motivoTrocaOs}
+                    onChange={(e) => setMotivoTrocaOs(e.target.value)}
+                  />
+                  <p className="text-[11px] text-gray-500">
+                    Mínimo de 10 caracteres. Fica registrado no histórico do
+                    contrato.
+                  </p>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={salvarTrocaOs}
+                    disabled={salvandoTrocaOs || carregandoOsContrato}
+                  >
+                    {salvandoTrocaOs ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : null}
+                    Trocar OS desta medição
                   </Button>
                 </div>
               </div>
@@ -8591,6 +9109,83 @@ export default function TabMedicao({
             )}
 
             {/* Aba Discriminações */}
+            {/* Aba Assinaturas — corrigir datas das assinaturas digitais */}
+            {abaCorrigir === "assinaturas" && (
+              <div className="space-y-4 px-1">
+                <p className="text-sm text-gray-600">
+                  Corrija a <strong>data/hora</strong> das assinaturas digitais do boletim
+                  (fuso de Brasília). Nome, papel e código de validação não mudam.
+                  Depois de salvar, use <strong>Regenerar PDF</strong> para o boletim
+                  sair com as novas datas.
+                </p>
+                {assinaturasCorrigir.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic py-6 text-center">
+                    Esta medição ainda não tem assinaturas digitais registradas.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {assinaturasCorrigir.map((a, i) => {
+                      const papelLabel =
+                        ({
+                          FORNECEDOR: "Fornecedor / Contratado",
+                          FISCAL: "Fiscal do Contrato",
+                          GESTOR: "Gestor do Contrato",
+                          ENGENHEIRO: "Engenheiro Responsável",
+                        } as Record<string, string>)[a.papel] || a.papel;
+                      const alterada =
+                        a.nova_data !== paraDatetimeLocalBrasilia(a.data_original);
+                      return (
+                        <div
+                          key={a.id}
+                          className={`border rounded-lg p-3 flex flex-wrap items-center gap-3 ${alterada ? "border-violet-300 bg-violet-50/40" : ""}`}
+                        >
+                          <div className="flex-1 min-w-[220px]">
+                            <p className="text-sm font-medium">{a.nome}</p>
+                            <p className="text-xs text-gray-500">{papelLabel}</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs text-gray-500">Data/hora da assinatura</Label>
+                            <Input
+                              type="datetime-local"
+                              className="h-9"
+                              value={a.nova_data}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setAssinaturasCorrigir((prev) =>
+                                  prev.map((x, j) => (j === i ? { ...x, nova_data: v } : x)),
+                                );
+                              }}
+                            />
+                          </div>
+                          {alterada && (
+                            <span className="text-xs text-violet-700 font-medium">alterada</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div className="space-y-1">
+                      <Label>Motivo da correção *</Label>
+                      <Textarea
+                        rows={2}
+                        placeholder="Ex.: assinatura formalizada em 15/08, registrada no sistema apenas em 20/08."
+                        value={motivoAssinaturas}
+                        onChange={(e) => setMotivoAssinaturas(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={salvarDatasAssinaturas}
+                        disabled={salvandoCorrecao}
+                        className="bg-violet-600 hover:bg-violet-700"
+                      >
+                        {salvandoCorrecao ? "Salvando..." : "Salvar datas"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {abaCorrigir === "discriminacoes" && (
               <div className="space-y-3 px-1">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -8755,6 +9350,16 @@ export default function TabMedicao({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Medição retroativa (ação de suporte) */}
+      {podeCancelarEstornar && (
+        <ModalMedicaoRetroativa
+          contratoId={contratoId}
+          open={modalRetroativa}
+          onOpenChange={setModalRetroativa}
+          onSucesso={carregarDados}
+        />
+      )}
     </div>
   );
 }

@@ -5,10 +5,12 @@ import { IaService } from '../ia/ia.service';
 import { ContratosService } from './contratos.service';
 import { MedicaoService } from './medicao.service';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
+import { TipoPessoa } from '../fornecedores/entities/enums';
 import { ItemContrato, UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { DadosExtradiosDto, ConfirmarImportacaoDto, ItemExtraidoDto } from './dto/importar-ia.dto';
 // Extração robusta usando pdfjs-dist (Mozilla PDF.js) com fallback para pdf-parse
-async function extrairTextoPdf(buffer: Buffer): Promise<string> {
+async function extrairTextoPdf(buffer: Buffer, logger: Logger): Promise<string> {
+  const motivos: string[] = [];
   // Tentativa 1: pdfjs-dist (mais robusto, suporta PDFs complexos)
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -23,8 +25,9 @@ async function extrairTextoPdf(buffer: Buffer): Promise<string> {
       text += pageText + '\n';
     }
     if (text.trim().length > 0) return text;
+    motivos.push(`pdfjs: 0 caracteres em ${pdfDoc.numPages} página(s)`);
   } catch (e: any) {
-    // fallback para pdf-parse
+    motivos.push(`pdfjs falhou: ${e?.message || e}`);
   }
 
   // Tentativa 2: pdf-parse
@@ -35,11 +38,56 @@ async function extrairTextoPdf(buffer: Buffer): Promise<string> {
     if (fn) {
       const result = await fn(buffer);
       if (result?.text?.trim().length > 0) return result.text;
+      motivos.push('pdf-parse: 0 caracteres');
     }
-  } catch { /* ignora */ }
+  } catch (e: any) {
+    motivos.push(`pdf-parse falhou: ${e?.message || e}`);
+  }
 
+  // Tentativa 3: pdftotext (poppler). Implementação independente das duas
+  // bibliotecas JS e comprovadamente mais tolerante com PDF digitalizado que
+  // passou por OCR — caso do 015/2026, cujo texto é selecionável no leitor mas
+  // voltava vazio pelo pdfjs e pelo pdf-parse.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const os = require('os');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { execFileSync } = require('child_process');
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdftxt-'));
+    const arquivo = path.join(dir, 'in.pdf');
+    try {
+      fs.writeFileSync(arquivo, buffer);
+      // "-" envia o resultado para stdout; -layout preserva colunas de tabelas
+      const saida = execFileSync('pdftotext', ['-layout', '-enc', 'UTF-8', arquivo, '-'], {
+        timeout: 30000,
+        maxBuffer: 20 * 1024 * 1024,
+      }).toString('utf8');
+      if (saida.trim().length > 0) {
+        logger.log(`[extrairTextoPdf] texto obtido via pdftotext (${saida.length} chars) após ${motivos.join(' | ')}`);
+        return saida;
+      }
+      motivos.push('pdftotext: 0 caracteres');
+    } finally {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignora */ }
+    }
+  } catch (e: any) {
+    motivos.push(`pdftotext falhou: ${e?.message || e}`);
+  }
+
+  // Sem isto a falha era silenciosa: o PDF caía no caminho de imagens sem que
+  // ninguém soubesse por que a leitura de texto não funcionou.
+  logger.warn(`[extrairTextoPdf] nenhum texto extraído — ${motivos.join(' | ')}`);
   return '';
 }
+
+/** Teto de resposta da extração. Um contrato de material com 40+ itens produz
+ *  JSON bem maior que os 4000 tokens do padrão. */
+const MAX_TOKENS_EXTRACAO = 16000;
 
 const SYSTEM_PROMPT_EXTRACAO = `Você é um especialista em licitações públicas brasileiras (Lei 14.133/2021 e 8.666/93).
 Sua tarefa é extrair dados de um contrato administrativo público e retornar APENAS JSON válido, sem markdown, sem explicações, sem texto extra.
@@ -66,7 +114,7 @@ REGRAS JSON — EXTREMAMENTE IMPORTANTE:
 COMO IDENTIFICAR OS CAMPOS:
 - "numero_contrato": o número do contrato EXATAMENTE como consta no documento físico (ex: "CONTRATO Nº 012/2026", "Contrato nº 35/2025" → "012/2026", "035/2025"). Preserve o formato/zeros à esquerda do documento. Se não houver, use null. NÃO invente nem sequencie.
 - "objeto": trecho que começa com "tem por objeto" ou "cujo objeto é" ou "objeto:" no contrato
-- "fornecedor_cnpj": CNPJ da empresa contratada (não do órgão contratante)
+- "fornecedor_cnpj": documento do CONTRATADO (não do órgão contratante): CNPJ com 14 dígitos quando for empresa, ou CPF com 11 dígitos quando for pessoa física (contrato de profissional autônomo, inexigibilidade de notório saber etc.)
 - "fornecedor_razao_social": razão social da empresa contratada
 - "valor_global": valor total do contrato (soma de todos os meses/parcelas)
 - "valor_inicial": mesmo que valor_global se não especificado separadamente
@@ -80,7 +128,10 @@ COMO IDENTIFICAR OS CAMPOS:
 - Use ITEM_QUANTIDADE apenas para COMPRAS de produtos físicos
 - "numero_processo": número do processo licitatório (ex: 027/2023, Pregão 010/2023)
 - "amparo_legal": lei citada no contrato (ex: Lei 14.133/2021, Lei 8.666/93)
-- "itens": array de objetos, cada um representando um item do contrato
+- "itens": array de objetos, cada um representando um item do contrato.
+  IMPORTANTE: liste TODOS os itens da tabela, do primeiro ao último, sem resumir,
+  sem agrupar e sem usar reticências. Se a tabela numera os itens de 1 a N, o
+  array deve ter exatamente N objetos. Não interrompa a lista por ser longa.
 
 IMPORTANTE SOBRE ITENS:
 - Na "descricao" de cada item, INCLUA a localização/destino quando disponível no documento
@@ -91,7 +142,7 @@ Schema de retorno (JSON puro e válido):
 {
   "numero_contrato": "012/2026",
   "objeto": "texto exato do objeto do contrato",
-  "fornecedor_cnpj": "somente digitos sem pontuacao ou null",
+  "fornecedor_cnpj": "somente digitos sem pontuacao, 14 (CNPJ) ou 11 (CPF), ou null",
   "fornecedor_razao_social": "nome completo ou null",
   "tipo": "CONTRATO",
   "categoria": "SERVICOS",
@@ -384,11 +435,20 @@ export class ImportarContratoIaService {
 
     try {
       if (file.mimetype === 'application/pdf') {
-        const textoExtraido = await extrairTextoPdf(file.buffer);
+        const textoExtraido = await extrairTextoPdf(file.buffer, this.logger);
         this.logger.log(`pdf texto extraido: ${textoExtraido.length} chars`);
 
         if (textoExtraido.trim().length >= 200) {
-          respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, undefined, undefined, textoExtraido);
+          // Contrato de material chega a dezenas de itens; com o teto padrão de 4000
+          // a lista era cortada no meio e o parser de recuperação devolvia só os
+          // itens completos (38 no documento, 25 importados).
+          respostaIA = await this.iaService.chatComArquivo(
+            SYSTEM_PROMPT_EXTRACAO,
+            undefined,
+            undefined,
+            textoExtraido,
+            MAX_TOKENS_EXTRACAO,
+          );
         } else {
           this.logger.log('PDF escaneado detectado: tentando fallback via imagens (pdftoppm) + Vision');
           try {
@@ -407,7 +467,13 @@ export class ImportarContratoIaService {
         }
       } else {
         const imagemBase64 = file.buffer.toString('base64');
-        respostaIA = await this.iaService.chatComArquivo(SYSTEM_PROMPT_EXTRACAO, imagemBase64, file.mimetype);
+        respostaIA = await this.iaService.chatComArquivo(
+          SYSTEM_PROMPT_EXTRACAO,
+          imagemBase64,
+          file.mimetype,
+          undefined,
+          MAX_TOKENS_EXTRACAO,
+        );
       }
     } catch (error: any) {
       this.logger.error(`Falha ao consultar IA na importação de contrato: ${error?.message || error}`);
@@ -479,7 +545,24 @@ export class ImportarContratoIaService {
       numero_processo: dadosExtraidos.numero_processo || undefined,
       amparo_legal: dadosExtraidos.amparo_legal || undefined,
       itens: Array.isArray(dadosExtraidos.itens) ? dadosExtraidos.itens : [],
-      pendencias: Array.isArray(dadosExtraidos.pendencias) ? dadosExtraidos.pendencias : [],
+      pendencias: (() => {
+        const lista = Array.isArray(dadosExtraidos.pendencias) ? [...dadosExtraidos.pendencias] : [];
+        // A numeração da tabela é a régua: se o documento vai até o item N e o
+        // array veio com menos, a lista foi cortada. Avisar na tela evita que o
+        // usuário só descubra conferindo item a item depois de salvar.
+        const itensLidos = Array.isArray(dadosExtraidos.itens) ? dadosExtraidos.itens : [];
+        const maiorNumero = itensLidos.reduce(
+          (max: number, it: any) => Math.max(max, Number(it?.numero_item) || 0),
+          0,
+        );
+        if (maiorNumero > itensLidos.length) {
+          lista.push(
+            `A tabela vai até o item ${maiorNumero}, mas apenas ${itensLidos.length} foram lidos. ` +
+              'Confira a lista e inclua os que faltarem antes de salvar.',
+          );
+        }
+        return lista;
+      })(),
     };
   }
 
@@ -497,11 +580,19 @@ export class ImportarContratoIaService {
       let fornecedor: Fornecedor | null = await this.fornecedorRepo.findOne({ where: { cpf_cnpj: cnpj } });
 
       if (!fornecedor) {
-        this.logger.log(`Criando fornecedor placeholder para CNPJ ${cnpj}`);
+        // 11 dígitos = CPF (contratado pessoa física, comum em inexigibilidade de
+        // profissional). Sem isso o cadastro nascia como JURIDICA — padrão da
+        // coluna tipo_pessoa — com um CPF no campo de CNPJ.
+        const ehPessoaFisica = cnpj.length === 11;
+        const nome = dados.fornecedor_razao_social || 'A PREENCHER';
+        this.logger.log(
+          `Criando fornecedor placeholder para ${ehPessoaFisica ? 'CPF' : 'CNPJ'} ${cnpj}`,
+        );
         const novo = this.fornecedorRepo.create({
+          tipo_pessoa: ehPessoaFisica ? TipoPessoa.FISICA : TipoPessoa.JURIDICA,
           cpf_cnpj: cnpj,
-          razao_social: dados.fornecedor_razao_social || 'A PREENCHER',
-          nome_fantasia: dados.fornecedor_razao_social || 'A PREENCHER',
+          razao_social: nome,
+          nome_fantasia: nome,
           logradouro: 'A PREENCHER',
           numero: '0',
           bairro: 'A PREENCHER',
@@ -510,8 +601,8 @@ export class ImportarContratoIaService {
           cep: '00000000',
           telefone: '00000000000',
           email: `${cnpj}@apreencher.com`,
-          representante_nome: 'A PREENCHER',
-          representante_cpf: '00000000000',
+          representante_nome: ehPessoaFisica ? nome : 'A PREENCHER',
+          representante_cpf: ehPessoaFisica ? cnpj : '00000000000',
           representante_cargo: 'A PREENCHER',
           representante_email: `${cnpj}@apreencher.com`,
           representante_telefone: '00000000000',
@@ -527,7 +618,7 @@ export class ImportarContratoIaService {
     }
 
     if (!fornecedorId) {
-      throw new BadRequestException('Fornecedor não identificado. Informe o CNPJ para continuar.');
+      throw new BadRequestException('Fornecedor não identificado. Informe o CNPJ (empresa) ou o CPF (pessoa física) para continuar.');
     }
 
     if (!fornecedorSnapshot) {

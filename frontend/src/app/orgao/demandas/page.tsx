@@ -20,7 +20,8 @@ import {
   Loader2,
   X,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Sparkles
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -151,6 +152,79 @@ function DemandasPageContent() {
     observacoes: ''
   })
   const [salvando, setSalvando] = useState(false)
+  // Setor fora da lista cadastrada → digitação livre
+  const [setorLivre, setSetorLivre] = useState(false)
+  // "Melhorar com IA" na descrição sucinta
+  const [melhorandoDescricao, setMelhorandoDescricao] = useState(false)
+
+  const melhorarDescricaoComIA = async () => {
+    const texto = novaDemanda.descricao_sucinta_objeto.trim()
+    if (!texto || melhorandoDescricao) return
+    setMelhorandoDescricao(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/ia/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensagens: [{
+            role: 'user',
+            content:
+              `Você redige descrições sucintas de objeto para demandas de contratação pública (Lei 14.133/2021). ` +
+              `Reescreva o texto abaixo como uma descrição sucinta formal, clara e específica (1 a 3 frases), ` +
+              `preservando a intenção. Responda APENAS com o texto final, sem aspas nem comentários.\n\n` +
+              `Setor requisitante: ${novaDemanda.unidade_requisitante || 'não informado'}\n` +
+              `Texto do usuário: ${texto}`,
+          }],
+          tipoDocumento: 'DFD',
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const melhorado = String(data.resposta || '').trim()
+      if (melhorado) setNovaDemanda((d) => ({ ...d, descricao_sucinta_objeto: melhorado }))
+    } catch {
+      alert('Não foi possível melhorar o texto agora — você pode continuar com o seu.')
+    } finally {
+      setMelhorandoDescricao(false)
+    }
+  }
+
+  const [melhorandoJustificativa, setMelhorandoJustificativa] = useState(false)
+
+  const melhorarJustificativaComIA = async () => {
+    if (melhorandoJustificativa) return
+    setMelhorandoJustificativa(true)
+    try {
+      const atual = novaDemanda.observacoes.trim()
+      const res = await authFetch(`${API_URL}/api/ia/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensagens: [{
+            role: 'user',
+            content:
+              `Você redige justificativas de necessidade para demandas de contratação pública (Art. 18, I, Lei 14.133/2021). ` +
+              (atual
+                ? `Melhore e desenvolva o texto do usuário, preservando os fatos. `
+                : `Redija a justificativa a partir do objeto informado. `) +
+              `Texto formal e objetivo, 1 a 2 parágrafos. Responda APENAS com o texto final.\n\n` +
+              `Objeto: ${novaDemanda.descricao_sucinta_objeto || 'não informado'}\n` +
+              `Setor: ${novaDemanda.unidade_requisitante || 'não informado'}\n` +
+              (atual ? `\nTexto do usuário:\n${atual}` : ''),
+          }],
+          tipoDocumento: 'DFD',
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const novo = String(data.resposta || '').trim()
+      if (novo) setNovaDemanda((d) => ({ ...d, observacoes: novo }))
+    } catch {
+      alert('Não foi possível gerar agora — você pode preencher depois, na seção 2 da demanda.')
+    } finally {
+      setMelhorandoJustificativa(false)
+    }
+  }
 
   // orgaoId carregado do localStorage (mesmo padrão do PCA)
   const [orgaoId, setOrgaoId] = useState('')
@@ -242,6 +316,7 @@ function DemandasPageContent() {
       if (response.ok) {
         const demandaCriada = await response.json()
         setShowNovaDemanda(false)
+        setSetorLivre(false)
         setNovaDemanda({
           unidade_requisitante: '',
           responsavel_nome: '',
@@ -466,10 +541,10 @@ function DemandasPageContent() {
                         {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                         <Building2 className="h-5 w-5 text-gray-400" />
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <h3 className="font-medium">{demanda.unidade_requisitante}</h3>
                         {demanda.descricao_sucinta_objeto && (
-                          <p className="text-sm text-gray-700 mt-1 line-clamp-1">
+                          <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap break-words">
                             {demanda.descricao_sucinta_objeto}
                           </p>
                         )}
@@ -591,10 +666,17 @@ function DemandasPageContent() {
           <div className="space-y-4 py-4">
             <div>
               <label className="block text-sm font-medium mb-1">Unidade Requisitante *</label>
-              {setores.length > 0 ? (
+              {setores.length > 0 && !setorLivre ? (
                 <Select
                   value={novaDemanda.unidade_requisitante}
                   onValueChange={(value) => {
+                    if (value === '__outro__') {
+                      // Setor fora da lista: libera a digitação em vez de
+                      // deixar o usuário num beco sem saída
+                      setSetorLivre(true)
+                      setNovaDemanda({ ...novaDemanda, unidade_requisitante: '' })
+                      return
+                    }
                     const setor = setores.find(s => s.nome === value)
                     setNovaDemanda({
                       ...novaDemanda,
@@ -614,14 +696,24 @@ function DemandasPageContent() {
                         {setor.codigo} - {setor.nome}
                       </SelectItem>
                     ))}
+                    <SelectItem value="__outro__">➕ Outro setor (digitar o nome)</SelectItem>
                   </SelectContent>
                 </Select>
               ) : (
-                <Input
-                  value={novaDemanda.unidade_requisitante}
-                  onChange={(e) => setNovaDemanda({...novaDemanda, unidade_requisitante: e.target.value})}
-                  placeholder="Ex: Departamento de TI, Setor de Compras..."
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={novaDemanda.unidade_requisitante}
+                    onChange={(e) => setNovaDemanda({...novaDemanda, unidade_requisitante: e.target.value})}
+                    placeholder="Ex: Departamento de TI, Setor de Compras..."
+                    autoFocus={setorLivre}
+                  />
+                  {setores.length > 0 && (
+                    <Button type="button" variant="outline" size="sm" className="shrink-0 h-10"
+                      onClick={() => { setSetorLivre(false); setNovaDemanda({ ...novaDemanda, unidade_requisitante: '' }) }}>
+                      Voltar à lista
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -630,12 +722,28 @@ function DemandasPageContent() {
               <Textarea
                 value={novaDemanda.descricao_sucinta_objeto}
                 onChange={(e) => setNovaDemanda({...novaDemanda, descricao_sucinta_objeto: e.target.value})}
-                placeholder="Ex: Aquisição de notebooks para atender as atividades administrativas do setor de TI."
+                placeholder="Escreva do seu jeito (ex: 'preciso de 20 cadeiras pro administrativo') — a IA formaliza para você."
                 rows={3}
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Este resumo identifica a DFD na consolidação e ajuda a formar a contratação futura.
-              </p>
+              <div className="flex items-center justify-between gap-2 mt-1">
+                <p className="text-xs text-gray-500">
+                  Este resumo identifica a DFD na consolidação e ajuda a formar a contratação futura.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 h-7 text-xs gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
+                  onClick={melhorarDescricaoComIA}
+                  disabled={melhorandoDescricao || !novaDemanda.descricao_sucinta_objeto.trim()}
+                  title="A IA reescreve o seu texto como uma descrição formal de contratação (você pode editar depois)"
+                >
+                  {melhorandoDescricao
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <Sparkles className="h-3 w-3" />}
+                  {melhorandoDescricao ? 'Melhorando…' : 'Melhorar com IA'}
+                </Button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -697,13 +805,31 @@ function DemandasPageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Observações</label>
+              <label className="block text-sm font-medium mb-1">
+                Justificativa da Necessidade <span className="text-gray-400 font-normal">(Art. 18, I — opcional aqui, editável depois)</span>
+              </label>
               <Textarea
                 value={novaDemanda.observacoes}
                 onChange={(e) => setNovaDemanda({...novaDemanda, observacoes: e.target.value})}
-                placeholder="Informações adicionais sobre a demanda..."
+                placeholder="Por que essa contratação é necessária? Escreva do seu jeito — a IA formaliza."
                 rows={3}
               />
+              <div className="flex justify-end mt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
+                  onClick={melhorarJustificativaComIA}
+                  disabled={melhorandoJustificativa || (!novaDemanda.observacoes.trim() && !novaDemanda.descricao_sucinta_objeto.trim())}
+                  title="A IA redige/melhora a justificativa usando o objeto informado acima"
+                >
+                  {melhorandoJustificativa
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <Sparkles className="h-3 w-3" />}
+                  {melhorandoJustificativa ? 'Gerando…' : novaDemanda.observacoes.trim() ? 'Melhorar com IA' : 'Redigir com IA'}
+                </Button>
+              </div>
             </div>
           </div>
 

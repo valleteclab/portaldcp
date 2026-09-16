@@ -101,6 +101,8 @@ interface Contrato {
   total_itens?: number;
   modalidade_execucao?: string;
   arredondar_calculo?: boolean;
+  exige_relacao_funcionarios?: boolean;
+  lote_relacao_funcionarios?: number | null;
   tabela_referencia_id?: string | null;
   remuneracao_publicidade?: {
     desconto_tabela_pct?: number;
@@ -200,7 +202,16 @@ interface ItemCronograma {
   valor_mensal?: number;
   valor_total: number;
   quantidade_medida: number;
+  lote_numero?: number | null;
+  lote_descricao?: string | null;
   observacoes?: string;
+}
+
+interface ComprometimentoOSDetalhe {
+  requisicao_id: string;
+  numero: string;
+  status: string;
+  quantidade: number;
 }
 
 interface Setor {
@@ -410,18 +421,20 @@ function ValorInput({
   onChange: (value: number) => void;
   disabled?: boolean;
 }) {
-  const [inputValue, setInputValue] = useState(String(value));
+  const [inputValue, setInputValue] = useState(
+    value > 0 ? value.toFixed(2) : '',
+  );
   useEffect(() => {
-    setInputValue(String(value));
+    setInputValue(value > 0 ? value.toFixed(2) : '');
   }, [value]);
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
-    if (val === '' || /^\d*\.?\d*$/.test(val)) setInputValue(val);
+    if (val === '' || /^\d*([.,]\d*)?$/.test(val)) setInputValue(val);
   };
   const handleBlur = () => {
-    let numValue = parseFloat(inputValue) || 0;
+    let numValue = parseFloat(inputValue.replace(',', '.')) || 0;
     numValue = Math.max(0, Math.min(numValue, max));
-    setInputValue(String(numValue));
+    setInputValue(numValue > 0 ? numValue.toFixed(2) : '');
     onChange(numValue);
   };
   return (
@@ -519,6 +532,16 @@ function NovaRequisicaoForm() {
   const [itensCronograma, setItensCronograma] = useState<ItemCronograma[]>([]);
   // Quantidade já comprometida por item (OS parciais ativas) — para o saldo exibido bater com a validação
   const [comprometidoMap, setComprometidoMap] = useState<Record<string, number>>({});
+  const [comprometidoDetalhes, setComprometidoDetalhes] = useState<
+    Record<string, ComprometimentoOSDetalhe[]>
+  >({});
+  const [alertaConciliacaoItens, setAlertaConciliacaoItens] = useState<{
+    valor_global: number;
+    total_itens: number;
+    diferenca: number;
+    possui_itens: boolean;
+    termos_pendentes: Array<{ id: string; numero_termo: string }>;
+  } | null>(null);
   const [etapasOS, setEtapasOS] = useState<any[]>([]);
   const [carregandoCronograma, setCarregandoCronograma] = useState(false);
   const [modoOS, setModoOS] = useState<'ORDEM_GLOBAL' | 'ORDEM_DEMANDA' | null>(null);
@@ -534,6 +557,23 @@ function NovaRequisicaoForm() {
   const isOS = tipo === 'ORDEM_SERVICO';
   const usarItensCronograma = isOS && itensCronograma.length > 0;
   const usarEtapasCronograma = isOS && etapasOS.length > 0 && itensCronograma.length === 0;
+  const itemControladoPorFuncionarios = (item: ItemCronograma) =>
+    Boolean(contratoSelecionado?.exige_relacao_funcionarios) &&
+    (contratoSelecionado?.lote_relacao_funcionarios == null ||
+      Number(item.lote_numero) === Number(contratoSelecionado.lote_relacao_funcionarios));
+  const temItensControladosPorFuncionarios = itensCronograma.some(
+    itemControladoPorFuncionarios,
+  );
+
+  useEffect(() => {
+    if (!contratoSelecionado?.id) {
+      setAlertaConciliacaoItens(null);
+      return;
+    }
+    authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/conciliacao-itens`)
+      .then(async res => setAlertaConciliacaoItens(res.ok ? await res.json() : null))
+      .catch(() => setAlertaConciliacaoItens(null));
+  }, [contratoSelecionado?.id]);
   const STEPS = isOS ? ['Contrato', 'Dados da OS', 'Resumo'] : ['Contrato', 'Itens', 'Dados', 'Resumo'];
   const anoAtual = new Date().getFullYear();
 
@@ -983,6 +1023,8 @@ function NovaRequisicaoForm() {
   useEffect(() => {
     if (!contratoSelecionado || tipo !== 'ORDEM_SERVICO') {
       setItensCronograma([]);
+      setComprometidoMap({});
+      setComprometidoDetalhes({});
       setEtapasOS([]);
       setModoOS(null);
       setItensOSDemanda([]);
@@ -991,17 +1033,24 @@ function NovaRequisicaoForm() {
     const carregarCronograma = async () => {
       setCarregandoCronograma(true);
       try {
-        const [resItens, resEtapas, resComp] = await Promise.all([
+        const queryExclusao = editarId
+          ? `?excluirRequisicaoId=${encodeURIComponent(editarId)}`
+          : '';
+        const [resItens, resEtapas, resComp, resCompDetalhes] = await Promise.all([
           authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/itens-cronograma`),
           authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/etapas`),
-          authFetch(`${API_URL}/api/almoxarifado/requisicoes/comprometido-os/${contratoSelecionado.id}`),
+          authFetch(`${API_URL}/api/almoxarifado/requisicoes/comprometido-os/${contratoSelecionado.id}${queryExclusao}`),
+          authFetch(`${API_URL}/api/almoxarifado/requisicoes/comprometido-os-detalhes/${contratoSelecionado.id}${queryExclusao}`),
         ]);
         const itens: ItemCronograma[] = resItens.ok ? await resItens.json() : [];
         const etapas: any[] = resEtapas.ok ? await resEtapas.json() : [];
         const comp: Record<string, number> = resComp.ok ? await resComp.json() : {};
+        const detalhes: Record<string, ComprometimentoOSDetalhe[]> =
+          resCompDetalhes.ok ? await resCompDetalhes.json() : {};
         setItensCronograma(itens);
         setEtapasOS(etapas);
         setComprometidoMap(comp);
+        setComprometidoDetalhes(detalhes);
         if (itens.length > 0) {
           setModoOS('ORDEM_GLOBAL');
           setItensOSDemanda(itens.map(i => ({
@@ -1023,6 +1072,8 @@ function NovaRequisicaoForm() {
       } catch (e) {
         console.error('Erro ao carregar cronograma:', e);
         setItensCronograma([]);
+        setComprometidoMap({});
+        setComprometidoDetalhes({});
         setEtapasOS([]);
         setModoOS(null);
         setItensOSDemanda([]);
@@ -1032,7 +1083,7 @@ function NovaRequisicaoForm() {
       }
     };
     carregarCronograma();
-  }, [contratoSelecionado?.id, tipo]);
+  }, [contratoSelecionado?.id, tipo, editarId]);
 
   // Preencher descricaoOS com objeto do contrato sempre que for OS e tiver contrato selecionado
   useEffect(() => {
@@ -1358,7 +1409,9 @@ function NovaRequisicaoForm() {
       if (item.item_cronograma_id === itemCronogramaId) {
         const itemCron = itensCronograma.find(i => i.id === itemCronogramaId);
         const saldo = itemCron
-          ? Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) - Number(itemCron.quantidade_medida)
+          ? Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) -
+            Number(itemCron.quantidade_medida) -
+            Number(comprometidoMap[itemCron.id] || 0)
           : 0;
         const qtd = Math.max(0, Math.min(quantidade, saldo));
         return { ...item, quantidade_solicitada: qtd, meses_solicitados: undefined };
@@ -1367,12 +1420,48 @@ function NovaRequisicaoForm() {
     }));
   };
 
+  const handleAlterarValorOSDemanda = (itemCronogramaId: string, valor: number) => {
+    const itemCron = itensCronograma.find(item => item.id === itemCronogramaId);
+    if (!itemCron) return;
+    const valorUnitario = Number(itemCron.valor_unitario) || 0;
+    const saldo =
+      Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) -
+      Number(itemCron.quantidade_medida) -
+      Number(comprometidoMap[itemCron.id] || 0);
+    const valorLimitado = Math.max(0, Math.min(valor, Math.max(0, saldo * valorUnitario)));
+    const quantidade = valorUnitario > 0
+      ? Math.round((valorLimitado / valorUnitario) * 1e12) / 1e12
+      : 0;
+    setItensOSDemanda(prev => prev.map(item =>
+      item.item_cronograma_id === itemCronogramaId
+        ? { ...item, quantidade_solicitada: quantidade, meses_solicitados: undefined }
+        : item,
+    ));
+  };
+
+  const handleAlterarModoOS = (novoModo: 'ORDEM_GLOBAL' | 'ORDEM_DEMANDA') => {
+    if (novoModo === 'ORDEM_DEMANDA' && modoOS !== 'ORDEM_DEMANDA') {
+      setItensOSDemanda(itensCronograma.map(item => ({
+        item_cronograma_id: item.id,
+        quantidade_solicitada: 0,
+      })));
+      setEtapasOSDemanda(etapasOS.map((etapa: any) => ({
+        etapa_id: etapa.id,
+        valor_solicitado: 0,
+      })));
+    }
+    setModoOS(novoModo);
+  };
+
   const handleAlterarMesesOSDemanda = (itemCronogramaId: string, meses: number) => {
     setItensOSDemanda(prev => prev.map(item => {
       if (item.item_cronograma_id === itemCronogramaId) {
         const itemCron = itensCronograma.find(i => i.id === itemCronogramaId);
         if (!itemCron || !itemCron.quantidade_meses) return item;
-        const saldo = Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) - Number(itemCron.quantidade_medida);
+        const saldo =
+          Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) -
+          Number(itemCron.quantidade_medida) -
+          Number(comprometidoMap[itemCron.id] || 0);
         // quantidade já é a qtd por período; multiplicar direto pelo nº de meses
         const qtd = Math.min(meses * Number(itemCron.quantidade), saldo);
         return { ...item, quantidade_solicitada: qtd, meses_solicitados: meses > 0 ? meses : undefined };
@@ -2615,6 +2704,30 @@ function NovaRequisicaoForm() {
         />
       )}
 
+      {alertaConciliacaoItens &&
+        alertaConciliacaoItens.possui_itens &&
+        (Math.abs(Number(alertaConciliacaoItens.diferenca || 0)) > 0.01 ||
+          alertaConciliacaoItens.termos_pendentes?.length > 0) && (
+          <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertTriangle className="h-5 w-5" />
+              Atenção: valor global diferente da soma dos itens
+            </div>
+            <p className="mt-1 text-sm">
+              Global: {formatarMoeda(alertaConciliacaoItens.valor_global)} · Itens:{' '}
+              {formatarMoeda(alertaConciliacaoItens.total_itens)} · Diferença:{' '}
+              {formatarMoeda(alertaConciliacaoItens.diferenca)}. Confirme o
+              reajuste do aditivo antes de emitir o pedido ou a OS.
+            </p>
+            <Link
+              href={`/orgao/contratos/${contratoSelecionado?.id}?tab=termos`}
+              className="mt-2 inline-block text-sm font-medium underline"
+            >
+              Abrir conciliação do aditivo
+            </Link>
+          </div>
+        )}
+
       {carregandoCronograma ? (
         <Card>
           <CardContent className="p-8 flex items-center justify-center gap-2">
@@ -2640,7 +2753,7 @@ function NovaRequisicaoForm() {
                     type="radio"
                     name="modoOS"
                     checked={modoOS === 'ORDEM_GLOBAL'}
-                    onChange={() => setModoOS('ORDEM_GLOBAL')}
+                    onChange={() => handleAlterarModoOS('ORDEM_GLOBAL')}
                     className="h-4 w-4"
                   />
                   <span>Ordem Global</span>
@@ -2651,7 +2764,7 @@ function NovaRequisicaoForm() {
                     type="radio"
                     name="modoOS"
                     checked={modoOS === 'ORDEM_DEMANDA'}
-                    onChange={() => setModoOS('ORDEM_DEMANDA')}
+                    onChange={() => handleAlterarModoOS('ORDEM_DEMANDA')}
                     className="h-4 w-4"
                   />
                   <span>OS Parcial</span>
@@ -2662,11 +2775,18 @@ function NovaRequisicaoForm() {
 
             <div>
               <Label>Itens do Contrato</Label>
+              {modoOS === 'ORDEM_DEMANDA' && temItensControladosPorFuncionarios && (
+                <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                  Nos itens de mão de obra, informe o valor desejado. O sistema converte automaticamente
+                  o valor em fração mensal e em dias-posto, considerando 30 dias por mês.
+                </div>
+              )}
               <div className="border rounded-lg overflow-hidden mt-2">
                 <Table className="table-fixed">
                   <TableHeader>
                     <TableRow>
                       <TableHead>#</TableHead>
+                      <TableHead className="w-20">Lote</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="w-24 text-right">Unidade</TableHead>
                       <TableHead className="w-28 text-right">Qtd contratada</TableHead>
@@ -2681,6 +2801,9 @@ function NovaRequisicaoForm() {
                       {modoOS === 'ORDEM_DEMANDA' && (
                         <TableHead className="text-right">Qtd solicitada</TableHead>
                       )}
+                      {modoOS === 'ORDEM_DEMANDA' && temItensControladosPorFuncionarios && (
+                        <TableHead className="w-36 text-right">Valor solicitado</TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2692,11 +2815,36 @@ function NovaRequisicaoForm() {
                         : Number(item.quantidade);
                       const demanda = itensOSDemanda.find(d => d.item_cronograma_id === item.id);
                       const qtdSolicitada = demanda?.quantidade_solicitada ?? saldo;
+                      const controladoPorFuncionarios = itemControladoPorFuncionarios(item);
+                      const valorSolicitado = qtdSolicitada * Number(item.valor_unitario);
+                      const diasPosto = qtdSolicitada * 30;
+                      const reservas = comprometidoDetalhes[item.id] || [];
                       return (
                         <TableRow key={item.id}>
                           <TableCell>{item.numero_item}</TableCell>
+                          <TableCell>
+                            {item.lote_numero != null
+                              ? <Badge variant="outline">Lote {item.lote_numero}</Badge>
+                              : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
                           <TableCell className="max-w-[280px]">
                             <span className="whitespace-normal break-words text-sm">{item.descricao}</span>
+                            {reservas.length > 0 && (
+                              <div className="mt-1 text-xs text-amber-700">
+                                Reservado em{' '}
+                                {reservas.map((reserva, indice) => (
+                                  <span key={reserva.requisicao_id}>
+                                    {indice > 0 ? ', ' : ''}
+                                    <Link
+                                      className="underline"
+                                      href={`/orgao/almoxarifado/requisicoes/nova?editar=${reserva.requisicao_id}`}
+                                    >
+                                      {reserva.numero}
+                                    </Link>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="text-right">{item.unidade_medida}</TableCell>
                           <TableCell className="text-right">{qtdContratada}</TableCell>
@@ -2707,7 +2855,9 @@ function NovaRequisicaoForm() {
                           <TableCell className="text-right">{formatarMoeda(Number(item.valor_unitario))}</TableCell>
                           {modoOS === 'ORDEM_DEMANDA' && itensCronograma.some(i => i.quantidade_meses != null) ? (
                             <TableCell className="text-right">
-                              {item.quantidade_meses != null ? (() => {
+                              {controladoPorFuncionarios ? (
+                                <span className="text-xs text-muted-foreground">Por valor</span>
+                              ) : item.quantidade_meses != null ? (() => {
                                 const maxMeses = Number(item.quantidade) > 0 ? Math.floor(saldo / Number(item.quantidade)) : 0;
                                 return (
                                   <MesesInput
@@ -2727,6 +2877,24 @@ function NovaRequisicaoForm() {
                                 onChange={(v) => handleAlterarQuantidadeOSDemanda(item.id, v)}
                                 allowZero={true}
                               />
+                              {controladoPorFuncionarios && qtdSolicitada > 0 && (
+                                <div className="mt-1 whitespace-nowrap text-xs text-blue-700">
+                                  {diasPosto.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} dias-posto
+                                </div>
+                              )}
+                            </TableCell>
+                          ) : null}
+                          {modoOS === 'ORDEM_DEMANDA' && temItensControladosPorFuncionarios ? (
+                            <TableCell className="text-right">
+                              {controladoPorFuncionarios ? (
+                                <ValorInput
+                                  value={valorSolicitado}
+                                  max={saldo * Number(item.valor_unitario)}
+                                  onChange={(valor) => handleAlterarValorOSDemanda(item.id, valor)}
+                                />
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                           ) : null}
                         </TableRow>

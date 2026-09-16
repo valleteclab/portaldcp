@@ -19,7 +19,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import * as path from 'path';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -41,12 +41,14 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato, ModalidadeExecucao } from './entities/contrato.entity';
 import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
+import { MedicaoEquipeService } from './medicao-equipe.service';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
 export class ModalidadesContratoController {
   constructor(
     private readonly medicaoService: MedicaoService,
+    private readonly medicaoEquipeService: MedicaoEquipeService,
     private readonly atestacaoService: AtestacaoService,
     private readonly licencaService: LicencaControleService,
     private readonly osService: OrdemServicoContratoService,
@@ -83,6 +85,24 @@ export class ModalidadesContratoController {
       return orgaoId;
     }
     throw new ForbiddenException('NÃ£o foi possÃ­vel identificar o Ã³rgÃ£o do usuÃ¡rio');
+  }
+
+  private async validarAcessoMedicaoOrgao(
+    medicaoId: string,
+    user: JwtPayload,
+    orgaoIdParam?: string,
+  ): Promise<Medicao> {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: medicao.contrato_id },
+    });
+    if (!contrato) {
+      throw new NotFoundException('Contrato não encontrado');
+    }
+    if (contrato.orgao_id !== this.getOrgaoId(user, orgaoIdParam)) {
+      throw new ForbiddenException('Você não tem acesso a esta medição');
+    }
+    return medicao;
   }
 
   private parseNumerosEmpenhos(valor: unknown): string[] {
@@ -704,6 +724,56 @@ export class ModalidadesContratoController {
     return this.medicaoService.buscarMedicao(medicaoId);
   }
 
+  @Get('medicoes/:medicaoId/equipe')
+  async buscarEquipeMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    await this.validarAcessoMedicaoOrgao(
+      medicaoId,
+      request.user,
+      orgaoIdParam,
+    );
+    return this.medicaoEquipeService.buscarPorMedicao(medicaoId);
+  }
+
+  @Get('medicoes/:medicaoId/equipe/xlsx')
+  async baixarEquipeXlsx(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const medicao = await this.validarAcessoMedicaoOrgao(
+      medicaoId,
+      request.user,
+      orgaoIdParam,
+    );
+    const arquivo = await this.medicaoEquipeService.gerarXlsx(medicaoId);
+    return new StreamableFile(arquivo, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: `attachment; filename="relacao-funcionarios-medicao-${medicao.numero_medicao}.xlsx"`,
+    });
+  }
+
+  @Get('medicoes/:medicaoId/equipe/pdf')
+  async baixarEquipePdf(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const medicao = await this.validarAcessoMedicaoOrgao(
+      medicaoId,
+      request.user,
+      orgaoIdParam,
+    );
+    const arquivo = await this.medicaoEquipeService.gerarPdf(medicaoId);
+    return new StreamableFile(arquivo, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="relacao-funcionarios-medicao-${medicao.numero_medicao}.pdf"`,
+    });
+  }
+
   @Get('medicoes/:medicaoId/boletim-oficial/download')
   async downloadBoletimOficial(
     @Param('medicaoId') medicaoId: string,
@@ -772,6 +842,129 @@ export class ModalidadesContratoController {
     const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
     const fiscalNome = usuario?.nome || 'Fiscal';
     return this.medicaoService.corrigirCabecalho(medicaoId, body, request.user.sub, fiscalNome, orgaoId);
+  }
+
+  /**
+   * Lista as OS do contrato para o seletor de troca de OS da medição.
+   * GET /api/contratos/:contratoId/ordens-servico-requisicao
+   */
+  @Get(':contratoId/ordens-servico-requisicao')
+  async listarOrdensServicoRequisicao(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.listarOrdensServicoDoContrato(contratoId, orgaoId);
+  }
+
+  /**
+   * Troca (ou desvincula) a ordem de serviço consumida por uma medição.
+   * PATCH /api/contratos/medicoes/:medicaoId/os
+   */
+  @Patch('medicoes/:medicaoId/os')
+  async trocarOrdemServicoMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: { requisicao_id: string | null; motivo: string },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+    return this.medicaoService.trocarOrdemServico(
+      medicaoId,
+      body?.requisicao_id ?? null,
+      body?.motivo || '',
+      request.user.sub,
+      fiscalNome,
+      orgaoId,
+    );
+  }
+
+  /**
+   * Contexto da tela de lançamento retroativo de medição (suporte).
+   * GET /api/contratos/:contratoId/medicoes/retroativa/contexto
+   */
+  @Get(':contratoId/medicoes/retroativa/contexto')
+  async contextoMedicaoRetroativa(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    return this.medicaoService.getContextoMedicaoRetroativa(contratoId, orgaoId);
+  }
+
+  /**
+   * Registra uma medição retroativa JÁ APROVADA (execução liquidada e paga na
+   * contabilidade sem medição no sistema). Porta de suporte: exige a mesma
+   * permissão especial do cancelamento/estorno.
+   * POST /api/contratos/:contratoId/medicoes/retroativa
+   */
+  @Post(':contratoId/medicoes/retroativa')
+  async registrarMedicaoRetroativa(
+    @Param('contratoId') contratoId: string,
+    @Body()
+    body: {
+      requisicao_id?: string | null;
+      periodo_inicio: string;
+      periodo_fim: string;
+      competencia?: string;
+      nota_fiscal_numero?: string;
+      nota_fiscal_valor?: number | null;
+      nota_fiscal_data?: string | null;
+      valor_medido?: number;
+      itens?: Array<{ item_cronograma_id: string; quantidade_medida: number }>;
+      motivo: string;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: request.user.sub },
+    });
+    if (!usuario) {
+      throw new BadRequestException('Usuário não encontrado');
+    }
+    if (!usuario.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Você não tem permissão para esta ação. Apenas usuários autorizados a cancelar/estornar podem registrar medição retroativa.',
+      );
+    }
+    const orgaoId = this.getOrgaoId(request.user);
+    const medicao = await this.medicaoService.registrarMedicaoRetroativa(
+      contratoId,
+      body,
+      usuario.id,
+      usuario.nome || usuario.email,
+      orgaoId,
+    );
+    // `aviso` vem preenchido quando o período informado é anterior ao corte do
+    // ciclo vigente — a medição vale, mas não consome o saldo do ciclo atual.
+    return {
+      ...medicao,
+      mensagem: medicao.aviso
+        ? `Medição registrada retroativamente já aprovada, mas ATENÇÃO: ${medicao.aviso}`
+        : 'Medição registrada retroativamente já aprovada. O saldo foi consumido e o motivo ficou registrado no histórico do contrato.',
+    };
+  }
+
+  /**
+   * Fiscal corrige as datas das assinaturas digitais do boletim.
+   * PATCH /api/contratos/medicoes/:medicaoId/assinaturas/datas
+   */
+  @Patch('medicoes/:medicaoId/assinaturas/datas')
+  async corrigirDatasAssinaturasMedicao(
+    @Param('medicaoId') medicaoId: string,
+    @Body() body: {
+      assinaturas: Array<{ id: string; data_assinatura: string }>;
+      motivo?: string;
+    },
+    @Req() request: { user: JwtPayload },
+  ) {
+    const orgaoId = this.getOrgaoId(request.user);
+    const usuario = await this.usuarioRepository.findOne({ where: { id: request.user.sub } });
+    const fiscalNome = usuario?.nome || 'Fiscal';
+    return this.medicaoService.corrigirDatasAssinaturas(medicaoId, body, fiscalNome, orgaoId);
   }
 
   @Patch('medicoes/:medicaoId/execucao-fiscal')
@@ -1517,7 +1710,14 @@ export class ModalidadesContratoController {
   ) {
     const contrato = await this.contratoRepository.findOne({
       where: { id: contratoId },
-      select: ['id', 'numero_contrato', 'fornecedor_cnpj', 'ano', 'valor_global'],
+      select: [
+        'id',
+        'numero_contrato',
+        'fornecedor_cnpj',
+        'ano',
+        'valor_global',
+        'processo_licitatorio_portal',
+      ],
     });
     if (!contrato) {
       throw new NotFoundException('Contrato nÃ£o encontrado');
@@ -1530,6 +1730,8 @@ export class ModalidadesContratoController {
       nContrato: contrato.numero_contrato,
       cpfcnpj: contrato.fornecedor_cnpj,
       ano: anoConsulta,
+      processoLicitatorioPortal:
+        contrato.processo_licitatorio_portal ?? undefined,
     });
 
     const resumo = this.fatorTransparencia.calcularResumo(empenhos, {

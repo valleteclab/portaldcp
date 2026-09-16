@@ -252,9 +252,13 @@ export class AtasService {
         'ata.fornecedor_cnpj',
         'ata.fornecedor_razao_social',
         'ata.permite_adesao',
+        'ata.limite_adesao_percentual',
+        'ata.arquivo_ata',
         'orgao.id',
         'orgao.nome',
         'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
         'itens.id',
         'itens.numero_item',
         'itens.descricao',
@@ -286,10 +290,55 @@ export class AtasService {
   }
 
   async findPublicaById(id: string): Promise<AtaRegistroPreco> {
-    const ata = await this.ataRepository.findOne({
-      where: { id },
-      relations: ['orgao', 'licitacao', 'itens']
-    });
+    const ata = await this.ataRepository
+      .createQueryBuilder('ata')
+      .leftJoinAndSelect('ata.orgao', 'orgao')
+      .leftJoinAndSelect('ata.licitacao', 'licitacao')
+      .leftJoinAndSelect('ata.itens', 'itens')
+      .select([
+        'ata.id',
+        'ata.numero_ata',
+        'ata.ano',
+        'ata.sequencial',
+        'ata.status',
+        'ata.objeto',
+        'ata.valor_total',
+        'ata.valor_utilizado',
+        'ata.valor_saldo',
+        'ata.data_assinatura',
+        'ata.data_vigencia_inicio',
+        'ata.data_vigencia_fim',
+        'ata.data_publicacao',
+        'ata.fornecedor_cnpj',
+        'ata.fornecedor_razao_social',
+        'ata.permite_adesao',
+        'ata.limite_adesao_percentual',
+        'ata.arquivo_ata',
+        'orgao.id',
+        'orgao.nome',
+        'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
+        'licitacao.id',
+        'licitacao.numero_processo',
+        'licitacao.numero_edital',
+        'licitacao.modalidade',
+        'itens.id',
+        'itens.numero_item',
+        'itens.descricao',
+        'itens.descricao_detalhada',
+        'itens.unidade_medida',
+        'itens.quantidade_registrada',
+        'itens.quantidade_utilizada',
+        'itens.quantidade_saldo',
+        'itens.valor_unitario',
+        'itens.valor_total',
+        'itens.marca',
+        'itens.modelo',
+      ])
+      .where('ata.id = :id', { id })
+      .andWhere('ata.status != :cancelada', { cancelada: StatusAta.CANCELADA })
+      .getOne();
 
     if (!ata) {
       throw new NotFoundException('Ata não encontrada');

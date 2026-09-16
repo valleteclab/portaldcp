@@ -91,6 +91,7 @@ interface Usuario {
   pode_aprovar_requisicoes?: boolean
   pode_cancelar_estornar?: boolean
   pode_liberar_contratos?: boolean
+  pode_aprovar_demandas?: boolean
   pode_excluir_medicao?: boolean
   pode_excluir_contratos?: boolean
   pode_excluir_requisicao_combustivel?: boolean
@@ -167,6 +168,7 @@ export default function AdminUsuariosPage() {
     pode_aprovar_requisicoes: false,
     pode_cancelar_estornar: false,
     pode_liberar_contratos: false,
+    pode_aprovar_demandas: false,
     pode_excluir_medicao: false,
     pode_excluir_contratos: false,
     pode_excluir_requisicao_combustivel: false,
@@ -220,6 +222,7 @@ export default function AdminUsuariosPage() {
       pode_aprovar_requisicoes: false,
       pode_cancelar_estornar: false,
       pode_liberar_contratos: false,
+    pode_aprovar_demandas: false,
       pode_excluir_medicao: false,
       pode_excluir_contratos: false,
       pode_excluir_requisicao_combustivel: false,
@@ -246,6 +249,7 @@ export default function AdminUsuariosPage() {
       pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes || false,
       pode_cancelar_estornar: usuario.pode_cancelar_estornar || false,
       pode_liberar_contratos: usuario.pode_liberar_contratos || false,
+      pode_aprovar_demandas: usuario.pode_aprovar_demandas || false,
       pode_excluir_medicao: usuario.pode_excluir_medicao || false,
       pode_excluir_contratos: usuario.pode_excluir_contratos || false,
       pode_excluir_requisicao_combustivel: usuario.pode_excluir_requisicao_combustivel || false,
@@ -295,6 +299,7 @@ export default function AdminUsuariosPage() {
         pode_aprovar_requisicoes: formUsuario.pode_aprovar_requisicoes,
         pode_cancelar_estornar: formUsuario.pode_cancelar_estornar,
         pode_liberar_contratos: formUsuario.pode_liberar_contratos,
+        pode_aprovar_demandas: formUsuario.pode_aprovar_demandas,
         pode_excluir_medicao: formUsuario.pode_excluir_medicao,
         pode_excluir_contratos: formUsuario.pode_excluir_contratos,
         pode_excluir_requisicao_combustivel: formUsuario.pode_excluir_requisicao_combustivel,
@@ -1025,7 +1030,7 @@ export default function AdminUsuariosPage() {
                     <Checkbox
                       id="perm-liberar"
                       checked={formUsuario.pode_liberar_contratos}
-                      onCheckedChange={(checked) => 
+                      onCheckedChange={(checked) =>
                         setFormUsuario({ ...formUsuario, pode_liberar_contratos: checked === true })
                       }
                       className="mt-0.5"
@@ -1033,6 +1038,21 @@ export default function AdminUsuariosPage() {
                     <label htmlFor="perm-liberar" className="cursor-pointer">
                       <p className="text-sm font-medium text-blue-800">Liberar contratos</p>
                       <p className="text-xs text-blue-600">Liberar contratos para pedidos</p>
+                    </label>
+                  </div>
+
+                  <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <Checkbox
+                      id="perm-aprovar-demandas"
+                      checked={formUsuario.pode_aprovar_demandas}
+                      onCheckedChange={(checked) =>
+                        setFormUsuario({ ...formUsuario, pode_aprovar_demandas: checked === true })
+                      }
+                      className="mt-0.5"
+                    />
+                    <label htmlFor="perm-aprovar-demandas" className="cursor-pointer">
+                      <p className="text-sm font-medium text-blue-800">Aprovar demandas (DFD)</p>
+                      <p className="text-xs text-blue-600">Aprovar ou rejeitar demandas de contratação do órgão</p>
                     </label>
                   </div>
                   <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">

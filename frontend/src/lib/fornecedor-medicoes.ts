@@ -162,13 +162,26 @@ export function buildContratoMedicaoOverview(contrato: FornecedorContratoBase, m
   }
 }
 
+/**
+ * Falha ao carregar a central de medições. A tela precisa distinguir "você não
+ * tem contratos" de "não consegui buscar" — antes as duas viravam lista vazia,
+ * e o fornecedor concluía que o contrato havia sumido do sistema.
+ */
+export class FalhaAoCarregarMedicoes extends Error {}
+
 export async function carregarOverviewMedicoesFornecedor(): Promise<ContratoMedicaoOverview[]> {
   const fornecedorData = localStorage.getItem('fornecedor')
-  if (!fornecedorData) return []
+  if (!fornecedorData) throw new FalhaAoCarregarMedicoes('Sessão não encontrada. Entre novamente.')
 
   const fornecedor = JSON.parse(fornecedorData)
   const contratosRes = await authFetch(`${API_URL}/api/contratos?fornecedorId=${fornecedor.id}`)
-  if (!contratosRes.ok) return []
+  if (!contratosRes.ok) {
+    throw new FalhaAoCarregarMedicoes(
+      contratosRes.status === 401
+        ? 'Sua sessão expirou. Entre novamente para ver seus contratos.'
+        : 'Não foi possível carregar seus contratos. Tente novamente.',
+    )
+  }
 
   const contratosJson = await contratosRes.json()
   const contratos = (Array.isArray(contratosJson) ? contratosJson : (contratosJson.data || [])) as FornecedorContratoBase[]

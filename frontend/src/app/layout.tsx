@@ -1,29 +1,37 @@
-import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
+import type { Metadata, Viewport } from "next"
+import { Geist, Geist_Mono } from "next/font/google"
+import "./globals.css"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
-});
+})
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
-});
+})
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
-  themeColor: "#ea580c",
-};
+  themeColor: "#1d4ed8",
+}
 
 export const metadata: Metadata = {
-  title: "Portal DCP - Diário de Compras Públicas",
-  description: "Sistema completo de gestão de licitações públicas conforme Lei 14.133/2021. Participe de licitações de forma simples, segura e transparente.",
-  keywords: ["licitações", "compras públicas", "pregão", "Lei 14.133", "PNCP", "fornecedores"],
-  authors: [{ name: "ValletecLab" }],
+  title: "PortalDCP — Diário de Compras Públicas",
+  description:
+    "Plataforma privada de tecnologia para gestão de licitações, contratos e publicações de órgãos e entidades públicas.",
+  keywords: [
+    "plataforma de contratações públicas",
+    "licitações",
+    "compras públicas",
+    "Lei 14.133",
+    "PNCP",
+    "contratos administrativos",
+  ],
+  authors: [{ name: "PortalDCP" }],
   manifest: "/site.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "default" },
   icons: {
@@ -33,20 +41,18 @@ export const metadata: Metadata = {
     ],
     apple: [{ url: "/apple-touch-icon.png" }],
   },
-};
+}
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: React.ReactNode
 }>) {
   return (
     <html lang="pt-BR">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         {children}
       </body>
     </html>
-  );
+  )
 }

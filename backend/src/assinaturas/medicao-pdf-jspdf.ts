@@ -34,6 +34,40 @@ function centavosParaReaisTrunc2(centavos: number): number {
   return Number((centavos / 100).toFixed(2));
 }
 
+function diasFiscaisNoPeriodoPorValor(itens: any[] | undefined): number | null {
+  const mensais = (itens || []).filter(
+    (item: any) =>
+      String(item?.unidade || '').trim().toUpperCase() === 'MENSAL',
+  );
+  if (mensais.length === 0) return null;
+
+  let valorPeriodoCent = 0;
+  let valorTotalCent = 0;
+  for (const item of mensais) {
+    const valorUnitario = Number(item.valor_unitario) || 0;
+    valorPeriodoCent +=
+      item.valor_no_periodo !== undefined && item.valor_no_periodo !== null
+        ? Math.round(truncarMoedaReais2Casas(Number(item.valor_no_periodo)) * 100)
+        : produtoQuantidadeValorUnitarioCentavos(
+            item.quantidade_no_periodo,
+            valorUnitario,
+          );
+    valorTotalCent +=
+      item.valor_total_item !== undefined && item.valor_total_item !== null
+        ? Math.round(truncarMoedaReais2Casas(Number(item.valor_total_item)) * 100)
+        : produtoQuantidadeValorUnitarioCentavos(
+            item.quantidade_total_contrato,
+            valorUnitario,
+          );
+  }
+
+  if (valorTotalCent <= 0) return null;
+  return Math.min(
+    360,
+    Math.max(0, Math.round((valorPeriodoCent / valorTotalCent) * 360)),
+  );
+}
+
 /** EXECUÇÃO FINANCEIRA: 2 casas; trunc (sem arredondar). */
 function fmtExecFinanceira(v: number): string {
   const truncado = truncarMoedaReais2Casas(v);
@@ -207,6 +241,10 @@ function derivarCompetencia(periodoInicio: string): string {
 
 // ---- Quadro de Assinaturas (idêntico ao frontend + QR Code) ----
 
+/** Declaração do signatário dentro da caixa: tamanho da fonte (pt) e entrelinha (mm). */
+const DECLARACAO_FONTE = 6.8;
+const DECLARACAO_ENTRELINHA = 3.2;
+
 function desenharQuadroAssinaturas(
   doc: jsPDF,
   y: number,
@@ -221,6 +259,8 @@ function desenharQuadroAssinaturas(
     dataHora: string;
     pendente: boolean;
     codigoValidacao?: string;
+    /** Termo que o signatário declara ao assinar (impresso dentro da caixa). */
+    declaracao?: string;
   }>,
   urlValidacao?: string,
   qrDataUrl?: string,
@@ -269,12 +309,17 @@ function desenharQuadroAssinaturas(
     } else {
       const linhasNome = doc.splitTextToSize(a.nome, boxW - 5);
       const numLinhasNome = Math.min(linhasNome.length, 2);
+      doc.setFontSize(DECLARACAO_FONTE);
+      const linhasDeclaracao = a.declaracao
+        ? doc.splitTextToSize(a.declaracao, boxW - 6)
+        : [];
       boxH = 5 + 3.5
         + numLinhasNome * 3.1
         + (a.cargo ? 2.8 : 0)
         + (a.identificacao ? 2.8 : 0)
         + (a.dataHora ? 2.8 : 0)   // data/hora (omitida quando vazia)
         + 2.8   // assinatura válida
+        + (linhasDeclaracao.length ? 1.5 + linhasDeclaracao.length * DECLARACAO_ENTRELINHA : 0)
         + 2.5;  // padding inferior
     }
     maxBoxH = Math.max(maxBoxH, boxH);
@@ -319,6 +364,18 @@ function desenharQuadroAssinaturas(
       doc.setFontSize(5.5);
       doc.setTextColor(22, 163, 74);
       doc.text('✓  Assinatura eletrônica válida', bx + 3, ly);
+      ly += 2.8;
+
+      // Termo declarado por quem assina — o que o fornecedor/fiscal atesta ao
+      // aplicar a assinatura eletrônica neste boletim.
+      if (a.declaracao) {
+        ly += 1.5;
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(DECLARACAO_FONTE);
+        doc.setTextColor(55, 65, 81);
+        const linhas = doc.splitTextToSize(a.declaracao, boxW - 6);
+        doc.text(linhas, bx + 3, ly, { lineHeightFactor: DECLARACAO_ENTRELINHA / (DECLARACAO_FONTE * 0.3528) });
+      }
     }
   }
   dy += maxBoxH + 3;
@@ -436,13 +493,25 @@ export async function gerarBoletimMedicaoPdf(
   // =========================================================
   // INFORMAÇÕES DO CONTRATO
   // =========================================================
-  const infoX2 = mX + 22;
+  const contratoNumero = textoSeguro(dados.numero_contrato ?? dados.contrato_numero).trim();
+  const tipoInstrumento = textoSeguro(
+    dados.tipo_instrumento ?? dados.contrato_tipo,
+    'CONTRATO',
+  ).toUpperCase();
+  const rotuloInstrumento =
+    tipoInstrumento === 'ATA_REGISTRO_PRECO'
+      ? 'ATA REGISTRO DE PREÇO'
+      : 'CONTRATO';
+  const rotuloInstrumentoTitulo =
+    tipoInstrumento === 'ATA_REGISTRO_PRECO'
+      ? 'Ata Registro de Preço'
+      : 'Contrato';
+  const infoX2 = mX + (rotuloInstrumento === 'CONTRATO' ? 22 : 45);
   const textoPretoPdf: [number, number, number] = [0, 0, 0];
   const textoCorpoTabelaPdf = {
     textColor: textoPretoPdf,
     fontStyle: 'bold' as const,
   };
-  const contratoNumero = textoSeguro(dados.numero_contrato ?? dados.contrato_numero).trim();
   const usarRotuloLote =
     textoSeguro((dados as any).contrato_id) === '167a043f-3788-40ba-9c7e-9ef4faaa6a2c';
   const rotuloItemContrato = usarRotuloLote ? 'LOTE' : 'Nº';
@@ -459,7 +528,10 @@ export async function gerarBoletimMedicaoPdf(
   };
 
   linhaInfo('ÓRGÃO', textoSeguro(dados.orgao_nome));
-  linhaInfo('CONTRATO', textoSeguro(dados.numero_contrato ?? dados.contrato_numero));
+  linhaInfo(
+    rotuloInstrumento,
+    textoSeguro(dados.numero_contrato ?? dados.contrato_numero),
+  );
 
   // Objeto pode ser longo — quebrar em até 3 linhas
   doc.setFont('helvetica', 'bold');
@@ -665,7 +737,7 @@ export async function gerarBoletimMedicaoPdf(
         ],
         ...(dados.teto_contratual != null
           ? [[
-              { content: 'VALOR GLOBAL DO CONTRATO (TETO)', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [255, 235, 200] as [number, number, number] } },
+              { content: tipoInstrumento === 'ATA_REGISTRO_PRECO' ? 'VALOR GLOBAL DA ATA (TETO)' : 'VALOR GLOBAL DO CONTRATO (TETO)', colSpan: exibirColunasFrequencia ? 8 : 5, styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [255, 235, 200] as [number, number, number] } },
               { content: fmtAr(dados.teto_contratual), styles: { halign: 'right' as const, fontStyle: 'bold' as const, fillColor: [255, 235, 200] as [number, number, number] } },
             ]]
           : []),
@@ -812,7 +884,10 @@ export async function gerarBoletimMedicaoPdf(
     if (porQuantidade) {
       txtFiscalNoPeriodo = txtFiscalAtePeriodo = txtFiscalAExecutar = '';
     } else {
-      const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim));
+      const diasPeriodoPorValor = diasFiscaisNoPeriodoPorValor(dados.itens);
+      const diasPeriodo = diasPeriodoPorValor !== null
+        ? Math.max(1, diasPeriodoPorValor)
+        : Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim));
       txtFiscalNoPeriodo = fmtTempo(diasPeriodo);
       if (dados.execucao_fiscal) {
         txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados);
@@ -1145,6 +1220,8 @@ export async function gerarBoletimMedicaoPdf(
       dataHora: aForn?.data_hora || '',
       pendente: !aForn,
       codigoValidacao: aForn?.codigo_validacao,
+      declaracao:
+        'Declaro para os devidos fins de direito a veracidade das informações constantes neste documento.',
     },
     {
       titulo: 'FISCAL DE CONTRATO',
@@ -1155,6 +1232,8 @@ export async function gerarBoletimMedicaoPdf(
       dataHora: aFisc?.data_hora || '',
       pendente: !aFisc,
       codigoValidacao: aFisc?.codigo_validacao,
+      declaracao:
+        'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
     },
     ...(aEng
       ? [{
@@ -1189,7 +1268,7 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(55, 65, 81);
   if (dados.orgao_nome) doc.text(dados.orgao_nome, W / 2, yPA + 6, { align: 'center' });
-  doc.text(`Contrato: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}`, W / 2, yPA + 11, { align: 'center' });
+  doc.text(`${rotuloInstrumentoTitulo}: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}`, W / 2, yPA + 11, { align: 'center' });
   yPA += 20;
   desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao, qrDataUrl);
 
@@ -1203,7 +1282,7 @@ export async function gerarBoletimMedicaoPdf(
     doc.setTextColor(160, 160, 160);
     doc.setFont('helvetica', 'normal');
     doc.text(
-      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  Contrato: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
+      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  ${rotuloInstrumentoTitulo}: ${textoSeguro(dados.numero_contrato ?? dados.contrato_numero)}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
       W / 2, H - 5, { align: 'center' },
     );
   }

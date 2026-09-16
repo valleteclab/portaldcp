@@ -11,6 +11,8 @@ import { DispensaGateway } from './dispensa.gateway';
 import { gerarAtaDispensaPdf } from './ata-dispensa-pdf';
 import { PncpService } from '../pncp/pncp.service';
 import { FaseInternaService } from '../fase-interna/fase-interna.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
@@ -53,7 +55,38 @@ export class LicitacoesService {
     private readonly dataSource: DataSource,
     private readonly pncpService: PncpService,
     private readonly faseInternaService: FaseInternaService,
+    private readonly notificacoesService: NotificacoesService,
   ) {}
+
+  /**
+   * Marco do ciclo da demanda de origem (transparência p/ o requisitante):
+   * avisa o setor que pediu quando a contratação avança. Best-effort.
+   */
+  private async notificarDemandaOrigem(
+    licitacao: Licitacao,
+    tipo: TipoNotificacao,
+    titulo: string,
+    mensagem: string,
+  ): Promise<void> {
+    if (!licitacao.demanda_id) return;
+    try {
+      const demanda = await this.demandaRepository.findOneBy({ id: licitacao.demanda_id });
+      if (!demanda) return;
+      await this.notificacoesService.criar({
+        orgao_id: licitacao.orgao_id,
+        usuario_id: licitacao.orgao_id,
+        usuario_email: (demanda as any).responsavel_email || undefined,
+        tipo,
+        titulo,
+        mensagem,
+        entidade_tipo: 'DEMANDA',
+        entidade_id: demanda.id,
+        link: `/orgao/demandas/${demanda.id}`,
+      } as any);
+    } catch (e: any) {
+      this.logger.warn(`Notificação da demanda de origem não enviada: ${e.message}`);
+    }
+  }
 
   // === CRUD ===
   async create(createDto: CreateLicitacaoDto): Promise<Licitacao> {
@@ -674,6 +707,14 @@ export class LicitacoesService {
 
     const salva = await this.licitacaoRepository.save(licitacao);
 
+    // Avisa o setor requisitante da demanda de origem (fire-and-forget)
+    this.notificarDemandaOrigem(
+      licitacao,
+      TipoNotificacao.DEMANDA_EM_CONTRATACAO,
+      'Sua demanda entrou em contratação 📢',
+      `O processo ${licitacao.numero_processo} foi divulgado — prazo de propostas aberto até ${new Date(dados.data_fim_acolhimento).toLocaleString('pt-BR')}.`,
+    ).catch(() => undefined);
+
     // D5 — efeito de transição: DISPENSA publica o aviso de contratação direta
     // no PNCP automaticamente (compra + itens + aviso PDF). Fire-and-forget:
     // falha NÃO bloqueia a publicação — fica registrada em pncp_sync e visível
@@ -758,6 +799,13 @@ export class LicitacoesService {
         this.logger.log(
           `${contratos.length} contrato(s) gerado(s) automaticamente para licitação ${id}: ${numeros}`,
         );
+        // Avisa o setor requisitante da demanda de origem
+        this.notificarDemandaOrigem(
+          licitacao,
+          TipoNotificacao.DEMANDA_CONTRATADA,
+          'Sua demanda foi contratada ✅',
+          `O processo ${licitacao.numero_processo} foi homologado e gerou o(s) contrato(s) ${numeros}.`,
+        ).catch(() => undefined);
       }
     } catch (error) {
       // Não falha a homologação se houver erro na geração dos contratos
@@ -905,6 +953,8 @@ export class LicitacoesService {
         data_abertura_sessao: licitacao.data_abertura_sessao,
         dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
         dispensa_lances_fim: licitacao.dispensa_lances_fim,
+        link_pncp: (licitacao as any).link_pncp ?? null,
+        preparacao_automatica: (licitacao as any).preparacao_automatica ?? null,
       },
       item_pca: licitacao.item_pca
         ? {
@@ -1804,7 +1854,28 @@ export class LicitacoesService {
 
     const query = this.licitacaoRepository.createQueryBuilder('licitacao')
       .leftJoinAndSelect('licitacao.orgao', 'orgao')
-      .leftJoinAndSelect('licitacao.itens', 'itens')
+      .select([
+        'licitacao.id',
+        'licitacao.numero_processo',
+        'licitacao.numero_edital',
+        'licitacao.ano',
+        'licitacao.sequencial',
+        'licitacao.objeto',
+        'licitacao.modalidade',
+        'licitacao.tipo_contratacao',
+        'licitacao.criterio_julgamento',
+        'licitacao.modo_disputa',
+        'licitacao.fase',
+        'licitacao.valor_total_estimado',
+        'licitacao.data_publicacao_edital',
+        'licitacao.data_abertura_sessao',
+        'licitacao.srp',
+        'orgao.id',
+        'orgao.nome',
+        'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
+      ])
       .where('licitacao.fase IN (:...fases)', { fases: fasesPublicas });
 
     if (filtros?.modalidade) {
@@ -1820,5 +1891,88 @@ export class LicitacoesService {
     }
 
     return query.orderBy('licitacao.data_abertura_sessao', 'DESC').getMany();
+  }
+
+  async findPublicaById(id: string): Promise<Licitacao> {
+    const fasesPublicas = [
+      FaseLicitacao.PUBLICADO,
+      FaseLicitacao.IMPUGNACAO,
+      FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
+      FaseLicitacao.ANALISE_PROPOSTAS,
+      FaseLicitacao.EM_DISPUTA,
+      FaseLicitacao.JULGAMENTO,
+      FaseLicitacao.HABILITACAO,
+      FaseLicitacao.RECURSO,
+      FaseLicitacao.ADJUDICACAO,
+      FaseLicitacao.HOMOLOGACAO,
+      FaseLicitacao.CONCLUIDO,
+      FaseLicitacao.DESERTO,
+      FaseLicitacao.FRACASSADO,
+      FaseLicitacao.REVOGADO,
+      FaseLicitacao.ANULADO,
+    ];
+
+    const licitacao = await this.licitacaoRepository
+      .createQueryBuilder('licitacao')
+      .leftJoinAndSelect('licitacao.orgao', 'orgao')
+      .leftJoinAndSelect('licitacao.itens', 'itens')
+      .select([
+        'licitacao.id',
+        'licitacao.numero_processo',
+        'licitacao.numero_edital',
+        'licitacao.ano',
+        'licitacao.sequencial',
+        'licitacao.objeto',
+        'licitacao.objeto_detalhado',
+        'licitacao.modalidade',
+        'licitacao.tipo_contratacao',
+        'licitacao.criterio_julgamento',
+        'licitacao.modo_disputa',
+        'licitacao.fase',
+        'licitacao.valor_total_estimado',
+        'licitacao.sigilo_orcamento',
+        'licitacao.data_publicacao_edital',
+        'licitacao.data_limite_impugnacao',
+        'licitacao.data_inicio_acolhimento',
+        'licitacao.data_fim_acolhimento',
+        'licitacao.data_abertura_sessao',
+        'licitacao.pregoeiro_nome',
+        'licitacao.exclusivo_mpe',
+        'licitacao.tratamento_diferenciado_mpe',
+        'licitacao.srp',
+        'orgao.id',
+        'orgao.nome',
+        'orgao.cnpj',
+        'orgao.cidade',
+        'orgao.uf',
+        'orgao.logradouro',
+        'orgao.numero',
+        'orgao.bairro',
+        'orgao.cep',
+        'orgao.telefone',
+        'orgao.email',
+        'itens.id',
+        'itens.numero_item',
+        'itens.numero_lote',
+        'itens.descricao_resumida',
+        'itens.descricao_detalhada',
+        'itens.unidade_medida',
+        'itens.quantidade',
+        'itens.valor_unitario_estimado',
+        'itens.valor_total_estimado',
+        'itens.codigo_catmat',
+        'itens.codigo_catser',
+        'itens.codigo_catalogo',
+        'itens.tipo_participacao',
+      ])
+      .where('licitacao.id = :id', { id })
+      .andWhere('licitacao.fase IN (:...fases)', { fases: fasesPublicas })
+      .getOne();
+
+    if (!licitacao) {
+      throw new NotFoundException('Licitação pública não encontrada');
+    }
+
+    return licitacao;
   }
 }

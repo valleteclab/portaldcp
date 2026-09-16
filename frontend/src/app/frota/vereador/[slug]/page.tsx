@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { Loader2, Fuel, ClipboardList, Home, User, ChevronRight, CheckCircle, Clock, XCircle, Lock, LogOut, ExternalLink, Share2 } from 'lucide-react'
 import { API_URL } from '@/lib/api'
+import { QrCodeImg } from '../../QrCodeImg'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -15,8 +16,12 @@ interface Requisicao {
   status: string; data_requisicao: string; veiculo_placa: string; veiculo_modelo?: string
   token_acesso?: string; token_expiry?: string
 }
+interface VeiculoOpcao { id: string; placa: string; modelo?: string; marca?: string; tipo_combustivel?: string; km_atual?: number }
+
 interface VereadorData {
   credencial: CredencialInfo; mes: string; cota_mensal: number; litros_usados: number
+  cota_extra?: number; cota_extra_motivo?: string | null; cota_total?: number
+  litros_comprometidos?: number; litros_disponiveis?: number | null
   autorizacao_ativa: Requisicao | null; requisicoes: Requisicao[]
 }
 
@@ -30,10 +35,6 @@ const fmtLitros = (v: number) => `${Number(v || 0).toLocaleString('pt-BR', { min
 const fmtData = (d: string) => d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: TZ_BRASIL }) : ''
 const initials = (n: string) => n.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
-function getQrUrl(token: string, origin: string) {
-  const url = `${origin}/frota/req/${token}`
-  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(url)}`
-}
 
 function compartilharWhatsApp(token: string, codigo?: string) {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -78,6 +79,15 @@ export default function VereadorSlugPage() {
     finalidade: '', km_hodometro: '', observacoes: '',
   })
   const [qtdOutro, setQtdOutro] = useState('')
+  const [veiculos, setVeiculos] = useState<VeiculoOpcao[]>([])
+  const [placaManual, setPlacaManual] = useState(false)
+  const [cancelandoId, setCancelandoId] = useState<string | null>(null)
+  // Pedir liberação de cota ao gestor
+  const [modalExtra, setModalExtra] = useState(false)
+  const [extraLitros, setExtraLitros] = useState('')
+  const [extraMotivo, setExtraMotivo] = useState('')
+  const [extraEnviando, setExtraEnviando] = useState(false)
+  const [extraRetorno, setExtraRetorno] = useState<string | null>(null)
   const [qtdSelecionada, setQtdSelecionada] = useState<number | 'outro'>(30)
   const [enviandoPedido, setEnviandoPedido] = useState(false)
   const [pedidoSucesso, setPedidoSucesso] = useState(false)
@@ -120,6 +130,10 @@ export default function VereadorSlugPage() {
         setToken(null); setLoading(false); return
       }
       setData(await res.json())
+      try {
+        const rv = await fetch(`${FROTA_PUB}/vereador/veiculos`, { headers: { Authorization: `Bearer ${t}` } })
+        if (rv.ok) setVeiculos(await rv.json())
+      } catch { /* sem lista, cai no campo de placa */ }
     } catch { /* ignore */ }
     finally { setLoading(false) }
   }, [])
@@ -192,6 +206,45 @@ export default function VereadorSlugPage() {
       setQtdSelecionada(30)
       setTimeout(() => { setPedidoSucesso(false); setTab('inicio'); carregarDados(token!) }, 2000)
     } finally { setEnviandoPedido(false) }
+  }
+
+  const handleCancelarPedido = async (r: Requisicao) => {
+    if (!token) return
+    if (!confirm(`Cancelar o pedido ${r.codigo} (${fmtLitros(r.quantidade_autorizada)})? A cota volta a ficar disponível.`)) return
+    setCancelandoId(r.id)
+    try {
+      const res = await fetch(`${FROTA_PUB}/vereador/requisicao/${r.id}/cancelar`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Não foi possível cancelar'); return }
+      await carregarDados(token)
+    } finally { setCancelandoId(null) }
+  }
+
+  const abrirPedidoExtra = () => {
+    const falta = Math.max(0, qtdPedido - litrosDisp)
+    setExtraLitros(falta > 0 ? String(Math.ceil(falta)) : '')
+    setExtraMotivo('')
+    setExtraRetorno(null)
+    setModalExtra(true)
+  }
+
+  const handlePedirExtra = async () => {
+    if (!token) return
+    setExtraEnviando(true)
+    setExtraRetorno(null)
+    try {
+      const res = await fetch(`${FROTA_PUB}/vereador/solicitar-cota-extra`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ litros: parseFloat(extraLitros.replace(',', '.')) || 0, motivo: extraMotivo.trim() }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { setExtraRetorno(json.message || 'Não foi possível enviar o pedido.'); return }
+      setExtraRetorno(json.gestor_avisado
+        ? 'Pedido enviado ao gestor pelo WhatsApp. Quando ele liberar, você recebe um aviso e pode refazer o pedido.'
+        : 'Pedido registrado, mas o órgão ainda não cadastrou o WhatsApp do responsável — avise o gestor por outro canal.')
+    } finally { setExtraEnviando(false) }
   }
 
   // ─── Alterar Senha ────────────────────────────────────────────────────────
@@ -294,8 +347,14 @@ export default function VereadorSlugPage() {
   const { credencial, mes, cota_mensal, litros_usados, requisicoes } = data
   const requisicoesAprovadas = requisicoes.filter(r => r.status === 'AUTORIZADO')
   const exibir = requisicoesAprovadas.find(r => r.id === requisicaoSelecionada?.id) ?? requisicoesAprovadas[0] ?? null
-  const percentoCota = cota_mensal > 0 ? Math.min((litros_usados / cota_mensal) * 100, 100) : 0
-  const litrosDisp = Math.max(0, cota_mensal - litros_usados)
+  const cotaExtra = Number(data.cota_extra || 0)
+  const cotaTotal = data.cota_total ?? cota_mensal
+  const litrosComprometidos = Number(data.litros_comprometidos || 0)
+  const percentoCota = cotaTotal > 0 ? Math.min(((litros_usados + litrosComprometidos) / cotaTotal) * 100, 100) : 0
+  // Disponível já desconta pedidos abertos (pendentes/autorizados) — é o que o backend bloqueia
+  const litrosDisp = data.litros_disponiveis != null ? data.litros_disponiveis : Math.max(0, cotaTotal - litros_usados - litrosComprometidos)
+  const qtdPedido = qtdSelecionada === 'outro' ? (parseFloat(qtdOutro) || 0) : qtdSelecionada
+  const excedeCota = cota_mensal > 0 && qtdPedido > litrosDisp + 0.0005
   const mesLabel = new Date(`${mes}-15`).toLocaleString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()
   const ordemUrl = exibir?.token_acesso
     ? `${typeof window !== 'undefined' ? window.location.origin : ''}/frota/req/${exibir.token_acesso}`
@@ -329,7 +388,7 @@ export default function VereadorSlugPage() {
               <p className="text-slate-400 text-xs uppercase tracking-wide">LITROS UTILIZADOS</p>
               <p className="text-white text-3xl font-bold mt-1">
                 {fmtLitros(litros_usados)}
-                {cota_mensal > 0 && <span className="text-slate-400 text-lg font-normal"> / {fmtLitros(cota_mensal)}</span>}
+                {cota_mensal > 0 && <span className="text-slate-400 text-lg font-normal"> / {fmtLitros(cotaTotal)}</span>}
               </p>
             </div>
             {cota_mensal > 0 && (
@@ -339,9 +398,14 @@ export default function VereadorSlugPage() {
                     style={{ width: `${percentoCota}%` }} />
                 </div>
                 <div className="flex justify-between text-xs text-slate-400">
-                  <span>{percentoCota.toFixed(0)}% utilizado</span>
+                  <span>{percentoCota.toFixed(0)}% utilizado{litrosComprometidos > 0 ? ` (${fmtLitros(litrosComprometidos)} em pedidos abertos)` : ''}</span>
                   <span>{fmtLitros(litrosDisp)} disponíveis</span>
                 </div>
+                {cotaExtra > 0 && (
+                  <p className="text-xs text-emerald-300">
+                    +{fmtLitros(cotaExtra)} extras liberados pelo gestor este mês{data.cota_extra_motivo ? ` — ${data.cota_extra_motivo}` : ''}
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -391,11 +455,11 @@ export default function VereadorSlugPage() {
                 </div>
                 {exibir.token_acesso && origin && (
                   <div className="flex-shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={getQrUrl(exibir.token_acesso, origin)}
+                    <QrCodeImg
+                      value={`${origin}/frota/req/${exibir.token_acesso}`}
+                      size={112}
                       alt="QR Code para o posto"
-                      className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg border-2 border-slate-200"
+                      className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg border-2 border-slate-200 bg-white"
                     />
                   </div>
                 )}
@@ -517,13 +581,44 @@ export default function VereadorSlugPage() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm text-slate-600 font-medium">Placa do Veículo *</label>
-            <input
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400 uppercase"
-              placeholder="ABC-1234"
-              value={formPedido.veiculo_placa}
-              onChange={e => setFormPedido({ ...formPedido, veiculo_placa: e.target.value.toUpperCase() })}
-            />
+            <label className="text-sm text-slate-600 font-medium">Veículo *</label>
+            {veiculos.length > 0 && !placaManual ? (
+              <>
+                <select
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400 bg-white"
+                  value={formPedido.veiculo_placa}
+                  onChange={e => {
+                    const v = veiculos.find(x => x.placa === e.target.value)
+                    setFormPedido({
+                      ...formPedido,
+                      veiculo_placa: e.target.value.toUpperCase(),
+                      tipo_combustivel: v?.tipo_combustivel && COMB_OPTIONS.includes(v.tipo_combustivel) ? v.tipo_combustivel : formPedido.tipo_combustivel,
+                      km_hodometro: v?.km_atual && !formPedido.km_hodometro ? String(v.km_atual) : formPedido.km_hodometro,
+                    })
+                  }}
+                >
+                  <option value="">Selecione o veículo...</option>
+                  {veiculos.map(v => (
+                    <option key={v.id} value={v.placa}>{v.placa}{v.modelo ? ` — ${v.modelo}` : ''}{v.marca ? ` (${v.marca})` : ''}</option>
+                  ))}
+                </select>
+                <button type="button" onClick={() => { setPlacaManual(true); setFormPedido({ ...formPedido, veiculo_placa: '' }) }}
+                  className="text-xs text-slate-500 underline">Veículo não está na lista — digitar a placa</button>
+              </>
+            ) : (
+              <>
+                <input
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400 uppercase"
+                  placeholder="ABC-1234"
+                  value={formPedido.veiculo_placa}
+                  onChange={e => setFormPedido({ ...formPedido, veiculo_placa: e.target.value.toUpperCase() })}
+                />
+                {veiculos.length > 0 && (
+                  <button type="button" onClick={() => { setPlacaManual(false); setFormPedido({ ...formPedido, veiculo_placa: '' }) }}
+                    className="text-xs text-slate-500 underline">Escolher da lista de veículos</button>
+                )}
+              </>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -586,8 +681,19 @@ export default function VereadorSlugPage() {
               onChange={e => setFormPedido({ ...formPedido, observacoes: e.target.value })} />
           </div>
 
+          {excedeCota && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              Sua cota do mês não cobre este pedido: restam <strong>{fmtLitros(litrosDisp)}</strong>
+              {litrosComprometidos > 0 ? ` (${fmtLitros(litrosComprometidos)} já estão em pedidos abertos)` : ''}.
+              Reduza a quantidade ou peça ao gestor uma liberação extra.
+              <button type="button" onClick={abrirPedidoExtra}
+                className="mt-3 w-full bg-white border border-red-300 text-red-700 font-semibold py-2.5 rounded-xl">
+                Pedir liberação ao gestor
+              </button>
+            </p>
+          )}
           <button onClick={handleEnviarPedido}
-            disabled={enviandoPedido || !formPedido.veiculo_placa || !formPedido.finalidade || (qtdSelecionada === 'outro' && !qtdOutro)}
+            disabled={enviandoPedido || excedeCota || !formPedido.veiculo_placa || !formPedido.finalidade || (qtdSelecionada === 'outro' && !qtdOutro)}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold py-4 rounded-xl flex items-center justify-center gap-2">
             {enviandoPedido ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Fuel className="w-5 h-5" /> Enviar Pedido para Aprovação</>}
           </button>
@@ -624,6 +730,15 @@ export default function VereadorSlugPage() {
               <div><span className="text-slate-400 text-xs">Data</span><br /><span className="font-semibold">{fmtData(r.data_requisicao)}</span></div>
             </div>
             <p className="text-xs text-slate-500 truncate">{r.finalidade}</p>
+            {r.status === 'PENDENTE' && (
+              <button
+                onClick={() => handleCancelarPedido(r)}
+                disabled={cancelandoId === r.id}
+                className="w-full mt-1 border border-slate-200 text-slate-600 text-sm font-medium py-2 rounded-xl disabled:opacity-50"
+              >
+                {cancelandoId === r.id ? 'Cancelando...' : 'Cancelar pedido'}
+              </button>
+            )}
             {r.status === 'AUTORIZADO' && tokenUrl && (
               <div className="flex gap-2 mt-1">
                 <a href={tokenUrl} target="_blank" rel="noopener noreferrer"
@@ -689,6 +804,38 @@ export default function VereadorSlugPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 max-w-md mx-auto relative">
+      {modalExtra && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.55)' }}
+          onClick={e => { if (e.target === e.currentTarget) setModalExtra(false) }}>
+          <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-3">
+            <h3 className="font-bold text-slate-800">Pedir liberação ao gestor</h3>
+            <p className="text-sm text-slate-500">Restam {fmtLitros(litrosDisp)} na sua cota este mês. Diga quantos litros a mais precisa e por quê — o gestor recebe no WhatsApp e libera pela tela dele.</p>
+            <div className="space-y-1.5">
+              <label className="text-sm text-slate-600 font-medium">Litros a mais *</label>
+              <input type="number" step="1" min="1" value={extraLitros} onChange={e => setExtraLitros(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400" placeholder="Ex: 220" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm text-slate-600 font-medium">Motivo *</label>
+              <textarea rows={2} value={extraMotivo} onChange={e => setExtraMotivo(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400 resize-none"
+                placeholder="Ex: viagem oficial a Salvador na semana de 15/09" />
+            </div>
+            {extraRetorno && (
+              <p className={`text-sm rounded-xl px-3 py-2 ${extraRetorno.startsWith('Pedido enviado') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>{extraRetorno}</p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setModalExtra(false)} className="flex-1 border border-gray-200 text-slate-600 py-3 rounded-xl text-sm font-medium">Fechar</button>
+              {!extraRetorno?.startsWith('Pedido enviado') && (
+                <button onClick={handlePedirExtra} disabled={extraEnviando || !extraLitros || extraMotivo.trim().length < 5}
+                  className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold">
+                  {extraEnviando ? 'Enviando...' : 'Enviar ao gestor'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {tab === 'inicio' && tabInicioContent}
       {tab === 'combustivel' && tabCombustivelContent}
       {tab === 'pedidos' && tabPedidosContent}

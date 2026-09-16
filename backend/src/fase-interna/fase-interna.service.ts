@@ -3,6 +3,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import axios from 'axios';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import {
@@ -75,6 +76,67 @@ export class FaseInternaService {
     };
 
     return documentosPorFase[fase] || [];
+  }
+
+  // ========================================
+  // PREÇO DE REFERÊNCIA RÁPIDO (dados abertos Compras.gov.br)
+  // ========================================
+
+  /**
+   * Consulta leve de preço de referência por código CATMAT/CATSER — usada
+   * no cadastro de itens da demanda para o servidor não estimar no chute.
+   * Fonte: módulo Pesquisa de Preços dos dados abertos do Compras.gov.br
+   * (compras públicas reais). Sem cache/persistência: consulta pontual.
+   */
+  async consultarPrecoReferencia(
+    codigo: string,
+    tipo?: string,
+  ): Promise<{
+    encontrado: boolean;
+    mediana?: number;
+    minimo?: number;
+    maximo?: number;
+    amostras?: number;
+    fonte?: string;
+  }> {
+    const cod = String(codigo || '').trim();
+    if (!cod) return { encontrado: false };
+    const base = 'https://dadosabertos.compras.gov.br';
+    const material = '/modulo-pesquisa-preco/1_consultarMaterial';
+    const servico = '/modulo-pesquisa-preco/3_consultarServico';
+    const endpoints =
+      String(tipo || '').toUpperCase() === 'SERVICO' ? [servico, material] : [material, servico];
+
+    for (const path of endpoints) {
+      try {
+        const res = await axios.get(`${base}${path}`, {
+          timeout: 12000,
+          params: { codigoItemCatalogo: cod, pagina: 1, tamanhoPagina: 30 },
+        });
+        const raw: any[] = Array.isArray(res.data)
+          ? res.data
+          : res.data?.resultado || res.data?.dados || res.data?.itens || [];
+        const valores = raw
+          .map((r) => Number(r?.precoUnitario || r?.valorUnitario || 0))
+          .filter((v) => v > 0)
+          .sort((a, b) => a - b);
+        if (!valores.length) continue;
+        const mid = Math.floor(valores.length / 2);
+        const mediana =
+          valores.length % 2 ? valores[mid] : (valores[mid - 1] + valores[mid]) / 2;
+        return {
+          encontrado: true,
+          mediana: Number(mediana.toFixed(2)),
+          minimo: valores[0],
+          maximo: valores[valores.length - 1],
+          amostras: valores.length,
+          fonte: 'Pesquisa de Preços — Compras.gov.br (dados abertos)',
+        };
+      } catch {
+        // tenta o próximo endpoint; indisponibilidade não pode travar o cadastro
+      }
+    }
+    return { encontrado: false };
   }
 
   // ========================================
@@ -195,9 +257,11 @@ export class FaseInternaService {
       titulo: string;
       obrigatorio: boolean;
       fundamento: string;
-      status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA';
+      status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO';
       documento_id?: string;
       justificativa?: string;
+      exige_aprovacao?: boolean;
+      aprovacao?: { etapa: number; total: number; etapa_nome: string; responsavel: string | null };
     }>;
     pode_divulgar: boolean;
     pendentes: string[];
@@ -233,22 +297,81 @@ export class FaseInternaService {
       where: { licitacao_id: licitacaoId, versao_atual: true },
     });
 
+    // Fluxos de aprovação configurados pelo órgão (Configurações → Fluxos):
+    // quando existe fluxo para o tipo (ou fluxo genérico), o documento SÓ
+    // conta como pronto depois de APROVADO na tramitação.
+    const manager = this.documentoRepository.manager;
+    const fluxos: Array<{ tipo_documento: string | null }> = await manager
+      .query(
+        `SELECT tipo_documento FROM fluxos_aprovacao_documento
+         WHERE orgao_id = $1 AND ativo = true`,
+        [licitacao.orgao_id],
+      )
+      .catch(() => []);
+    const temFluxoGenerico = fluxos.some((f) => f.tipo_documento === null);
+    const tiposComFluxo = new Set(fluxos.map((f) => f.tipo_documento).filter(Boolean));
+
+    // Etapa em análise de cada documento em tramitação (p/ mostrar quem está com o processo)
+    const etapasAtuais: Array<{
+      documento_id: string;
+      ordem: number;
+      nome: string;
+      setor_nome: string | null;
+      usuario_nome: string | null;
+      total: string;
+    }> = await manager
+      .query(
+        `SELECT e.documento_id, e.ordem, e.nome, e.setor_nome, e.usuario_nome,
+                (SELECT COUNT(*) FROM aprovacoes_documento t
+                  WHERE t.documento_id = e.documento_id AND t.status <> 'CANCELADA') AS total
+         FROM aprovacoes_documento e
+         WHERE e.licitacao_id = $1 AND e.status = 'EM_ANALISE'`,
+        [licitacaoId],
+      )
+      .catch(() => []);
+
     const itens = checklist.map((item) => {
       const doc = docs.find((d) => d.tipo === item.tipo);
       const naoSeAplica = Boolean(doc?.dados_estruturados?.nao_se_aplica);
-      const status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' =
-        naoSeAplica
-          ? 'NAO_SE_APLICA'
-          : doc && this.documentoPresente(doc)
-            ? 'OK'
-            : doc
-              ? 'EM_ELABORACAO'
-              : 'PENDENTE';
+      const exigeAprovacao = temFluxoGenerico || tiposComFluxo.has(item.tipo as string);
+      let status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO';
+      let aprovacao:
+        | { etapa: number; total: number; etapa_nome: string; responsavel: string | null }
+        | undefined;
+
+      if (naoSeAplica) {
+        status = 'NAO_SE_APLICA';
+      } else if (!doc) {
+        status = 'PENDENTE';
+      } else if (exigeAprovacao) {
+        // Com fluxo configurado, o rito manda: pronto = APROVADO/IMPORTADO
+        if (doc.status === StatusDocumento.APROVADO || doc.status === StatusDocumento.IMPORTADO) {
+          status = 'OK';
+        } else if (doc.status === StatusDocumento.AGUARDANDO_APROVACAO) {
+          status = 'EM_APROVACAO';
+          const etapa = etapasAtuais.find((e) => e.documento_id === doc.id);
+          if (etapa) {
+            aprovacao = {
+              etapa: Number(etapa.ordem),
+              total: Number(etapa.total),
+              etapa_nome: etapa.nome,
+              responsavel: etapa.usuario_nome || etapa.setor_nome || null,
+            };
+          }
+        } else {
+          status = 'EM_ELABORACAO';
+        }
+      } else {
+        status = this.documentoPresente(doc) ? 'OK' : 'EM_ELABORACAO';
+      }
+
       return {
         ...item,
         status,
         documento_id: doc?.id,
         justificativa: doc?.dados_estruturados?.justificativa_nao_se_aplica,
+        exige_aprovacao: exigeAprovacao,
+        aprovacao,
       };
     });
 
@@ -262,7 +385,9 @@ export class FaseInternaService {
       fase_interna_concluida: licitacao.fase_interna_concluida || false,
       itens,
       pode_divulgar: pendentes.length === 0,
-      pendentes: pendentes.map((p) => `${p.titulo} (${p.fundamento})`),
+      pendentes: pendentes.map(
+        (p) => `${p.titulo} (${p.fundamento})${p.status === 'EM_APROVACAO' ? ' — em aprovação' : ''}`,
+      ),
     };
   }
 

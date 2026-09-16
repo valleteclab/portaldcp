@@ -116,6 +116,30 @@ export class TermoAditivo {
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
   valor_ciclo: number; // valor informativo do ciclo; não altera valor_global do contrato
 
+  /** PENDENTE, NAO_APLICAVEL, SEM_ALTERACAO, TODOS ou SELECIONADOS. */
+  @Column({ type: 'varchar', length: 30, default: 'NAO_APLICAVEL' })
+  ajuste_itens_status: string;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  ajuste_itens_modo: string | null;
+
+  /**
+   * Guarda os valores anteriores e novos de cada item afetado.
+   * Além da auditoria, permite reverter o ajuste se o termo for cancelado.
+   */
+  @Column({ type: 'jsonb', default: [] })
+  ajuste_itens_detalhes: Array<{
+    tipo: 'ITEM_CONTRATO' | 'ITEM_CRONOGRAMA';
+    item_id: string;
+    numero_item: number;
+    valor_unitario_anterior: number;
+    valor_unitario_novo: number;
+    quantidade_anterior: number;
+    quantidade_nova: number;
+    valor_total_anterior: number;
+    valor_total_novo: number;
+  }>;
+
   // Observações
   @Column({ type: 'text', nullable: true })
   observacoes: string;

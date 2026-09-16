@@ -104,6 +104,10 @@ export class CreateOrgaoDto {
   @IsOptional()
   whatsapp_responsavel_medicoes?: string;
 
+  @IsString()
+  @IsOptional()
+  whatsapp_responsavel_frota?: string;
+
   // Responsável Legal - tornando opcional com valores padrão
   @IsString()
   @IsOptional()
@@ -136,6 +140,10 @@ export class CreateOrgaoDto {
   @IsString()
   @IsOptional()
   pncp_codigo_unidade?: string;
+
+  @IsString()
+  @IsOptional()
+  pncp_cnpj_orgao?: string;
 
   @IsOptional()
   ativo?: boolean;

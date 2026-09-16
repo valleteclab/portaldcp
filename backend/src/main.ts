@@ -58,6 +58,10 @@ async function bootstrap() {
   app.useStaticAssets(process.env.UPLOAD_DIR || join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
+
+  app.useStaticAssets(join(process.cwd(), 'demo-docs'), {
+    prefix: '/api/demo-docs/',
+  });
   
   // Migração: Alterar colunas de timestamp para 'timestamp without time zone'
   // Isso garante que as datas sejam armazenadas em horário de Brasília sem conversão UTC

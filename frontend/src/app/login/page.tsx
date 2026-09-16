@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
@@ -19,6 +19,14 @@ export default function LoginPage() {
   const [showSenha, setShowSenha] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [sessaoExpirada, setSessaoExpirada] = useState(false)
+
+  // O guard e o authFetch mandam para cá com ?sessao=expirada quando o token
+  // vence. Sem esse aviso, o fornecedor voltava ao login sem entender por quê.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setSessaoExpirada(new URLSearchParams(window.location.search).get('sessao') === 'expirada')
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -100,6 +108,11 @@ export default function LoginPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {sessaoExpirada && !error && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  Sua sessão expirou por inatividade. Entre novamente para continuar.
+                </div>
+              )}
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
                   {error}

@@ -7,7 +7,8 @@ import { ModuloSistema } from './enums/modulos.enum';
 import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
 import { UploadService } from '../upload/upload.service';
 import axios from 'axios';
-import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { createHash } from 'crypto';
+import { encryptText, decryptTextOrRaw } from '../common/crypto.util';
 
 @Injectable()
 export class OrgaosService {
@@ -23,29 +24,12 @@ export class OrgaosService {
 
   // ============ CRIPTOGRAFIA ============
   
-  private getEncryptionKey(): string {
-    // Chave de criptografia do ambiente (em produção, usar variável de ambiente)
-    return process.env.PNCP_ENCRYPTION_KEY || 'licitafacil-pncp-encryption-key-32';
-  }
-
   private encryptText(text: string): string {
-    const key = Buffer.from(this.getEncryptionKey().padEnd(32, '0').substring(0, 32));
-    const iv = randomBytes(16);
-    const cipher = createCipheriv('aes-256-cbc', key, iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
+    return encryptText(text);
   }
 
   private decryptText(encryptedText: string): string {
-    const key = Buffer.from(this.getEncryptionKey().padEnd(32, '0').substring(0, 32));
-    const textParts = encryptedText.split(':');
-    const iv = Buffer.from(textParts.shift()!, 'hex');
-    const encrypted = textParts.join(':');
-    const decipher = createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    return decryptTextOrRaw(encryptedText);
   }
 
   async create(createOrgaoDto: CreateOrgaoDto): Promise<Orgao> {
@@ -193,11 +177,15 @@ export class OrgaosService {
   async vincularPNCP(id: string, config: {
     pncp_vinculado: boolean;
     pncp_codigo_unidade: string;
+    pncp_cnpj_orgao?: string;
   }): Promise<Orgao> {
     const orgao = await this.findOne(id);
     
     orgao.pncp_vinculado = config.pncp_vinculado;
     orgao.pncp_codigo_unidade = config.pncp_codigo_unidade || '1';
+    orgao.pncp_cnpj_orgao = config.pncp_vinculado
+      ? (config.pncp_cnpj_orgao || orgao.cnpj || '').replace(/\D/g, '')
+      : undefined as any;
     orgao.pncp_data_vinculacao = config.pncp_vinculado ? new Date() : undefined as any;
     orgao.pncp_status = config.pncp_vinculado ? 'VINCULADO' : 'PENDENTE';
     

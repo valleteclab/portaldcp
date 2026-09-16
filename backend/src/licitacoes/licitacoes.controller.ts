@@ -2,6 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe,
 import type { Response } from 'express';
 import { LicitacoesService } from './licitacoes.service';
 import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
+import { ProcessoPdfService } from './processo-pdf.service';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
@@ -15,6 +16,7 @@ export class LicitacoesController {
   constructor(
     private readonly licitacoesService: LicitacoesService,
     private readonly schedulerService: LicitacoesSchedulerService,
+    private readonly processoPdfService: ProcessoPdfService,
   ) {}
 
   // === CRUD ===
@@ -28,7 +30,6 @@ export class LicitacoesController {
     return this.licitacoesService.criarAPartirDeDemanda(dto);
   }
 
-  @Public()
   @Get()
   async findAll(
     @Query('fase') fase?: FaseLicitacao | 'HOMOLOGADA',
@@ -54,6 +55,11 @@ export class LicitacoesController {
   }
 
   @Public()
+  @Get('publicas/:id')
+  async findPublicaById(@Param('id') id: string): Promise<Licitacao> {
+    return await this.licitacoesService.findPublicaById(id);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string): Promise<Licitacao> {
     return await this.licitacoesService.findOne(id);
@@ -152,6 +158,18 @@ export class LicitacoesController {
     @Query('fornecedorId') fornecedorId?: string,
   ): Promise<any> {
     return await this.licitacoesService.painelLancesDispensa(id, fornecedorId);
+  }
+
+  /** AUTOS DO PROCESSO: compilação completa em PDF único (capa + sumário + peças) */
+  @Get(':id/processo-pdf')
+  async processoPdf(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    const pdf = await this.processoPdfService.gerarProcessoCompleto(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="processo-${id}.pdf"`,
+      'Content-Length': String(pdf.length),
+    });
+    res.send(pdf);
   }
 
   /** Dispensa: ATA DA SESSÃO em PDF (gerada dos registros; disponível após o julgamento) */

@@ -296,6 +296,7 @@ export class OrgaosController {
     @Body() config: {
       pncp_vinculado: boolean;
       pncp_codigo_unidade: string;
+      pncp_cnpj_orgao?: string;
     }
   ): Promise<Orgao> {
     return await this.orgaosService.vincularPNCP(id, config);

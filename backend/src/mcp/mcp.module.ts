@@ -1,6 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { McpController } from './mcp.controller';
+import { McpOrgaoController } from './mcp-orgao.controller';
+import { McpKeysController } from './mcp-keys.controller';
+import { OrgaoApiKeyService } from './orgao-api-key.service';
+import { OrgaoApiKey } from './entities/orgao-api-key.entity';
+import { TermoAditivo } from '../contratos/entities/termo-aditivo.entity';
+import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { Medicao } from '../contratos/entities/medicao.entity';
 import { ItemCronograma } from '../contratos/entities/item-cronograma.entity';
@@ -22,11 +28,15 @@ import { ExtModule } from '../ext/ext.module';
       AnexoMedicao,
       AssinaturaDigital,
       Fornecedor,
+      OrgaoApiKey,
+      TermoAditivo,
+      Usuario,
     ]),
     ContratosModule,
     UploadModule,
     ExtModule,
   ],
-  controllers: [McpController],
+  controllers: [McpController, McpOrgaoController, McpKeysController],
+  providers: [OrgaoApiKeyService],
 })
 export class McpModule {}

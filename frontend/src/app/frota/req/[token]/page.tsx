@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { API_URL } from '@/lib/api'
+import { QrCodeImg } from '../../QrCodeImg'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -61,10 +62,6 @@ function fmtLitros(n: number | string | undefined) {
   return (parseFloat(n as any) || 0).toFixed(3).replace('.', ',') + ' L'
 }
 
-function getQrUrl(token: string, origin: string) {
-  const url = `${origin}/frota/req/${token}`
-  return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(url)}`
-}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -345,9 +342,9 @@ export default function ReqTokenPage() {
           <div className="doc-qr-section" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', minWidth: 0, width: '100%' }}>
             {isAutorizado && origin && (
               <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={getQrUrl(token, origin)}
+                <QrCodeImg
+                  value={`${origin}/frota/req/${token}`}
+                  size={200}
                   alt="QR Code de verificação"
                   style={{ width: 200, height: 200, maxWidth: '100%', border: '3px solid #e2e8f0', borderRadius: '12px', background: '#fff' }}
                 />

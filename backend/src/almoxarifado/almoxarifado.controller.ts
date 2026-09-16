@@ -309,6 +309,18 @@ export class AlmoxarifadoController {
     return Object.fromEntries(mapa);
   }
 
+  /** OS parciais da vigência atual que compõem o saldo comprometido por item. */
+  @Get('requisicoes/comprometido-os-detalhes/:contratoId')
+  async getComprometidoOSDetalhes(
+    @Param('contratoId', ParseUUIDPipe) contratoId: string,
+    @Query('excluirRequisicaoId') excluirRequisicaoId?: string,
+  ) {
+    return this.requisicaoService.detalharQuantidadeComprometidaPorItemOS(
+      contratoId,
+      excluirRequisicaoId,
+    );
+  }
+
   @Get('requisicoes/:id')
   async getRequisicao(@Param('id', ParseUUIDPipe) id: string) {
     return this.requisicaoService.findOne(id);
@@ -619,6 +631,43 @@ export class AlmoxarifadoController {
     };
   }
 
+  /**
+   * OS autorizada cuja execução foi paga fora do sistema (NF liquidada na
+   * contabilidade sem medição): marca como ATENDIDA, consome o saldo dos itens
+   * e registra o motivo no histórico. Exige a mesma permissão especial do
+   * cancelamento de requisições aprovadas.
+   */
+  @Post('requisicoes/:id/atender-fora-sistema')
+  async atenderRequisicaoForaDoSistema(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+    @Body('motivo') motivo: string,
+  ) {
+    const user = await this.usuarioRepository.findOne({
+      where: { id: request.user.sub },
+    });
+    if (!user) {
+      throw new BadRequestException('Usuário não encontrado');
+    }
+    if (!user.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Você não tem permissão para esta ação. Apenas usuários autorizados a cancelar/estornar podem marcar OS como atendida fora do sistema.',
+      );
+    }
+    await this.requisicaoService.validarOrgaoRequisicao(id, this.getOrgaoId(request.user));
+
+    const requisicao = await this.requisicaoService.atenderForaDoSistema(
+      id,
+      motivo,
+      user.id,
+      user.nome || user.email,
+    );
+    return {
+      ...requisicao,
+      mensagem: 'OS marcada como atendida fora do sistema. O saldo dos itens foi consumido e o motivo ficou registrado no histórico.',
+    };
+  }
+
   @Post('requisicoes/:id/reativar')
   async reativarRequisicao(
     @Param('id', ParseUUIDPipe) id: string,
@@ -817,6 +866,25 @@ export class AlmoxarifadoController {
       throw new ForbiddenException('Ordem não pertence a este órgão');
     }
     return this.ordemService.regenerarPdf(id);
+  }
+
+  @Post('ordens/:id/atualizar-valores-contrato')
+  async atualizarValoresOrdemConformeContrato(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const ordem = await this.ordemService.findOne(id);
+    if (request.user.type !== UserType.ADMIN) {
+      const orgaoId = this.getOrgaoId(request.user);
+      if (ordem.orgao_id !== orgaoId) {
+        throw new ForbiddenException('Ordem não pertence a este órgão');
+      }
+    }
+    return this.ordemService.atualizarValoresConformeContrato(
+      id,
+      request.user.sub,
+      request.user.email || 'Sistema',
+    );
   }
 
   @Post('ordens/:id/cancelar')

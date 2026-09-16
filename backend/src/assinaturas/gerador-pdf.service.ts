@@ -248,7 +248,16 @@ export class GeradorPdfService {
             .text('Itens da Ordem de Serviço:', marginL, doc.y, { width: contentW });
           doc.moveDown(0.3);
           const arredondar = dadosOS.contrato?.arredondar_calculo ?? true;
-          this.escreverTabelaItensOS(doc, itensParaRender, arredondar);
+          const configuracaoMaoDeObra = dadosOS.contrato?.exige_relacao_funcionarios
+            ? { loteNumero: dadosOS.contrato.lote_relacao_funcionarios ?? null }
+            : undefined;
+          this.escreverTabelaItensOS(
+            doc,
+            itensParaRender,
+            arredondar,
+            configuracaoMaoDeObra,
+            dadosOS.contrato?.rotulo_unidade_itens || undefined,
+          );
         }
 
         // ── ASSINATURAS (nova página se restar menos de 180pt) ────────────────
@@ -782,17 +791,14 @@ export class GeradorPdfService {
 
   private formatarDataHora(data: Date): string {
     const d = data instanceof Date ? data : new Date(data as any);
-    // timestamp without time zone: pg driver interpreta como LOCAL.
-    // Desfaz offset local para obter UTC real, depois converte para BRT.
-    const trueUtcMs = d.getTime() - d.getTimezoneOffset() * 60 * 1000;
-    const brt = new Date(trueUtcMs - 3 * 60 * 60 * 1000);
-    const dd = String(brt.getUTCDate()).padStart(2, '0');
-    const mm = String(brt.getUTCMonth() + 1).padStart(2, '0');
-    const yyyy = brt.getUTCFullYear();
-    const hh = String(brt.getUTCHours()).padStart(2, '0');
-    const mi = String(brt.getUTCMinutes()).padStart(2, '0');
-    const ss = String(brt.getUTCSeconds()).padStart(2, '0');
-    return `${dd}/${mm}/${yyyy}, ${hh}:${mi}:${ss}`;
+    // Node e Postgres rodam no MESMO fuso (TZ do compose): o timestamp naive
+    // gravado em local e parseado em local devolve o instante real — basta
+    // formatar em Brasília. A aritmética manual anterior assumia coluna em
+    // UTC e imprimia as datas 3h a menos.
+    const s = d.toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+    const [dia, hora] = s.split(' ');
+    const [yyyy, mm, dd] = dia.split('-');
+    return `${dd}/${mm}/${yyyy}, ${hora}`;
   }
 
   /**
@@ -829,12 +835,29 @@ export class GeradorPdfService {
     return nome;
   }
 
-  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; descricao_avulso?: string | null; quantidade_avulso?: number | null; valor_unitario_avulso?: number | null; valor_total_avulso?: number | null; itemCronograma?: { numero_item?: number; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true): void {
+  private escreverTabelaItensOS(doc: any, itensOS: Array<{ quantidade_solicitada: number; meses_solicitados?: number | null; total_override?: number; descricao_avulso?: string | null; quantidade_avulso?: number | null; valor_unitario_avulso?: number | null; valor_total_avulso?: number | null; itemCronograma?: { numero_item?: number; lote_numero?: number | null; descricao?: string; unidade_medida?: string; valor_unitario?: number; quantidade_meses?: number | null; valor_mensal?: number } }>, arredondar = true, configuracaoMaoDeObra?: { loteNumero: number | null }, rotuloUnidade = 'Unidade'): void {
     const pageWidth = doc.page.width - 100;
     const colNum   = pageWidth * 0.05;
-    const colDesc  = pageWidth * 0.39;
-    const colUnid  = pageWidth * 0.10;
-    const colQtd   = pageWidth * 0.11;
+    const temMaoDeObra = itensOS.some((item) => {
+      if (!configuracaoMaoDeObra || !item.itemCronograma) return false;
+      return configuracaoMaoDeObra.loteNumero == null ||
+        Number(item.itemCronograma.lote_numero) === Number(configuracaoMaoDeObra.loteNumero);
+    });
+    // A coluna de unidade tem rótulo configurável por contrato ("Classificação",
+    // por exemplo). Na largura fixa o texto quebrava e a última letra caía para
+    // a linha de baixo, então a coluna cresce o necessário e a Descrição cede o
+    // espaço — ela é a mais larga e a que melhor absorve a perda.
+    const colDescBase = pageWidth * (temMaoDeObra ? 0.34 : 0.39);
+    const colUnidBase = pageWidth * (temMaoDeObra ? 0.11 : 0.10);
+    const larguraRotulo =
+      doc.font('Helvetica-Bold').fontSize(8).widthOfString(rotuloUnidade) + 8;
+    const extraUnid = Math.min(
+      Math.max(0, larguraRotulo - colUnidBase),
+      colDescBase * 0.25,
+    );
+    const colDesc  = colDescBase - extraUnid;
+    const colUnid  = colUnidBase + extraUnid;
+    const colQtd   = pageWidth * (temMaoDeObra ? 0.15 : 0.11);
     const colValor = pageWidth * 0.17;
     const colTotal = pageWidth * 0.18;
 
@@ -851,8 +874,16 @@ export class GeradorPdfService {
     doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
     doc.text('#',           x0 + 3, headerY + 5, { width: colNum - 4 });
     doc.text('Descrição',   x1 + 3, headerY + 5, { width: colDesc - 6 });
-    doc.text('Unidade',     x2,     headerY - 13 + 5, { width: colUnid,  align: 'center' });
-    doc.text('Qtd.',        x3,     headerY - 13 + 5, { width: colQtd,   align: 'right' });
+    // Rótulo muito longo (o campo aceita até 40 caracteres) ainda não caberia
+    // depois do alargamento: reduz a fonte só desta célula, sem quebrar linha.
+    const fonteRotulo =
+      doc.widthOfString(rotuloUnidade) > colUnid - 4
+        ? Math.max(5.5, (8 * (colUnid - 4)) / doc.widthOfString(rotuloUnidade))
+        : 8;
+    doc.fontSize(fonteRotulo);
+    doc.text(rotuloUnidade, x2,     headerY - 13 + 5 + (8 - fonteRotulo) * 0.5, { width: colUnid,  align: 'center', lineBreak: false });
+    doc.fontSize(8);
+    doc.text(temMaoDeObra ? 'Composição' : 'Qtd.', x3, headerY - 13 + 5, { width: colQtd, align: 'right' });
     doc.text('Valor Unit.', x4,     headerY - 13 + 5, { width: colValor, align: 'right' });
     doc.text('Total',       x5,     headerY - 13 + 5, { width: colTotal, align: 'right' });
     doc.y = headerY + 20;
@@ -869,17 +900,26 @@ export class GeradorPdfService {
       // (valor de referência da tabela + percentual) sob a descrição — cláusula 4.3
       const memorial = (ic as any).observacoes as string | undefined;
       const temMemorial = !!memorial && /^(SINAPRO|Terceiros|Mídia)/.test(memorial);
-      const desc = (isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-')) +
-        (temMemorial ? `\n${memorial}` : '');
       const qtd  = isAvulso ? Number(item.quantidade_avulso ?? 0) : Number(item.quantidade_solicitada);
+      const isMaoDeObra =
+        !isAvulso &&
+        !!configuracaoMaoDeObra &&
+        (configuracaoMaoDeObra.loteNumero == null ||
+          Number(ic.lote_numero) === Number(configuracaoMaoDeObra.loteNumero));
       // MENSAL fracionado (período parcial): exibe em DIAS comerciais (ex.: 0,2333 mês → 7 dias).
       // Apenas exibição — o valor continua calculado pela fração exata.
       const isMensalFracionado =
+        !isMaoDeObra &&
         !isAvulso &&
         String(ic.unidade_medida || '').toUpperCase() === 'MENSAL' &&
         qtd > 0 &&
         Math.abs(qtd - Math.round(qtd)) > 0.0001;
       const unid = isMensalFracionado ? 'DIAS' : (isAvulso ? '-' : (ic.unidade_medida || '-'));
+      const quantidadeExibida = isMensalFracionado
+        ? String(Math.round(qtd * 30))
+        : qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+      const desc = (isAvulso ? (item.descricao_avulso as string) : (ic.descricao || '-')) +
+        (temMemorial ? `\n${memorial}` : '');
       const vlUnit = isAvulso ? Number(item.valor_unitario_avulso ?? 0) : Number(ic.valor_unitario ?? 0);
       const ap = (v: number) => arredondar ? Math.round(v * 100) / 100 : Math.floor(v * 100) / 100;
       // total: avulso usa valor_total_avulso; cronograma usa qtd × vlUnit (qtd já inclui meses × qty/período)
@@ -888,9 +928,148 @@ export class GeradorPdfService {
         : (item.total_override !== undefined ? item.total_override : ap(qtd * vlUnit));
       totalGeral  += total;
 
+      if (isMaoDeObra) {
+        const totalDiasPosto = Math.round(qtd * 30);
+        const postosInteiros = Math.floor(totalDiasPosto / 30);
+        const diasParciais = totalDiasPosto % 30;
+        const totalPostosInteiros = ap(postosInteiros * vlUnit);
+        // O restante é obtido do total original para preservar exatamente os
+        // centavos da OS, inclusive quando o contrato usa truncamento.
+        const totalPeriodoParcial = Math.round((total - totalPostosInteiros) * 100) / 100;
+
+        const renderizarLinha = (
+          numero: string,
+          descricao: string,
+          unidade: string,
+          composicao: string,
+          valorUnitario: number | null,
+          valorLinha: number | null,
+          subitem = false,
+        ) => {
+          doc.fontSize(8);
+          const descHeight = doc.heightOfString(descricao, { width: colDesc - 6 });
+          const qtdHeight = doc.heightOfString(composicao, { width: colQtd - 4 });
+          const rowH = Math.max(descHeight, qtdHeight, 12);
+
+          if (doc.y + rowH + 4 > doc.page.height - 80) {
+            doc.addPage(); doc.y = 50;
+          }
+
+          const rowY = doc.y + 2;
+          if (subitem) {
+            doc.rect(x0, doc.y, pageWidth, rowH + 3).fill('#f9fafb');
+          }
+          doc.font(subitem ? 'Helvetica-Oblique' : 'Helvetica').fillColor('#374151');
+          doc.text(numero, x0 + 3, rowY, { width: colNum - 4 });
+          doc.text(descricao, x1 + 3, rowY, { width: colDesc - 6 });
+          doc.text(unidade, x2, rowY, { width: colUnid, align: 'center' });
+          doc.text(composicao, x3, rowY, { width: colQtd, align: 'right' });
+          doc.text(
+            valorUnitario != null
+              ? `R$ ${valorUnitario.toLocaleString('pt-BR', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}`
+              : '-',
+            x4, rowY, { width: colValor, align: 'right' },
+          );
+          doc.text(
+            valorLinha != null
+              ? `R$ ${valorLinha.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : '-',
+            x5, rowY, { width: colTotal, align: 'right' },
+          );
+          doc.y = rowY + rowH + 2;
+          doc.moveTo(x0, doc.y).lineTo(x0 + pageWidth, doc.y).lineWidth(0.3).stroke('#e5e7eb');
+          doc.y += 1;
+        };
+
+        // Mantém o item contratual como linha principal. Quando todo o período
+        // é parcial, a linha funciona como cabeçalho e o valor fica no subitem.
+        const composicaoItemPrincipal = postosInteiros > 0
+          ? `${postosInteiros} ${postosInteiros === 1 ? 'funcionário' : 'funcionários'}`
+          : 'Período parcial';
+        const composicaoSubitem = diasParciais > 0
+          ? `1 funcionário\n${diasParciais} ${diasParciais === 1 ? 'dia trabalhado' : 'dias trabalhados'}`
+          : '';
+        // O subitem é cobrado pelo período inteiro, não por diária: a diária
+        // raramente cabe em 2 casas (ex.: 2.575,32 / 10 = 257,532) e exibi-la
+        // arredondada faria a conta do leitor não fechar com o total. A média
+        // diária fica na descrição, como referência.
+        const descricaoSubitem = diasParciais > 0
+          ? `Subitem — período parcial do posto (média de R$ ${(totalPeriodoParcial / diasParciais).toLocaleString('pt-BR', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}/dia)`
+          : '';
+
+        // Item e subitem devem permanecer juntos para que a célula consolidada
+        // de total possa ocupar visualmente as duas linhas.
+        if (diasParciais > 0) {
+          doc.fontSize(8);
+          const alturaItem = Math.max(
+            doc.heightOfString(desc, { width: colDesc - 6 }),
+            doc.heightOfString(composicaoItemPrincipal, { width: colQtd - 4 }),
+            12,
+          ) + 5;
+          const alturaSubitem = Math.max(
+            doc.heightOfString(descricaoSubitem, { width: colDesc - 6 }),
+            doc.heightOfString(composicaoSubitem, { width: colQtd - 4 }),
+            12,
+          ) + 5;
+          if (doc.y + alturaItem + alturaSubitem > doc.page.height - 80) {
+            doc.addPage(); doc.y = 50;
+          }
+        }
+
+        const inicioGrupoY = doc.y;
+        renderizarLinha(
+          ic.numero_item != null ? String(ic.numero_item) : '-',
+          desc,
+          'POSTO/MÊS',
+          composicaoItemPrincipal,
+          postosInteiros > 0 ? vlUnit : null,
+          diasParciais > 0 ? null : total,
+        );
+
+        if (diasParciais > 0) {
+          renderizarLinha(
+            ic.numero_item != null ? `${ic.numero_item}.1` : '-',
+            descricaoSubitem,
+            'PERÍODO',
+            composicaoSubitem,
+            totalPeriodoParcial,
+            null,
+            true,
+          );
+
+          const fimGrupoY = doc.y;
+          const alturaGrupo = fimGrupoY - inicioGrupoY - 1;
+          const totalTexto = `R$ ${total.toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`;
+          doc.rect(x5, inicioGrupoY, colTotal, alturaGrupo)
+            .fillAndStroke('#ffffff', '#e5e7eb');
+          doc.fontSize(8).font('Helvetica-Bold').fillColor('#111827');
+          const alturaTotalTexto = doc.heightOfString(totalTexto, { width: colTotal - 6 });
+          doc.text(
+            totalTexto,
+            x5 + 3,
+            inicioGrupoY + Math.max(2, (alturaGrupo - alturaTotalTexto) / 2),
+            { width: colTotal - 6, align: 'center' },
+          );
+          // A escrita da célula mesclada altera doc.y; restaura o fluxo abaixo
+          // do subitem para os próximos itens da tabela.
+          doc.y = fimGrupoY;
+        }
+        continue;
+      }
+
       doc.fontSize(8);
       const descHeight = doc.heightOfString(desc, { width: colDesc - 6 });
-      const rowH = Math.max(descHeight, 12);
+      const qtdHeight = doc.heightOfString(quantidadeExibida, { width: colQtd - 4 });
+      const rowH = Math.max(descHeight, qtdHeight, 12);
 
       if (doc.y + rowH + 4 > doc.page.height - 80) {
         doc.addPage(); doc.y = 50;
@@ -900,12 +1079,7 @@ export class GeradorPdfService {
       doc.text(ic.numero_item != null ? String(ic.numero_item) : '-', x0 + 3, rowY, { width: colNum - 4 });
       doc.text(desc,  x1 + 3, rowY, { width: colDesc - 6 });
       doc.text(unid,  x2, rowY, { width: colUnid,  align: 'center' });
-      doc.text(
-        isMensalFracionado
-          ? String(Math.round(qtd * 30))
-          : qtd.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
-        x3, rowY, { width: colQtd, align: 'right' }
-      );
+      doc.text(quantidadeExibida, x3, rowY, { width: colQtd, align: 'right' });
       doc.text(
         vlUnit > 0 ? `R$ ${vlUnit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-',
         x4, rowY, { width: colValor, align: 'right' }
@@ -929,6 +1103,15 @@ export class GeradorPdfService {
       x5, doc.y - 14 + 5, { width: colTotal, align: 'right' }
     );
     doc.y += 20;
+    if (temMaoDeObra) {
+      doc.moveDown(0.35);
+      doc.fontSize(7).font('Helvetica').fillColor('#4b5563').text(
+        'Nos itens de mão de obra, cada posto/mês corresponde a um funcionário por 30 dias. O período parcial é cobrado pelo valor do período (não por diária) e o valor total do item consolida os postos integrais e esse subitem.',
+        x0,
+        doc.y,
+        { width: pageWidth },
+      );
+    }
     doc.moveDown(0.5);
   }
 

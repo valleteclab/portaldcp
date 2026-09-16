@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -43,6 +44,7 @@ import {
   ContratoDetalheResponseDto,
   ContratoResumoResponseDto,
   CriarMedicaoRequestDto,
+  EquipeMedicaoRequestDto,
   FornecedorMeResponseDto,
   MedicaoResponseDto,
   OrdemResponseDto,
@@ -117,6 +119,36 @@ export class ExtController {
     @Req() req: any,
   ) {
     return this.fornecedorApi.criarMedicao(contratoId, req.fornecedor, body);
+  }
+
+  @Get('contratos/:id/equipe/ultima')
+  @ApiTags('Medições')
+  @ApiOperation({
+    summary: 'Retorna a última relação de funcionários do contrato',
+  })
+  buscarUltimaEquipe(@Param('id') contratoId: string, @Req() req: any) {
+    return this.fornecedorApi.buscarUltimaEquipe(
+      contratoId,
+      req.fornecedor,
+    );
+  }
+
+  @Put('medicoes/:id/equipe')
+  @ApiTags('Medições')
+  @ApiOperation({
+    summary: 'Cria ou atualiza a relação de funcionários da medição',
+  })
+  @ApiBody({ type: EquipeMedicaoRequestDto })
+  salvarEquipe(
+    @Param('id') medicaoId: string,
+    @Body() body: EquipeMedicaoRequestDto,
+    @Req() req: any,
+  ) {
+    return this.fornecedorApi.salvarEquipeMedicao(
+      medicaoId,
+      req.fornecedor,
+      body,
+    );
   }
 
   @Post('medicoes/:id/enviar')

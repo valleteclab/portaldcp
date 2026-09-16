@@ -225,6 +225,15 @@ export class FaseInternaController {
     );
   }
 
+  /** Preço de referência rápido por código CATMAT/CATSER (dados abertos) */
+  @Get('preco-referencia')
+  async precoReferencia(
+    @Query('codigo') codigo: string,
+    @Query('tipo') tipo?: string,
+  ) {
+    return this.faseInternaService.consultarPrecoReferencia(codigo, tipo);
+  }
+
   // === INSTRUÇÃO DO PROCESSO (Art. 72 — contratação direta) ===
 
   @Get(':licitacaoId/instrucao')

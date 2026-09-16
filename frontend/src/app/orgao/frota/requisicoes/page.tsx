@@ -32,6 +32,7 @@ interface Requisicao {
   status: string; data_requisicao: string; data_autorizacao?: string
   autorizado_por?: string; motivo_negacao?: string; data_abastecimento?: string
   valor_total?: number; contrato?: Contrato; token_acesso?: string
+  cota_solicitante?: { cota_mensal: number; cota_extra: number; cota_total: number; usados: number; abertos: number; disponivel: number | null }
 }
 
 const TIPOS_COMBUSTIVEL = ['GASOLINA', 'ETANOL', 'DIESEL', 'FLEX', 'GNV', 'ELETRICO']
@@ -296,6 +297,12 @@ export default function RequisicoesPage() {
                   <TableCell>
                     <p className="text-sm font-medium">{r.solicitante_nome}</p>
                     {r.solicitante_cargo && <p className="text-xs text-gray-400">{r.solicitante_cargo}</p>}
+                    {r.cota_solicitante && r.cota_solicitante.disponivel != null && (
+                      <p className={`text-xs mt-0.5 ${r.status === 'PENDENTE' && r.cota_solicitante.disponivel + 0.0005 < Number(r.quantidade_autorizada) ? 'text-amber-600 font-medium' : 'text-gray-400'}`}
+                        title={`Cota ${fmtLitros(r.cota_solicitante.cota_mensal)}${r.cota_solicitante.cota_extra > 0 ? ` + ${fmtLitros(r.cota_solicitante.cota_extra)} extra` : ''} · usados ${fmtLitros(r.cota_solicitante.usados)} · em aberto ${fmtLitros(r.cota_solicitante.abertos)}`}>
+                        Cota: {fmtLitros(r.cota_solicitante.disponivel, 1)} disp. · {fmtLitros(r.cota_solicitante.abertos, 1)} em aberto
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell>
                     <p className="font-mono font-semibold text-sm">{r.veiculo_placa}</p>

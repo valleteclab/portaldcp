@@ -19,6 +19,7 @@ import {
 } from '../assinaturas/entities/assinatura-digital.entity';
 import { Fornecedor } from '../fornecedores/entities/fornecedor.entity';
 import { MedicaoService } from '../contratos/medicao.service';
+import { MedicaoEquipeService } from '../contratos/medicao-equipe.service';
 import { UploadService } from '../upload/upload.service';
 import {
   OrdemFornecimento,
@@ -48,6 +49,7 @@ export class FornecedorApiService {
     @InjectRepository(AssinaturaDigital)
     private readonly assinaturaRepository: Repository<AssinaturaDigital>,
     private readonly medicaoService: MedicaoService,
+    private readonly medicaoEquipeService: MedicaoEquipeService,
     private readonly uploadService: UploadService,
     private readonly ordemService: OrdemFornecimentoService,
     private readonly nfService: NotaFiscalFornecedorService,
@@ -149,6 +151,22 @@ export class FornecedorApiService {
       data_vigencia_fim: contrato.data_vigencia_fim,
       status: contrato.status,
       numero_processo: contrato.numero_processo,
+      regras_medicao: {
+        separar_por_lote: itensCronograma.some(
+          (item) => item.lote_numero !== null,
+        ),
+        equipe_funcionarios: {
+          exigida: Boolean(contrato.exige_relacao_funcionarios),
+          lote_numero: contrato.lote_relacao_funcionarios,
+          obrigatoria_quando_houver_execucao: true,
+          posto_automatico: true,
+          campos_minimos: [
+            'item_cronograma_id',
+            'nome',
+            'dias_trabalhados',
+          ],
+        },
+      },
       etapas: etapas.map((e) => ({
         id: e.id,
         numero_etapa: e.numero_etapa,
@@ -166,6 +184,8 @@ export class FornecedorApiService {
         saldo_quantidade: Number(i.quantidade) - Number(i.quantidade_medida),
         valor_unitario: Number(i.valor_unitario),
         valor_total: Number(i.valor_total),
+        lote_numero: i.lote_numero,
+        lote_descricao: i.lote_descricao,
       })),
       ultimas_medicoes: ultimasMedicoes,
     };
@@ -207,6 +227,15 @@ export class FornecedorApiService {
       );
     }
 
+    if (body.equipe?.funcionarios?.length) {
+      await this.salvarEquipeMedicao(
+        medicao.id,
+        fornecedor,
+        body.equipe,
+        contrato,
+      );
+    }
+
     if (body.enviar_imediatamente) {
       return this.submeterMedicao(medicao.id, fornecedor, contrato, undefined);
     }
@@ -236,6 +265,8 @@ export class FornecedorApiService {
     if (contrato.fornecedor_id !== fornecedor.id) {
       throw new ForbiddenException('Acesso negado');
     }
+
+    await this.medicaoEquipeService.validarObrigatoriaParaContrato(medicaoId);
 
     const codigoValidacao = this.gerarCodigoValidacao();
     const apiKeyPrefix = apiKey?.slice(0, 8) || 'API';
@@ -269,6 +300,40 @@ export class FornecedorApiService {
       codigo_validacao: codigoValidacao,
       mensagem: 'Medicao submetida com sucesso. Aguardando ateste do fiscal.',
     };
+  }
+
+  async salvarEquipeMedicao(
+    medicaoId: string,
+    fornecedor: ApiFornecedor,
+    equipe: any,
+    contratoParam?: Contrato,
+  ) {
+    const medicao = await this.medicaoRepository.findOne({
+      where: { id: medicaoId },
+    });
+    if (!medicao) throw new NotFoundException('Medicao nao encontrada');
+    const contrato =
+      contratoParam ||
+      (await this.validarContratoFornecedor(
+        medicao.contrato_id,
+        fornecedor.id,
+      ));
+    if (contrato.fornecedor_id !== fornecedor.id) {
+      throw new ForbiddenException('Acesso negado');
+    }
+    return this.medicaoEquipeService.salvar(medicaoId, {
+      ...equipe,
+      empresa_nome: fornecedor.razao_social,
+      empresa_cnpj: fornecedor.cpf_cnpj,
+      competencia: medicao.competencia,
+      periodo_inicio: medicao.periodo_inicio,
+      periodo_fim: medicao.periodo_fim,
+    });
+  }
+
+  async buscarUltimaEquipe(contratoId: string, fornecedor: ApiFornecedor) {
+    await this.validarContratoFornecedor(contratoId, fornecedor.id);
+    return this.medicaoEquipeService.buscarUltimaEquipe(contratoId);
   }
 
   async getMedicao(medicaoId: string, fornecedorId: string) {

@@ -77,6 +77,9 @@ import { PreOsFornecedorController, PreOsOrgaoController } from './pre-os-public
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { Notificacao } from '../notificacoes/entities/notificacao.entity';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
+import { MedicaoEquipe } from './entities/medicao-equipe.entity';
+import { MedicaoEquipeFuncionario } from './entities/medicao-equipe-funcionario.entity';
+import { MedicaoEquipeService } from './medicao-equipe.service';
 
 @Module({
   imports: [
@@ -89,6 +92,7 @@ import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinatura
       MedicaoChatSession, AtualizacaoSistema, AtualizacaoLida,
       Proposta, PropostaItem,
       TabelaReferenciaPreco, ItemTabelaReferencia, Notificacao, PreOsPublicidade, RequisicaoItemOS,
+      MedicaoEquipe, MedicaoEquipeFuncionario,
     ]),
     NotificacoesModule,
     UploadModule,
@@ -101,7 +105,7 @@ import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinatura
     PortalAssinaturasModule,
   ],
   controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, PreOsFornecedorController, PreOsOrgaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
-  providers: [ContratosService, MedicaoService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, PreOsPublicidadeService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
-  exports: [ContratosService, MedicaoService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
+  providers: [ContratosService, MedicaoService, MedicaoEquipeService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, PreOsPublicidadeService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
+  exports: [ContratosService, MedicaoService, MedicaoEquipeService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}

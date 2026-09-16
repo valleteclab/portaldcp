@@ -62,7 +62,7 @@ export class DocumentosController {
   @Public()
   @Get('licitacao/:licitacaoId/publicos')
   async findByLicitacaoPublicos(@Param('licitacaoId') licitacaoId: string) {
-    return this.documentosService.findByLicitacao(licitacaoId, true);
+    return this.documentosService.findByLicitacaoPublicos(licitacaoId);
   }
 
   // Listar documentos por tipo

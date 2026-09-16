@@ -6,7 +6,7 @@ import {
   ArrowLeft, Package, Wrench, Trash2, Send, Search, Loader2,
   CheckCircle, XCircle, Clock, FileText, AlertCircle, BookOpen,
   Plus, Check, X, ChevronRight, ChevronLeft, Info, Database, Globe,
-  ChevronsUpDown, Pencil, Home, Lock, Users
+  ChevronsUpDown, Pencil, Home, Lock, Users, Wand2, Sparkles
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -129,6 +129,44 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
   const [loading, setLoading] = useState(false)
   const [buscado, setBuscado] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // IA: traduz a necessidade em termos de busca do catálogo
+  const [sugestoesIA, setSugestoesIA] = useState<string[]>([])
+  const [buscandoIA, setBuscandoIA] = useState(false)
+
+  const sugerirTermosComIA = async () => {
+    const necessidade = termo.trim()
+    if (!necessidade || buscandoIA) return
+    setBuscandoIA(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/ia/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensagens: [{
+            role: 'user',
+            content:
+              `O catálogo de compras públicas (CATMAT/CATSER) é indexado por nomes curtos de materiais/serviços. ` +
+              `O servidor descreveu a necessidade assim: "${necessidade}". ` +
+              `Liste até 3 termos de busca prováveis no catálogo (substantivo principal, 1 a 2 palavras cada, singular). ` +
+              `Responda APENAS com um JSON array de strings, ex: ["cadeira giratória","poltrona"].`,
+          }],
+          tipoDocumento: 'catalogo',
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const m = String(data.resposta || '').match(/\[[\s\S]*\]/)
+      const termos: string[] = m ? JSON.parse(m[0]) : []
+      const validos = termos.filter((t) => typeof t === 'string' && t.trim().length > 1).slice(0, 3)
+      if (validos.length === 0) throw new Error('sem termos')
+      setSugestoesIA(validos)
+      setTermo(validos[0]) // dispara a busca automática
+    } catch {
+      alert('A IA não conseguiu sugerir termos agora — tente buscar por uma palavra-chave simples (ex: "cadeira").')
+    } finally {
+      setBuscandoIA(false)
+    }
+  }
 
   const normalizarBusca = (valor: string) =>
     valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
@@ -270,7 +308,38 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
             <SelectItem value="SERVICO">Serviço</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 shrink-0 gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
+          onClick={sugerirTermosComIA}
+          disabled={buscandoIA || termo.trim().length < 3}
+          title="Escreva a necessidade com as suas palavras e a IA traduz para os termos do catálogo"
+        >
+          {buscandoIA ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+          IA
+        </Button>
       </div>
+
+      {sugestoesIA.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap text-xs">
+          <span className="text-gray-500">✨ A IA sugeriu buscar por:</span>
+          {sugestoesIA.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setTermo(s)}
+              className={`px-2 py-1 rounded-full border transition-colors ${
+                termo === s
+                  ? 'bg-[#1351b4] text-white border-[#1351b4]'
+                  : 'bg-white text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc]'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
       {pdms.length > 0 && !pdmSelecionado && (
         <div className="border rounded-lg bg-white divide-y max-h-56 overflow-y-auto">
@@ -494,6 +563,23 @@ function FormAdicionarItem({
   const [buscaClasse, setBuscaClasse] = useState(item.nome_classe || item.codigo_classe || '')
   const [criandoClasse, setCriandoClasse] = useState(false)
 
+  // Preço de referência REAL (compras públicas — dados abertos Compras.gov.br)
+  // para o servidor não estimar o valor unitário no chute
+  const [precoRef, setPrecoRef] = useState<{ mediana: number; amostras: number } | null>(null)
+  const [precoRefLoading, setPrecoRefLoading] = useState(false)
+  useEffect(() => {
+    if (!item.codigo || item.fonte !== 'COMPRASGOV') return
+    setPrecoRefLoading(true)
+    authFetch(`${API_URL}/api/fase-interna/preco-referencia?codigo=${encodeURIComponent(item.codigo)}&tipo=${item.tipo}`)
+      .then(async (r) => {
+        if (!r.ok) return
+        const d = await r.json()
+        if (d?.encontrado && d.mediana > 0) setPrecoRef({ mediana: d.mediana, amostras: d.amostras || 0 })
+      })
+      .catch(() => { /* referência é opcional */ })
+      .finally(() => setPrecoRefLoading(false))
+  }, [item.codigo, item.tipo, item.fonte])
+
   // Sempre carregar classes — usa as classificações do nosso catálogo próprio
   useEffect(() => {
     const params = new URLSearchParams({ limite: '200' })
@@ -688,10 +774,23 @@ function FormAdicionarItem({
           </Select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Valor Unitário (R$)</label>
+          <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-2">
+            Valor Unitário (R$)
+            {precoRefLoading && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
+          </label>
           <Input type="number" min="0" step="0.01" value={form.valor_unitario_estimado}
             onChange={e => setForm({ ...form, valor_unitario_estimado: e.target.value })}
             placeholder="0,00" className="h-9 bg-white" />
+          {precoRef && (
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, valor_unitario_estimado: String(precoRef.mediana) })}
+              className="mt-1 text-xs text-[#1351b4] hover:underline text-left"
+              title="Mediana de compras públicas reais (dados abertos do Compras.gov.br) — clique para usar"
+            >
+              💰 Referência: R$ {precoRef.mediana.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (mediana de {precoRef.amostras} compras públicas) — usar
+            </button>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">Trimestre Previsto</label>
@@ -752,15 +851,18 @@ function JustificativaDemanda({
   justificativa,
   podeEditar,
   onSalvo,
+  contextoObjeto,
 }: {
   demandaId: string
   justificativa: string
   podeEditar: boolean
   onSalvo: (texto: string) => void
+  contextoObjeto?: string
 }) {
   const [texto, setTexto] = useState(justificativa)
   const [salvando, setSalvando] = useState(false)
   const [salvo, setSalvo] = useState(true)
+  const [melhorando, setMelhorando] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Sincroniza quando a prop muda (ex.: reload)
@@ -789,6 +891,45 @@ function JustificativaDemanda({
     debounceRef.current = setTimeout(() => salvar(val), 1200)
   }
 
+  // Redige/melhora a justificativa com IA usando o objeto da demanda como
+  // contexto — o servidor escreve tópicos (ou nada) e revisa o resultado
+  const melhorarComIA = async () => {
+    if (melhorando) return
+    setMelhorando(true)
+    try {
+      const atual = texto.trim()
+      const res = await authFetch(`${API_URL}/api/ia/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensagens: [{
+            role: 'user',
+            content:
+              `Você redige justificativas de necessidade para demandas de contratação pública (Art. 18, I, Lei 14.133/2021). ` +
+              (atual
+                ? `Melhore e desenvolva o texto do usuário, preservando todos os fatos e intenções. `
+                : `Redija a justificativa da necessidade a partir do objeto informado. `) +
+              `Texto formal, 2 a 4 parágrafos, sem placeholders. Responda APENAS com o texto final.\n\n` +
+              `Objeto da demanda: ${contextoObjeto || 'não informado'}\n` +
+              (atual ? `\nTexto do usuário:\n${atual}` : ''),
+          }],
+          tipoDocumento: 'DFD',
+        }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const novo = String(data.resposta || '').trim()
+      if (!novo) throw new Error('vazio')
+      setTexto(novo)
+      setSalvo(false)
+      await salvar(novo)
+    } catch {
+      alert('Não foi possível gerar agora — tente novamente em instantes.')
+    } finally {
+      setMelhorando(false)
+    }
+  }
+
   const caracteres = texto.trim().length
 
   return (
@@ -800,9 +941,23 @@ function JustificativaDemanda({
           <span className="text-xs font-normal text-gray-400">(Art. 18, I — Lei 14.133/2021)</span>
         </label>
         {podeEditar && (
-          <span className={`text-xs font-medium rounded px-2 py-1 border ${salvando ? 'text-amber-700 bg-amber-50 border-amber-200' : salvo && texto ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-500 bg-gray-50 border-gray-200'}`}>
-            {salvando ? '● Salvando…' : salvo && texto ? '✓ Salvo' : ''}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className={`text-xs font-medium rounded px-2 py-1 border ${salvando ? 'text-amber-700 bg-amber-50 border-amber-200' : salvo && texto ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-500 bg-gray-50 border-gray-200'}`}>
+              {salvando ? '● Salvando…' : salvo && texto ? '✓ Salvo' : ''}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
+              onClick={melhorarComIA}
+              disabled={melhorando}
+              title={texto.trim() ? 'A IA desenvolve o seu texto preservando os fatos' : 'A IA redige a justificativa a partir do objeto da demanda'}
+            >
+              {melhorando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {melhorando ? 'Gerando…' : texto.trim() ? 'Melhorar com IA' : 'Redigir com IA'}
+            </Button>
+          </div>
         )}
       </div>
       {podeEditar ? (
@@ -948,6 +1103,17 @@ export default function DetalheDemandaPage() {
 
   // ── Estado do layout DFD ──────────────────────────────────────────────────
   const [secaoAtiva, setSecaoAtiva] = useState<1 | 2 | 3 | 4>(3)
+  // Abre na PRIMEIRA seção incompleta (só na chegada — depois o usuário manda)
+  const secaoInicialDefinida = useRef(false)
+  useEffect(() => {
+    if (!demanda || secaoInicialDefinida.current) return
+    secaoInicialDefinida.current = true
+    if (demanda.status !== 'RASCUNHO') return // leitura: mantém padrão (itens)
+    if (!demanda.descricao_sucinta_objeto?.trim()) setSecaoAtiva(1)
+    else if (!demanda.observacoes?.trim()) setSecaoAtiva(2)
+    else if ((demanda.itens?.length ?? 0) === 0) setSecaoAtiva(3)
+    else setSecaoAtiva(4)
+  }, [demanda])
   const [dialogAdicionar, setDialogAdicionar] = useState(false)
   const [filtroItens, setFiltroItens] = useState('')
   const [tabTipo, setTabTipo] = useState<'MATERIAL' | 'SERVICO'>('MATERIAL')
@@ -977,6 +1143,78 @@ export default function DetalheDemandaPage() {
   }, [id, router])
 
   useEffect(() => { carregarDemanda() }, [carregarDemanda])
+
+  // ── Aprovar/Rejeitar direto na página (o aprovador não precisa voltar) ────
+  const [decidindo, setDecidindo] = useState(false)
+  // Permissão: login direto do órgão sempre pode; usuário precisa da flag
+  const [podeAprovar, setPodeAprovar] = useState(false)
+  useEffect(() => {
+    try {
+      const u = localStorage.getItem('usuario')
+      if (!u) { setPodeAprovar(true); return } // login direto do órgão
+      setPodeAprovar(JSON.parse(u)?.pode_aprovar_demandas === true)
+    } catch { setPodeAprovar(false) }
+  }, [])
+
+  const aprovarAqui = async () => {
+    if (!demanda || decidindo) return
+    let aprovador = 'Aprovador'
+    try {
+      const u = JSON.parse(localStorage.getItem('usuario') || '{}')
+      const o = JSON.parse(localStorage.getItem('orgao') || '{}')
+      aprovador = u?.nome || o?.nome || 'Aprovador'
+    } catch { /* usa default */ }
+    if (!confirm(`Aprovar a demanda de ${demanda.unidade_requisitante}?`)) return
+    setDecidindo(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/aprovar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ aprovadoPor: aprovador }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || `HTTP ${res.status}`)
+      }
+      await carregarDemanda()
+    } catch (e: any) {
+      alert(`Erro ao aprovar: ${e.message}`)
+    } finally {
+      setDecidindo(false)
+    }
+  }
+
+  const rejeitarAqui = async () => {
+    if (!demanda || decidindo) return
+    const motivo = prompt('Motivo da rejeição (fica registrado e visível ao requisitante):')
+    if (!motivo || !motivo.trim()) return
+    setDecidindo(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/rejeitar`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: motivo.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || `HTTP ${res.status}`)
+      }
+      await carregarDemanda()
+    } catch (e: any) {
+      alert(`Erro ao rejeitar: ${e.message}`)
+    } finally {
+      setDecidindo(false)
+    }
+  }
+
+  // ── Acompanhamento (PCA → processo → contrato) ────────────────────────────
+  const [acomp, setAcomp] = useState<any>(null)
+  useEffect(() => {
+    if (!demanda?.id || demanda.status === 'RASCUNHO') return
+    authFetch(`${API_URL}/api/demandas/${demanda.id}/acompanhamento`)
+      .then(async (r) => { if (r.ok) setAcomp(await r.json()) })
+      .catch(() => { /* card fica oculto */ })
+  }, [demanda?.id, demanda?.status])
 
   // ── Iniciar contratação a partir da demanda (ponte demanda → processo) ────
   const [processoVinculado, setProcessoVinculado] = useState<{ id: string; numero_processo: string; modalidade: string } | null>(null)
@@ -1326,9 +1564,26 @@ export default function DetalheDemandaPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => router.push('/orgao/demandas')}>
+            <Button variant="outline" size="sm"
+              onClick={() => (window.history.length > 1 ? router.back() : router.push('/orgao/demandas'))}
+              title="Volta para a tela anterior (lista, aprovações…)">
               Voltar
             </Button>
+            {/* Aprovador decide AQUI mesmo — sem precisar voltar à central */}
+            {podeAprovar && (demanda.status === 'ENVIADA' || demanda.status === 'EM_ANALISE') && (
+              <>
+                <Button size="sm" className="bg-green-600 hover:bg-green-700"
+                  onClick={aprovarAqui} disabled={decidindo}>
+                  {decidindo ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-1.5" />}
+                  Aprovar
+                </Button>
+                <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50"
+                  onClick={rejeitarAqui} disabled={decidindo}>
+                  <XCircle className="h-4 w-4 mr-1.5" />
+                  Rejeitar
+                </Button>
+              </>
+            )}
             {podeEditar && (
               <Button
                 size="sm"
@@ -1360,6 +1615,74 @@ export default function DetalheDemandaPage() {
 
         {/* ── Conteúdo da seção ────────────────────────────────────────── */}
         <div className="flex-1 p-6">
+
+          {/* ── Acompanhamento: o requisitante VÊ o pedido andando ───────── */}
+          {acomp && demanda.status !== 'RASCUNHO' && (
+            <div className="max-w-5xl mb-5 bg-white rounded-lg border shadow-sm px-5 py-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Acompanhamento da demanda
+              </p>
+              <div className="flex items-center gap-2 flex-wrap text-sm">
+                {/* 1. Aprovação */}
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
+                  demanda.status === 'REJEITADA'
+                    ? 'bg-red-50 text-red-700 border-red-200'
+                    : acomp.demanda.data_aprovacao
+                      ? 'bg-green-50 text-green-700 border-green-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}>
+                  {demanda.status === 'REJEITADA' ? '✗ Rejeitada' : acomp.demanda.data_aprovacao ? '✓ Aprovada' : '⏳ Em aprovação'}
+                  {acomp.demanda.data_aprovacao && (
+                    <span className="font-normal opacity-75">
+                      {new Date(acomp.demanda.data_aprovacao).toLocaleDateString('pt-BR')}
+                    </span>
+                  )}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+                {/* 2. PCA */}
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
+                  acomp.pca.consolidada ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
+                }`}>
+                  {acomp.pca.consolidada
+                    ? `✓ No PCA ${acomp.pca.itens[0]?.ano_exercicio || ''} (item ${acomp.pca.itens.map((i: any) => i.numero_item).join(', ')})`
+                    : '○ PCA — não consolidada'}
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+                {/* 3. Contratação */}
+                {acomp.processo ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/orgao/processos/${acomp.processo.id}`)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 transition-colors"
+                    title="Abrir o cockpit do processo"
+                  >
+                    {acomp.processo.data_homologacao ? '✓' : '⏳'} Processo {acomp.processo.numero_processo} · {String(acomp.processo.fase || '').replaceAll('_', ' ').toLowerCase()}
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium bg-gray-50 text-gray-500 border-gray-200">
+                    ○ Contratação não iniciada
+                  </span>
+                )}
+                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+                {/* 4. Contrato */}
+                {acomp.contratos.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/orgao/contratos/${acomp.contratos[0].id}`)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-green-50 text-green-700 border-green-200 hover:bg-green-100 transition-colors"
+                    title="Abrir o contrato"
+                  >
+                    ✓ Contrato {acomp.contratos.map((c: any) => c.numero_contrato).join(', ')}
+                    {acomp.contratos.some((c: any) => c.assinatura_status === 'CONCLUIDO') && ' · assinado'}
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium bg-gray-50 text-gray-500 border-gray-200">
+                    ○ Contrato
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ── Seção 1: Informações Gerais ─────────────────────────────── */}
           {secaoAtiva === 1 && (
@@ -1420,6 +1743,7 @@ export default function DetalheDemandaPage() {
                 justificativa={demanda.observacoes || ''}
                 podeEditar={podeEditar}
                 onSalvo={(texto) => setDemanda(d => d ? { ...d, observacoes: texto } : d)}
+                contextoObjeto={demanda.descricao_sucinta_objeto || ''}
               />
               <p className="mt-3 text-xs text-gray-400">
                 A justificativa fundamenta a necessidade de contratação conforme Art. 18, I — Lei 14.133/2021.

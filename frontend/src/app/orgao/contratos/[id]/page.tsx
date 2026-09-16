@@ -63,6 +63,7 @@ import TabMedicao from '@/components/contratos/TabMedicao'
 import TabAtestacao from '@/components/contratos/TabAtestacao'
 import TabLicencas from '@/components/contratos/TabLicencas'
 import TabOrdensServico from '@/components/contratos/TabOrdensServico'
+import TabItensOrdemServico from '@/components/contratos/TabItensOrdemServico'
 import TabRequisicoes from '@/components/contratos/TabRequisicoes'
 import TabRelatorios from '@/components/contratos/TabRelatorios'
 import SimuladorPedidoModal from '@/components/contratos/SimuladorPedidoModal'
@@ -83,7 +84,19 @@ interface TermoAditivo {
   nova_data_vigencia_fim?: string | null
   data_assinatura: string
   status: string
+  ajuste_itens_status?: string
+  ajuste_itens_modo?: string | null
   created_at: string
+}
+
+type AjusteItensForm = {
+  modo: 'PENDENTE' | 'SEM_ALTERACAO' | 'TODOS' | 'SELECIONADOS'
+  percentual_preco: string
+  percentual_quantidade: string
+  arredondamento_preco: 'PRECISAO_4' | 'ARREDONDAR_2' | 'TRUNCAR_2'
+  arredondamento_quantidade: 'DECIMAL_4' | 'INTEIRO_SEM_EXCEDER' | 'INTEIRO_PROXIMO' | 'INTEIRO_ACIMA'
+  justificativa_sem_alteracao: string
+  itens: Record<string, { selecionado: boolean; novo_valor_unitario: string; nova_quantidade: string }>
 }
 
 interface ItemContrato {
@@ -159,6 +172,8 @@ interface Contrato {
   itens?: ItemContrato[]
   total_itens?: number
   tabela_referencia_id?: string | null
+  /** Nº do processo licitatório como aparece no Portal da Transparência */
+  processo_licitatorio_portal?: string | null
   remuneracao_publicidade?: {
     desconto_tabela_pct?: number
     honorario_producao_pct?: number
@@ -196,6 +211,32 @@ interface HistoricoContrato {
 
 type FaseDespesa = 'EMPENHO' | 'LIQUIDACAO' | 'PAGAMENTO' | 'OUTRO'
 
+/** Como o empenho do portal foi vinculado a este contrato */
+type ConfirmacaoEmpenho = 'CONTRATO' | 'HISTORICO' | 'PROCESSO' | 'NAO_CONFIRMADO'
+
+const CONFIRMACAO_LABELS: Record<ConfirmacaoEmpenho, { label: string; cor: string; ajuda: string }> = {
+  CONTRATO: {
+    label: 'Contrato',
+    cor: 'bg-green-100 text-green-800 border-green-200',
+    ajuda: 'O portal informou o nº do contrato no detalhe da despesa.',
+  },
+  HISTORICO: {
+    label: 'Histórico',
+    cor: 'bg-blue-100 text-blue-800 border-blue-200',
+    ajuda: 'O portal não informou o nº do contrato, mas o histórico da despesa cita este instrumento.',
+  },
+  PROCESSO: {
+    label: 'Processo',
+    cor: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    ajuda: 'Vinculado pelo processo licitatório informado no cadastro do contrato.',
+  },
+  NAO_CONFIRMADO: {
+    label: 'Não confirmado',
+    cor: 'bg-amber-100 text-amber-900 border-amber-300',
+    ajuda: 'Não foi possível ligar esta despesa ao contrato; ela não entra nos totais.',
+  },
+}
+
 interface EmpenhoFator {
   numero_liquidacao: string
   numero_empenho: string
@@ -211,6 +252,12 @@ interface EmpenhoFator {
   numero_processo: string
   modalidade: string
   elemento_despesa: string
+  /** Processo licitatório informado no portal (ex: "006-2025-PE") */
+  processo_licitatorio?: string
+  /** Como a despesa foi ligada a este contrato */
+  confirmacao?: ConfirmacaoEmpenho
+  /** Nº da OS citada no histórico do portal, quando houver */
+  os_citada?: string
 }
 
 interface RequisicaoVinculada {
@@ -287,6 +334,8 @@ interface ResumoEmpenhos {
     quantidade_empenhos: number
     quantidade_liquidacoes: number
     quantidade_pagamentos: number
+    total_nao_confirmado?: number
+    quantidade_nao_confirmada?: number
   }
   por_ano: ResumoAnoEmpenhos[]
   grupos_exercicio: GrupoExercicio[]
@@ -320,6 +369,21 @@ const STATUS_CONTRATO = {
   'CANCELADO': { label: 'Cancelado', cor: 'bg-red-100 text-red-800', icon: AlertCircle }
 }
 
+const TIPO_INSTRUMENTO_LABELS: Record<string, string> = {
+  CONTRATO: 'Contrato',
+  NOTA_EMPENHO: 'Nota de Empenho',
+  ORDEM_SERVICO: 'Ordem de Serviço',
+  ORDEM_FORNECIMENTO: 'Ordem de Fornecimento',
+  CARTA_CONTRATO: 'Carta Contrato',
+  TERMO_ADESAO: 'Termo de Adesão',
+  ATA_REGISTRO_PRECO: 'Ata Registro de Preço',
+}
+
+function getTipoInstrumentoLabel(tipo?: string) {
+  if (!tipo) return 'Contrato'
+  return TIPO_INSTRUMENTO_LABELS[tipo] || tipo.replace(/_/g, ' ')
+}
+
 const TIPOS_TERMO = [
   { value: 'ADITIVO_PRAZO', label: 'Aditivo de Prazo' },
   { value: 'ADITIVO_VALOR', label: 'Aditivo de Valor' },
@@ -330,7 +394,7 @@ const TIPOS_TERMO = [
   { value: 'SUSPENSAO', label: 'Suspensão' },
 ]
 
-const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'ordens-servico', 'termos', 'documentos', 'requisicoes', 'historico', 'empenhos', 'relatorios']
+const TABS_VALIDOS = ['detalhes', 'itens', 'medicao', 'atestacao', 'licencas', 'itens-os', 'ordens-servico', 'termos', 'documentos', 'requisicoes', 'historico', 'empenhos', 'relatorios']
 
 export default function DetalheContratoOrgaoPage() {
   const params = useParams()
@@ -358,6 +422,8 @@ export default function DetalheContratoOrgaoPage() {
   const [simuladorEmpenho, setSimuladorEmpenho] = useState<EmpenhoComposto | null>(null)
   const [loadingEmpenhos, setLoadingEmpenhos] = useState(false)
   const [empenhosBuscados, setEmpenhosBuscados] = useState(false)
+  const [processoPortalEdit, setProcessoPortalEdit] = useState('')
+  const [salvandoProcessoPortal, setSalvandoProcessoPortal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadingAction, setLoadingAction] = useState(false)
   
@@ -375,6 +441,24 @@ export default function DetalheContratoOrgaoPage() {
   const [modalSinapro, setModalSinapro] = useState(false)
   const [modalEditTermo, setModalEditTermo] = useState<TermoAditivo | null>(null)
   const [modalCancelarTermo, setModalCancelarTermo] = useState<TermoAditivo | null>(null)
+  const [modalConciliarTermo, setModalConciliarTermo] = useState<TermoAditivo | null>(null)
+  const ajusteItensInicial: AjusteItensForm = {
+    modo: 'PENDENTE',
+    percentual_preco: '',
+    percentual_quantidade: '',
+    arredondamento_preco: 'ARREDONDAR_2',
+    arredondamento_quantidade: 'INTEIRO_SEM_EXCEDER',
+    justificativa_sem_alteracao: '',
+    itens: {},
+  }
+  const [ajusteItensForm, setAjusteItensForm] = useState<AjusteItensForm>(ajusteItensInicial)
+  const [conciliacaoItens, setConciliacaoItens] = useState<{
+    valor_global: number
+    total_itens: number
+    diferenca: number
+    possui_itens: boolean
+    termos_pendentes: Array<{ id: string; numero_termo: string }>
+  } | null>(null)
   const [modalAditivosPortal, setModalAditivosPortal] = useState<{
     open: boolean
     aditivos: Array<{ nome: string; tipo: string; valor: string; vigencia: string; fiscal: string; pdf_url: string }>
@@ -480,6 +564,10 @@ export default function DetalheContratoOrgaoPage() {
     }
   }, [tabAtivo, id])
 
+  useEffect(() => {
+    setProcessoPortalEdit(contrato?.processo_licitatorio_portal || '')
+  }, [contrato?.processo_licitatorio_portal])
+
   const buscarEmpenhos = async () => {
     setLoadingEmpenhos(true)
     setEmpenhosBuscados(true)
@@ -507,20 +595,50 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
+  /**
+   * Salva o nº do processo licitatório como ele aparece no portal e refaz a
+   * busca — assim as despesas sem "Nº Contrato" (atas de registro de preços)
+   * passam a ser confirmadas pelo processo.
+   */
+  const salvarProcessoPortal = async () => {
+    const valor = processoPortalEdit.trim()
+    setSalvandoProcessoPortal(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ processo_licitatorio_portal: valor || null }),
+      })
+      if (res.ok) {
+        setContrato(prev => (prev ? { ...prev, processo_licitatorio_portal: valor || null } : null))
+        setEmpenhosBuscados(false)
+        await buscarEmpenhos()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.message || 'Erro ao salvar o processo licitatório')
+      }
+    } catch {
+      alert('Erro ao salvar o processo licitatório')
+    } finally {
+      setSalvandoProcessoPortal(false)
+    }
+  }
+
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const [contratoRes, termosRes, historicoRes, documentosRes] = await Promise.all([
+      const [contratoRes, termosRes, historicoRes, documentosRes, conciliacaoRes] = await Promise.all([
         authFetch(`${API_URL}/api/contratos/${id}`),
         authFetch(`${API_URL}/api/contratos/${id}/termos`),
         authFetch(`${API_URL}/api/contratos/${id}/historico`),
-        authFetch(`${API_URL}/api/contratos/${id}/documentos`)
+        authFetch(`${API_URL}/api/contratos/${id}/documentos`),
+        authFetch(`${API_URL}/api/contratos/${id}/conciliacao-itens`)
       ])
       if (contratoRes.ok) setContrato(await contratoRes.json())
       if (termosRes.ok) setTermos(await termosRes.json())
       if (historicoRes.ok) setHistorico(await historicoRes.json())
       if (documentosRes.ok) setDocumentos(await documentosRes.json())
       else setDocumentos([])
+      if (conciliacaoRes.ok) setConciliacaoItens(await conciliacaoRes.json())
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
@@ -574,6 +692,22 @@ export default function DetalheContratoOrgaoPage() {
     return Math.ceil((fim.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
   }
 
+  const montarAjusteItensPayload = () => ({
+    modo: ajusteItensForm.modo,
+    percentual_preco: parseFloat(ajusteItensForm.percentual_preco) || 0,
+    percentual_quantidade: parseFloat(ajusteItensForm.percentual_quantidade) || 0,
+    arredondamento_preco: ajusteItensForm.arredondamento_preco,
+    arredondamento_quantidade: ajusteItensForm.arredondamento_quantidade,
+    justificativa_sem_alteracao: ajusteItensForm.justificativa_sem_alteracao,
+    itens: Object.entries(ajusteItensForm.itens)
+      .filter(([, item]) => item.selecionado)
+      .map(([item_id, item]) => ({
+        item_id,
+        novo_valor_unitario: item.novo_valor_unitario !== '' ? parseFloat(item.novo_valor_unitario) : undefined,
+        nova_quantidade: item.nova_quantidade !== '' ? parseFloat(item.nova_quantidade) : undefined,
+      })),
+  })
+
   const handleCriarTermo = async () => {
     setLoadingAction(true)
     try {
@@ -604,6 +738,7 @@ export default function DetalheContratoOrgaoPage() {
         valor_supressao: ehRenovacaoCiclo && ehAditivoPrazo ? null : valorSupressao,
         nova_data_vigencia_fim: novoTermo.nova_data_vigencia_fim || null,
         data_assinatura: novoTermo.data_assinatura,
+        ajuste_itens: montarAjusteItensPayload(),
       }
       const res = await authFetch(`${API_URL}/api/contratos/${id}/termos`, {
         method: 'POST',
@@ -611,6 +746,7 @@ export default function DetalheContratoOrgaoPage() {
       })
       if (res.ok) {
         setModalTermo(false)
+        setAjusteItensForm(ajusteItensInicial)
         setNovoTermo({ tipo: 'ADITIVO_PRAZO', renovacao_ciclo: false, objeto: '', justificativa: '', valor_acrescimo: '', valor_supressao: '', modo_acrescimo: 'incremento', modo_supressao: 'incremento', novo_valor_global_acrescimo: '', novo_valor_global_supressao: '', percentual_acrescimo: '', percentual_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
         carregarDados()
       } else {
@@ -620,6 +756,53 @@ export default function DetalheContratoOrgaoPage() {
     } catch (error) {
       console.error('Erro ao criar termo:', error)
       alert('Erro ao criar termo aditivo')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleConciliarItensTermo = async () => {
+    if (!modalConciliarTermo) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${id}/termos/${modalConciliarTermo.id}/ajuste-itens`,
+        { method: 'PATCH', body: JSON.stringify(montarAjusteItensPayload()) },
+      )
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.message || 'Erro ao conciliar os itens')
+      }
+      setModalConciliarTermo(null)
+      setAjusteItensForm(ajusteItensInicial)
+      carregarDados()
+    } catch (error: any) {
+      alert(error.message || 'Erro ao conciliar os itens')
+    } finally {
+      setLoadingAction(false)
+    }
+  }
+
+  const handleReabrirAjusteItensTermo = async (termo: TermoAditivo) => {
+    const confirmado = window.confirm(
+      `Reabrir o ajuste de ${termo.numero_termo}? Os itens voltarão aos valores anteriores para uma nova conferência.`,
+    )
+    if (!confirmado) return
+    setLoadingAction(true)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${id}/termos/${termo.id}/reabrir-ajuste-itens`,
+        { method: 'PATCH' },
+      )
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.message || 'Erro ao reabrir o ajuste dos itens')
+      }
+      setAjusteItensForm(ajusteItensInicial)
+      await carregarDados()
+      alert('Ajuste reaberto. Clique em “Ajustar itens” para informar os valores corretos.')
+    } catch (error: any) {
+      alert(error.message || 'Erro ao reabrir o ajuste dos itens')
     } finally {
       setLoadingAction(false)
     }
@@ -1214,6 +1397,227 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
+  const renderFormularioAjusteItens = () => {
+    const arredondar = (valor: number, casas: number) => {
+      const fator = 10 ** casas
+      return Math.round((valor + Number.EPSILON) * fator) / fator
+    }
+    const truncar = (valor: number, casas: number) => {
+      const fator = 10 ** casas
+      return (valor >= 0 ? Math.floor(valor * fator) : Math.ceil(valor * fator)) / fator
+    }
+    const calcularPrecoPrevisto = (valor: number) => {
+      const calculado = valor * (1 + (parseFloat(ajusteItensForm.percentual_preco) || 0) / 100)
+      if (ajusteItensForm.arredondamento_preco === 'ARREDONDAR_2') return arredondar(calculado, 2)
+      if (ajusteItensForm.arredondamento_preco === 'TRUNCAR_2') return truncar(calculado, 2)
+      return arredondar(calculado, 4)
+    }
+    const calcularQuantidadePrevista = (quantidade: number) => {
+      const percentual = parseFloat(ajusteItensForm.percentual_quantidade) || 0
+      const calculada = quantidade * (1 + percentual / 100)
+      if (ajusteItensForm.arredondamento_quantidade === 'INTEIRO_PROXIMO') return Math.round(calculada)
+      if (ajusteItensForm.arredondamento_quantidade === 'INTEIRO_ACIMA') return Math.ceil(calculada)
+      if (ajusteItensForm.arredondamento_quantidade === 'INTEIRO_SEM_EXCEDER') {
+        return percentual >= 0 ? Math.floor(calculada) : Math.ceil(calculada)
+      }
+      return arredondar(calculada, 4)
+    }
+    const previaTodos = (contrato?.itens || []).map(item => {
+      const valor = calcularPrecoPrevisto(Number(item.valor_unitario))
+      const quantidade = calcularQuantidadePrevista(Number(item.quantidade_contratada))
+      return { item, valor, quantidade, total: arredondar(valor * quantidade, 2) }
+    })
+    const totalPrevisto = previaTodos.reduce((total, linha) => total + linha.total, 0)
+
+    return (
+    <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+      <div>
+        <Label>Como o aditivo afeta os itens? *</Label>
+        <Select
+          value={ajusteItensForm.modo}
+          onValueChange={(modo: AjusteItensForm['modo']) =>
+            setAjusteItensForm(prev => ({ ...prev, modo }))
+          }
+        >
+          <SelectTrigger className="mt-1 bg-white"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PENDENTE">Decidir depois — marcar como pendente</SelectItem>
+            <SelectItem value="SEM_ALTERACAO">Não altera preços nem quantidades</SelectItem>
+            <SelectItem value="TODOS">Aplica a todos os itens</SelectItem>
+            <SelectItem value="SELECIONADOS">Aplica somente aos itens selecionados</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {ajusteItensForm.modo === 'PENDENTE' && (
+        <p className="text-xs font-medium text-amber-800">
+          O contrato ficará com alerta de divergência até os itens serem conciliados.
+        </p>
+      )}
+      {ajusteItensForm.modo === 'SEM_ALTERACAO' && (
+        <div>
+          <Label>Justificativa *</Label>
+          <Textarea
+            className="mt-1 bg-white"
+            value={ajusteItensForm.justificativa_sem_alteracao}
+            onChange={e => setAjusteItensForm(prev => ({ ...prev, justificativa_sem_alteracao: e.target.value }))}
+            placeholder="Ex.: aditivo somente de prazo, sem reajuste e sem acréscimo quantitativo."
+          />
+        </div>
+      )}
+      {ajusteItensForm.modo === 'TODOS' && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <Label>Reajuste de preço (%)</Label>
+              <Input className="mt-1 bg-white" type="number" step="0.0001" value={ajusteItensForm.percentual_preco}
+                onChange={e => setAjusteItensForm(prev => ({ ...prev, percentual_preco: e.target.value }))} placeholder="Ex.: 4,39" />
+            </div>
+            <div>
+              <Label>Tratamento do novo preço</Label>
+              <Select value={ajusteItensForm.arredondamento_preco}
+                onValueChange={(arredondamento_preco: AjusteItensForm['arredondamento_preco']) =>
+                  setAjusteItensForm(prev => ({ ...prev, arredondamento_preco }))
+                }>
+                <SelectTrigger className="mt-1 bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ARREDONDAR_2">Arredondar para centavos</SelectItem>
+                  <SelectItem value="TRUNCAR_2">Truncar em centavos, conforme tabela</SelectItem>
+                  <SelectItem value="PRECISAO_4">Manter quatro casas decimais</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <Label>Acréscimo de quantidade (%)</Label>
+              <Input className="mt-1 bg-white" type="number" step="0.0001" value={ajusteItensForm.percentual_quantidade}
+                onChange={e => setAjusteItensForm(prev => ({ ...prev, percentual_quantidade: e.target.value }))} placeholder="Ex.: 25" />
+            </div>
+            <div>
+              <Label>Tratamento da quantidade fracionada</Label>
+              <Select value={ajusteItensForm.arredondamento_quantidade}
+                onValueChange={(arredondamento_quantidade: AjusteItensForm['arredondamento_quantidade']) =>
+                  setAjusteItensForm(prev => ({ ...prev, arredondamento_quantidade }))
+                }>
+                <SelectTrigger className="mt-1 bg-white"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INTEIRO_SEM_EXCEDER">Inteiro sem ultrapassar o percentual</SelectItem>
+                  <SelectItem value="INTEIRO_PROXIMO">Inteiro mais próximo</SelectItem>
+                  <SelectItem value="INTEIRO_ACIMA">Inteiro acima</SelectItem>
+                  <SelectItem value="DECIMAL_4">Permitir quantidade decimal</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <p className="text-xs text-amber-800">
+            Para bens indivisíveis, prefira “inteiro sem ultrapassar”. Se o aditivo trouxer uma tabela com
+            quantidades diferentes, use “itens selecionados” e informe os valores exatos do documento.
+          </p>
+          <div className="max-h-56 overflow-auto rounded border bg-white">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-100">
+                <tr>
+                  <th className="p-2 text-left">Prévia</th>
+                  <th className="p-2 text-right">Preço novo</th>
+                  <th className="p-2 text-right">Qtd. nova</th>
+                  <th className="p-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previaTodos.map(({ item, valor, quantidade, total }) => (
+                  <tr key={item.id} className="border-t">
+                    <td className="p-2">{item.numero_item}. {item.descricao.slice(0, 55)}</td>
+                    <td className="p-2 text-right">{formatarMoeda(valor)}</td>
+                    <td className="p-2 text-right">{quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}</td>
+                    <td className="p-2 text-right">{formatarMoeda(total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="sticky bottom-0 border-t bg-emerald-50 font-semibold">
+                <tr>
+                  <td className="p-2" colSpan={3}>Total previsto dos itens</td>
+                  <td className="p-2 text-right">{formatarMoeda(totalPrevisto)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+      {ajusteItensForm.modo === 'SELECIONADOS' && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-amber-800">Informe os valores exatos da tabela assinada.</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => {
+              const todos = Object.fromEntries((contrato?.itens || []).map(item => [
+                item.id,
+                {
+                  selecionado: true,
+                  novo_valor_unitario: String(item.valor_unitario),
+                  nova_quantidade: String(item.quantidade_contratada),
+                },
+              ]))
+              setAjusteItensForm(prev => ({ ...prev, itens: todos }))
+            }}>
+              Selecionar todos
+            </Button>
+          </div>
+          <div className="max-h-72 overflow-auto rounded border bg-white">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-gray-100">
+              <tr>
+                <th className="p-2 text-left">Item</th>
+                <th className="p-2 text-right">Preço atual</th>
+                <th className="p-2 text-right">Novo preço</th>
+                <th className="p-2 text-right">Qtd. atual</th>
+                <th className="p-2 text-right">Nova qtd.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(contrato?.itens || []).map(item => {
+                const ajuste = ajusteItensForm.itens[item.id] || {
+                  selecionado: false,
+                  novo_valor_unitario: String(item.valor_unitario),
+                  nova_quantidade: String(item.quantidade_contratada),
+                }
+                return (
+                  <tr key={item.id} className="border-t">
+                    <td className="p-2">
+                      <label className="flex items-center gap-2">
+                        <Checkbox
+                          checked={ajuste.selecionado}
+                          onCheckedChange={checked => setAjusteItensForm(prev => ({
+                            ...prev,
+                            itens: {
+                              ...prev.itens,
+                              [item.id]: { ...ajuste, selecionado: checked === true },
+                            },
+                          }))}
+                        />
+                        <span>{item.numero_item}. {item.descricao.slice(0, 45)}</span>
+                      </label>
+                    </td>
+                    <td className="p-2 text-right">{formatarMoeda(item.valor_unitario)}</td>
+                    <td className="p-2"><Input className="h-8 text-right" type="number" step="0.0001" disabled={!ajuste.selecionado}
+                      value={ajuste.novo_valor_unitario} onChange={e => setAjusteItensForm(prev => ({
+                        ...prev, itens: { ...prev.itens, [item.id]: { ...ajuste, novo_valor_unitario: e.target.value } },
+                      }))} /></td>
+                    <td className="p-2 text-right">{Number(item.quantidade_contratada).toLocaleString('pt-BR')}</td>
+                    <td className="p-2"><Input className="h-8 text-right" type="number" step="0.0001" disabled={!ajuste.selecionado}
+                      value={ajuste.nova_quantidade} onChange={e => setAjusteItensForm(prev => ({
+                        ...prev, itens: { ...prev.itens, [item.id]: { ...ajuste, nova_quantidade: e.target.value } },
+                      }))} /></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      )}
+    </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="p-8 text-center">
@@ -1246,7 +1650,7 @@ export default function DetalheContratoOrgaoPage() {
           </Button>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <Badge variant="outline">{contrato.tipo}</Badge>
+              <Badge variant="outline">{getTipoInstrumentoLabel(contrato.tipo)}</Badge>
               <Badge className={STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.cor || ''}>
                 <StatusIcon className="w-3 h-3 mr-1" />
                 {STATUS_CONTRATO[contrato.status as keyof typeof STATUS_CONTRATO]?.label || contrato.status}
@@ -1255,7 +1659,9 @@ export default function DetalheContratoOrgaoPage() {
                 <Badge className="bg-green-100 text-green-800"><CheckCircle className="w-3 h-3 mr-1" />PNCP</Badge>
               )}
             </div>
-            <h1 className="text-2xl font-bold">Contrato nº {contrato.numero_contrato} - {contrato.tipo}</h1>
+            <h1 className="text-2xl font-bold">
+              {getTipoInstrumentoLabel(contrato.tipo)} nº {contrato.numero_contrato}
+            </h1>
             <p className="text-gray-600">Processo: {contrato.numero_processo}</p>
             {(contrato.fornecedor?.razao_social || contrato.fornecedor_razao_social) && (
               <p className="text-gray-700 font-medium flex items-center gap-1.5 mt-0.5">
@@ -1356,6 +1762,26 @@ export default function DetalheContratoOrgaoPage() {
         />
       )}
 
+      {conciliacaoItens?.possui_itens &&
+        (Math.abs(conciliacaoItens.diferenca) > 0.01 || conciliacaoItens.termos_pendentes.length > 0) && (
+          <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-red-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertCircle className="h-5 w-5" />
+              Valor global diferente da soma dos itens
+            </div>
+            <p className="mt-1 text-sm">
+              Global: {formatarMoeda(conciliacaoItens.valor_global)} · Itens: {formatarMoeda(conciliacaoItens.total_itens)}
+              {' '}· Diferença: {formatarMoeda(conciliacaoItens.diferenca)}.
+              Revise os itens antes de emitir novos pedidos.
+            </p>
+            {conciliacaoItens.termos_pendentes.length > 0 && tabAtivo !== 'termos' && (
+              <Button variant="outline" size="sm" className="mt-2 border-red-300" onClick={() => setTabAtivo('termos')}>
+                Conciliar aditivo
+              </Button>
+            )}
+          </div>
+        )}
+
       <Tabs value={tabAtivo} onValueChange={setTabAtivo} className="space-y-6">
         <TabsList>
           <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
@@ -1372,7 +1798,10 @@ export default function DetalheContratoOrgaoPage() {
             <TabsTrigger value="licencas">Licenças</TabsTrigger>
           )}
           {contrato.modalidade_execucao === 'ORDEM_SERVICO' && (
-            <TabsTrigger value="ordens-servico">Ordens de Serviço</TabsTrigger>
+            <>
+              <TabsTrigger value="itens-os">Itens da OS</TabsTrigger>
+              <TabsTrigger value="ordens-servico">Ordens de Serviço</TabsTrigger>
+            </>
           )}
           <TabsTrigger value="termos">Termos Aditivos ({termos.length})</TabsTrigger>
           <TabsTrigger value="documentos">Documentos</TabsTrigger>
@@ -1453,8 +1882,9 @@ export default function DetalheContratoOrgaoPage() {
                     {(contrato as any).ciclo_ativo ? (
                       Number(contrato.valor_executado_anterior || 0) > 0 && (
                         <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
-                          <p className="text-sm text-amber-700">Ajuste Migração (ciclo anterior)</p>
+                          <p className="text-sm text-amber-700">Ajuste Migração (já executado)</p>
                           <p className="text-xl font-bold text-amber-700">{formatarMoeda(contrato.valor_executado_anterior || 0)}</p>
+                          <p className="text-xs text-amber-600 mt-1">Já descontado do saldo do ciclo</p>
                           {contrato.observacao_ajuste && (
                             <p className="text-xs text-amber-600 mt-1">{contrato.observacao_ajuste}</p>
                           )}
@@ -1940,6 +2370,9 @@ export default function DetalheContratoOrgaoPage() {
                           <FileText className="w-5 h-5 text-blue-500" />
                           <span className="font-medium">{termo.numero_termo}</span>
                           <Badge variant="outline">{getTipoTermoLabel(termo.tipo)}</Badge>
+                          {termo.ajuste_itens_status === 'PENDENTE' && (
+                            <Badge variant="destructive">Itens pendentes</Badge>
+                          )}
                           {termo.status === 'CANCELADO' && <Badge variant="destructive">Cancelado</Badge>}
                         </div>
                         <p className="text-gray-600 mb-4">{termo.objeto}</p>
@@ -1958,6 +2391,30 @@ export default function DetalheContratoOrgaoPage() {
                       </div>
                       {termo.status !== 'CANCELADO' ? (
                         <div className="flex gap-1">
+                          {termo.ajuste_itens_status === 'PENDENTE' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-amber-400 text-amber-800"
+                              onClick={() => {
+                                setAjusteItensForm(ajusteItensInicial)
+                                setModalConciliarTermo(termo)
+                              }}
+                            >
+                              <Calculator className="w-4 h-4 mr-1" />Ajustar itens
+                            </Button>
+                          )}
+                          {['TODOS', 'SELECIONADOS'].includes(termo.ajuste_itens_status || '') && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-blue-300 text-blue-700"
+                              disabled={loadingAction}
+                              onClick={() => handleReabrirAjusteItensTermo(termo)}
+                            >
+                              <RefreshCw className="w-4 h-4 mr-1" />Corrigir itens
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm" onClick={() => { setNovoDocumento(d => ({ ...d, termo_aditivo_id: termo.id, tipo: 'TERMO_ADITIVO' })); setModalDocumento(true) }}><FileUp className="w-4 h-4 mr-1" />Doc</Button>
                           <Button variant="outline" size="sm" onClick={() => setModalEditTermo({ ...termo })}><Pencil className="w-4 h-4 mr-1" />Editar</Button>
                           <Button variant="outline" size="sm" className="text-red-600" onClick={() => setModalCancelarTermo(termo)}><X className="w-4 h-4 mr-1" />Cancelar</Button>
@@ -2117,9 +2574,14 @@ export default function DetalheContratoOrgaoPage() {
         )}
 
         {contrato.modalidade_execucao === 'ORDEM_SERVICO' && (
-          <TabsContent value="ordens-servico">
-            <TabOrdensServico contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
-          </TabsContent>
+          <>
+            <TabsContent value="itens-os">
+              <TabItensOrdemServico contratoId={contrato.id} />
+            </TabsContent>
+            <TabsContent value="ordens-servico">
+              <TabOrdensServico contratoId={contrato.id} valorGlobal={Number(contrato.valor_global)} />
+            </TabsContent>
+          </>
         )}
 
         <TabsContent value="requisicoes">
@@ -2587,6 +3049,45 @@ export default function DetalheContratoOrgaoPage() {
                     </div>
                   )}
 
+                  {/* Aviso: o portal não informou o nº do contrato (atas de registro de preços) */}
+                  {empenhos.some(e => e.confirmacao === 'NAO_CONFIRMADO') && (
+                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm w-full">
+                          <p className="font-medium text-amber-900">
+                            {empenhos.filter(e => e.confirmacao === 'NAO_CONFIRMADO' && e.fase_tipo === 'EMPENHO').length} empenho(s) sem confirmação
+                          </p>
+                          <p className="text-amber-800 mt-0.5">
+                            O portal não preencheu o <strong>Nº Contrato</strong> no detalhe dessas despesas — comum em
+                            atas de registro de preços, em que só aparece o processo licitatório. Elas são exibidas
+                            abaixo, mas <strong>não entram nos totais</strong>.
+                          </p>
+                          <p className="text-amber-800 mt-2">
+                            Informe o processo licitatório como ele aparece no portal para vincular automaticamente:
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
+                            <Input
+                              value={processoPortalEdit}
+                              onChange={(e) => setProcessoPortalEdit(e.target.value)}
+                              placeholder="Ex: 006-2025-PE"
+                              className="h-9 w-48 bg-white"
+                            />
+                            <Button
+                              size="sm"
+                              onClick={salvarProcessoPortal}
+                              disabled={salvandoProcessoPortal}
+                            >
+                              {salvandoProcessoPortal
+                                ? <Loader2 className="w-4 h-4 animate-spin" />
+                                : 'Salvar e buscar'}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Tabela */}
                   <div className="overflow-x-auto rounded-md border">
                     <table className="w-full text-sm">
@@ -2595,6 +3096,7 @@ export default function DetalheContratoOrgaoPage() {
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Data</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Nº Liquidação</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Fase</th>
+                          <th className="text-left px-3 py-2 font-medium text-gray-600">Vínculo</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Credor</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600 hidden md:table-cell">Nº Processo</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600 hidden lg:table-cell">Elemento</th>
@@ -2615,8 +3117,13 @@ export default function DetalheContratoOrgaoPage() {
                             PAGAMENTO: 'Pagamento',
                             OUTRO: e.fase,
                           }
+                          const confirmacao = CONFIRMACAO_LABELS[e.confirmacao ?? 'CONTRATO'] ?? CONFIRMACAO_LABELS.CONTRATO
+                          const naoConfirmado = e.confirmacao === 'NAO_CONFIRMADO'
                           return (
-                            <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                            <tr
+                              key={i}
+                              className={`border-b last:border-0 ${naoConfirmado ? 'bg-amber-50/60 hover:bg-amber-50' : 'hover:bg-gray-50'}`}
+                            >
                               <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{e.data}</td>
                               <td className="px-3 py-2 font-mono text-xs">
                                 {e.numero_liquidacao || <span className="text-gray-400">—</span>}
@@ -2627,8 +3134,22 @@ export default function DetalheContratoOrgaoPage() {
                                 </Badge>
                               </td>
                               <td className="px-3 py-2">
+                                <Badge
+                                  variant="outline"
+                                  title={confirmacao.ajuda}
+                                  className={`text-xs whitespace-nowrap ${confirmacao.cor}`}
+                                >
+                                  {confirmacao.label}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-2">
                                 <p className="font-medium text-gray-800 whitespace-normal break-words">{e.credor}</p>
                                 {e.cnpj && <p className="text-xs text-gray-400 font-mono">{e.cnpj}</p>}
+                                {e.os_citada && (
+                                  <p className="text-xs text-gray-500 mt-0.5">
+                                    OS citada: <span className="font-mono">{e.os_citada}</span>
+                                  </p>
+                                )}
                               </td>
                               <td className="px-3 py-2 text-gray-600 text-xs hidden md:table-cell">{e.numero_processo || '—'}</td>
                               <td className="px-3 py-2 text-gray-600 text-xs hidden lg:table-cell whitespace-normal break-words">{e.elemento_despesa || '—'}</td>
@@ -2752,6 +3273,7 @@ export default function DetalheContratoOrgaoPage() {
                 </div>
               </div>
             )}
+            {renderFormularioAjusteItens()}
             <div className="space-y-2">
               <Label>Nova Data de Vigência</Label>
               <Input type="date" value={novoTermo.nova_data_vigencia_fim} onChange={(e) => setNovoTermo({...novoTermo, nova_data_vigencia_fim: e.target.value})} />
@@ -2762,6 +3284,25 @@ export default function DetalheContratoOrgaoPage() {
             <Button variant="outline" onClick={() => setModalTermo(false)}>Cancelar</Button>
             <Button onClick={handleCriarTermo} disabled={loadingAction}>
               {loadingAction ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : 'Criar Termo Aditivo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!modalConciliarTermo} onOpenChange={open => !open && setModalConciliarTermo(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Conciliar itens — {modalConciliarTermo?.numero_termo}</DialogTitle>
+            <DialogDescription>
+              Informe quais preços e quantidades foram efetivamente alterados pelo aditivo.
+            </DialogDescription>
+          </DialogHeader>
+          {renderFormularioAjusteItens()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalConciliarTermo(null)}>Cancelar</Button>
+            <Button onClick={handleConciliarItensTermo} disabled={loadingAction || ajusteItensForm.modo === 'PENDENTE'}>
+              {loadingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Aplicar aos itens
             </Button>
           </DialogFooter>
         </DialogContent>

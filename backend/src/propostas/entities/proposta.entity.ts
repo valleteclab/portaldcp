@@ -61,6 +61,13 @@ export class Proposta {
   @Column({ default: false })
   declaracao_reserva_cargos: boolean; // Reserva de cargos PCD
 
+  // Completam a "Declaração Conjunta" praticada nos processos reais
+  @Column({ default: false })
+  declaracao_custos_trabalhistas: boolean; // Proposta cobre integralidade dos custos trabalhistas (CF/CLT/CCT)
+
+  @Column({ default: false })
+  declaracao_responsabilidade: boolean; // Responsabilidade pela proposta; todos os custos/encargos inclusos
+
   // Endereço de Entrega (se diferente do cadastro)
   @Column({ nullable: true })
   endereco_entrega: string;

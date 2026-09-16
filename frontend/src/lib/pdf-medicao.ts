@@ -71,6 +71,7 @@ export interface DiscriminacaoPdf {
 export interface DadosMedicaoPdf {
   // Contrato
   numero_contrato: string
+  tipo_instrumento?: string
   objeto_contrato: string
   orgao_nome: string
   fornecedor_nome: string
@@ -174,6 +175,30 @@ function produtoQuantidadeValorUnitarioCentavos(quantidade: number, valorUnitari
 
 function centavosParaReaisTrunc2(centavos: number): number {
   return Number((centavos / 100).toFixed(2))
+}
+
+function diasFiscaisNoPeriodoPorValor(itens: ItemMedicaoPdf[] | undefined): number | null {
+  const mensais = (itens || []).filter(
+    item => String(item?.unidade || '').trim().toUpperCase() === 'MENSAL',
+  )
+  if (mensais.length === 0) return null
+
+  let valorPeriodoCent = 0
+  let valorTotalCent = 0
+  for (const item of mensais) {
+    const valorUnitario = Number(item.valor_unitario) || 0
+    valorPeriodoCent +=
+      item.valor_no_periodo !== undefined && item.valor_no_periodo !== null
+        ? Math.round(truncarMoedaReais2Casas(Number(item.valor_no_periodo)) * 100)
+        : produtoQuantidadeValorUnitarioCentavos(item.quantidade_no_periodo, valorUnitario)
+    valorTotalCent +=
+      item.valor_total_item !== undefined && item.valor_total_item !== null
+        ? Math.round(truncarMoedaReais2Casas(Number(item.valor_total_item)) * 100)
+        : produtoQuantidadeValorUnitarioCentavos(item.quantidade_total_contrato, valorUnitario)
+  }
+
+  if (valorTotalCent <= 0) return null
+  return Math.min(360, Math.max(0, Math.round((valorPeriodoCent / valorTotalCent) * 360)))
 }
 
 /** EXECUÇÃO FINANCEIRA: 2 casas; trunc (ex.: 15.318,489 → 15.318,48). */
@@ -526,7 +551,15 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   // =========================================================
   // INFORMAÇÕES DO CONTRATO
   // =========================================================
-  const infoX2 = mX + 22
+  const rotuloInstrumento =
+    dados.tipo_instrumento?.toUpperCase() === 'ATA_REGISTRO_PRECO'
+      ? 'ATA REGISTRO DE PREÇO'
+      : 'CONTRATO'
+  const rotuloInstrumentoTitulo =
+    dados.tipo_instrumento?.toUpperCase() === 'ATA_REGISTRO_PRECO'
+      ? 'Ata Registro de Preço'
+      : 'Contrato'
+  const infoX2 = mX + (rotuloInstrumento === 'CONTRATO' ? 22 : 45)
   const textoPretoPdf: [number, number, number] = [0, 0, 0]
   const textoCorpoTabelaPdf = {
     textColor: textoPretoPdf,
@@ -544,7 +577,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   }
 
   linhaInfo('ÓRGÃO', dados.orgao_nome)
-  linhaInfo('CONTRATO', dados.numero_contrato)
+  linhaInfo(rotuloInstrumento, dados.numero_contrato)
 
   // Objeto pode ser longo — quebrar em até 3 linhas
   doc.setFont('helvetica', 'bold')
@@ -782,7 +815,10 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
     if (porQuantidade) {
       txtFiscalNoPeriodo = txtFiscalAtePeriodo = txtFiscalAExecutar = '' // por item
     } else {
-      const diasPeriodo = Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim))
+      const diasPeriodoPorValor = diasFiscaisNoPeriodoPorValor(dados.itens)
+      const diasPeriodo = diasPeriodoPorValor !== null
+        ? Math.max(1, diasPeriodoPorValor)
+        : Math.max(1, diasEntreDatasComercial(dados.periodo_inicio, dados.periodo_fim, dados.data_vigencia_fim))
       txtFiscalNoPeriodo = fmtTempo(diasPeriodo)
       if (dados.execucao_fiscal) {
         txtFiscalAtePeriodo = fmtTempo(dados.execucao_fiscal.dias_executados)
@@ -1002,7 +1038,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
   )
   doc.setFontSize(8).setFont('helvetica', 'normal').setTextColor(55, 65, 81)
   if (dados.orgao_nome) doc.text(dados.orgao_nome, W / 2, yPA + 6, { align: 'center' })
-  doc.text(`Contrato: ${dados.numero_contrato}`, W / 2, yPA + 11, { align: 'center' })
+  doc.text(`${rotuloInstrumentoTitulo}: ${dados.numero_contrato}`, W / 2, yPA + 11, { align: 'center' })
   yPA += 20
   desenharQuadroAssinaturas(doc, yPA, mX, W, assinaturasArr, dados.url_validacao, dados.qr_code_data_url)
 
@@ -1016,7 +1052,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
     doc.setTextColor(160, 160, 160)
     doc.setFont('helvetica', 'normal')
     doc.text(
-      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  Contrato: ${dados.numero_contrato}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
+      `Portal DCP  |  Boletim de Medição Nº ${dados.numero_medicao}  |  ${rotuloInstrumentoTitulo}: ${dados.numero_contrato}  |  Competência: ${competencia}  |  Página ${i}/${pages}`,
       W / 2, H - 5, { align: 'center' },
     )
   }

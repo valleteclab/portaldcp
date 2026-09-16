@@ -50,6 +50,7 @@ interface Ata {
   fornecedor_razao_social: string
   permite_adesao: boolean
   limite_adesao_percentual: number
+  arquivo_ata?: string
   orgao: {
     id: string
     nome: string
@@ -188,10 +189,14 @@ export default function DetalheAtaPublicaPage() {
               </h1>
             </div>
             
-            <Button>
-              <Download className="w-4 h-4 mr-2" />
-              Baixar Ata
-            </Button>
+            {ata.arquivo_ata && (
+              <Button asChild>
+                <a href={ata.arquivo_ata} target="_blank" rel="noreferrer">
+                  <Download className="w-4 h-4 mr-2" />
+                  Baixar Ata
+                </a>
+              </Button>
+            )}
           </div>
         </div>
       </header>

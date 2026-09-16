@@ -5,7 +5,7 @@ import {
   FileText, Send, CheckCircle, Clock, Eye, Loader2, X,
   Upload, Users, Trash2, Download, Search, RefreshCw, FilePen,
   Plus, ChevronRight, ChevronLeft, ArrowLeft, Hash,
-  ShieldCheck, AlertCircle, UserPlus, Shield, Lock, Mail, Phone,
+  ShieldCheck, AlertCircle, UserPlus, Shield, Lock, Mail, Phone, Copy, Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,6 +31,7 @@ interface Signatario {
   status: 'PENDENTE' | 'ASSINADO' | 'REJEITADO'
   data_assinatura?: string
   is_orgao_user?: boolean
+  token_acesso?: string
 }
 
 interface Documento {
@@ -363,6 +364,22 @@ export default function PortalAssinaturasPage() {
 
   const normalizarEmail = (email?: string | null) => (email || '').trim().toLowerCase()
   const normalizarDocumento = (documento?: string | null) => (documento || '').replace(/\D/g, '')
+  const [linkCopiado, setLinkCopiado] = useState<string | null>(null)
+
+  /** Mesma rota que o e-mail de convite usa (public-assinaturas). */
+  const linkAssinatura = (token: string) =>
+    `${typeof window !== 'undefined' ? window.location.origin : ''}/assinar-documento/${token}`
+
+  const copiarLink = async (token: string, signatarioId: string) => {
+    try {
+      await navigator.clipboard.writeText(linkAssinatura(token))
+      setLinkCopiado(signatarioId)
+      setTimeout(() => setLinkCopiado(null), 2000)
+    } catch {
+      // clipboard bloqueado (http ou permissão): o campo ao lado permite copiar à mão
+    }
+  }
+
   const signatarioEhUsuarioLogado = (signatario: Pick<Signatario, 'email' | 'cpf_cnpj'>) => {
     const emailUsuario = normalizarEmail(usuarioLogado?.email)
     const emailSignatario = normalizarEmail(signatario.email)
@@ -977,6 +994,28 @@ export default function PortalAssinaturasPage() {
                                   onClick={() => iniciarAssinatura(docAtivo.id, sig.id, sig.nome, signatarioEhUsuarioLogado(sig))}>
                                   <FilePen className="h-3 w-3" /> Assinar agora
                                 </Button>
+                              )}
+                              {/* Signatário externo assina por link público. Sem exibi-lo aqui,
+                                  o link só existia dentro do e-mail disparado — se ele não
+                                  chegasse, não havia como recuperá-lo pela interface. */}
+                              {sig.status === 'PENDENTE' && !sig.is_orgao_user && sig.token_acesso && (
+                                <div className="mt-2 ml-8">
+                                  <p className="text-[10px] text-gray-500 mb-1">Link de assinatura (externo)</p>
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      readOnly
+                                      value={linkAssinatura(sig.token_acesso)}
+                                      onFocus={(e) => e.currentTarget.select()}
+                                      className="flex-1 text-[10px] bg-white border rounded px-2 py-1 text-gray-600"
+                                    />
+                                    <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1"
+                                      onClick={() => copiarLink(sig.token_acesso!, sig.id)}>
+                                      {linkCopiado === sig.id
+                                        ? <><Check className="h-3 w-3" /> Copiado</>
+                                        : <><Copy className="h-3 w-3" /> Copiar</>}
+                                    </Button>
+                                  </div>
+                                </div>
                               )}
                             </div>
                           )

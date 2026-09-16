@@ -20,12 +20,14 @@ export async function listarBens(filtros?: {
   tipo?: string;
   status?: string;
   categoria_id?: string;
+  setor_id?: string;
   busca?: string;
 }) {
   const params = new URLSearchParams();
   if (filtros?.tipo) params.set('tipo', filtros.tipo);
   if (filtros?.status) params.set('status', filtros.status);
   if (filtros?.categoria_id) params.set('categoria_id', filtros.categoria_id);
+  if (filtros?.setor_id) params.set('setor_id', filtros.setor_id);
   if (filtros?.busca) params.set('busca', filtros.busca);
   const qs = params.toString();
   const res = await authFetch(`${baseUrl()}${qs ? '?' + qs : ''}`);
@@ -45,8 +47,9 @@ export async function criarBem(data: any) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Erro ao criar bem');
-  return res.json();
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao criar bem');
+  return json;
 }
 
 export async function atualizarBem(id: string, data: any) {
@@ -55,8 +58,9 @@ export async function atualizarBem(id: string, data: any) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Erro ao atualizar bem');
-  return res.json();
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao atualizar bem');
+  return json;
 }
 
 export async function excluirBem(id: string) {
@@ -75,13 +79,93 @@ export async function listarCategorias() {
   return res.json();
 }
 
-export async function criarCategoria(data: { nome: string }) {
+export type CategoriaInput = { nome?: string; vida_util_anos?: number | null; valor_residual_pct?: number; conta_contabil?: string | null };
+
+export async function criarCategoria(data: CategoriaInput & { nome: string }) {
   const res = await authFetch(`${baseUrl()}/categorias`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error('Erro ao criar categoria');
+  return res.json();
+}
+
+export async function atualizarCategoria(id: string, data: CategoriaInput) {
+  const res = await authFetch(`${baseUrl()}/categorias/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao atualizar categoria');
+  return json;
+}
+
+// ─── MOVIMENTAÇÕES (transferência, baixa, empréstimo) ──
+
+async function postJson(url: string, data: any) {
+  const res = await authFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro na operação');
+  return json;
+}
+
+export async function listarMovimentacoes(filtros?: { tipo?: string; status?: string; bem_id?: string; setor_id?: string }) {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filtros || {})) if (v) params.set(k, v);
+  const qs = params.toString();
+  const res = await authFetch(`${baseUrl()}/movimentacoes${qs ? '?' + qs : ''}`);
+  if (!res.ok) throw new Error('Erro ao listar movimentações');
+  return res.json();
+}
+
+export function solicitarTransferencia(data: { bem_ids: string[]; setor_destino_id: string; responsavel_destino_nome?: string; responsavel_destino_telefone?: string; motivo?: string; aceite_imediato?: boolean; inventario_id?: string }) {
+  return postJson(`${baseUrl()}/movimentacoes/transferencia`, data) as Promise<{ lote_id: string; aplicada: boolean; link: string | null; enviado: boolean; movimentacoes: number }>;
+}
+
+export function reenviarLinkTransferencia(loteId: string) {
+  return postJson(`${baseUrl()}/movimentacoes/lote/${loteId}/reenviar-link`, {}) as Promise<{ enviado: boolean; link: string; motivo?: string }>;
+}
+
+export function cancelarMovimentacao(id: string) {
+  return postJson(`${baseUrl()}/movimentacoes/${id}/cancelar`, {});
+}
+
+export function baixarBem(data: { bem_id: string; motivo_baixa: string; motivo: string; documento_url?: string; data_baixa?: string; inventario_id?: string }) {
+  return postJson(`${baseUrl()}/movimentacoes/baixa`, data);
+}
+
+export function emprestarBem(data: { bem_id: string; destino_texto: string; responsavel_destino_nome?: string; data_prevista_retorno: string; motivo?: string }) {
+  return postJson(`${baseUrl()}/movimentacoes/emprestimo`, data);
+}
+
+export function devolverEmprestimo(id: string) {
+  return postJson(`${baseUrl()}/movimentacoes/${id}/devolver`, {});
+}
+
+export async function emprestimosVencidos() {
+  const res = await authFetch(`${baseUrl()}/movimentacoes/emprestimos-vencidos`);
+  if (!res.ok) throw new Error('Erro ao listar empréstimos vencidos');
+  return res.json();
+}
+
+/** Abre um PDF autenticado em nova aba (termos). */
+export async function abrirPdf(caminho: string) {
+  const res = await authFetch(`${baseUrl()}/${caminho}`);
+  if (!res.ok) throw new Error('Erro ao gerar o documento');
+  const blob = await res.blob();
+  window.open(URL.createObjectURL(blob), '_blank');
+}
+
+export const urlTermoTransferencia = (loteId: string) => `movimentacoes/lote/${loteId}/termo`;
+export const urlTermoBaixa = (movId: string) => `movimentacoes/${movId}/termo-baixa`;
+export const urlTermoResponsabilidade = (setorId: string, responsavel?: string) =>
+  `movimentacoes/setores/${setorId}/termo-responsabilidade${responsavel ? `?responsavel=${encodeURIComponent(responsavel)}` : ''}`;
+
+export async function relatorioDepreciacao(data?: string) {
+  const res = await authFetch(`${baseUrl()}/relatorios/depreciacao${data ? `?data=${data}` : ''}`);
+  if (!res.ok) throw new Error('Erro ao obter depreciação');
   return res.json();
 }
 
@@ -182,6 +266,185 @@ export async function gerarEtiquetas(data: {
   });
   if (!res.ok) throw new Error('Erro ao gerar etiquetas');
   return res.blob();
+}
+
+export async function gerarZpl(data: { bem_ids: string[]; largura_mm?: number; altura_mm?: number; dpi?: number }) {
+  const res = await authFetch(`${baseUrl()}/etiquetas/zpl`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Erro ao gerar ZPL');
+  return res.text();
+}
+
+// ─── CADASTRO: PLAQUETA, PLANILHA, FOTO, SETORES ───────
+
+export async function proximaPlaqueta(): Promise<string> {
+  const res = await authFetch(`${baseUrl()}/proxima-plaqueta`);
+  if (!res.ok) throw new Error('Erro ao obter próxima plaqueta');
+  return (await res.json()).plaqueta;
+}
+
+export async function importarPlanilha(file: File) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await authFetch(`${baseUrl()}/importar`, { method: 'POST', body: fd });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao importar planilha');
+  return json as { total: number; criados: number; atualizados: number; setores_criados?: string[]; erros: { linha: number; erro: string }[] };
+}
+
+export async function enviarFotoBem(bemId: string, file: File) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/foto`, { method: 'POST', body: fd });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao enviar foto');
+  return json as { foto_url: string };
+}
+
+// ─── FOTOS DO BEM (galeria) ─────────────────────────────
+
+export type OrigemFotoBem = 'CADASTRO' | 'INVENTARIO' | 'MANUTENCAO' | 'BAIXA' | 'MOVIMENTACAO' | 'OUTRO';
+
+export type FotoBem = {
+  id: string;
+  url: string;
+  origem: OrigemFotoBem | string;
+  legenda: string | null;
+  tirada_por: string | null;
+  created_at: string;
+  capa: boolean;
+};
+
+export const ORIGEM_FOTO_LABELS: Record<string, string> = {
+  CADASTRO: 'Cadastro',
+  INVENTARIO: 'Inventário',
+  MANUTENCAO: 'Manutenção',
+  BAIXA: 'Baixa',
+  MOVIMENTACAO: 'Movimentação',
+  OUTRO: 'Outro',
+};
+
+export async function listarFotosBem(bemId: string): Promise<FotoBem[]> {
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/fotos`);
+  if (!res.ok) throw new Error('Erro ao listar fotos');
+  return res.json();
+}
+
+export async function adicionarFotoBem(bemId: string, file: File, origem: OrigemFotoBem, legenda?: string): Promise<FotoBem> {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('origem', origem);
+  if (legenda && legenda.trim()) fd.append('legenda', legenda.trim());
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/fotos`, { method: 'POST', body: fd });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao adicionar foto');
+  return json;
+}
+
+export async function definirCapaFotoBem(bemId: string, fotoId: string) {
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/fotos/${fotoId}/capa`, { method: 'PUT' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao definir capa');
+  return json;
+}
+
+export async function excluirFotoBem(bemId: string, fotoId: string) {
+  const res = await authFetch(`${baseUrl()}/bem/${bemId}/fotos/${fotoId}`, { method: 'DELETE' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao excluir foto');
+  return json;
+}
+
+/** Acha o bem por qualquer código lido (URL do QR, plaqueta, EPC RFID). */
+export async function bemPorCodigo(codigo: string) {
+  const res = await authFetch(`${baseUrl()}/bem-por-codigo?codigo=${encodeURIComponent(codigo)}`);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao consultar código');
+  return json as { codigo: string; bem: { id: string; plaqueta: string | null; descricao: string; epc: string | null; setor_nome: string | null; categoria: string | null; status: string } | null };
+}
+
+export async function listarSetores() {
+  const res = await authFetch(`${API_URL}/api/orgaos/${getOrgaoId()}/setores`);
+  if (!res.ok) throw new Error('Erro ao listar setores');
+  return res.json() as Promise<{ id: string; codigo: string; nome: string }[]>;
+}
+
+// ─── INVENTÁRIOS (campanhas de conferência) ────────────
+
+export async function listarInventarios() {
+  const res = await authFetch(`${baseUrl()}/inventarios`);
+  if (!res.ok) throw new Error('Erro ao listar inventários');
+  return res.json();
+}
+
+export async function criarInventario(data: {
+  nome: string;
+  ano: number;
+  comissao?: string;
+  observacoes?: string;
+  setores: { setor_id?: string; setor_nome?: string; responsavel_nome?: string; responsavel_telefone?: string }[];
+}) {
+  const res = await authFetch(`${baseUrl()}/inventarios`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao criar inventário');
+  return json;
+}
+
+export async function obterInventario(id: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}`);
+  if (!res.ok) throw new Error('Erro ao obter inventário');
+  return res.json();
+}
+
+export async function divergenciasInventario(id: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/divergencias`);
+  if (!res.ok) throw new Error('Erro ao obter divergências');
+  return res.json();
+}
+
+export async function fecharInventario(id: string, forcar = false) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/fechar${forcar ? '?forcar=true' : ''}`, { method: 'POST' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao fechar inventário');
+  return json;
+}
+
+export async function atualizarSetorInventario(id: string, setorId: string, data: { responsavel_nome?: string; responsavel_telefone?: string; observacoes?: string }) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/setores/${setorId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Erro ao atualizar setor');
+  return res.json();
+}
+
+export async function enviarLinkSetorInventario(id: string, setorId: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/setores/${setorId}/enviar-link`, { method: 'POST' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao enviar link');
+  return json as { enviado: boolean; link: string; setores?: number; motivo?: string };
+}
+
+/** Um WhatsApp por responsável, listando todos os setores abertos dele. */
+export async function enviarLinksInventario(id: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/enviar-links`, { method: 'POST' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao enviar links');
+  return json as { pessoas: number; setores: number; falhas: string[]; sem_telefone: string[] };
+}
+
+export async function reabrirSetorInventario(id: string, setorId: string) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/setores/${setorId}/reabrir`, { method: 'POST' });
+  if (!res.ok) throw new Error('Erro ao reabrir setor');
+  return res.json();
 }
 
 // ─── RELATÓRIOS ────────────────────────────────────────

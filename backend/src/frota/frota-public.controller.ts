@@ -65,11 +65,14 @@ export class FrotaPublicController {
     return this.frotaAuth.obterInfoVereadorPortal(slug);
   }
 
+  /** Login: limite por IP contra força bruta (senha do vereador/posto) */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('auth-vereador/:slug')
   async loginVereador(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
     return this.frotaAuth.loginPorSlugVereador(slug, body.senha, getIp(req), getUserAgent(req));
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('auth-vereador-portal/:slug')
   async loginVereadorPortal(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
     return this.frotaAuth.loginVereadorPortal(
@@ -86,12 +89,14 @@ export class FrotaPublicController {
   // ================================================================
 
   /** Login genérico: orgaoId + codigoAcesso + senha */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('auth')
   async login(@Body() body: any, @Req() req: Request) {
     return this.frotaAuth.login(body.orgaoId, body.codigoAcesso, body.senha, getIp(req), getUserAgent(req));
   }
 
   /** Login do posto pelo slug da URL */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('auth-posto/:slug')
   async loginPosto(@Param('slug') slug: string, @Body() body: any, @Req() req: Request) {
     return this.frotaAuth.loginPorSlug(slug, body.senha, getIp(req), getUserAgent(req));
@@ -101,10 +106,35 @@ export class FrotaPublicController {
   // QR CODE — VERIFICAÇÃO PÚBLICA (para quando o motorista mostra o QR)
   // ================================================================
 
-  /** Retorna dados da requisição pelo token do QR (sem autenticação, apenas com o token) */
+  /**
+   * Retorna dados da requisição pelo token do QR (sem autenticação, apenas com o token).
+   * Só o que a tela da autorização mostra — sem contrato (preço/fornecedor),
+   * sem ids internos do órgão e sem o token de novo.
+   */
   @Get('req/:token')
   async verificarToken(@Param('token') token: string) {
-    return this.frotaAuth.verificarTokenAcesso(token);
+    const r = await this.frotaAuth.verificarTokenAcesso(token);
+    return {
+      id: r.id,
+      codigo: r.codigo,
+      codigo_posto: r.codigo_posto,
+      status: r.status,
+      solicitante_nome: r.solicitante_nome,
+      solicitante_cargo: r.solicitante_cargo,
+      veiculo_placa: r.veiculo_placa,
+      veiculo_modelo: r.veiculo_modelo,
+      veiculo_chassi: r.veiculo_chassi,
+      veiculo_renavam: r.veiculo_renavam,
+      tipo_combustivel: r.tipo_combustivel,
+      quantidade_autorizada: r.quantidade_autorizada,
+      finalidade: r.finalidade,
+      data_requisicao: r.data_requisicao,
+      data_autorizacao: r.data_autorizacao,
+      autorizado_por: r.autorizado_por,
+      token_expiry: r.token_expiry,
+      orgao_nome: r.orgao_nome,
+      orgao_logo: r.orgao_logo,
+    };
   }
 
   /** Confirmação de abastecimento via QR — requer token de posto válido */
@@ -135,7 +165,7 @@ export class FrotaPublicController {
   // ================================================================
 
   /** Rate limit mais restrito para mitigar brute-force em codigo_posto (6 chars) */
-  @Throttle([{ limit: 15, ttl: 60000 }])
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
   @Get('posto/verificar/:codigo')
   async postoVerificarCodigo(
     @Param('codigo') codigo: string,
@@ -244,6 +274,42 @@ export class FrotaPublicController {
     const result = await this.frotaService.criarRequisicao(payload.orgaoId, dados);
     await this.frotaAuth.log(payload.sub, payload.orgaoId, getIp(req), getUserAgent(req),
       AcaoFrotaLog.CRIAR_REQUISICAO, { codigo: result.codigo }, true);
+    return result;
+  }
+
+  /** Veículos que o vereador pode escolher no pedido */
+  @Get('vereador/veiculos')
+  async vereadorVeiculos(@Headers('authorization') auth: string) {
+    const payload = getVereadorPayload(bearerToken(auth), this.frotaAuth);
+    return this.frotaService.listarVeiculosParaVereador(payload.orgaoId, payload.sub);
+  }
+
+  /** Vereador cancela um pedido seu ainda pendente (libera a cota) */
+  @Put('vereador/requisicao/:id/cancelar')
+  async vereadorCancelarRequisicao(
+    @Param('id') id: string,
+    @Headers('authorization') auth: string,
+    @Req() req: Request,
+  ) {
+    const payload = getVereadorPayload(bearerToken(auth), this.frotaAuth);
+    const result = await this.frotaService.cancelarRequisicaoDoVereador(id, payload.orgaoId, payload.sub);
+    await this.frotaAuth.log(payload.sub, payload.orgaoId, getIp(req), getUserAgent(req),
+      AcaoFrotaLog.CANCELAR_REQUISICAO, { codigo: result.codigo }, true);
+    return result;
+  }
+
+  /** Vereador pede litros a mais ao gestor (WhatsApp). Limitado para não virar spam. */
+  @Throttle({ default: { limit: 3, ttl: 600000 } })
+  @Post('vereador/solicitar-cota-extra')
+  async vereadorSolicitarCotaExtra(
+    @Body() body: { litros: number; motivo?: string },
+    @Headers('authorization') auth: string,
+    @Req() req: Request,
+  ) {
+    const payload = getVereadorPayload(bearerToken(auth), this.frotaAuth);
+    const result = await this.frotaAuth.solicitarCotaExtra(payload.sub, payload.orgaoId, Number(body?.litros), body?.motivo || '');
+    await this.frotaAuth.log(payload.sub, payload.orgaoId, getIp(req), getUserAgent(req),
+      AcaoFrotaLog.SOLICITAR_COTA_EXTRA, { litros: Number(body?.litros), motivo: body?.motivo || '', gestor_avisado: result.gestor_avisado }, true);
     return result;
   }
 

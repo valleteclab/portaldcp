@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, ILike, Like, Or } from 'typeorm';
+import { Repository, Between, ILike, Like, Or, DataSource, In } from 'typeorm';
 import * as crypto from 'crypto';
 import { Veiculo } from './entities/veiculo.entity';
 import { Abastecimento } from './entities/abastecimento.entity';
@@ -9,7 +9,9 @@ import { FrotaContrato } from './entities/frota-contrato.entity';
 import { FrotaRequisicao, StatusRequisicaoFrota } from './entities/frota-requisicao.entity';
 import { ContratosService } from '../contratos/contratos.service';
 import { UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
-import { fimDoMesBrasil } from './frota.utils';
+import { fimDoMesBrasil, mesAtualBrasil, intervaloDoMes } from './frota.utils';
+import { FrotaCredencial } from './entities/frota-credencial.entity';
+import { FrotaNotificacaoService } from './frota-notificacao.service';
 
 @Injectable()
 export class FrotaService {
@@ -25,6 +27,10 @@ export class FrotaService {
     @InjectRepository(FrotaRequisicao)
     private requisicaoRepository: Repository<FrotaRequisicao>,
     private contratosService: ContratosService,
+    private dataSource: DataSource,
+    private notificacao: FrotaNotificacaoService,
+    @InjectRepository(FrotaCredencial)
+    private credencialRepository: Repository<FrotaCredencial>,
   ) {}
 
   // ============================================================
@@ -394,18 +400,115 @@ export class FrotaService {
     const where: any = { orgao_id: orgaoId };
     if (status && status !== 'TODOS') where.status = status;
     if (mes) {
-      const [ano, m] = mes.split('-');
-      where.data_requisicao = Between(`${ano}-${m}-01`, `${ano}-${m}-31`);
+      const { inicio, fim } = intervaloDoMes(mes);
+      where.data_requisicao = Between(inicio, fim);
     }
-    return this.requisicaoRepository.find({
+    const lista = await this.requisicaoRepository.find({
       where,
       relations: ['contrato'],
       order: { created_at: 'DESC' },
     });
+    // Contexto para o gestor decidir: cota do vereador no mês corrente
+    // (usados, em pedidos abertos, disponível) ao lado de cada pedido dele.
+    const credIds = Array.from(new Set(lista.map((r) => r.credencial_solicitante_id).filter(Boolean))) as string[];
+    if (credIds.length > 0) {
+      const resumo = await this.resumoCotaPorCredencial(credIds, mesAtualBrasil());
+      for (const r of lista) {
+        const c = r.credencial_solicitante_id ? resumo.get(r.credencial_solicitante_id) : undefined;
+        if (c) (r as any).cota_solicitante = c;
+      }
+    }
+    return lista;
+  }
+
+  /**
+   * Cota do mês por credencial de vereador: cota + extra (do mês), litros já
+   * abastecidos, litros em pedidos abertos (pendentes/autorizados) e disponível.
+   * disponivel = null quando a credencial não tem cota configurada.
+   */
+  async resumoCotaPorCredencial(credencialIds: string[], mes: string) {
+    const mapa = new Map<string, {
+      cota_mensal: number; cota_extra: number; cota_total: number;
+      usados: number; abertos: number; disponivel: number | null;
+    }>();
+    if (credencialIds.length === 0) return mapa;
+    const creds = await this.credencialRepository.find({
+      where: { id: In(credencialIds) },
+      select: ['id', 'cota_mensal_litros', 'cota_extra_litros', 'cota_extra_mes'],
+    });
+    const somas: Array<{ cid: string; usados: string; abertos: string }> = await this.requisicaoRepository
+      .createQueryBuilder('r')
+      .select('r.credencial_solicitante_id', 'cid')
+      .addSelect("COALESCE(SUM(CASE WHEN r.status = 'ABASTECIDO' THEN r.quantidade_abastecida ELSE 0 END), 0)", 'usados')
+      .addSelect("COALESCE(SUM(CASE WHEN r.status IN ('PENDENTE', 'AUTORIZADO') THEN r.quantidade_autorizada ELSE 0 END), 0)", 'abertos')
+      .where('r.credencial_solicitante_id IN (:...ids)', { ids: credencialIds })
+      .andWhere("to_char(r.data_requisicao, 'YYYY-MM') = :mes", { mes })
+      .groupBy('r.credencial_solicitante_id')
+      .getRawMany();
+    const porCred = new Map(somas.map((x) => [x.cid, x]));
+    for (const c of creds) {
+      const cotaMensal = Number(c.cota_mensal_litros || 0);
+      const extra = c.cota_extra_mes === mes ? Number(c.cota_extra_litros || 0) : 0;
+      const usados = Number(porCred.get(c.id)?.usados || 0);
+      const abertos = Number(porCred.get(c.id)?.abertos || 0);
+      const total = cotaMensal + extra;
+      mapa.set(c.id, {
+        cota_mensal: cotaMensal, cota_extra: extra, cota_total: total, usados, abertos,
+        disponivel: cotaMensal > 0 ? Math.max(0, total - usados - abertos) : null,
+      });
+    }
+    return mapa;
+  }
+
+  /** Vereador desiste de um pedido seu ainda pendente — libera a cota comprometida na hora. */
+  async cancelarRequisicaoDoVereador(id: string, orgaoId: string, credencialId: string) {
+    const req = await this.requisicaoRepository.findOne({
+      where: { id, orgao_id: orgaoId, credencial_solicitante_id: credencialId },
+    });
+    if (!req) throw new NotFoundException('Pedido não encontrado');
+    if (req.status !== StatusRequisicaoFrota.PENDENTE) {
+      throw new BadRequestException(
+        req.status === StatusRequisicaoFrota.AUTORIZADO
+          ? 'Este pedido já foi autorizado — peça ao gestor para cancelar.'
+          : 'Só é possível cancelar pedidos ainda pendentes.',
+      );
+    }
+    req.status = StatusRequisicaoFrota.CANCELADO;
+    return this.requisicaoRepository.save(req);
+  }
+
+  /** Veículos que o vereador pode escolher: os vinculados à credencial ou, sem vínculo, todos os ativos do órgão. */
+  async listarVeiculosParaVereador(orgaoId: string, credencialId: string) {
+    const cred = await this.credencialRepository.findOne({
+      where: { id: credencialId, orgao_id: orgaoId },
+      select: ['id', 'veiculo_ids'],
+    });
+    const vinculados = (cred?.veiculo_ids || []).filter(Boolean);
+    const where: any = { orgao_id: orgaoId, ativo: true };
+    if (vinculados.length > 0) where.id = In(vinculados);
+    const lista = await this.veiculoRepository.find({ where, order: { placa: 'ASC' } });
+    return lista.map((v) => ({
+      id: v.id, placa: v.placa, modelo: v.modelo, marca: v.marca,
+      tipo_combustivel: v.tipo_combustivel, km_atual: v.km_atual,
+    }));
   }
 
   async criarRequisicao(orgaoId: string, dados: any) {
     const codigo = await this.gerarCodigoRequisicao(orgaoId);
+
+    // Pedido do app vem só com a placa: acha o veículo cadastrado (ignora hífen,
+    // espaço e caixa) para vincular — sem isso o km nunca chegava ao cadastro.
+    if (!dados.veiculo_id && dados.veiculo_placa) {
+      const placaNorm = String(dados.veiculo_placa).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (placaNorm) {
+        const v = await this.veiculoRepository
+          .createQueryBuilder('v')
+          .where('v.orgao_id = :orgaoId', { orgaoId })
+          .andWhere("regexp_replace(upper(v.placa), '[^A-Z0-9]', '', 'g') = :placa", { placa: placaNorm })
+          .getOne();
+        if (v) dados.veiculo_id = v.id;
+      }
+    }
 
     // Se informou veiculo_id, preenche dados do veículo automaticamente
     if (dados.veiculo_id) {
@@ -440,14 +543,78 @@ export class FrotaService {
     }
 
     const data_requisicao = dados.data_requisicao || new Date().toISOString().split('T')[0];
-    const requisicao = this.requisicaoRepository.create({
-      ...dados,
-      codigo,
-      data_requisicao,
-      status: StatusRequisicaoFrota.PENDENTE,
-      orgao_id: orgaoId,
+    const credencialId: string | undefined = dados.credencial_solicitante_id;
+
+    const salvo = await this.dataSource.transaction(async (manager) => {
+      // Cota mensal do vereador: bloqueia acima do limite (cota + extra liberada pelo
+      // gestor no mês), contando o que já abasteceu E os pedidos ainda abertos.
+      // Lock na credencial: dois pedidos simultâneos do mesmo vereador não passam juntos.
+      if (credencialId) {
+        const cred = await manager.findOne(FrotaCredencial, {
+          where: { id: credencialId, orgao_id: orgaoId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        const cotaMensal = Number(cred?.cota_mensal_litros || 0);
+        if (cred && cotaMensal > 0) {
+          const mes = mesAtualBrasil();
+          const row = await manager
+            .createQueryBuilder(FrotaRequisicao, 'r')
+            .select(
+              "COALESCE(SUM(CASE WHEN r.status = 'ABASTECIDO' THEN r.quantidade_abastecida ELSE r.quantidade_autorizada END), 0)",
+              'total',
+            )
+            .where('r.credencial_solicitante_id = :cid', { cid: credencialId })
+            .andWhere("r.status IN ('PENDENTE', 'AUTORIZADO', 'ABASTECIDO')")
+            .andWhere("to_char(r.data_requisicao, 'YYYY-MM') = :mes", { mes })
+            .getRawOne<{ total: string }>();
+          const usado = Number(row?.total || 0);
+          const extra = cred.cota_extra_mes === mes ? Number(cred.cota_extra_litros || 0) : 0;
+          const limite = cotaMensal + extra;
+          const disponivel = Math.max(0, limite - usado);
+          const pedido = Number(dados.quantidade_autorizada) || 0;
+          const fmt = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+          if (pedido > disponivel + 0.0005) {
+            throw new BadRequestException(
+              `Cota do mês esgotada: você ainda tem ${fmt(disponivel)} L disponíveis de ${fmt(limite)} L ` +
+              `(${fmt(usado)} L já abastecidos ou em pedidos abertos). Reduza a quantidade ou peça ao gestor uma liberação extra.`,
+            );
+          }
+        }
+      }
+
+      // O código é sequencial por contagem: dois pedidos no mesmo instante podem
+      // calcular o mesmo número. O índice único barra o segundo — recalcula e tenta de novo.
+      let codigoAtual = codigo;
+      for (let tentativa = 0; ; tentativa++) {
+        const requisicao = manager.create(FrotaRequisicao, {
+          ...dados,
+          codigo: codigoAtual,
+          data_requisicao,
+          status: StatusRequisicaoFrota.PENDENTE,
+          orgao_id: orgaoId,
+        });
+        try {
+          const criado = await manager.save(FrotaRequisicao, requisicao);
+          // Leitura do hodômetro informada no pedido vale como km atual do veículo
+          // (se for maior que a registrada) — a confirmação no posto atualiza de novo.
+          const kmPedido = Number(dados.km_hodometro) || 0;
+          if (criado.veiculo_id && kmPedido > 0) {
+            const veic = await manager.findOne(Veiculo, { where: { id: criado.veiculo_id } });
+            if (veic && kmPedido > Number(veic.km_atual || 0)) {
+              await manager.update(Veiculo, veic.id, { km_atual: kmPedido });
+            }
+          }
+          return criado;
+        } catch (err: any) {
+          const colisao = err?.code === '23505' && String(err?.detail || '').includes('(codigo)');
+          if (!colisao || tentativa >= 4) throw err;
+          codigoAtual = await this.gerarCodigoRequisicao(orgaoId);
+        }
+      }
     });
-    return this.requisicaoRepository.save(requisicao);
+
+    if (credencialId) void this.notificacao.novoPedidoParaGestor(salvo);
+    return salvo;
   }
 
   async atualizarRequisicao(id: string, orgaoId: string, dados: any) {
@@ -461,37 +628,49 @@ export class FrotaService {
   }
 
   async autorizarRequisicao(id: string, orgaoId: string, autorizadoPor: string) {
-    const req = await this.requisicaoRepository.findOne({
-      where: { id, orgao_id: orgaoId },
-      relations: ['contrato'],
-    });
-    if (!req) throw new NotFoundException('Requisição não encontrada');
-    if (req.status !== StatusRequisicaoFrota.PENDENTE) {
-      throw new BadRequestException('Apenas requisições pendentes podem ser autorizadas');
-    }
-    // Validar saldo disponível
-    if (req.contrato_id && req.contrato) {
-      const saldo = this.getSaldoDisponivelContrato(req.contrato, req.tipo_combustivel || '');
-      const qtdAutorizada = Number(req.quantidade_autorizada) || 0;
-      if (saldo !== Infinity && qtdAutorizada > saldo) {
-        throw new BadRequestException(
-          `Saldo insuficiente. Disponível: ${saldo.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L para ${req.tipo_combustivel || 'este combustível'}. Solicitado: ${qtdAutorizada.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L.`,
-        );
+    // Lock na requisição (evita autorizar duas vezes) e no contrato (evita duas
+    // autorizações simultâneas passarem na checagem de saldo com o mesmo saldo).
+    return this.dataSource.transaction(async (manager) => {
+      const req = await manager.findOne(FrotaRequisicao, {
+        where: { id, orgao_id: orgaoId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!req) throw new NotFoundException('Requisição não encontrada');
+      if (req.status !== StatusRequisicaoFrota.PENDENTE) {
+        throw new BadRequestException('Apenas requisições pendentes podem ser autorizadas');
       }
-    }
-    req.status = StatusRequisicaoFrota.AUTORIZADO;
-    req.data_autorizacao = new Date();
-    req.autorizado_por = autorizadoPor;
-    // Código curto aleatório para o posto (6 chars, sem caracteres confusos)
-    const CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    req.codigo_posto = Array.from(crypto.randomBytes(6))
-      .map(b => CHARS[b % CHARS.length])
-      .join('');
-    // Gera token seguro para QR Code (32 bytes aleatórios = 64 hex chars)
-    req.token_acesso = crypto.randomBytes(32).toString('hex');
-    // Validade: até o fim do mês da autorização em horário Brasil (regra: usar dentro do mês)
-    req.token_expiry = fimDoMesBrasil();
-    return this.requisicaoRepository.save(req);
+      const contrato = req.contrato_id
+        ? await manager.findOne(FrotaContrato, {
+            where: { id: req.contrato_id, orgao_id: orgaoId },
+            lock: { mode: 'pessimistic_write' },
+          })
+        : null;
+      if (contrato) {
+        const saldo = this.getSaldoDisponivelContrato(contrato, req.tipo_combustivel || '');
+        const qtdAutorizada = Number(req.quantidade_autorizada) || 0;
+        if (saldo !== Infinity && qtdAutorizada > saldo) {
+          throw new BadRequestException(
+            `Saldo insuficiente. Disponível: ${saldo.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L para ${req.tipo_combustivel || 'este combustível'}. Solicitado: ${qtdAutorizada.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L.`,
+          );
+        }
+      }
+      req.status = StatusRequisicaoFrota.AUTORIZADO;
+      req.data_autorizacao = new Date();
+      req.autorizado_por = autorizadoPor;
+      // Código curto aleatório para o posto (6 chars, sem caracteres confusos)
+      const CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+      req.codigo_posto = Array.from(crypto.randomBytes(6))
+        .map(b => CHARS[b % CHARS.length])
+        .join('');
+      // Gera token seguro para QR Code (32 bytes aleatórios = 64 hex chars)
+      req.token_acesso = crypto.randomBytes(32).toString('hex');
+      // Validade: até o fim do mês da autorização em horário Brasil (regra: usar dentro do mês)
+      req.token_expiry = fimDoMesBrasil();
+      return manager.save(FrotaRequisicao, req);
+    }).then((salvo) => {
+      void this.notificacao.pedidoAutorizado(salvo);
+      return salvo;
+    });
   }
 
   async negarRequisicao(id: string, orgaoId: string, motivoNegacao: string) {
@@ -502,7 +681,9 @@ export class FrotaService {
     }
     req.status = StatusRequisicaoFrota.NEGADO;
     req.motivo_negacao = motivoNegacao;
-    return this.requisicaoRepository.save(req);
+    const salvo = await this.requisicaoRepository.save(req);
+    void this.notificacao.pedidoNegado(salvo);
+    return salvo;
   }
 
   async cancelarRequisicao(id: string, orgaoId: string) {
@@ -541,16 +722,17 @@ export class FrotaService {
     await this.requisicaoRepository.remove(req);
   }
 
-  // Painel do posto: verificar código (codigo_posto tem prioridade; fallback para codigo interno)
-  async verificarCodigo(codigo: string, orgaoId: string) {
-    const upper = codigo.toUpperCase();
-    const req = await this.requisicaoRepository.findOne({
-      where: [
-        { codigo_posto: upper, orgao_id: orgaoId },
-        { codigo: upper, orgao_id: orgaoId },
-      ],
-      relations: ['contrato'],
-    });
+  /**
+   * Verificar código. No painel público do posto vale SÓ o código de 6 letras
+   * (aleatório): o número interno REQ-AAAA-NNNN é sequencial e permitiria ao
+   * posto enumerar autorizações que o vereador não apresentou. O gestor, no
+   * próprio painel, pode usar os dois.
+   */
+  async verificarCodigo(codigo: string, orgaoId: string, permitirCodigoInterno = false) {
+    const upper = codigo.trim().toUpperCase();
+    const where: any[] = [{ codigo_posto: upper, orgao_id: orgaoId }];
+    if (permitirCodigoInterno) where.push({ codigo: upper, orgao_id: orgaoId });
+    const req = await this.requisicaoRepository.findOne({ where, relations: ['contrato'] });
     if (!req) throw new NotFoundException('Código não encontrado');
     return req;
   }
@@ -562,51 +744,74 @@ export class FrotaService {
     km_hodometro?: number;
     observacoes?: string;
   }) {
-    const req = await this.requisicaoRepository.findOne({
-      where: { id, orgao_id: orgaoId },
-      relations: ['contrato'],
-    });
-    if (!req) throw new NotFoundException('Requisição não encontrada');
-    if (req.status !== StatusRequisicaoFrota.AUTORIZADO) {
-      throw new BadRequestException('Apenas requisições autorizadas podem ser confirmadas');
-    }
-
-    const precoLitro = this.getPrecoLitroContrato(req.contrato, req.tipo_combustivel);
     const qtd = Number(dados.quantidade_abastecida);
-
-    req.status = StatusRequisicaoFrota.ABASTECIDO;
-    req.data_abastecimento = new Date();
-    req.quantidade_abastecida = dados.quantidade_abastecida;
-    req.valor_total = qtd * precoLitro;
-    req.atendente_nome = dados.atendente_nome;
-    req.km_hodometro = dados.km_hodometro;
-    req.observacoes = dados.observacoes ?? req.observacoes;
-
-    const salvo = await this.requisicaoRepository.save(req);
-
-    // Atualiza quantidade_consumida no contrato
-    if (req.contrato_id && req.contrato?.itens && Array.isArray(req.contrato.itens)) {
-      const tipo = String(req.tipo_combustivel || '').toLowerCase();
-      const itens = [...req.contrato.itens];
-      const idx = itens.findIndex((i) => {
-        const desc = String(i.descricao || '').toLowerCase();
-        return desc.includes(tipo) || tipo.includes(desc) || desc === tipo;
+    if (!Number.isFinite(qtd) || qtd <= 0) {
+      throw new BadRequestException('Informe a quantidade abastecida em litros.');
+    }
+    // Tudo dentro de UMA transação com lock: dois atendentes confirmando a mesma
+    // autorização ao mesmo tempo (ou duas confirmações no mesmo contrato) não
+    // podem baixar o consumo duas vezes nem abastecer uma requisição já usada.
+    return this.dataSource.transaction(async (manager) => {
+      const req = await manager.findOne(FrotaRequisicao, {
+        where: { id, orgao_id: orgaoId },
+        lock: { mode: 'pessimistic_write' },
       });
-      if (idx >= 0) {
-        itens[idx].quantidade_consumida = (itens[idx].quantidade_consumida ?? 0) + qtd;
-        await this.contratoRepository.update(req.contrato_id, { itens });
+      if (!req) throw new NotFoundException('Requisição não encontrada');
+      if (req.status !== StatusRequisicaoFrota.AUTORIZADO) {
+        throw new BadRequestException('Apenas requisições autorizadas podem ser confirmadas');
       }
-    }
+      // Tolerância de 2% sobre o autorizado (a bomba pode passar alguns centilitros)
+      const autorizada = Number(req.quantidade_autorizada) || 0;
+      if (autorizada > 0 && qtd > autorizada * 1.02 + 0.0005) {
+        throw new BadRequestException(
+          `Quantidade abastecida (${qtd.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L) excede a autorizada (${autorizada.toLocaleString('pt-BR', { minimumFractionDigits: 3 })} L).`,
+        );
+      }
 
-    // Atualiza KM do veículo se informado
-    if (req.veiculo_id && dados.km_hodometro) {
-      const veiculo = await this.veiculoRepository.findOne({ where: { id: req.veiculo_id } });
-      if (veiculo && dados.km_hodometro > Number(veiculo.km_atual || 0)) {
-        veiculo.km_atual = dados.km_hodometro;
-        await this.veiculoRepository.save(veiculo);
+      const contrato = req.contrato_id
+        ? await manager.findOne(FrotaContrato, {
+            where: { id: req.contrato_id },
+            lock: { mode: 'pessimistic_write' },
+          })
+        : null;
+      const precoLitro = this.getPrecoLitroContrato(contrato, req.tipo_combustivel);
+
+      req.status = StatusRequisicaoFrota.ABASTECIDO;
+      req.data_abastecimento = new Date();
+      req.quantidade_abastecida = qtd;
+      req.valor_total = qtd * precoLitro;
+      req.atendente_nome = dados.atendente_nome as any;
+      req.km_hodometro = dados.km_hodometro as any;
+      req.observacoes = dados.observacoes ?? req.observacoes;
+      const salvo = await manager.save(FrotaRequisicao, req);
+
+      // Atualiza quantidade_consumida no contrato (já bloqueado acima)
+      if (contrato && Array.isArray(contrato.itens)) {
+        const tipo = String(req.tipo_combustivel || '').toLowerCase();
+        const itens = [...contrato.itens];
+        const idx = itens.findIndex((i) => {
+          const desc = String(i.descricao || '').toLowerCase();
+          return desc.includes(tipo) || tipo.includes(desc) || desc === tipo;
+        });
+        if (idx >= 0) {
+          itens[idx].quantidade_consumida = (itens[idx].quantidade_consumida ?? 0) + qtd;
+          await manager.update(FrotaContrato, contrato.id, { itens });
+        }
       }
-    }
-    return salvo;
+
+      // Atualiza KM do veículo se informado
+      if (req.veiculo_id && dados.km_hodometro) {
+        const veiculo = await manager.findOne(Veiculo, { where: { id: req.veiculo_id } });
+        if (veiculo && dados.km_hodometro > Number(veiculo.km_atual || 0)) {
+          veiculo.km_atual = dados.km_hodometro;
+          await manager.save(Veiculo, veiculo);
+        }
+      }
+      return salvo;
+    }).then((salvo) => {
+      void this.notificacao.abastecimentoConfirmado(salvo);
+      return salvo;
+    });
   }
 
   // ============================================================
@@ -615,9 +820,7 @@ export class FrotaService {
 
   async obterDashboardPosto(orgaoId: string, mes?: string) {
     const mesAtual = mes || new Date().toISOString().slice(0, 7);
-    const [ano, m] = mesAtual.split('-');
-    const dataInicio = `${ano}-${m}-01`;
-    const dataFim = `${ano}-${m}-31`;
+    const { inicio: dataInicio, fim: dataFim } = intervaloDoMes(mesAtual);
 
     const contratoAtivo = await this.obterContratoAtivo(orgaoId);
 
@@ -675,9 +878,7 @@ export class FrotaService {
   // ============================================================
 
   async gerarDadosRelatorioSiga(orgaoId: string, mes: string) {
-    const [ano, m] = mes.split('-');
-    const dataInicio = `${ano}-${m}-01`;
-    const dataFim = `${ano}-${m}-31`;
+    const { inicio: dataInicio, fim: dataFim } = intervaloDoMes(mes);
 
     const contratoAtivo = await this.obterContratoAtivo(orgaoId);
     const requisicoes = await this.requisicaoRepository.find({

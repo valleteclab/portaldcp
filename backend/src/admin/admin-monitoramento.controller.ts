@@ -1,7 +1,7 @@
-import { Controller, Get, Post, Put, Param, Body, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, Body, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Public } from '../auth/public.decorator';
+import { AdminGuard } from '../auth/admin.guard';
 import { SessaoDisputa, StatusSessao } from '../sessao/entities/sessao-disputa.entity';
 import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
 import { Lance } from '../lances/entities/lance.entity';
@@ -17,11 +17,13 @@ import { AnonimizacaoService } from '../disputa-v2/anonimizacao.service';
  * ============================================================================
  * 
  * Endpoints para monitoramento e auditoria de disputas
- * Acesso restrito a superadmin e suporte técnico
+ * Acesso restrito ao administrador da plataforma (AdminGuard). Estava @Public():
+ * qualquer um podia listar sessões e até encerrar item de disputa à força.
  * ============================================================================
  */
 
 @Controller('admin/monitoramento')
+@UseGuards(AdminGuard)
 export class AdminMonitoramentoController {
   constructor(
     @InjectRepository(SessaoDisputa)
@@ -42,7 +44,6 @@ export class AdminMonitoramentoController {
   /**
    * Lista todas as sessões ativas para monitoramento
    */
-  @Public()
   @Get('sessoes-ativas')
   async getSessoesAtivas() {
     const sessoes = await this.sessaoRepo
@@ -101,7 +102,6 @@ export class AdminMonitoramentoController {
   /**
    * Lista itens em disputa de uma sessão específica
    */
-  @Public()
   @Get('sessao/:sessaoId/itens')
   async getItensEmDisputa(@Param('sessaoId') sessaoId: string) {
     const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
@@ -178,7 +178,6 @@ export class AdminMonitoramentoController {
    * Encerra um item forçadamente (apenas superadmin/suporte)
    * Deve ser usado apenas em casos de erro do sistema
    */
-  @Public()
   @Post('encerrar-item-forcado')
   async encerrarItemForcado(
     @Body() body: { sessaoId: string; itemId: string; justificativa: string }
@@ -261,7 +260,6 @@ export class AdminMonitoramentoController {
   /**
    * Busca configurações de uma sessão específica
    */
-  @Public()
   @Get('sessao/:sessaoId/config')
   async getConfigSessao(@Param('sessaoId') sessaoId: string) {
     const sessao = await this.sessaoRepo.findOne({
@@ -296,7 +294,6 @@ export class AdminMonitoramentoController {
    * Altera configuração de anonimização de uma sessão
    * Requer justificativa para auditoria
    */
-  @Public()
   @Put('sessao/:sessaoId/anonimizacao')
   async toggleAnonimizacao(
     @Param('sessaoId') sessaoId: string,
@@ -344,7 +341,6 @@ export class AdminMonitoramentoController {
   /**
    * Altera configuração de chat de uma sessão
    */
-  @Public()
   @Put('sessao/:sessaoId/chat')
   async toggleChat(
     @Param('sessaoId') sessaoId: string,
@@ -374,7 +370,6 @@ export class AdminMonitoramentoController {
   /**
    * Lista todas as configurações disponíveis para controle
    */
-  @Public()
   @Get('configuracoes-disponiveis')
   async getConfiguracoesDisponiveis() {
     return {

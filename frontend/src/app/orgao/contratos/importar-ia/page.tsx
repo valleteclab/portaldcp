@@ -104,9 +104,21 @@ export default function ImportarContratoIaPage() {
     setMensagens(prev => [...prev, { tipo, texto }])
   }
 
+  /** Mesmo teto do endpoint (FileInterceptor em importar-contrato-ia.controller.ts). */
+  const TAMANHO_MAXIMO_MB = 20
+
   const processarArquivo = async (file: File) => {
     if (!file) return
     setErro('')
+    // Sem esta checagem o arquivo grande subia inteiro para só então falhar com
+    // erro genérico, sem dizer que o problema era o tamanho.
+    const tamanhoMb = file.size / (1024 * 1024)
+    if (tamanhoMb > TAMANHO_MAXIMO_MB) {
+      const msg = `O arquivo tem ${tamanhoMb.toFixed(1)} MB e o limite é ${TAMANHO_MAXIMO_MB} MB. Reduza o PDF (remova anexos ou comprima) e envie novamente.`
+      setErro(msg)
+      addMensagem('agent', `❌ ${msg}`)
+      return
+    }
     setArquivoNome(file.name)
     setEstado('uploading')
     addMensagem('user', `Enviando arquivo: ${file.name}`)
@@ -261,7 +273,7 @@ export default function ImportarContratoIaPage() {
                     <Upload className="w-10 h-10 text-gray-400" />
                     <p className="font-medium text-gray-700">Arraste o contrato aqui</p>
                     <p className="text-sm text-gray-500">ou clique para selecionar</p>
-                    <p className="text-xs text-gray-400">PDF, JPG, PNG — máximo 10MB</p>
+                    <p className="text-xs text-gray-400">PDF, JPG, PNG — máximo 20MB</p>
                   </div>
                 )}
               </div>

@@ -44,7 +44,9 @@ export class ImportarContratoIaController {
   @UseInterceptors(
     FileInterceptor('arquivo', {
       storage: memoryStorage(),
-      limits: { fileSize: 10 * 1024 * 1024 },
+      // Contrato digitalizado com anexos passa de 10 MB com facilidade. O nginx
+      // (client_max_body_size 50M) e o Express (limit 50mb) já comportam.
+      limits: { fileSize: 20 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         if (ALLOWED_MIMES.includes(file.mimetype)) {
           cb(null, true);

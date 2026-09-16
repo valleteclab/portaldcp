@@ -22,6 +22,7 @@ import {
   ArrowLeft, ClipboardList, FileText, Gavel, FileSignature, Activity,
   CheckCircle2, Circle, ExternalLink, Loader2, AlertTriangle,
 } from "lucide-react"
+import { BllIntegracao } from "./BllIntegracao"
 
 interface ProcessoCompleto {
   licitacao: {
@@ -167,6 +168,29 @@ export default function CockpitProcessoPage() {
 
   useEffect(() => { if (id) carregar() }, [id, carregar])
 
+  // === Autos do processo: download do PDF compilado (autenticado) ===
+  const [baixandoProcesso, setBaixandoProcesso] = useState(false)
+  const baixarProcessoPdf = async () => {
+    setBaixandoProcesso(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/processo-pdf`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `processo-${dados?.licitacao.numero_processo?.replace(/\W+/g, "-") || id}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      alert(`Não foi possível gerar os autos agora: ${e.message}`)
+    } finally {
+      setBaixandoProcesso(false)
+    }
+  }
+
   // === Copiloto (preparação automática): poll silencioso enquanto executa ===
   const [disparandoCopiloto, setDisparandoCopiloto] = useState(false)
 
@@ -298,7 +322,11 @@ export default function CockpitProcessoPage() {
   // === Instrução do processo (Art. 72 — contratação direta) ===
   const [instrucao, setInstrucao] = useState<{
     contratacao_direta: boolean
-    itens: Array<{ tipo: string; titulo: string; obrigatorio: boolean; fundamento: string; status: string; justificativa?: string }>
+    itens: Array<{
+      tipo: string; titulo: string; obrigatorio: boolean; fundamento: string; status: string; justificativa?: string
+      exige_aprovacao?: boolean
+      aprovacao?: { etapa: number; total: number; etapa_nome: string; responsavel: string | null }
+    }>
     pode_divulgar: boolean
     pendentes: string[]
   } | null>(null)
@@ -690,6 +718,11 @@ export default function CockpitProcessoPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={baixarProcessoPdf} disabled={baixandoProcesso}
+            title="Autos do processo em PDF único: capa, sumário e todas as peças (DFD, ETP, TR, pesquisa de preços, autorização, aviso, ata, contratos e publicações no PNCP)">
+            {baixandoProcesso ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+            Baixar processo (PDF)
+          </Button>
           {licitacao.modalidade === "DISPENSA_ELETRONICA" && checklist.resultado_registrado && (
             <a href={`${API_URL}/api/licitacoes/${id}/dispensa/ata`} target="_blank" rel="noopener noreferrer">
               <Button variant="outline" title="Ata da sessão gerada automaticamente dos registros (propostas, lances, chat e resultado)">
@@ -712,6 +745,11 @@ export default function CockpitProcessoPage() {
           )}
         </div>
       </div>
+
+      {/* Disputa em plataforma externa: troca de arquivos com a BLL Compras */}
+      {licitacao.modalidade !== "DISPENSA_ELETRONICA" && checklist.possui_itens && (
+        <BllIntegracao licitacaoId={id} homologado={!!checklist.homologado} onAtualizado={carregar} />
+      )}
 
       {/* Copiloto: status da preparação automática */}
       {licitacao.preparacao_automatica && (
@@ -831,9 +869,22 @@ export default function CockpitProcessoPage() {
                                     ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
                                     : it.status === "NAO_SE_APLICA"
                                       ? <span className="text-gray-400 shrink-0" title="Não se aplica">∅</span>
-                                      : <Circle className={`w-3.5 h-3.5 shrink-0 ${it.obrigatorio ? "text-amber-500" : "text-gray-300"}`} />}
+                                      : it.status === "EM_APROVACAO"
+                                        ? <span className="text-amber-600 shrink-0" title="Em tramitação de aprovação">✍️</span>
+                                        : <Circle className={`w-3.5 h-3.5 shrink-0 ${it.obrigatorio ? "text-amber-500" : "text-gray-300"}`} />}
                                   <span className={it.status === "NAO_SE_APLICA" ? "line-through text-gray-400" : ""}>{it.titulo}</span>
                                   <span className="text-gray-400">({it.fundamento})</span>
+                                  {it.status === "EM_APROVACAO" && (
+                                    <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                                      em aprovação{it.aprovacao ? ` — ${it.aprovacao.etapa_nome} (${it.aprovacao.etapa}/${it.aprovacao.total})${it.aprovacao.responsavel ? ` · ${it.aprovacao.responsavel}` : ""}` : ""}
+                                    </span>
+                                  )}
+                                  {it.status === "EM_ELABORACAO" && it.exige_aprovacao && (
+                                    <span className="text-[10px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5"
+                                      title="Este tipo de documento tem fluxo de aprovação configurado — abra e envie para aprovação">
+                                      aguarda envio p/ aprovação
+                                    </span>
+                                  )}
                                   {it.obrigatorio && (
                                     <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-300 text-amber-700">obrigatório</Badge>
                                   )}

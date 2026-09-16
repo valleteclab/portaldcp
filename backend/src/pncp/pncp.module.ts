@@ -7,11 +7,12 @@ import { PncpSync } from './entities/pncp-sync.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 import { SystemConfigModule } from '../system-config/system-config.module';
+import { Orgao } from '../orgaos/entities/orgao.entity';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([PncpSync, Licitacao, PlanoContratacaoAnual]),
+    TypeOrmModule.forFeature([PncpSync, Licitacao, PlanoContratacaoAnual, Orgao]),
     SystemConfigModule,
   ],
   controllers: [PncpController],

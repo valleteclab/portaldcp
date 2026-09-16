@@ -4,6 +4,11 @@ import { useState, useEffect, Fragment } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import PreOsFornecedorSection from '@/components/fornecedor/PreOsFornecedorSection';
+import EquipeLoteMedicao, {
+  calcularItensEquipe,
+  equipeVazia,
+  type EquipeMedicaoForm,
+} from '@/components/fornecedor/EquipeLoteMedicao';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -57,6 +62,7 @@ import {
   Copy,
   ShoppingCart,
   ExternalLink,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
 import { textoFrequenciaNaTela, textoUnidadeCronogramaNaTela } from '@/lib/cronograma-contrato';
@@ -72,6 +78,8 @@ interface Contrato {
   status: string;
   categoria: string;
   modalidade_execucao: string;
+  exige_relacao_funcionarios?: boolean;
+  lote_relacao_funcionarios?: number | null;
   boletim_por_quantidade?: boolean;
   arredondar_calculo?: boolean;
   valor_global: number;
@@ -127,6 +135,8 @@ type ItemMedicaoCronogramaState = {
 interface ItemCronograma {
   id: string;
   numero_item: number;
+  lote_numero?: number | null;
+  lote_descricao?: string | null;
   descricao: string;
   unidade_medida: string;
   quantidade: number;
@@ -140,6 +150,28 @@ interface ItemCronograma {
   os_id?: string;
   os_numero?: string;
   os_status?: string;
+  os_consumida?: boolean;
+  /** Todas as OS que contêm o item (serviço por demanda pode ter várias). */
+  os_vinculadas?: OsVinculada[];
+}
+
+interface OsVinculada {
+  os_id: string;
+  os_numero: string;
+  os_status: string;
+  os_consumida: boolean;
+}
+
+/** OS que contêm o item — cai para os_* quando o backend não mandou a lista. */
+function osDoItem(ic: ItemCronograma): OsVinculada[] {
+  if (ic.os_vinculadas?.length) return ic.os_vinculadas;
+  if (!ic.os_id) return [];
+  return [{ os_id: ic.os_id, os_numero: ic.os_numero || '', os_status: ic.os_status || '', os_consumida: !!ic.os_consumida }];
+}
+
+/** O item pertence à OS selecionada? (um item pode estar em mais de uma OS) */
+function itemNaOs(ic: ItemCronograma | undefined, osId: string): boolean {
+  return !!ic && osDoItem(ic).some(o => o.os_id === osId);
 }
 
 interface Medicao {
@@ -545,6 +577,9 @@ export default function FornecedorContratoDetalhePage() {
     valor_medido: '',
     itens: [] as (ItemMedicaoEtapaState | ItemMedicaoCronogramaState)[],
   });
+  const [equipeMedicao, setEquipeMedicao] = useState<EquipeMedicaoForm>(
+    equipeVazia(),
+  );
   // Discriminação de Despesas
   const [discriminacoes, setDiscriminacoes] = useState<{ descricao: string; valor: number; percentual: number }[]>([]);
   // Medição por OS (publicidade): fornecedor escolhe a OS autorizada que está medindo
@@ -635,6 +670,51 @@ export default function FornecedorContratoDetalhePage() {
           if (!etapa || !('etapa_id' in item)) return acc;
           return acc + valorItemEtapaMedicao(item, etapa);
         }, 0);
+
+  const loteRelacaoFuncionarios =
+    contrato?.lote_relacao_funcionarios ?? null;
+  const itensRelacaoFuncionarios = contrato?.exige_relacao_funcionarios
+    ? itensCronograma.filter(
+        (item) =>
+          loteRelacaoFuncionarios === null ||
+          Number(item.lote_numero) === Number(loteRelacaoFuncionarios),
+      )
+    : [];
+
+  const atualizarEquipeMedicao = (equipe: EquipeMedicaoForm) => {
+    setEquipeMedicao(equipe);
+    const calculados = new Map(
+      calcularItensEquipe(equipe.funcionarios).map((item) => [
+        item.item_cronograma_id,
+        item,
+      ]),
+    );
+    setNovaMedicao((anterior) => ({
+      ...anterior,
+      itens: itensCronograma.map((item, indice) => {
+        if (
+          contrato?.exige_relacao_funcionarios &&
+          (loteRelacaoFuncionarios === null ||
+            Number(item.lote_numero) === Number(loteRelacaoFuncionarios))
+        ) {
+          return (
+            calculados.get(item.id) || {
+              item_cronograma_id: item.id,
+              quantidade_medida: 0,
+              modo_input: 'quantidade' as const,
+              valor_override: 0,
+            }
+          );
+        }
+        return (
+          anterior.itens[indice] || {
+            item_cronograma_id: item.id,
+            quantidade_medida: 0,
+          }
+        );
+      }),
+    }));
+  };
 
   // Determina o tipo de medição atual com base nos itens já preenchidos (mensal vs quantidade)
   const tipoMedicaoAtual: 'mensal' | 'quantidade' | null = (() => {
@@ -1201,7 +1281,7 @@ export default function FornecedorContratoDetalhePage() {
             // de outras OS podem ter ficado no estado — ex.: botão Proporcional)
             if (!itensCronograma.some(c => c.os_id)) return true;
             const ic = itensCronograma.find(c => c.id === i.item_cronograma_id);
-            return ic?.os_id === osMedicao;
+            return itemNaOs(ic, osMedicao);
           })
           .map(i => ({
             item_cronograma_id: i.item_cronograma_id,
@@ -1209,6 +1289,30 @@ export default function FornecedorContratoDetalhePage() {
             valor_medido_override: i.valor_override,
           }));
         if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        const lotesAtivos = new Set(
+          itensComQtd.map((item) =>
+            Number(
+              itensCronograma.find(
+                (cronograma) => cronograma.id === item.item_cronograma_id,
+              )?.lote_numero || 0,
+            ),
+          ),
+        );
+        if (lotesAtivos.size > 1) {
+          alert('Os lotes devem ser medidos separadamente. Mantenha nesta medição somente os itens de um lote.');
+          setSubmitting(false);
+          return;
+        }
+        const exigeEquipeNestaMedicao = itensComQtd.some((item) =>
+          itensRelacaoFuncionarios.some(
+            (itemEquipe) => itemEquipe.id === item.item_cronograma_id,
+          ),
+        );
+        if (exigeEquipeNestaMedicao && equipeMedicao.funcionarios.length === 0) {
+          alert('Informe a relação de funcionários exigida por este contrato antes de salvar a medição.');
+          setSubmitting(false);
+          return;
+        }
         // Validar que não há mistura de tipos (mensal vs quantidade)
         const itensMensaisNoSubmit = itensComQtd.filter(item => {
           const ic = itensCronograma.find(c => c.id === item.item_cronograma_id);
@@ -1269,6 +1373,32 @@ export default function FornecedorContratoDetalhePage() {
 
       if (res.ok) {
         const medicaoSalva = await res.json();
+        if (equipeMedicao.funcionarios.length > 0 && medicaoSalva?.id) {
+          const respostaEquipe = await authFetch(
+            `${API_URL}/api/fornecedor/contratos/medicoes/${medicaoSalva.id}/equipe`,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...equipeMedicao,
+                fornecedor_id: fornecedor.id,
+                empresa_nome: fornecedor.razao_social || fornecedor.nome,
+                empresa_cnpj: fornecedor.cnpj || fornecedor.cpf_cnpj,
+                competencia: novaMedicao.competencia,
+                periodo_inicio: novaMedicao.periodo_inicio,
+                periodo_fim: novaMedicao.periodo_fim,
+              }),
+            },
+          );
+          if (!respostaEquipe.ok) {
+            const erroEquipe = await respostaEquipe.json().catch(() => ({}));
+            setMedicaoParaEditar(medicaoSalva);
+            throw new Error(
+              erroEquipe.message ||
+                'A medição foi salva como rascunho, mas a equipe precisa ser corrigida.',
+            );
+          }
+        }
         if (discriminacoes.length > 0 && medicaoSalva?.id) {
           try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoSalva.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
         }
@@ -1278,6 +1408,7 @@ export default function FornecedorContratoDetalhePage() {
         }
         setModalNovaMedicao(false);
         setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+        setEquipeMedicao(equipeVazia());
         setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]); setMedicaoParaEditar(null); carregarDados();
         
         if (medicaoParaEditar) {
@@ -1287,7 +1418,7 @@ export default function FornecedorContratoDetalhePage() {
         const err = await res.json(); alert(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
       }
     } catch (error) {
-      alert(`Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+      alert(error instanceof Error ? error.message : `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
     } finally {
       setSubmitting(false);
     }
@@ -1360,6 +1491,35 @@ export default function FornecedorContratoDetalhePage() {
     if (!fornecedor) return;
     setSubmitting(true);
     try {
+      const itensAtivosEnvio = novaMedicao.itens.filter(
+        (item): item is ItemMedicaoCronogramaState =>
+          'item_cronograma_id' in item &&
+          Number(item.quantidade_medida || 0) > 0,
+      );
+      const lotesAtivosEnvio = new Set(
+        itensAtivosEnvio.map((item) =>
+          Number(
+            itensCronograma.find(
+              (cronograma) => cronograma.id === item.item_cronograma_id,
+            )?.lote_numero || 0,
+          ),
+        ),
+      );
+      if (lotesAtivosEnvio.size > 1) {
+        alert('Os lotes devem ser medidos separadamente. Mantenha nesta medição somente os itens de um lote.');
+        setSubmitting(false);
+        return;
+      }
+      const exigeEquipeNoEnvio = itensAtivosEnvio.some((item) =>
+        itensRelacaoFuncionarios.some(
+          (itemEquipe) => itemEquipe.id === item.item_cronograma_id,
+        ),
+      );
+      if (exigeEquipeNoEnvio && equipeMedicao.funcionarios.length === 0) {
+        alert('Informe a relação de funcionários exigida por este contrato antes de enviar para ateste.');
+        setSubmitting(false);
+        return;
+      }
       if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
         alert('Informe o período de início e fim da medição');
         setSubmitting(false);
@@ -1456,7 +1616,7 @@ export default function FornecedorContratoDetalhePage() {
             // de outras OS podem ter ficado no estado — ex.: botão Proporcional)
             if (!itensCronograma.some(c => c.os_id)) return true;
             const ic = itensCronograma.find(c => c.id === i.item_cronograma_id);
-            return ic?.os_id === osMedicao;
+            return itemNaOs(ic, osMedicao);
           })
           .map(i => ({
             item_cronograma_id: i.item_cronograma_id,
@@ -1525,6 +1685,33 @@ export default function FornecedorContratoDetalhePage() {
       }
       const medicaoCriada = await resCriar.json();
 
+      if (equipeMedicao.funcionarios.length > 0 && medicaoCriada?.id) {
+        const respostaEquipe = await authFetch(
+          `${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/equipe`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...equipeMedicao,
+              fornecedor_id: fornecedor.id,
+              empresa_nome: fornecedor.razao_social || fornecedor.nome,
+              empresa_cnpj: fornecedor.cnpj || fornecedor.cpf_cnpj,
+              competencia: novaMedicao.competencia,
+              periodo_inicio: novaMedicao.periodo_inicio,
+              periodo_fim: novaMedicao.periodo_fim,
+            }),
+          },
+        );
+        if (!respostaEquipe.ok) {
+          const erroEquipe = await respostaEquipe.json().catch(() => ({}));
+          setMedicaoParaEditar(medicaoCriada);
+          throw new Error(
+            erroEquipe.message ||
+              'A medição foi salva como rascunho, mas a equipe precisa ser corrigida.',
+          );
+        }
+      }
+
       if (discriminacoes.length > 0 && medicaoCriada?.id) {
         try { await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicaoCriada.id}/discriminacoes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fornecedor_id: fornecedor.id, itens: discriminacoes }) }); } catch { }
       }
@@ -1538,6 +1725,7 @@ export default function FornecedorContratoDetalhePage() {
       // preventing pointer-events:none from getting stuck on body.
       setModalNovaMedicao(false);
       setNovaMedicao({ periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '', nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '', valor_medido: '', itens: [] });
+      setEquipeMedicao(equipeVazia());
       setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]); setMedicaoParaEditar(null);
       const medicaoIdParaOtp = medicaoCriada.id;
       setTimeout(() => { abrirModalOtp(medicaoIdParaOtp); }, 150);
@@ -1678,9 +1866,34 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
+  const baixarPlanilhaEquipe = async (
+    medicao: Medicao,
+    formato: 'xlsx' | 'pdf' = 'xlsx',
+  ) => {
+    if (!fornecedor) return;
+    const resposta = await authFetch(
+      `${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/equipe/${formato}?fornecedorId=${fornecedor.id}`,
+    );
+    if (!resposta.ok) {
+      const erro = await resposta.json().catch(() => ({}));
+      alert(erro.message || 'Esta medição não possui relação de funcionários.');
+      return;
+    }
+    const blob = await resposta.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `relacao-funcionarios-medicao-${medicao.numero_medicao}.${formato}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const abrirModalNovaMedicao = async () => {
     setOsMedicao('');
     setRetencoesNf(null);
+    setEquipeMedicao(equipeVazia());
     setNovaMedicao({
       periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '',
       nota_fiscal_numero: '', nota_fiscal_valor: '', nota_fiscal_data: '',
@@ -1835,15 +2048,17 @@ export default function FornecedorContratoDetalhePage() {
       const fornecedorData = localStorage.getItem('fornecedor');
       const fornecedorAtual = fornecedor || (fornecedorData ? JSON.parse(fornecedorData) : null);
       const fornecedorIdAtual = fornecedorAtual?.id || '';
-      const [res, discriminacoesRes] = await Promise.all([
+      const [res, discriminacoesRes, equipeRes] = await Promise.all([
         authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}`),
         authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/discriminacoes?fornecedorId=${fornecedorIdAtual}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}/equipe?fornecedorId=${fornecedorIdAtual}`),
       ]);
       if (res.ok) {
         const medicaoCompleta = await res.json();
         const discriminacoesExistentes = discriminacoesRes.ok
           ? await discriminacoesRes.json()
           : [];
+        const equipeExistente = equipeRes.ok ? await equipeRes.json() : null;
         
         // Preparar nova medição com os dados da devolvida
         setNovaMedicao({
@@ -1855,22 +2070,34 @@ export default function FornecedorContratoDetalhePage() {
           nota_fiscal_valor: medicaoCompleta.nota_fiscal_valor ? String(medicaoCompleta.nota_fiscal_valor) : (medicao.nota_fiscal_valor ? String(medicao.nota_fiscal_valor) : ''),
           nota_fiscal_data: medicaoCompleta.nota_fiscal_data || medicao.nota_fiscal_data || '',
           valor_medido: String(medicaoCompleta.valor_medido || medicao.valor_medido || ''),
-          itens: medicaoCompleta.itens?.map((item: any) => {
-            if (item.tipo_item === 'item_cronograma') {
-              return {
-                item_cronograma_id: item.item_cronograma_id,
-                quantidade_medida: item.quantidade_medida || 0,
-                modo_input: 'quantidade',
-              };
-            } else {
-              return {
-                etapa_id: item.etapa_id,
-                percentual_executado_atual: item.percentual_executado_atual || 0,
-                valor_executado_atual: item.valor_executado_atual || 0,
-                modo_input: 'percentual',
-              };
-            }
-          }) || [],
+          // A UI da planilha indexa novaMedicao.itens pela POSIÇÃO do item/etapa
+          // (mesmo alinhamento do abrirModalNovaMedicao). Um rascunho criado pelo
+          // órgão pode ter menos itens que o cronograma — usar a lista crua da
+          // medição desalinhava tudo e criava buracos no array ao editar (crash).
+          itens: isServicoContinuado
+            ? []
+            : usarItensCronograma
+              ? itensCronograma.map(ic => {
+                  const salvo = medicaoCompleta.itens?.find(
+                    (item: any) => item.item_cronograma_id === ic.id,
+                  );
+                  return {
+                    item_cronograma_id: ic.id,
+                    quantidade_medida: salvo?.quantidade_medida || 0,
+                    modo_input: 'quantidade' as const,
+                  };
+                })
+              : etapas.map(e => {
+                  const salvo = medicaoCompleta.itens?.find(
+                    (item: any) => item.etapa_id === e.id,
+                  );
+                  return {
+                    etapa_id: e.id,
+                    percentual_executado_atual: salvo?.percentual_executado_atual || 0,
+                    valor_executado_atual: salvo?.valor_executado_atual || 0,
+                    modo_input: 'percentual' as const,
+                  };
+                }),
         });
         
         // Setar a medição original para atualização
@@ -1879,13 +2106,44 @@ export default function FornecedorContratoDetalhePage() {
           valor: Number(item.valor) || 0,
           percentual: Number(item.percentual) || 0,
         })));
+        setEquipeMedicao(
+          equipeExistente
+            ? {
+                fechamento_fatura: equipeExistente.fechamento_fatura || '',
+                responsavel_legal: equipeExistente.responsavel_legal || '',
+                data_emissao: String(equipeExistente.data_emissao || '').slice(0, 10),
+                percentual_iss: Number(equipeExistente.percentual_iss || 0),
+                percentual_ir: Number(equipeExistente.percentual_ir || 0),
+                retencao_inss: Number(equipeExistente.retencao_inss || 0),
+                funcionarios: (equipeExistente.funcionarios || []).map((linha: any) => ({
+                  ...linha,
+                  inicio_prestacao_servicos: String(linha.inicio_prestacao_servicos || '').slice(0, 10),
+                  carga_horaria_semanal: Number(linha.carga_horaria_semanal || 0),
+                  dias_trabalhados: Number(linha.dias_trabalhados || 0),
+                  salario_base: Number(linha.salario_base || 0),
+                  salario_proporcional: Number(linha.salario_proporcional || 0),
+                  acumulo_funcao: Number(linha.acumulo_funcao || 0),
+                  salario_total: Number(linha.salario_total || 0),
+                  encargos: Number(linha.encargos || 0),
+                  indenizacao: Number(linha.indenizacao || 0),
+                  ausencias_legais: Number(linha.ausencias_legais || 0),
+                  aso_farda: Number(linha.aso_farda || 0),
+                  vale_transporte: Number(linha.vale_transporte || 0),
+                  vale_alimentacao: Number(linha.vale_alimentacao || 0),
+                  taxa_administracao_lucro: Number(linha.taxa_administracao_lucro || 0),
+                  tributos: Number(linha.tributos || 0),
+                  valor_total: Number(linha.valor_total || 0),
+                })),
+              }
+            : equipeVazia(),
+        );
         setMedicaoParaEditar(medicao);
         await reaproveitarAnexosExistentes(medicao.id);
         await carregarExecucaoFinanceira(medicao.id);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao carregar medição:', error);
-      alert('Erro ao carregar dados da medição para edição.');
+      alert(`Erro ao carregar dados da medição para edição.${error?.message ? `\nDetalhe: ${error.message}` : ''}`);
     }
   };
 
@@ -2469,7 +2727,7 @@ export default function FornecedorContratoDetalhePage() {
                           const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
                           if (!ic) return acc;
                           // Medição por OS: total considera apenas a OS selecionada
-                          if (itensCronograma.some(c => c.os_id) && ic.os_id !== osMedicao) return acc;
+                          if (itensCronograma.some(c => c.os_id) && !itemNaOs(ic, osMedicao)) return acc;
                           return acc + item.quantidade_medida * Number(ic.valor_unitario);
                         }, 0)
                       : novaMedicao.itens.reduce((acc, item, idx) => {
@@ -2598,8 +2856,13 @@ export default function FornecedorContratoDetalhePage() {
               const osAutorizadas = Array.from(
                 new Map(
                   itensCronograma
-                    .filter(ic => ic.os_id && (ic.os_status === 'AUTORIZADA' || ic.os_status === 'ORDEM_GERADA'))
-                    .map(ic => [ic.os_id as string, ic.os_numero as string]),
+                    .flatMap(osDoItem)
+                    .filter(o => o.os_status === 'AUTORIZADA' || o.os_status === 'ORDEM_GERADA')
+                    // OS por demanda já vinculada a uma medição sai da lista
+                    // (só ORDEM_GLOBAL aceita várias); a OS da medição em
+                    // edição continua selecionável.
+                    .filter(o => !o.os_consumida || o.os_id === osMedicao)
+                    .map(o => [o.os_id, o.os_numero] as [string, string]),
                 ).entries(),
               );
               return (
@@ -2678,7 +2941,7 @@ export default function FornecedorContratoDetalhePage() {
                     );
                     const itens = itensCronograma.map((ic, idx) => {
                       // Medição por OS: Proporcional preenche apenas itens da OS selecionada
-                      if (itensCronograma.some(c => c.os_id) && ic.os_id !== osMedicao) {
+                      if (itensCronograma.some(c => c.os_id) && !itemNaOs(ic, osMedicao)) {
                         return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
                       }
                       const qtdTotal = Number(ic.quantidade);
@@ -2745,7 +3008,7 @@ export default function FornecedorContratoDetalhePage() {
                 <TableBody>
                   {itensCronograma.map((ic, idx) => {
                     // Medição por OS: exibe apenas itens da OS selecionada (índices preservados)
-                    if (itensCronograma.some(i => i.os_id) && ic.os_id !== osMedicao) return null;
+                    if (itensCronograma.some(i => i.os_id) && !itemNaOs(ic, osMedicao)) return null;
                     const itemState = novaMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number } | undefined;
                     const qtdMedida = itemState?.quantidade_medida || 0;
                     const valorOverride = itemState?.valor_override;
@@ -2768,14 +3031,19 @@ export default function FornecedorContratoDetalhePage() {
                     const bloqueado = tipoMedicaoAtual !== null && tipoEsteItem !== tipoMedicaoAtual;
                     const unidadeTela = textoUnidadeCronogramaNaTela(ic.unidade_medida);
                     // Agrupamento por OS (publicidade: itens nascem por Ordem de Serviço)
-                    const osAnterior = idx > 0 ? itensCronograma[idx - 1].os_numero : undefined;
-                    const mostrarCabecalhoOs = !!ic.os_numero && ic.os_numero !== osAnterior;
+                    // Com OS selecionada, o cabeçalho mostra a OS que está sendo medida
+                    // (o item pode pertencer a várias).
+                    const numeroOsDoItem = (c: ItemCronograma) =>
+                      (osMedicao && osDoItem(c).find(o => o.os_id === osMedicao)?.os_numero) || c.os_numero;
+                    const osAnterior = idx > 0 ? numeroOsDoItem(itensCronograma[idx - 1]) : undefined;
+                    const osNumeroAtual = numeroOsDoItem(ic);
+                    const mostrarCabecalhoOs = !!osNumeroAtual && osNumeroAtual !== osAnterior;
                     return (
                       <Fragment key={ic.id}>
                       {mostrarCabecalhoOs && (
                         <TableRow className="bg-indigo-50/80 hover:bg-indigo-50/80">
                           <TableCell colSpan={9} className="py-1.5 text-xs font-bold text-indigo-800">
-                            {ic.os_numero} — itens desta Ordem de Serviço (medição total ou parcial)
+                            {osNumeroAtual} — itens desta Ordem de Serviço (medição total ou parcial)
                           </TableCell>
                         </TableRow>
                       )}
@@ -3043,6 +3311,18 @@ export default function FornecedorContratoDetalhePage() {
             )}
 
             {/* Execução Fiscal e Financeira */}
+            {usarItensCronograma && itensRelacaoFuncionarios.length > 0 && (
+              <EquipeLoteMedicao
+                contratoId={contratoId}
+                fornecedorId={fornecedor?.id || ''}
+                medicaoId={medicaoParaEditar?.id}
+                itens={itensRelacaoFuncionarios}
+                loteNumero={loteRelacaoFuncionarios}
+                value={equipeMedicao}
+                onChange={atualizarEquipeMedicao}
+              />
+            )}
+
             {novaMedicao.periodo_inicio && novaMedicao.periodo_fim && contrato?.data_vigencia_inicio && contrato?.data_vigencia_fim && (
               <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
@@ -3751,7 +4031,25 @@ export default function FornecedorContratoDetalhePage() {
 
           {/* Botão Baixar PDF */}
           {medicaoDetalhe && (
-            <div className="flex justify-end pt-2 border-t">
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                onClick={() => baixarPlanilhaEquipe(medicaoDetalhe)}
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Planilha da equipe
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 text-amber-700 border-amber-200 hover:bg-amber-50"
+                onClick={() => baixarPlanilhaEquipe(medicaoDetalhe, 'pdf')}
+              >
+                <FileText className="w-4 h-4" />
+                PDF da equipe
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

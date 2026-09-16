@@ -55,6 +55,11 @@ export class CredenciamentoController {
   }
 
   @Public()
+  @Get('publicos/:id')
+  async findPublicoById(@Param('id') id: string) {
+    return this.service.findPublicoById(id);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.service.findOne(id);

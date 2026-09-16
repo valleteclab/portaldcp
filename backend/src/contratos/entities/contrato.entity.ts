@@ -131,6 +131,20 @@ export class Contrato {
   })
   modalidade_execucao: ModalidadeExecucao;
 
+  @Column({ type: 'boolean', default: false })
+  exige_relacao_funcionarios: boolean;
+
+  @Column({ type: 'int', nullable: true, default: null })
+  lote_relacao_funcionarios: number | null;
+
+  /**
+   * Rótulo da coluna "Unidade" na tabela de itens da OS. Em contratos cujos
+   * itens são serviços (unidade SERVICO), "Unidade" descreve mal o conteúdo e
+   * o órgão prefere "Classificação". Vazio mantém "Unidade".
+   */
+  @Column({ type: 'varchar', length: 40, nullable: true, default: null })
+  rotulo_unidade_itens: string | null;
+
   @Column({
     type: 'enum',
     enum: StatusContrato,
@@ -260,6 +274,15 @@ export class Contrato {
   /** Tipo/modalidade da licitação (ex: PREGAO_ELETRONICO). Usado quando contrato não tem licitação vinculada. */
   @Column({ nullable: true, length: 50 })
   modalidade_licitacao: string;
+
+  /**
+   * Nº do processo licitatório como aparece no Portal da Transparência
+   * (ex: "006-2025-PE"). Opcional: serve para confirmar empenhos quando o
+   * portal não preenche o "Nº Contrato" no detalhe da despesa — caso das
+   * atas de registro de preços.
+   */
+  @Column({ type: 'varchar', length: 60, nullable: true, default: null })
+  processo_licitatorio_portal: string | null;
 
   // Documentos
   @Column({ nullable: true })
