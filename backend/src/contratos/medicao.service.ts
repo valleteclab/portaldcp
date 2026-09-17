@@ -4454,6 +4454,18 @@ export class MedicaoService {
             codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
           }
         : undefined,
+      // Fiscais que assinaram depois do primeiro (o boletim mantém todos)
+      assinaturas_fiscais_adicionais: assinaturas
+        .filter((a) => a.papel_assinante === PapelAssinante.FISCAL && a !== asFiscal)
+        .map((a) => ({
+          nome: a.usuario_nome,
+          cpf: a.usuario_cpf_cnpj,
+          cargo: a.usuario_cargo || 'Fiscal de Contrato',
+          matricula: a.usuario_matricula || undefined,
+          portaria: a.usuario_portaria || undefined,
+          data_hora: fmtDataBR(a.data_assinatura),
+          codigo_validacao: fmtCodigo(a.codigo_validacao),
+        })),
       assinatura_engenheiro: asEngenheiro
         ? {
             nome: asEngenheiro.usuario_nome,
@@ -9828,6 +9840,7 @@ export class MedicaoService {
     fiscal_nome: string;
     expira_em: Date;
     auto_enviar_aprovacao: boolean;
+    link_url: string;
   }> {
     const medicao = await this.medicaoRepository.findOne({
       where: { id: medicaoId },
@@ -9934,6 +9947,7 @@ export class MedicaoService {
       fiscal_nome: fiscal.nome,
       expira_em,
       auto_enviar_aprovacao: autoEncaminhamento.habilitado,
+      link_url: linkUrl,
     };
   }
 
@@ -9945,7 +9959,7 @@ export class MedicaoService {
   async solicitarAssinaturaEngenheiroWhatsApp(
     medicaoId: string,
     solicitadoPorId: string,
-  ): Promise<{ link_enviado: boolean; engenheiro_nome: string; expira_em: Date }> {
+  ): Promise<{ link_enviado: boolean; engenheiro_nome: string; expira_em: Date; link_url: string }> {
     const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
 
@@ -10026,6 +10040,7 @@ export class MedicaoService {
       link_enviado: !!contrato.engenheiro_whatsapp,
       engenheiro_nome: contrato.engenheiro_nome,
       expira_em,
+      link_url: linkUrl,
     };
   }
 
