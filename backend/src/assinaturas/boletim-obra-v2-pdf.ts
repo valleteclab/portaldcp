@@ -60,6 +60,17 @@ function fmtCnpj(cnpj: string): string {
   return c.length === 14 ? `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}` : cnpj || '-';
 }
 
+/**
+ * Mesma regra do boletim oficial: data corrigida (boletim_data_emissao) ou,
+ * por padrão, a data em que o fornecedor assinou; '-' se ainda não assinou.
+ */
+export function dataEmissao(dados: any): string {
+  const corrigida = dados?.boletim_data_emissao;
+  if (corrigida) return fmtData(corrigida instanceof Date ? corrigida : String(corrigida).slice(0, 10));
+  const assinatura = String(dados?.assinatura_fornecedor?.data_hora || '').match(/\d{2}\/\d{2}\/\d{4}/);
+  return assinatura ? assinatura[0] : '-';
+}
+
 export interface DadosBoletimObraV2 {
   dados: any; // retorno de montarDadosPdfFrontend
   linhas: LinhaEtapaV2[];
@@ -119,7 +130,7 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
     ['Período', `${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`],
     ['Competência', String(dados.competencia || '-')],
     ['Nota fiscal', String(dados.nota_fiscal_numero || '-')],
-    ['Emissão', fmtData(dados.boletim_data_emissao) !== '-' ? fmtData(dados.boletim_data_emissao) : '-'],
+    ['Emissão', dataEmissao(dados)],
   ];
   let my = y - 1;
   for (const [k, v] of meta) {
