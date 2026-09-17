@@ -91,6 +91,8 @@ import {
   TipoAcaoContrato,
 } from './entities/historico-contrato.entity';
 
+import { gerarBoletimObraV2Pdf } from '../assinaturas/boletim-obra-v2-pdf';
+import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
 @Injectable()
 export class MedicaoService {
   private readonly logger = new Logger(MedicaoService.name);
@@ -4568,6 +4570,57 @@ export class MedicaoService {
     }
 
     return this.gerarPdfOficialMedicao(medicaoId);
+  }
+
+  /**
+   * Boletim de medição de OBRA no modelo 2 (leitura): resumo do contrato,
+   * situação de todas as etapas, itens medidos por quantidade, valor a pagar,
+   * assinaturas e anexo com a composição das etapas. Gerado na hora a partir
+   * dos mesmos dados do boletim oficial, que continua sendo o documento
+   * persistido e assinado.
+   */
+  async gerarBoletimObraV2(medicaoId: string): Promise<{ buffer: Buffer; filename: string }> {
+    const dados = await this.montarDadosPdfFrontend(medicaoId);
+    if (!dados.etapas_contratadas?.length) {
+      throw new BadRequestException(
+        'O modelo novo de boletim é para contratos de obra, com etapas de cronograma',
+      );
+    }
+    const medicao = await this.medicaoRepository.findOne({ where: { id: medicaoId } });
+    const contrato = await this.contratoRepository.findOne({ where: { id: dados.contrato_id } });
+    if (!medicao || !contrato) throw new NotFoundException('Medição não encontrada');
+
+    // Acumulado de cada etapa nas medições APROVADAS anteriores a esta (mesmo ciclo)
+    const aprovadas = await this.medicaoRepository.find({
+      where: { contrato_id: contrato.id, status: StatusMedicao.APROVADA },
+    });
+    const anterioresIds = this.filtrarMedicoesPorCiclo(
+      aprovadas,
+      this.obterDataCorteCicloAtual(contrato, medicao.periodo_inicio),
+    )
+      .filter((m) => Number(m.numero_medicao) < Number(medicao.numero_medicao))
+      .map((m) => m.id);
+    const etapas = await this.etapaRepository.find({ where: { contrato_id: contrato.id } });
+    const numeroPorEtapa = new Map(etapas.map((e) => [e.id, Number(e.numero_etapa || 0)]));
+    const anteriores = new Map<number, AnteriorPorEtapa>();
+    if (anterioresIds.length) {
+      const itens = await this.itemMedicaoRepository.find({ where: { medicao_id: In(anterioresIds) } });
+      for (const it of itens) {
+        const numero = numeroPorEtapa.get(it.etapa_id);
+        if (numero == null) continue;
+        const atual = anteriores.get(numero) || { percentual: 0, valor: 0 };
+        atual.percentual += Number(it.percentual_executado_atual || 0);
+        atual.valor += Number(it.valor_medido || 0);
+        anteriores.set(numero, atual);
+      }
+    }
+
+    const linhas = situacaoEtapas(dados.etapas_contratadas, dados.etapas || [], anteriores);
+    const buffer = await gerarBoletimObraV2Pdf({ dados, linhas });
+    return {
+      buffer,
+      filename: `boletim_obra_medicao_${String(dados.numero_medicao).padStart(3, '0')}.pdf`,
+    };
   }
 
   /** Retorna o caminho absoluto do arquivo PDF do boletim, ou null se não existir. */

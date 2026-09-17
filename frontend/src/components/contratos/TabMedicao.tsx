@@ -876,6 +876,30 @@ export default function TabMedicao({
     }
   };
 
+  /** Boletim de obra no modelo novo (leitura). O boletim oficial não muda. */
+  const [abrindoBoletimV2, setAbrindoBoletimV2] = useState<string | null>(null);
+  const abrirBoletimObraV2 = async (m: Medicao) => {
+    // abre a aba já no clique, para o navegador não bloquear o pop-up
+    const aba = window.open("", "_blank");
+    setAbrindoBoletimV2(m.id);
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/boletim-obra-v2`);
+      if (!res.ok) {
+        const erro = await res.json().catch(() => ({}));
+        throw new Error(erro?.message || "Não foi possível gerar o boletim no modelo novo");
+      }
+      const url = URL.createObjectURL(await res.blob());
+      if (aba) aba.location.href = url;
+      else window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err: any) {
+      aba?.close();
+      alert(err?.message || "Não foi possível gerar o boletim no modelo novo");
+    } finally {
+      setAbrindoBoletimV2(null);
+    }
+  };
+
   const abrirModalCorrigir = async (m: Medicao) => {
     setModalCorrigir(m);
     setAbaCorrigir("cabecalho");
@@ -3251,6 +3275,19 @@ export default function TabMedicao({
                     <Wrench className="w-3 h-3 mr-1" />
                     Corrigir
                   </Button>
+                  {etapas.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-sky-700 border-sky-300"
+                      title="Boletim no modelo novo de obra: resumo, todas as etapas, itens por quantidade e valor a pagar"
+                      onClick={() => abrirBoletimObraV2(m)}
+                      disabled={abrindoBoletimV2 === m.id}
+                    >
+                      <FileText className="w-3 h-3 mr-1" />
+                      {abrindoBoletimV2 === m.id ? "Gerando..." : "Boletim novo"}
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     className="bg-yellow-600 hover:bg-yellow-700 text-white"
@@ -3954,6 +3991,19 @@ export default function TabMedicao({
                         >
                           <Wrench className="w-3.5 h-3.5" />
                         </Button>
+                        {etapas.length > 0 && m.status !== "RASCUNHO" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-sky-700 border-sky-300"
+                            title="Boletim no modelo novo de obra: resumo, todas as etapas, itens por quantidade e valor a pagar"
+                            onClick={() => abrirBoletimObraV2(m)}
+                            disabled={abrindoBoletimV2 === m.id}
+                          >
+                            <FileText className="w-3.5 h-3.5 mr-1" />
+                            {abrindoBoletimV2 === m.id ? "Gerando..." : "Boletim novo"}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );

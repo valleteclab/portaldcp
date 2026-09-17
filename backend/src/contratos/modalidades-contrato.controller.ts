@@ -804,6 +804,28 @@ export class ModalidadesContratoController {
     return new StreamableFile(createReadStream(filePath));
   }
 
+  /** Boletim de obra no modelo 2 (leitura), gerado na hora; o oficial não muda. */
+  @Get('medicoes/:medicaoId/boletim-obra-v2')
+  async boletimObraV2(
+    @Param('medicaoId') medicaoId: string,
+    @Req() request: { user: JwtPayload },
+    @Res({ passthrough: true }) res: Response,
+    @Query('orgaoId') orgaoIdParam?: string,
+  ): Promise<StreamableFile> {
+    const medicao = await this.medicaoService.buscarMedicao(medicaoId);
+    const contrato = await this.contratoRepository.findOne({ where: { id: medicao.contrato_id } });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== this.getOrgaoId(request.user, orgaoIdParam)) {
+      throw new ForbiddenException('Você não tem acesso a esta medição');
+    }
+    const { buffer, filename } = await this.medicaoService.gerarBoletimObraV2(medicaoId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="${filename}"`,
+    });
+    return new StreamableFile(buffer);
+  }
+
   @Get('medicoes/:medicaoId/boletim-oficial')
   async obterBoletimOficial(
     @Param('medicaoId') medicaoId: string,
