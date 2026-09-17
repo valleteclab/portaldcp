@@ -245,7 +245,8 @@ function derivarCompetencia(periodoInicio: string): string {
 const DECLARACAO_FONTE = 6.8;
 const DECLARACAO_ENTRELINHA = 3.2;
 
-function desenharQuadroAssinaturas(
+/** Exportada também para o boletim de obra modelo 2 (mesmo quadro, mesmas regras). */
+export function desenharQuadroAssinaturas(
   doc: jsPDF,
   y: number,
   mX: number,
