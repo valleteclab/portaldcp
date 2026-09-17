@@ -440,6 +440,18 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
       declaracao:
         'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
     },
+    ...((dados.assinaturas_fiscais_adicionais || []) as any[]).map((f: any) => ({
+      titulo: 'FISCAL DE CONTRATO',
+      cor: [0, 100, 50] as RGB,
+      nome: f.nome || '',
+      identificacao: f.cpf ? `CPF: ${f.cpf}` : '',
+      cargo: f.cargo || '',
+      dataHora: f.data_hora || '',
+      pendente: false,
+      codigoValidacao: f.codigo_validacao,
+      declaracao:
+        'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
+    })),
     ...(aEng
       ? [
           {
@@ -455,7 +467,7 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
         ]
       : []),
   ];
-  garantirEspaco(60);
+  garantirEspaco(assinaturas.length > 3 ? 110 : 60);
   const altura = desenharQuadroAssinaturas(doc, y, mX, W, assinaturas, dados.url_validacao, qrDataUrl);
   y += altura + 4;
 

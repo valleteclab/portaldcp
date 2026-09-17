@@ -900,6 +900,61 @@ export default function TabMedicao({
     }
   };
 
+  // ── Assinaturas adicionais em medição já aprovada (ex.: novo fiscal) ──
+  const [modalAssinaturas, setModalAssinaturas] = useState<Medicao | null>(null);
+  const [assinaturasMedicao, setAssinaturasMedicao] = useState<any[]>([]);
+  const [fiscaisOrgao, setFiscaisOrgao] = useState<any[]>([]);
+  const [fiscalAssinatura, setFiscalAssinatura] = useState("");
+  const [enviandoAssinatura, setEnviandoAssinatura] = useState<"" | "fiscal" | "engenheiro">("");
+  const [resultadoAssinatura, setResultadoAssinatura] = useState<{ texto: string; link?: string } | null>(null);
+  const abrirModalAssinaturas = async (m: Medicao) => {
+    setModalAssinaturas(m);
+    setFiscalAssinatura("");
+    setResultadoAssinatura(null);
+    try {
+      const [ra, rf] = await Promise.all([
+        authFetch(`${API_URL}/api/contratos/medicoes/${m.id}/assinaturas`),
+        authFetch(`${API_URL}/api/contratos/medicoes/fiscais`),
+      ]);
+      setAssinaturasMedicao(ra.ok ? await ra.json() : []);
+      setFiscaisOrgao(rf.ok ? await rf.json() : []);
+    } catch {
+      setAssinaturasMedicao([]);
+      setFiscaisOrgao([]);
+    }
+  };
+  const pedirAssinatura = async (tipo: "fiscal" | "engenheiro") => {
+    if (!modalAssinaturas) return;
+    setEnviandoAssinatura(tipo);
+    setResultadoAssinatura(null);
+    try {
+      const rota = tipo === "fiscal" ? "solicitar-assinatura-fiscal" : "solicitar-assinatura-engenheiro";
+      const res = await authFetch(`${API_URL}/api/contratos/medicoes/${modalAssinaturas.id}/${rota}`, {
+        method: "POST",
+        body: JSON.stringify(tipo === "fiscal" ? { fiscalUsuarioId: fiscalAssinatura } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Não foi possível pedir a assinatura");
+      const nome = data.fiscal_nome || data.engenheiro_nome || "";
+      setResultadoAssinatura({
+        texto: data.link_enviado
+          ? `Link enviado por WhatsApp para ${nome}. Vale por 48 horas; quando ${nome} assinar, o boletim é gerado de novo com a assinatura.`
+          : `${nome} não tem WhatsApp cadastrado. Envie o link abaixo por outro meio (vale por 48 horas).`,
+        link: data.link_url,
+      });
+    } catch (err: any) {
+      setResultadoAssinatura({ texto: err?.message || "Não foi possível pedir a assinatura" });
+    } finally {
+      setEnviandoAssinatura("");
+    }
+  };
+  const PAPEL_ASSINATURA: Record<string, string> = {
+    FORNECEDOR: "Fornecedor",
+    FISCAL: "Fiscal do contrato",
+    ENGENHEIRO: "Engenheiro responsável técnico",
+    GESTOR: "Gestor",
+  };
+
   const abrirModalCorrigir = async (m: Medicao) => {
     setModalCorrigir(m);
     setAbaCorrigir("cabecalho");
@@ -3991,6 +4046,17 @@ export default function TabMedicao({
                         >
                           <Wrench className="w-3.5 h-3.5" />
                         </Button>
+                        {podeCancelarEstornar && m.status === "APROVADA" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-emerald-700"
+                            title="Assinaturas do boletim: pedir assinatura de outro fiscal ou do engenheiro"
+                            onClick={() => abrirModalAssinaturas(m)}
+                          >
+                            <Shield className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                         {etapas.length > 0 && m.status !== "RASCUNHO" && (
                           <Button
                             variant="outline"
@@ -8369,6 +8435,86 @@ export default function TabMedicao({
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal Assinaturas do boletim ── */}
+      <Dialog open={!!modalAssinaturas} onOpenChange={(aberto) => { if (!aberto) setModalAssinaturas(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Assinaturas do boletim — {modalAssinaturas?.numero_medicao}ª Medição</DialogTitle>
+            <DialogDescription>
+              Peça a assinatura de outro fiscal ou do engenheiro numa medição já aprovada. Quem já assinou continua no boletim; a nova assinatura é acrescentada ao quadro.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            <div>
+              <p className="font-medium mb-1">Já assinaram</p>
+              {assinaturasMedicao.length === 0 ? (
+                <p className="text-muted-foreground">Nenhuma assinatura registrada.</p>
+              ) : (
+                <ul className="divide-y rounded-md border">
+                  {assinaturasMedicao.map((a: any) => (
+                    <li key={a.id} className="px-3 py-2 flex justify-between gap-3">
+                      <span>
+                        <span className="font-medium">{a.usuario_nome}</span>
+                        <span className="block text-xs text-muted-foreground">{PAPEL_ASSINATURA[a.papel_assinante] || a.papel_assinante}{a.usuario_cargo ? ` · ${a.usuario_cargo}` : ""}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">{a.data_assinatura ? new Date(a.data_assinatura).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : ""}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-medium">Pedir assinatura de fiscal</p>
+              <div className="flex gap-2">
+                <Select value={fiscalAssinatura} onValueChange={setFiscalAssinatura}>
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder={fiscaisOrgao.length ? "Selecione o fiscal" : "Nenhum usuário marcado como fiscal"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fiscaisOrgao.map((f: any) => (
+                      <SelectItem key={f.id} value={f.id}>{f.nome}{f.cargo ? ` — ${f.cargo}` : ""}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button onClick={() => pedirAssinatura("fiscal")} disabled={!fiscalAssinatura || !!enviandoAssinatura}>
+                  {enviandoAssinatura === "fiscal" ? "Enviando..." : "Enviar link"}
+                </Button>
+              </div>
+              {fiscalAssinatura && assinaturasMedicao.some((a: any) => a.papel_assinante === "FISCAL" && a.usuario_id === fiscalAssinatura) && (
+                <p className="text-xs text-amber-700">Este fiscal já assinou esta medição.</p>
+              )}
+              <p className="text-xs text-muted-foreground">A lista traz os usuários do órgão marcados como fiscal de contrato. O link vai para o WhatsApp do cadastro dele.</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-medium">Pedir assinatura do engenheiro responsável técnico</p>
+              <Button variant="outline" onClick={() => pedirAssinatura("engenheiro")} disabled={!!enviandoAssinatura}>
+                {enviandoAssinatura === "engenheiro" ? "Enviando..." : "Enviar link ao engenheiro do contrato"}
+              </Button>
+              <p className="text-xs text-muted-foreground">Usa o nome e o WhatsApp do engenheiro cadastrados no contrato.</p>
+            </div>
+
+            {resultadoAssinatura && (
+              <div className="rounded-md border bg-muted/40 p-3 space-y-2">
+                <p>{resultadoAssinatura.texto}</p>
+                {resultadoAssinatura.link && (
+                  <div className="flex gap-2">
+                    <Input readOnly value={resultadoAssinatura.link} className="text-xs" />
+                    <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(resultadoAssinatura.link || "")}>
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalAssinaturas(null)}>Fechar</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

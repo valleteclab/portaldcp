@@ -291,9 +291,12 @@ export function desenharQuadroAssinaturas(
   );
   dy += 4.5;
 
-  // ── Caixas por assinante (2 ou 3 boxes) ──────────────────────────────────
-  const assinantesArr = assinaturas.slice(0, 3);
-  const nBoxes = Math.max(1, assinantesArr.length);
+  // ── Caixas por assinante: até 3 lado a lado; com 4 ou mais (ex.: dois
+  // fiscais), linhas de 2 caixas ─────────────────────────────────────────────
+  const porLinha = assinaturas.length <= 3 ? Math.max(1, assinaturas.length) : 2;
+  for (let inicioLinha = 0; inicioLinha < Math.max(1, assinaturas.length); inicioLinha += porLinha) {
+  const assinantesArr = assinaturas.slice(inicioLinha, inicioLinha + porLinha);
+  const nBoxes = porLinha;
   const gapBox = nBoxes >= 3 ? 3 : 4;
   const boxW = (contentW - gapBox * (nBoxes - 1)) / nBoxes;
 
@@ -380,6 +383,7 @@ export function desenharQuadroAssinaturas(
     }
   }
   dy += maxBoxH + 3;
+  }
 
   // ── Rodapé: URL de verificação + código + QR Code ─────────────────────────
   doc.setDrawColor(156, 163, 175);
@@ -406,7 +410,7 @@ export function desenharQuadroAssinaturas(
   dy += 3.2;
 
   // Códigos dos assinantes
-  const codigosValidos = assinantesArr.filter(a => !a.pendente && a.codigoValidacao);
+  const codigosValidos = assinaturas.filter(a => !a.pendente && a.codigoValidacao);
   if (codigosValidos.length > 0) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.1);
@@ -1236,6 +1240,19 @@ export async function gerarBoletimMedicaoPdf(
       declaracao:
         'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
     },
+    // Outros fiscais que assinaram depois (ex.: engenheiro contratado para fiscalizar)
+    ...((dados.assinaturas_fiscais_adicionais || []) as any[]).map((f: any) => ({
+      titulo: 'FISCAL DE CONTRATO',
+      cor: [0, 100, 50] as [number, number, number],
+      nome: f.nome || '',
+      identificacao: f.cpf ? `CPF: ${f.cpf}` : '',
+      cargo: f.cargo || '',
+      dataHora: f.data_hora || '',
+      pendente: false,
+      codigoValidacao: f.codigo_validacao,
+      declaracao:
+        'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
+    })),
     ...(aEng
       ? [{
           titulo: 'ENGENHEIRO RESPONSÁVEL TÉCNICO',
