@@ -45,6 +45,17 @@ describe('boletim-obra-v2.util', () => {
     expect(l[0].pct_acumulado).toBe(100);
   });
 
+  it('etapa concluída com sobra de centavos de arredondamento fica sem saldo (regra do boletim oficial)', () => {
+    const l = situacaoEtapas(
+      [{ numero: 10, descricao: 'Paralelismo', valor_previsto: 111415.85 }, { numero: 11, descricao: 'Parcial', valor_previsto: 100 }],
+      [],
+      new Map([[10, { percentual: 100, valor: 111415.84 }], [11, { percentual: 99, valor: 99.99 }]]),
+    );
+    expect(l[0].valor_acumulado).toBe(111415.85);
+    expect(l[0].valor_saldo).toBe(0);
+    expect(l[1].valor_saldo).toBe(0.01);
+  });
+
   it('resumo fecha: anterior + período = acumulado; saldo = contrato − acumulado', () => {
     const r = resumoContrato(linhas, 780186.59);
     expect(r.valor_periodo).toBe(74882.32);

@@ -110,8 +110,11 @@ export function situacaoEtapas(
         };
       }
       const ant = anteriores.get(Number(e.numero));
-      const anteriorC = Math.min(previstoC, centavos(ant?.valor));
       const pct = limitarPct(ant?.percentual ?? 0);
+      let anteriorC = Math.min(previstoC, centavos(ant?.valor));
+      // Mesma regra do boletim oficial: etapa concluída com sobra de até 2
+      // centavos (arredondamento das medições) conta como quitada.
+      if (pct >= 99.99 && previstoC - anteriorC > 0 && previstoC - anteriorC <= 2) anteriorC = previstoC;
       return {
         numero: Number(e.numero),
         descricao: e.descricao,
