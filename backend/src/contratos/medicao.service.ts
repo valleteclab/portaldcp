@@ -94,6 +94,7 @@ import {
 import { gerarBoletimObraV2Pdf } from '../assinaturas/boletim-obra-v2-pdf';
 import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
 import { literalDataAssinatura } from './data-assinatura.util';
+import { renumerarPorCompetencia } from './ordem-medicoes.util';
 @Injectable()
 export class MedicaoService {
   private readonly logger = new Logger(MedicaoService.name);
@@ -5601,6 +5602,102 @@ export class MedicaoService {
       lida: m.lida,
       lida_em: m.lida_em,
     };
+  }
+
+  /**
+   * Renumera as medições do contrato na ordem da competência. Necessário
+   * depois de lançamentos retroativos: eles entram com o próximo número livre,
+   * e a medição mais recente acaba como nº 1. Com `simular`, só mostra o que
+   * mudaria. Os boletins são apagados para sair com a numeração nova.
+   */
+  async reordenarMedicoesPorCompetencia(
+    contratoId: string,
+    orgaoId: string,
+    usuarioNome: string,
+    simular = false,
+  ): Promise<{
+    alteracoes: Array<{
+      id: string;
+      numero_atual: number;
+      numero_novo: number;
+      competencia: string | null;
+      periodo_inicio: string | null;
+      status: string;
+      valor_medido: number;
+    }>;
+    total_medicoes: number;
+    aplicado: boolean;
+  }> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a este contrato');
+    }
+
+    const medicoes = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId },
+      order: { numero_medicao: 'ASC' },
+    });
+    const novas = renumerarPorCompetencia(
+      medicoes.map((m) => ({
+        id: m.id,
+        numero_medicao: Number(m.numero_medicao),
+        periodo_inicio: m.periodo_inicio as any,
+        competencia: (m as any).competencia,
+        created_at: m.created_at as any,
+      })),
+    );
+    const porId = new Map(medicoes.map((m) => [m.id, m]));
+    const alteracoes = novas.map((n) => {
+      const m = porId.get(n.id)!;
+      return {
+        ...n,
+        competencia: ((m as any).competencia as string) || null,
+        periodo_inicio: m.periodo_inicio ? String(m.periodo_inicio).slice(0, 10) : null,
+        status: String(m.status),
+        valor_medido: Number(m.valor_medido || 0),
+      };
+    });
+
+    if (simular || alteracoes.length === 0) {
+      return { alteracoes, total_medicoes: medicoes.length, aplicado: false };
+    }
+
+    await this.medicaoRepository.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(Medicao);
+      // Passo 1: números temporários (negativos) para não colidir no caminho
+      for (const n of novas) {
+        await repo.update(n.id, { numero_medicao: -n.numero_novo } as any);
+      }
+      // Passo 2: número definitivo + boletim a regerar
+      for (const n of novas) {
+        await repo.update(n.id, {
+          numero_medicao: n.numero_novo,
+          boletim_pdf_url: null,
+        } as any);
+      }
+    });
+
+    await this.recalcularAcumuladosMedicoesAprovadas(contratoId);
+
+    const resumo = alteracoes
+      .map((a) => `${a.numero_atual}ª → ${a.numero_novo}ª (${a.competencia || a.periodo_inicio || '-'})`)
+      .join('; ');
+    await this.historicoContratoRepository.save(
+      this.historicoContratoRepository.create({
+        contrato_id: contratoId,
+        tipo_acao: 'MEDICAO_REORDENADA',
+        descricao: `Medições renumeradas pela competência por ${usuarioNome}: ${resumo}`,
+        usuario_nome: usuarioNome,
+      } as any),
+    );
+    this.logger.log(
+      `[reordenar-medicoes] Contrato ${contrato.numero_contrato}: ${resumo} (por ${usuarioNome})`,
+    );
+
+    return { alteracoes, total_medicoes: medicoes.length, aplicado: true };
   }
 
   private async recalcularAcumuladosMedicoesAprovadas(
