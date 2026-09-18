@@ -28,6 +28,7 @@ import { casarPagamentosComOrdens, ROTULO_CRITERIO } from './ordem-paga.util';
 
 export type SituacaoConferencia =
   | 'OK'
+  | 'DENTRO_DA_DEFASAGEM'
   | 'PAGO_SEM_MEDICAO'
   | 'PAGO_MAIOR_QUE_MEDIDO'
   | 'MEDIDO_MAIOR_QUE_PAGO'
@@ -39,8 +40,14 @@ export interface LinhaConferencia {
   fornecedor: string;
   fornecedor_cnpj: string;
   valor_global: number;
-  /** Pago no exercício, pelo portal. */
+  /** Pago no exercício e dentro do ciclo vigente, pelo portal. */
   pago_exercicio: number;
+  /** Pago no exercício, mas antes da renovação do ciclo (competência do ciclo anterior). */
+  pago_ciclo_anterior: number;
+  /** Data de corte do ciclo considerada ('YYYY-MM-DD'). */
+  corte_ciclo: string | null;
+  /** Defasagem aceita: uma competência (o maior valor mensal medido). */
+  tolerancia: number;
   /** Medições APROVADAS com competência no exercício. */
   medido_exercicio: number;
   /** Medições ainda em análise no exercício (submetida/ateste/aprovação). */
@@ -72,6 +79,8 @@ export interface DetalheConferencia {
   };
   resumo: LinhaConferencia;
   pagamentos: Array<{
+    /** Pago no exercício, mas antes da renovação do ciclo. */
+    ciclo_anterior: boolean;
     numero_empenho: string;
     data: string;
     valor: number;
@@ -156,23 +165,63 @@ export class ConferenciaExecucaoService {
     }
   }
 
-  private situacao(pago: number, medido: number, diferenca: number, pagamentos: number): SituacaoConferencia {
+  /**
+   * Classificação. A defasagem de uma competência é normal: o mês medido ainda
+   * não foi liquidado, ou o pagamento do mês anterior caiu agora — por isso
+   * diferenças até um valor mensal ficam como DENTRO_DA_DEFASAGEM, não erro.
+   */
+  private situacao(
+    pago: number,
+    medido: number,
+    diferenca: number,
+    pagamentos: number,
+    tolerancia: number,
+  ): SituacaoConferencia {
     if (pagamentos === 0) return 'SEM_PAGAMENTO_IDENTIFICADO';
     if (pago > 0 && medido === 0) return 'PAGO_SEM_MEDICAO';
-    if (diferenca > TOLERANCIA) return 'PAGO_MAIOR_QUE_MEDIDO';
-    if (diferenca < -TOLERANCIA) return 'MEDIDO_MAIOR_QUE_PAGO';
-    return 'OK';
+    if (Math.abs(diferenca) <= TOLERANCIA) return 'OK';
+    if (Math.abs(diferenca) <= tolerancia) return 'DENTRO_DA_DEFASAGEM';
+    return diferenca > 0 ? 'PAGO_MAIOR_QUE_MEDIDO' : 'MEDIDO_MAIOR_QUE_PAGO';
+  }
+
+  /** Corte do ciclo: renovação quando houver, senão o início da vigência. */
+  private corteDoCiclo(contrato: Contrato): string | null {
+    const bruto =
+      (contrato as any).data_renovacao_ciclo || contrato.data_vigencia_inicio || null;
+    return bruto ? String(bruto).slice(0, 10) : null;
+  }
+
+  /** 'DD/MM/AAAA' → 'AAAA-MM-DD', para comparar com as datas do banco. */
+  private isoDaDataBr(data?: string | null): string | null {
+    const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
   }
 
   private async montarLinha(contrato: Contrato, ano: number): Promise<LinhaConferencia> {
     const empenhos = await this.empenhosDoContrato(contrato, ano);
-    const pagamentos = empenhos.filter(
+    const corte = this.corteDoCiclo(contrato);
+    const doExercicio = empenhos.filter(
       (e) => e.fase_tipo === 'PAGAMENTO' && e.confirmacao !== 'NAO_CONFIRMADO' && this.anoDaData(e.data) === ano,
     );
+    // Contrato com ciclo renovado no exercício: o portal traz também os
+    // pagamentos do ciclo anterior, que o sistema não acompanha neste ciclo.
+    const dentroDoCiclo = (e: { data: string }) => {
+      const iso = this.isoDaDataBr(e.data);
+      return !corte || !iso || iso >= corte;
+    };
+    const pagamentos = doExercicio.filter(dentroDoCiclo);
     const pago = pagamentos.reduce((s, p) => s + Number(p.valor || 0), 0);
+    const pagoCicloAnterior = doExercicio
+      .filter((e) => !dentroDoCiclo(e))
+      .reduce((s, p) => s + Number(p.valor || 0), 0);
 
     const medicoes = await this.medicaoRepository.find({ where: { contrato_id: contrato.id } });
-    const doAno = (m: Medicao) => String(m.periodo_inicio || '').slice(0, 4) === String(ano);
+    const doAno = (m: Medicao) => {
+      const inicio = String(m.periodo_inicio || '').slice(0, 10);
+      if (inicio.slice(0, 4) !== String(ano)) return false;
+      // mesma régua dos pagamentos: só o ciclo vigente
+      return !corte || inicio >= corte;
+    };
     const aprovadasAno = medicoes.filter((m) => m.status === StatusMedicao.APROVADA && doAno(m));
     const emAnalise = medicoes.filter(
       (m) =>
@@ -207,6 +256,11 @@ export class ConferenciaExecucaoService {
     const idsComMedicao = new Set(medicoes.map((m) => m.requisicao_id).filter(Boolean));
 
     const diferenca = +(pago - medido).toFixed(2);
+    const maiorMensal = aprovadasAno.reduce(
+      (maior, m) => Math.max(maior, Number(m.valor_medido || 0)),
+      0,
+    );
+    const tolerancia = +(maiorMensal || Number(contrato.valor_global || 0) / 12).toFixed(2);
     return {
       contrato_id: contrato.id,
       numero_contrato: contrato.numero_contrato,
@@ -214,12 +268,15 @@ export class ConferenciaExecucaoService {
       fornecedor_cnpj: contrato.fornecedor_cnpj || '',
       valor_global: Number(contrato.valor_global || 0),
       pago_exercicio: +pago.toFixed(2),
+      pago_ciclo_anterior: +pagoCicloAnterior.toFixed(2),
+      corte_ciclo: corte,
+      tolerancia,
       medido_exercicio: +medido.toFixed(2),
       em_analise_exercicio: +emAnalise.reduce((s, m) => s + Number(m.valor_medido || 0), 0).toFixed(2),
       migracao,
       saldo_sistema: +(Number(contrato.valor_global || 0) - executadoTotal).toFixed(2),
       diferenca,
-      situacao: this.situacao(pago, medido, diferenca, pagamentos.length),
+      situacao: this.situacao(pago, medido, diferenca, pagamentos.length, tolerancia),
       quantidade_pagamentos: pagamentos.length,
       quantidade_medicoes: aprovadasAno.length,
       ordens_sem_medicao: Math.max(0, ordens - idsComMedicao.size),
@@ -265,9 +322,15 @@ export class ConferenciaExecucaoService {
       if (mes) aprovadasPorMes.set(mes, (aprovadasPorMes.get(mes) || 0) + Number(m.valor_medido || 0));
     }
 
+    const corteDetalhe = this.corteDoCiclo(contrato);
     const pagamentos = empenhos
       .filter((e) => e.fase_tipo === 'PAGAMENTO' && this.anoDaData(e.data) === ano)
       .map((e) => ({
+        ciclo_anterior: !!(
+          corteDetalhe &&
+          this.isoDaDataBr(e.data) &&
+          (this.isoDaDataBr(e.data) as string) < corteDetalhe
+        ),
         numero_empenho: e.numero_empenho,
         data: e.data,
         valor: Number(e.valor || 0),

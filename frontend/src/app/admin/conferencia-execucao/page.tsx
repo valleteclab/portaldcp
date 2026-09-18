@@ -22,7 +22,10 @@ interface Linha {
   migracao: number
   saldo_sistema: number
   diferenca: number
-  situacao: 'OK' | 'PAGO_SEM_MEDICAO' | 'PAGO_MAIOR_QUE_MEDIDO' | 'MEDIDO_MAIOR_QUE_PAGO' | 'SEM_PAGAMENTO_IDENTIFICADO'
+  situacao: 'OK' | 'DENTRO_DA_DEFASAGEM' | 'PAGO_SEM_MEDICAO' | 'PAGO_MAIOR_QUE_MEDIDO' | 'MEDIDO_MAIOR_QUE_PAGO' | 'SEM_PAGAMENTO_IDENTIFICADO'
+  pago_ciclo_anterior: number
+  corte_ciclo: string | null
+  tolerancia: number
   quantidade_pagamentos: number
   quantidade_medicoes: number
   ordens_sem_medicao: number
@@ -36,7 +39,7 @@ interface Detalhe {
     data_renovacao_ciclo: string | null; processo_licitatorio_portal: string | null
   }
   resumo: Linha
-  pagamentos: Array<{ numero_empenho: string; data: string; valor: number; bem_servico: string; os_citada?: string; confirmacao: string; medicao_do_mes: number | null }>
+  pagamentos: Array<{ ciclo_anterior: boolean; numero_empenho: string; data: string; valor: number; bem_servico: string; os_citada?: string; confirmacao: string; medicao_do_mes: number | null }>
   medicoes: Array<{ id: string; numero_medicao: number; status: string; competencia: string | null; periodo_inicio: string | null; valor_medido: number; nota_fiscal_numero: string | null; lancamento_retroativo: boolean }>
   ordens_sem_medicao: Array<{ requisicao_id: string; numero: string; valor: number; data_solicitacao: string | null; pagamento: { numero_empenho: string; data: string; valor: number; motivo: string } | null }>
   itens_migracao: Array<{ numero_item: number; descricao: string; unidade_medida: string; quantidade: number; quantidade_medida: number; valor_unitario: number; valor_migracao_reais: number | null }>
@@ -44,6 +47,7 @@ interface Detalhe {
 
 const SITUACAO: Record<Linha['situacao'], { rotulo: string; cor: string }> = {
   OK: { rotulo: 'Batendo', cor: 'bg-green-100 text-green-800' },
+  DENTRO_DA_DEFASAGEM: { rotulo: 'Defasagem de um mês', cor: 'bg-emerald-50 text-emerald-700' },
   PAGO_SEM_MEDICAO: { rotulo: 'Pago sem medição', cor: 'bg-red-100 text-red-800' },
   PAGO_MAIOR_QUE_MEDIDO: { rotulo: 'Pago > medido', cor: 'bg-amber-100 text-amber-800' },
   MEDIDO_MAIOR_QUE_PAGO: { rotulo: 'Medido > pago', cor: 'bg-blue-100 text-blue-800' },
@@ -118,6 +122,7 @@ export default function ConferenciaExecucaoPage() {
     const por = (s: Linha['situacao']) => linhas.filter((l) => l.situacao === s)
     return {
       pagoSemMedicao: por('PAGO_SEM_MEDICAO'),
+      defasagem: por('DENTRO_DA_DEFASAGEM'),
       pagoMaior: por('PAGO_MAIOR_QUE_MEDIDO'),
       medidoMaior: por('MEDIDO_MAIOR_QUE_PAGO'),
       naoIdentificado: por('SEM_PAGAMENTO_IDENTIFICADO'),
@@ -164,12 +169,13 @@ export default function ConferenciaExecucaoPage() {
       )}
 
       {linhas.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           {([
             ['Pago sem medição', totais.pagoSemMedicao, 'border-red-200'],
             ['Pago > medido', totais.pagoMaior, 'border-amber-200'],
             ['Medido > pago', totais.medidoMaior, 'border-blue-200'],
             ['Portal não identificou', totais.naoIdentificado, 'border-gray-200'],
+            ['Defasagem de um mês', totais.defasagem, 'border-emerald-200'],
             ['Batendo', totais.ok, 'border-green-200'],
           ] as Array<[string, Linha[], string]>).map(([rotulo, itens, cor]) => (
             <Card key={rotulo} className={cor}>
@@ -191,7 +197,12 @@ export default function ConferenciaExecucaoPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <CardTitle className="text-base">Contratos vigentes — exercício {ano}</CardTitle>
+              <div>
+                <CardTitle className="text-base">Contratos vigentes — exercício {ano}</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Só o ciclo vigente entra na conta: pagamentos anteriores à renovação aparecem à parte. Diferença de até uma competência é tratada como defasagem normal.
+                </p>
+              </div>
               <div className="flex gap-2 items-center">
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-muted-foreground" />
@@ -232,6 +243,11 @@ export default function ConferenciaExecucaoPage() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{moeda(l.pago_exercicio)}
                       <div className="text-xs text-muted-foreground">{l.quantidade_pagamentos} pgto(s)</div>
+                      {l.pago_ciclo_anterior > 0 && (
+                        <div className="text-xs text-muted-foreground" title={`Pago em ${ano} com competência anterior à renovação do ciclo em ${l.corte_ciclo}`}>
+                          + {moeda(l.pago_ciclo_anterior)} do ciclo anterior
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{moeda(l.medido_exercicio)}
                       <div className="text-xs text-muted-foreground">{l.quantidade_medicoes} medição(ões)</div>
@@ -273,7 +289,7 @@ export default function ConferenciaExecucaoPage() {
                 <DialogTitle>{detalhe.contrato.numero_contrato} — {detalhe.contrato.fornecedor}</DialogTitle>
                 <DialogDescription>
                   Contrato de {moeda(detalhe.contrato.valor_global)} · vigência {detalhe.contrato.vigencia_inicio} a {detalhe.contrato.vigencia_fim}
-                  {detalhe.contrato.data_renovacao_ciclo ? ` · ciclo desde ${detalhe.contrato.data_renovacao_ciclo}` : ''}
+                  {detalhe.resumo.corte_ciclo ? ` · ciclo considerado desde ${detalhe.resumo.corte_ciclo}` : ''}
                   {detalhe.contrato.processo_licitatorio_portal ? ` · processo no portal ${detalhe.contrato.processo_licitatorio_portal}` : ' · sem processo do portal cadastrado'}
                 </DialogDescription>
               </DialogHeader>
@@ -307,12 +323,15 @@ export default function ConferenciaExecucaoPage() {
                     </TableHeader>
                     <TableBody>
                       {detalhe.pagamentos.map((p, i) => (
-                        <TableRow key={`${p.numero_empenho}-${i}`}>
+                        <TableRow key={`${p.numero_empenho}-${i}`} className={p.ciclo_anterior ? 'opacity-60' : ''}>
                           <TableCell className="whitespace-nowrap">{p.numero_empenho || '—'}</TableCell>
-                          <TableCell className="whitespace-nowrap">{p.data}</TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {p.data}
+                            {p.ciclo_anterior && <span className="block text-xs text-muted-foreground">ciclo anterior</span>}
+                          </TableCell>
                           <TableCell className="text-right tabular-nums">{moeda(p.valor)}</TableCell>
-                          <TableCell className={p.medicao_do_mes ? '' : 'text-red-700'}>
-                            {p.medicao_do_mes ? moeda(p.medicao_do_mes) : 'sem medição'}
+                          <TableCell className={p.medicao_do_mes || p.ciclo_anterior ? '' : 'text-red-700'}>
+                            {p.medicao_do_mes ? moeda(p.medicao_do_mes) : p.ciclo_anterior ? '—' : 'sem medição'}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground max-w-[22rem] truncate" title={p.bem_servico}>
                             {p.os_citada ? `${p.os_citada} · ` : ''}{p.bem_servico}
