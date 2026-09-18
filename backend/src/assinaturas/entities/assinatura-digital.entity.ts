@@ -72,12 +72,16 @@ export class AssinaturaDigital {
   documento_hash: string; // SHA-256
 
   /**
-   * Momento da assinatura, no fuso do banco (America/Sao_Paulo).
-   * Não usar @CreateDateColumn: o TypeORM grava o valor convertido para UTC e
-   * a assinatura saía 3 horas adiantada no boletim, ao contrário das demais
+   * Momento da assinatura em Brasília.
+   * Não usar @CreateDateColumn (o TypeORM grava convertido para UTC) nem
+   * CURRENT_TIMESTAMP puro: a sessão da aplicação no Postgres responde em UTC,
+   * e a assinatura saía 3 horas adiantada no boletim, ao contrário das demais
    * datas da medição (ateste, submissão), gravadas no horário local.
    */
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({
+    type: 'timestamp',
+    default: () => "(now() AT TIME ZONE 'America/Sao_Paulo')",
+  })
   data_assinatura: Date;
 
   @UpdateDateColumn()

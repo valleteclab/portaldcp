@@ -464,7 +464,9 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
             nome: aEng.nome || '',
             identificacao: aEng.cpf ? `CPF: ${aEng.cpf}` : '',
             cargo: aEng.crea ? `CREA: ${aEng.crea}` : aEng.cargo || '',
-            dataHora: '',
+            // o boletim antigo omite a data do engenheiro; aqui ela aparece,
+            // como nas demais assinaturas
+            dataHora: aEng.data_hora || '',
             pendente: false,
             codigoValidacao: aEng.codigo_validacao,
           },

@@ -302,6 +302,8 @@ export default function AdminUsuariosPage() {
         cargo: formUsuario.cargo || undefined,
         matricula: formUsuario.matricula || undefined,
         portaria_fiscal: formUsuario.portaria_fiscal || undefined,
+        crea: formUsuario.crea || undefined,
+        contrato_designacao: formUsuario.contrato_designacao || undefined,
         role: formUsuario.role,
         orgao_id: formUsuario.orgao_id,
         pode_aprovar_requisicoes: formUsuario.pode_aprovar_requisicoes,
