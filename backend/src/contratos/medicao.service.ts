@@ -3831,16 +3831,18 @@ export class MedicaoService {
       .map((a) => a.usuario_id as string);
     const creaPorUsuario = new Map<string, string>();
     const contratoDesignacaoPorUsuario = new Map<string, string>();
+    const cargoPorUsuario = new Map<string, string>();
     if (idsFiscais.length) {
       const usuariosFiscais = await this.usuarioRepository.find({
         where: { id: In(idsFiscais) },
-        select: ['id', 'crea', 'contrato_designacao'] as any,
+        select: ['id', 'crea', 'contrato_designacao', 'cargo'] as any,
       });
       for (const u of usuariosFiscais) {
         if ((u as any).crea) creaPorUsuario.set(u.id, String((u as any).crea));
         if ((u as any).contrato_designacao) {
           contratoDesignacaoPorUsuario.set(u.id, String((u as any).contrato_designacao));
         }
+        if ((u as any).cargo) cargoPorUsuario.set(u.id, String((u as any).cargo));
       }
     }
     // timestamp without time zone: o driver pg interpreta o valor do banco
@@ -4466,7 +4468,10 @@ export class MedicaoService {
         ? {
             nome: asFiscal.usuario_nome,
             cpf: asFiscal.usuario_cpf_cnpj,
-            cargo: asFiscal.usuario_cargo || 'Fiscal de Contrato',
+            cargo:
+              cargoPorUsuario.get(asFiscal.usuario_id || '') ||
+              asFiscal.usuario_cargo ||
+              'Fiscal de Contrato',
             matricula: asFiscal.usuario_matricula || undefined,
             portaria: asFiscal.usuario_portaria || undefined,
             crea: creaPorUsuario.get(asFiscal.usuario_id || '') || undefined,
@@ -4481,7 +4486,7 @@ export class MedicaoService {
         .map((a) => ({
           nome: a.usuario_nome,
           cpf: a.usuario_cpf_cnpj,
-          cargo: a.usuario_cargo || 'Fiscal de Contrato',
+          cargo: cargoPorUsuario.get(a.usuario_id || '') || a.usuario_cargo || 'Fiscal de Contrato',
           matricula: a.usuario_matricula || undefined,
           portaria: a.usuario_portaria || undefined,
           crea: creaPorUsuario.get(a.usuario_id || '') || undefined,
