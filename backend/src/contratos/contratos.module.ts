@@ -54,6 +54,8 @@ import { ImportarMedicaoIaService } from './importar-medicao-ia.service';
 import { FrotaContrato } from '../frota/entities/frota-contrato.entity';
 import { SystemConfigModule } from '../system-config/system-config.module';
 import { FatorTransparenciaService } from './fator-transparencia.service';
+import { ConferenciaExecucaoService } from './conferencia-execucao.service';
+import { ConferenciaExecucaoController } from './conferencia-execucao.controller';
 import { MedicaoChatSession } from './entities/medicao-chat-session.entity';
 import { MedicaoChatController } from './medicao-chat.controller';
 import { MedicaoChatService } from './medicao-chat.service';
@@ -104,8 +106,8 @@ import { MedicaoEquipeService } from './medicao-equipe.service';
     WhatsAppModule,
     PortalAssinaturasModule,
   ],
-  controllers: [ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, PreOsFornecedorController, PreOsOrgaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
-  providers: [ContratosService, MedicaoService, MedicaoEquipeService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, PreOsPublicidadeService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, XmlNfeParserService, AtualizacoesService],
+  controllers: [ConferenciaExecucaoController, ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, PreOsFornecedorController, PreOsOrgaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
+  providers: [ContratosService, MedicaoService, MedicaoEquipeService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, PreOsPublicidadeService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, ConferenciaExecucaoService, XmlNfeParserService, AtualizacoesService],
   exports: [ContratosService, MedicaoService, MedicaoEquipeService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}
