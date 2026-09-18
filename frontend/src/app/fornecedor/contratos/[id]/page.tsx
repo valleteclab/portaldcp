@@ -1279,7 +1279,8 @@ export default function FornecedorContratoDetalhePage() {
           .filter(i => {
             // Medição por OS: envia apenas itens da OS selecionada (quantidades
             // de outras OS podem ter ficado no estado — ex.: botão Proporcional)
-            if (!itensCronograma.some(c => c.os_id)) return true;
+            // Sem OS escolhida, a medição é livre: todos os itens entram
+            if (!osMedicao) return true;
             const ic = itensCronograma.find(c => c.id === i.item_cronograma_id);
             return itemNaOs(ic, osMedicao);
           })
@@ -1525,11 +1526,6 @@ export default function FornecedorContratoDetalhePage() {
         setSubmitting(false);
         return;
       }
-      if (itensCronograma.some(i => i.os_id) && !osMedicao) {
-        alert('Selecione a Ordem de Serviço autorizada que está sendo medida.');
-        setSubmitting(false);
-        return;
-      }
       if (discriminacoes.length === 0) {
         alert('A discriminação de despesas é obrigatória antes de enviar para ateste.');
         setSubmitting(false);
@@ -1614,7 +1610,8 @@ export default function FornecedorContratoDetalhePage() {
           .filter(i => {
             // Medição por OS: envia apenas itens da OS selecionada (quantidades
             // de outras OS podem ter ficado no estado — ex.: botão Proporcional)
-            if (!itensCronograma.some(c => c.os_id)) return true;
+            // Sem OS escolhida, a medição é livre: todos os itens entram
+            if (!osMedicao) return true;
             const ic = itensCronograma.find(c => c.id === i.item_cronograma_id);
             return itemNaOs(ic, osMedicao);
           })
@@ -2727,7 +2724,7 @@ export default function FornecedorContratoDetalhePage() {
                           const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
                           if (!ic) return acc;
                           // Medição por OS: total considera apenas a OS selecionada
-                          if (itensCronograma.some(c => c.os_id) && !itemNaOs(ic, osMedicao)) return acc;
+                          if (osMedicao && !itemNaOs(ic, osMedicao)) return acc;
                           return acc + item.quantidade_medida * Number(ic.valor_unitario);
                         }, 0)
                       : novaMedicao.itens.reduce((acc, item, idx) => {
@@ -2867,9 +2864,9 @@ export default function FornecedorContratoDetalhePage() {
               );
               return (
                 <div className="border border-indigo-200 bg-indigo-50/60 rounded-lg p-3 space-y-2">
-                  <Label className="text-sm font-bold text-indigo-900">Medição por Ordem de Serviço</Label>
+                  <Label className="text-sm font-bold text-indigo-900">Ordem de Serviço (opcional)</Label>
                   <p className="text-xs text-indigo-800">
-                    Neste contrato a medição é feita por OS: escolha a OS <strong>autorizada</strong> que está medindo — apenas os itens dela ficam disponíveis (execução total ou parcial).
+                    Se esta medição se refere a uma OS, escolha a OS <strong>autorizada</strong> que está medindo — aí só os itens dela ficam disponíveis (execução total ou parcial). Vincular é opcional: sem OS, todos os itens do contrato ficam liberados.
                   </p>
                   <select
                     className="w-full h-9 rounded-md border border-indigo-300 bg-white px-2 text-sm"
@@ -2887,13 +2884,13 @@ export default function FornecedorContratoDetalhePage() {
                       }));
                     }}
                   >
-                    <option value="">Selecione a OS autorizada...</option>
+                    <option value="">Sem vínculo com OS (todos os itens)</option>
                     {osAutorizadas.map(([id, numero]) => (
                       <option key={id} value={id}>{numero}</option>
                     ))}
                   </select>
                   {osAutorizadas.length === 0 && (
-                    <p className="text-xs font-medium text-red-600">Nenhuma OS autorizada disponível para medição.</p>
+                    <p className="text-xs text-indigo-800">Nenhuma OS autorizada disponível; siga sem vínculo.</p>
                   )}
                 </div>
               );
@@ -2941,7 +2938,7 @@ export default function FornecedorContratoDetalhePage() {
                     );
                     const itens = itensCronograma.map((ic, idx) => {
                       // Medição por OS: Proporcional preenche apenas itens da OS selecionada
-                      if (itensCronograma.some(c => c.os_id) && !itemNaOs(ic, osMedicao)) {
+                      if (osMedicao && !itemNaOs(ic, osMedicao)) {
                         return { item_cronograma_id: ic.id, quantidade_medida: 0, modo_input: 'quantidade' as const, valor_override: 0 };
                       }
                       const qtdTotal = Number(ic.quantidade);
@@ -3008,7 +3005,7 @@ export default function FornecedorContratoDetalhePage() {
                 <TableBody>
                   {itensCronograma.map((ic, idx) => {
                     // Medição por OS: exibe apenas itens da OS selecionada (índices preservados)
-                    if (itensCronograma.some(i => i.os_id) && !itemNaOs(ic, osMedicao)) return null;
+                    if (osMedicao && !itemNaOs(ic, osMedicao)) return null;
                     const itemState = novaMedicao.itens[idx] as { item_cronograma_id: string; quantidade_medida: number; modo_input?: 'quantidade' | 'valor'; valor_override?: number } | undefined;
                     const qtdMedida = itemState?.quantidade_medida || 0;
                     const valorOverride = itemState?.valor_override;
