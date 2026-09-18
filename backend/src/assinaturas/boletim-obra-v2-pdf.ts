@@ -11,7 +11,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as QRCode from 'qrcode';
-import { desenharQuadroAssinaturas } from './medicao-pdf-jspdf';
+import { complementoFiscal, desenharQuadroAssinaturas } from './medicao-pdf-jspdf';
 import {
   itensMedidosDaEtapa,
   LinhaEtapaV2,
@@ -432,7 +432,10 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
       titulo: 'FISCAL DE CONTRATO',
       cor: [0, 100, 50] as RGB,
       nome: aFisc?.nome || '',
-      identificacao: aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '',
+      identificacao: [aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '', aFisc?.crea ? `CREA: ${aFisc.crea}` : '']
+        .filter(Boolean)
+        .join('   '),
+      complemento: complementoFiscal(aFisc),
       cargo: aFisc?.cargo || '',
       dataHora: aFisc?.data_hora || '',
       pendente: !aFisc,
@@ -444,7 +447,8 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
       titulo: 'FISCAL DE CONTRATO',
       cor: [0, 100, 50] as RGB,
       nome: f.nome || '',
-      identificacao: f.cpf ? `CPF: ${f.cpf}` : '',
+      identificacao: [f.cpf ? `CPF: ${f.cpf}` : '', f.crea ? `CREA: ${f.crea}` : ''].filter(Boolean).join('   '),
+      complemento: complementoFiscal(f),
       cargo: f.cargo || '',
       dataHora: f.data_hora || '',
       pendente: false,

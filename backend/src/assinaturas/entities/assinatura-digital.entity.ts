@@ -71,7 +71,13 @@ export class AssinaturaDigital {
   @Column({ type: 'varchar', length: 64, nullable: true })
   documento_hash: string; // SHA-256
 
-  @CreateDateColumn()
+  /**
+   * Momento da assinatura, no fuso do banco (America/Sao_Paulo).
+   * Não usar @CreateDateColumn: o TypeORM grava o valor convertido para UTC e
+   * a assinatura saía 3 horas adiantada no boletim, ao contrário das demais
+   * datas da medição (ateste, submissão), gravadas no horário local.
+   */
+  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   data_assinatura: Date;
 
   @UpdateDateColumn()

@@ -52,6 +52,20 @@ export class Usuario {
   @Column({ nullable: true })
   portaria_fiscal: string;
 
+  /**
+   * Registro profissional (CREA/CAU) de quem assina medição como fiscal
+   * técnico — ex.: engenheiro contratado para fiscalizar a obra.
+   */
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  crea: string | null;
+
+  /**
+   * Contrato que designou o usuário para fiscalizar, quando ele não é
+   * servidor — ex.: "014/2026" do engenheiro contratado pela Câmara.
+   */
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  contrato_designacao: string | null;
+
   @Column({
     type: 'enum',
     enum: RoleUsuario,

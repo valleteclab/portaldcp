@@ -26,6 +26,8 @@ export class UsuariosService {
     cargo?: string;
     matricula?: string;
     portaria_fiscal?: string;
+    crea?: string;
+    contrato_designacao?: string;
     role?: RoleUsuario;
     orgao_id?: string;
     pode_aprovar_requisicoes?: boolean;
@@ -54,6 +56,8 @@ export class UsuariosService {
       cargo: data.cargo,
       matricula: data.matricula,
       portaria_fiscal: data.portaria_fiscal,
+      crea: data.crea,
+      contrato_designacao: data.contrato_designacao,
       role: data.role || RoleUsuario.EQUIPE_APOIO,
       orgao_id: data.orgao_id,
       ativo: true,
@@ -123,6 +127,8 @@ export class UsuariosService {
     cargo: string;
     matricula: string;
     portaria_fiscal: string;
+    crea: string;
+    contrato_designacao: string;
     role: RoleUsuario;
     orgao_id: string;
     ativo: boolean;
