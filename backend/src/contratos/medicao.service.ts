@@ -93,6 +93,7 @@ import {
 
 import { gerarBoletimObraV2Pdf } from '../assinaturas/boletim-obra-v2-pdf';
 import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
+import { literalDataAssinatura } from './data-assinatura.util';
 @Injectable()
 export class MedicaoService {
   private readonly logger = new Logger(MedicaoService.name);
@@ -7955,18 +7956,20 @@ export class MedicaoService {
           'Assinatura não encontrada nesta medição',
         );
       }
-      const novaData = new Date(item.data_assinatura);
-      if (Number.isNaN(novaData.getTime())) {
+      // Literal de texto: com Date, o TypeORM grava convertido para UTC e a
+      // assinatura corrigida aparece 3 horas adiantada no boletim.
+      const novaData = literalDataAssinatura(item.data_assinatura);
+      if (!novaData) {
         throw new BadRequestException(
           `Data inválida para a assinatura de ${assinatura.usuario_nome}`,
         );
       }
       await this.assinaturaDigitalRepository.update(assinatura.id, {
-        data_assinatura: novaData,
+        data_assinatura: novaData as any,
       });
       this.logger.log(
         `Data da assinatura ${assinatura.papel_assinante} (${assinatura.usuario_nome}) da medição ${medicaoId} ` +
-          `alterada de ${new Date(assinatura.data_assinatura).toISOString()} para ${novaData.toISOString()} ` +
+          `alterada de ${assinatura.data_assinatura} para ${novaData} ` +
           `por ${fiscalNome}. Motivo: ${dados.motivo.trim()}`,
       );
     }
