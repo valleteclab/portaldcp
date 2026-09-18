@@ -8,9 +8,10 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  Loader2, ClipboardList, Package, FileText, RefreshCw, Link2, History, ChevronDown, ChevronUp, Receipt, AlertTriangle, RotateCcw,
+  Loader2, ClipboardList, Package, FileText, RefreshCw, Link2, History, ChevronDown, ChevronUp, Receipt, AlertTriangle, RotateCcw, BadgeCheck, CircleDollarSign,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import ModalMedicaoRetroativa from './ModalMedicaoRetroativa'
 
 // ============================================================================
 // INTERFACES
@@ -108,6 +109,14 @@ function diasDesde(d: string | null) {
   return Math.max(0, Math.floor((Date.now() - inicio) / 86400000))
 }
 
+interface PagamentoDaOrdem {
+  criterio: 'OS_CITADA' | 'EMPENHO_DA_OS' | 'VALOR'
+  numero_empenho: string
+  data: string
+  valor: number
+  motivo: string
+}
+
 /** OS autorizada sem nenhuma medição ativa vinculada — aguardando medição. */
 function osAguardandoMedicao(req: Requisicao) {
   return (
@@ -187,6 +196,29 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
   // Expandir detalhes
   const [expandido, setExpandido] = useState<string | null>(null)
 
+  // Pagamentos do portal por OS sem medição (libera o lançamento retroativo)
+  const [pagamentosPorOrdem, setPagamentosPorOrdem] = useState<Record<string, PagamentoDaOrdem | null>>({})
+  const [consultandoPortal, setConsultandoPortal] = useState(false)
+  const [portalOk, setPortalOk] = useState(true)
+  const [modalRetroativa, setModalRetroativa] = useState<{ requisicaoId: string; pagamento: PagamentoDaOrdem } | null>(null)
+
+  const carregarPagamentosDasOrdens = useCallback(async () => {
+    setConsultandoPortal(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/ordens-sem-medicao-pagas`)
+      if (!res.ok) { setPortalOk(false); return }
+      const data = await res.json()
+      setPortalOk(data.consulta_portal_ok !== false)
+      const mapa: Record<string, PagamentoDaOrdem | null> = {}
+      for (const o of data.ordens || []) mapa[o.requisicao_id] = o.pagamento || null
+      setPagamentosPorOrdem(mapa)
+    } catch {
+      setPortalOk(false)
+    } finally {
+      setConsultandoPortal(false)
+    }
+  }, [contratoId])
+
   // Modal "OS atendida fora do sistema"
   const [modalAtenderFora, setModalAtenderFora] = useState<Requisicao | null>(null)
   const [motivoAtenderFora, setMotivoAtenderFora] = useState('')
@@ -209,6 +241,7 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
   }, [contratoId])
 
   useEffect(() => { carregarDados() }, [carregarDados])
+  useEffect(() => { carregarPagamentosDasOrdens() }, [carregarPagamentosDasOrdens])
 
   // ============================================================================
   // AÇÕES
@@ -516,21 +549,69 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
                             </div>
                           )}
 
+                          {osAguardandoMedicao(req) && pagamentosPorOrdem[req.id] && (() => {
+                            const p = pagamentosPorOrdem[req.id]!
+                            return (
+                              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                                <p className="font-medium flex items-center gap-1.5">
+                                  <BadgeCheck className="w-4 h-4" /> Pago na contabilidade
+                                </p>
+                                <p className="text-xs mt-0.5">
+                                  Empenho {p.numero_empenho} · {p.data} · {formatarMoeda(p.valor)} — {p.motivo}.
+                                </p>
+                                <p className="text-xs mt-1">
+                                  Registre a medição para o saldo do contrato refletir o que já foi pago.
+                                </p>
+                              </div>
+                            )
+                          })()}
+
                           {/* Ações */}
                           <div className="flex gap-2 pt-2 flex-wrap">
                             <Button variant="outline" size="sm" onClick={() => abrirDetalhe(req)}>
                               <History className="w-3.5 h-3.5 mr-1" /> Histórico
                             </Button>
-                            {osAguardandoMedicao(req) && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="border-amber-300 text-amber-700 hover:bg-amber-50"
-                                onClick={() => { setModalAtenderFora(req); setMotivoAtenderFora(''); setErroAtenderFora(null) }}
-                              >
-                                <AlertTriangle className="w-3.5 h-3.5 mr-1" /> Atendida fora do sistema
-                              </Button>
-                            )}
+                            {osAguardandoMedicao(req) && (() => {
+                              const pagamento = pagamentosPorOrdem[req.id]
+                              return (
+                                <>
+                                  {pagamento ? (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                      onClick={() => setModalRetroativa({ requisicaoId: req.id, pagamento })}
+                                    >
+                                      <BadgeCheck className="w-3.5 h-3.5 mr-1" /> Registrar medição paga
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      disabled
+                                      title={
+                                        consultandoPortal
+                                          ? 'Consultando os pagamentos na contabilidade...'
+                                          : portalOk
+                                            ? 'Só é possível registrar a medição depois que o pagamento aparecer na contabilidade'
+                                            : 'Portal da transparência indisponível agora; tente novamente mais tarde'
+                                      }
+                                    >
+                                      <CircleDollarSign className="w-3.5 h-3.5 mr-1" />
+                                      {consultandoPortal ? 'Consultando pagamento...' : 'Sem pagamento na contabilidade'}
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                                    onClick={() => { setModalAtenderFora(req); setMotivoAtenderFora(''); setErroAtenderFora(null) }}
+                                  >
+                                    <AlertTriangle className="w-3.5 h-3.5 mr-1" /> Atendida fora do sistema
+                                  </Button>
+                                </>
+                              )
+                            })()}
                           </div>
                         </div>
                       )}
@@ -1044,6 +1125,15 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ModalMedicaoRetroativa
+        contratoId={contratoId}
+        open={!!modalRetroativa}
+        onOpenChange={(aberto) => { if (!aberto) setModalRetroativa(null) }}
+        onSucesso={() => { setModalRetroativa(null); carregarDados(); carregarPagamentosDasOrdens() }}
+        ordemInicial={modalRetroativa?.requisicaoId}
+        pagamentoInicial={modalRetroativa?.pagamento}
+      />
+
     </div>
   )
 }

@@ -34,6 +34,7 @@ import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { FatorTransparenciaService } from './fator-transparencia.service';
+import { casarPagamentosComOrdens, ROTULO_CRITERIO } from './ordem-paga.util';
 import { ConciliacaoFatorService } from './conciliacao-fator.service';
 import { ConciliacaoFatorScheduler } from './conciliacao-fator.scheduler';
 import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
@@ -1723,6 +1724,119 @@ export class ModalidadesContratoController {
     const orgaoId = this.getOrgaoId(user, req.query?.orgaoId);
     const enviadas = await this.conciliacaoScheduler.verificarOrgao(orgaoId);
     return { notificacoes_enviadas: enviadas };
+  }
+
+  /**
+   * OS autorizadas sem medição, com o pagamento correspondente no portal da
+   * transparência quando existir. É o que libera o lançamento retroativo da
+   * medição: sem pagamento confirmado, o sistema não registra a execução.
+   */
+  @Get(':contratoId/ordens-sem-medicao-pagas')
+  async ordensSemMedicaoPagas(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      select: [
+        'id',
+        'orgao_id',
+        'numero_contrato',
+        'fornecedor_cnpj',
+        'ano',
+        'processo_licitatorio_portal',
+      ],
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Você não tem acesso a este contrato');
+    }
+
+    const contexto = await this.medicaoService.getContextoMedicaoRetroativa(
+      contratoId,
+      orgaoId,
+    );
+    const ordens = contexto.ordens_sem_medicao;
+    if (!ordens.length) {
+      return { ordens: [], consulta_portal_ok: true };
+    }
+
+    // Empenhos anotados em cada OS (o portal nem sempre cita o nº da OS)
+    const requisicoes = await this.requisicaoRepository.find({
+      where: { id: In(ordens.map((o) => o.id)) },
+      select: ['id', 'numeros_empenhos'],
+    });
+    const empenhosPorOrdem = new Map<string, string[]>();
+    for (const r of requisicoes) {
+      const bruto: any = (r as any).numeros_empenhos;
+      const lista = Array.isArray(bruto)
+        ? bruto
+        : typeof bruto === 'string' && bruto.trim()
+          ? (() => {
+              try {
+                const json = JSON.parse(bruto);
+                return Array.isArray(json) ? json : [bruto];
+              } catch {
+                return bruto.split(/[;,]/);
+              }
+            })()
+          : [];
+      empenhosPorOrdem.set(r.id, lista.map((v: any) => String(v)).filter(Boolean));
+    }
+
+    let pagamentos: any[] = [];
+    let consultaOk = true;
+    try {
+      const empenhos = await this.fatorTransparencia.buscarEmpenhos({
+        nContrato: contrato.numero_contrato,
+        cpfcnpj: contrato.fornecedor_cnpj,
+        ano: contrato.ano ?? new Date().getFullYear(),
+        processoLicitatorioPortal: contrato.processo_licitatorio_portal ?? undefined,
+      });
+      pagamentos = empenhos.filter(
+        (e) => e.fase_tipo === 'PAGAMENTO' && e.confirmacao !== 'NAO_CONFIRMADO',
+      );
+    } catch (err: any) {
+      consultaOk = false;
+      console.warn(
+        `[ordens-sem-medicao-pagas] Portal da transparência indisponível para o contrato ${contrato.numero_contrato}: ${err?.message}`,
+      );
+    }
+
+    const casados = casarPagamentosComOrdens(
+      ordens.map((o) => ({
+        id: o.id,
+        numero: o.numero,
+        valor: Number(o.valor_total_estimado || 0),
+        numeros_empenhos: empenhosPorOrdem.get(o.id) || [],
+      })),
+      pagamentos.map((p) => ({
+        numero_empenho: p.numero_empenho,
+        data: p.data,
+        valor: Number(p.valor || 0),
+        os_citada: p.os_citada,
+        bem_servico: p.bem_servico,
+      })),
+    );
+
+    return {
+      consulta_portal_ok: consultaOk,
+      ordens: ordens.map((o) => {
+        const pagamento = casados.get(o.id) || null;
+        return {
+          requisicao_id: o.id,
+          numero: o.numero,
+          data_solicitacao: o.data_solicitacao,
+          valor_total_estimado: o.valor_total_estimado,
+          periodo_sugerido: o.periodo_sugerido,
+          pagamento: pagamento
+            ? { ...pagamento, motivo: ROTULO_CRITERIO[pagamento.criterio] }
+            : null,
+        };
+      }),
+    };
   }
 
   @Get(':contratoId/empenhos')
