@@ -243,6 +243,10 @@ function derivarCompetencia(periodoInicio: string): string {
 
 /** Declaração do signatário dentro da caixa: tamanho da fonte (pt) e entrelinha (mm). */
 const DECLARACAO_FONTE = 6.8;
+
+/** Termo do fiscal e do engenheiro: dão ciência e atestam para pagamento. */
+export const DECLARACAO_CIENCIA =
+  'Declaro ciência da execução dos serviços descritos neste documento e atesto o seu recebimento para fins de pagamento.';
 const DECLARACAO_ENTRELINHA = 3.2;
 
 /** Exportada também para o boletim de obra modelo 2 (mesmo quadro, mesmas regras). */
@@ -1240,6 +1244,20 @@ export async function gerarBoletimMedicaoPdf(
       declaracao:
         'Declaro para os devidos fins de direito a veracidade das informações constantes neste documento.',
     },
+    ...(aEng
+      ? [{
+          titulo: 'ENGENHEIRO RESPONSÁVEL TÉCNICO',
+          cor: [124, 58, 173] as [number, number, number],
+          nome: aEng?.nome || '',
+          identificacao: aEng?.cpf ? `CPF: ${aEng.cpf}` : '',
+          cargo: aEng?.crea ? `CREA: ${aEng.crea}` : (aEng?.cargo || ''),
+          dataHora: '', // assinatura do engenheiro exibida sem data/hora
+          pendente: !aEng,
+          codigoValidacao: aEng?.codigo_validacao,
+          declaracao: DECLARACAO_CIENCIA,
+        }]
+      : []),
+    // Fiscais juntos, lado a lado: o primeiro que assinou e os demais
     {
       titulo: 'FISCAL DE CONTRATO',
       cor: [0, 100, 50] as [number, number, number],
@@ -1252,10 +1270,8 @@ export async function gerarBoletimMedicaoPdf(
       dataHora: aFisc?.data_hora || '',
       pendente: !aFisc,
       codigoValidacao: aFisc?.codigo_validacao,
-      declaracao:
-        'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
+      declaracao: DECLARACAO_CIENCIA,
     },
-    // Outros fiscais que assinaram depois (ex.: engenheiro contratado para fiscalizar)
     ...((dados.assinaturas_fiscais_adicionais || []) as any[]).map((f: any) => ({
       titulo: 'FISCAL DE CONTRATO',
       cor: [0, 100, 50] as [number, number, number],
@@ -1266,21 +1282,8 @@ export async function gerarBoletimMedicaoPdf(
       dataHora: f.data_hora || '',
       pendente: false,
       codigoValidacao: f.codigo_validacao,
-      declaracao:
-        'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
+      declaracao: DECLARACAO_CIENCIA,
     })),
-    ...(aEng
-      ? [{
-          titulo: 'ENGENHEIRO RESPONSÁVEL TÉCNICO',
-          cor: [124, 58, 173] as [number, number, number],
-          nome: aEng?.nome || '',
-          identificacao: aEng?.cpf ? `CPF: ${aEng.cpf}` : '',
-          cargo: aEng?.crea ? `CREA: ${aEng.crea}` : (aEng?.cargo || ''),
-          dataHora: '', // assinatura do engenheiro exibida sem data/hora
-          pendente: !aEng,
-          codigoValidacao: aEng?.codigo_validacao,
-        }]
-      : []),
   ];
 
   const altQuadro = desenharQuadroAssinaturas(doc, y, mX, W, assinaturasArr, dados.url_validacao, qrDataUrl);

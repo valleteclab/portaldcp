@@ -11,7 +11,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as QRCode from 'qrcode';
-import { complementoFiscal, desenharQuadroAssinaturas } from './medicao-pdf-jspdf';
+import { complementoFiscal, DECLARACAO_CIENCIA, desenharQuadroAssinaturas } from './medicao-pdf-jspdf';
 import {
   itensMedidosDaEtapa,
   LinhaEtapaV2,
@@ -428,6 +428,22 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
       codigoValidacao: aForn?.codigo_validacao,
       declaracao: 'Declaro para os devidos fins de direito a veracidade das informações constantes neste documento.',
     },
+    ...(aEng
+      ? [
+          {
+            titulo: 'ENGENHEIRO RESPONSÁVEL TÉCNICO',
+            cor: [124, 58, 173] as RGB,
+            nome: aEng.nome || '',
+            identificacao: aEng.cpf ? `CPF: ${aEng.cpf}` : '',
+            cargo: aEng.crea ? `CREA: ${aEng.crea}` : aEng.cargo || '',
+            dataHora: aEng.data_hora || '',
+            pendente: false,
+            codigoValidacao: aEng.codigo_validacao,
+            declaracao: DECLARACAO_CIENCIA,
+          },
+        ]
+      : []),
+    // Fiscais juntos, lado a lado
     {
       titulo: 'FISCAL DE CONTRATO',
       cor: [0, 100, 50] as RGB,
@@ -440,8 +456,7 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
       dataHora: aFisc?.data_hora || '',
       pendente: !aFisc,
       codigoValidacao: aFisc?.codigo_validacao,
-      declaracao:
-        'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
+      declaracao: DECLARACAO_CIENCIA,
     },
     ...((dados.assinaturas_fiscais_adicionais || []) as any[]).map((f: any) => ({
       titulo: 'FISCAL DE CONTRATO',
@@ -453,25 +468,8 @@ export async function gerarBoletimObraV2Pdf({ dados, linhas }: DadosBoletimObraV
       dataHora: f.data_hora || '',
       pendente: false,
       codigoValidacao: f.codigo_validacao,
-      declaracao:
-        'Declaro que o executor atuou sob minha supervisão e, portanto, ratifico a execução das atividades conforme descrito neste documento.',
+      declaracao: DECLARACAO_CIENCIA,
     })),
-    ...(aEng
-      ? [
-          {
-            titulo: 'ENGENHEIRO RESPONSÁVEL TÉCNICO',
-            cor: [124, 58, 173] as RGB,
-            nome: aEng.nome || '',
-            identificacao: aEng.cpf ? `CPF: ${aEng.cpf}` : '',
-            cargo: aEng.crea ? `CREA: ${aEng.crea}` : aEng.cargo || '',
-            // o boletim antigo omite a data do engenheiro; aqui ela aparece,
-            // como nas demais assinaturas
-            dataHora: aEng.data_hora || '',
-            pendente: false,
-            codigoValidacao: aEng.codigo_validacao,
-          },
-        ]
-      : []),
   ];
   garantirEspaco(assinaturas.length > 3 ? 110 : 60);
   const altura = desenharQuadroAssinaturas(doc, y, mX, W, assinaturas, dados.url_validacao, qrDataUrl);
