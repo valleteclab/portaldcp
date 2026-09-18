@@ -83,11 +83,17 @@ export default function ModalMedicaoRetroativa({
   open,
   onOpenChange,
   onSucesso,
+  ordemInicial,
+  pagamentoInicial,
 }: {
   contratoId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSucesso: () => void;
+  /** Abre já com esta OS selecionada (vem da aba de requisições). */
+  ordemInicial?: string;
+  /** Pagamento do portal que liberou o lançamento, para o motivo e o valor. */
+  pagamentoInicial?: { numero_empenho: string; data: string; valor: number } | null;
 }) {
   const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -148,6 +154,21 @@ export default function ModalMedicaoRetroativa({
 
   const usaItens = contexto?.usa_itens_cronograma === true;
   const itens = useMemo(() => contexto?.itens || [], [contexto]);
+
+  // Aberto pela aba de requisições: já vem com a OS e o motivo do pagamento
+  useEffect(() => {
+    if (!open || !contexto || !ordemInicial) return;
+    aplicarOrdem(ordemInicial);
+    const os = contexto.ordens_sem_medicao.find((o) => o.id === ordemInicial);
+    if (pagamentoInicial) {
+      setMotivo(
+        `Execução paga na contabilidade sem medição no sistema: empenho ${pagamentoInicial.numero_empenho}, ` +
+          `pago em ${pagamentoInicial.data}, no valor de ${formatarMoeda(pagamentoInicial.valor)}` +
+          `${os ? `, referente à ${os.numero}` : ""}.`,
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, contexto, ordemInicial]);
 
   const aplicarOrdem = (valor: string) => {
     setRequisicaoId(valor);
