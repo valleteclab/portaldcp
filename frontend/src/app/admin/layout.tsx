@@ -19,6 +19,7 @@ import {
   Bot,
   MessageCircle,
   FlaskConical,
+  Scale,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -35,6 +36,7 @@ const menuItems = [
   { href: "/admin/fornecedores", label: "Fornecedores", icon: FileText },
   { href: "/admin/solicitacoes", label: "Solicitações", icon: FileText },
   { href: "/admin/testes", label: "Testes E2E", icon: FlaskConical },
+  { href: "/admin/conferencia-execucao", label: "Conferência contábil", icon: Scale },
   { href: "/admin/monitoramento", label: "Monitoramento", icon: Monitor },
 ]
 
