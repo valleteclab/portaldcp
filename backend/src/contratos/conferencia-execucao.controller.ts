@@ -8,7 +8,7 @@ import { ConferenciaExecucaoService } from './conferencia-execucao.service';
  * Restrito ao suporte (administrador da plataforma): mostra contratos de
  * qualquer órgão e consulta o portal da transparência.
  */
-@Controller('api/admin/conferencia-execucao')
+@Controller('admin/conferencia-execucao')
 @UseGuards(AdminGuard)
 export class ConferenciaExecucaoController {
   constructor(private readonly conferencia: ConferenciaExecucaoService) {}
