@@ -924,6 +924,33 @@ export class ModalidadesContratoController {
    * permissão especial do cancelamento/estorno.
    * POST /api/contratos/:contratoId/medicoes/retroativa
    */
+  /**
+   * Renumera as medições do contrato pela competência (depois de lançamentos
+   * retroativos). `?simular=true` devolve o que mudaria, sem alterar.
+   */
+  @Post(':contratoId/medicoes/reordenar')
+  async reordenarMedicoes(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+    @Query('simular') simular?: string,
+  ) {
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: request.user.sub },
+    });
+    if (!usuario) throw new BadRequestException('Usuário não encontrado');
+    if (!usuario.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Você não tem permissão para esta ação. Apenas usuários autorizados a cancelar/estornar podem renumerar medições.',
+      );
+    }
+    return this.medicaoService.reordenarMedicoesPorCompetencia(
+      contratoId,
+      this.getOrgaoId(request.user),
+      usuario.nome || usuario.email,
+      simular === 'true' || simular === '1',
+    );
+  }
+
   @Post(':contratoId/medicoes/retroativa')
   async registrarMedicaoRetroativa(
     @Param('contratoId') contratoId: string,

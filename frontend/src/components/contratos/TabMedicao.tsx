@@ -876,6 +876,66 @@ export default function TabMedicao({
     }
   };
 
+  /** Renumerar medições pela competência (depois de lançamentos retroativos). */
+  const [modalReordenar, setModalReordenar] = useState<
+    | null
+    | {
+        alteracoes: Array<{
+          id: string;
+          numero_atual: number;
+          numero_novo: number;
+          competencia: string | null;
+          periodo_inicio: string | null;
+          status: string;
+          valor_medido: number;
+        }>;
+        total_medicoes: number;
+      }
+  >(null);
+  const [reordenando, setReordenando] = useState(false);
+
+  const simularReordenar = async () => {
+    setReordenando(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${contratoId}/medicoes/reordenar?simular=true`,
+        { method: "POST" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Não foi possível conferir a ordem das medições");
+      if (!data.alteracoes?.length) {
+        alert("As medições já estão numeradas na ordem da competência.");
+        return;
+      }
+      setModalReordenar({ alteracoes: data.alteracoes, total_medicoes: data.total_medicoes });
+    } catch (e: any) {
+      alert(e?.message || "Não foi possível conferir a ordem das medições");
+    } finally {
+      setReordenando(false);
+    }
+  };
+
+  const aplicarReordenar = async () => {
+    setReordenando(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${contratoId}/medicoes/reordenar`,
+        { method: "POST" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Não foi possível renumerar as medições");
+      setModalReordenar(null);
+      carregarDados();
+      alert(
+        `${data.alteracoes?.length || 0} medição(ões) renumerada(s). Os boletins serão gerados de novo com a numeração nova.`,
+      );
+    } catch (e: any) {
+      alert(e?.message || "Não foi possível renumerar as medições");
+    } finally {
+      setReordenando(false);
+    }
+  };
+
   /** Boletim de obra no modelo novo (leitura). O boletim oficial não muda. */
   const [abrindoBoletimV2, setAbrindoBoletimV2] = useState<string | null>(null);
   const abrirBoletimObraV2 = async (m: Medicao) => {
@@ -3780,6 +3840,19 @@ export default function TabMedicao({
                   >
                     <History className="w-4 h-4 mr-1" />
                     Registrar medição retroativa
+                  </Button>
+                )}
+                {podeCancelarEstornar && medicoes.length > 1 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-sky-300 text-sky-700 hover:bg-sky-50"
+                    title="Renumera as medições na ordem da competência (útil depois de lançamentos retroativos)"
+                    onClick={simularReordenar}
+                    disabled={reordenando}
+                  >
+                    <ListOrdered className="w-4 h-4 mr-1" />
+                    {reordenando ? "Conferindo..." : "Reordenar por competência"}
                   </Button>
                 )}
                 <Button
@@ -9544,6 +9617,49 @@ export default function TabMedicao({
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reordenar medições pela competência (ação de suporte) */}
+      <Dialog open={!!modalReordenar} onOpenChange={(aberto) => { if (!aberto) setModalReordenar(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Reordenar medições pela competência</DialogTitle>
+            <DialogDescription>
+              A numeração passa a seguir o calendário. O acumulado de cada boletim é recalculado e os boletins são gerados de novo. Nenhum valor muda.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 overflow-y-auto rounded-md border text-sm">
+            <table className="w-full">
+              <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-left">Competência</th>
+                  <th className="px-3 py-2 text-right">Valor</th>
+                  <th className="px-3 py-2 text-right">Nº atual</th>
+                  <th className="px-3 py-2 text-right">Nº novo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modalReordenar?.alteracoes.map((a) => (
+                  <tr key={a.id} className="border-t">
+                    <td className="px-3 py-2">
+                      {a.competencia || (a.periodo_inicio ? formatarData(a.periodo_inicio) : "—")}
+                      <span className="block text-xs text-muted-foreground">{a.status}</span>
+                    </td>
+                    <td className="px-3 py-2 text-right">{formatarMoeda(a.valor_medido)}</td>
+                    <td className="px-3 py-2 text-right">{a.numero_atual}ª</td>
+                    <td className="px-3 py-2 text-right font-semibold text-sky-700">{a.numero_novo}ª</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalReordenar(null)}>Cancelar</Button>
+            <Button onClick={aplicarReordenar} disabled={reordenando}>
+              {reordenando ? "Renumerando..." : "Renumerar"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
