@@ -78,6 +78,8 @@ interface Usuario {
   cargo?: string
   matricula?: string
   portaria_fiscal?: string
+  crea?: string
+  contrato_designacao?: string
   role: 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO'
   orgao_id?: string
   orgao?: Orgao
@@ -163,6 +165,8 @@ export default function AdminUsuariosPage() {
     cargo: '',
     matricula: '',
     portaria_fiscal: '',
+    crea: '',
+    contrato_designacao: '',
     role: 'PREGOEIRO' as 'ADMIN' | 'PREGOEIRO' | 'EQUIPE_APOIO',
     orgao_id: '',
     pode_aprovar_requisicoes: false,
@@ -217,6 +221,8 @@ export default function AdminUsuariosPage() {
       cargo: '',
       matricula: '',
       portaria_fiscal: '',
+      crea: '',
+      contrato_designacao: '',
       role: 'PREGOEIRO',
       orgao_id: '',
       pode_aprovar_requisicoes: false,
@@ -244,6 +250,8 @@ export default function AdminUsuariosPage() {
       cargo: usuario.cargo || '',
       matricula: usuario.matricula || '',
       portaria_fiscal: usuario.portaria_fiscal || '',
+      crea: usuario.crea || '',
+      contrato_designacao: usuario.contrato_designacao || '',
       role: usuario.role,
       orgao_id: usuario.orgao_id || '',
       pode_aprovar_requisicoes: usuario.pode_aprovar_requisicoes || false,
@@ -1004,6 +1012,28 @@ export default function AdminUsuariosPage() {
                     value={formUsuario.portaria_fiscal}
                     onChange={(e) => setFormUsuario({ ...formUsuario, portaria_fiscal: e.target.value })}
                     placeholder="Ex: 102/2025"
+                  />
+                </div>
+                <div>
+                  <Label>
+                    CREA / CAU
+                    <span className="ml-1 text-xs text-gray-400 font-normal">(opcional, sai na assinatura do boletim)</span>
+                  </Label>
+                  <Input
+                    value={formUsuario.crea}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, crea: e.target.value })}
+                    placeholder="Ex: 3000099641BA"
+                  />
+                </div>
+                <div>
+                  <Label>
+                    Contrato de designação
+                    <span className="ml-1 text-xs text-gray-400 font-normal">(opcional, para fiscal contratado)</span>
+                  </Label>
+                  <Input
+                    value={formUsuario.contrato_designacao}
+                    onChange={(e) => setFormUsuario({ ...formUsuario, contrato_designacao: e.target.value })}
+                    placeholder="Ex: 014/2026"
                   />
                 </div>
               </div>

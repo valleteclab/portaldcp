@@ -260,6 +260,8 @@ export function desenharQuadroAssinaturas(
     dataHora: string;
     pendente: boolean;
     codigoValidacao?: string;
+    /** Linha extra sob a identificação (ex.: portaria ou contrato de designação). */
+    complemento?: string;
     /** Termo que o signatário declara ao assinar (impresso dentro da caixa). */
     declaracao?: string;
   }>,
@@ -321,6 +323,7 @@ export function desenharQuadroAssinaturas(
         + numLinhasNome * 3.1
         + (a.cargo ? 2.8 : 0)
         + (a.identificacao ? 2.8 : 0)
+        + (a.complemento ? 2.8 : 0)
         + (a.dataHora ? 2.8 : 0)   // data/hora (omitida quando vazia)
         + 2.8   // assinatura válida
         + (linhasDeclaracao.length ? 1.5 + linhasDeclaracao.length * DECLARACAO_ENTRELINHA : 0)
@@ -362,6 +365,7 @@ export function desenharQuadroAssinaturas(
       doc.setTextColor(55, 65, 81);
       if (a.cargo) { doc.text(a.cargo, bx + 3, ly); ly += 2.8; }
       if (a.identificacao) { doc.text(a.identificacao, bx + 3, ly); ly += 2.8; }
+      if (a.complemento) { doc.text(a.complemento, bx + 3, ly); ly += 2.8; }
       if (a.dataHora) { doc.text(`Data/Hora: ${a.dataHora}`, bx + 3, ly); ly += 2.8; }
 
       doc.setFont('helvetica', 'bold');
@@ -434,6 +438,14 @@ export function desenharQuadroAssinaturas(
   }
 
   return dy;
+}
+
+/** Linha extra do fiscal: contrato que o designou ou a portaria de designação. */
+export function complementoFiscal(a: any): string {
+  if (!a) return '';
+  if (a.contrato_designacao) return `Contrato: ${a.contrato_designacao}`;
+  if (a.portaria) return `Portaria: ${a.portaria}`;
+  return '';
 }
 
 // ---- Função principal ----
@@ -1232,7 +1244,10 @@ export async function gerarBoletimMedicaoPdf(
       titulo: 'FISCAL DE CONTRATO',
       cor: [0, 100, 50] as [number, number, number],
       nome: aFisc?.nome || '',
-      identificacao: aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '',
+      identificacao: [aFisc?.cpf ? `CPF: ${aFisc.cpf}` : '', aFisc?.crea ? `CREA: ${aFisc.crea}` : '']
+        .filter(Boolean)
+        .join('   '),
+      complemento: complementoFiscal(aFisc),
       cargo: aFisc?.cargo || '',
       dataHora: aFisc?.data_hora || '',
       pendente: !aFisc,
@@ -1245,7 +1260,8 @@ export async function gerarBoletimMedicaoPdf(
       titulo: 'FISCAL DE CONTRATO',
       cor: [0, 100, 50] as [number, number, number],
       nome: f.nome || '',
-      identificacao: f.cpf ? `CPF: ${f.cpf}` : '',
+      identificacao: [f.cpf ? `CPF: ${f.cpf}` : '', f.crea ? `CREA: ${f.crea}` : ''].filter(Boolean).join('   '),
+      complemento: complementoFiscal(f),
       cargo: f.cargo || '',
       dataHora: f.data_hora || '',
       pendente: false,

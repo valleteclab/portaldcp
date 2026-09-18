@@ -3824,6 +3824,25 @@ export class MedicaoService {
     );
 
     const fmtCodigo = (c: string) => c?.match(/.{1,4}/g)?.join('-') ?? c;
+
+    // CREA de quem assinou como fiscal (engenheiro contratado para fiscalizar)
+    const idsFiscais = assinaturas
+      .filter((a) => a.papel_assinante === PapelAssinante.FISCAL && a.usuario_id)
+      .map((a) => a.usuario_id as string);
+    const creaPorUsuario = new Map<string, string>();
+    const contratoDesignacaoPorUsuario = new Map<string, string>();
+    if (idsFiscais.length) {
+      const usuariosFiscais = await this.usuarioRepository.find({
+        where: { id: In(idsFiscais) },
+        select: ['id', 'crea', 'contrato_designacao'] as any,
+      });
+      for (const u of usuariosFiscais) {
+        if ((u as any).crea) creaPorUsuario.set(u.id, String((u as any).crea));
+        if ((u as any).contrato_designacao) {
+          contratoDesignacaoPorUsuario.set(u.id, String((u as any).contrato_designacao));
+        }
+      }
+    }
     // timestamp without time zone: o driver pg interpreta o valor do banco
     // como horário LOCAL do processo Node.js. Para obter o UTC real (valor
     // armazenado pelo PostgreSQL), desfazemos o offset local e depois
@@ -4450,6 +4469,8 @@ export class MedicaoService {
             cargo: asFiscal.usuario_cargo || 'Fiscal de Contrato',
             matricula: asFiscal.usuario_matricula || undefined,
             portaria: asFiscal.usuario_portaria || undefined,
+            crea: creaPorUsuario.get(asFiscal.usuario_id || '') || undefined,
+            contrato_designacao: contratoDesignacaoPorUsuario.get(asFiscal.usuario_id || '') || undefined,
             data_hora: fmtDataBR(asFiscal.data_assinatura),
             codigo_validacao: fmtCodigo(asFiscal.codigo_validacao),
           }
@@ -4463,6 +4484,8 @@ export class MedicaoService {
           cargo: a.usuario_cargo || 'Fiscal de Contrato',
           matricula: a.usuario_matricula || undefined,
           portaria: a.usuario_portaria || undefined,
+          crea: creaPorUsuario.get(a.usuario_id || '') || undefined,
+          contrato_designacao: contratoDesignacaoPorUsuario.get(a.usuario_id || '') || undefined,
           data_hora: fmtDataBR(a.data_assinatura),
           codigo_validacao: fmtCodigo(a.codigo_validacao),
         })),

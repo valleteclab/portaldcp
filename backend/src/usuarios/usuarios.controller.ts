@@ -35,6 +35,8 @@ export class UsuariosController {
       cargo?: string;
       matricula?: string;
       portaria_fiscal?: string;
+      crea?: string;
+      contrato_designacao?: string;
       role?: RoleUsuario;
       orgao_id?: string;
       pode_receber_patrimonio?: boolean;
@@ -119,6 +121,8 @@ export class UsuariosController {
       cargo: string;
       matricula: string;
       portaria_fiscal: string;
+      crea: string;
+      contrato_designacao: string;
       role: RoleUsuario;
       orgao_id: string;
       ativo: boolean;
