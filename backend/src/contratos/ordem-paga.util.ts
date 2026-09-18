@@ -27,6 +27,51 @@ export interface OrdemSemMedicao {
 
 export type CriterioPagamento = 'OS_CITADA' | 'EMPENHO_DA_OS' | 'VALOR';
 
+const cent = (v: unknown) => Math.round((Number(v) || 0) * 100);
+
+export interface MedicaoAprovadaSimples {
+  /** Competência no formato 'AAAA-MM' (mês do período medido). */
+  mes: string;
+  valor: number;
+}
+
+/**
+ * Tira da lista os pagamentos que uma medição aprovada já explica: mesmo valor
+ * e pagamento no mês da competência ou nos dois meses seguintes (a liquidação
+ * costuma vir depois). Sem isso, o empenho que pagou a medição de agosto
+ * aparece como "pagamento sem medição" na OS do mês seguinte, e o sistema
+ * ofereceria lançar a mesma execução duas vezes.
+ */
+export function pagamentosNaoExplicados(
+  pagamentos: PagamentoPortal[],
+  medicoes: MedicaoAprovadaSimples[],
+): PagamentoPortal[] {
+  const usados = new Set<number>();
+  const mesDoPagamento = (data?: string) => {
+    const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    return m ? `${m[3]}-${m[2]}` : '';
+  };
+  const emAte = (mesMedicao: string, mesPagamento: string, meses: number) => {
+    if (!mesMedicao || !mesPagamento) return false;
+    const [am, mm] = mesMedicao.split('-').map(Number);
+    const [ap, mp] = mesPagamento.split('-').map(Number);
+    const diff = (ap - am) * 12 + (mp - mm);
+    return diff >= 0 && diff <= meses;
+  };
+  for (const medicao of medicoes) {
+    const alvo = cent(medicao.valor);
+    if (alvo <= 0) continue;
+    const i = pagamentos.findIndex(
+      (p, indice) =>
+        !usados.has(indice) &&
+        cent(p.valor) === alvo &&
+        emAte(medicao.mes, mesDoPagamento(p.data), 2),
+    );
+    if (i >= 0) usados.add(i);
+  }
+  return pagamentos.filter((_p, indice) => !usados.has(indice));
+}
+
 export interface EvidenciaPagamento {
   criterio: CriterioPagamento;
   numero_empenho: string;
@@ -56,8 +101,6 @@ function mesmoNumeroOs(a: string, b: string): boolean {
   if (na !== nb) return false;
   return !aa || !ab || aa.slice(-2) === ab.slice(-2);
 }
-
-const cent = (v: unknown) => Math.round((Number(v) || 0) * 100);
 
 /** Nº de empenho vem como "385/2026", "385-2026" ou "385": mesma regra da OS. */
 const normalizarEmpenho = normalizarNumeroOs;

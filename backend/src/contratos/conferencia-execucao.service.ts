@@ -24,7 +24,7 @@ import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { ItemCronograma } from './entities/item-cronograma.entity';
 import { Requisicao, StatusRequisicao, TipoRequisicao } from '../almoxarifado/entities/requisicao.entity';
 import { EmpenhoFator, FatorTransparenciaService } from './fator-transparencia.service';
-import { casarPagamentosComOrdens, ROTULO_CRITERIO } from './ordem-paga.util';
+import { casarPagamentosComOrdens, pagamentosNaoExplicados, ROTULO_CRITERIO } from './ordem-paga.util';
 
 export type SituacaoConferencia =
   | 'OK'
@@ -350,6 +350,15 @@ export class ConferenciaExecucaoService {
     });
     const comMedicao = new Set(medicoes.map((m) => m.requisicao_id).filter(Boolean));
     const semMedicao = requisicoes.filter((r) => !comMedicao.has(r.id));
+    const naoExplicados = pagamentosNaoExplicados(
+      pagamentos.filter((p) => p.confirmacao !== 'NAO_CONFIRMADO' && !p.ciclo_anterior),
+      medicoes
+        .filter((m) => m.status === StatusMedicao.APROVADA)
+        .map((m) => ({
+          mes: String(m.periodo_inicio || '').slice(0, 7),
+          valor: Number(m.valor_medido || 0),
+        })),
+    );
     const casados = casarPagamentosComOrdens(
       semMedicao.map((r) => ({
         id: r.id,
@@ -359,7 +368,7 @@ export class ConferenciaExecucaoService {
           ? ((r as any).numeros_empenhos as string[])
           : [],
       })),
-      pagamentos.filter((p) => p.confirmacao !== 'NAO_CONFIRMADO'),
+      naoExplicados,
     );
 
     return {

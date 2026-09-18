@@ -1,4 +1,4 @@
-import { casarPagamentosComOrdens, normalizarNumeroOs } from './ordem-paga.util';
+import { casarPagamentosComOrdens, normalizarNumeroOs, pagamentosNaoExplicados } from './ordem-paga.util';
 
 const pag = (numero_empenho: string, valor: number, extras: any = {}) => ({
   numero_empenho,
@@ -78,5 +78,43 @@ describe('ordem-paga.util', () => {
       [pag('455-2026', -1500, { os_citada: 'OS-0242/2026' })],
     );
     expect(r.get('a')).toBeNull();
+  });
+
+  it('pagamento já explicado por medição aprovada sai da lista (caso 088/2021)', () => {
+    const pagos = [pag('45-2026', 4000, { data: '21/08/2026' })];
+    const sobra = pagamentosNaoExplicados(pagos, [{ mes: '2026-08', valor: 4000 }]);
+    expect(sobra.length).toBe(0);
+  });
+
+  it('a medição de agosto explica o pagamento de setembro (liquidação vem depois)', () => {
+    const pagos = [pag('46-2026', 4000, { data: '21/09/2026' })];
+    expect(pagamentosNaoExplicados(pagos, [{ mes: '2026-08', valor: 4000 }]).length).toBe(0);
+  });
+
+  it('pagamento anterior à competência não é explicado por ela', () => {
+    const pagos = [pag('44-2026', 4000, { data: '10/07/2026' })];
+    expect(pagamentosNaoExplicados(pagos, [{ mes: '2026-08', valor: 4000 }]).length).toBe(1);
+  });
+
+  it('cada medição explica um pagamento só', () => {
+    const pagos = [
+      pag('45-2026', 4000, { data: '21/08/2026' }),
+      pag('46-2026', 4000, { data: '25/08/2026' }),
+    ];
+    const sobra = pagamentosNaoExplicados(pagos, [{ mes: '2026-08', valor: 4000 }]);
+    expect(sobra.length).toBe(1);
+    expect(sobra[0].numero_empenho).toBe('46-2026');
+  });
+
+  it('pagamento com valor diferente da medição não é explicado', () => {
+    const pagos = [pag('45-2026', 5000, { data: '21/08/2026' })];
+    expect(pagamentosNaoExplicados(pagos, [{ mes: '2026-08', valor: 4000 }]).length).toBe(1);
+  });
+
+  it('a liquidação pode vir até dois meses depois da competência', () => {
+    const pagos = [pag('45-2026', 4000, { data: '10/10/2026' })];
+    expect(pagamentosNaoExplicados(pagos, [{ mes: '2026-08', valor: 4000 }]).length).toBe(0);
+    const tarde = [pag('45-2026', 4000, { data: '10/12/2026' })];
+    expect(pagamentosNaoExplicados(tarde, [{ mes: '2026-08', valor: 4000 }]).length).toBe(1);
   });
 });
