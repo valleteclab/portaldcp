@@ -34,7 +34,7 @@ import { AtestacaoService } from './atestacao.service';
 import { LicencaControleService } from './licenca-controle.service';
 import { OrdemServicoContratoService } from './ordem-servico-contrato.service';
 import { FatorTransparenciaService } from './fator-transparencia.service';
-import { casarPagamentosComOrdens, ROTULO_CRITERIO } from './ordem-paga.util';
+import { casarPagamentosComOrdens, pagamentosNaoExplicados, ROTULO_CRITERIO } from './ordem-paga.util';
 import { ConciliacaoFatorService } from './conciliacao-fator.service';
 import { ConciliacaoFatorScheduler } from './conciliacao-fator.scheduler';
 import { OrdemServicoContrato, StatusOrdemServico } from './entities/ordem-servico-contrato.entity';
@@ -1822,8 +1822,27 @@ export class ModalidadesContratoController {
         ano: contrato.ano ?? new Date().getFullYear(),
         processoLicitatorioPortal: contrato.processo_licitatorio_portal ?? undefined,
       });
-      pagamentos = empenhos.filter(
+      const todos = empenhos.filter(
         (e) => e.fase_tipo === 'PAGAMENTO' && e.confirmacao !== 'NAO_CONFIRMADO',
+      );
+      // Tira o que uma medição aprovada já explica: senão o empenho que pagou a
+      // medição do mês aparece como "pagamento sem medição" na OS seguinte.
+      const aprovadas = await this.medicaoRepository.find({
+        where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+        select: ['periodo_inicio', 'valor_medido'] as any,
+      });
+      pagamentos = pagamentosNaoExplicados(
+        todos.map((e) => ({
+          numero_empenho: e.numero_empenho,
+          data: e.data,
+          valor: Number(e.valor || 0),
+          os_citada: e.os_citada,
+          bem_servico: e.bem_servico,
+        })),
+        aprovadas.map((m) => ({
+          mes: String(m.periodo_inicio || '').slice(0, 7),
+          valor: Number(m.valor_medido || 0),
+        })),
       );
     } catch (err: any) {
       consultaOk = false;
@@ -1839,13 +1858,7 @@ export class ModalidadesContratoController {
         valor: Number(o.valor_total_estimado || 0),
         numeros_empenhos: empenhosPorOrdem.get(o.id) || [],
       })),
-      pagamentos.map((p) => ({
-        numero_empenho: p.numero_empenho,
-        data: p.data,
-        valor: Number(p.valor || 0),
-        os_citada: p.os_citada,
-        bem_servico: p.bem_servico,
-      })),
+      pagamentos,
     );
 
     return {
