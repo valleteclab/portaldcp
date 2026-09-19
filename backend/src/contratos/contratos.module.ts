@@ -1,3 +1,6 @@
+import { ConciliacaoPagamento } from './entities/conciliacao-pagamento.entity';
+import { ConciliacaoPagamentoService } from './conciliacao-pagamento.service';
+import { ConciliacaoPagamentoController } from './conciliacao-pagamento.controller';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HttpModule } from '@nestjs/axios';
@@ -94,7 +97,7 @@ import { MedicaoEquipeService } from './medicao-equipe.service';
       MedicaoChatSession, AtualizacaoSistema, AtualizacaoLida,
       Proposta, PropostaItem,
       TabelaReferenciaPreco, ItemTabelaReferencia, Notificacao, PreOsPublicidade, RequisicaoItemOS,
-      MedicaoEquipe, MedicaoEquipeFuncionario,
+      MedicaoEquipe, MedicaoEquipeFuncionario, ConciliacaoPagamento,
     ]),
     NotificacoesModule,
     UploadModule,
@@ -106,8 +109,8 @@ import { MedicaoEquipeService } from './medicao-equipe.service';
     WhatsAppModule,
     PortalAssinaturasModule,
   ],
-  controllers: [ConferenciaExecucaoController, ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, PreOsFornecedorController, PreOsOrgaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
-  providers: [ContratosService, MedicaoService, MedicaoEquipeService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, PreOsPublicidadeService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, ConferenciaExecucaoService, XmlNfeParserService, AtualizacoesService],
+  controllers: [ConciliacaoPagamentoController, ConferenciaExecucaoController, ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, PreOsFornecedorController, PreOsOrgaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
+  providers: [ConciliacaoPagamentoService, ContratosService, MedicaoService, MedicaoEquipeService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, PreOsPublicidadeService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, ConferenciaExecucaoService, XmlNfeParserService, AtualizacoesService],
   exports: [ContratosService, MedicaoService, MedicaoEquipeService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, PortalTransparenciaService, FatorTransparenciaService]
 })
 export class ContratosModule {}

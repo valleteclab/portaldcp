@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import axios from 'axios';
 import { SystemConfigService } from '../system-config/system-config.service';
 
@@ -170,9 +170,12 @@ export class FatorTransparenciaService {
     fornecedor?: string;
     /** No do processo licitatorio como aparece no portal (ex: "006-2025-PE") */
     processoLicitatorioPortal?: string;
+    /** Conciliação não pode tratar falha da fonte como ausência de pagamentos. */
+    exigirConsultaCompleta?: boolean;
   }): Promise<EmpenhoFator[]> {
     const orgId = await this.systemConfig.getValue('FATOR_TRANSPARENCIA_ID');
     if (!orgId) {
+      if (params.exigirConsultaCompleta) throw new ServiceUnavailableException('Consulta contábil não configurada.');
       this.logger.warn(
         'FATOR_TRANSPARENCIA_ID não configurado em system_config',
       );
@@ -202,7 +205,7 @@ export class FatorTransparenciaService {
     const paramsSemContrato = { ...params, nContrato: '' };
 
     const resultadosPorAno = await Promise.all(
-      anos.map((ano) => this.buscarPorAno(orgId, paramsSemContrato, ano)),
+      anos.map((ano) => this.buscarPorAno(orgId, paramsSemContrato, ano, params.exigirConsultaCompleta)),
     );
 
     // Mescla, deduplica e CLASSIFICA (não descarta) pelo número de contrato
@@ -216,6 +219,9 @@ export class FatorTransparenciaService {
 
     const vistos = new Set<string>();
     const unicos = todos.filter((e, idx) => {
+      // A conciliação precisa enxergar identidades repetidas para impedir
+      // vínculos ambíguos, em vez de ocultar uma ocorrência na deduplicação.
+      if (params.exigirConsultaCompleta) return true;
       // Chave composta: numero_liquidacao se repete entre anos (reseta a cada
       // exercício), então usamos empenho + data + fase + valor + nº para diferenciar
       const chave = `${e.numero_empenho}|${e.data}|${e.fase_tipo}|${e.numero_liquidacao || idx}|${e.valor}`;
@@ -337,6 +343,7 @@ export class FatorTransparenciaService {
     orgId: string,
     params: { nContrato?: string; cpfcnpj?: string; fornecedor?: string },
     ano: number,
+    exigirConsultaCompleta = false,
   ): Promise<EmpenhoFator[]> {
     const dataInicio = `01/01/${ano}`;
     const dataFim = `31/12/${ano}`;
@@ -379,8 +386,16 @@ export class FatorTransparenciaService {
         },
       });
 
-      return this.parsearHtml(response.data);
+      if (exigirConsultaCompleta && !/<table\b[^>]*\bid=['"]grid['"]/i.test(response.data)) {
+        throw new Error('Resposta contábil sem a tabela de despesas esperada.');
+      }
+      const registros = this.parsearHtml(response.data);
+      if (exigirConsultaCompleta && /dialog_\d+/.test(response.data) && registros.length === 0) {
+        throw new Error('Formato contábil não reconhecido.');
+      }
+      return registros;
     } catch (err) {
+      if (exigirConsultaCompleta) throw new ServiceUnavailableException(`Consulta contábil indisponível para o exercício ${ano}. Tente novamente.`);
       this.logger.error(
         `Erro ao consultar Portal Fator (ano ${ano}): ${err.message}`,
       );
