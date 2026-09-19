@@ -101,8 +101,12 @@ export class PatrimonioController {
     @Query('categoria_id') categoria_id?: string,
     @Query('setor_id') setor_id?: string,
     @Query('busca') busca?: string,
+    @Query('pagina') pagina?: string,
+    @Query('limite') limite?: string,
   ) {
     return this.patrimonioService.listarBens(orgaoId, {
+      pagina: pagina ? Number(pagina) : undefined,
+      limite: limite ? Number(limite) : undefined,
       tipo,
       status,
       categoria_id,
