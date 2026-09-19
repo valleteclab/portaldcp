@@ -16,12 +16,23 @@ function baseUrl() {
 
 // ─── BENS ──────────────────────────────────────────────
 
+export interface PaginaBens {
+  dados: any[];
+  total: number;
+  pagina: number;
+  limite: number;
+  paginas: number;
+}
+
+/** Sem `pagina`, devolve a lista inteira; com `pagina`, devolve uma PaginaBens. */
 export async function listarBens(filtros?: {
   tipo?: string;
   status?: string;
   categoria_id?: string;
   setor_id?: string;
   busca?: string;
+  pagina?: number;
+  limite?: number;
 }) {
   const params = new URLSearchParams();
   if (filtros?.tipo) params.set('tipo', filtros.tipo);
@@ -29,6 +40,8 @@ export async function listarBens(filtros?: {
   if (filtros?.categoria_id) params.set('categoria_id', filtros.categoria_id);
   if (filtros?.setor_id) params.set('setor_id', filtros.setor_id);
   if (filtros?.busca) params.set('busca', filtros.busca);
+  if (filtros?.pagina) params.set('pagina', String(filtros.pagina));
+  if (filtros?.limite) params.set('limite', String(filtros.limite));
   const qs = params.toString();
   const res = await authFetch(`${baseUrl()}${qs ? '?' + qs : ''}`);
   if (!res.ok) throw new Error('Erro ao listar bens');

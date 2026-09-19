@@ -67,6 +67,9 @@ export class PatrimonioService {
       categoria_id?: string;
       setor_id?: string;
       busca?: string;
+      /** A partir de 1. Sem página, devolve a lista inteira (etiquetas, movimentações). */
+      pagina?: number;
+      limite?: number;
     },
   ) {
     const qb = this.bemRepository
@@ -97,7 +100,17 @@ export class PatrimonioService {
     }
 
     qb.orderBy('bem.created_at', 'DESC');
-    return qb.getMany();
+
+    // Zero também pagina (vira página 1); só a ausência devolve tudo.
+    if (filtros?.pagina == null) return qb.getMany();
+
+    const limite = Math.min(Math.max(Number(filtros.limite) || 50, 1), 200);
+    const pagina = Math.max(Number(filtros.pagina) || 1, 1);
+    const [dados, total] = await qb
+      .skip((pagina - 1) * limite)
+      .take(limite)
+      .getManyAndCount();
+    return { dados, total, pagina, limite, paginas: Math.max(Math.ceil(total / limite), 1) };
   }
 
   /** Entidade crua (para editar/salvar). */

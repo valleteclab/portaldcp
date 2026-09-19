@@ -72,6 +72,10 @@ export default function PatrimonioPage() {
   const [filtroStatus, setFiltroStatus] = useState<string>("todos")
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todos")
   const [excluirDialog, setExcluirDialog] = useState<string | null>(null)
+  const [pagina, setPagina] = useState(1)
+  const [totalBens, setTotalBens] = useState(0)
+  const [paginas, setPaginas] = useState(1)
+  const LIMITE = 50
   const [importando, setImportando] = useState(false)
   const [resultadoImport, setResultadoImport] = useState<{ total: number; criados: number; atualizados: number; setores_criados?: string[]; erros: { linha: number; erro: string }[] } | null>(null)
   const inputPlanilha = useRef<HTMLInputElement>(null)
@@ -102,11 +106,13 @@ export default function PatrimonioPage() {
       if (busca) filtros.busca = busca
 
       const [bensData, categoriasData, resumoData] = await Promise.all([
-        listarBens(filtros),
+        listarBens({ ...filtros, pagina, limite: LIMITE }),
         listarCategorias(),
         relatorioResumo(),
       ])
-      setBens(bensData)
+      setBens(bensData.dados || [])
+      setTotalBens(bensData.total || 0)
+      setPaginas(bensData.paginas || 1)
       setCategorias(categoriasData)
       setResumo(resumoData)
     } catch (error) {
@@ -118,10 +124,19 @@ export default function PatrimonioPage() {
 
   useEffect(() => {
     carregarDados()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagina])
+
+  // Filtro novo recomeça da primeira página (se já está nela, recarrega aqui).
+  useEffect(() => {
+    if (pagina === 1) carregarDados()
+    else setPagina(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroTipo, filtroStatus, filtroCategoria])
 
   const handleBusca = () => {
-    carregarDados()
+    if (pagina === 1) carregarDados()
+    else setPagina(1)
   }
 
   const handleExcluir = async (id: string) => {
@@ -331,6 +346,25 @@ export default function PatrimonioPage() {
           </TableBody>
         </Table>
       </div>
+
+      {!loading && totalBens > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+          <p className="text-sm text-muted-foreground">
+            {(pagina - 1) * LIMITE + 1}–{Math.min(pagina * LIMITE, totalBens)} de {totalBens} bem(ns)
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPagina((p) => Math.max(p - 1, 1))} disabled={pagina <= 1}>
+              Anterior
+            </Button>
+            <span className="text-sm">
+              Página {pagina} de {paginas}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setPagina((p) => Math.min(p + 1, paginas))} disabled={pagina >= paginas}>
+              Próxima
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Resultado da importação */}
       <Dialog open={!!resultadoImport} onOpenChange={() => setResultadoImport(null)}>
