@@ -9,6 +9,8 @@ import { PatrimonioRelatoriosService } from './patrimonio-relatorios.service';
 import { PatrimonioInventarioService } from './patrimonio-inventario.service';
 import { PatrimonioMovimentacaoService } from './patrimonio-movimentacao.service';
 import { PatrimonioMovimentacaoController } from './patrimonio-movimentacao.controller';
+import { PatrimonioSigaController } from './patrimonio-siga.controller';
+import { PatrimonioSigaService } from './patrimonio-siga.service';
 import { MovimentacaoBem } from './entities/movimentacao-bem.entity';
 import { BemPatrimonial } from './entities/bem-patrimonial.entity';
 import { CategoriaBem } from './entities/categoria-bem.entity';
@@ -43,13 +45,14 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     ]),
     WhatsAppModule,
   ],
-  controllers: [PatrimonioController, PatrimonioInventarioController, PatrimonioMovimentacaoController, PatrimonioPublicController],
+  controllers: [PatrimonioController, PatrimonioInventarioController, PatrimonioMovimentacaoController, PatrimonioSigaController, PatrimonioPublicController],
   providers: [
     PatrimonioService,
     PatrimonioEtiquetasService,
     PatrimonioRelatoriosService,
     PatrimonioInventarioService,
     PatrimonioMovimentacaoService,
+    PatrimonioSigaService,
   ],
   exports: [PatrimonioService],
 })

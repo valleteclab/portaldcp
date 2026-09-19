@@ -43,6 +43,10 @@ export class CategoriaBem {
   @Column({ type: 'varchar', nullable: true })
   conta_contabil: string | null;
 
+  /** Tipo do bem no SIGA do TCM-BA (1–9) para os bens desta categoria. */
+  @Column({ type: 'int', nullable: true })
+  siga_tipo_bem: number | null;
+
   @CreateDateColumn()
   created_at: Date;
 

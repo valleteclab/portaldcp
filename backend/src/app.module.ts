@@ -51,6 +51,7 @@ import { FrotaModule } from './frota/frota.module';
 import { AnpModule } from './anp/anp.module';
 import { WhatsappAgentModule } from './whatsapp-agent/whatsapp-agent.module';
 import { PatrimonioModule } from './patrimonio/patrimonio.module';
+import { SigaModule } from './siga/siga.module';
 import { MedicaoIaModule } from './medicao-ia/medicao-ia.module';
 import { NfseSpedyModule } from './nfse-spedy/nfse-spedy.module';
 import { ExtModule } from './ext/ext.module';
@@ -155,6 +156,7 @@ import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-lic
     AnpModule,
     WhatsappAgentModule,
     PatrimonioModule,
+    SigaModule,
     MedicaoIaModule,
     NfseSpedyModule,
     ExtModule,

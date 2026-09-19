@@ -656,6 +656,7 @@ export class PatrimonioService {
     if (dto.vida_util_anos !== undefined) categoria.vida_util_anos = dto.vida_util_anos ? Number(dto.vida_util_anos) : null;
     if (dto.valor_residual_pct !== undefined && dto.valor_residual_pct !== null) categoria.valor_residual_pct = Number(dto.valor_residual_pct);
     if (dto.conta_contabil !== undefined) categoria.conta_contabil = dto.conta_contabil?.trim() || null;
+    if (dto.siga_tipo_bem !== undefined) categoria.siga_tipo_bem = dto.siga_tipo_bem ? Number(dto.siga_tipo_bem) : null;
   }
 
   async desativarCategoria(orgaoId: string, categoriaId: string) {

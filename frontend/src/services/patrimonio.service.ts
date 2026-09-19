@@ -472,3 +472,83 @@ export async function relatorioLocacoesVencendo() {
   if (!res.ok) throw new Error('Erro ao obter locações vencendo');
   return res.json();
 }
+
+// ─── SIGA (TCM-BA) ─────────────────────────────────────
+
+export type PendenciaSigaBem = { tipo: string; mensagem: string };
+
+export type BemSiga = {
+  id: string;
+  plaqueta: string | null;
+  descricao: string;
+  categoria_nome: string | null;
+  setor_nome: string | null;
+  responsavel_nome: string | null;
+  data_aquisicao: string | null;
+  valor_aquisicao: number | string | null;
+  siga_tipo_bem: number | null;
+};
+
+export type ResumoSigaPatrimonio = {
+  config_pendencias: string[];
+  total: number;
+  prontos: number;
+  com_pendencia: number;
+  enviados: number;
+  baixas_a_lancar: number;
+  partes_arquivo: number;
+  pendencias_por_tipo: { tipo: string; rotulo: string; quantidade: number }[];
+  tipos_bem: Record<string, string>;
+};
+
+async function sigaJson<T>(caminho: string, padrao: string, init?: RequestInit): Promise<T> {
+  const res = await authFetch(`${baseUrl()}/siga/${caminho}`, init);
+  if (!res.ok) {
+    let msg = padrao;
+    try {
+      const j = await res.json();
+      msg = Array.isArray(j.message) ? j.message.join(' ') : j.message || padrao;
+    } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+const sigaPost = (body: unknown): RequestInit => ({
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
+export const sigaPatrimonio = {
+  resumo: () => sigaJson<ResumoSigaPatrimonio>('resumo', 'Erro ao carregar o resumo do SIGA'),
+  pendencias: (tipo: string, page: number) =>
+    sigaJson<{ total: number; pagina: number; por_pagina: number; itens: (BemSiga & { pendencias: PendenciaSigaBem[] })[] }>(
+      `pendencias?page=${page}${tipo ? `&tipo=${encodeURIComponent(tipo)}` : ''}`,
+      'Erro ao carregar as pendências',
+    ),
+  sugestoes: (page: number, comSugestao?: boolean) =>
+    sigaJson<{ total_sem_tipo: number; total_com_sugestao: number; total: number; pagina: number; por_pagina: number; itens: (BemSiga & { sugestao: number | null })[] }>(
+      `classificacao/sugestoes?page=${page}${comSugestao === undefined ? '' : `&com_sugestao=${comSugestao}`}`,
+      'Erro ao carregar as sugestões de tipo',
+    ),
+  aplicarClassificacao: (itens: { bem_id: string; siga_tipo_bem: number | null }[]) =>
+    sigaJson<{ atualizados: number }>('classificacao/aplicar', 'Erro ao aplicar a classificação', sigaPost({ itens })),
+  classificarCategoria: (categoriaId: string, siga_tipo_bem: number | null) =>
+    sigaJson<any>(`classificacao/categorias/${categoriaId}`, 'Erro ao salvar o tipo da categoria', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siga_tipo_bem }),
+    }),
+  aplicarResponsavelPorSetor: (dados: { setor_id: string; nome: string; cpf: string; somente_sem_responsavel: boolean }) =>
+    sigaJson<{ atualizados: number }>('responsaveis/aplicar-por-setor', 'Erro ao aplicar o responsável', sigaPost(dados)),
+  idsArquivo: () => sigaJson<{ total: number; bem_ids: string[] }>('arquivo/ids', 'Erro ao listar os bens do arquivo'),
+  urlArquivo: () => `${baseUrl()}/siga/arquivo`,
+  marcarEnviados: (bem_ids: string[]) =>
+    sigaJson<{ marcados: number }>('marcar-enviados', 'Erro ao marcar como enviados', sigaPost({ bem_ids })),
+  baixasALancar: () =>
+    sigaJson<(BemSiga & { data_baixa: string; motivo_baixa: string | null; siga_enviado_em: string })[]>('baixas-a-lancar', 'Erro ao carregar as baixas'),
+  marcarBaixas: (bem_ids: string[]) =>
+    sigaJson<{ marcados: number }>('baixas-a-lancar/marcar', 'Erro ao marcar a baixa', sigaPost({ bem_ids })),
+  caminhoInventarioAnual: (ano: number) => `siga/inventario-anual?ano=${ano}`,
+};
