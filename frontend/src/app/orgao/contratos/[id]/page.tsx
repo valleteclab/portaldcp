@@ -60,6 +60,7 @@ import {
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
 import TabMedicao from '@/components/contratos/TabMedicao'
+import ConciliacaoPagamentos from '@/components/contratos/ConciliacaoPagamentos'
 import TabAtestacao from '@/components/contratos/TabAtestacao'
 import TabLicencas from '@/components/contratos/TabLicencas'
 import TabOrdensServico from '@/components/contratos/TabOrdensServico'
@@ -2589,6 +2590,7 @@ export default function DetalheContratoOrgaoPage() {
         </TabsContent>
 
         <TabsContent value="empenhos" className="space-y-4">
+          <ConciliacaoPagamentos contratoId={contrato.id} />
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
