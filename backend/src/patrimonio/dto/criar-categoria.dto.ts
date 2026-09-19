@@ -21,4 +21,11 @@ export class CriarCategoriaDto {
   @IsOptional()
   @IsString()
   conta_contabil?: string | null;
+
+  /** Tipo do bem no SIGA do TCM-BA (1–9); vazio = sem mapeamento. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9)
+  siga_tipo_bem?: number | null;
 }

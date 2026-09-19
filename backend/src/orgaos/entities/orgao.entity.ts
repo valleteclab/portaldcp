@@ -102,6 +102,23 @@ export class Orgao {
   @Column({ nullable: true })
   pncp_codigo_unidade: string;
 
+  // SIGA (TCM-BA): códigos usados nos arquivos de importação
+  /** cd_Unidade — código do jurisdicionado no SIGA (até 4 dígitos). */
+  @Column({ type: 'varchar', length: 4, nullable: true })
+  siga_codigo_unidade: string | null;
+
+  /** cd_Órgão do orçamento (até 4 dígitos). */
+  @Column({ type: 'varchar', length: 4, nullable: true })
+  siga_codigo_orgao: string | null;
+
+  /** cd_UnidadeOrcamentaria (até 4 dígitos). */
+  @Column({ type: 'varchar', length: 4, nullable: true })
+  siga_codigo_unidade_orcamentaria: string | null;
+
+  /** Início do uso do SIGA pelo órgão: bens anteriores vão com "Anterior SIGA" = Sim. */
+  @Column({ type: 'date', nullable: true })
+  siga_data_inicio: string | null;
+
   @Column({ default: false })
   ativo: boolean;
 

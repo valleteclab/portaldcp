@@ -60,6 +60,18 @@ export class CriarBemDto {
   @IsString()
   responsavel_cargo?: string;
 
+  /** CPF do responsável (exigido no arquivo do SIGA/TCM-BA). */
+  @IsOptional()
+  @IsString()
+  responsavel_cpf?: string | null;
+
+  /** Tipo do bem no SIGA (1–9); vazio usa o da categoria. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9)
+  siga_tipo_bem?: number | null;
+
   @IsOptional()
   @IsString()
   marca?: string;

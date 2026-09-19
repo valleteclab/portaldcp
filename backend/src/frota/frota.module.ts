@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FrotaController } from './frota.controller';
 import { FrotaPublicController } from './frota-public.controller';
+import { FrotaSigaController } from './frota-siga.controller';
 import { FrotaService } from './frota.service';
 import { FrotaAuthService } from './frota-auth.service';
 import { FrotaNotificacaoService } from './frota-notificacao.service';
@@ -28,7 +29,7 @@ import { ContratosModule } from '../contratos/contratos.module';
     AuthModule,      // fornece JwtService
     ContratosModule, // fornece acesso a contratos existentes
   ],
-  controllers: [FrotaController, FrotaPublicController],
+  controllers: [FrotaController, FrotaSigaController, FrotaPublicController],
   providers: [FrotaService, FrotaAuthService, FrotaNotificacaoService],
   exports: [FrotaService, FrotaAuthService],
 })

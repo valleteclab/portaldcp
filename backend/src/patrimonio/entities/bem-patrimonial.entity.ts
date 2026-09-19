@@ -79,6 +79,10 @@ export class BemPatrimonial {
   @Column({ nullable: true })
   responsavel_cargo: string;
 
+  /** CPF do responsável (só dígitos) — obrigatório no arquivo do SIGA (TCM-BA). */
+  @Column({ type: 'varchar', length: 14, nullable: true })
+  responsavel_cpf: string | null;
+
   // ─── Aquisição / identificação ────────────────────────────────────
   @Column({ type: 'varchar', nullable: true })
   marca: string | null;
@@ -178,6 +182,19 @@ export class BemPatrimonial {
 
   @Column({ type: 'enum', enum: StatusBem, default: StatusBem.ATIVO })
   status: StatusBem;
+
+  // ─── SIGA (TCM-BA) ────────────────────────────────────────────────────
+  /** Tipo do bem no SIGA (1–9); quando nulo, vale o da categoria. */
+  @Column({ type: 'int', nullable: true })
+  siga_tipo_bem: number | null;
+
+  /** Quando o bem foi confirmado como importado no SIGA Captura. */
+  @Column({ type: 'timestamp', nullable: true })
+  siga_enviado_em: Date | null;
+
+  /** Quando a baixa foi lançada (digitada) na tela do SIGA. */
+  @Column({ type: 'timestamp', nullable: true })
+  siga_baixa_lancada_em: Date | null;
 
   @Column({ type: 'text', nullable: true })
   observacoes: string;
