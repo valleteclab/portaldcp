@@ -94,6 +94,7 @@ import {
 import { gerarBoletimObraV2Pdf } from '../assinaturas/boletim-obra-v2-pdf';
 import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
 import { literalDataAssinatura } from './data-assinatura.util';
+import { textoPeriodoBoletim } from './competencia-boletim.util';
 import { renumerarPorCompetencia } from './ordem-medicoes.util';
 @Injectable()
 export class MedicaoService {
@@ -4418,6 +4419,19 @@ export class MedicaoService {
       // Quando true (flag do contrato), o campo "Período" do boletim mostra a competência gravada
       boletim_periodo_competencia: !!(contrato as any)
         .boletim_periodo_competencia,
+      // Texto pronto do campo Período: o mês sai do período da medição, não do
+      // campo digitado pelo fornecedor (que já veio com mês trocado).
+      periodo_texto: textoPeriodoBoletim(
+        !!(contrato as any).boletim_periodo_competencia,
+        medicao.periodo_inicio,
+        medicao.periodo_fim,
+        medicao.competencia,
+        (d) => {
+          const t = String(d ?? '').slice(0, 10);
+          const m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          return m ? `${m[3]}/${m[2]}/${m[1]}` : '-';
+        },
+      ),
       boletim_data_emissao: medicao.boletim_data_emissao || undefined,
       // Usa o total recomputado dos itens (produtoQuantidadeValorUnitarioCentavos) quando há itens,
       // evitando que o DECIMAL(15,2) do banco (que arredonda) apareça errado no PDF.

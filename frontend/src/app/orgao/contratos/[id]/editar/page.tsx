@@ -92,6 +92,7 @@ export default function EditarContratoPage() {
     exige_garantia: false, percentual_garantia: '', tipo_garantia: '', observacoes: '',
     modalidade_licitacao: '',
     boletim_por_quantidade: false,
+    boletim_periodo_competencia: false,
     arredondar_calculo: true,
     exige_relacao_funcionarios: false,
     lote_relacao_funcionarios: '',
@@ -166,6 +167,7 @@ export default function EditarContratoPage() {
           observacoes: contrato.observacoes || '',
           modalidade_licitacao: contrato.licitacao?.modalidade || contrato.modalidade_licitacao || '__NONE__',
           boletim_por_quantidade: contrato.boletim_por_quantidade || false,
+          boletim_periodo_competencia: contrato.boletim_periodo_competencia || false,
           arredondar_calculo: contrato.arredondar_calculo ?? true,
           exige_relacao_funcionarios:
             contrato.exige_relacao_funcionarios || false,
@@ -366,6 +368,7 @@ export default function EditarContratoPage() {
         tipo_garantia: formData.tipo_garantia || null, observacoes: formData.observacoes || null,
         modalidade_licitacao: (formData.modalidade_licitacao && formData.modalidade_licitacao !== '__NONE__') ? formData.modalidade_licitacao : null,
         boletim_por_quantidade: formData.boletim_por_quantidade || false,
+        boletim_periodo_competencia: formData.boletim_periodo_competencia || false,
         arredondar_calculo: formData.arredondar_calculo ?? true,
         exige_relacao_funcionarios: formData.exige_relacao_funcionarios,
         lote_relacao_funcionarios:
@@ -543,6 +546,20 @@ export default function EditarContratoPage() {
                 />
                 <Label htmlFor="boletim_por_quantidade" className="cursor-pointer font-normal text-sm">
                   Boletim de medição por quantidade (Execução Fiscal em un/h/m em vez de dias)
+                </Label>
+              </div>
+            )}
+            {['MEDICAO', 'CONTINUADO', 'LICENCA'].includes(formData.modalidade_execucao) && (
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="boletim_periodo_competencia"
+                  checked={formData.boletim_periodo_competencia}
+                  onChange={(e) => handleInputChange('boletim_periodo_competencia', e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="boletim_periodo_competencia" className="cursor-pointer font-normal text-sm">
+                  No boletim, mostrar o mês no campo Período (ex.: AGOSTO/2026) em vez do intervalo de datas
                 </Label>
               </div>
             )}
