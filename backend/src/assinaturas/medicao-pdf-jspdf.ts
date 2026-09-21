@@ -14,6 +14,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as QRCode from 'qrcode';
+import { textoPeriodoBoletim } from '../contratos/competencia-boletim.util';
 
 // ---- Helpers (idênticos ao frontend) ----
 
@@ -568,11 +569,18 @@ export async function gerarBoletimMedicaoPdf(
   doc.setFont('helvetica', 'bold');
   doc.text('PERÍODO:', mX, y);
   doc.setFont('helvetica', 'bold');
-  // Quando a flag do contrato está ligada, o campo Período exibe a competência gravada
-  const textoPeriodo =
-    dados.boletim_periodo_competencia && dados.competencia
-      ? textoSeguro(dados.competencia)
-      : `${fmtData(dados.periodo_inicio)} a ${fmtData(dados.periodo_fim)}`;
+  // Com a opção do contrato ligada, o campo Período sai como mês (AGOSTO/2026),
+  // derivado do período da medição — ver competencia-boletim.util.
+  const textoPeriodo = textoSeguro(
+    dados.periodo_texto ||
+      textoPeriodoBoletim(
+        !!dados.boletim_periodo_competencia,
+        dados.periodo_inicio,
+        dados.periodo_fim,
+        dados.competencia,
+        (d) => fmtData(d as any),
+      ),
+  );
   doc.text(textoPeriodo, infoX2, y);
   const nfX = W / 2;
   doc.setFont('helvetica', 'bold');
