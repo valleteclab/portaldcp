@@ -546,6 +546,10 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       if (dto.modo_os === 'ORDEM_DEMANDA' && dto.contrato_id) {
         if (dto.itens_os?.length) {
           const comprometidoPorItem = await this.somarQuantidadeComprometidaPorItemOS(dto.contrato_id);
+          const regularizadoPorItem = await this.consumoDaMedicaoRegularizada(
+            dto.medicao_regularizada_id,
+            dto.contrato_id,
+          );
           // Consumo CIENTE DE CICLO (reseta no novo período via data_renovacao_ciclo).
           // null => contrato sem renovação: usa o quantidade_medida acumulado (padrão).
           const medidoCicloPorItem = await this.medicaoService.getConsumoCicloPorItem(dto.contrato_id);
@@ -556,7 +560,10 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
             const qtdTotal = Number(itemCron.quantidade) * (Number(itemCron.quantidade_meses) || 1);
             const medido = medidoCicloPorItem ? (medidoCicloPorItem.get(io.item_cronograma_id) || 0) : Number(itemCron.quantidade_medida || 0);
             const comprometido = comprometidoPorItem.get(io.item_cronograma_id) || 0;
-            const saldo = qtdTotal - medido - comprometido;
+            // A medição regularizada por esta OS já consumiu esse saldo: sem
+            // devolvê-lo aqui, a OS que cobre a própria medição fica travada.
+            const regularizado = regularizadoPorItem.get(io.item_cronograma_id) || 0;
+            const saldo = qtdTotal - medido - comprometido + regularizado;
             if (Number(io.quantidade_solicitada) > saldo + 0.0001) {
               throw new BadRequestException(
                 `Quantidade solicitada do item "${itemCron.descricao}" excede o saldo disponível (${saldo.toFixed(2)})`
@@ -843,6 +850,16 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         `Saldo reservado para ${itensContratoParaReservar.length} itens de contrato.`
       );
 
+      if (dto.medicao_regularizada_id) {
+        await this.vincularMedicaoRegularizada(
+          dto.medicao_regularizada_id,
+          requisicaoSalva.id,
+          numero,
+          usuarioId,
+          usuarioNome,
+        );
+      }
+
       return this.findOne(requisicaoSalva.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -851,6 +868,95 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     } finally {
       await queryRunner.release();
     }
+  }
+
+  /**
+   * Quanto uma medição já aprovada consumiu de cada item do cronograma.
+   * Serve para a OS que regulariza essa medição (fornecedor mediu antes da OS
+   * sair): sem devolver esse consumo, o saldo aparece zerado e a OS trava.
+   */
+  private async consumoDaMedicaoRegularizada(
+    medicaoId: string | undefined,
+    contratoId: string,
+  ): Promise<Map<string, number>> {
+    const consumo = new Map<string, number>();
+    if (!medicaoId) return consumo;
+
+    const [medicao] = await this.dataSource.query(
+      `SELECT id, contrato_id, status, numero_medicao FROM medicoes WHERE id = $1`,
+      [medicaoId],
+    );
+    if (!medicao) {
+      throw new BadRequestException('Medição informada para regularização não encontrada.');
+    }
+    if (medicao.contrato_id !== contratoId) {
+      throw new BadRequestException('A medição informada é de outro contrato.');
+    }
+    if (String(medicao.status).toUpperCase() !== 'APROVADA') {
+      throw new BadRequestException(
+        'Só é possível regularizar uma OS a partir de medição APROVADA.',
+      );
+    }
+
+    const itens = await this.dataSource.query(
+      `SELECT item_cronograma_id, COALESCE(SUM(quantidade_medida), 0) AS qtd
+         FROM itens_medicao_item
+        WHERE medicao_id = $1 AND item_cronograma_id IS NOT NULL
+        GROUP BY item_cronograma_id`,
+      [medicaoId],
+    );
+    for (const item of itens) {
+      consumo.set(item.item_cronograma_id, Number(item.qtd || 0));
+    }
+    return consumo;
+  }
+
+  /** Aponta a medição regularizada para a OS criada e deixa rastro nas duas pontas. */
+  private async vincularMedicaoRegularizada(
+    medicaoId: string,
+    requisicaoId: string,
+    numeroOs: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<void> {
+    const [medicao] = await this.dataSource.query(
+      `SELECT id, numero_medicao, requisicao_id, contrato_id FROM medicoes WHERE id = $1`,
+      [medicaoId],
+    );
+    if (!medicao) return;
+
+    await this.dataSource.query(
+      `UPDATE medicoes SET requisicao_id = $1 WHERE id = $2`,
+      [requisicaoId, medicaoId],
+    );
+
+    await this.historicoRequisicaoRepository.save(
+      this.historicoRequisicaoRepository.create({
+        requisicao_id: requisicaoId,
+        tipo_acao: 'PEDIDO_CRIADO',
+        descricao: `OS emitida para regularizar a ${medicao.numero_medicao}ª medição, já aprovada`,
+        detalhes:
+          `A medição já havia consumido o saldo correspondente; esta OS a cobre. ` +
+          `Responsável: ${usuarioNome}.`,
+        usuario_id: usuarioId,
+        usuario_nome: usuarioNome,
+        data_evento: new Date(),
+      }),
+    );
+
+    await this.dataSource.query(
+      `INSERT INTO historico_contratos (contrato_id, tipo_acao, descricao, usuario_nome, created_at)
+       VALUES ($1, 'EDITADO', $2, $3, now())`,
+      [
+        medicao.contrato_id,
+        `${numeroOs} emitida para regularizar a ${medicao.numero_medicao}ª medição (já aprovada) por ${usuarioNome}`,
+        usuarioNome,
+      ],
+    );
+
+    this.logger.log(
+      `OS ${numeroOs} vinculada à medição ${medicaoId} (regularização) por ${usuarioNome}`,
+    );
   }
 
   // ============================================================================

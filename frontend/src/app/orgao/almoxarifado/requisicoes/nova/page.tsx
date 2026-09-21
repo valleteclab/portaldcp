@@ -71,6 +71,25 @@ import { cn } from '@/lib/utils';
 // Chave para localStorage
 const RASCUNHO_KEY = 'requisicao_rascunho';
 
+// Medição já aprovada do contrato que esta OS pode regularizar
+interface MedicaoAprovada {
+  id: string;
+  numero_medicao?: number | string;
+  status?: string;
+  periodo_inicio?: string;
+  periodo_fim?: string;
+  valor_medido?: number | string;
+  nota_fiscal_numero?: string | null;
+  requisicao_id?: string | null;
+  itens?: MedicaoItemMedido[];
+}
+
+// Item medido dentro de uma medição (itens de etapa vêm com item_cronograma_id nulo)
+interface MedicaoItemMedido {
+  item_cronograma_id?: string | null;
+  quantidade_medida?: number | string | null;
+}
+
 interface Contrato {
   id: string;
   numero_contrato: string;
@@ -547,6 +566,10 @@ function NovaRequisicaoForm() {
   const [modoOS, setModoOS] = useState<'ORDEM_GLOBAL' | 'ORDEM_DEMANDA' | null>(null);
   const [itensOSDemanda, setItensOSDemanda] = useState<{ item_cronograma_id: string; quantidade_solicitada: number; meses_solicitados?: number }[]>([]);
   const [etapasOSDemanda, setEtapasOSDemanda] = useState<{ etapa_id: string; percentual_solicitado?: number; valor_solicitado?: number }[]>([]);
+  // Regularização: OS emitida depois de uma medição já aprovada (o saldo consumido volta para esta OS)
+  const [medicoesAprovadas, setMedicoesAprovadas] = useState<MedicaoAprovada[]>([]);
+  const [regularizarMedicao, setRegularizarMedicao] = useState(false);
+  const [medicaoRegularizadaId, setMedicaoRegularizadaId] = useState<string>('');
   // Publicidade (Lei 12.232): modal para gerar linhas SINAPRO/terceiros/mídia como itens do contrato
   const [modalPublicidade, setModalPublicidade] = useState(false);
 
@@ -1085,6 +1108,36 @@ function NovaRequisicaoForm() {
     carregarCronograma();
   }, [contratoSelecionado?.id, tipo, editarId]);
 
+  // Medições aprovadas do contrato — candidatas a serem regularizadas por esta OS
+  useEffect(() => {
+    if (!isOS || !usarItensCronograma || !contratoSelecionado?.id) {
+      setMedicoesAprovadas([]);
+      setRegularizarMedicao(false);
+      setMedicaoRegularizadaId('');
+      return;
+    }
+    let cancelado = false;
+    authFetch(`${API_URL}/api/contratos/${contratoSelecionado.id}/medicoes`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Falha ao carregar medições do contrato');
+        const data = await res.json();
+        const lista: MedicaoAprovada[] = Array.isArray(data)
+          ? data
+          : (data?.medicoes ?? data?.data ?? []);
+        if (cancelado) return;
+        setMedicoesAprovadas(
+          (Array.isArray(lista) ? lista : []).filter((m) => m?.status === 'APROVADA'),
+        );
+      })
+      .catch(() => {
+        // Lista indisponível: o bloco de regularização simplesmente não aparece
+        if (!cancelado) setMedicoesAprovadas([]);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [isOS, usarItensCronograma, contratoSelecionado?.id]);
+
   // Preencher descricaoOS com objeto do contrato sempre que for OS e tiver contrato selecionado
   useEffect(() => {
     if (isOS && contratoSelecionado?.objeto && !descricaoOS) {
@@ -1200,6 +1253,15 @@ function NovaRequisicaoForm() {
   const formatarData = (data: string) => {
     if (!data) return '-';
     return new Date(data).toLocaleDateString('pt-BR');
+  };
+
+  // Datas puras (YYYY-MM-DD) não devem passar por new Date(), que desloca um dia (UTC)
+  const formatarDataSimples = (data?: string) => {
+    if (!data) return '-';
+    const somenteData = String(data).slice(0, 10);
+    const [ano, mes, dia] = somenteData.split('-');
+    if (!ano || !mes || !dia) return formatarData(data);
+    return `${dia}/${mes}/${ano}`;
   };
 
   const formatarDataHora = (data: string) => {
@@ -1404,6 +1466,16 @@ function NovaRequisicaoForm() {
     );
   };
 
+  // Quantidade que a medição regularizada consumiu deste item — o backend a devolve
+  // ao saldo, então ela entra no limite editável da OS.
+  const quantidadeDevolvidaPelaMedicao = (itemCronogramaId: string) => {
+    if (!regularizarMedicao || !medicaoRegularizadaId) return 0;
+    const medicao = medicoesAprovadas.find(m => m.id === medicaoRegularizadaId);
+    return (medicao?.itens ?? [])
+      .filter(i => i?.item_cronograma_id === itemCronogramaId)
+      .reduce((total, i) => total + (Number(i.quantidade_medida) || 0), 0);
+  };
+
   const handleAlterarQuantidadeOSDemanda = (itemCronogramaId: string, quantidade: number) => {
     setItensOSDemanda(prev => prev.map(item => {
       if (item.item_cronograma_id === itemCronogramaId) {
@@ -1411,7 +1483,8 @@ function NovaRequisicaoForm() {
         const saldo = itemCron
           ? Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) -
             Number(itemCron.quantidade_medida) -
-            Number(comprometidoMap[itemCron.id] || 0)
+            Number(comprometidoMap[itemCron.id] || 0) +
+            quantidadeDevolvidaPelaMedicao(itemCronogramaId)
           : 0;
         const qtd = Math.max(0, Math.min(quantidade, saldo));
         return { ...item, quantidade_solicitada: qtd, meses_solicitados: undefined };
@@ -1427,7 +1500,8 @@ function NovaRequisicaoForm() {
     const saldo =
       Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) -
       Number(itemCron.quantidade_medida) -
-      Number(comprometidoMap[itemCron.id] || 0);
+      Number(comprometidoMap[itemCron.id] || 0) +
+      quantidadeDevolvidaPelaMedicao(itemCronogramaId);
     const valorLimitado = Math.max(0, Math.min(valor, Math.max(0, saldo * valorUnitario)));
     const quantidade = valorUnitario > 0
       ? Math.round((valorLimitado / valorUnitario) * 1e12) / 1e12
@@ -1439,12 +1513,59 @@ function NovaRequisicaoForm() {
     ));
   };
 
+  // Quantidades da OS a partir de uma medição já aprovada (regularização).
+  // Sem medição, devolve tudo zerado — que é o estado normal da OS Parcial.
+  const montarItensDemandaDaMedicao = (medicaoId: string | null) => {
+    const medicao = medicaoId
+      ? medicoesAprovadas.find(m => m.id === medicaoId)
+      : undefined;
+    const medidoPorItem = new Map<string, number>();
+    for (const itemMedido of medicao?.itens ?? []) {
+      const itemCronogramaId = itemMedido?.item_cronograma_id;
+      if (!itemCronogramaId) continue; // itens de etapa não têm item de cronograma
+      const quantidade = Number(itemMedido.quantidade_medida || 0);
+      if (!Number.isFinite(quantidade) || quantidade <= 0) continue;
+      medidoPorItem.set(
+        itemCronogramaId,
+        (medidoPorItem.get(itemCronogramaId) || 0) + quantidade,
+      );
+    }
+    return itensCronograma.map(item => {
+      const quantidade = medidoPorItem.get(item.id) || 0;
+      // Itens por tempo: a página trabalha com quantidade = meses × quantidade do período
+      const quantidadePeriodo = Number(item.quantidade) || 0;
+      const meses =
+        item.quantidade_meses != null && quantidadePeriodo > 0
+          ? quantidade / quantidadePeriodo
+          : null;
+      // O campo de meses só aceita número inteiro; frações ficam apenas na quantidade
+      const mesesInteiros =
+        meses != null && meses > 0 && Number.isInteger(Math.round(meses * 1e6) / 1e6)
+          ? Math.round(meses)
+          : undefined;
+      return {
+        item_cronograma_id: item.id,
+        quantidade_solicitada: quantidade,
+        meses_solicitados: mesesInteiros,
+      };
+    });
+  };
+
+  const handleSelecionarMedicaoRegularizada = (medicaoId: string | null) => {
+    setMedicaoRegularizadaId(medicaoId || '');
+    setItensOSDemanda(montarItensDemandaDaMedicao(medicaoId));
+  };
+
   const handleAlterarModoOS = (novoModo: 'ORDEM_GLOBAL' | 'ORDEM_DEMANDA') => {
     if (novoModo === 'ORDEM_DEMANDA' && modoOS !== 'ORDEM_DEMANDA') {
-      setItensOSDemanda(itensCronograma.map(item => ({
-        item_cronograma_id: item.id,
-        quantidade_solicitada: 0,
-      })));
+      setItensOSDemanda(
+        regularizarMedicao && medicaoRegularizadaId
+          ? montarItensDemandaDaMedicao(medicaoRegularizadaId)
+          : itensCronograma.map(item => ({
+              item_cronograma_id: item.id,
+              quantidade_solicitada: 0,
+            })),
+      );
       setEtapasOSDemanda(etapasOS.map((etapa: any) => ({
         etapa_id: etapa.id,
         valor_solicitado: 0,
@@ -1461,7 +1582,8 @@ function NovaRequisicaoForm() {
         const saldo =
           Number(itemCron.quantidade) * (itemCron.quantidade_meses ?? 1) -
           Number(itemCron.quantidade_medida) -
-          Number(comprometidoMap[itemCron.id] || 0);
+          Number(comprometidoMap[itemCron.id] || 0) +
+          quantidadeDevolvidaPelaMedicao(itemCronogramaId);
         // quantidade já é a qtd por período; multiplicar direto pelo nº de meses
         const qtd = Math.min(meses * Number(itemCron.quantidade), saldo);
         return { ...item, quantidade_solicitada: qtd, meses_solicitados: meses > 0 ? meses : undefined };
@@ -1645,6 +1767,9 @@ function NovaRequisicaoForm() {
           dados.descricao_os = modoOS === 'ORDEM_GLOBAL'
             ? 'Ordem Global - todos os itens do cronograma'
             : 'OS Parcial - itens selecionados';
+          if (regularizarMedicao && medicaoRegularizadaId) {
+            dados.medicao_regularizada_id = medicaoRegularizadaId;
+          }
         } else if (usarEtapasCronograma && modoOS) {
           dados.modo_os = modoOS;
           dados.etapas_os = modoOS === 'ORDEM_GLOBAL'
@@ -2773,6 +2898,64 @@ function NovaRequisicaoForm() {
               </div>
             </div>
 
+            {medicoesAprovadas.length > 0 && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4"
+                    checked={regularizarMedicao}
+                    onChange={(e) => {
+                      const marcado = e.target.checked;
+                      setRegularizarMedicao(marcado);
+                      if (!marcado) handleSelecionarMedicaoRegularizada(null);
+                    }}
+                  />
+                  <span>
+                    <span className="font-medium text-amber-900">
+                      Esta OS regulariza uma medição já aprovada
+                    </span>
+                    <span className="block text-sm text-amber-800">
+                      Use quando o fornecedor mediu antes da OS ser emitida: o saldo consumido por essa
+                      medição volta a ficar disponível para esta OS.
+                    </span>
+                  </span>
+                </label>
+                {regularizarMedicao && (
+                  <div className="mt-3">
+                    <Label>Medição regularizada *</Label>
+                    <Select
+                      value={medicaoRegularizadaId}
+                      onValueChange={handleSelecionarMedicaoRegularizada}
+                    >
+                      <SelectTrigger className="mt-1 bg-white">
+                        <SelectValue placeholder="Selecione a medição aprovada" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {medicoesAprovadas.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {`Nº ${m.numero_medicao ?? '—'} · ${formatarDataSimples(m.periodo_inicio)} a ${formatarDataSimples(m.periodo_fim)} · ${formatarMoeda(Number(m.valor_medido || 0))}${m.nota_fiscal_numero ? ` · NF ${m.nota_fiscal_numero}` : ''}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!medicaoRegularizadaId && (
+                      <p className="mt-1 text-sm text-amber-800">
+                        Escolha a medição para liberar o saldo correspondente.
+                      </p>
+                    )}
+                    {medicaoRegularizadaId && (
+                      <p className="mt-2 text-sm text-amber-800">
+                        As quantidades dos itens abaixo foram trazidas dessa medição — ajuste se
+                        necessário. A coluna “Saldo” continua mostrando o saldo atual do contrato:
+                        o que essa medição consumiu é devolvido ao salvar esta OS.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div>
               <Label>Itens do Contrato</Label>
               {modoOS === 'ORDEM_DEMANDA' && temItensControladosPorFuncionarios && (
@@ -2810,6 +2993,8 @@ function NovaRequisicaoForm() {
                     {itensCronograma.map((item) => {
                       const comprometido = Number(comprometidoMap[item.id] || 0);
                       const saldo = Math.max(0, Number(item.quantidade) * (item.quantidade_meses ?? 1) - Number(item.quantidade_medida) - comprometido);
+                      // Saldo editável: na regularização, o consumido pela medição volta a caber nesta OS
+                      const saldoEditavel = saldo + quantidadeDevolvidaPelaMedicao(item.id);
                       const qtdContratada = item.quantidade_meses
                         ? Number(item.quantidade) * item.quantidade_meses
                         : Number(item.quantidade);
@@ -2858,7 +3043,7 @@ function NovaRequisicaoForm() {
                               {controladoPorFuncionarios ? (
                                 <span className="text-xs text-muted-foreground">Por valor</span>
                               ) : item.quantidade_meses != null ? (() => {
-                                const maxMeses = Number(item.quantidade) > 0 ? Math.floor(saldo / Number(item.quantidade)) : 0;
+                                const maxMeses = Number(item.quantidade) > 0 ? Math.floor(saldoEditavel / Number(item.quantidade)) : 0;
                                 return (
                                   <MesesInput
                                     value={demanda?.meses_solicitados}
@@ -2873,7 +3058,7 @@ function NovaRequisicaoForm() {
                             <TableCell className="text-right">
                               <QuantidadeInput
                                 value={qtdSolicitada}
-                                max={saldo}
+                                max={saldoEditavel}
                                 onChange={(v) => handleAlterarQuantidadeOSDemanda(item.id, v)}
                                 allowZero={true}
                               />
@@ -2889,7 +3074,7 @@ function NovaRequisicaoForm() {
                               {controladoPorFuncionarios ? (
                                 <ValorInput
                                   value={valorSolicitado}
-                                  max={saldo * Number(item.valor_unitario)}
+                                  max={saldoEditavel * Number(item.valor_unitario)}
                                   onChange={(valor) => handleAlterarValorOSDemanda(item.id, valor)}
                                 />
                               ) : (
