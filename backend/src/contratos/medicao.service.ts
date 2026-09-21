@@ -95,6 +95,7 @@ import { gerarBoletimObraV2Pdf } from '../assinaturas/boletim-obra-v2-pdf';
 import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
 import { literalDataAssinatura } from './data-assinatura.util';
 import { textoPeriodoBoletim } from './competencia-boletim.util';
+import { incluirEmAnaliseNoAcumulado } from './em-analise-acumulado.util';
 import { renumerarPorCompetencia } from './ordem-medicoes.util';
 @Injectable()
 export class MedicaoService {
@@ -8459,17 +8460,20 @@ export class MedicaoService {
         this.medicaoAteReferencia(m, medicaoAtual),
       );
     }
-    const emAnalise = medicaoAtual
-      ? {
-          valoresPorEtapa: new Map<string, number>(),
-          valoresPorItem: new Map<string, number>(),
-          quantidadesPorItem: new Map<string, number>(),
-        }
-      : await this.carregarValoresEmAnalisePorReferencia(
+    // Medição ainda em análise soma as pendentes anteriores a ela (a 10ª
+    // submetida enxerga a 9ª submetida); aprovada mantém o retrato congelado
+    // só com o aprovado — ver em-analise-acumulado.util.
+    const emAnalise = incluirEmAnaliseNoAcumulado(medicaoAtual)
+      ? await this.carregarValoresEmAnalisePorReferencia(
           contratoId,
           dataCorteCiclo,
           medicaoAtual,
-        );
+        )
+      : {
+          valoresPorEtapa: new Map<string, number>(),
+          valoresPorItem: new Map<string, number>(),
+          quantidadesPorItem: new Map<string, number>(),
+        };
     const possuiMedicaoAnteriorNoCiclo =
       !!medicaoAtual &&
       (medicoesAprovadas.some((m) => m.id !== medicaoAtual?.id) ||
