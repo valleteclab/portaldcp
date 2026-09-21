@@ -3620,6 +3620,19 @@ export class MedicaoService {
 
     // Enriquecer cada medição com seus itens e dados das etapas
     for (const medicao of medicoes) {
+      // `itens` são os itens de ETAPA (itens_medicao). Os itens de CRONOGRAMA
+      // ficam em outra tabela e vão em `itens_cronograma`: sem eles, quem
+      // precisa da quantidade medida por item (ex.: a OS que regulariza uma
+      // medição aprovada) recebia a medição sem quantidade nenhuma.
+      const itensCronograma = await this.itemMedicaoItemRepository.find({
+        where: { medicao_id: medicao.id },
+      });
+      (medicao as any).itens_cronograma = itensCronograma.map((i) => ({
+        id: i.id,
+        item_cronograma_id: i.item_cronograma_id,
+        quantidade_medida: Number(i.quantidade_medida || 0),
+        valor_medido: Number(i.valor_medido || 0),
+      }));
       const itens = await this.itemMedicaoRepository.find({
         where: { medicao_id: medicao.id },
         relations: ['etapa'],

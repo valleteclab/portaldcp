@@ -82,6 +82,7 @@ interface MedicaoAprovada {
   nota_fiscal_numero?: string | null;
   requisicao_id?: string | null;
   itens?: MedicaoItemMedido[];
+  itens_cronograma?: MedicaoItemMedido[];
 }
 
 // Item medido dentro de uma medição (itens de etapa vêm com item_cronograma_id nulo)
@@ -1520,7 +1521,9 @@ function NovaRequisicaoForm() {
       ? medicoesAprovadas.find(m => m.id === medicaoId)
       : undefined;
     const medidoPorItem = new Map<string, number>();
-    for (const itemMedido of medicao?.itens ?? []) {
+    // itens_cronograma traz a quantidade medida por item do cronograma;
+    // `itens` é a lista de etapas e não serve aqui.
+    for (const itemMedido of medicao?.itens_cronograma ?? medicao?.itens ?? []) {
       const itemCronogramaId = itemMedido?.item_cronograma_id;
       if (!itemCronogramaId) continue; // itens de etapa não têm item de cronograma
       const quantidade = Number(itemMedido.quantidade_medida || 0);
