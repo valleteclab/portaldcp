@@ -173,6 +173,15 @@ export class CriarRequisicaoDto {
   @IsArray()
   @IsString({ each: true })
   numeros_empenhos?: string[];
+
+  /**
+   * OS emitida depois de uma medição já aprovada (o fornecedor mediu antes da
+   * OS sair). O que essa medição consumiu volta ao saldo para esta OS, e a
+   * medição passa a apontar para ela.
+   */
+  @IsOptional()
+  @IsUUID()
+  medicao_regularizada_id?: string;
 }
 
 /**
