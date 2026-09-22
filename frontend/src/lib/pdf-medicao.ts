@@ -34,6 +34,11 @@ export interface ItemMedicaoPdf {
   quantidade_a_executar?: number
   /** Restante financeiro do item (backend: trunc em 2 casas, sem arredondar) */
   valor_a_executar?: number
+  /** Item "unidades por mês × meses": textos prontos do backend (fiscal em meses + linha de unidades) */
+  recorrente?: {
+    texto_fiscal?: { no_periodo: string; ate_periodo: string; a_executar: string }
+    texto_unidades?: string
+  }
 }
 
 export interface ItemContratadoPdf {
@@ -871,12 +876,15 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
       const fiscalAte = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_ate_periodo ?? (item.quantidade_acumulada_aprovada + item.quantidade_no_periodo), un) : txtFiscalAtePeriodo
       const fiscalExec = porQuantidade ? fmtQuantidadeExecucaoFiscal(item.quantidade_a_executar ?? Math.max(0, item.quantidade_total_contrato - (item.quantidade_ate_periodo ?? item.quantidade_acumulada_aprovada + item.quantidade_no_periodo)), un) : txtFiscalAExecutar
 
+      // Item recorrente (unidades/mês × meses): fiscal em meses, unidades sob a descrição
+      const rec = item.recorrente
+      const descricaoLinha = rec?.texto_unidades ? `${item.descricao}\n${rec.texto_unidades}` : item.descricao
       return [
         { content: item.numero, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: item.descricao, styles: { fontSize: 6 } },
-        { content: fiscalNo, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: fiscalAte, styles: { halign: 'center' as const, fontSize: 6 } },
-        { content: fiscalExec, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: descricaoLinha, styles: { fontSize: 6 } },
+        { content: rec?.texto_fiscal?.no_periodo ?? fiscalNo, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: rec?.texto_fiscal?.ate_periodo ?? fiscalAte, styles: { halign: 'center' as const, fontSize: 6 } },
+        { content: rec?.texto_fiscal?.a_executar ?? fiscalExec, styles: { halign: 'center' as const, fontSize: 6 } },
         { content: fmtExecFinanceira(vlrNoPeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmtExecFinanceira(vlrAtePeriodo), styles: { halign: 'right' as const, fontSize: 6 } },
         { content: fmtExecFinanceira(vlrAExecutar), styles: { halign: 'right' as const, fontSize: 6 } },

@@ -96,6 +96,13 @@ import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
 import { literalDataAssinatura } from './data-assinatura.util';
 import { textoPeriodoBoletim } from './competencia-boletim.util';
 import { incluirEmAnaliseNoAcumulado } from './em-analise-acumulado.util';
+import {
+  ehItemRecorrenteMensal,
+  mesesDoPeriodo,
+  resumoRecorrente,
+  textoLinhaUnidades,
+  textoMesesFiscal,
+} from './item-recorrente-mensal.util';
 import { renumerarPorCompetencia } from './ordem-medicoes.util';
 @Injectable()
 export class MedicaoService {
@@ -4076,6 +4083,7 @@ export class MedicaoService {
             ? item.item_observacoes.trim()
             : '';
         const base: any = {
+          recorrente: efItem?.recorrente ?? undefined,
           numero: Number(item.etapa_numero || item.item_numero || 0),
           descricao:
             (item.item_descricao || item.etapa_descricao || '') +
@@ -6184,6 +6192,8 @@ export class MedicaoService {
     valoresPorEtapa: Map<string, number>;
     valoresPorItem: Map<string, number>;
     quantidadesPorItem: Map<string, number>;
+    /** Meses cobertos pelas medições em análise, por item (itens recorrentes). */
+    mesesPorItem: Map<string, number>;
   }> {
     const statusEmAnalise = [
       StatusMedicao.SUBMETIDA,
@@ -6212,6 +6222,7 @@ export class MedicaoService {
         valoresPorEtapa: new Map(),
         valoresPorItem: new Map(),
         quantidadesPorItem: new Map(),
+        mesesPorItem: new Map(),
       };
     }
 
@@ -6242,6 +6253,7 @@ export class MedicaoService {
 
     const valoresPorItem = new Map<string, number>();
     const quantidadesPorItem = new Map<string, number>();
+    const mesesPorItem = new Map<string, number>();
     for (const item of itensCronograma) {
       const itemId = (item as any).item_cronograma_id as string | undefined;
       if (!itemId) continue;
@@ -6268,9 +6280,16 @@ export class MedicaoService {
         (quantidadesPorItem.get(itemId) || 0) +
           Number((item as any).quantidade_medida || 0),
       );
+      if (Number((item as any).quantidade_medida || 0) > 0) {
+        mesesPorItem.set(
+          itemId,
+          (mesesPorItem.get(itemId) || 0) +
+            mesesDoPeriodo(medicao?.periodo_inicio, medicao?.periodo_fim),
+        );
+      }
     }
 
-    return { valoresPorEtapa, valoresPorItem, quantidadesPorItem };
+    return { valoresPorEtapa, valoresPorItem, quantidadesPorItem, mesesPorItem };
   }
 
   private medicaoAteReferencia(
@@ -8473,6 +8492,7 @@ export class MedicaoService {
           valoresPorEtapa: new Map<string, number>(),
           valoresPorItem: new Map<string, number>(),
           quantidadesPorItem: new Map<string, number>(),
+          mesesPorItem: new Map<string, number>(),
         };
     const possuiMedicaoAnteriorNoCiclo =
       !!medicaoAtual &&
@@ -8692,6 +8712,50 @@ export class MedicaoService {
               Math.round(quantidadeAtePeriodo * 100) / 100;
             base.quantidade_a_executar =
               Math.round(quantidadeAExecutar * 100) / 100;
+          }
+          // Item "unidades por mês × meses" (20 veículos × 12): o saldo segue em
+          // unidade-mês, mas o boletim lê por mês e mostra as unidades à parte.
+          if (ehItemRecorrenteMensal(item as any)) {
+            const anteriores: Array<{ meses: number; unidades: number }> = [];
+            for (const m of medicoesAprovadas) {
+              if (medicaoAtual && m.id === medicaoAtual.id) continue;
+              const itemMedicao = (itensPorMedicao[m.id] || []).find(
+                (i) => (i as any).item_cronograma_id === item.id,
+              );
+              const unidades = itemMedicao ? obterQuantidadeItemMedicao(itemMedicao) : 0;
+              if (unidades > 0) {
+                anteriores.push({
+                  meses: mesesDoPeriodo(m.periodo_inicio, m.periodo_fim),
+                  unidades,
+                });
+              }
+            }
+            if (quantidadeEmAnaliseOutras > 0) {
+              anteriores.push({
+                meses: emAnalise.mesesPorItem.get(item.id) || 0,
+                unidades: quantidadeEmAnaliseOutras,
+              });
+            }
+            const atual = medicaoAtual
+              ? {
+                  meses:
+                    quantidadeNoPeriodo > 0
+                      ? mesesDoPeriodo(medicaoAtual.periodo_inicio, medicaoAtual.periodo_fim)
+                      : 0,
+                  unidades: quantidadeNoPeriodo,
+                }
+              : null;
+            const resumo = resumoRecorrente(
+              Number(item.quantidade) || 0,
+              Number((item as any).quantidade_meses) || 1,
+              anteriores,
+              atual,
+            );
+            base.recorrente = {
+              ...resumo,
+              texto_fiscal: textoMesesFiscal(resumo),
+              texto_unidades: textoLinhaUnidades(resumo, unidadeMedida),
+            };
           }
           // Item fisicamente concluído: zera resíduo financeiro de truncamento (≤ 0,02)
           if (
