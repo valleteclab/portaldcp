@@ -2,6 +2,7 @@ import {
   ehItemRecorrenteMensal,
   mesesDoPeriodo,
   resumoRecorrente,
+  textoColunasFiscal,
   textoLinhaUnidades,
   textoMesesFiscal,
 } from './item-recorrente-mensal.util';
@@ -42,6 +43,12 @@ describe('item recorrente mensal (quantidade × meses)', () => {
     expect(textoLinhaUnidades(r, 'UNIDADE')).toBe(
       '19 de 20 un no mês · acumulado 19 de 240 un · 1 un não utilizada no ciclo',
     );
+    // cada coluna: meses em cima, unidades embaixo
+    expect(textoColunasFiscal(r, 'UNIDADE')).toEqual({
+      no_periodo: '1 mês\n19 de 20 un',
+      ate_periodo: '1 de 12 meses\n19 de 240 un',
+      a_executar: '11 meses\n221 un (1 sem uso)',
+    });
   });
 
   it('acumula meses e unidades não utilizadas ao longo do ciclo', () => {

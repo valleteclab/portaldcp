@@ -100,6 +100,7 @@ import {
   ehItemRecorrenteMensal,
   mesesDoPeriodo,
   resumoRecorrente,
+  textoColunasFiscal,
   textoLinhaUnidades,
   textoMesesFiscal,
 } from './item-recorrente-mensal.util';
@@ -8754,6 +8755,8 @@ export class MedicaoService {
             base.recorrente = {
               ...resumo,
               texto_fiscal: textoMesesFiscal(resumo),
+              // colunas do boletim: meses em cima, unidades embaixo, cada uma na sua
+              texto_colunas: textoColunasFiscal(resumo, unidadeMedida),
               texto_unidades: textoLinhaUnidades(resumo, unidadeMedida),
             };
           }
