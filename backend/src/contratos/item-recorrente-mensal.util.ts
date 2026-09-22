@@ -104,10 +104,38 @@ export function textoMesesFiscal(r: ResumoRecorrente): {
   };
 }
 
-/** Linha sob a descrição: "19 de 20 un no mês · acumulado 19 de 240 un · 1 un não utilizada". */
-export function textoLinhaUnidades(r: ResumoRecorrente, unidade?: string | null): string {
+/**
+ * Colunas da execução fiscal com as duas dimensões, cada uma embaixo da sua:
+ * meses na linha de cima e unidades na de baixo.
+ *   NO PERÍODO      ATÉ O PERÍODO     A EXECUTAR
+ *   1 mês           1 de 12 meses     11 meses
+ *   19 de 20 un     19 de 240 un      221 un (1 sem uso)
+ */
+export function textoColunasFiscal(r: ResumoRecorrente, unidade?: string | null): {
+  no_periodo: string;
+  ate_periodo: string;
+  a_executar: string;
+} {
+  const un = rotuloUnidade(unidade);
+  const meses = textoMesesFiscal(r);
+  const aExecutarUn = Math.max(0, r.unidades_total - r.unidades_ate_periodo);
+  const semUso =
+    r.unidades_nao_utilizadas > 0 ? ` (${fmtNum(r.unidades_nao_utilizadas)} sem uso)` : '';
+  return {
+    no_periodo: `${meses.no_periodo}\n${fmtNum(r.unidades_no_periodo)} de ${fmtNum(r.unidades_por_mes)} ${un}`,
+    ate_periodo: `${meses.ate_periodo}\n${fmtNum(r.unidades_ate_periodo)} de ${fmtNum(r.unidades_total)} ${un}`,
+    a_executar: `${meses.a_executar}\n${fmtNum(aExecutarUn)} ${un}${semUso}`,
+  };
+}
+
+function rotuloUnidade(unidade?: string | null): string {
   const u = String(unidade || 'UN').trim().toUpperCase();
-  const un = u === 'UN' || u === 'UNIDADE' ? 'un' : String(unidade).toLowerCase();
+  return u === 'UN' || u === 'UNIDADE' ? 'un' : String(unidade).toLowerCase();
+}
+
+/** Resumo em uma linha (API/tela): "19 de 20 un no mês · acumulado 19 de 240 un · 1 un não utilizada". */
+export function textoLinhaUnidades(r: ResumoRecorrente, unidade?: string | null): string {
+  const un = rotuloUnidade(unidade);
   const partes = [
     `${fmtNum(r.unidades_no_periodo)} de ${fmtNum(r.unidades_por_mes)} ${un} no mês`,
     `acumulado ${fmtNum(r.unidades_ate_periodo)} de ${fmtNum(r.unidades_total)} ${un}`,
