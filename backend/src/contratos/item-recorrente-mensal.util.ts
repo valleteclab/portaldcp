@@ -23,6 +23,8 @@ export interface ResumoRecorrente {
   unidades_ate_periodo: number;
   unidades_total: number;
   unidades_nao_utilizadas: number;
+  /** Meses restantes × cota mensal. O não utilizado em mês fechado NÃO volta. */
+  unidades_a_executar: number;
 }
 
 const arred2 = (n: number) => Math.round(n * 100) / 100;
@@ -81,7 +83,13 @@ export function resumoRecorrente(
     unidades_ate_periodo: unidadesAte,
     unidades_total: arred2(unidadesPorMes * mesesTotal),
     unidades_nao_utilizadas: naoUtilizadas,
+    unidades_a_executar: arred2(unidadesPorMes * Math.max(0, mesesTotal - mesesAte)),
   };
+}
+
+/** Cota de unidades de uma medição: unidades/mês × meses do período (20 × 1 = 20). */
+export function cotaDaMedicao(unidadesPorMes: number, meses: number): number {
+  return arred2(Math.max(0, unidadesPorMes) * Math.max(0, meses));
 }
 
 const fmtNum = (n: number) =>
@@ -118,9 +126,11 @@ export function textoColunasFiscal(r: ResumoRecorrente, unidade?: string | null)
 } {
   const un = rotuloUnidade(unidade);
   const meses = textoMesesFiscal(r);
-  const aExecutarUn = Math.max(0, r.unidades_total - r.unidades_ate_periodo);
+  const aExecutarUn = r.unidades_a_executar;
   const semUso =
-    r.unidades_nao_utilizadas > 0 ? ` (${fmtNum(r.unidades_nao_utilizadas)} sem uso)` : '';
+    r.unidades_nao_utilizadas > 0
+      ? ` (${fmtNum(r.unidades_nao_utilizadas)} não utilizada${r.unidades_nao_utilizadas === 1 ? '' : 's'})`
+      : '';
   return {
     no_periodo: `${meses.no_periodo}\n${fmtNum(r.unidades_no_periodo)} de ${fmtNum(r.unidades_por_mes)} ${un}`,
     ate_periodo: `${meses.ate_periodo}\n${fmtNum(r.unidades_ate_periodo)} de ${fmtNum(r.unidades_total)} ${un}`,

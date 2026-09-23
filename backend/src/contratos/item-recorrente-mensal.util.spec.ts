@@ -1,4 +1,5 @@
 import {
+  cotaDaMedicao,
   ehItemRecorrenteMensal,
   mesesDoPeriodo,
   resumoRecorrente,
@@ -34,6 +35,7 @@ describe('item recorrente mensal (quantidade × meses)', () => {
       unidades_ate_periodo: 19,
       unidades_total: 240,
       unidades_nao_utilizadas: 1,
+      unidades_a_executar: 220, // 11 meses × 20 — o veículo de setembro não volta
     });
     expect(textoMesesFiscal(r)).toEqual({
       no_periodo: '1 mês',
@@ -47,8 +49,26 @@ describe('item recorrente mensal (quantidade × meses)', () => {
     expect(textoColunasFiscal(r, 'UNIDADE')).toEqual({
       no_periodo: '1 mês\n19 de 20 un',
       ate_periodo: '1 de 12 meses\n19 de 240 un',
-      a_executar: '11 meses\n221 un (1 sem uso)',
+      a_executar: '11 meses\n220 un (1 não utilizada)',
     });
+  });
+
+  it('o não utilizado sai do a executar em valor: 1 veículo = R$ 5.142,85', () => {
+    const r = resumoRecorrente(20, 12, [], { meses: 1, unidades: 19 });
+    const vu = 5142.85;
+    const previsto = 20 * 12 * vu; // 1.234.284,00
+    const atePeriodo = 19 * vu; // 97.714,15
+    const naoUtilizado = r.unidades_nao_utilizadas * vu; // 5.142,85
+    expect(+(previsto - atePeriodo - naoUtilizado).toFixed(2)).toBe(1131427.0);
+    expect(+(r.unidades_a_executar * vu).toFixed(2)).toBe(1131427.0);
+  });
+
+  it('cota do período: 20 por mês cheio, 10 por meio mês, e nada além disso', () => {
+    expect(cotaDaMedicao(20, 1)).toBe(20);
+    expect(cotaDaMedicao(20, 0.5)).toBe(10);
+    expect(cotaDaMedicao(20, 0)).toBe(0);
+    // em outubro, 21 veículos (para "recuperar" setembro) estoura a cota de 20
+    expect(21 > cotaDaMedicao(20, 1) + 0.0001).toBe(true);
   });
 
   it('acumula meses e unidades não utilizadas ao longo do ciclo', () => {
