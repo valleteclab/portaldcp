@@ -50,7 +50,7 @@ describe('item recorrente mensal (quantidade × meses)', () => {
     expect(textoColunasFiscal(r, 'UNIDADE')).toEqual({
       no_periodo: '1 mês\n19 de 20 un',
       ate_periodo: '1 de 12 meses\n19 de 240 un',
-      a_executar: '11 meses\n220 un (1 não utilizada)',
+      a_executar: '11 meses\n220 un',
     });
   });
 
