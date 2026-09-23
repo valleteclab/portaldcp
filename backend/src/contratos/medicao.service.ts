@@ -9030,9 +9030,13 @@ export class MedicaoService {
     const totalPrevisto = centavosParaReaisTrunc2(totalPrevistoCent);
     const ajusteMigracao = Number(contrato.valor_executado_anterior) || 0;
     const totalAtePeriodoComAjuste = totalAtePeriodo + ajusteMigracao;
+    const totalNaoUtilizado = resultado.reduce(
+      (s, r) => s + (Number((r as any).recorrente?.valor_nao_utilizado) || 0),
+      0,
+    );
     const totalAExecutar = Math.max(
       0,
-      totalPrevisto - totalAtePeriodoComAjuste,
+      totalPrevisto - totalAtePeriodoComAjuste - totalNaoUtilizado,
     );
     const totalAtePeriodoGlobalExibicao = Math.min(
       totalPrevisto,
@@ -9064,7 +9068,14 @@ export class MedicaoService {
       const atePeriodoItem = Number(item.ate_periodo) || 0;
       const aExecutarItem = Number(item.a_executar) || 0;
       const atePeriodoGlobal = atePeriodoItem + ajusteRateado;
-      const aExecutarGlobal = Math.max(0, valorPrevistoItem - atePeriodoGlobal);
+      // Item recorrente: o nao utilizado em mes fechado sai do a executar
+      // tambem na visao global (o PDF prefere a_executar_global).
+      const naoUtilizadoItem =
+        Number((item as any).recorrente?.valor_nao_utilizado) || 0;
+      const aExecutarGlobal = Math.max(
+        0,
+        valorPrevistoItem - atePeriodoGlobal - naoUtilizadoItem,
+      );
 
       return {
         ...item,
@@ -9087,7 +9098,10 @@ export class MedicaoService {
         valor_previsto: totalPrevisto,
         no_periodo: totalNoPeriodo,
         ate_periodo: totalAtePeriodoGlobalExibicao,
-        a_executar: Math.max(0, totalPrevisto - totalAtePeriodoGlobalExibicao),
+        a_executar: Math.max(
+          0,
+          totalPrevisto - totalAtePeriodoGlobalExibicao - totalNaoUtilizado,
+        ),
       },
       ajuste_migracao: Math.round(ajusteMigracao * 100) / 100,
       execucao_fiscal: execucaoFiscal,
