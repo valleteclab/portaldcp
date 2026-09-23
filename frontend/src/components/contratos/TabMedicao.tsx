@@ -898,6 +898,36 @@ export default function TabMedicao({
       }
   >(null);
   const [reordenando, setReordenando] = useState(false);
+  const [recalculandoRetratos, setRecalculandoRetratos] = useState(false);
+
+  /** Suporte: refaz o retrato congelado das aprovadas com as regras atuais. */
+  const recalcularRetratos = async () => {
+    if (
+      !confirm(
+        "Recalcular os retratos (execução fiscal/financeira) de TODAS as medições aprovadas deste contrato com as regras atuais?\n\nOs boletins serão gerados de novo na próxima abertura. Use depois de uma mudança de cálculo; valores medidos e aprovações não mudam.",
+      )
+    )
+      return;
+    setRecalculandoRetratos(true);
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/contratos/${contratoId}/medicoes/recalcular-retratos`,
+        { method: "POST" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Não foi possível recalcular os retratos");
+      carregarDados();
+      alert(
+        data.recalculadas
+          ? `${data.recalculadas} medição(ões) recalculada(s): ${(data.numeros || []).join(", ")}. Abra o boletim para gerar o PDF novo.`
+          : "Este contrato não tem medição aprovada para recalcular.",
+      );
+    } catch (e: any) {
+      alert(e?.message || "Não foi possível recalcular os retratos");
+    } finally {
+      setRecalculandoRetratos(false);
+    }
+  };
 
   const simularReordenar = async () => {
     setReordenando(true);
@@ -3883,6 +3913,19 @@ export default function TabMedicao({
                   >
                     <ListOrdered className="w-4 h-4 mr-1" />
                     {reordenando ? "Conferindo..." : "Reordenar por competência"}
+                  </Button>
+                )}
+                {podeCancelarEstornar && medicoes.some((m) => m.status === "APROVADA") && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                    title="Refaz o retrato (execução fiscal/financeira) das medições aprovadas com as regras atuais e gera os boletins de novo"
+                    onClick={recalcularRetratos}
+                    disabled={recalculandoRetratos}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-1" />
+                    {recalculandoRetratos ? "Recalculando..." : "Recalcular retratos"}
                   </Button>
                 )}
                 <Button

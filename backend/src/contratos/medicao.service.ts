@@ -5769,6 +5769,66 @@ export class MedicaoService {
     return { alteracoes, total_medicoes: medicoes.length, aplicado: true };
   }
 
+  /**
+   * Ação de suporte: refaz o retrato congelado (execução fiscal/financeira) de
+   * TODAS as medições aprovadas do contrato com as regras atuais, e zera os
+   * PDFs para serem gerados de novo. Caso 051/2023 4ºAD: a 9ª foi aprovada em
+   * 22/09 com o cálculo antigo (221 un / R$ 1.136.569,85); a regra mudou no
+   * dia seguinte e "Regenerar PDF" só redesenhava o retrato velho.
+   */
+  async recalcularRetratosAprovados(
+    contratoId: string,
+    orgaoId: string,
+    usuarioNome: string,
+  ): Promise<{ recalculadas: number; numeros: number[] }> {
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+    });
+    if (!contrato) throw new NotFoundException('Contrato não encontrado');
+    if (contrato.orgao_id !== orgaoId) {
+      throw new ForbiddenException('Contrato de outro órgão');
+    }
+
+    const aprovadas = await this.medicaoRepository.find({
+      where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+      order: { numero_medicao: 'ASC' },
+      select: ['id', 'numero_medicao'],
+    });
+    if (aprovadas.length === 0) return { recalculadas: 0, numeros: [] };
+
+    await this.recalcularAcumuladosMedicoesAprovadas(contratoId);
+
+    // PDF antigo fora: o próximo "abrir boletim" gera com o retrato novo
+    for (const m of aprovadas) {
+      const caminho = this.getBoletimPdfPath(m.id);
+      try {
+        if (fs.existsSync(caminho)) fs.unlinkSync(caminho);
+      } catch (e) {
+        this.logger.warn(`Não foi possível apagar o PDF da medição ${m.id}: ${(e as any).message}`);
+      }
+    }
+    await this.medicaoRepository.update(
+      { contrato_id: contratoId, status: StatusMedicao.APROVADA },
+      { boletim_pdf_url: null } as any,
+    );
+
+    const numeros = aprovadas.map((m) => Number(m.numero_medicao));
+    await this.historicoContratoRepository.save(
+      this.historicoContratoRepository.create({
+        contrato_id: contratoId,
+        tipo_acao: 'EDITADO',
+        descricao:
+          `Retratos das medições aprovadas (${numeros.join(', ')}) recalculados pelo suporte ` +
+          `com as regras atuais, por ${usuarioNome}; boletins serão gerados de novo`,
+        usuario_nome: usuarioNome,
+      } as any),
+    );
+    this.logger.log(
+      `[recalcular-retratos] Contrato ${contrato.numero_contrato}: ${aprovadas.length} medição(ões) (por ${usuarioNome})`,
+    );
+    return { recalculadas: aprovadas.length, numeros };
+  }
+
   private async recalcularAcumuladosMedicoesAprovadas(
     contratoId: string,
   ): Promise<void> {
