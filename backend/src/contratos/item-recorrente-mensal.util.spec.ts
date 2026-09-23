@@ -6,6 +6,7 @@ import {
   textoColunasFiscal,
   textoLinhaUnidades,
   textoMesesFiscal,
+  textoObservacaoNaoEntregue,
 } from './item-recorrente-mensal.util';
 
 describe('item recorrente mensal (quantidade × meses)', () => {
@@ -61,6 +62,22 @@ describe('item recorrente mensal (quantidade × meses)', () => {
     const naoUtilizado = r.unidades_nao_utilizadas * vu; // 5.142,85
     expect(+(previsto - atePeriodo - naoUtilizado).toFixed(2)).toBe(1131427.0);
     expect(+(r.unidades_a_executar * vu).toFixed(2)).toBe(1131427.0);
+  });
+
+  it('observação do boletim quando o mês teve unidade não entregue (set/2026, 19 de 20)', () => {
+    const r = resumoRecorrente(20, 12, [], { meses: 1, unidades: 19 });
+    expect(r.nao_utilizadas_no_periodo).toBe(1);
+    expect(textoObservacaoNaoEntregue(r, 'UNIDADE', 'SETEMBRO/2026', 1, 5142.85)).toBe(
+      'Em SETEMBRO/2026 foram disponibilizados 19 dos 20 un contratados no item 1. ' +
+        '1 un não executada (R$\u00a05.142,85) não integra o saldo a executar e não pode ser medida em mês posterior.',
+    );
+  });
+
+  it('mês completo não gera observação; meses anteriores não contam como "no período"', () => {
+    const cheio = resumoRecorrente(20, 12, [{ meses: 1, unidades: 19 }], { meses: 1, unidades: 20 });
+    expect(cheio.nao_utilizadas_no_periodo).toBe(0);
+    expect(cheio.unidades_nao_utilizadas).toBe(1);
+    expect(textoObservacaoNaoEntregue(cheio, 'UNIDADE', 'OUTUBRO/2026', 1, 5142.85)).toBeNull();
   });
 
   it('cota do período: 20 por mês cheio, 10 por meio mês, e nada além disso', () => {

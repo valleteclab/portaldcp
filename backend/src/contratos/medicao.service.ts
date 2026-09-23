@@ -94,7 +94,7 @@ import {
 import { gerarBoletimObraV2Pdf } from '../assinaturas/boletim-obra-v2-pdf';
 import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
 import { literalDataAssinatura } from './data-assinatura.util';
-import { textoPeriodoBoletim } from './competencia-boletim.util';
+import { competenciaDoPeriodo, textoPeriodoBoletim } from './competencia-boletim.util';
 import { incluirEmAnaliseNoAcumulado } from './em-analise-acumulado.util';
 import {
   cotaDaMedicao,
@@ -104,6 +104,7 @@ import {
   textoColunasFiscal,
   textoLinhaUnidades,
   textoMesesFiscal,
+  textoObservacaoNaoEntregue,
 } from './item-recorrente-mensal.util';
 import { renumerarPorCompetencia } from './ordem-medicoes.util';
 @Injectable()
@@ -4471,6 +4472,10 @@ export class MedicaoService {
         .boletim_periodo_competencia,
       // Texto pronto do campo Período: o mês sai do período da medição, não do
       // campo digitado pelo fornecedor (que já veio com mês trocado).
+      // Notas automáticas (ex.: unidade não entregue no mês), impressas sob a execução
+      observacoes_boletim: itensParaPdf
+        .map((i: any) => i?.recorrente?.observacao)
+        .filter((t: unknown): t is string => typeof t === 'string' && t.length > 0),
       periodo_texto: textoPeriodoBoletim(
         !!(contrato as any).boletim_periodo_competencia,
         medicao.periodo_inicio,
@@ -8793,6 +8798,14 @@ export class MedicaoService {
               Number(item.valor_unitario),
             );
             base.recorrente.valor_nao_utilizado = centavosParaReaisTrunc2(centNaoUtilizado);
+            // Nota do boletim: registra no histórico que o mês teve unidade não entregue
+            base.recorrente.observacao = textoObservacaoNaoEntregue(
+              resumo,
+              unidadeMedida,
+              competenciaDoPeriodo(medicaoAtual?.periodo_inicio),
+              item.numero_item,
+              Number(item.valor_unitario) || 0,
+            );
             base.a_executar = centavosParaReaisTrunc2(
               Math.max(0, Math.round(valorPrevisto * 100) - centAtePeriodo - centNaoUtilizado),
             );

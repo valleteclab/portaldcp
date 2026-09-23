@@ -25,6 +25,8 @@ export interface ResumoRecorrente {
   unidades_nao_utilizadas: number;
   /** Meses restantes × cota mensal. O não utilizado em mês fechado NÃO volta. */
   unidades_a_executar: number;
+  /** Só desta medição: cota do período − entregue (20 − 19 = 1). */
+  nao_utilizadas_no_periodo: number;
 }
 
 const arred2 = (n: number) => Math.round(n * 100) / 100;
@@ -84,7 +86,40 @@ export function resumoRecorrente(
     unidades_total: arred2(unidadesPorMes * mesesTotal),
     unidades_nao_utilizadas: naoUtilizadas,
     unidades_a_executar: arred2(unidadesPorMes * Math.max(0, mesesTotal - mesesAte)),
+    nao_utilizadas_no_periodo: atual
+      ? arred2(Math.max(0, unidadesPorMes * atual.meses - atual.unidades))
+      : 0,
   };
+}
+
+/**
+ * Observação impressa no boletim quando o mês teve unidade não entregue —
+ * fica no histórico sem ninguém precisar digitar. Ex.:
+ * "Em SETEMBRO/2026 foram disponibilizados 19 dos 20 un contratados no item 1.
+ *  1 un não executada (R$ 5.142,85) não integra o saldo a executar e não pode
+ *  ser medida em mês posterior."
+ */
+export function textoObservacaoNaoEntregue(
+  r: ResumoRecorrente,
+  unidade: string | null | undefined,
+  competencia: string | null | undefined,
+  numeroItem: number | string,
+  valorUnitario: number,
+): string | null {
+  if (!(r.nao_utilizadas_no_periodo > 0)) return null;
+  const un = rotuloUnidade(unidade);
+  const n = r.nao_utilizadas_no_periodo;
+  const valor = (n * valorUnitario).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  });
+  const quando = competencia ? `Em ${competencia}` : 'Neste período';
+  const cota = r.unidades_por_mes * r.meses_no_periodo;
+  return (
+    `${quando} foram disponibilizados ${fmtNum(r.unidades_no_periodo)} dos ${fmtNum(cota)} ${un} ` +
+    `contratados no item ${numeroItem}. ${fmtNum(n)} ${un} não executada${n === 1 ? '' : 's'} (${valor}) ` +
+    `não integra${n === 1 ? '' : 'm'} o saldo a executar e não pode${n === 1 ? '' : 'm'} ser medida${n === 1 ? '' : 's'} em mês posterior.`
+  );
 }
 
 /** Cota de unidades de uma medição: unidades/mês × meses do período (20 × 1 = 20). */
