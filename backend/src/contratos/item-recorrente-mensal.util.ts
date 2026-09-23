@@ -152,7 +152,8 @@ export function textoMesesFiscal(r: ResumoRecorrente): {
  * meses na linha de cima e unidades na de baixo.
  *   NO PERÍODO      ATÉ O PERÍODO     A EXECUTAR
  *   1 mês           1 de 12 meses     11 meses
- *   19 de 20 un     19 de 240 un      221 un (1 sem uso)
+ *   19 de 20 un     19 de 240 un      220 un
+ * O que ficou sem uso vai na caixa OBSERVAÇÃO, não na coluna.
  */
 export function textoColunasFiscal(r: ResumoRecorrente, unidade?: string | null): {
   no_periodo: string;
@@ -162,14 +163,10 @@ export function textoColunasFiscal(r: ResumoRecorrente, unidade?: string | null)
   const un = rotuloUnidade(unidade);
   const meses = textoMesesFiscal(r);
   const aExecutarUn = r.unidades_a_executar;
-  const semUso =
-    r.unidades_nao_utilizadas > 0
-      ? ` (${fmtNum(r.unidades_nao_utilizadas)} não utilizada${r.unidades_nao_utilizadas === 1 ? '' : 's'})`
-      : '';
   return {
     no_periodo: `${meses.no_periodo}\n${fmtNum(r.unidades_no_periodo)} de ${fmtNum(r.unidades_por_mes)} ${un}`,
     ate_periodo: `${meses.ate_periodo}\n${fmtNum(r.unidades_ate_periodo)} de ${fmtNum(r.unidades_total)} ${un}`,
-    a_executar: `${meses.a_executar}\n${fmtNum(aExecutarUn)} ${un}${semUso}`,
+    a_executar: `${meses.a_executar}\n${fmtNum(aExecutarUn)} ${un}`,
   };
 }
 
