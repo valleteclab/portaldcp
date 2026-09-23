@@ -1026,6 +1026,31 @@ export async function gerarBoletimMedicaoPdf(
     y = (doc as any).lastAutoTable.finalY + 4;
   }
 
+  // Observações automáticas (ex.: unidade não entregue no mês) — ficam no histórico
+  const observacoesBoletim: string[] = Array.isArray((dados as any).observacoes_boletim)
+    ? (dados as any).observacoes_boletim.filter((t: unknown) => typeof t === 'string' && t)
+    : [];
+  if (observacoesBoletim.length > 0) {
+    const linhasObs = doc.splitTextToSize(observacoesBoletim.map((t) => `• ${t}`).join('\n'), W - 2 * mX - 8);
+    const hObs = Math.max(12, linhasObs.length * 3.6 + 9);
+    if (y + hObs > H - 30) {
+      doc.addPage();
+      y = 12;
+    }
+    doc.setDrawColor(190, 190, 190);
+    doc.setFillColor(245, 248, 252);
+    doc.rect(mX, y, W - 2 * mX, hObs, 'FD');
+    doc.setTextColor(22, 60, 100);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text('OBSERVAÇÃO', mX + 4, y + 4.5);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text(linhasObs, mX + 4, y + 9);
+    y += hObs + 4;
+  }
+
   // =========================================================
   // ETAPAS DE OBRA
   // =========================================================

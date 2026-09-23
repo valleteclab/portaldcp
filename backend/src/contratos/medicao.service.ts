@@ -94,15 +94,17 @@ import {
 import { gerarBoletimObraV2Pdf } from '../assinaturas/boletim-obra-v2-pdf';
 import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
 import { literalDataAssinatura } from './data-assinatura.util';
-import { textoPeriodoBoletim } from './competencia-boletim.util';
+import { competenciaDoPeriodo, textoPeriodoBoletim } from './competencia-boletim.util';
 import { incluirEmAnaliseNoAcumulado } from './em-analise-acumulado.util';
 import {
+  cotaDaMedicao,
   ehItemRecorrenteMensal,
   mesesDoPeriodo,
   resumoRecorrente,
   textoColunasFiscal,
   textoLinhaUnidades,
   textoMesesFiscal,
+  textoObservacaoNaoEntregue,
 } from './item-recorrente-mensal.util';
 import { renumerarPorCompetencia } from './ordem-medicoes.util';
 @Injectable()
@@ -1777,6 +1779,20 @@ export class MedicaoService {
         const saldoDisponivel =
           quantidadeTotal - quantidadeAprovada - quantidadeEmTransito;
 
+        // Item "unidades por mês": no máximo a cota do período (20 × 1 mês).
+        // Sem isso o veículo não entregue em setembro seria "recuperado" em outubro.
+        if (ehItemRecorrenteMensal(itemCron)) {
+          const cota = cotaDaMedicao(
+            Number(itemCron.quantidade) || 0,
+            mesesDoPeriodo(dados.periodo_inicio, dados.periodo_fim),
+          );
+          if (qtdMedida > cota + 0.0001) {
+            throw new BadRequestException(
+              `Item "${itemCron.descricao}": quantidade medida (${qtdMedida}) excede a cota do período (${cota.toFixed(2)} ${itemCron.unidade_medida}). ` +
+                `O que não foi entregue em mês anterior não pode ser medido depois.`,
+            );
+          }
+        }
         if (qtdMedida > saldoDisponivel + 0.0001) {
           throw new BadRequestException(
             `Item "${itemCron.descricao}": quantidade medida (${qtdMedida}) excede o saldo disponível (${saldoDisponivel.toFixed(2)}). ` +
@@ -2255,6 +2271,18 @@ export class MedicaoService {
         const saldoDisponivel =
           quantidadeTotal - quantidadeAprovada - quantidadeEmTransito;
 
+        if (ehItemRecorrenteMensal(itemCron)) {
+          const cota = cotaDaMedicao(
+            Number(itemCron.quantidade) || 0,
+            mesesDoPeriodo(medicao.periodo_inicio, medicao.periodo_fim),
+          );
+          if (qtdMedida > cota + 0.0001) {
+            throw new BadRequestException(
+              `Item "${itemCron.descricao}": quantidade medida (${qtdMedida}) excede a cota do período (${cota.toFixed(2)} ${itemCron.unidade_medida}). ` +
+                `O que não foi entregue em mês anterior não pode ser medido depois.`,
+            );
+          }
+        }
         if (qtdMedida > saldoDisponivel + 0.0001) {
           throw new BadRequestException(
             `Item "${itemCron.descricao}": quantidade medida (${qtdMedida}) excede o saldo disponível (${saldoDisponivel.toFixed(2)}).`,
@@ -4444,6 +4472,10 @@ export class MedicaoService {
         .boletim_periodo_competencia,
       // Texto pronto do campo Período: o mês sai do período da medição, não do
       // campo digitado pelo fornecedor (que já veio com mês trocado).
+      // Notas automáticas (ex.: unidade não entregue no mês), impressas sob a execução
+      observacoes_boletim: itensParaPdf
+        .map((i: any) => i?.recorrente?.observacao)
+        .filter((t: unknown): t is string => typeof t === 'string' && t.length > 0),
       periodo_texto: textoPeriodoBoletim(
         !!(contrato as any).boletim_periodo_competencia,
         medicao.periodo_inicio,
@@ -8759,6 +8791,27 @@ export class MedicaoService {
               texto_colunas: textoColunasFiscal(resumo, unidadeMedida),
               texto_unidades: textoLinhaUnidades(resumo, unidadeMedida),
             };
+            // O veículo não entregue num mês fechado não vai "para frente":
+            // sai do a executar (unidades e valor). O órgão paga só o entregue.
+            const centNaoUtilizado = produtoQuantidadeValorUnitarioCentavos(
+              resumo.unidades_nao_utilizadas,
+              Number(item.valor_unitario),
+            );
+            base.recorrente.valor_nao_utilizado = centavosParaReaisTrunc2(centNaoUtilizado);
+            // Nota do boletim: registra no histórico que o mês teve unidade não entregue
+            base.recorrente.observacao = textoObservacaoNaoEntregue(
+              resumo,
+              unidadeMedida,
+              competenciaDoPeriodo(medicaoAtual?.periodo_inicio),
+              item.numero_item,
+              Number(item.valor_unitario) || 0,
+            );
+            base.a_executar = centavosParaReaisTrunc2(
+              Math.max(0, Math.round(valorPrevisto * 100) - centAtePeriodo - centNaoUtilizado),
+            );
+            if (boletimPorQuantidade) {
+              base.quantidade_a_executar = resumo.unidades_a_executar;
+            }
           }
           // Item fisicamente concluído: zera resíduo financeiro de truncamento (≤ 0,02)
           if (
