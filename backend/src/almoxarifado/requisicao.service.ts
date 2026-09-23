@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger, ForbiddenEx
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { somarQuantidadeComprometidaPorItemOS } from './comprometido-os-item.util';
+import { AutorCancelamento, entradaHistoricoCancelamento, nomeDoAutor } from './cancelamento-requisicao.util';
 import { Requisicao, StatusRequisicao, TipoRequisicao, PrioridadeRequisicao } from './entities/requisicao.entity';
 import { RequisicaoItemOS } from './entities/requisicao-item-os.entity';
 import { RequisicaoEtapaOS } from './entities/requisicao-etapa-os.entity';
@@ -1891,7 +1892,12 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     }
   }
 
-  async cancelar(id: string, motivo: string, requerPermissaoEspecial: boolean = false): Promise<Requisicao> {
+  async cancelar(
+    id: string,
+    motivo: string,
+    requerPermissaoEspecial: boolean = false,
+    autor?: AutorCancelamento | null,
+  ): Promise<Requisicao> {
     const requisicao = await this.findOne(id);
 
     // Status que NUNCA podem ser cancelados (já entregues)
@@ -2039,9 +2045,23 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       await queryRunner.manager.save(requisicao);
       await queryRunner.commitTransaction();
 
+      // Rastro: quem cancelou, quando e por quê. Antes só existia o carimbo nas
+      // observações, e a OS-0257/2026 ficou cancelada sem ninguém saber por quem.
+      await this.historicoRequisicaoRepository.save(
+        this.historicoRequisicaoRepository.create({
+          requisicao_id: requisicao.id,
+          ...entradaHistoricoCancelamento(
+            autor,
+            motivo,
+            requisicao.status_anterior_cancelamento,
+          ),
+          data_evento: new Date(),
+        }),
+      );
+
       this.logger.log(
-        `Requisição ${requisicao.numero} cancelada. ` +
-        `Ordem e recebimentos relacionados foram excluídos. Saldo liberado.`
+        `Requisição ${requisicao.numero} cancelada por ${nomeDoAutor(autor)}. ` +
+        `Motivo: ${motivo}. Ordem e recebimentos relacionados foram excluídos. Saldo liberado.`
       );
 
       return this.findOne(id);

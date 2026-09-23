@@ -23,6 +23,7 @@ import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { RequisicaoService } from './requisicao.service';
+import { AuditAction, AuditService } from '../audit/audit.service';
 import { ItemContratoService } from './item-contrato.service';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { RecebimentoService } from './recebimento.service';
@@ -76,6 +77,7 @@ export class AlmoxarifadoController {
     private readonly nfFornecedorService: NotaFiscalFornecedorService,
     private readonly matchingIaService: MatchingIaService,
     private readonly dossieService: DossieService,
+    private readonly auditService: AuditService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
     @InjectRepository(OrdemFornecimento)
@@ -609,10 +611,22 @@ export class AlmoxarifadoController {
     }
     
     const requisicaoCancelada = await this.requisicaoService.cancelar(
-      id, 
+      id,
       motivo || 'Cancelado pelo usuário',
-      requerPermissaoEspecial
+      requerPermissaoEspecial,
+      { id: user.id, nome: user.nome, email: user.email },
     );
+    this.auditService.log(AuditAction.REQUISICAO_CANCELADA, request.user, {
+      resourceType: 'Requisicao',
+      resourceId: id,
+      orgaoId: requisicao.orgao_id,
+      details: {
+        numero: requisicao.numero,
+        status_anterior: requisicao.status,
+        motivo: motivo || 'Cancelado pelo usuário',
+        usuario_nome: user.nome,
+      },
+    });
     
     // Monta mensagem informativa sobre o que foi excluído
     let mensagem = 'Requisição cancelada com sucesso. ';
