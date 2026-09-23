@@ -951,6 +951,31 @@ export class ModalidadesContratoController {
     );
   }
 
+  /**
+   * Suporte: refaz o retrato congelado das medições aprovadas com as regras
+   * atuais (depois de mudança de cálculo) e zera os PDFs.
+   */
+  @Post(':contratoId/medicoes/recalcular-retratos')
+  async recalcularRetratosMedicoes(
+    @Param('contratoId') contratoId: string,
+    @Req() request: { user: JwtPayload },
+  ) {
+    const usuario = await this.usuarioRepository.findOne({
+      where: { id: request.user.sub },
+    });
+    if (!usuario) throw new BadRequestException('Usuário não encontrado');
+    if (!usuario.pode_cancelar_estornar) {
+      throw new BadRequestException(
+        'Você não tem permissão para esta ação. Apenas usuários autorizados a cancelar/estornar podem recalcular retratos.',
+      );
+    }
+    return this.medicaoService.recalcularRetratosAprovados(
+      contratoId,
+      this.getOrgaoId(request.user),
+      usuario.nome || usuario.email,
+    );
+  }
+
   @Post(':contratoId/medicoes/retroativa')
   async registrarMedicaoRetroativa(
     @Param('contratoId') contratoId: string,
