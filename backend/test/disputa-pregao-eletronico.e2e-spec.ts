@@ -17,13 +17,10 @@
  * 9. Validação do ranking final
  */
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { AppModule } from '../src/app.module';
 import { DataSource } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
-import { Orgao, TipoOrgao, EsferaAdministrativa } from '../src/orgaos/entities/orgao.entity';
 import { UserType } from '../src/auth/auth.service';
 import { UnidadeMedida } from '../src/itens/entities/item-licitacao.entity';
 import {
@@ -32,6 +29,7 @@ import {
   CriterioJulgamento,
   TipoContratacao,
 } from '../src/licitacoes/entities/licitacao.entity';
+import { AppE2E, criarApp, criarOrgao } from './support';
 
 // O fluxo completo inclui chamadas de rede ao banco — timeout generoso
 jest.setTimeout(120_000);
@@ -49,6 +47,7 @@ function cnpjFake(prefix: string): string {
 // ============================================================================
 
 describe('Pregão Eletrônico — Fluxo Completo E2E', () => {
+  let ctx: AppE2E;
   let app: INestApplication;
   let dataSource: DataSource;
   let jwtService: JwtService;
@@ -85,46 +84,23 @@ describe('Pregão Eletrônico — Fluxo Completo E2E', () => {
   // ============================================================================
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+    // Infra comum (test/support): Postgres descartável + bootstrap igual ao
+    // main.ts (sem ValidationPipe global — produção também não tem)
+    ctx = await criarApp();
+    app = ctx.app;
+    dataSource = ctx.dataSource;
+    jwtService = ctx.jwt;
 
-    app = moduleFixture.createNestApplication();
-    // Replicar configuração do main.ts relevante para validação
-    app.setGlobalPrefix('api');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: false,
-        transform: true,
-      }),
-    );
-    await app.init();
-
-    dataSource = app.get(DataSource);
-    jwtService = app.get(JwtService);
-
-    // Criar órgão diretamente via DataSource
+    // Órgão pela fábrica comum (POST /api/orgaos). A versão anterior gravava
+    // direto no repositório sem cidade/uf (NOT NULL) e quebrava no boot.
     // modulos_habilitados = null → ModuloGuard em modo compatibilidade (permite tudo)
-    const orgaoRepo = dataSource.getRepository(Orgao);
-    const ts = Date.now();
-    const orgao = orgaoRepo.create({
-      codigo: `E2E-${ts}`,
-      nome: 'Prefeitura Municipal de Teste E2E',
-      cnpj: cnpjFake('99'),
-      tipo: TipoOrgao.PREFEITURA,
-      esfera: EsferaAdministrativa.MUNICIPAL,
-      modulos_habilitados: null,
-    } as any);
-    const salvo = await orgaoRepo.save(orgao);
-    orgaoId = salvo.id;
-
-    // Token JWT do órgão
-    orgaoToken = jwtService.sign({ sub: orgaoId, type: UserType.ORGAO });
+    const orgao = await criarOrgao(ctx, { nome: 'Prefeitura Municipal de Teste E2E' });
+    orgaoId = orgao.id;
+    orgaoToken = orgao.token;
   });
 
   afterAll(async () => {
-    await app.close();
+    await ctx?.fechar();
   });
 
   // ============================================================================

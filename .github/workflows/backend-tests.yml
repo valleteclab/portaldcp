@@ -1,0 +1,39 @@
+name: Backend — testes
+
+# Unitários (jest) + e2e (jest-e2e com Postgres descartável via embedded-postgres).
+# Não depende de banco externo nem de segredos: o e2e sobe o próprio Postgres
+# e bloqueia rede externa (PNCP é mock).
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes unitários
+        run: npm test -- --ci
+
+      - name: Testes e2e
+        run: npm run test:e2e -- --ci
