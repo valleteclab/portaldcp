@@ -142,6 +142,25 @@ Cada etapa = 1 ou mais PRs, com critério de pronto verificável. A ordem import
 
 **Pronto quando:** os três rodam no CI; o de dispensa passa; o de pregão falha exatamente nos pontos do §1.2.
 
+**E0 CONCLUÍDA (24/09/2026)** — `backend/test/`: infra (Postgres descartável), `dispensa-eletronica` (45: 36 ok + 9 defeitos), `pregao-eletronico-completo` (53: 36 ok + 17 defeitos — B1–B9 confirmados), `isolamento-dados-licitacao` (92: 10 seguros + **82 vazamentos confirmados por execução**), `simulador-disputa` (13: 10 robôs × 2 itens × 2 licitações). 211/211 verdes (defeitos como `test.failing`: quando um for corrigido, o teste acusa e vira `test` normal).
+
+Achados novos da E0 (não estavam no §1.2):
+- **Cron triplicado** (`ScheduleModule.forRoot` em 3 módulos) — corrigido na PR #489 junto com leitura de arquivos fora de uploads e credenciais nas respostas.
+- **Isolamento — 82 falhas**, as críticas: REST `disputa-v2` e sockets `/sessao`, `/disputa-v2` e `/` aceitam atos **sem login** (lance, reiniciar, encerrar, chat como pregoeiro); rotas do `sessao` só exigem "ter token" (órgão B/fornecedor iniciam, adjudicam e homologam sessão de A); `licitacoes`, `parametros`, `atas`, `credenciamento`, `documentos` sem checagem de órgão; propostas criadas/alteradas/excluídas em nome de outro fornecedor; lance de item de outra licitação aceito; orçamento sigiloso exposto em rota pública.
+- **Simulador:** lance gravado mas o fornecedor recebe "erro" e ninguém recebe o aviso (corrida na anonimização); código anônimo repetido entre fornecedores; razão social nos eventos `participante_entrou`/`novo_lance`; dois lances intermediários iguais no mesmo ms aceitos.
+- **Pregão:** publicar pregão não envia compra ao PNCP; abertura com menos de 8 dias úteis aceita; diferença mínima do edital não validada; PNCP resultado com `ordemClassificacao: 1` e `aplicacaoBeneficioMeEpp: false` fixos.
+- **Dispensa:** painel público mostra o menor valor antes do fim do acolhimento; `?fornecedorId=` no painel expõe valor de outro; fornecedor consegue julgar; prazo de entrega do contrato sempre 30 dias.
+
+### E1a — Blindagem de acesso (NOVA, antes da E1) · tamanho G
+Motivo: os 82 vazamentos incluem atos **sem login** em produção (a dispensa já está em uso). Não dá para esperar a E2.
+1. **Guarda de papel e órgão reutilizável** (decorators): `@SomenteOrgao()` (ORGAO/USUARIO do mesmo órgão da licitação/sessão/ata/credenciamento/documento), `@SomenteFornecedor()` (identidade SEMPRE do JWT), leitura pública explícita e mínima. Aplicada em licitacoes, sessao, disputa-v2, disputa-v3, propostas, itens, parametros-licitacao, atas, credenciamento, documentos, impugnações/esclarecimentos (resposta).
+2. **Sockets** (`/disputa-v2`, `/sessao`, `/dispensa`, `/`): autenticação no handshake (JWT), sala só para quem participa (fornecedor com proposta / órgão dono), ações de pregoeiro só para o órgão dono; identidade nunca do payload. O gateway `/` (legado `lances`) e o `/sessao` passam a recusar escrita (serão removidos na E2).
+3. **Propostas e lances:** `fornecedor_id` do token; checagem de dono em ler/alterar/excluir; item precisa pertencer à licitação da sessão; 409 sem id alheio.
+4. **Dados públicos mínimos:** sem razão social/ids nos eventos durante a disputa; orçamento sigiloso fora das rotas públicas; `melhor_lance_fornecedor_id` fora da leitura pública; painel da dispensa sem `?fornecedorId=` de terceiros e respeitando o sigilo.
+5. **Frontend:** ajustar as telas que mandavam `fornecedorId`/`tipo` no corpo/socket para usar só o token.
+
+**Pronto quando:** os 82 `test.failing` de `isolamento-dados-licitacao` viram testes normais e passam; dispensa e pregão continuam verdes.
+
 ### E1 — Máquina de estados única · tamanho G
 1. `TransicoesService` declarativo: por modalidade, fases válidas, pré-condições (documentos, prazos, propostas, resultado) e efeitos (datas, eventos, PNCP, notificações).
 2. Substituir os **22 pontos** que alteram `fase` (licitacoes, scheduler, sessao, pncp, fase-interna, admin-testes) por chamadas ao serviço. `avancarFase` genérico e `retrocederFase` livre deixam de existir — cada transição é um ato nomeado.
@@ -264,7 +283,7 @@ Cada etapa = 1 ou mais PRs, com critério de pronto verificável. A ordem import
 ## 4. Ordem, dependências e estimativa
 
 ```
-E0 ──► E1 ──► E2 ──► E3 ──► E4 ──► E5 ──► E6 ──► E7b (credenciamento) ──► E7c (leilão/concurso/diálogo)
+E0 ──► E1a ──► E1 ──► E2 ──► E3 ──► E4 ──► E5 ──► E6 ──► E7b (credenciamento) ──► E7c (leilão/concurso/diálogo)
                  └──────────────► E7 (pode correr em paralelo a E3–E6)
 E8 acompanha cada etapa (tela nova nasce junto do backend novo); E9 no fim; E10 fecha.
 ```
