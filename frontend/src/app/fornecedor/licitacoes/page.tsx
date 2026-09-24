@@ -40,10 +40,8 @@ export default function LicitacoesDisponiveisPage() {
         const [resLic, resProps] = await Promise.all([
           authFetch(`${API_URL}/api/licitacoes`),
           (async () => {
-            const fornecedorStr = localStorage.getItem('fornecedor')
-            if (!fornecedorStr) return null
-            const fornecedor = JSON.parse(fornecedorStr)
-            const r = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+            if (!localStorage.getItem('fornecedor')) return null
+            const r = await authFetch(`${API_URL}/api/propostas/minhas`)
             return r.ok ? r : null
           })()
         ])

@@ -124,7 +124,11 @@ export interface EntradaSala {
   resposta: EventoRecebido;
 }
 
-/** Conecta em /disputa-v2 e emite `entrar_sala` como o hook do frontend faz. */
+/**
+ * Conecta em /disputa-v2 (token no handshake) e emite `entrar_sala` como o hook
+ * do frontend faz: identidade e papel vêm SÓ do token (E1a). `usuarioIdDeclarado`
+ * simula um cliente que tenta se passar por outro fornecedor.
+ */
 export async function entrarNaSala(
   ctx: AppE2E,
   sessaoId: string,
@@ -139,13 +143,14 @@ export async function entrarNaSala(
     'acesso_negado',
     'erro',
   ]);
-  socket.emit('entrar_sala', {
-    sessaoId,
-    tipo: ator.tipo,
-    // o frontend manda o id que está no localStorage; o gateway confia nele
-    usuarioId: opts.usuarioIdDeclarado ?? ator.id,
-    usuarioNome: ator.nome,
-  });
+  const payload: Record<string, unknown> = { sessaoId };
+  if (opts.usuarioIdDeclarado || !ator.token) {
+    // cliente sem login ou malicioso declarando identidade e papel no payload
+    payload.tipo = ator.tipo;
+    payload.usuarioId = opts.usuarioIdDeclarado ?? ator.id;
+    payload.usuarioNome = ator.nome;
+  }
+  socket.emit('entrar_sala', payload);
   return { socket, resposta: await espera };
 }
 

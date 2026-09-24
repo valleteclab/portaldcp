@@ -3,12 +3,13 @@
  * app.listen na porta 0, então há um servidor real em ctx.baseUrl).
  *
  *   const s = await conectarSocket(ctx, '/disputa-v2', { token: forn.token });
- *   s.emit('entrar_sala', { sessaoId, tipo: 'FORNECEDOR', usuarioId: forn.id, usuarioNome: 'X' });
- *   const estado = await aguardarEvento(s, 'estado_sessao');
+ *   s.emit('entrar_sala', { sessaoId });
+ *   const dados = await aguardarEvento(s, 'dados_iniciais');
  *   s.disconnect();
  *
- * O token vai em `auth.token` (handshake) e no header Authorization — os
- * gateways de hoje não validam token; o E2 passa a exigir.
+ * O token vai em `auth.token` (handshake) e no header Authorization. Os
+ * gateways autenticam no handshake (E1a, WsAutenticador): token inválido
+ * recusa a conexão (connect_error) e a identidade vem só do token.
  */
 import { io, Socket } from 'socket.io-client';
 import { AppE2E } from './app';

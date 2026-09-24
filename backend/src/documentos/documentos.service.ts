@@ -229,6 +229,14 @@ export class DocumentosService {
       .getMany();
   }
 
+  /** Fase e data de divulgação da licitação (para decidir se é pública). */
+  async faseDaLicitacao(licitacaoId: string): Promise<Pick<Licitacao, 'id' | 'fase' | 'data_publicacao_edital'> | null> {
+    return this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      select: ['id', 'fase', 'data_publicacao_edital'],
+    });
+  }
+
   async findByTipo(licitacaoId: string, tipo: TipoDocumentoLicitacao): Promise<DocumentoLicitacao[]> {
     return this.documentoRepository.find({
       where: { licitacao_id: licitacaoId, tipo },
@@ -338,6 +346,8 @@ export class DocumentosService {
         'licitacao.numero_processo',
         'licitacao.numero_edital',
         'licitacao.objeto',
+        'licitacao.fase',
+        'licitacao.data_publicacao_edital',
         'orgao.id',
         'orgao.nome',
         'orgao.cnpj',

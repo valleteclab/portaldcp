@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Credenciamento, Credenciado, StatusCredenciamento, StatusCredenciado, TipoCredenciamento } from './entities/credenciamento.entity';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class CredenciamentoService {
   constructor(
@@ -242,6 +244,26 @@ export class CredenciamentoService {
     });
 
     return this.credenciadoRepository.save(credenciado);
+  }
+
+  /** Credenciamento do inscrito (null se não existe ou id inválido). */
+  async credenciamentoIdDoCredenciado(credenciadoId: string): Promise<string | null> {
+    if (!UUID_RE.test(credenciadoId || '')) return null;
+    const c = await this.credenciadoRepository.findOne({
+      where: { id: credenciadoId },
+      select: ['id', 'credenciamento_id'],
+    });
+    return c?.credenciamento_id ?? null;
+  }
+
+  /** CNPJ e razão social do cadastro do fornecedor (identidade na inscrição). */
+  async dadosDoFornecedor(fornecedorId: string): Promise<{ cpf_cnpj: string; razao_social: string } | null> {
+    if (!UUID_RE.test(fornecedorId || '')) return null;
+    const r = await this.credenciadoRepository.manager.query(
+      `SELECT cpf_cnpj, razao_social FROM fornecedores WHERE id = $1`,
+      [fornecedorId],
+    );
+    return r[0] ?? null;
   }
 
   async findCredenciados(credenciamentoId: string, status?: StatusCredenciado): Promise<Credenciado[]> {

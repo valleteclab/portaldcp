@@ -495,6 +495,7 @@ export interface PropostaFixture {
  * Cadastra e envia a proposta do fornecedor, autenticado como ELE MESMO.
  * `valores`: valor unitário por item, na ordem de `lic.itens` (array) ou por
  * id do item (objeto). Itens sem valor ficam de fora da proposta.
+ * O fornecedor é o do token (E1a) — `fornecedor_id` não vai no corpo.
  */
 export async function enviarProposta(
   ctx: AppE2E,
@@ -516,7 +517,6 @@ export async function enviarProposta(
     .set(bearer(fornecedor.token))
     .send({
       licitacao_id: lic.id,
-      fornecedor_id: fornecedor.id,
       declaracao_termos: true,
       declaracao_integridade: true,
       declaracao_inexistencia_fatos: true,

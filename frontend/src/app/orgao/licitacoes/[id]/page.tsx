@@ -50,6 +50,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { API_URL, authFetch } from '@/lib/api'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 import { linkEditalPncp } from '@/lib/pncp'
 import EditarLicitacaoModal from '@/components/licitacao/EditarLicitacaoModal'
 
@@ -1499,7 +1500,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                           <Button 
                             size="sm" 
                             variant="ghost"
-                            onClick={() => window.open(`${API_URL}/api/documentos/${doc.id}/download`, '_blank')}
+                            onClick={() => abrirArquivoAutenticado(`${API_URL}/api/documentos/${doc.id}/download`)}
                           >
                             <Download className="h-4 w-4" />
                           </Button>

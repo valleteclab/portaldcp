@@ -183,8 +183,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 1. disputa-v2 REST (disputa.controller.ts — todas as rotas @Public)
   // ==========================================================================
   describe('1. disputa-v2 REST', () => {
-    // VAZAMENTO CONHECIDO: lance da v2 é @Public e confia no fornecedorId do corpo — disputa-v2/disputa.controller.ts:155-175 — corrigir na E2
-    test.failing('anônimo (sem token) não registra lance', async () => {
+    // CORRIGIDO NA E1a (era vazamento): lance da v2 é @Public e confia no fornecedorId do corpo — disputa-v2/disputa.controller.ts:155-175
+    test('anônimo (sem token) não registra lance', async () => {
       const r = await lanceV2(ctx, X.sessaoId, {
         itemId: X.lic.itens[0].id,
         fornecedorId: F1.id,
@@ -195,8 +195,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: identidade do lance vem do corpo, não do token — disputa-v2/disputa.controller.ts:167-174 — corrigir na E2
-    test.failing('F2 não registra lance com o fornecedorId de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): identidade do lance vem do corpo, não do token — disputa-v2/disputa.controller.ts:167-174
+    test('F2 não registra lance com o fornecedorId de F1', async () => {
       const r = await lanceV2(
         ctx,
         X.sessaoId,
@@ -207,8 +207,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect([401, 403]).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: mensagem da sala é @Public e o remetente vem do corpo — disputa-v2/disputa.controller.ts:177-189 — corrigir na E2
-    test.failing('anônimo não envia mensagem na sala (remetente livre)', async () => {
+    // CORRIGIDO NA E1a (era vazamento): mensagem da sala é @Public e o remetente vem do corpo — disputa-v2/disputa.controller.ts:177-189
+    test('anônimo não envia mensagem na sala (remetente livre)', async () => {
       const r = await ctx
         .http()
         .post(`/api/disputa-v2/sessao/${X.sessaoId}/mensagem`)
@@ -217,8 +217,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: iniciar itens é @Public — disputa-v2/disputa.controller.ts:97-104 — corrigir na E2
-    test.failing('anônimo não inicia itens', async () => {
+    // CORRIGIDO NA E1a (era vazamento): iniciar itens é @Public — disputa-v2/disputa.controller.ts:97-104
+    test('anônimo não inicia itens', async () => {
       const r = await ctx
         .http()
         .post(`/api/disputa-v2/sessao/${W.sessaoId}/iniciar-itens`)
@@ -227,8 +227,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: configurações da sessão são @Public — disputa-v2/disputa.controller.ts:201-217 — corrigir na E2
-    test.failing('anônimo não altera configurações da sessão', async () => {
+    // CORRIGIDO NA E1a (era vazamento): configurações da sessão são @Public — disputa-v2/disputa.controller.ts:201-217
+    test('anônimo não altera configurações da sessão', async () => {
       const r = await ctx
         .http()
         .put(`/api/disputa-v2/sessao/${W.sessaoId}/configuracoes`)
@@ -237,15 +237,15 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: encerrar item é @Public — disputa-v2/disputa.controller.ts:106-113 — corrigir na E2
-    test.failing('anônimo não encerra item', async () => {
+    // CORRIGIDO NA E1a (era vazamento): encerrar item é @Public — disputa-v2/disputa.controller.ts:106-113
+    test('anônimo não encerra item', async () => {
       const r = await ctx.http().post(`/api/disputa-v2/sessao/${W.sessaoId}/encerrar-item/${W.lic.itens[1].id}`);
       registrarHttp('1 anônimo POST encerrar-item (W)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: suspender/retomar são @Public — disputa-v2/disputa.controller.ts:115-140 — corrigir na E2
-    test.failing('anônimo não suspende nem retoma a sessão', async () => {
+    // CORRIGIDO NA E1a (era vazamento): suspender/retomar são @Public — disputa-v2/disputa.controller.ts:115-140
+    test('anônimo não suspende nem retoma a sessão', async () => {
       const s = await ctx
         .http()
         .post(`/api/disputa-v2/sessao/${W.sessaoId}/suspender`)
@@ -257,8 +257,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: reiniciar a sessão (cancela todos os lances) é @Public — disputa-v2/disputa.controller.ts:142-153 — corrigir na E2
-    test.failing('anônimo não reinicia a sessão', async () => {
+    // CORRIGIDO NA E1a (era vazamento): reiniciar a sessão (cancela todos os lances) é @Public — disputa-v2/disputa.controller.ts:142-153
+    test('anônimo não reinicia a sessão', async () => {
       const r = await ctx
         .http()
         .post(`/api/disputa-v2/sessao/${W.sessaoId}/reiniciar`)
@@ -284,8 +284,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       s2 = e2.socket;
     });
 
-    // VAZAMENTO CONHECIDO: tipo=PREGOEIRO é declarado pelo cliente, sem token — disputa-v2/disputa.gateway.ts:63-105,135-144 — corrigir na E2
-    test.failing('anônimo declarando tipo=PREGOEIRO não executa ação de pregoeiro', async () => {
+    // CORRIGIDO NA E1a (era vazamento): tipo=PREGOEIRO é declarado pelo cliente, sem token — disputa-v2/disputa.gateway.ts:63-105,135-144
+    test('anônimo declarando tipo=PREGOEIRO não executa ação de pregoeiro', async () => {
       const anon = await entrarNaSala(ctx, X.sessaoId, { id: 'pregoeiro-falso', nome: 'Pregoeiro', tipo: 'PREGOEIRO' });
       if (anon.resposta.evento !== 'dados_iniciais') {
         registrar('2 anônimo PREGOEIRO entrar_sala', `evento=${anon.resposta.evento}`);
@@ -297,8 +297,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.evento).toBe('erro');
     });
 
-    // VAZAMENTO CONHECIDO: usuarioId do entrar_sala vem do cliente; lance sai em nome de F1 — disputa-v2/disputa.gateway.ts:79-102,331-338 — corrigir na E2
-    test.failing('anônimo declarando usuarioId=F1 não dá lance como F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): usuarioId do entrar_sala vem do cliente; lance sai em nome de F1 — disputa-v2/disputa.gateway.ts:79-102,331-338
+    test('anônimo declarando usuarioId=F1 não dá lance como F1', async () => {
       const anon = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: 'Qualquer', tipo: 'FORNECEDOR' });
       if (anon.resposta.evento !== 'dados_iniciais') {
         registrar('2 anônimo usuarioId=F1 entrar_sala', `evento=${anon.resposta.evento}`);
@@ -310,8 +310,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.ok).toBe(false);
     });
 
-    // VAZAMENTO CONHECIDO: token de F2 não é confrontado com o usuarioId declarado — disputa-v2/disputa.gateway.ts:79-102 — corrigir na E2
-    test.failing('F2 (com o próprio token) declarando usuarioId=F1 não dá lance como F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): token de F2 não é confrontado com o usuarioId declarado — disputa-v2/disputa.gateway.ts:79-102
+    test('F2 (com o próprio token) declarando usuarioId=F1 não dá lance como F1', async () => {
       const e = await entrarNaSala(
         ctx,
         X.sessaoId,
@@ -328,6 +328,42 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.ok).toBe(false);
     });
 
+    it('socket /disputa-v2: só órgão dono e fornecedor com proposta entram; token inválido é recusado (E1a)', async () => {
+      const entrar = async (token?: string) => {
+        const e = await entrarNaSala(ctx, X.sessaoId, { id: 'x', nome: 'x', tipo: 'FORNECEDOR', token });
+        e.socket.close();
+        return e.resposta.evento;
+      };
+      const resultado = {
+        anonimo: await entrar(),
+        orgaoA: await entrar(A.token),
+        pregA: await entrar(pregA.token),
+        F1: await entrar(F1.token),
+        orgaoB: await entrar(B.token),
+        pregB: await entrar(pregB.token),
+        F3: await entrar(F3.token),
+      };
+      registrar('2 socket /disputa-v2 entrar_sala (X)', JSON.stringify(resultado));
+      await expect(conectarSocket(ctx, '/disputa-v2', { token: 'token.invalido.x' })).rejects.toThrow(/Token inválido/);
+      expect(resultado).toEqual({
+        anonimo: 'acesso_negado',
+        orgaoA: 'dados_iniciais',
+        pregA: 'dados_iniciais',
+        F1: 'dados_iniciais',
+        orgaoB: 'acesso_negado',
+        pregB: 'acesso_negado',
+        F3: 'acesso_negado',
+      });
+    });
+
+    it('socket /disputa-v2: pregoeiro de A na sala de X não age na sessão de W (outra sala)', async () => {
+      const e = await entrarNaSala(ctx, X.sessaoId, { id: pregA.id, nome: 'Pregoeiro A', tipo: 'PREGOEIRO', token: pregA.token });
+      const r = await iniciarItensNaSala(e.socket, W2.sessaoId, W2.lic.itens.map((i) => i.id));
+      registrar('2 pregoeiro A (sala X) iniciar_itens em W2', r.evento);
+      e.socket.close();
+      expect(r.evento).toBe('erro');
+    });
+
     it('buscar_lances_item sem a flag, durante a disputa, vem anonimizado (controle)', async () => {
       const resp = aguardarEvento(s2, 'lances_item');
       s2.emit('buscar_lances_item', { itemId: X.lic.itens[0].id, tipo: 'todos' });
@@ -338,8 +374,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: itemEncerrado vem do cliente e desliga a anonimização — disputa-v2/disputa.gateway.ts:405-425 — corrigir na E2
-    test.failing('buscar_lances_item com itemEncerrado=true durante a disputa não revela identidades', async () => {
+    // CORRIGIDO NA E1a (era vazamento): itemEncerrado vem do cliente e desliga a anonimização — disputa-v2/disputa.gateway.ts:405-425
+    test('buscar_lances_item com itemEncerrado=true durante a disputa não revela identidades', async () => {
       const resp = aguardarEvento(s2, 'lances_item');
       s2.emit('buscar_lances_item', { itemId: X.lic.itens[0].id, tipo: 'todos', itemEncerrado: true });
       const r: any = await resp;
@@ -348,8 +384,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: participante_entrou repassa o usuarioNome (razão social) — disputa-v2/disputa.gateway.ts:121-124 — corrigir na E2
-    test.failing('participante_entrou não carrega a razão social de outro licitante', async () => {
+    // CORRIGIDO NA E1a (era vazamento): participante_entrou repassa o usuarioNome (razão social) — disputa-v2/disputa.gateway.ts:121-124
+    test('participante_entrou não carrega a razão social de outro licitante', async () => {
       const evento = aguardarEvento(s2, 'participante_entrou');
       const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
       if (e1.resposta.evento !== 'dados_iniciais') {
@@ -362,8 +398,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: novo_lance leva lance.fornecedorNome = usuarioNome do autor — disputa-v2/disputa.gateway.ts:350-356 — corrigir na E2
-    test.failing('novo_lance não carrega razão social/cnpj/id de outro licitante', async () => {
+    // CORRIGIDO NA E1a (era vazamento): novo_lance leva lance.fornecedorNome = usuarioNome do autor — disputa-v2/disputa.gateway.ts:350-356
+    test('novo_lance não carrega razão social/cnpj/id de outro licitante', async () => {
       if (!s1) {
         const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
         s1 = e1.socket;
@@ -377,8 +413,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: nova_mensagem leva remetente = usuarioNome (razão social) — disputa-v2/disputa.gateway.ts:300-305 — corrigir na E2
-    test.failing('chat (nova_mensagem) não carrega a razão social de outro licitante', async () => {
+    // CORRIGIDO NA E1a (era vazamento): nova_mensagem leva remetente = usuarioNome (razão social) — disputa-v2/disputa.gateway.ts:300-305
+    test('chat (nova_mensagem) não carrega a razão social de outro licitante', async () => {
       if (!s1) {
         const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
         s1 = e1.socket;
@@ -403,8 +439,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       return { socket: s, historico: await hist };
     }
 
-    // VAZAMENTO CONHECIDO: histórico de eventos entregue a qualquer um traz fornecedor_id real — sessao/sessao.gateway.ts:49-51 — corrigir na E2
-    test.failing('/sessao: entrar_sessao anônimo não recebe ids reais dos licitantes no histórico', async () => {
+    // CORRIGIDO NA E1a (era vazamento): histórico de eventos entregue a qualquer um traz fornecedor_id real — sessao/sessao.gateway.ts:49-51
+    test('/sessao: entrar_sessao anônimo não recebe ids reais dos licitantes no histórico', async () => {
       const { socket, historico } = await entrarSessao(X.sessaoId, 'Visitante', 'FORNECEDOR');
       const achados = [...identidadeNoPayload(historico, F1), ...identidadeNoPayload(historico, F2)];
       registrar('3 /sessao historico_eventos anônimo (X)', `eventos=${historico?.length} identidade=[${achados}]`);
@@ -413,8 +449,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: enviar_lance do /sessao aceita fornecedorId do corpo, sem token nem proposta — sessao/sessao.gateway.ts:183-204 — corrigir na E2
-    test.failing('/sessao: anônimo não dá lance em nome de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): enviar_lance do /sessao aceita fornecedorId do corpo, sem token nem proposta — sessao/sessao.gateway.ts:183-204
+    test('/sessao: anônimo não dá lance em nome de F1', async () => {
       const { socket } = await entrarSessao(X.sessaoId, 'Visitante', 'FORNECEDOR');
       const resp = aguardarUmDe(socket, ['novo_lance', 'erro_lance']);
       socket.emit('enviar_lance', {
@@ -430,11 +466,13 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.evento).toBe('erro_lance');
     });
 
-    // VAZAMENTO CONHECIDO: novo_lance do /sessao difunde a entidade Lance (fornecedor_identificador real) — sessao/sessao.gateway.ts:207-212 — corrigir na E2
-    test.failing('/sessao: novo_lance não carrega o id real de outro licitante', async () => {
+    // CORRIGIDO NA E1a (era vazamento): novo_lance do /sessao difunde a entidade Lance (fornecedor_identificador real) — sessao/sessao.gateway.ts:207-212
+    // O lance por esta sala foi desativado (E1a): nenhum novo_lance é difundido; se algum chegasse, não pode levar F1.
+    test('/sessao: novo_lance não carrega o id real de outro licitante (lance pela sala /sessao recusado)', async () => {
       const { socket: vigia } = await entrarSessao(X.sessaoId, F2.razao_social, 'FORNECEDOR', F2.token);
       const { socket: s1 } = await entrarSessao(X.sessaoId, F1.razao_social, 'FORNECEDOR', F1.token);
-      const evento = aguardarEvento(vigia, 'novo_lance');
+      const evento = recebeEm<any>(vigia, 'novo_lance', 2000);
+      const resp = aguardarUmDe(s1, ['novo_lance', 'erro_lance']);
       // como a sala do fornecedor faz (fornecedor/sala-disputa/page.tsx)
       s1.emit('enviar_lance', {
         sessaoId: X.sessaoId,
@@ -443,16 +481,21 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         fornecedorNome: F1.razao_social,
         valor: valores.proximo(),
       });
+      const r = await resp;
       const p: any = await evento;
       const achados = identidadeNoPayload(p, F1);
-      registrar('3 /sessao novo_lance recebido por F2', `chaves=${Object.keys(p || {})} identidadeF1=[${achados}]`);
+      registrar(
+        '3 /sessao novo_lance recebido por F2',
+        `F1 recebeu=${r.evento} vigia=${p ? `chaves=${Object.keys(p)}` : 'nada'} identidadeF1=[${achados}]`,
+      );
       vigia.close();
       s1.close();
+      expect(r.evento).toBe('erro_lance');
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: mensagem_chat aceita isPregoeiro do cliente — sessao/sessao.gateway.ts:360-411 — corrigir na E2
-    test.failing('/sessao: anônimo não fala no chat como pregoeiro', async () => {
+    // CORRIGIDO NA E1a (era vazamento): mensagem_chat aceita isPregoeiro do cliente — sessao/sessao.gateway.ts:360-411
+    test('/sessao: anônimo não fala no chat como pregoeiro', async () => {
       const { socket: vigia } = await entrarSessao(X.sessaoId, F2.razao_social, 'FORNECEDOR', F2.token);
       const { socket: anon } = await entrarSessao(X.sessaoId, 'Visitante', 'FORNECEDOR');
       const evento = recebeEm<any>(vigia, 'nova_mensagem', 2000);
@@ -464,8 +507,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(p?.isPregoeiro === true).toBe(false);
     });
 
-    // VAZAMENTO CONHECIDO: nova_mensagem do /sessao difunde fornecedorId real — sessao/sessao.gateway.ts:405-411 — corrigir na E2
-    test.failing('/sessao: nova_mensagem de F1 não carrega o id real de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): nova_mensagem do /sessao difunde fornecedorId real — sessao/sessao.gateway.ts:405-411
+    test('/sessao: nova_mensagem de F1 não carrega o id real de F1', async () => {
       const { socket: vigia } = await entrarSessao(X.sessaoId, F2.razao_social, 'FORNECEDOR', F2.token);
       const { socket: s1 } = await entrarSessao(X.sessaoId, F1.razao_social, 'FORNECEDOR', F1.token);
       const evento = aguardarEvento<any>(vigia, 'nova_mensagem');
@@ -478,8 +521,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: encerrar_item do /sessao sem checagem de pregoeiro — sessao/sessao.gateway.ts:268-283 — corrigir na E2
-    test.failing('/sessao: anônimo não encerra item', async () => {
+    // CORRIGIDO NA E1a (era vazamento): encerrar_item do /sessao sem checagem de pregoeiro — sessao/sessao.gateway.ts:268-283
+    test('/sessao: anônimo não encerra item', async () => {
       const { socket: anon } = await entrarSessao(W.sessaoId, 'Visitante', 'FORNECEDOR');
       const resp = aguardarUmDe(anon, ['item_encerrado', 'erro']);
       anon.emit('encerrar_item', { sessaoId: W.sessaoId, itemId: W.lic.itens[0].id });
@@ -489,8 +532,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.evento).toBe('erro');
     });
 
-    // VAZAMENTO CONHECIDO: reiniciar_disputa do /sessao sem checagem de pregoeiro — sessao/sessao.gateway.ts:340-355 — corrigir na E2
-    test.failing('/sessao: anônimo não reinicia a disputa', async () => {
+    // CORRIGIDO NA E1a (era vazamento): reiniciar_disputa do /sessao sem checagem de pregoeiro — sessao/sessao.gateway.ts:340-355
+    test('/sessao: anônimo não reinicia a disputa', async () => {
       const { socket: anon } = await entrarSessao(W.sessaoId, 'Visitante', 'FORNECEDOR');
       const resp = aguardarUmDe(anon, ['disputa_reiniciada', 'erro']);
       anon.emit('reiniciar_disputa', { sessaoId: W.sessaoId, motivo: 'forjado' });
@@ -507,8 +550,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       return { socket: s, estado: await estado };
     }
 
-    // VAZAMENTO CONHECIDO: estado_sessao do gateway legado traz fornecedor_identificador real — lances/lances.gateway.ts:63-90; lances/lances.service.ts:189-192 — corrigir na E2
-    test.failing('"/": entrar_sala anônimo não recebe ids reais dos licitantes', async () => {
+    // CORRIGIDO NA E1a (era vazamento): estado_sessao do gateway legado traz fornecedor_identificador real — lances/lances.gateway.ts:63-90; lances/lances.service.ts:189-192
+    test('"/": entrar_sala anônimo não recebe ids reais dos licitantes', async () => {
       const { socket, estado } = await entrarLegado(X.lic.id, 'FORNECEDOR');
       const achados = [...identidadeNoPayload(estado, F1), ...identidadeNoPayload(estado, F2)];
       registrar('3 "/" estado_sessao anônimo (X)', `lances=${estado?.lances?.length} identidade=[${achados}]`);
@@ -517,8 +560,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: enviar_lance do gateway legado aceita fornecedorId do corpo — lances/lances.gateway.ts:159-182 — corrigir na E2
-    test.failing('"/": anônimo não dá lance em nome de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): enviar_lance do gateway legado aceita fornecedorId do corpo — lances/lances.gateway.ts:159-182
+    test('"/": anônimo não dá lance em nome de F1', async () => {
       const { socket } = await entrarLegado(X.lic.id, 'FORNECEDOR');
       const resp = aguardarUmDe(socket, ['lance_confirmado', 'erro_lance']);
       socket.emit('enviar_lance', { licitacaoId: X.lic.id, fornecedorId: F1.id, valor: valores.proximo() });
@@ -528,8 +571,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.evento).toBe('erro_lance');
     });
 
-    // VAZAMENTO CONHECIDO: enviar_mensagem do gateway legado aceita isPregoeiro do cliente — lances/lances.gateway.ts:217-236 — corrigir na E2
-    test.failing('"/": anônimo não fala no chat como pregoeiro', async () => {
+    // CORRIGIDO NA E1a (era vazamento): enviar_mensagem do gateway legado aceita isPregoeiro do cliente — lances/lances.gateway.ts:217-236
+    test('"/": anônimo não fala no chat como pregoeiro', async () => {
       const { socket } = await entrarLegado(X.lic.id, 'FORNECEDOR');
       const evento = recebeEm<any>(socket, 'nova_mensagem', 2000);
       socket.emit('enviar_mensagem', { licitacaoId: X.lic.id, conteudo: 'Encerrada (forjado)', remetente: 'Pregoeiro', isPregoeiro: true });
@@ -539,8 +582,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(p?.tipo === 'PREGOEIRO').toBe(false);
     });
 
-    // VAZAMENTO CONHECIDO: encerrar_item do gateway legado grava a sessão como ENCERRADA — lances/lances.gateway.ts:242-253; lances/lances.service.ts:470-489 — corrigir na E2
-    test.failing('"/": anônimo não encerra a sessão', async () => {
+    // CORRIGIDO NA E1a (era vazamento): encerrar_item do gateway legado grava a sessão como ENCERRADA — lances/lances.gateway.ts:242-253; lances/lances.service.ts:470-489
+    test('"/": anônimo não encerra a sessão', async () => {
       const { socket } = await entrarLegado(W.lic.id, 'PREGOEIRO');
       const depois = recebeEm(socket, 'estado_sessao', 3000);
       socket.emit('encerrar_item', { licitacaoId: W.lic.id });
@@ -576,8 +619,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
 
     for (const acao of acoes) {
       for (const ator of atores) {
-        // VAZAMENTO CONHECIDO: ações do pregoeiro sem checagem de órgão/papel — sessao/sessao.controller.ts:100-345 — corrigir na E2
-        test.failing(`${ator.nome} não executa "${acao.nome}" na sessão de A`, async () => {
+        // CORRIGIDO NA E1a (era vazamento): ações do pregoeiro sem checagem de órgão/papel — sessao/sessao.controller.ts:100-345
+        test(`${ator.nome} não executa "${acao.nome}" na sessão de A`, async () => {
           const r = await ctx.http()[acao.metodo](acao.caminho()).set(bearer(ator.token())).send(acao.corpo ? acao.corpo() : {});
           registrarHttp(`4 ${ator.nome} ${acao.nome} (W2)`, r);
           expect(RECUSADO).toContain(r.status);
@@ -585,31 +628,31 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       }
     }
 
-    // VAZAMENTO CONHECIDO: ranking de habilitação (cnpj, razão social, valores) sem checagem de órgão — sessao/sessao.controller.ts:164-167; sessao/sessao.service.ts:1144-1170 — corrigir na E2
-    test.failing('órgão B não lê a habilitação de X', async () => {
+    // CORRIGIDO NA E1a (era vazamento): ranking de habilitação (cnpj, razão social, valores) sem checagem de órgão — sessao/sessao.controller.ts:164-167; sessao/sessao.service.ts:1144-1170
+    test('órgão B não lê a habilitação de X', async () => {
       const r = await ctx.http().get(`/api/sessao/${X.sessaoId}/habilitacao`).set(bearer(B.token));
       registrarHttp('4 órgão B GET habilitacao (X)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: fornecedor lê o ranking de habilitação com cnpj dos concorrentes — sessao/sessao.controller.ts:164-167 — corrigir na E2
-    test.failing('F2 não lê a habilitação de X (cnpj/valores dos concorrentes)', async () => {
+    // CORRIGIDO NA E1a (era vazamento): fornecedor lê o ranking de habilitação com cnpj dos concorrentes — sessao/sessao.controller.ts:164-167
+    test('F2 não lê a habilitação de X (cnpj/valores dos concorrentes)', async () => {
       const r = await ctx.http().get(`/api/sessao/${X.sessaoId}/habilitacao`).set(bearer(F2.token));
       registrarHttp('4 F2 GET habilitacao (X)', r);
       const vaza = r.status === 200 && identidadeNoPayload(r.body, F1).length > 0;
       expect(vaza).toBe(false);
     });
 
-    // VAZAMENTO CONHECIDO: eventos públicos trazem fornecedor_id real dos lances — sessao/sessao.controller.ts:366-370 — corrigir na E2
-    test.failing('eventos públicos não revelam ids dos licitantes durante a disputa', async () => {
+    // CORRIGIDO NA E1a (era vazamento): eventos públicos trazem fornecedor_id real dos lances — sessao/sessao.controller.ts:366-370
+    test('eventos públicos não revelam ids dos licitantes durante a disputa', async () => {
       const r = await ctx.http().get(`/api/sessao/${X.sessaoId}/eventos`);
       const achados = [...identidadeNoPayload(r.body, F1), ...identidadeNoPayload(r.body, F2)];
       registrar('4 anônimo GET eventos (X)', `HTTP ${r.status} eventos=${r.body?.length} identidade=[${achados}]`);
       expect(achados).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: lances-por-fornecedor é @Public e devolve fornecedorId real dos outros — sessao/sessao.controller.ts:33-40; sessao/sessao.service.ts:2498-2508 — corrigir na E2
-    test.failing('lances/fornecedor público não revela id de outro licitante', async () => {
+    // CORRIGIDO NA E1a (era vazamento): lances-por-fornecedor é @Public e devolve fornecedorId real dos outros — sessao/sessao.controller.ts:33-40; sessao/sessao.service.ts:2498-2508
+    test('lances/fornecedor público não revela id de outro licitante', async () => {
       const r = await ctx.http().get(`/api/sessao/item/${X.lic.itens[0].id}/lances/fornecedor/${F2.id}`);
       const achados = identidadeNoPayload(r.body, F1);
       registrar('4 anônimo GET lances/fornecedor/F2 (X)', `HTTP ${r.status} lances=${r.body?.lances?.length} identidadeF1=[${achados}]`);
@@ -732,51 +775,51 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.body).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: GET /propostas/:id é @Public, sem dono nem sigilo — propostas/propostas.controller.ts:39-43 — corrigir na E2
-    test.failing('F2 não lê a proposta de F1 por id antes do fim do sigilo', async () => {
+    // CORRIGIDO NA E1a (era vazamento): GET /propostas/:id é @Public, sem dono nem sigilo — propostas/propostas.controller.ts:39-43
+    test('F2 não lê a proposta de F1 por id antes do fim do sigilo', async () => {
       const r = await ctx.http().get(`/api/propostas/${propF1()}`).set(bearer(F2.token));
       registrarHttp('6 F2 GET propostas/:id de F1 (P)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: GET /propostas/:id/itens é @Public (valores de F1) — propostas/propostas.controller.ts:45-49 — corrigir na E2
-    test.failing('F2 não lê os itens da proposta de F1 antes do fim do sigilo', async () => {
+    // CORRIGIDO NA E1a (era vazamento): GET /propostas/:id/itens é @Public (valores de F1) — propostas/propostas.controller.ts:45-49
+    test('F2 não lê os itens da proposta de F1 antes do fim do sigilo', async () => {
       const r = await ctx.http().get(`/api/propostas/${propF1()}/itens`).set(bearer(F2.token));
       registrarHttp('6 F2 GET propostas/:id/itens de F1 (P)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: PUT /propostas/:id sem checagem de dono — propostas/propostas.controller.ts:150-156 — corrigir na E2
-    test.failing('F2 não altera a proposta de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): PUT /propostas/:id sem checagem de dono — propostas/propostas.controller.ts:150-156
+    test('F2 não altera a proposta de F1', async () => {
       const r = await ctx.http().put(`/api/propostas/${propF1()}`).set(bearer(F2.token)).send({ valor_total_proposta: 1 });
       registrarHttp('6 F2 PUT propostas/:id de F1 (P)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: PUT /propostas/item/:itemId sem checagem de dono — propostas/propostas.controller.ts:158-164 — corrigir na E2
-    test.failing('F2 não altera item da proposta de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): PUT /propostas/item/:itemId sem checagem de dono — propostas/propostas.controller.ts:158-164
+    test('F2 não altera item da proposta de F1', async () => {
       const itens = await ctx.http().get(`/api/propostas/${propF1()}/itens`).set(bearer(F1.token)).expect(200);
       const r = await ctx.http().put(`/api/propostas/item/${itens.body[0].id}`).set(bearer(F2.token)).send({ valor_unitario: 1 });
       registrarHttp('6 F2 PUT propostas/item de F1 (P)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: cancelar proposta sem checagem de dono — propostas/propostas.controller.ts:145-148 — corrigir na E2
-    test.failing('F2 não retira (cancela) a proposta de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): cancelar proposta sem checagem de dono — propostas/propostas.controller.ts:145-148
+    test('F2 não retira (cancela) a proposta de F1', async () => {
       const r = await ctx.http().put(`/api/propostas/${rascunhoF1P2}/cancelar`).set(bearer(F2.token));
       registrarHttp('6 F2 PUT cancelar proposta de F1 (P2)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: exclusão confia no ?fornecedorId= da query — propostas/propostas.controller.ts:166-173; propostas/propostas.service.ts:333-346 — corrigir na E2
-    test.failing('F2 não exclui a proposta de F1 (fornecedorId na query)', async () => {
+    // CORRIGIDO NA E1a (era vazamento): exclusão confia no ?fornecedorId= da query — propostas/propostas.controller.ts:166-173; propostas/propostas.service.ts:333-346
+    test('F2 não exclui a proposta de F1 (fornecedorId na query)', async () => {
       const r = await ctx.http().delete(`/api/propostas/${rascunhoF1P2}?fornecedorId=${F1.id}`).set(bearer(F2.token));
       registrarHttp('6 F2 DELETE proposta de F1 (P2)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: POST /propostas usa fornecedor_id do corpo — propostas/propostas.controller.ts:18-21; propostas/propostas.service.ts:69-101 — corrigir na E2
-    test.failing('F2 não cria proposta em nome de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): POST /propostas usa fornecedor_id do corpo — propostas/propostas.controller.ts:18-21; propostas/propostas.service.ts:69-101
+    test('F2 não cria proposta em nome de F1', async () => {
       const r = await ctx
         .http()
         .post('/api/propostas')
@@ -794,8 +837,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect([401, 403]).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: o 409 de proposta duplicada devolve o id da proposta de outro fornecedor — propostas/propostas.service.ts:80-85 — corrigir na E2
-    test.failing('erro de proposta duplicada não devolve o id da proposta de outro fornecedor', async () => {
+    // CORRIGIDO NA E1a (era vazamento): o 409 de proposta duplicada devolve o id da proposta de outro fornecedor — propostas/propostas.service.ts:80-85
+    test('erro de proposta duplicada não devolve o id da proposta de outro fornecedor', async () => {
       const r = await ctx
         .http()
         .post('/api/propostas')
@@ -820,16 +863,16 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       { nome: 'órgão B', token: () => B.token },
     ];
     for (const c of classificadores) {
-      // VAZAMENTO CONHECIDO: classificar sem checagem de papel/órgão — propostas/propostas.controller.ts:62-65 — corrigir na E2
-      test.failing(`${c.nome} não classifica proposta de licitação de A`, async () => {
+      // CORRIGIDO NA E1a (era vazamento): classificar sem checagem de papel/órgão — propostas/propostas.controller.ts:62-65
+      test(`${c.nome} não classifica proposta de licitação de A`, async () => {
         const r = await ctx.http().put(`/api/propostas/${propF2P2()}/classificar`).set(bearer(c.token()));
         registrarHttp(`6 ${c.nome} PUT classificar (P2)`, r);
         expect(RECUSADO).toContain(r.status);
       });
     }
     for (const c of [classificadores[0], classificadores[2]]) {
-      // VAZAMENTO CONHECIDO: desclassificar sem checagem de papel/órgão — propostas/propostas.controller.ts:67-113 — corrigir na E2
-      test.failing(`${c.nome} não desclassifica proposta de licitação de A`, async () => {
+      // CORRIGIDO NA E1a (era vazamento): desclassificar sem checagem de papel/órgão — propostas/propostas.controller.ts:67-113
+      test(`${c.nome} não desclassifica proposta de licitação de A`, async () => {
         const r = await ctx
           .http()
           .put(`/api/propostas/${propF2P2()}/desclassificar`)
@@ -839,6 +882,36 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         expect(RECUSADO).toContain(r.status);
       });
     }
+
+    it('F1 lê a própria proposta; órgão A vê só autoria durante o sigilo; órgão B e anônimo não leem (E1a)', async () => {
+      const dono = await ctx.http().get(`/api/propostas/${propF1()}`).set(bearer(F1.token)).expect(200);
+      const itensDono = await ctx.http().get(`/api/propostas/${propF1()}/itens`).set(bearer(F1.token)).expect(200);
+      const orgao = await ctx.http().get(`/api/propostas/${propF1()}`).set(bearer(pregA.token)).expect(200);
+      const itensOrgao = await ctx.http().get(`/api/propostas/${propF1()}/itens`).set(bearer(pregA.token));
+      const orgaoB = await ctx.http().get(`/api/propostas/${propF1()}`).set(bearer(B.token));
+      const anon = await ctx.http().get(`/api/propostas/${propF1()}`);
+      registrar(
+        '6 leitura por id (P, sigilo)',
+        `F1=${dono.status} itensF1=${itensDono.body.length} orgaoA sigilo=${orgao.body.sigilo} itensOrgaoA=${itensOrgao.status} orgaoB=${orgaoB.status} anon=${anon.status}`,
+      );
+      expect(Number(dono.body.valor_total_proposta)).toBeGreaterThan(0);
+      expect(JSON.stringify(dono.body)).not.toMatch(/"senha"|api_key_hash|spedy_api_key/);
+      expect(itensDono.body.length).toBeGreaterThan(0);
+      expect(orgao.body).toMatchObject({ fornecedor_id: F1.id, sigilo: true, valor_total_proposta: null });
+      expect(orgao.body.itens).toBeUndefined();
+      expect(itensOrgao.status).toBe(403);
+      expect(orgaoB.status).toBe(404);
+      expect(anon.status).toBe(401);
+    });
+
+    it('lista "minhas" traz só as propostas do token; /fornecedor/:id de outro é 403 (E1a)', async () => {
+      const minhas = await ctx.http().get('/api/propostas/minhas').set(bearer(F2.token)).expect(200);
+      const outro = await ctx.http().get(`/api/propostas/fornecedor/${F1.id}`).set(bearer(F2.token));
+      expect(minhas.body.length).toBeGreaterThan(0);
+      expect(minhas.body.every((p: any) => p.fornecedor_id === F2.id)).toBe(true);
+      expect(JSON.stringify(minhas.body)).not.toMatch(/senha_hash|pncp_senha|email_smtp_senha/);
+      expect(outro.status).toBe(403);
+    });
 
     it('F2 não altera o cadastro de F1 (PUT /fornecedores/:id) (controle)', async () => {
       const r = await ctx.http().put(`/api/fornecedores/${F1.id}`).set(bearer(F2.token)).send({ telefone: '71000000000' });
@@ -851,8 +924,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 7. disputa-v2 item/:id/propostas durante o sigilo
   // ==========================================================================
   describe('7. disputa-v2 propostas do item', () => {
-    // VAZAMENTO CONHECIDO: sem sessão não há anonimização nem sigilo — disputa-v2/disputa.controller.ts:62-66; disputa-v2/disputa.service.ts:1060-1095 — corrigir na E2
-    test.failing('item/:id/propostas durante o acolhimento não expõe nomes nem valores', async () => {
+    // CORRIGIDO NA E1a (era vazamento): sem sessão não há anonimização nem sigilo — disputa-v2/disputa.controller.ts:62-66; disputa-v2/disputa.service.ts:1060-1095
+    test('item/:id/propostas durante o acolhimento não expõe nomes nem valores', async () => {
       const r = await ctx.http().get(`/api/disputa-v2/item/${P.lic.itens[0].id}/propostas`);
       const achados = identidadeNoPayload(r.body, F1);
       const comValor = Array.isArray(r.body) && r.body.some((p: any) => p.valor !== null && p.valor !== undefined);
@@ -947,18 +1020,30 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.status).toBe(403);
     });
 
-    // VAZAMENTO CONHECIDO: token USUARIO não passa orgaoId para a checagem — disputa-v3/disputa-v3.controller.ts:47-49 — corrigir na E2
-    test.failing('pregoeiro de B (token USUARIO) não lê o board de X', async () => {
+    // CORRIGIDO NA E1a (era vazamento): token USUARIO não passa orgaoId para a checagem — disputa-v3/disputa-v3.controller.ts:47-49
+    test('pregoeiro de B (token USUARIO) não lê o board de X', async () => {
       const r = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board`).set(bearer(pregB.token));
       registrarHttp('9 pregoeiro B GET board (X)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: ?fornecedorId= pula a checagem de órgão (visão de F1 para o órgão B) — disputa-v3/disputa-v3.controller.ts:43-45 — corrigir na E2
-    test.failing('órgão B não lê o board de F1 em X via ?fornecedorId=', async () => {
+    // CORRIGIDO NA E1a (era vazamento): ?fornecedorId= pula a checagem de órgão (visão de F1 para o órgão B) — disputa-v3/disputa-v3.controller.ts:43-45
+    test('órgão B não lê o board de F1 em X via ?fornecedorId=', async () => {
       const r = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board?fornecedorId=${F1.id}`).set(bearer(B.token));
       registrarHttp('9 órgão B GET board ?fornecedorId=F1 (X)', r);
       expect(RECUSADO).toContain(r.status);
+    });
+
+    it('F2 não vê o board "como" F1 (?fornecedorId=F1); F3 (sem proposta) não lê o board de X (E1a)', async () => {
+      const f2 = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board?fornecedorId=${F1.id}`).set(bearer(F2.token));
+      const f3 = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board`).set(bearer(F3.token));
+      const proprio = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board`).set(bearer(F2.token));
+      registrar('9 board F2 como F1 / F3 / F2 próprio', `${f2.status}/${f3.status}/${proprio.status}`);
+      expect(f2.status).toBe(403);
+      expect(f3.status).toBe(403);
+      expect(proprio.status).toBe(200);
+      expect(proprio.body.visao).toBe('FORNECEDOR');
+      expect(identidadeNoPayload(proprio.body, F1)).toEqual([]);
     });
 
     const base = () => `/api/disputa-v3/sessao/${X.sessaoId}/item/${X.lic.itens[0].id}/lance/${lanceF1X}`;
@@ -1080,15 +1165,15 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(deB.body.some((c: any) => c.id === credId)).toBe(false);
     });
 
-    // VAZAMENTO CONHECIDO: GET /atas/:id sem checagem de órgão — atas/atas.controller.ts:96-99 — corrigir na E1
-    test.failing('órgão B não lê a ata de A por id', async () => {
+    // Corrigido na E1a: ata por id só para o órgão dono (AcessoLicitacaoService.assertOrgaoDaAta)
+    test('órgão B não lê a ata de A por id', async () => {
       const r = await ctx.http().get(`/api/atas/${ataId}`).set(bearer(pregB.token));
       registrarHttp('11 pregoeiro B GET atas/:id', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: PUT /atas/:id e PATCH status sem checagem de órgão — atas/atas.controller.ts:101-112 — corrigir na E1
-    test.failing('órgão B não altera a ata de A (dados e status)', async () => {
+    // Corrigido na E1a: alterar ata / status só pelo órgão dono
+    test('órgão B não altera a ata de A (dados e status)', async () => {
       const put = await ctx.http().put(`/api/atas/${ataId}`).set(bearer(pregB.token)).send({ observacoes: 'alterado pelo órgão B' });
       const st = await ctx.http().patch(`/api/atas/${ataId}/status`).set(bearer(pregB.token)).send({ status: 'SUSPENSA' });
       registrarHttp('11 pregoeiro B PUT atas/:id', put);
@@ -1097,15 +1182,15 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(st.status);
     });
 
-    // VAZAMENTO CONHECIDO: GET /credenciamento/:id sem checagem de órgão — credenciamento/credenciamento.controller.ts:63-66 — corrigir na E1
-    test.failing('órgão B não lê o credenciamento de A por id', async () => {
+    // Corrigido na E1a: credenciamento por id só para o órgão dono
+    test('órgão B não lê o credenciamento de A por id', async () => {
       const r = await ctx.http().get(`/api/credenciamento/${credId}`).set(bearer(pregB.token));
       registrarHttp('11 pregoeiro B GET credenciamento/:id', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: PUT e PATCH publicar do credenciamento sem checagem de órgão — credenciamento/credenciamento.controller.ts:73-81 — corrigir na E1
-    test.failing('órgão B não altera nem publica o credenciamento de A', async () => {
+    // Corrigido na E1a: alterar / publicar credenciamento só pelo órgão dono
+    test('órgão B não altera nem publica o credenciamento de A', async () => {
       const put = await ctx.http().put(`/api/credenciamento/${credId}`).set(bearer(pregB.token)).send({ objeto: 'alterado pelo órgão B' });
       const pub = await ctx.http().patch(`/api/credenciamento/${credId}/publicar`).set(bearer(pregB.token));
       registrarHttp('11 pregoeiro B PUT credenciamento/:id', put);
@@ -1114,15 +1199,15 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(pub.status);
     });
 
-    // VAZAMENTO CONHECIDO: GET /documentos/:id sem checagem de órgão (documento não público) — documentos/documentos.controller.ts:78-82 — corrigir na E1
-    test.failing('órgão B não lê documento não público de A por id', async () => {
+    // Corrigido na E1a: documento não público só para o órgão dono (demais → 404)
+    test('órgão B não lê documento não público de A por id', async () => {
       const r = await ctx.http().get(`/api/documentos/${docId}`).set(bearer(pregB.token));
       registrarHttp('11 pregoeiro B GET documentos/:id', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: PUT /documentos/:id/publicar sem checagem de órgão — documentos/documentos.controller.ts:135-139 — corrigir na E1
-    test.failing('órgão B não publica documento de A', async () => {
+    // Corrigido na E1a: publicar documento só pelo órgão dono
+    test('órgão B não publica documento de A', async () => {
       const r = await ctx.http().put(`/api/documentos/${docId}/publicar`).set(bearer(pregB.token));
       registrarHttp('11 pregoeiro B PUT documentos/:id/publicar', r);
       expect(RECUSADO).toContain(r.status);
@@ -1133,8 +1218,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 12. lance v2 com item de outra licitação
   // ==========================================================================
   describe('12. lance v2 cruzando licitações', () => {
-    // VAZAMENTO CONHECIDO: registrarLance não confere se o item pertence à licitação da sessão — disputa-v2/disputa.service.ts:603-615 — corrigir na E2
-    test.failing('lance para item de Z enviado na sessão de X é recusado', async () => {
+    // CORRIGIDO NA E1a (era vazamento): registrarLance não confere se o item pertence à licitação da sessão — disputa-v2/disputa.service.ts:603-615
+    test('lance para item de Z enviado na sessão de X é recusado', async () => {
       const r = await lanceV2(
         ctx,
         X.sessaoId,
@@ -1144,6 +1229,18 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       registrarHttp('12 F3 POST lance item de Z na sessão de X', r);
       expect(r.status).not.toBe(201);
       expect([400, 403, 404]).toContain(r.status);
+    });
+
+    it('participante de X com item de W (outra licitação do mesmo órgão) na sessão de X é recusado (E1a)', async () => {
+      const r = await lanceV2(
+        ctx,
+        X.sessaoId,
+        { itemId: W.lic.itens[0].id, fornecedorId: F1.id, fornecedorNome: F1.razao_social, valor: valores.proximo() },
+        F1.token,
+      );
+      registrarHttp('12 F1 POST lance item de W na sessão de X', r);
+      expect(r.status).toBe(400);
+      expect(String(r.body?.message)).toMatch(/não pertence/);
     });
   });
 
@@ -1165,8 +1262,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(expostos).toEqual([]);
     });
 
-    // VAZAMENTO CONHECIDO: GET /itens/:id e /itens/licitacao/:id são @Public e devolvem a entidade inteira — itens/itens.controller.ts:24-40 — corrigir na E2
-    test.failing('item público com orçamento sigiloso não expõe valor estimado', async () => {
+    // CORRIGIDO NA E1a (era vazamento): GET /itens/:id e /itens/licitacao/:id são @Public e devolvem a entidade inteira — itens/itens.controller.ts:24-40
+    test('item público com orçamento sigiloso não expõe valor estimado', async () => {
       const um = await ctx.http().get(`/api/itens/${X.lic.itens[0].id}`);
       const lista = await ctx.http().get(`/api/itens/licitacao/${X.lic.id}`);
       registrar(
@@ -1177,8 +1274,8 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect((lista.body || []).every((i: any) => i.valor_unitario_estimado == null)).toBe(true);
     });
 
-    // VAZAMENTO CONHECIDO: item público traz melhor_lance_fornecedor_id durante a disputa — itens/itens.controller.ts:36-40; sessao/sessao.service.ts:524-528 — corrigir na E2
-    test.failing('item público não expõe melhor_lance_fornecedor_id durante a disputa', async () => {
+    // CORRIGIDO NA E1a (era vazamento): item público traz melhor_lance_fornecedor_id durante a disputa — itens/itens.controller.ts:36-40; sessao/sessao.service.ts:524-528
+    test('item público não expõe melhor_lance_fornecedor_id durante a disputa', async () => {
       // lance legítimo de F1 pela sala /sessao (como fornecedor/sala-disputa/page.tsx)
       const s1 = await conectarSocket(ctx, '/sessao', { token: F1.token });
       const hist = aguardarEvento(s1, 'historico_eventos');
@@ -1201,6 +1298,296 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       );
       expect(r.body?.melhor_lance_fornecedor_id ?? null).toBeNull();
       expect(identidadeNoPayload(r.body, F1)).toEqual([]);
+    });
+
+    it('órgão dono vê os valores estimados dos itens de X; órgão B não altera nem cria item em X (E1a)', async () => {
+      const dono = await ctx.http().get(`/api/itens/licitacao/${X.lic.id}`).set(bearer(pregA.token)).expect(200);
+      const put = await ctx.http().put(`/api/itens/${X.lic.itens[0].id}`).set(bearer(B.token)).send({ descricao_resumida: 'alterado por B' });
+      const post = await ctx
+        .http()
+        .post('/api/itens')
+        .set(bearer(B.token))
+        .send({
+          licitacao_id: X.lic.id,
+          numero_item: 99,
+          descricao_resumida: 'Item de B',
+          quantidade: 1,
+          unidade_medida: 'UNIDADE',
+          valor_unitario_estimado: 1,
+          sem_pca: true,
+          justificativa_sem_pca: 'Item de teste E2E',
+        });
+      const adj = await ctx
+        .http()
+        .put(`/api/itens/${X.lic.itens[0].id}/adjudicar`)
+        .set(bearer(F1.token))
+        .send({ fornecedor_id: F1.id, fornecedor_nome: F1.razao_social, valor_unitario_homologado: 1 });
+      registrar('13 itens: órgão B PUT/POST, F1 adjudicar (X)', `put=${put.status} post=${post.status} adj=${adj.status}`);
+      expect(dono.body.every((i: any) => Number(i.valor_unitario_estimado) > 0)).toBe(true);
+      expect(put.status).toBe(403);
+      expect(post.status).toBe(403);
+      expect(adj.status).toBe(403);
+    });
+
+    it('itens de licitação na fase interna não são lidos por fornecedor nem por outro órgão (E1a)', async () => {
+      const f = await ctx.http().get(`/api/itens/licitacao/${L2.id}`).set(bearer(F1.token));
+      const b = await ctx.http().get(`/api/itens/${L2.itens[0].id}`).set(bearer(B.token));
+      const a = await ctx.http().get(`/api/itens/licitacao/${L2.id}`).set(bearer(A.token)).expect(200);
+      expect([f.status, b.status]).toEqual([404, 404]);
+      expect(a.body.length).toBe(L2.itens.length);
+    });
+  });
+
+  // ==========================================================================
+  // 14. impugnações, esclarecimentos e fase interna (E1a)
+  // ==========================================================================
+  describe('14. impugnações, esclarecimentos e fase interna', () => {
+    let L3: LicitacaoFixture;
+    let impF1: string;
+    let impF2: string;
+    let escF1: string;
+    let docFaseInterna: string;
+
+    beforeAll(async () => {
+      // Pregão de A com edital publicado (prazo de impugnação aberto)
+      L3 = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO);
+      await levarAteFase(ctx, L3, FaseLicitacao.PUBLICADO);
+
+      const imp1 = await ctx
+        .http()
+        .post('/api/impugnacoes')
+        .set(bearer(F1.token))
+        .send({ licitacao_id: L3.id, fornecedor_id: F1.id, texto_impugnacao: 'Impugnação sigilosa de F1 (isolamento)' });
+      if (imp1.status !== 201) throw new Error(`[fixture] impugnação F1 → ${imp1.status} ${JSON.stringify(imp1.body)}`);
+      impF1 = imp1.body.id;
+
+      const imp2 = await ctx
+        .http()
+        .post('/api/impugnacoes')
+        .set(bearer(F2.token))
+        .send({ licitacao_id: L3.id, texto_impugnacao: 'Impugnação de F2 (isolamento)' });
+      if (imp2.status !== 201) throw new Error(`[fixture] impugnação F2 → ${imp2.status} ${JSON.stringify(imp2.body)}`);
+      impF2 = imp2.body.id;
+
+      const esc = await ctx
+        .http()
+        .post('/api/esclarecimentos')
+        .set(bearer(F1.token))
+        .send({ licitacao_id: L3.id, texto_esclarecimento: 'Pergunta de F1 (isolamento)' });
+      if (esc.status !== 201) throw new Error(`[fixture] esclarecimento F1 → ${esc.status} ${JSON.stringify(esc.body)}`);
+      escF1 = esc.body.id;
+
+      // Documento da fase interna de L2 (pregão de A ainda na fase interna)
+      const doc = await ctx
+        .http()
+        .post(`/api/fase-interna/${L2.id}/documento`)
+        .set(bearer(A.token))
+        .send({ tipo: 'DFD', titulo: 'DFD interno (isolamento)' });
+      if (doc.status !== 201) throw new Error(`[fixture] documento fase interna → ${doc.status} ${JSON.stringify(doc.body)}`);
+      docFaseInterna = doc.body.id;
+    });
+
+    test('F2 não impugna em nome de F1 (fornecedor_id do corpo ≠ token)', async () => {
+      const r = await ctx
+        .http()
+        .post('/api/impugnacoes')
+        .set(bearer(F2.token))
+        .send({ licitacao_id: L3.id, fornecedor_id: F1.id, texto_impugnacao: 'em nome de F1' });
+      registrarHttp('14 F2 POST impugnacoes como F1', r);
+      expect(r.status).toBe(403);
+    });
+
+    test('órgão B (e fornecedor) não responde nem põe em análise impugnação de A', async () => {
+      const resp = await ctx
+        .http()
+        .put(`/api/impugnacoes/${impF2}/responder`)
+        .set(bearer(pregB.token))
+        .send({ resposta: 'respondido pelo órgão B', status: 'INDEFERIDA', respondido_por: 'B' });
+      const anal = await ctx.http().put(`/api/impugnacoes/${impF2}/em-analise`).set(bearer(pregB.token));
+      const forn = await ctx
+        .http()
+        .put(`/api/impugnacoes/${impF2}/responder`)
+        .set(bearer(F1.token))
+        .send({ resposta: 'respondido por F1', status: 'DEFERIDA', respondido_por: 'F1' });
+      registrarHttp('14 pregoeiro B PUT impugnacoes/:id/responder', resp);
+      registrarHttp('14 pregoeiro B PUT impugnacoes/:id/em-analise', anal);
+      expect(resp.status).toBe(403);
+      expect(anal.status).toBe(403);
+      expect(forn.status).toBe(403);
+    });
+
+    test('órgão B não responde nem arquiva esclarecimento de A', async () => {
+      const resp = await ctx
+        .http()
+        .put(`/api/esclarecimentos/${escF1}/responder`)
+        .set(bearer(pregB.token))
+        .send({ resposta: 'respondido pelo órgão B', respondido_por: 'B' });
+      const arq = await ctx.http().put(`/api/esclarecimentos/${escF1}/arquivar`).set(bearer(pregB.token));
+      registrarHttp('14 pregoeiro B PUT esclarecimentos/:id/responder', resp);
+      registrarHttp('14 pregoeiro B PUT esclarecimentos/:id/arquivar', arq);
+      expect(resp.status).toBe(403);
+      expect(arq.status).toBe(403);
+    });
+
+    test('fornecedor não vê impugnação pendente de outro fornecedor (lista e por id)', async () => {
+      const lista = await ctx.http().get(`/api/impugnacoes/licitacao/${L3.id}`).set(bearer(F2.token)).expect(200);
+      const porId = await ctx.http().get(`/api/impugnacoes/${impF1}`).set(bearer(F2.token));
+      const anon = await ctx.http().get(`/api/impugnacoes/licitacao/${L3.id}`).expect(200);
+      const orgaoB = await ctx.http().get(`/api/impugnacoes/licitacao/${L3.id}`).set(bearer(pregB.token)).expect(200);
+      const donoA = await ctx.http().get(`/api/impugnacoes/licitacao/${L3.id}`).set(bearer(pregA.token)).expect(200);
+      registrarHttp('14 F2 GET impugnacoes/:id de F1', porId);
+      const ids = (b: any[]) => b.map((i) => i.id);
+      expect(ids(lista.body)).toContain(impF2); // a própria
+      expect(ids(lista.body)).not.toContain(impF1);
+      expect(JSON.stringify(lista.body)).not.toContain(F1.id);
+      expect(porId.status).toBe(404);
+      expect(ids(anon.body)).toEqual([]);
+      expect(ids(orgaoB.body)).toEqual([]);
+      expect(ids(donoA.body)).toEqual(expect.arrayContaining([impF1, impF2]));
+      // Sem a senha do fornecedor (relação resumida) nem para o dono
+      expect(JSON.stringify(donoA.body)).not.toMatch(/"senha"/);
+    });
+
+    test('esclarecimento respondido fica público sem identificar quem perguntou', async () => {
+      await ctx
+        .http()
+        .put(`/api/esclarecimentos/${escF1}/responder`)
+        .set(bearer(pregA.token))
+        .send({ resposta: 'Resposta do órgão A', respondido_por: 'Pregoeiro A' })
+        .expect(200);
+      const f2 = await ctx.http().get(`/api/esclarecimentos/licitacao/${L3.id}`).set(bearer(F2.token)).expect(200);
+      const f1 = await ctx.http().get(`/api/esclarecimentos/licitacao/${L3.id}`).set(bearer(F1.token)).expect(200);
+      const visto = f2.body.find((e: any) => e.id === escF1);
+      expect(visto?.resposta).toBe('Resposta do órgão A');
+      expect(visto?.fornecedor_id).toBeNull();
+      expect(JSON.stringify(f2.body)).not.toContain(F1.id);
+      expect(f1.body.find((e: any) => e.id === escF1)?.fornecedor_id).toBe(F1.id);
+    });
+
+    test('órgão B (e fornecedor) não lê nem altera documentos da fase interna de A', async () => {
+      const lista = await ctx.http().get(`/api/fase-interna/${L2.id}/documentos`).set(bearer(pregB.token));
+      const criar = await ctx
+        .http()
+        .post(`/api/fase-interna/${L2.id}/documento`)
+        .set(bearer(pregB.token))
+        .send({ tipo: 'ETP', titulo: 'ETP do órgão B' });
+      const porId = await ctx.http().get(`/api/fase-interna/documento/${docFaseInterna}`).set(bearer(pregB.token));
+      const submeter = await ctx.http().put(`/api/fase-interna/documento/${docFaseInterna}/submeter`).set(bearer(pregB.token));
+      const estruturado = await ctx
+        .http()
+        .put(`/api/fase-interna/estruturado/${docFaseInterna}/dados`)
+        .set(bearer(pregB.token))
+        .send({ dados: { alterado: 'pelo órgão B' } });
+      const instrucao = await ctx.http().get(`/api/fase-interna/${L2.id}/instrucao`).set(bearer(pregB.token));
+      const avancar = await ctx.http().put(`/api/fase-interna/${L2.id}/avancar`).set(bearer(pregB.token));
+      const preparar = await ctx.http().post(`/api/fase-interna/${L2.id}/preparar-automatico`).set(bearer(pregB.token));
+      const fornecedor = await ctx.http().get(`/api/fase-interna/${L2.id}/documentos`).set(bearer(F1.token));
+      const dono = await ctx.http().get(`/api/fase-interna/${L2.id}/documentos`).set(bearer(pregA.token));
+      registrar(
+        '14 órgão B fase-interna (L2)',
+        `lista=${lista.status} criar=${criar.status} porId=${porId.status} submeter=${submeter.status} estruturado=${estruturado.status} instrucao=${instrucao.status} avancar=${avancar.status} preparar=${preparar.status} F1=${fornecedor.status} dono=${dono.status}`,
+      );
+      expect(lista.status).toBe(404);
+      expect(porId.status).toBe(404);
+      expect(instrucao.status).toBe(404);
+      expect(criar.status).toBe(403);
+      expect(submeter.status).toBe(403);
+      expect(estruturado.status).toBe(403);
+      expect(avancar.status).toBe(403);
+      expect(preparar.status).toBe(403);
+      expect(fornecedor.status).toBe(403);
+      expect(dono.status).toBe(200);
+    });
+
+    test('documento público de licitação divulgada: outros leem só a visão pública; órgão B não exclui', async () => {
+      const pub = await ctx
+        .http()
+        .post(`/api/documentos/licitacao/${X.lic.id}/vincular`)
+        .set(bearer(pregA.token))
+        .send({ tipo: 'ANEXO', titulo: 'Anexo público (isolamento)', nome_original: 'anexo.pdf', caminho: '/uploads/isolamento-inexistente-2.pdf', publico: true });
+      expect(pub.status).toBe(201);
+      const meta = await ctx.http().get(`/api/documentos/${pub.body.id}`).set(bearer(F2.token));
+      const lista = await ctx.http().get(`/api/documentos/licitacao/${X.lic.id}`).set(bearer(F2.token)).expect(200);
+      const del = await ctx.http().delete(`/api/documentos/${pub.body.id}`).set(bearer(pregB.token));
+      expect(meta.status).toBe(200);
+      expect(meta.body.caminho_arquivo).toBeUndefined();
+      expect(lista.body.length).toBeGreaterThan(0);
+      expect(lista.body.every((d: any) => d.caminho_arquivo === undefined)).toBe(true);
+      expect(del.status).toBe(403);
+    });
+
+    test('pesquisa de preços pública: 404 na fase interna e com orçamento sigiloso; disponível após divulgar', async () => {
+      const interna = await ctx.http().get(`/api/fase-interna/publico/precos/${L2.id}`);
+      const sigilosa = await ctx.http().get(`/api/fase-interna/publico/precos/${X.lic.id}`);
+      const divulgada = await ctx.http().get(`/api/fase-interna/publico/precos/${L3.id}`);
+      registrar('14 GET publico/precos', `interna=${interna.status} sigilosa=${sigilosa.status} divulgada=${divulgada.status}`);
+      expect(interna.status).toBe(404);
+      expect(sigilosa.status).toBe(404);
+      expect(divulgada.status).toBe(200);
+      expect(JSON.stringify(divulgada.body)).not.toContain('documento_comprobatorio_path');
+    });
+
+    test('órgão B não lê, altera nem remove modelo e fluxo de aprovação de A', async () => {
+      const modelo = await ctx
+        .http()
+        .post('/api/fase-interna/modelos')
+        .set(bearer(A.token))
+        .send({ tipo: 'DFD', nome: 'Modelo de A (isolamento)', secoes: [{ id: 's1', titulo: 'Seção 1' }] });
+      expect(modelo.status).toBe(201);
+      expect(modelo.body.orgao_id).toBe(A.id);
+      const fluxo = await ctx
+        .http()
+        .post('/api/fase-interna/fluxos-aprovacao')
+        .set(bearer(A.token))
+        .send({ nome: 'Fluxo de A (isolamento)', tipo_documento: 'DFD', etapas: [{ nome: 'Chefia' }] });
+      expect(fluxo.status).toBe(201);
+      expect(fluxo.body.orgao_id).toBe(A.id);
+
+      const lerModelo = await ctx.http().get(`/api/fase-interna/modelos/${modelo.body.id}`).set(bearer(pregB.token));
+      const putModelo = await ctx.http().put(`/api/fase-interna/modelos/${modelo.body.id}`).set(bearer(pregB.token)).send({ nome: 'alterado por B' });
+      const delModelo = await ctx.http().delete(`/api/fase-interna/modelos/${modelo.body.id}`).set(bearer(pregB.token));
+      const putFluxo = await ctx.http().put(`/api/fase-interna/fluxos-aprovacao/${fluxo.body.id}`).set(bearer(pregB.token)).send({ nome: 'alterado por B' });
+      const delFluxo = await ctx.http().delete(`/api/fase-interna/fluxos-aprovacao/${fluxo.body.id}`).set(bearer(pregB.token));
+      const listaFluxosB = await ctx.http().get(`/api/fase-interna/fluxos-aprovacao?orgaoId=${A.id}`).set(bearer(B.token)).expect(200);
+      registrar(
+        '14 órgão B modelos/fluxos de A',
+        `lerModelo=${lerModelo.status} putModelo=${putModelo.status} delModelo=${delModelo.status} putFluxo=${putFluxo.status} delFluxo=${delFluxo.status}`,
+      );
+      expect(lerModelo.status).toBe(404);
+      expect(putModelo.status).toBe(403);
+      expect(delModelo.status).toBe(403);
+      expect(putFluxo.status).toBe(403);
+      expect(delFluxo.status).toBe(403);
+      expect(listaFluxosB.body.some((f: any) => f.id === fluxo.body.id)).toBe(false);
+      // O dono continua podendo
+      await ctx.http().put(`/api/fase-interna/modelos/${modelo.body.id}`).set(bearer(A.token)).send({ nome: 'alterado por A' }).expect(200);
+    });
+
+    test('caixas de entrada/aprovação: setor e usuário de outro órgão são recusados; servidor só vê a própria caixa', async () => {
+      const setorA = (
+        await ctx.dataSource.query(`INSERT INTO setores (orgao_id, codigo, nome) VALUES ($1, $2, $3) RETURNING id`, [
+          A.id,
+          `ISO-${Date.now()}`,
+          'Setor de A (isolamento)',
+        ])
+      )[0].id;
+      const entradaSetor = await ctx.http().get(`/api/fase-interna/tramitacoes/caixa-entrada?setorId=${setorA}`).set(bearer(B.token));
+      const entradaUsuario = await ctx.http().get(`/api/fase-interna/tramitacoes/caixa-entrada?usuarioId=${pregA.id}`).set(bearer(B.token));
+      const aprovSetor = await ctx.http().get(`/api/fase-interna/aprovacoes/caixa?setorId=${setorA}`).set(bearer(B.token));
+      const aprovUsuario = await ctx.http().get(`/api/fase-interna/aprovacoes/caixa?usuarioId=${pregA.id}`).set(bearer(B.token));
+      // Pregoeiro (sem papel ADMIN) não consulta a caixa de outra pessoa do próprio órgão
+      const outraPessoa = await ctx.http().get(`/api/fase-interna/aprovacoes/caixa?usuarioId=${A.id}`).set(bearer(pregA.token));
+      // Controles: o próprio órgão / o próprio servidor
+      const donoSetor = await ctx.http().get(`/api/fase-interna/tramitacoes/caixa-entrada?setorId=${setorA}`).set(bearer(A.token));
+      const propria = await ctx.http().get(`/api/fase-interna/aprovacoes/caixa?usuarioId=${pregA.id}`).set(bearer(pregA.token));
+      registrar(
+        '14 caixas',
+        `B setorA=${entradaSetor.status}/${aprovSetor.status} B usuarioA=${entradaUsuario.status}/${aprovUsuario.status} pregA outra=${outraPessoa.status} donoSetor=${donoSetor.status} propria=${propria.status}`,
+      );
+      expect([entradaSetor.status, entradaUsuario.status, aprovSetor.status, aprovUsuario.status]).toEqual([403, 403, 403, 403]);
+      expect(outraPessoa.status).toBe(403);
+      expect(donoSetor.status).toBe(200);
+      expect(propria.status).toBe(200);
     });
   });
 });

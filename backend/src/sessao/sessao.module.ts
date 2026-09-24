@@ -13,6 +13,7 @@ import { Lance } from '../lances/entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
+import { SigiloDisputaService } from '../disputa-v2/sigilo-disputa.service';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-li
     ParametrosLicitacaoModule,
   ],
   controllers: [SessaoController],
-  providers: [SessaoService, RecursosService, SessaoGateway],
+  providers: [SessaoService, RecursosService, SessaoGateway, SigiloDisputaService],
   exports: [SessaoService, RecursosService],
 })
 export class SessaoModule {}

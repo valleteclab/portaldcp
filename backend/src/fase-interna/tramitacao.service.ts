@@ -208,12 +208,14 @@ export class TramitacaoService {
   }
 
   /** Caixa de entrada: tramitações pendentes de recebimento por setor e/ou usuário. */
-  async caixaEntrada(filtro: { setorId?: string; usuarioId?: string }) {
+  async caixaEntrada(filtro: { setorId?: string; usuarioId?: string; orgaoId?: string }) {
     const qb = this.tramitacaoRepo
       .createQueryBuilder('t')
       .leftJoinAndSelect('t.licitacao', 'licitacao')
       .where('t.status = :status', { status: StatusTramitacao.PENDENTE })
       .orderBy('t.data_envio', 'ASC');
+    // Isolamento (E1a): só processos do órgão do ator
+    if (filtro.orgaoId) qb.andWhere('licitacao.orgao_id = :orgaoId', { orgaoId: filtro.orgaoId });
 
     if (filtro.setorId && filtro.usuarioId) {
       qb.andWhere(

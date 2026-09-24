@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Impugnacao {
   id: string
@@ -358,6 +359,7 @@ export default function ImpugnacoesPage() {
                           </div>
                           <a
                             href={`${API_URL}/api/impugnacoes/${imp.id}/documento`}
+                            onClick={(e) => { e.preventDefault(); abrirArquivoAutenticado(`${API_URL}/api/impugnacoes/${imp.id}/documento`) }}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"

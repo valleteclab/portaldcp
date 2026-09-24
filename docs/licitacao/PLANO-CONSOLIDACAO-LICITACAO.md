@@ -161,6 +161,11 @@ Motivo: os 82 vazamentos incluem atos **sem login** em produção (a dispensa j�
 
 **Pronto quando:** os 82 `test.failing` de `isolamento-dados-licitacao` viram testes normais e passam; dispensa e pregão continuam verdes.
 
+**Pendências herdadas pela E1a (resolver nas etapas indicadas):**
+- Razões/contrarrazões ainda aceitam registro pelo órgão dono em nome do licitante (o `RecursosPanel` faz assim) → E5 cria a tela do fornecedor e restringe ao próprio recorrente.
+- `item_encerrado` revela o vencedor de um item enquanto outros itens ainda estão em disputa (risco de conluio entre itens) → E2: identidade só após o fim da etapa de lances da sessão inteira.
+- Corrida da anonimização (código repetido; lance gravado com "erro" ao fornecedor) → E2.
+
 ### E1 — Máquina de estados única · tamanho G
 1. `TransicoesService` declarativo: por modalidade, fases válidas, pré-condições (documentos, prazos, propostas, resultado) e efeitos (datas, eventos, PNCP, notificações).
 2. Substituir os **22 pontos** que alteram `fase` (licitacoes, scheduler, sessao, pncp, fase-interna, admin-testes) por chamadas ao serviço. `avancarFase` genérico e `retrocederFase` livre deixam de existir — cada transição é um ato nomeado.

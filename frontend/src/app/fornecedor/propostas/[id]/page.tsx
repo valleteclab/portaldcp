@@ -145,16 +145,15 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
       setError(null)
       setSuccess(null)
 
-      const fornecedorStr = localStorage.getItem('fornecedor')
-      if (!fornecedorStr) {
+      if (!localStorage.getItem('fornecedor')) {
         setError('Você precisa estar logado')
         return
       }
-      const fornecedor = JSON.parse(fornecedorStr)
 
       if (!confirm('Deseja realmente excluir esta proposta?')) return
 
-      const res = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}?fornecedorId=${fornecedor.id}`, {
+      // O fornecedor é identificado pelo token (não vai mais na URL)
+      const res = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}`, {
         method: 'DELETE'
       })
 

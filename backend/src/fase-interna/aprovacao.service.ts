@@ -314,12 +314,17 @@ export class AprovacaoService {
   }
 
   /** Caixa de aprovações: etapas EM_ANALISE atribuídas ao usuário e/ou setor. */
-  async caixaAprovacoes(filtro: { usuarioId?: string; setorId?: string }) {
+  async caixaAprovacoes(filtro: { usuarioId?: string; setorId?: string; orgaoId?: string }) {
     const qb = this.etapaRepo
       .createQueryBuilder('e')
       .leftJoinAndSelect('e.documento', 'documento')
       .where('e.status = :status', { status: StatusEtapaAprovacao.EM_ANALISE })
       .orderBy('e.created_at', 'ASC');
+    // Isolamento (E1a): só etapas de processos do órgão do ator (inclusive as
+    // sem destinatário, que antes vazavam para todos os órgãos)
+    if (filtro.orgaoId) {
+      qb.andWhere('e.licitacao_id IN (SELECT l.id::text FROM licitacoes l WHERE l.orgao_id = :orgaoId)', { orgaoId: filtro.orgaoId });
+    }
 
     if (filtro.usuarioId && filtro.setorId) {
       qb.andWhere(

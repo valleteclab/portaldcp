@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, authFetch, getAuthToken } from '@/lib/api'
 import {
   DisputaMensagem,
   DisputaV3Board,
@@ -104,8 +104,8 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
       const targetSessaoId = resolvedSessaoId || sessaoId
       if (!targetSessaoId || !actor) return
 
-      const query = actor.tipo === 'FORNECEDOR' ? `?fornecedorId=${actor.id}` : ''
-      const response = await authFetch(`${API_URL}/api/disputa-v3/sessao/${targetSessaoId}/board${query}`)
+      // A visão (pregoeiro ou do próprio fornecedor) é decidida pelo token no backend
+      const response = await authFetch(`${API_URL}/api/disputa-v3/sessao/${targetSessaoId}/board`)
       if (!response.ok) {
         throw new Error('Nao foi possivel carregar o board da disputa.')
       }
@@ -136,9 +136,7 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
         setMeusLances([])
         return
       }
-      const res = await authFetch(
-        `${API_URL}/api/disputa-v3/sessao/${sid}/item/${iid}/lances-meus?fornecedorId=${encodeURIComponent(actor.id)}`,
-      )
+      const res = await authFetch(`${API_URL}/api/disputa-v3/sessao/${sid}/item/${iid}/lances-meus`)
       if (!res.ok) return
       const data = (await res.json()) as DisputaV3LanceMeu[]
       setMeusLances(Array.isArray(data) ? data : [])
@@ -237,23 +235,24 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     const actor = actorRef.current || carregarActor()
     if (!actor) return
 
+    // Identidade e papel vão SÓ no token do handshake (o backend ignora o payload)
     const socket = io(`${getWsUrl()}/disputa-v2`, {
       transports: ['websocket', 'polling'],
+      auth: { token: getAuthToken() || undefined },
     })
 
     socketRef.current = socket
 
     socket.on('connect', () => {
       setWsConectado(true)
-      socket.emit('entrar_sala', {
-        sessaoId,
-        tipo: actor.tipo,
-        usuarioId: actor.id,
-        usuarioNome: actor.nome,
-      })
+      socket.emit('entrar_sala', { sessaoId })
     })
 
     socket.on('disconnect', () => setWsConectado(false))
+    socket.on('connect_error', (err: Error) => {
+      setWsConectado(false)
+      setActionError(err?.message || 'Nao foi possivel conectar a sala de disputa.')
+    })
     socket.on('dados_iniciais', async () => {
       await Promise.all([refreshBoard(sessaoId), refreshMensagens(sessaoId)])
     })

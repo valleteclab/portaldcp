@@ -41,9 +41,13 @@ export class CreatePropostaDto {
   @IsNotEmpty()
   licitacao_id: string;
 
+  /**
+   * Legado: o fornecedor é o do token. Se vier e for diferente do token, a
+   * criação é recusada (403). Pode ser omitido.
+   */
   @IsUUID()
-  @IsNotEmpty()
-  fornecedor_id: string;
+  @IsOptional()
+  fornecedor_id?: string;
 
   // Declarações
   @IsBoolean()

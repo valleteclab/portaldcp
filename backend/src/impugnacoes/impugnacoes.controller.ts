@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Body, Param, Query, UseInterceptors, UploadedFile, Res, HttpStatus, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, UseInterceptors, UploadedFile, Res, HttpStatus, BadRequestException, NotFoundException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { diskStorage } from 'multer';
@@ -7,6 +8,14 @@ import * as fs from 'fs';
 import { ImpugnacoesService } from './impugnacoes.service';
 import { StatusImpugnacao } from './impugnacao.entity';
 import { Public } from '../auth/public.decorator';
+import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { AtorAtual, AutenticacaoOpcional, SomenteOrgao } from '../auth/acesso/acesso.decorators';
+import { ehFornecedor } from '../auth/acesso/ator';
+import type { Ator } from '../auth/acesso/ator';
+import { aplicarVisao, licitacaoResumo, visaoDaManifestacao } from './manifestacao-acesso.util';
+
+/** Campos que identificam quem impugnou (fora da visão pública). */
+const IDENTIDADE_IMPUGNANTE = ['nome_impugnante', 'cpf_cnpj_impugnante', 'email_impugnante'];
 
 // Configuração do Multer para upload de PDF
 const uploadConfig = {
@@ -38,29 +47,61 @@ const uploadConfig = {
   }
 };
 
+/**
+ * AUTORIZAÇÃO (E1a):
+ *  - enviar impugnação: continua aberto a qualquer autenticado (art. 164);
+ *    se for fornecedor, a identidade é a do token (fornecedor_id divergente → 403);
+ *  - responder / marcar em análise: somente o órgão DONO da licitação (403);
+ *  - listar / ler: órgão dono vê tudo; fornecedor vê as próprias + as já
+ *    respondidas (sem identificar o impugnante); público: só as respondidas
+ *    de licitação divulgada. Fora disso → 404;
+ *  - arquivo anexado: só órgão dono e o próprio autor.
+ */
 @Controller('impugnacoes')
 export class ImpugnacoesController {
-  constructor(private readonly impugnacoesService: ImpugnacoesService) {}
+  constructor(
+    private readonly impugnacoesService: ImpugnacoesService,
+    private readonly acesso: AcessoLicitacaoService,
+    private readonly dataSource: DataSource,
+  ) {}
 
-  @Public()
-  @Get('licitacao/:licitacaoId')
-  findByLicitacao(@Param('licitacaoId') licitacaoId: string) {
-    return this.impugnacoesService.findByLicitacao(licitacaoId);
-  }
-
-  @Public()
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.impugnacoesService.findOne(id);
-  }
-
-  // Download do documento da impugnação
-  @Public()
-  @Get(':id/documento')
-  async downloadDocumento(@Param('id') id: string, @Res() res: Response) {
+  /** Impugnação + visão do ator (404 se o ator não pode vê-la). */
+  private async legivel(id: string, ator: Ator | null) {
+    if (!ehUuid(id)) throw new NotFoundException('Impugnação não encontrada');
     const impugnacao = await this.impugnacoesService.findOne(id);
-    
-    if (!impugnacao.documento_caminho) {
+    const lic = await licitacaoResumo(this.dataSource, impugnacao.licitacao_id);
+    const visao = visaoDaManifestacao(ator, lic, impugnacao);
+    if (!visao) throw new NotFoundException('Impugnação não encontrada');
+    return { impugnacao, visao };
+  }
+
+  @AutenticacaoOpcional()
+  @Get('licitacao/:licitacaoId')
+  async findByLicitacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator | null) {
+    const lic = await licitacaoResumo(this.dataSource, licitacaoId);
+    if (!lic) return [];
+    const todas = await this.impugnacoesService.findByLicitacao(licitacaoId);
+    const visiveis: any[] = [];
+    for (const imp of todas) {
+      const visao = visaoDaManifestacao(ator, lic, imp);
+      if (visao) visiveis.push(aplicarVisao(imp, visao, IDENTIDADE_IMPUGNANTE));
+    }
+    return visiveis;
+  }
+
+  @AutenticacaoOpcional()
+  @Get(':id')
+  async findOne(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
+    const { impugnacao, visao } = await this.legivel(id, ator);
+    return aplicarVisao(impugnacao, visao, IDENTIDADE_IMPUGNANTE);
+  }
+
+  // Download do documento da impugnação (órgão dono ou o próprio autor)
+  @AutenticacaoOpcional()
+  @Get(':id/documento')
+  async downloadDocumento(@Param('id') id: string, @AtorAtual() ator: Ator | null, @Res() res: Response) {
+    const { impugnacao, visao } = await this.legivel(id, ator);
+    if (visao === 'PUBLICO' || !impugnacao.documento_caminho) {
       return res.status(HttpStatus.NOT_FOUND).json({ message: 'Documento não encontrado' });
     }
 
@@ -93,13 +134,26 @@ export class ImpugnacoesController {
       item_edital_impugnado?: string;
       fundamentacao_legal?: string;
     },
+    @AtorAtual() ator: Ator,
     @UploadedFile() documento?: Express.Multer.File
   ) {
+    if (!ehUuid(data?.licitacao_id)) throw new NotFoundException('Licitação não encontrada');
     // Preparar dados com informações do documento
     const dadosImpugnacao: any = {
       ...data,
       is_cidadao: data.is_cidadao === 'true'
     };
+    // Identidade do fornecedor SEMPRE do token; quem não é fornecedor não
+    // impugna em nome de um.
+    if (ehFornecedor(ator)) {
+      dadosImpugnacao.fornecedor_id = this.acesso.fornecedorDoToken(ator, data.fornecedor_id);
+    } else {
+      delete dadosImpugnacao.fornecedor_id;
+    }
+    // Campos controlados pelo sistema/órgão
+    for (const k of ['id', 'status', 'resposta', 'respondido_por', 'data_resposta', 'altera_edital', 'alteracoes_edital', 'documento_caminho']) {
+      delete dadosImpugnacao[k];
+    }
 
     if (documento) {
       dadosImpugnacao.documento_nome = documento.originalname;
@@ -112,7 +166,8 @@ export class ImpugnacoesController {
   }
 
   @Put(':id/responder')
-  responder(
+  @SomenteOrgao()
+  async responder(
     @Param('id') id: string,
     @Body() data: {
       resposta: string;
@@ -120,19 +175,31 @@ export class ImpugnacoesController {
       respondido_por: string;
       altera_edital?: boolean;
       alteracoes_edital?: string;
-    }
+    },
+    @AtorAtual() ator: Ator,
   ) {
+    await this.assertDono(ator, id);
     return this.impugnacoesService.responder(id, data);
   }
 
   @Put(':id/em-analise')
-  marcarEmAnalise(@Param('id') id: string) {
+  @SomenteOrgao()
+  async marcarEmAnalise(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.assertDono(ator, id);
     return this.impugnacoesService.marcarEmAnalise(id);
   }
 
   @Public()
   @Get('licitacao/:licitacaoId/pendentes/count')
   countPendentes(@Param('licitacaoId') licitacaoId: string) {
+    if (!ehUuid(licitacaoId)) return 0;
     return this.impugnacoesService.countPendentes(licitacaoId);
+  }
+
+  /** Ato do órgão dono da licitação da impugnação (outro órgão → 403). */
+  private async assertDono(ator: Ator, id: string) {
+    if (!ehUuid(id)) throw new NotFoundException('Impugnação não encontrada');
+    const impugnacao = await this.impugnacoesService.findOne(id);
+    await this.acesso.assertOrgaoDaLicitacao(ator, impugnacao.licitacao_id);
   }
 }

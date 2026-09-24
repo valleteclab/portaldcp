@@ -280,6 +280,14 @@ export class RecursosService {
     });
   }
 
+  /** Recurso por id (404 se não existe) — usado na checagem de dono/recorrente. */
+  async buscar(id: string): Promise<RecursoAdministrativo> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id))) {
+      throw new NotFoundException('Recurso nao encontrado');
+    }
+    return this.obter(id);
+  }
+
   private async obter(id: string): Promise<RecursoAdministrativo> {
     const recurso = await this.recursoRepo.findOneBy({ id });
     if (!recurso) throw new NotFoundException('Recurso não encontrado');

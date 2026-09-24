@@ -4,24 +4,65 @@ import {
   SubscribeMessage,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   MessageBody,
   ConnectedSocket,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import { Namespace, Socket } from 'socket.io';
 import { SessaoService } from './sessao.service';
+import { WsAutenticador, atorDoSocket } from '../auth/acesso/ws-autenticador';
+import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { SigiloDisputaService, VisaoDisputa } from '../disputa-v2/sigilo-disputa.service';
+import { licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
 
 /**
- * Gateway WebSocket para Sala de Disputa em Tempo Real
- * Implementa comunicacao bidirecional para pregao eletronico
+ * Gateway WebSocket da sala /sessao (legado — será substituído pelo motor
+ * único na E2).
+ *
+ * AUTORIZAÇÃO (E1a):
+ *  - handshake autenticado (WsAutenticador): token inválido recusa a conexão;
+ *    papel e identidade vêm SÓ do token (`tipo`, `participante`, `isPregoeiro`,
+ *    `fornecedorId` do payload são ignorados);
+ *  - entrar_sessao: órgão dono / admin (pregoeiro), fornecedor com proposta
+ *    válida, ou ANÔNIMO em modo só leitura (feed público anonimizado); logado
+ *    sem relação com a licitação é recusado ('erro');
+ *  - atos do pregoeiro (iniciar, itens, encerrar, suspender, alterar fase,
+ *    reiniciar, chat on/off, cronômetro) só para o órgão dono na sala;
+ *  - LANCE por esta sala (enviar_lance / enviar_lance_lote): DESATIVADO
+ *    ('erro_lance') — duplicava o lance da disputa-v2;
+ *  - chat: pregoeiro (dono) ou fornecedor participante; o remetente difundido
+ *    é o código anônimo do fornecedor, sem id;
+ *  - tudo o que é difundido aos não-donos passa pela anonimização dos
+ *    licitantes (SigiloDisputaService). O órgão dono recebe na sala própria.
  */
-@WebSocketGateway({ 
+interface ClienteSessao {
+  sessaoId: string;
+  licitacaoId: string;
+  papel: 'PREGOEIRO' | 'FORNECEDOR' | 'PUBLICO';
+  fornecedorId: string | null;
+}
+
+const salaOrgao = (sessaoId: string) => `${sessaoId}:orgao`;
+
+@WebSocketGateway({
   cors: true,
   namespace: '/sessao'
 })
-export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
-  @WebSocketServer() server: Server;
+export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer() server: Namespace;
 
-  constructor(private readonly sessaoService: SessaoService) {}
+  private clientes = new Map<string, ClienteSessao>();
+
+  constructor(
+    private readonly sessaoService: SessaoService,
+    private readonly wsAuth: WsAutenticador,
+    private readonly acesso: AcessoLicitacaoService,
+    private readonly sigilo: SigiloDisputaService,
+  ) {}
+
+  afterInit(server: Namespace) {
+    this.wsAuth.instalar(server);
+  }
 
   handleConnection(client: Socket) {
     console.log(`[Sessao] Cliente conectado: ${client.id}`);
@@ -29,31 +70,115 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   handleDisconnect(client: Socket) {
     console.log(`[Sessao] Cliente desconectado: ${client.id}`);
+    this.clientes.delete(client.id);
+  }
+
+  private visaoDe(info: ClienteSessao | undefined): VisaoDisputa {
+    if (info?.papel === 'PREGOEIRO') return { tipo: 'ORGAO' };
+    if (info?.papel === 'FORNECEDOR' && info.fornecedorId) return { tipo: 'FORNECEDOR', fornecedorId: info.fornecedorId };
+    return { tipo: 'PUBLICO' };
+  }
+
+  /** Entidade da sessão sem dados não públicos (licitação na visão pública, sem melhor lance). */
+  private sessaoPublica(sessao: any): any {
+    if (!sessao || typeof sessao !== 'object') return sessao;
+    const s: any = { ...sessao };
+    if (s.licitacao) s.licitacao = licitacaoParaPublico(s.licitacao);
+    if (s.item_atual) s.item_atual = { ...s.item_atual, melhor_lance_fornecedor_id: null };
+    return s;
   }
 
   /**
-   * Fornecedor ou Pregoeiro entra na sala da sessao
+   * Difunde na sala: o órgão dono recebe o payload completo (sala própria);
+   * os demais, a versão pública anonimizada.
+   */
+  private async difundir(sessaoId: string, evento: string, payload: any) {
+    const info = [...this.clientes.values()].find((c) => c.sessaoId === sessaoId);
+    const licitacaoId = info?.licitacaoId || (await this.acesso.donoDaSessao(sessaoId))?.licitacaoId;
+    if (!licitacaoId) return;
+    this.server.to(salaOrgao(sessaoId)).emit(evento, payload);
+    const publico = await this.sigilo.aplicarVisao(this.publicoDe(payload), licitacaoId, { tipo: 'PUBLICO' }, { sessaoId });
+    this.server.to(sessaoId).except(salaOrgao(sessaoId)).emit(evento, publico);
+  }
+
+  /** Aplica `sessaoPublica` a qualquer `sessao` do payload (ou ao próprio payload, se for a sessão). */
+  private publicoDe(payload: any): any {
+    if (!payload || typeof payload !== 'object') return payload;
+    if ('licitacao_id' in payload && 'etapa' in payload) return this.sessaoPublica(payload);
+    if (payload.sessao) return { ...payload, sessao: this.sessaoPublica(payload.sessao) };
+    return payload;
+  }
+
+  /** Pregoeiro (órgão dono) na sala desta sessão — senão 'erro'. */
+  private exigirPregoeiro(client: Socket, sessaoId: string | undefined): ClienteSessao | null {
+    const info = this.clientes.get(client.id);
+    if (!info || info.papel !== 'PREGOEIRO' || !sessaoId || info.sessaoId !== sessaoId) {
+      client.emit('erro', { mensagem: 'Apenas o pregoeiro da sessão pode executar esta ação' });
+      return null;
+    }
+    return info;
+  }
+
+  /**
+   * Fornecedor ou Pregoeiro entra na sala da sessao (papel pelo token).
    */
   @SubscribeMessage('entrar_sessao')
   async handleEntrarSessao(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { sessaoId: string; participante: string; tipo: 'PREGOEIRO' | 'FORNECEDOR' }
+    @MessageBody() data: { sessaoId: string; participante?: string; tipo?: 'PREGOEIRO' | 'FORNECEDOR' }
   ) {
-    client.join(data.sessaoId);
-    console.log(`[Sessao] ${data.tipo} ${data.participante} entrou na sessao ${data.sessaoId}`);
+    const sessaoId = data?.sessaoId;
+    const dono = ehUuid(sessaoId) ? await this.acesso.donoDaSessao(sessaoId) : null;
+    if (!dono) {
+      client.emit('erro', { mensagem: 'Sessão não encontrada' });
+      return;
+    }
+
+    const ator = atorDoSocket(client);
+    let papel: ClienteSessao['papel'] = 'PUBLICO';
+    if (ator) {
+      const relacao = await this.acesso.relacaoComLicitacao(ator, dono.licitacaoId);
+      if (!relacao) {
+        client.emit('erro', { mensagem: 'Acesso negado a esta sessão' });
+        return;
+      }
+      papel = relacao === 'FORNECEDOR_PARTICIPANTE' ? 'FORNECEDOR' : 'PREGOEIRO';
+    }
+
+    const info: ClienteSessao = {
+      sessaoId,
+      licitacaoId: dono.licitacaoId,
+      papel,
+      fornecedorId: papel === 'FORNECEDOR' ? ator!.fornecedorId : null,
+    };
+    this.clientes.set(client.id, info);
+    client.join(sessaoId);
+    if (papel === 'PREGOEIRO') client.join(salaOrgao(sessaoId));
+    console.log(`[Sessao] ${papel} entrou na sessao ${sessaoId}`);
+
+    const visao = this.visaoDe(info);
 
     // Envia estado atual da sessao
-    const sessao = await this.sessaoService.getSessao(data.sessaoId);
-    client.emit('estado_sessao', sessao);
+    const sessao = await this.sessaoService.getSessao(sessaoId);
+    client.emit(
+      'estado_sessao',
+      visao.tipo === 'ORGAO'
+        ? sessao
+        : await this.sigilo.aplicarVisao(this.sessaoPublica(sessao), dono.licitacaoId, visao, { sessaoId }),
+    );
 
     // Envia historico de eventos
-    const eventos = await this.sessaoService.getEventosSessao(data.sessaoId);
-    client.emit('historico_eventos', eventos);
+    const eventos = await this.sessaoService.getEventosSessao(sessaoId);
+    const reveladas = await this.sigilo.identidadesReveladas(sessaoId);
+    client.emit(
+      'historico_eventos',
+      await this.sigilo.aplicarVisao(eventos, dono.licitacaoId, visao, { sessaoId, identidades: !reveladas }),
+    );
 
-    // Notifica outros participantes
-    client.to(data.sessaoId).emit('participante_entrou', {
-      participante: data.participante,
-      tipo: data.tipo,
+    // Notifica outros participantes — sem identidade
+    client.to(sessaoId).emit('participante_entrou', {
+      participante: papel === 'PREGOEIRO' ? 'Pregoeiro' : papel === 'FORNECEDOR' ? 'Licitante' : 'Visitante',
+      tipo: papel === 'PREGOEIRO' ? 'PREGOEIRO' : 'FORNECEDOR',
       horario: new Date()
     });
   }
@@ -66,9 +191,10 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string }
   ) {
+    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
       const sessao = await this.sessaoService.iniciarSessao(data.sessaoId);
-      this.server.to(data.sessaoId).emit('sessao_iniciada', sessao);
+      await this.difundir(data.sessaoId, 'sessao_iniciada', sessao);
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'info',
         mensagem: 'Sessao publica iniciada pelo Pregoeiro'
@@ -86,9 +212,10 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string }
   ) {
+    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
       const sessao = await this.sessaoService.avancarParaDisputa(data.sessaoId);
-      this.server.to(data.sessaoId).emit('disputa_iniciada', sessao);
+      await this.difundir(data.sessaoId, 'disputa_iniciada', sessao);
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'alerta',
         mensagem: 'ETAPA DE LANCES INICIADA! Enviem seus lances.'
@@ -106,9 +233,13 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string; itemId: string }
   ) {
+    const info = this.exigirPregoeiro(client, data?.sessaoId);
+    if (!info) return;
     try {
+      const item = await this.acesso.donoDoItem(data.itemId);
+      if (!item || item.licitacaoId !== info.licitacaoId) throw new Error('Item não pertence a esta sessão');
       const sessao = await this.sessaoService.iniciarDisputaItem(data.sessaoId, data.itemId);
-      this.server.to(data.sessaoId).emit('item_em_disputa', {
+      await this.difundir(data.sessaoId, 'item_em_disputa', {
         sessao,
         itemId: data.itemId
       });
@@ -131,19 +262,20 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string }
   ) {
+    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
       const resultado = await this.sessaoService.iniciarDisputaTodosItens(data.sessaoId);
-      this.server.to(data.sessaoId).emit('disputa_iniciada', {
+      await this.difundir(data.sessaoId, 'disputa_iniciada', {
         sessao: resultado.sessao,
         itensIniciados: resultado.itensIniciados,
         lotesIniciados: resultado.lotesIniciados,
         tipoDisputa: resultado.tipoDisputa
       });
-      
+
       const mensagem = resultado.tipoDisputa === 'POR_LOTE'
         ? `Disputa iniciada para ${resultado.lotesIniciados} lote(s) (${resultado.itensIniciados} itens). Enviem seus lances!`
         : `Disputa iniciada para ${resultado.itensIniciados} item(ns). Enviem seus lances!`;
-      
+
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'alerta',
         mensagem
@@ -161,13 +293,20 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string; itensIds: string[] }
   ) {
+    const info = this.exigirPregoeiro(client, data?.sessaoId);
+    if (!info) return;
     try {
-      const resultado = await this.sessaoService.iniciarItensSelecionados(data.sessaoId, data.itensIds);
+      const itensIds: string[] = [];
+      for (const id of Array.isArray(data.itensIds) ? data.itensIds : []) {
+        const item = await this.acesso.donoDoItem(id);
+        if (item && item.licitacaoId === info.licitacaoId) itensIds.push(id);
+      }
+      const resultado = await this.sessaoService.iniciarItensSelecionados(data.sessaoId, itensIds);
       this.server.to(data.sessaoId).emit('itens_selecionados_iniciados', {
         itensIniciados: resultado.itensIniciados,
-        itensIds: data.itensIds
+        itensIds
       });
-      
+
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'alerta',
         mensagem: `Disputa iniciada para ${resultado.itensIniciados} item(ns) selecionados.`
@@ -178,88 +317,23 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Fornecedor envia lance
+   * Lance por esta sala — DESATIVADO (E1a). Duplicava o registro de lance da
+   * disputa-v2 (sem trava e com o fornecedor vindo do payload). Use a sala de
+   * disputa (/disputa-v2). O motor único vem na E2.
    */
   @SubscribeMessage('enviar_lance')
-  async handleEnviarLance(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { 
-      sessaoId: string; 
-      itemId: string; 
-      fornecedorId: string;
-      fornecedorNome: string;
-      valor: number 
-    }
-  ) {
-    const ip = client.handshake.address;
-
-    try {
-      const lance = await this.sessaoService.registrarLance(
-        data.sessaoId,
-        data.itemId,
-        data.fornecedorId,
-        data.fornecedorNome,
-        data.valor,
-        ip
-      );
-
-      // Broadcast do novo lance para todos na sala
-      this.server.to(data.sessaoId).emit('novo_lance', {
-        lance,
-        fornecedor: data.fornecedorNome.substring(0, 4) + '***', // Anonimiza
-        valor: data.valor,
-        horario: new Date()
-      });
-
-      // Atualiza cronometro (reset do tempo de inatividade)
-      this.server.to(data.sessaoId).emit('cronometro_reset');
-
-    } catch (error: any) {
-      client.emit('erro_lance', { mensagem: error.message });
-    }
+  handleEnviarLance(@ConnectedSocket() client: Socket) {
+    client.emit('erro_lance', {
+      mensagem: 'Lance por esta sala foi desativado. Use a sala de disputa (disputa-v2).',
+    });
   }
 
-  /**
-   * Fornecedor envia lance por LOTE (valor total)
-   */
+  /** Lance por LOTE por esta sala — DESATIVADO (ver enviar_lance). */
   @SubscribeMessage('enviar_lance_lote')
-  async handleEnviarLanceLote(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { 
-      sessaoId: string; 
-      loteId: string; 
-      fornecedorId: string;
-      fornecedorNome: string;
-      valorTotal: number 
-    }
-  ) {
-    const ip = client.handshake.address;
-
-    try {
-      const resultado = await this.sessaoService.registrarLanceLote(
-        data.sessaoId,
-        data.loteId,
-        data.fornecedorId,
-        data.fornecedorNome,
-        data.valorTotal,
-        ip
-      );
-
-      // Broadcast do novo lance para todos na sala
-      this.server.to(data.sessaoId).emit('novo_lance_lote', {
-        loteId: data.loteId,
-        fornecedor: data.fornecedorNome.substring(0, 4) + '***', // Anonimiza
-        valorTotal: data.valorTotal,
-        quantidadeItens: resultado.lances.length,
-        horario: new Date()
-      });
-
-      // Atualiza cronometro (reset do tempo de inatividade)
-      this.server.to(data.sessaoId).emit('cronometro_reset');
-
-    } catch (error: any) {
-      client.emit('erro_lance', { mensagem: error.message });
-    }
+  handleEnviarLanceLote(@ConnectedSocket() client: Socket) {
+    client.emit('erro_lance', {
+      mensagem: 'Lance por esta sala foi desativado. Use a sala de disputa (disputa-v2).',
+    });
   }
 
   /**
@@ -270,9 +344,15 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string; itemId?: string }
   ) {
+    const info = this.exigirPregoeiro(client, data?.sessaoId);
+    if (!info) return;
     try {
+      if (data.itemId) {
+        const item = await this.acesso.donoDoItem(data.itemId);
+        if (!item || item.licitacaoId !== info.licitacaoId) throw new Error('Item não pertence a esta sessão');
+      }
       const resultado = await this.sessaoService.encerrarDisputaItemPorId(data.sessaoId, data.itemId);
-      this.server.to(data.sessaoId).emit('item_encerrado', resultado);
+      await this.difundir(data.sessaoId, 'item_encerrado', resultado);
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'info',
         mensagem: `Disputa do item ${resultado.itemNumero || ''} encerrada`
@@ -290,9 +370,10 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string; motivo: string }
   ) {
+    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
       const sessao = await this.sessaoService.suspenderSessao(data.sessaoId, data.motivo);
-      this.server.to(data.sessaoId).emit('sessao_suspensa', {
+      await this.difundir(data.sessaoId, 'sessao_suspensa', {
         sessao,
         motivo: data.motivo
       });
@@ -313,14 +394,15 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string; novaEtapa: string; novoStatus?: string; motivo?: string }
   ) {
+    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
       const sessao = await this.sessaoService.alterarFaseSessao(
-        data.sessaoId, 
+        data.sessaoId,
         data.novaEtapa as any,
         data.novoStatus as any,
         data.motivo
       );
-      this.server.to(data.sessaoId).emit('fase_alterada', {
+      await this.difundir(data.sessaoId, 'fase_alterada', {
         sessao,
         novaEtapa: data.novaEtapa,
         novoStatus: sessao.status
@@ -342,9 +424,10 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string; motivo?: string }
   ) {
+    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
       const sessao = await this.sessaoService.reiniciarDisputa(data.sessaoId, data.motivo);
-      this.server.to(data.sessaoId).emit('disputa_reiniciada', { sessao });
+      await this.difundir(data.sessaoId, 'disputa_reiniciada', { sessao });
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'alerta',
         mensagem: 'Disputa reiniciada pelo pregoeiro. Todos os itens voltaram para aguardando.'
@@ -355,59 +438,67 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Pregoeiro envia mensagem no chat
+   * Mensagem no chat: pregoeiro (órgão dono) ou fornecedor participante.
+   * Papel e identidade pelo token; o nome real fica registrado (ata) e a
+   * difusão leva o código anônimo do fornecedor, sem id.
    */
   @SubscribeMessage('mensagem_chat')
   async handleMensagemChat(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { 
-      sessaoId: string; 
-      remetente: string; 
-      mensagem: string; 
-      isPregoeiro: boolean;
+    @MessageBody() data: {
+      sessaoId: string;
+      remetente?: string;
+      mensagem: string;
+      /** Ignorados (legado): papel e identidade vêm do token. */
+      isPregoeiro?: boolean;
       fornecedorId?: string;
     }
   ) {
-    // Verificar se o chat está habilitado
+    const info = this.clientes.get(client.id);
+    if (!info || info.sessaoId !== data?.sessaoId || info.papel === 'PUBLICO') {
+      client.emit('erro', { mensagem: 'Entre na sessão com login para usar o chat' });
+      return;
+    }
+    const texto = typeof data.mensagem === 'string' ? data.mensagem.trim() : '';
+    if (!texto) return;
+
     const sessao = await this.sessaoService.getSessao(data.sessaoId);
     if (!sessao) return;
-    
-    // Verificar se chat está desabilitado (apenas para fornecedores)
-    if (!data.isPregoeiro && sessao.chat_desabilitado) {
+
+    const isPregoeiro = info.papel === 'PREGOEIRO';
+    // Chat desabilitado vale para fornecedores
+    if (!isPregoeiro && sessao.chat_desabilitado) {
       client.emit('chat_bloqueado', { mensagem: 'O chat está temporariamente desabilitado pelo pregoeiro.' });
       return;
     }
+
+    const remetenteReal = isPregoeiro
+      ? (typeof data.remetente === 'string' && data.remetente.trim().slice(0, 120)) || sessao.pregoeiro_nome || 'Pregoeiro'
+      : (await this.sigilo.nomeDoFornecedor(info.fornecedorId!)) || 'Fornecedor';
 
     // Salvar mensagem no banco de dados (com nome real para ATA)
     try {
       await this.sessaoService.salvarMensagemChat(
         data.sessaoId,
-        data.remetente,
-        data.mensagem,
-        data.isPregoeiro,
-        data.fornecedorId
+        remetenteReal,
+        texto,
+        isPregoeiro,
+        isPregoeiro ? undefined : info.fornecedorId!,
       );
     } catch (error) {
       console.error('Erro ao salvar mensagem:', error);
     }
 
-    // Anonimizar nome do fornecedor se não estiver na fase de habilitação
-    let remetenteExibicao = data.remetente;
-    if (!data.isPregoeiro && data.fornecedorId) {
-      const etapasReveladas = ['CONVOCACAO_HABILITACAO', 'ANALISE_HABILITACAO', 'INTENCAO_RECURSO', 'PRAZO_RECURSAL', 'ANALISE_RECURSOS', 'ADJUDICACAO', 'ENCERRAMENTO'];
-      if (!etapasReveladas.includes(sessao.etapa)) {
-        // Gerar identificador anônimo baseado no fornecedor_id
-        remetenteExibicao = `Fornecedor ${data.fornecedorId.substring(0, 4).toUpperCase()}`;
-      }
-    }
+    const remetenteExibicao = isPregoeiro
+      ? 'PREGOEIRO'
+      : await this.sigilo.codigoDe(data.sessaoId, info.fornecedorId!);
 
-    // Emitir para todos os participantes
+    // Emitir para todos os participantes — sem id do fornecedor
     this.server.to(data.sessaoId).emit('nova_mensagem', {
-      remetente: data.isPregoeiro ? 'PREGOEIRO' : remetenteExibicao,
-      mensagem: data.mensagem,
-      isPregoeiro: data.isPregoeiro,
+      remetente: remetenteExibicao,
+      mensagem: texto,
+      isPregoeiro,
       horario: new Date(),
-      fornecedorId: data.fornecedorId
     });
   }
 
@@ -419,23 +510,25 @@ export class SessaoGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string; habilitado: boolean }
   ) {
-    await this.sessaoService.toggleChat(data.sessaoId, data.habilitado);
-    
+    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
+    await this.sessaoService.toggleChat(data.sessaoId, !!data.habilitado);
+
     // Notificar todos os participantes
     this.server.to(data.sessaoId).emit('chat_status', {
-      habilitado: data.habilitado,
+      habilitado: !!data.habilitado,
       mensagem: data.habilitado ? 'Chat habilitado pelo pregoeiro' : 'Chat desabilitado pelo pregoeiro'
     });
   }
 
   /**
-   * Atualiza cronometro para todos os participantes
+   * Atualiza cronometro para todos os participantes (só o pregoeiro da sessão)
    */
   @SubscribeMessage('sync_cronometro')
   async handleSyncCronometro(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessaoId: string; tempoRestante: number }
   ) {
+    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     this.server.to(data.sessaoId).emit('cronometro_update', {
       tempoRestante: data.tempoRestante
     });

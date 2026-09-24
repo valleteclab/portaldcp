@@ -4,6 +4,33 @@ import { Repository } from 'typeorm';
 import { ItemLicitacao, StatusItem, UnidadeMedida } from './entities/item-licitacao.entity';
 import { CreateItemDto, UpdateItemDto, AdjudicarItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
 import { ItemPCA } from '../pca/entities/pca.entity';
+import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+
+/**
+ * Campos que o PUT do item nunca altera: vínculo com a licitação (mover item
+ * para processo de outro órgão), estado e resultado da disputa. Não há
+ * ValidationPipe global com whitelist, então o corpo é filtrado aqui.
+ */
+const CAMPOS_PROTEGIDOS_ITEM = [
+  'id',
+  'licitacao_id',
+  'licitacao',
+  'status',
+  'status_disputa',
+  'melhor_lance_valor',
+  'melhor_lance_fornecedor_id',
+  'fornecedor_vencedor_id',
+  'fornecedor_vencedor_nome',
+  'marca_vencedora',
+  'valor_unitario_homologado',
+  'valor_total_homologado',
+  'created_at',
+  'updated_at',
+];
+
+/** Dados da licitação que decidem a visão pública dos itens. */
+export type LicitacaoVisaoItem = Pick<Licitacao, 'id' | 'orgao_id' | 'fase' | 'data_publicacao_edital' | 'sigilo_orcamento'>;
 
 @Injectable()
 export class ItensService {
@@ -86,7 +113,9 @@ export class ItensService {
       throw new BadRequestException('Não é possível alterar item que não está ativo');
     }
 
-    Object.assign(item, updateDto);
+    const dados: Record<string, any> = { ...(updateDto as any) };
+    for (const k of CAMPOS_PROTEGIDOS_ITEM) delete dados[k];
+    Object.assign(item, dados);
 
     // Recalcula valor total se quantidade ou valor unitário mudou
     if (updateDto.quantidade || updateDto.valor_unitario_estimado) {
@@ -148,6 +177,25 @@ export class ItensService {
     }
     
     await this.itemRepository.remove(item);
+  }
+
+  /** Licitação (campos de visão) — null se não existe. */
+  async licitacaoParaVisao(licitacaoId: string): Promise<LicitacaoVisaoItem | null> {
+    if (!ehUuid(licitacaoId)) return null;
+    return await this.itemRepository.manager.getRepository(Licitacao).findOne({
+      where: { id: licitacaoId },
+      select: ['id', 'orgao_id', 'fase', 'data_publicacao_edital', 'sigilo_orcamento'],
+    });
+  }
+
+  /** Órgão dono do PCA de um item do PCA (null se não existe). */
+  async orgaoDoItemPca(itemPcaId: string): Promise<string | null> {
+    if (!ehUuid(itemPcaId)) return null;
+    const r = await this.itemPcaRepository.manager.query(
+      `SELECT p.orgao_id FROM itens_pca i JOIN planos_contratacao_anual p ON p.id = i.pca_id WHERE i.id = $1`,
+      [itemPcaId],
+    );
+    return r[0]?.orgao_id ?? null;
   }
 
   // Estatísticas

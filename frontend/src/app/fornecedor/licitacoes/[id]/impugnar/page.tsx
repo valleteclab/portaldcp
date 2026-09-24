@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Licitacao {
   id: string
@@ -378,6 +379,7 @@ export default function ImpugnarPage() {
                     <span className="text-sm text-gray-700">{imp.documento_nome}</span>
                     <a
                       href={`${API_URL}/api/impugnacoes/${imp.id}/documento`}
+                      onClick={(e) => { e.preventDefault(); abrirArquivoAutenticado(`${API_URL}/api/impugnacoes/${imp.id}/documento`) }}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-auto text-blue-600 hover:text-blue-800"

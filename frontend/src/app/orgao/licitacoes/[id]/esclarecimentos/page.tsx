@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Esclarecimento {
   id: string
@@ -315,6 +316,7 @@ export default function EsclarecimentosPregoeiro({ params }: { params: Promise<{
                     </div>
                     <a
                       href={`${API_URL}/api/esclarecimentos/${esc.id}/documento`}
+                      onClick={(e) => { e.preventDefault(); abrirArquivoAutenticado(`${API_URL}/api/esclarecimentos/${esc.id}/documento`) }}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"

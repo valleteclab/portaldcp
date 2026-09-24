@@ -11,6 +11,24 @@ import { Badge } from "@/components/ui/badge"
 
 import { API_URL, authFetch } from '@/lib/api'
 
+/** Documento da desclassificação: rota autenticada (fornecedor dono ou órgão dono). */
+async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?: string) {
+  const res = await authFetch(`${API_URL}/api/propostas/${propostaId}/documento-desclassificacao`)
+  if (!res.ok) {
+    alert('Não foi possível baixar o documento')
+    return
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo || 'documento-desclassificacao'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 interface Proposta {
   id: string
   status: string
@@ -45,15 +63,13 @@ export default function PropostasFornecedorPage() {
     const fetchPropostas = async () => {
       try {
         // Buscar fornecedor logado do localStorage
-        const fornecedorStr = localStorage.getItem('fornecedor')
-        if (!fornecedorStr) {
+        if (!localStorage.getItem('fornecedor')) {
           setLoading(false)
           return
         }
-        const fornecedor = JSON.parse(fornecedorStr)
-        
-        // Buscar propostas do fornecedor
-        const res = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+
+        // Buscar propostas do fornecedor (identificado pelo token)
+        const res = await authFetch(`${API_URL}/api/propostas/minhas`)
         if (res.ok) {
           const data = await res.json()
           setPropostas(data)
@@ -371,15 +387,14 @@ export default function PropostasFornecedorPage() {
               {modalMotivo.documento_desclassificacao_nome && (
                 <div>
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Documento Anexado</p>
-                  <a 
-                    href={`${API_URL}/api/propostas/${modalMotivo.id}/documento-desclassificacao`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => baixarDocumentoDesclassificacao(modalMotivo.id, modalMotivo.documento_desclassificacao_nome)}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors"
                   >
                     <Download className="h-4 w-4" />
                     {modalMotivo.documento_desclassificacao_nome}
-                  </a>
+                  </button>
                 </div>
               )}
             </div>

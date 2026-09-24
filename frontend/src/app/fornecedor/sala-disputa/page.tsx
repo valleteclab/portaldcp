@@ -47,7 +47,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, authFetch, getAuthToken } from '@/lib/api'
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3000'
 
 // Tipos
@@ -126,8 +126,10 @@ function formatarTempo(segundos: number): string {
 }
 
 // Formatar moeda
-function formatarMoeda(valor: number): string {
-  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+// valor null = orçamento sigiloso (art. 24): o backend não envia a referência ao fornecedor
+function formatarMoeda(valor: number | null | undefined): string {
+  if (valor === null || valor === undefined) return 'Sigiloso'
+  return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
 export default function SalaDisputaFornecedorPage() {
@@ -321,8 +323,10 @@ export default function SalaDisputaFornecedorPage() {
 
     console.log(`[WS] Conectando ao WebSocket: ${WS_URL}/sessao`)
     
+    // Papel e identidade vão SÓ no token do handshake (E1a)
     const socket = io(`${WS_URL}/sessao`, {
       transports: ['websocket', 'polling'],
+      auth: { token: getAuthToken() || undefined },
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -484,7 +488,7 @@ export default function SalaDisputaFornecedorPage() {
   }, [novaMensagem, wsConectado, licitacoes, licitacaoSelecionada, fornecedor])
 
   const calcularSugestao = (item: Item) => {
-    const base = item.melhorLance || item.valorReferencia
+    const base = item.melhorLance || item.valorReferencia || 0
     return (base * 0.995).toFixed(2)
   }
 

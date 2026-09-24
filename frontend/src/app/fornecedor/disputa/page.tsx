@@ -12,7 +12,7 @@ import {
   Clock, TrendingDown, AlertTriangle, CheckCircle2,
   Send, RefreshCw, Trophy, ArrowDown
 } from 'lucide-react'
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, authFetch, getAuthToken } from '@/lib/api'
 
 // ============================================================================
 // TIPOS
@@ -141,8 +141,10 @@ export default function DisputaFornecedor() {
 
     // Conectar WebSocket
     const wsUrl = API_URL.replace('/api', '').replace('http', 'ws')
+    // Identidade do fornecedor vai SÓ no token do handshake
     const socket = io(`${wsUrl}/disputa-v2`, {
       transports: ['websocket', 'polling'],
+      auth: { token: getAuthToken() || undefined },
     })
 
     socketRef.current = socket
@@ -152,12 +154,7 @@ export default function DisputaFornecedor() {
       setWsConectado(true)
 
       // Entrar na sala
-      socket.emit('entrar_sala', {
-        sessaoId,
-        tipo: 'FORNECEDOR',
-        usuarioId: fornecedorParsed.id,
-        usuarioNome: fornecedorParsed.razao_social || fornecedorParsed.nome || 'Fornecedor',
-      })
+      socket.emit('entrar_sala', { sessaoId })
     })
 
     socket.on('disconnect', () => {
@@ -321,8 +318,10 @@ export default function DisputaFornecedor() {
     return `${min.toString().padStart(2, '0')}:${seg.toString().padStart(2, '0')}`
   }
 
-  const formatarMoeda = (valor: number) => {
-    return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  // valor null = orçamento sigiloso (art. 24): o backend não envia a referência ao fornecedor
+  const formatarMoeda = (valor: number | null | undefined) => {
+    if (valor === null || valor === undefined) return 'Sigiloso'
+    return Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   }
 
   // ============================================================================

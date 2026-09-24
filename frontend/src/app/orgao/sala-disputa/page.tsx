@@ -54,7 +54,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, authFetch, getAuthToken } from '@/lib/api'
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3000'
 
 // Tipos
@@ -520,8 +520,10 @@ export default function SalaDisputaPregoeiroPage() {
 
     console.log(`[WS] Conectando ao WebSocket: ${WS_URL}/sessao`)
     
+    // Papel e identidade vão SÓ no token do handshake (E1a)
     const socket = io(`${WS_URL}/sessao`, {
       transports: ['websocket', 'polling'],
+      auth: { token: getAuthToken() || undefined },
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,

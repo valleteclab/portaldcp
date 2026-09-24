@@ -1,6 +1,16 @@
-import { Controller, Get, Post, Put, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, Body, Query, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputaService } from './disputa.service';
-import { Public } from '../auth/public.decorator';
+import { SigiloDisputaService } from './sigilo-disputa.service';
+import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import {
+  AtorAtual,
+  AutenticacaoOpcional,
+  OrgaoOuFornecedor,
+  SomenteFornecedor,
+  SomenteOrgao,
+} from '../auth/acesso/acesso.decorators';
+import { ehFornecedor } from '../auth/acesso/ator';
+import type { Ator } from '../auth/acesso/ator';
 
 /**
  * ============================================================================
@@ -9,26 +19,49 @@ import { Public } from '../auth/public.decorator';
  *
  * Endpoints REST para a Sala de Disputa
  * Complementa o WebSocket Gateway para operações que não precisam de tempo real
+ *
+ * AUTORIZAÇÃO (E1a):
+ *  - atos do pregoeiro (iniciar/encerrar item, suspender, retomar, reiniciar,
+ *    configurações, mensagem) → só o órgão DONO da sessão (@SomenteOrgao +
+ *    assertOrgaoDaSessao);
+ *  - lance → só o fornecedor do TOKEN, com proposta válida na licitação; o
+ *    `fornecedorId` do corpo, se vier, precisa ser o do token (403);
+ *  - leituras: órgão dono vê tudo; demais (fornecedor participante, público)
+ *    recebem as identidades dos outros licitantes anonimizadas enquanto o item
+ *    está em disputa e sem o valor de referência quando o orçamento é sigiloso.
  * ============================================================================
  */
 
 @Controller('disputa-v2')
 export class DisputaController {
-  constructor(private readonly disputaService: DisputaService) {}
+  constructor(
+    private readonly disputaService: DisputaService,
+    private readonly acesso: AcessoLicitacaoService,
+    private readonly sigilo: SigiloDisputaService,
+  ) {}
+
+  /** Licitação da sessão (404 se não existe). */
+  private async licitacaoDaSessao(sessaoId: string): Promise<string> {
+    const dono = await this.acesso.donoDaSessao(sessaoId);
+    if (!dono) throw new NotFoundException('Sessão não encontrada');
+    return dono.licitacaoId;
+  }
 
   // ============================================================================
-  // SESSÃO
+  // SESSÃO (dados públicos da sessão: status, etapa, pregoeiro, objeto)
   // ============================================================================
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('sessao/:sessaoId')
   async getSessao(@Param('sessaoId') sessaoId: string) {
+    if (!ehUuid(sessaoId)) throw new NotFoundException('Sessão não encontrada');
     return this.disputaService.getSessao(sessaoId);
   }
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('sessao/licitacao/:licitacaoId')
   async getSessaoPorLicitacao(@Param('licitacaoId') licitacaoId: string) {
+    if (!ehUuid(licitacaoId)) throw new NotFoundException('Sessão não encontrada para esta licitação');
     return this.disputaService.getSessaoPorLicitacao(licitacaoId);
   }
 
@@ -36,18 +69,35 @@ export class DisputaController {
   // ITENS
   // ============================================================================
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('sessao/:sessaoId/itens')
-  async getItensPorStatus(@Param('sessaoId') sessaoId: string) {
-    return this.disputaService.getItensPorStatus(sessaoId);
+  async getItensPorStatus(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator | null) {
+    const licitacaoId = await this.licitacaoDaSessao(sessaoId);
+    const visao = await this.sigilo.visaoDoAtor(ator, licitacaoId);
+    const itens = await this.disputaService.getItensPorStatus(
+      sessaoId,
+      visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : undefined,
+      { visaoOrgao: visao.tipo === 'ORGAO' },
+    );
+    return this.sigilo.aplicarVisao(itens, licitacaoId, visao, { sessaoId });
   }
 
-  @Public()
+  /** Visão do fornecedor: só ele mesmo (token) ou o órgão dono. */
+  @OrgaoOuFornecedor()
   @Get('sessao/:sessaoId/itens/fornecedor/:fornecedorId')
   async getItensParaFornecedor(
     @Param('sessaoId') sessaoId: string,
     @Param('fornecedorId') fornecedorId: string,
+    @AtorAtual() ator: Ator,
   ) {
+    if (ehFornecedor(ator)) {
+      const fid = this.acesso.fornecedorDoToken(ator, fornecedorId);
+      const licitacaoId = await this.licitacaoDaSessao(sessaoId);
+      await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
+      const dados = await this.disputaService.getItensParaFornecedor(sessaoId, fid);
+      return this.sigilo.aplicarVisao(dados, licitacaoId, { tipo: 'FORNECEDOR', fornecedorId: fid }, { sessaoId });
+    }
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
     return this.disputaService.getItensParaFornecedor(sessaoId, fornecedorId);
   }
 
@@ -55,64 +105,90 @@ export class DisputaController {
   // LANCES
   // ============================================================================
   // Leituras por itemId resolvem sessão e aplicam anonimização como no WebSocket
-  // (nomes reais só após ENCERRADO/NEGOCIACAO quando a sessão exige sigilo).
-  // Cancelamento de lance pelo fornecedor: não há endpoint nesta API; no legado
-  // (gateway de lances) apenas o pregoeiro pode cancelar lance registrado.
+  // (nomes reais só após ENCERRADO/NEGOCIACAO). A fase vem do servidor.
 
-  @Public()
+  private async leituraDoItem<T>(
+    itemId: string,
+    ator: Ator | null,
+    ler: (visaoOrgao: boolean) => Promise<T>,
+  ): Promise<T> {
+    const dono = await this.acesso.donoDoItem(itemId);
+    if (!dono) throw new NotFoundException('Item não encontrado');
+    const visao = await this.sigilo.visaoDoAtor(ator, dono.licitacaoId);
+    const dados = await ler(visao.tipo === 'ORGAO');
+    const encerrado = await this.sigilo.itemEncerrado(itemId);
+    return this.sigilo.aplicarVisao(dados, dono.licitacaoId, visao, { identidades: !encerrado });
+  }
+
+  @AutenticacaoOpcional()
   @Get('item/:itemId/propostas')
-  async getPropostasIniciais(@Param('itemId') itemId: string) {
-    return this.disputaService.getPropostasIniciais(itemId);
+  async getPropostasIniciais(@Param('itemId') itemId: string, @AtorAtual() ator: Ator | null) {
+    return this.leituraDoItem(itemId, ator, (visaoOrgao) =>
+      this.disputaService.getPropostasIniciais(itemId, undefined, { visaoOrgao }),
+    );
   }
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('item/:itemId/melhores')
-  async getMelhoresValoresPorFornecedor(@Param('itemId') itemId: string) {
-    return this.disputaService.getMelhoresValoresPorFornecedor(itemId);
+  async getMelhoresValoresPorFornecedor(@Param('itemId') itemId: string, @AtorAtual() ator: Ator | null) {
+    return this.leituraDoItem(itemId, ator, (visaoOrgao) =>
+      this.disputaService.getMelhoresValoresPorFornecedor(itemId, undefined, { visaoOrgao }),
+    );
   }
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('item/:itemId/lances')
-  async getTodosLances(@Param('itemId') itemId: string) {
-    return this.disputaService.getTodosLances(itemId);
+  async getTodosLances(@Param('itemId') itemId: string, @AtorAtual() ator: Ator | null) {
+    return this.leituraDoItem(itemId, ator, (visaoOrgao) =>
+      this.disputaService.getTodosLances(itemId, undefined, { visaoOrgao }),
+    );
   }
 
   // ============================================================================
   // MENSAGENS
   // ============================================================================
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('sessao/:sessaoId/mensagens')
   async getMensagens(
     @Param('sessaoId') sessaoId: string,
+    @AtorAtual() ator: Ator | null,
     @Query('limite') limite?: number,
   ) {
-    return this.disputaService.getMensagens(sessaoId, limite || 50);
+    const licitacaoId = await this.licitacaoDaSessao(sessaoId);
+    const visao = await this.sigilo.visaoDoAtor(ator, licitacaoId);
+    const mensagens = await this.disputaService.getMensagens(sessaoId, Math.min(Number(limite) || 50, 200));
+    const reveladas = await this.sigilo.identidadesReveladas(sessaoId);
+    return this.sigilo.aplicarVisao(mensagens, licitacaoId, visao, { sessaoId, identidades: !reveladas });
   }
 
   // ============================================================================
-  // AÇÕES (alternativa ao WebSocket)
+  // AÇÕES DO PREGOEIRO (alternativa ao WebSocket) — só o órgão dono
   // ============================================================================
 
-  @Public()
+  @SomenteOrgao()
   @Post('sessao/:sessaoId/iniciar-itens')
   async iniciarItens(
     @Param('sessaoId') sessaoId: string,
     @Body() body: { itensIds: string[] },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.disputaService.iniciarDisputa(sessaoId, body.itensIds);
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    return this.disputaService.iniciarDisputa(sessaoId, Array.isArray(body?.itensIds) ? body.itensIds : []);
   }
 
-  @Public()
+  @SomenteOrgao()
   @Post('sessao/:sessaoId/encerrar-item/:itemId')
   async encerrarItem(
     @Param('sessaoId') sessaoId: string,
     @Param('itemId') itemId: string,
+    @AtorAtual() ator: Ator,
   ) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
     return this.disputaService.encerrarItem(sessaoId, itemId);
   }
 
-  @Public()
+  @SomenteOrgao()
   @Post('sessao/:sessaoId/suspender')
   async suspenderSessao(
     @Param('sessaoId') sessaoId: string,
@@ -122,7 +198,9 @@ export class DisputaController {
       justificativa: string;
       dataReabertura?: string;
     },
+    @AtorAtual() ator: Ator,
   ) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
     await this.disputaService.suspenderSessao(
       sessaoId,
       body.motivo,
@@ -132,19 +210,22 @@ export class DisputaController {
     return { success: true };
   }
 
-  @Public()
+  @SomenteOrgao()
   @Post('sessao/:sessaoId/retomar')
-  async retomarSessao(@Param('sessaoId') sessaoId: string) {
+  async retomarSessao(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
     await this.disputaService.retomarSessao(sessaoId);
     return { success: true };
   }
 
-  @Public()
+  @SomenteOrgao()
   @Post('sessao/:sessaoId/reiniciar')
   async reiniciarSessao(
     @Param('sessaoId') sessaoId: string,
     @Body() body: { justificativa: string },
+    @AtorAtual() ator: Ator,
   ) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
     const resultado = await this.disputaService.reiniciarSessao(
       sessaoId,
       body.justificativa,
@@ -152,53 +233,69 @@ export class DisputaController {
     return { success: true, ...resultado };
   }
 
-  @Public()
-  @Post('sessao/:sessaoId/lance')
-  async registrarLance(
-    @Param('sessaoId') sessaoId: string,
-    @Body()
-    body: {
-      itemId: string;
-      fornecedorId: string;
-      fornecedorNome: string;
-      valor: number;
-    },
-  ) {
-    return this.disputaService.registrarLance(
-      sessaoId,
-      body.itemId,
-      body.fornecedorId,
-      body.fornecedorNome,
-      body.valor,
-      'API',
-    );
-  }
-
-  @Public()
+  /** Mensagem do pregoeiro na sala (o remetente é sempre o pregoeiro). */
+  @SomenteOrgao()
   @Post('sessao/:sessaoId/mensagem')
   async enviarMensagem(
     @Param('sessaoId') sessaoId: string,
-    @Body() body: { remetente: string; conteudo: string },
+    @Body() body: { remetente?: string; conteudo: string },
+    @AtorAtual() ator: Ator,
   ) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    if (!body?.conteudo?.trim()) throw new BadRequestException('conteudo é obrigatório');
     await this.disputaService.enviarMensagem(
       sessaoId,
-      body.remetente,
+      body.remetente?.trim() || 'Pregoeiro',
       body.conteudo,
     );
     return { success: true };
   }
 
   // ============================================================================
+  // LANCE (fornecedor do token)
+  // ============================================================================
+
+  @SomenteFornecedor()
+  @Post('sessao/:sessaoId/lance')
+  async registrarLance(
+    @Param('sessaoId') sessaoId: string,
+    @Body()
+    body: {
+      itemId: string;
+      /** Legado: se vier, precisa ser o do token. */
+      fornecedorId?: string;
+      fornecedorNome?: string;
+      valor: number;
+    },
+    @AtorAtual() ator: Ator,
+  ) {
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, body?.fornecedorId);
+    const licitacaoId = await this.licitacaoDaSessao(sessaoId);
+    await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
+    if (!ehUuid(body?.itemId)) throw new BadRequestException('itemId inválido');
+    const nome = await this.disputaService.nomeDoFornecedor(fornecedorId);
+    return this.disputaService.registrarLance(
+      sessaoId,
+      body.itemId,
+      fornecedorId,
+      nome,
+      body.valor,
+      'API',
+    );
+  }
+
+  // ============================================================================
   // CONFIGURAÇÃO DA SESSÃO
   // ============================================================================
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('sessao/:sessaoId/configuracoes')
   async getConfiguracoes(@Param('sessaoId') sessaoId: string) {
+    if (!ehUuid(sessaoId)) throw new NotFoundException('Sessão não encontrada');
     return this.disputaService.getConfiguracoesSessao(sessaoId);
   }
 
-  @Public()
+  @SomenteOrgao()
   @Put('sessao/:sessaoId/configuracoes')
   async configurarSessao(
     @Param('sessaoId') sessaoId: string,
@@ -211,7 +308,9 @@ export class DisputaController {
       tempo_aleatorio_max_minutos?: number;
       chat_desabilitado?: boolean;
     },
+    @AtorAtual() ator: Ator,
   ) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
     await this.disputaService.configurarSessao(sessaoId, body);
     return { success: true };
   }

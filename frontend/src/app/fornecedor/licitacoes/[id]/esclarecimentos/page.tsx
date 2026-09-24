@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Licitacao {
   id: string
@@ -331,6 +332,7 @@ export default function EsclarecimentosPage() {
                     <span className="text-sm text-blue-700">{esc.documento_nome}</span>
                     <a
                       href={`${API_URL}/api/esclarecimentos/${esc.id}/documento`}
+                      onClick={(e) => { e.preventDefault(); abrirArquivoAutenticado(`${API_URL}/api/esclarecimentos/${esc.id}/documento`) }}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-auto"

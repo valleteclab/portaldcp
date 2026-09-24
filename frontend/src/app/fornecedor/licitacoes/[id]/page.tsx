@@ -121,10 +121,8 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
         setDocumentos(await docRes.json())
       }
 
-      const fornecedorStr = localStorage.getItem('fornecedor')
-      if (fornecedorStr) {
-        const fornecedor = JSON.parse(fornecedorStr)
-        const resPropostas = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+      if (localStorage.getItem('fornecedor')) {
+        const resPropostas = await authFetch(`${API_URL}/api/propostas/minhas`)
         if (resPropostas.ok) {
           const propostas = await resPropostas.json()
           const existente = propostas.find((p: any) => p.licitacao_id === licitacaoId)

@@ -167,12 +167,11 @@ export class DisputaTimerService {
   private async encerrarItemExpirado(sessaoId: string, item: ItemLicitacao) {
     try {
       const resultado = await this.disputaService.encerrarItem(sessaoId, item.id);
-      const itens = await this.disputaService.getItensPorStatus(sessaoId);
-      
-      this.disputaGateway.server.to(`sessao:${sessaoId}`).emit('item_encerrado', {
+
+      // Cada cliente recebe os itens na sua visão (E1a: sigilo dos licitantes)
+      await this.disputaGateway.emitirItensPorVisao(sessaoId, item.licitacao_id, 'item_encerrado', {
         itemId: item.id,
         vencedor: resultado.vencedor,
-        itens,
       });
 
       this.logger.log(`Item ${item.numero_item} encerrado automaticamente por tempo`);

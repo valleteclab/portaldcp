@@ -34,6 +34,24 @@ import { Label } from "@/components/ui/label"
 
 import { API_URL, authFetch } from '@/lib/api'
 
+/** Documento da desclassificação: rota autenticada (fornecedor dono ou órgão dono). */
+async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?: string) {
+  const res = await authFetch(`${API_URL}/api/propostas/${propostaId}/documento-desclassificacao`)
+  if (!res.ok) {
+    alert('Não foi possível baixar o documento')
+    return
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo || 'documento-desclassificacao'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 interface Proposta {
   id: string
   fornecedor_id: string
@@ -414,15 +432,14 @@ export default function PropostasPage() {
                         <p className="text-sm text-red-700 mt-1">{proposta.motivo_desclassificacao}</p>
                         {proposta.documento_desclassificacao_nome && (
                           <div className="mt-3 pt-3 border-t border-red-200">
-                            <a 
-                              href={`${API_URL}/api/propostas/${proposta.id}/documento-desclassificacao`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => baixarDocumentoDesclassificacao(proposta.id, proposta.documento_desclassificacao_nome)}
                               className="inline-flex items-center gap-2 text-sm text-red-700 hover:text-red-900 underline"
                             >
                               <Download className="h-4 w-4" />
                               {proposta.documento_desclassificacao_nome}
-                            </a>
+                            </button>
                           </div>
                         )}
                       </div>

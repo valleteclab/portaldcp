@@ -424,6 +424,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       // o pregoeiro zera pela configuração da sala para o roteiro de lances.
       await http()
         .put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`)
+        .set(bearer(pregoeiro.token))
         .send({ intervalo_minimo_lances_minutos: 0 })
         .expect(200);
       const cfg = await http()
@@ -485,10 +486,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       }
     });
 
-    // DEFEITO CONHECIDO B6: o gateway confia no usuarioId enviado pelo cliente; um
-    // fornecedor autenticado entra (e daria lance) como outro —
-    // backend/src/disputa-v2/disputa.gateway.ts:63-102 (token ignorado) — corrigir na E2
-    test.failing(
+    // CORRIGIDO NA E1a (era o defeito B6): o gateway confiava no usuarioId enviado pelo
+    // cliente — agora a identidade vem do token e um usuarioId divergente é recusado
+    test(
       'fornecedor não entra na sala com a identidade de outro (token ≠ usuarioId)',
       async () => {
         const e = await entrarNaSala(
@@ -507,9 +507,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       },
     );
 
-    // DEFEITO CONHECIDO B6: REST de lance é @Public e o fornecedorId vem do body —
-    // backend/src/disputa-v2/disputa.controller.ts:156-175 — corrigir na E2
-    test.failing(
+    // CORRIGIDO NA E1a (era o defeito B6): REST de lance era @Public e o fornecedorId
+    // vinha do body — agora @SomenteFornecedor, fornecedor do token
+    test(
       'lance por REST sem autenticação é recusado com 401',
       async () => {
         // valor acima da proposta: se o defeito persistir, é recusado por 400 (sem efeito colateral)

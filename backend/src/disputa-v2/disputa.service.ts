@@ -62,6 +62,11 @@ export interface ItemDisputa {
   totalLances: number;
 }
 
+/** Quem lê: `visaoOrgao` = órgão dono da licitação (ou admin). Padrão: público/fornecedor. */
+export interface OpcoesVisaoDisputa {
+  visaoOrgao?: boolean;
+}
+
 export interface LanceRegistrado {
   id: string;
   valor: number;
@@ -165,6 +170,22 @@ export class DisputaService {
     };
   }
 
+  /** Código anônimo do fornecedor na sessão ("Fornecedor B"); nunca lança. */
+  async codigoAnonimoSeguro(sessaoId: string, fornecedorId: string): Promise<string> {
+    try {
+      return await this.anonimizacaoService.obterCodigoAnonimo(sessaoId, fornecedorId);
+    } catch {
+      const mapa = await this.anonimizacaoService.obterMapeamentoSessao(sessaoId).catch(() => new Map<string, string>());
+      return mapa.get(fornecedorId) || 'Licitante';
+    }
+  }
+
+  /** Razão social do fornecedor (identidade do lance vem do token, o nome do cadastro). */
+  async nomeDoFornecedor(fornecedorId: string): Promise<string> {
+    const r = await this.dataSource.query(`SELECT razao_social FROM fornecedores WHERE id = $1`, [fornecedorId]);
+    return r[0]?.razao_social || 'Fornecedor';
+  }
+
   /**
    * Busca sessão por licitação
    */
@@ -261,7 +282,7 @@ export class DisputaService {
    * Retorna 3 listas: aguardando, emDisputa, encerrados
    * @param fornecedorId - Se fornecido, inclui dados específicos do fornecedor (meuMelhorLance, minhaPropostaInicial)
    */
-  async getItensPorStatus(sessaoId: string, fornecedorId?: string): Promise<{
+  async getItensPorStatus(sessaoId: string, fornecedorId?: string, opts: OpcoesVisaoDisputa = {}): Promise<{
     aguardando: ItemDisputa[];
     emDisputa: ItemDisputa[];
     encerrados: ItemDisputa[];
@@ -279,7 +300,7 @@ export class DisputaService {
     const encerrados: ItemDisputa[] = [];
 
     for (const item of itens) {
-      const itemDisputa = await this.mapearItemParaDisputa(item, sessao, fornecedorId);
+      const itemDisputa = await this.mapearItemParaDisputa(item, sessao, fornecedorId, opts);
 
       switch (item.status_disputa) {
         case StatusDisputaItem.EM_DISPUTA:
@@ -302,7 +323,12 @@ export class DisputaService {
    * Mapeia item do banco para formato da disputa
    * @param fornecedorId - Se fornecido, inclui dados específicos do fornecedor (meuMelhorLance, minhaPropostaInicial)
    */
-  private async mapearItemParaDisputa(item: ItemLicitacao, sessao: SessaoDisputa, fornecedorId?: string): Promise<ItemDisputa> {
+  private async mapearItemParaDisputa(
+    item: ItemLicitacao,
+    sessao: SessaoDisputa,
+    fornecedorId?: string,
+    opts: OpcoesVisaoDisputa = {},
+  ): Promise<ItemDisputa> {
     // Buscar melhor lance
     const melhorLance = await this.lanceRepo.findOne({
       where: { item_id: item.id, cancelado: false },
@@ -426,7 +452,7 @@ export class DisputaService {
     const itemEncerrado = status === 'ENCERRADO';
     
     if (melhorLanceAnonimizado && this.anonimizacaoService && !itemEncerrado) {
-      const anonimizacaoAtiva = await this.anonimizacaoService.isAnonimizacaoAtiva(sessao.id);
+      const anonimizacaoAtiva = await this.anonimizacaoObrigatoria(sessao.id, opts);
       if (anonimizacaoAtiva) {
         const codigoAnonimo = await this.anonimizacaoService.obterCodigoAnonimo(
           sessao.id,
@@ -502,6 +528,8 @@ export class DisputaService {
     for (const itemId of itensIds) {
       const item = await this.itemRepo.findOneBy({ id: itemId });
       if (!item) continue;
+      // E1a: só itens da licitação desta sessão
+      if (item.licitacao_id !== sessao.licitacao_id) continue;
 
       // Só inicia se estiver aguardando
       if (item.status_disputa && item.status_disputa !== StatusDisputaItem.AGUARDANDO) {
@@ -611,6 +639,11 @@ export class DisputaService {
       // Buscar sessão
       const sessao = await manager.findOne(SessaoDisputa, { where: { id: sessaoId } });
       if (!sessao) throw new NotFoundException('Sessão não encontrada');
+
+      // E1a: o item precisa ser da licitação desta sessão (sem lance cruzado)
+      if (item.licitacao_id !== sessao.licitacao_id) {
+        throw new BadRequestException('Item não pertence à licitação desta sessão');
+      }
 
       // Validações
       if (item.status_disputa !== StatusDisputaItem.EM_DISPUTA) {
@@ -798,6 +831,10 @@ export class DisputaService {
 
     const item = await this.itemRepo.findOneBy({ id: itemId });
     if (!item) throw new NotFoundException('Item não encontrado');
+    // E1a: só itens da licitação desta sessão
+    if (item.licitacao_id !== sessao.licitacao_id) {
+      throw new BadRequestException('Item não pertence à licitação desta sessão');
+    }
 
     // Buscar melhor lance (vencedor)
     const melhorLance = await this.lanceRepo.findOne({
@@ -1023,21 +1060,17 @@ export class DisputaService {
   private async resolveAnonimizacaoParaItem(
     itemId: string,
     sessaoId?: string,
-    itemEncerrado?: boolean,
   ): Promise<{ sessaoId?: string; itemEncerrado: boolean }> {
     const item = await this.itemRepo.findOne({
       where: { id: itemId },
       select: ['licitacao_id', 'status_disputa'],
     });
 
-    let resolvedEncerrado: boolean;
-    if (itemEncerrado !== undefined) {
-      resolvedEncerrado = itemEncerrado;
-    } else if (item) {
-      resolvedEncerrado = !itemEmFaseComAnonimizacaoObrigatoria(item.status_disputa);
-    } else {
-      resolvedEncerrado = false;
-    }
+    // E1a: a fase do item vem SEMPRE do estado do servidor — o cliente não
+    // desliga a anonimização informando "itemEncerrado".
+    const resolvedEncerrado = item
+      ? !itemEmFaseComAnonimizacaoObrigatoria(item.status_disputa)
+      : false;
 
     let resolvedSessaoId = sessaoId;
     if (!resolvedSessaoId && item) {
@@ -1053,14 +1086,28 @@ export class DisputaService {
   }
 
   /**
+   * Anonimizar durante a disputa? Para o público e para os fornecedores é
+   * SEMPRE (IN 73, art. 21) — o interruptor `anonimizacao_ativa` da sessão só
+   * vale para a leitura do órgão dono (`visaoOrgao`).
+   */
+  private async anonimizacaoObrigatoria(sessaoId: string, opts: OpcoesVisaoDisputa = {}): Promise<boolean> {
+    if (!opts.visaoOrgao) return true;
+    return this.anonimizacaoService.isAnonimizacaoAtiva(sessaoId);
+  }
+
+  /**
    * Busca propostas iniciais do item
    * @param sessaoId - Opcional; quando omitido, é obtido pela licitação do item (para REST/anônimos)
-   * @param itemEncerrado - Se true, não aplica anonimização (item já encerrado)
+   * @param opts.visaoOrgao - leitura do órgão dono (respeita o interruptor de anonimização da sessão)
    */
-  async getPropostasIniciais(itemId: string, sessaoId?: string, itemEncerrado?: boolean): Promise<any[]> {
-    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId, itemEncerrado);
+  async getPropostasIniciais(itemId: string, sessaoId?: string, opts: OpcoesVisaoDisputa = {}): Promise<any[]> {
+    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId);
     sessaoId = ctx.sessaoId;
-    itemEncerrado = ctx.itemEncerrado;
+    const itemEncerrado = ctx.itemEncerrado;
+
+    // Sem sessão pública aberta as propostas ainda estão em sigilo (acolhimento):
+    // nada de nomes nem valores.
+    if (!sessaoId) return [];
 
     const itensProposta = await this.propostaItemRepo.find({
       where: { item_licitacao_id: itemId },
@@ -1071,7 +1118,7 @@ export class DisputaService {
     // Verificar se anonimização está ativa (não aplica se item encerrado)
     let anonimizacaoAtiva = false;
     if (sessaoId && this.anonimizacaoService && !itemEncerrado) {
-      anonimizacaoAtiva = await this.anonimizacaoService.isAnonimizacaoAtiva(sessaoId);
+      anonimizacaoAtiva = await this.anonimizacaoObrigatoria(sessaoId, opts);
     }
 
     return Promise.all(itensProposta.map(async (ip, index) => {
@@ -1099,12 +1146,13 @@ export class DisputaService {
   /**
    * Busca melhores valores por fornecedor
    * @param sessaoId - Opcional; quando omitido, é obtido pela licitação do item
-   * @param itemEncerrado - Se true, não aplica anonimização (item já encerrado)
+   * @param opts.visaoOrgao - leitura do orgao dono (respeita o interruptor de anonimizacao da sessao)
    */
-  async getMelhoresValoresPorFornecedor(itemId: string, sessaoId?: string, itemEncerrado?: boolean): Promise<any[]> {
-    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId, itemEncerrado);
+  async getMelhoresValoresPorFornecedor(itemId: string, sessaoId?: string, opts: OpcoesVisaoDisputa = {}): Promise<any[]> {
+    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId);
     sessaoId = ctx.sessaoId;
-    itemEncerrado = ctx.itemEncerrado;
+    const itemEncerrado = ctx.itemEncerrado;
+    if (!sessaoId) return [];
 
     const lances = await this.lanceRepo
       .createQueryBuilder('l')
@@ -1122,7 +1170,7 @@ export class DisputaService {
     // Verificar se anonimização está ativa (não aplica se item encerrado)
     let anonimizacaoAtiva = false;
     if (sessaoId && this.anonimizacaoService && !itemEncerrado) {
-      anonimizacaoAtiva = await this.anonimizacaoService.isAnonimizacaoAtiva(sessaoId);
+      anonimizacaoAtiva = await this.anonimizacaoObrigatoria(sessaoId, opts);
     }
 
     return Promise.all(lances.map(async (l, index) => {
@@ -1148,12 +1196,13 @@ export class DisputaService {
   /**
    * Busca todos os lances do item (incluindo propostas iniciais)
    * @param sessaoId - Opcional; quando omitido, é obtido pela licitação do item
-   * @param itemEncerrado - Se true, não aplica anonimização (item já encerrado)
+   * @param opts.visaoOrgao - leitura do orgao dono (respeita o interruptor de anonimizacao da sessao)
    */
-  async getTodosLances(itemId: string, sessaoId?: string, itemEncerrado?: boolean): Promise<LanceRegistrado[]> {
-    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId, itemEncerrado);
+  async getTodosLances(itemId: string, sessaoId?: string, opts: OpcoesVisaoDisputa = {}): Promise<LanceRegistrado[]> {
+    const ctx = await this.resolveAnonimizacaoParaItem(itemId, sessaoId);
     sessaoId = ctx.sessaoId;
-    itemEncerrado = ctx.itemEncerrado;
+    const itemEncerrado = ctx.itemEncerrado;
+    if (!sessaoId) return [];
 
     // Buscar lances registrados durante a disputa
     const lances = await this.lanceRepo.find({
@@ -1170,7 +1219,7 @@ export class DisputaService {
     // Verificar se anonimização está ativa (não aplica se item encerrado)
     let anonimizacaoAtiva = false;
     if (sessaoId && this.anonimizacaoService && !itemEncerrado) {
-      anonimizacaoAtiva = await this.anonimizacaoService.isAnonimizacaoAtiva(sessaoId);
+      anonimizacaoAtiva = await this.anonimizacaoObrigatoria(sessaoId, opts);
     }
 
     // Mapear lances

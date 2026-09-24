@@ -113,10 +113,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const fornecedorStr = localStorage.getItem('fornecedor')
-        if (fornecedorStr) {
-          const fornecedor = JSON.parse(fornecedorStr)
-          const resPropostas = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+        if (localStorage.getItem('fornecedor')) {
+          const resPropostas = await authFetch(`${API_URL}/api/propostas/minhas`)
           if (resPropostas.ok) {
             const propostas = await resPropostas.json()
             const existente = propostas.find((p: any) => p.licitacao_id === resolvedParams.id)
@@ -204,19 +202,16 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         return
       }
 
-      // Buscar fornecedor logado
-      const fornecedorStr = localStorage.getItem('fornecedor')
-      if (!fornecedorStr) {
+      // Fornecedor logado (a identidade vai pelo token, não pelo corpo)
+      if (!localStorage.getItem('fornecedor')) {
         setError('Você precisa estar logado para enviar uma proposta')
         setIsSubmitting(false)
         return
       }
-      const fornecedor = JSON.parse(fornecedorStr)
 
       // Criar proposta
       const propostaData = {
         licitacao_id: resolvedParams.id,
-        fornecedor_id: fornecedor.id,
         declaracao_termos: declaracoes.termos,
         declaracao_mpe: declaracoes.mpe,
         declaracao_integridade: declaracoes.integridade,

@@ -139,12 +139,11 @@ describe('Simulador de disputa — modo aberto (10 robôs × 2 itens, 2 licitaç
     }
   });
 
-  // DEFEITO CONHECIDO: o gateway repassa a todos da sala o nome que o próprio
-  // cliente informou em entrar_sala (a razão social, no frontend):
-  //   - 'participante_entrou' { nome: usuarioNome } — backend/src/disputa-v2/disputa.gateway.ts:121-124
-  //   - 'novo_lance'.lance.fornecedorNome = clienteInfo.usuarioNome (sem anonimização) — backend/src/disputa-v2/disputa.gateway.ts:350-357
-  // — plano E2 (itens 8 e 10: anonimização única; fornecedor identificado pelo token)
-  test.failing('5. sigilo: nenhum robô recebe id/CNPJ/razão social de outro durante a disputa', () => {
+  // CORRIGIDO NA E1a (era defeito): o gateway repassava a todos da sala o nome que o
+  // próprio cliente informava em entrar_sala ('participante_entrou' e
+  // 'novo_lance'.lance.fornecedorNome). Agora a identidade vem do token e a difusão
+  // leva só o código anônimo (SigiloDisputaService).
+  test('5. sigilo: nenhum robô recebe id/CNPJ/razão social de outro durante a disputa', () => {
     for (const rel of relatorios()) expect(encontrarVazamentosIdentidade(rel)).toEqual([]);
   });
 

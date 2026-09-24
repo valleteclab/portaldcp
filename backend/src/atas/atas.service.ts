@@ -152,6 +152,13 @@ export class AtasService {
     return itemSalvo;
   }
 
+  /** Ata do item (null se o item não existe ou o id é inválido). */
+  async ataIdDoItem(itemId: string): Promise<string | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId || '')) return null;
+    const item = await this.itemAtaRepository.findOne({ where: { id: itemId }, select: ['id', 'ata_id'] });
+    return item?.ata_id ?? null;
+  }
+
   async findItens(ataId: string): Promise<ItemAta[]> {
     return this.itemAtaRepository.find({
       where: { ata_id: ataId },

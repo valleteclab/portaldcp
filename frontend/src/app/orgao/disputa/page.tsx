@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, authFetch, getAuthToken } from '@/lib/api'
 
 // ============================================================================
 // TIPOS
@@ -163,14 +163,11 @@ export default function DisputaPregoeiro() {
       return // Aguardar busca da sessão
     }
 
-    // Buscar dados do pregoeiro do localStorage
-    const orgaoData = localStorage.getItem('orgao')
-    const pregoeiro = orgaoData ? JSON.parse(orgaoData) : { id: 'pregoeiro', nome: 'Pregoeiro' }
-
-    // Conectar WebSocket
+    // Conectar WebSocket — papel e identidade vão SÓ no token do handshake
     const wsUrl = API_URL.replace('/api', '').replace('http', 'ws')
     const socket = io(`${wsUrl}/disputa-v2`, {
       transports: ['websocket', 'polling'],
+      auth: { token: getAuthToken() || undefined },
     })
 
     socketRef.current = socket
@@ -180,12 +177,7 @@ export default function DisputaPregoeiro() {
       setWsConectado(true)
 
       // Entrar na sala
-      socket.emit('entrar_sala', {
-        sessaoId,
-        tipo: 'PREGOEIRO',
-        usuarioId: pregoeiro.id,
-        usuarioNome: pregoeiro.nome || 'Pregoeiro',
-      })
+      socket.emit('entrar_sala', { sessaoId })
     })
 
     socket.on('disconnect', () => {
@@ -383,7 +375,9 @@ export default function DisputaPregoeiro() {
   const buscarLancesItem = useCallback((itemId: string, tipo: 'propostas' | 'melhores' | 'todos', itemEncerrado?: boolean) => {
     if (!socketRef.current) return
 
-    socketRef.current.emit('buscar_lances_item', { itemId, tipo, itemEncerrado: itemEncerrado ?? false })
+    // A fase do item (e a anonimização) é decidida pelo servidor
+    void itemEncerrado
+    socketRef.current.emit('buscar_lances_item', { itemId, tipo })
     setTipoLancesMap(prev => ({ ...prev, [itemId]: tipo }))
   }, [])
 

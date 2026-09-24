@@ -1,23 +1,84 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, UseInterceptors, UploadedFile, Res, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, ValidationPipe, UseInterceptors, UploadedFile, Res, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname, join } from 'path';
+import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { Response } from 'express';
-import { createReadStream, existsSync } from 'fs';
-import { PropostasService } from './propostas.service';
+import { createReadStream, existsSync, unlinkSync } from 'fs';
+import { PropostasService, DonoProposta, VisaoProposta } from './propostas.service';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { Proposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
 import { Public } from '../auth/public.decorator';
+import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
+import { AtorAtual, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
+import { ehFornecedor } from '../auth/acesso/ator';
+import type { Ator } from '../auth/acesso/ator';
 
+/**
+ * PROPOSTAS — regras de acesso (E1a):
+ *  - criar/enviar/alterar/retirar/excluir: só o fornecedor DONO (identidade do
+ *    token; `fornecedor_id` do corpo diferente → 403), nas fases permitidas;
+ *  - ler por id (e itens): o fornecedor dono, ou o órgão dono da licitação
+ *    (durante o sigilo, só existência/autoria); qualquer outro → 404;
+ *  - classificar/desclassificar/vencedora: só o órgão dono da licitação;
+ *  - lista pública e ranking por item: rotas públicas com o sigilo das
+ *    propostas (art. 55/63; art. 75 §3º) aplicado no service.
+ */
 @Controller('propostas')
 export class PropostasController {
-  constructor(private readonly propostasService: PropostasService) {}
+  constructor(
+    private readonly propostasService: PropostasService,
+    private readonly acesso: AcessoLicitacaoService,
+  ) {}
+
+  // ---------------------------------------------------------------------------
+  // Checagens de dono
+  // ---------------------------------------------------------------------------
+
+  /** Fornecedor do token é o dono da proposta (escrita → 403 se não for). */
+  private async fornecedorDono(ator: Ator, propostaId: string): Promise<DonoProposta> {
+    const fornecedorId = this.acesso.fornecedorDoToken(ator);
+    const dono = await this.propostasService.donoDaProposta(propostaId);
+    if (dono.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Apenas o fornecedor da proposta pode alterá-la');
+    }
+    return dono;
+  }
+
+  /** Órgão dono da licitação da proposta (escrita → 403 se for de outro órgão). */
+  private async orgaoDono(ator: Ator, propostaId: string): Promise<DonoProposta> {
+    const dono = await this.propostasService.donoDaProposta(propostaId);
+    await this.acesso.assertOrgaoDaLicitacao(ator, dono.licitacao_id, 'escrita');
+    return dono;
+  }
+
+  /**
+   * Leitura por id: fornecedor dono → visão completa; órgão dono → completa
+   * depois do sigilo, só autoria durante; demais → 404.
+   */
+  private async visaoDeLeitura(ator: Ator, propostaId: string): Promise<VisaoProposta> {
+    const dono = await this.propostasService.donoDaProposta(propostaId);
+    if (ehFornecedor(ator)) {
+      if (dono.fornecedor_id !== ator.fornecedorId) {
+        throw new NotFoundException(`Proposta com ID ${propostaId} não encontrada`);
+      }
+      return 'FORNECEDOR';
+    }
+    await this.acesso.assertOrgaoDaLicitacao(ator, dono.licitacao_id, 'leitura');
+    return (await this.propostasService.emSigiloDePropostas(dono.licitacao_id)) ? 'ORGAO_SIGILO' : 'ORGAO';
+  }
+
+  // ---------------------------------------------------------------------------
 
   @Post()
-  async create(@Body(new ValidationPipe()) createDto: CreatePropostaDto): Promise<Proposta> {
-    return await this.propostasService.create(createDto);
+  @SomenteFornecedor()
+  async create(
+    @Body(new ValidationPipe()) createDto: CreatePropostaDto,
+    @AtorAtual() ator: Ator,
+  ): Promise<Proposta> {
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, createDto.fornecedor_id);
+    return await this.propostasService.create(createDto, fornecedorId);
   }
 
   @Public()
@@ -26,25 +87,41 @@ export class PropostasController {
     return await this.propostasService.findByLicitacao(licitacaoId);
   }
 
+  /** Propostas do fornecedor autenticado. */
+  @Get('minhas')
+  @SomenteFornecedor()
+  async minhas(@AtorAtual() ator: Ator): Promise<Proposta[]> {
+    return await this.propostasService.findByFornecedor(this.acesso.fornecedorDoToken(ator));
+  }
+
+  /** Legado: só o próprio fornecedor (id diferente do token → 403). Prefira GET /propostas/minhas. */
   @Get('fornecedor/:fornecedorId')
-  async findByFornecedor(@Param('fornecedorId') fornecedorId: string): Promise<Proposta[]> {
-    return await this.propostasService.findByFornecedor(fornecedorId);
+  @SomenteFornecedor()
+  async findByFornecedor(@Param('fornecedorId') fornecedorId: string, @AtorAtual() ator: Ator): Promise<Proposta[]> {
+    return await this.propostasService.findByFornecedor(this.acesso.fornecedorDoToken(ator, fornecedorId));
   }
 
   @Get('orgao/:orgaoId/fornecedores')
-  async findFornecedoresByOrgao(@Param('orgaoId') orgaoId: string): Promise<any[]> {
+  @SomenteOrgao()
+  async findFornecedoresByOrgao(@Param('orgaoId') orgaoId: string, @AtorAtual() ator: Ator): Promise<any[]> {
+    this.acesso.assertProprioOrgao(ator, orgaoId, 'leitura');
     return await this.propostasService.findFornecedoresByOrgao(orgaoId);
   }
 
-  @Public()
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<Proposta> {
-    return await this.propostasService.findOne(id);
+  @OrgaoOuFornecedor()
+  async findOne(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
+    const visao = await this.visaoDeLeitura(ator, id);
+    return await this.propostasService.findOneVisao(id, visao);
   }
 
-  @Public()
   @Get(':id/itens')
-  async getItens(@Param('id') id: string): Promise<PropostaItem[]> {
+  @OrgaoOuFornecedor()
+  async getItens(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<PropostaItem[]> {
+    const visao = await this.visaoDeLeitura(ator, id);
+    if (visao === 'ORGAO_SIGILO') {
+      throw new ForbiddenException('Conteúdo da proposta sob sigilo até o fim do acolhimento');
+    }
     return await this.propostasService.getItens(id);
   }
 
@@ -55,16 +132,21 @@ export class PropostasController {
   }
 
   @Put(':id/enviar')
-  async enviar(@Param('id') id: string): Promise<Proposta> {
+  @SomenteFornecedor()
+  async enviar(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
+    await this.fornecedorDono(ator, id);
     return await this.propostasService.enviar(id);
   }
 
   @Put(':id/classificar')
-  async classificar(@Param('id') id: string): Promise<Proposta> {
+  @SomenteOrgao()
+  async classificar(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
+    await this.orgaoDono(ator, id);
     return await this.propostasService.classificar(id);
   }
 
   @Put(':id/desclassificar')
+  @SomenteOrgao()
   @UseInterceptors(FileInterceptor('documento', {
     storage: diskStorage({
       destination: './uploads/desclassificacoes',
@@ -88,87 +170,115 @@ export class PropostasController {
   async desclassificar(
     @Param('id') id: string,
     @Body('motivo') motivo: string,
+    @AtorAtual() ator: Ator,
     @UploadedFile() documento?: Express.Multer.File
   ): Promise<Proposta> {
-    console.log('[desclassificar] Motivo recebido:', motivo);
-    console.log('[desclassificar] Documento recebido:', documento ? documento.originalname : 'nenhum');
-    
+    // O upload acontece antes do handler: se o órgão não é o dono, descarta o arquivo.
+    try {
+      await this.orgaoDono(ator, id);
+    } catch (e) {
+      if (documento?.path) {
+        try {
+          unlinkSync(documento.path);
+        } catch {
+          /* arquivo já removido */
+        }
+      }
+      throw e;
+    }
+
     // Validar motivo manualmente (FormData não passa pelo ValidationPipe)
     if (!motivo || typeof motivo !== 'string' || motivo.trim() === '') {
       throw new BadRequestException('O motivo da desclassificação é obrigatório');
     }
-    
+
     const dados: DesclassificarPropostaDto = {
       motivo: motivo.trim(),
     };
-    
+
     if (documento) {
       dados.documento_nome = documento.originalname;
       dados.documento_path = documento.path;
       dados.documento_tipo = documento.mimetype;
       dados.documento_tamanho = documento.size;
     }
-    
+
     return await this.propostasService.desclassificar(id, dados);
   }
 
-  @Public()
+  /** Documento da desclassificação: fornecedor dono ou órgão dono. */
   @Get(':id/documento-desclassificacao')
+  @OrgaoOuFornecedor()
   async downloadDocumentoDesclassificacao(
     @Param('id') id: string,
+    @AtorAtual() ator: Ator,
     @Res() res: Response
   ) {
+    await this.visaoDeLeitura(ator, id);
     const proposta = await this.propostasService.findOne(id);
-    
+
     if (!proposta.documento_desclassificacao_path) {
       throw new NotFoundException('Documento de desclassificação não encontrado');
     }
-    
+
     const filePath = proposta.documento_desclassificacao_path;
-    
+
     if (!existsSync(filePath)) {
       throw new NotFoundException('Arquivo não encontrado no servidor');
     }
-    
+
     res.setHeader('Content-Type', proposta.documento_desclassificacao_tipo || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${proposta.documento_desclassificacao_nome}"`);
-    
+
     const fileStream = createReadStream(filePath);
     fileStream.pipe(res);
   }
 
   @Put(':id/vencedora')
-  async marcarVencedora(@Param('id') id: string): Promise<Proposta> {
+  @SomenteOrgao()
+  async marcarVencedora(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
+    await this.orgaoDono(ator, id);
     return await this.propostasService.marcarVencedora(id);
   }
 
   @Put(':id/cancelar')
-  async cancelar(@Param('id') id: string): Promise<Proposta> {
+  @SomenteFornecedor()
+  async cancelar(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
+    await this.fornecedorDono(ator, id);
     return await this.propostasService.cancelar(id);
   }
 
   @Put(':id')
+  @SomenteFornecedor()
   async update(
     @Param('id') id: string,
-    @Body() dados: { valor_total_proposta?: number }
+    @Body() dados: { valor_total_proposta?: number },
+    @AtorAtual() ator: Ator,
   ): Promise<Proposta> {
+    await this.fornecedorDono(ator, id);
     return await this.propostasService.update(id, dados);
   }
 
   @Put('item/:itemId')
+  @SomenteFornecedor()
   async updateItem(
     @Param('itemId') itemId: string,
-    @Body() dados: { valor_unitario?: number; marca?: string; modelo?: string }
+    @Body() dados: { valor_unitario?: number; marca?: string; modelo?: string },
+    @AtorAtual() ator: Ator,
   ): Promise<PropostaItem> {
+    const fornecedorId = this.acesso.fornecedorDoToken(ator);
+    const dono = await this.propostasService.donoDoItemDaProposta(itemId);
+    if (dono.fornecedor_id !== fornecedorId) {
+      throw new ForbiddenException('Apenas o fornecedor da proposta pode alterá-la');
+    }
     return await this.propostasService.updateItem(itemId, dados);
   }
 
+  /** Exclusão pelo fornecedor dono (identidade do token; não aceita ?fornecedorId). */
   @Delete(':id')
-  async remove(
-    @Param('id') id: string,
-    @Query('fornecedorId') fornecedorId: string,
-  ): Promise<{ ok: true }> {
-    await this.propostasService.remove(id, fornecedorId);
+  @SomenteFornecedor()
+  async remove(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<{ ok: true }> {
+    await this.propostasService.remove(id, this.acesso.fornecedorDoToken(ator));
     return { ok: true };
   }
 }

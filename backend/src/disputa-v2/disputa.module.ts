@@ -5,6 +5,7 @@ import { DisputaGateway } from './disputa.gateway';
 import { DisputaController } from './disputa.controller';
 import { DisputaTimerService } from './disputa-timer.service';
 import { AnonimizacaoService } from './anonimizacao.service';
+import { SigiloDisputaService } from './sigilo-disputa.service';
 
 // Reutilizando entidades existentes
 import { SessaoDisputa } from '../sessao/entities/sessao-disputa.entity';
@@ -30,7 +31,7 @@ import { PropostaItem } from '../propostas/entities/proposta-item.entity';
     ]),
   ],
   controllers: [DisputaController],
-  providers: [DisputaService, DisputaGateway, DisputaTimerService, AnonimizacaoService],
-  exports: [DisputaService, DisputaGateway, AnonimizacaoService],
+  providers: [DisputaService, DisputaGateway, DisputaTimerService, AnonimizacaoService, SigiloDisputaService],
+  exports: [DisputaService, DisputaGateway, AnonimizacaoService, SigiloDisputaService],
 })
 export class DisputaModule {}

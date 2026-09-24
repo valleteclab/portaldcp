@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Proposta, StatusProposta } from './entities/proposta.entity';
@@ -6,6 +6,32 @@ import { PropostaItem } from './entities/proposta-item.entity';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { ItensService } from '../itens/itens.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { licitacaoParaOrgao, licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+
+/** Campos do fornecedor que nunca saem nas respostas de proposta. */
+const SEGREDOS_FORNECEDOR = ['senha', 'api_key_hash', 'spedy_api_key', 'spedy_company_id'];
+
+export function fornecedorSemSegredos<T>(fornecedor: T): T {
+  if (!fornecedor || typeof fornecedor !== 'object') return fornecedor;
+  const copia: Record<string, any> = { ...(fornecedor as any) };
+  for (const k of SEGREDOS_FORNECEDOR) delete copia[k];
+  return copia as T;
+}
+
+/** Dono de uma proposta (para as checagens de acesso no controller). */
+export interface DonoProposta {
+  id: string;
+  licitacao_id: string;
+  fornecedor_id: string;
+  status: StatusProposta;
+}
+
+/**
+ * Visão da proposta por id: fornecedor dono (tudo), órgão dono depois do
+ * sigilo (tudo) ou órgão dono durante o sigilo (só existência e autoria).
+ */
+export type VisaoProposta = 'FORNECEDOR' | 'ORGAO' | 'ORGAO_SIGILO';
 
 function formatarDataLocal(date: Date | null | undefined): string | null {
   if (!date) return null;
@@ -36,17 +62,16 @@ export class PropostasService {
    * acolhimento (ou da abertura da sessão), o conteúdo das propostas não pode
    * ser exposto — as rotas públicas por licitação/item retornam dados mascarados.
    */
-  private async emSigiloDePropostas(licitacaoId: string): Promise<boolean> {
+  async emSigiloDePropostas(licitacaoId: string): Promise<boolean> {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
     });
     const agora = new Date();
     // Durante a fase de LANCES da dispensa, as rotas públicas seguem sigilosas —
     // a informação pública é o painel anônimo (menor valor por item).
-    const lancesFim = (licitacao as any)?.dispensa_lances_fim;
+    const lancesFim = licitacao?.dispensa_lances_fim;
     if (lancesFim && agora < new Date(lancesFim)) return true;
-    const corte =
-      (licitacao as any)?.data_fim_acolhimento || licitacao?.data_abertura_sessao;
+    const corte = licitacao?.data_fim_acolhimento || licitacao?.data_abertura_sessao;
     if (!corte) return false;
     const d = new Date(corte);
     return !isNaN(d.getTime()) && agora < d;
@@ -66,22 +91,35 @@ export class PropostasService {
     }
   }
 
-  async create(createDto: CreatePropostaDto): Promise<Proposta> {
+  /**
+   * `fornecedorId` é SEMPRE o do token (resolvido no controller) — o
+   * `fornecedor_id` do corpo não é usado aqui.
+   */
+  async create(createDto: CreatePropostaDto, fornecedorId: string): Promise<Proposta> {
     await this.validarAntesAberturaSessao(createDto.licitacao_id);
 
     // Verifica se já existe proposta deste fornecedor para esta licitação
     const existing = await this.propostaRepository.findOne({
       where: {
         licitacao_id: createDto.licitacao_id,
-        fornecedor_id: createDto.fornecedor_id,
+        fornecedor_id: fornecedorId,
       }
     });
 
     if (existing) {
+      // A proposta existente é do próprio solicitante (fornecedor do token)
       throw new ConflictException({
         message: 'Fornecedor já possui proposta para esta licitação',
         propostaId: existing.id,
       });
+    }
+
+    // Itens precisam ser da própria licitação (não se mistura item de outro processo)
+    for (const itemDto of createDto.itens || []) {
+      const itemLicitacao = await this.itensService.findOne(itemDto.item_licitacao_id);
+      if (itemLicitacao.licitacao_id !== createDto.licitacao_id) {
+        throw new BadRequestException('Item informado não pertence a esta licitação');
+      }
     }
 
     // Valida declarações obrigatórias
@@ -98,7 +136,7 @@ export class PropostasService {
     // Cria a proposta
     const proposta = this.propostaRepository.create({
       licitacao_id: createDto.licitacao_id,
-      fornecedor_id: createDto.fornecedor_id,
+      fornecedor_id: fornecedorId,
       declaracao_termos: createDto.declaracao_termos,
       declaracao_mpe: createDto.declaracao_mpe || false,
       declaracao_integridade: createDto.declaracao_integridade,
@@ -196,8 +234,12 @@ export class PropostasService {
         };
       });
 
+      // `itens` crus (com a entidade do item: valor estimado, melhor lance...)
+      // não saem na rota pública — as telas usam `itens_proposta`.
+      const { itens: _itensCrus, ...semItens } = proposta;
       return {
-        ...proposta,
+        ...semItens,
+        fornecedor: fornecedorSemSegredos(proposta.fornecedor),
         itens_proposta,
       } as any;
     });
@@ -215,16 +257,67 @@ export class PropostasService {
       if (!lic) return p;
       return {
         ...p,
-        licitacao: {
+        // o fornecedor vê a licitação pela visão pública (órgão sem
+        // credenciais, orçamento sigiloso mascarado)
+        licitacao: licitacaoParaPublico({
           ...lic,
           data_publicacao_edital: formatarDataLocal(lic.data_publicacao_edital),
           data_limite_impugnacao: formatarDataLocal(lic.data_limite_impugnacao),
           data_inicio_acolhimento: formatarDataLocal(lic.data_inicio_acolhimento),
           data_fim_acolhimento: formatarDataLocal(lic.data_fim_acolhimento),
           data_abertura_sessao: formatarDataLocal(lic.data_abertura_sessao),
-        }
+        })
       } as any;
     });
+  }
+
+  /** Dados mínimos para checar o dono da proposta (404 se não existe). */
+  async donoDaProposta(id: string): Promise<DonoProposta> {
+    const p = ehUuid(id)
+      ? await this.propostaRepository.findOne({
+          where: { id },
+          select: ['id', 'licitacao_id', 'fornecedor_id', 'status'],
+        })
+      : null;
+    if (!p) throw new NotFoundException(`Proposta com ID ${id} não encontrada`);
+    return { id: p.id, licitacao_id: p.licitacao_id, fornecedor_id: p.fornecedor_id, status: p.status };
+  }
+
+  /** Dono do item de proposta (404 se não existe). */
+  async donoDoItemDaProposta(itemId: string): Promise<DonoProposta> {
+    const item = ehUuid(itemId)
+      ? await this.propostaItemRepository.findOne({ where: { id: itemId }, relations: ['proposta'] })
+      : null;
+    if (!item?.proposta) throw new NotFoundException('Item da proposta não encontrado');
+    const p = item.proposta;
+    return { id: p.id, licitacao_id: p.licitacao_id, fornecedor_id: p.fornecedor_id, status: p.status };
+  }
+
+  /** Proposta por id conforme a visão de quem lê (ver VisaoProposta). */
+  async findOneVisao(id: string, visao: VisaoProposta): Promise<any> {
+    const proposta: any = await this.findOne(id);
+    const saida: any = { ...proposta, fornecedor: fornecedorSemSegredos(proposta.fornecedor) };
+    if (saida.licitacao) {
+      saida.licitacao =
+        visao === 'FORNECEDOR' ? licitacaoParaPublico(saida.licitacao) : licitacaoParaOrgao(saida.licitacao);
+    }
+    if (visao !== 'ORGAO_SIGILO') return saida;
+    // Sigilo (art. 55/63; art. 75 §3º): o órgão vê existência e autoria, sem conteúdo
+    const f = proposta.fornecedor;
+    return {
+      id: proposta.id,
+      licitacao_id: proposta.licitacao_id,
+      fornecedor_id: proposta.fornecedor_id,
+      fornecedor: f
+        ? { id: f.id, razao_social: f.razao_social, nome_fantasia: f.nome_fantasia, cpf_cnpj: f.cpf_cnpj, porte: f.porte }
+        : null,
+      status: proposta.status,
+      data_envio: proposta.data_envio,
+      created_at: proposta.created_at,
+      licitacao: saida.licitacao,
+      valor_total_proposta: null,
+      sigilo: true,
+    };
   }
 
   async findOne(id: string): Promise<Proposta> {
@@ -330,9 +423,10 @@ export class PropostasService {
     return await this.propostaRepository.save(proposta);
   }
 
+  /** `fornecedorId` = fornecedor do token (resolvido no controller). */
   async remove(id: string, fornecedorId: string): Promise<void> {
     if (!fornecedorId) {
-      throw new BadRequestException('fornecedorId é obrigatório');
+      throw new ForbiddenException('Apenas o fornecedor da proposta pode excluí-la');
     }
 
     const proposta = await this.propostaRepository.findOne({
@@ -343,7 +437,7 @@ export class PropostasService {
     }
 
     if (proposta.fornecedor_id !== fornecedorId) {
-      throw new BadRequestException('Apenas o fornecedor da proposta pode excluí-la');
+      throw new ForbiddenException('Apenas o fornecedor da proposta pode excluí-la');
     }
 
     const licitacao = await this.licitacaoRepository.findOne({

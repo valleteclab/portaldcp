@@ -413,12 +413,8 @@ export class SimuladorDisputa {
     this.pregoeiro = await conectarSocket(ctx, '/disputa-v2', { token: cenario.orgao.token });
     this.pregoeiro.onAny((evento, payload) => this.eventosPregoeiro.push({ evento, recebidoEm: Date.now(), payload }));
     const iniPreg = aguardarEvento(this.pregoeiro, 'dados_iniciais', 10_000);
-    this.pregoeiro.emit('entrar_sala', {
-      sessaoId: cenario.sessaoId,
-      tipo: 'PREGOEIRO',
-      usuarioId: cenario.orgao.id,
-      usuarioNome: 'Pregoeiro Simulador',
-    });
+    // E1a: papel e identidade vêm do token do handshake
+    this.pregoeiro.emit('entrar_sala', { sessaoId: cenario.sessaoId });
     await iniPreg;
 
     for (const rc of cenario.robos) {
@@ -439,12 +435,7 @@ export class SimuladorDisputa {
       });
       negado.catch(() => undefined);
       // Mesmo payload do frontend: nome = razão social do fornecedor logado
-      socket.emit('entrar_sala', {
-        sessaoId: cenario.sessaoId,
-        tipo: 'FORNECEDOR',
-        usuarioId: rc.fornecedor.id,
-        usuarioNome: rc.fornecedor.razao_social,
-      });
+      socket.emit('entrar_sala', { sessaoId: cenario.sessaoId });
       await Promise.race([dados, negado]);
       this.robos.push(robo);
     }
