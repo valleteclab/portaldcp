@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { MascararCredenciaisInterceptor } from './common/mascarar-credenciais.interceptor';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -176,6 +177,11 @@ import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-lic
     {
       provide: APP_GUARD,
       useClass: ModuloGuard,
+    },
+    {
+      // Nenhuma resposta sai com senha/chave de API (fornecedor, órgão, usuário)
+      provide: APP_INTERCEPTOR,
+      useClass: MascararCredenciaisInterceptor,
     },
   ],
 })

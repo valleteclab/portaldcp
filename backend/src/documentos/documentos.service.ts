@@ -12,6 +12,27 @@ export class DocumentosService {
   private readonly logger = new Logger(DocumentosService.name);
   private readonly uploadPath = process.env.UPLOAD_PATH || './uploads/documentos';
 
+  /**
+   * Pastas de onde este módulo pode ler, vincular ou apagar arquivos.
+   * Qualquer caminho fora delas (ex.: "../.env", caminho absoluto do sistema)
+   * é recusado — o caminho vem do cliente no vincular e fica gravado no banco.
+   */
+  private readonly raizesPermitidas = [
+    path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads')),
+    path.resolve(process.cwd(), 'uploads'),
+    path.resolve(this.uploadPath),
+  ];
+
+  /** Resolve o caminho e devolve-o só se estiver dentro de uma pasta de uploads permitida. */
+  private caminhoPermitido(caminho: string | null | undefined): string | null {
+    if (!caminho || caminho.includes(String.fromCharCode(0))) return null;
+    const resolvido = path.resolve(caminho);
+    const dentro = this.raizesPermitidas.some(
+      (raiz) => resolvido === raiz || resolvido.startsWith(raiz + path.sep),
+    );
+    return dentro ? resolvido : null;
+  }
+
   constructor(
     @InjectRepository(DocumentoLicitacao)
     private documentoRepository: Repository<DocumentoLicitacao>,
@@ -147,13 +168,20 @@ export class DocumentosService {
       caminhoCompleto = path.join(process.cwd(), dados.caminho);
     }
 
+    // O arquivo precisa estar dentro das pastas de upload (bloqueia ../ e caminhos do sistema)
+    const caminhoSeguro = this.caminhoPermitido(caminhoCompleto);
+    if (!caminhoSeguro) {
+      throw new BadRequestException('Caminho de arquivo inválido: o documento deve ter sido enviado pelo upload do sistema');
+    }
+    caminhoCompleto = caminhoSeguro;
+
     // Obter tamanho do arquivo se existir
     let tamanhoBytes = 0;
     if (fs.existsSync(caminhoCompleto)) {
       const stats = fs.statSync(caminhoCompleto);
       tamanhoBytes = stats.size;
     } else {
-      this.logger.warn(`Arquivo não encontrado: ${caminhoCompleto} (caminho original: ${dados.caminho})`);
+      throw new BadRequestException('Arquivo não encontrado no servidor; envie o arquivo pelo upload antes de vincular');
     }
 
     // Criar registro do documento
@@ -249,42 +277,33 @@ export class DocumentosService {
 
   async getArquivo(id: string): Promise<{ buffer: Buffer; documento: DocumentoLicitacao }> {
     const documento = await this.findOne(id);
-    
-    // Tentar diferentes caminhos possíveis
-    let caminhoFinal = documento.caminho_arquivo;
-    
-    // Se o caminho não existir, tentar variações
-    if (!fs.existsSync(caminhoFinal)) {
-      const possiveisCaminhos = [
-        documento.caminho_arquivo,
-        // Caminho relativo a partir do cwd
-        path.join(process.cwd(), documento.caminho_arquivo),
-        // Se for URL de API, converter para caminho de arquivo
-        documento.caminho_arquivo.startsWith('/api/uploads/') 
-          ? path.join(process.cwd(), documento.caminho_arquivo.replace('/api/uploads/', 'uploads/'))
-          : null,
-        // Se começar com /uploads/
-        documento.caminho_arquivo.startsWith('/uploads/')
-          ? path.join(process.cwd(), documento.caminho_arquivo.substring(1))
-          : null,
-        // Caminho no diretório de uploads padrão
-        path.join(process.cwd(), 'uploads', documento.nome_arquivo),
-        path.join(process.cwd(), 'uploads', 'documentos', documento.nome_arquivo),
-        path.join(process.cwd(), 'uploads', 'licitacoes', documento.nome_arquivo),
-      ].filter(Boolean);
+    const original = documento.caminho_arquivo || '';
 
-      for (const caminho of possiveisCaminhos) {
-        if (caminho && fs.existsSync(caminho)) {
-          caminhoFinal = caminho;
-          this.logger.log(`Arquivo encontrado em: ${caminho}`);
-          break;
-        }
+    // Variações aceitas para registros antigos — todas só valem se caírem dentro das pastas de upload
+    const possiveisCaminhos = [
+      original,
+      path.join(process.cwd(), original),
+      original.startsWith('/api/uploads/')
+        ? path.join(process.cwd(), original.replace('/api/uploads/', 'uploads/'))
+        : null,
+      original.startsWith('/uploads/') ? path.join(process.cwd(), original.substring(1)) : null,
+      documento.nome_arquivo ? path.join(process.cwd(), 'uploads', path.basename(documento.nome_arquivo)) : null,
+      documento.nome_arquivo ? path.join(process.cwd(), 'uploads', 'documentos', path.basename(documento.nome_arquivo)) : null,
+      documento.nome_arquivo ? path.join(process.cwd(), 'uploads', 'licitacoes', path.basename(documento.nome_arquivo)) : null,
+    ];
+
+    let caminhoFinal: string | null = null;
+    for (const candidato of possiveisCaminhos) {
+      const seguro = this.caminhoPermitido(candidato);
+      if (seguro && fs.existsSync(seguro) && fs.statSync(seguro).isFile()) {
+        caminhoFinal = seguro;
+        break;
       }
     }
 
-    if (!fs.existsSync(caminhoFinal)) {
-      this.logger.error(`Arquivo não encontrado. Caminho original: ${documento.caminho_arquivo}, Nome: ${documento.nome_arquivo}`);
-      throw new NotFoundException(`Arquivo não encontrado no servidor. Caminho: ${documento.caminho_arquivo}`);
+    if (!caminhoFinal) {
+      this.logger.error(`Arquivo do documento ${documento.id} não encontrado ou fora das pastas de upload`);
+      throw new NotFoundException('Arquivo não encontrado no servidor');
     }
 
     const buffer = fs.readFileSync(caminhoFinal);
@@ -294,9 +313,10 @@ export class DocumentosService {
   async delete(id: string): Promise<void> {
     const documento = await this.findOne(id);
     
-    // Remover arquivo físico
-    if (fs.existsSync(documento.caminho_arquivo)) {
-      fs.unlinkSync(documento.caminho_arquivo);
+    // Remover arquivo físico — só dentro das pastas de upload
+    const caminhoSeguro = this.caminhoPermitido(documento.caminho_arquivo);
+    if (caminhoSeguro && fs.existsSync(caminhoSeguro)) {
+      fs.unlinkSync(caminhoSeguro);
     }
 
     await this.documentoRepository.delete(id);
