@@ -19,6 +19,7 @@ import { IntegracaoPlataformaLicitacao } from './entities/integracao-plataforma.
 import { BllIntegracaoService } from './bll-integracao.service';
 import { BllIntegracaoController } from './bll-integracao.controller';
 import { FornecedoresModule } from '../fornecedores/fornecedores.module';
+import { TransicoesModule } from './transicoes/transicoes.module';
 
 @Module({
   imports: [
@@ -28,9 +29,10 @@ import { FornecedoresModule } from '../fornecedores/fornecedores.module';
     FaseInternaModule,
     NotificacoesModule,
     FornecedoresModule,
+    TransicoesModule,
   ],
   controllers: [LicitacoesController, BllIntegracaoController],
   providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway, ProcessoPdfService, BllIntegracaoService],
-  exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService],
+  exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}

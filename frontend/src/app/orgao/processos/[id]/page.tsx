@@ -23,6 +23,8 @@ import {
   CheckCircle2, Circle, ExternalLink, Loader2, AlertTriangle,
 } from "lucide-react"
 import { BllIntegracao } from "./BllIntegracao"
+import { AtosProcesso, type AtoDisponivel } from "./AtosProcesso"
+import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
 
 interface ProcessoCompleto {
   licitacao: {
@@ -32,6 +34,9 @@ interface ProcessoCompleto {
     objeto: string
     modalidade: string
     fase: string
+    /** Situação (E1): ATIVA, SUSPENSA, REVOGADA, ANULADA, DESERTA, FRACASSADA, CONCLUIDA */
+    situacao?: string
+    fase_anterior?: string | null
     srp: boolean
     valor_total_estimado?: number
     valor_homologado?: number
@@ -95,6 +100,8 @@ interface ProcessoCompleto {
     homologado: boolean
     contrato_gerado: boolean
   }
+  /** Atos que cabem agora, com as pendências de cada um (E1) */
+  atos_disponiveis?: AtoDisponivel[]
 }
 
 interface FornecedorOpt { id: string; razao_social: string; cpf_cnpj?: string; cnpj?: string }
@@ -692,8 +699,10 @@ export default function CockpitProcessoPage() {
   }
 
   const { licitacao, checklist } = dados
-  const podeRegistrarResultado = !checklist.homologado
-  const podeHomologar = checklist.resultado_registrado && !checklist.homologado
+  // Suspensa/encerrada (E1): nenhum ato de resultado até retomar
+  const ativa = !licitacao.situacao || licitacao.situacao === "ATIVA"
+  const podeRegistrarResultado = ativa && !checklist.homologado
+  const podeHomologar = ativa && checklist.resultado_registrado && !checklist.homologado
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -714,6 +723,7 @@ export default function CockpitProcessoPage() {
               <Badge className={checklist.homologado ? "bg-green-100 text-green-800 hover:bg-green-100" : "bg-blue-100 text-blue-800 hover:bg-blue-100"}>
                 {licitacao.fase}
               </Badge>
+              <SituacaoBadge licitacao={licitacao} />
             </div>
             <p className="text-gray-500 mt-1 max-w-3xl">{licitacao.objeto}</p>
           </div>
@@ -746,6 +756,9 @@ export default function CockpitProcessoPage() {
           )}
         </div>
       </div>
+
+      {/* Atos nomeados do processo (suspender, retomar, revogar, deserta...) */}
+      <AtosProcesso licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
 
       {/* Disputa em plataforma externa: troca de arquivos com a BLL Compras */}
       {licitacao.modalidade !== "DISPENSA_ELETRONICA" && checklist.possui_itens && (

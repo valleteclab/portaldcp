@@ -15,6 +15,7 @@ import {
 import { useRouter } from "next/navigation"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
 
 interface Licitacao {
   id: string
@@ -22,6 +23,7 @@ interface Licitacao {
   objeto: string
   modalidade: string
   fase: string
+  situacao?: string
   valor_total_estimado: number | string
   data_abertura_sessao: string
   created_at: string
@@ -321,6 +323,7 @@ function LicitacoesOrgaoPageContent() {
                         <Badge className={getFaseBadgeColor(lic.fase)}>
                           {getFaseLabel(lic.fase)}
                         </Badge>
+                        <SituacaoBadge licitacao={lic} />
                         {lic.enviado_pncp && (
                           <Badge className="bg-green-100 text-green-700">
                             <CheckCircle2 className="h-3 w-3 mr-1" />

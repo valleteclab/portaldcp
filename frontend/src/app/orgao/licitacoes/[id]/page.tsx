@@ -3,6 +3,8 @@
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
+import { licitacaoEncerrada, licitacaoSuspensa } from "@/lib/licitacao-situacao"
 import { 
   ArrowLeft,
   FileText, 
@@ -82,6 +84,8 @@ interface Licitacao {
   objeto: string
   modalidade: string
   fase: string
+  /** Situação do processo (E1): ATIVA, SUSPENSA, REVOGADA, ANULADA, DESERTA, FRACASSADA, CONCLUIDA */
+  situacao?: string
   fase_interna_concluida: boolean
   valor_total_estimado: number
   data_publicacao_edital: string
@@ -543,15 +547,22 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     return fasesInternas.includes(licitacao.fase)
   }
 
-  // Verifica se pode suspender/revogar/anular
+  // Verifica se pode revogar/anular (situação não encerrada — E1: a situação
+  // é separada da fase; revogar/anular com contrato assinado é recusado no backend)
   const podeGerenciar = () => {
     if (!licitacao) return false
-    const fasesFinais = ['CONCLUIDO', 'FRACASSADO', 'DESERTO', 'REVOGADO', 'ANULADO']
-    return !fasesFinais.includes(licitacao.fase)
+    return !licitacaoEncerrada(licitacao)
   }
 
-  // Verifica se está suspenso (pode retomar)
-  const estaSuspenso = () => licitacao?.fase === 'SUSPENSO'
+  // Suspender só depois de divulgada e antes da homologação (regra do backend)
+  const podeSuspender = () => {
+    if (!licitacao) return false
+    const fasesSemSuspensao = ['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA', 'HOMOLOGACAO']
+    return podeGerenciar() && !estaSuspenso() && !fasesSemSuspensao.includes(licitacao.fase)
+  }
+
+  // Verifica se está suspensa (pode retomar — volta à mesma fase)
+  const estaSuspenso = () => licitacaoSuspensa(licitacao)
 
   // Sincronizar fase baseado no cronograma (datas)
   const sincronizarFase = async () => {
@@ -945,6 +956,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold text-slate-800">{licitacao.numero_processo}</h1>
+              <SituacaoBadge licitacao={licitacao} />
               {licitacao.sigilo_orcamento === 'SIGILOSO' && (
                 <Badge className="bg-amber-100 text-amber-700"><EyeOff className="w-3 h-3 mr-1" /> Sigiloso</Badge>
               )}
@@ -977,7 +989,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
               <RotateCcw className="mr-2 h-4 w-4" />Retomar
             </Button>
           )}
-          {podeGerenciar() && !estaSuspenso() && (
+          {podeSuspender() && (
             <Button 
               variant="outline" 
               className="text-yellow-600 border-yellow-600"
@@ -1097,7 +1109,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
                     Sincronizar
                   </Button>
                 )}
-                {!['CONCLUIDO', 'FRACASSADO', 'DESERTO', 'REVOGADO', 'ANULADO'].includes(licitacao.fase) && (
+                {!licitacaoEncerrada(licitacao) && !estaSuspenso() && licitacao.fase !== 'HOMOLOGACAO' && (
                   <Button 
                     size="sm" 
                     onClick={avancarFase}

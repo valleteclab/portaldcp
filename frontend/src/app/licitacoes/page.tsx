@@ -28,6 +28,8 @@ interface Licitacao {
   objeto: string
   modalidade: string
   fase: string
+  /** Situação do processo (E1): ATIVA, SUSPENSA, REVOGADA, ANULADA, DESERTA, FRACASSADA, CONCLUIDA */
+  situacao?: string
   valor_total_estimado: number | string
   data_abertura_sessao: string
   data_publicacao_edital: string
@@ -40,6 +42,8 @@ interface Licitacao {
 }
 
 import { API_URL, getAuthHeaders } from '@/lib/api'
+import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
+import { situacaoDaLicitacao } from '@/lib/licitacao-situacao'
 
 const MODALIDADES = [
   { value: 'PREGAO_ELETRONICO', label: 'Pregão Eletrônico' },
@@ -145,7 +149,10 @@ export default function LicitacoesPublicasPage() {
       }
     }
     if (filtros.modalidade && lic.modalidade !== filtros.modalidade) return false
-    if (filtros.fase && lic.fase !== filtros.fase) return false
+    // "Concluído" é SITUAÇÃO desde a E1 (a fase continua sendo a homologação)
+    if (filtros.fase === 'CONCLUIDO') {
+      if (situacaoDaLicitacao(lic) !== 'CONCLUIDA') return false
+    } else if (filtros.fase && lic.fase !== filtros.fase) return false
     if (filtros.uf && lic.orgao?.uf !== filtros.uf) return false
     return true
   })
@@ -268,6 +275,7 @@ export default function LicitacoesPublicasPage() {
                       <div className="flex items-center gap-2 mb-2">
                         <Badge variant="outline">{getModalidadeLabel(licitacao.modalidade)}</Badge>
                         {getFaseBadge(licitacao.fase)}
+                        <SituacaoBadge licitacao={licitacao} />
                       </div>
                       
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">

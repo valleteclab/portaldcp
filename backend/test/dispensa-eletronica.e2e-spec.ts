@@ -135,7 +135,8 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         .put(`/api/licitacoes/${lic.id}/publicar-edital`)
         .set(bearer(orgao.token))
         .send(corpoDivulgacao(fimPropostasSugerido()));
-      expect(r.status).toBe(400);
+      // E1: ato fora da fase = conflito de estado (409), não mais 400
+      expect(r.status).toBe(409);
       expect(r.body.message).toMatch(/aprovada internamente/);
     });
 
@@ -704,7 +705,8 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
 
     it('depois de homologada: rejulgar, chat e nova janela são recusados', async () => {
       const j = await ctx.http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(orgao.token));
-      expect(j.status).toBe(400);
+      // E1: julgar após homologar = conflito de estado (409), não mais 400
+      expect(j.status).toBe(409);
       expect(j.body.message).toMatch(/já homologada/);
 
       const m = await ctx

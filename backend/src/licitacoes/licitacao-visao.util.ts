@@ -1,4 +1,4 @@
-import { FaseLicitacao } from './entities/licitacao.entity';
+import { FaseLicitacao, FASES_LEGADAS_DE_SITUACAO } from './entities/licitacao.entity';
 
 /**
  * VISÕES DA LICITAÇÃO POR PÚBLICO (E1a — blindagem de acesso).
@@ -10,7 +10,11 @@ import { FaseLicitacao } from './entities/licitacao.entity';
  *    melhor lance (identidade de licitante durante a disputa).
  */
 
-/** Fases em que a licitação já é pública (edital/aviso divulgado). */
+/**
+ * Fases em que a licitação já é pública (edital/aviso divulgado). A situação
+ * (suspensa, revogada, deserta...) é independente da fase desde a E1 — uma
+ * licitação revogada em ACOLHIMENTO continua pública (com a situação visível).
+ */
 export const FASES_PUBLICAS: FaseLicitacao[] = [
   FaseLicitacao.PUBLICADO,
   FaseLicitacao.IMPUGNACAO,
@@ -22,18 +26,14 @@ export const FASES_PUBLICAS: FaseLicitacao[] = [
   FaseLicitacao.RECURSO,
   FaseLicitacao.ADJUDICACAO,
   FaseLicitacao.HOMOLOGACAO,
-  FaseLicitacao.CONCLUIDO,
-  FaseLicitacao.DESERTO,
-  FaseLicitacao.FRACASSADO,
-  FaseLicitacao.REVOGADO,
-  FaseLicitacao.ANULADO,
 ];
 
-/** Pública = fase externa, ou SUSPENSA depois de divulgada. */
+/** Pública = fase externa (qualquer situação). */
 export function licitacaoEhPublica(lic: { fase?: any; data_publicacao_edital?: any } | null | undefined): boolean {
   if (!lic) return false;
   if (FASES_PUBLICAS.includes(lic.fase)) return true;
-  return lic.fase === FaseLicitacao.SUSPENSO && !!lic.data_publicacao_edital;
+  // Linha legada ainda não migrada (fase = situação): pública se já divulgada
+  return FASES_LEGADAS_DE_SITUACAO.includes(lic.fase) && !!lic.data_publicacao_edital;
 }
 
 /** Campos do órgão que nunca saem da API da licitação. */

@@ -3,6 +3,8 @@
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
+import { ROTULO_SITUACAO, situacaoDaLicitacao } from "@/lib/licitacao-situacao"
 import { 
   ArrowLeft,
   Building2,
@@ -43,6 +45,8 @@ interface Licitacao {
   objeto_detalhado?: string
   valor_total_estimado: number
   fase: string
+  /** Situação do processo (E1): ATIVA, SUSPENSA, REVOGADA... */
+  situacao?: string
   data_publicacao_edital?: string
   data_abertura_sessao?: string
   data_inicio_acolhimento?: string
@@ -341,8 +345,17 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                 {licitacao.numero_edital || licitacao.numero_processo}
               </h1>
               {getFaseBadge(licitacao.fase)}
+              <SituacaoBadge licitacao={licitacao} />
             </div>
             <p className="text-muted-foreground">{getModalidadeLabel(licitacao.modalidade)}</p>
+            {situacaoDaLicitacao(licitacao) !== 'ATIVA' && (
+              <p className="text-sm text-amber-700 mt-1">
+                Licitação {ROTULO_SITUACAO[situacaoDaLicitacao(licitacao)].toLowerCase()} pelo órgão
+                {situacaoDaLicitacao(licitacao) === 'SUSPENSA'
+                  ? ' — propostas e lances ficam bloqueados até a retomada.'
+                  : ' — processo encerrado.'}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">

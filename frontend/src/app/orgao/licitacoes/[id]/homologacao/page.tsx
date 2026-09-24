@@ -65,7 +65,7 @@ export default function HomologacaoPage() {
         if (!rLic.ok) throw new Error("Licitação não encontrada")
         const lic: Licitacao = await rLic.json()
         setLicitacao(lic)
-        setHomologado(['HOMOLOGACAO', 'CONCLUIDO'].includes(lic.fase))
+        setHomologado(['HOMOLOGACAO', 'CONCLUIDO'].includes(lic.fase) || (lic as any).situacao === 'CONCLUIDA')
 
         // Busca sessão da licitação
         const rSessao = await authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`)
@@ -93,9 +93,11 @@ export default function HomologacaoPage() {
     setActionLoading(true)
     setActionError(null)
     try {
-      // Avança fase da licitação: ADJUDICACAO → HOMOLOGACAO
-      const r = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/avancar-fase`, {
-        method: "PUT",
+      // Ato HOMOLOGAR (E1): ADJUDICACAO → HOMOLOGACAO com os efeitos da
+      // homologação (contrato + PNCP). Sem valor no corpo, o backend usa a
+      // soma dos valores homologados dos itens adjudicados.
+      const r = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/atos/HOMOLOGAR`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
       })

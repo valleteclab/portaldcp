@@ -177,6 +177,17 @@ Motivo: os 82 vazamentos incluem atos **sem login** em produção (a dispensa j�
 
 **Pronto quando:** `grep "fase ="` fora do `TransicoesService` retorna zero; teste de tabela de transições por modalidade; RECURSO/DESERTO/FRACASSADO/CONCLUIDO atingíveis.
 
+**E1 — núcleo CONCLUÍDO (24/09/2026)** — `backend/src/licitacoes/transicoes/`:
+- `TransicoesService.executar(id, ato, { ator, motivo, dados, aplicar, manager, ignorarSeJaAplicado })`: transação + `SELECT … FOR UPDATE` na licitação, valida fase/situação (409) e pré-condições (400 com a lista de pendências), aplica destino/efeitos, grava `licitacao_transicoes` e emite evento (`TransicoesEventos`). Definição declarativa por modalidade em `definicoes.ts` (núcleo puro em `maquina.ts`).
+- `licitacao.situacao` (ATIVA, SUSPENSA, REVOGADA, ANULADA, DESERTA, FRACASSADA, CONCLUIDA) + `fase_anterior`; valores SUSPENSO/REVOGADO/… de `FaseLicitacao` ficam só por compatibilidade (@deprecated, nunca atribuídos). Migração dos dados legados: `migracao-situacao.ts` (roda no boot — `MigracaoSituacaoBootService` — e na migration `20260924000001-SituacaoLicitacao`).
+- `licitacoes.service` todo nos atos (avancar-fase = ato principal da fase; retroceder-fase = ato de retorno; `POST /licitacoes/:id/atos/:ato`; `GET /licitacoes/:id/atos` e `/transicoes`; `atos_disponiveis` no processo-completo). Roll-up deserta/fracassada ligado a `itens/:id/deserto|fracassado`.
+- **Falta (próximas partes da E1)** — trocar os setters diretos pelos atos:
+  - `sessao.service.ts:136` → `ENCERRAR_ACOLHIMENTO` (ignorarSeJaAplicado) · `:202` → `INICIAR_DISPUTA` · `:1092`/`:1342` → `ENCERRAR_DISPUTA` (se em disputa) + `INICIAR_HABILITACAO` · `:1252` e `:1514` → `ADJUDICAR` (ou `DECIDIR_RECURSOS` se em RECURSO) · `:1573` → `HOMOLOGAR` (com `aplicar` gravando valor/itens).
+  - `pncp.service.ts:773`/`:810`/`:871` → `PUBLICAR` com `ignorarSeJaAplicado: true` e `dados.data_publicacao_edital` · `:2824` → `CANCELAR_PUBLICACAO` (motivo = justificativa; destino APROVACAO_INTERNA, só sem propostas).
+  - `fase-interna.service.ts:608` (importação) → criar em PLANEJAMENTO + `registrarCriacao` + `CONCLUIR_FASE_INTERNA` · `:776` → `CONCLUIR_FASE_INTERNA` · `:803` → ato da etapa (`CONCLUIR_PLANEJAMENTO`/`_TERMO_REFERENCIA`/`_PESQUISA_PRECOS`/`_ANALISE_JURIDICA`) e, na última, `CONCLUIR_FASE_INTERNA`; mover o gate documental para pré-condição (E1.7).
+  - `licitacoes-scheduler.service.ts:72`/`:132` → `INICIAR_ACOLHIMENTO` · `:100`/`:142` → `ENCERRAR_ACOLHIMENTO` (ator `SISTEMA/scheduler`, `ignorarSeJaAplicado`; já filtra `situacao = ATIVA`) e respeitar `data_limite_impugnacao`.
+  - `admin-testes.service.ts:274` (SQL) → ajustar datas e chamar `ENCERRAR_ACOLHIMENTO`.
+
 ### E2 — Motor de disputa único · tamanho G
 1. `disputa-v2` vira `disputa/` e absorve o que o `sessao` faz de sessão pública: criar/iniciar/suspender/retomar/encerrar sessão, iniciar itens, lote.
 2. **Um único `registrarLance`** (o da v2, que tem lock): acrescentar diferença mínima (valor ou %), regra de lote, lance fechado; apagar os outros 4 caminhos e o módulo `lances`.

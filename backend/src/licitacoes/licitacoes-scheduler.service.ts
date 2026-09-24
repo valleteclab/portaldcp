@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThanOrEqual, MoreThan } from 'typeorm';
-import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
+import { Licitacao, FaseLicitacao, SituacaoLicitacao } from './entities/licitacao.entity';
 
 /**
  * Serviço responsável por atualizar automaticamente as fases das licitações
@@ -61,6 +61,8 @@ export class LicitacoesSchedulerService {
     const licitacoes = await this.licitacaoRepository.find({
       where: {
         fase: In([FaseLicitacao.PUBLICADO, FaseLicitacao.IMPUGNACAO]),
+        // E1: suspensa/encerrada mantém a fase — o relógio não a move
+        situacao: SituacaoLicitacao.ATIVA,
         data_inicio_acolhimento: LessThanOrEqual(agora),
         data_fim_acolhimento: MoreThan(agora), // Ainda não encerrou
       }
@@ -89,6 +91,8 @@ export class LicitacoesSchedulerService {
     const licitacoes = await this.licitacaoRepository.find({
       where: {
         fase: FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
+        // E1: suspensa/encerrada mantém a fase — o relógio não a move
+        situacao: SituacaoLicitacao.ATIVA,
         data_fim_acolhimento: LessThanOrEqual(agora),
       }
     });
@@ -120,6 +124,9 @@ export class LicitacoesSchedulerService {
     }
 
     const agora = new Date();
+
+    // E1: suspensa/encerrada não anda pelo cronograma
+    if (licitacao.situacao && licitacao.situacao !== SituacaoLicitacao.ATIVA) return licitacao;
 
     // Verifica transições possíveis
     if (

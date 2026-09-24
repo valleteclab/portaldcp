@@ -4,9 +4,10 @@ import { ItemLicitacao } from './entities/item-licitacao.entity';
 import { ItemPCA } from '../pca/entities/pca.entity';
 import { ItensService } from './itens.service';
 import { ItensController } from './itens.controller';
+import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ItemLicitacao, ItemPCA])],
+  imports: [TypeOrmModule.forFeature([ItemLicitacao, ItemPCA]), TransicoesModule],
   controllers: [ItensController],
   providers: [ItensService],
   exports: [ItensService, TypeOrmModule],

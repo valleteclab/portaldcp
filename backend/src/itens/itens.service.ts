@@ -6,6 +6,8 @@ import { CreateItemDto, UpdateItemDto, AdjudicarItemDto, ImportarItensPcaDto } f
 import { ItemPCA } from '../pca/entities/pca.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { AtorTransicao, atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
  * Campos que o PUT do item nunca altera: vínculo com a licitação (mover item
@@ -41,6 +43,7 @@ export class ItensService {
     private readonly itemRepository: Repository<ItemLicitacao>,
     @InjectRepository(ItemPCA)
     private readonly itemPcaRepository: Repository<ItemPCA>,
+    private readonly transicoes: TransicoesService,
   ) {}
 
   async create(createDto: CreateItemDto): Promise<ItemLicitacao> {
@@ -132,17 +135,23 @@ export class ItensService {
     return await this.itemRepository.save(item);
   }
 
-  async marcarDeserto(id: string): Promise<ItemLicitacao> {
+  async marcarDeserto(id: string, ator: AtorTransicao = atorSistema('itens')): Promise<ItemLicitacao> {
     const item = await this.findOne(id);
     item.status = StatusItem.DESERTO;
-    return await this.itemRepository.save(item);
+    const salvo = await this.itemRepository.save(item);
+    // E1: todos os itens desertos → licitação DESERTA (roll-up)
+    await this.transicoes.aplicarRollup(salvo.licitacao_id, ator);
+    return salvo;
   }
 
-  async marcarFracassado(id: string, motivo: string): Promise<ItemLicitacao> {
+  async marcarFracassado(id: string, motivo: string, ator: AtorTransicao = atorSistema('itens')): Promise<ItemLicitacao> {
     const item = await this.findOne(id);
     item.status = StatusItem.FRACASSADO;
     item.observacoes = `Fracassado: ${motivo}`;
-    return await this.itemRepository.save(item);
+    const salvo = await this.itemRepository.save(item);
+    // E1: nenhum item com vencedor e algum fracassado → licitação FRACASSADA (roll-up)
+    await this.transicoes.aplicarRollup(salvo.licitacao_id, ator);
+    return salvo;
   }
 
   async adjudicar(id: string, dados: AdjudicarItemDto): Promise<ItemLicitacao> {

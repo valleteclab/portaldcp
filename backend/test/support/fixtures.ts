@@ -345,7 +345,12 @@ export async function buscarLicitacao(ctx: AppE2E, lic: LicitacaoFixture): Promi
 // Fases
 // ---------------------------------------------------------------------------
 
-/** Ordem linear usada hoje por LicitacoesService.getProximaFase. */
+/**
+ * Ordem das fases para o laço do `levarAteFase`. Desde a E1 não existe "fase
+ * seguinte" genérica: o PUT avancar-fase executa o ATO PRINCIPAL da fase atual
+ * (backend/src/licitacoes/transicoes/definicoes.ts) — ex.: PUBLICADO → iniciar
+ * acolhimento (pula IMPUGNACAO, que é ato à parte).
+ */
 const ORDEM_FASES: FaseLicitacao[] = [
   FaseLicitacao.PLANEJAMENTO,
   FaseLicitacao.TERMO_REFERENCIA,
@@ -415,7 +420,8 @@ export async function prepararInstrucaoContratacaoDireta(ctx: AppE2E, lic: Licit
 
 /**
  * Leva a licitação até `alvo` pela API pública:
- *  - fases internas e externas: PUT /api/licitacoes/:id/avancar-fase;
+ *  - fases internas e externas: PUT /api/licitacoes/:id/avancar-fase (ato
+ *    principal da fase atual, com as pré-condições do TransicoesService);
  *  - APROVACAO_INTERNA → PUBLICADO: PUT /api/licitacoes/:id/publicar-edital
  *    (contratação direta: cria antes a instrução do art. 72);
  *  - ANALISE_PROPOSTAS em diante exige propostas e abertura já ocorrida

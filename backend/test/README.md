@@ -66,6 +66,10 @@ describe('Pregão — ...', () => {
 - **Dois órgãos** para testar isolamento: `criarOrgao(ctx)` duas vezes.
 - **Usuário do órgão** (pregoeiro etc.): `criarUsuarioOrgao(ctx, orgao, { role })` — token vem do login real.
 - **Contratação direta**: `levarAteFase` cria a instrução do art. 72 (DFD, estimativa, autorização) antes de publicar.
+- **Fases (E1)**: toda mudança de fase/situação é um ATO do `TransicoesService`
+  (`src/licitacoes/transicoes/`). `PUT avancar-fase` executa o ato principal da fase atual;
+  atos específicos: `POST /api/licitacoes/:id/atos/:ato` (ex.: `SUSPENDER` com `{ motivo }`);
+  histórico em `GET /api/licitacoes/:id/transicoes`. Estado inválido → 409; pré-condição → 400.
 - **Comportamento desejado que ainda não existe**: use `test.failing(...)` — o teste passa enquanto o
   bloqueio existir e passa a falhar (avisando) quando for corrigido.
 - **PNCP**: `pncpMock.limpar()` antes da ação; depois `pncpMock.filtrar('POST', /\/compras$/)` devolve

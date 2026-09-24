@@ -3,6 +3,7 @@ import { ItensService, LicitacaoVisaoItem } from './itens.service';
 import { CreateItemDto, UpdateItemDto, AdjudicarItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
 import { ItemLicitacao } from './entities/item-licitacao.entity';
 import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { AtorAtual, AutenticacaoOpcional, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import { ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
@@ -118,7 +119,7 @@ export class ItensController {
   @SomenteOrgao()
   async marcarDeserto(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<ItemLicitacao> {
     await this.acesso.assertOrgaoDoItem(ator, id, 'escrita');
-    return await this.itensService.marcarDeserto(id);
+    return await this.itensService.marcarDeserto(id, atorTransicaoDe(ator));
   }
 
   @Put(':id/fracassado')
@@ -129,7 +130,7 @@ export class ItensController {
     @AtorAtual() ator: Ator,
   ): Promise<ItemLicitacao> {
     await this.acesso.assertOrgaoDoItem(ator, id, 'escrita');
-    return await this.itensService.marcarFracassado(id, body.motivo);
+    return await this.itensService.marcarFracassado(id, body.motivo, atorTransicaoDe(ator));
   }
 
   @Put(':id/adjudicar')

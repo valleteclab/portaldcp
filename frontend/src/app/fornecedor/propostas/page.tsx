@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
 
 /** Documento da desclassificação: rota autenticada (fornecedor dono ou órgão dono). */
 async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?: string) {
@@ -42,6 +43,7 @@ interface Proposta {
     objeto: string
     modalidade: string
     fase: string
+    situacao?: string
     data_abertura_sessao?: string
     data_fim_acolhimento?: string
     orgao?: {
@@ -301,7 +303,10 @@ export default function PropostasFornecedorPage() {
                         </div>
                       </td>
                       <td className="p-3">
-                        {getFaseBadge(proposta.licitacao?.fase)}
+                        <div className="flex flex-wrap gap-1">
+                          {getFaseBadge(proposta.licitacao?.fase)}
+                          <SituacaoBadge licitacao={proposta.licitacao} />
+                        </div>
                       </td>
                       <td className="p-3">
                         <div className="flex flex-col gap-1">

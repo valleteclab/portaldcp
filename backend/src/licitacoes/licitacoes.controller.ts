@@ -1,11 +1,11 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Res, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Res, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
 import { LicitacoesService } from './licitacoes.service';
 import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
 import { ProcessoPdfService } from './processo-pdf.service';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
-import { Licitacao, FaseLicitacao } from './entities/licitacao.entity';
+import { Licitacao, FaseLicitacao, SituacaoLicitacao } from './entities/licitacao.entity';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
@@ -14,6 +14,9 @@ import { AtorAtual, AutenticacaoOpcional, OrgaoOuFornecedor, SomenteFornecedor, 
 import { ehFornecedor, ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { licitacaoEhPublica, licitacaoParaOrgao, licitacaoParaPublico } from './licitacao-visao.util';
+import { AtoLicitacao, atorTransicaoDe } from './transicoes/transicoes.tipos';
+import { atoExiste } from './transicoes/definicoes';
+import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
 
 /**
  * AUTORIZAÇÃO (E1a):
@@ -54,7 +57,7 @@ export class LicitacoesController {
       }
       createDto.orgao_id = ator.orgaoId!;
     }
-    return licitacaoParaOrgao(await this.licitacoesService.create(createDto));
+    return licitacaoParaOrgao(await this.licitacoesService.create(createDto, atorTransicaoDe(ator)));
   }
 
   @Post('a-partir-de-demanda')
@@ -64,7 +67,7 @@ export class LicitacoesController {
     @AtorAtual() ator: Ator,
   ): Promise<Licitacao> {
     return licitacaoParaOrgao(
-      await this.licitacoesService.criarAPartirDeDemanda(dto, ator.admin ? null : ator.orgaoId),
+      await this.licitacoesService.criarAPartirDeDemanda(dto, ator.admin ? null : ator.orgaoId, atorTransicaoDe(ator)),
     );
   }
 
@@ -78,21 +81,29 @@ export class LicitacoesController {
     @Query('fase') fase?: FaseLicitacao | 'HOMOLOGADA',
     @Query('orgao_id') orgao_id?: string,
     @Query('orgaoId') orgaoId?: string,
-    @Query('demanda_id') demanda_id?: string
+    @Query('demanda_id') demanda_id?: string,
+    @Query('situacao') situacao?: SituacaoLicitacao,
   ): Promise<Licitacao[]> {
     const faseNormalizada =
       fase === 'HOMOLOGADA' ? FaseLicitacao.HOMOLOGACAO : fase;
     if (ator?.admin) {
-      const todas = await this.licitacoesService.findAll({ fase: faseNormalizada, orgao_id: orgao_id || orgaoId, demanda_id });
+      const todas = await this.licitacoesService.findAll({ fase: faseNormalizada, situacao, orgao_id: orgao_id || orgaoId, demanda_id });
       return todas.map((l) => licitacaoParaOrgao(l));
     }
     if (ehOrgao(ator)) {
-      const doOrgao = await this.licitacoesService.findAll({ fase: faseNormalizada, orgao_id: ator.orgaoId, demanda_id });
+      const doOrgao = await this.licitacoesService.findAll({ fase: faseNormalizada, situacao, orgao_id: ator.orgaoId, demanda_id });
       return doOrgao.map((l) => licitacaoParaOrgao(l));
     }
     if (ehFornecedor(ator)) {
       const publicas = await this.licitacoesService.findPublicas({ orgao_id: orgao_id || orgaoId });
-      return faseNormalizada ? publicas.filter((l) => l.fase === faseNormalizada) : publicas;
+      // ?fase=REVOGADO etc. (legado) = filtro por situação
+      const legada = faseNormalizada ? MAPA_SITUACAO_LEGADA[faseNormalizada] : undefined;
+      const situacaoFiltro = situacao ?? legada;
+      return publicas.filter(
+        (l) =>
+          (!situacaoFiltro || l.situacao === situacaoFiltro) &&
+          (!faseNormalizada || !!legada || l.fase === faseNormalizada),
+      );
     }
     throw new ForbiddenException('Acesso negado para este perfil');
   }
@@ -143,7 +154,13 @@ export class LicitacoesController {
     return licitacaoParaOrgao(await this.licitacoesService.update(id, updateData));
   }
 
-  // === GESTÃO DE FASES ===
+  // === GESTÃO DE FASES (E1: atos nomeados — backend/src/licitacoes/transicoes) ===
+
+  /**
+   * Compatibilidade: executa o ATO PRINCIPAL da fase atual (não existe mais
+   * "próxima fase" genérica). Atos que exigem formulário (publicar) → 400
+   * indicando o endpoint; estado que não permite → 409.
+   */
   @Put(':id/avancar-fase')
   @SomenteOrgao()
   async avancarFase(
@@ -152,9 +169,10 @@ export class LicitacoesController {
     @Body() body: { observacao?: string }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.avancarFase(id, body.observacao);
+    return await this.licitacoesService.avancarFase(id, body?.observacao, atorTransicaoDe(ator));
   }
 
+  /** Compatibilidade: só há retorno onde o rito prevê (com motivo). */
   @Put(':id/retroceder-fase')
   @SomenteOrgao()
   async retrocederFase(
@@ -163,7 +181,43 @@ export class LicitacoesController {
     @Body() body: { motivo: string }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.retrocederFase(id, body.motivo);
+    return await this.licitacoesService.retrocederFase(id, body?.motivo, atorTransicaoDe(ator));
+  }
+
+  /**
+   * ATO NOMEADO (E1): POST /licitacoes/:id/atos/SUSPENDER { motivo } etc.
+   * A lista do que cabe agora vem em GET /licitacoes/:id/atos (e no
+   * processo-completo). HOMOLOGAR aceita { valor_homologado } (padrão: soma
+   * dos itens adjudicados); RETOMAR aceita { dados: { data_fim_acolhimento... } }.
+   */
+  @Post(':id/atos/:ato')
+  @SomenteOrgao()
+  async executarAto(
+    @Param('id') id: string,
+    @Param('ato') ato: string,
+    @AtorAtual() ator: Ator,
+    @Body() body: { motivo?: string; dados?: Record<string, any>; valor_homologado?: number },
+  ): Promise<any> {
+    await this.dono(ator, id);
+    if (!atoExiste(ato)) throw new BadRequestException(`Ato desconhecido: ${ato}`);
+    const r = await this.licitacoesService.executarAto(id, ato as AtoLicitacao, body || {}, atorTransicaoDe(ator));
+    return { ...r, licitacao: licitacaoParaOrgao(r.licitacao) };
+  }
+
+  /** Atos disponíveis agora (com pendências) — botões do cockpit. */
+  @Get(':id/atos')
+  @SomenteOrgao()
+  async atosDisponiveis(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
+    return await this.licitacoesService.atosDisponiveis(id);
+  }
+
+  /** Histórico de transições (quem fez qual ato, quando, de/para, motivo). Só o órgão dono. */
+  @Get(':id/transicoes')
+  @SomenteOrgao()
+  async transicoes(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
+    return await this.licitacoesService.historicoTransicoes(id);
   }
 
   @Put(':id/publicar-edital')
@@ -174,21 +228,21 @@ export class LicitacoesController {
     @Body(new ValidationPipe()) dados: PublicarEditalDto
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.publicarEdital(id, dados);
+    return await this.licitacoesService.publicarEdital(id, dados, atorTransicaoDe(ator));
   }
 
   @Put(':id/iniciar-disputa')
   @SomenteOrgao()
   async iniciarDisputa(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.iniciarDisputa(id);
+    return await this.licitacoesService.iniciarDisputa(id, atorTransicaoDe(ator));
   }
 
   @Put(':id/encerrar-disputa')
   @SomenteOrgao()
   async encerrarDisputa(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.encerrarDisputa(id);
+    return await this.licitacoesService.encerrarDisputa(id, atorTransicaoDe(ator));
   }
 
   @Put(':id/homologar')
@@ -199,7 +253,7 @@ export class LicitacoesController {
     @Body() body: { valor_homologado: number }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.homologar(id, body.valor_homologado);
+    return await this.licitacoesService.homologar(id, body?.valor_homologado, atorTransicaoDe(ator));
   }
 
   /** Cockpit: visão agregada do processo inteiro (demanda/PCA → docs → seleção → contratos) */
@@ -215,7 +269,7 @@ export class LicitacoesController {
   @SomenteOrgao()
   async julgarDispensa(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
     await this.dono(ator, id);
-    return await this.licitacoesService.julgarDispensa(id);
+    return await this.licitacoesService.julgarDispensa(id, atorTransicaoDe(ator));
   }
 
   /** Dispensa: abre a fase de lances (opcional, modelo IN SEGES 67/2021) */
@@ -360,7 +414,7 @@ export class LicitacoesController {
     },
   ): Promise<any> {
     await this.dono(ator, id);
-    return await this.licitacoesService.registrarResultadoExterno(id, body);
+    return await this.licitacoesService.registrarResultadoExterno(id, body, atorTransicaoDe(ator));
   }
 
   @Put(':id/suspender')
@@ -371,7 +425,7 @@ export class LicitacoesController {
     @Body() body: { motivo: string }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.suspender(id, body.motivo);
+    return await this.licitacoesService.suspender(id, body?.motivo, atorTransicaoDe(ator));
   }
 
   @Put(':id/revogar')
@@ -382,7 +436,7 @@ export class LicitacoesController {
     @Body() body: { motivo: string }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.revogar(id, body.motivo);
+    return await this.licitacoesService.revogar(id, body?.motivo, atorTransicaoDe(ator));
   }
 
   @Put(':id/anular')
@@ -393,7 +447,7 @@ export class LicitacoesController {
     @Body() body: { motivo: string }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.anular(id, body.motivo);
+    return await this.licitacoesService.anular(id, body?.motivo, atorTransicaoDe(ator));
   }
 
   @Put(':id/retomar')
@@ -401,10 +455,22 @@ export class LicitacoesController {
   async retomar(
     @Param('id') id: string,
     @AtorAtual() ator: Ator,
-    @Body() body: { fase_destino?: string }
+    @Body()
+    body: {
+      motivo?: string;
+      /** Reabertura opcional de prazos (as mesmas chaves do cronograma). */
+      dados?: Record<string, any>;
+      data_limite_impugnacao?: string;
+      data_inicio_acolhimento?: string;
+      data_fim_acolhimento?: string;
+      data_abertura_sessao?: string;
+    },
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.retomar(id, body.fase_destino);
+    // Retoma na MESMA fase da suspensão (`fase_destino` da API antiga é ignorado)
+    const { motivo, dados, ...datas } = (body || {}) as any;
+    delete datas.fase_destino;
+    return await this.licitacoesService.retomar(id, { ...datas, ...(dados || {}) }, atorTransicaoDe(ator), motivo);
   }
 
   /**

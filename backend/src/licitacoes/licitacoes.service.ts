@@ -1,7 +1,15 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { Licitacao, FaseLicitacao, ModalidadeLicitacao, TipoContratacao, CriterioJulgamento } from './entities/licitacao.entity';
+import {
+  Licitacao,
+  FaseLicitacao,
+  ModalidadeLicitacao,
+  TipoContratacao,
+  CriterioJulgamento,
+  SituacaoLicitacao,
+  SITUACOES_TERMINAIS,
+} from './entities/licitacao.entity';
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item-licitacao.entity';
@@ -16,7 +24,12 @@ import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
-import { licitacaoParaPublico } from './licitacao-visao.util';
+import { FASES_PUBLICAS, licitacaoParaPublico } from './licitacao-visao.util';
+import { TransicoesService } from './transicoes/transicoes.service';
+import { AtoLicitacao, AtorTransicao, atorSistema } from './transicoes/transicoes.tipos';
+import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
+import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
+import { ROTULO_FASE } from './transicoes/fases';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -57,6 +70,7 @@ export class LicitacoesService {
     private readonly pncpService: PncpService,
     private readonly faseInternaService: FaseInternaService,
     private readonly notificacoesService: NotificacoesService,
+    private readonly transicoes: TransicoesService,
   ) {}
 
   /**
@@ -90,7 +104,7 @@ export class LicitacoesService {
   }
 
   // === CRUD ===
-  async create(createDto: CreateLicitacaoDto): Promise<Licitacao> {
+  async create(createDto: CreateLicitacaoDto, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
     const existing = await this.licitacaoRepository.findOne({
       where: { numero_processo: createDto.numero_processo },
     });
@@ -111,11 +125,16 @@ export class LicitacoesService {
       ...createDto,
       ano,
       sequencial: count + 1,
+      // Estado inicial é sempre este — fase/situação nunca vêm do corpo
       fase: FaseLicitacao.PLANEJAMENTO,
+      situacao: SituacaoLicitacao.ATIVA,
+      fase_anterior: null,
       data_abertura_processo: new Date(),
     });
 
-    return await this.licitacaoRepository.save(licitacao);
+    const salva = await this.licitacaoRepository.save(licitacao);
+    await this.transicoes.registrarCriacao(salva, ator);
+    return salva;
   }
 
   // === CRIAÇÃO A PARTIR DE DEMANDA APROVADA ===
@@ -178,7 +197,11 @@ export class LicitacoesService {
    * @param orgaoIdDoAtor órgão do usuário autenticado (null/undefined = admin da
    *        plataforma). Demanda de outro órgão → 404 (não confirma que existe).
    */
-  async criarAPartirDeDemanda(dto: CreateFromDemandaDto, orgaoIdDoAtor?: string | null): Promise<Licitacao> {
+  async criarAPartirDeDemanda(
+    dto: CreateFromDemandaDto,
+    orgaoIdDoAtor?: string | null,
+    ator: AtorTransicao = atorSistema('api'),
+  ): Promise<Licitacao> {
     // 1. Carrega a demanda com itens
     const demanda = await this.demandaRepository.findOne({
       where: { id: dto.demanda_id },
@@ -275,12 +298,14 @@ export class LicitacoesService {
           : TipoContratacao.COMPRA),
       criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
       fase: FaseLicitacao.PLANEJAMENTO,
+      situacao: SituacaoLicitacao.ATIVA,
       ano,
       sequencial: countParaSeq + 1,
       data_abertura_processo: new Date(),
     });
 
     const licitacaoSalva = await this.licitacaoRepository.save(licitacao);
+    await this.transicoes.registrarCriacao(licitacaoSalva, ator, undefined, { demanda_id: demanda.id });
 
     // 7. Cria os itens da licitação a partir dos itens da demanda
     const itensLicitacao = itens.map((item, i) => {
@@ -353,9 +378,18 @@ export class LicitacoesService {
     return resultado!;
   }
 
-  async findAll(filtros?: { fase?: FaseLicitacao; orgao_id?: string; demanda_id?: string }): Promise<Licitacao[]> {
+  async findAll(filtros?: {
+    fase?: FaseLicitacao;
+    situacao?: SituacaoLicitacao;
+    orgao_id?: string;
+    demanda_id?: string;
+  }): Promise<Licitacao[]> {
     const where: any = {};
-    if (filtros?.fase) where.fase = filtros.fase;
+    // Filtro legado ?fase=REVOGADO etc. = filtro por situação (E1)
+    const situacaoLegada = filtros?.fase ? MAPA_SITUACAO_LEGADA[filtros.fase] : undefined;
+    if (situacaoLegada) where.situacao = situacaoLegada;
+    else if (filtros?.fase) where.fase = filtros.fase;
+    if (filtros?.situacao) where.situacao = filtros.situacao;
     if (filtros?.orgao_id) where.orgao_id = filtros.orgao_id;
     if (filtros?.demanda_id) where.demanda_id = filtros.demanda_id;
 
@@ -399,15 +433,22 @@ export class LicitacoesService {
       FaseLicitacao.HABILITACAO,
       FaseLicitacao.ADJUDICACAO,
       FaseLicitacao.HOMOLOGACAO,
-      FaseLicitacao.CONCLUIDO
     ];
 
     if (fasesProtegidas.includes(licitacao.fase)) {
       throw new BadRequestException('Não é possível alterar licitação nesta fase');
     }
+    if (SITUACOES_TERMINAIS.includes(licitacao.situacao)) {
+      throw new ConflictException(`Licitação encerrada (situação ${licitacao.situacao}) — não pode ser alterada`);
+    }
 
-    // Extrair itens e lotes do updateData
-    const { itens, lotes, ...dadosLicitacao } = updateData;
+    // Extrair itens e lotes do updateData. Estado do processo (fase,
+    // situação, fase anterior) só muda por ato do TransicoesService — o corpo
+    // da edição não altera (sem ValidationPipe com whitelist, filtramos aqui).
+    const { itens, lotes, ...dadosLicitacao } = updateData as any;
+    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'data_homologacao', 'data_adjudicacao']) {
+      delete dadosLicitacao[campo];
+    }
 
     // Atualizar dados da licitação
     Object.assign(licitacao, dadosLicitacao);
@@ -562,155 +603,137 @@ export class LicitacoesService {
     return result!;
   }
 
-  // === GESTÃO DE FASES ===
-  async avancarFase(id: string, observacao?: string): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-    const proximaFase = this.getProximaFase(licitacao.fase);
+  // === GESTÃO DE FASES (E1: atos nomeados do TransicoesService) ===
 
-    if (!proximaFase) {
-      throw new BadRequestException('Não há próxima fase disponível');
+  /**
+   * Compatibilidade com o PUT avancar-fase da tela antiga: executa o ATO
+   * PRINCIPAL da fase atual (ex.: ACOLHIMENTO → encerrar acolhimento,
+   * ADJUDICACAO → homologar). Não existe mais "próxima fase" genérica: cada
+   * passo é um ato com as suas pré-condições.
+   */
+  async avancarFase(id: string, observacao: string | undefined, ator: AtorTransicao): Promise<Licitacao> {
+    const { licitacao, def } = await this.transicoes.atoPrincipalDe(id);
+    if (!def) {
+      throw new ConflictException(
+        `Não há ato de avanço a partir da fase ${ROTULO_FASE[licitacao.fase] ?? licitacao.fase}` +
+          (licitacao.situacao && licitacao.situacao !== SituacaoLicitacao.ATIVA ? ` (licitação ${licitacao.situacao.toLowerCase()})` : '') +
+          '.',
+      );
     }
-
-    // Validação especial: ANALISE_PROPOSTAS -> EM_DISPUTA
-    // Deve validar data de abertura e verificar se há propostas
-    if (licitacao.fase === FaseLicitacao.ANALISE_PROPOSTAS && proximaFase === FaseLicitacao.EM_DISPUTA) {
-      console.log(`[avancarFase] Validando transição ANALISE_PROPOSTAS -> EM_DISPUTA para licitação ${id}`);
-      
-      // Validar data de abertura da sessão
-      if (licitacao.data_abertura_sessao) {
-        const agora = new Date();
-        const dataAbertura = new Date(licitacao.data_abertura_sessao);
-        console.log(`[avancarFase] Data abertura: ${dataAbertura}, Agora: ${agora}`);
-        
-        if (agora < dataAbertura) {
-          const dataFormatada = dataAbertura.toLocaleString('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          });
-          throw new BadRequestException(
-            `A sessão de disputa só pode ser iniciada a partir de ${dataFormatada}. Aguarde a data de abertura programada.`
-          );
-        }
-      }
-
-      // Verificar se há propostas válidas
-      try {
-        const propostas = await this.licitacaoRepository.manager.query(`
-          SELECT COUNT(*) as total FROM propostas 
-          WHERE licitacao_id = $1 AND status IN ('ENVIADA', 'VALIDA', 'CLASSIFICADA')
-        `, [id]);
-        
-        console.log(`[avancarFase] Propostas encontradas:`, propostas);
-        
-        if (parseInt(propostas[0]?.total || '0') === 0) {
-          throw new BadRequestException(
-            'Não é possível iniciar a disputa sem propostas válidas. Verifique se há propostas classificadas.'
-          );
-        }
-      } catch (err) {
-        if (err instanceof BadRequestException) throw err;
-        console.error(`[avancarFase] Erro ao buscar propostas:`, err);
-        // Se der erro na query, continua sem validar propostas
-      }
-
-      // Registra data de início da disputa
-      licitacao.data_inicio_disputa = new Date();
-    }
-
-    licitacao.fase = proximaFase;
-    licitacao.observacoes = observacao || licitacao.observacoes;
-
-    // Registra datas conforme a fase
-    this.registrarDataFase(licitacao, proximaFase);
-
-    return await this.licitacaoRepository.save(licitacao);
+    await this.executarAto(id, def.ato, { motivo: observacao }, ator);
+    return this.carregarBruta(id);
   }
 
-  async retrocederFase(id: string, motivo: string): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-    const faseAnterior = this.getFaseAnterior(licitacao.fase);
-
-    if (!faseAnterior) {
-      throw new BadRequestException('Não há fase anterior disponível');
+  /**
+   * Compatibilidade com o PUT retroceder-fase: só há retorno onde a lei/o rito
+   * prevê (devolver etapa interna; voltar ao julgamento por inabilitação ou
+   * recurso provido) — sempre com motivo.
+   */
+  async retrocederFase(id: string, motivo: string, ator: AtorTransicao): Promise<Licitacao> {
+    const { licitacao, def } = await this.transicoes.atoDeRetornoDe(id);
+    if (!def) {
+      throw new ConflictException(
+        `Não há ato de retorno a partir da fase ${ROTULO_FASE[licitacao.fase] ?? licitacao.fase} — use suspender, revogar ou anular.`,
+      );
     }
-
-    licitacao.fase = faseAnterior;
-    licitacao.observacoes = `Retrocedido: ${motivo}`;
-
-    return await this.licitacaoRepository.save(licitacao);
+    return this.transicoes.executar(id, def.ato, { ator, motivo });
   }
 
-  /** Soma N dias ÚTEIS (seg–sex) a uma data. Feriados não são considerados. */
-  private adicionarDiasUteis(base: Date, dias: number): Date {
-    const d = new Date(base);
-    let somados = 0;
-    while (somados < dias) {
-      d.setDate(d.getDate() + 1);
-      const dow = d.getDay();
-      if (dow !== 0 && dow !== 6) somados++;
-    }
-    return d;
-  }
-
-  async publicarEdital(id: string, dados: PublicarEditalDto): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-
-    // Valida se está na fase correta
-    if (licitacao.fase !== FaseLicitacao.APROVACAO_INTERNA) {
-      throw new BadRequestException('Licitação precisa estar aprovada internamente para publicar edital');
-    }
-
-    // Contratação direta: a divulgação exige a instrução mínima do Art. 72
-    // (DFD, estimativa de despesa e autorização). O checklist da instrução é
-    // o gate — igual ao card de pendências do Compras.gov.
-    if (
-      licitacao.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA ||
-      licitacao.modalidade === ModalidadeLicitacao.INEXIGIBILIDADE
-    ) {
-      const instrucao = await this.faseInternaService.getInstrucao(id);
-      if (!instrucao.pode_divulgar) {
+  /**
+   * Executa um ATO NOMEADO (POST /licitacoes/:id/atos/:ato e avancar-fase).
+   * Atos com efeitos próprios (homologar, julgar dispensa, suspender...) vão
+   * ao método que cuida dos efeitos; os demais, direto ao TransicoesService.
+   */
+  async executarAto(
+    id: string,
+    ato: AtoLicitacao,
+    corpo: { motivo?: string; dados?: Record<string, any>; valor_homologado?: number },
+    ator: AtorTransicao,
+  ): Promise<{ licitacao: Licitacao; resultado?: any }> {
+    const motivo = corpo?.motivo;
+    switch (ato) {
+      case AtoLicitacao.PUBLICAR:
         throw new BadRequestException(
-          `Instrução do processo incompleta (Art. 72 da Lei 14.133/2021). Pendências: ${instrucao.pendentes.join('; ')}`,
+          'Publicar exige o cronograma do edital — use PUT /licitacoes/:id/publicar-edital.',
         );
-      }
-    }
-
-    // Dispensa eletrônica (art. 75 §3º): prazo MÍNIMO de 3 dias úteis entre a
-    // divulgação do aviso e o fim do recebimento de propostas.
-    if (licitacao.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA) {
-      const corte = dados.data_fim_acolhimento || dados.data_abertura_sessao;
-      if (corte) {
-        const minimo = this.adicionarDiasUteis(
-          new Date(dados.data_publicacao_edital || Date.now()),
-          3,
+      case AtoLicitacao.REGISTRAR_RESULTADO_EXTERNO:
+        throw new BadRequestException(
+          'Registrar resultado externo exige os vencedores por item — use POST /licitacoes/:id/resultado-externo.',
         );
-        if (new Date(corte) < minimo) {
-          throw new BadRequestException(
-            `Dispensa eletrônica exige no mínimo 3 dias úteis para recebimento de propostas (art. 75, §3º). ` +
-              `Prazo mínimo: ${minimo.toLocaleDateString('pt-BR')}`,
-          );
-        }
+      case AtoLicitacao.CANCELAR_PUBLICACAO:
+        throw new BadRequestException('A publicação é cancelada pela exclusão da compra no PNCP.');
+      case AtoLicitacao.HOMOLOGAR: {
+        const valor =
+          corpo?.valor_homologado != null ? Number(corpo.valor_homologado) : await this.somaValoresHomologadosItens(id);
+        return { licitacao: await this.homologar(id, valor, ator) };
       }
+      case AtoLicitacao.JULGAR_DISPENSA: {
+        const resultado = await this.julgarDispensa(id, ator);
+        return { licitacao: await this.carregarBruta(id), resultado };
+      }
+      case AtoLicitacao.SUSPENDER:
+        return { licitacao: await this.suspender(id, motivo as string, ator) };
+      case AtoLicitacao.RETOMAR:
+        return { licitacao: await this.retomar(id, corpo?.dados, ator) };
+      case AtoLicitacao.REVOGAR:
+        return { licitacao: await this.revogar(id, motivo as string, ator) };
+      case AtoLicitacao.ANULAR:
+        return { licitacao: await this.anular(id, motivo as string, ator) };
+      default:
+        return {
+          licitacao: await this.transicoes.executar(id, ato, { ator, motivo, dados: corpo?.dados }),
+        };
     }
+  }
 
-    licitacao.fase = FaseLicitacao.PUBLICADO;
-    // A publicação encerra, por definição, a fase interna (Art. 18 → fase
-    // externa). A flag é exigida pela validação do PNCP; o fluxo da
-    // fase-interna também a define ao concluir.
-    licitacao.fase_interna_concluida = true;
-    licitacao.data_publicacao_edital = new Date(dados.data_publicacao_edital);
-    licitacao.data_limite_impugnacao = new Date(dados.data_limite_impugnacao);
-    licitacao.data_inicio_acolhimento = new Date(dados.data_inicio_acolhimento);
-    licitacao.data_fim_acolhimento = new Date(dados.data_fim_acolhimento);
-    licitacao.data_abertura_sessao = new Date(dados.data_abertura_sessao);
-    if (dados.link_pncp) {
-      licitacao.link_pncp = dados.link_pncp;
+  /** Atos disponíveis agora (com pendências) — botões do cockpit. */
+  async atosDisponiveis(id: string) {
+    return this.transicoes.atosDisponiveis(id);
+  }
+
+  /** Histórico de transições (GET /licitacoes/:id/transicoes). */
+  async historicoTransicoes(id: string): Promise<LicitacaoTransicao[]> {
+    return this.transicoes.historico(id);
+  }
+
+  /** Suspensa/encerrada (E1): nenhum ato de disputa acontece. */
+  private exigirAtiva(licitacao: { situacao?: SituacaoLicitacao | null }, acao: string): void {
+    if (licitacao.situacao && licitacao.situacao !== SituacaoLicitacao.ATIVA) {
+      throw new ConflictException(`Licitação ${licitacao.situacao.toLowerCase()} — não é possível ${acao}`);
     }
+  }
 
-    const salva = await this.licitacaoRepository.save(licitacao);
+  /** Licitação sem formatação de datas (resposta dos atos). */
+  private async carregarBruta(id: string): Promise<Licitacao> {
+    const lic = await this.licitacaoRepository.findOne({ where: { id } });
+    if (!lic) throw new NotFoundException(`Licitação com ID ${id} não encontrada`);
+    return lic;
+  }
+
+  /** Soma dos valores totais homologados dos itens com vencedor. */
+  private async somaValoresHomologadosItens(id: string): Promise<number> {
+    const [r] = await this.dataSource.query(
+      `SELECT COALESCE(SUM(valor_total_homologado), 0) AS total
+         FROM itens_licitacao WHERE licitacao_id = $1 AND fornecedor_vencedor_id IS NOT NULL`,
+      [id],
+    );
+    return Math.round(Number(r?.total || 0) * 100) / 100;
+  }
+
+  async publicarEdital(
+    id: string,
+    dados: PublicarEditalDto,
+    ator: AtorTransicao = atorSistema('api'),
+  ): Promise<Licitacao> {
+    // Ato PUBLICAR: fase APROVACAO_INTERNA; contratação direta exige a
+    // instrução do Art. 72 (DFD, estimativa e autorização — igual ao card de
+    // pendências do Compras.gov); dispensa exige 3 dias úteis de propostas
+    // (art. 75 §3º). O cronograma é gravado pelo efeito do ato.
+    const salva = await this.transicoes.executar(id, AtoLicitacao.PUBLICAR, {
+      ator,
+      dados: { ...dados },
+    });
+    const licitacao = salva;
 
     // Avisa o setor requisitante da demanda de origem (fire-and-forget)
     this.notificarDemandaOrigem(
@@ -742,59 +765,27 @@ export class LicitacoesService {
     return salva;
   }
 
-  async iniciarDisputa(id: string): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-
-    if (licitacao.fase !== FaseLicitacao.ANALISE_PROPOSTAS) {
-      throw new BadRequestException('Licitação precisa estar na fase de análise de propostas');
-    }
-
-    // Validar data de abertura da sessão
-    if (licitacao.data_abertura_sessao) {
-      const agora = new Date();
-      const dataAbertura = new Date(licitacao.data_abertura_sessao);
-      
-      if (agora < dataAbertura) {
-        const dataFormatada = dataAbertura.toLocaleString('pt-BR', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-        throw new BadRequestException(
-          `A sessão só pode ser iniciada a partir de ${dataFormatada}. Aguarde a data de abertura programada.`
-        );
-      }
-    }
-
-    licitacao.fase = FaseLicitacao.EM_DISPUTA;
-    licitacao.data_inicio_disputa = new Date();
-
-    return await this.licitacaoRepository.save(licitacao);
+  async iniciarDisputa(id: string, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
+    // Ato INICIAR_DISPUTA: ANALISE_PROPOSTAS, abertura alcançada, propostas aptas
+    return this.transicoes.executar(id, AtoLicitacao.INICIAR_DISPUTA, { ator });
   }
 
-  async encerrarDisputa(id: string): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-
-    if (licitacao.fase !== FaseLicitacao.EM_DISPUTA) {
-      throw new BadRequestException('Licitação não está em disputa');
-    }
-
-    licitacao.fase = FaseLicitacao.JULGAMENTO;
-    licitacao.data_fim_disputa = new Date();
-
-    return await this.licitacaoRepository.save(licitacao);
+  async encerrarDisputa(id: string, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
+    // Ato ENCERRAR_DISPUTA: EM_DISPUTA → JULGAMENTO (data_fim_disputa)
+    return this.transicoes.executar(id, AtoLicitacao.ENCERRAR_DISPUTA, { ator });
   }
 
-  async homologar(id: string, valorHomologado: number): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-
-    licitacao.fase = FaseLicitacao.HOMOLOGACAO;
-    licitacao.valor_homologado = valorHomologado;
-    licitacao.data_homologacao = new Date();
-
-    const licitacaoSalva = await this.licitacaoRepository.save(licitacao);
+  async homologar(id: string, valorHomologado: number, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
+    // Ato HOMOLOGAR: ADJUDICACAO (ou HOMOLOGACAO sem contrato/ata ainda),
+    // exige item com vencedor. Efeitos externos (contrato, PNCP) depois.
+    const licitacaoSalva = await this.transicoes.executar(id, AtoLicitacao.HOMOLOGAR, {
+      ator,
+      dados: { valor_homologado: valorHomologado },
+      aplicar: (lic) => {
+        lic.valor_homologado = valorHomologado;
+      },
+    });
+    const licitacao = licitacaoSalva;
 
     // Gera contratos automaticamente após homologação (1 por fornecedor vencedor)
     try {
@@ -945,6 +936,8 @@ export class LicitacoesService {
         objeto: licitacao.objeto,
         modalidade: licitacao.modalidade,
         fase: licitacao.fase,
+        situacao: licitacao.situacao ?? SituacaoLicitacao.ATIVA,
+        fase_anterior: licitacao.fase_anterior ?? null,
         srp: (licitacao as any).srp ?? false,
         valor_total_estimado: licitacao.valor_total_estimado,
         valor_homologado: licitacao.valor_homologado,
@@ -1007,6 +1000,8 @@ export class LicitacoesService {
         return corte ? new Date() < new Date(corte) : false;
       })(),
       checklist,
+      // E1: atos que o cockpit pode oferecer agora (com pendências de cada um)
+      atos_disponiveis: await this.transicoes.atosDisponiveis(licitacao),
     };
   }
 
@@ -1028,6 +1023,7 @@ export class LicitacoesService {
         valor_unitario: number;
       }>;
     },
+    ator: AtorTransicao = atorSistema('api'),
   ): Promise<any> {
     const licitacao = await this.findOne(id);
     if (!dto.itens?.length) {
@@ -1039,8 +1035,9 @@ export class LicitacoesService {
       );
     }
 
-    const resultados: Array<{ item: string; fornecedor: string; valor_total: number }> = [];
-
+    // Valida tudo ANTES de gravar; a gravação dos itens acontece dentro da
+    // transição (mesma transação e lock da licitação).
+    const alteracoes: Array<{ item: ItemLicitacao; fornecedor_id: string; razao_social: string; valorUnit: number }> = [];
     for (const r of dto.itens) {
       const item = await this.itemRepository.findOne({
         where: { id: r.item_id, licitacao_id: id },
@@ -1061,36 +1058,46 @@ export class LicitacoesService {
       if (!forn.length) {
         throw new BadRequestException(`Fornecedor ${r.fornecedor_id} não encontrado`);
       }
-
-      item.fornecedor_vencedor_id = r.fornecedor_id;
-      item.fornecedor_vencedor_nome = forn[0].razao_social;
-      item.valor_unitario_homologado = valorUnit;
-      item.valor_total_homologado =
-        Math.round(valorUnit * Number((item as any).quantidade || 0) * 100) / 100;
-      item.status = StatusItem.ADJUDICADO;
-      await this.itemRepository.save(item);
-
-      resultados.push({
-        item: String((item as any).numero_item),
-        fornecedor: forn[0].razao_social,
-        valor_total: item.valor_total_homologado,
-      });
+      alteracoes.push({ item, fornecedor_id: r.fornecedor_id, razao_social: forn[0].razao_social, valorUnit });
     }
 
-    licitacao.selecao_externa = true;
-    if (dto.plataforma_externa !== undefined)
-      licitacao.plataforma_externa = dto.plataforma_externa || null;
-    if (dto.numero_processo_externo !== undefined)
-      licitacao.numero_processo_externo = dto.numero_processo_externo || null;
-    if (dto.url_externa !== undefined) licitacao.url_externa = dto.url_externa || null;
-    licitacao.fase = FaseLicitacao.ADJUDICACAO;
-    await this.licitacaoRepository.save(licitacao);
+    const resultados: Array<{ item: string; fornecedor: string; valor_total: number }> = [];
+    const salva = await this.transicoes.executar(id, AtoLicitacao.REGISTRAR_RESULTADO_EXTERNO, {
+      ator,
+      registro: {
+        plataforma_externa: dto.plataforma_externa ?? null,
+        numero_processo_externo: dto.numero_processo_externo ?? null,
+        itens: dto.itens.length,
+      },
+      aplicar: async (lic, manager) => {
+        for (const a of alteracoes) {
+          const item = a.item;
+          item.fornecedor_vencedor_id = a.fornecedor_id;
+          item.fornecedor_vencedor_nome = a.razao_social;
+          item.valor_unitario_homologado = a.valorUnit;
+          item.valor_total_homologado =
+            Math.round(a.valorUnit * Number((item as any).quantidade || 0) * 100) / 100;
+          item.status = StatusItem.ADJUDICADO;
+          await manager.getRepository(ItemLicitacao).save(item);
+          resultados.push({
+            item: String((item as any).numero_item),
+            fornecedor: a.razao_social,
+            valor_total: item.valor_total_homologado,
+          });
+        }
+        lic.selecao_externa = true;
+        if (dto.plataforma_externa !== undefined) lic.plataforma_externa = dto.plataforma_externa || null;
+        if (dto.numero_processo_externo !== undefined)
+          lic.numero_processo_externo = dto.numero_processo_externo || null;
+        if (dto.url_externa !== undefined) lic.url_externa = dto.url_externa || null;
+      },
+    });
 
     this.logger.log(
       `Resultado externo registrado na licitação ${licitacao.numero_processo}: ${resultados.length} item(ns) adjudicado(s)`,
     );
 
-    return { licitacao_id: id, fase: licitacao.fase, resultados };
+    return { licitacao_id: id, fase: salva.fase, resultados };
   }
 
   /**
@@ -1100,7 +1107,7 @@ export class LicitacoesService {
    * propostas vencedoras e leva a licitação à fase ADJUDICACAO. Depois, o
    * homologar() existente gera o(s) contrato(s) automaticamente.
    */
-  async julgarDispensa(id: string): Promise<any> {
+  async julgarDispensa(id: string, ator: AtorTransicao = atorSistema('api')): Promise<any> {
     const licitacao = await this.findOne(id);
 
     if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
@@ -1108,27 +1115,10 @@ export class LicitacoesService {
         'Julgamento automático por menor preço disponível apenas para Dispensa Eletrônica',
       );
     }
-    if (licitacao.data_homologacao) {
-      throw new BadRequestException('Licitação já homologada');
-    }
-
-    // Prazo de acolhimento precisa ter encerrado (art. 75 §3º)
-    const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
-    if (corte && new Date() < new Date(corte)) {
-      throw new BadRequestException(
-        `O prazo de recebimento de propostas ainda está aberto (encerra em ${new Date(corte).toLocaleString('pt-BR')})`,
-      );
-    }
-
-    // Se houver fase de lances aberta, ela precisa ter encerrado
-    if (
-      licitacao.dispensa_lances_fim &&
-      new Date() < new Date(licitacao.dispensa_lances_fim)
-    ) {
-      throw new BadRequestException(
-        `A fase de lances está aberta até ${new Date(licitacao.dispensa_lances_fim).toLocaleString('pt-BR')} — julgue após o encerramento`,
-      );
-    }
+    // Fase/situação (já homologada → 409), fim do acolhimento (art. 75 §3º) e
+    // fim da janela de lances: validados ANTES do cálculo (mensagens claras)
+    // e de novo dentro da transição, com lock.
+    await this.transicoes.verificar(id, AtoLicitacao.JULGAR_DISPENSA, { ator });
 
     // Propostas válidas (por item), ordenadas por menor valor unitário
     const linhas: Array<{
@@ -1149,7 +1139,9 @@ export class LicitacoesService {
       [id],
     );
     if (linhas.length === 0) {
-      throw new BadRequestException('Nenhuma proposta válida recebida para julgamento');
+      throw new BadRequestException(
+        'Nenhuma proposta válida recebida para julgamento — declare a dispensa deserta (ato "Declarar deserta").',
+      );
     }
 
     const itens = await this.itemRepository.find({ where: { licitacao_id: id } });
@@ -1206,6 +1198,7 @@ export class LicitacoesService {
     const adjudicados: Array<{ item: number; fornecedor: string; valor_unitario: number; valor_total: number }> = [];
     const semProposta: number[] = [];
     const propostasVencedoras = new Set<string>();
+    const itensAdjudicados: ItemLicitacao[] = [];
 
     for (const item of itens) {
       const v = vencedorPorItem.get(item.id);
@@ -1220,7 +1213,7 @@ export class LicitacoesService {
       item.valor_total_homologado =
         Math.round(valorUnit * Number((item as any).quantidade || 0) * 100) / 100;
       item.status = StatusItem.ADJUDICADO;
-      await this.itemRepository.save(item);
+      itensAdjudicados.push(item);
       propostasVencedoras.add(v.proposta_id);
       adjudicados.push({
         item: (item as any).numero_item,
@@ -1234,21 +1227,27 @@ export class LicitacoesService {
       throw new BadRequestException('Nenhum item pôde ser adjudicado (itens sem proposta válida)');
     }
 
-    // Marca propostas vencedoras (ao menos 1 item) e classifica as demais válidas
-    if (propostasVencedoras.size > 0) {
-      await this.dataSource.query(
-        `UPDATE propostas SET status = 'VENCEDORA' WHERE id = ANY($1::uuid[])`,
-        [[...propostasVencedoras]],
-      );
-      await this.dataSource.query(
-        `UPDATE propostas SET status = 'CLASSIFICADA'
-         WHERE licitacao_id = $1 AND status IN ('ENVIADA','RECEBIDA','EM_ANALISE')`,
-        [id],
-      );
-    }
-
-    licitacao.fase = FaseLicitacao.ADJUDICACAO;
-    await this.licitacaoRepository.save(licitacao);
+    // Ato JULGAR_DISPENSA: grava itens adjudicados e propostas na MESMA
+    // transação (com lock) da mudança de fase.
+    const salva = await this.transicoes.executar(id, AtoLicitacao.JULGAR_DISPENSA, {
+      ator,
+      registro: { itens_adjudicados: adjudicados.length, itens_sem_proposta: semProposta },
+      aplicar: async (_lic, manager) => {
+        for (const item of itensAdjudicados) await manager.getRepository(ItemLicitacao).save(item);
+        // Marca propostas vencedoras (ao menos 1 item) e classifica as demais válidas
+        if (propostasVencedoras.size > 0) {
+          await manager.query(
+            `UPDATE propostas SET status = 'VENCEDORA' WHERE id = ANY($1::uuid[])`,
+            [[...propostasVencedoras]],
+          );
+          await manager.query(
+            `UPDATE propostas SET status = 'CLASSIFICADA'
+             WHERE licitacao_id = $1 AND status IN ('ENVIADA','RECEBIDA','EM_ANALISE')`,
+            [id],
+          );
+        }
+      },
+    });
 
     this.logger.log(
       `Dispensa ${licitacao.numero_processo} julgada: ${adjudicados.length} item(ns) adjudicado(s), ${semProposta.length} sem proposta`,
@@ -1256,7 +1255,7 @@ export class LicitacoesService {
 
     return {
       licitacao_id: id,
-      fase: licitacao.fase,
+      fase: salva.fase,
       adjudicados,
       itens_sem_proposta: semProposta,
     };
@@ -1275,6 +1274,7 @@ export class LicitacoesService {
     if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
       throw new BadRequestException('Fase de lances disponível apenas para Dispensa Eletrônica');
     }
+    this.exigirAtiva(licitacao, 'abrir a fase de lances');
     if (licitacao.data_homologacao) {
       throw new BadRequestException('Licitação já homologada');
     }
@@ -1337,6 +1337,7 @@ export class LicitacoesService {
     dto: { item_licitacao_id: string; fornecedor_id: string; valor_unitario: number },
   ): Promise<any> {
     const licitacao = await this.findOne(id);
+    this.exigirAtiva(licitacao, 'registrar lance');
     if (
       !licitacao.dispensa_lances_fim ||
       new Date() >= new Date(licitacao.dispensa_lances_fim)
@@ -1679,51 +1680,37 @@ export class LicitacoesService {
     };
   }
 
-  async suspender(id: string, motivo: string): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-    licitacao.fase = FaseLicitacao.SUSPENSO;
-    licitacao.observacoes = `Suspenso: ${motivo}`;
-    return await this.licitacaoRepository.save(licitacao);
+  /**
+   * SUSPENDER: situação SUSPENSA, fase preservada (retomar volta exatamente
+   * ao ponto). Motivo obrigatório — vai para o histórico e é ACRESCENTADO às
+   * observações (antes sobrescrevia).
+   */
+  async suspender(id: string, motivo: string, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
+    return this.transicoes.executar(id, AtoLicitacao.SUSPENDER, { ator, motivo });
   }
 
-  async revogar(id: string, motivo: string): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-    licitacao.fase = FaseLicitacao.REVOGADO;
-    licitacao.observacoes = `Revogado: ${motivo}`;
-    return await this.licitacaoRepository.save(licitacao);
+  /** REVOGAR (art. 71, II): motivo obrigatório; bloqueado com contrato assinado. */
+  async revogar(id: string, motivo: string, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
+    return this.transicoes.executar(id, AtoLicitacao.REVOGAR, { ator, motivo });
   }
 
-  async anular(id: string, motivo: string): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-    licitacao.fase = FaseLicitacao.ANULADO;
-    licitacao.observacoes = `Anulado: ${motivo}`;
-    return await this.licitacaoRepository.save(licitacao);
+  /** ANULAR (art. 71, III): motivo obrigatório; bloqueado com contrato assinado. */
+  async anular(id: string, motivo: string, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
+    return this.transicoes.executar(id, AtoLicitacao.ANULAR, { ator, motivo });
   }
 
-  async retomar(id: string, faseDestino?: string): Promise<Licitacao> {
-    const licitacao = await this.findOne(id);
-    
-    if (licitacao.fase !== FaseLicitacao.SUSPENSO) {
-      throw new BadRequestException('Apenas licitações suspensas podem ser retomadas');
-    }
-
-    // Determina a fase de retorno (padrão: ACOLHIMENTO_PROPOSTAS)
-    const fasesValidas = [
-      FaseLicitacao.PUBLICADO,
-      FaseLicitacao.IMPUGNACAO,
-      FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
-      FaseLicitacao.ANALISE_PROPOSTAS,
-      FaseLicitacao.EM_DISPUTA,
-    ];
-
-    if (faseDestino && fasesValidas.includes(faseDestino as FaseLicitacao)) {
-      licitacao.fase = faseDestino as FaseLicitacao;
-    } else {
-      licitacao.fase = FaseLicitacao.ACOLHIMENTO_PROPOSTAS;
-    }
-
-    licitacao.observacoes = `Retomado em ${new Date().toLocaleDateString('pt-BR')}. ${licitacao.observacoes || ''}`;
-    return await this.licitacaoRepository.save(licitacao);
+  /**
+   * RETOMAR: volta a ATIVA na MESMA fase em que foi suspensa. Opcionalmente
+   * reabre prazos (data_limite_impugnacao, data_inicio/fim_acolhimento,
+   * data_abertura_sessao). `fase_destino` (API antiga) não é mais aceito.
+   */
+  async retomar(
+    id: string,
+    dados: Record<string, any> | undefined,
+    ator: AtorTransicao = atorSistema('api'),
+    motivo?: string,
+  ): Promise<Licitacao> {
+    return this.transicoes.executar(id, AtoLicitacao.RETOMAR, { ator, dados, motivo });
   }
 
   async delete(id: string): Promise<void> {
@@ -1768,78 +1755,11 @@ export class LicitacoesService {
       await manager.delete('documentos_fase_interna', { licitacao_id: id });
       await manager.delete('documentos_licitacao', { licitacao_id: id });
       await manager.delete('pncp_sync', { licitacao_id: id });
+      await manager.delete(LicitacaoTransicao, { licitacao_id: id });
       await manager.delete(ItemLicitacao, { licitacao_id: id });
       await manager.delete(LoteLicitacao, { licitacao_id: id });
       await manager.delete(Licitacao, id);
     });
-  }
-
-  // === HELPERS ===
-  private getProximaFase(faseAtual: FaseLicitacao): FaseLicitacao | null {
-    const fluxo: FaseLicitacao[] = [
-      FaseLicitacao.PLANEJAMENTO,
-      FaseLicitacao.TERMO_REFERENCIA,
-      FaseLicitacao.PESQUISA_PRECOS,
-      FaseLicitacao.ANALISE_JURIDICA,
-      FaseLicitacao.APROVACAO_INTERNA,
-      FaseLicitacao.PUBLICADO,
-      FaseLicitacao.IMPUGNACAO,
-      FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
-      FaseLicitacao.ANALISE_PROPOSTAS,
-      FaseLicitacao.EM_DISPUTA,
-      FaseLicitacao.JULGAMENTO,
-      FaseLicitacao.HABILITACAO,
-      FaseLicitacao.RECURSO,
-      FaseLicitacao.ADJUDICACAO,
-      FaseLicitacao.HOMOLOGACAO,
-      FaseLicitacao.CONCLUIDO,
-    ];
-
-    const indexAtual = fluxo.indexOf(faseAtual);
-    if (indexAtual === -1 || indexAtual === fluxo.length - 1) return null;
-    return fluxo[indexAtual + 1];
-  }
-
-  private getFaseAnterior(faseAtual: FaseLicitacao): FaseLicitacao | null {
-    const fluxo: FaseLicitacao[] = [
-      FaseLicitacao.PLANEJAMENTO,
-      FaseLicitacao.TERMO_REFERENCIA,
-      FaseLicitacao.PESQUISA_PRECOS,
-      FaseLicitacao.ANALISE_JURIDICA,
-      FaseLicitacao.APROVACAO_INTERNA,
-      FaseLicitacao.PUBLICADO,
-      FaseLicitacao.IMPUGNACAO,
-      FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
-      FaseLicitacao.ANALISE_PROPOSTAS,
-      FaseLicitacao.EM_DISPUTA,
-      FaseLicitacao.JULGAMENTO,
-      FaseLicitacao.HABILITACAO,
-      FaseLicitacao.RECURSO,
-      FaseLicitacao.ADJUDICACAO,
-      FaseLicitacao.HOMOLOGACAO,
-      FaseLicitacao.CONCLUIDO,
-    ];
-
-    const indexAtual = fluxo.indexOf(faseAtual);
-    if (indexAtual <= 0) return null;
-    return fluxo[indexAtual - 1];
-  }
-
-  private registrarDataFase(licitacao: Licitacao, fase: FaseLicitacao): void {
-    switch (fase) {
-      case FaseLicitacao.TERMO_REFERENCIA:
-        licitacao.data_aprovacao_tr = new Date();
-        break;
-      case FaseLicitacao.ANALISE_JURIDICA:
-        licitacao.data_parecer_juridico = new Date();
-        break;
-      case FaseLicitacao.APROVACAO_INTERNA:
-        licitacao.data_autorizacao = new Date();
-        break;
-      case FaseLicitacao.ADJUDICACAO:
-        licitacao.data_adjudicacao = new Date();
-        break;
-    }
   }
 
   // === CONSULTAS PÚBLICAS ===
@@ -1848,24 +1768,10 @@ export class LicitacoesService {
     orgao_id?: string; 
     uf?: string 
   }): Promise<Licitacao[]> {
-    // Apenas licitações em fases públicas (após publicação do edital)
-    const fasesPublicas = [
-      FaseLicitacao.PUBLICADO,
-      FaseLicitacao.IMPUGNACAO,
-      FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
-      FaseLicitacao.ANALISE_PROPOSTAS,
-      FaseLicitacao.EM_DISPUTA,
-      FaseLicitacao.JULGAMENTO,
-      FaseLicitacao.HABILITACAO,
-      FaseLicitacao.RECURSO,
-      FaseLicitacao.ADJUDICACAO,
-      FaseLicitacao.HOMOLOGACAO,
-      FaseLicitacao.CONCLUIDO,
-      FaseLicitacao.DESERTO,
-      FaseLicitacao.FRACASSADO,
-      FaseLicitacao.REVOGADO,
-      FaseLicitacao.ANULADO
-    ];
+    // Apenas licitações em fases públicas (após publicação do edital). A
+    // situação (suspensa, revogada, deserta...) não muda a fase: continuam
+    // públicas e a lista mostra a situação.
+    const fasesPublicas = FASES_PUBLICAS;
 
     const query = this.licitacaoRepository.createQueryBuilder('licitacao')
       .leftJoinAndSelect('licitacao.orgao', 'orgao')
@@ -1881,6 +1787,7 @@ export class LicitacoesService {
         'licitacao.criterio_julgamento',
         'licitacao.modo_disputa',
         'licitacao.fase',
+        'licitacao.situacao',
         'licitacao.valor_total_estimado',
         'licitacao.sigilo_orcamento',
         'licitacao.data_publicacao_edital',
@@ -1912,23 +1819,7 @@ export class LicitacoesService {
   }
 
   async findPublicaById(id: string): Promise<Licitacao> {
-    const fasesPublicas = [
-      FaseLicitacao.PUBLICADO,
-      FaseLicitacao.IMPUGNACAO,
-      FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
-      FaseLicitacao.ANALISE_PROPOSTAS,
-      FaseLicitacao.EM_DISPUTA,
-      FaseLicitacao.JULGAMENTO,
-      FaseLicitacao.HABILITACAO,
-      FaseLicitacao.RECURSO,
-      FaseLicitacao.ADJUDICACAO,
-      FaseLicitacao.HOMOLOGACAO,
-      FaseLicitacao.CONCLUIDO,
-      FaseLicitacao.DESERTO,
-      FaseLicitacao.FRACASSADO,
-      FaseLicitacao.REVOGADO,
-      FaseLicitacao.ANULADO,
-    ];
+    const fasesPublicas = FASES_PUBLICAS;
 
     const licitacao = await this.licitacaoRepository
       .createQueryBuilder('licitacao')
@@ -1947,6 +1838,7 @@ export class LicitacoesService {
         'licitacao.criterio_julgamento',
         'licitacao.modo_disputa',
         'licitacao.fase',
+        'licitacao.situacao',
         'licitacao.valor_total_estimado',
         'licitacao.sigilo_orcamento',
         'licitacao.data_publicacao_edital',

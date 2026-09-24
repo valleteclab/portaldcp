@@ -5,7 +5,7 @@ import { Proposta, StatusProposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { ItensService } from '../itens/itens.service';
-import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { Licitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { licitacaoParaOrgao, licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 
@@ -81,6 +81,14 @@ export class PropostasService {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
     });
+
+    // E1: licitação suspensa ou encerrada (revogada, anulada, deserta...) não
+    // recebe nem altera propostas — a situação é separada da fase.
+    if (licitacao?.situacao && licitacao.situacao !== SituacaoLicitacao.ATIVA) {
+      throw new ConflictException(
+        `Licitação ${licitacao.situacao.toLowerCase()} — não é possível enviar/alterar proposta`,
+      );
+    }
 
     const abertura = licitacao?.data_abertura_sessao;
     if (abertura instanceof Date && !isNaN(abertura.getTime())) {

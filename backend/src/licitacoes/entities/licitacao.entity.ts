@@ -86,14 +86,63 @@ export enum FaseLicitacao {
   ADJUDICACAO = 'ADJUDICACAO', // Declaração do vencedor
   HOMOLOGACAO = 'HOMOLOGACAO', // Aprovação final
 
-  // FINALIZADOS
+  // LEGADO (E1) — NÃO atribuir. A situação do processo (suspenso, revogado,
+  // deserto...) agora vive em `licitacao.situacao` (SituacaoLicitacao) e a
+  // `fase` guarda só a fase do processo. Os valores continuam no enum apenas
+  // para o Postgres/TypeORM não falharem ao ler linhas antigas antes do
+  // backfill (transicoes/migracao-situacao.ts) e para o synchronize não tentar
+  // recriar o tipo `licitacoes_fase_enum`.
+  /** @deprecated use SituacaoLicitacao.CONCLUIDA */
   CONCLUIDO = 'CONCLUIDO',
+  /** @deprecated use SituacaoLicitacao.FRACASSADA */
   FRACASSADO = 'FRACASSADO',
+  /** @deprecated use SituacaoLicitacao.DESERTA */
   DESERTO = 'DESERTO',
+  /** @deprecated use SituacaoLicitacao.REVOGADA */
   REVOGADO = 'REVOGADO',
+  /** @deprecated use SituacaoLicitacao.ANULADA */
   ANULADO = 'ANULADO',
+  /** @deprecated use SituacaoLicitacao.SUSPENSA */
   SUSPENSO = 'SUSPENSO',
 }
+
+/**
+ * SITUAÇÃO do processo — separada da fase (plano E1 §2.3).
+ *
+ * `fase` diz ONDE o processo está (publicado, disputa, homologação...);
+ * `situacao` diz COMO ele está: correndo (ATIVA), parado (SUSPENSA) ou
+ * encerrado por um ato (REVOGADA, ANULADA, DESERTA, FRACASSADA, CONCLUIDA).
+ * Suspender/revogar/anular não apagam a fase: dá para saber em que ponto o
+ * processo foi suspenso/revogado e retomar exatamente dali.
+ */
+export enum SituacaoLicitacao {
+  ATIVA = 'ATIVA',
+  SUSPENSA = 'SUSPENSA',
+  REVOGADA = 'REVOGADA', // Art. 71, II — interesse público (fato superveniente)
+  ANULADA = 'ANULADA', // Art. 71, III — ilegalidade insanável
+  DESERTA = 'DESERTA', // nenhum interessado
+  FRACASSADA = 'FRACASSADA', // interessados, mas nenhum vencedor
+  CONCLUIDA = 'CONCLUIDA', // homologada e com contrato/ata gerados
+}
+
+/** Situações que encerram o processo (nenhum ato de fase é possível). */
+export const SITUACOES_TERMINAIS: SituacaoLicitacao[] = [
+  SituacaoLicitacao.REVOGADA,
+  SituacaoLicitacao.ANULADA,
+  SituacaoLicitacao.DESERTA,
+  SituacaoLicitacao.FRACASSADA,
+  SituacaoLicitacao.CONCLUIDA,
+];
+
+/** Valores LEGADOS de `fase` que eram, na verdade, situação. */
+export const FASES_LEGADAS_DE_SITUACAO: FaseLicitacao[] = [
+  FaseLicitacao.CONCLUIDO,
+  FaseLicitacao.FRACASSADO,
+  FaseLicitacao.DESERTO,
+  FaseLicitacao.REVOGADO,
+  FaseLicitacao.ANULADO,
+  FaseLicitacao.SUSPENSO,
+];
 
 export enum TipoContratacao {
   COMPRA = 'COMPRA',
@@ -207,6 +256,25 @@ export class Licitacao {
     default: FaseLicitacao.PLANEJAMENTO
   })
   fase: FaseLicitacao;
+
+  /**
+   * Situação do processo (E1). Só muda por ato do TransicoesService
+   * (suspender, retomar, revogar, anular, declarar deserta/fracassada, concluir).
+   */
+  @Column({
+    type: 'enum',
+    enum: SituacaoLicitacao,
+    enumName: 'licitacoes_situacao_enum',
+    default: SituacaoLicitacao.ATIVA,
+  })
+  situacao: SituacaoLicitacao;
+
+  /**
+   * Fase imediatamente anterior à atual (gravada a cada mudança de fase pelo
+   * TransicoesService). O histórico completo fica em `licitacao_transicoes`.
+   */
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  fase_anterior: FaseLicitacao | null;
 
   // === VALORES ===
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
