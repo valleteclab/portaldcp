@@ -95,6 +95,7 @@ import { gerarBoletimObraV2Pdf } from '../assinaturas/boletim-obra-v2-pdf';
 import { situacaoEtapas, AnteriorPorEtapa } from './boletim-obra-v2.util';
 import { literalDataAssinatura } from './data-assinatura.util';
 import { competenciaDoPeriodo, textoPeriodoBoletim } from './competencia-boletim.util';
+import { mensagemSemOsAutorizada } from './mensagem-sem-os.util';
 import { incluirEmAnaliseNoAcumulado } from './em-analise-acumulado.util';
 import {
   cotaDaMedicao,
@@ -1595,8 +1596,24 @@ export class MedicaoService {
         osVinculada = await this.getOSAtiva(contratoId);
       }
       if (!osVinculada) {
+        // Diz ao fornecedor se a OS já existe e só falta o órgão autorizar
+        const pendentes = await this.requisicaoRepository.find({
+          where: {
+            contrato_id: contratoId,
+            tipo: TipoRequisicao.ORDEM_SERVICO,
+            status: In([
+              StatusRequisicao.AGUARDANDO_AUTORIZACAO,
+              StatusRequisicao.RASCUNHO,
+            ]),
+          } as any,
+          select: ['numero', 'status'] as any,
+          order: { created_at: 'DESC' } as any,
+          take: 3,
+        });
         throw new BadRequestException(
-          'Aguarde o órgão enviar uma Ordem de Serviço autorizada para emitir a medição.',
+          mensagemSemOsAutorizada(
+            pendentes.map((p) => ({ numero: p.numero, status: String(p.status) })),
+          ),
         );
       }
 
