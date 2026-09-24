@@ -14,6 +14,7 @@ import { WsAutenticador, atorDoSocket } from '../auth/acesso/ws-autenticador';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { SigiloDisputaService, VisaoDisputa } from '../disputa-v2/sigilo-disputa.service';
 import { licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
  * Gateway WebSocket da sala /sessao (legado — será substituído pelo motor
@@ -193,7 +194,7 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   ) {
     if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
-      const sessao = await this.sessaoService.iniciarSessao(data.sessaoId);
+      const sessao = await this.sessaoService.iniciarSessao(data.sessaoId, atorTransicaoDe(atorDoSocket(client)));
       await this.difundir(data.sessaoId, 'sessao_iniciada', sessao);
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'info',
@@ -214,7 +215,7 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   ) {
     if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
-      const sessao = await this.sessaoService.avancarParaDisputa(data.sessaoId);
+      const sessao = await this.sessaoService.avancarParaDisputa(data.sessaoId, atorTransicaoDe(atorDoSocket(client)));
       await this.difundir(data.sessaoId, 'disputa_iniciada', sessao);
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'alerta',
@@ -238,7 +239,7 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     try {
       const item = await this.acesso.donoDoItem(data.itemId);
       if (!item || item.licitacaoId !== info.licitacaoId) throw new Error('Item não pertence a esta sessão');
-      const sessao = await this.sessaoService.iniciarDisputaItem(data.sessaoId, data.itemId);
+      const sessao = await this.sessaoService.iniciarDisputaItem(data.sessaoId, data.itemId, atorTransicaoDe(atorDoSocket(client)));
       await this.difundir(data.sessaoId, 'item_em_disputa', {
         sessao,
         itemId: data.itemId
@@ -264,7 +265,7 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   ) {
     if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
-      const resultado = await this.sessaoService.iniciarDisputaTodosItens(data.sessaoId);
+      const resultado = await this.sessaoService.iniciarDisputaTodosItens(data.sessaoId, atorTransicaoDe(atorDoSocket(client)));
       await this.difundir(data.sessaoId, 'disputa_iniciada', {
         sessao: resultado.sessao,
         itensIniciados: resultado.itensIniciados,
@@ -301,7 +302,7 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
         const item = await this.acesso.donoDoItem(id);
         if (item && item.licitacaoId === info.licitacaoId) itensIds.push(id);
       }
-      const resultado = await this.sessaoService.iniciarItensSelecionados(data.sessaoId, itensIds);
+      const resultado = await this.sessaoService.iniciarItensSelecionados(data.sessaoId, itensIds, atorTransicaoDe(atorDoSocket(client)));
       this.server.to(data.sessaoId).emit('itens_selecionados_iniciados', {
         itensIniciados: resultado.itensIniciados,
         itensIds
@@ -351,7 +352,7 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
         const item = await this.acesso.donoDoItem(data.itemId);
         if (!item || item.licitacaoId !== info.licitacaoId) throw new Error('Item não pertence a esta sessão');
       }
-      const resultado = await this.sessaoService.encerrarDisputaItemPorId(data.sessaoId, data.itemId);
+      const resultado = await this.sessaoService.encerrarDisputaItemPorId(data.sessaoId, data.itemId, atorTransicaoDe(atorDoSocket(client)));
       await this.difundir(data.sessaoId, 'item_encerrado', resultado);
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'info',

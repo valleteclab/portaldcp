@@ -6,6 +6,8 @@ import { EtapaSessao } from './entities/sessao-disputa.entity';
  * Testes do ciclo de recursos (Art. 165): admissão → razões → contrarrazões →
  * decisão, e o cálculo de prazo em dias úteis.
  */
+const ATOR = { tipo: 'ORGAO' as const, id: 'org1' };
+
 describe('RecursosService', () => {
   function build() {
     const recursos: any[] = [];
@@ -27,14 +29,26 @@ describe('RecursosService', () => {
       save: jest.fn((s: any) => Promise.resolve(s)),
     };
     const eventoRepo: any = { create: (d: any) => d, save: jest.fn(() => Promise.resolve({})) };
-    const licitacaoRepo: any = { findOneBy: jest.fn(() => Promise.resolve({ id: 'l1', orgao_id: 'org1' })) };
+    const licitacao: any = { id: 'l1', orgao_id: 'org1', situacao: 'ATIVA', fase: 'HABILITACAO' };
+    const licitacaoRepo: any = {
+      findOneBy: jest.fn(() => Promise.resolve(licitacao)),
+      findOne: jest.fn(() => Promise.resolve(licitacao)),
+    };
+    // Máquina de estados (E1): ABRIR_PRAZO_RECURSAL / DECIDIR_RECURSOS
+    const transicoes: any = {
+      executar: jest.fn((_id: string, ato: string) => {
+        if (ato === 'ABRIR_PRAZO_RECURSAL') licitacao.fase = 'RECURSO';
+        if (ato === 'DECIDIR_RECURSOS') licitacao.fase = 'ADJUDICACAO';
+        return Promise.resolve(licitacao);
+      }),
+    };
     const parametros: any = {
       resolver: jest.fn(() =>
         Promise.resolve({ prazo_recursal_dias_uteis: 3, prazo_contrarrazoes_dias_uteis: 3 }),
     ),
     };
-    const service = new RecursosService(recursoRepo, sessaoRepo, eventoRepo, licitacaoRepo, parametros);
-    return { service, recursoRepo, sessaoRepo, eventoRepo, sessao, recursos };
+    const service = new RecursosService(recursoRepo, sessaoRepo, eventoRepo, licitacaoRepo, parametros, transicoes);
+    return { service, recursoRepo, sessaoRepo, eventoRepo, sessao, recursos, licitacao, transicoes };
   }
 
   it('admitir intenção cria recurso AGUARDANDO_RAZOES e leva a sessão a PRAZO_RECURSAL', async () => {
@@ -42,7 +56,7 @@ describe('RecursosService', () => {
     const recurso = await service.admitirIntencao('s1', 'forn-1', {
       fornecedorNome: 'ACME',
       motivacao: 'discordo da habilitação',
-    });
+    }, ATOR);
     expect(recurso.status).toBe(StatusRecurso.AGUARDANDO_RAZOES);
     expect(recurso.intencao_aceita).toBe(true);
     expect(recurso.prazo_razoes).toBeInstanceOf(Date);
@@ -59,7 +73,7 @@ describe('RecursosService', () => {
 
   it('apresentar razões avança para CONTRARRAZOES', async () => {
     const { service } = build();
-    const r = await service.admitirIntencao('s1', 'forn-1', {});
+    const r = await service.admitirIntencao('s1', 'forn-1', {}, ATOR);
     const atualizado = await service.apresentarRazoes(r.id, 'minhas razões fundamentadas');
     expect(atualizado.status).toBe(StatusRecurso.CONTRARRAZOES);
     expect(atualizado.razoes).toBe('minhas razões fundamentadas');
@@ -68,7 +82,7 @@ describe('RecursosService', () => {
 
   it('contrarrazões acumulam na lista', async () => {
     const { service } = build();
-    const r = await service.admitirIntencao('s1', 'forn-1', {});
+    const r = await service.admitirIntencao('s1', 'forn-1', {}, ATOR);
     await service.apresentarRazoes(r.id, 'razões');
     const c1 = await service.apresentarContrarrazoes(r.id, {
       fornecedorId: 'forn-9',
@@ -84,31 +98,50 @@ describe('RecursosService', () => {
 
   it('decidir (provido) fecha o recurso e, sem pendências, avança para ADJUDICACAO', async () => {
     const { service, sessao, recursoRepo } = build();
-    const r = await service.admitirIntencao('s1', 'forn-1', {});
+    const r = await service.admitirIntencao('s1', 'forn-1', {}, ATOR);
     await service.apresentarRazoes(r.id, 'razões');
     recursoRepo.count.mockResolvedValue(0); // nenhum pendente após decidir
     const decidido = await service.decidir(r.id, {
       provido: true,
       decisao: 'assiste razão ao recorrente',
       decididoPor: 'Autoridade X',
-    });
+    }, ATOR);
     expect(decidido.status).toBe(StatusRecurso.PROVIDO);
     expect(sessao.etapa).toBe(EtapaSessao.ADJUDICACAO);
   });
 
   it('não permite decidir recurso ainda aguardando razões', async () => {
     const { service } = build();
-    const r = await service.admitirIntencao('s1', 'forn-1', {});
+    const r = await service.admitirIntencao('s1', 'forn-1', {}, ATOR);
     await expect(
-      service.decidir(r.id, { provido: false, decisao: 'x' }),
+      service.decidir(r.id, { provido: false, decisao: 'x' }, ATOR),
     ).rejects.toThrow();
   });
 
   it('prazo de razões cai em dia útil (não sábado/domingo)', async () => {
     const { service } = build();
-    const r = await service.admitirIntencao('s1', 'forn-1', {});
+    const r = await service.admitirIntencao('s1', 'forn-1', {}, ATOR);
     const dow = new Date(r.prazo_razoes).getDay();
     expect(dow).not.toBe(0); // domingo
     expect(dow).not.toBe(6); // sábado
+  });
+  it('admitir abre o prazo recursal na licitação (ABRIR_PRAZO_RECURSAL) e decidir o último leva a ADJUDICACAO (DECIDIR_RECURSOS)', async () => {
+    const { service, transicoes, licitacao, recursoRepo } = build();
+    const r = await service.admitirIntencao('s1', 'forn-1', {}, ATOR);
+    expect(transicoes.executar).toHaveBeenCalledWith('l1', 'ABRIR_PRAZO_RECURSAL', expect.objectContaining({ ator: ATOR, ignorarSeJaAplicado: true }));
+    expect(licitacao.fase).toBe('RECURSO');
+    await service.apresentarRazoes(r.id, 'razões');
+    recursoRepo.count.mockResolvedValue(0);
+    await service.decidir(r.id, { provido: false, decisao: 'improvido' }, ATOR);
+    expect(transicoes.executar).toHaveBeenCalledWith('l1', 'DECIDIR_RECURSOS', expect.objectContaining({ ator: ATOR }));
+    expect(licitacao.fase).toBe('ADJUDICACAO');
+  });
+
+  it('com a licitação suspensa, nenhum ato de recurso é aceito (409)', async () => {
+    const { service, licitacao, transicoes } = build();
+    licitacao.situacao = 'SUSPENSA';
+    await expect(service.admitirIntencao('s1', 'forn-1', {}, ATOR)).rejects.toMatchObject({ status: 409 });
+    await expect(service.recusarIntencao('s1', 'forn-1', 'x')).rejects.toMatchObject({ status: 409 });
+    expect(transicoes.executar).not.toHaveBeenCalled();
   });
 });

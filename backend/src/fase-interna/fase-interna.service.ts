@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   NotFoundException,
 } from '@nestjs/common';
 import axios from 'axios';
@@ -18,6 +19,18 @@ import {
   ModalidadeLicitacao,
 } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import {
+  AtoLicitacao,
+  AtorTransicao,
+  atorSistema,
+} from '../licitacoes/transicoes/transicoes.tipos';
+import {
+  DOCUMENTOS_OBRIGATORIOS_POR_ETAPA,
+  ETAPAS_FASE_INTERNA,
+  FUNDAMENTO_ETAPA,
+  TITULO_DOCUMENTO,
+} from './documentos-obrigatorios';
 import {
   RiscoIdentificado,
   MatrizRiscosDados,
@@ -29,6 +42,15 @@ import {
   PesquisaPrecosDados,
   calcularEstatisticasItem,
 } from './types/pesquisa-precos.type';
+
+/** Ato que conclui cada etapa interna do rito completo (máquina de estados E1). */
+const ATO_DA_ETAPA: Record<string, AtoLicitacao> = {
+  [FaseLicitacao.PLANEJAMENTO]: AtoLicitacao.CONCLUIR_PLANEJAMENTO,
+  [FaseLicitacao.TERMO_REFERENCIA]: AtoLicitacao.CONCLUIR_TERMO_REFERENCIA,
+  [FaseLicitacao.PESQUISA_PRECOS]: AtoLicitacao.CONCLUIR_PESQUISA_PRECOS,
+  [FaseLicitacao.ANALISE_JURIDICA]: AtoLicitacao.CONCLUIR_ANALISE_JURIDICA,
+  [FaseLicitacao.APROVACAO_INTERNA]: AtoLicitacao.CONCLUIR_FASE_INTERNA,
+};
 
 /**
  * Servico para gerenciamento da Fase Interna (Preparatoria)
@@ -43,39 +65,18 @@ export class FaseInternaService {
     private readonly licitacaoRepository: Repository<Licitacao>,
     @InjectRepository(ItemLicitacao)
     private readonly itemRepository: Repository<ItemLicitacao>,
+    private readonly transicoes: TransicoesService,
   ) {}
 
   // ========================================
   // DOCUMENTOS OBRIGATORIOS POR FASE
   // ========================================
 
+  /** Obrigatórios da etapa no rito completo (tabela única — documentos-obrigatorios.ts). */
   private getDocumentosObrigatorios(
     fase: FaseLicitacao,
   ): TipoDocumentoFaseInterna[] {
-    const documentosPorFase: Record<string, TipoDocumentoFaseInterna[]> = {
-      [FaseLicitacao.PLANEJAMENTO]: [
-        TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA,
-        TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR,
-      ],
-      [FaseLicitacao.TERMO_REFERENCIA]: [
-        TipoDocumentoFaseInterna.TERMO_REFERENCIA,
-        TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO,
-      ],
-      [FaseLicitacao.PESQUISA_PRECOS]: [
-        TipoDocumentoFaseInterna.PESQUISA_PRECOS,
-        TipoDocumentoFaseInterna.MAPA_COMPARATIVO_PRECOS,
-      ],
-      [FaseLicitacao.ANALISE_JURIDICA]: [
-        TipoDocumentoFaseInterna.PARECER_JURIDICO,
-      ],
-      [FaseLicitacao.APROVACAO_INTERNA]: [
-        TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA,
-        TipoDocumentoFaseInterna.DESIGNACAO_PREGOEIRO,
-        TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
-      ],
-    };
-
-    return documentosPorFase[fase] || [];
+    return DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[fase] || [];
   }
 
   // ========================================
@@ -247,7 +248,13 @@ export class FaseInternaService {
     );
   }
 
-  async getInstrucao(licitacaoId: string): Promise<{
+  /**
+   * Instrução documental do processo — base do GATE ÚNICO da fase interna
+   * (E1.7; pré-condições dos atos em licitacoes/transicoes/definicoes.ts).
+   * `etapa` (só rito completo): restringe o checklist aos obrigatórios daquela
+   * etapa interna — é o que o ato de conclusão da etapa cobra.
+   */
+  async getInstrucao(licitacaoId: string, etapa?: FaseLicitacao): Promise<{
     modalidade: string;
     contratacao_direta: boolean;
     fase: FaseLicitacao;
@@ -257,6 +264,7 @@ export class FaseInternaService {
       titulo: string;
       obrigatorio: boolean;
       fundamento: string;
+      etapa?: FaseLicitacao;
       status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO';
       documento_id?: string;
       justificativa?: string;
@@ -272,26 +280,25 @@ export class FaseInternaService {
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
 
     const contratacaoDireta = this.isContratacaoDireta(licitacao);
-    const checklist = contratacaoDireta
+    const checklist: Array<{
+      tipo: TipoDocumentoFaseInterna;
+      titulo: string;
+      obrigatorio: boolean;
+      fundamento: string;
+      etapa?: FaseLicitacao;
+    }> = contratacaoDireta
       ? this.getChecklistContratacaoDireta()
       : // Modalidades com rito completo: agrega os obrigatórios de todas as
-        // fases internas (visão geral; o avanço continua fase a fase).
-        (
-          [
-            FaseLicitacao.PLANEJAMENTO,
-            FaseLicitacao.TERMO_REFERENCIA,
-            FaseLicitacao.PESQUISA_PRECOS,
-            FaseLicitacao.ANALISE_JURIDICA,
-            FaseLicitacao.APROVACAO_INTERNA,
-          ] as FaseLicitacao[]
-        )
-          .flatMap((f) => this.getDocumentosObrigatorios(f))
-          .map((tipo) => ({
+        // fases internas (ou só os da `etapa` pedida — gate da etapa).
+        ETAPAS_FASE_INTERNA.filter((f) => !etapa || f === etapa).flatMap((f) =>
+          this.getDocumentosObrigatorios(f).map((tipo) => ({
             tipo,
-            titulo: tipo as string,
+            titulo: TITULO_DOCUMENTO[tipo] ?? (tipo as string),
             obrigatorio: true,
-            fundamento: 'Art. 18',
-          }));
+            fundamento: FUNDAMENTO_ETAPA[f] ?? 'Art. 18',
+            etapa: f,
+          })),
+        );
 
     const docs = await this.documentoRepository.find({
       where: { licitacao_id: licitacaoId, versao_atual: true },
@@ -598,18 +605,31 @@ export class FaseInternaService {
       idExterno: string;
       caminhoArquivo?: string;
     }>;
-  }): Promise<{ licitacao: Licitacao; documentos: DocumentoFaseInterna[] }> {
-    // Cria a licitacao
+  }, ator: AtorTransicao = atorSistema('importacao')): Promise<{
+    licitacao: Licitacao;
+    documentos: DocumentoFaseInterna[];
+    /** Documentos obrigatórios que faltaram para concluir a fase interna. */
+    pendencias: string[];
+  }> {
+    // Cria a licitacao no início do rito (PLANEJAMENTO) e registra a criação
+    // no histórico; a conclusão da fase interna vem depois, PELOS ATOS da
+    // máquina de estados, com o gate documental (os documentos importados
+    // contam como prontos). Faltando documento, o processo para na etapa e a
+    // resposta traz as pendências.
     const licitacao = this.licitacaoRepository.create({
       numero_processo: dados.numero_processo,
       objeto: dados.objeto,
       modalidade: dados.modalidade as any,
       orgao_id: dados.orgaoId,
-      fase: FaseLicitacao.APROVACAO_INTERNA, // Ja vem aprovada da fase interna
-      fase_interna_concluida: true,
+      fase: FaseLicitacao.PLANEJAMENTO,
     });
 
     await this.licitacaoRepository.save(licitacao);
+    await this.transicoes.registrarCriacao(licitacao, ator, undefined, {
+      origem: 'importacao',
+      sistema_origem: dados.sistemaOrigem,
+      id_externo: dados.idExterno,
+    });
 
     // Importa todos os documentos
     const documentosImportados: DocumentoFaseInterna[] = [];
@@ -628,7 +648,9 @@ export class FaseInternaService {
       documentosImportados.push(documento);
     }
 
-    return { licitacao, documentos: documentosImportados };
+    const pendencias = await this.concluirFaseInternaPorAtos(licitacao.id, ator);
+    const atualizada = await this.licitacaoRepository.findOneByOrFail({ id: licitacao.id });
+    return { licitacao: atualizada, documentos: documentosImportados, pendencias };
   }
 
   // ========================================
@@ -732,10 +754,9 @@ export class FaseInternaService {
       };
     }
 
-    const documentosObrigatorios = this.getDocumentosObrigatorios(
-      licitacao.fase,
-    );
-
+    // Rito completo: obrigatórios da etapa atual, com a MESMA regra do gate
+    // (pré-condição do ato de conclusão da etapa — getInstrucao com etapa).
+    const instrucao = await this.getInstrucao(licitacaoId, licitacao.fase);
     const documentosAprovados = await this.documentoRepository.find({
       where: {
         licitacao_id: licitacaoId,
@@ -744,66 +765,79 @@ export class FaseInternaService {
       },
     });
 
-    const tiposAprovados = documentosAprovados.map((d) => d.tipo);
-    const documentosPendentes = documentosObrigatorios.filter(
-      (tipo) => !tiposAprovados.includes(tipo),
-    );
-
     return {
-      completa: documentosPendentes.length === 0,
-      documentosPendentes,
-      documentosAprovados: tiposAprovados,
+      completa: instrucao.pode_divulgar,
+      documentosPendentes: instrucao.itens
+        .filter((i) => i.obrigatorio && i.status !== 'OK')
+        .map((i) => i.tipo),
+      documentosAprovados: documentosAprovados.map((d) => d.tipo),
     };
   }
 
-  async avancarFaseInterna(licitacaoId: string): Promise<Licitacao> {
+  /**
+   * "Avançar" das telas da fase interna — pelos ATOS da máquina de estados
+   * (E1), com o mesmo gate documental do PUT /licitacoes/:id/avancar-fase:
+   *  - contratação direta: instrução em ETAPA ÚNICA → CONCLUIR_FASE_INTERNA
+   *    (art. 72) a partir de qualquer etapa interna;
+   *  - rito completo: conclui a etapa atual (CONCLUIR_PLANEJAMENTO,
+   *    _TERMO_REFERENCIA, _PESQUISA_PRECOS, _ANALISE_JURIDICA) e, em
+   *    APROVACAO_INTERNA, CONCLUIR_FASE_INTERNA.
+   * Recusa com 400 + `pendencias` (lista) quando falta documento.
+   */
+  async avancarFaseInterna(
+    licitacaoId: string,
+    ator: AtorTransicao = atorSistema('fase-interna'),
+  ): Promise<Licitacao> {
     const licitacao = await this.licitacaoRepository.findOneBy({
       id: licitacaoId,
     });
     if (!licitacao) {
       throw new NotFoundException('Licitacao nao encontrada');
     }
-
-    // Contratação direta: instrução em ETAPA ÚNICA (Art. 72) — completou o
-    // checklist, o processo vai direto para "pronto para divulgar".
-    if (this.isContratacaoDireta(licitacao)) {
-      const instrucao = await this.getInstrucao(licitacaoId);
-      if (!instrucao.pode_divulgar) {
-        throw new BadRequestException(
-          `Instrução incompleta (Art. 72): ${instrucao.pendentes.join('; ')}`,
-        );
-      }
-      licitacao.fase = FaseLicitacao.APROVACAO_INTERNA;
-      licitacao.fase_interna_concluida = true;
-      return await this.licitacaoRepository.save(licitacao);
-    }
-
-    const verificacao = await this.verificarFaseCompleta(licitacaoId);
-    if (!verificacao.completa) {
-      throw new BadRequestException(
-        `Documentos pendentes: ${verificacao.documentosPendentes.join(', ')}`,
+    if (!ETAPAS_FASE_INTERNA.includes(licitacao.fase)) {
+      throw new ConflictException(
+        'A fase interna desta licitação já foi encerrada (processo divulgado).',
       );
     }
-
-    // Define proxima fase
-    const ordemFases: FaseLicitacao[] = [
-      FaseLicitacao.PLANEJAMENTO,
-      FaseLicitacao.TERMO_REFERENCIA,
-      FaseLicitacao.PESQUISA_PRECOS,
-      FaseLicitacao.ANALISE_JURIDICA,
-      FaseLicitacao.APROVACAO_INTERNA,
-    ];
-
-    const indiceAtual = ordemFases.indexOf(licitacao.fase);
-
-    if (indiceAtual === ordemFases.length - 1) {
-      // Fase interna concluida, pronto para publicacao
-      licitacao.fase_interna_concluida = true;
-    } else if (indiceAtual >= 0) {
-      licitacao.fase = ordemFases[indiceAtual + 1];
+    // Já concluída e pronta para divulgar: nada a fazer (idempotente)
+    if (
+      licitacao.fase === FaseLicitacao.APROVACAO_INTERNA &&
+      licitacao.fase_interna_concluida
+    ) {
+      return licitacao;
     }
 
-    return await this.licitacaoRepository.save(licitacao);
+    const ato = this.isContratacaoDireta(licitacao)
+      ? AtoLicitacao.CONCLUIR_FASE_INTERNA
+      : ATO_DA_ETAPA[licitacao.fase];
+    return this.transicoes.executar(licitacaoId, ato, { ator });
+  }
+
+  /**
+   * Conclui a fase interna inteira pelos atos (importação de processo pronto):
+   * contratação direta → CONCLUIR_FASE_INTERNA; rito completo → ato de cada
+   * etapa e, por fim, CONCLUIR_FASE_INTERNA. Para na primeira etapa com
+   * documento obrigatório pendente e devolve as pendências (sem exceção).
+   */
+  private async concluirFaseInternaPorAtos(
+    licitacaoId: string,
+    ator: AtorTransicao,
+  ): Promise<string[]> {
+    for (let passo = 0; passo <= ETAPAS_FASE_INTERNA.length; passo++) {
+      const lic = await this.licitacaoRepository.findOneByOrFail({ id: licitacaoId });
+      if (!ETAPAS_FASE_INTERNA.includes(lic.fase)) return [];
+      if (lic.fase === FaseLicitacao.APROVACAO_INTERNA && lic.fase_interna_concluida) return [];
+      try {
+        await this.avancarFaseInterna(licitacaoId, ator);
+      } catch (e: any) {
+        if (e instanceof BadRequestException) {
+          const corpo: any = e.getResponse();
+          return Array.isArray(corpo?.pendencias) ? corpo.pendencias : [String(corpo?.message ?? e.message)];
+        }
+        throw e;
+      }
+    }
+    return [];
   }
 
   // ========================================

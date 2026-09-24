@@ -679,10 +679,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect(m2[3].melhorValor / m2[0].melhorValor).toBeGreaterThan(1.05);
     });
 
-    // DEFEITO CONHECIDO B7: a disputa-v2 encerra os itens mas nunca avança a etapa da
-    // sessão nem a fase da licitação — backend/src/disputa-v2/disputa.service.ts:795-836
-    // (encerrarItem só mexe no item) — corrigir na E2
-    test.failing(
+    // CORRIGIDO NA E1 (era o defeito B7): encerrado o último item, a disputa-v2 tira a
+    // sessão da etapa de lances e pede ENCERRAR_DISPUTA à máquina de estados
+    test(
       'com todos os itens encerrados, a sessão sai da etapa de lances e a licitação vai a julgamento',
       async () => {
         const s = await sessao();

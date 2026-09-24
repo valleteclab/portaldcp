@@ -314,9 +314,9 @@ export class TransicoesService {
           `SELECT status::text AS status, fornecedor_vencedor_id FROM itens_licitacao WHERE licitacao_id = $1`,
           [licitacaoId],
         ),
-      instrucaoArt72: async () => {
-        // Resolução tardia: evita ciclo de módulos (a fase-interna vai
-        // depender deste serviço para as próprias transições).
+      instrucaoProcesso: async (etapa) => {
+        // Resolução tardia: evita ciclo de módulos (a fase-interna depende
+        // deste serviço para as próprias transições).
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { FaseInternaService } = require('../../fase-interna/fase-interna.service');
         let servico: any;
@@ -325,7 +325,7 @@ export class TransicoesService {
         } catch {
           return null;
         }
-        const instrucao = await servico.getInstrucao(licitacaoId);
+        const instrucao = await servico.getInstrucao(licitacaoId, etapa);
         return { pode_divulgar: !!instrucao.pode_divulgar, pendentes: instrucao.pendentes ?? [] };
       },
     };

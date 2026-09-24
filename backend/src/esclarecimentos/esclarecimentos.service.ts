@@ -1,13 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Esclarecimento, StatusEsclarecimento } from './esclarecimento.entity';
+import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { avaliarPrazoManifestacao } from '../impugnacoes/prazo-manifestacao.util';
 
 @Injectable()
 export class EsclarecimentosService {
   constructor(
     @InjectRepository(Esclarecimento)
     private esclarecimentoRepository: Repository<Esclarecimento>,
+    @InjectRepository(Licitacao)
+    private licitacaoRepository: Repository<Licitacao>,
   ) {}
 
   async findByLicitacao(licitacaoId: string): Promise<Esclarecimento[]> {
@@ -30,6 +34,16 @@ export class EsclarecimentosService {
   }
 
   async create(data: Partial<Esclarecimento>): Promise<Esclarecimento> {
+    const licitacao = await this.licitacaoRepository.findOne({ where: { id: data.licitacao_id } });
+    if (!licitacao) {
+      throw new NotFoundException('Licitação não encontrada');
+    }
+    // Mesmo prazo da impugnação (art. 164: "impugnar ... ou solicitar
+    // esclarecimento ... até 3 dias úteis antes da data de abertura do certame").
+    const prazo = avaliarPrazoManifestacao(licitacao, 'ESCLARECIMENTO');
+    if (!prazo.aberto) {
+      throw new BadRequestException(prazo.motivo);
+    }
     const esclarecimento = this.esclarecimentoRepository.create({
       ...data,
       status: StatusEsclarecimento.PENDENTE

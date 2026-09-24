@@ -23,6 +23,7 @@ import type { Ator } from '../auth/acesso/ator';
 import { SigiloDisputaService } from '../disputa-v2/sigilo-disputa.service';
 import { licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
 import { StatusSessao } from './entities/sessao-disputa.entity';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
  * SESSÃO PÚBLICA (legado da sala /sessao + etapas pós-disputa).
@@ -197,7 +198,7 @@ export class SessaoController {
   @Put(':id/iniciar')
   async iniciarSessao(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.iniciarSessao(id);
+    return this.sessaoService.iniciarSessao(id, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()
@@ -211,7 +212,7 @@ export class SessaoController {
   @Put(':id/avancar-disputa')
   async avancarParaDisputa(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.avancarParaDisputa(id);
+    return this.sessaoService.avancarParaDisputa(id, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()
@@ -223,7 +224,7 @@ export class SessaoController {
   ) {
     const dono = await this.acesso.assertOrgaoDaSessao(ator, id);
     await this.assertItemDaLicitacao(itemId, dono.licitacaoId);
-    return this.sessaoService.iniciarDisputaItem(id, itemId);
+    return this.sessaoService.iniciarDisputaItem(id, itemId, atorTransicaoDe(ator));
   }
 
   /**
@@ -234,7 +235,7 @@ export class SessaoController {
   @Put(':id/iniciar-todos-itens')
   async iniciarDisputaTodosItens(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.iniciarDisputaTodosItens(id);
+    return this.sessaoService.iniciarDisputaTodosItens(id, atorTransicaoDe(ator));
   }
 
   /**
@@ -254,7 +255,7 @@ export class SessaoController {
   @Put(':id/encerrar-item')
   async encerrarDisputaItem(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.encerrarDisputaItem(id);
+    return this.sessaoService.encerrarDisputaItem(id, atorTransicaoDe(ator));
   }
 
   /**
@@ -308,7 +309,7 @@ export class SessaoController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.encerrarNegociacao(id, body.valorFinal);
+    return this.sessaoService.encerrarNegociacao(id, body.valorFinal, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()
@@ -319,7 +320,7 @@ export class SessaoController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.convocarParaHabilitacao(id, fornecedorId);
+    return this.sessaoService.convocarParaHabilitacao(id, fornecedorId, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()
@@ -342,7 +343,7 @@ export class SessaoController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.reprovarHabilitacao(id, fornecedorId, body.motivo);
+    return this.sessaoService.reprovarHabilitacao(id, fornecedorId, body.motivo, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()
@@ -437,7 +438,7 @@ export class SessaoController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.recursosService.admitirIntencao(id, fornecedorId, body);
+    return this.recursosService.admitirIntencao(id, fornecedorId, body, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()
@@ -508,7 +509,7 @@ export class SessaoController {
     @AtorAtual() ator: Ator,
   ) {
     await this.assertOrgaoDoRecurso(ator, recursoId);
-    return this.recursosService.decidir(recursoId, body);
+    return this.recursosService.decidir(recursoId, body, atorTransicaoDe(ator));
   }
 
   // === HOMOLOGAÇÃO (Art. 71) ===
@@ -521,7 +522,7 @@ export class SessaoController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.homologar(id, body);
+    return this.sessaoService.homologar(id, body, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()
@@ -548,14 +549,14 @@ export class SessaoController {
   @Put(':id/adjudicar-todos')
   async adjudicarTodos(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.adjudicarTodos(id);
+    return this.sessaoService.adjudicarTodos(id, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()
   @Put(':id/encerrar')
   async encerrarSessao(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.encerrarSessao(id);
+    return this.sessaoService.encerrarSessao(id, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()

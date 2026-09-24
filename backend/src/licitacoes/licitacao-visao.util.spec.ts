@@ -60,4 +60,22 @@ describe('visões da licitação', () => {
     expect(licitacaoEhPublica({ fase: FaseLicitacao.SUSPENSO })).toBe(false);
     expect(licitacaoEhPublica({ fase: FaseLicitacao.SUSPENSO, data_publicacao_edital: '2026-09-01' })).toBe(true);
   });
+
+  it('visões expõem o prazo EFETIVO de impugnação (art. 164) — a tela não recalcula', () => {
+    const lic = {
+      id: 'l1',
+      modalidade: 'PREGAO_ELETRONICO',
+      fase: FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
+      situacao: 'ATIVA',
+      data_limite_impugnacao: null,
+      data_abertura_sessao: new Date('2099-10-19T12:00:00Z'), // segunda
+    };
+    const esperado = '2099-10-14T23:59:59'; // quarta anterior, relógio de Brasília
+    for (const r of [licitacaoParaPublico(lic), licitacaoParaOrgao(lic)] as any[]) {
+      expect(r.data_limite_impugnacao_efetiva).toBe(esperado);
+      expect(r.prazo_manifestacao_aberto).toBe(true);
+    }
+    // visão parcial (sem fase/cronograma) não ganha os campos
+    expect('data_limite_impugnacao_efetiva' in (licitacaoParaPublico({ itens: [] }) as any)).toBe(false);
+  });
 });

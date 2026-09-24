@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
 import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Licitacao {
@@ -32,6 +33,10 @@ interface Licitacao {
   numero_edital?: string
   objeto: string
   fase: string
+  data_limite_impugnacao?: string | null
+  /** Prazo do art. 164 (mesmo da impugnação) calculado pelo backend */
+  data_limite_impugnacao_efetiva?: string | null
+  prazo_manifestacao_aberto?: boolean
 }
 
 interface MeuEsclarecimento {
@@ -209,7 +214,15 @@ export default function EsclarecimentosPage() {
           </CardTitle>
           <CardDescription>
             Descreva sua dúvida de forma clara e objetiva
+            {dataLimiteManifestacao(licitacao) && (
+              <> — prazo até {new Date(dataLimiteManifestacao(licitacao)!).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (art. 164 da Lei 14.133/2021)</>
+            )}
           </CardDescription>
+          {licitacao && !prazoManifestacaoAberto(licitacao) && (
+            <p className="text-sm text-amber-700 mt-2">
+              O prazo para pedidos de esclarecimento encerrou (até 3 dias úteis antes da abertura do certame).
+            </p>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -280,7 +293,7 @@ export default function EsclarecimentosPage() {
 
           <Button 
             onClick={enviarEsclarecimento} 
-            disabled={enviando || !texto.trim()}
+            disabled={enviando || !texto.trim() || !prazoManifestacaoAberto(licitacao)}
             className="w-full"
           >
             {enviando ? (

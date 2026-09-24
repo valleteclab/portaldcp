@@ -16,6 +16,7 @@ import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { Lance } from '../lances/entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
+import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { PropostaItem } from '../propostas/entities/proposta-item.entity';
       Proposta,
       PropostaItem,
     ]),
+    TransicoesModule,
   ],
   controllers: [DisputaController],
   providers: [DisputaService, DisputaGateway, DisputaTimerService, AnonimizacaoService, SigiloDisputaService],

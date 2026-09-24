@@ -22,6 +22,7 @@ import {
   TipoContratacao,
 } from '../../src/licitacoes/entities/licitacao.entity';
 import { TipoDocumentoFaseInterna } from '../../src/fase-interna/entities/documento-fase-interna.entity';
+import { DOCUMENTOS_OBRIGATORIOS_POR_ETAPA } from '../../src/fase-interna/documentos-obrigatorios';
 
 // ---------------------------------------------------------------------------
 // Utilidades
@@ -419,7 +420,30 @@ export async function prepararInstrucaoContratacaoDireta(ctx: AppE2E, lic: Licit
 }
 
 /**
+ * Rito completo (pregão, concorrência...): cria, pela API, os documentos
+ * obrigatórios da etapa interna `etapa` — gate documental dos atos da fase
+ * interna (E1.7, backend/src/fase-interna/documentos-obrigatorios.ts).
+ * Documento com conteúdo e sem fluxo de aprovação configurado conta como pronto.
+ */
+export async function prepararDocumentosEtapa(
+  ctx: AppE2E,
+  lic: LicitacaoFixture,
+  etapa: FaseLicitacao,
+): Promise<void> {
+  for (const tipo of DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[etapa] ?? []) {
+    const r = await ctx
+      .http()
+      .post(`/api/fase-interna/${lic.id}/documento`)
+      .set(bearer(lic.orgao.token))
+      .send({ tipo, titulo: `${tipo} — teste E2E`, descricao: `Documento ${tipo} — teste E2E` });
+    esperarStatus(r, 201, `criar documento ${tipo}`);
+  }
+}
+
+/**
  * Leva a licitação até `alvo` pela API pública:
+ *  - rito completo: cria antes os documentos obrigatórios de cada etapa
+ *    interna (gate documental E1.7 — `prepararDocumentosEtapa`);
  *  - fases internas e externas: PUT /api/licitacoes/:id/avancar-fase (ato
  *    principal da fase atual, com as pré-condições do TransicoesService);
  *  - APROVACAO_INTERNA → PUBLICADO: PUT /api/licitacoes/:id/publicar-edital
@@ -446,8 +470,14 @@ export async function levarAteFase(
   while (ORDEM_FASES.indexOf(atual.fase) < idxAlvo) {
     if (++guarda > ORDEM_FASES.length + 2) throw new Error('[fixture] levarAteFase não progrediu');
 
+    const direta = CONTRATACAO_DIRETA.includes(lic.modalidade);
+    // Rito completo: documentos obrigatórios da etapa interna atual (gate E1.7)
+    if (!direta && ORDEM_FASES.indexOf(atual.fase) <= ORDEM_FASES.indexOf(FaseLicitacao.APROVACAO_INTERNA)) {
+      await prepararDocumentosEtapa(ctx, lic, atual.fase);
+    }
+
     if (atual.fase === FaseLicitacao.APROVACAO_INTERNA) {
-      if (CONTRATACAO_DIRETA.includes(lic.modalidade)) {
+      if (direta) {
         await prepararInstrucaoContratacaoDireta(ctx, lic);
       }
       const r = await ctx
@@ -467,6 +497,15 @@ export async function levarAteFase(
       .send({});
     esperarStatus(r, 200, `avançar fase a partir de ${atual.fase}`);
     atual = r.body;
+  }
+  // Rito completo levado até APROVACAO_INTERNA: deixa a etapa documentada
+  // (autorização, designação, dotação) — pronto para publicar, como antes do gate.
+  if (
+    alvo === FaseLicitacao.APROVACAO_INTERNA &&
+    atual.fase === FaseLicitacao.APROVACAO_INTERNA &&
+    !CONTRATACAO_DIRETA.includes(lic.modalidade)
+  ) {
+    await prepararDocumentosEtapa(ctx, lic, FaseLicitacao.APROVACAO_INTERNA);
   }
   return atual;
 }

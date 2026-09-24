@@ -5,7 +5,10 @@ import { gerarAvisoDispensaPdf } from '../licitacoes/aviso-dispensa-pdf';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { PncpSync, TipoSincronizacao, StatusSincronizacao } from './entities/pncp-sync.entity';
-import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
+import { Licitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.entity';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { AtoLicitacao, AtorTransicao, atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
+import { ehFaseInterna } from '../licitacoes/transicoes/fases';
 import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { Orgao } from '../orgaos/entities/orgao.entity';
@@ -50,6 +53,7 @@ export class PncpService implements OnModuleInit {
     private systemConfigService: SystemConfigService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly transicoes: TransicoesService,
   ) {
     // Debug: verificar se as variáveis estão sendo lidas
     this.logger.log(`[INIT] ConfigService PNCP_LOGIN: ${this.configService.get('PNCP_LOGIN') ? 'DEFINIDO' : 'NÃO DEFINIDO'}`);
@@ -557,7 +561,10 @@ export class PncpService implements OnModuleInit {
 
   // ============ COMPRA/LICITAÇÃO ============
 
-  async enviarCompra(licitacaoId: string): Promise<PncpResponseDto> {
+  async enviarCompra(
+    licitacaoId: string,
+    ator: AtorTransicao = atorSistema('pncp'),
+  ): Promise<PncpResponseDto> {
     // Primeiro validar
     const validacao = await this.validarLicitacaoParaPNCP(licitacaoId);
     if (!validacao.valido) {
@@ -592,6 +599,17 @@ export class PncpService implements OnModuleInit {
         'A data de abertura da sessão é obrigatória para enviar ao PNCP.',
         HttpStatus.BAD_REQUEST
       );
+    }
+
+    // Publicar pelo PNCP NÃO contorna os gates do publicar-edital (E1): se a
+    // licitação ainda não foi divulgada, o ato PUBLICAR precisa ser possível
+    // AGORA (fase, situação, gate documental da fase interna, prazo mínimo da
+    // dispensa) — conferido ANTES de a compra existir no PNCP.
+    if (ehFaseInterna(licitacao.fase)) {
+      await this.transicoes.verificar(licitacaoId, AtoLicitacao.PUBLICAR, {
+        ator,
+        dados: this.dadosPublicacaoPncp(licitacao),
+      });
     }
 
     // Priorizar CNPJ do órgão da licitação, não da plataforma
@@ -762,17 +780,20 @@ export class PncpService implements OnModuleInit {
       const cnpjLimpo = cnpj.replace(/\D/g, '');
       const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpjLimpo}/${anoCompra}/${sequencialCompra}`;
 
-      // Atualizar licitação com número de controle PNCP e mudar fase para PUBLICADO
-      // Conforme Art. 17 da Lei 14.133/2021, a publicação do edital marca o início da fase externa
-      await this.licitacaoRepository.update(licitacaoId, {
-        numero_controle_pncp: numeroControlePNCP, // Usar a variável já extraída (pode vir do body ou header)
-        ano_compra_pncp: anoCompra,
-        sequencial_compra_pncp: sequencialCompra,
-        link_pncp: linkPncp,
-        enviado_pncp: true,
-        fase: FaseLicitacao.PUBLICADO, // Transição para fase externa - Art. 17, II da Lei 14.133/2021
-        data_publicacao_edital: new Date() // Registrar data real de publicação
-      });
+      // Grava os dados do PNCP e, se a licitação ainda não estava divulgada,
+      // pratica o ato PUBLICAR (art. 17, II / art. 54). Licitação já adiante
+      // (acolhimento, disputa...) NÃO volta para PUBLICADO.
+      await this.registrarPublicacaoPncp(
+        licitacaoId,
+        {
+          numero_controle_pncp: numeroControlePNCP, // Usar a variável já extraída (pode vir do body ou header)
+          ano_compra_pncp: anoCompra,
+          sequencial_compra_pncp: sequencialCompra,
+          link_pncp: linkPncp,
+          enviado_pncp: true,
+        },
+        ator,
+      );
 
       this.logger.log(`Compra enviada ao PNCP: ${numeroControlePNCP} - Link: ${linkPncp}`);
 
@@ -800,16 +821,19 @@ export class PncpService implements OnModuleInit {
         // Gerar link
         const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpjExistente}/${anoExistente}/${sequencialExistente}`;
         
-        // Vincular automaticamente
-        await this.licitacaoRepository.update(licitacaoId, {
-          numero_controle_pncp: numeroControlePNCP,
-          ano_compra_pncp: anoExistente,
-          sequencial_compra_pncp: sequencialExistente,
-          link_pncp: linkPncp,
-          enviado_pncp: true,
-          fase: FaseLicitacao.PUBLICADO
-        });
-        
+        // Vincular automaticamente (PUBLICAR só se ainda não divulgada)
+        await this.registrarPublicacaoPncp(
+          licitacaoId,
+          {
+            numero_controle_pncp: numeroControlePNCP,
+            ano_compra_pncp: anoExistente,
+            sequencial_compra_pncp: sequencialExistente,
+            link_pncp: linkPncp,
+            enviado_pncp: true,
+          },
+          ator,
+        );
+
         sync.status = StatusSincronizacao.ENVIADO;
         sync.numero_controle_pncp = numeroControlePNCP;
         sync.ano_compra = anoExistente;
@@ -846,7 +870,8 @@ export class PncpService implements OnModuleInit {
     licitacaoId: string,
     numeroControlePNCP: string,
     anoCompra: number,
-    sequencialCompra: number
+    sequencialCompra: number,
+    ator: AtorTransicao = atorSistema('pncp'),
   ): Promise<PncpResponseDto> {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
@@ -861,15 +886,26 @@ export class PncpService implements OnModuleInit {
     const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao);
     const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpj}/${anoCompra}/${sequencialCompra}`;
 
-    // Atualizar licitação
-    await this.licitacaoRepository.update(licitacaoId, {
-      numero_controle_pncp: numeroControlePNCP,
-      ano_compra_pncp: anoCompra,
-      sequencial_compra_pncp: sequencialCompra,
-      link_pncp: linkPncp,
-      enviado_pncp: true,
-      fase: FaseLicitacao.PUBLICADO
-    });
+    // Vincular não pode contornar o gate do publicar-edital: ainda não
+    // divulgada → o ato PUBLICAR precisa ser possível (senão 409/400, nada
+    // é gravado). Já divulgada → só registra os dados do PNCP.
+    if (ehFaseInterna(licitacao.fase)) {
+      await this.transicoes.verificar(licitacaoId, AtoLicitacao.PUBLICAR, {
+        ator,
+        dados: this.dadosPublicacaoPncp(licitacao),
+      });
+    }
+    await this.registrarPublicacaoPncp(
+      licitacaoId,
+      {
+        numero_controle_pncp: numeroControlePNCP,
+        ano_compra_pncp: anoCompra,
+        sequencial_compra_pncp: sequencialCompra,
+        link_pncp: linkPncp,
+        enviado_pncp: true,
+      },
+      ator,
+    );
 
     this.logger.log(`Licitação ${licitacao.numero_processo} vinculada ao PNCP: ${numeroControlePNCP}`);
 
@@ -881,6 +917,44 @@ export class PncpService implements OnModuleInit {
       sequencial: sequencialCompra,
       link: linkPncp
     };
+  }
+
+  /** Dados do ato PUBLICAR quando a divulgação vem do PNCP (cronograma já gravado). */
+  private dadosPublicacaoPncp(licitacao: Licitacao): Record<string, any> {
+    const dados: Record<string, any> = { data_publicacao_edital: new Date().toISOString() };
+    for (const campo of ['data_limite_impugnacao', 'data_inicio_acolhimento', 'data_fim_acolhimento', 'data_abertura_sessao'] as const) {
+      if (licitacao[campo]) dados[campo] = new Date(licitacao[campo] as any).toISOString();
+    }
+    return dados;
+  }
+
+  /**
+   * Grava os dados da compra no PNCP e, se a licitação ainda está na fase
+   * interna, pratica o ato PUBLICAR (idempotente: `ignorarSeJaAplicado`).
+   * Nunca move para trás uma licitação já divulgada/adiante.
+   */
+  private async registrarPublicacaoPncp(
+    licitacaoId: string,
+    campos: Partial<Licitacao>,
+    ator: AtorTransicao,
+  ): Promise<void> {
+    await this.licitacaoRepository.update(licitacaoId, campos as any);
+    const licitacao = await this.licitacaoRepository.findOne({ where: { id: licitacaoId } });
+    if (!licitacao || !ehFaseInterna(licitacao.fase)) return;
+    try {
+      await this.transicoes.executar(licitacaoId, AtoLicitacao.PUBLICAR, {
+        ator,
+        ignorarSeJaAplicado: true,
+        dados: this.dadosPublicacaoPncp(licitacao),
+        registro: { origem: 'PNCP', numero_controle_pncp: campos.numero_controle_pncp ?? null },
+      });
+    } catch (e: any) {
+      // A compra já está no PNCP (o gate foi conferido antes do envio): não
+      // derruba o envio — a divulgação local fica pendente no cockpit.
+      this.logger.error(
+        `Compra da licitação ${licitacaoId} registrada no PNCP, mas o ato PUBLICAR falhou: ${e?.message ?? e}`,
+      );
+    }
   }
 
   async atualizarCompra(licitacaoId: string, sync: PncpSync): Promise<PncpResponseDto> {
@@ -2781,13 +2855,24 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async excluirCompra(anoCompra: string, sequencialCompra: string, dados: any): Promise<PncpResponseDto> {
+  async excluirCompra(
+    anoCompra: string,
+    sequencialCompra: string,
+    dados: any,
+    ator: AtorTransicao = atorSistema('pncp'),
+  ): Promise<PncpResponseDto> {
     const justificativa = typeof dados === 'string' ? dados : dados?.justificativa;
     const licitacaoId = typeof dados === 'object' ? dados?.licitacaoId : null;
+    const motivo = (justificativa || '').trim() || 'Exclusão da compra no PNCP solicitada pelo órgão';
 
     // Buscar licitação para obter CNPJ do órgão
     let cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    
+
+    // Licitação divulgada e em andamento: excluir a compra do PNCP é o ato
+    // CANCELAR_PUBLICACAO (volta a APROVACAO_INTERNA) — só antes de haver
+    // propostas; depois disso é revogar/anular. Conferido ANTES de excluir no
+    // PNCP (409 fora da fase / 400 com propostas).
+    let cancelarPublicacao = false;
     if (licitacaoId) {
       const licitacao = await this.licitacaoRepository.findOne({
         where: { id: licitacaoId },
@@ -2795,6 +2880,15 @@ export class PncpService implements OnModuleInit {
       });
       if (this.obterCnpjPncpDoOrgao(licitacao?.orgao)) {
         cnpj = this.obterCnpjPncpDoOrgao(licitacao?.orgao);
+      }
+      const situacao = licitacao?.situacao ?? SituacaoLicitacao.ATIVA;
+      if (
+        licitacao &&
+        !ehFaseInterna(licitacao.fase) &&
+        [SituacaoLicitacao.ATIVA, SituacaoLicitacao.SUSPENSA].includes(situacao)
+      ) {
+        await this.transicoes.verificar(licitacaoId, AtoLicitacao.CANCELAR_PUBLICACAO, { ator, motivo });
+        cancelarPublicacao = true;
       }
     }
 
@@ -2821,12 +2915,27 @@ export class PncpService implements OnModuleInit {
             sequencial_compra_pncp: () => 'NULL',
             link_pncp: () => 'NULL',
             enviado_pncp: false,
-            fase: FaseLicitacao.PLANEJAMENTO // Volta para planejamento
           })
           .where('id = :id', { id: licitacaoId })
           .execute();
-        
+
         this.logger.log(`Licitação ${licitacaoId} - dados PNCP limpos após exclusão`);
+
+        if (cancelarPublicacao) {
+          try {
+            await this.transicoes.executar(licitacaoId, AtoLicitacao.CANCELAR_PUBLICACAO, {
+              ator,
+              motivo,
+              registro: { origem: 'PNCP', compra: `${anoCompra}/${sequencialCompra}` },
+            });
+          } catch (e: any) {
+            // A compra já saiu do PNCP; a licitação fica na fase em que estava
+            // (corrida: proposta chegou entre a conferência e a exclusão).
+            this.logger.error(
+              `Compra ${anoCompra}/${sequencialCompra} excluída do PNCP, mas a publicação da licitação ${licitacaoId} não foi cancelada: ${e?.message ?? e}`,
+            );
+          }
+        }
       }
 
       this.logger.log(`Compra excluída: ${anoCompra}/${sequencialCompra}`);

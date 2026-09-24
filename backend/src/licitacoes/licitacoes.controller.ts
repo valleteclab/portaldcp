@@ -481,7 +481,8 @@ export class LicitacoesController {
   @SomenteOrgao()
   async atualizarFase(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.schedulerService.atualizarFaseLicitacao(id);
+    // Mesmo caminho do cron (atos INICIAR/ENCERRAR_ACOLHIMENTO), com o órgão como ator
+    return licitacaoParaOrgao(await this.schedulerService.atualizarFaseLicitacao(id, atorTransicaoDe(ator)));
   }
 
   @Delete(':id')

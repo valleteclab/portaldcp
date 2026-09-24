@@ -1,27 +1,37 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, LessThanOrEqual, MoreThan } from 'typeorm';
 import { Licitacao, FaseLicitacao, SituacaoLicitacao } from './entities/licitacao.entity';
+import { TransicoesService } from './transicoes/transicoes.service';
+import { AtoLicitacao, AtorTransicao, atorSistema } from './transicoes/transicoes.tipos';
+
+/** Fases de onde o relógio inicia o acolhimento (IMPUGNACAO = legado). */
+const FASES_ANTES_DO_ACOLHIMENTO = [FaseLicitacao.PUBLICADO, FaseLicitacao.IMPUGNACAO];
 
 /**
- * Serviço responsável por atualizar automaticamente as fases das licitações
- * baseado nas datas do cronograma.
- * 
- * Regras de transição (Lei 14.133/2021):
- * 
- * 1. PUBLICADO → ACOLHIMENTO_PROPOSTAS
- *    Quando: data_inicio_acolhimento <= agora
- *    Nota: O período de impugnação é paralelo, não sequencial
- * 
- * 2. ACOLHIMENTO_PROPOSTAS → EM_DISPUTA (ou ANALISE_PROPOSTAS)
- *    Quando: data_abertura_sessao <= agora
- *    Nota: A sessão pode ser aberta manualmente pelo pregoeiro
- * 
- * Os períodos podem se sobrepor:
- * - Impugnação: até 3 dias úteis antes da abertura
- * - Propostas: desde publicação até data_fim_acolhimento
- * - Ambos podem ocorrer simultaneamente
+ * RELÓGIO DO CRONOGRAMA DA LICITAÇÃO (plano E1 item 6).
+ *
+ * O scheduler só PEDE transições por prazo ao TransicoesService — nunca grava
+ * `fase` direto. Cada pedido é idempotente (`ignorarSeJaAplicado`), passa pelo
+ * lock da licitação (cron × usuário não fazem transição dupla) e fica no
+ * histórico `licitacao_transicoes` com ator SISTEMA/scheduler:
+ *
+ *  1. INICIAR_ACOLHIMENTO — PUBLICADO (ou IMPUGNACAO legado) →
+ *     ACOLHIMENTO_PROPOSTAS quando `data_inicio_acolhimento` chegou e o prazo
+ *     de propostas ainda não terminou;
+ *  2. ENCERRAR_ACOLHIMENTO — ACOLHIMENTO_PROPOSTAS → ANALISE_PROPOSTAS quando
+ *     `data_fim_acolhimento` chegou. A sessão pública é aberta pelo pregoeiro.
+ *
+ * Impugnação/esclarecimento NÃO dependem da fase: o prazo do art. 164 (até 3
+ * dias úteis antes da abertura, ou `data_limite_impugnacao`) corre em paralelo
+ * ao acolhimento e é checado na criação (`impugnacoes/prazo-manifestacao.util`).
+ * Por isso o relógio não abre mais a fase IMPUGNACAO (ABRIR_IMPUGNACAO saiu dos
+ * fluxos) e mover para o acolhimento não encerra o prazo de impugnação.
+ *
+ * Só licitações com situação ATIVA andam pelo relógio (suspensa/encerrada
+ * mantém a fase). Cada licitação é processada isoladamente: a falha de uma é
+ * registrada no log e não interrompe o lote.
  */
 @Injectable()
 export class LicitacoesSchedulerService {
@@ -30,125 +40,98 @@ export class LicitacoesSchedulerService {
   constructor(
     @InjectRepository(Licitacao)
     private readonly licitacaoRepository: Repository<Licitacao>,
+    private readonly transicoes: TransicoesService,
   ) {}
 
   /**
-   * Executa a cada minuto para verificar transições de fase
+   * A cada minuto: pede as transições por prazo das licitações ATIVAS cujo
+   * cronograma venceu. Devolve quantas licitações mudaram de fase.
    */
   @Cron(CronExpression.EVERY_MINUTE)
-  async atualizarFasesAutomaticamente() {
-    const agora = new Date();
-    
+  async atualizarFasesAutomaticamente(agora: Date = new Date()): Promise<number> {
+    let candidatas: Array<Pick<Licitacao, 'id' | 'numero_processo' | 'fase'>>;
     try {
-      // 1. PUBLICADO/IMPUGNACAO → ACOLHIMENTO_PROPOSTAS
-      // Quando data_inicio_acolhimento já passou
-      await this.transicionarParaAcolhimento(agora);
-      
-      // 2. ACOLHIMENTO_PROPOSTAS → Aguardando abertura manual
-      // A abertura da sessão é feita manualmente pelo pregoeiro
-      // Mas podemos marcar como pronto para abertura
-      
+      candidatas = await this.licitacaoRepository.find({
+        select: { id: true, numero_processo: true, fase: true },
+        where: [
+          {
+            fase: In(FASES_ANTES_DO_ACOLHIMENTO),
+            situacao: SituacaoLicitacao.ATIVA,
+            data_inicio_acolhimento: LessThanOrEqual(agora),
+            data_fim_acolhimento: MoreThan(agora), // ainda não encerrou
+          },
+          {
+            fase: FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
+            situacao: SituacaoLicitacao.ATIVA,
+            data_fim_acolhimento: LessThanOrEqual(agora),
+          },
+        ],
+      });
     } catch (error) {
-      this.logger.error('Erro ao atualizar fases automaticamente:', error);
+      this.logger.error('Erro ao buscar licitações com prazo vencido:', error);
+      return 0;
     }
-  }
 
-  /**
-   * Transiciona licitações para ACOLHIMENTO_PROPOSTAS
-   * quando o período de acolhimento já iniciou
-   */
-  private async transicionarParaAcolhimento(agora: Date) {
-    const licitacoes = await this.licitacaoRepository.find({
-      where: {
-        fase: In([FaseLicitacao.PUBLICADO, FaseLicitacao.IMPUGNACAO]),
-        // E1: suspensa/encerrada mantém a fase — o relógio não a move
-        situacao: SituacaoLicitacao.ATIVA,
-        data_inicio_acolhimento: LessThanOrEqual(agora),
-        data_fim_acolhimento: MoreThan(agora), // Ainda não encerrou
+    let movidas = 0;
+    for (const c of candidatas) {
+      try {
+        const depois = await this.atualizarFaseLicitacao(c.id, atorSistema('scheduler'), agora);
+        if (depois.fase !== c.fase) movidas++;
+      } catch (error: any) {
+        // Uma licitação com problema não pode travar o relógio das outras
+        this.logger.error(
+          `Transição por prazo falhou na licitação ${c.numero_processo ?? c.id}: ${error?.message ?? error}`,
+        );
       }
-    });
-
-    for (const licitacao of licitacoes) {
-      this.logger.log(`Atualizando licitação ${licitacao.numero_processo} para ACOLHIMENTO_PROPOSTAS`);
-      
-      licitacao.fase = FaseLicitacao.ACOLHIMENTO_PROPOSTAS;
-      await this.licitacaoRepository.save(licitacao);
     }
-
-    if (licitacoes.length > 0) {
-      this.logger.log(`${licitacoes.length} licitação(ões) transicionada(s) para ACOLHIMENTO_PROPOSTAS`);
-    }
+    if (movidas > 0) this.logger.log(`${movidas} licitação(ões) avançada(s) pelo cronograma`);
+    return movidas;
   }
 
   /**
-   * Transiciona licitações para ANALISE_PROPOSTAS
-   * quando o período de acolhimento encerrou
+   * Aplica as transições por prazo de UMA licitação (cron e o endpoint manual
+   * PUT /licitacoes/:id/atualizar-fase usam este mesmo caminho). Sem prazo
+   * vencido — ou licitação não ATIVA — devolve a licitação sem alterar.
+   * Erros do ato (409/400) sobem para quem chamou.
    */
-  @Cron(CronExpression.EVERY_MINUTE)
-  async encerrarAcolhimento() {
-    const agora = new Date();
-
-    const licitacoes = await this.licitacaoRepository.find({
-      where: {
-        fase: FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
-        // E1: suspensa/encerrada mantém a fase — o relógio não a move
-        situacao: SituacaoLicitacao.ATIVA,
-        data_fim_acolhimento: LessThanOrEqual(agora),
-      }
-    });
-
-    for (const licitacao of licitacoes) {
-      this.logger.log(`Encerrando acolhimento da licitação ${licitacao.numero_processo}`);
-      
-      // Vai para análise de propostas, aguardando abertura da sessão
-      licitacao.fase = FaseLicitacao.ANALISE_PROPOSTAS;
-      await this.licitacaoRepository.save(licitacao);
-    }
-
-    if (licitacoes.length > 0) {
-      this.logger.log(`${licitacoes.length} licitação(ões) com acolhimento encerrado`);
-    }
-  }
-
-  /**
-   * Método para forçar atualização de uma licitação específica
-   * Útil para chamadas manuais ou após edição do cronograma
-   */
-  async atualizarFaseLicitacao(licitacaoId: string): Promise<Licitacao> {
-    const licitacao = await this.licitacaoRepository.findOne({
-      where: { id: licitacaoId }
-    });
-
-    if (!licitacao) {
-      throw new Error(`Licitação ${licitacaoId} não encontrada`);
-    }
-
-    const agora = new Date();
+  async atualizarFaseLicitacao(
+    licitacaoId: string,
+    ator: AtorTransicao = atorSistema('scheduler'),
+    agora: Date = new Date(),
+  ): Promise<Licitacao> {
+    let licitacao = await this.licitacaoRepository.findOne({ where: { id: licitacaoId } });
+    if (!licitacao) throw new NotFoundException(`Licitação ${licitacaoId} não encontrada`);
 
     // E1: suspensa/encerrada não anda pelo cronograma
     if (licitacao.situacao && licitacao.situacao !== SituacaoLicitacao.ATIVA) return licitacao;
 
-    // Verifica transições possíveis
+    const registro = { origem: 'cronograma' };
+
     if (
-      [FaseLicitacao.PUBLICADO, FaseLicitacao.IMPUGNACAO].includes(licitacao.fase) &&
+      FASES_ANTES_DO_ACOLHIMENTO.includes(licitacao.fase) &&
       licitacao.data_inicio_acolhimento &&
       new Date(licitacao.data_inicio_acolhimento) <= agora &&
       licitacao.data_fim_acolhimento &&
       new Date(licitacao.data_fim_acolhimento) > agora
     ) {
-      licitacao.fase = FaseLicitacao.ACOLHIMENTO_PROPOSTAS;
-      await this.licitacaoRepository.save(licitacao);
-      this.logger.log(`Licitação ${licitacao.numero_processo} atualizada para ACOLHIMENTO_PROPOSTAS`);
+      licitacao = await this.transicoes.executar(licitacao.id, AtoLicitacao.INICIAR_ACOLHIMENTO, {
+        ator,
+        ignorarSeJaAplicado: true,
+        registro,
+      });
     }
 
     if (
       licitacao.fase === FaseLicitacao.ACOLHIMENTO_PROPOSTAS &&
+      (!licitacao.situacao || licitacao.situacao === SituacaoLicitacao.ATIVA) &&
       licitacao.data_fim_acolhimento &&
       new Date(licitacao.data_fim_acolhimento) <= agora
     ) {
-      licitacao.fase = FaseLicitacao.ANALISE_PROPOSTAS;
-      await this.licitacaoRepository.save(licitacao);
-      this.logger.log(`Licitação ${licitacao.numero_processo} atualizada para ANALISE_PROPOSTAS`);
+      licitacao = await this.transicoes.executar(licitacao.id, AtoLicitacao.ENCERRAR_ACOLHIMENTO, {
+        ator,
+        ignorarSeJaAplicado: true,
+        registro,
+      });
     }
 
     return licitacao;

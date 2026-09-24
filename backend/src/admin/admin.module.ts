@@ -11,6 +11,7 @@ import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { DisputaModule } from '../disputa-v2/disputa.module';
 import { AuthModule } from '../auth/auth.module';
+import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 
 @Module({
   imports: [
@@ -24,7 +25,8 @@ import { AuthModule } from '../auth/auth.module';
     ]),
     forwardRef(() => DisputaModule),
     AuthModule, // fornece JwtService para AdminTestesService
-  ],
+    TransicoesModule, // atos da licitação (ENCERRAR_ACOLHIMENTO no teste admin)
+],
   controllers: [AdminMonitoramentoController, AdminTestesController],
   providers: [AdminTestesService],
 })

@@ -75,10 +75,23 @@ export default function FaseInternaPage({ params }: { params: Promise<{ id: stri
     finally { setSalvando(false) }
   }
 
+  // Cada chamada pratica o ato da etapa atual (rito completo) ou conclui a
+  // instrução (contratação direta); o backend recusa com a lista de pendências
+  // quando falta documento obrigatório (gate único da fase interna).
   const concluirFaseInterna = async () => {
     try {
-      const res = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/avancar`, { method: 'PUT' })
-      if (res.ok) router.push(`/orgao/licitacoes/${licitacaoId}`)
+      for (let passo = 0; passo < 5; passo++) {
+        const res = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/avancar`, { method: 'PUT' })
+        const corpo = await res.json().catch(() => null)
+        if (!res.ok) {
+          const pendencias: string[] = Array.isArray(corpo?.pendencias) ? corpo.pendencias : []
+          alert(pendencias.length ? `Não foi possível concluir:\n\n- ${pendencias.join('\n- ')}` : `Erro: ${corpo?.message || res.status}`)
+          carregarDados()
+          return
+        }
+        if (corpo?.fase_interna_concluida) break
+      }
+      router.push(`/orgao/licitacoes/${licitacaoId}`)
     } catch (e) { console.error(e) }
   }
 

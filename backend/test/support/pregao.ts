@@ -27,6 +27,8 @@ const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
  * de 127.0.0.1 (órgão, pregoeiro e quatro fornecedores), e um pregão completo
  * passa disso em poucos segundos — em produção cada participante tem o seu IP.
  * Desliga a contagem só nesta instância do app (não mexe no src/).
+ * Desde a E1 o criarApp() já faz isso por padrão (`limitarRequisicoes: false`);
+ * mantido por compatibilidade — chamar de novo é inofensivo.
  */
 export function desligarLimiteDeRequisicoes(ctx: AppE2E): void {
   const storage = ctx.app.get(ThrottlerStorage, { strict: false }) as any;

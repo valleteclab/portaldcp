@@ -6,6 +6,7 @@ import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitac
 import { SessaoDisputa, StatusSessao } from '../sessao/entities/sessao-disputa.entity';
 import { DisputaGateway } from './disputa.gateway';
 import { DisputaService } from './disputa.service';
+import { atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
  * ============================================================================
@@ -94,6 +95,9 @@ export class DisputaTimerService {
    * - Encerra quando passar tempo_prorrogacao_minutos sem lance após tempo inicial
    */
   private async processarSessaoModoAberto(sessao: SessaoDisputa) {
+    // Licitação suspensa/encerrada (E1): o relógio não encerra itens nem pede transições
+    if (!(await this.disputaService.licitacaoAtiva(sessao.licitacao_id))) return;
+
     const agora = Date.now();
     const tempoInicialMs = sessao.tempo_inatividade_minutos * 60 * 1000; // 10 min default
     const tempoProrrogacaoMs = sessao.tempo_prorrogacao_minutos * 60 * 1000; // 2 min default
@@ -166,7 +170,8 @@ export class DisputaTimerService {
    */
   private async encerrarItemExpirado(sessaoId: string, item: ItemLicitacao) {
     try {
-      const resultado = await this.disputaService.encerrarItem(sessaoId, item.id);
+      // Ator SISTEMA: o último item encerrado pede ENCERRAR_DISPUTA (fim do B7)
+      const resultado = await this.disputaService.encerrarItem(sessaoId, item.id, atorSistema('disputa-timer'));
 
       // Cada cliente recebe os itens na sua visão (E1a: sigilo dos licitantes)
       await this.disputaGateway.emitirItensPorVisao(sessaoId, item.licitacao_id, 'item_encerrado', {

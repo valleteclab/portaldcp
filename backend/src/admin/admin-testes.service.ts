@@ -3,6 +3,10 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { Orgao, TipoOrgao, EsferaAdministrativa } from '../orgaos/entities/orgao.entity';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { AtoLicitacao, atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
+import { DOCUMENTOS_OBRIGATORIOS_POR_ETAPA } from '../fase-interna/documentos-obrigatorios';
+import { FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 
 // ============================================================================
 // Tipos
@@ -38,9 +42,9 @@ const STEP_DEFINITIONS: Pick<TestStep, 'id' | 'descricao'>[] = [
   { id: 3, descricao: 'Adicionar Item 1 — Notebook Dell i7' },
   { id: 4, descricao: 'Adicionar Item 2 — Monitor 24 pol Full HD' },
   { id: 5, descricao: 'Adicionar Item 3 — Teclado e Mouse sem fio' },
-  { id: 6, descricao: 'Avançar fases internas 4× (→ APROVACAO_INTERNA)' },
+  { id: 6, descricao: 'Fase interna: documentos obrigatórios + atos das etapas (→ APROVACAO_INTERNA concluída)' },
   { id: 7, descricao: 'Publicar Edital (data abertura no passado)' },
-  { id: 8, descricao: 'Avançar 2× para ACOLHIMENTO_PROPOSTAS' },
+  { id: 8, descricao: 'Iniciar acolhimento (→ ACOLHIMENTO_PROPOSTAS)' },
   { id: 9, descricao: 'Cadastrar 5 Fornecedores (cadastro-rápido)' },
   { id: 10, descricao: 'Enviar Propostas dos 5 Fornecedores' },
   { id: 11, descricao: 'Avançar para ANALISE_PROPOSTAS' },
@@ -67,6 +71,7 @@ export class AdminTestesService implements OnModuleDestroy {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
+    private readonly transicoes: TransicoesService,
   ) {}
 
   onModuleDestroy() {
@@ -192,12 +197,29 @@ export class AdminTestesService implements OnModuleDestroy {
         });
       }
 
-      // ── Step 6: Avançar fases internas 4× ───────────────────────────────
+      // ── Step 6: Fase interna pelo gate documental (E1.7) ────────────────
+      // Cada etapa exige os seus documentos obrigatórios; o PUT
+      // /fase-interna/:id/avancar pratica o ato da etapa e, em
+      // APROVACAO_INTERNA, CONCLUIR_FASE_INTERNA.
       await this.runStep(6, async () => {
-        for (let i = 0; i < 4; i++) {
-          await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
+        const etapas = [
+          FaseLicitacao.PLANEJAMENTO,
+          FaseLicitacao.TERMO_REFERENCIA,
+          FaseLicitacao.PESQUISA_PRECOS,
+          FaseLicitacao.ANALISE_JURIDICA,
+          FaseLicitacao.APROVACAO_INTERNA,
+        ];
+        for (const etapa of etapas) {
+          for (const tipo of DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[etapa] ?? []) {
+            await this.post(base, `/fase-interna/${licitacaoId}/documento`, orgaoToken, {
+              tipo,
+              titulo: `${tipo} — Teste Admin E2E`,
+              descricao: `Documento ${tipo} gerado pelo teste admin E2E`,
+            });
+          }
+          await this.put(base, `/fase-interna/${licitacaoId}/avancar`, orgaoToken, {});
         }
-        return 'PLANEJAMENTO → APROVACAO_INTERNA';
+        return 'PLANEJAMENTO → APROVACAO_INTERNA (fase interna concluída)';
       });
 
       // ── Step 7: Publicar edital ──────────────────────────────────────────
@@ -219,10 +241,11 @@ export class AdminTestesService implements OnModuleDestroy {
         return 'fim acolhimento: +2d · abertura sessão: +3d (futuro, bloqueia scheduler)';
       });
 
-      // ── Step 8: Avançar 2× → ACOLHIMENTO_PROPOSTAS ──────────────────────
+      // ── Step 8: PUBLICADO → ACOLHIMENTO_PROPOSTAS (ato INICIAR_ACOLHIMENTO) ──
       await this.runStep(8, async () => {
-        for (let i = 0; i < 2; i++) {
-          await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
+        const r = await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
+        if (r.fase !== 'ACOLHIMENTO_PROPOSTAS') {
+          throw new Error(`Fase esperada ACOLHIMENTO_PROPOSTAS, obteve ${r.fase}`);
         }
         return 'PUBLICADO → ACOLHIMENTO_PROPOSTAS';
       });
@@ -268,19 +291,24 @@ export class AdminTestesService implements OnModuleDestroy {
           propostaIds.push(r.id);
           await this.put(base, `/propostas/${r.id}/enviar`, orgaoToken, {});
         }
-        // Avanço atômico: seta fase + retroage datas em uma única operação, sem janela para o scheduler
+        // Retroage o cronograma (só datas) e encerra o acolhimento PELO ATO
+        // (E1): ENCERRAR_ACOLHIMENTO idempotente — se o scheduler chegar
+        // primeiro, o pedido não falha nem duplica a transição.
         await this.dataSource.query(
           `UPDATE licitacoes
-           SET fase = 'ANALISE_PROPOSTAS',
-               data_fim_acolhimento  = NOW() - INTERVAL '2 hours',
+           SET data_fim_acolhimento  = NOW() - INTERVAL '2 hours',
                data_abertura_sessao  = NOW() - INTERVAL '1 hour'
            WHERE id = $1`,
           [licitacaoId],
         );
-        return `${propostaIds.length} propostas enviadas; fase→ANALISE_PROPOSTAS, datas→passado`;
+        await this.transicoes.executar(licitacaoId, AtoLicitacao.ENCERRAR_ACOLHIMENTO, {
+          ator: atorSistema('admin-testes'),
+          ignorarSeJaAplicado: true,
+        });
+        return `${propostaIds.length} propostas enviadas; datas→passado; ENCERRAR_ACOLHIMENTO → ANALISE_PROPOSTAS`;
       });
 
-      // ── Step 11: Verificar ANALISE_PROPOSTAS (fase já setada via DataSource no step 10) ──
+      // ── Step 11: Verificar ANALISE_PROPOSTAS (ato ENCERRAR_ACOLHIMENTO no step 10) ──
       await this.runStep(11, async () => {
         const r = await this.get(base, `/licitacoes/${licitacaoId}`, orgaoToken);
         if (r.fase !== 'ANALISE_PROPOSTAS') {

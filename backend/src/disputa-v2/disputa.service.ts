@@ -18,6 +18,10 @@ import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { AnonimizacaoService } from './anonimizacao.service';
 import { CANCELAMENTO_LANCE_FORNECEDOR_SEGUNDOS } from './disputa-cancelamento.constants';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
+import { exigirLicitacaoAtiva, licitacaoEstaAtiva } from '../sessao/licitacao-ativa';
+import { pedirEncerramentoDisputa } from '../sessao/transicoes-sessao';
 
 /**
  * ============================================================================
@@ -126,7 +130,58 @@ export class DisputaService {
     // Injetado via forwardRef para evitar dependência circular
     @Inject(forwardRef(() => AnonimizacaoService))
     private readonly anonimizacaoService: AnonimizacaoService,
+    private readonly transicoes: TransicoesService,
   ) {}
+
+  // ============================================================================
+  // GUARDA DA SALA (plano E1): todo ato exige a licitação ATIVA (409)
+  // ============================================================================
+
+  /** Sessão do ato (404) com a licitação ATIVA (409 se suspensa/encerrada). */
+  private async sessaoParaAto(sessaoId: string): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+    await exigirLicitacaoAtiva(this.licitacaoRepo, sessao.licitacao_id);
+    return sessao;
+  }
+
+  /** Relógio da disputa: não mexe em itens de licitação suspensa/encerrada. */
+  async licitacaoAtiva(licitacaoId: string): Promise<boolean> {
+    return licitacaoEstaAtiva(this.dataSource.manager, licitacaoId);
+  }
+
+  /**
+   * Fim da etapa de lances: com TODOS os itens da licitação encerrados (nenhum
+   * aguardando/em disputa), a sessão sai da etapa de lances (→ NEGOCIACAO, fora
+   * do MODO_ABERTO — o relógio para) e a licitação vai a julgamento
+   * (ENCERRAR_DISPUTA). Idempotente: só a primeira chamada muda a sessão.
+   */
+  private async concluirEtapaDeLancesSeTerminou(sessaoId: string, licitacaoId: string, ator: AtorTransicao): Promise<boolean> {
+    const [{ restantes }] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS restantes FROM itens_licitacao
+        WHERE licitacao_id = $1
+          AND (status_disputa IS NULL OR status_disputa::text IN ('AGUARDANDO','EM_DISPUTA','TEMPO_ALEATORIO'))`,
+      [licitacaoId],
+    );
+    if (Number(restantes) > 0) return false;
+
+    const r = await this.sessaoRepo
+      .createQueryBuilder()
+      .update(SessaoDisputa)
+      .set({ status: StatusSessao.EM_ANDAMENTO, etapa: EtapaSessao.NEGOCIACAO })
+      .where('id = :id', { id: sessaoId })
+      .andWhere('etapa IN (:...etapas)', { etapas: [EtapaSessao.DISPUTA_LANCES, EtapaSessao.RANDOM_ENCERRAMENTO] })
+      .execute();
+    if (r.affected) {
+      await this.registrarEvento(
+        sessaoId,
+        TipoEvento.DISPUTA_ENCERRADA,
+        'Etapa de lances encerrada: todos os itens foram finalizados. Segue o julgamento das propostas.',
+      );
+    }
+    await pedirEncerramentoDisputa(this.transicoes, licitacaoId, ator);
+    return true;
+  }
 
   // ============================================================================
   // BUSCAR DADOS DA SESSÃO
@@ -495,9 +550,8 @@ export class DisputaService {
    * Inicia disputa para um ou mais itens
    * Converte propostas em lances automaticamente
    */
-  async iniciarDisputa(sessaoId: string, itensIds: string[]): Promise<{ itensIniciados: number }> {
-    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+  async iniciarDisputa(sessaoId: string, itensIds: string[], ator: AtorTransicao): Promise<{ itensIniciados: number }> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     if (sessao.status === StatusSessao.SUSPENSA) {
       throw new BadRequestException('Sessão está suspensa. Não é possível iniciar novos itens.');
@@ -525,16 +579,29 @@ export class DisputaService {
     const agora = new Date();
     let itensIniciados = 0;
 
+    // Itens que de fato serão iniciados: da licitação desta sessão (E1a) e aguardando
+    const aIniciar: ItemLicitacao[] = [];
     for (const itemId of itensIds) {
       const item = await this.itemRepo.findOneBy({ id: itemId });
       if (!item) continue;
-      // E1a: só itens da licitação desta sessão
       if (item.licitacao_id !== sessao.licitacao_id) continue;
+      if (item.status_disputa && item.status_disputa !== StatusDisputaItem.AGUARDANDO) continue;
+      aIniciar.push(item);
+    }
 
-      // Só inicia se estiver aguardando
-      if (item.status_disputa && item.status_disputa !== StatusDisputaItem.AGUARDANDO) {
-        continue;
-      }
+    // Primeiro item em disputa = abertura da etapa de lances da licitação
+    // (INICIAR_DISPUTA; idempotente nos itens seguintes). Pré-condições
+    // (abertura, propostas aptas) falham antes de mexer em qualquer item.
+    if (aIniciar.length) {
+      await this.transicoes.executar(sessao.licitacao_id, AtoLicitacao.INICIAR_DISPUTA, {
+        ator,
+        ignorarSeJaAplicado: true,
+        registro: { origem: 'disputa-v2', sessao_id: sessaoId },
+      });
+    }
+
+    for (const item of aIniciar) {
+      const itemId = item.id;
 
       // Converter propostas em lances
       await this.converterPropostasEmLances(itemId, sessao.licitacao_id);
@@ -644,6 +711,9 @@ export class DisputaService {
       if (item.licitacao_id !== sessao.licitacao_id) {
         throw new BadRequestException('Item não pertence à licitação desta sessão');
       }
+
+      // E1: licitação ATIVA (FOR SHARE: um SUSPENDER concorrente espera este lance)
+      await exigirLicitacaoAtiva(manager, sessao.licitacao_id, { bloquear: true });
 
       // Validações
       if (item.status_disputa !== StatusDisputaItem.EM_DISPUTA) {
@@ -825,9 +895,12 @@ export class DisputaService {
   /**
    * Encerra a disputa de um item específico
    */
-  async encerrarItem(sessaoId: string, itemId: string): Promise<{ vencedor?: any }> {
-    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+  async encerrarItem(
+    sessaoId: string,
+    itemId: string,
+    ator: AtorTransicao,
+  ): Promise<{ vencedor?: any; etapaDeLancesEncerrada?: boolean }> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     const item = await this.itemRepo.findOneBy({ id: itemId });
     if (!item) throw new NotFoundException('Item não encontrado');
@@ -863,7 +936,11 @@ export class DisputaService {
       melhorLance?.fornecedor_id,
     );
 
+    // Último item encerrado → fim da etapa de lances (sessão e licitação) — B7
+    const etapaDeLancesEncerrada = await this.concluirEtapaDeLancesSeTerminou(sessaoId, sessao.licitacao_id, ator);
+
     return {
+      etapaDeLancesEncerrada,
       vencedor: melhorLance ? {
         fornecedorId: melhorLance.fornecedor_id,
         fornecedorNome: melhorLance.fornecedor_nome,
@@ -886,8 +963,7 @@ export class DisputaService {
     justificativa: string,
     dataReabertura?: Date,
   ): Promise<void> {
-    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     await this.sessaoRepo.update(sessaoId, {
       status: StatusSessao.SUSPENSA,
@@ -905,8 +981,7 @@ export class DisputaService {
    * Retoma sessão suspensa
    */
   async retomarSessao(sessaoId: string): Promise<void> {
-    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     if (sessao.status !== StatusSessao.SUSPENSA) {
       throw new BadRequestException('Sessão não está suspensa');
@@ -935,8 +1010,7 @@ export class DisputaService {
    * - Mantém as propostas originais
    */
   async reiniciarSessao(sessaoId: string, justificativa: string): Promise<{ itensReiniciados: number; lancesCancelados: number }> {
-    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     // 1. Buscar todos os itens da licitação
     const itens = await this.itemRepo.find({
@@ -1477,6 +1551,7 @@ export class DisputaService {
         where: { id: sessaoId },
       });
       if (!sessao) throw new NotFoundException('Sessão não encontrada');
+      await exigirLicitacaoAtiva(manager, sessao.licitacao_id, { bloquear: true });
 
       const item = await manager.findOne(ItemLicitacao, { where: { id: itemId } });
       if (!item || item.licitacao_id !== sessao.licitacao_id) {
@@ -1537,6 +1612,7 @@ export class DisputaService {
         where: { id: sessaoId },
       });
       if (!sessao) throw new NotFoundException('Sessão não encontrada');
+      await exigirLicitacaoAtiva(manager, sessao.licitacao_id, { bloquear: true });
 
       const item = await manager.findOne(ItemLicitacao, { where: { id: itemId } });
       if (!item || item.licitacao_id !== sessao.licitacao_id) {
@@ -1608,6 +1684,7 @@ export class DisputaService {
       if (!licitacao || licitacao.orgao_id !== orgaoId) {
         throw new ForbiddenException('Apenas o órgão da licitação pode cancelar lances');
       }
+      await exigirLicitacaoAtiva(manager, sessao.licitacao_id, { bloquear: true });
 
       const item = await manager.findOne(ItemLicitacao, { where: { id: itemId } });
       if (!item || item.licitacao_id !== sessao.licitacao_id) {

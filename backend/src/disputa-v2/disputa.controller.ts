@@ -11,6 +11,7 @@ import {
 } from '../auth/acesso/acesso.decorators';
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
  * ============================================================================
@@ -174,7 +175,11 @@ export class DisputaController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
-    return this.disputaService.iniciarDisputa(sessaoId, Array.isArray(body?.itensIds) ? body.itensIds : []);
+    return this.disputaService.iniciarDisputa(
+      sessaoId,
+      Array.isArray(body?.itensIds) ? body.itensIds : [],
+      atorTransicaoDe(ator),
+    );
   }
 
   @SomenteOrgao()
@@ -185,7 +190,7 @@ export class DisputaController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
-    return this.disputaService.encerrarItem(sessaoId, itemId);
+    return this.disputaService.encerrarItem(sessaoId, itemId, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()

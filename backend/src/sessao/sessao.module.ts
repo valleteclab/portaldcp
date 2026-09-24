@@ -14,6 +14,7 @@ import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { SigiloDisputaService } from '../disputa-v2/sigilo-disputa.service';
+import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { SigiloDisputaService } from '../disputa-v2/sigilo-disputa.service';
       PropostaItem,
     ]),
     ParametrosLicitacaoModule,
+    TransicoesModule,
   ],
   controllers: [SessaoController],
   providers: [SessaoService, RecursosService, SessaoGateway, SigiloDisputaService],

@@ -13,7 +13,11 @@ import {
 import { SessaoDisputa, EtapaSessao } from './entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from './entities/evento-sessao.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { ParametrosLicitacaoService } from '../parametros-licitacao/parametros-licitacao.service';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
+import { exigirLicitacaoAtiva } from './licitacao-ativa';
 
 /**
  * Ciclo de recursos administrativos (Art. 165, Lei 14.133/2021):
@@ -32,7 +36,16 @@ export class RecursosService {
     @InjectRepository(Licitacao)
     private readonly licitacaoRepo: Repository<Licitacao>,
     private readonly parametrosService: ParametrosLicitacaoService,
+    private readonly transicoes: TransicoesService,
   ) {}
+
+  /** Sessão do ato (404) com a licitação ATIVA (409). */
+  private async sessaoParaAto(sessaoId: string): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    await exigirLicitacaoAtiva(this.licitacaoRepo, sessao.licitacao_id);
+    return sessao;
+  }
 
   private async registrarEvento(
     sessaoId: string,
@@ -74,9 +87,18 @@ export class RecursosService {
     sessaoId: string,
     fornecedorId: string,
     opts: { fornecedorNome?: string; itemId?: string; motivacao?: string },
+    ator: AtorTransicao,
   ): Promise<RecursoAdministrativo> {
-    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
+
+    // Admitida a intenção, abre-se o prazo recursal (art. 165): licitação →
+    // RECURSO (ABRIR_PRAZO_RECURSAL; idempotente para a 2ª intenção admitida).
+    // Antes de criar o recurso: fora do rito (sem habilitação) → 409.
+    await this.transicoes.executar(sessao.licitacao_id, AtoLicitacao.ABRIR_PRAZO_RECURSAL, {
+      ator,
+      ignorarSeJaAplicado: true,
+      registro: { origem: 'sessao', sessao_id: sessaoId, recorrente: fornecedorId },
+    });
 
     const parametros = await this.parametrosService.resolver(
       (await this.licitacaoRepo.findOneBy({ id: sessao.licitacao_id }))?.orgao_id,
@@ -117,8 +139,7 @@ export class RecursosService {
     motivo: string,
     opts?: { fornecedorNome?: string; itemId?: string },
   ): Promise<RecursoAdministrativo> {
-    const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     const recurso = await this.recursoRepo.save(
       this.recursoRepo.create({
@@ -147,6 +168,7 @@ export class RecursosService {
   /** Recorrente apresenta as razões dentro do prazo recursal. */
   async apresentarRazoes(recursoId: string, razoes: string): Promise<RecursoAdministrativo> {
     const recurso = await this.obter(recursoId);
+    await exigirLicitacaoAtiva(this.licitacaoRepo, recurso.licitacao_id);
     if (recurso.status !== StatusRecurso.AGUARDANDO_RAZOES) {
       throw new BadRequestException('Este recurso não está aguardando razões.');
     }
@@ -181,6 +203,7 @@ export class RecursosService {
     dados: { fornecedorId: string; fornecedorNome?: string; texto: string },
   ): Promise<RecursoAdministrativo> {
     const recurso = await this.obter(recursoId);
+    await exigirLicitacaoAtiva(this.licitacaoRepo, recurso.licitacao_id);
     if (recurso.status !== StatusRecurso.CONTRARRAZOES) {
       throw new BadRequestException('Este recurso não está em fase de contrarrazões.');
     }
@@ -220,8 +243,10 @@ export class RecursosService {
       decididoPor?: string;
       decididoPorCargo?: string;
     },
+    ator: AtorTransicao,
   ): Promise<RecursoAdministrativo> {
     const recurso = await this.obter(recursoId);
+    const licitacao = await exigirLicitacaoAtiva(this.licitacaoRepo, recurso.licitacao_id);
     if (
       ![StatusRecurso.CONTRARRAZOES, StatusRecurso.RAZOES_APRESENTADAS, StatusRecurso.EM_ANALISE].includes(
         recurso.status,
@@ -257,6 +282,17 @@ export class RecursosService {
       ],
     });
     if (pendentes === 0) {
+      // Recursos decididos → adjudicação (DECIDIR_RECURSOS: RECURSO → ADJUDICACAO).
+      // Recursos admitidos antes da E1 deixaram a licitação fora de RECURSO:
+      // aí a sala adjudica depois (ADJUDICAR em adjudicar-todos).
+      if (licitacao.fase === FaseLicitacao.RECURSO) {
+        await this.transicoes.executar(recurso.licitacao_id, AtoLicitacao.DECIDIR_RECURSOS, {
+          ator,
+          ignorarSeJaAplicado: true,
+          motivo: dados.decisao.trim(),
+          registro: { origem: 'sessao', sessao_id: recurso.sessao_id, recurso_id: recurso.id, provido: dados.provido },
+        });
+      }
       const sessao = await this.sessaoRepo.findOneBy({ id: recurso.sessao_id });
       if (sessao) {
         sessao.etapa = EtapaSessao.ADJUDICACAO;

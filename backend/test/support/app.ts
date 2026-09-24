@@ -11,6 +11,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { SchedulerRegistry } from '@nestjs/schedule';
+import { ThrottlerStorage } from '@nestjs/throttler';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { JwtService } from '@nestjs/jwt';
 import { DataSource } from 'typeorm';
@@ -50,6 +51,13 @@ export interface OpcoesCriarApp {
    * determinísticos; ligue quando o teste depender do relógio.
    */
   crons?: boolean;
+  /**
+   * Mantém o limite global de requisições (ThrottlerGuard: 100 req/min por
+   * IP). Padrão: false — no e2e TUDO sai de 127.0.0.1 (órgão, fornecedores,
+   * pregoeiro), e um fluxo completo passa disso em segundos; em produção cada
+   * participante tem o seu IP. Ligue só no teste que quiser medir o 429.
+   */
+  limitarRequisicoes?: boolean;
 }
 
 /**
@@ -102,6 +110,20 @@ function pararCrons(app: INestApplication): void {
   registro.getCronJobs().forEach((job) => job.stop());
 }
 
+/**
+ * Desliga a contagem do ThrottlerGuard global só nesta instância do app (não
+ * mexe no src/): toda requisição conta como a primeira da janela.
+ */
+function desligarThrottler(app: INestApplication): void {
+  const storage = app.get(ThrottlerStorage, { strict: false }) as any;
+  storage.increment = async () => ({
+    totalHits: 1,
+    timeToExpire: 60,
+    isBlocked: false,
+    timeToBlockExpire: 0,
+  });
+}
+
 /** Apps abertos neste arquivo de teste — o setup-after-env fecha os esquecidos. */
 const appsAbertos = new Set<INestApplication>();
 
@@ -150,6 +172,7 @@ export async function criarApp(opcoes: OpcoesCriarApp = {}): Promise<AppE2E> {
   }
 
   if (!opcoes.crons) pararCrons(app);
+  if (!opcoes.limitarRequisicoes) desligarThrottler(app);
 
   await app.listen(0, '127.0.0.1');
   const { port } = app.getHttpServer().address() as AddressInfo;

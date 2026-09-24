@@ -780,20 +780,31 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
 
     setLoading(true)
     try {
-      const response = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          fase_interna_concluida: true
-        })
-      })
-
-      if (response.ok) {
-        window.alert('✅ Fase interna marcada como concluída!\n\nAgora você pode enviar a licitação ao PNCP.')
-        await carregarDados()
-      } else {
-        const data = await response.json()
-        window.alert(`❌ Erro: ${data.message || 'Erro ao atualizar'}`)
+      // Gate único da fase interna (E1): a conclusão passa pelos atos de cada
+      // etapa e exige os documentos obrigatórios (elaborados, anexados ou
+      // importados em "Documentos da Fase Interna"). Faltando algum, o backend
+      // devolve a lista de pendências.
+      let concluida = false
+      for (let passo = 0; passo < 5 && !concluida; passo++) {
+        const response = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/avancar`, { method: 'PUT' })
+        const data = await response.json().catch(() => null)
+        if (!response.ok) {
+          const pendencias: string[] = Array.isArray(data?.pendencias) ? data.pendencias : []
+          window.alert(
+            pendencias.length
+              ? `❌ Fase interna não concluída — anexe/importe os documentos em "Documentos da Fase Interna":\n\n- ${pendencias.join('\n- ')}`
+              : `❌ Erro: ${data?.message || 'Erro ao concluir a fase interna'}`,
+          )
+          await carregarDados()
+          return
+        }
+        concluida = !!data?.fase_interna_concluida
       }
+
+      if (concluida) {
+        window.alert('✅ Fase interna concluída!\n\nAgora você pode enviar a licitação ao PNCP.')
+      }
+      await carregarDados()
     } catch (error) {
       console.error('Erro ao marcar fase interna:', error)
       window.alert('Erro ao conectar com o servidor.')

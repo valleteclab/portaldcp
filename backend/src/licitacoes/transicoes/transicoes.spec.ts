@@ -36,7 +36,8 @@ function consultas(p: Partial<Record<keyof ConsultasTransicao, any>> = {}): Cons
     contratosAssinados: async () => p.contratosAssinados ?? 0,
     contratosOuAtasGerados: async () => p.contratosOuAtasGerados ?? 0,
     itens: async () => p.itens ?? [{ status: 'ADJUDICADO', fornecedor_vencedor_id: 'f1' }],
-    instrucaoArt72: async () => p.instrucaoArt72 ?? { pode_divulgar: true, pendentes: [] },
+    instrucaoProcesso: async (etapa?: FaseLicitacao) =>
+      (typeof p.instrucaoProcesso === 'function' ? p.instrucaoProcesso(etapa) : p.instrucaoProcesso) ?? { pode_divulgar: true, pendentes: [] },
   };
 }
 
@@ -61,7 +62,6 @@ describe('TransicoesService — matriz de transições por modalidade', () => {
     [M.PREGAO_ELETRONICO, F.APROVACAO_INTERNA, A.CONCLUIR_FASE_INTERNA, null],
     [M.PREGAO_ELETRONICO, F.TERMO_REFERENCIA, A.DEVOLVER_FASE_INTERNA, F.PLANEJAMENTO],
     [M.PREGAO_ELETRONICO, F.APROVACAO_INTERNA, A.PUBLICAR, F.PUBLICADO],
-    [M.PREGAO_ELETRONICO, F.PUBLICADO, A.ABRIR_IMPUGNACAO, F.IMPUGNACAO],
     [M.PREGAO_ELETRONICO, F.PUBLICADO, A.INICIAR_ACOLHIMENTO, F.ACOLHIMENTO_PROPOSTAS],
     [M.PREGAO_ELETRONICO, F.IMPUGNACAO, A.INICIAR_ACOLHIMENTO, F.ACOLHIMENTO_PROPOSTAS],
     [M.PREGAO_ELETRONICO, F.ACOLHIMENTO_PROPOSTAS, A.ENCERRAR_ACOLHIMENTO, F.ANALISE_PROPOSTAS],
@@ -127,6 +127,8 @@ describe('TransicoesService — matriz de transições por modalidade', () => {
     [M.DISPENSA_ELETRONICA, F.HABILITACAO, A.ABRIR_PRAZO_RECURSAL, /não se aplica/],
     [M.DISPENSA_ELETRONICA, F.HOMOLOGACAO, A.JULGAR_DISPENSA, /já homologada/],
     [M.DISPENSA_ELETRONICA, F.PUBLICADO, A.ABRIR_IMPUGNACAO, /não se aplica/],
+    // E1 item 6: o prazo de impugnação é por data (art. 164), não uma fase
+    [M.PREGAO_ELETRONICO, F.PUBLICADO, A.ABRIR_IMPUGNACAO, /não se aplica/],
     [M.INEXIGIBILIDADE, F.PUBLICADO, A.INICIAR_ACOLHIMENTO, /não se aplica/],
     [M.INEXIGIBILIDADE, F.PUBLICADO, A.JULGAR_DISPENSA, /não se aplica/],
   ];
@@ -223,7 +225,7 @@ describe('TransicoesService — pré-condições', () => {
     const semInstrucao = await pendenciasDoAto(
       def,
       ctx(l, A.PUBLICAR, {
-        consultas: consultas({ instrucaoArt72: { pode_divulgar: false, pendentes: ['Formalização da Demanda (DFD)'] } }),
+        consultas: consultas({ instrucaoProcesso: { pode_divulgar: false, pendentes: ['Formalização da Demanda (DFD)'] } }),
         dados: { data_publicacao_edital: '2026-09-24T10:00:00', data_fim_acolhimento: '2026-09-25T10:00:00' },
       }),
     );
@@ -238,16 +240,58 @@ describe('TransicoesService — pré-condições', () => {
     expect(ok).toEqual([]);
   });
 
-  test('pregão não tem gate do art. 72 nem prazo da dispensa', async () => {
-    const l = lic({ fase: F.APROVACAO_INTERNA });
+  test('pregão: publicar exige a fase interna documentada (art. 18), sem o prazo da dispensa', async () => {
+    const pendente = { pode_divulgar: false, pendentes: ['Parecer jurídico (Art. 53)'] };
+    const dados = { data_fim_acolhimento: '2026-09-25T10:00:00' };
+    const naoConcluida = lic({ fase: F.APROVACAO_INTERNA, fase_interna_concluida: false } as any);
+    const def = definicaoDoAto(naoConcluida.modalidade, A.PUBLICAR)!;
+    expect(await pendenciasDoAto(def, ctx(naoConcluida, A.PUBLICAR, { consultas: consultas({ instrucaoProcesso: pendente }), dados }))).toEqual([
+      'Documento obrigatório da fase interna pendente: Parecer jurídico (Art. 53)',
+    ]);
+    // concluída pelo ato próprio (já passou pelo gate): publicar não repete
+    const concluida = lic({ fase: F.APROVACAO_INTERNA, fase_interna_concluida: true } as any);
+    expect(await pendenciasDoAto(def, ctx(concluida, A.PUBLICAR, { consultas: consultas({ instrucaoProcesso: pendente }), dados }))).toEqual([]);
+  });
+
+  test('gate único da fase interna: etapas do pregão cobram os documentos da própria etapa', async () => {
+    const etapasPedidas: Array<FaseLicitacao | undefined> = [];
+    const instrucaoProcesso = (etapa?: FaseLicitacao) => {
+      etapasPedidas.push(etapa);
+      return { pode_divulgar: false, pendentes: ['Estudo Técnico Preliminar (ETP) (Art. 18)'] };
+    };
+    const l = lic({ fase: F.PLANEJAMENTO });
     const p = await pendenciasDoAto(
-      definicaoDoAto(l.modalidade, A.PUBLICAR)!,
-      ctx(l, A.PUBLICAR, {
-        consultas: consultas({ instrucaoArt72: { pode_divulgar: false, pendentes: ['x'] } }),
-        dados: { data_fim_acolhimento: '2026-09-25T10:00:00' },
-      }),
+      definicaoDoAto(l.modalidade, A.CONCLUIR_PLANEJAMENTO)!,
+      ctx(l, A.CONCLUIR_PLANEJAMENTO, { consultas: consultas({ instrucaoProcesso }) }),
     );
-    expect(p).toEqual([]);
+    expect(p).toEqual(['Documento obrigatório da etapa Planejamento pendente: Estudo Técnico Preliminar (ETP) (Art. 18)']);
+    expect(etapasPedidas).toEqual([F.PLANEJAMENTO]);
+
+    // concluir a fase interna cobra TODAS as etapas (sem etapa)
+    etapasPedidas.length = 0;
+    const ap = lic({ fase: F.APROVACAO_INTERNA });
+    const q = await pendenciasDoAto(
+      definicaoDoAto(ap.modalidade, A.CONCLUIR_FASE_INTERNA)!,
+      ctx(ap, A.CONCLUIR_FASE_INTERNA, { consultas: consultas({ instrucaoProcesso }) }),
+    );
+    expect(q).toHaveLength(1);
+    expect(etapasPedidas).toEqual([undefined]);
+  });
+
+  test('contratação direta: etapas sem gate próprio; concluir a instrução cobra o art. 72', async () => {
+    const pendente = { pode_divulgar: false, pendentes: ['Autorização (Art. 72, VIII)'] };
+    const l = lic({ modalidade: M.DISPENSA_ELETRONICA, fase: F.PLANEJAMENTO });
+    expect(
+      await pendenciasDoAto(
+        definicaoDoAto(l.modalidade, A.CONCLUIR_PLANEJAMENTO)!,
+        ctx(l, A.CONCLUIR_PLANEJAMENTO, { consultas: consultas({ instrucaoProcesso: pendente }) }),
+      ),
+    ).toEqual([]);
+    const c = await pendenciasDoAto(
+      definicaoDoAto(l.modalidade, A.CONCLUIR_FASE_INTERNA)!,
+      ctx(l, A.CONCLUIR_FASE_INTERNA, { consultas: consultas({ instrucaoProcesso: pendente }) }),
+    );
+    expect(c).toEqual([expect.stringMatching(/Instrução do processo incompleta \(Art\. 72.*Autorização/)]);
   });
 
   test('acolhimento, abertura e propostas para a disputa', async () => {

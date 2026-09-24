@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from './entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from './entities/evento-sessao.entity';
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
@@ -9,6 +9,10 @@ import { Lance } from '../lances/entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { ParametrosLicitacaoService } from '../parametros-licitacao/parametros-licitacao.service';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
+import { exigirLicitacaoAtiva, motivoSessaoBloqueada } from './licitacao-ativa';
+import { pedirEncerramentoDisputa } from './transicoes-sessao';
 
 /**
  * Servico de Controle da Sessao de Disputa
@@ -32,7 +36,77 @@ export class SessaoService {
     private readonly propostaRepository: Repository<Proposta>,
     @InjectRepository(PropostaItem)
     private readonly propostaItemRepository: Repository<PropostaItem>,
+    private readonly transicoes: TransicoesService,
   ) {}
+
+  // ========================================
+  // GUARDAS E TRANSIÇÕES DA LICITAÇÃO (plano E1)
+  // ========================================
+
+  /**
+   * Sessão do ato (404) com a licitação ATIVA (409 se suspensa/encerrada).
+   * Todo ato da sala passa por aqui.
+   */
+  private async sessaoParaAto(sessaoId: string): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
+    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    await exigirLicitacaoAtiva(this.licitacaoRepository, sessao.licitacao_id);
+    return sessao;
+  }
+
+  /** Abertura da disputa (INICIAR_DISPUTA; idempotente se a licitação já passou dela). */
+  private async iniciarDisputaDaLicitacao(licitacaoId: string, ator: AtorTransicao): Promise<void> {
+    await this.transicoes.executar(licitacaoId, AtoLicitacao.INICIAR_DISPUTA, {
+      ator,
+      ignorarSeJaAplicado: true,
+      registro: { origem: 'sessao' },
+    });
+  }
+
+  /**
+   * Habilitação (art. 62): ENCERRAR_DISPUTA (se ainda em disputa) +
+   * INICIAR_HABILITACAO, na mesma transação. Idempotente: convocar o próximo
+   * classificado com a licitação já em HABILITACAO não registra nada.
+   */
+  private async levarAHabilitacao(licitacaoId: string, ator: AtorTransicao): Promise<void> {
+    await this.licitacaoRepository.manager.transaction(async (manager) => {
+      const lic = await manager.findOne(Licitacao, { where: { id: licitacaoId }, select: { id: true, fase: true } });
+      if (lic?.fase === FaseLicitacao.EM_DISPUTA) {
+        await this.transicoes.executar(licitacaoId, AtoLicitacao.ENCERRAR_DISPUTA, {
+          ator,
+          manager,
+          ignorarSeJaAplicado: true,
+          registro: { origem: 'sessao' },
+        });
+      }
+      await this.transicoes.executar(licitacaoId, AtoLicitacao.INICIAR_HABILITACAO, {
+        ator,
+        manager,
+        ignorarSeJaAplicado: true,
+        registro: { origem: 'sessao' },
+      });
+    });
+  }
+
+  /**
+   * Adjudicação pela sala: DECIDIR_RECURSOS se a licitação está em RECURSO,
+   * senão ADJUDICAR (idempotente se já adjudicada/homologada).
+   */
+  private async adjudicarLicitacao(
+    licitacaoId: string,
+    ator: AtorTransicao,
+    manager?: EntityManager,
+  ): Promise<void> {
+    const repo = manager ? manager.getRepository(Licitacao) : this.licitacaoRepository;
+    const lic = await repo.findOne({ where: { id: licitacaoId }, select: { id: true, fase: true } });
+    const ato = lic?.fase === FaseLicitacao.RECURSO ? AtoLicitacao.DECIDIR_RECURSOS : AtoLicitacao.ADJUDICAR;
+    await this.transicoes.executar(licitacaoId, ato, {
+      ator,
+      manager,
+      ignorarSeJaAplicado: true,
+      registro: { origem: 'sessao' },
+    });
+  }
 
   // ========================================
   // CRIACAO E CONFIGURACAO DA SESSAO
@@ -43,6 +117,8 @@ export class SessaoService {
     if (!licitacao) {
       throw new NotFoundException('Licitacao nao encontrada');
     }
+    const bloqueio = motivoSessaoBloqueada(licitacao.situacao);
+    if (bloqueio) throw new ConflictException({ message: bloqueio, situacao: licitacao.situacao });
 
     if (licitacao.fase !== FaseLicitacao.ACOLHIMENTO_PROPOSTAS && licitacao.fase !== FaseLicitacao.ANALISE_PROPOSTAS) {
       throw new BadRequestException('Licitacao nao esta na fase correta para iniciar sessao');
@@ -98,9 +174,8 @@ export class SessaoService {
   // INICIO DA SESSAO
   // ========================================
 
-  async iniciarSessao(sessaoId: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async iniciarSessao(sessaoId: string, ator: AtorTransicao): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     if (sessao.status !== StatusSessao.AGUARDANDO_INICIO) {
       throw new BadRequestException('Sessao ja foi iniciada ou encerrada');
@@ -129,11 +204,16 @@ export class SessaoService {
     sessao.etapa = EtapaSessao.ABERTURA_SESSAO;
     sessao.data_hora_inicio_real = new Date();
 
-    await this.sessaoRepository.save(sessao);
-
-    // Atualiza fase da licitacao
-    await this.licitacaoRepository.update(sessao.licitacao_id, {
-      fase: FaseLicitacao.ANALISE_PROPOSTAS
+    // Abertura da sessão = fim do recebimento de propostas (ENCERRAR_ACOLHIMENTO,
+    // idempotente se o cron/cockpit já encerrou) — mesma transação da sessão.
+    await this.sessaoRepository.manager.transaction(async (manager) => {
+      await this.transicoes.executar(sessao.licitacao_id, AtoLicitacao.ENCERRAR_ACOLHIMENTO, {
+        ator,
+        manager,
+        ignorarSeJaAplicado: true,
+        registro: { origem: 'sessao', sessao_id: sessao.id },
+      });
+      await manager.save(sessao);
     });
 
     // Registra evento
@@ -147,8 +227,7 @@ export class SessaoService {
    * Reabre uma sessão encerrada para continuar a disputa
    */
   async reabrirSessao(sessaoId: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     if (sessao.status !== StatusSessao.ENCERRADA && sessao.status !== StatusSessao.SUSPENSA) {
       throw new BadRequestException('Apenas sessoes encerradas ou suspensas podem ser reabertas');
@@ -183,24 +262,22 @@ export class SessaoService {
   // CONTROLE DE ETAPAS
   // ========================================
 
-  async avancarParaDisputa(sessaoId: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async avancarParaDisputa(sessaoId: string, ator: AtorTransicao): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     if (sessao.etapa !== EtapaSessao.ANALISE_PROPOSTAS && sessao.etapa !== EtapaSessao.DESCLASSIFICACAO_PROPOSTAS) {
       throw new BadRequestException('Etapa atual nao permite iniciar disputa');
     }
+
+    // Abertura da etapa de lances: INICIAR_DISPUTA (pré-condições: data de
+    // abertura e propostas aptas) antes de mexer na sessão
+    await this.iniciarDisputaDaLicitacao(sessao.licitacao_id, ator);
 
     sessao.etapa = EtapaSessao.DISPUTA_LANCES;
     sessao.status = StatusSessao.MODO_ABERTO;
     sessao.ultimo_lance_em = new Date();
 
     await this.sessaoRepository.save(sessao);
-
-    // Atualiza fase da licitacao
-    await this.licitacaoRepository.update(sessao.licitacao_id, {
-      fase: FaseLicitacao.EM_DISPUTA
-    });
 
     await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_INICIADA,
       'Etapa de lances iniciada', undefined, undefined, sessao.pregoeiro_nome, true);
@@ -212,12 +289,13 @@ export class SessaoService {
    * Inicia disputa de um item específico
    * Agora o controle de tempo é POR ITEM, não por sessão
    */
-  async iniciarDisputaItem(sessaoId: string, itemId: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async iniciarDisputaItem(sessaoId: string, itemId: string, ator: AtorTransicao): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     const item = await this.itemRepository.findOneBy({ id: itemId });
     if (!item) throw new NotFoundException('Item nao encontrado');
+
+    await this.iniciarDisputaDaLicitacao(sessao.licitacao_id, ator);
 
     // Atualiza o item com status de disputa
     const agora = new Date();
@@ -248,17 +326,18 @@ export class SessaoService {
    * - DISPUTA POR ITEM: Cada item tem seu próprio cronômetro
    * - DISPUTA POR LOTE: Cada lote tem seu próprio cronômetro (itens do lote disputados juntos)
    */
-  async iniciarDisputaTodosItens(sessaoId: string): Promise<{ 
+  async iniciarDisputaTodosItens(sessaoId: string, ator: AtorTransicao): Promise<{ 
     sessao: SessaoDisputa; 
     itensIniciados: number;
     lotesIniciados: number;
     tipoDisputa: 'POR_ITEM' | 'POR_LOTE';
   }> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     const licitacao = await this.licitacaoRepository.findOneBy({ id: sessao.licitacao_id });
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+
+    await this.iniciarDisputaDaLicitacao(sessao.licitacao_id, ator);
 
     const agora = new Date();
     let itensIniciados = 0;
@@ -355,11 +434,12 @@ export class SessaoService {
   /**
    * Inicia disputa apenas para itens selecionados
    */
-  async iniciarItensSelecionados(sessaoId: string, itensIds: string[]): Promise<{ 
+  async iniciarItensSelecionados(sessaoId: string, itensIds: string[], ator: AtorTransicao): Promise<{ 
     itensIniciados: number;
   }> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
+
+    await this.iniciarDisputaDaLicitacao(sessao.licitacao_id, ator);
 
     const agora = new Date();
     let itensIniciados = 0;
@@ -453,8 +533,7 @@ export class SessaoService {
     valor: number,
     ip: string
   ): Promise<Lance> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     const item = await this.itemRepository.findOneBy({ id: itemId });
     if (!item) throw new NotFoundException('Item nao encontrado');
@@ -559,8 +638,7 @@ export class SessaoService {
     valorTotalLote: number,
     ip: string
   ): Promise<{ lances: Lance[]; valorTotal: number }> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     // Verifica se a sessão é por lote
     if (sessao.disputa_por_item) {
@@ -703,8 +781,7 @@ export class SessaoService {
    * Sorteia um tempo entre 2 e 30 minutos
    */
   async iniciarTempoAleatorio(sessaoId: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     // Sorteia tempo aleatorio
     const min = sessao.tempo_aleatorio_min_minutos;
@@ -727,9 +804,8 @@ export class SessaoService {
   /**
    * Encerra a disputa do item atual (legado)
    */
-  async encerrarDisputaItem(sessaoId: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async encerrarDisputaItem(sessaoId: string, ator: AtorTransicao): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     const itemId = sessao.item_atual_id;
 
@@ -756,6 +832,9 @@ export class SessaoService {
       descricao, itemId, melhorLance?.fornecedor_identificador, 'SISTEMA', true,
       { melhor_lance: melhorLance?.valor });
 
+    // Sessão em negociação = fim da etapa de lances → licitação a julgamento
+    await pedirEncerramentoDisputa(this.transicoes, sessao.licitacao_id, ator);
+
     return sessao;
   }
 
@@ -763,9 +842,8 @@ export class SessaoService {
    * Encerra a disputa de um item específico por ID
    * Usado no novo sistema de disputa simultânea
    */
-  async encerrarDisputaItemPorId(sessaoId: string, itemId?: string): Promise<{ sessao: SessaoDisputa; itemNumero?: number }> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async encerrarDisputaItemPorId(sessaoId: string, itemId: string | undefined, ator: AtorTransicao): Promise<{ sessao: SessaoDisputa; itemNumero?: number }> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     // Se não passou itemId, usa o item_atual_id (compatibilidade)
     const targetItemId = itemId || sessao.item_atual_id;
@@ -821,6 +899,8 @@ export class SessaoService {
       await this.registrarEvento(sessao.id, TipoEvento.DISPUTA_ENCERRADA,
         'Fase de disputa encerrada. Todos os itens foram finalizados.',
         undefined, undefined, 'SISTEMA', true);
+
+      await pedirEncerramentoDisputa(this.transicoes, sessao.licitacao_id, ator);
     }
 
     return { sessao, itemNumero: item.numero_item };
@@ -840,8 +920,7 @@ export class SessaoService {
     novoStatus?: StatusSessao,
     motivo?: string
   ): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     const etapaAnterior = sessao.etapa;
     const statusAnterior = sessao.status;
@@ -884,8 +963,7 @@ export class SessaoService {
    * Reseta status dos itens para AGUARDANDO e volta sessão para DISPUTA_LANCES
    */
   async reiniciarDisputa(sessaoId: string, motivo?: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     // Reseta todos os itens para AGUARDANDO
     await this.itemRepository.update(
@@ -932,8 +1010,7 @@ export class SessaoService {
   // ========================================
 
   async iniciarNegociacao(sessaoId: string, fornecedorId: string): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     sessao.etapa = EtapaSessao.NEGOCIACAO;
     await this.sessaoRepository.save(sessao);
@@ -948,8 +1025,7 @@ export class SessaoService {
     fornecedorId: string, 
     valorProposto: number
   ): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     await this.registrarEvento(sessao.id, TipoEvento.NEGOCIACAO_PROPOSTA,
       `Fornecedor propoe novo valor: R$ ${valorProposto.toFixed(2)}`,
@@ -1001,8 +1077,7 @@ export class SessaoService {
   }
 
   async convocarMPEParaLance(sessaoId: string, fornecedorId: string): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     sessao.etapa = EtapaSessao.BENEFICIO_MPE;
     await this.sessaoRepository.save(sessao);
@@ -1022,8 +1097,7 @@ export class SessaoService {
     itemId: string,
     novoValor: number,
   ): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     // Melhor lance atual do item (1º colocado a ser superado)
     const melhorLance = await this.lanceRepository.findOne({
@@ -1068,8 +1142,7 @@ export class SessaoService {
     fornecedorId: string,
     itemId: string,
   ): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     await this.registrarEvento(sessao.id, TipoEvento.LANCE_MPE_NAO_REGISTRADO,
       `ME/EPP nao exerceu o direito de preferencia. Mantido o 1o colocado original.`,
@@ -1080,16 +1153,16 @@ export class SessaoService {
   // HABILITACAO
   // ========================================
 
-  async convocarParaHabilitacao(sessaoId: string, fornecedorId: string): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async convocarParaHabilitacao(sessaoId: string, fornecedorId: string, ator: AtorTransicao): Promise<void> {
+    const sessao = await this.sessaoParaAto(sessaoId);
+
+    // Licitação → HABILITACAO (Art. 62): ENCERRAR_DISPUTA (se ainda em disputa)
+    // + INICIAR_HABILITACAO — antes da sessão, para não deixar a sala à frente
+    await this.levarAHabilitacao(sessao.licitacao_id, ator);
 
     sessao.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
     sessao.fornecedor_habilitacao_id = fornecedorId;
     await this.sessaoRepository.save(sessao);
-
-    // Sync licitacao.fase → HABILITACAO (Art. 62)
-    await this.licitacaoRepository.update(sessao.licitacao_id, { fase: FaseLicitacao.HABILITACAO });
 
     // Busca nome do fornecedor para o evento
     const proposta = await this.propostaRepository.findOne({
@@ -1104,8 +1177,7 @@ export class SessaoService {
   }
 
   async aprovarHabilitacao(sessaoId: string, fornecedorId: string): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     // Avança para prazo de intenção de recurso (Art. 165, Lei 14.133/2021)
     sessao.etapa = EtapaSessao.INTENCAO_RECURSO;
@@ -1117,9 +1189,8 @@ export class SessaoService {
       undefined, fornecedorId, sessao.pregoeiro_nome, true);
   }
 
-  async reprovarHabilitacao(sessaoId: string, fornecedorId: string, motivo: string): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async reprovarHabilitacao(sessaoId: string, fornecedorId: string, motivo: string, ator: AtorTransicao): Promise<void> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     await this.registrarEvento(sessao.id, TipoEvento.HABILITACAO_REPROVADA,
       `Habilitacao REPROVADA. Motivo: ${motivo}. Proximo classificado sera convocado.`,
@@ -1128,7 +1199,7 @@ export class SessaoService {
     // Convoca o próximo classificado automaticamente
     const proximoId = await this.encontrarProximoClassificado(sessao.licitacao_id, fornecedorId);
     if (proximoId) {
-      await this.convocarParaHabilitacao(sessaoId, proximoId);
+      await this.convocarParaHabilitacao(sessaoId, proximoId, ator);
     } else {
       // Sem próximo — sessão vai para encerramento sem vencedor
       sessao.etapa = EtapaSessao.ENCERRAMENTO;
@@ -1196,8 +1267,7 @@ export class SessaoService {
   // ========================================
 
   async abrirPrazoIntencaoRecurso(sessaoId: string): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     sessao.etapa = EtapaSessao.INTENCAO_RECURSO;
     await this.sessaoRepository.save(sessao);
@@ -1213,8 +1283,7 @@ export class SessaoService {
     fornecedorId: string, 
     motivacao: string
   ): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     await this.registrarEvento(sessao.id, TipoEvento.INTENCAO_RECURSO_REGISTRADA,
       `Fornecedor ${fornecedorId} manifestou intencao de recurso: ${motivacao}`,
@@ -1226,8 +1295,7 @@ export class SessaoService {
   // ========================================
 
   async adjudicarItem(sessaoId: string, itemId: string, fornecedorId: string, valor: number): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     sessao.etapa = EtapaSessao.ADJUDICACAO;
     await this.sessaoRepository.save(sessao);
@@ -1237,19 +1305,18 @@ export class SessaoService {
       itemId, fornecedorId, sessao.pregoeiro_nome, false, { valor });
   }
 
-  async encerrarSessao(sessaoId: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async encerrarSessao(sessaoId: string, ator: AtorTransicao): Promise<SessaoDisputa> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     sessao.status = StatusSessao.ENCERRADA;
     sessao.etapa = EtapaSessao.ENCERRAMENTO;
     sessao.data_hora_encerramento = new Date();
 
-    await this.sessaoRepository.save(sessao);
-
-    // Atualiza fase da licitacao
-    await this.licitacaoRepository.update(sessao.licitacao_id, {
-      fase: FaseLicitacao.ADJUDICACAO
+    // Licitação → ADJUDICACAO pelo ato nomeado (ADJUDICAR, ou DECIDIR_RECURSOS
+    // em RECURSO); fora do rito (ainda em disputa/julgamento) → 409
+    await this.sessaoRepository.manager.transaction(async (manager) => {
+      await this.adjudicarLicitacao(sessao.licitacao_id, ator, manager);
+      await manager.save(sessao);
     });
 
     await this.registrarEvento(sessao.id, TipoEvento.SESSAO_ENCERRADA,
@@ -1323,9 +1390,8 @@ export class SessaoService {
   }
 
   /** Encerra a negociação, registra o valor final e avança para habilitação */
-  async encerrarNegociacao(sessaoId: string, valorFinal?: number): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async encerrarNegociacao(sessaoId: string, valorFinal: number | undefined, ator: AtorTransicao): Promise<void> {
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     await this.registrarEvento(sessao.id, TipoEvento.NEGOCIACAO_ENCERRADA,
       valorFinal
@@ -1334,12 +1400,12 @@ export class SessaoService {
       undefined, undefined, sessao.pregoeiro_nome, true,
       valorFinal ? { valor_final: valorFinal } : undefined);
 
+    // Licitação → HABILITACAO (ENCERRAR_DISPUTA se preciso + INICIAR_HABILITACAO)
+    await this.levarAHabilitacao(sessao.licitacao_id, ator);
+
     // Avança para habilitação — o pregoeiro convocará manualmente o fornecedor
     sessao.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
     await this.sessaoRepository.save(sessao);
-
-    // Sync licitacao.fase → HABILITACAO
-    await this.licitacaoRepository.update(sessao.licitacao_id, { fase: FaseLicitacao.HABILITACAO });
   }
 
   // ========================================
@@ -1392,8 +1458,7 @@ export class SessaoService {
 
   /** Encerra o prazo de intenção de recurso e avança a etapa */
   async encerrarPrazoIntencaoRecurso(sessaoId: string): Promise<{ etapaProxima: string; totalIntencoes: number }> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     // Conta intenções registradas
     const totalIntencoes = await this.eventoRepository.count({
@@ -1477,9 +1542,12 @@ export class SessaoService {
   }
 
   /** Adjudica todos os itens de uma vez e avança a licitação para ADJUDICACAO */
-  async adjudicarTodos(sessaoId: string): Promise<void> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+  async adjudicarTodos(sessaoId: string, ator: AtorTransicao): Promise<void> {
+    const sessao = await this.sessaoParaAto(sessaoId);
+
+    // Licitação → ADJUDICACAO (ADJUDICAR; DECIDIR_RECURSOS se em RECURSO;
+    // idempotente se os recursos já foram decididos) — antes dos registros
+    await this.adjudicarLicitacao(sessao.licitacao_id, ator);
 
     const itens = await this.itemRepository.find({
       where: { licitacao_id: sessao.licitacao_id },
@@ -1509,9 +1577,6 @@ export class SessaoService {
     // Avança etapa para HOMOLOGACAO
     sessao.etapa = EtapaSessao.HOMOLOGACAO;
     await this.sessaoRepository.save(sessao);
-
-    // Sync licitacao.fase → ADJUDICACAO
-    await this.licitacaoRepository.update(sessao.licitacao_id, { fase: FaseLicitacao.ADJUDICACAO });
   }
 
   // ========================================
@@ -1527,9 +1592,9 @@ export class SessaoService {
   async homologar(
     sessaoId: string,
     autoridade: { nome?: string; cargo?: string },
+    ator: AtorTransicao,
   ): Promise<{ totalHomologado: number; valorTotal: number }> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     if (sessao.etapa !== EtapaSessao.HOMOLOGACAO && sessao.etapa !== EtapaSessao.ADJUDICACAO) {
       throw new BadRequestException(
@@ -1544,42 +1609,50 @@ export class SessaoService {
 
     let totalHomologado = 0;
     let valorTotal = 0;
-    for (const item of itens) {
-      const melhorLance = await this.lanceRepository.findOne({
-        where: { item_id: item.id, licitacao_id: sessao.licitacao_id, cancelado: false },
-        order: { valor: 'ASC' },
-      });
-      if (!melhorLance) continue;
+    // Uma transação: vencedor/valor de cada item + HOMOLOGAR (a pré-condição
+    // "item adjudicado" lê os itens gravados aqui) + encerramento da sessão.
+    // Regra de valor/vencedor inalterada (B2/B3 — corrigir na E6).
+    await this.sessaoRepository.manager.transaction(async (manager) => {
+      for (const item of itens) {
+        const melhorLance = await manager.findOne(Lance, {
+          where: { item_id: item.id, licitacao_id: sessao.licitacao_id, cancelado: false },
+          order: { valor: 'ASC' },
+        });
+        if (!melhorLance) continue;
 
-      const valor = Number(melhorLance.valor);
-      const proposta = await this.propostaRepository.findOne({
-        where: { licitacao_id: sessao.licitacao_id, fornecedor_id: melhorLance.fornecedor_id },
-        relations: ['fornecedor'],
-      });
-      const qtd = Number(item.quantidade) || 1;
+        const valor = Number(melhorLance.valor);
+        const proposta = await manager.findOne(Proposta, {
+          where: { licitacao_id: sessao.licitacao_id, fornecedor_id: melhorLance.fornecedor_id },
+          relations: ['fornecedor'],
+        });
+        const qtd = Number(item.quantidade) || 1;
 
-      await this.itemRepository.update(item.id, {
-        valor_unitario_homologado: valor,
-        valor_total_homologado: valor * qtd,
-        fornecedor_vencedor_id: melhorLance.fornecedor_id,
-        fornecedor_vencedor_nome: proposta?.fornecedor?.razao_social ?? undefined,
-      });
-      totalHomologado++;
-      valorTotal += valor * qtd;
-    }
+        await manager.update(ItemLicitacao, item.id, {
+          valor_unitario_homologado: valor,
+          valor_total_homologado: valor * qtd,
+          fornecedor_vencedor_id: melhorLance.fornecedor_id,
+          fornecedor_vencedor_nome: proposta?.fornecedor?.razao_social ?? undefined,
+        });
+        totalHomologado++;
+        valorTotal += valor * qtd;
+      }
 
-    // Atualiza a licitação: fase HOMOLOGACAO + valor homologado + data
-    await this.licitacaoRepository.update(sessao.licitacao_id, {
-      fase: FaseLicitacao.HOMOLOGACAO,
-      valor_homologado: valorTotal,
-      data_homologacao: new Date(),
+      // Licitação → HOMOLOGACAO pelo ato (data_homologacao pelo efeito do ato)
+      await this.transicoes.executar(sessao.licitacao_id, AtoLicitacao.HOMOLOGAR, {
+        ator,
+        manager,
+        aplicar: (lic) => {
+          lic.valor_homologado = valorTotal;
+        },
+        registro: { origem: 'sessao', sessao_id: sessao.id, autoridade, totalHomologado, valorTotal },
+      });
+
+      // Encerra a sessão
+      sessao.etapa = EtapaSessao.ENCERRAMENTO;
+      sessao.status = StatusSessao.ENCERRADA;
+      sessao.data_hora_encerramento = new Date();
+      await manager.save(sessao);
     });
-
-    // Encerra a sessão
-    sessao.etapa = EtapaSessao.ENCERRAMENTO;
-    sessao.status = StatusSessao.ENCERRADA;
-    sessao.data_hora_encerramento = new Date();
-    await this.sessaoRepository.save(sessao);
 
     await this.registrarEvento(sessao.id, TipoEvento.LICITACAO_HOMOLOGADA,
       `Resultado HOMOLOGADO pela autoridade competente${autoridade.nome ? ` (${autoridade.nome}${autoridade.cargo ? ` — ${autoridade.cargo}` : ''})` : ''}. ` +
@@ -1591,8 +1664,7 @@ export class SessaoService {
   }
 
   async suspenderSessao(sessaoId: string, motivo: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
+    const sessao = await this.sessaoParaAto(sessaoId);
 
     sessao.status = StatusSessao.SUSPENSA;
     sessao.motivo_suspensao = motivo;

@@ -129,6 +129,7 @@ export class LicitacoesService {
       fase: FaseLicitacao.PLANEJAMENTO,
       situacao: SituacaoLicitacao.ATIVA,
       fase_anterior: null,
+      fase_interna_concluida: false, // só pelo ato CONCLUIR_FASE_INTERNA (gate E1.7)
       data_abertura_processo: new Date(),
     });
 
@@ -446,7 +447,9 @@ export class LicitacoesService {
     // situação, fase anterior) só muda por ato do TransicoesService — o corpo
     // da edição não altera (sem ValidationPipe com whitelist, filtramos aqui).
     const { itens, lotes, ...dadosLicitacao } = updateData as any;
-    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'data_homologacao', 'data_adjudicacao']) {
+    // `fase_interna_concluida` também: só o ato CONCLUIR_FASE_INTERNA (gate
+    // documental, E1.7) ou o PUBLICAR a marcam.
+    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao']) {
       delete dadosLicitacao[campo];
     }
 

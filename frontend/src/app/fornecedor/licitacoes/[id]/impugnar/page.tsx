@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
 import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Licitacao {
@@ -31,6 +32,9 @@ interface Licitacao {
   objeto: string
   fase: string
   data_limite_impugnacao?: string
+  /** Prazo do art. 164 calculado pelo backend */
+  data_limite_impugnacao_efetiva?: string | null
+  prazo_manifestacao_aberto?: boolean
 }
 
 interface MinhaImpugnacao {
@@ -176,11 +180,8 @@ export default function ImpugnarPage() {
     })
   }
 
-  const podeImpugnar = () => {
-    if (!licitacao) return false
-    const fasesPermitidas = ['PUBLICADO', 'IMPUGNACAO']
-    return fasesPermitidas.includes(licitacao.fase)
-  }
+  // Decidido pela data-limite (art. 164), não pela fase — calculado no backend
+  const podeImpugnar = () => prazoManifestacaoAberto(licitacao)
 
   const getStatusBadge = (status: string) => {
     const config: Record<string, { label: string; color: string; icon: any }> = {
@@ -236,9 +237,9 @@ export default function ImpugnarPage() {
                 A impugnação é o instrumento pelo qual qualquer pessoa pode questionar os termos do edital.
                 O prazo para impugnação é de até 3 dias úteis antes da data de abertura da sessão (Art. 164, Lei 14.133/2021).
               </p>
-              {licitacao?.data_limite_impugnacao && (
+              {dataLimiteManifestacao(licitacao) && (
                 <p className="mt-2 font-medium">
-                  Prazo limite: {formatarData(licitacao.data_limite_impugnacao)}
+                  Prazo limite: {formatarData(dataLimiteManifestacao(licitacao)!)}
                 </p>
               )}
             </div>
@@ -348,7 +349,7 @@ export default function ImpugnarPage() {
           <CardContent className="py-8 text-center">
             <AlertCircle className="h-12 w-12 mx-auto mb-4 text-slate-400" />
             <p className="text-muted-foreground">
-              O prazo para impugnação já encerrou ou a licitação não está mais na fase de impugnação.
+              O prazo para impugnação já encerrou (até 3 dias úteis antes da abertura do certame — art. 164 da Lei 14.133/2021).
             </p>
           </CardContent>
         </Card>

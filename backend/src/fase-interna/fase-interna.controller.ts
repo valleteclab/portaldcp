@@ -34,6 +34,7 @@ import type { Ator } from '../auth/acesso/ator';
 import { DonoFaseInternaGuard, DonoPor } from './dono-fase-interna.guard';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { licitacaoEhPublica } from '../licitacoes/licitacao-visao.util';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
@@ -133,8 +134,9 @@ export class FaseInternaController {
         caminhoArquivo?: string;
       }>;
     },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.faseInternaService.importarProcessoCompleto(body);
+    return this.faseInternaService.importarProcessoCompleto(body, atorTransicaoDe(ator));
   }
 
   @Get(':licitacaoId/contexto')
@@ -295,9 +297,14 @@ export class FaseInternaController {
     return this.faseInternaService.getResumoFaseInterna(licitacaoId);
   }
 
+  /**
+   * Conclui a etapa interna atual (rito completo) ou a instrução (contratação
+   * direta) pelos atos da máquina de estados — mesmo gate documental do
+   * PUT /licitacoes/:id/avancar-fase. 400 traz `pendencias` (lista).
+   */
   @Put(':licitacaoId/avancar')
-  async avancarFaseInterna(@Param('licitacaoId') licitacaoId: string) {
-    return this.faseInternaService.avancarFaseInterna(licitacaoId);
+  async avancarFaseInterna(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    return this.faseInternaService.avancarFaseInterna(licitacaoId, atorTransicaoDe(ator));
   }
 
   // === DASHBOARD ===

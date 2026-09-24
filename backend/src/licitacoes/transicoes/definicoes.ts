@@ -10,6 +10,7 @@ import {
   FASES_INTERNAS,
   formatarDataHora,
   ORDEM_FASES,
+  ROTULO_FASE,
 } from './fases';
 import { avaliarRollupItens } from './rollup';
 import {
@@ -43,12 +44,46 @@ import {
 
 const CONTRATACAO_DIRETA = [ModalidadeLicitacao.DISPENSA_ELETRONICA, ModalidadeLicitacao.INEXIGIBILIDADE];
 
-/** Contratação direta: instrução mínima do art. 72 (DFD, estimativa, autorização). */
-export const instrucaoArt72Completa: Precondicao = async (ctx) => {
-  if (!CONTRATACAO_DIRETA.includes(ctx.licitacao.modalidade)) return null;
-  const instrucao = await ctx.consultas.instrucaoArt72();
+const ehContratacaoDireta = (ctx: ContextoTransicao) => CONTRATACAO_DIRETA.includes(ctx.licitacao.modalidade);
+
+/**
+ * GATE DOCUMENTAL ÚNICO DA FASE INTERNA (plano E1.7) — vale para o
+ * "avançar-fase" genérico, para os atos nomeados e para as telas da
+ * fase-interna, em TODAS as modalidades:
+ *  - contratação direta: instrução do art. 72 (DFD, estimativa, autorização;
+ *    os "se for o caso" admitem "não se aplica" com justificativa);
+ *  - rito completo (pregão, concorrência...): documentos obrigatórios de todas
+ *    as etapas internas (art. 18) — DFD/ETP, TR/justificativa, pesquisa/mapa
+ *    de preços, parecer jurídico, autorização/designação/dotação.
+ * Usado em CONCLUIR_FASE_INTERNA e PUBLICAR. No rito completo, o PUBLICAR não
+ * repete a checagem quando a fase interna já foi concluída pelo ato próprio.
+ */
+export const instrucaoCompleta: Precondicao = async (ctx) => {
+  const direta = ehContratacaoDireta(ctx);
+  if (!direta && ctx.ato === AtoLicitacao.PUBLICAR && ctx.licitacao.fase_interna_concluida) return null;
+  const instrucao = await ctx.consultas.instrucaoProcesso();
   if (!instrucao || instrucao.pode_divulgar) return null;
-  return `Instrução do processo incompleta (Art. 72 da Lei 14.133/2021). Pendências: ${instrucao.pendentes.join('; ')}`;
+  if (direta) {
+    return `Instrução do processo incompleta (Art. 72 da Lei 14.133/2021). Pendências: ${instrucao.pendentes.join('; ')}`;
+  }
+  return instrucao.pendentes.map((p) => `Documento obrigatório da fase interna pendente: ${p}`);
+};
+
+/** @deprecated nome antigo (só contratação direta) — use `instrucaoCompleta`. */
+export const instrucaoArt72Completa = instrucaoCompleta;
+
+/**
+ * Etapa interna do rito completo: os documentos obrigatórios DA ETAPA atual
+ * precisam estar prontos para concluí-la. Contratação direta não tem rito por
+ * etapas (instrução única do art. 72, cobrada em CONCLUIR_FASE_INTERNA/PUBLICAR).
+ */
+export const documentosDaEtapaProntos: Precondicao = async (ctx) => {
+  if (ehContratacaoDireta(ctx)) return null;
+  const etapa = ctx.licitacao.fase;
+  const instrucao = await ctx.consultas.instrucaoProcesso(etapa);
+  if (!instrucao || instrucao.pode_divulgar) return null;
+  const rotulo = ROTULO_FASE[etapa] ?? etapa;
+  return instrucao.pendentes.map((p) => `Documento obrigatório da etapa ${rotulo} pendente: ${p}`);
 };
 
 /** Dispensa eletrônica (art. 75 §3º): mínimo de 3 dias úteis de recebimento de propostas. */
@@ -230,12 +265,15 @@ const A = AtoLicitacao;
 const F = FaseLicitacao;
 const S = SituacaoLicitacao;
 
-/** Etapas internas (todas as modalidades; o gate documental fica na fase-interna). */
+/**
+ * Etapas internas (todas as modalidades). Gate documental da etapa no rito
+ * completo (E1.7); na contratação direta a instrução é única (art. 72).
+ */
 const ATOS_ETAPAS_INTERNAS: DefinicaoAto[] = [
-  { ato: A.CONCLUIR_PLANEJAMENTO, rotulo: 'Concluir planejamento (ETP)', de: [F.PLANEJAMENTO], para: F.TERMO_REFERENCIA, principal: true },
-  { ato: A.CONCLUIR_TERMO_REFERENCIA, rotulo: 'Aprovar termo de referência', de: [F.TERMO_REFERENCIA], para: F.PESQUISA_PRECOS, principal: true, efeitos: [marcarData('data_aprovacao_tr')] },
-  { ato: A.CONCLUIR_PESQUISA_PRECOS, rotulo: 'Concluir pesquisa de preços', de: [F.PESQUISA_PRECOS], para: F.ANALISE_JURIDICA, principal: true },
-  { ato: A.CONCLUIR_ANALISE_JURIDICA, rotulo: 'Registrar parecer jurídico', de: [F.ANALISE_JURIDICA], para: F.APROVACAO_INTERNA, principal: true, efeitos: [marcarData('data_parecer_juridico')] },
+  { ato: A.CONCLUIR_PLANEJAMENTO, rotulo: 'Concluir planejamento (ETP)', de: [F.PLANEJAMENTO], para: F.TERMO_REFERENCIA, principal: true, precondicoes: [documentosDaEtapaProntos] },
+  { ato: A.CONCLUIR_TERMO_REFERENCIA, rotulo: 'Aprovar termo de referência', de: [F.TERMO_REFERENCIA], para: F.PESQUISA_PRECOS, principal: true, precondicoes: [documentosDaEtapaProntos], efeitos: [marcarData('data_aprovacao_tr')] },
+  { ato: A.CONCLUIR_PESQUISA_PRECOS, rotulo: 'Concluir pesquisa de preços', de: [F.PESQUISA_PRECOS], para: F.ANALISE_JURIDICA, principal: true, precondicoes: [documentosDaEtapaProntos] },
+  { ato: A.CONCLUIR_ANALISE_JURIDICA, rotulo: 'Registrar parecer jurídico', de: [F.ANALISE_JURIDICA], para: F.APROVACAO_INTERNA, principal: true, precondicoes: [documentosDaEtapaProntos], efeitos: [marcarData('data_parecer_juridico')] },
   {
     ato: A.DEVOLVER_FASE_INTERNA,
     rotulo: 'Devolver à etapa interna anterior',
@@ -243,6 +281,9 @@ const ATOS_ETAPAS_INTERNAS: DefinicaoAto[] = [
     para: (lic) => faseInternaAnterior(lic.fase),
     requerMotivo: true,
     retorno: true,
+    // Devolvida a uma etapa anterior, a fase interna deixa de estar concluída
+    // (o PUBLICAR do rito completo volta a exigir o gate documental).
+    efeitos: [(lic) => { lic.fase_interna_concluida = false; }],
   },
 ];
 
@@ -252,6 +293,7 @@ const CONCLUIR_FASE_INTERNA_RITO_COMPLETO: DefinicaoAto = {
   rotulo: 'Concluir fase interna (autorização)',
   de: [F.APROVACAO_INTERNA],
   para: F.APROVACAO_INTERNA,
+  precondicoes: [instrucaoCompleta],
   efeitos: [concluirFaseInterna],
 };
 
@@ -261,7 +303,7 @@ const CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA: DefinicaoAto = {
   rotulo: 'Concluir instrução (art. 72)',
   de: FASES_INTERNAS,
   para: F.APROVACAO_INTERNA,
-  precondicoes: [instrucaoArt72Completa],
+  precondicoes: [instrucaoCompleta],
   efeitos: [concluirFaseInterna],
 };
 
@@ -273,7 +315,7 @@ const PUBLICAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoArt72Completa, prazoMinimoDispensa],
+  precondicoes: [instrucaoCompleta, prazoMinimoDispensa],
   efeitos: [gravarCronogramaPublicacao],
   mensagemForaDaFase: () => 'Licitação precisa estar aprovada internamente para publicar edital',
 };
@@ -288,12 +330,15 @@ const CANCELAR_PUBLICACAO: DefinicaoAto = {
   precondicoes: [semPropostasRecebidas],
 };
 
-const ABRIR_IMPUGNACAO: DefinicaoAto = {
-  ato: A.ABRIR_IMPUGNACAO,
-  rotulo: 'Abrir prazo de impugnação',
-  de: [F.PUBLICADO],
-  para: F.IMPUGNACAO,
-};
+/*
+ * ABRIR_IMPUGNACAO (PUBLICADO → IMPUGNACAO) SAIU DOS FLUXOS (E1 item 6):
+ * o prazo de impugnação/esclarecimento do art. 164 (até 3 dias úteis antes da
+ * abertura) é decidido pela DATA-limite (`impugnacoes/prazo-manifestacao.util`)
+ * e corre em paralelo ao acolhimento — não é uma fase. A fase IMPUGNACAO
+ * continua válida para linhas legadas (INICIAR_ACOLHIMENTO, ENCERRAR_ACOLHIMENTO
+ * e CANCELAR_PUBLICACAO a aceitam como origem), mas ninguém entra mais nela.
+ * O valor do enum AtoLicitacao fica para o histórico antigo.
+ */
 
 const INICIAR_ACOLHIMENTO: DefinicaoAto = {
   ato: A.INICIAR_ACOLHIMENTO,
@@ -502,7 +547,6 @@ const FLUXO_COMPETITIVO: DefinicaoAto[] = [
   PUBLICAR,
   CANCELAR_PUBLICACAO,
   INICIAR_ACOLHIMENTO,
-  ABRIR_IMPUGNACAO,
   ENCERRAR_ACOLHIMENTO,
   INICIAR_DISPUTA,
   ENCERRAR_DISPUTA,

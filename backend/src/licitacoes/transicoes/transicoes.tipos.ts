@@ -26,7 +26,8 @@ export enum AtoLicitacao {
   // --- Fase externa ---
   PUBLICAR = 'PUBLICAR', // edital/aviso divulgado (art. 54)
   CANCELAR_PUBLICACAO = 'CANCELAR_PUBLICACAO', // retirada do PNCP antes de propostas (uso do sistema)
-  ABRIR_IMPUGNACAO = 'ABRIR_IMPUGNACAO', // prazo de impugnação (art. 164)
+  /** @deprecated fora dos fluxos (E1 item 6): prazo de impugnação é por data. Mantido para o histórico. */
+  ABRIR_IMPUGNACAO = 'ABRIR_IMPUGNACAO',
   INICIAR_ACOLHIMENTO = 'INICIAR_ACOLHIMENTO', // recebimento de propostas
   ENCERRAR_ACOLHIMENTO = 'ENCERRAR_ACOLHIMENTO', // fim do prazo de propostas
   INICIAR_DISPUTA = 'INICIAR_DISPUTA', // abertura da sessão / etapa de lances
@@ -88,8 +89,13 @@ export interface ConsultasTransicao {
   contratosOuAtasGerados(): Promise<number>;
   /** Status e vencedor de cada item. */
   itens(): Promise<Array<{ status: string; fornecedor_vencedor_id: string | null }>>;
-  /** Instrução do art. 72 (contratação direta); null quando não se aplica/indisponível. */
-  instrucaoArt72(): Promise<{ pode_divulgar: boolean; pendentes: string[] } | null>;
+  /**
+   * Instrução documental da fase interna (gate único, E1.7): contratação
+   * direta → checklist do art. 72 (etapa ignorada); rito completo → documentos
+   * obrigatórios da `etapa` informada ou, sem etapa, de todas as etapas
+   * internas (art. 18). null quando indisponível.
+   */
+  instrucaoProcesso(etapa?: FaseLicitacao): Promise<{ pode_divulgar: boolean; pendentes: string[] } | null>;
 }
 
 export interface ContextoTransicao {

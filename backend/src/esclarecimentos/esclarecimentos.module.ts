@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Esclarecimento } from './esclarecimento.entity';
+import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { EsclarecimentosService } from './esclarecimentos.service';
 import { EsclarecimentosController } from './esclarecimentos.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Esclarecimento])],
+  imports: [TypeOrmModule.forFeature([Esclarecimento, Licitacao])],
   controllers: [EsclarecimentosController],
   providers: [EsclarecimentosService],
   exports: [EsclarecimentosService],

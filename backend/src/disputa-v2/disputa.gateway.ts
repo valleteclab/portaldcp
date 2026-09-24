@@ -14,6 +14,7 @@ import { SigiloDisputaService, VisaoDisputa } from './sigilo-disputa.service';
 import { WsAutenticador, atorDoSocket } from '../auth/acesso/ws-autenticador';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { ehFornecedor } from '../auth/acesso/ator';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
  * ============================================================================
@@ -242,7 +243,11 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     if (!info) return;
 
     try {
-      const resultado = await this.disputaService.iniciarDisputa(data.sessaoId, Array.isArray(data.itensIds) ? data.itensIds : []);
+      const resultado = await this.disputaService.iniciarDisputa(
+        data.sessaoId,
+        Array.isArray(data.itensIds) ? data.itensIds : [],
+        atorTransicaoDe(atorDoSocket(client)),
+      );
       await this.emitirItensPorVisao(data.sessaoId, info.licitacaoId, 'itens_iniciados', {
         itensIniciados: resultado.itensIniciados,
       });
@@ -260,7 +265,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     if (!info) return;
 
     try {
-      const resultado = await this.disputaService.encerrarItem(data.sessaoId, data.itemId);
+      const resultado = await this.disputaService.encerrarItem(data.sessaoId, data.itemId, atorTransicaoDe(atorDoSocket(client)));
       // Item encerrado: o vencedor pode ser revelado (fim da disputa do item)
       await this.emitirItensPorVisao(data.sessaoId, info.licitacaoId, 'item_encerrado', {
         itemId: data.itemId,

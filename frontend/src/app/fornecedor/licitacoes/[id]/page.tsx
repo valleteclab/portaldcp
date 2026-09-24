@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
 
 interface Licitacao {
   id: string
@@ -51,6 +52,11 @@ interface Licitacao {
   data_abertura_sessao?: string
   data_inicio_acolhimento?: string
   data_fim_acolhimento?: string
+  data_limite_impugnacao?: string | null
+  /** Prazo do art. 164 calculado pelo backend (edital ou 3 dias úteis antes da abertura) */
+  data_limite_impugnacao_efetiva?: string | null
+  /** Cabe impugnação/esclarecimento agora (decidido pela data, não pela fase) */
+  prazo_manifestacao_aberto?: boolean
   criterio_julgamento?: string
   modo_disputa?: string
   sigilo_orcamento?: 'PUBLICO' | 'SIGILOSO'
@@ -367,16 +373,15 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
               </Button>
             </Link>
           )}
-          {/* Esclarecimentos - disponível em várias fases */}
-          {['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS'].includes(licitacao.fase) && (
+          {/* Esclarecimentos e impugnação: até o prazo do art. 164 (corre junto com o acolhimento) */}
+          {prazoManifestacaoAberto(licitacao) && (
             <Link href={`/fornecedor/licitacoes/${licitacao.id}/esclarecimentos`}>
               <Button variant="outline">
                 <HelpCircle className="mr-2 h-4 w-4" /> Esclarecimentos
               </Button>
             </Link>
           )}
-          {/* Impugnação - apenas em fases iniciais */}
-          {(licitacao.fase === 'PUBLICADO' || licitacao.fase === 'IMPUGNACAO') && (
+          {prazoManifestacaoAberto(licitacao) && (
             <Link href={`/fornecedor/licitacoes/${licitacao.id}/impugnar`}>
               <Button variant="outline" className="text-orange-600 border-orange-300 hover:bg-orange-50">
                 <AlertCircle className="mr-2 h-4 w-4" /> Impugnar Edital
@@ -420,7 +425,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
               {/* 2. Impugnação */}
               <div className="flex flex-col items-center w-1/6">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${
-                  licitacao.fase === 'IMPUGNACAO' 
+                  prazoManifestacaoAberto(licitacao)
                     ? 'bg-yellow-500 border-yellow-500 text-white' 
                     : ['ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase)
                       ? 'bg-green-500 border-green-500 text-white'
@@ -428,10 +433,10 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                 }`}>
                   <AlertCircle className="h-5 w-5" />
                 </div>
-                <p className={`text-xs font-medium mt-2 text-center ${licitacao.fase === 'IMPUGNACAO' ? 'text-yellow-600' : ''}`}>
+                <p className={`text-xs font-medium mt-2 text-center ${prazoManifestacaoAberto(licitacao) ? 'text-yellow-600' : ''}`}>
                   Impugnação
                 </p>
-                <p className="text-[10px] text-muted-foreground">Até {formatarData(licitacao.data_fim_acolhimento)}</p>
+                <p className="text-[10px] text-muted-foreground">Até {formatarData(dataLimiteManifestacao(licitacao) || undefined)}</p>
               </div>
 
               {/* 3. Propostas */}

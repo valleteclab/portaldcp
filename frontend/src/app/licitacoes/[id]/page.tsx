@@ -66,6 +66,10 @@ interface Licitacao {
   data_publicacao_edital: string
   data_abertura_sessao: string
   data_limite_impugnacao: string
+  /** Prazo do art. 164 calculado pelo backend (edital ou 3 dias úteis antes da abertura) */
+  data_limite_impugnacao_efetiva?: string | null
+  /** Cabe impugnação/esclarecimento agora (decidido pela data, não pela fase) */
+  prazo_manifestacao_aberto?: boolean
   data_inicio_acolhimento: string
   data_fim_acolhimento: string
   pregoeiro_nome: string
@@ -89,6 +93,7 @@ interface Licitacao {
 }
 
 import { API_URL, getAuthHeaders } from '@/lib/api'
+import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
 
 export default function DetalheLicitacaoPublicaPage() {
   const params = useParams()
@@ -448,7 +453,7 @@ export default function DetalheLicitacaoPublicaPage() {
                         <AlertCircle className="w-8 h-8 text-yellow-500" />
                         <div>
                           <p className="font-medium">Limite para Impugnações</p>
-                          <p className="text-gray-600">{formatarData(licitacao.data_limite_impugnacao)}</p>
+                          <p className="text-gray-600">{formatarData(dataLimiteManifestacao(licitacao) || licitacao.data_limite_impugnacao)}</p>
                         </div>
                       </div>
                       
@@ -595,15 +600,22 @@ export default function DetalheLicitacaoPublicaPage() {
                     Enviar Proposta
                   </Link>
                 </Button>
-                <Button variant="outline" className="w-full" asChild>
-                  <Link href={`/fornecedor/licitacoes/${id}/impugnar`}>
-                    Impugnar Edital
-                  </Link>
-                </Button>
-                <Button variant="outline" className="w-full">
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                  Solicitar Esclarecimento
-                </Button>
+                {/* Impugnação/esclarecimento: até o prazo do art. 164 (calculado no backend) */}
+                {prazoManifestacaoAberto(licitacao) && (
+                  <>
+                    <Button variant="outline" className="w-full" asChild>
+                      <Link href={`/fornecedor/licitacoes/${id}/impugnar`}>
+                        Impugnar Edital
+                      </Link>
+                    </Button>
+                    <Button variant="outline" className="w-full" asChild>
+                      <Link href={`/fornecedor/licitacoes/${id}/esclarecimentos`}>
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        Solicitar Esclarecimento
+                      </Link>
+                    </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>

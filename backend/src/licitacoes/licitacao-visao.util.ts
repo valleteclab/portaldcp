@@ -1,4 +1,5 @@
 import { FaseLicitacao, FASES_LEGADAS_DE_SITUACAO } from './entities/licitacao.entity';
+import { camposDePrazoManifestacao } from '../impugnacoes/prazo-manifestacao.util';
 
 /**
  * VISÕES DA LICITAÇÃO POR PÚBLICO (E1a — blindagem de acesso).
@@ -83,10 +84,25 @@ export function orgaoPublico(orgao: Record<string, any> | null | undefined): Rec
   return pub;
 }
 
+/**
+ * Prazo de impugnação/esclarecimento já calculado pelo backend (art. 164 —
+ * `data_limite_impugnacao` do edital ou 3 dias úteis antes da abertura), para
+ * as telas não recalcularem: `data_limite_impugnacao_efetiva` (ISO) e
+ * `prazo_manifestacao_aberto`. Só quando o objeto é a licitação (tem fase e
+ * cronograma) — visões parciais (ex.: só itens) ficam como estão.
+ */
+function comPrazoManifestacao(lic: Record<string, any>): Record<string, any> {
+  const temCronograma =
+    'data_abertura_sessao' in lic || 'data_limite_impugnacao' in lic || 'data_fim_acolhimento' in lic;
+  if (!('fase' in lic) || !temCronograma) return lic;
+  return { ...lic, ...camposDePrazoManifestacao(lic) };
+}
+
 /** Licitação para o órgão dono/admin: tudo, exceto as credenciais do órgão. */
 export function licitacaoParaOrgao<T extends Record<string, any>>(lic: T): T {
   if (!lic || typeof lic !== 'object') return lic;
-  return lic.orgao ? ({ ...lic, orgao: orgaoSemSegredos(lic.orgao) } as T) : lic;
+  const saida = lic.orgao ? { ...lic, orgao: orgaoSemSegredos(lic.orgao) } : lic;
+  return comPrazoManifestacao(saida) as T;
 }
 
 export function orcamentoSigiloso(lic: { sigilo_orcamento?: string | null } | null | undefined): boolean {
@@ -121,5 +137,5 @@ export function licitacaoParaPublico<T extends Record<string, any>>(lic: T): T {
   if (Array.isArray(saida.lotes) && sigiloso) {
     saida.lotes = saida.lotes.map((l: any) => mascararValoresEstimados(l));
   }
-  return saida as T;
+  return comPrazoManifestacao(saida) as T;
 }

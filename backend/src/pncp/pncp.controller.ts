@@ -23,6 +23,9 @@ import { RequireModule } from '../auth/require-module.decorator';
 import { AdminGuard } from '../auth/admin.guard';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
+import { AtorAtual } from '../auth/acesso/acesso.decorators';
+import type { Ator } from '../auth/acesso/ator';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 
 @Controller('pncp')
 @RequireModule(ModuloSistema.PNCP)
@@ -75,8 +78,8 @@ export class PncpController {
   }
 
   @Post('compras/:licitacaoId')
-  async enviarCompra(@Param('licitacaoId') licitacaoId: string) {
-    return this.pncpService.enviarCompra(licitacaoId);
+  async enviarCompra(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    return this.pncpService.enviarCompra(licitacaoId, atorTransicaoDe(ator));
   }
 
   @Post('compras/:licitacaoId/itens')
@@ -110,13 +113,15 @@ export class PncpController {
       numeroControlePNCP: string;
       anoCompra: number;
       sequencialCompra: number;
-    }
+    },
+    @AtorAtual() ator: Ator,
   ) {
     return this.pncpService.vincularLicitacaoExistente(
       licitacaoId,
       body.numeroControlePNCP,
       body.anoCompra,
-      body.sequencialCompra
+      body.sequencialCompra,
+      atorTransicaoDe(ator),
     );
   }
 
@@ -312,9 +317,10 @@ export class PncpController {
   async excluirCompra(
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
-    @Body() body: { justificativa: string; licitacaoId?: string }
+    @Body() body: { justificativa: string; licitacaoId?: string },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.excluirCompra(anoCompra, sequencialCompra, body);
+    return this.pncpService.excluirCompra(anoCompra, sequencialCompra, body, atorTransicaoDe(ator));
   }
 
   @Get('compras/:anoCompra/:sequencialCompra')
