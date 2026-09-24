@@ -523,7 +523,8 @@ export default function CockpitProcessoPage() {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ autor_tipo: "ORGAO", autor_nome: autor, mensagem: texto }),
+        // Autoria (órgão) vem do token; autor_nome é só o rótulo exibido
+        body: JSON.stringify({ autor_nome: autor, mensagem: texto }),
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)

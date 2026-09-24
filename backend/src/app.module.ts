@@ -6,6 +6,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { HealthController } from './health.controller';
 import { AuthModule } from './auth/auth.module';
+import { AcessoModule } from './auth/acesso/acesso.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ModuloGuard } from './auth/modulo.guard';
 import { OrgaosModule } from './orgaos/orgaos.module';
@@ -113,6 +114,7 @@ import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-lic
       },
     }),
     AuthModule,
+    AcessoModule,
     OrgaosModule,
     FornecedoresModule,
     LicitacoesModule,

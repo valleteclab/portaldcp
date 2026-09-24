@@ -151,6 +151,10 @@ export class ParametrosLicitacaoService implements OnApplicationBootstrap {
     return null;
   }
 
+  async buscarLimite(id: string): Promise<LimiteLegal | null> {
+    return this.limiteRepo.findOne({ where: { id } });
+  }
+
   async salvarLimite(dados: Partial<LimiteLegal>): Promise<LimiteLegal> {
     if (dados.id) {
       const existente = await this.limiteRepo.findOne({ where: { id: dados.id } });

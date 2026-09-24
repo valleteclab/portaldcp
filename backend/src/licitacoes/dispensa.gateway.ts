@@ -6,9 +6,12 @@ import {
   ConnectedSocket,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import { Namespace, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
+import { WsAutenticador, atorDoSocket } from '../auth/acesso/ws-autenticador';
+import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 
 /**
  * Gateway LEVE da sala de lances/chat da DISPENSA ELETRÔNICA.
@@ -16,16 +19,32 @@ import { Logger } from '@nestjs/common';
  * mensagens de chat ('chat') e abertura/encerramento da janela ('janela').
  * Todos os dados emitidos são públicos/anônimos (o sigilo é tratado no service).
  * Independente do motor do pregão (/disputa-v2) de propósito.
+ *
+ * AUTORIZAÇÃO (E1a): handshake autenticado (WsAutenticador — token inválido
+ * recusa a conexão). A sala é SOMENTE LEITURA (nenhuma escrita por socket):
+ *  - anônimo: entra (painel público e anônimo);
+ *  - órgão DONO, fornecedor COM proposta válida e admin: entram;
+ *  - logado sem relação com a licitação (outro órgão, fornecedor sem proposta):
+ *    recusado ('erro').
  */
 @WebSocketGateway({
   namespace: '/dispensa',
   cors: { origin: '*', credentials: true },
 })
-export class DispensaGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class DispensaGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  server: Server;
+  server: Namespace;
 
   private readonly logger = new Logger(DispensaGateway.name);
+
+  constructor(
+    private readonly wsAuth: WsAutenticador,
+    private readonly acesso: AcessoLicitacaoService,
+  ) {}
+
+  afterInit(server: Namespace) {
+    this.wsAuth.instalar(server);
+  }
 
   handleConnection(client: Socket) {
     this.logger.debug(`[Dispensa] cliente conectado: ${client.id}`);
@@ -36,13 +55,28 @@ export class DispensaGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   @SubscribeMessage('entrar_sala')
-  handleEntrarSala(
+  async handleEntrarSala(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { licitacaoId: string },
   ) {
-    if (!data?.licitacaoId) return;
-    client.join(`licitacao:${data.licitacaoId}`);
-    client.emit('sala_ok', { licitacaoId: data.licitacaoId, server_time: new Date().toISOString() });
+    const licitacaoId = data?.licitacaoId;
+    if (!ehUuid(licitacaoId)) {
+      client.emit('erro', { mensagem: 'Licitação inválida' });
+      return;
+    }
+    const ator = atorDoSocket(client);
+    if (ator) {
+      const relacao = await this.acesso.relacaoComLicitacao(ator, licitacaoId);
+      if (!relacao) {
+        client.emit('erro', { mensagem: 'Acesso negado a esta sala' });
+        return;
+      }
+    } else if (!(await this.acesso.orgaoDaLicitacao(licitacaoId))) {
+      client.emit('erro', { mensagem: 'Licitação inválida' });
+      return;
+    }
+    client.join(`licitacao:${licitacaoId}`);
+    client.emit('sala_ok', { licitacaoId, server_time: new Date().toISOString() });
   }
 
   /** Novo lance aceito → menor valor do item atualizado */

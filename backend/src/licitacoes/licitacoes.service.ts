@@ -16,6 +16,7 @@ import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
+import { licitacaoParaPublico } from './licitacao-visao.util';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -173,14 +174,18 @@ export class LicitacoesService {
     return mapa[v] ?? UnidadeMedida.UNIDADE;
   }
 
-  async criarAPartirDeDemanda(dto: CreateFromDemandaDto): Promise<Licitacao> {
+  /**
+   * @param orgaoIdDoAtor órgão do usuário autenticado (null/undefined = admin da
+   *        plataforma). Demanda de outro órgão → 404 (não confirma que existe).
+   */
+  async criarAPartirDeDemanda(dto: CreateFromDemandaDto, orgaoIdDoAtor?: string | null): Promise<Licitacao> {
     // 1. Carrega a demanda com itens
     const demanda = await this.demandaRepository.findOne({
       where: { id: dto.demanda_id },
       relations: ['itens'],
     });
 
-    if (!demanda) {
+    if (!demanda || (orgaoIdDoAtor && demanda.orgao_id !== orgaoIdDoAtor)) {
       throw new NotFoundException('Demanda não encontrada');
     }
 
@@ -1597,11 +1602,21 @@ export class LicitacoesService {
 
   /**
    * Painel público (ANÔNIMO) da fase de lances: menor valor atual e nº de
-   * lances por item. Com fornecedorId, inclui o valor atual DAQUELE fornecedor.
+   * lances por item. Com fornecedorId, inclui o valor atual DAQUELE fornecedor
+   * — o controller só passa o id do fornecedor AUTENTICADO (nunca da query).
+   * Sigilo: antes do fim do acolhimento o menor valor não é exposto (mesma
+   * regra das demais rotas públicas de propostas).
    */
   async painelLancesDispensa(id: string, fornecedorId?: string): Promise<any> {
     const licitacao = await this.findOne(id);
     const agora = new Date();
+    // Datas cruas (o findOne devolve o cronograma formatado em hora local)
+    const bruta = await this.licitacaoRepository.findOne({
+      where: { id },
+      select: ['id', 'data_fim_acolhimento', 'data_abertura_sessao'] as any,
+    });
+    const corteSigilo = bruta?.data_fim_acolhimento || bruta?.data_abertura_sessao;
+    const emSigilo = !!corteSigilo && agora < new Date(corteSigilo);
     const aberta = !!(
       licitacao.dispensa_lances_fim &&
       agora < new Date(licitacao.dispensa_lances_fim)
@@ -1657,8 +1672,8 @@ export class LicitacoesService {
         numero_item: (i as any).numero_item,
         descricao: (i as any).descricao_resumida || (i as any).descricao_detalhada || (i as any).descricao,
         quantidade: (i as any).quantidade,
-        menor_valor: mapMenor.get(i.id)?.menor != null ? Number(mapMenor.get(i.id).menor) : null,
-        total_lances: Number(mapMenor.get(i.id)?.n_lances || 0),
+        menor_valor: !emSigilo && mapMenor.get(i.id)?.menor != null ? Number(mapMenor.get(i.id).menor) : null,
+        total_lances: emSigilo ? 0 : Number(mapMenor.get(i.id)?.n_lances || 0),
         meu_valor: mapMeu.get(i.id) != null ? Number(mapMeu.get(i.id)) : undefined,
       })),
     };
@@ -1867,6 +1882,7 @@ export class LicitacoesService {
         'licitacao.modo_disputa',
         'licitacao.fase',
         'licitacao.valor_total_estimado',
+        'licitacao.sigilo_orcamento',
         'licitacao.data_publicacao_edital',
         'licitacao.data_abertura_sessao',
         'licitacao.srp',
@@ -1890,7 +1906,9 @@ export class LicitacoesService {
       query.andWhere('orgao.uf = :uf', { uf: filtros.uf });
     }
 
-    return query.orderBy('licitacao.data_abertura_sessao', 'DESC').getMany();
+    const lista = await query.orderBy('licitacao.data_abertura_sessao', 'DESC').getMany();
+    // Orçamento sigiloso (art. 24) não sai em rota pública
+    return lista.map((l) => licitacaoParaPublico(l));
   }
 
   async findPublicaById(id: string): Promise<Licitacao> {
@@ -1973,6 +1991,7 @@ export class LicitacoesService {
       throw new NotFoundException('Licitação pública não encontrada');
     }
 
-    return licitacao;
+    // Orçamento sigiloso (art. 24) não sai em rota pública
+    return licitacaoParaPublico(licitacao);
   }
 }

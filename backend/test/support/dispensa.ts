@@ -196,9 +196,9 @@ export function abrirJanelaLances(
 }
 
 /**
- * POST /dispensa/lances como a sala do fornecedor faz: token do fornecedor e
- * `fornecedor_id` no corpo. `comoFornecedorId` permite testar o corpo com o
- * id de OUTRO fornecedor.
+ * POST /dispensa/lances como a sala do fornecedor faz: só o token do
+ * fornecedor (a identidade vem dele — E1a). `comoFornecedorId` põe no corpo o
+ * `fornecedor_id` legado, para testar a tentativa de agir por OUTRO fornecedor.
  */
 export function darLance(
   ctx: AppE2E,
@@ -206,16 +206,24 @@ export function darLance(
   lic: LicitacaoFixture,
   itemId: string,
   valorUnitario: number,
-  comoFornecedorId = fornecedor.id,
+  comoFornecedorId?: string,
 ) {
   return ctx
     .http()
     .post(`/api/licitacoes/${lic.id}/dispensa/lances`)
     .set(bearer(fornecedor.token))
-    .send({ item_licitacao_id: itemId, fornecedor_id: comoFornecedorId, valor_unitario: valorUnitario });
+    .send({
+      item_licitacao_id: itemId,
+      valor_unitario: valorUnitario,
+      ...(comoFornecedorId ? { fornecedor_id: comoFornecedorId } : {}),
+    });
 }
 
-/** GET público do painel anônimo (sem token, como qualquer visitante). */
+/**
+ * GET do painel anônimo (sem token, como qualquer visitante). O `meu_valor`
+ * só vem para o fornecedor LOGADO (`.set(Authorization)`); `?fornecedorId=`
+ * é legado e nunca revela o valor de outro.
+ */
 export function painelPublico(ctx: AppE2E, lic: LicitacaoFixture, fornecedorId?: string) {
   const q = fornecedorId ? `?fornecedorId=${fornecedorId}` : '';
   return ctx.http().get(`/api/licitacoes/${lic.id}/dispensa/lances/painel${q}`);

@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { io, type Socket } from "socket.io-client"
-import { API_URL, authFetch } from "@/lib/api"
+import { API_URL, authFetch, getAuthToken, hasValidSession } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -59,10 +59,8 @@ export default function SalaLancesDispensaPage() {
 
   const carregarPainel = useCallback(async () => {
     try {
-      const fornecedor = fornecedorRef.current
-      const res = await authFetch(
-        `${API_URL}/api/licitacoes/${id}/dispensa/lances/painel${fornecedor?.id ? `?fornecedorId=${fornecedor.id}` : ""}`,
-      )
+      // O backend identifica o fornecedor pelo TOKEN (meu_valor só do logado)
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/lances/painel`)
       if (res.ok) {
         const j = await res.json()
         if (j.server_time) offsetRef.current = new Date(j.server_time).getTime() - Date.now()
@@ -89,7 +87,12 @@ export default function SalaLancesDispensaPage() {
 
     // ── Tempo real: WebSocket (push instantâneo); polling fica como retaguarda ──
     const wsUrl = API_URL.replace("/api", "").replace("http", "ws")
-    const socket = io(`${wsUrl}/dispensa`, { transports: ["websocket", "polling"] })
+    // Handshake autenticado (token inválido é recusado; sem token = anônimo)
+    const token = hasValidSession() ? getAuthToken() : null
+    const socket = io(`${wsUrl}/dispensa`, {
+      transports: ["websocket", "polling"],
+      auth: token ? { token } : undefined,
+    })
     socketRef.current = socket
     socket.on("connect", () => { setWsOk(true); socket.emit("entrar_sala", { licitacaoId: id }) })
     socket.on("disconnect", () => setWsOk(false))
@@ -126,7 +129,8 @@ export default function SalaLancesDispensaPage() {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ autor_tipo: "FORNECEDOR", fornecedor_id: fornecedor.id, mensagem: texto }),
+        // Autoria vem do token (fornecedor logado)
+        body: JSON.stringify({ mensagem: texto }),
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
@@ -158,9 +162,9 @@ export default function SalaLancesDispensaPage() {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/lances`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Fornecedor identificado pelo token
         body: JSON.stringify({
           item_licitacao_id: item.item_licitacao_id,
-          fornecedor_id: fornecedor.id,
           valor_unitario: valor,
         }),
       })

@@ -621,29 +621,58 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 5. licitacoes REST — checagem de órgão (E1)
   // ==========================================================================
   describe('5. licitacoes REST (órgão B sobre licitações de A)', () => {
-    // VAZAMENTO CONHECIDO: processo-completo sem checagem de órgão — licitacoes/licitacoes.controller.ts:120-123 — corrigir na E1
-    test.failing('órgão B não lê o processo-completo de X', async () => {
+    it('órgão B não lê a licitação de A por id (404) nem a lista com ?orgao_id=A (E1a)', async () => {
+      const um = await ctx.http().get(`/api/licitacoes/${L2.id}`).set(bearer(pregB.token));
+      const lista = await ctx.http().get(`/api/licitacoes?orgao_id=${A.id}`).set(bearer(B.token)).expect(200);
+      registrarHttp('5 pregoeiro B GET licitacoes/:id (L2)', um);
+      expect(um.status).toBe(404);
+      expect(lista.body.some((l: any) => l.orgao_id === A.id)).toBe(false);
+    });
+
+    it('fornecedor não lê licitação na fase interna nem vê credenciais do órgão (E1a)', async () => {
+      const interna = await ctx.http().get(`/api/licitacoes/${L2.id}`).set(bearer(F1.token));
+      expect(interna.status).toBe(404);
+      const publica = await ctx.http().get(`/api/licitacoes/${X.lic.id}`).set(bearer(F1.token)).expect(200);
+      const lista = await ctx.http().get('/api/licitacoes').set(bearer(F1.token)).expect(200);
+      const dono = await ctx.http().get(`/api/licitacoes/${X.lic.id}`).set(bearer(A.token)).expect(200);
+      for (const corpo of [publica.body, lista.body, dono.body]) {
+        expect(JSON.stringify(corpo)).not.toMatch(/senha_hash|pncp_senha|email_smtp_senha|whatsapp_token/);
+      }
+      expect(lista.body.some((l: any) => l.id === L2.id)).toBe(false);
+      // X tem orçamento sigiloso: o fornecedor não vê o valor estimado
+      expect(publica.body.valor_total_estimado ?? null).toBeNull();
+    });
+
+    it('fornecedor não executa atos do órgão (publicar, homologar, abrir lances) (E1a)', async () => {
+      const pub = await ctx.http().put(`/api/licitacoes/${L1.id}/publicar-edital`).set(bearer(F1.token)).send(datasEditalPadrao());
+      const hom = await ctx.http().put(`/api/licitacoes/${L2.id}/homologar`).set(bearer(F1.token)).send({ valor_homologado: 1 });
+      const jan = await ctx.http().post(`/api/licitacoes/${Y.id}/dispensa/abrir-lances`).set(bearer(F1.token)).send({});
+      expect([pub.status, hom.status, jan.status]).toEqual([403, 403, 403]);
+    });
+
+    // CORRIGIDO NA E1a (era vazamento): processo-completo sem checagem de órgão — licitacoes/licitacoes.controller.ts:120-123
+    test('órgão B não lê o processo-completo de X', async () => {
       const r = await ctx.http().get(`/api/licitacoes/${X.lic.id}/processo-completo`).set(bearer(B.token));
       registrarHttp('5 órgão B GET processo-completo (X)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: PUT /licitacoes/:id sem checagem de órgão — licitacoes/licitacoes.controller.ts:68-74 — corrigir na E1
-    test.failing('órgão B não altera licitação de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): PUT /licitacoes/:id sem checagem de órgão — licitacoes/licitacoes.controller.ts:68-74
+    test('órgão B não altera licitação de A', async () => {
       const r = await ctx.http().put(`/api/licitacoes/${L2.id}`).set(bearer(B.token)).send({ objeto: 'Objeto alterado pelo órgão B' });
       registrarHttp('5 órgão B PUT licitacao (L2)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: publicar-edital sem checagem de órgão — licitacoes/licitacoes.controller.ts:93-99 — corrigir na E1
-    test.failing('órgão B não publica o edital de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): publicar-edital sem checagem de órgão — licitacoes/licitacoes.controller.ts:93-99
+    test('órgão B não publica o edital de A', async () => {
       const r = await ctx.http().put(`/api/licitacoes/${L1.id}/publicar-edital`).set(bearer(B.token)).send(datasEditalPadrao());
       registrarHttp('5 órgão B PUT publicar-edital (L1)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: resultado-externo sem checagem de órgão — licitacoes/licitacoes.controller.ts:211-223 — corrigir na E1
-    test.failing('órgão B não registra resultado externo em licitação de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): resultado-externo sem checagem de órgão — licitacoes/licitacoes.controller.ts:211-223
+    test('órgão B não registra resultado externo em licitação de A', async () => {
       const r = await ctx
         .http()
         .post(`/api/licitacoes/${L2.id}/resultado-externo`)
@@ -653,29 +682,30 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: julgar-dispensa sem checagem de órgão (hoje só a janela aberta segura) — licitacoes/licitacoes.controller.ts:126-129 — corrigir na E1
-    test.failing('órgão B não julga a dispensa de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): julgar-dispensa sem checagem de órgão (hoje só a janela aberta segura) —
+    // licitacoes/licitacoes.controller.ts:126-129
+    test('órgão B não julga a dispensa de A', async () => {
       const r = await ctx.http().post(`/api/licitacoes/${Y.id}/julgar-dispensa`).set(bearer(B.token));
       registrarHttp('5 órgão B POST julgar-dispensa (Y)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: homologar sem checagem de órgão — licitacoes/licitacoes.controller.ts:111-117 — corrigir na E1
-    test.failing('órgão B não homologa licitação de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): homologar sem checagem de órgão — licitacoes/licitacoes.controller.ts:111-117
+    test('órgão B não homologa licitação de A', async () => {
       const r = await ctx.http().put(`/api/licitacoes/${L2.id}/homologar`).set(bearer(B.token)).send({ valor_homologado: 1 });
       registrarHttp('5 órgão B PUT homologar (L2)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: suspender sem checagem de órgão — licitacoes/licitacoes.controller.ts:225-231 — corrigir na E1
-    test.failing('órgão B não suspende licitação de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): suspender sem checagem de órgão — licitacoes/licitacoes.controller.ts:225-231
+    test('órgão B não suspende licitação de A', async () => {
       const r = await ctx.http().put(`/api/licitacoes/${L2.id}/suspender`).set(bearer(B.token)).send({ motivo: 'forjado' });
       registrarHttp('5 órgão B PUT suspender (L2)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: revogar sem checagem de órgão — licitacoes/licitacoes.controller.ts:233-239 — corrigir na E1
-    test.failing('órgão B não revoga licitação de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): revogar sem checagem de órgão — licitacoes/licitacoes.controller.ts:233-239
+    test('órgão B não revoga licitação de A', async () => {
       const r = await ctx.http().put(`/api/licitacoes/${L2.id}/revogar`).set(bearer(B.token)).send({ motivo: 'forjado' });
       registrarHttp('5 órgão B PUT revogar (L2)', r);
       expect(RECUSADO).toContain(r.status);
@@ -836,22 +866,55 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 8. Dispensa (Y) — identidade no corpo
   // ==========================================================================
   describe('8. dispensa (Y)', () => {
-    // VAZAMENTO CONHECIDO: painel aceita ?fornecedorId= de qualquer um — licitacoes/licitacoes.controller.ts:154-161; licitacoes/licitacoes.service.ts:1624-1638 — corrigir na E2
-    test.failing('F2 não vê o valor atual de F1 no painel (?fornecedorId=F1)', async () => {
+    // CORRIGIDO NA E1a (era vazamento): painel aceita ?fornecedorId= de qualquer um — licitacoes/licitacoes.controller.ts:154-161;
+    // licitacoes/licitacoes.service.ts:1624-1638
+    test('F2 não vê o valor atual de F1 no painel (?fornecedorId=F1)', async () => {
       const r = await painelPublico(ctx, Y, F1.id).set(bearer(F2.token));
       registrar('8 F2 GET painel ?fornecedorId=F1 (Y)', `HTTP ${r.status} meu_valor=${JSON.stringify(r.body?.itens?.map((i: any) => i.meu_valor))}`);
       expect(r.body.itens.every((i: any) => i.meu_valor === undefined)).toBe(true);
     });
 
-    // VAZAMENTO CONHECIDO: lance da dispensa usa fornecedor_id do corpo — licitacoes/licitacoes.controller.ts:145-151; licitacoes/licitacoes.service.ts:1330 — corrigir na E2
-    test.failing('F2 não dá lance na dispensa em nome de F1', async () => {
+    it('F2 logado vê só o PRÓPRIO valor no painel (E1a)', async () => {
+      const r = await painelPublico(ctx, Y).set(bearer(F2.token)).expect(200);
+      expect(r.body.itens.map((i: any) => i.meu_valor)).toEqual([97, 48]);
+    });
+
+    it('socket /dispensa: token inválido é recusado no handshake (E1a)', async () => {
+      await expect(conectarSocket(ctx, '/dispensa', { token: 'token.invalido.x' })).rejects.toThrow(/Token inválido/);
+    });
+
+    it('socket /dispensa: anônimo, órgão dono e fornecedor com proposta entram; órgão B e fornecedor sem proposta não (E1a)', async () => {
+      const entrar = async (token?: string) => {
+        const s = await conectarSocket(ctx, '/dispensa', { token });
+        const r = aguardarUmDe(s, ['sala_ok', 'erro']);
+        s.emit('entrar_sala', { licitacaoId: Y.id });
+        const ev = await r;
+        s.close();
+        return ev.evento;
+      };
+      const resultado = {
+        anonimo: await entrar(),
+        orgaoA: await entrar(A.token),
+        pregA: await entrar(pregA.token),
+        F1: await entrar(F1.token),
+        orgaoB: await entrar(B.token),
+        F3: await entrar(F3.token),
+      };
+      registrar('8 socket /dispensa entrar_sala (Y)', JSON.stringify(resultado));
+      expect(resultado).toEqual({ anonimo: 'sala_ok', orgaoA: 'sala_ok', pregA: 'sala_ok', F1: 'sala_ok', orgaoB: 'erro', F3: 'erro' });
+    });
+
+    // CORRIGIDO NA E1a (era vazamento): lance da dispensa usa fornecedor_id do corpo — licitacoes/licitacoes.controller.ts:145-151;
+    // licitacoes/licitacoes.service.ts:1330
+    test('F2 não dá lance na dispensa em nome de F1', async () => {
       const r = await darLanceDispensa(ctx, F2, Y, Y.itens[1].id, 47, F1.id);
       registrarHttp('8 F2 POST lance dispensa como F1 (Y)', r);
       expect([401, 403]).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: chat da dispensa usa fornecedor_id do corpo — licitacoes/licitacoes.controller.ts:196-208; licitacoes/licitacoes.service.ts:1538 — corrigir na E2
-    test.failing('F2 não envia mensagem no chat da dispensa em nome de F1', async () => {
+    // CORRIGIDO NA E1a (era vazamento): chat da dispensa usa fornecedor_id do corpo — licitacoes/licitacoes.controller.ts:196-208;
+    // licitacoes/licitacoes.service.ts:1538
+    test('F2 não envia mensagem no chat da dispensa em nome de F1', async () => {
       const r = await ctx
         .http()
         .post(`/api/licitacoes/${Y.id}/dispensa/mensagens`)
@@ -861,8 +924,9 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect([401, 403]).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: autor_tipo=ORGAO aceito de token de fornecedor — licitacoes/licitacoes.controller.ts:196-208; licitacoes/licitacoes.service.ts:1555-1573 — corrigir na E2
-    test.failing('F2 não envia mensagem no chat da dispensa como órgão', async () => {
+    // CORRIGIDO NA E1a (era vazamento): autor_tipo=ORGAO aceito de token de fornecedor — licitacoes/licitacoes.controller.ts:196-208;
+    // licitacoes/licitacoes.service.ts:1555-1573
+    test('F2 não envia mensagem no chat da dispensa como órgão', async () => {
       const r = await ctx
         .http()
         .post(`/api/licitacoes/${Y.id}/dispensa/mensagens`)
@@ -932,8 +996,9 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 10. parametros-licitacao
   // ==========================================================================
   describe('10. parametros-licitacao', () => {
-    // VAZAMENTO CONHECIDO: PUT/DELETE /parametros-licitacao/:orgaoId sem checagem de órgão — parametros-licitacao/parametros-licitacao.controller.ts:28-40 — corrigir na E1
-    test.failing('órgão B não sobrescreve os parâmetros de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): PUT/DELETE /parametros-licitacao/:orgaoId sem checagem de órgão —
+    // parametros-licitacao/parametros-licitacao.controller.ts:28-40
+    test('órgão B não sobrescreve os parâmetros de A', async () => {
       const r = await ctx
         .http()
         .put(`/api/parametros-licitacao/${A.id}`)
@@ -943,8 +1008,9 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(r.status);
     });
 
-    // VAZAMENTO CONHECIDO: restaurar (DELETE) parâmetros de outro órgão — parametros-licitacao/parametros-licitacao.controller.ts:37-40 — corrigir na E1
-    test.failing('órgão B não restaura (apaga) os parâmetros de A', async () => {
+    // CORRIGIDO NA E1a (era vazamento): restaurar (DELETE) parâmetros de outro órgão —
+    // parametros-licitacao/parametros-licitacao.controller.ts:37-40
+    test('órgão B não restaura (apaga) os parâmetros de A', async () => {
       const r = await ctx.http().delete(`/api/parametros-licitacao/${A.id}`).set(bearer(B.token));
       registrarHttp('10 órgão B DELETE parametros de A', r);
       expect(RECUSADO).toContain(r.status);
@@ -1085,8 +1151,9 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 13. sigilo do orçamento (X = SIGILOSO) e melhor lance
   // ==========================================================================
   describe('13. sigilo do orçamento e melhor lance', () => {
-    // VAZAMENTO CONHECIDO: leitura pública seleciona valor_total_estimado e itens.valor_unitario_estimado sem olhar sigilo_orcamento — licitacoes/licitacoes.service.ts:1896-1970 — corrigir na E2
-    test.failing('licitação pública com orçamento sigiloso não expõe valor estimado', async () => {
+    // CORRIGIDO NA E1a (era vazamento): leitura pública seleciona valor_total_estimado e itens.valor_unitario_estimado sem olhar
+    // sigilo_orcamento — licitacoes/licitacoes.service.ts:1896-1970
+    test('licitação pública com orçamento sigiloso não expõe valor estimado', async () => {
       const r = await ctx.http().get(`/api/licitacoes/publicas/${X.lic.id}`);
       const lic = r.body || {};
       const expostos = [

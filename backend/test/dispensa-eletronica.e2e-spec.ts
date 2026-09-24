@@ -471,9 +471,12 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         expect(json).not.toContain(f.cnpj);
       }
 
-      // Na sala do fornecedor (?fornecedorId=), vem também o valor atual DELE
-      const meu = await painelPublico(ctx, lic, demais.id).expect(200);
+      // Na sala do fornecedor (logado), vem também o valor atual DELE — pelo token
+      const meu = await painelPublico(ctx, lic).set(bearer(demais.token)).expect(200);
       expect(meu.body.itens.map((i: any) => i.meu_valor)).toEqual([89, 47]);
+      // ...e o de mais ninguém: ?fornecedorId= de outro não revela nada
+      const outro = await painelPublico(ctx, lic, me.id).set(bearer(demais.token)).expect(200);
+      expect(outro.body.itens.every((i: any) => i.meu_valor === undefined)).toBe(true);
     });
 
     it('chat durante a janela: autoria do fornecedor fica anônima (REST e socket)', async () => {
@@ -482,7 +485,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         .http()
         .post(`/api/licitacoes/${lic.id}/dispensa/mensagens`)
         .set(bearer(me.token))
-        .send({ autor_tipo: 'FORNECEDOR', fornecedor_id: me.id, mensagem: 'Pergunta: o frete está incluso?' });
+        .send({ mensagem: 'Pergunta: o frete está incluso?' }); // autoria vem do token
       expect(r.status).toBe(201);
       const ev = await push;
       expect(ev).toMatchObject({ autor_tipo: 'FORNECEDOR', autor_nome: 'Fornecedor', mensagem: 'Pergunta: o frete está incluso?' });
@@ -492,7 +495,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         .http()
         .post(`/api/licitacoes/${lic.id}/dispensa/mensagens`)
         .set(bearer(orgao.token))
-        .send({ autor_tipo: 'ORGAO', autor_nome: 'Agente de contratação', mensagem: 'Sim, CIF.' })
+        .send({ autor_nome: 'Agente de contratação', mensagem: 'Sim, CIF.' })
         .expect(201);
 
       const msgs = await ctx.http().get(`/api/licitacoes/${lic.id}/dispensa/mensagens`).expect(200);
@@ -508,7 +511,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         .http()
         .post(`/api/licitacoes/${lic.id}/dispensa/mensagens`)
         .set(bearer(semProposta.token))
-        .send({ autor_tipo: 'FORNECEDOR', fornecedor_id: semProposta.id, mensagem: 'Oi' });
+        .send({ mensagem: 'Oi' });
       expect(r.status).toBe(400);
       expect(r.body.message).toMatch(/Apenas fornecedores com proposta válida/);
     });
@@ -708,7 +711,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         .http()
         .post(`/api/licitacoes/${lic.id}/dispensa/mensagens`)
         .set(bearer(orgao.token))
-        .send({ autor_tipo: 'ORGAO', mensagem: 'Mais alguma coisa?' });
+        .send({ mensagem: 'Mais alguma coisa?' });
       expect(m.status).toBe(400);
       expect(m.body.message).toMatch(/chat encerrado/);
 
@@ -761,11 +764,10 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
     await ctx?.fechar();
   });
 
-  // DEFEITO CONHECIDO: o painel público mostra o menor valor das propostas
-  // ANTES do fim do acolhimento, furando o sigilo que as demais rotas públicas
-  // respeitam — plano E2.8 ("leitura pública só do que é público").
-  // licitacoes.service.ts:1602 (painelLancesDispensa sem checar o sigilo).
-  test.failing('sigilo: painel público não expõe valores antes do fim do acolhimento', async () => {
+  // CORRIGIDO NA E1a (era defeito): o painel público mostra o menor valor das propostas ANTES do fim do acolhimento, furando o
+  // sigilo que as demais rotas públicas respeitam — plano E2.8 ("leitura pública só do que é público"). licitacoes.service.ts:1602
+  // (painelLancesDispensa sem checar o sigilo).
+  test('sigilo: painel público não expõe valores antes do fim do acolhimento', async () => {
     const p = await painelPublico(ctx, lic).expect(200);
     expect(p.body.itens.map((i: any) => i.menor_valor)).toEqual([null, null]);
   });
@@ -785,19 +787,17 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
     await moverFimDaJanela(ctx, lic.id, new Date(Date.now() + 30 * MIN));
   });
 
-  // DEFEITO CONHECIDO: o lance da dispensa confia no `fornecedor_id` do corpo —
-  // qualquer token dá lance em nome de outro fornecedor — plano §1.2 B6 / E2.8.
-  // licitacoes.controller.ts:146-150; licitacoes.service.ts:1330.
-  test.failing('lance em nome de outro fornecedor é recusado (identidade vem do token)', async () => {
+  // CORRIGIDO NA E1a (era defeito): o lance da dispensa confia no `fornecedor_id` do corpo — qualquer token dá lance em nome de
+  // outro fornecedor — plano §1.2 B6 / E2.8. licitacoes.controller.ts:146-150; licitacoes.service.ts:1330.
+  test('lance em nome de outro fornecedor é recusado (identidade vem do token)', async () => {
     // token do f2, corpo com o id do f1 (valor válido para o f1: 45 < 49)
     const r = await darLance(ctx, f2, lic, item2, 45, f1.id);
     expect([401, 403]).toContain(r.status);
   });
 
-  // DEFEITO CONHECIDO: o chat da dispensa também aceita `fornecedor_id` do corpo
-  // (mensagem em nome de outro) — plano §1.2 B6 / E2.10.
-  // licitacoes.controller.ts:197-207; licitacoes.service.ts:1538.
-  test.failing('mensagem no chat em nome de outro fornecedor é recusada', async () => {
+  // CORRIGIDO NA E1a (era defeito): o chat da dispensa também aceita `fornecedor_id` do corpo (mensagem em nome de outro) — plano
+  // §1.2 B6 / E2.10. licitacoes.controller.ts:197-207; licitacoes.service.ts:1538.
+  test('mensagem no chat em nome de outro fornecedor é recusada', async () => {
     const r = await ctx
       .http()
       .post(`/api/licitacoes/${lic.id}/dispensa/mensagens`)
@@ -806,27 +806,24 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
     expect([401, 403]).toContain(r.status);
   });
 
-  // DEFEITO CONHECIDO: o painel é @Public e aceita `?fornecedorId=` de qualquer
-  // um — um visitante anônimo lê o valor atual de um fornecedor identificado,
-  // desfazendo a anonimização — plano E2.8.
-  // licitacoes.controller.ts:154-160; licitacoes.service.ts:1626.
-  test.failing('painel anônimo não revela o valor de um fornecedor identificado', async () => {
+  // CORRIGIDO NA E1a (era defeito): o painel é @Public e aceita `?fornecedorId=` de qualquer um — um visitante anônimo lê o valor
+  // atual de um fornecedor identificado, desfazendo a anonimização — plano E2.8. licitacoes.controller.ts:154-160;
+  // licitacoes.service.ts:1626.
+  test('painel anônimo não revela o valor de um fornecedor identificado', async () => {
     const p = await painelPublico(ctx, lic, f1.id).expect(200);
     expect(p.body.itens.every((i: any) => i.meu_valor === undefined)).toBe(true);
   });
 
-  // DEFEITO CONHECIDO: sem checagem de órgão (tenant) — outro órgão lê o
-  // cockpit (propostas, fornecedores, contratos) — plano E9.3.
-  // licitacoes.controller.ts:120-122; licitacoes.service.ts:861.
-  test.failing('outro órgão não acessa o cockpit da dispensa', async () => {
+  // CORRIGIDO NA E1a (era defeito): sem checagem de órgão (tenant) — outro órgão lê o cockpit (propostas, fornecedores, contratos)
+  // — plano E9.3. licitacoes.controller.ts:120-122; licitacoes.service.ts:861.
+  test('outro órgão não acessa o cockpit da dispensa', async () => {
     const r = await ctx.http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(outroOrgao.token));
     expect([403, 404]).toContain(r.status);
   });
 
-  // DEFEITO CONHECIDO: julgar/homologar não têm guarda de perfil — um token de
-  // FORNECEDOR julga a dispensa — plano §0 regra 1/2 e E1 (ato nomeado com
-  // pré-condições), E9.3. licitacoes.controller.ts:126-128.
-  test.failing('fornecedor não julga a dispensa', async () => {
+  // CORRIGIDO NA E1a (era defeito): julgar/homologar não têm guarda de perfil — um token de FORNECEDOR julga a dispensa — plano §0
+  // regra 1/2 e E1 (ato nomeado com pré-condições), E9.3. licitacoes.controller.ts:126-128.
+  test('fornecedor não julga a dispensa', async () => {
     // Relógio: janela encerrada
     await moverFimDaJanela(ctx, lic.id, new Date(Date.now() - 1_000));
     const r = await ctx.http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(f2.token));
@@ -842,13 +839,9 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
     const linhas = adj.map((a: any) => [a.item, a.valor_unitario, a.valor_total]);
     // item 1: f1 96 (lance) × 10
     expect(linhas[0]).toEqual([1, 96, 960]);
-    // item 2: f2 48 (proposta) × 20 — ENQUANTO o defeito do lance em nome de
-    // outro existir, o lance forjado (45, em nome do f1) VENCE o item: é a
-    // prova do dano. Corrigido o defeito, só a segunda opção sobra.
-    expect([
-      [2, 45, 900],
-      [2, 48, 960],
-    ]).toContainEqual(linhas[1]);
+    // item 2: f2 48 (proposta) × 20 — o lance forjado (45, em nome do f1) foi
+    // recusado na E1a; antes ele VENCIA o item (prova do dano).
+    expect(linhas[1]).toEqual([2, 48, 960]);
   });
 
   // DEFEITO CONHECIDO: o valor homologado vem do corpo da requisição (a tela
