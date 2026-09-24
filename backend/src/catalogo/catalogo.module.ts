@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ClasseCatalogo, ItemCatalogo, UnidadeMedida, CatalogoSyncLog } from './entities/catalogo.entity';
 import { ClassificacaoCatalogoProprio, ItemCatalogoProprio } from './entities/catalogo-proprio.entity';
 import { CatalogoService } from './catalogo.service';
@@ -21,7 +20,6 @@ import { CatalogoImportService } from './catalogo-import.service';
       ClassificacaoCatalogoProprio,
       ItemCatalogoProprio,
     ]),
-    ScheduleModule.forRoot(),
   ],
   controllers: [CatalogoController, CatalogoProprioController],
   providers: [CatalogoService, ComprasGovService, CatalogoProprioService, CatalogoImportService],

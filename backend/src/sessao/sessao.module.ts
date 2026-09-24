@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ScheduleModule } from '@nestjs/schedule';
 import { SessaoDisputa } from './entities/sessao-disputa.entity';
 import { EventoSessao } from './entities/evento-sessao.entity';
 import { RecursoAdministrativo } from './entities/recurso-administrativo.entity';
@@ -27,7 +26,6 @@ import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-li
       Proposta,
       PropostaItem,
     ]),
-    ScheduleModule.forRoot(),
     ParametrosLicitacaoModule,
   ],
   controllers: [SessaoController],
