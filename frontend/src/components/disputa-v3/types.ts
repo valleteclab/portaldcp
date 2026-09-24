@@ -18,6 +18,10 @@ export interface DisputaV3Cronometria {
   intervaloMinimoLancesMinutos: number
   /** Art. 56, §3º - Decremento minimo entre lances conforme edital */
   diferencaMinimaLances?: number
+  /** VALOR (R$ na base do lance) ou PERCENTUAL */
+  tipoDiferencaMinimaLances?: 'VALOR' | 'PERCENTUAL'
+  /** Unidade dos lances: UNITARIO | TOTAL_ITEM | TOTAL_LOTE */
+  baseLance?: string
   etapaAbertaMinutos?: number
   janelaGatilhoProrrogacaoMinutos?: number
   duracaoProrrogacaoMinutos?: number
@@ -64,7 +68,10 @@ export interface DisputaV3ItemBoard {
   descricao: string
   quantidade: number
   unidade: string
+  /** Na unidade da base do lance (comparável com os lances) */
   valorReferencia: number
+  valorReferenciaUnitario?: number
+  baseLance?: string
   status: 'AGUARDANDO' | 'EM_DISPUTA' | 'ENCERRADO'
   cronometro: {
     tempoRestanteSegundos: number

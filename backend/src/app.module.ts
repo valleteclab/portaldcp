@@ -14,7 +14,6 @@ import { FornecedoresModule } from './fornecedores/fornecedores.module';
 import { LicitacoesModule } from './licitacoes/licitacoes.module';
 import { ItensModule } from './itens/itens.module';
 import { PropostasModule } from './propostas/propostas.module';
-import { LancesModule } from './lances/lances.module';
 import { SessaoModule } from './sessao/sessao.module';
 import { FaseInternaModule } from './fase-interna/fase-interna.module';
 import { AuditModule } from './audit/audit.module';
@@ -120,7 +119,6 @@ import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-lic
     LicitacoesModule,
     ItensModule,
     PropostasModule,
-    LancesModule,
     SessaoModule,
     FaseInternaModule,
     AuditModule,

@@ -8,13 +8,16 @@ import {
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
+import { Logger } from '@nestjs/common';
 import { Namespace, Socket } from 'socket.io';
-import { DisputaService } from './disputa.service';
+import { DisputaService, ResultadoEncerramento } from './disputa.service';
+import { Lance } from './entities/lance.entity';
 import { SigiloDisputaService, VisaoDisputa } from './sigilo-disputa.service';
 import { WsAutenticador, atorDoSocket } from '../auth/acesso/ws-autenticador';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { ehFornecedor } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
+import { idAnonimo } from './sigilo-disputa.service';
 
 /**
  * ============================================================================
@@ -64,6 +67,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   server: Namespace;
 
   private clientes: Map<string, ClienteConectado> = new Map();
+  private readonly logger = new Logger(DisputaGateway.name);
 
   constructor(
     private readonly disputaService: DisputaService,
@@ -117,8 +121,9 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   }
 
   /**
-   * Emite para cada cliente da sala os itens na visão dele (usado também pelo
-   * relógio da disputa ao encerrar item).
+   * Emite para cada cliente da sala os itens na visão dele. `extra` NÃO pode
+   * levar identidade de licitante (vai igual a todos) — o item encerrado usa
+   * `difundirItemEncerrado`.
    */
   async emitirItensPorVisao(sessaoId: string, licitacaoId: string | null, evento: string, extra: Record<string, any>) {
     const licId = licitacaoId || (await this.acesso.donoDaSessao(sessaoId))?.licitacaoId;
@@ -130,9 +135,109 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       const itens = await this.disputaService.getItensPorStatus(
         sessaoId,
         visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : undefined,
+        { visaoOrgao: visao.tipo === 'ORGAO' },
       );
-      // `extra` (ex.: vencedor do item encerrado) segue como antes; os itens na visão do cliente
       s.emit(evento, { ...extra, itens: aplicar(itens, visao) });
+    }
+  }
+
+  /**
+   * `item_encerrado` (plano E2 item 5): o vencedor só é identificado a quem não
+   * é o órgão dono quando a etapa de lances da licitação INTEIRA terminou;
+   * antes disso vai o código anônimo ("Fornecedor B"). O órgão dono recebe a
+   * identidade sempre e, se houver, o aviso de reinício possível (art. 56 §4º).
+   * Usado pelo socket, pelo relógio e pelo encerramento forçado do admin.
+   */
+  async difundirItemEncerrado(
+    sessaoId: string,
+    licitacaoId: string | null,
+    itemId: string,
+    resultado: ResultadoEncerramento,
+    extra: Record<string, any> = {},
+  ) {
+    const licId = licitacaoId || (await this.acesso.donoDaSessao(sessaoId))?.licitacaoId || null;
+    let vencedorPublico = resultado.vencedor;
+    if (resultado.vencedor && !(licId && (await this.sigilo.etapaDeLancesEncerrada(licId)))) {
+      const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, resultado.vencedor.fornecedorId);
+      vencedorPublico = { fornecedorId: idAnonimo(codigo), fornecedorNome: codigo, valor: resultado.vencedor.valor };
+    }
+    const aplicar = licId ? await this.sigilo.aplicador(licId, sessaoId) : null;
+    const sockets = await this.server.in(`sessao:${sessaoId}`).fetchSockets();
+    for (const s of sockets) {
+      const visao = this.visaoDe(this.clientes.get(s.id));
+      const itens = await this.disputaService.getItensPorStatus(
+        sessaoId,
+        visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : undefined,
+        { visaoOrgao: visao.tipo === 'ORGAO' },
+      );
+      s.emit('item_encerrado', {
+        ...extra,
+        itemId,
+        etapaDeLancesEncerrada: resultado.etapaDeLancesEncerrada,
+        vencedor: visao.tipo === 'ORGAO' ? resultado.vencedor : vencedorPublico,
+        itens: aplicar ? aplicar(itens, visao) : itens,
+      });
+    }
+    if (resultado.alertaReinicio) {
+      const a = resultado.alertaReinicio;
+      this.server.to(salaOrgao(sessaoId)).emit('alerta_diferenca_5_porcento', {
+        ...a,
+        mensagem:
+          `Item ${a.itemNumero}: a diferença entre o 1º e o 2º colocado é de ${a.diferencaPercentual.toFixed(2)}% ` +
+          `(≥ ${a.percentualMinimo}%). A Administração poderá admitir o reinício da disputa aberta para as demais ` +
+          `colocações (Lei 14.133/2021, art. 56 §4º).`,
+      });
+    }
+  }
+
+  /**
+   * Difunde um lance JÁ GRAVADO. Nunca lança: falha aqui é registrada no log e
+   * não pode transformar um lance válido em "erro" para o fornecedor (7b).
+   */
+  async difundirNovoLance(sessaoId: string, licitacaoId: string, lance: Lance): Promise<void> {
+    try {
+      const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, lance.fornecedor_id);
+      const aplicar = await this.sigilo.aplicador(licitacaoId, sessaoId);
+      const lancesPublicos = await this.disputaService.getTodosLances(lance.item_id, sessaoId);
+      const clientesNaSala = await this.server.in(`sessao:${sessaoId}`).fetchSockets();
+      for (const socketCliente of clientesNaSala) {
+        try {
+          const visao = this.visaoDe(this.clientes.get(socketCliente.id));
+          const orgao = visao.tipo === 'ORGAO';
+          const itensCliente = await this.disputaService.getItensPorStatus(
+            sessaoId,
+            visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : undefined,
+            { visaoOrgao: orgao },
+          );
+          const lances = orgao
+            ? await this.disputaService.getTodosLances(lance.item_id, sessaoId, { visaoOrgao: true })
+            : lancesPublicos;
+          socketCliente.emit(
+            'novo_lance',
+            aplicar(
+              {
+                itemId: lance.item_id,
+                lance: {
+                  id: lance.id,
+                  valor: Number(lance.valor),
+                  valorUnitario: lance.valor_unitario != null ? Number(lance.valor_unitario) : null,
+                  valorTotal: lance.valor_total != null ? Number(lance.valor_total) : null,
+                  origem: lance.origem,
+                  fornecedorNome: codigo,
+                  dataHora: lance.created_at,
+                },
+                lances,
+                itens: itensCliente,
+              },
+              visao,
+            ),
+          );
+        } catch (e: any) {
+          this.logger.warn(`novo_lance não entregue a ${socketCliente.id}: ${e?.message ?? e}`);
+        }
+      }
+    } catch (e: any) {
+      this.logger.error(`Difusão do lance ${lance.id} falhou (o lance está gravado): ${e?.message ?? e}`);
     }
   }
 
@@ -266,11 +371,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
 
     try {
       const resultado = await this.disputaService.encerrarItem(data.sessaoId, data.itemId, atorTransicaoDe(atorDoSocket(client)));
-      // Item encerrado: o vencedor pode ser revelado (fim da disputa do item)
-      await this.emitirItensPorVisao(data.sessaoId, info.licitacaoId, 'item_encerrado', {
-        itemId: data.itemId,
-        vencedor: resultado.vencedor,
-      });
+      await this.difundirItemEncerrado(data.sessaoId, info.licitacaoId, data.itemId, resultado);
     } catch (error) {
       client.emit('erro', { mensagem: error.message });
     }
@@ -339,13 +440,18 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     if (!info) return;
 
     try {
-      const resultado = await this.disputaService.reiniciarSessao(data.sessaoId, data.justificativa);
+      const resultado = await this.disputaService.reiniciarSessao(
+        data.sessaoId,
+        data.justificativa,
+        atorTransicaoDe(atorDoSocket(client)),
+      );
 
       const sessao = await this.disputaService.getSessao(data.sessaoId);
       await this.emitirItensPorVisao(data.sessaoId, info.licitacaoId, 'sessao_reiniciada', {
         sessao,
         lancesCancelados: resultado.lancesCancelados,
         itensReiniciados: resultado.itensReiniciados,
+        snapshotId: resultado.snapshotId,
       });
     } catch (error) {
       client.emit('erro', { mensagem: error.message });
@@ -366,8 +472,15 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     }
 
     try {
-      // Registro com o nome real (ata); difusão com o código anônimo
-      await this.disputaService.enviarMensagem(data.sessaoId, info.usuarioNome, conteudo);
+      // Registro com o nome real (ata) no único armazenamento (eventos da sessão);
+      // difusão com o código anônimo do fornecedor. Chat desabilitado → 'erro'.
+      const evento = await this.disputaService.enviarMensagem(
+        data.sessaoId,
+        info.tipo === 'FORNECEDOR'
+          ? { tipo: 'FORNECEDOR', nome: info.usuarioNome, fornecedorId: info.usuarioId }
+          : { tipo: 'PREGOEIRO', nome: info.usuarioNome, usuarioId: info.usuarioId },
+        conteudo,
+      );
 
       let remetente = info.usuarioNome;
       if (info.tipo === 'FORNECEDOR') {
@@ -375,10 +488,11 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       }
 
       this.server.to(`sessao:${data.sessaoId}`).emit('nova_mensagem', {
+        id: evento.id,
         tipo: info.tipo === 'PREGOEIRO' ? 'PREGOEIRO' : 'FORNECEDOR',
         remetente,
         conteudo,
-        dataHora: new Date(),
+        dataHora: evento.created_at,
       });
     } catch (error) {
       client.emit('erro', { mensagem: error.message });
@@ -408,78 +522,24 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       return;
     }
 
+    let lance: Lance;
     try {
-      const lance = await this.disputaService.registrarLance(
-        data.sessaoId,
-        data.itemId,
-        info.usuarioId,
-        info.usuarioNome,
-        data.valor,
-        client.handshake.address,
-      );
-
-      // Lances do item (anonimizados durante a disputa)
-      const lances = await this.disputaService.getTodosLances(data.itemId, data.sessaoId);
-      const codigo = lances.find((l) => l.id === lance.id)?.fornecedorNome || 'Licitante';
-
-      // Notificar cada cliente na sala com dados personalizados (visão de cada um)
-      const aplicar = await this.sigilo.aplicador(info.licitacaoId, data.sessaoId);
-      const clientesNaSala = await this.server.in(`sessao:${data.sessaoId}`).fetchSockets();
-      for (const socketCliente of clientesNaSala) {
-        const visao = this.visaoDe(this.clientes.get(socketCliente.id));
-        const itensCliente = await this.disputaService.getItensPorStatus(
-          data.sessaoId,
-          visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : undefined,
-        );
-
-        socketCliente.emit(
-          'novo_lance',
-          aplicar(
-            {
-              itemId: data.itemId,
-              lance: {
-                id: lance.id,
-                valor: lance.valor,
-                fornecedorNome: codigo,
-                dataHora: lance.created_at,
-              },
-              lances,
-              itens: itensCliente,
-            },
-            visao,
-          ),
-        );
-      }
-
-      // Confirmar para o fornecedor
-      client.emit('lance_confirmado', {
+      lance = await this.disputaService.registrarLance({
+        sessaoId: data.sessaoId,
         itemId: data.itemId,
-        valor: lance.valor,
+        fornecedorId: info.usuarioId,
+        valor: Number(data.valor),
+        ip: client.handshake.address,
       });
-
-      // =========================================================================
-      // ALERTA 5%: Verificar diferença entre os dois melhores lances
-      // Lei 14.133/2021 - Art. 61: Pregoeiro deve ser alertado (só a sala do órgão)
-      // =========================================================================
-      const diferencaLances = await this.disputaService.verificarDiferencaLances(data.itemId);
-
-      if (diferencaLances.alertaAtivo) {
-        const itens = await this.disputaService.getItensPorStatus(data.sessaoId);
-        const todosItens = [...itens.aguardando, ...itens.emDisputa, ...itens.encerrados];
-        const itemInfo = todosItens.find(i => i.id === data.itemId);
-
-        this.server.to(salaOrgao(data.sessaoId)).emit('alerta_diferenca_5_porcento', {
-          itemId: data.itemId,
-          itemNumero: itemInfo?.numero || 0,
-          diferencaPercentual: diferencaLances.diferencaPercentual,
-          primeiroLance: diferencaLances.primeiroLance,
-          segundoLance: diferencaLances.segundoLance,
-          mensagem: `Atenção: A diferença entre o 1º e 2º colocado no Item ${itemInfo?.numero || ''} é de apenas ${diferencaLances.diferencaPercentual?.toFixed(2)}%. Considere reiniciar a disputa ou finalizar.`,
-        });
-      }
     } catch (error) {
+      // Recusa do motor: o lance NÃO foi gravado
       client.emit('erro', { mensagem: error.message });
+      return;
     }
+
+    // Gravado: confirma ANTES de difundir — nada depois disto vira "erro" (simulador 7b)
+    client.emit('lance_confirmado', { itemId: data.itemId, lanceId: lance.id, valor: Number(lance.valor) });
+    await this.difundirNovoLance(data.sessaoId, info.licitacaoId, lance);
   }
 
   // ============================================================================
@@ -524,13 +584,13 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
           resultado = await this.disputaService.getTodosLances(data.itemId, info.sessaoId, opts);
       }
 
-      const encerrado = await this.sigilo.itemEncerrado(data.itemId);
+      const reveladas = await this.sigilo.identidadesReveladasNoItem(data.itemId);
       client.emit('lances_item', {
         itemId: data.itemId,
         tipo: data.tipo,
         dados: await this.sigilo.aplicarVisao(resultado, info.licitacaoId, visao, {
           sessaoId: info.sessaoId,
-          identidades: !encerrado,
+          identidades: !reveladas,
         }),
       });
     } catch (error) {

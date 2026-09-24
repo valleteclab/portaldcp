@@ -4,12 +4,14 @@ import { Repository } from 'typeorm';
 import { AdminGuard } from '../auth/admin.guard';
 import { SessaoDisputa, StatusSessao } from '../sessao/entities/sessao-disputa.entity';
 import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
-import { Lance } from '../lances/entities/lance.entity';
+import { Lance } from '../disputa-v2/entities/lance.entity';
 import { EventoSessao, TipoEvento } from '../sessao/entities/evento-sessao.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { DisputaGateway } from '../disputa-v2/disputa.gateway';
 import { DisputaService } from '../disputa-v2/disputa.service';
 import { AnonimizacaoService } from '../disputa-v2/anonimizacao.service';
+import { calcularRelogio } from '../disputa-v2/relogio-disputa';
+import { atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
  * ============================================================================
@@ -115,6 +117,7 @@ export class AdminMonitoramentoController {
       order: { numero_item: 'ASC' }
     });
 
+    const params = await this.disputaService.parametrosDaSessao(sessaoId);
     const resultado = await Promise.all(itens.map(async (item) => {
       // Buscar melhor lance
       const melhorLance = await this.lanceRepo.findOne({
@@ -127,36 +130,16 @@ export class AdminMonitoramentoController {
         where: { item_id: item.id, cancelado: false }
       });
 
-      // Calcular tempo restante usando a mesma lógica do disputa.service.ts
-      const agora = Date.now();
-      const tempoInicialMs = sessao.tempo_inatividade_minutos * 60 * 1000;
-      const tempoProrrogacaoMs = sessao.tempo_prorrogacao_minutos * 60 * 1000;
-      
-      const inicioDisputa = item.disputa_iniciada_em ? new Date(item.disputa_iniciada_em).getTime() : agora;
-      const ultimoLanceEm = item.ultimo_lance_em ? new Date(item.ultimo_lance_em).getTime() : inicioDisputa;
-      
-      const tempoDecorrido = agora - inicioDisputa;
-      const tempoDesdeUltimoLance = agora - ultimoLanceEm;
-      
-      // Momento em que o último lance foi dado (em relação ao início)
-      const momentoUltimoLance = ultimoLanceEm - inicioDisputa;
-      
-      // Verifica se houve lance nos últimos 2min do tempo inicial
-      const lanceNosUltimos2minDoInicial = momentoUltimoLance >= (tempoInicialMs - tempoProrrogacaoMs);
-
-      let tempoRestante = 0;
-      let emProrrogacao = false;
-      
-      // Se ainda no tempo inicial E não houve lance nos últimos 2min
-      if (tempoDecorrido < tempoInicialMs && !lanceNosUltimos2minDoInicial) {
-        tempoRestante = Math.max(0, Math.floor((tempoInicialMs - tempoDecorrido) / 1000));
-        emProrrogacao = false;
-      }
-      // Se houve lance nos últimos 2min do tempo inicial OU já passou o tempo inicial
-      else if (tempoDesdeUltimoLance < tempoProrrogacaoMs) {
-        tempoRestante = Math.max(0, Math.floor((tempoProrrogacaoMs - tempoDesdeUltimoLance) / 1000));
-        emProrrogacao = true;
-      }
+      // Fórmula ÚNICA do relógio (disputa-v2/relogio-disputa.ts)
+      const relogio = calcularRelogio({
+        status: item.status_disputa,
+        disputaIniciadaEm: item.disputa_iniciada_em,
+        ultimoLanceEm: item.ultimo_lance_em,
+        tempoInicialMinutos: params.tempoInicialMinutos,
+        prorrogacaoMinutos: params.prorrogacaoMinutos,
+      });
+      const tempoRestante = relogio.restanteSegundos;
+      const emProrrogacao = relogio.emProrrogacao;
 
       return {
         id: item.id,
@@ -203,23 +186,14 @@ export class AdminMonitoramentoController {
       throw new ForbiddenException('Item não está em disputa');
     }
 
-    // Buscar melhor lance para definir vencedor
-    const melhorLance = await this.lanceRepo.findOne({
-      where: { item_id: item.id, cancelado: false },
-      order: { valor: 'ASC' }
-    });
+    // Pelo motor (único caminho de encerramento): grava vencedor, pede a
+    // transição se era o último item e difunde sem revelar identidade antes
+    // do fim da etapa de lances.
+    const resultado = await this.disputaService.encerrarItem(body.sessaoId, item.id, atorSistema('admin-suporte'));
 
-    // Atualizar item
-    await this.itemRepo.update(item.id, {
-      status_disputa: StatusDisputaItem.ENCERRADO,
-      melhor_lance_valor: melhorLance ? melhorLance.valor : undefined,
-      melhor_lance_fornecedor_id: melhorLance?.fornecedor_id,
-    });
-
-    // Registrar evento de auditoria
     const evento = this.eventoRepo.create({
       sessao_id: body.sessaoId,
-      tipo: TipoEvento.LANCE_REGISTRADO,
+      tipo: TipoEvento.MENSAGEM_SISTEMA,
       descricao: `[AUDITORIA] Item ${item.numero_item} encerrado forçadamente por suporte técnico. Justificativa: ${body.justificativa}`,
       item_id: item.id,
       usuario_nome: 'SUPORTE_TECNICO',
@@ -227,24 +201,11 @@ export class AdminMonitoramentoController {
     });
     await this.eventoRepo.save(evento);
 
-    // Notificar sala de disputa via WebSocket
-    const vencedor = melhorLance ? {
-      fornecedorId: melhorLance.fornecedor_id,
-      fornecedorNome: melhorLance.fornecedor_nome,
-      valor: parseFloat(String(melhorLance.valor)),
-    } : null;
-
-    // Buscar itens atualizados
-    const itens = await this.disputaService.getItensPorStatus(body.sessaoId);
-
-    // Emitir evento para todos os clientes na sala
-    this.disputaGateway.server.to(`sessao:${body.sessaoId}`).emit('item_encerrado', {
-      itemId: item.id,
-      vencedor,
-      itens,
+    await this.disputaGateway.difundirItemEncerrado(body.sessaoId, sessao.licitacao_id, item.id, resultado, {
       motivo: 'ENCERRAMENTO_FORCADO',
       justificativa: body.justificativa,
     });
+    const vencedor = resultado.vencedor ?? null;
 
     return {
       success: true,

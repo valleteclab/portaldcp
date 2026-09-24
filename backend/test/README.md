@@ -32,6 +32,8 @@ No CI: `.github/workflows/backend-tests.yml` (unitários + e2e em PR e push fora
 | `pncp-mock.ts` | `pncpMock`: captura o que seria enviado ao PNCP |
 | `socket.ts` | cliente socket.io para os namespaces (`/disputa-v2`, `/sessao`, `/dispensa`...) |
 
+Motor de lances (E2): `test/motor-lances.e2e-spec.ts` (diferença mínima, lances iguais, intervalo, reinício sem DELETE, chat único, sigilo do item encerrado). O namespace padrão `/` não tem mais gateway.
+
 ## Escrevendo um teste
 
 ```ts

@@ -98,12 +98,19 @@ export function calcularDiferencaParaLider(item?: DisputaV3ItemBoard | null) {
   return diferenca > 0 ? diferenca : 0
 }
 
-export function calcularLanceSugerido(item?: DisputaV3ItemBoard | null, diferencaMinimaLances?: number | null) {
+export function calcularLanceSugerido(
+  item?: DisputaV3ItemBoard | null,
+  diferencaMinimaLances?: number | null,
+  tipoDiferenca: 'VALOR' | 'PERCENTUAL' = 'VALOR',
+) {
   if (!item?.melhorLance) return null
   const referencia = item.meuMelhorLance && item.meuMelhorLance < item.melhorLance.valor
     ? item.meuMelhorLance
     : item.melhorLance.valor
-  // Art. 56, §3º: respeitar decremento minimo configurado no edital
-  const decremento = diferencaMinimaLances && diferencaMinimaLances > 0 ? diferencaMinimaLances : 0.01
+  // Art. 56, §3º / IN 73 art. 22 §1º: respeitar a diferença mínima do edital (o backend valida)
+  const minima = diferencaMinimaLances && diferencaMinimaLances > 0
+    ? (tipoDiferenca === 'PERCENTUAL' ? (referencia * diferencaMinimaLances) / 100 : diferencaMinimaLances)
+    : 0
+  const decremento = Math.max(0.01, Math.ceil(minima * 100) / 100)
   return Math.max(0, Number((referencia - decremento).toFixed(2)))
 }

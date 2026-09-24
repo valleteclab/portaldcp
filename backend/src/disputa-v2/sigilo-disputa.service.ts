@@ -175,11 +175,30 @@ export class SigiloDisputaService {
     return r[0]?.sigilo_orcamento === 'SIGILOSO';
   }
 
-  /** Item em ENCERRADO/NEGOCIACAO (identidades podem ser reveladas)? */
-  async itemEncerrado(itemId: string): Promise<boolean> {
+  /**
+   * A etapa de lances da LICITAÇÃO inteira acabou (nenhum item aguardando ou em
+   * disputa)? Só então as identidades de um item encerrado podem ser
+   * reveladas a quem não é o órgão dono — revelar o vencedor de um item com
+   * outros ainda em disputa abre espaço a conluio entre itens (E1a → E2).
+   */
+  async etapaDeLancesEncerrada(licitacaoId: string | null | undefined): Promise<boolean> {
+    if (!ehUuid(licitacaoId)) return false;
+    const [r] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE status_disputa IS NULL
+                                  OR status_disputa::text IN ('AGUARDANDO','EM_DISPUTA','TEMPO_ALEATORIO'))::int AS abertos
+         FROM itens_licitacao WHERE licitacao_id = $1`,
+      [licitacaoId],
+    );
+    return Number(r?.total) > 0 && Number(r?.abertos) === 0;
+  }
+
+  /** Identidades do item podem aparecer? Item encerrado E etapa de lances da licitação encerrada. */
+  async identidadesReveladasNoItem(itemId: string): Promise<boolean> {
     if (!ehUuid(itemId)) return false;
-    const r = await this.dataSource.query(`SELECT status_disputa FROM itens_licitacao WHERE id = $1`, [itemId]);
-    return !itemEmFaseComAnonimizacaoObrigatoria(r[0]?.status_disputa);
+    const r = await this.dataSource.query(`SELECT status_disputa, licitacao_id FROM itens_licitacao WHERE id = $1`, [itemId]);
+    if (!r[0] || itemEmFaseComAnonimizacaoObrigatoria(r[0].status_disputa)) return false;
+    return this.etapaDeLancesEncerrada(r[0].licitacao_id);
   }
 
   /**

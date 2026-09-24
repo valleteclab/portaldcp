@@ -108,6 +108,8 @@ export default function DisputaPregoeiro() {
   const [wsConectado, setWsConectado] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
+  // Aviso de reinício possível (Lei 14.133 art. 56 §4º) — enviado pelo backend ao encerrar o item
+  const [avisoReinicio, setAvisoReinicio] = useState<string | null>(null)
 
   // Modal suspender
   const [modalSuspender, setModalSuspender] = useState(false)
@@ -252,23 +254,10 @@ export default function DisputaPregoeiro() {
       }
     })
 
-    // Alerta de diferença menor que 5% entre lances (Lei 14.133/2021 - Art. 61)
+    // Item encerrado com diferença >= parâmetro (padrão 5%) entre o 1º e o 2º: a
+    // Administração PODE admitir o reinício para as demais colocações (Lei 14.133 art. 56 §4º)
     socket.on('alerta_diferenca_5_porcento', (data) => {
-      console.log('[WS] Alerta 5%:', data)
-      // Mostrar alerta visual para o pregoeiro
-      const confirmar = window.confirm(
-        `⚠️ ATENÇÃO - Lei 14.133/2021\n\n` +
-        `Item ${data.itemNumero}: A diferença entre o 1º e 2º colocado é de apenas ${data.diferencaPercentual?.toFixed(2)}%.\n\n` +
-        `1º Lugar: R$ ${data.primeiroLance?.valor?.toFixed(2)}\n` +
-        `2º Lugar: R$ ${data.segundoLance?.valor?.toFixed(2)}\n\n` +
-        `Deseja reiniciar a disputa deste item?\n\n` +
-        `Clique OK para REINICIAR ou Cancelar para CONTINUAR.`
-      )
-      
-      if (confirmar) {
-        // TODO: Implementar reinício de item específico
-        alert('Funcionalidade de reinício de item será implementada em breve.')
-      }
+      setAvisoReinicio(data?.mensagem || null)
     })
     
     // Atualização de tempo do servidor (sincronização garantida)
@@ -524,6 +513,17 @@ export default function DisputaPregoeiro() {
           </div>
         </div>
       </div>
+
+      {avisoReinicio && (
+        <div className="bg-amber-50 border-b border-amber-300 p-3">
+          <div className="container mx-auto flex items-center justify-between gap-4 text-sm text-amber-900">
+            <span>{avisoReinicio}</span>
+            <Button variant="outline" size="sm" onClick={() => setAvisoReinicio(null)}>
+              Ciente
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Barra de ações */}
       <div className="bg-white border-b p-3">

@@ -5,6 +5,7 @@ import { LoteLicitacao } from '../../lotes/entities/lote-licitacao.entity';
 import { ItemPCA } from '../../pca/entities/pca.entity';
 import { Usuario } from '../../usuarios/entities/usuario.entity';
 import { Demanda } from '../../demandas/entities/demanda.entity';
+import { BaseLance } from '../../disputa-v2/modelo-lance';
 
 /**
  * ============================================================================
@@ -326,17 +327,31 @@ export class Licitacao {
   data_homologacao: Date;
 
   // === CONFIGURAÇÕES DA DISPUTA ===
-  @Column({ type: 'int', default: 10 })
-  tempo_inatividade: number; // Tempo inicial da disputa em minutos (Lei 14.133/2021)
+  // Overrides do edital sobre os parâmetros do órgão (resolvedor:
+  // licitação → órgão → sistema — disputa-v2/parametros-disputa.ts). NULL = herda.
+  @Column({ type: 'int', nullable: true })
+  tempo_inatividade: number | null; // Etapa inicial do modo aberto (min) — IN 73 art. 23
 
-  @Column({ type: 'int', default: 3 })
-  intervalo_minimo_lances: number; // Em minutos
+  @Column({ type: 'int', nullable: true })
+  intervalo_minimo_lances: number | null; // Tempo entre lances do mesmo fornecedor (min) — não é exigência legal
 
-  @Column({ type: 'int', default: 2 })
-  tempo_prorrogacao: number; // Em minutos - prorrogação automática se houver lance
+  @Column({ type: 'int', nullable: true })
+  tempo_prorrogacao: number | null; // Prorrogação automática (min) — IN 73 art. 23
 
+  /** Intervalo mínimo de diferença entre lances (IN 73 art. 21 §2º, art. 22 §1º; Lei art. 56 §3º). */
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  diferenca_minima_lances: number; // Valor mínimo entre lances
+  diferenca_minima_lances: number;
+
+  /** VALOR (R$, na unidade da base do lance) ou PERCENTUAL. */
+  @Column({ type: 'varchar', length: 12, default: 'VALOR' })
+  tipo_diferenca_minima_lances: 'VALOR' | 'PERCENTUAL';
+
+  /**
+   * Unidade dos lances (plano E2 §2.3): UNITARIO, TOTAL_ITEM (padrão — como o
+   * pregão por item sempre funcionou) ou TOTAL_LOTE (disputa por lote).
+   */
+  @Column({ type: 'varchar', length: 20, default: BaseLance.TOTAL_ITEM })
+  base_lance: BaseLance;
 
   @Column({ default: true })
   permite_lances_intermediarios: boolean;

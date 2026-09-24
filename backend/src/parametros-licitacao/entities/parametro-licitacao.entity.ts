@@ -33,7 +33,12 @@ export class ParametroLicitacao {
   @Column({ type: 'int', default: 2 })
   tempo_prorrogacao_minutos: number;
 
-  @Column({ type: 'int', default: 3 })
+  /**
+   * Intervalo mínimo de TEMPO entre lances do mesmo fornecedor. Não é exigência
+   * da IN 73/2022 (que só prevê intervalo de VALOR — diferença mínima, art. 21
+   * §2º / art. 22 §1º): padrão 0 = desligado; o órgão pode configurar.
+   */
+  @Column({ type: 'int', default: 0 })
   intervalo_minimo_lances_minutos: number;
 
   @Column({ type: 'int', default: 2 })
@@ -50,9 +55,17 @@ export class ParametroLicitacao {
   @Column({ type: 'int', default: 15 })
   etapa_aberta_hibrida_minutos: number;
 
-  /** Cancelamento direto de lance pelo fornecedor (segundos) */
+  /** Exclusão do próprio último lance pelo fornecedor (IN 73 art. 21 §3º: 15 s) */
   @Column({ type: 'int', default: 15 })
   cancelamento_direto_segundos: number;
+
+  /**
+   * Diferença entre o 1º e o 2º colocado, ao encerrar o item, a partir da qual
+   * o pregoeiro é avisado de que pode admitir o reinício da disputa aberta
+   * para as demais colocações (Lei 14.133 art. 56 §4º: "pelo menos 5%").
+   */
+  @Column({ type: 'numeric', precision: 5, scale: 2, default: 5 })
+  percentual_reinicio_disputa: number;
 
   // === PRAZOS RECURSAIS ===
   @Column({ type: 'int', default: 10 })

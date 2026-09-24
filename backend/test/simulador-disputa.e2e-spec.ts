@@ -7,9 +7,8 @@
  * o relógio de cada item pelo DataSource (ver cabeçalho de
  * test/support/simulador-disputa.ts: a sessão só aceita minutos inteiros).
  *
- * Invariantes que o sistema de hoje viola ficam como `test.failing` com
- * "DEFEITO CONHECIDO" — passam enquanto o defeito existir e passam a falhar
- * (avisando para promover a teste normal) quando o E2 corrigir.
+ * Os invariantes que a E0 registrou como defeito (3b, 5c, 7b) foram corrigidos
+ * na E2 (motor único) e viraram testes normais.
  *
  * Relatório legível: E2E_SIMULADOR_RELATORIO=1 npm run test:e2e -- test/simulador-disputa.e2e-spec.ts
  */
@@ -117,12 +116,10 @@ describe('Simulador de disputa — modo aberto (10 robôs × 2 itens, 2 licitaç
     for (const rel of relatorios()) expect(contarDisparosSimultaneos(rel, 'simultaneo_intermediario')).toBeGreaterThan(0);
   });
 
-  // DEFEITO CONHECIDO: lance igual a um lance que NÃO é o melhor é aceito — o
-  // registrarLance só compara com o melhor lance atual, então dois robôs no
-  // mesmo ms (ou em momentos diferentes) empatam no mesmo valor (IN 73: lances
-  // iguais não são aceitos, prevalece o primeiro registrado) —
-  // backend/src/disputa-v2/disputa.service.ts:656-665 — plano E2 (item 2, registrarLance único)
-  test.failing('3b. lances iguais no mesmo ms com valor intermediário: no máximo um aceito', () => {
+  // CORRIGIDO NA E2 (era defeito): o motor recusa valor igual a lance ATIVO de outro
+  // fornecedor no item — prevalece o registrado primeiro (ordem da trava do item);
+  // regra e base legal em backend/src/disputa-v2/modelo-lance.ts (validarLance, regra 5)
+  test('3b. lances iguais no mesmo ms com valor intermediário: no máximo um aceito', () => {
     expect(relatorios().flatMap((rel) => verificarSimultaneos(rel, 'simultaneo_intermediario'))).toEqual([]);
   });
 
@@ -152,12 +149,10 @@ describe('Simulador de disputa — modo aberto (10 robôs × 2 itens, 2 licitaç
     for (const e of eventos) expect(['participante_entrou', 'novo_lance']).toContain(e);
   });
 
-  // DEFEITO CONHECIDO: obterCodigoAnonimo faz "busca → max(indice)+1 → insere"
-  // sem lock nem unicidade de (sessao_id, indice); o getTodosLances chama isso
-  // em Promise.all para todos os fornecedores, e vários recebem o MESMO código
-  // ("Fornecedor B" para 9) — backend/src/disputa-v2/anonimizacao.service.ts:49-76
-  // — plano E2 (item 10, anonimização única)
-  test.failing('5c. cada fornecedor tem código anônimo próprio na sessão', () => {
+  // CORRIGIDO NA E2 (era defeito): atribuição do código anônimo sob advisory lock por
+  // sessão + índice único (sessao_id, indice); os códigos são atribuídos de uma vez ao
+  // abrir os itens — backend/src/disputa-v2/anonimizacao.service.ts (atribuirCodigos)
+  test('5c. cada fornecedor tem código anônimo próprio na sessão', () => {
     expect(relatorios().flatMap((rel) => verificarCodigosAnonimosUnicos(rel))).toEqual([]);
   });
 
@@ -173,14 +168,10 @@ describe('Simulador de disputa — modo aberto (10 robôs × 2 itens, 2 licitaç
     for (const rel of relatorios()) expect(verificarBanco(rel)).toEqual([]);
   });
 
-  // DEFEITO CONHECIDO: o lance é gravado (transação do registrarLance já
-  // commitada) e DEPOIS o broadcast do gateway falha ao anonimizar (corrida no
-  // insert de mapeamento_anonimo → "duplicate key ... UQ_..."); o catch do
-  // handler manda `erro` ao fornecedor e ninguém recebe `novo_lance`. O
-  // fornecedor acha que o lance foi recusado, mas ele vale —
-  // backend/src/disputa-v2/disputa.gateway.ts:331-341 (getTodosLances depois do registrarLance) e o catch em :396-398
-  // + backend/src/disputa-v2/anonimizacao.service.ts:49-76 — plano E2 (itens 2 e 10)
-  test.failing('7b. o que o robô ouviu (lance_confirmado/erro) bate com o que foi gravado', () => {
+  // CORRIGIDO NA E2 (era defeito): o gateway confirma o lance logo após o commit e a
+  // difusão (anonimização/broadcast) não pode mais virar "erro" para quem deu o lance —
+  // backend/src/disputa-v2/disputa.gateway.ts (handleEnviarLance / difundirNovoLance)
+  test('7b. o que o robô ouviu (lance_confirmado/erro) bate com o que foi gravado', () => {
     expect(relatorios().flatMap((rel) => verificarRespostasCoerentes(rel))).toEqual([]);
   });
 });

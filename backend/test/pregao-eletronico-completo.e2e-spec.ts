@@ -538,9 +538,10 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       const lances = await http()
         .get(`/api/disputa-v2/item/${item1}/lances`)
         .expect(200);
-      expect(lances.body.filter((l: any) => l.origem === 'LANCE')).toHaveLength(
-        8,
-      ); // 4 propostas + 4 lances
+      // E2: a proposta convertida é um lance de origem PROPOSTA (uma por
+      // fornecedor, sem duplicata) — antes vinha repetida como 'LANCE' + 'PROPOSTA'
+      expect(lances.body.filter((l: any) => l.origem === 'LANCE')).toHaveLength(4);
+      expect(lances.body.filter((l: any) => l.origem === 'PROPOSTA')).toHaveLength(4);
     });
 
     test('lance acima da própria proposta é recusado', async () => {
@@ -561,15 +562,14 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect(r.mensagem).toMatch(/lance anterior/i);
     });
 
-    // DEFEITO CONHECIDO (§1.2 "Incompleto — diferença mínima entre lances não validada"):
-    // edital fixou R$ 5,00 e a disputa-v2 aceita R$ 1,00 de redução —
-    // backend/src/disputa-v2/disputa.service.ts:594-730 (registrarLance não lê
-    // diferenca_minima_lances) — corrigir na E2
-    test.failing(
+    // CORRIGIDO NA E2 (era defeito): o motor lê diferenca_minima_lances do edital e
+    // aplica ao lance intermediário e ao que cobre a melhor oferta
+    test(
       'lance com redução menor que a diferença mínima do edital é recusado (IN 73 art. 22 §1º)',
       async () => {
         const r = await lance('C', 1, 989); // proposta de C: 990 → redução de R$ 1,00
         expect(r.ok).toBe(false);
+        expect(r.mensagem).toMatch(/diferença mínima/i);
       },
     );
 
@@ -692,16 +692,19 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       },
     );
 
-    // DEFEITO CONHECIDO B9: a ata da sessão consulta f.cnpj, mas a coluna é cpf_cnpj —
-    // a query quebra e a rota devolve 500 — backend/src/sessao/sessao.service.ts:1657,1671
-    // (idem 2069 e 2925) — corrigir na E2
-    test.failing(
+    // CORRIGIDO NA E2 (parte do B9): a ata consultava f.cnpj (a coluna é cpf_cnpj) e
+    // devolvia 500; agora sai com unitário/total explícitos. O órgão dono lê a qualquer
+    // momento (E1a: o público só depois de encerrada a sessão). Salvar/versionar/assinar
+    // a ata continua na E6.
+    test(
       'ata da sessão pública é gerada com participantes e melhor lance por item (art. 17 §2º)',
       async () => {
-        const r = await http().get(`/api/sessao/${sessaoId}/ata`);
+        const r = await http().get(`/api/sessao/${sessaoId}/ata`).set(bearer(pregoeiro.token));
         expect(r.status).toBe(200);
         const i1 = r.body.itens.find((i: any) => i.id === item1);
         expect(Number(i1.melhor_lance.valor)).toBe(900);
+        expect(i1.melhor_lance.valor_total).toBe(900);
+        expect(i1.melhor_lance.valor_unitario).toBe(90);
         expect(i1.melhor_lance.cnpj).toBe(F.A.cnpj);
       },
     );
@@ -980,10 +983,10 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       },
     );
 
-    // DEFEITO CONHECIDO B2: o lance do pregão já é o TOTAL do item, mas a homologação o
-    // grava como unitário e multiplica pela quantidade de novo (×10, ×20) —
-    // backend/src/sessao/sessao.service.ts:1554-1568 (e ata 1704) — corrigir na E2/E6
-    test.failing(
+    // CORRIGIDO NA E2 (era o defeito B2): o lance tem valor_unitario e valor_total
+    // explícitos (base TOTAL_ITEM) e a homologação lê essas colunas — sem multiplicar
+    // pela quantidade de novo. (O vencedor ainda é o menor lance de qualquer um: B3, E4/E6.)
+    test(
       'valor homologado de cada item = lance final do vencedor (sem multiplicar de novo pela quantidade)',
       async () => {
         const proc = await processoCompleto(ctx, lic.id, orgao.token);

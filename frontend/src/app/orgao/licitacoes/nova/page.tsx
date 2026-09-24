@@ -161,7 +161,8 @@ export default function NovaLicitacaoPage() {
   })
 
   const [configuracoes, setConfiguracoes] = useState<Configuracoes>({
-    intervalo_minimo_lances: 3,
+    // Intervalo de TEMPO entre lances do mesmo fornecedor: não é exigência legal (0 = sem)
+    intervalo_minimo_lances: 0,
     tempo_prorrogacao: 2,
     diferenca_minima_lances: 0,
     permite_lances_intermediarios: true,

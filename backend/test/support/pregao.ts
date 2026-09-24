@@ -197,7 +197,7 @@ export async function iniciarItensNaSala(
  * Simula a passagem do tempo de um item em disputa, reescrevendo o início da
  * disputa e o momento do último lance. Não existe rota para isso (e não deve
  * existir): cai para o repositório — o relógio da disputa-v2 lê exatamente
- * esses dois campos (disputa-timer.service.ts, verificarItemModoAberto).
+ * esses dois campos (fórmula única em disputa-v2/relogio-disputa.ts).
  */
 export async function deslocarRelogioItem(
   ctx: AppE2E,

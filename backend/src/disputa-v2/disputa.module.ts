@@ -6,6 +6,9 @@ import { DisputaController } from './disputa.controller';
 import { DisputaTimerService } from './disputa-timer.service';
 import { AnonimizacaoService } from './anonimizacao.service';
 import { SigiloDisputaService } from './sigilo-disputa.service';
+import { ParametrosDisputaService } from './parametros-disputa.service';
+import { AtaSessaoSnapshot } from './entities/ata-sessao-snapshot.entity';
+import { MigracaoLancesBootService } from './migracao-lances-boot.service';
 
 // Reutilizando entidades existentes
 import { SessaoDisputa } from '../sessao/entities/sessao-disputa.entity';
@@ -13,7 +16,7 @@ import { EventoSessao } from '../sessao/entities/evento-sessao.entity';
 import { MapeamentoAnonimo } from '../sessao/entities/mapeamento-anonimo.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
-import { Lance } from '../lances/entities/lance.entity';
+import { Lance } from './entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
@@ -29,11 +32,20 @@ import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
       Lance,
       Proposta,
       PropostaItem,
+      AtaSessaoSnapshot,
     ]),
     TransicoesModule,
   ],
   controllers: [DisputaController],
-  providers: [DisputaService, DisputaGateway, DisputaTimerService, AnonimizacaoService, SigiloDisputaService],
-  exports: [DisputaService, DisputaGateway, AnonimizacaoService, SigiloDisputaService],
+  providers: [
+    DisputaService,
+    DisputaGateway,
+    DisputaTimerService,
+    AnonimizacaoService,
+    SigiloDisputaService,
+    ParametrosDisputaService,
+    MigracaoLancesBootService,
+  ],
+  exports: [DisputaService, DisputaGateway, AnonimizacaoService, SigiloDisputaService, ParametrosDisputaService],
 })
 export class DisputaModule {}

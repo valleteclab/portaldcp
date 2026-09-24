@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Param, Body, Query, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputaService } from './disputa.service';
 import { SigiloDisputaService } from './sigilo-disputa.service';
+import { DisputaGateway } from './disputa.gateway';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import {
   AtorAtual,
@@ -39,6 +40,7 @@ export class DisputaController {
     private readonly disputaService: DisputaService,
     private readonly acesso: AcessoLicitacaoService,
     private readonly sigilo: SigiloDisputaService,
+    private readonly gateway: DisputaGateway,
   ) {}
 
   /** Licitação da sessão (404 se não existe). */
@@ -117,8 +119,9 @@ export class DisputaController {
     if (!dono) throw new NotFoundException('Item não encontrado');
     const visao = await this.sigilo.visaoDoAtor(ator, dono.licitacaoId);
     const dados = await ler(visao.tipo === 'ORGAO');
-    const encerrado = await this.sigilo.itemEncerrado(itemId);
-    return this.sigilo.aplicarVisao(dados, dono.licitacaoId, visao, { identidades: !encerrado });
+    // Identidades só depois do fim da etapa de lances da licitação inteira (E2)
+    const reveladas = await this.sigilo.identidadesReveladasNoItem(itemId);
+    return this.sigilo.aplicarVisao(dados, dono.licitacaoId, visao, { identidades: !reveladas });
   }
 
   @AutenticacaoOpcional()
@@ -189,8 +192,10 @@ export class DisputaController {
     @Param('itemId') itemId: string,
     @AtorAtual() ator: Ator,
   ) {
-    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
-    return this.disputaService.encerrarItem(sessaoId, itemId, atorTransicaoDe(ator));
+    const dono = await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    const resultado = await this.disputaService.encerrarItem(sessaoId, itemId, atorTransicaoDe(ator));
+    await this.gateway.difundirItemEncerrado(sessaoId, dono.licitacaoId, itemId, resultado).catch(() => undefined);
+    return resultado;
   }
 
   @SomenteOrgao()
@@ -231,10 +236,7 @@ export class DisputaController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
-    const resultado = await this.disputaService.reiniciarSessao(
-      sessaoId,
-      body.justificativa,
-    );
+    const resultado = await this.disputaService.reiniciarSessao(sessaoId, body?.justificativa, atorTransicaoDe(ator));
     return { success: true, ...resultado };
   }
 
@@ -250,7 +252,7 @@ export class DisputaController {
     if (!body?.conteudo?.trim()) throw new BadRequestException('conteudo é obrigatório');
     await this.disputaService.enviarMensagem(
       sessaoId,
-      body.remetente?.trim() || 'Pregoeiro',
+      { tipo: 'PREGOEIRO', nome: body.remetente?.trim() || 'Pregoeiro', usuarioId: ator.id },
       body.conteudo,
     );
     return { success: true };
@@ -278,15 +280,16 @@ export class DisputaController {
     const licitacaoId = await this.licitacaoDaSessao(sessaoId);
     await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
     if (!ehUuid(body?.itemId)) throw new BadRequestException('itemId inválido');
-    const nome = await this.disputaService.nomeDoFornecedor(fornecedorId);
-    return this.disputaService.registrarLance(
+    const lance = await this.disputaService.registrarLance({
       sessaoId,
-      body.itemId,
+      itemId: body.itemId,
       fornecedorId,
-      nome,
-      body.valor,
-      'API',
-    );
+      valor: Number(body.valor),
+      ip: 'API',
+    });
+    // Difusão depois do registro; nunca transforma o lance gravado em erro
+    await this.gateway.difundirNovoLance(sessaoId, licitacaoId, lance);
+    return lance;
   }
 
   // ============================================================================

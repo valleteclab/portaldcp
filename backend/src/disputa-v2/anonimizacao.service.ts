@@ -44,38 +44,52 @@ export class AnonimizacaoService {
   }
 
   /**
-   * Obtém ou cria código anônimo para um fornecedor em uma sessão
+   * Obtém ou cria o código anônimo do fornecedor na sessão — ATÔMICO (E2).
+   *
+   * Antes: "busca → max(indice)+1 → insere" sem trava; chamadas concorrentes
+   * (Promise.all no broadcast) davam o MESMO código a vários fornecedores ou
+   * estouravam a unicidade (sessao, fornecedor) — o lance era gravado e o
+   * fornecedor recebia "erro" (simulador 5c/7b). Agora: transação curta com
+   * `pg_advisory_xact_lock` por sessão (serializa só a atribuição de códigos
+   * da MESMA sessão), releitura e inserção com `ON CONFLICT DO NOTHING`; o
+   * índice único (sessao_id, indice) garante no banco.
    */
   async obterCodigoAnonimo(sessaoId: string, fornecedorId: string): Promise<string> {
-    // Verificar se já existe mapeamento
-    let mapeamento = await this.mapeamentoRepo.findOne({
+    const existente = await this.mapeamentoRepo.findOne({
       where: { sessao_id: sessaoId, fornecedor_id: fornecedorId },
     });
+    if (existente) return existente.codigo_anonimo;
+    const mapa = await this.atribuirCodigos(sessaoId, [fornecedorId]);
+    return mapa.get(fornecedorId)!;
+  }
 
-    if (mapeamento) {
-      return mapeamento.codigo_anonimo;
-    }
-
-    // Criar novo mapeamento
-    // Buscar próximo índice disponível
-    const ultimoMapeamento = await this.mapeamentoRepo.findOne({
-      where: { sessao_id: sessaoId },
-      order: { indice: 'DESC' },
+  /**
+   * Atribui (se ainda não houver) códigos aos fornecedores, na ordem dada, numa
+   * só transação travada por sessão. Devolve o código de cada um.
+   */
+  async atribuirCodigos(sessaoId: string, fornecedorIds: string[]): Promise<Map<string, string>> {
+    const ids = [...new Set(fornecedorIds.filter(Boolean))];
+    return this.mapeamentoRepo.manager.transaction(async (m) => {
+      await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`mapeamento_anonimo:${sessaoId}`]);
+      const atuais: Array<{ fornecedor_id: string; codigo_anonimo: string; indice: number }> = await m.query(
+        `SELECT fornecedor_id, codigo_anonimo, indice FROM mapeamento_anonimo WHERE sessao_id = $1`,
+        [sessaoId],
+      );
+      const mapa = new Map(atuais.map((a) => [String(a.fornecedor_id), a.codigo_anonimo]));
+      let proximo = atuais.reduce((mx, a) => Math.max(mx, Number(a.indice) || 0), 0) + 1;
+      for (const id of ids) {
+        if (mapa.has(id)) continue;
+        const codigo = this.gerarCodigoAnonimo(proximo);
+        await m.query(
+          `INSERT INTO mapeamento_anonimo (sessao_id, fornecedor_id, codigo_anonimo, indice)
+           VALUES ($1, $2, $3, $4) ON CONFLICT (sessao_id, fornecedor_id) DO NOTHING`,
+          [sessaoId, id, codigo, proximo],
+        );
+        mapa.set(id, codigo);
+        proximo++;
+      }
+      return mapa;
     });
-
-    const proximoIndice = ultimoMapeamento ? ultimoMapeamento.indice + 1 : 1;
-    const codigoAnonimo = this.gerarCodigoAnonimo(proximoIndice);
-
-    mapeamento = this.mapeamentoRepo.create({
-      sessao_id: sessaoId,
-      fornecedor_id: fornecedorId,
-      codigo_anonimo: codigoAnonimo,
-      indice: proximoIndice,
-    });
-
-    await this.mapeamentoRepo.save(mapeamento);
-
-    return codigoAnonimo;
   }
 
   /**
@@ -203,12 +217,5 @@ export class AnonimizacaoService {
 
     // TODO: Registrar log de auditoria
     console.log(`[Anonimização] Sessão ${sessaoId} - Anonimização ${ativa ? 'ATIVADA' : 'DESATIVADA'} por ${usuarioId}. Justificativa: ${justificativa || 'N/A'}`);
-  }
-
-  /**
-   * Limpa mapeamentos de uma sessão (usado ao reiniciar sessão)
-   */
-  async limparMapeamentos(sessaoId: string): Promise<void> {
-    await this.mapeamentoRepo.delete({ sessao_id: sessaoId });
   }
 }

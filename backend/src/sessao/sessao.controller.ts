@@ -7,6 +7,7 @@ import {
   Body,
   ForbiddenException,
   NotFoundException,
+  NotImplementedException,
 } from '@nestjs/common';
 import { SessaoService } from './sessao.service';
 import { RecursosService } from './recursos.service';
@@ -40,8 +41,9 @@ import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
  *  - leituras: órgão dono vê tudo; demais recebem as identidades dos outros
  *    licitantes trocadas pelo código anônimo. Habilitação: só o órgão dono (o
  *    fornecedor convocado vê só a própria convocação);
- *  - lance por LOTE nesta API: DESATIVADO (duplicava o lance da disputa-v2 sem
- *    trava; o motor único vem na E2).
+ *  - lance: só pelo motor (disputa-v2); por LOTE → 501 até o motor de lote (E2);
+ *  - as leituras da antiga sala /sessao (sala-disputa) foram removidas na E2
+ *    (as telas usam disputa-v2/disputa-v3).
  */
 @Controller('sessao')
 export class SessaoController {
@@ -64,100 +66,6 @@ export class SessaoController {
     const recurso = await this.recursosService.buscar(recursoId);
     await this.acesso.assertOrgaoDaSessao(ator, recurso.sessao_id);
     return recurso;
-  }
-
-  // ========================================
-  // ENDPOINTS PARA SALA DE DISPUTA DO FORNECEDOR (legado)
-  // ========================================
-
-  @SomenteFornecedor()
-  @Get('fornecedor/:fornecedorId/licitacoes-ativas')
-  async getLicitacoesAtivasFornecedor(@Param('fornecedorId') fornecedorId: string, @AtorAtual() ator: Ator) {
-    const fid = this.acesso.fornecedorDoToken(ator, fornecedorId);
-    return this.sessaoService.getLicitacoesAtivasFornecedor(fid);
-  }
-
-  /** Itens na visão do fornecedor: ele mesmo (token) ou o órgão dono. */
-  @OrgaoOuFornecedor()
-  @Get(':sessaoId/itens/fornecedor/:fornecedorId')
-  async getItensSessaoFornecedor(
-    @Param('sessaoId') sessaoId: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @AtorAtual() ator: Ator,
-  ) {
-    if (ehFornecedor(ator)) {
-      const fid = this.acesso.fornecedorDoToken(ator, fornecedorId);
-      const licitacaoId = await this.licitacaoDaSessao(sessaoId);
-      await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
-      const dados = await this.sessaoService.getItensSessaoFornecedor(sessaoId, fid);
-      return this.sigilo.aplicarVisao(dados, licitacaoId, { tipo: 'FORNECEDOR', fornecedorId: fid }, { sessaoId });
-    }
-    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
-    return this.sessaoService.getItensSessaoFornecedor(sessaoId, fornecedorId);
-  }
-
-  /** Lances do item na visão do fornecedor: ele mesmo (token) ou o órgão dono. */
-  @OrgaoOuFornecedor()
-  @Get('item/:itemId/lances/fornecedor/:fornecedorId')
-  async getLancesItem(
-    @Param('itemId') itemId: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @AtorAtual() ator: Ator,
-  ) {
-    const dono = await this.acesso.donoDoItem(itemId);
-    if (!dono) throw new NotFoundException('Item não encontrado');
-    if (ehFornecedor(ator)) {
-      const fid = this.acesso.fornecedorDoToken(ator, fornecedorId);
-      await this.acesso.assertFornecedorParticipa(ator, dono.licitacaoId);
-      const dados = await this.sessaoService.getLancesItem(itemId, fid);
-      // Só o próprio id sai; o dos concorrentes vira o código anônimo
-      return this.sigilo.aplicarVisao(dados, dono.licitacaoId, { tipo: 'FORNECEDOR', fornecedorId: fid });
-    }
-    await this.acesso.assertOrgaoDoItem(ator, itemId, 'leitura');
-    return this.sessaoService.getLancesItem(itemId, fornecedorId);
-  }
-
-  /** Chat/eventos da sessão: órgão dono completo; participantes anonimizados. */
-  @OrgaoOuFornecedor()
-  @Get(':sessaoId/mensagens')
-  async getMensagensSessao(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
-    const licitacaoId = await this.licitacaoDaSessao(sessaoId);
-    const visao = await this.sigilo.visaoDoAtor(ator, licitacaoId);
-    if (visao.tipo === 'PUBLICO') throw new NotFoundException('Sessao nao encontrada');
-    const mensagens = await this.sessaoService.getMensagensSessao(sessaoId);
-    const reveladas = await this.sigilo.identidadesReveladas(sessaoId);
-    return this.sigilo.aplicarVisao(mensagens, licitacaoId, visao, { sessaoId, identidades: !reveladas });
-  }
-
-  // ========================================
-  // ENDPOINTS PARA SALA DE DISPUTA DO PREGOEIRO
-  // ========================================
-
-  /** Sessões ativas do pregoeiro — só as do órgão do usuário. */
-  @SomenteOrgao()
-  @Get('pregoeiro/:pregoeiroId/sessoes-ativas')
-  async getSessoesAtivasPregoeiro(@Param('pregoeiroId') pregoeiroId: string, @AtorAtual() ator: Ator) {
-    const r = await this.sessaoService.getSessoesAtivasPregoeiro(pregoeiroId);
-    if (ator.admin) return r;
-    const doOrgao = [];
-    for (const s of r.sessoes) {
-      if ((await this.acesso.orgaoDaLicitacao(s.licitacaoId)) === ator.orgaoId) doOrgao.push(s);
-    }
-    return { sessoes: doOrgao };
-  }
-
-  @SomenteOrgao()
-  @Get(':sessaoId/itens/pregoeiro')
-  async getItensSessaoPregoeiro(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
-    return this.sessaoService.getItensSessaoPregoeiro(sessaoId);
-  }
-
-  @SomenteOrgao()
-  @Get('item/:itemId/lances/pregoeiro')
-  async getLancesItemPregoeiro(@Param('itemId') itemId: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDoItem(ator, itemId, 'leitura');
-    return this.sessaoService.getLancesItemPregoeiro(itemId);
   }
 
   // ========================================
@@ -239,15 +147,14 @@ export class SessaoController {
   }
 
   /**
-   * Lance por LOTE nesta API legada — DESATIVADO (E1a). Duplicava o registro de
-   * lance da disputa-v2 (sem trava, identidade do corpo). O lance por lote passa
-   * ao motor único na E2.
+   * Lance por LOTE: o único caminho de lance é o motor (disputa-v2). A disputa
+   * pelo valor global do lote entra no motor na etapa do lote — até lá, 501.
    */
   @SomenteFornecedor()
   @Post(':id/lance-lote')
   async registrarLanceLote() {
-    throw new ForbiddenException(
-      'Lance por esta rota foi desativado. Use a sala de disputa (disputa-v2).',
+    throw new NotImplementedException(
+      'Lance por lote: disponível na disputa por lote (motor de disputa, próxima etapa). Lance por item: sala de disputa.',
     );
   }
 

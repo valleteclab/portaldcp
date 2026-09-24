@@ -34,6 +34,10 @@ export interface DisputaV3Cronometria {
   intervaloMinimoLancesMinutos: number;
   /** Art. 56, §3º - Decremento minimo entre lances conforme edital */
   diferencaMinimaLances?: number;
+  /** VALOR (R$ na base do lance) ou PERCENTUAL */
+  tipoDiferencaMinimaLances?: 'VALOR' | 'PERCENTUAL';
+  /** Unidade dos lances: UNITARIO | TOTAL_ITEM | TOTAL_LOTE */
+  baseLance?: string;
   etapaAbertaMinutos?: number;
   janelaGatilhoProrrogacaoMinutos?: number;
   duracaoProrrogacaoMinutos?: number;
@@ -80,7 +84,10 @@ export interface DisputaV3ItemBoard {
   descricao: string;
   quantidade: number;
   unidade: string;
+  /** Na unidade da base do lance (comparável com os lances). */
   valorReferencia: number;
+  valorReferenciaUnitario?: number;
+  baseLance?: string;
   status: ItemDisputa['status'];
   cronometro: {
     tempoRestanteSegundos: number;
@@ -276,6 +283,8 @@ export function montarContextoSessaoV3(
       numero_processo?: string | null;
       objeto: string;
       diferenca_minima_lances?: number | null;
+      tipo_diferenca_minima_lances?: 'VALOR' | 'PERCENTUAL' | null;
+      base_lance?: string | null;
     } | null;
   },
 ): DisputaV3Contexto {
@@ -299,10 +308,11 @@ export function montarContextoSessaoV3(
       suspensa: sessao.status === StatusSessao.SUSPENSA,
       motivoSuspensao: sessao.motivo_suspensao || null,
     },
-    cronometria: montarCronometriaSessaoV3(
-      sessao,
-      sessao.licitacao?.diferenca_minima_lances,
-    ),
+    cronometria: {
+      ...montarCronometriaSessaoV3(sessao, sessao.licitacao?.diferenca_minima_lances),
+      tipoDiferencaMinimaLances: sessao.licitacao?.tipo_diferenca_minima_lances || 'VALOR',
+      baseLance: sessao.licitacao?.base_lance || 'TOTAL_ITEM',
+    },
     licitacao: sessao.licitacao
       ? {
           id: sessao.licitacao.id,
@@ -322,6 +332,8 @@ export function mapearItemBoardV3(item: ItemDisputa): DisputaV3ItemBoard {
     quantidade: item.quantidade,
     unidade: item.unidade,
     valorReferencia: item.valorReferencia,
+    valorReferenciaUnitario: item.valorReferenciaUnitario,
+    baseLance: item.baseLance,
     status: item.status,
     cronometro: {
       tempoRestanteSegundos:

@@ -92,8 +92,10 @@ export class SessaoDisputa {
   data_hora_encerramento: Date;
 
   // === CONTROLE DE TEMPO DA DISPUTA ===
-  // Art. 56, §3º - Tempo minimo entre lances
-  @Column({ type: 'int', default: 3 })
+  // Intervalo mínimo de TEMPO entre lances do mesmo fornecedor (minutos).
+  // Não é exigência legal (a IN 73 só prevê intervalo de VALOR — diferença
+  // mínima): 0 = desligado. Cópia do resolvedor de parâmetros na criação.
+  @Column({ type: 'int', default: 0 })
   intervalo_minimo_lances_minutos: number;
 
   // Tempo de inatividade para encerramento (padrao 10 min)

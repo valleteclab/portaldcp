@@ -10,6 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Namespace, Socket } from 'socket.io';
 import { SessaoService } from './sessao.service';
+import { DisputaService } from '../disputa-v2/disputa.service';
 import { WsAutenticador, atorDoSocket } from '../auth/acesso/ws-autenticador';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { SigiloDisputaService, VisaoDisputa } from '../disputa-v2/sigilo-disputa.service';
@@ -28,7 +29,10 @@ import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
  *    válida, ou ANÔNIMO em modo só leitura (feed público anonimizado); logado
  *    sem relação com a licitação é recusado ('erro');
  *  - atos do pregoeiro (iniciar, itens, encerrar, suspender, alterar fase,
- *    reiniciar, chat on/off, cronômetro) só para o órgão dono na sala;
+ *    reiniciar, chat on/off) só para o órgão dono na sala — itens, encerrar e
+ *    reiniciar delegam ao motor único (disputa-v2). O antigo repasse de
+ *    cronômetro do cliente (`sync_cronometro`) foi removido na E2: o único
+ *    relógio é o DisputaTimerService;
  *  - LANCE por esta sala (enviar_lance / enviar_lance_lote): DESATIVADO
  *    ('erro_lance') — duplicava o lance da disputa-v2;
  *  - chat: pregoeiro (dono) ou fornecedor participante; o remetente difundido
@@ -59,6 +63,7 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     private readonly wsAuth: WsAutenticador,
     private readonly acesso: AcessoLicitacaoService,
     private readonly sigilo: SigiloDisputaService,
+    private readonly disputa: DisputaService,
   ) {}
 
   afterInit(server: Namespace) {
@@ -427,11 +432,11 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   ) {
     if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
     try {
-      const sessao = await this.sessaoService.reiniciarDisputa(data.sessaoId, data.motivo);
+      const sessao = await this.sessaoService.reiniciarDisputa(data.sessaoId, data.motivo, atorTransicaoDe(atorDoSocket(client)));
       await this.difundir(data.sessaoId, 'disputa_reiniciada', { sessao });
       this.server.to(data.sessaoId).emit('notificacao', {
         tipo: 'alerta',
-        mensagem: 'Disputa reiniciada pelo pregoeiro. Todos os itens voltaram para aguardando.'
+        mensagem: 'Disputa reiniciada pelo pregoeiro (lances cancelados, sem exclusão; retrato da sessão preservado). Todos os itens voltaram para aguardando.'
       });
     } catch (error: any) {
       client.emit('erro', { mensagem: error.message });
@@ -463,31 +468,28 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     const texto = typeof data.mensagem === 'string' ? data.mensagem.trim() : '';
     if (!texto) return;
 
-    const sessao = await this.sessaoService.getSessao(data.sessaoId);
-    if (!sessao) return;
-
     const isPregoeiro = info.papel === 'PREGOEIRO';
-    // Chat desabilitado vale para fornecedores
-    if (!isPregoeiro && sessao.chat_desabilitado) {
-      client.emit('chat_bloqueado', { mensagem: 'O chat está temporariamente desabilitado pelo pregoeiro.' });
-      return;
-    }
-
+    const sessao = await this.sessaoService.getSessao(data.sessaoId);
     const remetenteReal = isPregoeiro
       ? (typeof data.remetente === 'string' && data.remetente.trim().slice(0, 120)) || sessao.pregoeiro_nome || 'Pregoeiro'
       : (await this.sigilo.nomeDoFornecedor(info.fornecedorId!)) || 'Fornecedor';
 
-    // Salvar mensagem no banco de dados (com nome real para ATA)
+    // Armazenamento ÚNICO do chat (eventos da sessão, pelo motor) — respeita chat_desabilitado
     try {
-      await this.sessaoService.salvarMensagemChat(
+      await this.disputa.enviarMensagem(
         data.sessaoId,
-        remetenteReal,
+        isPregoeiro
+          ? { tipo: 'PREGOEIRO', nome: remetenteReal }
+          : { tipo: 'FORNECEDOR', nome: remetenteReal, fornecedorId: info.fornecedorId! },
         texto,
-        isPregoeiro,
-        isPregoeiro ? undefined : info.fornecedorId!,
       );
-    } catch (error) {
-      console.error('Erro ao salvar mensagem:', error);
+    } catch (error: any) {
+      if (!isPregoeiro && sessao.chat_desabilitado) {
+        client.emit('chat_bloqueado', { mensagem: 'O chat está temporariamente desabilitado pelo pregoeiro.' });
+      } else {
+        client.emit('erro', { mensagem: error.message });
+      }
+      return;
     }
 
     const remetenteExibicao = isPregoeiro
@@ -512,45 +514,17 @@ export class SessaoGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     @MessageBody() data: { sessaoId: string; habilitado: boolean }
   ) {
     if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
-    await this.sessaoService.toggleChat(data.sessaoId, !!data.habilitado);
+    try {
+      await this.sessaoService.toggleChat(data.sessaoId, !!data.habilitado);
+    } catch (error: any) {
+      client.emit('erro', { mensagem: error.message });
+      return;
+    }
 
     // Notificar todos os participantes
     this.server.to(data.sessaoId).emit('chat_status', {
       habilitado: !!data.habilitado,
       mensagem: data.habilitado ? 'Chat habilitado pelo pregoeiro' : 'Chat desabilitado pelo pregoeiro'
-    });
-  }
-
-  /**
-   * Atualiza cronometro para todos os participantes (só o pregoeiro da sessão)
-   */
-  @SubscribeMessage('sync_cronometro')
-  async handleSyncCronometro(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: { sessaoId: string; tempoRestante: number }
-  ) {
-    if (!this.exigirPregoeiro(client, data?.sessaoId)) return;
-    this.server.to(data.sessaoId).emit('cronometro_update', {
-      tempoRestante: data.tempoRestante
-    });
-  }
-
-  /**
-   * Notifica tempo aleatorio iniciado
-   */
-  emitirTempoAleatorioIniciado(sessaoId: string) {
-    this.server.to(sessaoId).emit('tempo_aleatorio_iniciado', {
-      mensagem: 'Tempo aleatorio para encerramento iniciado. Envie lances para prorrogar!'
-    });
-  }
-
-  /**
-   * Notifica encerramento automatico
-   */
-  emitirEncerramentoAutomatico(sessaoId: string, itemId: string) {
-    this.server.to(sessaoId).emit('encerramento_automatico', {
-      itemId,
-      mensagem: 'Disputa encerrada automaticamente por tempo'
     });
   }
 }

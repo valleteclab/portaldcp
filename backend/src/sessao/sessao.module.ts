@@ -9,12 +9,13 @@ import { SessaoController } from './sessao.controller';
 import { SessaoGateway } from './sessao.gateway';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
-import { Lance } from '../lances/entities/lance.entity';
+import { Lance } from '../disputa-v2/entities/lance.entity';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { SigiloDisputaService } from '../disputa-v2/sigilo-disputa.service';
 import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
+import { DisputaModule } from '../disputa-v2/disputa.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
     ]),
     ParametrosLicitacaoModule,
     TransicoesModule,
+    DisputaModule,
   ],
   controllers: [SessaoController],
   providers: [SessaoService, RecursosService, SessaoGateway, SigiloDisputaService],

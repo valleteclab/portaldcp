@@ -61,7 +61,6 @@ import {
   identidadeNoPayload,
   imprimirObservacoes,
   lanceV2,
-  pararTimersGatewayLegado,
   prepararPregaoEmAcolhimento,
   prepararPregaoEmDisputa,
   recebeEm,
@@ -70,7 +69,6 @@ import {
 } from './support/isolamento';
 import { FaseLicitacao, Licitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
-import { LancesGateway } from '../src/lances/lances.gateway';
 
 describe('Isolamento de dados da licitação (autorização)', () => {
   let ctx: AppE2E;
@@ -175,7 +173,6 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   afterAll(async () => {
     imprimirObservacoes('isolamento-dados-licitacao');
     fecharSockets();
-    if (ctx) pararTimersGatewayLegado(ctx, LancesGateway);
     await ctx?.fechar();
   });
 
@@ -543,55 +540,27 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.evento).toBe('erro');
     });
 
-    async function entrarLegado(licitacaoId: string, tipo: 'PREGOEIRO' | 'FORNECEDOR') {
+    // REMOVIDO NA E2: o gateway legado "/" (módulo `lances`) foi apagado — o único
+    // caminho de lance é o motor /disputa-v2. Um cliente no namespace padrão não
+    // recebe estado, não dá lance, não fala no chat e não encerra nada.
+    test('"/": gateway legado removido — entrar_sala/enviar_lance/enviar_mensagem/encerrar_item não têm efeito', async () => {
       const s = await conectarSocket(ctx, '/');
-      const estado = aguardarEvento<any>(s, 'estado_sessao');
-      s.emit('entrar_sala', { licitacaoId, participanteId: 'visitante', nome: 'Visitante', tipo });
-      return { socket: s, estado: await estado };
-    }
-
-    // CORRIGIDO NA E1a (era vazamento): estado_sessao do gateway legado traz fornecedor_identificador real — lances/lances.gateway.ts:63-90; lances/lances.service.ts:189-192
-    test('"/": entrar_sala anônimo não recebe ids reais dos licitantes', async () => {
-      const { socket, estado } = await entrarLegado(X.lic.id, 'FORNECEDOR');
-      const achados = [...identidadeNoPayload(estado, F1), ...identidadeNoPayload(estado, F2)];
-      registrar('3 "/" estado_sessao anônimo (X)', `lances=${estado?.lances?.length} identidade=[${achados}]`);
-      socket.close();
-      expect(estado.lances.length).toBeGreaterThan(0);
-      expect(achados).toEqual([]);
-    });
-
-    // CORRIGIDO NA E1a (era vazamento): enviar_lance do gateway legado aceita fornecedorId do corpo — lances/lances.gateway.ts:159-182
-    test('"/": anônimo não dá lance em nome de F1', async () => {
-      const { socket } = await entrarLegado(X.lic.id, 'FORNECEDOR');
-      const resp = aguardarUmDe(socket, ['lance_confirmado', 'erro_lance']);
-      socket.emit('enviar_lance', { licitacaoId: X.lic.id, fornecedorId: F1.id, valor: valores.proximo() });
-      const r = await resp;
-      registrar('3 "/" anônimo enviar_lance como F1 (X)', `${r.evento} ${JSON.stringify(r.payload?.message ?? '')}`);
-      socket.close();
-      expect(r.evento).toBe('erro_lance');
-    });
-
-    // CORRIGIDO NA E1a (era vazamento): enviar_mensagem do gateway legado aceita isPregoeiro do cliente — lances/lances.gateway.ts:217-236
-    test('"/": anônimo não fala no chat como pregoeiro', async () => {
-      const { socket } = await entrarLegado(X.lic.id, 'FORNECEDOR');
-      const evento = recebeEm<any>(socket, 'nova_mensagem', 2000);
-      socket.emit('enviar_mensagem', { licitacaoId: X.lic.id, conteudo: 'Encerrada (forjado)', remetente: 'Pregoeiro', isPregoeiro: true });
-      const p = await evento;
-      registrar('3 "/" anônimo enviar_mensagem isPregoeiro', p ? `recebido tipo=${p.tipo}` : 'nada chegou');
-      socket.close();
-      expect(p?.tipo === 'PREGOEIRO').toBe(false);
-    });
-
-    // CORRIGIDO NA E1a (era vazamento): encerrar_item do gateway legado grava a sessão como ENCERRADA — lances/lances.gateway.ts:242-253; lances/lances.service.ts:470-489
-    test('"/": anônimo não encerra a sessão', async () => {
-      const { socket } = await entrarLegado(W.lic.id, 'PREGOEIRO');
-      const depois = recebeEm(socket, 'estado_sessao', 3000);
-      socket.emit('encerrar_item', { licitacaoId: W.lic.id });
-      await depois;
-      const s = await ctx.http().get(`/api/sessao/${W.sessaoId}`);
-      registrar('3 "/" anônimo encerrar_item (W)', `sessão W status=${s.body?.status}`);
-      socket.close();
-      expect(s.body.status).not.toBe('ENCERRADA');
+      const estado = recebeEm<any>(s, 'estado_sessao', 1500);
+      const lance = recebeEm<any>(s, 'lance_confirmado', 1500);
+      const msg = recebeEm<any>(s, 'nova_mensagem', 1500);
+      const antes = (await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM lances WHERE licitacao_id = $1`, [X.lic.id]))[0].n;
+      s.emit('entrar_sala', { licitacaoId: X.lic.id, participanteId: 'visitante', nome: 'Visitante', tipo: 'PREGOEIRO' });
+      s.emit('enviar_lance', { licitacaoId: X.lic.id, fornecedorId: F1.id, valor: valores.proximo() });
+      s.emit('enviar_mensagem', { licitacaoId: X.lic.id, conteudo: 'Encerrada (forjado)', remetente: 'Pregoeiro', isPregoeiro: true });
+      s.emit('encerrar_item', { licitacaoId: W.lic.id });
+      const [e, l, m] = await Promise.all([estado, lance, msg]);
+      const depois = (await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM lances WHERE licitacao_id = $1`, [X.lic.id]))[0].n;
+      const sw = await ctx.http().get(`/api/sessao/${W.sessaoId}`);
+      registrar('3 "/" gateway legado (E2: removido)', `estado=${!!e} lance=${!!l} msg=${!!m} lances ${antes}→${depois} W=${sw.body?.status}`);
+      s.close();
+      expect([e, l, m]).toEqual([null, null, null]);
+      expect(depois).toBe(antes);
+      expect(sw.body.status).not.toBe('ENCERRADA');
     });
   });
 

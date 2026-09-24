@@ -149,11 +149,12 @@ export async function prepararPregaoEmAcolhimento(
   ctx: AppE2E,
   orgao: OrgaoFixture,
   participantes: ParticipantePregao[],
-  opts: { itens?: ItemEntrada[] } = {},
+  opts: { itens?: ItemEntrada[]; extras?: Record<string, unknown> } = {},
 ): Promise<{ lic: LicitacaoFixture; propostas: Record<string, string> }> {
   const lic = await criarLicitacao(ctx, orgao, ModalidadeLicitacao.PREGAO_ELETRONICO, {
     modo_disputa: ModoDisputa.ABERTO,
     itens: opts.itens,
+    extras: opts.extras,
   });
   await levarAteFase(ctx, lic, FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
   const propostas: Record<string, string> = {};
@@ -175,7 +176,7 @@ export async function prepararPregaoEmDisputa(
   ctx: AppE2E,
   orgao: OrgaoFixture,
   participantes: ParticipantePregao[],
-  opts: { iniciarSessao?: boolean; iniciarItens?: boolean; itens?: ItemEntrada[] } = {},
+  opts: { iniciarSessao?: boolean; iniciarItens?: boolean; itens?: ItemEntrada[]; extras?: Record<string, unknown> } = {},
 ): Promise<PregaoEmSessao> {
   const { lic, propostas } = await prepararPregaoEmAcolhimento(ctx, orgao, participantes, opts);
   await abrirSessaoAgora(ctx, lic);
@@ -195,8 +196,8 @@ export async function prepararPregaoEmDisputa(
   exigir(s, 201, 'criar sessão');
   const sessaoId: string = s.body.id;
 
-  // Configuração da sala pelo pregoeiro (como o simulador): o padrão exige 3 min
-  // entre lances do mesmo fornecedor; 0 desliga — os testes dão lances seguidos.
+  // Configuração da sala pelo pregoeiro (como o simulador). Desde a E2 o padrão do
+  // intervalo de tempo entre lances do mesmo fornecedor já é 0 (não é exigência legal).
   const cfg = await ctx
     .http()
     .put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`)
@@ -232,18 +233,4 @@ export function lanceV2(
   const req = ctx.http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`);
   if (token) req.set(bearer(token));
   return req.send(corpo);
-}
-
-/** Para os setInterval do gateway legado "/" (LancesGateway) — senão o Jest não termina. */
-export function pararTimersGatewayLegado(ctx: AppE2E, gatewayClass: any): void {
-  try {
-    const gw: any = ctx.app.get(gatewayClass, { strict: false });
-    const timers: Map<string, NodeJS.Timeout> | undefined = gw?.timers;
-    if (timers) {
-      for (const t of timers.values()) clearInterval(t);
-      timers.clear();
-    }
-  } catch {
-    // gateway não registrado: nada a parar
-  }
 }
