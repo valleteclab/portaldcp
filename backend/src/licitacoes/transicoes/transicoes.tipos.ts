@@ -42,6 +42,11 @@ export enum AtoLicitacao {
   REGISTRAR_RESULTADO_EXTERNO = 'REGISTRAR_RESULTADO_EXTERNO', // seleção feita fora do sistema
   HOMOLOGAR = 'HOMOLOGAR', // art. 71, IV
 
+  // --- Publicação (plano E7a) ---
+  RETIFICAR_EDITAL = 'RETIFICAR_EDITAL', // art. 55 §1º: nova versão do edital (reabre prazos se afetar propostas)
+  INTENCAO_REVOGAR = 'INTENCAO_REVOGAR', // art. 71 §3º: prazo de manifestação prévia dos interessados
+  INTENCAO_ANULAR = 'INTENCAO_ANULAR', // art. 71 §3º
+
   // --- Situação ---
   SUSPENDER = 'SUSPENDER',
   RETOMAR = 'RETOMAR',
@@ -128,6 +133,18 @@ export interface ConsultasTransicao {
    * licitação ao ato de fase. Opcional: ausente = sem checagem.
    */
   estadoRecursal?(): Promise<EstadoRecursal>;
+  /**
+   * PUBLICAÇÃO (plano E7a): edital vigente anexado (documento EDITAL /
+   * EDITAL_RETIFICADO ou edital aprovado da fase interna com arquivo).
+   * Opcional: ausente = sem checagem.
+   */
+  editalVigente?(): Promise<{ documento_id: string; versao: number; hash: string | null } | null>;
+  /** Impugnações acolhidas com `altera_edital` ainda sem retificação (art. 55 §1º). */
+  impugnacoesSemRetificacao?(): Promise<string[]>;
+  /** Propostas que aguardam confirmação do licitante depois de retificação que afetou propostas. */
+  propostasAguardandoConfirmacao?(): Promise<number>;
+  /** Intenção de revogar/anular aberta (art. 71 §3º). */
+  intencaoExtincaoAberta?(): Promise<{ id: string; tipo: 'REVOGAR' | 'ANULAR'; prazo_fim: Date } | null>;
 }
 
 /** Retrato do estado recursal da licitação (consulta das pré-condições — E5). */
@@ -164,13 +181,16 @@ export type Precondicao = (
 /** Efeito síncrono aplicado na licitação antes de salvar (datas, flags). */
 export type Efeito = (lic: Licitacao, ctx: ContextoTransicao) => void;
 
+/** Efeito no banco, na transação do ato (E7a). */
+export type EfeitoPersistido = (lic: Licitacao, manager: EntityManager, ctx: ContextoTransicao) => Promise<void>;
+
 export interface DefinicaoAto {
   ato: AtoLicitacao;
   rotulo: string;
   /** Fases em que o ato pode ser praticado. */
   de: FaseLicitacao[];
-  /** Fase de destino (fixa ou calculada). Ausente = mantém a fase. */
-  para?: FaseLicitacao | ((lic: Licitacao) => FaseLicitacao);
+  /** Fase de destino (fixa ou calculada — com os dados do ato, quando houver). Ausente = mantém a fase. */
+  para?: FaseLicitacao | ((lic: Licitacao, ctx?: ContextoTransicao) => FaseLicitacao);
   /** Situações de origem aceitas (padrão: só ATIVA). */
   situacoesOrigem?: SituacaoLicitacao[];
   /** Situação de destino (ausente = mantém). */
@@ -191,6 +211,12 @@ export interface DefinicaoAto {
   somenteSistema?: boolean;
   precondicoes?: Precondicao[];
   efeitos?: Efeito[];
+  /**
+   * Efeitos no BANCO, dentro da transação do ato (depois dos efeitos e do
+   * `aplicar` do chamador). Ex.: ENCERRAR_ACOLHIMENTO tira da disputa as
+   * propostas não confirmadas depois de retificação (E7a).
+   */
+  efeitosPersistidos?: EfeitoPersistido[];
   /** Mensagem específica quando a fase atual não permite o ato. */
   mensagemForaDaFase?: (lic: Licitacao) => string | null;
 }

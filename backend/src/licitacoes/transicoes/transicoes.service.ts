@@ -36,6 +36,12 @@ import {
 import { conferenciaArt48Sql } from '../../julgamento/me-epp/beneficio-mpe.sql';
 import { habilitacaoPreviaPendenteSql, unidadesSemHabilitadoSql } from '../../habilitacao/habilitacao.sql';
 import { estadoRecursalSql } from '../../sessao/recursos.sql';
+import {
+  editalVigenteSql,
+  impugnacoesSemRetificacaoSql,
+  intencaoExtincaoAbertaSql,
+  propostasAguardandoConfirmacaoSql,
+} from '../../publicacao/publicacao.sql';
 
 /**
  * ============================================================================
@@ -90,6 +96,7 @@ export class TransicoesService {
 
       const r = aplicarNoEstado(def!, lic, ctx);
       if (opcoes.aplicar) await opcoes.aplicar(lic, manager);
+      for (const efeito of def!.efeitosPersistidos ?? []) await efeito(lic, manager, ctx);
       const salva = await manager.getRepository(Licitacao).save(lic);
 
       const motivo = (opcoes.motivo || '').trim() || null;
@@ -355,6 +362,11 @@ export class TransicoesService {
       habilitacaoPreviaPendente: () => habilitacaoPreviaPendenteSql(manager, licitacaoId),
       unidadesSemHabilitado: () => unidadesSemHabilitadoSql(manager, licitacaoId),
       estadoRecursal: () => estadoRecursalSql(manager, licitacaoId),
+      // Publicação (E7a)
+      editalVigente: () => editalVigenteSql(manager, licitacaoId),
+      impugnacoesSemRetificacao: () => impugnacoesSemRetificacaoSql(manager, licitacaoId),
+      propostasAguardandoConfirmacao: () => propostasAguardandoConfirmacaoSql(manager, licitacaoId),
+      intencaoExtincaoAberta: () => intencaoExtincaoAbertaSql(manager, licitacaoId),
       instrucaoProcesso: async (etapa) => {
         // Resolução tardia: evita ciclo de módulos (a fase-interna depende
         // deste serviço para as próprias transições).

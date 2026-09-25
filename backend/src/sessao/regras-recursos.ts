@@ -1,4 +1,4 @@
-import { fimDoPrazoEmDiasUteis } from '../common/prazos/dias-uteis';
+import { CalendarioDiasUteis, fimDoPrazoEmDiasUteis } from '../common/prazos/dias-uteis';
 import { SituacaoLicitante } from '../julgamento/regras-julgamento';
 import { AtoRecorrido, StatusRecurso } from './entities/recurso-administrativo.entity';
 
@@ -23,7 +23,7 @@ import { AtoRecorrido, StatusRecurso } from './entities/recurso-administrativo.e
  *  - art. 168: o recurso tem EFEITO SUSPENSIVO até a decisão final
  *    (adjudicação/homologação bloqueadas enquanto houver recurso pendente);
  *  - art. 183: prazos em dias úteis excluem o dia do começo e incluem o do
- *    vencimento (função única `common/prazos/dias-uteis.ts`; feriados na E7).
+ *    vencimento (função única `common/prazos/dias-uteis.ts`, com o calendário de feriados do órgão — E7a).
  *
  * Prazos não são decididos sozinhos: vencido o prazo do agente/autoridade, o
  * recurso é SINALIZADO como atrasado — nunca decidido automaticamente. Já o
@@ -110,23 +110,23 @@ export function motivoNaoRegistraIntencao(j: JanelaLike | null | undefined, agor
 // PRAZOS (art. 165; IN 73 art. 40; art. 183)
 // ============================================================================
 
-export function prazoRazoes(admitidaEm: Date, dias = DIAS_UTEIS_RAZOES_PADRAO): Date {
-  return fimDoPrazoEmDiasUteis(admitidaEm, dias);
+export function prazoRazoes(admitidaEm: Date, dias = DIAS_UTEIS_RAZOES_PADRAO, cal?: CalendarioDiasUteis): Date {
+  return fimDoPrazoEmDiasUteis(admitidaEm, dias, cal);
 }
 
 /** Contrarrazões: 3 dias úteis contados do FIM do prazo das razões (IN 73 art. 40 §2º). */
-export function prazoContrarrazoes(fimPrazoRazoes: Date, dias = DIAS_UTEIS_CONTRARRAZOES_PADRAO): Date {
-  return fimDoPrazoEmDiasUteis(fimPrazoRazoes, dias);
+export function prazoContrarrazoes(fimPrazoRazoes: Date, dias = DIAS_UTEIS_CONTRARRAZOES_PADRAO, cal?: CalendarioDiasUteis): Date {
+  return fimDoPrazoEmDiasUteis(fimPrazoRazoes, dias, cal);
 }
 
 /** Reconsideração pelo agente: 3 dias úteis do fim das contrarrazões (art. 165 §2º). */
-export function prazoReconsideracao(fimContrarrazoes: Date): Date {
-  return fimDoPrazoEmDiasUteis(fimContrarrazoes, DIAS_UTEIS_RECONSIDERACAO);
+export function prazoReconsideracao(fimContrarrazoes: Date, cal?: CalendarioDiasUteis): Date {
+  return fimDoPrazoEmDiasUteis(fimContrarrazoes, DIAS_UTEIS_RECONSIDERACAO, cal);
 }
 
 /** Decisão da autoridade superior: 10 dias úteis do encaminhamento (art. 165 §2º). */
-export function prazoAutoridade(encaminhadoEm: Date): Date {
-  return fimDoPrazoEmDiasUteis(encaminhadoEm, DIAS_UTEIS_AUTORIDADE);
+export function prazoAutoridade(encaminhadoEm: Date, cal?: CalendarioDiasUteis): Date {
+  return fimDoPrazoEmDiasUteis(encaminhadoEm, DIAS_UTEIS_AUTORIDADE, cal);
 }
 
 export interface RecursoLike {
@@ -150,6 +150,7 @@ const passou = (limite: Date | string | null | undefined, agora: Date) =>
 export function evolucaoPorPrazo(
   r: RecursoLike,
   agora = new Date(),
+  cal?: CalendarioDiasUteis,
 ): { status: StatusRecurso; prazo_reconsideracao?: Date; motivo?: string } | null {
   if (r.status === StatusRecurso.AGUARDANDO_RAZOES && passou(r.prazo_razoes, agora)) {
     return {
@@ -162,7 +163,7 @@ export function evolucaoPorPrazo(
     r.prazo_contrarrazoes &&
     passou(r.prazo_contrarrazoes, agora)
   ) {
-    return { status: StatusRecurso.EM_ANALISE, prazo_reconsideracao: prazoReconsideracao(new Date(r.prazo_contrarrazoes)) };
+    return { status: StatusRecurso.EM_ANALISE, prazo_reconsideracao: prazoReconsideracao(new Date(r.prazo_contrarrazoes), cal) };
   }
   return null;
 }

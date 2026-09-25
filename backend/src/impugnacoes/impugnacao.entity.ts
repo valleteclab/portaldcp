@@ -71,6 +71,13 @@ export class Impugnacao {
   @Column('text', { nullable: true })
   alteracoes_edital: string;
 
+  /**
+   * Retificação do edital (plano E7a) que atendeu esta impugnação acolhida
+   * com `altera_edital`. Enquanto nula, a sessão não abre (art. 55 §1º).
+   */
+  @Column({ type: 'uuid', nullable: true })
+  retificacao_id: string | null;
+
   // Documento anexado (PDF)
   @Column({ nullable: true })
   documento_nome: string; // Nome original do arquivo

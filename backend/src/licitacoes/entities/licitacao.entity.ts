@@ -259,6 +259,15 @@ export class Licitacao {
   })
   regime_execucao: RegimeExecucao;
 
+  /**
+   * Natureza do objeto (Lei 14.133/2021, art. 6º XIII — bens e serviços
+   * COMUNS; XIV — ESPECIAIS). Define o prazo mínimo do art. 55, II (10 ou 25
+   * dias úteis) para serviços e obras por menor preço/maior desconto; exigida
+   * na publicação quando decide o prazo (plano E7a). Pregão = sempre COMUM.
+   */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  natureza_objeto: 'COMUM' | 'ESPECIAL' | null;
+
   // === FASE E STATUS ===
   @Column({
     type: 'enum',

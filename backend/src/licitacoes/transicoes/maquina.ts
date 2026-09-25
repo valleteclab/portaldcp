@@ -15,9 +15,9 @@ export function situacaoDe(lic: { situacao?: SituacaoLicitacao | null }): Situac
   return lic.situacao ?? SituacaoLicitacao.ATIVA;
 }
 
-export function faseDestino(def: DefinicaoAto, lic: EstadoLicitacao): FaseLicitacao {
+export function faseDestino(def: DefinicaoAto, lic: EstadoLicitacao, ctx?: ContextoTransicao): FaseLicitacao {
   if (!def.para) return lic.fase;
-  return typeof def.para === 'function' ? def.para(lic as Licitacao) : def.para;
+  return typeof def.para === 'function' ? def.para(lic as Licitacao, ctx) : def.para;
 }
 
 /**
@@ -76,7 +76,7 @@ export interface ResultadoAplicacao {
 export function aplicarNoEstado(def: DefinicaoAto, lic: Licitacao, ctx: ContextoTransicao): ResultadoAplicacao {
   const fase_de = lic.fase;
   const situacao_de = situacaoDe(lic);
-  const fase_para = faseDestino(def, lic);
+  const fase_para = faseDestino(def, lic, ctx);
   const situacao_para = def.situacaoPara ?? situacao_de;
 
   if (fase_para !== fase_de) {
@@ -134,8 +134,9 @@ export async function avaliarAtosDisponiveis(
   for (const def of fluxoDaModalidade(lic.modalidade)) {
     if (def.somenteSistema) continue;
     if (conflitoDeEstado(def, lic)) continue;
-    const pendencias = await pendenciasDoAto(def, { ...criarContexto(def), somenteAvaliacao: true });
-    const para = def.para ? faseDestino(def, lic) : null;
+    const ctx = { ...criarContexto(def), somenteAvaliacao: true };
+    const pendencias = await pendenciasDoAto(def, ctx);
+    const para = def.para ? faseDestino(def, lic, ctx) : null;
     saida.push({
       ato: def.ato,
       rotulo: def.rotulo,

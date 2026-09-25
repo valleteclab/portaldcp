@@ -114,6 +114,21 @@ export class Proposta {
   @Column({ type: 'text', nullable: true })
   motivo_desclassificacao: string;
 
+  /**
+   * RETIFICAÇÃO DO EDITAL que afetou a formulação das propostas (art. 55 §1º;
+   * plano E7a): a proposta é mantida, mas o licitante precisa CONFIRMÁ-LA (ou
+   * alterá-la) até o novo fim do recebimento; sem confirmação, fica fora da
+   * disputa. A sessão não abre enquanto houver proposta aguardando.
+   */
+  @Column({ type: 'boolean', default: false })
+  requer_confirmacao: boolean;
+
+  @Column({ type: 'uuid', nullable: true })
+  retificacao_pendente_id: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  confirmada_em: Date | null;
+
   // Documento de justificativa da desclassificação (opcional)
   @Column({ nullable: true })
   documento_desclassificacao_nome: string;

@@ -202,6 +202,15 @@ export class ItemLicitacao {
   @Column({ nullable: true })
   marca_referencia: string;
 
+  /**
+   * MATERIAL | SERVICO (PNCP `materialOuServico`). Nulo = derivado na hora do
+   * envio: catálogo (CATSER/CATMAT) e, sem ele, o tipo da contratação
+   * (compra → material; serviço/obra/engenharia/locação → serviço) — ver
+   * pncp/mapeamento-pncp.ts.
+   */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  tipo_item: 'MATERIAL' | 'SERVICO' | null;
+
   // Quantidades
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   quantidade: number;

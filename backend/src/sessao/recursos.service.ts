@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { calendarioDoOrgao } from '../common/prazos/calendario';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
 import { extname } from 'path';
@@ -158,6 +159,8 @@ export class RecursosService {
     const [l] = await m.query(`SELECT orgao_id FROM licitacoes WHERE id = $1`, [licitacaoId]);
     const p: any = await this.parametrosService.resolver(l?.orgao_id).catch(() => null);
     return {
+      // Calendário de feriados do órgão da licitação (art. 183, III — E7a)
+      cal: calendarioDoOrgao(l?.orgao_id ?? null),
       minutosIntencao: minutosDaJanela(p?.prazo_intencao_recurso_minutos),
       diasRazoes: Number(p?.prazo_recursal_dias_uteis) > 0 ? Number(p.prazo_recursal_dias_uteis) : DIAS_UTEIS_RAZOES_PADRAO,
       diasContrarrazoes:
@@ -286,11 +289,12 @@ export class RecursosService {
     });
     let mudaram = 0;
     let sessaoId: string | null = null;
+    const cal = candidatos.length ? (await this.prazosDoOrgao(licitacaoId)).cal : undefined;
     for (const c of candidatos) {
-      if (!evolucaoPorPrazo(c, agora)) continue;
+      if (!evolucaoPorPrazo(c, agora, cal)) continue;
       await this.dataSource.transaction(async (m) => {
         const r = await this.recursoTravado(m, c.id);
-        const ev = evolucaoPorPrazo(r, agora);
+        const ev = evolucaoPorPrazo(r, agora, cal);
         if (!ev) return;
         r.status = ev.status;
         if (ev.status === StatusRecurso.NAO_CONHECIDO) {
@@ -693,7 +697,7 @@ export class RecursosService {
       r.intencao_decidida_em = agora;
       r.intencao_decidida_por_tipo = ator.tipo;
       r.intencao_decidida_por_id = ator.id;
-      r.prazo_razoes = prazoRazoes(agora, prazos.diasRazoes);
+      r.prazo_razoes = prazoRazoes(agora, prazos.diasRazoes, prazos.cal);
       await m.save(r);
       // Prazo recursal: licitação → RECURSO (idempotente para a 2ª intenção admitida)
       await this.transicoes.executar(r.licitacao_id, AtoLicitacao.ABRIR_PRAZO_RECURSAL, {
@@ -782,7 +786,7 @@ export class RecursosService {
       r.data_razoes = agora;
       r.status = StatusRecurso.CONTRARRAZOES;
       // Contrarrazões: 3 dias úteis do FIM do prazo das razões (IN 73 art. 40 §2º)
-      r.prazo_contrarrazoes = prazoContrarrazoes(new Date(r.prazo_razoes), prazos.diasContrarrazoes);
+      r.prazo_contrarrazoes = prazoContrarrazoes(new Date(r.prazo_razoes), prazos.diasContrarrazoes, prazos.cal);
       if (dados.arquivo?.buffer?.length) {
         const a = this.metaArquivo(dados.arquivo, 'razoes');
         r.razoes_arquivo_nome = a.nome;
@@ -939,7 +943,7 @@ export class RecursosService {
       } else {
         r.status = StatusRecurso.AGUARDANDO_AUTORIDADE;
         r.encaminhado_em = agora;
-        r.prazo_decisao_autoridade = prazoAutoridade(agora);
+        r.prazo_decisao_autoridade = prazoAutoridade(agora, (await this.prazosDoOrgao(r.licitacao_id, m)).cal);
         await m.save(r);
         await this.evento(m, {
           sessaoId: r.sessao_id,

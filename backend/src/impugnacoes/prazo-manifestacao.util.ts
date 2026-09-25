@@ -1,5 +1,10 @@
 import { FaseLicitacao, ModalidadeLicitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.entity';
-import { ehDiaUtil, limiteDiasUteisAntes as limiteDiasUteisAntesComum } from '../common/prazos/dias-uteis';
+import {
+  CalendarioDiasUteis,
+  calendarioDoOrgao,
+  ehDiaUtil,
+  limiteDiasUteisAntes as limiteDiasUteisAntesComum,
+} from '../common/prazos/dias-uteis';
 
 /**
  * ============================================================================
@@ -31,10 +36,10 @@ import { ehDiaUtil, limiteDiasUteisAntes as limiteDiasUteisAntesComum } from '..
  *  - sem data-limite nem data de abertura no cronograma: aceita enquanto a
  *    licitação estiver numa dessas fases (comportamento anterior).
  *
- * Dias úteis = segunda a sexta. FERIADOS ainda não são considerados — o
- * calendário de feriados (nacionais + municipais por órgão) é a E7 item 2;
- * quando existir, substituir `ehDiaUtil` em `common/prazos/dias-uteis.ts`
- * (função única, também usada pelos prazos de recurso — art. 165).
+ * Dias úteis = segunda a sexta fora dos feriados do CALENDÁRIO DO ÓRGÃO da
+ * licitação (art. 183, III — nacionais, estaduais, municipais e pontos
+ * facultativos adotados; plano E7a): `calendarioDoOrgao(lic.orgao_id)`, a
+ * mesma função única dos prazos de recurso (art. 165) e do art. 55.
  */
 
 export const DIAS_UTEIS_ANTES_DA_ABERTURA = 3;
@@ -57,6 +62,9 @@ const SITUACOES_ENCERRADAS: string[] = [
 ];
 
 export interface LicitacaoComPrazos {
+  /** Órgão da licitação: define o calendário de feriados (art. 183, III). */
+  orgao_id?: string | null;
+  orgao?: { id?: string | null } | null;
   modalidade?: ModalidadeLicitacao | string | null;
   fase?: FaseLicitacao | string | null;
   situacao?: SituacaoLicitacao | string | null;
@@ -81,15 +89,24 @@ function data(v: Date | string | null | undefined): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** Dia útil: função ÚNICA de `common/prazos/dias-uteis.ts` (feriados: E7 item 2). */
+/** Dia útil: função ÚNICA de `common/prazos/dias-uteis.ts` (calendário do órgão — E7a). */
 export { ehDiaUtil };
+
+/** Calendário de feriados do órgão da licitação. */
+export function calendarioDaLicitacao(lic: Pick<LicitacaoComPrazos, 'orgao_id' | 'orgao'>): CalendarioDiasUteis {
+  return calendarioDoOrgao(lic.orgao_id ?? lic.orgao?.id ?? null);
+}
 
 /**
  * Último instante (23:59:59.999, Brasília) do N-ésimo dia útil ANTERIOR ao dia
  * (em Brasília) de `abertura`. O dia da abertura não conta.
  */
-export function limiteDiasUteisAntes(abertura: Date, dias = DIAS_UTEIS_ANTES_DA_ABERTURA): Date {
-  return limiteDiasUteisAntesComum(abertura, dias);
+export function limiteDiasUteisAntes(
+  abertura: Date,
+  dias = DIAS_UTEIS_ANTES_DA_ABERTURA,
+  cal?: CalendarioDiasUteis,
+): Date {
+  return limiteDiasUteisAntesComum(abertura, dias, cal);
 }
 
 /** Data de abertura do certame usada como referência do art. 164. */
@@ -105,7 +122,7 @@ export function prazoLimiteManifestacao(lic: LicitacaoComPrazos): Date | null {
   const fixado = data(lic.data_limite_impugnacao);
   if (fixado) return fixado;
   const abertura = dataAberturaDoCertame(lic);
-  return abertura ? limiteDiasUteisAntes(abertura) : null;
+  return abertura ? limiteDiasUteisAntes(abertura, DIAS_UTEIS_ANTES_DA_ABERTURA, calendarioDaLicitacao(lic)) : null;
 }
 
 function formatar(d: Date): string {

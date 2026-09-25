@@ -47,6 +47,11 @@ export class CreateLicitacaoDto {
   @IsOptional()
   regime_execucao?: RegimeExecucao;
 
+  /** Art. 6º XIII/XIV — define o prazo do art. 55, II (plano E7a). */
+  @IsString()
+  @IsOptional()
+  natureza_objeto?: 'COMUM' | 'ESPECIAL' | null;
+
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsOptional()
   valor_total_estimado?: number;
