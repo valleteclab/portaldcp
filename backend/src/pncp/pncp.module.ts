@@ -9,6 +9,8 @@ import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 import { SystemConfigModule } from '../system-config/system-config.module';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
+import { PncpEnviosService } from './fila/pncp-envios.service';
+import { PncpFilaService } from './fila/pncp-fila.service';
 
 @Module({
   imports: [
@@ -18,7 +20,7 @@ import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
     TransicoesModule,
   ],
   controllers: [PncpController],
-  providers: [PncpService],
-  exports: [PncpService]
+  providers: [PncpService, PncpEnviosService, PncpFilaService],
+  exports: [PncpService, PncpFilaService]
 })
 export class PncpModule {}

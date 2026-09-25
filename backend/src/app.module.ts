@@ -60,6 +60,8 @@ import { NfseSpedyModule } from './nfse-spedy/nfse-spedy.module';
 import { ExtModule } from './ext/ext.module';
 import { McpModule } from './mcp/mcp.module';
 import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-licitacao.module';
+import { FeriadosModule } from './feriados/feriados.module';
+import { PublicacaoModule } from './publicacao/publicacao.module';
 
 @Module({
   imports: [
@@ -168,6 +170,8 @@ import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-lic
     ExtModule,
     McpModule,
     ParametrosLicitacaoModule,
+    FeriadosModule, // calendário de feriados (E7a)
+    PublicacaoModule, // publicação, prazos, retificação (E7a)
   ],
   controllers: [HealthController],
   providers: [

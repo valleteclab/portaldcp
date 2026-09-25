@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
+import { ehFaseInterna } from '../licitacoes/transicoes/fases';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DocumentoLicitacao, TipoDocumentoLicitacao, StatusDocumento } from './entities/documento-licitacao.entity';
@@ -6,6 +7,27 @@ import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+
+/**
+ * Peças do EDITAL (plano E7a — art. 55 §1º): depois da publicação não se
+ * anexam, trocam nem apagam por aqui — só pela retificação do edital
+ * (POST /publicacao/licitacao/:id/retificar), que versiona e divulga.
+ */
+export const TIPOS_DO_EDITAL: TipoDocumentoLicitacao[] = [
+  TipoDocumentoLicitacao.EDITAL,
+  TipoDocumentoLicitacao.EDITAL_RETIFICADO,
+  TipoDocumentoLicitacao.MINUTA_CONTRATO,
+  TipoDocumentoLicitacao.TERMO_REFERENCIA,
+  TipoDocumentoLicitacao.PROJETO_BASICO,
+];
+
+export function motivoPecaDoEditalBloqueada(tipo: string, fase: string | null | undefined): string | null {
+  if (tipo === TipoDocumentoLicitacao.EDITAL_RETIFICADO) {
+    return 'O edital retificado é gerado pela retificação do edital (POST /publicacao/licitacao/:id/retificar).';
+  }
+  if (!TIPOS_DO_EDITAL.includes(tipo as TipoDocumentoLicitacao) || ehFaseInterna(fase)) return null;
+  return 'Edital já publicado: peças do edital só mudam por RETIFICAÇÃO (art. 55, §1º, Lei 14.133/2021) — use "Retificar edital".';
+}
 
 @Injectable()
 export class DocumentosService {
@@ -43,6 +65,8 @@ export class DocumentosService {
     if (!licitacao) {
       throw new NotFoundException('Licitação não encontrada');
     }
+    const bloqueio = motivoPecaDoEditalBloqueada(tipo, licitacao.fase);
+    if (bloqueio) throw new ConflictException(bloqueio);
 
     // Validar tipo de arquivo
     const tiposPermitidos = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
@@ -118,6 +142,8 @@ export class DocumentosService {
     if (!licitacao) {
       throw new NotFoundException('Licitação não encontrada');
     }
+    const bloqueio = motivoPecaDoEditalBloqueada(dados.tipo, licitacao.fase);
+    if (bloqueio) throw new ConflictException(bloqueio);
 
     // Verificar versão anterior
     const documentoAnterior = await this.documentoRepository.findOne({
@@ -301,6 +327,9 @@ export class DocumentosService {
 
   async delete(id: string): Promise<void> {
     const documento = await this.findOne(id);
+    if (TIPOS_DO_EDITAL.includes(documento.tipo) && documento.licitacao && !ehFaseInterna(documento.licitacao.fase)) {
+      throw new ConflictException('Edital já publicado: peças do edital não se apagam — o histórico de versões é público (art. 55, §1º).');
+    }
     
     // Remover arquivo físico
     if (fs.existsSync(documento.caminho_arquivo)) {

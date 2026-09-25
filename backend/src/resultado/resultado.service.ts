@@ -19,7 +19,6 @@ import type { Ator } from '../auth/acesso/ator';
 import { RankingService, UnidadeJulgamento } from '../julgamento/ranking.service';
 import { SituacaoLicitante, StatusAceitacao } from '../julgamento/regras-julgamento';
 import { ContratosService } from '../contratos/contratos.service';
-import { PncpService } from '../pncp/pncp.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { EventoSessao, TipoEvento } from '../sessao/entities/evento-sessao.entity';
@@ -140,7 +139,6 @@ export class ResultadoService implements OnModuleInit {
     private readonly transicoes: TransicoesService,
     private readonly ranking: RankingService,
     private readonly contratos: ContratosService,
-    private readonly pncp: PncpService,
     private readonly notificacoes: NotificacoesService,
     @Inject(GERADOR_ATA_REGISTRO_PRECO) private readonly geradorAta: GeradorAtaRegistroPreco,
     private readonly formalizacao: FormalizacaoService,
@@ -1150,22 +1148,12 @@ export class ResultadoService implements OnModuleInit {
     }
   }
 
-  /** PNCP e aviso da demanda — fire-and-forget (falha fica em pncp_sync / log). */
+  /**
+   * Aviso da demanda de origem. O PNCP (resultado por item + termo de
+   * homologação) sai pela FILA disparada pelo ato HOMOLOGAR
+   * (PncpFilaService.aoTransitar); o contrato só depois de assinado (art. 94).
+   */
   private async efeitosExternosDaHomologacao(lic: Licitacao, instrumentos: { contratos: any[]; atas: any[] }): Promise<void> {
-    // Seleção externa: a plataforma de origem publica o resultado no PNCP
-    if (!lic.selecao_externa) {
-      this.pncp
-        .enviarResultadoHomologacao(lic.id)
-        .then((r: any) => this.logger.log(`[PNCP] Resultado ${lic.numero_processo}: ${r?.enviados}/${r?.total} item(ns)`))
-        .catch((e: any) => this.logger.warn(`[PNCP] Resultado ${lic.numero_processo} não enviado: ${e.message} (reenvie pelo cockpit)`));
-      // Contrato no PNCP (art. 94) — hoje na homologação; E7 move para depois da assinatura
-      if (instrumentos.contratos.length) {
-        this.pncp
-          .enviarContratosHomologacao(lic.id)
-          .then((r: any) => this.logger.log(`[PNCP] Contratos ${lic.numero_processo}: ${r?.enviados}/${r?.total}`))
-          .catch((e: any) => this.logger.warn(`[PNCP] Contratos ${lic.numero_processo} não enviados: ${e.message} (reenvie pelo cockpit)`));
-      }
-    }
     if (lic.demanda_id) {
       try {
         const [d] = await this.dataSource.query(`SELECT id, responsavel_email FROM demandas WHERE id::text = $1`, [lic.demanda_id]);

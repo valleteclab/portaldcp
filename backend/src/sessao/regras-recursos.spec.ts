@@ -39,9 +39,9 @@ describe('Dias úteis (art. 183 — função única)', () => {
     expect(fimDoPrazoEmDiasUteis(br('2026-09-24T23:30:00'), 1)).toEqual(fimDoDia('2026-09-25'));
   });
 
-  it('10 dias úteis atravessam dois fins de semana', () => {
-    // seg 28/09 → 29,30,01,02 (4) · 05..09 (9) · 12 (10)
-    expect(fimDoPrazoEmDiasUteis(br('2026-09-28T08:00:00'), 10)).toEqual(fimDoDia('2026-10-12'));
+  it('10 dias úteis atravessam dois fins de semana e o feriado de 12/10 (E7a)', () => {
+    // seg 28/09 → 29,30,01,02 (4) · 05..09 (9) · 12 é feriado nacional · 13 (10)
+    expect(fimDoPrazoEmDiasUteis(br('2026-09-28T08:00:00'), 10)).toEqual(fimDoDia('2026-10-13'));
   });
 
   it('prazo "antes" (art. 164) continua igual pela mesma função', () => {
@@ -60,7 +60,8 @@ describe('Prazos do recurso (art. 165; IN 73 art. 40)', () => {
 
   it('reconsideração em 3 dias úteis; autoridade em 10 dias úteis do encaminhamento', () => {
     expect(prazoReconsideracao(fimDoDia('2026-10-05'))).toEqual(fimDoDia('2026-10-08'));
-    expect(prazoAutoridade(br('2026-10-08T10:00:00'))).toEqual(fimDoDia('2026-10-22'));
+    // 09 (1) · 12 feriado · 13..16 (5) · 19..23 (10)
+    expect(prazoAutoridade(br('2026-10-08T10:00:00'))).toEqual(fimDoDia('2026-10-23'));
   });
 
   it('parâmetro do órgão muda os dias das partes', () => {

@@ -4,7 +4,6 @@ import {
   SituacaoLicitacao,
 } from '../entities/licitacao.entity';
 import {
-  adicionarDiasUteis,
   FASES_ANTES_DA_HOMOLOGACAO,
   FASES_EXTERNAS_ATE_ADJUDICACAO,
   FASES_INTERNAS,
@@ -15,10 +14,24 @@ import {
 import { avaliarRollupItens } from './rollup';
 import { pendenciasPublicacaoArt48 } from '../../julgamento/me-epp/regras-me-epp';
 import {
+  avaliarPrazosDePublicacao,
+  CAMPOS_EDITAL_RETIFICAVEIS,
+  fimDoRecebimento,
+  formatarDataBrasilia,
+  MODALIDADES_COM_EDITAL,
+  pendenciasDaRetificacao,
+} from '../../publicacao/regras-publicacao';
+import {
+  concluirExtincaoSql,
+  excluirPropostasNaoConfirmadasSql,
+  marcarEditalPublicadoSql,
+} from '../../publicacao/publicacao.sql';
+import {
   AtoLicitacao,
   ContextoTransicao,
   DefinicaoAto,
   Efeito,
+  EfeitoPersistido,
   FluxosPorModalidade,
   Precondicao,
 } from './transicoes.tipos';
@@ -87,20 +100,56 @@ export const documentosDaEtapaProntos: Precondicao = async (ctx) => {
   return instrucao.pendentes.map((p) => `Documento obrigatório da etapa ${rotulo} pendente: ${p}`);
 };
 
-/** Dispensa eletrônica (art. 75 §3º): mínimo de 3 dias úteis de recebimento de propostas. */
-export const prazoMinimoDispensa: Precondicao = (ctx) => {
-  if (ctx.licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) return null;
+/**
+ * PRAZOS MÍNIMOS DE DIVULGAÇÃO (plano E7a) — PUBLICAR em todas as
+ * modalidades: art. 55 da Lei 14.133/2021 (pregão, concorrência, leilão,
+ * concurso; diálogo competitivo art. 32 §1º I) e art. 75 §3º (dispensa
+ * eletrônica, 3 dias úteis), contados da divulgação no CALENDÁRIO DO ÓRGÃO
+ * (art. 183), + ordem coerente das datas + art. 164. Regras puras em
+ * `publicacao/regras-publicacao.ts`. O cronograma do pedido prevalece sobre o
+ * da licitação (o PNCP publica com o cronograma já gravado). Seleção externa:
+ * os prazos são os da plataforma de origem.
+ */
+export const prazosDePublicacao: Precondicao = (ctx) => {
+  const lic = ctx.licitacao as any;
+  if (lic.selecao_externa) return null;
   const dados = ctx.dados || {};
-  const corte = dados.data_fim_acolhimento || dados.data_abertura_sessao;
-  if (!corte) return null; // sem cronograma no pedido (listagem de atos): avaliado ao publicar
-  const minimo = adicionarDiasUteis(new Date(dados.data_publicacao_edital || ctx.agora), 3);
-  if (new Date(corte) < minimo) {
-    return (
-      `Dispensa eletrônica exige no mínimo 3 dias úteis para recebimento de propostas (art. 75, §3º). ` +
-      `Prazo mínimo: ${minimo.toLocaleDateString('pt-BR')}`
-    );
-  }
-  return null;
+  const cronograma: Record<string, any> = {};
+  for (const campo of CAMPOS_CRONOGRAMA) cronograma[campo] = dados[campo] || lic[campo] || null;
+  if (ctx.somenteAvaliacao && !fimDoRecebimento(cronograma)) return null; // sem cronograma ainda: avaliado ao publicar
+  const av = avaliarPrazosDePublicacao(
+    {
+      modalidade: lic.modalidade,
+      tipo_contratacao: dados.tipo_contratacao ?? lic.tipo_contratacao,
+      criterio_julgamento: dados.criterio_julgamento ?? lic.criterio_julgamento,
+      regime_execucao: dados.regime_execucao ?? lic.regime_execucao,
+      natureza_objeto: dados.natureza_objeto ?? lic.natureza_objeto,
+      orgao_id: lic.orgao_id,
+    },
+    cronograma,
+    ctx.agora,
+    { exigirDatas: !ctx.somenteAvaliacao },
+  );
+  return av.pendencias;
+};
+
+/** @deprecated nome antigo (só a dispensa) — o gate vale para todas as modalidades: `prazosDePublicacao`. */
+export const prazoMinimoDispensa = prazosDePublicacao;
+
+/**
+ * EDITAL REAL (plano E7a item 3): pregão, concorrência, leilão, concurso e
+ * diálogo só se publicam com o edital anexado (documento EDITAL da licitação
+ * ou "Edital aprovado" da fase interna com arquivo) — é ele que vai ao PNCP
+ * (`EditalService.editalVigente`), nunca um PDF em branco.
+ */
+export const editalAnexado: Precondicao = async (ctx) => {
+  const lic = ctx.licitacao as any;
+  if (lic.selecao_externa) return null;
+  if (!MODALIDADES_COM_EDITAL.includes(lic.modalidade)) return null;
+  if (!ctx.consultas.editalVigente) return null;
+  const edital = await ctx.consultas.editalVigente();
+  if (edital) return null;
+  return 'Anexe o edital (documento "Edital" da licitação ou o edital aprovado na fase interna) antes de publicar — art. 54 da Lei 14.133/2021.';
 };
 
 /**
@@ -230,6 +279,107 @@ export const semPropostasRecebidas: Precondicao = async (ctx) => {
   return null;
 };
 
+/**
+ * Art. 55 §1º (plano E7a): impugnação ACOLHIDA que altera o edital exige a
+ * RETIFICAÇÃO antes da sessão (a alteração precisa ser divulgada).
+ */
+export const impugnacoesAtendidasPorRetificacao: Precondicao = async (ctx) => {
+  if (!ctx.consultas.impugnacoesSemRetificacao) return null;
+  const pend = await ctx.consultas.impugnacoesSemRetificacao();
+  if (!pend.length) return null;
+  return `Impugnação acolhida altera o edital: retifique o edital antes de abrir a sessão (art. 55, §1º, Lei 14.133/2021) — ${pend.join(', ')}.`;
+};
+
+/**
+ * Retificação que afetou as propostas (art. 55 §1º; plano E7a): enquanto o
+ * novo prazo de recebimento corre, a sessão espera a confirmação dos
+ * licitantes; vencido o prazo, as não confirmadas saem da disputa
+ * (`excluirPropostasNaoConfirmadas`).
+ */
+export const propostasConfirmadasAposRetificacao: Precondicao = async (ctx) => {
+  if (!ctx.consultas.propostasAguardandoConfirmacao) return null;
+  const corte = fimDoRecebimento(ctx.licitacao as any);
+  if (!corte || ctx.agora.getTime() >= new Date(corte).getTime()) return null;
+  const n = await ctx.consultas.propostasAguardandoConfirmacao();
+  if (!n) return null;
+  return `${n} proposta(s) aguardando a confirmação do licitante depois da retificação do edital (art. 55, §1º) — prazo até ${formatarDataBrasilia(new Date(corte))}.`;
+};
+
+/** Fim do prazo de confirmação: proposta não confirmada sai da disputa. */
+export const excluirPropostasNaoConfirmadas: EfeitoPersistido = async (lic, manager, ctx) => {
+  const corte = fimDoRecebimento(lic as any);
+  if (corte && ctx.agora.getTime() < new Date(corte).getTime()) return;
+  await excluirPropostasNaoConfirmadasSql(manager, lic.id);
+};
+
+/**
+ * ART. 71 §3º (plano E7a): "Nos casos de anulação e revogação, deverá ser
+ * assegurada a prévia manifestação dos interessados". Havendo licitantes, o
+ * REVOGAR/ANULAR exige a intenção do mesmo tipo com o prazo de manifestação
+ * já decorrido (INTENCAO_REVOGAR / INTENCAO_ANULAR). Sem licitantes, não há
+ * interessados a ouvir.
+ */
+export const manifestacaoPreviaAssegurada: Precondicao = async (ctx) => {
+  if (!ctx.consultas.intencaoExtincaoAberta) return null;
+  const n = await ctx.consultas.propostasRecebidas();
+  if (n === 0) return null;
+  const tipo = ctx.ato === AtoLicitacao.ANULAR ? 'ANULAR' : 'REVOGAR';
+  const verbo = tipo === 'ANULAR' ? 'anular' : 'revogar';
+  const i = await ctx.consultas.intencaoExtincaoAberta();
+  if (!i || i.tipo !== tipo) {
+    return (
+      `Há ${n} licitante(s) interessado(s): antes de ${verbo}, abra o prazo de manifestação prévia (art. 71, §3º, Lei 14.133/2021) ` +
+      `— ato "Intenção de ${verbo}".`
+    );
+  }
+  if (ctx.agora.getTime() <= new Date(i.prazo_fim).getTime()) {
+    return `Prazo de manifestação prévia dos interessados (art. 71, §3º) em curso até ${formatarDataBrasilia(new Date(i.prazo_fim))}.`;
+  }
+  return null;
+};
+
+/** Só uma intenção de revogar/anular por vez. */
+export const semIntencaoDeExtincaoAberta: Precondicao = async (ctx) => {
+  if (!ctx.consultas.intencaoExtincaoAberta) return null;
+  const i = await ctx.consultas.intencaoExtincaoAberta();
+  if (!i) return null;
+  return `Já há intenção de ${i.tipo === 'ANULAR' ? 'anular' : 'revogar'} com prazo de manifestação aberto (até ${formatarDataBrasilia(new Date(i.prazo_fim))}).`;
+};
+
+const concluirIntencaoDeExtincao =
+  (tipo: 'REVOGAR' | 'ANULAR'): EfeitoPersistido =>
+  async (lic, manager) => {
+    await concluirExtincaoSql(manager, lic.id, tipo);
+  };
+
+/** RETIFICAR_EDITAL: dados completos e prazos do art. 55 recontados da retificação (se afetar propostas). */
+export const retificacaoValida: Precondicao = (ctx) => {
+  if (ctx.somenteAvaliacao) return null;
+  const lic = ctx.licitacao as any;
+  const dados = ctx.dados || {};
+  const campos = (dados.campos || {}) as Record<string, any>;
+  const atual: Record<string, any> = {};
+  for (const c of CAMPOS_CRONOGRAMA) atual[c] = lic[c] ?? null;
+  return pendenciasDaRetificacao(
+    {
+      modalidade: lic.modalidade,
+      tipo_contratacao: campos.tipo_contratacao ?? lic.tipo_contratacao,
+      criterio_julgamento: campos.criterio_julgamento ?? lic.criterio_julgamento,
+      regime_execucao: campos.regime_execucao ?? lic.regime_execucao,
+      natureza_objeto: campos.natureza_objeto ?? lic.natureza_objeto,
+      orgao_id: lic.orgao_id,
+    },
+    atual,
+    {
+      afeta_propostas: dados.afeta_propostas,
+      alteracoes: dados.alteracoes,
+      justificativa_nao_afeta: dados.justificativa_nao_afeta,
+      cronograma: dados.cronograma,
+    },
+    ctx.agora,
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Efeitos reutilizáveis
 // ---------------------------------------------------------------------------
@@ -273,6 +423,39 @@ const reabrirCronograma: Efeito = (lic, ctx) => {
     if (dados[campo]) (lic as any)[campo] = new Date(dados[campo]);
   }
 };
+
+/**
+ * RETIFICAR_EDITAL: grava o cronograma republicado (a data de publicação
+ * original fica — a da retificação vai para `retificacoes_edital`) e os
+ * campos do edital alterados (lista fechada `CAMPOS_EDITAL_RETIFICAVEIS`).
+ */
+const gravarRetificacao: Efeito = (lic, ctx) => {
+  const dados = ctx.dados || {};
+  const cronograma = (dados.cronograma || {}) as Record<string, any>;
+  for (const campo of CAMPOS_CRONOGRAMA) {
+    if (campo === 'data_publicacao_edital') continue;
+    if (cronograma[campo]) (lic as any)[campo] = new Date(cronograma[campo]);
+  }
+  const campos = (dados.campos || {}) as Record<string, any>;
+  for (const c of CAMPOS_EDITAL_RETIFICAVEIS) {
+    if (campos[c] !== undefined) (lic as any)[c] = campos[c];
+  }
+};
+
+/**
+ * Fase depois da retificação: só muda quando a alteração AFETA as propostas e
+ * o recebimento já tinha terminado (ANALISE_PROPOSTAS) — os prazos reabrem:
+ * volta ao recebimento (ou a PUBLICADO, se o novo início ainda não chegou).
+ */
+function faseAposRetificacao(lic: { fase: FaseLicitacao }, ctx?: ContextoTransicao): FaseLicitacao {
+  const d = ctx?.dados || {};
+  const afeta = d.afeta_propostas === true || d.afeta_propostas === 'true';
+  if (!afeta || lic.fase !== FaseLicitacao.ANALISE_PROPOSTAS) return lic.fase;
+  const inicio = d.cronograma?.data_inicio_acolhimento ? new Date(d.cronograma.data_inicio_acolhimento) : null;
+  return inicio && inicio.getTime() > (ctx?.agora ?? new Date()).getTime()
+    ? FaseLicitacao.PUBLICADO
+    : FaseLicitacao.ACOLHIMENTO_PROPOSTAS;
+}
 
 /** Fase interna anterior à atual (DEVOLVER_FASE_INTERNA). */
 function faseInternaAnterior(fase: FaseLicitacao): FaseLicitacao {
@@ -338,8 +521,10 @@ const PUBLICAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoCompleta, prazoMinimoDispensa, exclusividadeMpeArt48],
+  precondicoes: [instrucaoCompleta, editalAnexado, prazosDePublicacao, exclusividadeMpeArt48],
   efeitos: [gravarCronogramaPublicacao, gravarJustificativaArt49],
+  // o edital anexado vira o documento divulgado (E7a)
+  efeitosPersistidos: [async (lic, m) => marcarEditalPublicadoSql(m, lic.id)],
   mensagemForaDaFase: () => 'Licitação precisa estar aprovada internamente para publicar edital',
 };
 
@@ -378,7 +563,8 @@ const ENCERRAR_ACOLHIMENTO: DefinicaoAto = {
   de: [F.PUBLICADO, F.IMPUGNACAO, F.ACOLHIMENTO_PROPOSTAS],
   para: F.ANALISE_PROPOSTAS,
   principal: true,
-  precondicoes: [fimAcolhimentoAlcancado],
+  precondicoes: [fimAcolhimentoAlcancado, propostasConfirmadasAposRetificacao],
+  efeitosPersistidos: [excluirPropostasNaoConfirmadas],
 };
 
 /**
@@ -412,8 +598,15 @@ const INICIAR_DISPUTA: DefinicaoAto = {
   de: [F.ANALISE_PROPOSTAS],
   para: F.EM_DISPUTA,
   principal: true,
-  precondicoes: [aberturaSessaoAlcancada, haPropostasAptas, habilitacaoPreviaJulgada],
+  precondicoes: [
+    aberturaSessaoAlcancada,
+    impugnacoesAtendidasPorRetificacao,
+    propostasConfirmadasAposRetificacao,
+    haPropostasAptas,
+    habilitacaoPreviaJulgada,
+  ],
   efeitos: [marcarData('data_inicio_disputa')],
+  efeitosPersistidos: [excluirPropostasNaoConfirmadas],
   mensagemForaDaFase: () => 'Licitação precisa estar na fase de análise de propostas',
 };
 
@@ -575,8 +768,14 @@ const JULGAR_DISPENSA: DefinicaoAto = {
   requerDados: false,
   endpoint: 'POST /licitacoes/:id/julgar-dispensa',
   principal: true,
-  precondicoes: [fimAcolhimentoAlcancado, janelaLancesDispensaEncerrada],
+  precondicoes: [
+    fimAcolhimentoAlcancado,
+    janelaLancesDispensaEncerrada,
+    impugnacoesAtendidasPorRetificacao,
+    propostasConfirmadasAposRetificacao,
+  ],
   efeitos: [marcarData('data_adjudicacao')],
+  efeitosPersistidos: [excluirPropostasNaoConfirmadas],
   mensagemForaDaFase: (lic) => (lic.fase === F.HOMOLOGACAO ? 'Licitação já homologada' : null),
 };
 
@@ -637,7 +836,8 @@ const REVOGAR: DefinicaoAto = {
   situacoesOrigem: [S.ATIVA, S.SUSPENSA],
   situacaoPara: S.REVOGADA,
   requerMotivo: true,
-  precondicoes: [semContratoAssinado],
+  precondicoes: [semContratoAssinado, manifestacaoPreviaAssegurada],
+  efeitosPersistidos: [concluirIntencaoDeExtincao('REVOGAR')],
 };
 
 const ANULAR: DefinicaoAto = {
@@ -647,8 +847,52 @@ const ANULAR: DefinicaoAto = {
   situacoesOrigem: [S.ATIVA, S.SUSPENSA],
   situacaoPara: S.ANULADA,
   requerMotivo: true,
-  precondicoes: [semContratoAssinado],
+  precondicoes: [semContratoAssinado, manifestacaoPreviaAssegurada],
+  efeitosPersistidos: [concluirIntencaoDeExtincao('ANULAR')],
 };
+
+/**
+ * RETIFICAR_EDITAL (art. 55 §1º; plano E7a): depois da divulgação e antes da
+ * sessão, toda alteração do edital é este ato — nova versão do edital
+ * (EDITAL_RETIFICADO), motivo, o que mudou e a decisão "afeta a formulação
+ * das propostas?" (afeta → prazos reabertos e propostas a confirmar). Cabe
+ * também com a licitação suspensa (a retomada é outro ato). Endpoint próprio
+ * (arquivo do edital).
+ */
+const RETIFICAR_EDITAL: DefinicaoAto = {
+  ato: A.RETIFICAR_EDITAL,
+  rotulo: 'Retificar edital (art. 55, §1º)',
+  de: [F.PUBLICADO, F.IMPUGNACAO, F.ACOLHIMENTO_PROPOSTAS, F.ANALISE_PROPOSTAS],
+  para: (lic, ctx) => faseAposRetificacao(lic, ctx),
+  situacoesOrigem: [S.ATIVA, S.SUSPENSA],
+  requerMotivo: true,
+  requerDados: true,
+  endpoint: 'POST /publicacao/licitacao/:id/retificar',
+  precondicoes: [retificacaoValida],
+  efeitos: [gravarRetificacao],
+  mensagemForaDaFase: (lic) =>
+    FASES_INTERNAS.includes(lic.fase)
+      ? 'Edital ainda não divulgado — altere o cadastro normalmente (a retificação é depois da publicação).'
+      : 'Sessão já aberta — o edital não se retifica mais (anule ou revogue, se for o caso).',
+};
+
+/** Intenção de revogar/anular (art. 71 §3º): abre o prazo de manifestação dos licitantes. */
+const intencaoDeExtincao = (ato: AtoLicitacao.INTENCAO_REVOGAR | AtoLicitacao.INTENCAO_ANULAR): DefinicaoAto => ({
+  ato,
+  rotulo:
+    ato === A.INTENCAO_REVOGAR
+      ? 'Intenção de revogar (prazo de manifestação — art. 71, §3º)'
+      : 'Intenção de anular (prazo de manifestação — art. 71, §3º)',
+  de: ORDEM_FASES,
+  situacoesOrigem: [S.ATIVA, S.SUSPENSA],
+  requerMotivo: true,
+  requerDados: true,
+  endpoint: 'POST /publicacao/licitacao/:id/intencao-extincao',
+  precondicoes: [semContratoAssinado, semIntencaoDeExtincaoAberta],
+});
+const INTENCAO_REVOGAR = intencaoDeExtincao(A.INTENCAO_REVOGAR);
+const INTENCAO_ANULAR = intencaoDeExtincao(A.INTENCAO_ANULAR);
+
 
 const DECLARAR_DESERTA: DefinicaoAto = {
   ato: A.DECLARAR_DESERTA,
@@ -677,7 +921,17 @@ const CONCLUIR: DefinicaoAto = {
   precondicoes: [haContratoOuAta],
 };
 
-const ATOS_SITUACAO: DefinicaoAto[] = [SUSPENDER, RETOMAR, REVOGAR, ANULAR, DECLARAR_DESERTA, DECLARAR_FRACASSADA, CONCLUIR];
+const ATOS_SITUACAO: DefinicaoAto[] = [
+  SUSPENDER,
+  RETOMAR,
+  INTENCAO_REVOGAR,
+  REVOGAR,
+  INTENCAO_ANULAR,
+  ANULAR,
+  DECLARAR_DESERTA,
+  DECLARAR_FRACASSADA,
+  CONCLUIR,
+];
 
 // ---------------------------------------------------------------------------
 // Fluxos por modalidade (a ordem define o "ato principal" do avançar-fase)
@@ -689,6 +943,7 @@ const FLUXO_COMPETITIVO: DefinicaoAto[] = [
   CONCLUIR_FASE_INTERNA_RITO_COMPLETO,
   PUBLICAR,
   CANCELAR_PUBLICACAO,
+  RETIFICAR_EDITAL,
   INICIAR_ACOLHIMENTO,
   ENCERRAR_ACOLHIMENTO,
   INICIAR_DISPUTA,
@@ -710,6 +965,7 @@ const FLUXO_DISPENSA: DefinicaoAto[] = [
   CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA,
   PUBLICAR,
   CANCELAR_PUBLICACAO,
+  RETIFICAR_EDITAL,
   INICIAR_ACOLHIMENTO,
   ENCERRAR_ACOLHIMENTO,
   JULGAR_DISPENSA,
@@ -724,6 +980,7 @@ const FLUXO_INEXIGIBILIDADE: DefinicaoAto[] = [
   CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA,
   PUBLICAR,
   CANCELAR_PUBLICACAO,
+  RETIFICAR_EDITAL,
   REGISTRAR_RESULTADO_EXTERNO,
   HOMOLOGAR,
   ...ATOS_SITUACAO,

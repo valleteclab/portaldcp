@@ -29,7 +29,8 @@ import { TransicoesService } from './transicoes/transicoes.service';
 import { AtoLicitacao, AtorTransicao, atorSistema } from './transicoes/transicoes.tipos';
 import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
 import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
-import { ROTULO_FASE } from './transicoes/fases';
+import { ehFaseInterna, ROTULO_FASE } from './transicoes/fases';
+import { camposDoEditalAlterados, mesmoValor } from '../publicacao/regras-publicacao';
 import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
 import { motivoInversaoInvalida } from '../habilitacao/regras-habilitacao';
 import { desempatarNoAto } from '../julgamento/desempate.sql';
@@ -49,6 +50,24 @@ function formatarDataLocal(date: Date | null | undefined): string | null {
   const min = String(date.getMinutes()).padStart(2, '0');
   const seg = String(date.getSeconds()).padStart(2, '0');
   return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}`;
+}
+
+/** Itens do corpo diferem dos gravados (número, descrição, quantidade, valor)? — E7a. */
+function itensAlterados(atuais: any[], corpo: any): boolean {
+  if (!Array.isArray(corpo)) return false;
+  if (corpo.length !== atuais.length) return true;
+  const porNumero = new Map(atuais.map((i: any) => [Number(i.numero_item), i]));
+  return corpo.some((c: any, idx: number) => {
+    const a = porNumero.get(Number(c.numero ?? c.numero_item ?? idx + 1));
+    if (!a) return true;
+    const desc = c.descricao ?? c.descricao_resumida;
+    const valor = c.valor_unitario ?? c.valor_unitario_estimado;
+    return (
+      (desc !== undefined && !mesmoValor(desc, a.descricao_resumida)) ||
+      (c.quantidade !== undefined && !mesmoValor(c.quantidade, a.quantidade)) ||
+      (valor !== undefined && !mesmoValor(valor, a.valor_unitario_estimado))
+    );
+  });
 }
 
 @Injectable()
@@ -480,6 +499,25 @@ export class LicitacoesService {
     // situação, fase anterior) só muda por ato do TransicoesService — o corpo
     // da edição não altera (sem ValidationPipe com whitelist, filtramos aqui).
     const { itens, lotes, ...dadosLicitacao } = updateData as any;
+
+    // EDITAL PUBLICADO (plano E7a — Lei 14.133/2021, art. 55 §1º): regra do
+    // edital (cronograma, critério, objeto, itens...) só muda pela RETIFICAÇÃO
+    // (nova versão do edital, reabertura de prazos quando afeta as propostas).
+    // Campos internos (equipe, observações, PNCP) continuam livres; o
+    // formulário inteiro reenviado sem mudança passa.
+    if (!ehFaseInterna(licitacao.fase)) {
+      const alterados = camposDoEditalAlterados(licitacao, dadosLicitacao);
+      if (itens !== undefined && itensAlterados(licitacao.itens ?? [], itens)) alterados.push('itens');
+      if (lotes !== undefined && Array.isArray(lotes) && lotes.length !== (licitacao.lotes ?? []).length) alterados.push('lotes');
+      if (alterados.length) {
+        throw new ConflictException({
+          message:
+            `Edital já publicado: ${alterados.join(', ')} só se altera(m) por RETIFICAÇÃO do edital (art. 55, §1º, Lei 14.133/2021) — ` +
+            `use "Retificar edital" (POST /publicacao/licitacao/:id/retificar).`,
+          campos: alterados,
+        });
+      }
+    }
     // `fase_interna_concluida` também: só o ato CONCLUIR_FASE_INTERNA (gate
     // documental, E1.7) ou o PUBLICAR a marcam.
     for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao']) {
@@ -775,6 +813,12 @@ export class LicitacoesService {
         );
       case AtoLicitacao.CANCELAR_PUBLICACAO:
         throw new BadRequestException('A publicação é cancelada pela exclusão da compra no PNCP.');
+      // Publicação (E7a): atos com arquivo/prazo próprios
+      case AtoLicitacao.RETIFICAR_EDITAL:
+        throw new BadRequestException('Retificar o edital exige a nova versão do arquivo — use POST /publicacao/licitacao/:id/retificar.');
+      case AtoLicitacao.INTENCAO_REVOGAR:
+      case AtoLicitacao.INTENCAO_ANULAR:
+        throw new BadRequestException('A intenção de revogar/anular abre o prazo de manifestação — use POST /publicacao/licitacao/:id/intencao-extincao.');
       // Resultado único (E6): adjudicar/homologar só pelo ResultadoService
       // (valor homologado calculado — nunca do corpo; autoridade do token).
       case AtoLicitacao.HOMOLOGAR: {
@@ -854,24 +898,8 @@ export class LicitacoesService {
       `O processo ${licitacao.numero_processo} foi divulgado — prazo de propostas aberto até ${new Date(dados.data_fim_acolhimento).toLocaleString('pt-BR')}.`,
     ).catch(() => undefined);
 
-    // D5 — efeito de transição: DISPENSA publica o aviso de contratação direta
-    // no PNCP automaticamente (compra + itens + aviso PDF). Fire-and-forget:
-    // falha NÃO bloqueia a publicação — fica registrada em pncp_sync e visível
-    // no cockpit, com botão de reenvio.
-    if (licitacao.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA) {
-      this.pncpService
-        .enviarCompraCompleta(id)
-        .then((r: any) =>
-          this.logger.log(
-            `[PNCP] Aviso da dispensa ${licitacao.numero_processo} enviado: ${r?.numeroControlePNCP || 'sem nº controle'}`,
-          ),
-        )
-        .catch((e: any) =>
-          this.logger.warn(
-            `[PNCP] Falha ao publicar aviso da dispensa ${licitacao.numero_processo}: ${e.message} (reenvie pelo cockpit)`,
-          ),
-        );
-    }
+    // PNCP (E7): o ato PUBLICAR enfileira compra + itens + edital/aviso para
+    // TODAS as modalidades (PncpFilaService.aoTransitar) — sem fire-and-forget.
 
     return salva;
   }
@@ -945,8 +973,9 @@ export class LicitacoesService {
 
     // Status das publicações no PNCP (D5): compra, itens, resultados…
     const pncp = await this.dataSource.query(
-      `SELECT tipo, status, numero_controle_pncp, erro_mensagem, tentativas, updated_at
-       FROM pncp_sync WHERE licitacao_id = $1 ORDER BY created_at DESC LIMIT 10`,
+      // Fila do PNCP (E7): uma linha por operação, com próximo envio e o erro do PNCP
+      `SELECT id, tipo, status, numero_controle_pncp, erro_mensagem, tentativas, max_tentativas, proximo_envio, enviado_em, updated_at
+       FROM pncp_sync WHERE licitacao_id = $1 AND tipo::text <> 'PCA' ORDER BY ordem, created_at LIMIT 30`,
       [id],
     );
 

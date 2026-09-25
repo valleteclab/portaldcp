@@ -8,7 +8,7 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
-import { PncpService } from '../pncp/pncp.service';
+import { PncpFilaService } from '../pncp/fila/pncp-fila.service';
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import * as crypto from 'crypto';
@@ -29,7 +29,7 @@ export class PortalAssinaturasService {
     private readonly dataSource: DataSource,
     private readonly notificacoesService: NotificacoesService,
     private readonly assinaturasService: AssinaturasService,
-    private readonly pncpService: PncpService,
+    private readonly pncpFila: PncpFilaService,
   ) {}
 
   /**
@@ -558,15 +558,10 @@ export class PortalAssinaturasService {
       );
     }
 
+    // PNCP (art. 94 — eficácia): SÓ agora, com o termo assinado — na fila
+    // (reenvio automático; contrato já enviado antes da assinatura é retificado).
     if (ctr.licitacao_id) {
-      this.pncpService
-        .enviarContratosHomologacao(ctr.licitacao_id)
-        .then((r: any) =>
-          this.logger.log(`[PNCP] Contratos pós-assinatura: ${r?.enviados}/${r?.total} publicado(s)`),
-        )
-        .catch((e: any) =>
-          this.logger.warn(`[PNCP] Contrato assinado não publicado: ${e.message} (reenvie pelo cockpit)`),
-        );
+      await this.pncpFila.aoAssinarContrato(ctr.id);
     }
   }
 

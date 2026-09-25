@@ -77,6 +77,14 @@ export class ParametroLicitacao {
   @Column({ type: 'int', default: 3 })
   prazo_contrarrazoes_dias_uteis: number;
 
+  /**
+   * Prazo de manifestação prévia dos licitantes antes de revogar/anular
+   * (Lei 14.133/2021, art. 71 §3º — plano E7a). A lei não fixa o número;
+   * padrão 3 dias úteis (mesma medida do art. 165).
+   */
+  @Column({ type: 'int', default: 3 })
+  prazo_manifestacao_extincao_dias_uteis: number;
+
   // === ME/EPP (LC 123/2006) ===
   /** Empate ficto no pregão: até 5% (art. 44, §1º) */
   @Column({ type: 'numeric', precision: 5, scale: 2, default: 5 })

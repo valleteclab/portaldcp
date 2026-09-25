@@ -1,7 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus, OnModuleInit } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, In } from 'typeorm';
-import { gerarAvisoDispensaPdf } from '../licitacoes/aviso-dispensa-pdf';
+import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { PncpSync, TipoSincronizacao, StatusSincronizacao } from './entities/pncp-sync.entity';
@@ -13,17 +12,13 @@ import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import {
-  CompraDto,
-  ItemCompraDto,
-  ResultadoItemDto,
-  AtaRegistroPrecoDto,
-  ContratoDto,
+  ItemCompraPncp,
   PncpResponseDto,
   MODALIDADE_SISTEMA_PARA_PNCP,
-  FASE_SISTEMA_PARA_PNCP,
-  MODO_DISPUTA,
-  SITUACAO_COMPRA
 } from './dto/pncp.dto';
+import { BeneficioParaPncp, ItemParaPncp, LicitacaoParaPncp, instrumentoConvocatorioId, montarCompra, montarItemCompra } from './mapeamento-pncp';
+import { ErroPncp, naturezaDaFalhaHttp } from './fila/regras-fila';
+import { STATUS_DE_ERRO, STATUS_PROCESSAVEIS } from './fila/regras-fila';
 
 @Injectable()
 export class PncpService implements OnModuleInit {
@@ -546,12 +541,21 @@ export class PncpService implements OnModuleInit {
     // Se válido, gerar preview dos dados que serão enviados
     let dadosEnvio = null;
     if (valido) {
-      const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao);
-      dadosEnvio = this.mapearLicitacaoParaCompra(licitacao, cnpj);
+      // Prévia: o envio real é montado pela fila na hora (PncpEnviosService),
+      // com o benefício ME/EPP de cada unidade.
+      try {
+        dadosEnvio = montarCompra(licitacao as LicitacaoParaPncp, licitacao.itens as ItemParaPncp[], {
+          codigoUnidade: licitacao.codigo_unidade_compradora || licitacao.orgao?.pncp_codigo_unidade,
+          linkSistemaOrigem: this.linkSistemaOrigem(licitacao.id),
+          beneficioDoItem: (i) => beneficioSimples(licitacao.itens[i], licitacao),
+        });
+      } catch (e: any) {
+        erros.push(e?.message ?? String(e));
+      }
     }
 
     return {
-      valido,
+      valido: erros.length === 0,
       erros,
       avisos,
       checklist,
@@ -560,310 +564,6 @@ export class PncpService implements OnModuleInit {
   }
 
   // ============ COMPRA/LICITAÇÃO ============
-
-  async enviarCompra(
-    licitacaoId: string,
-    ator: AtorTransicao = atorSistema('pncp'),
-  ): Promise<PncpResponseDto> {
-    // Primeiro validar
-    const validacao = await this.validarLicitacaoParaPNCP(licitacaoId);
-    if (!validacao.valido) {
-      // Registra a falha de VALIDAÇÃO em pncp_sync (senão o cockpit fica sem
-      // nenhum vestígio do porquê de a compra não ter sido enviada).
-      try {
-        const syncErro = this.pncpSyncRepository.create({
-          tipo: TipoSincronizacao.COMPRA,
-          licitacao_id: licitacaoId,
-          status: StatusSincronizacao.ERRO,
-          erro_mensagem: `Validação pré-envio: ${validacao.erros.join('; ')}`,
-        });
-        await this.pncpSyncRepository.save(syncErro);
-      } catch { /* registro é best-effort */ }
-      throw new HttpException(
-        `Licitação não pode ser enviada ao PNCP:\n${validacao.erros.join('\n')}`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-
-    const licitacao = await this.licitacaoRepository.findOne({
-      where: { id: licitacaoId },
-      relations: ['orgao', 'itens']
-    });
-
-    if (!licitacao) {
-      throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
-    }
-
-    if (!licitacao.data_abertura_sessao) {
-      throw new HttpException(
-        'A data de abertura da sessão é obrigatória para enviar ao PNCP.',
-        HttpStatus.BAD_REQUEST
-      );
-    }
-
-    // Publicar pelo PNCP NÃO contorna os gates do publicar-edital (E1): se a
-    // licitação ainda não foi divulgada, o ato PUBLICAR precisa ser possível
-    // AGORA (fase, situação, gate documental da fase interna, prazo mínimo da
-    // dispensa) — conferido ANTES de a compra existir no PNCP.
-    if (ehFaseInterna(licitacao.fase)) {
-      await this.transicoes.verificar(licitacaoId, AtoLicitacao.PUBLICAR, {
-        ator,
-        dados: this.dadosPublicacaoPncp(licitacao),
-      });
-    }
-
-    // Priorizar CNPJ do órgão da licitação, não da plataforma
-    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
-      this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado. Verifique se o órgão da licitação possui CNPJ cadastrado.', HttpStatus.BAD_REQUEST);
-    }
-    
-    this.logger.log(`Enviando compra para órgão CNPJ: ${cnpj}`);
-
-    // Verificar se já foi enviada
-    const syncExistente = await this.pncpSyncRepository.findOne({
-      where: { 
-        licitacao_id: licitacaoId, 
-        tipo: TipoSincronizacao.COMPRA,
-        status: In([
-          StatusSincronizacao.ENVIADO,
-          StatusSincronizacao.ATUALIZADO,
-        ])
-      }
-    });
-
-    if (syncExistente?.numero_controle_pncp) {
-      // Atualizar ao invés de criar
-      return this.atualizarCompra(licitacaoId, syncExistente);
-    }
-
-    // Mapear dados da licitação para o formato PNCP
-    const compraDto = this.mapearLicitacaoParaCompra(licitacao, cnpj);
-    
-    // Log detalhado do payload para debug
-    this.logger.log(`[enviarCompra] Payload completo: ${JSON.stringify(compraDto, null, 2)}`);
-
-    // Criar registro de sincronização
-    const sync = this.pncpSyncRepository.create({
-      tipo: TipoSincronizacao.COMPRA,
-      licitacao_id: licitacaoId,
-      status: StatusSincronizacao.ENVIANDO,
-      payload_enviado: compraDto
-    });
-    await this.pncpSyncRepository.save(sync);
-
-    try {
-      // Obter token válido
-      await this.getValidToken();
-      
-      // PNCP requer multipart/form-data para compras
-      const FormData = require('form-data');
-      const formData = new FormData();
-      
-      // Adicionar dados da compra como JSON
-      const compraBuffer = Buffer.from(JSON.stringify(compraDto), 'utf-8');
-      formData.append('compra', compraBuffer, {
-        filename: 'compra.json',
-        contentType: 'application/json'
-      });
-      
-      // Documento obrigatório do PNCP:
-      // - DISPENSA/INEXIGIBILIDADE: gera o AVISO DE CONTRATAÇÃO DIRETA real
-      //   (PDF com identificação, objeto, itens e prazos) a partir dos dados.
-      // - Demais modalidades: mantém o PDF mínimo (até o edital real ser anexado
-      //   pela rota de documentos).
-      const ehContratacaoDireta = (licitacao.modalidade || '')
-        .toUpperCase()
-        .match(/DISPENSA|INEXIGIBILIDADE/);
-      let pdfContent: Buffer;
-      let nomeArquivoDoc = 'edital.pdf';
-      if (ehContratacaoDireta) {
-        try {
-          pdfContent = gerarAvisoDispensaPdf({
-            orgao_nome: licitacao.orgao?.nome || 'Órgão',
-            orgao_cnpj: this.obterCnpjPncpDoOrgao(licitacao.orgao),
-            licitacao,
-            itens: licitacao.itens || [],
-            url_sistema: this.configService.get<string>('FRONTEND_URL') || undefined,
-          });
-          nomeArquivoDoc = 'aviso-contratacao-direta.pdf';
-          this.logger.log(`[enviarCompra] Aviso de contratação direta gerado (${pdfContent.length} bytes)`);
-        } catch (e: any) {
-          this.logger.warn(`[enviarCompra] Falha ao gerar aviso real (${e.message}) — usando PDF mínimo`);
-          pdfContent = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
-        }
-      } else {
-        pdfContent = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
-      }
-      formData.append('documento', pdfContent, {
-        filename: nomeArquivoDoc,
-        contentType: 'application/pdf'
-      });
-
-      // Determinar tipo de documento baseado na modalidade
-      // TABELA "Tipo de Documento" do PNCP (diferente de "Instrumento Convocatório"):
-      // 1 = Aviso de Contratação Direta
-      // 2 = Edital ← Para pregão, concorrência, etc.
-      // 3 = Minuta do Contrato
-      // 4 = Termo de Referência
-      // etc.
-      let tipoDocumentoId = '2'; // Default: Edital (código 2 na tabela Tipo de Documento)
-      let tituloDocumento = 'Edital de Licitacao';
-      
-      const modalidade = licitacao.modalidade?.toUpperCase() || '';
-      if (modalidade.includes('DISPENSA') || modalidade.includes('INEXIGIBILIDADE')) {
-        tipoDocumentoId = '1'; // Aviso de Contratação Direta (código 1 na tabela Tipo de Documento)
-        tituloDocumento = 'Aviso de Contratacao Direta';
-      }
-      
-      this.logger.log(`Tipo de documento: ${tipoDocumentoId} (${tituloDocumento}) - Modalidade: ${modalidade}`);
-      this.logger.log(`Enviando compra ao PNCP: ${JSON.stringify(compraDto)}`);
-
-      const response = await axios.post(
-        `${this.configService.get<string>('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1'}/orgaos/${cnpj.replace(/\D/g, '')}/compras`,
-        formData,
-        {
-          headers: {
-            ...formData.getHeaders(),
-            'Authorization': `Bearer ${this.token}`,
-            'Titulo-Documento': tituloDocumento,
-            'Tipo-Documento-Id': tipoDocumentoId,
-          },
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
-        }
-      );
-
-      this.logger.log(`Resposta PNCP data: ${JSON.stringify(response.data)}`);
-      this.logger.log(`Resposta PNCP headers: ${JSON.stringify(response.headers)}`);
-      
-      // Extrair dados da resposta (PNCP pode retornar em diferentes formatos)
-      // Tentar do body primeiro, depois do header Location
-      let numeroControlePNCP = response.data?.numeroControlePNCP || response.data?.numeroControle;
-      
-      // Se não veio no body, tentar extrair do header Location
-      // Formato típico: /orgaos/CNPJ/compras/ANO/SEQUENCIAL
-      if (!numeroControlePNCP && response.headers?.location) {
-        const locationMatch = response.headers.location.match(/\/compras\/(\d+)\/(\d+)/);
-        if (locationMatch) {
-          const [, anoFromLocation, seqFromLocation] = locationMatch;
-          // Construir número de controle
-          const cnpjLimpo = cnpj.replace(/\D/g, '');
-          numeroControlePNCP = `${cnpjLimpo}-1-${seqFromLocation.padStart(6, '0')}/${anoFromLocation}`;
-          this.logger.log(`Número de controle extraído do header Location: ${numeroControlePNCP}`);
-        }
-      }
-      
-      // Extrair ano e sequencial do número de controle se não vier separado
-      // Formato: "81448637000147-1-000003/2025" -> sequencial=3, ano=2025
-      let anoCompra = response.data.ano || response.data.anoCompra;
-      let sequencialCompra = response.data.sequencial || response.data.sequencialCompra;
-      
-      if ((!anoCompra || !sequencialCompra) && numeroControlePNCP) {
-        // Formato completo: CNPJ-UNIDADE-SEQUENCIAL/ANO
-        const matchCompleto = numeroControlePNCP.match(/\d+-\d+-(\d+)\/(\d+)$/);
-        if (matchCompleto) {
-          sequencialCompra = parseInt(matchCompleto[1]); // Remove zeros à esquerda automaticamente
-          anoCompra = parseInt(matchCompleto[2]);
-        }
-      }
-      
-      sync.status = StatusSincronizacao.ENVIADO;
-      sync.resposta_pncp = response.data;
-      sync.numero_controle_pncp = numeroControlePNCP;
-      sync.ano_compra = anoCompra;
-      sync.sequencial_compra = sequencialCompra;
-      await this.pncpSyncRepository.save(sync);
-
-      // Gerar link do PNCP
-      const cnpjLimpo = cnpj.replace(/\D/g, '');
-      const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpjLimpo}/${anoCompra}/${sequencialCompra}`;
-
-      // Grava os dados do PNCP e, se a licitação ainda não estava divulgada,
-      // pratica o ato PUBLICAR (art. 17, II / art. 54). Licitação já adiante
-      // (acolhimento, disputa...) NÃO volta para PUBLICADO.
-      await this.registrarPublicacaoPncp(
-        licitacaoId,
-        {
-          numero_controle_pncp: numeroControlePNCP, // Usar a variável já extraída (pode vir do body ou header)
-          ano_compra_pncp: anoCompra,
-          sequencial_compra_pncp: sequencialCompra,
-          link_pncp: linkPncp,
-          enviado_pncp: true,
-        },
-        ator,
-      );
-
-      this.logger.log(`Compra enviada ao PNCP: ${numeroControlePNCP} - Link: ${linkPncp}`);
-
-      return {
-        sucesso: true,
-        numeroControlePNCP: numeroControlePNCP, // Usar a variável já extraída
-        ano: anoCompra,
-        sequencial: sequencialCompra,
-        link: linkPncp
-      };
-    } catch (error) {
-      const mensagemErro = this.extrairMensagemErro(error);
-      
-      // Verificar se o erro indica que a compra já existe
-      // Formato: "Id contratação PNCP: 81448637000147-1-000002/2025"
-      const matchJaExiste = mensagemErro.match(/Id contrata[çc][aã]o PNCP:\s*(\d+)-(\d+)-(\d+)\/(\d+)/i);
-      
-      if (matchJaExiste) {
-        // Extrair dados do ID existente
-        const [, cnpjExistente, unidadeExistente, sequencialStr, anoStr] = matchJaExiste;
-        const anoExistente = parseInt(anoStr);
-        const sequencialExistente = parseInt(sequencialStr);
-        const numeroControlePNCP = `${cnpjExistente}-${unidadeExistente}-${sequencialStr.padStart(6, '0')}/${anoStr}`;
-        
-        // Gerar link
-        const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpjExistente}/${anoExistente}/${sequencialExistente}`;
-        
-        // Vincular automaticamente (PUBLICAR só se ainda não divulgada)
-        await this.registrarPublicacaoPncp(
-          licitacaoId,
-          {
-            numero_controle_pncp: numeroControlePNCP,
-            ano_compra_pncp: anoExistente,
-            sequencial_compra_pncp: sequencialExistente,
-            link_pncp: linkPncp,
-            enviado_pncp: true,
-          },
-          ator,
-        );
-
-        sync.status = StatusSincronizacao.ENVIADO;
-        sync.numero_controle_pncp = numeroControlePNCP;
-        sync.ano_compra = anoExistente;
-        sync.sequencial_compra = sequencialExistente;
-        await this.pncpSyncRepository.save(sync);
-        
-        this.logger.log(`Compra já existia no PNCP, vinculada: ${numeroControlePNCP}`);
-        
-        return {
-          sucesso: true,
-          mensagem: 'Compra já existia no PNCP e foi vinculada automaticamente',
-          numeroControlePNCP,
-          ano: anoExistente,
-          sequencial: sequencialExistente,
-          link: linkPncp
-        };
-      }
-      
-      sync.status = StatusSincronizacao.ERRO;
-      sync.erro_mensagem = mensagemErro;
-      sync.tentativas += 1;
-      sync.ultima_tentativa = new Date();
-      await this.pncpSyncRepository.save(sync);
-
-      throw new HttpException(
-        `Erro ao enviar compra ao PNCP: ${mensagemErro}`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-  }
 
   // Vincular manualmente uma licitação já enviada ao PNCP
   async vincularLicitacaoExistente(
@@ -920,7 +620,7 @@ export class PncpService implements OnModuleInit {
   }
 
   /** Dados do ato PUBLICAR quando a divulgação vem do PNCP (cronograma já gravado). */
-  private dadosPublicacaoPncp(licitacao: Licitacao): Record<string, any> {
+  dadosPublicacaoPncp(licitacao: Licitacao): Record<string, any> {
     const dados: Record<string, any> = { data_publicacao_edital: new Date().toISOString() };
     for (const campo of ['data_limite_impugnacao', 'data_inicio_acolhimento', 'data_fim_acolhimento', 'data_abertura_sessao'] as const) {
       if (licitacao[campo]) dados[campo] = new Date(licitacao[campo] as any).toISOString();
@@ -933,7 +633,7 @@ export class PncpService implements OnModuleInit {
    * interna, pratica o ato PUBLICAR (idempotente: `ignorarSeJaAplicado`).
    * Nunca move para trás uma licitação já divulgada/adiante.
    */
-  private async registrarPublicacaoPncp(
+  async registrarPublicacaoPncp(
     licitacaoId: string,
     campos: Partial<Licitacao>,
     ator: AtorTransicao,
@@ -957,657 +657,6 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async atualizarCompra(licitacaoId: string, sync: PncpSync): Promise<PncpResponseDto> {
-    const licitacao = await this.licitacaoRepository.findOne({
-      where: { id: licitacaoId },
-      relations: ['orgao', 'itens']
-    });
-
-    if (!licitacao) {
-      throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
-    }
-
-    // Priorizar CNPJ do órgão da licitação
-    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
-      this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
-    const cnpjLimpo = cnpj.replace(/\D/g, '');
-    const compraDto: any = {
-      ...this.mapearLicitacaoParaCompra(licitacao, cnpj),
-      situacaoCompraId: 1,
-      justificativa: 'Retificação de dados pela plataforma PortalDCP',
-    };
-    
-    this.logger.log(`[atualizarCompra] Atualizando compra ${sync.ano_compra}/${sync.sequencial_compra}`);
-    this.logger.log(`[atualizarCompra] sigilo_orcamento=${licitacao.sigilo_orcamento}`);
-
-    try {
-      // 1. Atualizar dados da compra
-      const response = await this.axiosInstance.put(
-        `/orgaos/${cnpjLimpo}/compras/${sync.ano_compra}/${sync.sequencial_compra}`,
-        compraDto
-      );
-
-      // 2. Retificar cada item individualmente para atualizar orcamentoSigiloso
-      // O PUT da compra não atualiza os itens, precisa usar PATCH em cada item
-      if (licitacao.itens && licitacao.itens.length > 0) {
-        this.logger.log(`[atualizarCompra] Retificando ${licitacao.itens.length} itens...`);
-        
-        // Garantir token válido antes de retificar itens
-        await this.getValidToken();
-        
-        for (const item of licitacao.itens) {
-          const numeroItem = item.numero_item || (licitacao.itens.indexOf(item) + 1);
-          const itemDto = this.mapearItemParaPNCP(item, numeroItem, licitacao);
-          
-          this.logger.log(`[atualizarCompra] Retificando item ${numeroItem}: orcamentoSigiloso=${itemDto.orcamentoSigiloso}`);
-          
-          try {
-            this.logger.log(`[atualizarCompra] Enviando PATCH para item ${numeroItem}: ${JSON.stringify(itemDto)}`);
-            const itemResponse = await this.axiosInstance.patch(
-              `/orgaos/${cnpjLimpo}/compras/${sync.ano_compra}/${sync.sequencial_compra}/itens/${numeroItem}`,
-              itemDto
-            );
-            this.logger.log(`[atualizarCompra] Item ${numeroItem} retificado com sucesso. Resposta: ${JSON.stringify(itemResponse.data)}`);
-          } catch (itemError: any) {
-            const errorMsg = this.extrairMensagemErro(itemError);
-            const errorData = itemError.response?.data ? JSON.stringify(itemError.response.data) : 'sem dados';
-            this.logger.error(`[atualizarCompra] Erro ao retificar item ${numeroItem}: ${errorMsg}. Dados: ${errorData}`);
-            // Continua com os outros itens mesmo se um falhar
-          }
-        }
-      }
-
-      sync.status = StatusSincronizacao.ATUALIZADO;
-      sync.resposta_pncp = response.data;
-      sync.payload_enviado = compraDto;
-      sync.erro_mensagem = null as any;
-      await this.pncpSyncRepository.save(sync);
-
-      return {
-        sucesso: true,
-        numeroControlePNCP: sync.numero_controle_pncp,
-        mensagem: 'Compra e itens atualizados com sucesso'
-      };
-    } catch (error) {
-      sync.erro_mensagem = this.extrairMensagemErro(error);
-      sync.tentativas += 1;
-      sync.ultima_tentativa = new Date();
-      await this.pncpSyncRepository.save(sync);
-
-      throw new HttpException(
-        `Erro ao atualizar compra no PNCP: ${sync.erro_mensagem}`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-  }
-
-  // ============ ITENS ============
-
-  async enviarItens(licitacaoId: string): Promise<PncpResponseDto> {
-    const sync = await this.pncpSyncRepository.findOne({
-      where: { 
-        licitacao_id: licitacaoId, 
-        tipo: TipoSincronizacao.COMPRA,
-        status: In([
-          StatusSincronizacao.ENVIADO,
-          StatusSincronizacao.ATUALIZADO,
-        ])
-      }
-    });
-
-    if (!sync?.numero_controle_pncp) {
-      throw new HttpException('Compra não foi enviada ao PNCP ainda', HttpStatus.BAD_REQUEST);
-    }
-
-    const licitacao = await this.licitacaoRepository.findOne({
-      where: { id: licitacaoId },
-      relations: ['itens', 'orgao']
-    });
-
-    if (!licitacao?.itens?.length) {
-      throw new HttpException('Licitação não possui itens', HttpStatus.BAD_REQUEST);
-    }
-
-    // Priorizar CNPJ do órgão da licitação
-    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
-      this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    const itensDto = licitacao.itens.map((item, index) => this.mapearItemParaPNCP(item, index + 1, licitacao));
-
-    try {
-      const response = await this.axiosInstance.post(
-        `/orgaos/${cnpj}/compras/${sync.ano_compra}/${sync.sequencial_compra}/itens`,
-        itensDto
-      );
-
-      // Registrar sincronização dos itens
-      const syncItens = this.pncpSyncRepository.create({
-        tipo: TipoSincronizacao.ITEM,
-        licitacao_id: licitacaoId,
-        status: StatusSincronizacao.ENVIADO,
-        payload_enviado: itensDto,
-        resposta_pncp: response.data,
-        numero_controle_pncp: sync.numero_controle_pncp
-      });
-      await this.pncpSyncRepository.save(syncItens);
-
-      return {
-        sucesso: true,
-        mensagem: `${itensDto.length} itens enviados com sucesso`
-      };
-    } catch (error) {
-      throw new HttpException(
-        `Erro ao enviar itens ao PNCP: ${this.extrairMensagemErro(error)}`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-  }
-
-  // ============ DOCUMENTOS ============
-
-  async enviarDocumento(
-    licitacaoId: string, 
-    tipoDocumentoId: number, 
-    arquivo: Buffer, 
-    nomeArquivo: string
-  ): Promise<PncpResponseDto> {
-    const sync = await this.pncpSyncRepository.findOne({
-      where: { 
-        licitacao_id: licitacaoId, 
-        tipo: TipoSincronizacao.COMPRA,
-        status: In([
-          StatusSincronizacao.ENVIADO,
-          StatusSincronizacao.ATUALIZADO,
-        ])
-      }
-    });
-
-    if (!sync?.numero_controle_pncp) {
-      throw new HttpException('Compra não foi enviada ao PNCP ainda', HttpStatus.BAD_REQUEST);
-    }
-
-    // CNPJ do ÓRGÃO DA LICITAÇÃO (o env é só fallback — usar o CNPJ errado
-    // gera "Usuário não está habilitado a publicar para o órgão X")
-    const licDoc = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
-    const cnpj = this.obterCnpjPncpDoOrgao(licDoc?.orgao) ||
-      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
-
-    const FormData = require('form-data');
-    const formData = new FormData();
-    formData.append('tipoDocumentoId', tipoDocumentoId.toString());
-    formData.append('arquivo', arquivo, { filename: nomeArquivo });
-
-    try {
-      const response = await this.axiosInstance.post(
-        `/orgaos/${cnpj}/compras/${sync.ano_compra}/${sync.sequencial_compra}/arquivos`,
-        formData,
-        {
-          headers: {
-            ...formData.getHeaders(),
-            'Titulo-Documento': nomeArquivo,
-            'Tipo-Documento-Id': String(tipoDocumentoId),
-          }
-        }
-      );
-
-      // Registrar sincronização do documento
-      const syncDoc = this.pncpSyncRepository.create({
-        tipo: TipoSincronizacao.DOCUMENTO,
-        licitacao_id: licitacaoId,
-        status: StatusSincronizacao.ENVIADO,
-        payload_enviado: { tipoDocumentoId, nomeArquivo },
-        resposta_pncp: response.data,
-        numero_controle_pncp: sync.numero_controle_pncp
-      });
-      await this.pncpSyncRepository.save(syncDoc);
-
-      return {
-        sucesso: true,
-        mensagem: 'Documento enviado com sucesso'
-      };
-    } catch (error) {
-      throw new HttpException(
-        `Erro ao enviar documento ao PNCP: ${this.extrairMensagemErro(error)}`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-  }
-
-  // ============ RESULTADO ============
-
-  /**
-   * D5 — Efeito de transição: envia COMPRA + ITENS numa chamada só (usado
-   * automaticamente ao publicar a dispensa e pelo botão de reenvio do cockpit).
-   */
-  async enviarCompraCompleta(licitacaoId: string): Promise<any> {
-    const resultadoCompra = await this.enviarCompra(licitacaoId);
-    let numeroControlePNCP = resultadoCompra.numeroControlePNCP;
-    const ano = resultadoCompra.ano;
-    const sequencial = resultadoCompra.sequencial;
-
-    if (!numeroControlePNCP && ano && sequencial) {
-      try {
-        const consulta = await this.consultarCompra(String(ano), String(sequencial));
-        if (consulta?.numeroControlePNCP) {
-          numeroControlePNCP = consulta.numeroControlePNCP;
-          await this.atualizarNumeroControleLicitacao(
-            licitacaoId,
-            consulta.numeroControlePNCP,
-            ano as number,
-            sequencial as number,
-          );
-        }
-      } catch (e: any) {
-        this.logger.warn(`[enviarCompraCompleta] consulta pós-envio falhou: ${e.message}`);
-      }
-    }
-
-    let itens: any = null;
-    if (resultadoCompra.sucesso) {
-      try {
-        itens = await this.enviarItens(licitacaoId);
-      } catch (e: any) {
-        // "Número do item já utilizado" = os itens JÁ entraram embutidos no
-        // JSON da compra (inclusão única) — é sucesso, não erro.
-        if (String(e.message || '').includes('já utilizado')) {
-          itens = { sucesso: true, observacao: 'Itens incluídos junto com a compra' };
-        } else {
-          this.logger.warn(`[enviarCompraCompleta] envio de itens falhou: ${e.message}`);
-          itens = { sucesso: false, erro: e.message };
-        }
-      }
-    }
-    return { ...resultadoCompra, numeroControlePNCP, itens };
-  }
-
-  /**
-   * D5 — Efeito de transição: na HOMOLOGAÇÃO, envia o resultado por item
-   * (vencedor/valores homologados) ao PNCP. Exige a compra já enviada.
-   */
-  async enviarResultadoHomologacao(licitacaoId: string): Promise<any> {
-    const licitacao = await this.licitacaoRepository.findOne({
-      where: { id: licitacaoId },
-      relations: ['itens'],
-    });
-    if (!licitacao) throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
-
-    const vencedores = (licitacao.itens || []).filter(
-      (i: any) => i.fornecedor_vencedor_id && i.valor_unitario_homologado != null,
-    );
-    if (vencedores.length === 0) {
-      throw new HttpException('Nenhum item com vencedor/valor homologado', HttpStatus.BAD_REQUEST);
-    }
-
-    const hoje = new Date().toISOString().split('T')[0];
-    const resultados: Array<{ item: number; sucesso: boolean; erro?: string }> = [];
-
-    for (const item of vencedores as any[]) {
-      try {
-        const [forn] = await this.dataSource.query(
-          `SELECT cpf_cnpj, razao_social, porte FROM fornecedores WHERE id = $1`,
-          [item.fornecedor_vencedor_id],
-        );
-        if (!forn) throw new Error('Fornecedor vencedor não encontrado');
-        const ni = String(forn.cpf_cnpj || '').replace(/\D/g, '');
-        const porteRaw = String(forn.porte || '').toUpperCase();
-        const porte: 'ME' | 'EPP' | 'DEMAIS' = porteRaw.includes('EPP')
-          ? 'EPP'
-          : porteRaw === 'ME' || porteRaw.includes('MICRO')
-            ? 'ME'
-            : 'DEMAIS';
-
-        // Nomes de campo CONFORME O MANUAL DO PNCP (6.6 — resultado do item):
-        // o PNCP exige os identificadores com sufixo Id (tipoPessoaId,
-        // porteFornecedorId numérico) — os aliases antigos são mantidos por
-        // compatibilidade e ignorados pelo PNCP.
-        const dto: any = {
-          dataResultado: hoje,
-          niFornecedor: ni,
-          nomeRazaoSocialFornecedor: forn.razao_social,
-          quantidadeHomologada: Number(item.quantidade || 0),
-          valorUnitarioHomologado: Number(item.valor_unitario_homologado),
-          valorTotalHomologado: Number(
-            item.valor_total_homologado ??
-              Number(item.valor_unitario_homologado) * Number(item.quantidade || 0),
-          ),
-          // Menor preço: sem desconto — campo obrigatório (0)
-          percentualDesconto: 0,
-          // Indicadores obrigatórios do resultado (o PNCP exige explicitamente)
-          aplicacaoMargemPreferencia: false,
-          aplicacaoBeneficioMeEpp: false,
-          aplicacaoCriterioDesempate: false,
-          indicadorSubcontratacao: false,
-          tipoPessoaId: ni.length === 11 ? 'PF' : 'PJ',
-          porteFornecedorId: porte === 'ME' ? 1 : porte === 'EPP' ? 2 : 3,
-          codigoPais: 'BRA',
-          situacaoCompraItemResultadoId: 1, // 1 = Informado
-          ordemClassificacao: 1,
-          // aliases legados (ignorados pelo PNCP)
-          tipoPessoa: ni.length === 11 ? 'PF' : 'PJ',
-          porteFornecedor: porte,
-        };
-        const r = await this.enviarResultado(licitacaoId, (item as any).numero_item, dto);
-        resultados.push({ item: (item as any).numero_item, sucesso: !!r?.sucesso });
-      } catch (e: any) {
-        this.logger.warn(
-          `[enviarResultadoHomologacao] item ${(item as any).numero_item}: ${e.message}`,
-        );
-        resultados.push({ item: (item as any).numero_item, sucesso: false, erro: e.message?.slice(0, 200) });
-      }
-    }
-
-    const okCount = resultados.filter((r) => r.sucesso).length;
-    this.logger.log(
-      `[enviarResultadoHomologacao] licitação ${licitacaoId}: ${okCount}/${resultados.length} resultado(s) enviados`,
-    );
-    return { sucesso: okCount > 0, total: resultados.length, enviados: okCount, resultados };
-  }
-
-  /**
-   * D5 — CONTRATOS NO PNCP (art. 94 da Lei 14.133): a divulgação no PNCP é
-   * condição de EFICÁCIA do contrato (10 dias úteis na contratação direta,
-   * 20 na licitação). Envia todos os contratos da licitação vinculados à
-   * compra já publicada; contratos já enviados são pulados (sem duplicar).
-   * Chamado automaticamente na homologação (fire-and-forget) e pelo cockpit.
-   */
-  async enviarContratosHomologacao(licitacaoId: string): Promise<any> {
-    const syncCompra = await this.pncpSyncRepository.findOne({
-      where: {
-        licitacao_id: licitacaoId,
-        tipo: TipoSincronizacao.COMPRA,
-        status: StatusSincronizacao.ENVIADO,
-      },
-    });
-    if (!syncCompra?.numero_controle_pncp) {
-      throw new HttpException('Compra não foi enviada ao PNCP ainda', HttpStatus.BAD_REQUEST);
-    }
-
-    const lic = await this.licitacaoRepository.findOne({
-      where: { id: licitacaoId },
-      relations: ['orgao'],
-    });
-    if (!lic) throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
-    const cnpj = this.obterCnpjPncpDoOrgao(lic.orgao) ||
-      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
-
-    const contratos = await this.dataSource.query(
-      `SELECT id, numero_contrato, objeto, valor_inicial, valor_global,
-              data_assinatura, data_vigencia_inicio, data_vigencia_fim,
-              fornecedor_cnpj, fornecedor_razao_social, arquivo_contrato
-       FROM contratos WHERE licitacao_id = $1 ORDER BY numero_contrato ASC`,
-      [licitacaoId],
-    );
-    if (!contratos.length) {
-      throw new HttpException('Nenhum contrato gerado para esta licitação', HttpStatus.BAD_REQUEST);
-    }
-
-    // Categoria do processo conforme a natureza do objeto (tabela do PNCP)
-    const tc = String(lic.tipo_contratacao || '').toUpperCase();
-    const categoriaProcessoId = tc.includes('OBRA')
-      ? 7 // Obras
-      : tc.includes('SERVICO') || tc.includes('SERVIÇO')
-        ? 9 // Serviços
-        : 2; // Compras
-
-    const dataStr = (d: any) =>
-      d ? new Date(d).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
-
-    const syncAta = lic.srp
-      ? await this.pncpSyncRepository.findOne({
-          where: {
-            licitacao_id: licitacaoId,
-            tipo: TipoSincronizacao.ATA,
-            status: StatusSincronizacao.ENVIADO,
-          },
-          order: { created_at: 'DESC' },
-        })
-      : null;
-    const sequencialAta = syncAta?.resposta_pncp?.sequencialAta;
-    if (lic.srp && !sequencialAta) {
-      throw new HttpException(
-        'Contratação SRP ainda não possui ata publicada no PNCP',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    const resultados: Array<{ contrato: string; sucesso: boolean; numeroControlePNCP?: string; erro?: string }> = [];
-
-    for (const c of contratos) {
-      // Já enviado? Não duplica no PNCP.
-      const jaEnviado = await this.pncpSyncRepository.findOne({
-        where: {
-          licitacao_id: licitacaoId,
-          tipo: TipoSincronizacao.CONTRATO,
-          entidade_id: c.id,
-          status: StatusSincronizacao.ENVIADO,
-        },
-      });
-      if (jaEnviado) {
-        if (/^\d{4}\/\d+$/.test(jaEnviado.numero_controle_pncp || '')) {
-          const [ano, sequencial] = jaEnviado.numero_controle_pncp.split('/');
-          jaEnviado.numero_controle_pncp =
-            `${cnpj}-2-${String(sequencial).padStart(6, '0')}/${ano}`;
-          await this.pncpSyncRepository.save(jaEnviado);
-        }
-        resultados.push({ contrato: c.numero_contrato, sucesso: true, numeroControlePNCP: jaEnviado.numero_controle_pncp || undefined });
-        continue;
-      }
-
-      const ni = String(c.fornecedor_cnpj || '').replace(/\D/g, '');
-      // "040/2026" → ano 2026; fallback: ano da assinatura
-      const anoMatch = String(c.numero_contrato || '').match(/\/(\d{4})$/);
-      const anoContrato = anoMatch ? Number(anoMatch[1]) : new Date(c.data_assinatura || Date.now()).getFullYear();
-      const valorGlobal = Number(c.valor_global ?? c.valor_inicial) || 0;
-
-      const dto: any = {
-        // Vínculo com a compra publicada (o PNCP exige a referência explícita)
-        numeroControlePNCPCompra: syncCompra.numero_controle_pncp,
-        cnpjCompra: cnpj,
-        anoCompra: Number(syncCompra.ano_compra),
-        sequencialCompra: Number(syncCompra.sequencial_compra),
-        processo: lic.numero_processo,
-        // Indicadores obrigatórios do contrato (false = não se aplica)
-        frutoAdesao: false,
-        ...(sequencialAta ? { sequencialAta: Number(sequencialAta) } : {}),
-        temRemanejamento: false,
-        anoContrato,
-        numeroContratoEmpenho: c.numero_contrato,
-        tipoContratoId: 1, // 1 = Contrato (termo inicial)
-        categoriaProcessoId,
-        receita: false,
-        // MESMA unidade da compra publicada (o PNCP valida contra o cadastro
-        // do órgão) — fonte: payload da compra enviada; fallback: licitação/órgão
-        codigoUnidade:
-          (syncCompra.payload_enviado as any)?.codigoUnidadeCompradora ||
-          lic.codigo_unidade_compradora ||
-          (lic as any).orgao?.pncp_codigo_unidade ||
-          '1',
-        niFornecedor: ni,
-        tipoPessoaFornecedor: ni.length === 11 ? 'PF' : 'PJ',
-        nomeRazaoSocialFornecedor: c.fornecedor_razao_social,
-        objetoContrato: c.objeto || lic.objeto,
-        valorInicial: Number(c.valor_inicial) || valorGlobal,
-        numeroParcelas: 1,
-        valorParcela: valorGlobal,
-        valorGlobal,
-        dataAssinatura: dataStr(c.data_assinatura),
-        dataVigenciaInicio: dataStr(c.data_vigencia_inicio),
-        dataVigenciaFim: dataStr(c.data_vigencia_fim),
-      };
-
-      try {
-        await this.getValidToken();
-        // O PNCP exige multipart: parte "contrato" (JSON) + "documento" (PDF
-        // do termo). Usa o termo gerado pelo sistema (arquivo_contrato —
-        // assinado, quando o fluxo de assinatura já concluiu); fallback: PDF mínimo.
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const FormData = require('form-data');
-        const formData = new FormData();
-        formData.append('contrato', Buffer.from(JSON.stringify(dto), 'utf-8'), {
-          filename: 'contrato.json',
-          contentType: 'application/json',
-        });
-        let pdfTermo: Buffer | null = null;
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const fs = require('fs');
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const pathMod = require('path');
-          const uploadDir = process.env.UPLOAD_DIR || pathMod.join(process.cwd(), 'uploads');
-          if (c.arquivo_contrato) {
-            const p = pathMod.join(uploadDir, c.arquivo_contrato);
-            if (fs.existsSync(p)) pdfTermo = fs.readFileSync(p);
-          }
-        } catch { /* usa fallback */ }
-        if (!pdfTermo) {
-          pdfTermo = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
-        }
-        formData.append('documento', pdfTermo, {
-          filename: `termo-contrato-${String(c.numero_contrato || '').replace(/[^\w-]/g, '_')}.pdf`,
-          contentType: 'application/pdf',
-        });
-
-        const response = await axios.post(
-          `${this.configService.get<string>('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1'}/orgaos/${cnpj}/contratos`,
-          formData,
-          {
-            headers: {
-              ...formData.getHeaders(),
-              Authorization: `Bearer ${this.token}`,
-              'Titulo-Documento': `Termo de Contrato ${c.numero_contrato}`,
-              // Tabela "Tipo de Documento" (contrato): 12 = Contrato
-              'Tipo-Documento-Id': '12',
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-          },
-        );
-        const locationContrato = response.headers?.location || '';
-        const locationMatch = locationContrato.match(/\/contratos\/(\d+)\/(\d+)\/?$/);
-        const numeroControle =
-          response.data?.numeroControlePNCP ||
-          (locationMatch
-            ? `${cnpj}-2-${String(locationMatch[2]).padStart(6, '0')}/${locationMatch[1]}`
-            : null);
-        await this.pncpSyncRepository.save(
-          this.pncpSyncRepository.create({
-            tipo: TipoSincronizacao.CONTRATO,
-            licitacao_id: licitacaoId,
-            entidade_id: c.id,
-            status: StatusSincronizacao.ENVIADO,
-            payload_enviado: dto,
-            resposta_pncp: response.data,
-            numero_controle_pncp: numeroControle,
-          }),
-        );
-        this.logger.log(`[PNCP] Contrato ${c.numero_contrato} publicado (${numeroControle || 'sem nº controle'})`);
-        resultados.push({ contrato: c.numero_contrato, sucesso: true, numeroControlePNCP: numeroControle || undefined });
-      } catch (e: any) {
-        const erro = this.extrairMensagemErro(e);
-        await this.pncpSyncRepository.save(
-          this.pncpSyncRepository.create({
-            tipo: TipoSincronizacao.CONTRATO,
-            licitacao_id: licitacaoId,
-            entidade_id: c.id,
-            status: StatusSincronizacao.ERRO,
-            payload_enviado: dto,
-            erro_mensagem: String(erro).slice(0, 500),
-          }),
-        );
-        this.logger.warn(`[PNCP] Contrato ${c.numero_contrato} não publicado: ${erro}`);
-        resultados.push({ contrato: c.numero_contrato, sucesso: false, erro: String(erro).slice(0, 200) });
-      }
-    }
-
-    const okCount = resultados.filter((r) => r.sucesso).length;
-    return { sucesso: okCount > 0, total: resultados.length, enviados: okCount, resultados };
-  }
-
-  async enviarResultado(licitacaoId: string, itemNumero: number, resultado: ResultadoItemDto): Promise<PncpResponseDto> {
-    const sync = await this.pncpSyncRepository.findOne({
-      where: { 
-        licitacao_id: licitacaoId, 
-        tipo: TipoSincronizacao.COMPRA,
-        status: In([
-          StatusSincronizacao.ENVIADO,
-          StatusSincronizacao.ATUALIZADO,
-        ])
-      }
-    });
-
-    if (!sync?.numero_controle_pncp) {
-      throw new HttpException('Compra não foi enviada ao PNCP ainda', HttpStatus.BAD_REQUEST);
-    }
-
-    // CNPJ do ÓRGÃO DA LICITAÇÃO (o env é só fallback — o CNPJ errado gera
-    // "Usuário não está habilitado a publicar para o órgão X")
-    const licRes = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
-    const cnpj = this.obterCnpjPncpDoOrgao(licRes?.orgao) ||
-      (this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
-
-    try {
-      const response = await this.axiosInstance.post(
-        `/orgaos/${cnpj}/compras/${sync.ano_compra}/${sync.sequencial_compra}/itens/${itemNumero}/resultados`,
-        resultado
-      );
-
-      // Registrar sincronização do resultado
-      const syncResultado = this.pncpSyncRepository.create({
-        tipo: TipoSincronizacao.RESULTADO,
-        licitacao_id: licitacaoId,
-        entidade_id: itemNumero.toString(),
-        status: StatusSincronizacao.ENVIADO,
-        payload_enviado: resultado,
-        resposta_pncp: response.data,
-        numero_controle_pncp: sync.numero_controle_pncp
-      });
-      await this.pncpSyncRepository.save(syncResultado);
-
-      return {
-        sucesso: true,
-        mensagem: 'Resultado enviado com sucesso'
-      };
-    } catch (error) {
-      throw new HttpException(
-        `Erro ao enviar resultado ao PNCP: ${this.extrairMensagemErro(error)}`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-  }
-
-  // ============ CONTRATO ============
-
-  async enviarContrato(contratoData: ContratoDto): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-
-    try {
-      const response = await this.axiosInstance.post(
-        `/orgaos/${cnpj}/contratos`,
-        contratoData
-      );
-
-      // Registrar sincronização do contrato
-      const syncContrato = this.pncpSyncRepository.create({
-        tipo: TipoSincronizacao.CONTRATO,
-        status: StatusSincronizacao.ENVIADO,
-        payload_enviado: contratoData,
-        resposta_pncp: response.data,
-        numero_controle_pncp: response.data.numeroControlePNCP
-      });
-      await this.pncpSyncRepository.save(syncContrato);
-
-      return {
-        sucesso: true,
-        numeroControlePNCP: response.data.numeroControlePNCP,
-        mensagem: 'Contrato enviado com sucesso'
-      };
-    } catch (error) {
-      throw new HttpException(
-        `Erro ao enviar contrato ao PNCP: ${this.extrairMensagemErro(error)}`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-  }
-
   // ============ CONSULTAS ============
 
   async consultarStatusSincronizacao(licitacaoId: string): Promise<PncpSync[]> {
@@ -1617,352 +666,93 @@ export class PncpService implements OnModuleInit {
     });
   }
 
+  /** Fila: operações à espera (pendentes, enviando ou com erro temporário que volta sozinho). */
   async listarPendentes(orgaoId?: string): Promise<PncpSync[]> {
-    try {
-      // Tenta buscar com orgao_id se fornecido
-      if (orgaoId) {
-        // Busca através da relação com licitação para garantir filtro correto
-        // Usa CAST para evitar erro "operator does not exist: uuid = text"
-        const results = await this.pncpSyncRepository
-          .createQueryBuilder('sync')
-          .leftJoinAndSelect('sync.licitacao', 'licitacao')
-          .where('sync.status = :status', { status: StatusSincronizacao.PENDENTE })
-          .andWhere('(sync.orgao_id = :orgaoId OR CAST(licitacao.orgao_id AS TEXT) = :orgaoId)', { orgaoId })
-          .orderBy('sync.created_at', 'ASC')
-          .getMany();
-        return results;
-      }
-      
-      return this.pncpSyncRepository.find({
-        where: { status: StatusSincronizacao.PENDENTE },
-        order: { created_at: 'ASC' }
-      });
-    } catch (error) {
-      console.error('[PncpService] Erro ao listar pendentes:', error.message);
-      // Fallback: busca sem filtro de orgao
-      return this.pncpSyncRepository.find({
-        where: { status: StatusSincronizacao.PENDENTE },
-        order: { created_at: 'ASC' }
-      });
-    }
+    return this.listarPorStatus([...STATUS_PROCESSAVEIS, StatusSincronizacao.ENVIANDO], orgaoId, 'ASC');
   }
 
+  /** Fila: operações com erro (definitivo, temporário e os registros anteriores à fila). */
   async listarErros(orgaoId?: string): Promise<PncpSync[]> {
+    return this.listarPorStatus([...STATUS_DE_ERRO], orgaoId, 'DESC');
+  }
+
+  private listarPorStatus(status: StatusSincronizacao[], orgaoId: string | undefined, ordem: 'ASC' | 'DESC'): Promise<PncpSync[]> {
+    const qb = this.pncpSyncRepository
+      .createQueryBuilder('sync')
+      .leftJoinAndSelect('sync.licitacao', 'licitacao')
+      .where('sync.status IN (:...status)', { status });
+    // Busca pela licitação (CAST evita "operator does not exist: uuid = text")
+    if (orgaoId) qb.andWhere('(sync.orgao_id = :orgaoId OR CAST(licitacao.orgao_id AS TEXT) = :orgaoId)', { orgaoId });
+    return qb.orderBy(ordem === 'ASC' ? 'sync.created_at' : 'sync.updated_at', ordem).getMany();
+  }
+
+  // ============ CHAMADA À API (usada pela fila — PncpEnviosService) ============
+
+  /** Base da API de integração (credencial da plataforma → env → treinamento). */
+  baseApiUrl(): string {
+    return PncpService.platformCredentials.apiUrl || this.getEnvVar('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1';
+  }
+
+  /** CNPJ usado nas APIs do PNCP para o órgão (pncp_cnpj_orgao ou CNPJ do cadastro). */
+  cnpjDoOrgao(orgao?: Partial<Orgao> | null): string {
+    return this.obterCnpjPncpDoOrgao(orgao);
+  }
+
+  orgaoDoContrato(contratoId: string): Promise<Array<{ orgao_id: string }>> {
+    return this.dataSource.query(`SELECT orgao_id::text AS orgao_id FROM contratos WHERE id::text = $1`, [contratoId]);
+  }
+
+  linkSistemaOrigem(licitacaoId: string): string {
+    return `${this.configService.get('APP_URL') || 'http://localhost:3000'}/licitacoes/${licitacaoId}`;
+  }
+
+  linkCompra(cnpj: string, ano: number | string, sequencial: number | string): string {
+    return `${this.getPortalBaseUrl()}/app/editais/${String(cnpj).replace(/\D/g, '')}/${ano}/${sequencial}`;
+  }
+
+  /**
+   * Chamada autenticada ao PNCP. Falha vira `ErroPncp` com a MENSAGEM DO PNCP
+   * e a natureza (temporária: rede/5xx/429/401; definitiva: demais 4xx). O
+   * 401 descarta o token (novo login na próxima tentativa).
+   */
+  async chamarApi<T = any>(req: {
+    metodo: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    caminho: string;
+    dados?: unknown;
+    headers?: Record<string, string>;
+  }): Promise<{ status: number; data: T; headers: Record<string, any> }> {
+    let token: string;
     try {
-      // Tenta buscar com orgao_id se fornecido
-      if (orgaoId) {
-        // Busca através da relação com licitação para garantir filtro correto
-        // Usa CAST para evitar erro "operator does not exist: uuid = text"
-        const results = await this.pncpSyncRepository
-          .createQueryBuilder('sync')
-          .leftJoinAndSelect('sync.licitacao', 'licitacao')
-          .where('sync.status = :status', { status: StatusSincronizacao.ERRO })
-          .andWhere('(sync.orgao_id = :orgaoId OR CAST(licitacao.orgao_id AS TEXT) = :orgaoId)', { orgaoId })
-          .orderBy('sync.updated_at', 'DESC')
-          .getMany();
-        return results;
-      }
-      
-      return this.pncpSyncRepository.find({
-        where: { status: StatusSincronizacao.ERRO },
-        order: { updated_at: 'DESC' }
+      token = await this.getValidToken();
+    } catch (e: any) {
+      throw new ErroPncp(`Login no PNCP: ${e?.message ?? e}`, 'TEMPORARIA');
+    }
+    try {
+      const r = await axios.request<T>({
+        method: req.metodo,
+        url: `${this.baseApiUrl()}${req.caminho}`,
+        data: req.dados,
+        headers: { Accept: 'application/json', ...(req.headers ?? {}), Authorization: `Bearer ${token}` },
+        timeout: 60_000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       });
-    } catch (error) {
-      console.error('[PncpService] Erro ao listar erros:', error.message);
-      // Fallback: busca sem filtro de orgao
-      return this.pncpSyncRepository.find({
-        where: { status: StatusSincronizacao.ERRO },
-        order: { updated_at: 'DESC' }
-      });
+      return { status: r.status, data: r.data, headers: (r.headers ?? {}) as Record<string, any> };
+    } catch (error: any) {
+      const status: number | undefined = error?.response?.status;
+      if (status === 401) {
+        this.token = '';
+        this.tokenExpiration = null;
+      }
+      const mensagem = this.extrairMensagemErro(error);
+      throw new ErroPncp(status ? `HTTP ${status}: ${mensagem}` : mensagem, naturezaDaFalhaHttp(status, error?.code), status);
     }
   }
 
-  async reenviar(syncId: string): Promise<PncpResponseDto> {
-    const sync = await this.pncpSyncRepository.findOne({ where: { id: syncId } });
-    
-    if (!sync) {
-      throw new HttpException('Registro de sincronização não encontrado', HttpStatus.NOT_FOUND);
-    }
-
-    if (sync.tipo === TipoSincronizacao.COMPRA && sync.licitacao_id) {
-      return this.enviarCompra(sync.licitacao_id);
-    }
-
-    throw new HttpException('Tipo de sincronização não suportado para reenvio', HttpStatus.BAD_REQUEST);
-  }
-
-  // ============ MAPEAMENTOS ============
-
-  private mapearLicitacaoParaCompra(licitacao: any, cnpj: string): CompraDto {
-    const anoCompra = new Date(licitacao.created_at).getFullYear();
-    
-    // Formatar datas no padrão ISO 8601 (YYYY-MM-DDTHH:mm:ss) SEM converter para UTC
-    // O PNCP espera horário de Brasília, não UTC
-    const formatarDataHora = (data: any): string => {
-      if (!data) {
-        // Se não tem data, usar data futura padrão (30 dias)
-        const dataFutura = new Date();
-        dataFutura.setDate(dataFutura.getDate() + 30);
-        // Formatar em horário local (Brasília)
-        const ano = dataFutura.getFullYear();
-        const mes = String(dataFutura.getMonth() + 1).padStart(2, '0');
-        const dia = String(dataFutura.getDate()).padStart(2, '0');
-        const hora = String(dataFutura.getHours()).padStart(2, '0');
-        const min = String(dataFutura.getMinutes()).padStart(2, '0');
-        const seg = String(dataFutura.getSeconds()).padStart(2, '0');
-        return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}`;
-      }
-      
-      // Se já é string no formato correto, usar diretamente
-      if (typeof data === 'string') {
-        // Se já tem T, extrair apenas a parte datetime
-        if (data.includes('T')) {
-          return data.slice(0, 19);
-        }
-        // Se é só data (YYYY-MM-DD), adicionar horário padrão
-        return `${data}T00:00:00`;
-      }
-      
-      const d = new Date(data);
-      if (isNaN(d.getTime())) {
-        const dataFutura = new Date();
-        dataFutura.setDate(dataFutura.getDate() + 30);
-        const ano = dataFutura.getFullYear();
-        const mes = String(dataFutura.getMonth() + 1).padStart(2, '0');
-        const dia = String(dataFutura.getDate()).padStart(2, '0');
-        return `${ano}-${mes}-${dia}T00:00:00`;
-      }
-      
-      // Formatar em horário local (Brasília), não UTC
-      const ano = d.getFullYear();
-      const mes = String(d.getMonth() + 1).padStart(2, '0');
-      const dia = String(d.getDate()).padStart(2, '0');
-      const hora = String(d.getHours()).padStart(2, '0');
-      const min = String(d.getMinutes()).padStart(2, '0');
-      const seg = String(d.getSeconds()).padStart(2, '0');
-      return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}`;
-    };
-
-    // Datas do cronograma:
-    // - data_inicio_acolhimento: Início do recebimento de propostas
-    // - data_fim_acolhimento: Fim do recebimento de propostas
-    // - data_abertura_sessao: Data/hora da sessão pública
-    
-    // Data de início de recebimento de propostas
-    const dataInicioPropostas = formatarDataHora(licitacao.data_inicio_acolhimento || licitacao.data_abertura_sessao);
-    
-    // Data de fim de recebimento de propostas (antes da sessão)
-    let dataFimPropostas = licitacao.data_fim_acolhimento;
-    if (!dataFimPropostas) {
-      // Se não definida, usar data da sessão como fim
-      dataFimPropostas = licitacao.data_abertura_sessao;
-    }
-    dataFimPropostas = formatarDataHora(dataFimPropostas);
-    
-    this.logger.log(`[mapearLicitacaoParaCompra] Datas: inicio=${dataInicioPropostas}, fim=${dataFimPropostas}`);
-    
-    // Orçamento sigiloso vem da LICITAÇÃO (aba Configuração), não do item
-    // Campo: sigilo_orcamento = 'PUBLICO' | 'SIGILOSO'
-    const orcamentoSigiloso = licitacao.sigilo_orcamento === 'SIGILOSO';
-    this.logger.log(`[mapearLicitacaoParaCompra] sigilo_orcamento=${licitacao.sigilo_orcamento}, orcamentoSigiloso=${orcamentoSigiloso}`);
-    
-    // Mapear itens da licitação
-    // IMPORTANTE: Quando orcamentoSigiloso=true, os valores são enviados mas o PNCP deve ocultá-los
-    // Conforme documentação, o campo orcamentoSigiloso indica se o valor deve ser sigiloso
-    const itensCompra = (licitacao.itens || []).map((item: any, index: number) => {
-      const valorUnitario = parseFloat(item.valor_unitario_estimado) || 0;
-      const quantidade = parseFloat(item.quantidade) || 1;
-      const valorTotal = quantidade * valorUnitario;
-      
-      const itemCompra: any = {
-        numeroItem: item.numero_item || (index + 1),
-        descricao: item.descricao_resumida || item.descricao || 'Item sem descrição',
-        materialOuServico: item.tipo === 'SERVICO' ? 'S' : 'M',
-        tipoBeneficioId: 1,
-        incentivoProdutivoBasico: false,
-        quantidade: quantidade,
-        unidadeMedida: item.unidade_medida || 'Unidade',
-        valorUnitarioEstimado: valorUnitario,
-        valorTotal: valorTotal,
-        criterioJulgamentoId: 1,
-        orcamentoSigiloso: orcamentoSigiloso,
-        // itemCategoriaId removido - campo opcional que pode causar conflito com modalidade
-        aplicabilidadeMargemPreferenciaNormal: false,
-        aplicabilidadeMargemPreferenciaAdicional: false,
-      };
-      
-      this.logger.log(`[mapearLicitacaoParaCompra] Item ${itemCompra.numeroItem}: orcamentoSigiloso=${orcamentoSigiloso}, valorUnitario=${valorUnitario}, valorTotal=${valorTotal}`);
-      
-      return itemCompra;
-    });
-
-    // Determinar tipo de instrumento convocatório baseado na modalidade
-    // 1 = Edital (pregão, concorrência, diálogo competitivo, concurso, leilão, manifestação de interesse, pré-qualificação, credenciamento)
-    // 2 = Aviso de Contratação Direta (dispensa com disputa)
-    // 3 = Ato que autoriza a Contratação Direta (dispensa sem disputa, inexigibilidade)
-    let tipoInstrumento = 1; // Edital por padrão
-    const modalidadeUpper = (licitacao.modalidade || '').toUpperCase();
-    
-    if (modalidadeUpper.includes('DISPENSA')) {
-      // Verificar se é dispensa com ou sem disputa
-      if (licitacao.modo_disputa === 'ABERTO' || licitacao.modo_disputa === 'FECHADO' || licitacao.modo_disputa === 'ABERTO_FECHADO') {
-        tipoInstrumento = 2; // Aviso de Contratação Direta (dispensa com disputa)
-      } else {
-        tipoInstrumento = 3; // Ato que autoriza a Contratação Direta (dispensa sem disputa)
-      }
-    } else if (modalidadeUpper.includes('INEXIGIBILIDADE')) {
-      tipoInstrumento = 3; // Ato que autoriza a Contratação Direta
-    }
-    
-    this.logger.log(`[mapearLicitacaoParaCompra] Modalidade: ${licitacao.modalidade}, tipoInstrumento: ${tipoInstrumento}`);
-
-    // Determinar modo de disputa (tabela de domínio PNCP):
-    // 1=Aberto, 2=Fechado, 3=Aberto-Fechado, 4=Dispensa Com Disputa, 5=Não se aplica, 6=Fechado-Aberto
-    // Conformidade exigida pelo PNCP: instrumento 2 (Aviso de Contratação
-    // Direta) ↔ modo 4; instrumento 3 (Ato que autoriza) ↔ modo 5.
-    let modoDisputa = 1; // Aberto por padrão
-    if (tipoInstrumento === 2) modoDisputa = 4; // Dispensa com disputa
-    else if (tipoInstrumento === 3) modoDisputa = 5; // Não se aplica
-    else if (licitacao.modo_disputa === 'FECHADO') modoDisputa = 2;
-    else if (licitacao.modo_disputa === 'ABERTO_FECHADO') modoDisputa = 3;
-    else if (licitacao.modo_disputa === 'FECHADO_ABERTO') modoDisputa = 6;
-
-    // Calcular valor total se não informado
-    let valorTotal = parseFloat(licitacao.valor_total_estimado) || 0;
-    if (valorTotal === 0 && itensCompra.length > 0) {
-      valorTotal = itensCompra.reduce((sum: number, item: any) => sum + (item.valorTotal || 0), 0);
-    }
-
-    // Formato conforme método incluirCompra que funciona (testado em 01/12/2025)
-    // IMPORTANTE: Priorizar a unidade da licitação, senão usar a do órgão
-    const codigoUnidade = licitacao.codigo_unidade_compradora || licitacao.orgao?.pncp_codigo_unidade;
-    if (!codigoUnidade) {
-      throw new Error('Código da unidade compradora não definido na licitação. Selecione a unidade compradora antes de enviar ao PNCP.');
-    }
-    
-    this.logger.log(`[mapearLicitacaoParaCompra] Unidade compradora: ${codigoUnidade} (${licitacao.nome_unidade_compradora || 'sem nome'})`);
-
-    return {
-      codigoUnidadeCompradora: codigoUnidade,
-      anoCompra,
-      numeroCompra: licitacao.numero_processo,
-      numeroProcesso: licitacao.numero_processo,
-      objetoCompra: licitacao.objeto,
-      tipoInstrumentoConvocatorioId: tipoInstrumento, // 1=Edital, 2=Aviso, 3=Ato
-      modalidadeId: MODALIDADE_SISTEMA_PARA_PNCP[licitacao.modalidade] || 6,
-      modoDisputaId: modoDisputa, // 1=Aberto, 2=Fechado, 5=Não se aplica
-      srp: licitacao.srp || false,
-      dataAberturaProposta: dataInicioPropostas,
-      dataEncerramentoProposta: dataFimPropostas,
-      informacaoComplementar: licitacao.informacoes_complementares || '',
-      // Amparo legal CONSISTENTE com a modalidade (tabela de domínio do PNCP —
-      // o PNCP rejeita com "Não há conformidade entre Instrumento, Modalidade e
-      // Amparo" quando divergem): licitações comuns → 1 (Art. 28, caput);
-      // dispensa → Art. 75 (18 = inciso I obras/eng.; 19 = inciso II demais);
-      // inexigibilidade → 13 (Art. 74, I).
-      amparoLegalId: (() => {
-        const mod = (licitacao.modalidade || '').toUpperCase();
-        if (mod.includes('DISPENSA')) {
-          const tc = (licitacao.tipo_contratacao || '').toUpperCase();
-          return tc.includes('OBRA') || tc.includes('ENGENHARIA') ? 18 : 19;
-        }
-        if (mod.includes('INEXIGIBILIDADE')) return 13;
-        return 1; // Lei nº 14.133/2021, Art. 28, caput
-      })(),
-      linkSistemaOrigem: `${this.configService.get('APP_URL') || 'http://localhost:3000'}/licitacoes/${licitacao.id}`,
-      itensCompra: itensCompra
-    } as any;
-  }
-
-  private mapearItemParaPNCP(item: any, numeroItem: number, licitacao?: any): ItemCompraDto {
-    // Campos da entidade ItemLicitacao:
-    // - descricao_resumida (obrigatório)
-    // - descricao_detalhada (opcional)
-    // - unidade_medida (enum)
-    // - valor_unitario_estimado
-    // - valor_total_estimado
-    const descricao = item.descricao_resumida || item.descricao || '';
-    const valorTotal = parseFloat(item.valor_total_estimado) || parseFloat(item.valor_total) || 0;
-    
-    // Orçamento sigiloso vem da LICITAÇÃO (aba Configuração), não do item
-    // Campo: sigilo_orcamento = 'PUBLICO' | 'SIGILOSO'
-    const orcamentoSigiloso = licitacao?.sigilo_orcamento === 'SIGILOSO';
-    
-    // Margem de preferência vem do item (campo margem_preferencia)
-    // Se não tem margem, não envia os campos de percentual (evita inconsistência)
-    const margemPreferencia = item.margem_preferencia === true;
-    
-    // Tipo de benefício ME/EPP
-    // PNCP: 1=Exclusivo ME/EPP, 2=Cota reservada, 3=Subcontratação, 4=Sem benefício
-    // Hierarquia: modo_beneficio_mpe define de onde vem o benefício
-    // - GERAL: usa tipo_beneficio_mpe da licitação
-    // - POR_LOTE: usa tipo_beneficio_mpe do lote (futuro)
-    // - POR_ITEM: usa tipo_participacao do item
-    let tipoBeneficioId = 4; // Default: Sem benefício (Ampla participação)
-    
-    const modoBeneficio = licitacao?.modo_beneficio_mpe || 'GERAL';
-    
-    if (modoBeneficio === 'POR_ITEM') {
-      // Usa o tipo_participacao do item
-      if (item.tipo_participacao === 'EXCLUSIVO_MPE') {
-        tipoBeneficioId = 1;
-      } else if (item.tipo_participacao === 'COTA_RESERVADA') {
-        tipoBeneficioId = 2;
-      }
-    } else if (modoBeneficio === 'POR_LOTE') {
-      // TODO: Implementar quando lotes tiverem tipo_beneficio_mpe
-      // Por enquanto, usa o tipo_participacao do item como fallback
-      if (item.tipo_participacao === 'EXCLUSIVO_MPE') {
-        tipoBeneficioId = 1;
-      } else if (item.tipo_participacao === 'COTA_RESERVADA') {
-        tipoBeneficioId = 2;
-      }
-    } else {
-      // GERAL: usa tipo_beneficio_mpe da licitação
-      if (licitacao?.tipo_beneficio_mpe === 'EXCLUSIVO') {
-        tipoBeneficioId = 1;
-      } else if (licitacao?.tipo_beneficio_mpe === 'COTA_RESERVADA') {
-        tipoBeneficioId = 2;
-      }
-      // Fallback para campos antigos (compatibilidade)
-      else if (licitacao?.exclusivo_mpe === true) {
-        tipoBeneficioId = 1;
-      } else if (licitacao?.cota_reservada === true) {
-        tipoBeneficioId = 2;
-      }
-    }
-    
-    const valorUnitario = parseFloat(item.valor_unitario_estimado) || 0;
-    
-    this.logger.log(`[mapearItemParaPNCP] Item ${numeroItem}: orcamentoSigiloso=${orcamentoSigiloso}, valorUnitario=${valorUnitario}, valorTotal=${valorTotal}`);
-    
-    const itemDto: any = {
-      numeroItem,
-      materialOuServico: item.tipo === 'SERVICO' ? 'S' : 'M',
-      tipoBeneficioId: tipoBeneficioId,
-      incentivoProdutivoBasico: false,
-      descricao: descricao,
-      quantidade: parseFloat(item.quantidade) || 1,
-      unidadeMedida: item.unidade_medida || 'UN',
-      valorUnitarioEstimado: valorUnitario,
-      valorTotal: valorTotal,
-      situacaoCompraItemId: 1,
-      criterioJulgamentoId: 1,
-      codigoItemCatalogo: item.codigo_catalogo || '',
-      patrimonio: false,
-      orcamentoSigiloso: orcamentoSigiloso,
-      // Margem de preferência - campos obrigatórios
-      aplicabilidadeMargemPreferenciaNormal: margemPreferencia,
-      aplicabilidadeMargemPreferenciaAdicional: false
-    };
-    
-    // Só adiciona percentuais se tiver margem de preferência
-    if (margemPreferencia) {
-      itemDto.percentualMargemPreferenciaNormal = parseFloat(item.percentual_margem) || 0;
-      itemDto.percentualMargemPreferenciaAdicional = 0;
-    }
-    
-    return itemDto;
+  /** Item para as ferramentas manuais (retificar/incluir item): mesmo mapeamento da fila. */
+  private itemParaPncp(item: any, numeroItem: number, licitacao: any): ItemCompraPncp {
+    const dto = montarItemCompra({ ...item, numero_item: numeroItem }, numeroItem - 1, licitacao, beneficioSimples(item, licitacao), instrumentoConvocatorioId(licitacao));
+    return dto;
   }
 
   private extrairMensagemErro(error: any): string {
@@ -2610,7 +1400,7 @@ export class PncpService implements OnModuleInit {
           
           for (const item of licitacao.itens) {
             const numeroItem = item.numero_item || (licitacao.itens.indexOf(item) + 1);
-            const itemDto = this.mapearItemParaPNCP(item, numeroItem, licitacao);
+            const itemDto = this.itemParaPncp(item, numeroItem, licitacao);
             
             this.logger.log(`[retificarCompra] Retificando item ${numeroItem}: orcamentoSigiloso=${itemDto.orcamentoSigiloso}`);
             
@@ -2719,7 +1509,7 @@ export class PncpService implements OnModuleInit {
 
     // Usar o mesmo mapeamento que funciona no enviarItens
     // Passa a licitação para obter sigilo_orcamento
-    const itemDto = this.mapearItemParaPNCP(itemDb, parseInt(itemInput.numeroItem), licitacao);
+    const itemDto = this.itemParaPncp(itemDb, parseInt(itemInput.numeroItem), licitacao);
 
     this.logger.log(`[INCLUIR ITEM] Item do banco: ${JSON.stringify(itemDb)}`);
     this.logger.log(`[INCLUIR ITEM] DTO enviado: ${JSON.stringify(itemDto)}`);
@@ -2784,7 +1574,7 @@ export class PncpService implements OnModuleInit {
     }
 
     // Usar o mesmo mapeamento que funciona no enviarItens
-    const itemDto = this.mapearItemParaPNCP(itemDb, parseInt(numeroItem), licitacao);
+    const itemDto = this.itemParaPncp(itemDb, parseInt(numeroItem), licitacao);
     
     // Adicionar justificativa se fornecida
     if (itemInput.justificativaRetificacao) {
@@ -2920,6 +1710,17 @@ export class PncpService implements OnModuleInit {
           .execute();
 
         this.logger.log(`Licitação ${licitacaoId} - dados PNCP limpos após exclusão`);
+
+        // Fila (E7): as operações desta compra saem da fila e liberam a chave de
+        // idempotência — uma nova publicação gera uma NOVA compra no PNCP.
+        await this.dataSource.query(
+          `UPDATE pncp_sync
+              SET status = 'EXCLUIDO', chave_idempotencia = NULL, proximo_envio = NULL,
+                  erro_mensagem = $2, updated_at = now()
+            WHERE licitacao_id = $1 AND status::text <> 'EXCLUIDO'
+              AND tipo::text IN ('COMPRA','ITEM','DOCUMENTO','RETIFICACAO_COMPRA','SITUACAO_COMPRA','RESULTADO')`,
+          [licitacaoId, `Compra ${anoCompra}/${sequencialCompra} excluída do PNCP: ${motivo}`.slice(0, 2000)],
+        );
 
         if (cancelarPublicacao) {
           try {
@@ -3184,24 +1985,6 @@ export class PncpService implements OnModuleInit {
         location.match(/\/atas\/(\d+)\/?$/)?.[1];
 
       this.logger.log(`Ata de Registro de Preço incluída: ${sequencialAta}`);
-      if (ata.licitacao_id) {
-        const numeroControleAta = ata.numero_controle_compra && sequencialAta
-          ? `${ata.numero_controle_compra}-${String(sequencialAta).padStart(6, '0')}`
-          : null;
-        await this.pncpSyncRepository.save(
-          this.pncpSyncRepository.create({
-            tipo: TipoSincronizacao.ATA,
-            licitacao_id: ata.licitacao_id,
-            entidade_id: ata.entidade_id || undefined,
-            status: StatusSincronizacao.ENVIADO,
-            numero_controle_pncp: numeroControleAta || undefined,
-            ano_compra: Number(anoCompra),
-            sequencial_compra: Number(sequencialCompra),
-            payload_enviado: ataDto,
-            resposta_pncp: { sequencialAta, location, ...response.data },
-          }),
-        );
-      }
 
       return {
         sucesso: true,
@@ -4226,4 +3009,23 @@ export class PncpService implements OnModuleInit {
       porTipo
     };
   }
+}
+
+/**
+ * Benefício ME/EPP do item sem consulta ao banco (prévia e ferramentas
+ * manuais). A fila usa `beneficioDaUnidadeSql` (lote, cota, modo por item).
+ */
+function beneficioSimples(item: any, lic: any): BeneficioParaPncp {
+  const ehCota = !!item?.item_cota_origem_id;
+  const modo = lic?.modo_beneficio_mpe || 'GERAL';
+  let tipo: BeneficioParaPncp['tipo'] = 'NENHUM';
+  if (modo === 'POR_ITEM' || modo === 'POR_LOTE') {
+    tipo = item?.tipo_participacao === 'EXCLUSIVO_MPE' ? 'EXCLUSIVO' : item?.tipo_participacao === 'COTA_RESERVADA' ? 'COTA_RESERVADA' : 'NENHUM';
+  } else if (lic?.tipo_beneficio_mpe === 'EXCLUSIVO' || lic?.exclusivo_mpe === true) {
+    tipo = 'EXCLUSIVO';
+  } else if (lic?.tipo_beneficio_mpe === 'COTA_RESERVADA' || lic?.cota_reservada === true) {
+    tipo = 'COTA_RESERVADA';
+  }
+  if (lic?.tratamento_diferenciado_mpe === false && !ehCota) tipo = 'NENHUM';
+  return { tipo: ehCota ? 'EXCLUSIVO' : tipo, ehCota, somenteMpe: ehCota || tipo === 'EXCLUSIVO' };
 }

@@ -41,7 +41,7 @@ describe('ResultadoService.planoAdjudicacao', () => {
         return a ? [a] : [];
       }),
     };
-    const s = new ResultadoService({ manager: m } as any, {} as any, ranking as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    const s = new ResultadoService({ manager: m } as any, {} as any, ranking as any, {} as any, {} as any, {} as any, {} as any);
     return { s, m };
   }
 
@@ -162,7 +162,7 @@ describe('ResultadoService.homologar — operador × autoridade', () => {
       criarDocumentoAssinatura: jest.fn(async () => ({ id: 'doc-1' })),
     };
     const contratos = { gerarContratoAutomatico: jest.fn(async () => []) };
-    const s = new ResultadoService(ds, transicoes as any, {} as any, contratos as any, {} as any, {} as any, {} as any, formalizacao as any);
+    const s = new ResultadoService(ds, transicoes as any, {} as any, contratos as any, {} as any, {} as any, formalizacao as any);
     return { s, lic, transicoes, formalizacao, inseridas };
   }
 

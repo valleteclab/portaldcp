@@ -283,7 +283,8 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       const publicada = await levarAteFase(ctx, lic, FaseLicitacao.PUBLICADO, {
         datas: {
           data_publicacao_edital: new Date(agora - MIN).toISOString(),
-          data_limite_impugnacao: new Date(agora + 9 * dia).toISOString(),
+          // E7a: o limite de impugnação não pode ser anterior aos 3 dias úteis antes da abertura (art. 164)
+          data_limite_impugnacao: new Date(agora + 13 * dia).toISOString(),
           data_inicio_acolhimento: new Date(agora - MIN).toISOString(),
           data_fim_acolhimento: new Date(agora + 14 * dia).toISOString(),
           data_abertura_sessao: new Date(agora + 14 * dia).toISOString(),
@@ -338,11 +339,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect(l.fase).toBe(FaseLicitacao.PUBLICADO);
     });
 
-    // DEFEITO CONHECIDO (§1.2 "Incompleto — Publicação sem prazos do art. 55"): pregão de
-    // bens por menor preço exige 8 dias úteis entre a publicação e a abertura; o sistema
-    // aceita qualquer data — backend/src/licitacoes/licitacoes.service.ts:653-694 (só a
-    // dispensa tem prazo mínimo) — corrigir na E7
-    test.failing(
+    // CORRIGIDO NA E7a: pré-condição `prazosDePublicacao` do PUBLICAR (art. 55, I, a —
+    // 8 dias úteis no calendário do órgão, backend/src/publicacao/regras-publicacao.ts)
+    test(
       'recusa publicar pregão com abertura antes de 8 dias úteis (art. 55, I, a)',
       async () => {
         const outro = await criarLicitacao(

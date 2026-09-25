@@ -47,8 +47,8 @@ import { ContratosService } from '../contratos/contratos.service';
 import { CategoriaContrato, StatusContrato, TipoContrato } from '../contratos/entities/contrato.entity';
 import { ItemContrato, UnidadeMedidaContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { PortalAssinaturasService } from '../portal-assinaturas/portal-assinaturas.service';
-import { PncpService } from '../pncp/pncp.service';
-import { basesDeLeitura, diretorioUploads } from '../common/arquivos/arquivos';
+import { PncpFilaService } from '../pncp/fila/pncp-fila.service';
+import { diretorioUploads } from '../common/arquivos/arquivos';
 
 const STATUS_CONSUMIVEL = [StatusAta.VIGENTE, StatusAta.ESGOTADA];
 const STATUS_ADESAO_ATIVA = [
@@ -101,7 +101,7 @@ export class ArpService implements GeradorAtaRegistroPreco, OnModuleInit {
     private readonly acesso: AcessoLicitacaoService,
     private readonly contratos: ContratosService,
     private readonly assinaturas: PortalAssinaturasService,
-    private readonly pncp: PncpService,
+    private readonly pncpFila: PncpFilaService,
   ) {}
 
   onModuleInit(): void {
@@ -533,71 +533,17 @@ export class ArpService implements GeradorAtaRegistroPreco, OnModuleInit {
         this.logger.warn(`Status da demanda/PCA não atualizado: ${e?.message ?? e}`),
       );
     }
-    await this.publicarNoPncp(ata.id).catch((e: any) => this.logger.warn(`[PNCP] Ata ${ata.numero_ata}: ${e?.message ?? e}`));
+    await this.publicarNoPncp(ata.id);
   }
 
   // ==========================================================================
-  // PNCP (art. 94 — registro em pncp_sync; a fila com reenvio é a E7)
+  // PNCP (art. 94) — pela FILA do PNCP (E7): reenvio automático e erro visível
   // ==========================================================================
 
-  async publicarNoPncp(ataId: string): Promise<{ enviado: boolean; erro?: string }> {
-    const ata = await this.ata(this.ds.manager, ataId);
-    if (ata.enviado_pncp) return { enviado: true };
-    if (!['VIGENTE', 'ESGOTADA'].includes(ata.status)) return { enviado: false, erro: 'Ata ainda não assinada' };
-    const registrarErro = async (msg: string) => {
-      await this.ds.query(
-        `INSERT INTO pncp_sync (id, tipo, entidade_id, licitacao_id, orgao_id, status, erro_mensagem, tentativas, ultima_tentativa, created_at, updated_at)
-         VALUES (gen_random_uuid(), 'ATA', $1, $2, $3, 'ERRO', $4, 1, now(), now(), now())`,
-        [ata.id, ata.licitacao_id, ata.orgao_id, msg],
-      );
-      return { enviado: false, erro: msg };
-    };
-    const [compra] = await this.ds.query(
-      `SELECT ano_compra, sequencial_compra, numero_controle_pncp FROM pncp_sync
-        WHERE licitacao_id = $1 AND tipo = 'COMPRA' AND status = 'ENVIADO' ORDER BY created_at DESC LIMIT 1`,
-      [ata.licitacao_id],
-    );
-    if (!compra) return registrarErro('Compra não enviada ao PNCP — a ata será publicada depois do envio da compra (reenvie pela tela da ata).');
-    const [orgao] = await this.ds.query(`SELECT cnpj, pncp_cnpj_orgao, pncp_codigo_unidade FROM orgaos WHERE id::text = $1`, [ata.orgao_id]);
-    let arquivo: Buffer | undefined;
-    if (ata.arquivo_ata) {
-      const rel = String(ata.arquivo_ata).replace(/^\/?(api\/)?uploads\//, '');
-      for (const base of basesDeLeitura()) {
-        const p = path.join(base, rel);
-        if (fs.existsSync(p)) {
-          arquivo = fs.readFileSync(p);
-          break;
-        }
-      }
-    }
-    const iso = (d: any) => dataIso(d);
-    try {
-      const r: any = await this.pncp.incluirAtaRegistroPreco(String(compra.ano_compra), String(compra.sequencial_compra), {
-        cnpj_orgao: String(orgao?.pncp_cnpj_orgao || orgao?.cnpj || '').replace(/\D/g, '') || undefined,
-        licitacao_id: ata.licitacao_id,
-        entidade_id: ata.id,
-        numero_controle_compra: compra.numero_controle_pncp,
-        numero_ata: ata.numero_ata,
-        ano_ata: ata.ano,
-        data_assinatura: iso(ata.data_assinatura),
-        data_vigencia_inicio: iso(ata.data_vigencia_inicio),
-        data_vigencia_fim: iso(ata.data_vigencia_fim),
-        possibilidade_adesao: !!ata.permite_adesao,
-        codigo_unidade: orgao?.pncp_codigo_unidade || '1',
-        arquivo_buffer: arquivo,
-        nome_arquivo: `ata-${String(ata.numero_ata).replace(/[^\w-]/g, '_')}.pdf`,
-      });
-      const seq = r?.dados?.sequencialAta ? Number(r.dados.sequencialAta) : null;
-      await this.ds.query(
-        `UPDATE atas_registro_preco SET enviado_pncp = true, data_envio_pncp = now(), data_publicacao = COALESCE(data_publicacao, $2::date),
-            sequencial_pncp = $3, numero_controle_pncp = $4, updated_at = now() WHERE id = $1`,
-        [ata.id, hojeBrasilia(), seq, compra.numero_controle_pncp && seq ? `${compra.numero_controle_pncp}-${String(seq).padStart(6, '0')}` : null],
-      );
-      this.logger.log(`[PNCP] Ata ${ata.numero_ata} publicada (sequencial ${seq ?? '—'})`);
-      return { enviado: true };
-    } catch (e: any) {
-      return registrarErro(`Erro ao publicar a ata no PNCP: ${e?.message ?? e}`);
-    }
+  /** Enfileira a publicação da ata assinada; o envio (termo assinado, compra publicada) é feito pelo worker. */
+  async publicarNoPncp(ataId: string): Promise<{ enfileirado: boolean; fila_id?: string; status?: string }> {
+    const linha = await this.pncpFila.aoAssinarAta(ataId);
+    return linha ? { enfileirado: true, fila_id: linha.id, status: linha.status } : { enfileirado: false };
   }
 
   // ==========================================================================

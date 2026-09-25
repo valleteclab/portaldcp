@@ -3,7 +3,8 @@ import { AtorAtual, AutenticacaoOpcional, SomenteOrgao } from '../auth/acesso/ac
 import { ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
-import { AutorFeriado, DadosFeriado, FeriadosService } from './feriados.service';
+import { FeriadosService } from './feriados.service';
+import type { AutorFeriado, DadosFeriado } from './feriados.service';
 
 function anoValido(v: any): number {
   const ano = Number(v) || new Date().getFullYear();

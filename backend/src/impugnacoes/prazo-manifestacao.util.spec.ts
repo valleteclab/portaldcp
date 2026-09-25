@@ -15,7 +15,7 @@ describe('prazo de impugnação/esclarecimento (art. 164 da Lei 14.133/2021)', (
       // abertura (BRT)            → limite (BRT, fim do dia)
       ['2026-10-19T09:00:00', '2026-10-14T23:59:59.999'], // seg → qua anterior (sex, qui, qua)
       ['2026-10-16T14:00:00', '2026-10-13T23:59:59.999'], // sex → ter (qui, qua, ter)
-      ['2026-10-14T10:00:00', '2026-10-09T23:59:59.999'], // qua → sex anterior (ter, seg, sex)
+      ['2026-10-14T10:00:00', '2026-10-08T23:59:59.999'], // qua → qui anterior (ter, [seg 12/10 feriado], sex, qui) — E7a
       ['2026-10-20T08:00:00', '2026-10-15T23:59:59.999'], // ter → qui (seg, sex, qui)
       ['2026-10-18T10:00:00', '2026-10-14T23:59:59.999'], // domingo → qua (sex, qui, qua)
     ])('abertura %s → limite %s', (abertura, limite) => {

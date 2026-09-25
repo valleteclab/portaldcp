@@ -246,9 +246,10 @@ describe('TransicoesService — pré-condições', () => {
     expect(ok).toEqual([]);
   });
 
-  test('pregão: publicar exige a fase interna documentada (art. 18), sem o prazo da dispensa', async () => {
+  test('pregão: publicar exige a fase interna documentada (art. 18); prazo é o do art. 55 (8 dias úteis), não o da dispensa', async () => {
     const pendente = { pode_divulgar: false, pendentes: ['Parecer jurídico (Art. 53)'] };
-    const dados = { data_fim_acolhimento: '2026-09-25T10:00:00' };
+    // E7a: 24/09/2026 + 8 dias úteis (12/10 feriado) → vence 06/10; abertura a partir de 07/10
+    const dados = { data_fim_acolhimento: '2026-10-07T10:00:00', data_abertura_sessao: '2026-10-07T10:00:00' };
     const naoConcluida = lic({ fase: F.APROVACAO_INTERNA, fase_interna_concluida: false } as any);
     const def = definicaoDoAto(naoConcluida.modalidade, A.PUBLICAR)!;
     expect(await pendenciasDoAto(def, ctx(naoConcluida, A.PUBLICAR, { consultas: consultas({ instrucaoProcesso: pendente }), dados }))).toEqual([
@@ -257,6 +258,10 @@ describe('TransicoesService — pré-condições', () => {
     // concluída pelo ato próprio (já passou pelo gate): publicar não repete
     const concluida = lic({ fase: F.APROVACAO_INTERNA, fase_interna_concluida: true } as any);
     expect(await pendenciasDoAto(def, ctx(concluida, A.PUBLICAR, { consultas: consultas({ instrucaoProcesso: pendente }), dados }))).toEqual([]);
+    // com 3 dias úteis (o prazo da dispensa) o pregão é recusado pelo art. 55, I, a
+    const curto = { data_fim_acolhimento: '2026-09-30T10:00:00', data_abertura_sessao: '2026-09-30T10:00:00' };
+    const p = await pendenciasDoAto(def, ctx(concluida, A.PUBLICAR, { dados: curto }));
+    expect(p.join(' ')).toMatch(/8 dias úteis.*art\. 55, I, a/);
   });
 
   test('gate único da fase interna: etapas do pregão cobram os documentos da própria etapa', async () => {

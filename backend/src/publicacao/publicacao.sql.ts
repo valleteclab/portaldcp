@@ -123,3 +123,25 @@ export async function concluirExtincaoSql(m: EntityManager, licitacaoId: string,
     [licitacaoId, tipo],
   );
 }
+
+/**
+ * PUBLICAR (na transação do ato): o edital vigente da licitação passa a
+ * PUBLICADO e público (é o documento divulgado — art. 54). Rascunhos
+ * anteriores do edital ficam SUBSTITUIDO.
+ */
+export async function marcarEditalPublicadoSql(m: EntityManager, licitacaoId: string): Promise<void> {
+  const vigente = await editalVigenteSql(m, licitacaoId);
+  if (!vigente || vigente.origem !== 'DOCUMENTOS_LICITACAO') return;
+  await m.query(
+    `UPDATE documentos_licitacao SET status = 'PUBLICADO', publico = true,
+            data_publicacao = COALESCE(data_publicacao, NOW()), updated_at = NOW()
+      WHERE id::text = $1`,
+    [vigente.documento_id],
+  );
+  await m.query(
+    `UPDATE documentos_licitacao SET status = 'SUBSTITUIDO', updated_at = NOW()
+      WHERE licitacao_id::text = $1 AND tipo::text IN ('EDITAL','EDITAL_RETIFICADO')
+        AND id::text <> $2 AND status::text = 'RASCUNHO'`,
+    [licitacaoId, vigente.documento_id],
+  );
+}

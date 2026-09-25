@@ -386,8 +386,11 @@ export const JUSTIFICATIVA_ART49_E2E = 'Art. 49, II: não há 3 fornecedores ME/
 
 /**
  * Datas padrão do edital: publicado agora, acolhimento aberto e abertura da
- * sessão daqui a 8 dias (cobre o mínimo de 3 dias úteis da dispensa, art. 75
- * §3º). Propostas só são aceitas ANTES da abertura — use `abrirSessaoAgora`
+ * sessão daqui a 21 dias corridos — cobre, em qualquer dia do ano, o prazo
+ * mínimo do art. 55 para bens (8 dias úteis) e serviços comuns (10), com os
+ * feriados nacionais (E7a), e os 3 dias úteis da dispensa (art. 75 §3º). Limite
+ * de impugnação na véspera da abertura (nunca antes dos 3 dias úteis do art.
+ * 164). Propostas só são aceitas ANTES da abertura — use `abrirSessaoAgora`
  * depois de enviá-las.
  */
 export function datasEditalPadrao(): DatasEdital {
@@ -395,12 +398,71 @@ export function datasEditalPadrao(): DatasEdital {
   const h = 3_600_000;
   return {
     data_publicacao_edital: new Date(agora - 60_000).toISOString(),
-    data_limite_impugnacao: new Date(agora + 5 * 24 * h).toISOString(),
+    data_limite_impugnacao: new Date(agora + 20 * 24 * h).toISOString(),
     data_inicio_acolhimento: new Date(agora - 60_000).toISOString(),
-    data_fim_acolhimento: new Date(agora + 8 * 24 * h).toISOString(),
-    data_abertura_sessao: new Date(agora + 8 * 24 * h).toISOString(),
+    data_fim_acolhimento: new Date(agora + 21 * 24 * h).toISOString(),
+    data_abertura_sessao: new Date(agora + 21 * 24 * h).toISOString(),
     justificativa_nao_exclusividade_mpe: JUSTIFICATIVA_ART49_E2E,
   };
+}
+
+/** PDF mínimo VÁLIDO (edital de teste — o gate do E7a exige arquivo PDF real). */
+export function pdfDeTeste(texto = 'Edital de teste E2E'): Buffer {
+  const nl = '\n';
+  const conteudo = `BT /F1 12 Tf 72 720 Td (${texto.replace(/[^A-Za-z0-9 ./-]/g, '')}) Tj ET`;
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${conteudo.length} >>${nl}stream${nl}${conteudo}${nl}endstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let pdf = `%PDF-1.4${nl}`;
+  const offsets: number[] = [];
+  objs.forEach((o, i) => {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj${nl}${o}${nl}endobj${nl}`;
+  });
+  const xref = pdf.length;
+  pdf += `xref${nl}0 ${objs.length + 1}${nl}0000000000 65535 f ${nl}`;
+  pdf += offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n ${nl}`).join('');
+  pdf += `trailer${nl}<< /Size ${objs.length + 1} /Root 1 0 R >>${nl}startxref${nl}${xref}${nl}%%EOF`;
+  return Buffer.from(pdf, 'latin1');
+}
+
+/**
+ * Anexa o edital (PDF) antes da publicação — POST /api/publicacao/licitacao/:id/edital
+ * (gate do PUBLICAR nas modalidades com edital — E7a item 3).
+ */
+export async function anexarEdital(ctx: AppE2E, lic: LicitacaoFixture, texto?: string): Promise<any> {
+  const r = await ctx
+    .http()
+    .post(`/api/publicacao/licitacao/${lic.id}/edital`)
+    .set(bearer(lic.orgao.token))
+    .attach('arquivo', pdfDeTeste(texto ?? `Edital ${lic.numero_processo}`), { filename: 'edital.pdf', contentType: 'application/pdf' });
+  esperarStatus(r, 201, 'anexar edital');
+  return r.body;
+}
+
+/**
+ * RELÓGIO DE TESTE: grava datas do cronograma direto no banco. Depois da
+ * publicação o cronograma só muda por RETIFICAÇÃO (art. 55 §1º — E7a); os
+ * testes que precisam "fazer o tempo passar" (abrir a sessão agora, prazo de
+ * impugnação vencido) usam este atalho, que simula o relógio, não um ato.
+ */
+export async function ajustarCronograma(
+  ctx: AppE2E,
+  lic: { id: string },
+  datas: Partial<Record<'data_publicacao_edital' | 'data_limite_impugnacao' | 'data_inicio_acolhimento' | 'data_fim_acolhimento' | 'data_abertura_sessao', string | Date | null>>,
+): Promise<void> {
+  const campos = Object.keys(datas);
+  if (!campos.length) return;
+  const sets = campos.map((c, i) => `${c} = $${i + 2}`).join(', ');
+  const valores = campos.map((c) => {
+    const v = (datas as any)[c];
+    return v == null ? null : new Date(v);
+  });
+  await ctx.dataSource.query(`UPDATE licitacoes SET ${sets} WHERE id = $1`, [lic.id, ...valores]);
 }
 
 const CONTRATACAO_DIRETA = [ModalidadeLicitacao.DISPENSA_ELETRONICA, ModalidadeLicitacao.INEXIGIBILIDADE];
@@ -485,6 +547,8 @@ export async function levarAteFase(
     if (atual.fase === FaseLicitacao.APROVACAO_INTERNA) {
       if (direta) {
         await prepararInstrucaoContratacaoDireta(ctx, lic);
+      } else {
+        await anexarEdital(ctx, lic); // E7a: edital real exigido para publicar
       }
       const r = await ctx
         .http()
@@ -512,6 +576,7 @@ export async function levarAteFase(
     !CONTRATACAO_DIRETA.includes(lic.modalidade)
   ) {
     await prepararDocumentosEtapa(ctx, lic, FaseLicitacao.APROVACAO_INTERNA);
+    await anexarEdital(ctx, lic); // E7a: pronto para publicar
   }
   return atual;
 }
@@ -522,14 +587,11 @@ export async function levarAteFase(
  * relógio: propostas são aceitas só antes da abertura e a disputa só depois.
  */
 export async function abrirSessaoAgora(ctx: AppE2E, lic: LicitacaoFixture): Promise<any> {
-  const passado = new Date(Date.now() - 1_000).toISOString();
-  const r = await ctx
-    .http()
-    .put(`/api/licitacoes/${lic.id}`)
-    .set(bearer(lic.orgao.token))
-    .send({ data_fim_acolhimento: passado, data_abertura_sessao: passado });
-  esperarStatus(r, 200, 'antecipar abertura da sessão');
-  return r.body;
+  // E7a: edital publicado não tem o cronograma alterado pelo PUT (só por
+  // retificação) — aqui é o RELÓGIO do teste que avança até a abertura.
+  const passado = new Date(Date.now() - 1_000);
+  await ajustarCronograma(ctx, lic, { data_fim_acolhimento: passado, data_abertura_sessao: passado });
+  return buscarLicitacao(ctx, lic);
 }
 
 // ---------------------------------------------------------------------------

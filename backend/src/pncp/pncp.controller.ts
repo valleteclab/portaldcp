@@ -17,7 +17,9 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PncpService } from './pncp.service';
-import { ResultadoItemDto, ContratoDto, TIPO_DOCUMENTO } from './dto/pncp.dto';
+import { TIPO_DOCUMENTO } from './dto/pncp.dto';
+import { PncpFilaService } from './fila/pncp-fila.service';
+import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { RequireModule } from '../auth/require-module.decorator';
 import { AdminGuard } from '../auth/admin.guard';
@@ -30,9 +32,11 @@ import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 @Controller('pncp')
 @RequireModule(ModuloSistema.PNCP)
 export class PncpController {
-  constructor(private readonly pncpService: PncpService) {
-    console.log('[PncpController] Controller initialized');
-  }
+  constructor(
+    private readonly pncpService: PncpService,
+    private readonly fila: PncpFilaService,
+    private readonly acesso: AcessoLicitacaoService,
+  ) {}
 
   private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
     if (user.type === UserType.ORGAO) return user.sub;
@@ -71,38 +75,54 @@ export class PncpController {
   }
 
   // ============ COMPRA/LICITAÇÃO ============
+  // Desde a E7 todo envio passa pela FILA (pncp_sync): as rotas abaixo
+  // enfileiram a operação e a processam na hora (se falhar, o registro fica na
+  // fila com o erro do PNCP e o reenvio automático). Só o órgão dono.
 
   @Get('compras/:licitacaoId/validar')
-  async validarLicitacao(@Param('licitacaoId') licitacaoId: string) {
+  async validarLicitacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId, 'leitura');
     return this.pncpService.validarLicitacaoParaPNCP(licitacaoId);
   }
 
   @Post('compras/:licitacaoId')
   async enviarCompra(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
-    return this.pncpService.enviarCompra(licitacaoId, atorTransicaoDe(ator));
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarCompraAgora(licitacaoId, atorTransicaoDe(ator));
   }
 
   @Post('compras/:licitacaoId/itens')
-  async enviarItens(@Param('licitacaoId') licitacaoId: string) {
-    return this.pncpService.enviarItens(licitacaoId);
+  async enviarItens(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarItensAgora(licitacaoId);
   }
 
   @Post('compras/:licitacaoId/completo')
-  async enviarCompraCompleta(@Param('licitacaoId') licitacaoId: string) {
-    // Lógica movida para o service (D5) — usada também pelo disparo automático
-    return await this.pncpService.enviarCompraCompleta(licitacaoId);
+  async enviarCompraCompleta(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarCompraCompletaAgora(licitacaoId, atorTransicaoDe(ator));
   }
 
-  /** D5: envia o resultado por item (vencedores/valores) após a homologação */
+  /** Resultado por item da homologação (mesmas operações do disparo automático — sem duplicar). */
   @Post('compras/:licitacaoId/resultados-homologacao')
-  async enviarResultadoHomologacao(@Param('licitacaoId') licitacaoId: string) {
-    return await this.pncpService.enviarResultadoHomologacao(licitacaoId);
+  async enviarResultadoHomologacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarResultadosAgora(licitacaoId);
   }
 
-  /** D5: publica os contratos da licitação no PNCP (art. 94 — eficácia) */
+  /** Contratos ASSINADOS da licitação (art. 94 — eficácia); os não assinados aguardam. */
   @Post('compras/:licitacaoId/contratos')
-  async enviarContratosHomologacao(@Param('licitacaoId') licitacaoId: string) {
-    return await this.pncpService.enviarContratosHomologacao(licitacaoId);
+  async enviarContratosHomologacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarContratosAgora(licitacaoId);
+  }
+
+  /** Contrato assinado (tela do contrato). */
+  @Post('contratos/:contratoId/enviar')
+  async enviarContrato(@Param('contratoId') contratoId: string, @AtorAtual() ator: Ator) {
+    const [c] = ehUuid(contratoId) ? await this.pncpService.orgaoDoContrato(contratoId) : [];
+    this.acesso.assertMesmoOrgao(ator, c?.orgao_id, 'escrita', 'Contrato');
+    return this.fila.enviarContratoAgora(contratoId);
   }
 
   // Vincular manualmente uma licitação já enviada ao PNCP
@@ -116,6 +136,7 @@ export class PncpController {
     },
     @AtorAtual() ator: Ator,
   ) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
     return this.pncpService.vincularLicitacaoExistente(
       licitacaoId,
       body.numeroControlePNCP,
@@ -132,80 +153,52 @@ export class PncpController {
   async enviarDocumento(
     @Param('licitacaoId') licitacaoId: string,
     @Param('tipoDocumento') tipoDocumento: string,
-    @UploadedFile() arquivo: Express.Multer.File
+    @UploadedFile() arquivo: Express.Multer.File,
+    @AtorAtual() ator: Ator,
   ) {
-    if (!arquivo) {
-      throw new HttpException('Arquivo não enviado', HttpStatus.BAD_REQUEST);
-    }
-
-    const tipoDocumentoId = this.mapearTipoDocumento(tipoDocumento);
-    
-    return this.pncpService.enviarDocumento(
-      licitacaoId,
-      tipoDocumentoId,
-      arquivo.buffer,
-      arquivo.originalname
-    );
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    if (!arquivo) throw new HttpException('Arquivo não enviado', HttpStatus.BAD_REQUEST);
+    return this.fila.enviarDocumentoAgora(licitacaoId, this.mapearTipoDocumento(tipoDocumento), arquivo.buffer, arquivo.originalname);
   }
 
   @Post('compras/:licitacaoId/edital')
   @UseInterceptors(FileInterceptor('arquivo'))
-  async enviarEdital(
-    @Param('licitacaoId') licitacaoId: string,
-    @UploadedFile() arquivo: Express.Multer.File
-  ) {
-    if (!arquivo) {
-      throw new HttpException('Arquivo do edital não enviado', HttpStatus.BAD_REQUEST);
-    }
-
-    return this.pncpService.enviarDocumento(
-      licitacaoId,
-      TIPO_DOCUMENTO.EDITAL,
-      arquivo.buffer,
-      arquivo.originalname
-    );
+  async enviarEdital(@Param('licitacaoId') licitacaoId: string, @UploadedFile() arquivo: Express.Multer.File, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    if (!arquivo) throw new HttpException('Arquivo do edital não enviado', HttpStatus.BAD_REQUEST);
+    return this.fila.enviarDocumentoAgora(licitacaoId, TIPO_DOCUMENTO.EDITAL, arquivo.buffer, arquivo.originalname);
   }
 
   @Post('compras/:licitacaoId/termo-referencia')
   @UseInterceptors(FileInterceptor('arquivo'))
-  async enviarTermoReferencia(
-    @Param('licitacaoId') licitacaoId: string,
-    @UploadedFile() arquivo: Express.Multer.File
-  ) {
-    if (!arquivo) {
-      throw new HttpException('Arquivo do TR não enviado', HttpStatus.BAD_REQUEST);
-    }
-
-    return this.pncpService.enviarDocumento(
-      licitacaoId,
-      TIPO_DOCUMENTO.TERMO_REFERENCIA,
-      arquivo.buffer,
-      arquivo.originalname
-    );
+  async enviarTermoReferencia(@Param('licitacaoId') licitacaoId: string, @UploadedFile() arquivo: Express.Multer.File, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    if (!arquivo) throw new HttpException('Arquivo do TR não enviado', HttpStatus.BAD_REQUEST);
+    return this.fila.enviarDocumentoAgora(licitacaoId, TIPO_DOCUMENTO.TERMO_REFERENCIA, arquivo.buffer, arquivo.originalname);
   }
 
-  // ============ RESULTADO ============
+  // ============ FILA (E7) ============
 
-  @Post('compras/:licitacaoId/itens/:itemNumero/resultado')
-  async enviarResultado(
-    @Param('licitacaoId') licitacaoId: string,
-    @Param('itemNumero') itemNumero: number,
-    @Body() resultado: ResultadoItemDto
-  ) {
-    return this.pncpService.enviarResultado(licitacaoId, itemNumero, resultado);
+  /** Operações da licitação no PNCP (status, tentativas, próximo envio, erro do PNCP). Órgão dono. */
+  @Get('fila')
+  async listarFila(@Query('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    if (!licitacaoId) throw new HttpException('Informe licitacaoId', HttpStatus.BAD_REQUEST);
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId, 'leitura');
+    return this.fila.listarFila(licitacaoId);
   }
 
-  // ============ CONTRATO ============
-
-  @Post('contratos')
-  async enviarContrato(@Body() contrato: ContratoDto) {
-    return this.pncpService.enviarContrato(contrato);
+  /** "Reenviar agora" (inclusive erro definitivo, depois de corrigido o dado). Órgão dono. */
+  @Post('fila/:id/reenviar')
+  async reenviarDaFila(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.exigirDonoDaLinha(ator, id);
+    return this.fila.reenviarAgora(id, atorTransicaoDe(ator));
   }
 
   // ============ CONSULTAS ============
 
   @Get('status/:licitacaoId')
-  async consultarStatus(@Param('licitacaoId') licitacaoId: string) {
+  async consultarStatus(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId, 'leitura');
     return this.pncpService.consultarStatusSincronizacao(licitacaoId);
   }
 
@@ -227,9 +220,16 @@ export class PncpController {
     return this.pncpService.listarErros(orgaoId);
   }
 
+  /** Compatibilidade com a tela PNCP: mesmo "reenviar agora" da fila. */
   @Post('reenviar/:syncId')
-  async reenviar(@Param('syncId') syncId: string) {
-    return this.pncpService.reenviar(syncId);
+  async reenviar(@Param('syncId') syncId: string, @AtorAtual() ator: Ator) {
+    await this.exigirDonoDaLinha(ator, syncId);
+    return this.fila.reenviarAgora(syncId, atorTransicaoDe(ator));
+  }
+
+  private async exigirDonoDaLinha(ator: Ator, id: string) {
+    const dono = ehUuid(id) ? await this.fila.orgaoDaLinha(id) : null;
+    this.acesso.assertMesmoOrgao(ator, dono?.orgaoId, 'escrita', 'Registro do PNCP');
   }
 
   // ============ PCA - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
