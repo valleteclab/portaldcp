@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { executarMigracaoDeBoot } from '../common/migracao-boot';
 import { diretorioPrivado } from '../common/arquivos/arquivos';
 import { houveMudancaArquivos, migrarArquivosPrivados, resumoMigracaoArquivos } from './migracao-arquivos-privados';
 
@@ -17,7 +18,12 @@ export class MigracaoArquivosPrivadosBootService implements OnApplicationBootstr
 
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
-  async onApplicationBootstrap(): Promise<void> {
+  onApplicationBootstrap(): Promise<void> {
+    // Fila única: as migrações de boot rodam uma de cada vez (ver common/migracao-boot.ts)
+    return executarMigracaoDeBoot(this.dataSource, () => this.executarMigracao());
+  }
+
+  private async executarMigracao(): Promise<void> {
     if (process.env.ARQUIVOS_MIGRAR_NO_BOOT === 'false') return;
     if (!process.env.UPLOAD_PRIVATE_DIR && !process.env.UPLOAD_DIR && process.env.NODE_ENV === 'production') {
       this.logger.warn(`UPLOAD_PRIVATE_DIR/UPLOAD_DIR não definidos em produção — privado em ${diretorioPrivado()} (confirme que é volume persistente).`);
