@@ -573,14 +573,10 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         caminho: () => `/api/habilitacao/licitacao/${W2.lic.id}/convocar`,
         corpo: () => ({ fornecedorId: F1.id }),
       },
-      {
-        nome: 'adjudicar item',
-        metodo: 'put',
-        caminho: () => `/api/sessao/${W2.sessaoId}/adjudicar/${W2.lic.itens[0].id}`,
-        corpo: () => ({ fornecedorId: F1.id, valor: 1 }),
-      },
-      { nome: 'homologar', metodo: 'put', caminho: () => `/api/sessao/${W2.sessaoId}/homologar`, corpo: () => ({ nome: 'Forjado' }) },
-      { nome: 'encerrar', metodo: 'put', caminho: () => `/api/sessao/${W2.sessaoId}/encerrar` },
+      // E6: adjudicação/homologação só pelo resultado único (/api/resultado)
+      { nome: 'adjudicar', metodo: 'post', caminho: () => `/api/resultado/licitacao/${W2.lic.id}/adjudicar` },
+      { nome: 'homologar', metodo: 'post', caminho: () => `/api/resultado/licitacao/${W2.lic.id}/homologar` },
+      { nome: 'gerar instrumentos', metodo: 'post', caminho: () => `/api/resultado/licitacao/${W2.lic.id}/instrumentos` },
     ];
     const atores: Array<{ nome: string; token: () => string }> = [
       { nome: 'órgão B', token: () => B.token },
@@ -658,7 +654,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
 
     it('fornecedor não executa atos do órgão (publicar, homologar, abrir lances) (E1a)', async () => {
       const pub = await ctx.http().put(`/api/licitacoes/${L1.id}/publicar-edital`).set(bearer(F1.token)).send(datasEditalPadrao());
-      const hom = await ctx.http().put(`/api/licitacoes/${L2.id}/homologar`).set(bearer(F1.token)).send({ valor_homologado: 1 });
+      const hom = await ctx.http().post(`/api/resultado/licitacao/${L2.id}/homologar`).set(bearer(F1.token)).send({});
       const jan = await ctx.http().post(`/api/licitacoes/${Y.id}/dispensa/abrir-lances`).set(bearer(F1.token)).send({});
       expect([pub.status, hom.status, jan.status]).toEqual([403, 403, 403]);
     });
@@ -705,9 +701,18 @@ describe('Isolamento de dados da licitação (autorização)', () => {
 
     // CORRIGIDO NA E1a (era vazamento): homologar sem checagem de órgão — licitacoes/licitacoes.controller.ts:111-117
     test('órgão B não homologa licitação de A', async () => {
-      const r = await ctx.http().put(`/api/licitacoes/${L2.id}/homologar`).set(bearer(B.token)).send({ valor_homologado: 1 });
-      registrarHttp('5 órgão B PUT homologar (L2)', r);
+      const r = await ctx.http().post(`/api/resultado/licitacao/${L2.id}/homologar`).set(bearer(B.token)).send({});
+      registrarHttp('5 órgão B POST resultado/homologar (L2)', r);
       expect(RECUSADO).toContain(r.status);
+    });
+
+    // E6: o painel do resultado (vencedores, valores, autoridade) é só do órgão dono
+    test('órgão B e fornecedor não leem o painel do resultado de A', async () => {
+      const b = await ctx.http().get(`/api/resultado/licitacao/${L2.id}`).set(bearer(B.token));
+      const f = await ctx.http().get(`/api/resultado/licitacao/${L2.id}`).set(bearer(F1.token));
+      registrarHttp('5 órgão B GET resultado (L2)', b);
+      expect(RECUSADO).toContain(b.status);
+      expect(RECUSADO).toContain(f.status);
     });
 
     // CORRIGIDO NA E1a (era vazamento): suspender sem checagem de órgão — licitacoes/licitacoes.controller.ts:225-231
@@ -1281,9 +1286,9 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         });
       const adj = await ctx
         .http()
-        .put(`/api/itens/${X.lic.itens[0].id}/adjudicar`)
+        .post(`/api/resultado/licitacao/${X.lic.id}/adjudicar`)
         .set(bearer(F1.token))
-        .send({ fornecedor_id: F1.id, fornecedor_nome: F1.razao_social, valor_unitario_homologado: 1 });
+        .send({});
       registrar('13 itens: órgão B PUT/POST, F1 adjudicar (X)', `put=${put.status} post=${post.status} adj=${adj.status}`);
       expect(dono.body.every((i: any) => Number(i.valor_unitario_estimado) > 0)).toBe(true);
       expect(put.status).toBe(403);

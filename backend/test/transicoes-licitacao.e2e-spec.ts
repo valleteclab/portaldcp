@@ -21,6 +21,7 @@ import {
   LicitacaoFixture,
   OrgaoFixture,
 } from './support';
+import { homologarResultado } from './support/resultado';
 import { criarDispensaComPropostas, criarDispensaPublicada } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao, SituacaoLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { TransicoesService } from '../src/licitacoes/transicoes/transicoes.service';
@@ -243,11 +244,11 @@ describe('E1 — transições da licitação (máquina de estados)', () => {
       const f = await criarFornecedor(ctx, { porte: 'ME' });
       lic = await criarDispensaComPropostas(ctx, orgao, [{ fornecedor: f, valores: [90, 45] }]);
       await http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(orgao.token)).expect(201);
-      await http().put(`/api/licitacoes/${lic.id}/homologar`).set(bearer(orgao.token)).send({ valor_homologado: 1800 }).expect(200);
+      await homologarResultado(ctx, lic.id, orgao.token).expect(200);
     });
 
     it('homologada e com contrato gerado: re-homologar é recusado', async () => {
-      const r = await http().put(`/api/licitacoes/${lic.id}/homologar`).set(bearer(orgao.token)).send({ valor_homologado: 1800 });
+      const r = await homologarResultado(ctx, lic.id, orgao.token);
       expect(r.status).toBe(400);
       expect(r.body.message).toMatch(/já homologada e com contrato/);
     });

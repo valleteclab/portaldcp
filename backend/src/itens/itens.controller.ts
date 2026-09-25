@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { ItensService, LicitacaoVisaoItem } from './itens.service';
-import { CreateItemDto, UpdateItemDto, AdjudicarItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
+import { CreateItemDto, UpdateItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
 import { ItemLicitacao } from './entities/item-licitacao.entity';
 import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
@@ -12,8 +12,8 @@ import { itemParaOrgao, itemParaPublico, itensParaPublico } from './item-visao.u
 
 /**
  * ITENS DA LICITAÇÃO — regras de acesso (E1a):
- *  - criar/alterar/excluir, cancelar, deserto, fracassado, adjudicar,
- *    homologar e PCA: só o órgão DONO da licitação (@SomenteOrgao + dono);
+ *  - criar/alterar/excluir, cancelar, deserto, fracassado e PCA: só o órgão
+ *    DONO da licitação (@SomenteOrgao + dono);
  *  - leituras (lista, item, resumo): rotas públicas com login opcional —
  *    órgão dono/admin vê tudo; os demais só itens de licitação já divulgada,
  *    sem a identidade do melhor lance e, com orçamento SIGILOSO, sem os
@@ -133,23 +133,9 @@ export class ItensController {
     return await this.itensService.marcarFracassado(id, body.motivo, atorTransicaoDe(ator));
   }
 
-  @Put(':id/adjudicar')
-  @SomenteOrgao()
-  async adjudicar(
-    @Param('id') id: string,
-    @Body(new ValidationPipe()) dados: AdjudicarItemDto,
-    @AtorAtual() ator: Ator,
-  ): Promise<ItemLicitacao> {
-    await this.acesso.assertOrgaoDoItem(ator, id, 'escrita');
-    return await this.itensService.adjudicar(id, dados);
-  }
-
-  @Put(':id/homologar')
-  @SomenteOrgao()
-  async homologar(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<ItemLicitacao> {
-    await this.acesso.assertOrgaoDoItem(ator, id, 'escrita');
-    return await this.itensService.homologar(id);
-  }
+  // PUT :id/adjudicar e PUT :id/homologar REMOVIDOS (E6): adjudicação e
+  // homologação só pelo resultado único (/api/resultado/licitacao/:id/...),
+  // com vencedor do ranking/julgamento e valor calculado.
 
   @Delete(':id')
   @SomenteOrgao()

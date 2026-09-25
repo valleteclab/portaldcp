@@ -33,6 +33,9 @@ import { ROTULO_FASE } from './transicoes/fases';
 import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
 import { motivoInversaoInvalida } from '../habilitacao/regras-habilitacao';
 import { desempatarNoAto } from '../julgamento/desempate.sql';
+import { ResultadoService, EntradaAdjudicacao } from '../resultado/resultado.service';
+import { valorAdjudicadoDoUnitario } from '../resultado/regras-resultado';
+import type { Ator } from '../auth/acesso/ator';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -71,6 +74,9 @@ export class LicitacoesService {
     private readonly faseInternaService: FaseInternaService,
     private readonly notificacoesService: NotificacoesService,
     private readonly transicoes: TransicoesService,
+    // Resultado único (E6): julgamento da dispensa e resultado externo gravam
+    // a adjudicação pelo mesmo serviço; homologar é só dele.
+    private readonly resultado: ResultadoService,
   ) {}
 
   /**
@@ -154,6 +160,8 @@ export class LicitacoesService {
 
     const salva = await this.licitacaoRepository.save(licitacao);
     await this.transicoes.registrarCriacao(salva, ator);
+    // E6.5: vinculada ao item do PCA → item LICITACAO_INICIADA
+    if (salva.item_pca_id || salva.demanda_id) await this.resultado.aoCriarProcesso(salva.id);
     return salva;
   }
 
@@ -330,6 +338,8 @@ export class LicitacoesService {
 
     const licitacaoSalva = await this.licitacaoRepository.save(licitacao);
     await this.transicoes.registrarCriacao(licitacaoSalva, ator, undefined, { demanda_id: demanda.id });
+    // E6.5: demanda → EM_CONTRATACAO; item do PCA → LICITACAO_INICIADA
+    await this.resultado.aoCriarProcesso(licitacaoSalva.id);
 
     // 7. Cria os itens da licitação a partir dos itens da demanda
     const itensLicitacao = itens.map((item, i) => {
@@ -713,7 +723,7 @@ export class LicitacoesService {
    * ADJUDICACAO → homologar). Não existe mais "próxima fase" genérica: cada
    * passo é um ato com as suas pré-condições.
    */
-  async avancarFase(id: string, observacao: string | undefined, ator: AtorTransicao): Promise<Licitacao> {
+  async avancarFase(id: string, observacao: string | undefined, ator: AtorTransicao, atorJwt?: Ator): Promise<Licitacao> {
     const { licitacao, def } = await this.transicoes.atoPrincipalDe(id);
     if (!def) {
       throw new ConflictException(
@@ -722,7 +732,7 @@ export class LicitacoesService {
           '.',
       );
     }
-    await this.executarAto(id, def.ato, { motivo: observacao }, ator);
+    await this.executarAto(id, def.ato, { motivo: observacao }, ator, atorJwt);
     return this.carregarBruta(id);
   }
 
@@ -749,8 +759,9 @@ export class LicitacoesService {
   async executarAto(
     id: string,
     ato: AtoLicitacao,
-    corpo: { motivo?: string; dados?: Record<string, any>; valor_homologado?: number },
+    corpo: { motivo?: string; dados?: Record<string, any> },
     ator: AtorTransicao,
+    atorJwt?: Ator,
   ): Promise<{ licitacao: Licitacao; resultado?: any }> {
     const motivo = corpo?.motivo;
     switch (ato) {
@@ -764,10 +775,18 @@ export class LicitacoesService {
         );
       case AtoLicitacao.CANCELAR_PUBLICACAO:
         throw new BadRequestException('A publicação é cancelada pela exclusão da compra no PNCP.');
+      // Resultado único (E6): adjudicar/homologar só pelo ResultadoService
+      // (valor homologado calculado — nunca do corpo; autoridade do token).
       case AtoLicitacao.HOMOLOGAR: {
-        const valor =
-          corpo?.valor_homologado != null ? Number(corpo.valor_homologado) : await this.somaValoresHomologadosItens(id);
-        return { licitacao: await this.homologar(id, valor, ator) };
+        if (!atorJwt) throw new BadRequestException('Homologar: use POST /resultado/licitacao/:id/homologar.');
+        const resultado = await this.resultado.homologar(id, atorJwt);
+        return { licitacao: await this.carregarBruta(id), resultado };
+      }
+      case AtoLicitacao.ADJUDICAR:
+      case AtoLicitacao.DECIDIR_RECURSOS: {
+        if (!atorJwt) throw new BadRequestException('Adjudicar: use POST /resultado/licitacao/:id/adjudicar.');
+        const resultado = await this.resultado.adjudicar(id, atorJwt, { motivo });
+        return { licitacao: await this.carregarBruta(id), resultado };
       }
       case AtoLicitacao.JULGAR_DISPENSA: {
         const resultado = await this.julgarDispensa(id, ator);
@@ -810,16 +829,6 @@ export class LicitacoesService {
     const lic = await this.licitacaoRepository.findOne({ where: { id } });
     if (!lic) throw new NotFoundException(`Licitação com ID ${id} não encontrada`);
     return lic;
-  }
-
-  /** Soma dos valores totais homologados dos itens com vencedor. */
-  private async somaValoresHomologadosItens(id: string): Promise<number> {
-    const [r] = await this.dataSource.query(
-      `SELECT COALESCE(SUM(valor_total_homologado), 0) AS total
-         FROM itens_licitacao WHERE licitacao_id = $1 AND fornecedor_vencedor_id IS NOT NULL`,
-      [id],
-    );
-    return Math.round(Number(r?.total || 0) * 100) / 100;
   }
 
   async publicarEdital(
@@ -875,76 +884,6 @@ export class LicitacoesService {
   async encerrarDisputa(id: string, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
     // Ato ENCERRAR_DISPUTA: EM_DISPUTA → JULGAMENTO (data_fim_disputa)
     return this.transicoes.executar(id, AtoLicitacao.ENCERRAR_DISPUTA, { ator });
-  }
-
-  async homologar(id: string, valorHomologado: number, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
-    // Ato HOMOLOGAR: ADJUDICACAO (ou HOMOLOGACAO sem contrato/ata ainda),
-    // exige item com vencedor. Efeitos externos (contrato, PNCP) depois.
-    const licitacaoSalva = await this.transicoes.executar(id, AtoLicitacao.HOMOLOGAR, {
-      ator,
-      dados: { valor_homologado: valorHomologado },
-      aplicar: (lic) => {
-        lic.valor_homologado = valorHomologado;
-      },
-    });
-    const licitacao = licitacaoSalva;
-
-    // Gera contratos automaticamente após homologação (1 por fornecedor vencedor)
-    try {
-      const contratos = await this.contratosService.gerarContratoAutomatico(id);
-      if (contratos.length > 0) {
-        const numeros = contratos.map((c) => c.numero_contrato).join(', ');
-        this.logger.log(
-          `${contratos.length} contrato(s) gerado(s) automaticamente para licitação ${id}: ${numeros}`,
-        );
-        // Avisa o setor requisitante da demanda de origem
-        this.notificarDemandaOrigem(
-          licitacao,
-          TipoNotificacao.DEMANDA_CONTRATADA,
-          'Sua demanda foi contratada ✅',
-          `O processo ${licitacao.numero_processo} foi homologado e gerou o(s) contrato(s) ${numeros}.`,
-        ).catch(() => undefined);
-      }
-    } catch (error) {
-      // Não falha a homologação se houver erro na geração dos contratos
-      this.logger.error(`Erro ao gerar contratos automaticamente para licitação ${id}:`, error);
-    }
-
-    // D5 — efeito de transição: envia o RESULTADO por item ao PNCP na
-    // homologação (exceto seleção externa — nesse caso a plataforma de origem
-    // é responsável pela publicação). Fire-and-forget com registro em pncp_sync.
-    if (!licitacao.selecao_externa) {
-      this.pncpService
-        .enviarResultadoHomologacao(id)
-        .then((r: any) =>
-          this.logger.log(
-            `[PNCP] Resultado da licitação ${licitacao.numero_processo}: ${r?.enviados}/${r?.total} item(ns) enviados`,
-          ),
-        )
-        .catch((e: any) =>
-          this.logger.warn(
-            `[PNCP] Resultado da licitação ${licitacao.numero_processo} não enviado: ${e.message} (reenvie pelo cockpit)`,
-          ),
-        );
-
-      // Contratos gerados na homologação também vão ao PNCP (art. 94: a
-      // divulgação é condição de eficácia — 10 dias úteis na contratação
-      // direta). Fire-and-forget com registro em pncp_sync.
-      this.pncpService
-        .enviarContratosHomologacao(id)
-        .then((r: any) =>
-          this.logger.log(
-            `[PNCP] Contratos da licitação ${licitacao.numero_processo}: ${r?.enviados}/${r?.total} enviado(s)`,
-          ),
-        )
-        .catch((e: any) =>
-          this.logger.warn(
-            `[PNCP] Contratos da licitação ${licitacao.numero_processo} não enviados: ${e.message} (reenvie pelo cockpit)`,
-          ),
-        );
-    }
-
-    return licitacaoSalva;
   }
 
   // ============================================================================
@@ -1112,7 +1051,7 @@ export class LicitacoesService {
    * Registra o resultado de uma seleção realizada FORA do sistema
    * (pregão em outra plataforma): marca vencedor e valor por item
    * (status ADJUDICADO) e leva a licitação à fase ADJUDICACAO.
-   * Depois, o fluxo normal de homologar() gera o contrato automaticamente.
+   * Depois, a homologação (ResultadoService — E6) gera o contrato.
    */
   async registrarResultadoExterno(
     id: string,
@@ -1164,7 +1103,22 @@ export class LicitacoesService {
       alteracoes.push({ item, fornecedor_id: r.fornecedor_id, razao_social: forn[0].razao_social, valorUnit });
     }
 
-    const resultados: Array<{ item: string; fornecedor: string; valor_total: number }> = [];
+    // E6: o MESMO dado da sala — vencedor VENCEDOR na unidade (item) e item
+    // ADJUDICADO com o valor registrado da plataforma de origem — gravado pelo
+    // ResultadoService dentro do ato (mesma transação e lock).
+    const entradas: EntradaAdjudicacao[] = alteracoes.map((a) => ({
+      tipo: 'ITEM',
+      unidadeId: a.item.id,
+      numero: Number((a.item as any).numero_item),
+      fornecedorId: a.fornecedor_id,
+      valores: [
+        valorAdjudicadoDoUnitario(
+          { itemId: a.item.id, numero: Number((a.item as any).numero_item), quantidade: Number((a.item as any).quantidade || 0) },
+          a.valorUnit,
+        ),
+      ],
+    }));
+    let resultados: Array<{ item: string; fornecedor: string; valor_total: number }> = [];
     const salva = await this.transicoes.executar(id, AtoLicitacao.REGISTRAR_RESULTADO_EXTERNO, {
       ator,
       registro: {
@@ -1173,21 +1127,12 @@ export class LicitacoesService {
         itens: dto.itens.length,
       },
       aplicar: async (lic, manager) => {
-        for (const a of alteracoes) {
-          const item = a.item;
-          item.fornecedor_vencedor_id = a.fornecedor_id;
-          item.fornecedor_vencedor_nome = a.razao_social;
-          item.valor_unitario_homologado = a.valorUnit;
-          item.valor_total_homologado =
-            Math.round(a.valorUnit * Number((item as any).quantidade || 0) * 100) / 100;
-          item.status = StatusItem.ADJUDICADO;
-          await manager.getRepository(ItemLicitacao).save(item);
-          resultados.push({
-            item: String((item as any).numero_item),
-            fornecedor: a.razao_social,
-            valor_total: item.valor_total_homologado,
-          });
-        }
+        const gravadas = await this.resultado.gravarAdjudicacao(manager, id, entradas, ator, 'SELECAO_EXTERNA');
+        resultados = gravadas.map((g) => ({
+          item: String(g.numero),
+          fornecedor: g.razaoSocial,
+          valor_total: g.valorTotal,
+        }));
         lic.selecao_externa = true;
         if (dto.plataforma_externa !== undefined) lic.plataforma_externa = dto.plataforma_externa || null;
         if (dto.numero_processo_externo !== undefined)
@@ -1207,8 +1152,8 @@ export class LicitacoesService {
    * DEGRAU 2 — DISPENSA ELETRÔNICA (Lei 14.133, art. 75 §3º).
    * Julga as propostas recebidas por MENOR PREÇO UNITÁRIO por item e adjudica:
    * grava vencedor/valor homologado em cada item (status ADJUDICADO), marca as
-   * propostas vencedoras e leva a licitação à fase ADJUDICACAO. Depois, o
-   * homologar() existente gera o(s) contrato(s) automaticamente.
+   * propostas vencedoras e leva a licitação à fase ADJUDICACAO. Depois, a
+   * homologação (ResultadoService — E6) gera o(s) contrato(s).
    */
   async julgarDispensa(id: string, ator: AtorTransicao = atorSistema('api')): Promise<any> {
     const licitacao = await this.findOne(id);
@@ -1329,7 +1274,10 @@ export class LicitacoesService {
     const adjudicados: Array<{ item: number; fornecedor: string; valor_unitario: number; valor_total: number }> = [];
     const semProposta: number[] = [];
     const propostasVencedoras = new Set<string>();
-    const itensAdjudicados: ItemLicitacao[] = [];
+    // E6: valor adjudicado da dispensa = melhor oferta final do vencedor
+    // (proposta ou lance da janela — IN 67/2021; a dispensa não tem a etapa de
+    // aceitação da proposta adequada do pregão) × quantidade. Decisão documentada.
+    const entradas: EntradaAdjudicacao[] = [];
 
     for (const item of itens) {
       const v = vencedorPorItem.get(item.id);
@@ -1337,20 +1285,17 @@ export class LicitacoesService {
         semProposta.push((item as any).numero_item);
         continue;
       }
-      const valorUnit = Number(v.valor_unitario);
-      item.fornecedor_vencedor_id = v.fornecedor_id;
-      item.fornecedor_vencedor_nome = v.razao_social;
-      item.valor_unitario_homologado = valorUnit;
-      item.valor_total_homologado =
-        Math.round(valorUnit * Number((item as any).quantidade || 0) * 100) / 100;
-      item.status = StatusItem.ADJUDICADO;
-      itensAdjudicados.push(item);
+      const valor = valorAdjudicadoDoUnitario(
+        { itemId: item.id, numero: Number((item as any).numero_item), quantidade: Number((item as any).quantidade || 0) },
+        Number(v.valor_unitario),
+      );
+      entradas.push({ tipo: 'ITEM', unidadeId: item.id, numero: valor.numero, fornecedorId: v.fornecedor_id, valores: [valor] });
       propostasVencedoras.add(v.proposta_id);
       adjudicados.push({
         item: (item as any).numero_item,
         fornecedor: v.razao_social,
-        valor_unitario: valorUnit,
-        valor_total: item.valor_total_homologado,
+        valor_unitario: valor.valorUnitario,
+        valor_total: valor.valorTotal,
       });
     }
 
@@ -1358,13 +1303,13 @@ export class LicitacoesService {
       throw new BadRequestException('Nenhum item pôde ser adjudicado (itens sem proposta válida)');
     }
 
-    // Ato JULGAR_DISPENSA: grava itens adjudicados e propostas na MESMA
-    // transação (com lock) da mudança de fase.
+    // Ato JULGAR_DISPENSA: adjudicação (vencedor + itens, pelo ResultadoService)
+    // e propostas na MESMA transação (com lock) da mudança de fase.
     const salva = await this.transicoes.executar(id, AtoLicitacao.JULGAR_DISPENSA, {
       ator,
       registro: { itens_adjudicados: adjudicados.length, itens_sem_proposta: semProposta },
       aplicar: async (_lic, manager) => {
-        for (const item of itensAdjudicados) await manager.getRepository(ItemLicitacao).save(item);
+        await this.resultado.gravarAdjudicacao(manager, id, entradas, ator, 'DISPENSA');
         // Marca propostas vencedoras (ao menos 1 item) e classifica as demais válidas
         if (propostasVencedoras.size > 0) {
           await manager.query(

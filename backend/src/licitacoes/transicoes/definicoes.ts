@@ -179,7 +179,9 @@ export const semContratoAssinado: Precondicao = async (ctx) => {
 /** Homologar exige ao menos um item com vencedor adjudicado. */
 export const haItemAdjudicado: Precondicao = async (ctx) => {
   const itens = await ctx.consultas.itens();
-  if (!itens.some((i) => !!i.fornecedor_vencedor_id)) {
+  // E6: adjudicado = item ADJUDICADO/HOMOLOGADO com vencedor (gravado pelo
+  // ResultadoService — sala, julgamento da dispensa ou resultado externo)
+  if (!itens.some((i) => !!i.fornecedor_vencedor_id && ['ADJUDICADO', 'HOMOLOGADO'].includes(String(i.status)))) {
     return 'Nenhum item com vencedor adjudicado — registre o resultado antes de homologar (ou declare a licitação deserta/fracassada).';
   }
   return null;
@@ -493,6 +495,9 @@ export const efeitosDosRecursosAplicados: Precondicao = async (ctx) => {
  * encerrada (preclusão — art. 165 §1º I; IN SEGES 73/2022, art. 40).
  */
 export const janelaDeIntencaoEncerrada: Precondicao = async (ctx) => {
+  // ADJUDICACAO → ADJUDICACAO (E6): a fase recursal já foi superada por um ato
+  // (DECIDIR_RECURSOS); o que falta é gravar a adjudicação dos itens.
+  if (ctx.licitacao.fase !== FaseLicitacao.HABILITACAO) return null;
   if (!ctx.consultas.estadoRecursal) return null;
   const e = await ctx.consultas.estadoRecursal();
   if (e.janelaEncerrada || e.janelaAberta) return null;
@@ -514,15 +519,23 @@ const DECIDIR_RECURSOS: DefinicaoAto = {
   de: [F.RECURSO],
   para: F.ADJUDICACAO,
   principal: true,
+  endpoint: 'POST /resultado/licitacao/:id/adjudicar',
   precondicoes: [licitantesAceitosHabilitados, semRecursoPendente, efeitosDosRecursosAplicados],
   efeitos: [marcarData('data_adjudicacao')],
 };
 
+/**
+ * ADJUDICAR (E6 — ResultadoService): grava vencedor (VENCEDOR) e itens
+ * ADJUDICADO com os valores da proposta adequada aceita. De HABILITACAO (sem
+ * recurso) ou ADJUDICACAO → ADJUDICACAO (a fase recursal já levou a licitação
+ * à adjudicação por DECIDIR_RECURSOS e os itens ainda não foram gravados).
+ */
 const ADJUDICAR: DefinicaoAto = {
   ato: A.ADJUDICAR,
-  rotulo: 'Adjudicar (sem recurso)',
-  de: [F.HABILITACAO],
+  rotulo: 'Adjudicar',
+  de: [F.HABILITACAO, F.ADJUDICACAO],
   para: F.ADJUDICACAO,
+  endpoint: 'POST /resultado/licitacao/:id/adjudicar',
   precondicoes: [licitantesAceitosHabilitados, semRecursoPendente, efeitosDosRecursosAplicados, janelaDeIntencaoEncerrada],
   efeitos: [marcarData('data_adjudicacao')],
 };
@@ -584,12 +597,11 @@ const REGISTRAR_RESULTADO_EXTERNO: DefinicaoAto = {
 const HOMOLOGAR: DefinicaoAto = {
   ato: A.HOMOLOGAR,
   rotulo: 'Homologar',
-  // HOMOLOGACAO → HOMOLOGACAO: a sala do pregão grava a fase sem gerar
-  // contrato (B1, E6); o cockpit completa enquanto não há contrato/ata.
+  // HOMOLOGACAO → HOMOLOGACAO: re-homologar enquanto nenhum contrato/ata foi
+  // gerado (ex.: falha na geração do instrumento). Valor calculado (E6).
   de: [F.ADJUDICACAO, F.HOMOLOGACAO],
   para: F.HOMOLOGACAO,
-  requerDados: true,
-  endpoint: 'PUT /licitacoes/:id/homologar',
+  endpoint: 'POST /resultado/licitacao/:id/homologar',
   principal: true,
   precondicoes: [haItemAdjudicado, rehomologacaoSemContrato, semRecursoPendente],
   efeitos: [marcarData('data_homologacao')],

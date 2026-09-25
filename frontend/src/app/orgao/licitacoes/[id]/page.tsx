@@ -723,30 +723,6 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
     }
   }
 
-  // Homologar licitação
-  const homologarLicitacao = async () => {
-    if (!licitacao) return
-    const valorHomologado = prompt('Informe o valor homologado:')
-    if (!valorHomologado) return
-    
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/homologar`, {
-        method: 'PUT',
-        body: JSON.stringify({ valor_homologado: parseFloat(valorHomologado) })
-      })
-      if (res.ok) {
-        setFaseModal(null)
-        carregarDados()
-        alert('Licitação homologada com sucesso!')
-      } else {
-        const error = await res.json()
-        alert(`Erro: ${error.message}`)
-      }
-    } catch (error) {
-      alert('Erro ao homologar')
-    }
-  }
-
   // Suspender licitação
   const suspenderLicitacao = async () => {
     const motivo = prompt('Informe o motivo da suspensão:')
@@ -898,10 +874,10 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
         case 'ADJUDICACAO':
           acoes.push({ label: 'Sala de Disputa V3 (Adjudicação)', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/sala`), variant: 'default', icon: Gavel })
           acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
-          acoes.push({ label: 'Homologar processo', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/homologacao`), icon: Award })
+          acoes.push({ label: 'Homologar processo', action: () => router.push(`/orgao/processos/${licitacaoId}`), icon: Award })
           break
         case 'HOMOLOGACAO':
-          acoes.push({ label: 'Página de Homologação', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/homologacao`), variant: 'default', icon: Award })
+          acoes.push({ label: 'Página de Homologação', action: () => router.push(`/orgao/processos/${licitacaoId}`), variant: 'default', icon: Award })
           acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           break
       }

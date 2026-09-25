@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda } from './entities/demanda.entity';
+import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda, STATUS_DEMANDA_EM_PROCESSO } from './entities/demanda.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 
@@ -131,9 +131,9 @@ export class DemandasService {
   async update(id: string, dados: Partial<Demanda>): Promise<Demanda> {
     const demanda = await this.findOne(id);
 
-    // Não permite editar demandas já consolidadas
-    if (demanda.status === StatusDemanda.CONSOLIDADA) {
-      throw new BadRequestException('Demanda já consolidada não pode ser editada');
+    // Não permite editar demandas já consolidadas / em contratação / contratadas
+    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
+      throw new BadRequestException('Demanda já consolidada ou em contratação não pode ser editada');
     }
 
     Object.assign(demanda, dados);
@@ -143,8 +143,8 @@ export class DemandasService {
   async delete(id: string): Promise<void> {
     const demanda = await this.findOne(id);
 
-    if (demanda.status === StatusDemanda.CONSOLIDADA) {
-      throw new BadRequestException('Demanda já consolidada não pode ser excluída');
+    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
+      throw new BadRequestException('Demanda já consolidada ou em contratação não pode ser excluída');
     }
 
     await this.demandaRepository.remove(demanda);
@@ -229,8 +229,8 @@ export class DemandasService {
   async voltarParaRascunho(id: string): Promise<Demanda> {
     const demanda = await this.findOne(id);
 
-    if (demanda.status === StatusDemanda.CONSOLIDADA) {
-      throw new BadRequestException('Demanda consolidada não pode voltar para rascunho');
+    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
+      throw new BadRequestException('Demanda consolidada ou em contratação não pode voltar para rascunho');
     }
 
     demanda.status = StatusDemanda.RASCUNHO;

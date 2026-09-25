@@ -335,6 +335,17 @@ export class Licitacao {
   @Column({ type: 'timestamp', nullable: true })
   data_homologacao: Date;
 
+  /**
+   * Autoridade que homologou (Lei 14.133 art. 71 IV) — retrato do cadastro no
+   * momento do ato (usuário do token ou responsável do órgão), nunca do corpo.
+   * Plano E6 (ResultadoService.homologar).
+   */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  homologacao_autoridade_nome: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  homologacao_autoridade_cargo: string | null;
+
   // === CONFIGURAÇÕES DA DISPUTA ===
   // Overrides do edital sobre os parâmetros do órgão (resolvedor:
   // licitação → órgão → sistema — disputa-v2/parametros-disputa.ts). NULL = herda.

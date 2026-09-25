@@ -37,6 +37,7 @@ import { DisputaModule } from './disputa-v2/disputa.module';
 import { DisputaV3Module } from './disputa-v3/disputa-v3.module';
 import { JulgamentoModule } from './julgamento/julgamento.module';
 import { HabilitacaoModule } from './habilitacao/habilitacao.module';
+import { ResultadoModule } from './resultado/resultado.module';
 import { AdminModule } from './admin/admin.module';
 import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
 import { NotificacoesModule } from './notificacoes/notificacoes.module';
@@ -144,6 +145,7 @@ import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-lic
     DisputaV3Module,
     JulgamentoModule,
     HabilitacaoModule,
+    ResultadoModule,
     AdminModule,
     AlmoxarifadoModule,
     NotificacoesModule,

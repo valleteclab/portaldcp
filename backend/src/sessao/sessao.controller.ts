@@ -29,9 +29,9 @@ import { filtrarEventosVisiveis, VisaoEvento } from '../julgamento/regras-negoci
  * SESSÃO PÚBLICA (legado da sala /sessao + etapas pós-disputa).
  *
  * AUTORIZAÇÃO (E1a):
- *  - atos do pregoeiro (criar/iniciar/suspender/encerrar, itens, negociação,
+ *  - atos do pregoeiro (criar/iniciar/suspender, itens, negociação,
  *    habilitação — /api/habilitacao —, recursos — /api/recursos (E5) —,
- *    ME/EPP convocar, adjudicar, homologar) → @SomenteOrgao + órgão DONO;
+ *    adjudicação/homologação — /api/resultado (E6)) → @SomenteOrgao + órgão DONO;
  *  - atos do fornecedor (ME/EPP aceitar/recusar; intenção de recurso em /api/recursos) →
  *    @SomenteFornecedor, fornecedor = token (id da rota/corpo tem de conferir)
  *    e com proposta válida;
@@ -124,52 +124,11 @@ export class SessaoController {
   // razoes|contrarrazoes|decidir (o órgão registrava razões/contrarrazões em nome
   // do licitante — pendência da E1a).
 
-  // === HOMOLOGAÇÃO (Art. 71) ===
-
-  @SomenteOrgao()
-  @Put(':id/homologar')
-  async homologar(
-    @Param('id') id: string,
-    @Body() body: { nome?: string; cargo?: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.homologar(id, body, atorTransicaoDe(ator));
-  }
-
-  @SomenteOrgao()
-  @Get(':id/adjudicacao')
-  async getAdjudicacaoStatus(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id, 'leitura');
-    return this.sessaoService.getAdjudicacaoStatus(id);
-  }
-
-  @SomenteOrgao()
-  @Put(':id/adjudicar/:itemId')
-  async adjudicarItem(
-    @Param('id') id: string,
-    @Param('itemId') itemId: string,
-    @Body() body: { fornecedorId: string; valor: number },
-    @AtorAtual() ator: Ator,
-  ) {
-    const dono = await this.acesso.assertOrgaoDaSessao(ator, id);
-    await this.assertItemDaLicitacao(itemId, dono.licitacaoId);
-    return this.sessaoService.adjudicarItem(id, itemId, body.fornecedorId, body.valor);
-  }
-
-  @SomenteOrgao()
-  @Put(':id/adjudicar-todos')
-  async adjudicarTodos(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.adjudicarTodos(id, atorTransicaoDe(ator));
-  }
-
-  @SomenteOrgao()
-  @Put(':id/encerrar')
-  async encerrarSessao(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.encerrarSessao(id, atorTransicaoDe(ator));
-  }
+  // === RESULTADO (Art. 71) — plano E6: rotas em /api/resultado (resultado.controller.ts).
+  // REMOVIDOS: PUT :id/homologar (autoridade digitada no corpo), GET :id/adjudicacao,
+  // PUT :id/adjudicar/:itemId (só gravava evento — B1), PUT :id/adjudicar-todos e
+  // PUT :id/encerrar (adjudicava a licitação sem gravar os itens). A homologação
+  // encerra a sessão.
 
   @SomenteOrgao()
   @Put(':id/suspender')
@@ -235,12 +194,5 @@ export class SessaoController {
       item_atual: sessao.item_atual ? { ...sessao.item_atual, melhor_lance_fornecedor_id: null } : sessao.item_atual,
     };
     return this.sigilo.aplicarVisao(publica, licitacaoId, visao, { sessaoId: id });
-  }
-
-  private async assertItemDaLicitacao(itemId: string | undefined, licitacaoId: string): Promise<void> {
-    const dono = ehUuid(itemId) ? await this.acesso.donoDoItem(itemId) : null;
-    if (!dono || dono.licitacaoId !== licitacaoId) {
-      throw new NotFoundException('Item não encontrado nesta licitação');
-    }
   }
 }

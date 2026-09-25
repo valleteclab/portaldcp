@@ -55,7 +55,7 @@ interface Demanda {
   responsavel_nome?: string
   responsavel_email?: string
   responsavel_telefone?: string
-  status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA'
+  status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA' | 'EM_CONTRATACAO' | 'CONTRATADA'
   observacoes?: string
   descricao_sucinta_objeto?: string
   data_desejada_contratacao?: string
@@ -88,6 +88,8 @@ const STATUS_CONFIG: Record<string, { label: string; cor: string; icon: any }> =
   APROVADA:    { label: 'Aprovada',     cor: 'bg-green-100 text-green-700',   icon: CheckCircle },
   REJEITADA:   { label: 'Rejeitada',    cor: 'bg-red-100 text-red-700',       icon: XCircle },
   CONSOLIDADA: { label: 'Consolidada',  cor: 'bg-purple-100 text-purple-700', icon: CheckCircle },
+  EM_CONTRATACAO: { label: 'Em contratação', cor: 'bg-indigo-100 text-indigo-700', icon: Clock },
+  CONTRATADA:  { label: 'Contratada',   cor: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
 }
 
 const PRIORIDADE_CONFIG: Record<number, { label: string; cor: string }> = {
@@ -1597,7 +1599,7 @@ export default function DetalheDemandaPage() {
                 Enviar DFD
               </Button>
             )}
-            {(demanda.status === 'APROVADA' || demanda.status === 'CONSOLIDADA') && (
+            {(demanda.status === 'APROVADA' || demanda.status === 'CONSOLIDADA' || demanda.status === 'EM_CONTRATACAO' || demanda.status === 'CONTRATADA') && (
               processoVinculado ? (
                 <Button size="sm" variant="outline" onClick={() => router.push(`/orgao/processos/${processoVinculado.id}`)}
                   title={`Processo ${processoVinculado.numero_processo} iniciado a partir desta demanda`}>

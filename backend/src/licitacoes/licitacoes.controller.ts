@@ -169,7 +169,7 @@ export class LicitacoesController {
     @Body() body: { observacao?: string }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
-    return await this.licitacoesService.avancarFase(id, body?.observacao, atorTransicaoDe(ator));
+    return await this.licitacoesService.avancarFase(id, body?.observacao, atorTransicaoDe(ator), ator);
   }
 
   /** Compatibilidade: só há retorno onde o rito prevê (com motivo). */
@@ -187,8 +187,9 @@ export class LicitacoesController {
   /**
    * ATO NOMEADO (E1): POST /licitacoes/:id/atos/SUSPENDER { motivo } etc.
    * A lista do que cabe agora vem em GET /licitacoes/:id/atos (e no
-   * processo-completo). HOMOLOGAR aceita { valor_homologado } (padrão: soma
-   * dos itens adjudicados); RETOMAR aceita { dados: { data_fim_acolhimento... } }.
+   * processo-completo). ADJUDICAR/DECIDIR_RECURSOS/HOMOLOGAR vão ao
+   * ResultadoService (E6 — valor sempre calculado); RETOMAR aceita
+   * { dados: { data_fim_acolhimento... } }.
    */
   @Post(':id/atos/:ato')
   @SomenteOrgao()
@@ -196,11 +197,11 @@ export class LicitacoesController {
     @Param('id') id: string,
     @Param('ato') ato: string,
     @AtorAtual() ator: Ator,
-    @Body() body: { motivo?: string; dados?: Record<string, any>; valor_homologado?: number },
+    @Body() body: { motivo?: string; dados?: Record<string, any> },
   ): Promise<any> {
     await this.dono(ator, id);
     if (!atoExiste(ato)) throw new BadRequestException(`Ato desconhecido: ${ato}`);
-    const r = await this.licitacoesService.executarAto(id, ato as AtoLicitacao, body || {}, atorTransicaoDe(ator));
+    const r = await this.licitacoesService.executarAto(id, ato as AtoLicitacao, body || {}, atorTransicaoDe(ator), ator);
     return { ...r, licitacao: licitacaoParaOrgao(r.licitacao) };
   }
 
@@ -245,16 +246,8 @@ export class LicitacoesController {
     return await this.licitacoesService.encerrarDisputa(id, atorTransicaoDe(ator));
   }
 
-  @Put(':id/homologar')
-  @SomenteOrgao()
-  async homologar(
-    @Param('id') id: string,
-    @AtorAtual() ator: Ator,
-    @Body() body: { valor_homologado: number }
-  ): Promise<Licitacao> {
-    await this.dono(ator, id);
-    return await this.licitacoesService.homologar(id, body?.valor_homologado, atorTransicaoDe(ator));
-  }
+  // PUT :id/homologar REMOVIDO (E6): homologação só por
+  // POST /api/resultado/licitacao/:id/homologar (valor calculado, autoridade do token).
 
   /** Cockpit: visão agregada do processo inteiro (demanda/PCA → docs → seleção → contratos) */
   @Get(':id/processo-completo')

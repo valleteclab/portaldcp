@@ -106,6 +106,11 @@ import {
   painelRecursos,
   vencerPrazoDoRecurso,
 } from './support/recursos';
+import {
+  adjudicarResultado,
+  homologarResultado,
+  vencedoresPorUnidade,
+} from './support/resultado';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const MIN = 60_000;
@@ -1005,15 +1010,12 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
   });
 
   // ==========================================================================
-  // 8. Adjudicação e homologação pela sala
+  // 8. Adjudicação e homologação — resultado único (E6: /api/resultado)
   // ==========================================================================
-  describe('8. Adjudicação e homologação (sala)', () => {
-    test('pregoeiro adjudica o resultado pela sala (PUT /sessao/:id/adjudicar-todos)', async () => {
-      await http()
-        .put(`/api/sessao/${sessaoId}/adjudicar-todos`)
-        .set(bearer(pregoeiro.token))
-        .send({})
-        .expect(200);
+  describe('8. Adjudicação e homologação (resultado único)', () => {
+    test('pregoeiro adjudica pelo resultado único (POST /api/resultado/licitacao/:id/adjudicar)', async () => {
+      const r = await adjudicarResultado(ctx, lic.id, pregoeiro.token);
+      expect(r.status).toBe(200);
       expect((await sessao()).etapa).toBe(EtapaSessao.HOMOLOGACAO);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(
         FaseLicitacao.ADJUDICACAO,
@@ -1025,21 +1027,19 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
     test(
       'adjudicação aponta o habilitado D como vencedor dos dois itens',
       async () => {
-        const r = await http()
-          .get(`/api/sessao/${sessaoId}/adjudicacao`)
-          .set(bearer(pregoeiro.token))
-          .expect(200);
-        for (const [idx, it] of r.body.itens.entries()) {
-          expect(it.vencedor.fornecedorId).toBe(F.D.id);
-          expect(it.vencedor.valor).toBe(ESPERADO.itens[idx].lanceTotal);
+        const unidades = await vencedoresPorUnidade(ctx, lic.id, pregoeiro.token);
+        for (const [idx, u] of unidades.entries()) {
+          expect(u.fornecedorId).toBe(F.D.id);
+          // proposta adequada de D no limite do último lance
+          expect(u.valorTotal).toBe(ESPERADO.itens[idx].lanceTotal);
+          expect(u.situacao).toBe('ADJUDICADA');
         }
       },
     );
 
-    // DEFEITO CONHECIDO B1: sessao.adjudicar* só grava evento — o item não vira
-    // ADJUDICADO nem recebe vencedor/valor — backend/src/sessao/sessao.service.ts:1228,1480-1515
-    // — corrigir na E6
-    test.failing(
+    // CORRIGIDO NA E6 (era o defeito B1): a adjudicação grava o item ADJUDICADO
+    // ao vencedor com os valores da proposta adequada aceita
+    test(
       'após a adjudicação, cada item fica ADJUDICADO ao vencedor com o valor do lance',
       async () => {
         const proc = await processoCompleto(ctx, lic.id, orgao.token);
@@ -1050,14 +1050,18 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       },
     );
 
-    test('autoridade homologa pela sala (PUT /sessao/:id/homologar) — fase HOMOLOGACAO', async () => {
+    test('o pregoeiro não homologa o próprio julgamento (art. 71; segregação de funções)', async () => {
+      const r = await homologarResultado(ctx, lic.id, pregoeiro.token);
+      expect(r.status).toBe(403);
+    });
+
+    test('autoridade homologa (POST /api/resultado/licitacao/:id/homologar) — fase HOMOLOGACAO, sessão encerrada', async () => {
       pncpMock.limpar();
-      const r = await http()
-        .put(`/api/sessao/${sessaoId}/homologar`)
-        .set(bearer(orgao.token))
-        .send({ nome: 'Prefeito E2E', cargo: 'Autoridade competente' })
-        .expect(200);
-      expect(r.body.totalHomologado).toBe(2);
+      const r = await homologarResultado(ctx, lic.id, orgao.token);
+      expect(r.status).toBe(200);
+      expect(r.body.itensHomologados).toBe(2);
+      expect(r.body.valorHomologado).toBeCloseTo(ESPERADO.valorHomologado, 2);
+      expect(r.body.autoridade.nome).toBeTruthy();
       const l = await buscarLicitacao(ctx, lic);
       expect(l.fase).toBe(FaseLicitacao.HOMOLOGACAO);
       expect(l.data_homologacao).toBeTruthy();
@@ -1069,14 +1073,16 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       'homologação grava o habilitado D como vencedor de cada item',
       async () => {
         const proc = await processoCompleto(ctx, lic.id, orgao.token);
-        for (const it of proc.itens)
+        for (const it of proc.itens) {
           expect(it.fornecedor_vencedor_id).toBe(F.D.id);
+          expect(it.status).toBe('HOMOLOGADO');
+        }
       },
     );
 
     // CORRIGIDO NA E2 (era o defeito B2): o lance tem valor_unitario e valor_total
-    // explícitos (base TOTAL_ITEM) e a homologação lê essas colunas — sem multiplicar
-    // pela quantidade de novo. (O vencedor ainda é o menor lance de qualquer um: B3, E4/E6.)
+    // explícitos (base TOTAL_ITEM) — sem multiplicar pela quantidade de novo. Na E6 o
+    // valor vem da proposta adequada aceita (aqui, no limite do lance).
     test(
       'valor homologado de cada item = lance final do vencedor (sem multiplicar de novo pela quantidade)',
       async () => {
@@ -1101,10 +1107,8 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       },
     );
 
-    // DEFEITO CONHECIDO B1: sessao.homologar não gera contrato (gerarContratoAutomatico
-    // exige itens ADJUDICADO, que a sala nunca grava) — backend/src/sessao/sessao.service.ts:1527-1591;
-    // backend/src/contratos/contratos.service.ts:2466 — corrigir na E6
-    test.failing(
+    // CORRIGIDO NA E6 (era o defeito B1): a homologação gera o contrato do vencedor
+    test(
       'homologação gera o contrato do vencedor habilitado (D, R$ 1.830,00)',
       async () => {
         const proc = await processoCompleto(ctx, lic.id, orgao.token);
@@ -1116,19 +1120,20 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
           ESPERADO.valorHomologado,
           2,
         );
+        // aguardando as assinaturas: sem data de assinatura
+        expect(proc.contratos[0].status).toBe('AGUARDANDO_ASSINATURA');
+        expect(proc.contratos[0].data_assinatura).toBeNull();
       },
     );
 
-    // DEFEITO CONHECIDO B1: sessao.homologar também não publica o resultado no PNCP —
-    // backend/src/sessao/sessao.service.ts:1527-1591 — corrigir na E6/E7
-    test.failing(
+    // CORRIGIDO NA E6 (era o defeito B1): a homologação publica o resultado no PNCP
+    test(
       'homologação publica o resultado por item no PNCP',
       async () => {
         const envios = await aguardarPncp(
           'POST',
           /\/itens\/\d+\/resultados$/,
           2,
-          1500,
         );
         expect(envios).toHaveLength(2);
       },
@@ -1136,47 +1141,25 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
   });
 
   // ==========================================================================
-  // 9. Contrato e PNCP — continuação pela rota disponível
+  // 9. Contrato e PNCP
   // ==========================================================================
   describe('9. Contrato e resultado no PNCP', () => {
-    test('caminho disponível: adjudicação por item (PUT /api/itens/:id/adjudicar) ao habilitado D', async () => {
-      // Continuação da cadeia apesar do B1/B2/B3: a única rota que grava o item como
-      // ADJUDICADO com vencedor e valor. O unitário vem do lance final de D (total ÷ qtd).
-      for (const [idx, itemId] of [item1, item2].entries()) {
-        const lanceD = (await melhores(itemId)).find(
-          (m) => m.fornecedorId === F.D.id,
-        )!;
-        expect(lanceD.melhorValor).toBe(ESPERADO.itens[idx].lanceTotal);
-        const r = await http()
-          .put(`/api/itens/${itemId}/adjudicar`)
-          .set(bearer(orgao.token))
-          .send({
-            fornecedor_id: F.D.id,
-            fornecedor_nome: F.D.razao_social,
-            valor_unitario_homologado:
-              lanceD.melhorValor / ITENS[idx].quantidade,
-          })
-          .expect(200);
-        expect(r.body.status).toBe('ADJUDICADO');
-      }
+    test('caminhos antigos de adjudicação/homologação não existem mais (E6)', async () => {
+      const antigos = [
+        http().put(`/api/itens/${item1}/adjudicar`).set(bearer(orgao.token)).send({ fornecedor_id: F.D.id, fornecedor_nome: 'x', valor_unitario_homologado: 1 }),
+        http().put(`/api/itens/${item1}/homologar`).set(bearer(orgao.token)).send({}),
+        http().put(`/api/licitacoes/${lic.id}/homologar`).set(bearer(orgao.token)).send({ valor_homologado: 1 }),
+        http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({}),
+        http().put(`/api/sessao/${sessaoId}/homologar`).set(bearer(orgao.token)).send({}),
+        http().get(`/api/sessao/${sessaoId}/adjudicacao`).set(bearer(orgao.token)),
+      ];
+      for (const r of await Promise.all(antigos)) expect(r.status).toBe(404);
     });
 
-    test('cockpit homologa (PUT /api/licitacoes/:id/homologar) pelo valor somado dos itens', async () => {
-      // Mesma chamada do botão "Homologar" de /orgao/processos/[id] (o botão em si fica
-      // oculto porque a sala já gravou data_homologacao). Valor = soma dos itens, como a tela calcula.
-      pncpMock.limpar();
-      const antes = await processoCompleto(ctx, lic.id, orgao.token);
-      const total = antes.itens.reduce(
-        (s: number, i: any) => s + Number(i.valor_total_homologado || 0),
-        0,
-      );
-      expect(total).toBeCloseTo(ESPERADO.valorHomologado, 2);
-      const r = await http()
-        .put(`/api/licitacoes/${lic.id}/homologar`)
-        .set(bearer(orgao.token))
-        .send({ valor_homologado: total })
-        .expect(200);
-      expect(r.body.fase).toBe(FaseLicitacao.HOMOLOGACAO);
+    test('re-homologar com contrato gerado é recusado', async () => {
+      const r = await homologarResultado(ctx, lic.id, orgao.token);
+      expect(r.status).toBe(400);
+      expect(r.body.message).toMatch(/já homologada e com contrato/);
     });
 
     test('contrato gerado para o vencedor habilitado (D) pelo valor homologado', async () => {

@@ -26,7 +26,7 @@ import { useDisputaV3 } from '@/hooks/useDisputaV3'
 import { ItensDoLote, rotuloUnidade } from '@/components/disputa-v3/unidade-lote'
 import { DisputaV3Stepper } from '@/components/disputa-v3/disputa-v3-stepper'
 import { RecursosPanel } from '@/components/disputa-v3/RecursosPanel'
-import { HomologacaoPanel } from '@/components/disputa-v3/HomologacaoPanel'
+import { ResultadoPanel } from '@/components/resultado/ResultadoPanel'
 import { AceitacaoPanel } from '@/components/disputa-v3/AceitacaoPanel'
 import { HabilitacaoPanel } from '@/components/disputa-v3/HabilitacaoPanel'
 import { DesempatePanel } from '@/components/disputa-v3/DesempatePanel'
@@ -122,13 +122,10 @@ export default function DisputaV3OrgaoPage() {
 
   // === INTENÇÃO DE RECURSO STATE ===
 
-  // === ADJUDICAÇÃO STATE ===
-  interface AdjItem { itemId: string; numero: number; descricao: string; quantidade: number; unidade: string; vencedor: { fornecedorId: string; razaoSocial: string; cpfCnpj: string; valor: number } | null }
-  interface AdjStatus { sessaoId: string; licitacaoId: string; etapa: string; itens: AdjItem[] }
-  const [adjStatus, setAdjStatus] = useState<AdjStatus | null>(null)
-  const [adjActionLoading, setAdjActionLoading] = useState(false)
-  const [adjActionError, setAdjActionError] = useState<string | null>(null)
-  const [adjDialogOpen, setAdjDialogOpen] = useState(false)
+  // === RESULTADO (plano E6) ===
+  // Adjudicação e homologação: ResultadoPanel (/api/resultado). O painel
+  // antigo (sessao/adjudicar-todos, sessao/homologar com autoridade digitada)
+  // foi removido.
 
   const contexto = board?.contexto
   const aguardando = board?.colunas.aguardando || []
@@ -227,39 +224,6 @@ export default function DisputaV3OrgaoPage() {
   // tudo no RecursosPanel (/api/recursos). O fluxo antigo por eventos
   // (intencoes/encerrar-prazo com contagem fixa na tela) foi removido.
   const isIntencaoAtiva = etapaCodigo === 'RECURSOS'
-
-  // === ADJUDICAÇÃO LOGIC ===
-  const isAdjudicacaoAtiva = etapaCodigo === 'ADJUDICACAO'
-  const carregarAdjudicacao = useCallback(async () => {
-    if (!sessaoId) return
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/adjudicacao`)
-      if (res.ok) setAdjStatus(await res.json())
-    } catch { /* silently ignore */ }
-  }, [sessaoId])
-  useEffect(() => {
-    if (!isAdjudicacaoAtiva || !sessaoId) return
-    carregarAdjudicacao()
-  }, [isAdjudicacaoAtiva, sessaoId, carregarAdjudicacao])
-
-  const confirmarAdjudicacaoTodos = async () => {
-    if (!sessaoId) return
-    setAdjActionLoading(true)
-    setAdjActionError(null)
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/adjudicar-todos`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao adjudicar') }
-      setAdjDialogOpen(false)
-    } catch (e: any) {
-      setAdjActionError(e.message)
-    } finally {
-      setAdjActionLoading(false)
-    }
-  }
 
   return (
     <ModuleGuard modulo={ModuloSistema.DISPUTA} fallbackUrl="/orgao">
@@ -715,66 +679,16 @@ export default function DisputaV3OrgaoPage() {
                   ) : isIntencaoAtiva ? (
                     /* RECURSOS (Art. 165) — janela de intenção, admissibilidade, prazos,
                        reconsideração do agente e decisão da autoridade superior (E5) */
-                    sessaoId ? <RecursosPanel sessaoId={sessaoId} /> : null
-                  ) : etapaCodigo === 'HOMOLOGACAO' ? (
-                    sessaoId ? <HomologacaoPanel sessaoId={sessaoId} /> : null
-                  ) : isAdjudicacaoAtiva ? (
-                    /* =============================================
-                       PAINEL DE ADJUDICAÇÃO (Art. 71)
-                       ============================================= */
-                    <Card>
-                      <CardHeader className="border-b bg-slate-900 text-white">
-                        <CardTitle className="flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4" />
-                          Adjudicação (Art. 71)
-                        </CardTitle>
-                        <CardDescription className="text-slate-300">Confirme o vencedor de cada item antes de encerrar.</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4 pt-4">
-                        {adjActionError && (
-                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                            {adjActionError}
-                          </div>
-                        )}
-
-                        <ScrollArea className="h-[calc(100vh-560px)] pr-1">
-                          <div className="space-y-3">
-                            {(adjStatus?.itens || []).map((item) => (
-                              <div key={item.itemId} className="rounded-xl border border-slate-200 bg-white p-3">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Item {item.numero}</div>
-                                <div className="font-medium text-slate-900">{item.descricao}</div>
-                                {item.vencedor ? (
-                                  <>
-                                    <div className="mt-1 text-sm font-semibold text-emerald-700">
-                                      {item.vencedor.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                    </div>
-                                    <div className="text-sm text-slate-600">{item.vencedor.razaoSocial}</div>
-                                    <div className="text-xs text-slate-400">{item.vencedor.cpfCnpj}</div>
-                                  </>
-                                ) : (
-                                  <div className="mt-1 text-sm text-slate-400">Sem lance registrado</div>
-                                )}
-                              </div>
-                            ))}
-                            {!adjStatus && (
-                              <div className="py-6 text-center text-sm text-slate-400">
-                                <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                                Carregando itens...
-                              </div>
-                            )}
-                          </div>
-                        </ScrollArea>
-
-                        <Button
-                          className="w-full bg-emerald-700 hover:bg-emerald-800"
-                          onClick={() => setAdjDialogOpen(true)}
-                          disabled={adjActionLoading || !adjStatus?.itens?.some(i => i.vencedor)}
-                        >
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                          Confirmar adjudicação de todos os itens
-                        </Button>
-                      </CardContent>
-                    </Card>
+                    sessaoId ? (
+                      <div className="space-y-4">
+                        <RecursosPanel sessaoId={sessaoId} />
+                        {/* Sem recurso (janela encerrada) ou recursos decididos → adjudicação (E6) */}
+                        {contexto?.licitacaoId && <ResultadoPanel licitacaoId={contexto.licitacaoId} />}
+                      </div>
+                    ) : null
+                  ) : etapaCodigo === 'HOMOLOGACAO' || etapaCodigo === 'ADJUDICACAO' || etapaCodigo === 'ENCERRAMENTO' ? (
+                    /* RESULTADO (Art. 71) — adjudicação e homologação (plano E6) */
+                    contexto?.licitacaoId ? <ResultadoPanel licitacaoId={contexto.licitacaoId} /> : null
                   ) : (
                     /* PAINEL PADRÃO — chat + governança */
                     <>
@@ -976,38 +890,6 @@ export default function DisputaV3OrgaoPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Dialog de confirmação de adjudicação */}
-        <Dialog open={adjDialogOpen} onOpenChange={setAdjDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Confirmar Adjudicação</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              <p className="text-sm text-slate-600">
-                Você está prestes a adjudicar o objeto licitado ao(s) vencedor(es) de cada item, conforme Art. 71 da Lei 14.133/2021.
-              </p>
-              {adjStatus?.itens?.filter(i => i.vencedor).map(item => (
-                <div key={item.itemId} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-                  <div className="font-semibold">Item {item.numero}</div>
-                  <div className="text-slate-700">{item.vencedor?.razaoSocial}</div>
-                  <div className="text-emerald-700 font-medium">
-                    {item.vencedor?.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setAdjDialogOpen(false)}>Cancelar</Button>
-              <Button
-                className="bg-emerald-700 hover:bg-emerald-800"
-                onClick={confirmarAdjudicacaoTodos}
-                disabled={adjActionLoading}
-              >
-                Confirmar Adjudicação
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </ModuleGuard>
   )

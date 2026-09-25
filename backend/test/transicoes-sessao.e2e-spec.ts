@@ -48,6 +48,7 @@ import {
   painelRecursos,
   vencerPrazoDoRecurso,
 } from './support/recursos';
+import { adjudicarResultado, homologarResultado } from './support/resultado';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao, StatusSessao } from '../src/sessao/entities/sessao-disputa.entity';
 
@@ -223,7 +224,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       recursoId = adm.body.id;
     });
 
-    test('decidido o último recurso, a licitação volta a ADJUDICACAO (DECIDIR_RECURSOS); adjudicar pela sala não duplica', async () => {
+    test('decidido o último recurso, a licitação volta a ADJUDICACAO (DECIDIR_RECURSOS); a adjudicação dos itens é um ADJUDICAR sem mudar de fase', async () => {
       // E5: encerrado o contraditório, o agente mantém e a autoridade superior (conta do órgão) decide
       await vencerPrazoDoRecurso(ctx, recursoId, 'prazo_contrarrazoes');
       await http()
@@ -243,25 +244,28 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       expect(t).toMatchObject({ fase_de: 'RECURSO', fase_para: 'ADJUDICACAO', ator_tipo: 'ORGAO', ator_id: orgao.id });
       expect(t.motivo).toMatch(/improvido/);
 
-      await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(pregoeiro.token)).send({}).expect(200);
+      // E6: DECIDIR_RECURSOS (sala de recursos) muda a fase; a gravação do vencedor e
+      // dos itens é o ADJUDICAR do resultado único, ADJUDICACAO → ADJUDICACAO
+      await adjudicarResultado(ctx, lic.id, pregoeiro.token).expect(200);
       const h = await historico(lic.id, orgao.token);
-      expect(atoDo(h, 'ADJUDICAR')).toHaveLength(0);
+      expect(atoDo(h, 'DECIDIR_RECURSOS')).toHaveLength(1);
+      expect(atoDo(h, 'ADJUDICAR')).toEqual([
+        expect.objectContaining({ fase_de: 'ADJUDICACAO', fase_para: 'ADJUDICACAO', ...doPregoeiro, ator_id: pregoeiro.id }),
+      ]);
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.ADJUDICACAO);
     });
 
-    test('homologar pela sala: HOMOLOGAR com o valor gravado na mesma transação', async () => {
-      const r = await http()
-        .put(`/api/sessao/${sessaoId}/homologar`)
-        .set(bearer(pregoeiro.token))
-        .send({ nome: 'Prefeito E1', cargo: 'Autoridade' })
-        .expect(200);
-      expect(r.body.totalHomologado).toBe(1);
+    test('homologar (resultado único): HOMOLOGAR com o valor calculado na mesma transação; pregoeiro não homologa', async () => {
+      await homologarResultado(ctx, lic.id, pregoeiro.token).expect(403);
+      const r = await homologarResultado(ctx, lic.id, orgao.token).expect(200);
+      expect(r.body.itensHomologados).toBe(1);
       const l = await buscarLicitacao(ctx, lic);
       expect(l.fase).toBe(FaseLicitacao.HOMOLOGACAO);
-      expect(Number(l.valor_homologado)).toBeCloseTo(r.body.valorTotal, 2);
+      expect(Number(l.valor_homologado)).toBeCloseTo(r.body.valorHomologado, 2);
       expect(l.data_homologacao).toBeTruthy();
       const [t] = atoDo(await historico(lic.id, orgao.token), 'HOMOLOGAR');
-      expect(t).toMatchObject({ fase_de: 'ADJUDICACAO', fase_para: 'HOMOLOGACAO', ...doPregoeiro, ator_id: pregoeiro.id });
-      expect(t.dados).toMatchObject({ origem: 'sessao', totalHomologado: 1 });
+      expect(t).toMatchObject({ fase_de: 'ADJUDICACAO', fase_para: 'HOMOLOGACAO', ator_tipo: 'ORGAO', ator_id: orgao.id });
+      expect(t.dados).toMatchObject({ origem: 'resultado', autoridade: expect.objectContaining({ nome: expect.any(String) }) });
     });
 
     test('a sequência completa do histórico segue o rito, sem saltos', async () => {
@@ -276,6 +280,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
         'INICIAR_HABILITACAO',
         'ABRIR_PRAZO_RECURSAL',
         'DECIDIR_RECURSOS',
+        'ADJUDICAR', // E6: gravação do vencedor/itens (ADJUDICACAO → ADJUDICACAO)
         'HOMOLOGAR',
       ]);
       // cada linha continua de onde a anterior parou
@@ -370,7 +375,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
         http().post(`/api/disputa-v2/sessao/${sessaoId}/retomar`).set(bearer(orgao.token)),
         http().post(`/api/disputa-v2/sessao/${sessaoId}/reiniciar`).set(bearer(orgao.token)).send({ justificativa: 'x' }),
         convocarHabilitacao(ctx, lic.id, F1.id, orgao.token),
-        http().put(`/api/sessao/${sessaoId}/homologar`).set(bearer(orgao.token)).send({}),
+        homologarResultado(ctx, lic.id, orgao.token),
       ];
       for (const r of await Promise.all(casos)) expect(r.status).toBe(409);
       expect(await itemStatus(item1)).toBe('EM_DISPUTA');

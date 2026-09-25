@@ -68,6 +68,7 @@ import {
   vincularOrgaoPncp,
 } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
+import { homologarResultado } from './support/resultado';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const MIN = 60_000;
@@ -607,14 +608,10 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
 
     it('homologa e gera 1 contrato por fornecedor vencedor', async () => {
       pncpMock.limpar();
-      // O cockpit envia a soma dos valores totais homologados dos itens
-      const r = await ctx
-        .http()
-        .put(`/api/licitacoes/${lic.id}/homologar`)
-        .set(bearer(orgao.token))
-        .send({ valor_homologado: 1800 })
-        .expect(200);
+      // E6: homologação pelo resultado único — valor CALCULADO dos itens adjudicados
+      const r = await homologarResultado(ctx, lic.id, orgao.token).expect(200);
       expect(r.body.fase).toBe(FaseLicitacao.HOMOLOGACAO);
+      expect(r.body.valorHomologado).toBe(1800);
 
       const pc = await ctx.http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(orgao.token)).expect(200);
       expect(Number(pc.body.licitacao.valor_homologado)).toBe(1800);
@@ -625,7 +622,14 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(contratos).toHaveLength(2);
       const porFornecedor = Object.fromEntries(contratos.map((c: any) => [c.fornecedor_razao_social, Number(c.valor_global)]));
       expect(porFornecedor).toEqual({ [me.razao_social]: 880, [epp.razao_social]: 920 });
-      for (const c of contratos) expect(c.numero_contrato).toBeTruthy();
+      for (const c of contratos) {
+        expect(c.numero_contrato).toBeTruthy();
+        // E6: aguardando as assinaturas — data_assinatura só na última assinatura
+        expect(c.status).toBe('AGUARDANDO_ASSINATURA');
+        expect(c.data_assinatura).toBeNull();
+      }
+      // itens homologados; vencedor registrado na unidade (mesmo dado da sala)
+      expect(pc.body.itens.map((i: any) => i.status)).toEqual(['HOMOLOGADO', 'HOMOLOGADO']);
     });
 
     it('PNCP: resultado por item com vencedor, valores e porte', async () => {
@@ -697,11 +701,9 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(pncpMock.filtrar('POST', /\/contratos$/)).toHaveLength(0);
     });
 
-    // DEFEITO CONHECIDO: prazo do contrato cai sempre em 30 dias — o
-    // calcularPrazoEntregaPropostas procura a proposta com status ENVIADA, mas o
-    // julgamento da dispensa já a marcou VENCEDORA — plano E6.4.
-    // contratos.service.ts:2592 (filtro status ENVIADA) → 2584 (PRAZO_PADRAO = 30).
-    test.failing('prazo do contrato vem da proposta vencedora (ME 45 dias, EPP 20 dias)', async () => {
+    // CORRIGIDO NA E6 (era defeito: prazo sempre 30 dias — só lia proposta ENVIADA,
+    // mas o julgamento já a marcou VENCEDORA): lê a proposta do vencedor.
+    test('prazo do contrato vem da proposta vencedora (ME 45 dias, EPP 20 dias)', async () => {
       const pc = await ctx.http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(orgao.token)).expect(200);
       const prazos: Record<string, number> = {};
       for (const c of pc.body.contratos) {
@@ -854,14 +856,18 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
     expect(linhas[1]).toEqual([2, 48, 960]);
   });
 
-  // DEFEITO CONHECIDO: o valor homologado vem do corpo da requisição (a tela
-  // soma e envia) em vez de ser calculado dos itens adjudicados — plano §0
-  // regra 2 e §2.3 ("valor homologado é calculado, não digitado"), E6.1.
-  // licitacoes.controller.ts:112-116; licitacoes.service.ts:789.
-  test.failing('valor homologado é calculado dos itens, não aceito do corpo', async () => {
-    await ctx
+  // CORRIGIDO NA E6 (era defeito: o valor homologado vinha do corpo): o
+  // resultado único calcula a soma dos itens adjudicados; a rota antiga saiu.
+  test('valor homologado é calculado dos itens, não aceito do corpo', async () => {
+    const antiga = await ctx
       .http()
       .put(`/api/licitacoes/${lic.id}/homologar`)
+      .set(bearer(orgao.token))
+      .send({ valor_homologado: 999_999 });
+    expect(antiga.status).toBe(404);
+    await ctx
+      .http()
+      .post(`/api/resultado/licitacao/${lic.id}/homologar`)
       .set(bearer(orgao.token))
       .send({ valor_homologado: 999_999 })
       .expect(200);

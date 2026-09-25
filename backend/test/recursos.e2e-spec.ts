@@ -55,6 +55,7 @@ import {
   precluirIntencaoDeRecurso,
   vencerPrazoDoRecurso,
 } from './support/recursos';
+import { adjudicarResultado, homologarResultado, vencedoresPorUnidade } from './support/resultado';
 import { FaseLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao } from '../src/sessao/entities/sessao-disputa.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
@@ -153,7 +154,7 @@ describe('E5 — recursos com efeito', () => {
     });
 
     test('sem a janela de intenção, não se adjudica (art. 165 §1º I) e a intenção não é recebida (409)', async () => {
-      const adj = await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({});
+      const adj = await adjudicarResultado(ctx, licId, orgao.token);
       expect(adj.status).toBe(400);
       expect(JSON.stringify(adj.body)).toMatch(/intenção de recurso/);
       const i = await manifestarIntencao(ctx, sessaoId, A.token, { motivacao: 'A certidão estava válida', atoRecorrido: 'INABILITACAO' });
@@ -189,7 +190,7 @@ describe('E5 — recursos com efeito', () => {
       expect(c.status).toBe(201);
       recursoC = c.body.id;
 
-      const adj = await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({});
+      const adj = await adjudicarResultado(ctx, licId, orgao.token);
       expect(adj.status).toBe(400);
       expect(JSON.stringify(adj.body)).toMatch(/Janela de intenção de recurso em curso|art\. 168/);
     });
@@ -267,7 +268,7 @@ describe('E5 — recursos com efeito', () => {
         .set(bearer(orgaoB.token))
         .send({ reconsiderar: true, fundamentacao: 'Outro órgão tentando decidir o recurso.' });
       expect(b.status).toBe(403);
-      const adj = await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({});
+      const adj = await adjudicarResultado(ctx, licId, orgao.token);
       expect(adj.status).toBe(400); // efeito suspensivo (art. 168)
     });
 
@@ -307,11 +308,11 @@ describe('E5 — recursos com efeito', () => {
     });
 
     test('próximos passos coerentes: adjudicação e homologação com A vencedor', async () => {
-      await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({}).expect(200);
+      await adjudicarResultado(ctx, licId, orgao.token).expect(200);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.ADJUDICACAO);
-      const adj = await http().get(`/api/sessao/${sessaoId}/adjudicacao`).set(bearer(orgao.token)).expect(200);
-      expect(adj.body.itens[0].vencedor.fornecedorId).toBe(A.id);
-      const h = await http().put(`/api/sessao/${sessaoId}/homologar`).set(bearer(orgao.token)).send({ nome: 'Prefeito E5', cargo: 'Autoridade competente' });
+      const adj = await vencedoresPorUnidade(ctx, licId, orgao.token);
+      expect(adj[0].fornecedorId).toBe(A.id);
+      const h = await homologarResultado(ctx, licId, orgao.token);
       expect(h.status).toBe(200);
       const [it] = await q(`SELECT fornecedor_vencedor_id FROM itens_licitacao WHERE id = $1`, [item]);
       expect(it.fornecedor_vencedor_id).toBe(A.id);
@@ -409,12 +410,12 @@ describe('E5 — recursos com efeito', () => {
     test('o novo resultado exige nova janela de intenção antes de adjudicar', async () => {
       await aceitarConvocacaoAtiva(sessaoId, D);
       await habilitarLicitante(ctx, licId, D, orgao.token);
-      const adj = await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({});
+      const adj = await adjudicarResultado(ctx, licId, orgao.token);
       expect(adj.status).toBe(400);
       await precluirIntencaoDeRecurso(ctx, sessaoId, orgao.token);
-      await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({}).expect(200);
-      const r = await http().get(`/api/sessao/${sessaoId}/adjudicacao`).set(bearer(orgao.token)).expect(200);
-      expect(r.body.itens[0].vencedor.fornecedorId).toBe(D.id);
+      await adjudicarResultado(ctx, licId, orgao.token).expect(200);
+      const r = await vencedoresPorUnidade(ctx, licId, orgao.token);
+      expect(r[0].fornecedorId).toBe(D.id);
     });
   });
   // ==========================================================================

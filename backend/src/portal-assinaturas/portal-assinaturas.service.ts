@@ -14,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import * as crypto from 'crypto';
 import * as QRCode from 'qrcode';
 
+import { marcarContratado } from '../resultado/status-demanda-pca.sql';
 @Injectable()
 export class PortalAssinaturasService {
   private readonly logger = new Logger(PortalAssinaturasService.name);
@@ -512,15 +513,28 @@ export class PortalAssinaturasService {
     );
     if (!ctr) return;
 
+    // Contrato gerado pela homologação (E6): sai de AGUARDANDO_ASSINATURA para
+    // a liberação, com a vigência recontada da data REAL da assinatura.
     await this.dataSource.query(
       `UPDATE contratos
-       SET data_assinatura = NOW(), arquivo_contrato = COALESCE($2, arquivo_contrato)
+       SET data_assinatura = NOW(), arquivo_contrato = COALESCE($2, arquivo_contrato),
+           data_vigencia_inicio = CASE WHEN status::text = 'AGUARDANDO_ASSINATURA' THEN CURRENT_DATE ELSE data_vigencia_inicio END,
+           data_vigencia_fim = CASE WHEN status::text = 'AGUARDANDO_ASSINATURA' AND prazo_execucao_dias IS NOT NULL
+                                    THEN CURRENT_DATE + prazo_execucao_dias ELSE data_vigencia_fim END,
+           status = CASE WHEN status::text = 'AGUARDANDO_ASSINATURA' THEN 'AGUARDANDO_LIBERACAO' ELSE status END
        WHERE id = $1`,
       [ctr.id, arquivoAssinadoUrl || null],
     );
     this.logger.log(
       `Contrato ${ctr.numero_contrato}: termo assinado por todas as partes — data de assinatura atualizada`,
     );
+
+    // Demanda de origem → CONTRATADA; item do PCA → CONTRATADO (E6.5)
+    if (ctr.licitacao_id) {
+      await marcarContratado(this.dataSource, ctr.licitacao_id).catch((e: any) =>
+        this.logger.warn(`Status da demanda/PCA não atualizado: ${e?.message ?? e}`),
+      );
+    }
 
     if (ctr.licitacao_id) {
       this.pncpService

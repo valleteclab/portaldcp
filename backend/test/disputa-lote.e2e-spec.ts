@@ -45,6 +45,7 @@ import {
 } from './support/julgamento';
 import { habilitarLicitante } from './support/habilitacao';
 import { precluirIntencaoDeRecurso } from './support/recursos';
+import { adjudicarResultado, homologarResultado, vencedoresPorUnidade } from './support/resultado';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -505,21 +506,39 @@ describe('E2 — disputa por LOTE no motor único', () => {
       await aceitarPropostaDaUnidade(ctx, sessaoId, lote2, orgao.token, F3.token);
     });
 
-    test('habilitação → adjudicação → homologação pela sala', async () => {
+    test('habilitação → adjudicação → homologação pelo resultado único (E6)', async () => {
       // E4: habilitação real (convocação, documentos, análise, habilitar) de cada vencedor de lote
       for (const f of [F1, F3]) {
         expect((await habilitarLicitante(ctx, lic.id, f, orgao.token)).status).toBe('HABILITADO');
       }
       // E5: janela de intenção de recurso aberta e encerrada sem manifestação (preclusão)
       await precluirIntencaoDeRecurso(ctx, sessaoId, orgao.token);
-      await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({}).expect(200);
-      const h = await http().put(`/api/sessao/${sessaoId}/homologar`).set(bearer(orgao.token)).send({ nome: 'Prefeito', cargo: 'Autoridade' });
+      expect((await adjudicarResultado(ctx, lic.id, orgao.token)).status).toBe(200);
+      // vencedor por LOTE (unidade) — VENCEDOR em licitantes_unidade
+      const venc = await vencedoresPorUnidade(ctx, lic.id, orgao.token);
+      expect(venc.map((u) => [u.unidadeId, u.fornecedorId, u.valorTotal])).toEqual([
+        [lote1, F1.id, 1285],
+        [lote2, F3.id, 1020],
+      ]);
+      const situacoes = await q(
+        `SELECT unidade_id::text AS u, fornecedor_id AS f FROM licitantes_unidade WHERE licitacao_id = $1 AND situacao = 'VENCEDOR' ORDER BY 1`,
+        [lic.id],
+      );
+      expect(situacoes.map((r: any) => [r.u, r.f]).sort()).toEqual([[lote1, F1.id], [lote2, F3.id]].sort());
+      const h = await homologarResultado(ctx, lic.id, orgao.token);
       expect(h.status).toBe(200);
-      expect(h.body.totalHomologado).toBe(6);
-      expect(h.body.valorTotal).toBe(1285 + 1020);
+      expect(h.body.itensHomologados).toBe(6);
+      expect(h.body.valorHomologado).toBe(1285 + 1020);
     });
 
-    test('cada item homologado com a parcela do vencedor do seu lote; soma por lote = lance', async () => {
+    test('cada item homologado com a parcela do vencedor do seu lote (proposta adequada aceita); soma por lote = lance', async () => {
+      // E6: o valor de cada item é o da proposta adequada ACEITA do vencedor do lote
+      const aceitas = await q(
+        `SELECT unidade_id::text AS u, valores_itens FROM aceitacoes_proposta WHERE licitacao_id = $1 AND status = 'ACEITA'`,
+        [lic.id],
+      );
+      const aceitoPorItem = new Map<string, any>();
+      for (const a of aceitas) for (const v of a.valores_itens) aceitoPorItem.set(v.itemId, v);
       const its = await q(
         `SELECT numero_item, lote_id, fornecedor_vencedor_id, valor_unitario_homologado, valor_total_homologado
            FROM itens_licitacao WHERE licitacao_id = $1 ORDER BY numero_item`,
@@ -542,9 +561,17 @@ describe('E2 — disputa por LOTE no motor único', () => {
         1020,
       );
       const esperado = [...e1.map((e) => ({ ...e, f: F1.id })), ...e2.map((e) => ({ ...e, f: F3.id }))];
-      expect(
-        its.map((i: any) => [i.numero_item, i.fornecedor_vencedor_id, Number(i.valor_total_homologado), Number(i.valor_unitario_homologado)]),
-      ).toEqual(esperado.map((e) => [e.numero, e.f, e.valor_total, e.valor_unitario]));
+      // total = rateio do lance (proposta adequada no limite); unitário e total = os aceitos
+      expect(its.map((i: any) => [i.numero_item, i.fornecedor_vencedor_id, Number(i.valor_total_homologado)])).toEqual(
+        esperado.map((e) => [e.numero, e.f, e.valor_total]),
+      );
+      const itensDb = await q(`SELECT id::text AS id, numero_item FROM itens_licitacao WHERE licitacao_id = $1 ORDER BY numero_item`, [lic.id]);
+      for (const [idx, i] of its.entries()) {
+        const aceito = aceitoPorItem.get(itensDb[idx].id);
+        expect(aceito).toBeDefined();
+        expect(Number(i.valor_total_homologado)).toBe(Number(aceito.valorTotal));
+        expect(Number(i.valor_unitario_homologado)).toBe(Number(aceito.valorUnitario));
+      }
       const soma = (lote: string) =>
         Math.round(its.filter((i: any) => i.lote_id === lote).reduce((s: number, i: any) => s + Number(i.valor_total_homologado), 0) * 100) / 100;
       expect(soma(lote1)).toBe(1285);

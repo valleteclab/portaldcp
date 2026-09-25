@@ -20,6 +20,12 @@ export enum TipoContrato {
 export enum StatusContrato {
   RASCUNHO = 'RASCUNHO',
   AGUARDANDO_LIBERACAO = 'AGUARDANDO_LIBERACAO',
+  /**
+   * Gerado pela homologação (plano E6): aguardando as assinaturas das partes.
+   * `data_assinatura` fica NULL até a última assinatura (portal de assinaturas),
+   * quando o contrato passa a AGUARDANDO_LIBERACAO com a data real.
+   */
+  AGUARDANDO_ASSINATURA = 'AGUARDANDO_ASSINATURA',
   VIGENTE = 'VIGENTE',
   ENCERRADO = 'ENCERRADO',
   VENCIDO = 'VENCIDO',
@@ -182,7 +188,8 @@ export class Contrato {
   observacao_ajuste: string;
 
   // Datas
-  @Column({ type: 'date' })
+  /** NULL enquanto o contrato gerado pela homologação aguarda assinaturas (E6). */
+  @Column({ type: 'date', nullable: true })
   data_assinatura: Date;
 
   @Column({ type: 'date' })

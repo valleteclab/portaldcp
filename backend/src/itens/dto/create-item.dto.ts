@@ -166,20 +166,6 @@ export class UpdateItemDto {
   nome_grupo?: string; // Nome do grupo
 }
 
-export class AdjudicarItemDto {
-  @IsUUID()
-  @IsNotEmpty()
-  fornecedor_id: string;
-
-  @IsString()
-  @IsNotEmpty()
-  fornecedor_nome: string;
-
-  @IsNumber()
-  @Min(0.0001)
-  @IsNotEmpty()
-  valor_unitario_homologado: number;
-}
 
 // DTO para importar múltiplos itens do PCA
 export class ImportarItensPcaDto {

@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import { BllIntegracao } from "./BllIntegracao"
 import { AtosProcesso, type AtoDisponivel } from "./AtosProcesso"
+import { ResultadoPanel } from "@/components/resultado/ResultadoPanel"
 import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
 import { CotasMeEppCard } from '@/components/licitacao/CotasMeEppCard'
 
@@ -128,7 +129,6 @@ export default function CockpitProcessoPage() {
   const [urlExterna, setUrlExterna] = useState("")
   const [linhas, setLinhas] = useState<Record<string, { fornecedor_id: string; valor_unitario: string }>>({})
   const [salvando, setSalvando] = useState(false)
-  const [homologando, setHomologando] = useState(false)
   const [julgando, setJulgando] = useState(false)
   const [limiteDispensa, setLimiteDispensa] = useState<{ chave: string; valor: number } | null>(null)
 
@@ -282,29 +282,6 @@ export default function CockpitProcessoPage() {
       alert(`Erro ao registrar resultado: ${e.message}`)
     } finally {
       setSalvando(false)
-    }
-  }
-
-  const homologar = async () => {
-    if (!dados) return
-    const total = dados.itens.reduce((s, i) => s + Number(i.valor_total_homologado || 0), 0)
-    if (!confirm(`Homologar o processo por ${fmtMoeda(total)}?\n\nA homologação gera o(s) contrato(s) automaticamente, um por fornecedor vencedor.`)) return
-    setHomologando(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/homologar`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ valor_homologado: total }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        throw new Error(err?.message || `HTTP ${res.status}`)
-      }
-      await carregar()
-    } catch (e: any) {
-      alert(`Erro ao homologar: ${e.message}`)
-    } finally {
-      setHomologando(false)
     }
   }
 
@@ -707,7 +684,9 @@ export default function CockpitProcessoPage() {
   // Suspensa/encerrada (E1): nenhum ato de resultado até retomar
   const ativa = !licitacao.situacao || licitacao.situacao === "ATIVA"
   const podeRegistrarResultado = ativa && !checklist.homologado
-  const podeHomologar = ativa && checklist.resultado_registrado && !checklist.homologado
+  // Resultado único (E6): adjudicação/homologação no ResultadoPanel (valor calculado, autoridade do login)
+  const mostrarResultado =
+    checklist.resultado_registrado || ["HABILITACAO", "RECURSO", "ADJUDICACAO", "HOMOLOGACAO"].includes(licitacao.fase)
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -753,17 +732,14 @@ export default function CockpitProcessoPage() {
               {checklist.resultado_registrado ? "Editar resultado externo" : "Registrar resultado externo"}
             </Button>
           )}
-          {podeHomologar && (
-            <Button onClick={homologar} disabled={homologando}>
-              {homologando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-              Homologar e gerar contrato
-            </Button>
-          )}
         </div>
       </div>
 
       {/* Atos nomeados do processo (suspender, retomar, revogar, deserta...) */}
       <AtosProcesso licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
+
+      {/* Resultado (art. 71): adjudicar / homologar — um só caminho (E6) */}
+      {mostrarResultado && <ResultadoPanel licitacaoId={id} onAtualizado={carregar} />}
 
       {/* Disputa em plataforma externa: troca de arquivos com a BLL Compras */}
       {licitacao.modalidade !== "DISPENSA_ELETRONICA" && checklist.possui_itens && (

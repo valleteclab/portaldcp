@@ -204,13 +204,17 @@ export class ContratosService implements OnModuleInit {
       numeroContrato = `${String(sequencial).padStart(3, '0')}/${ano}`;
     }
 
+    // Contrato gerado pela homologação (E6) nasce AGUARDANDO_ASSINATURA (sem
+    // data de assinatura); os demais seguem o fluxo de liberação.
+    const aguardandoAssinatura = dados.status === StatusContrato.AGUARDANDO_ASSINATURA;
+    const statusInicial = aguardandoAssinatura ? StatusContrato.AGUARDANDO_ASSINATURA : StatusContrato.AGUARDANDO_LIBERACAO;
     const contrato = this.contratoRepository.create({
       ...dados,
       ano,
       sequencial,
       numero_contrato: numeroContrato,
       valor_global: dados.valor_global ?? dados.valor_inicial,
-      status: StatusContrato.AGUARDANDO_LIBERACAO,
+      status: statusInicial,
     });
 
     const salvo = await this.contratoRepository.save(contrato);
@@ -218,14 +222,17 @@ export class ContratosService implements OnModuleInit {
     await this.registrarHistorico({
       contrato_id: salvo.id,
       tipo_acao: TipoAcaoContrato.CRIADO,
-      descricao: `Contrato ${numeroContrato} criado — aguardando liberação`,
-      status_novo: StatusContrato.AGUARDANDO_LIBERACAO,
+      descricao: aguardandoAssinatura
+        ? `Contrato ${numeroContrato} gerado pela homologação — aguardando assinaturas`
+        : `Contrato ${numeroContrato} criado — aguardando liberação`,
+      status_novo: statusInicial,
       usuario_id: dados.usuario_cadastro_id || null,
       usuario_nome: dados.usuario_cadastro_nome || null,
     });
 
-    // Notificar responsáveis pela liberação
-    await this.notificarLiberadores(salvo, 'Criação manual');
+    // Notificar responsáveis pela liberação (o gerado pela homologação só vai
+    // à liberação depois de assinado por todas as partes)
+    if (!aguardandoAssinatura) await this.notificarLiberadores(salvo, 'Criação manual');
 
     return salvo;
   }
@@ -2455,6 +2462,12 @@ export class ContratosService implements OnModuleInit {
       });
       if (!licitacao) throw new NotFoundException('Licitação não encontrada');
 
+      // SRP: a homologação gera a ATA de registro de preços, nunca contrato (B10)
+      if ((licitacao as any).srp) {
+        this.logger.warn(`Licitação ${licitacaoId} é SRP — contrato não gerado (a homologação gera a ARP)`);
+        return [];
+      }
+
       if (licitacao.fase !== 'HOMOLOGACAO') {
         this.logger.warn(
           `Licitação ${licitacaoId} não está homologada. Fase atual: ${licitacao.fase}`,
@@ -2462,8 +2475,11 @@ export class ContratosService implements OnModuleInit {
         return [];
       }
 
+      // Itens com resultado: HOMOLOGADO (E6 — a homologação confirma os
+      // adjudicados); ADJUDICADO só em dado legado de fase HOMOLOGACAO.
       const itensAdjudicados = await this.itemRepository.find({
-        where: { licitacao_id: licitacaoId, status: StatusItem.ADJUDICADO },
+        where: { licitacao_id: licitacaoId, status: In([StatusItem.HOMOLOGADO, StatusItem.ADJUDICADO]) },
+        order: { numero_item: 'ASC' },
       });
       if (itensAdjudicados.length === 0) {
         this.logger.warn(
@@ -2521,9 +2537,11 @@ export class ContratosService implements OnModuleInit {
           itemIds,
         );
 
-        const dataAssinatura = new Date();
-        const dataVigenciaInicio = new Date(dataAssinatura);
-        const dataVigenciaFim = new Date(dataAssinatura);
+        // data_assinatura fica NULL até a última assinatura (portal de
+        // assinaturas); a vigência é provisória (a partir de hoje) e é
+        // recalculada da data real da assinatura (E6).
+        const dataVigenciaInicio = new Date();
+        const dataVigenciaFim = new Date(dataVigenciaInicio);
         dataVigenciaFim.setDate(dataVigenciaFim.getDate() + prazoEntrega);
 
         const totalFornecedores = itensPorFornecedor.size;
@@ -2545,14 +2563,41 @@ export class ContratosService implements OnModuleInit {
           categoria: this.mapearCategoria(licitacao.tipo_contratacao),
           valor_inicial: valorTotalFornecedor,
           valor_global: valorTotalFornecedor,
-          data_assinatura: dataAssinatura,
+          data_assinatura: null as any,
           data_vigencia_inicio: dataVigenciaInicio,
           data_vigencia_fim: dataVigenciaFim,
           prazo_execucao_dias: prazoEntrega,
           tipo: TipoContrato.CONTRATO,
+          status: StatusContrato.AGUARDANDO_ASSINATURA,
           observacoes: observacao,
           usuario_cadastro_nome: 'Sistema',
         });
+
+        // Itens do contrato = itens homologados do fornecedor (quantidade e
+        // valores adjudicados — proposta adequada aceita)
+        const itensContrato: Array<Partial<ItemContrato>> = itensDoFornecedor.map((item) => {
+          const qtd = Number(item.quantidade) || 0;
+          const unit = Number(item.valor_unitario_homologado) || 0;
+          const total = item.valor_total_homologado != null ? Number(item.valor_total_homologado) : Math.round(unit * qtd * 100) / 100;
+          return {
+            contrato_id: contrato.id,
+            numero_item: item.numero_item,
+            lote_numero: (item as any).numero_lote ?? null,
+            descricao: (item.descricao_resumida || item.descricao_detalhada || `Item ${item.numero_item}`).slice(0, 255),
+            descricao_detalhada: item.descricao_detalhada || null,
+            codigo_catalogo: (item as any).codigo_catmat || (item as any).codigo_catser || null,
+            marca: (item as any).marca_vencedora || null,
+            unidade_medida: (item.unidade_medida as any) || 'UNIDADE',
+            valor_unitario: unit,
+            valor_total: total,
+            quantidade_contratada: qtd,
+            quantidade_empenhada: 0,
+            quantidade_entregue: 0,
+            saldo_disponivel: qtd,
+            item_licitacao_id: item.id,
+          } as Partial<ItemContrato>;
+        });
+        if (itensContrato.length) await this.itemContratoRepository.save(itensContrato as ItemContrato[]);
 
         this.logger.log(
           `Contrato ${contrato.numero_contrato} gerado automaticamente para licitação ${licitacaoId} (fornecedor ${fornecedor.razao_social}, valor R$ ${valorTotalFornecedor.toFixed(2)}, prazo ${prazoEntrega} dias)`,
@@ -2585,12 +2630,17 @@ export class ContratosService implements OnModuleInit {
     if (itemIds.length === 0) return PRAZO_PADRAO;
 
     try {
+      // Proposta do VENCEDOR, qualquer que seja o status (VENCEDORA,
+      // CLASSIFICADA, ENVIADA...) — antes só lia ENVIADA e caía nos 30 dias
+      // (E0: "prazo de entrega do contrato sempre 30 dias"). Só rascunho,
+      // cancelada e desclassificada ficam de fora.
       const proposta = await this.propostaRepository.findOne({
         where: {
           licitacao_id: licitacaoId,
           fornecedor_id: fornecedorId,
-          status: StatusProposta.ENVIADA,
+          status: Not(In([StatusProposta.RASCUNHO, StatusProposta.CANCELADA, StatusProposta.DESCLASSIFICADA])),
         },
+        order: { updated_at: 'DESC' } as any,
       });
 
       let maiorPrazo = 0;

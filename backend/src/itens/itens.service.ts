@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ItemLicitacao, StatusItem, UnidadeMedida } from './entities/item-licitacao.entity';
-import { CreateItemDto, UpdateItemDto, AdjudicarItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
+import { CreateItemDto, UpdateItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
 import { ItemPCA } from '../pca/entities/pca.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
@@ -152,29 +152,6 @@ export class ItensService {
     // E1: nenhum item com vencedor e algum fracassado → licitação FRACASSADA (roll-up)
     await this.transicoes.aplicarRollup(salvo.licitacao_id, ator);
     return salvo;
-  }
-
-  async adjudicar(id: string, dados: AdjudicarItemDto): Promise<ItemLicitacao> {
-    const item = await this.findOne(id);
-
-    item.status = StatusItem.ADJUDICADO;
-    item.fornecedor_vencedor_id = dados.fornecedor_id;
-    item.fornecedor_vencedor_nome = dados.fornecedor_nome;
-    item.valor_unitario_homologado = dados.valor_unitario_homologado;
-    item.valor_total_homologado = item.quantidade * dados.valor_unitario_homologado;
-
-    return await this.itemRepository.save(item);
-  }
-
-  async homologar(id: string): Promise<ItemLicitacao> {
-    const item = await this.findOne(id);
-
-    if (item.status !== StatusItem.ADJUDICADO) {
-      throw new BadRequestException('Item precisa estar adjudicado para ser homologado');
-    }
-
-    item.status = StatusItem.HOMOLOGADO;
-    return await this.itemRepository.save(item);
   }
 
   async delete(id: string): Promise<void> {

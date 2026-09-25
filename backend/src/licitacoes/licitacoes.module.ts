@@ -20,6 +20,7 @@ import { BllIntegracaoService } from './bll-integracao.service';
 import { BllIntegracaoController } from './bll-integracao.controller';
 import { FornecedoresModule } from '../fornecedores/fornecedores.module';
 import { TransicoesModule } from './transicoes/transicoes.module';
+import { ResultadoModule } from '../resultado/resultado.module';
 
 @Module({
   imports: [
@@ -33,6 +34,8 @@ import { TransicoesModule } from './transicoes/transicoes.module';
     TransicoesModule,
     // Sala da dispensa (janela de lances, chat, tempo real) = motor único (E2 item 7)
     DisputaModule,
+    // Resultado único (E6): julgamento da dispensa e resultado externo gravam por ele
+    ResultadoModule,
   ],
   controllers: [LicitacoesController, BllIntegracaoController],
   providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService],

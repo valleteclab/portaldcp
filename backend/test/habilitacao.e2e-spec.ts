@@ -50,6 +50,7 @@ import {
   habilitarLicitante,
   painelHabilitacao,
 } from './support/habilitacao';
+import { vencedoresPorUnidade } from './support/resultado';
 import { CriterioJulgamento, FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao } from '../src/sessao/entities/sessao-disputa.entity';
 import { VencimentoDocumentosService } from '../src/habilitacao/vencimento-documentos.service';
@@ -484,8 +485,9 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(h2.status).toBe('HABILITADO');
 
       // vencedor final = o habilitado (nunca o inabilitado)
-      const adj = await http().get(`/api/sessao/${p.sessaoId}/adjudicacao`).set(bearer(orgao.token)).expect(200);
-      expect(adj.body.itens[0].vencedor.fornecedorId).toBe(F2.id);
+      // (prévia do resultado único — E6: o vencedor a adjudicar é o HABILITADO)
+      const adj = await vencedoresPorUnidade(ctx, licId, orgao.token);
+      expect(adj[0]).toMatchObject({ fornecedorId: F2.id, situacao: 'A_ADJUDICAR' });
       const hab2 = (await painelHabilitacao(ctx, licId, orgao.token)).habilitacoes.map((h: any) => [h.fornecedorId, h.status]);
       expect(hab2).toEqual([
         [F1.id, 'INABILITADO'],

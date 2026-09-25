@@ -76,7 +76,7 @@ interface Demanda {
   responsavel_nome?: string
   responsavel_email?: string
   responsavel_telefone?: string
-  status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA'
+  status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA' | 'EM_CONTRATACAO' | 'CONTRATADA'
   observacoes?: string
   descricao_sucinta_objeto?: string
   data_desejada_contratacao?: string
@@ -113,7 +113,9 @@ const STATUS_CONFIG: Record<string, { label: string; cor: string; icon: Componen
   EM_ANALISE: { label: 'Em Análise', cor: 'bg-yellow-100 text-yellow-800', icon: Clock },
   APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
   REJEITADA: { label: 'Rejeitada', cor: 'bg-red-100 text-red-800', icon: XCircle },
-  CONSOLIDADA: { label: 'Consolidada', cor: 'bg-purple-100 text-purple-800', icon: CheckCircle }
+  CONSOLIDADA: { label: 'Consolidada', cor: 'bg-purple-100 text-purple-800', icon: CheckCircle },
+  EM_CONTRATACAO: { label: 'Em contratação', cor: 'bg-indigo-100 text-indigo-800', icon: Clock },
+  CONTRATADA: { label: 'Contratada', cor: 'bg-emerald-100 text-emerald-800', icon: CheckCircle },
 }
 
 const PRIORIDADE_CONFIG: Record<number, { label: string; cor: string }> = {

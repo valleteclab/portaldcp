@@ -103,6 +103,7 @@ import { formatarModalidadeLicitacao } from '@/lib/utils'
 
 const STATUS_CONTRATO = {
   'RASCUNHO': { label: 'Rascunho', cor: 'bg-slate-100 text-slate-800', icon: FileText },
+  'AGUARDANDO_ASSINATURA': { label: 'Aguardando Assinatura', cor: 'bg-sky-100 text-sky-800', icon: Lock },
   'AGUARDANDO_LIBERACAO': { label: 'Aguardando Liberação', cor: 'bg-amber-100 text-amber-800', icon: Lock },
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
   'ENCERRADO': { label: 'Encerrado', cor: 'bg-gray-100 text-gray-800', icon: Clock },
