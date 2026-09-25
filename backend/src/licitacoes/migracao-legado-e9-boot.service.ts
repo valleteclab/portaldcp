@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { executarMigracaoDeBoot } from '../common/migracao-boot';
 import { migrarPregoeiroDaLicitacao } from './migracao-legado-e9';
 
 /**
@@ -15,7 +16,12 @@ export class MigracaoLegadoE9BootService implements OnApplicationBootstrap {
 
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
-  async onApplicationBootstrap(): Promise<void> {
+  onApplicationBootstrap(): Promise<void> {
+    // Fila única: as migrações de boot rodam uma de cada vez (ver common/migracao-boot.ts)
+    return executarMigracaoDeBoot(this.dataSource, () => this.executarMigracao());
+  }
+
+  private async executarMigracao(): Promise<void> {
     if (process.env.LICITACAO_LEGADO_E9_MIGRAR_NO_BOOT === 'false') return;
     try {
       const r = await this.dataSource.transaction((m) => migrarPregoeiroDaLicitacao(m));
