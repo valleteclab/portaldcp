@@ -475,6 +475,16 @@ describe('E2 — disputa por LOTE no motor único', () => {
 
   // --------------------------------------------------------------------------
   describe('F. Homologação: valores por item = rateio do lance vencedor do lote', () => {
+    test('desempate ME/EPP por LOTE (LC 123 art. 45): F2 (ME) no intervalo de 5% nos dois lotes é convocada e declina', async () => {
+      // a aceitação espera o desempate
+      expect((await convocarAceitacao(ctx, sessaoId, lote1, orgao.token)).status).toBe(409);
+      const minhas = (await http().get(`/api/julgamento/sessao/${sessaoId}/me-epp`).set(bearer(F2.token)).expect(200)).body;
+      expect(minhas.convocacoes.map((c: any) => c.unidadeId).sort()).toEqual([lote1, lote2].sort());
+      for (const c of minhas.convocacoes) {
+        await http().post(`/api/julgamento/sessao/${sessaoId}/me-epp/${c.id}/declinar`).set(bearer(F2.token)).send({}).expect(201);
+      }
+    });
+
     test('aceitação da proposta por LOTE: valores por item validados contra o rateio (E3)', async () => {
       // F1 (Lote 1): convocado; subir um item acima do rateio é recusado; no limite é aceito
       const c = await convocarAceitacao(ctx, sessaoId, lote1, orgao.token);

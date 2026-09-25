@@ -7,6 +7,8 @@ import { BaseLance } from '../disputa-v2/modelo-lance';
 import type { DirecaoLance } from '../disputa-v2/modos-disputa';
 import type { AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
 import { registrarLicitantesDaUnidade } from './licitantes-unidade.sql';
+import { ehCriterioPontuado, montarRankingPontuado } from './criterios-julgamento';
+import { criterioDaLicitacao, dadosPontuacao } from './julgamento-tecnico.sql';
 import {
   Desempatador,
   EntradaRanking,
@@ -206,6 +208,16 @@ export class RankingService {
     await this.sincronizar(unidade, m);
     const ofertas = await this.disputa.rankingDoItem(unidade.id, m);
     const situacoes = await this.situacoes(unidade.id, m);
+    // Estratégia por critério (art. 33): técnica e preço, melhor técnica e maior
+    // retorno ordenam pela pontuação (criterios-julgamento.ts); os demais, pelo valor.
+    const criterio = await criterioDaLicitacao(m, unidade.licitacaoId);
+    if (ehCriterioPontuado(criterio)) {
+      return montarRankingPontuado(criterio, ofertas, situacoes, await dadosPontuacao(m, unidade.licitacaoId, unidade.id, criterio), {
+        desempatar: this.desempatador,
+        licitacaoId: unidade.licitacaoId,
+        unidadeId: unidade.id,
+      });
+    }
     const direcao = await this.direcao(unidade.licitacaoId, m);
     return montarRanking(ofertas, situacoes, direcao, {
       desempatar: this.desempatador,

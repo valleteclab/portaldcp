@@ -45,6 +45,8 @@ import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes
 import { exigirLicitacaoAtiva, licitacaoEstaAtiva } from '../sessao/licitacao-ativa';
 import { pedirEncerramentoDisputa } from '../sessao/transicoes-sessao';
 import { registrarLicitantesDaUnidade, reiniciarJulgamentoDaLicitacao } from '../julgamento/licitantes-unidade.sql';
+import { motivoForaDoBeneficioMpe } from '../julgamento/me-epp/beneficio-mpe.sql';
+import { pendenciaJulgamentoTecnico } from '../julgamento/julgamento-tecnico.sql';
 
 /**
  * ============================================================================
@@ -229,12 +231,40 @@ export interface ResultadoRegistroLance {
   };
 }
 
+/**
+ * GANCHO do benefício ME/EPP (LC 123/2006 arts. 44/45 — plano E3 item 3),
+ * registrado pelo módulo de julgamento (o motor não o importa):
+ *  - `aposEncerrarUnidade`: fim da etapa de lances da unidade → apura o
+ *    empate ficto e convoca a ME/EPP (falha só é logada);
+ *  - `temDesempatePendente`: a sala vai para BENEFICIO_MPE (e não para a
+ *    aceitação) enquanto houver desempate em curso.
+ */
+export interface GanchoBeneficioMpe {
+  aposEncerrarUnidade(p: { sessaoId: string; licitacaoId: string; tipoUnidade: 'ITEM' | 'LOTE'; unidadeId: string }): Promise<void>;
+  temDesempatePendente(licitacaoId: string): Promise<boolean>;
+}
+
 /** Status de proposta que NÃO habilitam lance na dispensa (mesma regra do acolhimento). */
 const STATUS_PROPOSTA_INVALIDA_DISPENSA = ['RASCUNHO', 'DESCLASSIFICADA', 'CANCELADA'];
 
 @Injectable()
 export class DisputaService {
   private readonly logger = new Logger(DisputaService.name);
+  private ganchoMpe: GanchoBeneficioMpe | null = null;
+
+  /** Registro do gancho ME/EPP (julgamento/me-epp — MeEppService). */
+  registrarGanchoBeneficioMpe(g: GanchoBeneficioMpe): void {
+    this.ganchoMpe = g;
+  }
+
+  private async aposEncerrarUnidadeMpe(sessaoId: string, licitacaoId: string, tipoUnidade: 'ITEM' | 'LOTE', unidadeId: string): Promise<void> {
+    if (!this.ganchoMpe) return;
+    try {
+      await this.ganchoMpe.aposEncerrarUnidade({ sessaoId, licitacaoId, tipoUnidade, unidadeId });
+    } catch (e: any) {
+      this.logger.error(`Benefício ME/EPP da unidade ${unidadeId} não apurado no encerramento: ${e?.message ?? e}`);
+    }
+  }
 
   constructor(
     @InjectRepository(SessaoDisputa)
@@ -310,10 +340,12 @@ export class DisputaService {
   private async concluirEtapaDeLancesSeTerminou(sessaoId: string, licitacaoId: string, ator: AtorTransicao): Promise<boolean> {
     if (!(await this.etapaDeLancesEncerrada(licitacaoId))) return false;
 
+    // Desempate ME/EPP em curso (LC 123 art. 45): a sala vai para BENEFICIO_MPE antes da aceitação
+    const pendenteMpe = this.ganchoMpe ? await this.ganchoMpe.temDesempatePendente(licitacaoId).catch(() => false) : false;
     const r = await this.sessaoRepo
       .createQueryBuilder()
       .update(SessaoDisputa)
-      .set({ status: StatusSessao.EM_ANDAMENTO, etapa: EtapaSessao.ACEITACAO_PROPOSTA })
+      .set({ status: StatusSessao.EM_ANDAMENTO, etapa: pendenteMpe ? EtapaSessao.BENEFICIO_MPE : EtapaSessao.ACEITACAO_PROPOSTA })
       .where('id = :id', { id: sessaoId })
       .andWhere('etapa IN (:...etapas)', { etapas: [EtapaSessao.DISPUTA_LANCES, EtapaSessao.RANDOM_ENCERRAMENTO] })
       .execute();
@@ -748,6 +780,9 @@ export class DisputaService {
     const params = await this.parametros.daSessao(sessaoId);
     // Modo × critério (Lei 14.133 art. 56 §§1º-2º) conferidos antes de abrir lances (item e lote)
     await this.modos.exigirModoCriterioDaLicitacao(sessao.licitacao_id);
+    // Critérios técnicos: a etapa de preços só abre com as notas técnicas publicadas (Lei 14.133 art. 36 §2º)
+    const pendenciaTecnica = await pendenciaJulgamentoTecnico(this.dataSource.manager, sessao.licitacao_id);
+    if (pendenciaTecnica) throw new ConflictException(pendenciaTecnica);
     if (params.baseLance === BaseLance.TOTAL_LOTE) {
       // Disputa por LOTE: ids de lote (ou de itens → seus lotes) — disputa-lote.service.ts
       const r = await this.lotes.iniciar(sessao, itensIds, ator);
@@ -840,6 +875,8 @@ export class DisputaService {
       const proposta = ip.proposta;
       if (!proposta || (proposta.status !== 'CLASSIFICADA' && proposta.status !== 'RECEBIDA')) continue;
       const fornecedorId = String(proposta.fornecedor_id);
+      // Item exclusivo/cota de ME/EPP: proposta de quem não é ME/EPP não entra na disputa (art. 48)
+      if (await motivoForaDoBeneficioMpe(m, item.id, fornecedorId)) continue;
       const existe = await m.count(Lance, {
         where: { item_id: item.id, fornecedor_id: fornecedorId, origem: OrigemLance.PROPOSTA, cancelado: false },
       });
@@ -925,6 +962,11 @@ export class DisputaService {
         }
         if (params.baseLance === BaseLance.TOTAL_LOTE) {
           throw new ConflictException('Esta licitação é disputada por LOTE: o lance é dado no lote (valor global), não no item.');
+        }
+        // Unidade exclusiva/cota de ME/EPP (LC 123 art. 48 I e III): só ME/EPP enquadrada dá lance
+        if (!janela) {
+          const foraMpe = await motivoForaDoBeneficioMpe(m, item.id, cmd.fornecedorId);
+          if (foraMpe) throw new LanceRecusado(foraMpe, 'EXCLUSIVO_MPE');
         }
         const quantidade = Number(item.quantidade) || 1;
         const propostaItem = janela
@@ -1125,6 +1167,7 @@ export class DisputaService {
     }
 
     await this.registrarLicitantesAposEncerrar(sessao.licitacao_id, 'ITEM', itemId);
+    await this.aposEncerrarUnidadeMpe(sessaoId, sessao.licitacao_id, 'ITEM', itemId);
     const etapaDeLancesEncerrada = await this.concluirEtapaDeLancesSeTerminou(sessaoId, sessao.licitacao_id, ator);
     await this.modos.aposEncerrar(sessaoId, sessao.licitacao_id, itemId);
     const alertaReinicio = await this.avaliarReinicio(sessaoId, r.item).catch(() => null);
@@ -1165,6 +1208,7 @@ export class DisputaService {
       };
     }
     await this.registrarLicitantesAposEncerrar(sessao.licitacao_id, 'LOTE', r.lote.id);
+    await this.aposEncerrarUnidadeMpe(sessao.id, sessao.licitacao_id, 'LOTE', r.lote.id);
     const etapaDeLancesEncerrada = await this.concluirEtapaDeLancesSeTerminou(sessao.id, sessao.licitacao_id, ator);
     await this.modos.aposEncerrar(sessao.id, sessao.licitacao_id, r.lote.id);
     const alertaReinicio = await this.avaliarReinicio(sessao.id, { id: r.lote.id, numero_item: r.lote.numero }).catch(() => null);

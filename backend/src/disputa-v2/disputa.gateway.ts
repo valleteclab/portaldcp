@@ -71,6 +71,11 @@ export const salaOrgao = (sessaoId: string) => `sessao:${sessaoId}:orgao`;
 export const salaLicitacao = (licitacaoId: string) => `licitacao:${licitacaoId}`;
 /** Sala do órgão dono dentro do feed da licitação. */
 export const salaLicitacaoOrgao = (licitacaoId: string) => `licitacao:${licitacaoId}:orgao`;
+/**
+ * Sala PRIVADA de um licitante na sessão (plano E3): só o socket do próprio
+ * fornecedor (token) entra; o órgão dono recebe pela `salaOrgao`.
+ */
+export const salaFornecedor = (sessaoId: string, fornecedorId: string) => `sessao:${sessaoId}:fornecedor:${fornecedorId}`;
 
 @WebSocketGateway({
   namespace: '/disputa-v2',
@@ -337,6 +342,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       if (anterior && anterior.sessaoId !== sessaoId) {
         client.leave(`sessao:${anterior.sessaoId}`);
         client.leave(salaOrgao(anterior.sessaoId));
+        if (anterior.tipo === 'FORNECEDOR') client.leave(salaFornecedor(anterior.sessaoId, anterior.usuarioId));
       }
 
       this.clientes.set(client.id, {
@@ -350,6 +356,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
 
       client.join(`sessao:${sessaoId}`);
       if (tipo === 'PREGOEIRO') client.join(salaOrgao(sessaoId));
+      if (tipo === 'FORNECEDOR') client.join(salaFornecedor(sessaoId, usuarioId));
       if (anterior?.tipo === 'PREGOEIRO' && anterior.sessaoId !== sessaoId) this.desconexao.pregoeiroSaiu(anterior.sessaoId, client.id);
       if (tipo === 'PREGOEIRO') this.desconexao.pregoeiroEntrou(sessaoId, client.id);
 

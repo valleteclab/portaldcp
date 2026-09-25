@@ -164,4 +164,13 @@ export class PublicarEditalDto {
   @IsString()
   @IsOptional()
   link_pncp?: string;
+
+  /**
+   * Justificativa (LC 123/2006 art. 49) para publicar com itens de até
+   * R$ 80.000 SEM participação exclusiva de ME/EPP (art. 48 I) — registrada
+   * na transição PUBLICAR.
+   */
+  @IsString()
+  @IsOptional()
+  justificativa_nao_exclusividade_mpe?: string;
 }

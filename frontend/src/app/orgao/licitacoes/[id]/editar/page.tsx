@@ -20,6 +20,7 @@ import {
 } from "@/components/cadastro-licitacao/types"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { JulgamentoTecnicoConfig } from "@/components/julgamento/JulgamentoTecnicoConfig"
 
 /** Valor de tempo da licitação em minutos (null = herda do órgão → padrão legal). */
 function emMinutos(v: unknown, padrao: number): number {
@@ -625,6 +626,10 @@ export default function EditarLicitacaoPage() {
 
         <TabsContent value="configuracoes">
           <ConfiguracoesTab dados={configuracoes} onChange={setConfiguracoes} />
+          {/* Critério técnico (Lei 14.133 arts. 35–37): quesitos, pesos e banca do edital */}
+          {["MELHOR_TECNICA", "TECNICA_E_PRECO"].includes(classificacao.criterio_julgamento) && (
+            <JulgamentoTecnicoConfig licitacaoId={id} className="mt-6" />
+          )}
         </TabsContent>
       </Tabs>
 

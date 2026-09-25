@@ -13,6 +13,7 @@ import {
   ROTULO_FASE,
 } from './fases';
 import { avaliarRollupItens } from './rollup';
+import { pendenciasPublicacaoArt48 } from '../../julgamento/me-epp/regras-me-epp';
 import {
   AtoLicitacao,
   ContextoTransicao,
@@ -100,6 +101,26 @@ export const prazoMinimoDispensa: Precondicao = (ctx) => {
     );
   }
   return null;
+};
+
+/**
+ * ME/EPP — LC 123/2006 art. 48 I (plano E3): exclusividade acima do limite
+ * legal (`MPE_EXCLUSIVO_ITEM`, R$ 80.000; no lote, o valor total do lote)
+ * BLOQUEIA a publicação; item até o limite sem exclusividade exige a
+ * justificativa do art. 49 (`dados.justificativa_nao_exclusividade_mpe`,
+ * registrada na transição). Regras puras em julgamento/me-epp/regras-me-epp.ts.
+ */
+export const exclusividadeMpeArt48: Precondicao = async (ctx) => {
+  if (!ctx.consultas.conferenciaArt48) return null;
+  const c = await ctx.consultas.conferenciaArt48();
+  const justificativa = ctx.dados?.justificativa_nao_exclusividade_mpe ?? (ctx.licitacao as any).justificativa_nao_exclusividade_mpe;
+  return pendenciasPublicacaoArt48(c, justificativa, !!ctx.somenteAvaliacao);
+};
+
+/** PUBLICAR: grava a justificativa do art. 49 informada no ato (também fica nos dados da transição). */
+const gravarJustificativaArt49: Efeito = (lic, ctx) => {
+  const j = String(ctx.dados?.justificativa_nao_exclusividade_mpe ?? '').trim();
+  if (j) (lic as any).justificativa_nao_exclusividade_mpe = j;
 };
 
 /** O acolhimento só começa na data do edital. */
@@ -315,8 +336,8 @@ const PUBLICAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoCompleta, prazoMinimoDispensa],
-  efeitos: [gravarCronogramaPublicacao],
+  precondicoes: [instrucaoCompleta, prazoMinimoDispensa, exclusividadeMpeArt48],
+  efeitos: [gravarCronogramaPublicacao, gravarJustificativaArt49],
   mensagemForaDaFase: () => 'Licitação precisa estar aprovada internamente para publicar edital',
 };
 

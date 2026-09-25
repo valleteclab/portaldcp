@@ -8,6 +8,8 @@ import { ItensService } from '../itens/itens.service';
 import { Licitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { licitacaoParaOrgao, licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { beneficioDaUnidadeSql } from '../julgamento/me-epp/beneficio-mpe.sql';
+import { enquadramentoMpe, motivoDeclaracaoIncompativel, motivoForaDaExclusividade } from '../julgamento/me-epp/regras-me-epp';
 
 /** Campos do fornecedor que nunca saem nas respostas de proposta. */
 const SEGREDOS_FORNECEDOR = ['senha', 'api_key_hash', 'spedy_api_key', 'spedy_company_id'];
@@ -130,6 +132,23 @@ export class PropostasService {
       }
     }
 
+    // ME/EPP (LC 123/2006; Lei 14.133 art. 4º): o porte vem do CADASTRO (retratado na
+    // proposta), nunca do corpo; a declaração precisa ser compatível com ele, e unidade
+    // exclusiva/cota (art. 48 I e III) só recebe proposta de ME/EPP enquadrada.
+    const [cadastro] = await this.propostaRepository.manager.query(
+      `SELECT porte::text AS porte FROM fornecedores WHERE id::text = $1`,
+      [fornecedorId],
+    );
+    const porteCadastro: string | null = cadastro?.porte ?? null;
+    const declaracaoIncompativel = motivoDeclaracaoIncompativel(porteCadastro, createDto.declaracao_mpe);
+    if (declaracaoIncompativel) throw new BadRequestException(declaracaoIncompativel);
+    const enquadrada = enquadramentoMpe(porteCadastro, createDto.declaracao_mpe);
+    for (const itemDto of createDto.itens || []) {
+      const u = await beneficioDaUnidadeSql(this.propostaRepository.manager, itemDto.item_licitacao_id);
+      const fora = u ? motivoForaDaExclusividade(u.beneficio, enquadrada, u.rotulo) : null;
+      if (fora) throw new BadRequestException(fora);
+    }
+
     // Valida declarações obrigatórias
     if (!createDto.declaracao_termos) {
       throw new BadRequestException('É obrigatório aceitar os termos do edital');
@@ -147,6 +166,8 @@ export class PropostasService {
       fornecedor_id: fornecedorId,
       declaracao_termos: createDto.declaracao_termos,
       declaracao_mpe: createDto.declaracao_mpe || false,
+      porte_fornecedor: porteCadastro,
+      enquadramento_mpe: enquadrada,
       declaracao_integridade: createDto.declaracao_integridade,
       declaracao_inexistencia_fatos: createDto.declaracao_inexistencia_fatos,
       declaracao_menor: createDto.declaracao_menor,

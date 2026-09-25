@@ -49,4 +49,16 @@ export async function reiniciarJulgamentoDaLicitacao(db: ExecutorSql, licitacaoI
     [licitacaoId, StatusAceitacao.CANCELADA, `Reinício da disputa: ${motivo}`, STATUS_ACEITACAO_ATIVOS],
   );
   await db.query(`DELETE FROM licitantes_unidade WHERE licitacao_id = $1`, [licitacaoId]);
+  // Desempate ME/EPP (LC 123 art. 45): convocações canceladas; a apuração recomeça no novo encerramento
+  await db.query(
+    `UPDATE convocacoes_desempate_mpe SET status = 'CANCELADA', respondida_em = now(), motivo = $2, updated_at = now()
+      WHERE licitacao_id = $1 AND status IN ('AGUARDANDO','PROCESSANDO')`,
+    [licitacaoId, `Reinício da disputa: ${motivo}`],
+  );
+  await db.query(`DELETE FROM desempates_mpe WHERE licitacao_id = $1`, [licitacaoId]);
+  // Desempate do art. 60 (desempate.service): os registros deixam de valer (histórico mantido)
+  await db.query(
+    `UPDATE desempates SET status = 'CANCELADO', updated_at = now() WHERE licitacao_id = $1 AND status <> 'CANCELADO'`,
+    [licitacaoId],
+  );
 }

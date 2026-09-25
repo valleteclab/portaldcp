@@ -34,6 +34,8 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
   const [actionError, setActionError] = useState<string | null>(null)
   const [meusLances, setMeusLances] = useState<DisputaV3LanceMeu[]>([])
   const [sendingCancel, setSendingCancel] = useState(false)
+  // Negociação (E3): muda a cada evento privado/resultado da negociação — os painéis recarregam
+  const [negociacaoVersao, setNegociacaoVersao] = useState(0)
 
   const socketRef = useRef<Socket | null>(null)
   const actorRef = useRef<{ id: string; nome: string; tipo: 'PREGOEIRO' | 'FORNECEDOR' } | null>(null)
@@ -286,6 +288,10 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
         await refreshBoard(sessaoId)
       })
     }
+    // Negociação (art. 61): acompanhada pelos participantes na sala da sessão (IN 73 art. 30 §2º) e resultado
+    for (const evento of ['negociacao_mensagem', 'negociacao_atualizada', 'negociacao_resultado']) {
+      socket.on(evento, () => setNegociacaoVersao((v) => v + 1))
+    }
     socket.on('nova_mensagem', (mensagem: DisputaMensagem) => {
       setMensagens((current) => [mensagem, ...current].slice(0, 50))
     })
@@ -523,5 +529,6 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     cancelarLanceDireto,
     solicitarCancelamentoLance,
     pregoeiroCancelarLance,
+    negociacaoVersao,
   }
 }

@@ -102,6 +102,12 @@ export interface ConsultasTransicao {
    * Opcional: ausente = sem checagem (testes unitários antigos).
    */
   unidadesSemPropostaAceita?(): Promise<string[]>;
+  /**
+   * Conferência do art. 48 I da LC 123/2006 (plano E3 — ME/EPP): unidades com
+   * valor estimado e exclusividade; null fora das modalidades licitatórias.
+   * Opcional: ausente = sem checagem (testes unitários antigos).
+   */
+  conferenciaArt48?(): Promise<import('../../julgamento/me-epp/regras-me-epp').ConferenciaArt48 | null>;
 }
 
 export interface ContextoTransicao {

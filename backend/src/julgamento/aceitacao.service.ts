@@ -69,6 +69,27 @@ export type GanchoAntesDaAceitacao = (ctx: {
   manager: EntityManager;
 }) => Promise<string | null> | string | null;
 
+/**
+ * GANCHO antes do ACEITE da proposta adequada: devolve o motivo que impede
+ * (ex.: "proposta acima do preço máximo sem negociação" — Lei 14.133 art. 61;
+ * IN 73 art. 30) ou null. A negociação registra o seu em
+ * `AceitacaoService.registrarGanchoAntesDoAceite`.
+ */
+export type GanchoAntesDoAceite = (ctx: {
+  aceitacao: AceitacaoProposta;
+  unidade: UnidadeJulgamento;
+  opts: { justificativaExequibilidade?: string | null; justificativaPrecoAcimaEstimado?: string | null };
+  manager: EntityManager;
+}) => Promise<string | null> | string | null;
+
+/**
+ * Pendência de um gancho (desempate do art. 60, ME/EPP...) que impede a
+ * convocação: 409 no ato explícito; na convocação AUTOMÁTICA do próximo
+ * (recusa/inabilitação) o ato principal segue e o próximo fica aguardando
+ * (evento na sala) — a unidade NÃO fracassa por isso.
+ */
+export class PendenciaAntesDaAceitacao extends ConflictException {}
+
 /** Etapas da sessão das quais a convocação para a aceitação leva a sala à etapa ACEITACAO_PROPOSTA. */
 const ETAPAS_QUE_VAO_A_ACEITACAO: string[] = [
   EtapaSessao.NEGOCIACAO,
@@ -122,6 +143,13 @@ export class AceitacaoService {
   /** GANCHO da etapa ME/EPP (e outras): impede a convocação enquanto houver pendência na unidade. */
   registrarGanchoAntesDaConvocacao(fn: GanchoAntesDaAceitacao): void {
     this.ganchos.push(fn);
+  }
+
+  private readonly ganchosAceite: GanchoAntesDoAceite[] = [];
+
+  /** GANCHO da negociação (e outras): impede o aceite (ex.: preço acima do máximo sem negociar). */
+  registrarGanchoAntesDoAceite(fn: GanchoAntesDoAceite): void {
+    this.ganchosAceite.push(fn);
   }
 
   // ==========================================================================
@@ -222,7 +250,8 @@ export class AceitacaoService {
         statusResultado: comResultado ? null : unidade.itens.map((i) => i.status)[0],
         resolvida,
         podeConvocar:
-          unidade.encerrada && comResultado && !ativa && !!atual && !ehPropostaAceita(atual.situacao) && lic?.fase === FaseLicitacao.JULGAMENTO,
+          unidade.encerrada && comResultado && !ativa && !!atual && !ehPropostaAceita(atual.situacao) && lic?.fase === FaseLicitacao.JULGAMENTO &&
+          !atual.desempate?.pendente,
         ranking: ranking.map((e) => ({
           posicao: e.posicao,
           fornecedorId: e.fornecedorId,
@@ -233,6 +262,9 @@ export class AceitacaoService {
           situacao: e.situacao,
           excluido: e.excluido,
           empatado: !!e.empatado,
+          // Critérios pontuados (nota/índice) e desempate do art. 60 (julgamento técnico / desempate.service)
+          criterio: e.criterio ?? null,
+          desempate: e.desempate ?? null,
         })),
         atual: atual ? { fornecedorId: atual.fornecedorId, situacao: atual.situacao } : null,
         aceitacaoAtual: ativa ? { ...this.visaoAceitacao(ativa, agora), razaoSocial: cadastro.get(ativa.fornecedor_id)?.razaoSocial ?? null } : null,
@@ -439,7 +471,7 @@ export class AceitacaoService {
     }
     for (const gancho of this.ganchos) {
       const pendencia = await gancho({ licitacaoId: u.licitacaoId, sessaoId: sessao.id, unidade: u, primeiro, manager: m });
-      if (pendencia) throw new ConflictException(pendencia);
+      if (pendencia) throw new PendenciaAntesDaAceitacao(pendencia);
     }
 
     const limites = await this.limitesDoLicitante(m, u, primeiro.fornecedorId);
@@ -522,7 +554,7 @@ export class AceitacaoService {
   async aceitar(
     sessaoId: string,
     aceitacaoId: string,
-    opts: { justificativaExequibilidade?: string | null },
+    opts: { justificativaExequibilidade?: string | null; justificativaPrecoAcimaEstimado?: string | null },
     ator: AtorTransicao,
     usuarioNome?: string,
   ) {
@@ -535,6 +567,10 @@ export class AceitacaoService {
       if (erro) throw new BadRequestException(erro);
       const u = await this.ranking.unidade(a.unidade_id, m);
       if (!u) throw new NotFoundException('Unidade não encontrada');
+      for (const gancho of this.ganchosAceite) {
+        const impedimento = await gancho({ aceitacao: a, unidade: u, opts, manager: m });
+        if (impedimento) throw new BadRequestException(impedimento);
+      }
       a.status = StatusAceitacao.ACEITA;
       a.decidida_em = new Date();
       a.decidida_por_tipo = ator.tipo;
@@ -548,7 +584,10 @@ export class AceitacaoService {
         tipo: TipoEvento.PROPOSTA_ACEITA,
         descricao:
           `${this.rotulo(u)}: proposta de ${nome} ACEITA (${brl(Number(a.valor_total_readequado))}).` +
-          (a.alerta_exequibilidade ? ` Exequibilidade justificada: ${a.justificativa_exequibilidade}` : ''),
+          (a.alerta_exequibilidade ? ` Exequibilidade justificada: ${a.justificativa_exequibilidade}` : '') +
+          (opts.justificativaPrecoAcimaEstimado?.trim()
+            ? ` Aceite acima do preço máximo, após negociação, motivado: ${opts.justificativaPrecoAcimaEstimado.trim()}`
+            : ''),
         itemId: u.tipo === 'ITEM' ? u.id : null,
         fornecedorId: a.fornecedor_id,
         usuario: usuarioNome ?? sessao.pregoeiro_nome ?? undefined,
@@ -600,7 +639,7 @@ export class AceitacaoService {
         dados: { aceitacao_id: a.id, unidade_id: u.id, motivo: texto, sem_envio: semEnvio },
       });
       const proxima = await this.convocarProximoOuFracassar(m, sessao, u, Number(a.prazo_horas), ator, usuarioNome);
-      fracassou = !proxima;
+      fracassou = !proxima && (await this.unidadeFracassada(m, u));
       return { recusada: a, proxima };
     });
     if (fracassou) await this.transicoes.aplicarRollup(sessao.licitacao_id, ator);
@@ -609,6 +648,15 @@ export class AceitacaoService {
       proximaConvocacao: r.proxima ? this.visaoAceitacao(r.proxima) : null,
       unidadeFracassada: fracassou,
     };
+  }
+
+  /** A unidade foi declarada fracassada (todos os itens FRACASSADO)? */
+  private async unidadeFracassada(m: EntityManager, u: UnidadeJulgamento): Promise<boolean> {
+    const [r] = await m.query(
+      `SELECT COUNT(*) FILTER (WHERE status::text <> 'FRACASSADO')::int AS vivos FROM itens_licitacao WHERE id::text = ANY($1::text[])`,
+      [u.itens.map((i) => i.id)],
+    );
+    return Number(r?.vivos ?? 1) === 0;
   }
 
   /** Convoca o próximo da unidade (mesma transação) ou declara a unidade fracassada. */
@@ -623,7 +671,20 @@ export class AceitacaoService {
     const ranking = await this.ranking.ranking(u, m);
     const proximo = atualDaUnidade(ranking);
     if (proximo && !ehPropostaAceita(proximo.situacao)) {
-      return this.convocarNaTransacao(m, sessao, u, Math.max(horas, PRAZO_MINIMO_ACEITACAO_HORAS), ator, usuarioNome);
+      try {
+        return await this.convocarNaTransacao(m, sessao, u, Math.max(horas, PRAZO_MINIMO_ACEITACAO_HORAS), ator, usuarioNome);
+      } catch (e) {
+        if (!(e instanceof PendenciaAntesDaAceitacao)) throw e;
+        // Pendência de gancho (desempate art. 60, ME/EPP): o próximo aguarda; nada fracassa
+        await this.evento(m, {
+          sessaoId: sessao.id,
+          tipo: TipoEvento.MENSAGEM_SISTEMA,
+          descricao: `${this.rotulo(u)}: convocação do próximo classificado aguardando — ${e.message}`,
+          itemId: u.tipo === 'ITEM' ? u.id : null,
+          dados: { unidade_id: u.id, pendencia: e.message },
+        });
+        return null;
+      }
     }
     if (proximo) return null; // já há proposta aceita (não deveria ocorrer aqui)
     await m.update(
@@ -864,7 +925,7 @@ export class AceitacaoService {
           await this.prepararAto(m, sessao, u.id);
           const nova = await this.convocarProximoOuFracassar(m, sessao, u, horas, ator, usuarioNome);
           if (nova) reconvocadas++;
-          else fracassadas++;
+          else if (await this.unidadeFracassada(m, u)) fracassadas++;
         });
       }
       if (fracassadas) await this.transicoes.aplicarRollup(licitacaoId, ator);
@@ -874,5 +935,73 @@ export class AceitacaoService {
       [licitacaoId, [...SITUACOES_PROPOSTA_ACEITA]],
     );
     return { reconvocadas, fracassadas, restantesComAceite: Number(total) };
+  }
+
+  // ==========================================================================
+  // GANCHO DA NEGOCIAÇÃO (Lei 14.133 art. 61; IN 73 art. 30 §4º)
+  // ==========================================================================
+
+  /**
+   * Valor negociado (lance NEGOCIACAO já registrado no motor): a convocação
+   * ATIVA do licitante na unidade passa a exigir a proposta adequada ao valor
+   * negociado — novos limites (último lance, rateio no lote), nova solicitação
+   * com prazo ≥ 2 h contado de agora (IN 73 art. 30 §4º) e, se a proposta já
+   * tinha sido enviada, ela é descartada (volta a AGUARDANDO_ENVIO). Sem
+   * convocação ativa não faz nada (a convocação futura já nasce com o valor
+   * negociado). Devolve a convocação readequada ou null.
+   */
+  async readequarAposNegociacao(
+    m: EntityManager,
+    sessaoId: string,
+    u: UnidadeJulgamento,
+    fornecedorId: string,
+    ator: AtorTransicao,
+    usuarioNome?: string,
+  ): Promise<AceitacaoProposta | null> {
+    const a = await m.findOne(AceitacaoProposta, {
+      where: STATUS_ACEITACAO_ATIVOS.map((status) => ({ unidade_id: u.id, fornecedor_id: fornecedorId, status })),
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!a) return null;
+    const minimo = await this.prazoMinimoHoras(u.licitacaoId, m);
+    const horas = Math.max(minimo, Number(a.prazo_horas) || minimo);
+    const agora = new Date();
+    const tinhaEnvio = a.status === StatusAceitacao.ENVIADA;
+    a.limites = await this.limitesDoLicitante(m, u, fornecedorId);
+    a.status = StatusAceitacao.AGUARDANDO_ENVIO;
+    a.convocada_em = agora;
+    a.prazo_horas = horas;
+    a.prazo_ate = prazoAte(agora, horas);
+    a.prorrogada_em = null;
+    a.prorrogacao_origem = null;
+    a.prorrogacao_motivo = null;
+    a.pedido_prorrogacao_em = null;
+    a.pedido_prorrogacao_motivo = null;
+    a.enviada_em = null;
+    a.valores_itens = null;
+    a.valor_total_readequado = null;
+    a.observacao_fornecedor = null;
+    a.arquivo_nome = null;
+    a.arquivo_mime = null;
+    a.arquivo_tamanho = null;
+    a.arquivo_sha256 = null;
+    a.arquivo_conteudo = null;
+    a.alerta_exequibilidade = null;
+    await m.save(a);
+    await this.evento(m, {
+      sessaoId,
+      tipo: TipoEvento.ACEITACAO_CONVOCADA,
+      descricao:
+        `${this.rotulo(u)}: valor negociado — nova solicitação de proposta adequada ao último lance negociado ` +
+        `(${brl(a.limites.valorFinalTotal)}) até ${dataHora(a.prazo_ate)}, prazo de ${horas} h (IN SEGES 73/2022, art. 30 §4º)` +
+        (tinhaEnvio ? '; a proposta enviada antes da negociação foi substituída.' : '.'),
+      itemId: u.tipo === 'ITEM' ? u.id : null,
+      fornecedorId,
+      usuario: usuarioNome,
+      sistema: false,
+      valor: a.limites.valorFinalTotal,
+      dados: { aceitacao_id: a.id, unidade_id: u.id, origem: 'NEGOCIACAO', prazo_ate: a.prazo_ate, prazo_horas: horas, ator_tipo: ator.tipo },
+    });
+    return a;
   }
 }

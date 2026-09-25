@@ -511,121 +511,11 @@ export class SessaoService {
   }
 
   // ========================================
-  // NEGOCIACAO (Art. 61)
+  // BENEFICIO ME/EPP (LC 123/2006) — E3: julgamento/me-epp (MeEppService).
+  // Apuração automática do empate ficto no fim da etapa de lances da unidade;
+  // a ME/EPP convocada responde SOZINHA pela sala (exercer/declinar). Os
+  // antigos verificar/convocar/aceitar/recusar desta sala foram removidos.
   // ========================================
-
-  async iniciarNegociacao(sessaoId: string, fornecedorId: string): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    sessao.etapa = EtapaSessao.NEGOCIACAO;
-    await this.sessaoRepository.save(sessao);
-
-    await this.registrarEvento(sessao.id, TipoEvento.NEGOCIACAO_INICIADA,
-      `Pregoeiro iniciou negociacao com o fornecedor ${fornecedorId}`,
-      sessao.item_atual_id, fornecedorId, sessao.pregoeiro_nome, false);
-  }
-
-  async registrarPropostaNegociacao(
-    sessaoId: string, 
-    fornecedorId: string, 
-    valorProposto: number
-  ): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    await this.registrarEvento(sessao.id, TipoEvento.NEGOCIACAO_PROPOSTA,
-      `Fornecedor propoe novo valor: R$ ${valorProposto.toFixed(2)}`,
-      sessao.item_atual_id, fornecedorId, fornecedorId, false,
-      { valor_proposto: valorProposto });
-  }
-
-  // ========================================
-  // BENEFICIO ME/EPP (LC 123/2006)
-  // ========================================
-
-  async verificarEmpateFicto(sessaoId: string, itemId: string): Promise<boolean> {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) return false;
-
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: sessao.licitacao_id });
-
-    // Os dois melhores licitantes do ITEM (ranking do motor)
-    const ranking = await this.disputa.rankingDoItem(itemId);
-    if (ranking.length < 2) return false;
-
-    const melhorLance = ranking[0].melhorValor;
-    const segundoLance = ranking[1].melhorValor;
-
-    // Margem de empate ficto parametrizada (LC 123, art. 44):
-    // pregão/eletrônico até 5%; demais modalidades até 10%.
-    const parametros = await this.parametrosService.resolver(licitacao?.orgao_id);
-    const modalidade = String(licitacao?.modalidade || '');
-    const isPregao = modalidade.includes('PREGAO');
-    const limite = isPregao
-      ? Number(parametros.percentual_empate_ficto_pregao)
-      : Number(parametros.percentual_empate_ficto_demais);
-
-    const diferenca = ((segundoLance - melhorLance) / melhorLance) * 100;
-
-    if (diferenca <= limite) {
-      await this.registrarEvento(sessao.id, TipoEvento.EMPATE_FICTO_DETECTADO,
-        `Empate ficto detectado. Diferenca de ${diferenca.toFixed(2)}% (limite ${limite}%) entre os melhores lances`,
-        itemId, undefined, 'SISTEMA', true);
-      return true;
-    }
-
-    return false;
-  }
-
-  async convocarMPEParaLance(sessaoId: string, fornecedorId: string): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    sessao.etapa = EtapaSessao.BENEFICIO_MPE;
-    await this.sessaoRepository.save(sessao);
-
-    await this.registrarEvento(sessao.id, TipoEvento.LANCE_MPE_SOLICITADO,
-      `ME/EPP convocada para exercer direito de preferencia. Prazo: 5 minutos`,
-      sessao.item_atual_id, fornecedorId, 'SISTEMA', true);
-  }
-
-  /**
-   * ME/EPP exerce o direito de preferência: registra novo lance (menor que o
-   * 1º colocado) e passa a ser vencedora do item (LC 123, art. 45, I).
-   */
-  async aceitarLanceMPE(
-    sessaoId: string,
-    fornecedorId: string,
-    itemId: string,
-    novoValor: number,
-  ): Promise<void> {
-    await this.sessaoParaAto(sessaoId);
-    // Único caminho de lance: o motor valida (item encerrado, valor abaixo do
-    // melhor — LC 123 art. 45, I) e grava com origem DESEMPATE_MPE
-    await this.disputa.registrarLance({
-      sessaoId,
-      itemId,
-      fornecedorId,
-      valor: Number(novoValor),
-      ip: 'API',
-      origem: OrigemLance.DESEMPATE_MPE,
-    });
-  }
-
-  /**
-   * ME/EPP não exerce a preferência (ou expira o prazo). O item segue com o
-   * 1º colocado original; convoca-se a próxima ME/EPP elegível se houver
-   * (tratado pelo pregoeiro na sequência).
-   */
-  async recusarLanceMPE(
-    sessaoId: string,
-    fornecedorId: string,
-    itemId: string,
-  ): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    await this.registrarEvento(sessao.id, TipoEvento.LANCE_MPE_NAO_REGISTRADO,
-      `ME/EPP nao exerceu o direito de preferencia. Mantido o 1o colocado original.`,
-      itemId, fornecedorId, fornecedorId, false);
-  }
 
   // ========================================
   // HABILITACAO
@@ -818,84 +708,8 @@ export class SessaoService {
     return sessao;
   }
 
-  // ========================================
-  // NEGOCIACAO — métodos adicionais
-  // ========================================
-
-  /** Retorna o 1º classificado (vencedor) com identidade revelada + histórico de eventos de negociação */
-  async getNegociacaoStatus(sessaoId: string) {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
-
-    // 1º classificado = licitante na vez pelo RANKING ÚNICO (lances + situação)
-    const { porUnidade, lista } = await this.rankingPorLicitante(sessao.licitacao_id);
-    const primeiro = lista.find((l) => !l.excluido) ?? null;
-
-    // Melhor valor do 1º (na base do lance) nas unidades em que ele está na vez
-    const melhorDoPrimeiro = primeiro
-      ? porUnidade
-          .map(({ ranking }) => ranking.find((e) => !e.excluido))
-          .filter((e) => e?.fornecedorId === primeiro.fornecedorId)
-          .map((e) => e!.melhorValor)
-      : [];
-    const melhorLance = melhorDoPrimeiro.length ? { valor: melhorDoPrimeiro[0] } : null;
-
-    // Histórico de eventos de negociação
-    const eventos = await this.eventoRepository.find({
-      where: { sessao_id: sessaoId },
-      order: { created_at: 'ASC' },
-    });
-    const tiposNegociacao = new Set([
-      TipoEvento.NEGOCIACAO_INICIADA,
-      TipoEvento.NEGOCIACAO_PROPOSTA,
-      TipoEvento.NEGOCIACAO_ACEITA,
-      TipoEvento.NEGOCIACAO_RECUSADA,
-      TipoEvento.NEGOCIACAO_ENCERRADA,
-    ]);
-    const historicoNegociacao = eventos
-      .filter(e => tiposNegociacao.has(e.tipo as TipoEvento))
-      .map(e => ({
-        tipo: e.tipo,
-        mensagem: e.descricao,
-        remetente: e.usuario_nome,
-        dataHora: e.created_at,
-        dados: e.dados_adicionais,
-      }));
-
-    return {
-      sessaoId,
-      etapa: sessao.etapa,
-      vencedor: primeiro ? {
-        fornecedorId: primeiro.fornecedorId,
-        razaoSocial: primeiro.razaoSocial,
-        cpfCnpj: primeiro.cpfCnpj,
-        porte: primeiro.porte,
-        // valor do licitante pelos LANCES (soma dos totais nas unidades), não a proposta inicial
-        valorProposta: primeiro.valorTotal,
-      } : null,
-      melhorLance: melhorLance ? Number(melhorLance.valor) : null,
-      historicoNegociacao,
-    };
-  }
-
-  /** Encerra a negociação, registra o valor final e avança para habilitação */
-  async encerrarNegociacao(sessaoId: string, valorFinal: number | undefined, ator: AtorTransicao): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    await this.registrarEvento(sessao.id, TipoEvento.NEGOCIACAO_ENCERRADA,
-      valorFinal
-        ? `Negociacao encerrada. Valor final negociado: R$ ${valorFinal.toFixed(2)}`
-        : 'Negociacao encerrada. Pregoeiro optou por pular a negociacao.',
-      undefined, undefined, sessao.pregoeiro_nome, true,
-      valorFinal ? { valor_final: valorFinal } : undefined);
-
-    // Licitação → HABILITACAO (ENCERRAR_DISPUTA se preciso + INICIAR_HABILITACAO)
-    await this.levarAHabilitacao(sessao.licitacao_id, ator);
-
-    // Avança para habilitação — o pregoeiro convocará manualmente o fornecedor
-    sessao.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
-    await this.sessaoRepository.save(sessao);
-  }
+  // NEGOCIAÇÃO (art. 61): julgamento/negociacao.service.ts (plano E3 — por unidade,
+  // contraproposta privada, lance NEGOCIACAO pelo motor, resultado público).
 
   // ========================================
   // INTENÇÃO DE RECURSO — métodos adicionais
@@ -1352,6 +1166,8 @@ export class SessaoService {
         item_id: e.item_id,
         fornecedor_id: e.fornecedor_id,
         valor: e.valor,
+        // Negociação (E3): acompanhada pelos participantes durante a sessão (IN 73 art. 30 §2º); na ata, registro integral
+        visibilidade: e.dados_adicionais?.visibilidade ?? 'PUBLICA',
       })),
       resumo: {
         total_itens: itens.length,

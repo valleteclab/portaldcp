@@ -377,7 +377,12 @@ export interface DatasEdital {
   data_inicio_acolhimento: string;
   data_fim_acolhimento: string;
   data_abertura_sessao: string;
+  /** LC 123 art. 49: itens até R$ 80.000 sem exclusividade ME/EPP exigem justificativa ao publicar (E3). */
+  justificativa_nao_exclusividade_mpe?: string;
 }
+
+/** Justificativa padrão dos e2e (art. 49 da LC 123/2006). */
+export const JUSTIFICATIVA_ART49_E2E = 'Art. 49, II: não há 3 fornecedores ME/EPP competitivos sediados na região (teste E2E).';
 
 /**
  * Datas padrão do edital: publicado agora, acolhimento aberto e abertura da
@@ -394,6 +399,7 @@ export function datasEditalPadrao(): DatasEdital {
     data_inicio_acolhimento: new Date(agora - 60_000).toISOString(),
     data_fim_acolhimento: new Date(agora + 8 * 24 * h).toISOString(),
     data_abertura_sessao: new Date(agora + 8 * 24 * h).toISOString(),
+    justificativa_nao_exclusividade_mpe: JUSTIFICATIVA_ART49_E2E,
   };
 }
 

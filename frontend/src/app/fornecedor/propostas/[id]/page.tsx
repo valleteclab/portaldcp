@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { PropostaTecnicaPanel } from '@/components/julgamento/PropostaTecnicaPanel'
 
 interface PropostaItem {
   id: string
@@ -435,6 +436,19 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
           </div>
         </CardContent>
       </Card>
+
+      {/* Proposta técnica / de trabalho (critérios técnicos e maior retorno — Lei 14.133 arts. 35–39) */}
+      {proposta.licitacao?.id && (
+        <PropostaTecnicaPanel
+          licitacaoId={proposta.licitacao.id}
+          fornecedorId={(proposta as { fornecedor_id?: string }).fornecedor_id ?? null}
+          itens={(proposta.itens ?? []).map((i) => ({
+            id: i.item_licitacao_id,
+            numero: i.item_licitacao?.numero_item ?? 0,
+            descricao: i.item_licitacao?.descricao_resumida ?? '',
+          }))}
+        />
+      )}
 
       {/* Itens da Proposta */}
       <Card>

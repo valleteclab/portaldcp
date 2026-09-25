@@ -63,6 +63,7 @@ import {
   levarAteFase,
   pncpMock,
   unico,
+  JUSTIFICATIVA_ART49_E2E,
 } from './support';
 import {
   aguardarPncp,
@@ -346,8 +347,12 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
             data_abertura_sessao: new Date(
               agora + 3 * 24 * 60 * MIN,
             ).toISOString(),
+            // LC 123 art. 49 (E3): justificativa presente — a recusa esperada é pelo PRAZO (art. 55), não pelo art. 48
+            justificativa_nao_exclusividade_mpe: JUSTIFICATIVA_ART49_E2E,
           });
         expect(r.status).toBe(400);
+        expect(JSON.stringify(r.body)).toMatch(/dias úteis|art\. 55/);
+        expect(JSON.stringify(r.body)).not.toMatch(/art\. 48|art\. 49/);
       },
     );
   });
@@ -724,11 +729,12 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
           .set(bearer(pregoeiro.token))
           .expect(200);
         expect(hab.body.ranking[0].fornecedorId).toBe(F.A.id);
+        // negociação (E3): painel por unidade em /api/julgamento — o licitante na vez é A
         const neg = await http()
-          .get(`/api/sessao/${sessaoId}/negociacao`)
+          .get(`/api/julgamento/sessao/${sessaoId}/negociacao`)
           .set(bearer(pregoeiro.token))
           .expect(200);
-        expect(neg.body.vencedor.fornecedorId).toBe(F.A.id);
+        expect(neg.body.unidades.map((u: any) => u.atual.fornecedorId)).toEqual([F.A.id, F.A.id]);
       },
     );
 
@@ -805,21 +811,28 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect(eventos.filter((e) => e.tipo === TipoEvento.PROPOSTA_ACEITA)).toHaveLength(2);
     });
 
-    // DEFEITO CONHECIDO B8: PUT :id/negociacao/:fornecedorId é declarado antes de
-    // PUT :id/negociacao/encerrar — "encerrar" vira fornecedorId e a rota chama
-    // iniciarNegociacao — backend/src/sessao/sessao.controller.ts:174/182 — corrigir na E3
-    test.failing(
-      'pregoeiro encerra a negociação (art. 61) e a sessão segue para habilitação',
+    // CORRIGIDO NA E3 (era o defeito B8: PUT :id/negociacao/:fornecedorId declarado antes de
+    // PUT :id/negociacao/encerrar — "encerrar" virava fornecedorId). A negociação (art. 61;
+    // IN 73 art. 30) agora é por unidade, com rotas explícitas em /api/julgamento/sessao/:id/negociacao
+    // (julgamento/negociacao.controller.ts — e2e próprio: test/negociacao.e2e-spec.ts). Aqui os lances
+    // de A ficaram abaixo do estimado: a negociação era facultativa, as propostas foram aceitas e a
+    // sessão segue para a habilitação.
+    test(
+      'negociação sem ambiguidade de rota (B8): rotas antigas removidas, nenhuma negociação obrigatória e a sessão segue para habilitação',
       async () => {
-        await http()
+        const antiga = await http()
           .put(`/api/sessao/${sessaoId}/negociacao/encerrar`)
           .set(bearer(pregoeiro.token))
-          .send({})
+          .send({});
+        expect(antiga.status).toBe(404);
+        const neg = await http()
+          .get(`/api/julgamento/sessao/${sessaoId}/negociacao`)
+          .set(bearer(pregoeiro.token))
           .expect(200);
-        const eventos = await eventosSessao();
-        expect(
-          eventos.some((e) => e.tipo === TipoEvento.NEGOCIACAO_ENCERRADA),
-        ).toBe(true);
+        for (const u of neg.body.unidades) {
+          expect(u.acimaDoPrecoMaximo).toBe(false);
+          expect(u.negociacaoObrigatoria).toBe(false);
+        }
         expect((await sessao()).etapa).toBe(EtapaSessao.CONVOCACAO_HABILITACAO);
       },
     );

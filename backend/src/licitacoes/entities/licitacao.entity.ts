@@ -376,6 +376,15 @@ export class Licitacao {
   @Column({ type: 'int', nullable: true })
   percentual_cota_reservada: number;
 
+  /**
+   * Justificativa (LC 123/2006 art. 49) para itens de até R$ 80.000 SEM
+   * participação exclusiva de ME/EPP (art. 48 I). Exigida no ato PUBLICAR
+   * (informada no ato ou gravada antes na edição); o ato a grava aqui e na
+   * transição.
+   */
+  @Column({ type: 'text', nullable: true })
+  justificativa_nao_exclusividade_mpe: string | null;
+
   @Column({ default: false })
   margem_preferencia: boolean;
 

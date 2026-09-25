@@ -245,9 +245,14 @@ describe('E2 — motor de lances único', () => {
     });
 
     test('desempate ME/EPP passa pelo motor (origem DESEMPATE_MPE): igual ao melhor recusado, abaixo aceito', async () => {
-      const igual = await http().put(`/api/sessao/${sessaoId}/mpe/aceitar/${F2.id}`).set(bearer(F2.token)).send({ itemId: item2, valor: 97 });
+      // E3: a ME/EPP (F2, 98 — dentro dos 5% de 97) é convocada sozinha no fim do item e responde pelo token
+      const minhas = (await http().get(`/api/julgamento/sessao/${sessaoId}/me-epp`).set(bearer(F2.token)).expect(200)).body;
+      const conv = minhas.convocacoes.find((c: any) => c.unidadeId === item2);
+      expect(conv).toMatchObject({ status: 'AGUARDANDO', valorACobrir: 97 });
+      const url = `/api/julgamento/sessao/${sessaoId}/me-epp/${conv.id}/exercer`;
+      const igual = await http().post(url).set(bearer(F2.token)).send({ valor: 97 });
       expect(igual.status).toBe(400);
-      await http().put(`/api/sessao/${sessaoId}/mpe/aceitar/${F2.id}`).set(bearer(F2.token)).send({ itemId: item2, valor: 96.9 }).expect(200);
+      await http().post(url).set(bearer(F2.token)).send({ valor: 96.9 }).expect(201);
       const [l] = await ctx.dataSource.query(
         `SELECT origem, fornecedor_id, valor_total FROM lances WHERE item_id = $1 AND cancelado = false ORDER BY valor LIMIT 1`,
         [item2],

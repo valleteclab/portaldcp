@@ -24,6 +24,7 @@ import { SigiloDisputaService } from '../disputa-v2/sigilo-disputa.service';
 import { licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
 import { StatusSessao } from './entities/sessao-disputa.entity';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
+import { filtrarEventosVisiveis, VisaoEvento } from '../julgamento/regras-negociacao';
 
 /**
  * SESSÃO PÚBLICA (legado da sala /sessao + etapas pós-disputa).
@@ -143,34 +144,8 @@ export class SessaoController {
     return this.sessaoService.getHabilitacaoStatus(id);
   }
 
-  @SomenteOrgao()
-  @Get(':id/negociacao')
-  async getNegociacaoStatus(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id, 'leitura');
-    return this.sessaoService.getNegociacaoStatus(id);
-  }
-
-  @SomenteOrgao()
-  @Put(':id/negociacao/:fornecedorId')
-  async iniciarNegociacao(
-    @Param('id') id: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.iniciarNegociacao(id, fornecedorId);
-  }
-
-  @SomenteOrgao()
-  @Put(':id/negociacao/encerrar')
-  async encerrarNegociacao(
-    @Param('id') id: string,
-    @Body() body: { valorFinal?: number },
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.encerrarNegociacao(id, body.valorFinal, atorTransicaoDe(ator));
-  }
+  // NEGOCIAÇÃO (art. 61): rotas explícitas em /api/julgamento/sessao/:id/negociacao/...
+  // (julgamento/negociacao.controller.ts — fim do B8: `:fornecedorId` competia com `encerrar`).
 
   @SomenteOrgao()
   @Put(':id/habilitacao/convocar/:fornecedorId')
@@ -241,44 +216,8 @@ export class SessaoController {
   }
 
   // === BENEFÍCIO ME/EPP (LC 123, art. 44/45) ===
-
-  @SomenteOrgao()
-  @Put(':id/mpe/convocar/:fornecedorId')
-  async convocarMPE(@Param('id') id: string, @Param('fornecedorId') fornecedorId: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.convocarMPEParaLance(id, fornecedorId);
-  }
-
-  /** A ME/EPP convocada (token) exerce a preferência. */
-  @SomenteFornecedor()
-  @Put(':id/mpe/aceitar/:fornecedorId')
-  async aceitarLanceMPE(
-    @Param('id') id: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @Body() body: { itemId: string; valor: number },
-    @AtorAtual() ator: Ator,
-  ) {
-    const fid = this.acesso.fornecedorDoToken(ator, fornecedorId);
-    const licitacaoId = await this.licitacaoDaSessao(id);
-    await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
-    await this.assertItemDaLicitacao(body?.itemId, licitacaoId);
-    return this.sessaoService.aceitarLanceMPE(id, fid, body.itemId, body.valor);
-  }
-
-  @SomenteFornecedor()
-  @Put(':id/mpe/recusar/:fornecedorId')
-  async recusarLanceMPE(
-    @Param('id') id: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @Body() body: { itemId: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    const fid = this.acesso.fornecedorDoToken(ator, fornecedorId);
-    const licitacaoId = await this.licitacaoDaSessao(id);
-    await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
-    await this.assertItemDaLicitacao(body?.itemId, licitacaoId);
-    return this.sessaoService.recusarLanceMPE(id, fid, body.itemId);
-  }
+  // E3: rotas em /api/julgamento/sessao/:id/me-epp (MeEppController) — a ME/EPP
+  // convocada responde sozinha pelo token; o pregoeiro não responde por ela.
 
   // === RECURSOS FORMAIS (Art. 165) ===
 
@@ -447,6 +386,7 @@ export class SessaoController {
         throw new ForbiddenException('A ata da sessão fica disponível após o encerramento da sessão');
       }
     }
+    // A negociação (IN 73 art. 30 §§2º–3º) entra inteira na ata: registro público depois de concluída
     return this.sessaoService.gerarAtaSessao(id);
   }
 
@@ -461,7 +401,8 @@ export class SessaoController {
   async getEventos(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
     const licitacaoId = await this.licitacaoDaSessao(id);
     const visao = await this.sigilo.visaoDoAtor(ator, licitacaoId);
-    const eventos = await this.sessaoService.getEventosSessao(id);
+    // Negociação (E3): mensagens/contrapropostas acompanhadas só pelo órgão dono e participantes (IN 73 art. 30 §2º)
+    const eventos = filtrarEventosVisiveis(await this.sessaoService.getEventosSessao(id), visao as VisaoEvento);
     // Depois da fase de lances (habilitação em diante) a identidade é pública
     const reveladas = await this.sigilo.identidadesReveladas(id);
     return this.sigilo.aplicarVisao(eventos, licitacaoId, visao, { sessaoId: id, identidades: !reveladas });

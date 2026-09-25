@@ -41,6 +41,12 @@ export enum OrigemLance {
   NEGOCIACAO = 'NEGOCIACAO',
   /** Janela de lances da dispensa eletrônica (IN 67/2021) — migração da dispensa. */
   JANELA_DISPENSA = 'JANELA_DISPENSA',
+  /**
+   * Nova proposta da DISPUTA FINAL entre empatados (Lei 14.133 art. 60, I) —
+   * gravada pelo julgamento (julgamento/desempate.service.ts) no encerramento
+   * da disputa final, com a unidade já encerrada; nunca pelo `registrarLance`.
+   */
+  DISPUTA_FINAL = 'DISPUTA_FINAL',
 }
 
 export type TipoDiferencaMinima = 'VALOR' | 'PERCENTUAL';

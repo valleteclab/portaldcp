@@ -229,6 +229,13 @@ export class LoteLicitacao {
   @Column({ type: 'varchar', length: 20, default: 'NENHUM' })
   tipo_beneficio_mpe: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA';
 
+  /**
+   * Lote-COTA reservada a ME/EPP (LC 123/2006 art. 48 III), gerado a partir
+   * do lote principal (este campo aponta para ele). Ver julgamento/me-epp.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  lote_cota_origem_id: string | null;
+
   // ==========================================================================
   // ESTADO DA DISPUTA POR LOTE (base TOTAL_LOTE — plano E2 item 5)
   // Mesmos nomes/semântica das colunas de disputa de `itens_licitacao`: o lote

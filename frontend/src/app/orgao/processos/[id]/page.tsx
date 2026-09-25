@@ -25,6 +25,7 @@ import {
 import { BllIntegracao } from "./BllIntegracao"
 import { AtosProcesso, type AtoDisponivel } from "./AtosProcesso"
 import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
+import { CotasMeEppCard } from '@/components/licitacao/CotasMeEppCard'
 
 interface ProcessoCompleto {
   licitacao: {
@@ -46,6 +47,7 @@ interface ProcessoCompleto {
     numero_processo_externo?: string | null
     url_externa?: string | null
     tipo_contratacao?: string
+    criterio_julgamento?: string
     data_fim_acolhimento?: string | null
     data_abertura_sessao?: string | null
     dispensa_lances_inicio?: string | null
@@ -657,7 +659,10 @@ export default function CockpitProcessoPage() {
           : "Resultado ainda não registrado",
         link: dados.licitacao.selecao_externa
           ? (dados.licitacao.url_externa ? { href: dados.licitacao.url_externa, texto: "Ver na plataforma", externo: true } : undefined)
-          : { href: `/orgao/licitacoes/${id}`, texto: "Abrir licitação" },
+          : ["MELHOR_TECNICA", "TECNICA_E_PRECO"].includes(dados.licitacao.criterio_julgamento ?? "")
+            // Critério técnico (Lei 14.133 arts. 35–37): quesitos, banca e notas antes da etapa de preços
+            ? { href: `/orgao/licitacoes/${id}/julgamento-tecnico`, texto: "Julgamento técnico" }
+            : { href: `/orgao/licitacoes/${id}`, texto: "Abrir licitação" },
       },
       {
         icone: FileSignature,
@@ -1083,6 +1088,8 @@ export default function CockpitProcessoPage() {
                         )
                       })()}
 
+                    {/* ME/EPP (LC 123 arts. 48-49): bloqueio/justificativa exigidos para publicar (some sem pendência) */}
+                    {id && <CotasMeEppCard licitacaoId={String(id)} onGerado={carregar} />}
                     {/* PNCP (D5): status das publicações + reenvio */}
                     {et.titulo.startsWith("Seleção") &&
                       dados.licitacao.modalidade === "DISPENSA_ELETRONICA" &&

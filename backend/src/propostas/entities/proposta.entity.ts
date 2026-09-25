@@ -49,6 +49,19 @@ export class Proposta {
   @Column({ default: false })
   declaracao_mpe: boolean; // Declara ser ME/EPP
 
+  /**
+   * Retrato do porte do CADASTRO do fornecedor quando a proposta foi criada
+   * (LC 123/2006; Lei 14.133 art. 4º) — o benefício ME/EPP usa este retrato,
+   * nunca um dado do cliente. Nulo = proposta anterior ao retrato (a migração
+   * da E3 preenche com o cadastro).
+   */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  porte_fornecedor: string | null;
+
+  /** Enquadramento ME/EPP: porte ME/EPP/MEI no cadastro E declaração na proposta. */
+  @Column({ type: 'boolean', nullable: true })
+  enquadramento_mpe: boolean | null;
+
   @Column({ default: false })
   declaracao_integridade: boolean; // Programa de integridade (Art. 60)
 

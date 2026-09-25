@@ -143,7 +143,7 @@ export class JulgamentoController {
   async aceitar(
     @Param('sessaoId') sessaoId: string,
     @Param('aceitacaoId') aceitacaoId: string,
-    @Body() body: { justificativaExequibilidade?: string },
+    @Body() body: { justificativaExequibilidade?: string; justificativaPrecoAcimaEstimado?: string },
     @AtorAtual() ator: Ator,
   ) {
     this.exigirIds(aceitacaoId);
@@ -151,7 +151,10 @@ export class JulgamentoController {
     return this.aceitacao.aceitar(
       sessaoId,
       aceitacaoId,
-      { justificativaExequibilidade: body?.justificativaExequibilidade ?? null },
+      {
+        justificativaExequibilidade: body?.justificativaExequibilidade ?? null,
+        justificativaPrecoAcimaEstimado: body?.justificativaPrecoAcimaEstimado ?? null,
+      },
       atorTransicaoDe(ator),
     );
   }

@@ -27,6 +27,7 @@ import { exigirLicitacaoAtiva } from '../sessao/licitacao-ativa';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import type { ItemDisputa, LanceRegistrado, LancePainelCancelamentoV3 } from './disputa.service';
 import { ModoDisputaService } from './modo-disputa.service';
+import { motivoForaDoBeneficioMpe } from '../julgamento/me-epp/beneficio-mpe.sql';
 
 /**
  * ============================================================================
@@ -317,6 +318,8 @@ export class DisputaLoteService {
         inelegiveis++;
         continue;
       }
+      // Lote exclusivo/cota de ME/EPP: proposta de quem não é ME/EPP não entra na disputa (art. 48)
+      if (await motivoForaDoBeneficioMpe(m, lote.id, p.fornecedorId)) continue;
       const existe = await m.count(Lance, {
         where: { lote_id: lote.id, item_id: IsNull(), fornecedor_id: p.fornecedorId, origem: OrigemLance.PROPOSTA, cancelado: false },
       });
@@ -467,6 +470,9 @@ export class DisputaLoteService {
           throw new ConflictException('Esta licitação não é disputada por lote: dê o lance no item.');
         }
 
+        // Lote exclusivo/cota de ME/EPP (LC 123 art. 48 I e III): só ME/EPP enquadrada dá lance
+        const foraMpe = await motivoForaDoBeneficioMpe(m, lote.id, cmd.fornecedorId);
+        if (foraMpe) throw new LanceRecusado(foraMpe, 'EXCLUSIVO_MPE');
         const itens = await this.itensDoLote(m, lote.id);
         const minha = (await this.propostasNosItens(m, lote.licitacao_id, itens.map((i) => i.id), cmd.fornecedorId)).get(cmd.fornecedorId);
         const eleg = elegibilidadeNoLote(this.referenciaItens(itens), minha?.itens ?? []);

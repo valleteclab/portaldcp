@@ -35,6 +35,7 @@ import {
 } from './support';
 import { pararTodosOsCrons, tiqueRelogioDisputa, entrarNaSala } from './support/pregao';
 import { prepararPregaoEmDisputa } from './support/isolamento';
+import { julgamentoTecnicoSimples } from './support/julgamento-tecnico';
 import { SalaModos } from './support/simulador-disputa';
 import { CriterioJulgamento, FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { DesconexaoPregoeiroService } from '../src/disputa-v2/desconexao-pregoeiro.service';
@@ -368,9 +369,18 @@ describe('E2.4 — modos de disputa', () => {
         ctx,
         orgao,
         [120, 100, 110].map((v, i) => ({ fornecedor: F[i], valores: [v] })),
-        { itens: UM, extras: { modo_disputa: ModoDisputa.FECHADO, criterio_julgamento: CriterioJulgamento.MELHOR_TECNICA } },
+        {
+          itens: UM,
+          iniciarItens: false,
+          extras: { modo_disputa: ModoDisputa.FECHADO, criterio_julgamento: CriterioJulgamento.MELHOR_TECNICA },
+        },
       );
       const itemId = p.lic.itens[0].id;
+      // Melhor técnica: a etapa de preços só abre com as notas técnicas publicadas (Lei 14.133 art. 36 §2º / 37)
+      const antes = await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
+      expect(antes.status).toBe(409);
+      await julgamentoTecnicoSimples(ctx, orgao, p.lic.id, { [F[0].id]: 80, [F[1].id]: 70, [F[2].id]: 90 });
+      await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] }).expect(201);
       const [it] = await ctx.dataSource.query(`SELECT status_disputa::text AS st FROM itens_licitacao WHERE id = $1`, [itemId]);
       expect(it.st).toBe('ENCERRADO');
       const r = await lanceRest(p.sessaoId, F[0], itemId, 90);
@@ -574,6 +584,12 @@ describe('E2.4 — modos de disputa', () => {
         .send({ tempo_inatividade_minutos: 10, tempo_prorrogacao_minutos: 2, intervalo_minimo_lances_minutos: 0 })
         .expect(200);
       expect((await http().put(`/api/sessao/${sessaoId}/iniciar`).set(bearer(orgao.token))).status).toBe(200);
+      // Critério técnico: etapa de preços só depois das notas técnicas publicadas (Lei 14.133 arts. 36 §2º/37)
+      if (criterio === CriterioJulgamento.MELHOR_TECNICA || criterio === CriterioJulgamento.TECNICA_E_PRECO) {
+        await julgamentoTecnicoSimples(ctx, orgao, lic.id, Object.fromEntries(totais.map((_, i) => [F[i].id, 80 + i])), {
+          pesoTecnica: criterio === CriterioJulgamento.TECNICA_E_PRECO ? 70 : null,
+        });
+      }
       const ini = await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [lote.body.id] });
       expect(ini.status).toBe(201);
       expect(ini.body).toMatchObject({ lotesIniciados: 1 });

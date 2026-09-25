@@ -237,6 +237,16 @@ export class ItemLicitacao {
   })
   tipo_participacao: TipoParticipacao;
 
+  /**
+   * COTA RESERVADA a ME/EPP (LC 123/2006 art. 48 III): o item-COTA é uma
+   * unidade própria, disputada só por ME/EPP, gerada a partir do item
+   * principal (este campo aponta para ele; a quantidade do principal é
+   * reduzida pela cota). Nulo no item principal e nos itens comuns.
+   * Ver julgamento/me-epp.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  item_cota_origem_id: string | null;
+
   @Column({ default: false })
   margem_preferencia: boolean;
 

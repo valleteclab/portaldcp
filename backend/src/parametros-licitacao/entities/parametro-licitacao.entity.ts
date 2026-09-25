@@ -90,6 +90,13 @@ export class ParametroLicitacao {
   @Column({ type: 'numeric', precision: 5, scale: 2, default: 25 })
   percentual_cota_maxima_mpe: number;
 
+  /**
+   * Prazo da ME/EPP convocada para o desempate ficto oferecer valor inferior
+   * à melhor oferta: 5 minutos no pregão (LC 123/2006, art. 45, §3º).
+   */
+  @Column({ type: 'int', default: 5 })
+  prazo_desempate_mpe_minutos: number;
+
   // === PROPOSTA ===
   @Column({ type: 'int', default: 60 })
   validade_proposta_dias: number;

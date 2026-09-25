@@ -14,6 +14,9 @@ import {
 } from 'lucide-react'
 import { useDisputaV3 } from '@/hooks/useDisputaV3'
 import { PropostaAdequadaPanel } from '@/components/disputa-v3/PropostaAdequadaPanel'
+import { DisputaFinalPanel } from '@/components/disputa-v3/DisputaFinalPanel'
+import { DesempateMeEppFornecedorPanel } from '@/components/disputa-v3/DesempateMeEppFornecedorPanel'
+import { NegociacaoFornecedorPanel } from '@/components/disputa-v3/NegociacaoFornecedorPanel'
 import { ItensDoLote, ehLote, rotuloUnidade } from '@/components/disputa-v3/unidade-lote'
 import {
   calcularDiferencaParaLider,
@@ -82,6 +85,7 @@ export default function DisputaV3FornecedorPage() {
     enviarLance,
     cancelarLanceDireto,
     solicitarCancelamentoLance,
+    negociacaoVersao,
   } = useDisputaV3({
     area: 'fornecedor',
     sessaoIdParam: sessaoParam,
@@ -199,7 +203,15 @@ export default function DisputaV3FornecedorPage() {
             )}
 
             {/* Aceitação (IN 73/2022 art. 29): só aparece quando este licitante é convocado */}
+            {/* Desempate ME/EPP (LC 123 art. 45): só aparece quando este licitante é convocado */}
+            {sessaoId && <DesempateMeEppFornecedorPanel sessaoId={sessaoId} />}
+
             {sessaoId && <PropostaAdequadaPanel sessaoId={sessaoId} />}
+            {/* Desempate (Lei 14.133 art. 60): disputa final sigilosa e resultado do sorteio — só para quem empatou */}
+            {sessaoId && <DisputaFinalPanel sessaoId={sessaoId} />}
+
+            {/* Negociação (Lei 14.133 art. 61): a própria (responde) e as dos demais (só leitura — IN 73 art. 30 §2º) */}
+            {sessaoId && <NegociacaoFornecedorPanel sessaoId={sessaoId} versao={negociacaoVersao} />}
 
             <div className="grid gap-4 lg:grid-cols-4">
               <Card className="lg:col-span-3 overflow-hidden">

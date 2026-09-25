@@ -80,6 +80,8 @@ export function corpoDivulgacao(fim: Date, agora = new Date()) {
     data_inicio_acolhimento: agora.toISOString(),
     data_fim_acolhimento: fim.toISOString(),
     data_abertura_sessao: fim.toISOString(),
+    // LC 123 art. 49 (E3): pregão/concorrência com itens até R$ 80.000 sem exclusividade ME/EPP
+    justificativa_nao_exclusividade_mpe: 'Art. 49, II: não há 3 fornecedores ME/EPP competitivos na região (teste E2E).',
   };
 }
 

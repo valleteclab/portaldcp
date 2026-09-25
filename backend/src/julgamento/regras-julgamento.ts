@@ -75,6 +75,39 @@ export interface EntradaRanking extends OfertaRanking {
   excluido: boolean;
   /** Houve empate de valor com outro licitante (resolvido pelo desempatador). */
   empatado?: boolean;
+  /** Critérios pontuados (técnica e preço, melhor técnica, maior retorno): nota/índice (criterios-julgamento.ts). */
+  criterio?: DetalheCriterioRanking | null;
+  /** Estado do desempate do art. 60 do grupo empatado (desempate.service.ts). */
+  desempate?: EstadoDesempateEntrada | null;
+}
+
+/** Pontuação do licitante nos critérios que não ordenam só por valor (Lei 14.133 arts. 35, 36 e 39). */
+export interface DetalheCriterioRanking {
+  tipo: 'MELHOR_TECNICA' | 'TECNICA_E_PRECO' | 'MAIOR_RETORNO_ECONOMICO';
+  /** Chave de ordenação (maior = melhor): nota técnica, índice final ou retorno econômico. */
+  pontuacao: number | null;
+  notaTecnica?: number | null;
+  indiceTecnico?: number | null;
+  indicePreco?: number | null;
+  indiceFinal?: number | null;
+  pesoTecnica?: number | null;
+  pesoPreco?: number | null;
+  economiaEstimada?: number | null;
+  percentualRemuneracao?: number | null;
+  remuneracao?: number | null;
+  retornoEconomico?: number | null;
+  /** Sem nota publicada / sem proposta de trabalho: fica depois dos pontuados. */
+  semPontuacao?: boolean;
+}
+
+export interface EstadoDesempateEntrada {
+  /** Empate ainda não resolvido pelo art. 60 (ordem provisória pelo registro). */
+  pendente: boolean;
+  desempateId?: string | null;
+  /** Situação do ato: AGUARDANDO_DISPUTA_FINAL, EM_DISPUTA_FINAL, AGUARDANDO_SORTEIO, RESOLVIDO. */
+  etapa: string;
+  /** Critério que decidiu (quando resolvido). */
+  criterioDecisivo?: string | null;
 }
 
 /**

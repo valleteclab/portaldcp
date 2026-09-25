@@ -28,6 +28,9 @@ import { DisputaV3Stepper } from '@/components/disputa-v3/disputa-v3-stepper'
 import { RecursosPanel } from '@/components/disputa-v3/RecursosPanel'
 import { HomologacaoPanel } from '@/components/disputa-v3/HomologacaoPanel'
 import { AceitacaoPanel } from '@/components/disputa-v3/AceitacaoPanel'
+import { DesempatePanel } from '@/components/disputa-v3/DesempatePanel'
+import { BeneficioMeEppPanel } from '@/components/disputa-v3/BeneficioMeEppPanel'
+import { NegociacaoPanel } from '@/components/disputa-v3/NegociacaoPanel'
 import {
   descricaoFaseItem,
   formatarMoeda,
@@ -87,6 +90,7 @@ export default function DisputaV3OrgaoPage() {
     agendarRetomada,
     enviarMensagem,
     pregoeiroCancelarLance,
+    negociacaoVersao,
   } = useDisputaV3({
     area: 'orgao',
     sessaoIdParam: sessaoParam,
@@ -134,14 +138,6 @@ export default function DisputaV3OrgaoPage() {
   const [habMotivoReprovar, setHabMotivoReprovar] = useState('')
   const [habActionError, setHabActionError] = useState<string | null>(null)
   const [habActionLoading, setHabActionLoading] = useState(false)
-
-  // === NEGOCIAÇÃO STATE ===
-  interface NegVencedor { fornecedorId: string; razaoSocial: string; cpfCnpj: string; valorProposta: number; porte?: string | null }
-  interface NegStatus { sessaoId: string; etapa: string; vencedor: NegVencedor | null; melhorLance: number | null; historicoNegociacao: { tipo: string; mensagem: string; remetente: string; dataHora: string }[] }
-  const [negStatus, setNegStatus] = useState<NegStatus | null>(null)
-  const [negValorFinal, setNegValorFinal] = useState('')
-  const [negActionLoading, setNegActionLoading] = useState(false)
-  const [negActionError, setNegActionError] = useState<string | null>(null)
 
   // === INTENÇÃO DE RECURSO STATE ===
   interface IntencaoItem { fornecedorId: string; mensagem: string; dataHora: string }
@@ -344,41 +340,10 @@ export default function DisputaV3OrgaoPage() {
     QUALIFICACAO_ECONOMICA: 'Qualificação Econômica',
   }
 
-  // === NEGOCIAÇÃO LOGIC ===
+  // === NEGOCIAÇÃO (art. 61) ===
+  // Por unidade, em /api/julgamento (NegociacaoPanel): na etapa de aceitação junto do painel de
+  // aceitação e, em sessões antigas paradas na etapa NEGOCIACAO, sozinho.
   const isNegociacaoAtiva = etapaCodigo === 'NEGOCIACAO'
-  const carregarNegociacao = useCallback(async () => {
-    if (!sessaoId) return
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/negociacao`)
-      if (res.ok) setNegStatus(await res.json())
-    } catch { /* silently ignore */ }
-  }, [sessaoId])
-  useEffect(() => {
-    if (!isNegociacaoAtiva || !sessaoId) return
-    carregarNegociacao()
-    const iv = setInterval(carregarNegociacao, 5000)
-    return () => clearInterval(iv)
-  }, [isNegociacaoAtiva, sessaoId, carregarNegociacao])
-
-  const encerrarNegociacaoFn = async (pularNegociacao = false) => {
-    if (!sessaoId) return
-    setNegActionLoading(true)
-    setNegActionError(null)
-    try {
-      const valorFinal = pularNegociacao ? undefined : (negValorFinal ? Number(negValorFinal) : undefined)
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/negociacao/encerrar`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ valorFinal }),
-      })
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao encerrar negociação') }
-      setNegValorFinal('')
-    } catch (e: any) {
-      setNegActionError(e.message)
-    } finally {
-      setNegActionLoading(false)
-    }
-  }
 
   // === INTENÇÃO DE RECURSO LOGIC ===
   const isIntencaoAtiva = etapaCodigo === 'RECURSOS'
@@ -883,93 +848,23 @@ export default function DisputaV3OrgaoPage() {
                 </div>
 
                 <div className="space-y-4 xl:col-span-3">
+                  {/* BENEFÍCIO ME/EPP (LC 123 arts. 44-45): aparece com desempate em curso (ou na etapa BENEFICIO_MPE) */}
+                  {sessaoId && <BeneficioMeEppPanel sessaoId={sessaoId} sempreVisivel={etapaCodigo === 'BENEFICIO_MPE'} />}
+                  {/* DESEMPATE (Lei 14.133 art. 60; IN 73 art. 28): aparece só com empate nas unidades encerradas */}
+                  {sessaoId && <DesempatePanel sessaoId={sessaoId} />}
                   {etapaCodigo === 'ACEITACAO' && sessaoId ? (
                     /* =============================================
                        PAINEL DE ACEITAÇÃO DA PROPOSTA (IN 73/2022 art. 29)
                        ============================================= */
-                    <AceitacaoPanel sessaoId={sessaoId} />
-                  ) : isNegociacaoAtiva ? (
+                    <div className="space-y-4">
+                      <AceitacaoPanel sessaoId={sessaoId} />
+                      <NegociacaoPanel sessaoId={sessaoId} versao={negociacaoVersao} />
+                    </div>
+                  ) : isNegociacaoAtiva && sessaoId ? (
                     /* =============================================
-                       PAINEL DE NEGOCIAÇÃO (Art. 61 Lei 14.133)
+                       PAINEL DE NEGOCIAÇÃO (Art. 61 Lei 14.133; IN 73 art. 30)
                        ============================================= */
-                    <Card>
-                      <CardHeader className="border-b bg-blue-50">
-                        <CardTitle className="flex items-center gap-2 text-blue-800">
-                          <MessageSquare className="h-4 w-4" />
-                          Negociação (Art. 61)
-                        </CardTitle>
-                        <CardDescription>Negocie o preço com o 1º classificado antes da habilitação.</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4 pt-4">
-                        {negActionError && (
-                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                            {negActionError}
-                          </div>
-                        )}
-                        {negStatus?.vencedor ? (
-                          <div className="space-y-4">
-                            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">1º Classificado</div>
-                              <div className="mt-1 font-semibold text-slate-900">{negStatus.vencedor.razaoSocial}</div>
-                              <div className="text-sm text-slate-600">{negStatus.vencedor.cpfCnpj}</div>
-                              {negStatus.melhorLance && (
-                                <div className="mt-1 text-sm font-medium text-blue-700">
-                                  Melhor lance: {negStatus.melhorLance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                </div>
-                              )}
-                            </div>
-
-                            {negStatus.historicoNegociacao.length > 0 && (
-                              <div className="space-y-2">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Histórico</div>
-                                <ScrollArea className="h-28 pr-1">
-                                  {negStatus.historicoNegociacao.map((h, i) => (
-                                    <div key={i} className="mb-2 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700">
-                                      <span className="font-medium">{h.remetente}: </span>{h.mensagem}
-                                    </div>
-                                  ))}
-                                </ScrollArea>
-                              </div>
-                            )}
-
-                            <div className="space-y-2">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Valor negociado (opcional)</div>
-                              <div className="flex gap-2">
-                                <input
-                                  type="number"
-                                  className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-                                  placeholder="R$ 0,00"
-                                  value={negValorFinal}
-                                  onChange={(e) => setNegValorFinal(e.target.value)}
-                                />
-                              </div>
-                            </div>
-
-                            <Button
-                              className="w-full bg-blue-600 hover:bg-blue-700"
-                              onClick={() => encerrarNegociacaoFn(false)}
-                              disabled={negActionLoading}
-                            >
-                              <CheckCircle2 className="mr-2 h-4 w-4" />
-                              Registrar e avançar para habilitação
-                            </Button>
-                            <Button
-                              variant="outline"
-                              className="w-full"
-                              onClick={() => encerrarNegociacaoFn(true)}
-                              disabled={negActionLoading}
-                            >
-                              Pular negociação → habilitação
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="py-6 text-center text-sm text-slate-400">
-                            <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                            Carregando vencedor...
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
+                    <NegociacaoPanel sessaoId={sessaoId} versao={negociacaoVersao} />
                   ) : isHabilitacaoAtiva ? (
                     /* =============================================
                        PAINEL DE HABILITAÇÃO (Art. 62-70 Lei 14.133)

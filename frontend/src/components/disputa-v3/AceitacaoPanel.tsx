@@ -57,6 +57,20 @@ interface EntradaRanking {
   situacao: string
   excluido: boolean
   empatado: boolean
+  /** Critérios pontuados (Lei 14.133 arts. 35, 36, 39): nota técnica / índice / retorno. */
+  criterio?: {
+    tipo: 'MELHOR_TECNICA' | 'TECNICA_E_PRECO' | 'MAIOR_RETORNO_ECONOMICO'
+    pontuacao: number | null
+    notaTecnica?: number | null
+    indiceTecnico?: number | null
+    indicePreco?: number | null
+    indiceFinal?: number | null
+    pesoTecnica?: number | null
+    pesoPreco?: number | null
+    retornoEconomico?: number | null
+  } | null
+  /** Desempate do art. 60 (painel de desempate). */
+  desempate?: { pendente: boolean; etapa: string; criterioDecisivo?: string | null } | null
 }
 interface Unidade {
   tipo: 'ITEM' | 'LOTE'
@@ -134,6 +148,8 @@ export function AceitacaoPanel({ sessaoId, onMudou }: { sessaoId: string; onMudo
   const [prazos, setPrazos] = useState<Record<string, string>>({})
   const [acao, setAcao] = useState<Acao | null>(null)
   const [texto, setTexto] = useState('')
+  // Negociação (art. 61): motivação do aceite acima do preço máximo após negociar (o backend exige quando for o caso)
+  const [motivoPreco, setMotivoPreco] = useState('')
 
   const carregar = useCallback(async () => {
     try {
@@ -193,7 +209,13 @@ export function AceitacaoPanel({ sessaoId, onMudou }: { sessaoId: string; onMudo
     let ok = false
     if (acao.tipo === 'prorrogar') ok = await executar(`${base}/prorrogar`, { motivo: texto })
     if (acao.tipo === 'recusar') ok = await executar(`${base}/recusar`, { motivo: texto })
-    if (acao.tipo === 'aceitar') ok = await executar(`${base}/aceitar`, acao.aceitacao.alertaExequibilidade ? { justificativaExequibilidade: texto } : {})
+    if (acao.tipo === 'aceitar') {
+      ok = await executar(`${base}/aceitar`, {
+        ...(acao.aceitacao.alertaExequibilidade ? { justificativaExequibilidade: texto } : {}),
+        ...(motivoPreco.trim() ? { justificativaPrecoAcimaEstimado: motivoPreco.trim() } : {}),
+      })
+      if (ok) setMotivoPreco('')
+    }
     if (ok) {
       setAcao(null)
       setTexto('')
@@ -282,9 +304,28 @@ export function AceitacaoPanel({ sessaoId, onMudou }: { sessaoId: string; onMudo
                         <span className="min-w-0 truncate">
                           <span className="mr-1 font-medium">{e.posicao ? `${e.posicao}º` : '—'}</span>
                           {e.razaoSocial}
-                          {e.empatado && <span className="ml-1 text-xs text-amber-700">(empate)</span>}
+                          {e.empatado && (
+                            <span className="ml-1 text-xs text-amber-700">
+                              {e.desempate?.pendente ? '(empate — desempate pendente, art. 60)' : e.desempate?.criterioDecisivo ? `(desempate: ${e.desempate.criterioDecisivo.toLowerCase().replace(/_/g, ' ')})` : '(empate)'}
+                            </span>
+                          )}
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
+                          {e.criterio?.tipo === 'TECNICA_E_PRECO' && e.criterio.indiceFinal != null && (
+                            <span className="text-xs text-slate-500" title={`Nota técnica ${e.criterio.notaTecnica ?? '-'} · IT ${e.criterio.indiceTecnico ?? '-'} · IP ${e.criterio.indicePreco ?? '-'} (técnica ${e.criterio.pesoTecnica}% / preço ${e.criterio.pesoPreco}%)`}>
+                              índice <b className="tabular-nums text-slate-800">{e.criterio.indiceFinal.toFixed(4)}</b>
+                            </span>
+                          )}
+                          {e.criterio?.tipo === 'MELHOR_TECNICA' && e.criterio.notaTecnica != null && (
+                            <span className="text-xs text-slate-500">
+                              nota técnica <b className="tabular-nums text-slate-800">{e.criterio.notaTecnica.toFixed(2)}</b>
+                            </span>
+                          )}
+                          {e.criterio?.tipo === 'MAIOR_RETORNO_ECONOMICO' && e.criterio.retornoEconomico != null && (
+                            <span className="text-xs text-slate-500">
+                              retorno <b className="tabular-nums text-slate-800">{formatarMoeda(e.criterio.retornoEconomico)}</b>
+                            </span>
+                          )}
                           <span className="tabular-nums">{formatarMoeda(e.melhorValor)}</span>
                           <Badge className={`${s.cls} no-underline`}>{s.label}</Badge>
                         </span>
@@ -450,6 +491,15 @@ export function AceitacaoPanel({ sessaoId, onMudou }: { sessaoId: string; onMudo
               onChange={(e) => setTexto(e.target.value)}
               placeholder={acao?.tipo === 'aceitar' ? 'Justificativa da exequibilidade...' : 'Motivo...'}
             />
+          )}
+          {acao?.tipo === 'aceitar' && (
+            <div className="space-y-1">
+              <label className="text-xs text-slate-500">
+                Somente se a proposta, após a negociação, permanecer acima do preço máximo: motivação do aceite (mín. 20 caracteres).
+                Acima do máximo sem negociação o aceite é recusado (art. 61; IN 73 art. 30).
+              </label>
+              <Textarea rows={2} value={motivoPreco} onChange={(e) => setMotivoPreco(e.target.value)} placeholder="Motivação (opcional)" />
+            </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => { setAcao(null); setTexto('') }} disabled={ocupado}>

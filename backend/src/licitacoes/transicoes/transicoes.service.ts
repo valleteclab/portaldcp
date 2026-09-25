@@ -33,6 +33,7 @@ import {
   OpcoesExecucao,
   REGISTRO_CRIACAO,
 } from './transicoes.tipos';
+import { conferenciaArt48Sql } from '../../julgamento/me-epp/beneficio-mpe.sql';
 
 /**
  * ============================================================================
@@ -348,6 +349,7 @@ export class TransicoesService {
           [licitacaoId],
         ),
       unidadesSemPropostaAceita: () => this.unidadesSemPropostaAceita(licitacaoId, manager),
+      conferenciaArt48: () => conferenciaArt48Sql(manager, licitacaoId),
       instrucaoProcesso: async (etapa) => {
         // Resolução tardia: evita ciclo de módulos (a fase-interna depende
         // deste serviço para as próprias transições).

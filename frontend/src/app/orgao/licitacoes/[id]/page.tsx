@@ -55,6 +55,7 @@ import { API_URL, authFetch } from '@/lib/api'
 import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 import { linkEditalPncp } from '@/lib/pncp'
 import EditarLicitacaoModal from '@/components/licitacao/EditarLicitacaoModal'
+import { CotasMeEppCard } from '@/components/licitacao/CotasMeEppCard'
 
 // Fases conforme Lei 14.133/2021 - Art. 17
 const FASES_INTERNAS = [
@@ -1820,6 +1821,7 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
 
         {/* Aba de Itens */}
         <TabsContent value="itens">
+          {licitacao?.id && <CotasMeEppCard licitacaoId={licitacao.id} onGerado={carregarDados} />}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">

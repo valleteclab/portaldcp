@@ -21,6 +21,7 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { normalizarBeneficioMpeLote } from '../lotes/lotes.service';
+import { normalizarBeneficioMpeLicitacao } from '../julgamento/me-epp/regras-me-epp';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
 import { FASES_PUBLICAS, licitacaoParaPublico } from './licitacao-visao.util';
@@ -30,6 +31,7 @@ import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
 import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
 import { ROTULO_FASE } from './transicoes/fases';
 import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
+import { desempatarNoAto } from '../julgamento/desempate.sql';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -121,6 +123,14 @@ export class LicitacoesService {
       where: { ano }
     });
 
+    // Benefício ME/EPP (LC 123 art. 48): fonte da verdade = tipo_beneficio_mpe; legado derivado
+    let beneficioMpe: ReturnType<typeof normalizarBeneficioMpeLicitacao>;
+    try {
+      beneficioMpe = normalizarBeneficioMpeLicitacao(createDto as any);
+    } catch (e: any) {
+      throw new BadRequestException(e?.message ?? 'Benefício ME/EPP inválido');
+    }
+
     const licitacao = this.licitacaoRepository.create({
       ...createDto,
       ano,
@@ -132,6 +142,7 @@ export class LicitacoesService {
       fase_interna_concluida: false, // só pelo ato CONCLUIR_FASE_INTERNA (gate E1.7)
       data_abertura_processo: new Date(),
     });
+    Object.assign(licitacao, beneficioMpe);
 
     const salva = await this.licitacaoRepository.save(licitacao);
     await this.transicoes.registrarCriacao(salva, ator);
@@ -464,6 +475,12 @@ export class LicitacoesService {
       dadosLicitacao.criterio_julgamento ?? licitacao.criterio_julgamento,
     );
     if (vedacaoModo) throw new BadRequestException(vedacaoModo);
+    // Benefício ME/EPP (LC 123 art. 48): fonte da verdade = tipo_beneficio_mpe; legado derivado
+    try {
+      Object.assign(dadosLicitacao, normalizarBeneficioMpeLicitacao(dadosLicitacao, licitacao as any));
+    } catch (e: any) {
+      throw new BadRequestException(e?.message ?? 'Benefício ME/EPP inválido');
+    }
     Object.assign(licitacao, dadosLicitacao);
     await this.licitacaoRepository.save(licitacao);
 
@@ -998,6 +1015,7 @@ export class LicitacoesService {
         numero_edital: licitacao.numero_edital,
         objeto: licitacao.objeto,
         modalidade: licitacao.modalidade,
+        criterio_julgamento: licitacao.criterio_julgamento,
         fase: licitacao.fase,
         situacao: licitacao.situacao ?? SituacaoLicitacao.ATIVA,
         fase_anterior: licitacao.fase_anterior ?? null,
@@ -1255,6 +1273,35 @@ export class LicitacoesService {
       if (!atual || Number(cand.valor_unitario) < Number(atual.valor_unitario)) {
         vencedorPorItem.set(cand.item_licitacao_id, cand);
       }
+    }
+    // Empate no menor valor (Lei 14.133 art. 60; IN 73 art. 28 §2º): critérios II..§1º IV
+    // e, persistindo, sorteio auditável no próprio ato do julgamento. A disputa final
+    // (art. 60 I) não se aplica ao julgamento automático da dispensa (IN 67/2021 não a
+    // prevê; a janela de lances já é a oportunidade de nova oferta) — decisão documentada.
+    for (const [itemId, venc] of [...vencedorPorItem.entries()]) {
+      const empatados = [...melhorPorItemFornecedor.values()].filter(
+        (c) =>
+          c.item_licitacao_id === itemId &&
+          Math.round(Number(c.valor_unitario) * 10_000) === Math.round(Number(venc.valor_unitario) * 10_000),
+      );
+      if (empatados.length < 2) continue;
+      const [sessaoDispensa] = await this.dataSource.query(
+        `SELECT id FROM sessoes_disputa WHERE licitacao_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [id],
+      );
+      const r = await desempatarNoAto(this.dataSource, {
+        licitacaoId: id,
+        sessaoId: sessaoDispensa?.id ?? null,
+        tipoUnidade: 'ITEM',
+        unidadeId: itemId,
+        grupo: empatados.map((c) => c.fornecedor_id),
+        valorEmpatado: Number(venc.valor_unitario),
+        motivoSemDisputaFinal:
+          'Não aplicada — julgamento automático da dispensa eletrônica (IN SEGES 67/2021); a janela de lances é a oportunidade de nova oferta.',
+        ator,
+      });
+      const escolhido = empatados.find((c) => String(c.fornecedor_id) === r.ordem[0]);
+      if (escolhido) vencedorPorItem.set(itemId, escolhido);
     }
 
     const adjudicados: Array<{ item: number; fornecedor: string; valor_unitario: number; valor_total: number }> = [];
