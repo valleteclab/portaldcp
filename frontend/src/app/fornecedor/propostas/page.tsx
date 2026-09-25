@@ -13,12 +13,9 @@ import { API_URL, authFetch } from '@/lib/api'
 import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
 
 /** Documento da desclassificação: rota autenticada (fornecedor dono ou órgão dono). */
-async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?: string) {
+async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?: string): Promise<boolean> {
   const res = await authFetch(`${API_URL}/api/propostas/${propostaId}/documento-desclassificacao`)
-  if (!res.ok) {
-    alert('Não foi possível baixar o documento')
-    return
-  }
+  if (!res.ok) return false
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -28,6 +25,7 @@ async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?:
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return true
 }
 
 interface Proposta {
@@ -60,6 +58,7 @@ export default function PropostasFornecedorPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([])
   const [loading, setLoading] = useState(true)
   const [modalMotivo, setModalMotivo] = useState<Proposta | null>(null)
+  const [erroDownload, setErroDownload] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchPropostas = async () => {
@@ -394,12 +393,18 @@ export default function PropostasFornecedorPage() {
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Documento Anexado</p>
                   <button
                     type="button"
-                    onClick={() => baixarDocumentoDesclassificacao(modalMotivo.id, modalMotivo.documento_desclassificacao_nome)}
+                    onClick={async () => {
+                      setErroDownload(null)
+                      if (!(await baixarDocumentoDesclassificacao(modalMotivo.id, modalMotivo.documento_desclassificacao_nome))) {
+                        setErroDownload('Não foi possível baixar o documento.')
+                      }
+                    }}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors"
                   >
                     <Download className="h-4 w-4" />
                     {modalMotivo.documento_desclassificacao_nome}
                   </button>
+                  {erroDownload && <p className="mt-2 text-xs text-red-700">{erroDownload}</p>}
                 </div>
               )}
             </div>

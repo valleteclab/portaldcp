@@ -8,7 +8,7 @@ import { ROTULO_SITUACAO } from '../licitacoes/transicoes/fases';
  * SESSÃO PÚBLICA SÓ COM A LICITAÇÃO ATIVA (plano E1)
  * ============================================================================
  *
- * Todo ato da sala (REST e socket — /sessao, /disputa-v2, recursos): iniciar
+ * Todo ato da sala (REST e socket — /sessao, socket /disputa, recursos): iniciar
  * sessão/itens, lance, encerrar item, reiniciar, suspender/retomar a sessão,
  * habilitação, recursos, adjudicação, homologação...) só é praticado com a
  * licitação ATIVA. Suspensa, revogada, anulada, deserta, fracassada ou

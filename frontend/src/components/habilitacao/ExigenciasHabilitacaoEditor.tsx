@@ -1,5 +1,6 @@
 'use client'
 
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { useCallback, useEffect, useState } from 'react'
 import { Lock, Plus, RefreshCw, Save, Trash2, Wand2 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
@@ -41,6 +42,7 @@ const novaLinha = (categoria = 'JURIDICA'): Linha => ({
 })
 
 export function ExigenciasHabilitacaoEditor({ licitacaoId, className }: { licitacaoId: string; className?: string }) {
+  const { confirmar, dialogo } = useDialogoConfirmacao()
   const [dados, setDados] = useState<Resposta | null>(null)
   const [linhas, setLinhas] = useState<Linha[]>([])
   const [modelos, setModelos] = useState<Modelo[]>([])
@@ -106,9 +108,9 @@ export function ExigenciasHabilitacaoEditor({ licitacaoId, className }: { licita
       'Exigências salvas.',
     )
 
-  const aplicarModelo = () => {
+  const aplicarModelo = async () => {
     if (!modelo) return
-    if (!window.confirm('Substituir as exigências atuais pelo modelo escolhido?')) return
+    if (!(await confirmar({ titulo: 'Aplicar modelo', mensagem: 'Substituir as exigências atuais pelo modelo escolhido?', confirmarRotulo: 'Substituir' }))) return
     enviar(`/api/habilitacao/licitacao/${licitacaoId}/exigencias/modelo`, 'POST', { modelo }, 'Modelo aplicado.')
   }
 
@@ -117,6 +119,7 @@ export function ExigenciasHabilitacaoEditor({ licitacaoId, className }: { licita
 
   return (
     <Card className={className}>
+      {dialogo}
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           Exigências de habilitação do edital

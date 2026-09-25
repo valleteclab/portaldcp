@@ -364,7 +364,7 @@ export default function MonitoramentoPage() {
                       </CardDescription>
                     </div>
                     <Link 
-                      href={`/orgao/disputa?sessao=${sessaoSelecionada.id}`}
+                      href={`/orgao/processos/${sessaoSelecionada.licitacao_id}/sessao`}
                       target="_blank"
                     >
                       <Button variant="outline" size="sm">

@@ -30,7 +30,7 @@ No CI: `.github/workflows/backend-tests.yml` (unitários + e2e em PR e push fora
 | `app.ts` | `criarApp()` — mesmo bootstrap do `src/main.ts` (prefixo `api`, sem ValidationPipe global), escutando em porta aleatória |
 | `fixtures.ts` | fábricas: órgão, usuário do órgão, fornecedor, licitação, fases, proposta |
 | `pncp-mock.ts` | `pncpMock`: captura o que seria enviado ao PNCP |
-| `socket.ts` | cliente socket.io para os namespaces (`/disputa-v2`, `/sessao`, `/dispensa`...) |
+| `socket.ts` | cliente socket.io para os namespaces (`/disputa` — ex-`/disputa-v2`; `/sessao` e `/dispensa` foram removidos) |
 
 Motor de lances (E2): `test/motor-lances.e2e-spec.ts` (diferença mínima, lances iguais, intervalo, reinício sem DELETE, chat único, sigilo do item encerrado). O namespace padrão `/` não tem mais gateway.
 
@@ -88,7 +88,7 @@ describe('Pregão — ...', () => {
   assina o termo pelo portal de assinaturas (órgão) e pelo link + código (fornecedor).
 - **Relógio**: os `@Cron` ficam **desligados** (determinismo). Use `criarApp({ crons: true })` ou
   `ctx.ligarCrons()` quando o teste depender deles (disputa, transição por data).
-- **Socket**: `const s = await conectarSocket(ctx, '/disputa-v2', { token })`, `aguardarEvento(s, 'evento')`,
+- **Socket**: `const s = await conectarSocket(ctx, '/disputa', { token })`, `aguardarEvento(s, 'evento')`,
   `fecharSockets()` no `afterAll`.
 - O banco é **compartilhado entre os arquivos** da execução: não dependa de tabela vazia; as fábricas
   geram CNPJ/códigos únicos.

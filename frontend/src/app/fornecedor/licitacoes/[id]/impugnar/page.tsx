@@ -57,6 +57,8 @@ export default function ImpugnarPage() {
   const [minhasImpugnacoes, setMinhasImpugnacoes] = useState<MinhaImpugnacao[]>([])
   const [loading, setLoading] = useState(true)
   const [enviando, setEnviando] = useState(false)
+  // Retorno do envio na própria tela (sem alert())
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
 
   // Formulário
   const [texto, setTexto] = useState('')
@@ -96,12 +98,12 @@ export default function ImpugnarPage() {
     const file = e.target.files?.[0]
     if (file) {
       if (file.type !== 'application/pdf') {
-        alert('Apenas arquivos PDF são permitidos')
+        setAviso({ tipo: 'erro', texto: 'Apenas arquivos PDF são permitidos' })
         e.target.value = ''
         return
       }
       if (file.size > 10 * 1024 * 1024) { // 10MB
-        alert('O arquivo deve ter no máximo 10MB')
+        setAviso({ tipo: 'erro', texto: 'O arquivo deve ter no máximo 10MB' })
         e.target.value = ''
         return
       }
@@ -124,12 +126,12 @@ export default function ImpugnarPage() {
 
   const enviarImpugnacao = async () => {
     if (!texto.trim()) {
-      alert('Digite o texto da impugnação')
+      setAviso({ tipo: 'erro', texto: 'Digite o texto da impugnação' })
       return
     }
 
     if (!arquivo) {
-      alert('Anexe o documento PDF da impugnação')
+      setAviso({ tipo: 'erro', texto: 'Anexe o documento PDF da impugnação' })
       return
     }
 
@@ -153,7 +155,7 @@ export default function ImpugnarPage() {
       })
 
       if (res.ok) {
-        alert('Impugnação enviada com sucesso!')
+        setAviso({ tipo: 'ok', texto: 'Impugnação enviada com sucesso!' })
         setTexto('')
         setItemEdital('')
         setFundamentacao('')
@@ -161,10 +163,10 @@ export default function ImpugnarPage() {
         carregarDados()
       } else {
         const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        setAviso({ tipo: 'erro', texto: `Erro: ${error.message}` })
       }
     } catch (error) {
-      alert('Erro ao enviar impugnação')
+      setAviso({ tipo: 'erro', texto: 'Erro ao enviar impugnação' })
     } finally {
       setEnviando(false)
     }
@@ -334,6 +336,11 @@ export default function ImpugnarPage() {
               </div>
             </div>
 
+            {aviso && (
+              <p className={`rounded-md border px-3 py-2 text-sm ${aviso.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                {aviso.texto}
+              </p>
+            )}
             <Button onClick={enviarImpugnacao} disabled={enviando || !arquivo}>
               {enviando ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

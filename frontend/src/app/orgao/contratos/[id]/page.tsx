@@ -2124,7 +2124,7 @@ export default function DetalheContratoOrgaoPage() {
                     <p className="font-medium">{contrato.licitacao.numero_processo}</p>
                     <p className="text-sm text-gray-500">{formatarModalidadeLicitacao(contrato.licitacao.modalidade)}</p>
                     <Button variant="link" className="p-0 h-auto mt-2" asChild>
-                      <Link href={`/orgao/licitacoes/${contrato.licitacao.id}`}>Ver licitação →</Link>
+                      <Link href={`/orgao/processos/${contrato.licitacao.id}`}>Ver processo →</Link>
                     </Button>
                   </CardContent>
                 </Card>

@@ -7,7 +7,7 @@ interface Props {
   contexto?: DisputaV3Contexto | null
 }
 
-export function DisputaV3Stepper({ contexto }: Props) {
+export function SalaStepper({ contexto }: Props) {
   const etapaAtual = getEtapaAtualIndex(contexto)
 
   return (

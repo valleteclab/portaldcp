@@ -64,7 +64,7 @@ export function LeilaoFornecedor({ licitacaoId }: { licitacaoId: string }) {
           ))}
         </div>
         {emDisputa && (
-          <Link href={`/fornecedor/disputa-v3?licitacao=${licitacaoId}`} className="text-sm font-medium text-blue-700 hover:underline">
+          <Link href={`/fornecedor/licitacoes/${licitacaoId}/sessao`} className="text-sm font-medium text-blue-700 hover:underline">
             Abrir a sala de lances →
           </Link>
         )}

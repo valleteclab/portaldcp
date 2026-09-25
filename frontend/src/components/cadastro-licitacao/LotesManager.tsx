@@ -5,6 +5,8 @@
  * "O parcelamento será adotado quando técnica e economicamente viável"
  */
 
+import { toast } from "sonner"
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { useState, useEffect, useMemo, useCallback, memo } from 'react'
 import { 
   Package, Plus, Trash2, Edit2, ChevronDown, ChevronRight,
@@ -501,6 +503,7 @@ interface LotesManagerProps {
 export function LotesManager({
   lotes, itens, itensPca, onLotesChange, onItensChange, onLoadItensPca, orgaoId, disabled = false, enviadoPncp = false
 }: LotesManagerProps) {
+  const { confirmar, dialogo } = useDialogoConfirmacao()
   const [modalNovoLote, setModalNovoLote] = useState(false)
   const [modalEditarLote, setModalEditarLote] = useState(false)
   const [modalVincularPca, setModalVincularPca] = useState(false)
@@ -586,15 +589,15 @@ export function LotesManager({
   }
 
   // REGRA PNCP: Não permite excluir lotes com itens após envio ao PNCP
-  const excluirLote = (lote: LoteLicitacao) => {
+  const excluirLote = async (lote: LoteLicitacao) => {
     const itensDoLote = itens.filter(i => i.lote_numero === lote.numero || i.lote_id === lote.id)
     
     if (enviadoPncp && itensDoLote.length > 0) {
-      alert('⚠️ Não é possível excluir lotes com itens de uma licitação já enviada ao PNCP.\n\nA API do PNCP não permite exclusão de itens. Você pode apenas retificar os itens existentes.')
+      toast.error('Itens já publicados não podem ser removidos — mudar o objeto exige revogar e republicar.')
       return
     }
     
-    if (!confirm(`Deseja realmente excluir o Lote ${lote.numero}?${itensDoLote.length > 0 ? `\n\nOs ${itensDoLote.length} item(ns) serão desvinculados do lote.` : ''}`)) return
+    if (!(await confirmar({ titulo: `Excluir o lote ${lote.numero}`, mensagem: itensDoLote.length > 0 ? `Os ${itensDoLote.length} item(ns) serão desvinculados do lote.` : 'O lote está vazio.', confirmarRotulo: 'Excluir', destrutivo: true }))) return
     
     onItensChange(itens.map(item => 
       item.lote_id === lote.id ? { ...item, lote_id: undefined, lote_numero: undefined } : item
@@ -648,13 +651,13 @@ export function LotesManager({
 
   // Excluir item do lote E da licitação
   // REGRA PNCP: Não permite excluir itens após envio ao PNCP
-  const excluirItemDoLote = (item: ItemLicitacao) => {
+  const excluirItemDoLote = async (item: ItemLicitacao) => {
     if (enviadoPncp) {
-      alert('⚠️ Não é possível excluir itens de uma licitação já enviada ao PNCP.\n\nItens já publicados não podem ser removidos, apenas editados (descrição, quantidade, valor).')
+      toast.error('Itens já publicados não podem ser removidos — mudar o objeto exige revogar e republicar.')
       return
     }
     
-    if (!confirm(`Deseja realmente excluir o item "${item.descricao}"?`)) return
+    if (!(await confirmar({ titulo: 'Excluir item', mensagem: `Excluir o item "${item.descricao}"?`, confirmarRotulo: 'Excluir', destrutivo: true }))) return
     
     const itensAtualizados = itens.filter(i => i.numero !== item.numero)
     onItensChange(itensAtualizados)
@@ -691,6 +694,7 @@ export function LotesManager({
 
   return (
     <div className="space-y-4">
+      {dialogo}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -933,12 +937,12 @@ export function LotesManager({
                       className="text-red-500 hover:text-red-700 hover:bg-red-50"
                       disabled={enviadoPncp}
                       title={enviadoPncp ? 'Itens já enviados ao PNCP não podem ser excluídos' : 'Excluir item'}
-                      onClick={() => {
+                      onClick={async () => {
                         if (enviadoPncp) {
-                          alert('⚠️ Não é possível excluir itens de uma licitação já enviada ao PNCP.\n\nItens já publicados não podem ser removidos, apenas editados.')
+                          toast.error('Itens já publicados não podem ser removidos — mudar o objeto exige revogar e republicar.')
                           return
                         }
-                        if (!confirm(`Deseja realmente excluir o item "${item.descricao}"?`)) return
+                        if (!(await confirmar({ titulo: 'Excluir item', mensagem: `Excluir o item "${item.descricao}"?`, confirmarRotulo: 'Excluir', destrutivo: true }))) return
                         const novosItens = itens.filter(i => i.numero !== item.numero)
                         onItensChange(novosItens)
                       }}

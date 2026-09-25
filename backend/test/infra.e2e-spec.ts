@@ -97,7 +97,7 @@ describe('Infra e2e (smoke)', () => {
   });
 
   it('conecta num namespace socket.io do app', async () => {
-    const s = await conectarSocket(ctx, '/disputa-v2');
+    const s = await conectarSocket(ctx, '/disputa');
     expect(s.connected).toBe(true);
     s.disconnect();
   });

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Eye, FileText } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao'
 
 /**
  * FORNECEDOR — Atas de Registro de Preços: as próprias atas (assinar, saldo,
@@ -42,6 +43,8 @@ export default function FornecedorAtasPage() {
   const [atas, setAtas] = useState<any[]>([])
   const [reservas, setReservas] = useState<any[]>([])
   const [ocupado, setOcupado] = useState(false)
+  const [erroAto, setErroAto] = useState<string | null>(null)
+  const { confirmar, dialogo } = useDialogoConfirmacao()
 
   const carregar = useCallback(async () => {
     const [a, r] = await Promise.all([authFetch(`${API_URL}/api/atas`), authFetch(`${API_URL}/api/atas/fornecedor/reservas`)])
@@ -54,7 +57,13 @@ export default function FornecedorAtasPage() {
   }, [carregar])
 
   const responder = async (ataId: string, aderir: boolean) => {
-    if (!confirm(aderir ? 'Confirmar que cota ao preço registrado do vencedor (cadastro de reserva)?' : 'Recusar o cadastro de reserva desta ata?')) return
+    const ok = await confirmar(
+      aderir
+        ? { titulo: 'Aderir ao cadastro de reserva?', mensagem: 'Você confirma que cota ao preço registrado do vencedor (cadastro de reserva).', confirmarRotulo: 'Aderir' }
+        : { titulo: 'Recusar o cadastro de reserva?', mensagem: 'Recusar o cadastro de reserva desta ata.', confirmarRotulo: 'Recusar', destrutivo: true },
+    )
+    if (!ok) return
+    setErroAto(null)
     setOcupado(true)
     try {
       const r = await authFetch(`${API_URL}/api/atas/${ataId}/reserva`, {
@@ -66,7 +75,7 @@ export default function FornecedorAtasPage() {
       if (!r.ok) throw new Error(b?.message || `HTTP ${r.status}`)
       await carregar()
     } catch (e: any) {
-      alert(e.message)
+      setErroAto(e.message)
     } finally {
       setOcupado(false)
     }
@@ -83,6 +92,8 @@ export default function FornecedorAtasPage() {
         <h1 className="text-2xl font-bold">Atas de Registro de Preços</h1>
         <p className="text-gray-600 text-sm">Suas atas e as convocações para o cadastro de reserva.</p>
       </div>
+      {erroAto && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erroAto}</p>}
+
 
       <Card>
         <CardHeader>
@@ -145,6 +156,7 @@ export default function FornecedorAtasPage() {
           ))}
         </CardContent>
       </Card>
+      {dialogo}
     </div>
   )
 }

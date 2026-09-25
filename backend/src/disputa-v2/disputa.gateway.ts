@@ -78,7 +78,7 @@ export const salaLicitacaoOrgao = (licitacaoId: string) => `licitacao:${licitaca
 export const salaFornecedor = (sessaoId: string, fornecedorId: string) => `sessao:${sessaoId}:fornecedor:${fornecedorId}`;
 
 @WebSocketGateway({
-  namespace: '/disputa-v2',
+  namespace: '/disputa',
   cors: {
     origin: '*',
     credentials: true,

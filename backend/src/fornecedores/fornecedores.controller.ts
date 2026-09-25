@@ -171,11 +171,21 @@ export class FornecedoresController {
     this.validarOwnership(req.user, id, req);
     // Órgão (tela de contrato) só corrige o nome; contato/e-mail/credenciais
     // pelo órgão só em /:id/orgao/contato (com vínculo) — nunca aqui.
+    // A correção do nome também exige VÍNCULO (proposta numa licitação do
+    // órgão, contrato ou inscrição em credenciamento): o registro cadastral é
+    // da plataforma, e sem isso qualquer órgão renomearia qualquer fornecedor.
+    // Na tela de contrato o vínculo nasce ao salvar o contrato — a correção
+    // do nome é enviada depois disso.
     const ator = atorDaRequisicao(req);
     if (ehOrgao(ator) && !ator.admin) {
       const permitidos = ['razao_social', 'nome_fantasia'];
       const outros = Object.keys(updateDto || {}).filter((k) => (updateDto as any)[k] !== undefined && !permitidos.includes(k));
       if (outros.length) throw new ForbiddenException(`O órgão não altera estes dados do fornecedor: ${outros.join(', ')}`);
+      if (!(await this.acesso.orgaoTemVinculoComFornecedor(ator!.orgaoId, id))) {
+        throw new ForbiddenException(
+          'Fornecedor sem vínculo (proposta, contrato ou credenciamento) com o seu órgão — solicite a correção ao fornecedor ou à administração da plataforma',
+        );
+      }
     }
     return await this.fornecedoresService.update(id, updateDto);
   }

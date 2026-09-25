@@ -730,6 +730,21 @@ export class SessaoService {
     return sessao;
   }
 
+  /** Sessões da licitação, da mais recente para a mais antiga (seletor da sala do órgão). */
+  async listarSessoesDaLicitacao(licitacaoId: string) {
+    const sessoes = await this.sessaoRepository.find({
+      where: { licitacao_id: licitacaoId },
+      order: { created_at: 'DESC' },
+    });
+    return sessoes.map((s) => ({
+      id: s.id,
+      status: s.status,
+      etapa: s.etapa,
+      criadaEm: s.created_at,
+      inicioPrevisto: s.data_hora_inicio_prevista ?? null,
+    }));
+  }
+
   async getSessaoPorLicitacao(licitacaoId: string): Promise<SessaoDisputa | null> {
     return await this.sessaoRepository.findOne({
       where: { licitacao_id: licitacaoId },

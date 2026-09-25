@@ -36,6 +36,7 @@ import {
   valoresAdjudicadosDaAceitacao,
 } from './regras-resultado';
 import { marcarContratacaoIniciada } from './status-demanda-pca.sql';
+import { licitacaoEhPublica } from '../licitacoes/licitacao-visao.util';
 import { FormalizacaoService, PlanoParaTermo } from './formalizacao/formalizacao.service';
 import { FormalizacaoResultado } from './formalizacao/formalizacao.entities';
 import {
@@ -1132,6 +1133,112 @@ export class ResultadoService implements OnModuleInit {
         efetivado_em: f.efetivado_em,
         assinado: !!f.arquivo_assinado,
       }));
+  }
+
+  /**
+   * RESULTADO PÚBLICO da licitação (plano E8 — detalhe público, sala e
+   * participações do fornecedor). Antes da homologação: só a sessão (a ata da
+   * sessão é pública depois de encerrada). Depois da homologação (art. 71 IV):
+   * vencedor e valor por item, termos efetivados e os instrumentos (contrato
+   * ou ARP) já assinados. Nada de dado interno (orçamento sigiloso, lances de
+   * quem não venceu).
+   */
+  async resultadoPublico(licitacaoId: string) {
+    const m = this.dataSource.manager;
+    const lic: any = await m.getRepository(Licitacao).findOne({ where: { id: licitacaoId } });
+    if (!lic || !licitacaoEhPublica(lic)) throw new NotFoundException('Licitação não encontrada');
+
+    const [sessao] = await m.query(
+      `SELECT id::text AS id, status::text AS status, etapa::text AS etapa
+         FROM sessoes_disputa WHERE licitacao_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [licitacaoId],
+    );
+    const ehDispensa = String(lic.modalidade) === ModalidadeLicitacao.DISPENSA_ELETRONICA;
+    const base = {
+      licitacaoId,
+      modalidade: String(lic.modalidade),
+      fase: String(lic.fase),
+      situacao: lic.situacao ? String(lic.situacao) : null,
+      homologada: !!lic.data_homologacao,
+      dataHomologacao: lic.data_homologacao ?? null,
+      sessao: sessao
+        ? { id: sessao.id, status: sessao.status, etapa: sessao.etapa, ataDisponivel: sessao.status === StatusSessao.ENCERRADA }
+        : null,
+      /** Dispensa: ata da janela de lances (rota pública própria). */
+      ataDispensaDisponivel: ehDispensa && !!lic.dispensa_lances_fim && new Date(lic.dispensa_lances_fim) <= new Date(),
+    };
+    if (!lic.data_homologacao) {
+      return { ...base, valorHomologado: null, itens: [], contratos: [], atas: [], termos: [] };
+    }
+
+    const itens: any[] = await m.query(
+      `SELECT i.numero_item, i.numero_lote, i.descricao_resumida, i.quantidade, i.unidade_medida::text AS unidade_medida,
+              i.status::text AS status, i.fornecedor_vencedor_id, i.valor_unitario_homologado, i.valor_total_homologado,
+              f.razao_social, f.cpf_cnpj
+         FROM itens_licitacao i
+         LEFT JOIN fornecedores f ON f.id::text = i.fornecedor_vencedor_id::text
+        WHERE i.licitacao_id = $1
+        ORDER BY i.numero_lote NULLS FIRST, i.numero_item`,
+      [licitacaoId],
+    );
+    const contratos: any[] = await m.query(
+      `SELECT id::text AS id, numero_contrato, fornecedor_razao_social, fornecedor_cnpj, valor_global, valor_inicial,
+              status::text AS status, data_assinatura, data_vigencia_inicio, data_vigencia_fim
+         FROM contratos
+        WHERE licitacao_id = $1 AND status::text NOT IN ('RASCUNHO', 'AGUARDANDO_ASSINATURA')
+        ORDER BY numero_contrato`,
+      [licitacaoId],
+    );
+    const atas: any[] = await m.query(
+      `SELECT a.id::text AS id, a.numero_ata, a.valor_total, a.status::text AS status,
+              a.data_vigencia_inicio, a.data_vigencia_fim, f.razao_social, f.cpf_cnpj
+         FROM atas_registro_preco a
+         LEFT JOIN fornecedores f ON f.id::text = a.fornecedor_id::text
+        WHERE a.licitacao_id = $1 AND a.status::text <> 'AGUARDANDO_ASSINATURA'
+        ORDER BY a.numero_ata`,
+      [licitacaoId],
+    );
+    const comResultado = (s: string) => STATUS_ITEM_COM_RESULTADO.includes(s);
+    return {
+      ...base,
+      valorHomologado: lic.valor_homologado != null ? Number(lic.valor_homologado) : null,
+      itens: itens.map((i) => {
+        const venceu = !!i.fornecedor_vencedor_id && comResultado(String(i.status));
+        return {
+          numero: Number(i.numero_item),
+          lote: i.numero_lote != null ? Number(i.numero_lote) : null,
+          descricao: i.descricao_resumida,
+          quantidade: Number(i.quantidade),
+          unidadeMedida: i.unidade_medida,
+          status: String(i.status),
+          vencedor: venceu ? { fornecedorId: String(i.fornecedor_vencedor_id), razaoSocial: i.razao_social ?? '', cpfCnpj: i.cpf_cnpj ?? '' } : null,
+          valorUnitario: venceu && i.valor_unitario_homologado != null ? Number(i.valor_unitario_homologado) : null,
+          valorTotal: venceu && i.valor_total_homologado != null ? Number(i.valor_total_homologado) : null,
+        };
+      }),
+      contratos: contratos.map((c) => ({
+        id: c.id,
+        numero: c.numero_contrato,
+        fornecedor: c.fornecedor_razao_social,
+        cpfCnpj: c.fornecedor_cnpj,
+        valor: Number(c.valor_global ?? c.valor_inicial ?? 0),
+        status: c.status,
+        dataAssinatura: c.data_assinatura,
+        vigenciaInicio: c.data_vigencia_inicio,
+        vigenciaFim: c.data_vigencia_fim,
+      })),
+      atas: atas.map((a) => ({
+        id: a.id,
+        numero: a.numero_ata,
+        fornecedor: a.razao_social ?? '',
+        cpfCnpj: a.cpf_cnpj ?? '',
+        valor: Number(a.valor_total ?? 0),
+        status: a.status,
+        vigenciaInicio: a.data_vigencia_inicio,
+        vigenciaFim: a.data_vigencia_fim,
+      })),
+      termos: await this.termosPublicos(licitacaoId),
+    };
   }
 
   async arquivoPublico(formalizacaoId: string): Promise<{ caminho: string; nome: string }> {

@@ -60,6 +60,8 @@ export default function EsclarecimentosPage() {
   const [meusEsclarecimentos, setMeusEsclarecimentos] = useState<MeuEsclarecimento[]>([])
   const [loading, setLoading] = useState(true)
   const [enviando, setEnviando] = useState(false)
+  // Retorno do envio na própria tela (sem alert())
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
 
   // Formulário
   const [texto, setTexto] = useState('')
@@ -98,12 +100,12 @@ export default function EsclarecimentosPage() {
     const file = e.target.files?.[0]
     if (file) {
       if (file.type !== 'application/pdf') {
-        alert('Apenas arquivos PDF são permitidos')
+        setAviso({ tipo: 'erro', texto: 'Apenas arquivos PDF são permitidos' })
         e.target.value = ''
         return
       }
       if (file.size > 10 * 1024 * 1024) { // 10MB
-        alert('O arquivo deve ter no máximo 10MB')
+        setAviso({ tipo: 'erro', texto: 'O arquivo deve ter no máximo 10MB' })
         e.target.value = ''
         return
       }
@@ -113,7 +115,7 @@ export default function EsclarecimentosPage() {
 
   const enviarEsclarecimento = async () => {
     if (!texto.trim()) {
-      alert('Por favor, descreva sua dúvida ou pedido de esclarecimento')
+      setAviso({ tipo: 'erro', texto: 'Por favor, descreva sua dúvida ou pedido de esclarecimento' })
       return
     }
 
@@ -135,18 +137,18 @@ export default function EsclarecimentosPage() {
       })
 
       if (res.ok) {
-        alert('Pedido de esclarecimento enviado com sucesso!')
+        setAviso({ tipo: 'ok', texto: 'Pedido de esclarecimento enviado com sucesso!' })
         setTexto('')
         setItemEdital('')
         setArquivo(null)
         carregarDados()
       } else {
         const error = await res.json()
-        alert(`Erro ao enviar: ${error.message}`)
+        setAviso({ tipo: 'erro', texto: `Erro ao enviar: ${error.message}` })
       }
     } catch (error) {
       console.error('Erro ao enviar esclarecimento:', error)
-      alert('Erro ao enviar esclarecimento. Tente novamente.')
+      setAviso({ tipo: 'erro', texto: 'Erro ao enviar esclarecimento. Tente novamente.' })
     } finally {
       setEnviando(false)
     }
@@ -291,6 +293,11 @@ export default function EsclarecimentosPage() {
             </div>
           </div>
 
+          {aviso && (
+            <p className={`rounded-md border px-3 py-2 text-sm ${aviso.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+              {aviso.texto}
+            </p>
+          )}
           <Button 
             onClick={enviarEsclarecimento} 
             disabled={enviando || !texto.trim() || !prazoManifestacaoAberto(licitacao)}

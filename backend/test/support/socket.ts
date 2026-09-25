@@ -2,7 +2,7 @@
  * Cliente socket.io para os namespaces do app em teste (o criarApp faz
  * app.listen na porta 0, então há um servidor real em ctx.baseUrl).
  *
- *   const s = await conectarSocket(ctx, '/disputa-v2', { token: forn.token });
+ *   const s = await conectarSocket(ctx, '/disputa', { token: forn.token });
  *   s.emit('entrar_sala', { sessaoId });
  *   const dados = await aguardarEvento(s, 'dados_iniciais');
  *   s.disconnect();

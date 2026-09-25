@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   Post,
   Put,
@@ -16,7 +17,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type { Response } from 'express';
-import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
+import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { Public } from '../auth/public.decorator';
@@ -72,6 +73,14 @@ export class ResultadoController {
   ) {}
 
   // ---------------------------------------------------------------- público
+  /** Resultado público: vencedores e valores (após a homologação), termos, instrumentos e ata da sessão. */
+  @Public()
+  @Get('publico/licitacao/:id')
+  resultadoPublico(@Param('id') id: string) {
+    if (!ehUuid(id)) throw new NotFoundException('Licitação não encontrada');
+    return this.resultado.resultadoPublico(id);
+  }
+
   @Public()
   @Get('publico/licitacao/:id/termos')
   termosPublicos(@Param('id') id: string) {

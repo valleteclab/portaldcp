@@ -21,7 +21,7 @@ import { licitacaoEstaAtiva } from '../sessao/licitacao-ativa';
  *    participantes no sítio eletrônico.
  *
  * COMO A DESCONEXÃO É DETECTADA (decisão documentada): pelo sinal explícito do
- * socket da sala. O gateway `/disputa-v2` avisa `pregoeiroEntrou` quando um
+ * socket da sala. O gateway `/disputa` avisa `pregoeiroEntrou` quando um
  * cliente do órgão dono entra na sala e `pregoeiroSaiu` quando o socket cai.
  * Quando a sessão fica SEM nenhum socket de pregoeiro, começa a contar o
  * prazo de carência; o verificador (cron a cada 5 s) suspende a sessão se ela

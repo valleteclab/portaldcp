@@ -29,7 +29,8 @@ import {
 
 import { API_URL, authFetch } from '@/lib/api'
 import { PropostaTecnicaPanel } from '@/components/julgamento/PropostaTecnicaPanel'
-import { HabilitacaoFornecedorPanel } from '@/components/disputa-v3/HabilitacaoFornecedorPanel'
+import { HabilitacaoFornecedorPanel } from '@/components/sala/HabilitacaoFornecedorPanel'
+import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao'
 
 interface PropostaItem {
   id: string
@@ -73,6 +74,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
   const resolvedParams = use(params)
   const router = useRouter()
   const [proposta, setProposta] = useState<Proposta | null>(null)
+  const { confirmar, dialogo } = useDialogoConfirmacao()
   const [itensEditados, setItensEditados] = useState<PropostaItem[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -152,7 +154,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
         return
       }
 
-      if (!confirm('Deseja realmente excluir esta proposta?')) return
+      if (!(await confirmar({ titulo: 'Excluir proposta?', mensagem: 'A proposta será excluída e não poderá ser recuperada.', confirmarRotulo: 'Excluir', destrutivo: true }))) return
 
       // O fornecedor é identificado pelo token (não vai mais na URL)
       const res = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}`, {
@@ -540,30 +542,23 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
         </CardContent>
       </Card>
 
-      {/* Link para sala de disputa */}
-      {proposta.licitacao?.fase === 'EM_DISPUTA' && (
+      {/* Sala única da sessão (plano E8) */}
+      {['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO'].includes(proposta.licitacao?.fase || '') && proposta.licitacao?.id && (
         <Card className="bg-blue-50 border-blue-200">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-blue-800">Disputa em andamento!</h3>
-                <p className="text-blue-600">A fase de lances já começou. Acesse a sala de disputa para participar.</p>
+                <h3 className="font-semibold text-blue-800">{proposta.licitacao?.fase === 'EM_DISPUTA' ? 'Disputa em andamento!' : 'Sessão pública'}</h3>
+                <p className="text-blue-600">Lances, convocações, negociação, habilitação, recursos e resultado ficam na sala da sessão.</p>
               </div>
-              <Button 
-                className="bg-blue-600 hover:bg-blue-700"
-                onClick={() => {
-                  if (proposta.licitacao?.id) {
-                    // Redirecionar para nova sala de disputa v2
-                    window.location.href = `/fornecedor/licitacoes/${proposta.licitacao.id}/sala`
-                  }
-                }}
-              >
-                Entrar na Sala de Disputa
-              </Button>
+              <Link href={`/fornecedor/licitacoes/${proposta.licitacao.id}/sessao`}>
+                <Button className="bg-blue-600 hover:bg-blue-700">Entrar na sala da sessão</Button>
+              </Link>
             </div>
           </CardContent>
         </Card>
       )}
+      {dialogo}
     </div>
   )
 }

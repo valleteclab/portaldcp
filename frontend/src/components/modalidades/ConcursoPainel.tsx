@@ -16,7 +16,7 @@ import { Award, Loader2 } from "lucide-react"
 import { API_URL } from "@/lib/api"
 import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
 import { JulgamentoTecnicoConfig } from "@/components/julgamento/JulgamentoTecnicoConfig"
-import { RecursosPanel } from "@/components/disputa-v3/RecursosPanel"
+import { RecursosPanel } from "@/components/sala/RecursosPanel"
 import { FormRegulamentoConcurso, type Valores } from "./formularios"
 import { abrirArquivo, classeInput, fmtDataHora, fmtMoeda, usePainel } from "./comum"
 

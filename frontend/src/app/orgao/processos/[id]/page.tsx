@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
+import { toast } from "sonner"
 import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/dialog"
 import {
   ArrowLeft, ClipboardList, FileText, Gavel, FileSignature, Activity,
-  CheckCircle2, Circle, ExternalLink, Loader2, AlertTriangle,
+  CheckCircle2, Circle, ExternalLink, Loader2, AlertTriangle, Pencil, Trash2,
 } from "lucide-react"
 import { BllIntegracao } from "./BllIntegracao"
 import { AtosProcesso, type AtoDisponivel } from "./AtosProcesso"
@@ -35,6 +36,11 @@ import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
 import { LeilaoPainel } from "@/components/modalidades/LeilaoPainel"
 import { ConcursoPainel } from "@/components/modalidades/ConcursoPainel"
 import { DialogoPainel } from "@/components/modalidades/DialogoPainel"
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
+import { DocumentosProcesso } from "./DocumentosProcesso"
+import { ImpugnacoesEsclarecimentos } from "./ImpugnacoesEsclarecimentos"
+import { SessaoPublicaCard, FASES_SALA } from "./SessaoPublicaCard"
+import { HistoricoProcesso } from "./HistoricoProcesso"
 import {
   consultarPrazos, inputLocalParaISO, lerErro, erroDeExcecao, sugestaoAPartirDoMinimo,
   type ErroBackend, type PrazosPublicacao,
@@ -134,6 +140,7 @@ export default function CockpitProcessoPage() {
   const params = useParams()
   const router = useRouter()
   const id = params?.id as string
+  const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao()
 
   const [dados, setDados] = useState<ProcessoCompleto | null>(null)
   const [loading, setLoading] = useState(true)
@@ -212,7 +219,7 @@ export default function CockpitProcessoPage() {
       a.remove()
       URL.revokeObjectURL(url)
     } catch (e: any) {
-      alert(`Não foi possível gerar os autos agora: ${e.message}`)
+      toast.error(`Não foi possível gerar os autos agora: ${e.message}`)
     } finally {
       setBaixandoProcesso(false)
     }
@@ -233,11 +240,13 @@ export default function CockpitProcessoPage() {
   }, [dados?.licitacao.preparacao_automatica?.status, id])
 
   const dispararCopiloto = async () => {
-    if (!confirm(
-      "🤖 Preparar o processo automaticamente?\n\n" +
-      "O copiloto pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do ETP, TR e autorização. " +
-      "Tudo fica marcado como SUGERIDO para você revisar — nada é publicado sem a sua validação.",
-    )) return
+    if (!(await confirmar({
+      titulo: "Preparar o processo automaticamente?",
+      mensagem:
+        "O copiloto pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do ETP, TR e autorização. " +
+        "Tudo fica marcado como SUGERIDO para você revisar — nada é publicado sem a sua validação.",
+      confirmarRotulo: "Preparar",
+    }))) return
     setDisparandoCopiloto(true)
     try {
       const res = await authFetch(`${API_URL}/api/fase-interna/${id}/preparar-automatico`, { method: "POST" })
@@ -245,7 +254,7 @@ export default function CockpitProcessoPage() {
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
       await carregar()
     } catch (e: any) {
-      alert(`Erro ao iniciar o copiloto: ${e.message}`)
+      toast.error(`Erro ao iniciar o copiloto: ${e.message}`)
     } finally {
       setDisparandoCopiloto(false)
     }
@@ -275,7 +284,7 @@ export default function CockpitProcessoPage() {
         valor_unitario: Number(String(l.valor_unitario).replace(",", ".")),
       }))
     if (itensPreenchidos.length === 0) {
-      alert("Preencha vencedor e valor de pelo menos um item.")
+      toast.error("Preencha vencedor e valor de pelo menos um item.")
       return
     }
     setSalvando(true)
@@ -297,7 +306,7 @@ export default function CockpitProcessoPage() {
       setModalResultado(false)
       await carregar()
     } catch (e: any) {
-      alert(`Erro ao registrar resultado: ${e.message}`)
+      toast.error(`Erro ao registrar resultado: ${e.message}`)
     } finally {
       setSalvando(false)
     }
@@ -305,7 +314,11 @@ export default function CockpitProcessoPage() {
 
   const julgarDispensa = async () => {
     if (!dados) return
-    if (!confirm("Julgar as propostas por MENOR PREÇO unitário por item?\n\nO vencedor de cada item será adjudicado automaticamente. Você poderá revisar antes de homologar.")) return
+    if (!(await confirmar({
+      titulo: "Julgar as propostas",
+      mensagem: "Julgar por MENOR PREÇO unitário por item? O vencedor de cada item será adjudicado automaticamente. Você poderá revisar antes de homologar.",
+      confirmarRotulo: "Julgar",
+    }))) return
     setJulgando(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/julgar-dispensa`, { method: "POST" })
@@ -314,10 +327,10 @@ export default function CockpitProcessoPage() {
       const semProposta = j?.itens_sem_proposta?.length
         ? `\n\nItens SEM proposta (ficaram de fora): ${j.itens_sem_proposta.join(", ")}`
         : ""
-      alert(`Julgamento concluído: ${j?.adjudicados?.length || 0} item(ns) adjudicado(s).${semProposta}`)
+      toast.success(`Julgamento concluído: ${j?.adjudicados?.length || 0} item(ns) adjudicado(s).${semProposta}`)
       await carregar()
     } catch (e: any) {
-      alert(`Erro no julgamento: ${e.message}`)
+      toast.error(`Erro no julgamento: ${e.message}`)
     } finally {
       setJulgando(false)
     }
@@ -350,8 +363,14 @@ export default function CockpitProcessoPage() {
   }, [dados, id])
 
   const marcarNaoSeAplica = async (tipo: string, titulo: string) => {
-    const j = prompt(`Marcar "${titulo}" como NÃO SE APLICA a esta contratação?\n\nInforme a justificativa (fica registrada nos autos — Art. 72):`)
-    if (!j || !j.trim()) return
+    const j = await pedirTexto({
+      titulo: `"${titulo}" não se aplica`,
+      mensagem: "Marcar esta peça como NÃO SE APLICA a esta contratação? A justificativa fica registrada nos autos (art. 72).",
+      rotulo: "Justificativa",
+      obrigatorio: true,
+      confirmarRotulo: "Marcar não se aplica",
+    })
+    if (!j) return
     setNaoSeAplicaLoading(tipo)
     try {
       let usuario: any = {}
@@ -365,7 +384,7 @@ export default function CockpitProcessoPage() {
       if (!res.ok) throw new Error(jj?.message || `HTTP ${res.status}`)
       setInstrucao(jj)
     } catch (e: any) {
-      alert(`Erro: ${e.message}`)
+      toast.error(`Erro: ${e.message}`)
     } finally {
       setNaoSeAplicaLoading(null)
     }
@@ -383,7 +402,7 @@ export default function CockpitProcessoPage() {
       if (!res.ok) throw new Error(jj?.message || `HTTP ${res.status}`)
       setInstrucao(jj)
     } catch (e: any) {
-      alert(`Erro: ${e.message}`)
+      toast.error(`Erro: ${e.message}`)
     } finally {
       setNaoSeAplicaLoading(null)
     }
@@ -461,7 +480,7 @@ export default function CockpitProcessoPage() {
         return
       }
       setModalDivulgar(false)
-      alert("Aviso divulgado!\n\nO prazo de propostas está aberto para os fornecedores e o aviso está sendo publicado automaticamente no PNCP (acompanhe o status no painel da seleção).")
+      toast.success("Aviso divulgado: o prazo de propostas está aberto e o aviso vai ao PNCP automaticamente (acompanhe o status no painel da seleção).")
       await carregar()
     } catch (e) {
       setErroDivulgar(erroDeExcecao(e))
@@ -476,13 +495,21 @@ export default function CockpitProcessoPage() {
   const solicitarAssinaturasContrato = async (ct: { id: string; numero_contrato: string; fornecedor_razao_social?: string }) => {
     let usuario: any = {}
     try { usuario = JSON.parse(localStorage.getItem("usuario") || "{}") } catch { /* segue */ }
-    const nome = usuario?.nome || prompt("Nome do responsável do órgão que assinará o contrato:")
+    const nome = usuario?.nome || await pedirTexto({
+      titulo: "Responsável pela assinatura",
+      rotulo: "Nome do responsável do órgão que assinará o contrato",
+      obrigatorio: true,
+      linhaUnica: true,
+    })
     if (!nome) return
-    if (!confirm(
-      `Gerar o TERMO DE CONTRATO ${ct.numero_contrato} em PDF e solicitar as assinaturas eletrônicas?\n\n` +
-      `Signatários:\n• ${nome} (órgão — assina pelo Portal de Assinaturas)\n• ${ct.fornecedor_razao_social || "Fornecedor"} (recebe o link por e-mail)\n\n` +
-      `Quando todos assinarem, a data de assinatura é registrada e o contrato é publicado automaticamente no PNCP (art. 94 — condição de eficácia).`,
-    )) return
+    if (!(await confirmar({
+      titulo: `Termo de contrato ${ct.numero_contrato}`,
+      mensagem:
+        `Gerar o termo em PDF e solicitar as assinaturas eletrônicas?\n\n` +
+        `Signatários:\n• ${nome} (órgão — assina pelo Portal de Assinaturas)\n• ${ct.fornecedor_razao_social || "Fornecedor"} (recebe o link por e-mail)\n\n` +
+        `Quando todos assinarem, a data de assinatura é registrada e o contrato é publicado automaticamente no PNCP (art. 94 — condição de eficácia).`,
+      confirmarRotulo: "Gerar e solicitar",
+    }))) return
     setAssinandoContrato(ct.id)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/${ct.id}/solicitar-assinaturas`, {
@@ -492,12 +519,14 @@ export default function CockpitProcessoPage() {
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      alert(j?.ja_existente
-        ? "Já existe uma solicitação de assinatura ativa para este contrato — acompanhe o progresso aqui no cockpit."
-        : `Termo gerado e assinaturas solicitadas!\n\n${(j?.signatarios || []).map((s: any) => `• ${s.nome}`).join("\n")}\n\nO fornecedor recebe o link por e-mail; você assina pelo Portal de Assinaturas.`)
+      if (j?.ja_existente) {
+        toast.info("Já existe uma solicitação de assinatura ativa para este contrato — acompanhe o progresso aqui no processo.")
+      } else {
+        toast.success(`Termo gerado e assinaturas solicitadas (${(j?.signatarios || []).map((s: any) => s.nome).join(", ")}). O fornecedor recebe o link por e-mail; você assina pelo Portal de Assinaturas.`)
+      }
       await carregar()
     } catch (e: any) {
-      alert(`Erro ao solicitar assinaturas: ${e.message}`)
+      toast.error(`Erro ao solicitar assinaturas: ${e.message}`)
     } finally {
       setAssinandoContrato(null)
     }
@@ -508,9 +537,9 @@ export default function CockpitProcessoPage() {
       const res = await authFetch(`${API_URL}/api/portal-assinaturas/${documentoId}/reenviar`, { method: "POST" })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      alert(`Notificações reenviadas (${j?.enviados ?? "ok"}).`)
+      toast.success(`Notificações reenviadas (${j?.enviados ?? "ok"}).`)
     } catch (e: any) {
-      alert(`Erro ao reenviar: ${e.message}`)
+      toast.error(`Erro ao reenviar: ${e.message}`)
     }
   }
 
@@ -560,30 +589,33 @@ export default function CockpitProcessoPage() {
       setNovaMensagemOrgao("")
       await carregarMensagensDispensa()
     } catch (e: any) {
-      alert(`Mensagem não enviada: ${e.message}`)
+      toast.error(`Mensagem não enviada: ${e.message}`)
     }
   }
 
+  // Fase de lances da dispensa (opcional — IN SEGES 67/2021): duração e prorrogação
+  const [modalLances, setModalLances] = useState(false)
+  const [duracaoLances, setDuracaoLances] = useState("360")
+  const [prorrogacaoLances, setProrrogacaoLances] = useState("2")
+  const [abrindoLances, setAbrindoLances] = useState(false)
+
   const abrirLances = async () => {
-    const min = prompt("Abrir a fase de LANCES da dispensa (opcional — modelo IN SEGES 67/2021).\n\nDuração em MINUTOS (padrão 360 = 6 horas):", "360")
-    if (min == null) return
-    const pror = prompt(
-      "PRORROGAÇÃO AUTOMÁTICA (opcional): lance recebido nos últimos N minutos prorroga a janela por mais N minutos, sucessivamente (modelo do modo de disputa aberto).\n\nMinutos de prorrogação (0 = sem prorrogação, encerramento no horário — padrão IN 67):",
-      "2",
-    )
-    if (pror == null) return
+    setAbrindoLances(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/abrir-lances`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duracao_minutos: Number(min) || 360, prorrogacao_minutos: Number(pror) || 0 }),
+        body: JSON.stringify({ duracao_minutos: Number(duracaoLances) || 360, prorrogacao_minutos: Number(prorrogacaoLances) || 0 }),
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      alert(`Fase de lances aberta até ${new Date(j.dispensa_lances_fim).toLocaleString("pt-BR")}.${j.prorrogacao_minutos ? ` Prorrogação automática de ${j.prorrogacao_minutos} min ativada (regra registrada no chat da sessão).` : " Sem prorrogação automática."} Os fornecedores com proposta válida podem reduzir seus valores na sala de lances.`)
+      setModalLances(false)
+      toast.success(`Fase de lances aberta até ${new Date(j.dispensa_lances_fim).toLocaleString("pt-BR")}.${j.prorrogacao_minutos ? ` Prorrogação automática de ${j.prorrogacao_minutos} min (regra registrada no chat da sessão).` : " Sem prorrogação automática."}`)
       await carregar()
     } catch (e: any) {
-      alert(`Erro ao abrir lances: ${e.message}`)
+      toast.error(`Erro ao abrir lances: ${e.message}`)
+    } finally {
+      setAbrindoLances(false)
     }
   }
 
@@ -603,22 +635,29 @@ export default function CockpitProcessoPage() {
       const res = await authFetch(`${API_URL}/api/pncp/compras/${id}/${rota}`, { method: "POST" })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      alert(acao === "aviso"
+      toast.success(acao === "aviso"
         ? `Aviso enviado ao PNCP${j?.numeroControlePNCP ? ` — nº de controle ${j.numeroControlePNCP}` : ""}.`
         : acao === "resultado"
           ? `Resultado: ${j?.enviados}/${j?.total} item(ns) enviados ao PNCP.`
           : `Contratos: ${j?.enviados}/${j?.total} publicado(s) no PNCP (art. 94 — condição de eficácia).`)
       await carregar()
     } catch (e: any) {
-      alert(`PNCP: ${e.message}\n\nVerifique as credenciais em Configurações → PNCP e tente novamente.`)
+      toast.error(`PNCP: ${e.message}. Verifique as credenciais em Configurações → PNCP e tente novamente.`)
     } finally {
       setEnviandoPncp(null)
     }
   }
 
   const desclassificarProposta = async (propostaId: string, fornecedor: string) => {
-    const motivo = prompt(`Desclassificar a proposta de ${fornecedor}?\n\nInforme o MOTIVO (obrigatório, ficará registrado):`)
-    if (!motivo || !motivo.trim()) return
+    const motivo = await pedirTexto({
+      titulo: "Desclassificar proposta",
+      mensagem: `Desclassificar a proposta de ${fornecedor}? O motivo fica registrado no processo.`,
+      rotulo: "Motivo",
+      obrigatorio: true,
+      confirmarRotulo: "Desclassificar",
+      destrutivo: true,
+    })
+    if (!motivo) return
     try {
       const fd = new FormData()
       fd.append("motivo", motivo.trim())
@@ -630,10 +669,35 @@ export default function CockpitProcessoPage() {
         const err = await res.json().catch(() => null)
         throw new Error(err?.message || `HTTP ${res.status}`)
       }
-      alert("Proposta desclassificada. Se já houve julgamento, use 'Rejulgar' para recalcular os vencedores.")
+      toast.success("Proposta desclassificada. Se já houve julgamento, use 'Rejulgar' para recalcular os vencedores.")
       await carregar()
     } catch (e: any) {
-      alert(`Erro ao desclassificar: ${e.message}`)
+      toast.error(`Erro ao desclassificar: ${e.message}`)
+    }
+  }
+
+  const [excluindo, setExcluindo] = useState(false)
+  const excluirProcesso = async () => {
+    const ok = await confirmar({
+      titulo: "Excluir processo",
+      mensagem:
+        "O processo e os documentos da fase interna serão excluídos definitivamente. " +
+        "Só é possível antes da publicação — depois, use Revogar ou Anular.",
+      confirmarRotulo: "Excluir definitivamente",
+      destrutivo: true,
+    })
+    if (!ok) return
+    setExcluindo(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}`, { method: "DELETE" })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      toast.success("Processo excluído")
+      router.push("/orgao/licitacoes")
+    } catch (e: any) {
+      toast.error(`Não foi possível excluir: ${e.message}`)
+    } finally {
+      setExcluindo(false)
     }
   }
 
@@ -681,8 +745,10 @@ export default function CockpitProcessoPage() {
           ? (dados.licitacao.url_externa ? { href: dados.licitacao.url_externa, texto: "Ver na plataforma", externo: true } : undefined)
           : ["MELHOR_TECNICA", "TECNICA_E_PRECO"].includes(dados.licitacao.criterio_julgamento ?? "")
             // Critério técnico (Lei 14.133 arts. 35–37): quesitos, banca e notas antes da etapa de preços
-            ? { href: `/orgao/licitacoes/${id}/julgamento-tecnico`, texto: "Julgamento técnico" }
-            : { href: `/orgao/licitacoes/${id}`, texto: "Abrir licitação" },
+            ? { href: `/orgao/processos/${id}/julgamento-tecnico`, texto: "Julgamento técnico" }
+            : MODALIDADES_COMPETITIVAS.includes(dados.licitacao.modalidade) && FASES_SALA.includes(dados.licitacao.fase)
+              ? { href: `/orgao/processos/${id}/sessao`, texto: "Abrir sala da sessão" }
+              : undefined,
       },
       {
         icone: FileSignature,
@@ -734,8 +800,11 @@ export default function CockpitProcessoPage() {
     // Leilão e concurso (E7c): o resultado é declarado no JULGAMENTO (sem habilitação)
     (["LEILAO", "CONCURSO"].includes(licitacao.modalidade) && licitacao.fase === "JULGAMENTO")
 
+  const emFaseInterna = FASES_INTERNAS.includes(licitacao.fase)
+
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
+      {dialogo}
       {/* Cabeçalho */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-start gap-3">
@@ -758,7 +827,25 @@ export default function CockpitProcessoPage() {
             <p className="text-gray-500 mt-1 max-w-3xl">{licitacao.objeto}</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end">
+          {emFaseInterna && (
+            <Link href={`/orgao/fase-interna/processos/${id}`}>
+              <Button variant="outline" title="Documentos da fase interna (DFD, ETP, TR, pesquisa de preços, pareceres) e aprovações">
+                <ClipboardList className="w-4 h-4 mr-2" /> Fase interna
+              </Button>
+            </Link>
+          )}
+          <Link href={`/orgao/processos/${id}/editar`}>
+            <Button variant="outline" title={emFaseInterna ? "Dados, itens, cronograma, habilitação e configurações" : "Depois da publicação só dados internos — regras do edital pela retificação"}>
+              <Pencil className="w-4 h-4 mr-2" /> Editar dados
+            </Button>
+          </Link>
+          {emFaseInterna && (
+            <Button variant="outline" className="text-red-700 border-red-300" onClick={excluirProcesso} disabled={excluindo}>
+              {excluindo ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              Excluir
+            </Button>
+          )}
           <Button variant="outline" onClick={baixarProcessoPdf} disabled={baixandoProcesso}
             title="Autos do processo em PDF único: capa, sumário e todas as peças (DFD, ETP, TR, pesquisa de preços, autorização, aviso, ata, contratos e publicações no PNCP)">
             {baixandoProcesso ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
@@ -819,6 +906,21 @@ export default function CockpitProcessoPage() {
           onAtualizado={carregar}
         />
       )}
+
+      {/* Sessão pública: propostas e a sala do agente/pregoeiro (/orgao/processos/[id]/sessao) */}
+      {MODALIDADES_COMPETITIVAS.includes(licitacao.modalidade) && !licitacao.selecao_externa && (
+        <SessaoPublicaCard
+          licitacaoId={id}
+          fase={licitacao.fase}
+          criterioJulgamento={licitacao.criterio_julgamento}
+          dataAbertura={licitacao.data_abertura_sessao}
+          propostas={dados.propostas}
+          propostasEmSigilo={dados.propostas_em_sigilo}
+        />
+      )}
+
+      {/* Impugnações e esclarecimentos (art. 164) — depois da divulgação */}
+      {!emFaseInterna && !licitacao.selecao_externa && <ImpugnacoesEsclarecimentos licitacaoId={id} />}
 
       {/* Revogação / anulação em dois tempos (art. 71 §3º) */}
       <ExtincaoLicitacao licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
@@ -1049,7 +1151,7 @@ export default function CockpitProcessoPage() {
                               </div>
                               <div className="flex items-center gap-2">
                                 {!aberto && !lancesFim && !checklist.resultado_registrado && dados.propostas.length > 0 && (
-                                  <Button size="sm" variant="outline" onClick={abrirLances} title="Opcional (modelo IN SEGES 67/2021): janela para os fornecedores reduzirem os próprios valores">
+                                  <Button size="sm" variant="outline" onClick={() => setModalLances(true)} title="Opcional (modelo IN SEGES 67/2021): janela para os fornecedores reduzirem os próprios valores">
                                     ⚡ Abrir fase de lances
                                   </Button>
                                 )}
@@ -1314,6 +1416,45 @@ export default function CockpitProcessoPage() {
           </ol>
         </CardContent>
       </Card>
+
+      {/* Peças anexadas ao processo (módulo documentos) */}
+      <DocumentosProcesso licitacaoId={id} />
+
+      {/* Atos praticados (máquina de estados — E1) */}
+      <HistoricoProcesso licitacaoId={id} atualizacao={dados} />
+
+      {/* Modal: fase de lances da dispensa */}
+      <Dialog open={modalLances} onOpenChange={setModalLances}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Abrir fase de lances da dispensa</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Opcional (modelo IN SEGES 67/2021): os fornecedores com proposta válida reduzem os próprios valores na sala de lances.
+            </p>
+            <div>
+              <label className="text-sm font-medium">Duração (minutos)</label>
+              <Input type="number" min={1} className="mt-1" value={duracaoLances} onChange={(e) => setDuracaoLances(e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1">Padrão 360 = 6 horas.</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Prorrogação automática (minutos)</label>
+              <Input type="number" min={0} className="mt-1" value={prorrogacaoLances} onChange={(e) => setProrrogacaoLances(e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1">
+                Lance nos últimos N minutos prorroga a janela por mais N, sucessivamente. 0 = encerra no horário (padrão IN 67).
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModalLances(false)} disabled={abrindoLances}>Cancelar</Button>
+            <Button onClick={abrirLances} disabled={abrindoLances}>
+              {abrindoLances && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Abrir lances
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: divulgar aviso da dispensa */}
       <Dialog open={modalDivulgar} onOpenChange={setModalDivulgar}>

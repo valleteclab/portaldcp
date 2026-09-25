@@ -8,20 +8,20 @@ import {
   DisputaV3Board,
   DisputaV3ItemBoard,
   DisputaV3LanceMeu,
-} from '@/components/disputa-v3/types'
-import { escolherItemInicial } from '@/components/disputa-v3/utils'
+} from '@/components/sala/types'
+import { escolherItemInicial } from '@/components/sala/utils'
 
-interface UseDisputaV3Options {
+interface UseSalaDisputaOptions {
   area: 'orgao' | 'fornecedor'
+  /** Sessão resolvida pela página da sala a partir da licitação (null = ainda sem sessão). */
   sessaoIdParam?: string | null
-  licitacaoIdParam?: string | null
 }
 
 function getWsUrl() {
   return API_URL.replace('/api', '').replace('http', 'ws')
 }
 
-export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDisputaV3Options) {
+export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
   const [sessaoId, setSessaoId] = useState<string | null>(sessaoIdParam || null)
   const [board, setBoard] = useState<DisputaV3Board | null>(null)
   const [mensagens, setMensagens] = useState<DisputaMensagem[]>([])
@@ -42,28 +42,13 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
   const selectedItemIdRef = useRef<string | null>(null)
   selectedItemIdRef.current = selectedItemId
 
-  const resolveSessaoId = useCallback(async () => {
-    if (sessaoId) return sessaoId
+  // A sessão vem SEMPRE da rota (licitação → sessão resolvida pela página da sala);
+  // nada de adivinhar pela última sessão aberta no navegador (plano E8).
+  useEffect(() => {
+    setSessaoId(sessaoIdParam || null)
+  }, [sessaoIdParam])
 
-    if (licitacaoIdParam) {
-      const response = await authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoIdParam}`)
-      if (!response.ok) throw new Error('Nao foi possivel localizar a sessao da licitacao.')
-      const data = await response.json()
-      if (!data?.id) throw new Error('Sessao nao encontrada para a licitacao informada.')
-      setSessaoId(data.id)
-      return data.id as string
-    }
-
-    if (typeof window !== 'undefined') {
-      const ultimaSessao = localStorage.getItem('sessao_disputa_selecionada')
-      if (ultimaSessao) {
-        setSessaoId(ultimaSessao)
-        return ultimaSessao
-      }
-    }
-
-    throw new Error('Informe uma sessao ou acesse a disputa pela licitacao.')
-  }, [licitacaoIdParam, sessaoId])
+  const resolveSessaoId = useCallback(async () => sessaoId, [sessaoId])
 
   const carregarActor = useCallback(() => {
     if (typeof window === 'undefined') return null
@@ -204,10 +189,10 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
         setError(null)
         carregarActor()
         const resolvedSessaoId = await resolveSessaoId()
-        if (cancelled) return
+        if (cancelled || !resolvedSessaoId) return
         await Promise.all([refreshBoard(resolvedSessaoId), refreshMensagens(resolvedSessaoId)])
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Erro ao carregar disputa V3.'
+        const message = err instanceof Error ? err.message : 'Erro ao carregar a sala de disputa.'
         if (!cancelled) setError(message)
       } finally {
         if (!cancelled) setLoading(false)
@@ -243,7 +228,7 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     if (!actor) return
 
     // Identidade e papel vão SÓ no token do handshake (o backend ignora o payload)
-    const socket = io(`${getWsUrl()}/disputa-v2`, {
+    const socket = io(`${getWsUrl()}/disputa`, {
       transports: ['websocket', 'polling'],
       auth: { token: getAuthToken() || undefined },
     })

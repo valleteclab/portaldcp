@@ -385,7 +385,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
     it('o órgão abre a janela (30 min, prorrogação de 2 min) e a regra fica registrada no chat', async () => {
       // E2 item 8: canal único — o feed da dispensa é a sala pública da licitação no /disputa-v2
       // (antes: namespace /dispensa + 'entrar_sala'). Mesmos eventos: sala_ok, janela, painel_atualizado, chat.
-      sala = await conectarSocket(ctx, '/disputa-v2');
+      sala = await conectarSocket(ctx, '/disputa');
       const ok = aguardarEvento(sala, 'sala_ok');
       sala.emit('entrar_licitacao', { licitacaoId: lic.id });
       await ok;

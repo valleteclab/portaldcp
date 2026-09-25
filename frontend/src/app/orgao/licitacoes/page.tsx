@@ -1,5 +1,6 @@
 "use client"
 
+import { toast } from "sonner"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Search, Plus, FileText, Eye, Calendar, Building2, Loader2, CheckCircle2, Edit2, Trash2, AlertTriangle } from "lucide-react"
@@ -145,11 +146,11 @@ function LicitacoesOrgaoPageContent() {
         setLicitacaoParaDeletar(null)
       } else {
         const error = await res.json()
-        alert(error.message || 'Erro ao deletar licitação')
+        toast.error(error.message || 'Erro ao excluir o processo')
       }
     } catch (error) {
       console.error('Erro ao deletar licitação:', error)
-      alert('Erro ao deletar licitação')
+      toast.error('Erro ao excluir o processo')
     } finally {
       setDeletando(false)
     }
@@ -183,20 +184,20 @@ function LicitacoesOrgaoPageContent() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Licitações</h1>
-          <p className="text-muted-foreground">Gerencie os processos licitatórios do órgão</p>
+          <h1 className="text-2xl font-bold text-slate-800">Processos</h1>
+          <p className="text-muted-foreground">Processos de contratação do órgão — cada um abre no seu painel (planejamento → publicação → sessão → resultado → contrato)</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/orgao/licitacoes/nova?modalidade=DISPENSA_ELETRONICA">
+          <Link href="/orgao/fase-interna/processos/novo?modalidade=DISPENSA_ELETRONICA">
             <Button className="bg-green-600 hover:bg-green-700" title="Cotação eletrônica do art. 75 §3º — prazo, propostas, julgamento e contrato automáticos">
               <Plus className="mr-2 h-4 w-4" />
               Nova Dispensa
             </Button>
           </Link>
-          <Link href="/orgao/licitacoes/nova">
+          <Link href="/orgao/fase-interna/processos/novo">
             <Button variant="outline">
               <Plus className="mr-2 h-4 w-4" />
-              Nova Licitação
+              Novo processo
             </Button>
           </Link>
         </div>
@@ -298,14 +299,14 @@ function LicitacoesOrgaoPageContent() {
               <p>Nenhuma licitação encontrada</p>
               <p className="text-sm mb-4">
                 {licitacoes.length === 0 
-                  ? 'Clique em "Nova Licitação" para criar seu primeiro processo'
+                  ? 'Clique em "Novo processo" para criar o primeiro processo (ou crie a partir de uma demanda)'
                   : 'Tente ajustar os filtros de busca'}
               </p>
               {licitacoes.length === 0 && (
-                <Link href="/orgao/licitacoes/nova">
+                <Link href="/orgao/fase-interna/processos/novo">
                   <Button>
                     <Plus className="mr-2 h-4 w-4" />
-                    Criar Licitação
+                    Novo processo
                   </Button>
                 </Link>
               )}
@@ -352,31 +353,28 @@ function LicitacoesOrgaoPageContent() {
                     <div className="flex items-center gap-2">
                       <Link href={`/orgao/processos/${lic.id}`}>
                         <Button variant="outline" size="sm" className="text-blue-700 border-blue-200 hover:bg-blue-50" title="Visão completa: planejamento → seleção → contrato">
-                          <FileText className="h-4 w-4 mr-1" />
-                          Processo
-                        </Button>
-                      </Link>
-                      <Link href={`/orgao/licitacoes/${lic.id}`}>
-                        <Button variant="outline" size="sm">
                           <Eye className="h-4 w-4 mr-1" />
-                          Visualizar
+                          Abrir
                         </Button>
                       </Link>
-                      <Link href={`/orgao/licitacoes/${lic.id}/editar`}>
+                      <Link href={`/orgao/processos/${lic.id}/editar`}>
                         <Button variant="outline" size="sm">
                           <Edit2 className="h-4 w-4 mr-1" />
                           Editar
                         </Button>
                       </Link>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                        onClick={() => setLicitacaoParaDeletar(lic)}
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Excluir
-                      </Button>
+                      {/* Exclusão só antes da publicação (depois: revogar/anular no processo) */}
+                      {FASES_INTERNAS.includes(lic.fase) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                          onClick={() => setLicitacaoParaDeletar(lic)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Excluir
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -395,7 +393,7 @@ function LicitacoesOrgaoPageContent() {
               Confirmar Exclusão
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir a licitação <strong>{licitacaoParaDeletar?.numero_processo}</strong>?
+              Tem certeza que deseja excluir o processo <strong>{licitacaoParaDeletar?.numero_processo}</strong>?
               <br /><br />
               <span className="text-red-600">Esta ação não pode ser desfeita.</span>
               {licitacaoParaDeletar?.enviado_pncp && (

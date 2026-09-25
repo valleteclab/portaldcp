@@ -79,6 +79,7 @@ export default function EditarContratoPage() {
   const [erroNovoFornecedor, setErroNovoFornecedor] = useState<string | null>(null)
   const [consultandoCnpj, setConsultandoCnpj] = useState(false)
   const [fornecedorExistente, setFornecedorExistente] = useState<Fornecedor | null>(null)
+  const [correcaoRazaoPendente, setCorrecaoRazaoPendente] = useState<{ fornecedorId: string; razao: string } | null>(null)
   const [buscaFornecedor, setBuscaFornecedor] = useState('')
   const [fornecedorComboboxOpen, setFornecedorComboboxOpen] = useState(false)
   
@@ -288,45 +289,54 @@ export default function EditarContratoPage() {
     }
   }
 
-  const atualizarFornecedorExistente = async () => {
+  /**
+   * Correção da razão social de um fornecedor JÁ cadastrado: o registro
+   * cadastral é da plataforma — o órgão só corrige o nome de quem tem VÍNCULO
+   * com ele (proposta, contrato ou credenciamento). Aqui a correção fica
+   * PENDENTE: o contrato é salvo primeiro (o que cria o vínculo) e só depois o
+   * nome é enviado (PUT /fornecedores/:id). Sem vínculo, o backend recusa e a
+   * correção deve ser pedida ao fornecedor ou à administração da plataforma.
+   */
+  const atualizarFornecedorExistente = () => {
     if (!fornecedorExistente) return
     const razao = novoFornecedorRazao.trim()
     if (!razao) {
       setErroNovoFornecedor('Informe a razão social')
       return
     }
-    setSalvandoFornecedor(true)
     setErroNovoFornecedor(null)
+    const mudou = razao !== fornecedorExistente.razao_social
+    setCorrecaoRazaoPendente(mudou ? { fornecedorId: fornecedorExistente.id, razao } : null)
+    setFormData(prev => ({
+      ...prev,
+      fornecedor_id: fornecedorExistente.id,
+      fornecedor_cnpj: fornecedorExistente.cnpj || fornecedorExistente.cpf_cnpj || prev.fornecedor_cnpj,
+      // snapshot do contrato já com o nome corrigido
+      fornecedor_razao_social: razao,
+    }))
+    setShowNovoFornecedor(false)
+    setFornecedorExistente(null)
+    setNovoFornecedorCnpj('')
+    setNovoFornecedorRazao('')
+  }
+
+  /** Envia a correção pendente do nome DEPOIS que o contrato foi salvo (vínculo). */
+  const aplicarCorrecaoRazaoPendente = async (): Promise<string | null> => {
+    if (!correcaoRazaoPendente || correcaoRazaoPendente.fornecedorId !== formData.fornecedor_id) return null
     try {
-      const res = await authFetch(`${API_URL}/api/fornecedores/${fornecedorExistente.id}`, {
+      const res = await authFetch(`${API_URL}/api/fornecedores/${correcaoRazaoPendente.fornecedorId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ razao_social: razao }),
+        body: JSON.stringify({ razao_social: correcaoRazaoPendente.razao }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.message || 'Erro ao atualizar fornecedor')
+        return err.message || `HTTP ${res.status}`
       }
-      const fornecedorAtualizado = await res.json()
-      setFornecedores(prev => prev.map(f => (
-        f.id === fornecedorExistente.id
-          ? { ...f, razao_social: fornecedorAtualizado.razao_social || razao }
-          : f
-      )))
-      setFormData(prev => ({
-        ...prev,
-        fornecedor_id: fornecedorExistente.id,
-        fornecedor_cnpj: fornecedorExistente.cnpj || fornecedorExistente.cpf_cnpj || prev.fornecedor_cnpj,
-        fornecedor_razao_social: fornecedorAtualizado.razao_social || razao,
-      }))
-      setFornecedorExistente(prev => prev ? { ...prev, razao_social: fornecedorAtualizado.razao_social || razao } : prev)
-      setShowNovoFornecedor(false)
-      setNovoFornecedorCnpj('')
-      setNovoFornecedorRazao('')
-    } catch (err: unknown) {
-      setErroNovoFornecedor(err instanceof Error ? err.message : 'Erro ao atualizar fornecedor')
-    } finally {
-      setSalvandoFornecedor(false)
+      setCorrecaoRazaoPendente(null)
+      return null
+    } catch (e: unknown) {
+      return e instanceof Error ? e.message : 'Erro de conexão'
     }
   }
 
@@ -404,6 +414,16 @@ export default function EditarContratoPage() {
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
         throw new Error(errorData.message || 'Erro ao atualizar contrato')
+      }
+
+      // Contrato salvo (vínculo criado) → agora a correção do nome do cadastro
+      const erroCorrecao = await aplicarCorrecaoRazaoPendente()
+      if (erroCorrecao) {
+        setError(
+          `Contrato salvo. A razão social do cadastro do fornecedor não foi corrigida: ${erroCorrecao}. ` +
+          'O contrato já registra o nome corrigido; peça a correção do cadastro ao fornecedor ou à administração da plataforma.',
+        )
+        return
       }
 
       router.push(`/orgao/contratos/${id}`)
@@ -687,7 +707,7 @@ export default function EditarContratoPage() {
                     <div className="p-3 rounded-lg bg-amber-50 text-amber-800 text-sm border border-amber-200">
                       <p className="font-medium">Fornecedor já cadastrado</p>
                       <p className="mt-1">{fornecedorExistente.razao_social} — {fornecedorExistente.cnpj || fornecedorExistente.cpf_cnpj}</p>
-                      <p className="mt-2 text-xs">Se a razão social estiver incorreta, você pode ajustá-la abaixo e salvar a correção.</p>
+                      <p className="mt-2 text-xs">Se a razão social estiver incorreta, ajuste-a abaixo e use &quot;Usar com o nome corrigido&quot;: o contrato é salvo primeiro e a correção do cadastro é enviada em seguida (só é aceita quando o seu órgão tem vínculo com o fornecedor).</p>
                       <Button type="button" size="sm" className="mt-2" onClick={() => { handleFornecedorChange(fornecedorExistente.id); setShowNovoFornecedor(false); setFornecedorExistente(null); setNovoFornecedorCnpj(''); setNovoFornecedorRazao(''); }}>Usar este fornecedor</Button>
                     </div>
                   )}
@@ -711,8 +731,8 @@ export default function EditarContratoPage() {
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setShowNovoFornecedor(false)} disabled={salvandoFornecedor}>Cancelar</Button>
                   {fornecedorExistente ? (
-                    <Button type="button" onClick={atualizarFornecedorExistente} disabled={salvandoFornecedor}>
-                      {salvandoFornecedor ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Salvando...</> : <>Salvar correção</>}
+                    <Button type="button" onClick={atualizarFornecedorExistente}>
+                      Usar com o nome corrigido
                     </Button>
                   ) : (
                     <Button type="button" onClick={cadastrarNovoFornecedor} disabled={salvandoFornecedor}>
@@ -726,6 +746,11 @@ export default function EditarContratoPage() {
               <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
                 <div><p className="text-sm text-gray-500">Razão Social</p><p className="font-medium">{formData.fornecedor_razao_social}</p></div>
                 <div><p className="text-sm text-gray-500">CNPJ</p><p className="font-medium">{formData.fornecedor_cnpj}</p></div>
+                {correcaoRazaoPendente?.fornecedorId === formData.fornecedor_id && (
+                  <p className="col-span-2 text-xs text-amber-700">
+                    Correção do nome no cadastro do fornecedor pendente: será enviada depois que o contrato for salvo.
+                  </p>
+                )}
               </div>
             )}
           </CardContent>

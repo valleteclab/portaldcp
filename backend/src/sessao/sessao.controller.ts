@@ -81,6 +81,18 @@ export class SessaoController {
     return this.sessaoService.prepararDadosSessao(licitacaoId);
   }
 
+  /**
+   * Todas as sessões da licitação (órgão dono) — seletor da sala única
+   * /orgao/processos/[id]/sessao quando houver mais de uma (ex.: sessão refeita).
+   */
+  @SomenteOrgao()
+  @Get('licitacao/:licitacaoId/sessoes')
+  async listarSessoesDaLicitacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    if (!ehUuid(licitacaoId)) throw new NotFoundException('Licitação não encontrada');
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId, 'leitura');
+    return this.sessaoService.listarSessoesDaLicitacao(licitacaoId);
+  }
+
   /** Sessão da licitação (metadados). Não-dono: sem identidades de licitantes. */
   @AutenticacaoOpcional()
   @Get('licitacao/:licitacaoId')
@@ -103,11 +115,11 @@ export class SessaoController {
   // :id/iniciar-item/:itemId, :id/iniciar-todos-itens e :id/encerrar-item. Eram o
   // par REST dos atos do antigo socket /sessao, sem chamador nas telas; iniciar e
   // encerrar itens é do motor: POST /disputa-v2/sessao/:id/iniciar-itens e
-  // /encerrar-item/:itemId (ou o socket /disputa-v2).
+  // /encerrar-item/:itemId (ou o socket /disputa).
 
   // REMOVIDO NA E2 (item 5 — lote no motor único): POST :id/lance-lote. O lance
   // por lote é o lance do motor com o id do lote: POST /disputa-v2/sessao/:id/lance
-  // { loteId, valor } (ou o socket /disputa-v2 `enviar_lance` com o id do lote).
+  // { loteId, valor } (ou o socket /disputa `enviar_lance` com o id do lote).
 
   // HABILITAÇÃO (plano E4): rotas em /api/habilitacao (habilitacao/habilitacao.controller.ts).
   // REMOVIDOS: GET :id/habilitacao e PUT :id/habilitacao/{convocar,aprovar,reprovar}/:fornecedorId

@@ -132,12 +132,48 @@ describe('Cadastro do fornecedor — autorização das rotas de escrita', () => 
       expect(r.status).toBe(403);
     });
 
-    it('PUT /:id pelo órgão: e-mail → 403; só o nome → 200', async () => {
+    it('PUT /:id pelo órgão: e-mail → 403 (mesmo com vínculo); nome com vínculo → 200', async () => {
       expect((await http().put(`/api/fornecedores/${F2.id}`).set(bearer(B.token)).send({ email: 'invasor@x.com' })).status).toBe(403);
-      const r = await http().put(`/api/fornecedores/${F2.id}`).set(bearer(B.token)).send({ razao_social: 'Nome corrigido pelo órgão' });
+      expect((await http().put(`/api/fornecedores/${F1.id}`).set(bearer(A.token)).send({ email: 'invasor@x.com' })).status).toBe(403);
+      const r = await http().put(`/api/fornecedores/${F1.id}`).set(bearer(A.token)).send({ razao_social: 'Nome corrigido pelo órgão' });
       expect(r.status).toBe(200);
-      const [f] = await ctx.dataSource.query(`SELECT email FROM fornecedores WHERE id = $1`, [F2.id]);
+      const [f] = await ctx.dataSource.query(`SELECT email, razao_social FROM fornecedores WHERE id = $1`, [F1.id]);
       expect(f.email).not.toBe('invasor@x.com');
+      expect(f.razao_social).toBe('Nome corrigido pelo órgão');
+    });
+
+    it('PUT /:id pelo órgão SEM vínculo não renomeia o fornecedor (403; nome intacto)', async () => {
+      const [antes] = await ctx.dataSource.query(`SELECT razao_social FROM fornecedores WHERE id = $1`, [F2.id]);
+      const r = await http().put(`/api/fornecedores/${F2.id}`).set(bearer(B.token)).send({ razao_social: 'Renomeado por estranho' });
+      expect(r.status).toBe(403);
+      expect(String(r.body.message)).toMatch(/vínculo/);
+      const [depois] = await ctx.dataSource.query(`SELECT razao_social FROM fornecedores WHERE id = $1`, [F2.id]);
+      expect(depois.razao_social).toBe(antes.razao_social);
+      // outro fornecedor também não renomeia
+      expect((await http().put(`/api/fornecedores/${F2.id}`).set(bearer(F1.token)).send({ razao_social: 'x' })).status).toBe(403);
+    });
+
+    it('tela de contrato: contrato salvo primeiro cria o vínculo; depois a correção do nome passa (200)', async () => {
+      const c = await http()
+        .post('/api/contratos')
+        .set(bearer(B.token))
+        .send({
+          orgao_id: B.id,
+          fornecedor_id: F2.id,
+          fornecedor_cnpj: F2.cnpj,
+          fornecedor_razao_social: 'Nome corrigido no contrato',
+          objeto: 'Contrato E2E — vínculo para correção do nome do fornecedor',
+          valor_inicial: 1000,
+          valor_global: 1000,
+          data_assinatura: '2026-01-10',
+          data_vigencia_inicio: '2026-01-10',
+          data_vigencia_fim: '2026-12-31',
+        });
+      expect([200, 201]).toContain(c.status);
+      const r = await http().put(`/api/fornecedores/${F2.id}`).set(bearer(B.token)).send({ razao_social: 'Nome corrigido no contrato' });
+      expect(r.status).toBe(200);
+      const [f] = await ctx.dataSource.query(`SELECT razao_social FROM fornecedores WHERE id = $1`, [F2.id]);
+      expect(f.razao_social).toBe('Nome corrigido no contrato');
     });
   });
 

@@ -41,6 +41,10 @@ import { LeilaoFornecedor } from '@/components/modalidades/LeilaoFornecedor'
 import { ConcursoFornecedor } from '@/components/modalidades/ConcursoFornecedor'
 import { DialogoFornecedor } from '@/components/modalidades/DialogoFornecedor'
 import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
+import { ResultadoLicitacaoCard } from '@/components/licitacao/ResultadoLicitacaoCard'
+
+/** Fases em que a sala da sessão fica disponível ao licitante (ANALISE_PROPOSTAS → HOMOLOGACAO). */
+const FASES_SALA = ['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO']
 
 interface Licitacao {
   id: string
@@ -115,6 +119,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
   const [loading, setLoading] = useState(true)
   const [minhaProposta, setMinhaProposta] = useState<null | { id: string; valorTotal: number; status: string; motivo_desclassificacao?: string }>(null)
   const [sessaoAtiva, setSessaoAtiva] = useState<{ id: string; status: string; etapa: string } | null>(null)
+  const [fornecedorLogadoId, setFornecedorLogadoId] = useState<string | null>(null)
 
   useEffect(() => {
     carregarDados()
@@ -136,6 +141,11 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
         setDocumentos(await docRes.json())
       }
 
+      try {
+        setFornecedorLogadoId(JSON.parse(localStorage.getItem('fornecedor') || 'null')?.id ?? null)
+      } catch {
+        setFornecedorLogadoId(null)
+      }
       if (localStorage.getItem('fornecedor')) {
         const resPropostas = await authFetch(`${API_URL}/api/propostas/minhas`)
         if (resPropostas.ok) {
@@ -372,7 +382,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
         <div className="flex gap-2 flex-wrap">
           {/* Dispensa: sala de lances aberta */}
           {(licitacao as any).dispensa_lances_fim && new Date((licitacao as any).dispensa_lances_fim) > new Date() && (
-            <Link href={`/fornecedor/licitacoes/${licitacao.id}/lances`}>
+            <Link href={`/fornecedor/licitacoes/${licitacao.id}/sessao`}>
               <Button className="bg-green-600 hover:bg-green-700 animate-pulse">
                 ⚡ Fase de lances aberta — Entrar
               </Button>
@@ -624,57 +634,31 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                   )}
                 </div>
               )}
-              {/* Sala de Disputa - mostrar quando proposta enviada, classificada e fase permite */}
-              {minhaProposta && minhaProposta.status !== 'DESCLASSIFICADA' && ['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO'].includes(licitacao.fase) && (
-                <div className="text-center">
+              {/* Sala única (plano E8): de ANALISE_PROPOSTAS até a homologação, para quem enviou proposta —
+                  inclusive a desclassificada, que pode manifestar intenção de recurso */}
+              {minhaProposta && minhaProposta.status !== 'RASCUNHO' && FASES_SALA.includes(licitacao.fase) && (
+                <div className="text-center mt-4">
                   {licitacao.fase === 'EM_DISPUTA' || sessaoAtiva ? (
-                    <>
-                      <div className="mb-3">
-                        <Badge className="bg-red-100 text-red-800 text-sm px-3 py-1 animate-pulse">
-                          🔴 Sessão em Andamento
-                        </Badge>
-                      </div>
-                      <Button 
-                        size="lg" 
-                        className="w-full bg-red-600 hover:bg-red-700"
-                        onClick={() => {
-                          window.location.href = `/fornecedor/licitacoes/${licitacao.id}/sala`
-                        }}
-                      >
-                        <Gavel className="mr-2 h-5 w-5" /> Entrar na Sala de Disputa
-                      </Button>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        {sessaoAtiva?.etapa === 'DISPUTA_LANCES' 
-                          ? 'Etapa de lances em andamento' 
-                          : 'Aguardando início dos lances'}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="mb-3">
-                        <Badge variant="outline" className="text-sm px-3 py-1">
-                          ⏳ Aguardando Abertura
-                        </Badge>
-                      </div>
-                      <Button 
-                        size="lg" 
-                        variant="outline"
-                        className="w-full"
-                        onClick={() => {
-                          window.location.href = `/fornecedor/licitacoes/${licitacao.id}/sala`
-                        }}
-                      >
-                        <Gavel className="mr-2 h-5 w-5" /> Acessar Sala de Disputa
-                      </Button>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        Abertura prevista: {formatarDataHora(licitacao.data_abertura_sessao)}
-                      </p>
-                    </>
-                  )}
+                    <div className="mb-3">
+                      <Badge className="bg-red-100 text-red-800 text-sm px-3 py-1 animate-pulse">Sessão em andamento</Badge>
+                    </div>
+                  ) : null}
+                  <Link href={`/fornecedor/licitacoes/${licitacao.id}/sessao`}>
+                    <Button size="lg" className={`w-full ${licitacao.fase === 'EM_DISPUTA' || sessaoAtiva ? 'bg-red-600 hover:bg-red-700' : ''}`} variant={licitacao.fase === 'EM_DISPUTA' || sessaoAtiva ? 'default' : 'outline'}>
+                      <Gavel className="mr-2 h-5 w-5" /> Entrar na sala da sessão
+                    </Button>
+                  </Link>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {sessaoAtiva?.etapa === 'DISPUTA_LANCES'
+                      ? 'Etapa de lances em andamento'
+                      : sessaoAtiva
+                        ? 'Acompanhe a sessão: aceitação, negociação, habilitação, recursos e resultado'
+                        : `Abertura prevista: ${formatarDataHora(licitacao.data_abertura_sessao)}`}
+                  </p>
                 </div>
               )}
               {/* Homologado */}
-              {licitacao.fase === 'HOMOLOGADO' && (
+              {licitacao.fase === 'HOMOLOGACAO' && (
                 <div className="text-center">
                   <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
                     <CheckCircle2 className="h-8 w-8 text-green-600" />
@@ -750,6 +734,9 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
           </div>
         </CardContent>
       </Card>
+
+      {/* Resultado (após a homologação): vencedores, valores, termos, ata e contrato/ARP */}
+      <ResultadoLicitacaoCard licitacaoId={licitacao.id} destaqueFornecedorId={fornecedorLogadoId} ocultarSeVazio />
 
       {/* Leilão, concurso e diálogo competitivo (E7c): participação própria de cada modalidade */}
       {licitacao.modalidade === 'LEILAO' && <LeilaoFornecedor licitacaoId={licitacao.id} />}

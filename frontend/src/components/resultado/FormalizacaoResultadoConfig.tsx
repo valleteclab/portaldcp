@@ -1,5 +1,6 @@
 "use client";
 
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { useCallback, useEffect, useState } from "react";
 import { BadgeCheck, Loader2, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -49,6 +50,7 @@ const fmtData = (d?: string | null) => (d ? String(d).slice(0, 10).split("-").re
  * da homologação. Alteração: conta do órgão ou ADMIN do órgão.
  */
 export function FormalizacaoResultadoConfig() {
+  const { confirmar, dialogo } = useDialogoConfirmacao();
   const [cfg, setCfg] = useState<Configuracao | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
@@ -122,7 +124,7 @@ export function FormalizacaoResultadoConfig() {
   };
 
   const remover = async (a: Autoridade) => {
-    if (!confirm(`Remover ${a.nome} das autoridades? Os atos já registrados mantêm os dados dela.`)) return;
+    if (!(await confirmar({ titulo: "Remover autoridade", mensagem: `Remover ${a.nome} das autoridades? Os atos já registrados mantêm os dados dela.`, confirmarRotulo: "Remover", destrutivo: true }))) return;
     const res = await authFetch(`${API_URL}/api/resultado/configuracao/autoridades/${a.id}`, { method: "DELETE" });
     if (!res.ok) return toast.error(await erroDe(res));
     await carregar();
@@ -130,6 +132,7 @@ export function FormalizacaoResultadoConfig() {
 
   return (
     <Card className="border-0 shadow-sm">
+      {dialogo}
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <BadgeCheck className="w-4 h-4 text-[#1351b4]" />

@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
-import { HabilitacaoFornecedorPanel } from '@/components/disputa-v3/HabilitacaoFornecedorPanel'
+import { HabilitacaoFornecedorPanel } from '@/components/sala/HabilitacaoFornecedorPanel'
 import { HIPOTESES, REGRAS, STATUS_INSCRICAO, dataCurta, dataHora, erroDaResposta, moeda, situacaoCredenciamento } from '@/lib/credenciamento'
 
 /**

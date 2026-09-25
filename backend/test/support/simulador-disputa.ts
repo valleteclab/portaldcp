@@ -413,7 +413,7 @@ export class SimuladorDisputa {
       });
     if (cfg.status !== 200) throw new Error(`[simulador] configurar sessão → ${cfg.status} ${JSON.stringify(cfg.body)}`);
 
-    this.pregoeiro = await conectarSocket(ctx, '/disputa-v2', { token: cenario.orgao.token });
+    this.pregoeiro = await conectarSocket(ctx, '/disputa', { token: cenario.orgao.token });
     this.pregoeiro.onAny((evento, payload) => this.eventosPregoeiro.push({ evento, recebidoEm: Date.now(), payload }));
     const iniPreg = aguardarEvento(this.pregoeiro, 'dados_iniciais', 10_000);
     // E1a: papel e identidade vêm do token do handshake
@@ -421,7 +421,7 @@ export class SimuladorDisputa {
     await iniPreg;
 
     for (const rc of cenario.robos) {
-      const socket = await conectarSocket(ctx, '/disputa-v2', { token: rc.fornecedor.token });
+      const socket = await conectarSocket(ctx, '/disputa', { token: rc.fornecedor.token });
       const eventos: EventoRecebido[] = [];
       socket.onAny((evento, payload) => eventos.push({ evento, recebidoEm: Date.now(), payload }));
       const robo: RoboVivo = {
@@ -1152,7 +1152,7 @@ export class SalaModos {
   }
 
   private async entrar(token: string): Promise<{ socket: Socket; eventos: EventoRecebido[] }> {
-    const socket = await conectarSocket(this.ctx, '/disputa-v2', { token });
+    const socket = await conectarSocket(this.ctx, '/disputa', { token });
     const eventos: EventoRecebido[] = [];
     this.gravarTudo(socket, eventos);
     const espera = aguardarEvento(socket, 'dados_iniciais');

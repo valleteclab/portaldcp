@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, FilePen } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao'
 
 /**
  * FORNECEDOR — detalhe da PRÓPRIA ata: itens e saldo, assinatura do termo
@@ -45,6 +46,8 @@ export default function FornecedorAtaDetalhePage() {
   const [p, setP] = useState<any>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
+  const [erroAto, setErroAto] = useState<string | null>(null)
+  const { pedirTexto, dialogo } = useDialogoConfirmacao()
 
   const carregar = useCallback(async () => {
     const r = await authFetch(`${API_URL}/api/atas/fornecedor/ata/${id}`)
@@ -60,9 +63,10 @@ export default function FornecedorAtaDetalhePage() {
   const responderAdesao = async (adesaoId: string, aceitar: boolean) => {
     let motivo: string | null = null
     if (!aceitar) {
-      motivo = prompt('Motivo da recusa:')
+      motivo = await pedirTexto({ titulo: 'Recusar a adesão', rotulo: 'Motivo da recusa', obrigatorio: true, confirmarRotulo: 'Recusar', destrutivo: true })
       if (!motivo) return
     }
+    setErroAto(null)
     setOcupado(true)
     try {
       const r = await authFetch(`${API_URL}/api/atas/adesoes/${adesaoId}/fornecedor`, {
@@ -74,7 +78,7 @@ export default function FornecedorAtaDetalhePage() {
       if (!r.ok) throw new Error(b?.message || `HTTP ${r.status}`)
       await carregar()
     } catch (e: any) {
-      alert(e.message)
+      setErroAto(e.message)
     } finally {
       setOcupado(false)
     }
@@ -84,6 +88,8 @@ export default function FornecedorAtaDetalhePage() {
     return (
       <div className="p-6 space-y-4">
         <Link href="/fornecedor/atas" className="text-sm text-blue-600 flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Minhas atas</Link>
+      {erroAto && <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{erroAto}</p>}
+
         <Card><CardContent className="pt-6 text-red-600">{erro}</CardContent></Card>
       </div>
     )
@@ -170,6 +176,7 @@ export default function FornecedorAtaDetalhePage() {
           ))}
         </CardContent>
       </Card>
+      {dialogo}
     </div>
   )
 }

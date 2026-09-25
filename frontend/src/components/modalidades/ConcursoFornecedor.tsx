@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Award, Loader2 } from "lucide-react"
 import { API_URL } from "@/lib/api"
 import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
-import { RecursosFornecedorPanel } from "@/components/disputa-v3/RecursosFornecedorPanel"
+import { RecursosFornecedorPanel } from "@/components/sala/RecursosFornecedorPanel"
 import { Campo, abrirArquivo, classeInput, fmtMoeda, usePainel } from "./comum"
 
 export function ConcursoFornecedor({ licitacaoId }: { licitacaoId: string }) {

@@ -21,6 +21,8 @@ import { BllIntegracaoController } from './bll-integracao.controller';
 import { FornecedoresModule } from '../fornecedores/fornecedores.module';
 import { TransicoesModule } from './transicoes/transicoes.module';
 import { ResultadoModule } from '../resultado/resultado.module';
+import { PortalFornecedorController } from './portal-fornecedor.controller';
+import { PortalFornecedorService } from './portal-fornecedor.service';
 
 @Module({
   imports: [
@@ -37,8 +39,8 @@ import { ResultadoModule } from '../resultado/resultado.module';
     // Resultado único (E6): julgamento da dispensa e resultado externo gravam por ele
     ResultadoModule,
   ],
-  controllers: [LicitacoesController, BllIntegracaoController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService],
+  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController],
+  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}

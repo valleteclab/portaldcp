@@ -351,7 +351,7 @@ describe('E2 — motor de lances único', () => {
       ).rejects.toThrow(/UQ_lances_proposta_ativa|duplicate key/);
     });
 
-    // E2 item 8: a sala /sessao foi removida — o reinício pelo socket é o do canal único /disputa-v2
+    // E2 item 8: a sala /sessao foi removida — o reinício pelo socket é o do canal único /disputa
     test('socket (canal único): reiniciar_sessao do pregoeiro também é lógico (sem DELETE)', async () => {
       const antes = await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM lances WHERE item_id = $1`, [itemId]);
       const s = await sala(sessaoId, orgao, 'PREGOEIRO');

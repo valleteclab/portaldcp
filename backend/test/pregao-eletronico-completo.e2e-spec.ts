@@ -6,7 +6,7 @@
  * Pregão eletrônico, menor preço, modo ABERTO, 2 itens, 4 fornecedores (1 ME),
  * conduzido pela API de hoje do jeito que o frontend faz:
  *   - sala do pregoeiro/fornecedor: frontend/src/app/{orgao,fornecedor}/disputa-v3
- *     + frontend/src/hooks/useDisputaV3.ts (socket /disputa-v2, board /disputa-v3,
+ *     + frontend/src/hooks/useDisputaV3.ts (socket /disputa, board /disputa-v3,
  *     etapas pós-disputa em /api/sessao/...);
  *   - homologação/contrato: cockpit frontend/src/app/orgao/processos/[id].
  *
@@ -466,7 +466,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
   });
 
   // ==========================================================================
-  // 3. Disputa de lances (socket /disputa-v2, como a sala V3)
+  // 3. Disputa de lances (socket /disputa, como a sala V3)
   // ==========================================================================
   describe('3. Disputa de lances', () => {
     test('pregoeiro entra na sala e inicia os dois itens', async () => {

@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Gavel,
   BookOpen,
+  Settings2,
   ChevronRight,
   type LucideIcon,
 } from "lucide-react";
@@ -36,8 +37,8 @@ const FASES_INTERNAS = [
 
 const SUPPORT_NAV: NavItem[] = [
   { href: "/orgao/pncp", label: "PNCP / Painel Preços", icon: ExternalLink },
-  { href: "#", label: "Jurisprudência", icon: Gavel },
-  { href: "#", label: "Modelos e checklists", icon: BookOpen },
+  { href: "/orgao/configuracoes/modelos-documento", label: "Modelos de documento", icon: BookOpen },
+  { href: "/orgao/configuracoes/fluxos-aprovacao", label: "Fluxos de aprovação", icon: Settings2 },
 ];
 
 function NavGroup({
@@ -81,7 +82,7 @@ function NavGroup({
                   {item.badge}
                 </span>
               )}
-              {item.href !== "#" && !active && item.badge === undefined && (
+              {!active && item.badge === undefined && (
                 <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-40 transition-opacity" />
               )}
             </Link>
@@ -129,27 +130,12 @@ export function FaseInternaNav() {
           if (isMounted) setProcCount(0);
         }
 
-        const meRes = await authFetch(`${API_URL}/api/auth/me`);
-        let orgaoId: string | undefined;
-        if (meRes.ok) {
-          const meData = await meRes.json();
-          orgaoId = meData?.orgao?.id || meData?.orgaoId;
-        }
-        if (!orgaoId) {
-          if (isMounted) setAprovCount(0);
-        } else {
-          const apRes = await authFetch(
-            `${API_URL}/api/fase-interna/aprovacoes?orgao_id=${orgaoId}`,
-          );
-          if (apRes.ok) {
-            const apData = await apRes.json();
-            const len = Array.isArray(apData)
-              ? apData.length
-              : apData?.data?.length || apData?.items?.length || 0;
-            if (isMounted) setAprovCount(len);
-          } else {
-            if (isMounted) setAprovCount(0);
-          }
+        const apRes = await authFetch(`${API_URL}/api/fase-interna/aprovacoes/caixa`);
+        if (apRes.ok) {
+          const apData = await apRes.json();
+          if (isMounted) setAprovCount(Array.isArray(apData) ? apData.length : 0);
+        } else if (isMounted) {
+          setAprovCount(0);
         }
       } catch {
         if (isMounted) {
@@ -185,7 +171,6 @@ export function FaseInternaNav() {
   ];
 
   const isActive = (href: string, exact?: boolean) => {
-    if (href === "#") return false;
     if (isWizardFlow && href.includes("/processos/novo")) {
       const hrefStep = href.match(/[?&]step=([^&]+)/)?.[1];
       if (hrefStep === "dfd") {
@@ -211,10 +196,13 @@ export function FaseInternaNav() {
       badge: typeof procCount === "number" ? procCount : undefined,
     },
     ...(processoId
-      ? [{ href: processoBase, label: "Dossiê do processo", icon: FileText }]
+      ? [
+          { href: processoBase, label: "Dossiê do processo", icon: FileText, exact: true },
+          { href: `/orgao/processos/${processoId}`, label: "Processo (publicar)", icon: Gavel },
+        ]
       : []),
     {
-      href: "/orgao/fase-interna/aprovacoes",
+      href: "/orgao/aprovacoes?tab=documentos",
       label: "Aprovações",
       icon: CheckSquare,
       badge: typeof aprovCount === "number" ? aprovCount : undefined,

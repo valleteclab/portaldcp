@@ -269,12 +269,16 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       const proposta = await res.json()
 
       // Enviar proposta (mudar status de RASCUNHO para ENVIADA)
-      await authFetch(`${API_URL}/api/propostas/${proposta.id}/enviar`, {
+      const resEnvio = await authFetch(`${API_URL}/api/propostas/${proposta.id}/enviar`, {
         method: 'PUT'
       })
+      if (!resEnvio.ok) {
+        const corpo = await resEnvio.json().catch(() => ({}))
+        throw new Error(corpo.message || 'A proposta foi salva como rascunho, mas não foi enviada. Abra a proposta e envie novamente.')
+      }
 
-      alert("Proposta enviada com sucesso!")
-      router.push("/fornecedor/propostas")
+      // O detalhe da proposta mostra o status ENVIADA (sem alert())
+      router.push(`/fornecedor/propostas/${proposta.id}`)
     } catch (err: any) {
       setError(err.message || 'Erro ao enviar proposta')
     } finally {

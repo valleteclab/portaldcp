@@ -137,7 +137,7 @@ export async function entrarNaSala(
   ator: AtorSala,
   opts: { usuarioIdDeclarado?: string } = {},
 ): Promise<EntradaSala> {
-  const socket = await conectarSocket(ctx, '/disputa-v2', {
+  const socket = await conectarSocket(ctx, '/disputa', {
     token: ator.token,
   });
   const espera = aguardarUmDe(socket, [

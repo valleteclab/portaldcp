@@ -298,7 +298,7 @@ describe('Dispensa eletrônica no motor único (E2)', () => {
 
     it('canal único: feed da licitação — anônimo, órgão dono e fornecedor com proposta entram; outro órgão e fornecedor sem proposta não', async () => {
       const entrar = async (token?: string) => {
-        const s = await conectarSocket(ctx, '/disputa-v2', { token });
+        const s = await conectarSocket(ctx, '/disputa', { token });
         const r = aguardarUmDe(s, ['sala_ok', 'erro']);
         s.emit('entrar_licitacao', { licitacaoId: lic.id });
         const ev = await r;
@@ -314,7 +314,7 @@ describe('Dispensa eletrônica no motor único (E2)', () => {
       }).toEqual({ anonimo: 'sala_ok', orgao: 'sala_ok', f1: 'sala_ok', outroOrgao: 'erro', semProposta: 'erro' });
 
       // o painel público continua na sala anônima: o visitante acompanha a janela
-      sala = await conectarSocket(ctx, '/disputa-v2');
+      sala = await conectarSocket(ctx, '/disputa');
       const ok = aguardarEvento(sala, 'sala_ok');
       sala.emit('entrar_licitacao', { licitacaoId: lic.id });
       await ok;
