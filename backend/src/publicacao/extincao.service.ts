@@ -1,3 +1,4 @@
+import { interessadosDaLicitacaoSql } from './publicacao.sql';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
@@ -87,12 +88,8 @@ export class ExtincaoService {
         dados: { prazo_dias_uteis: dias, prazo_fim: prazoFim.toISOString() },
         registro: { extincao_id: id },
         aplicar: async (_l, m) => {
-          licitantes = await m.query(
-            `SELECT DISTINCT p.fornecedor_id::text AS fornecedor_id, f.email
-               FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id
-              WHERE p.licitacao_id::text = $1 AND p.status::text <> 'RASCUNHO'`,
-            [licitacaoId],
-          );
+          // licitantes com proposta e, no credenciamento, os inscritos (E7b)
+          licitantes = await interessadosDaLicitacaoSql(m, licitacaoId);
           const repo = m.getRepository(ExtincaoLicitacao);
           criada = await repo.save(
             repo.create({
@@ -159,12 +156,8 @@ export class ExtincaoService {
     if (Date.now() > new Date(e.prazo_fim).getTime()) {
       throw new ConflictException(`O prazo de manifestação terminou em ${formatarDataBrasilia(new Date(e.prazo_fim))}.`);
     }
-    const [p] = await this.dataSource.query(
-      `SELECT f.razao_social FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id
-        WHERE p.licitacao_id::text = $1 AND p.fornecedor_id::text = $2 AND p.status::text <> 'RASCUNHO'`,
-      [licitacaoId, fornecedorId],
-    );
-    if (!p) throw new ForbiddenException('Somente licitantes (com proposta) se manifestam.');
+    const p = (await interessadosDaLicitacaoSql(this.dataSource.manager, licitacaoId)).find((x) => x.fornecedor_id === String(fornecedorId));
+    if (!p) throw new ForbiddenException('Somente os interessados (licitantes com proposta ou inscritos no credenciamento) se manifestam.');
     const repo = this.dataSource.getRepository(ManifestacaoExtincao);
     const existente = await repo.findOne({ where: { extincao_id: e.id, fornecedor_id: fornecedorId } });
     if (existente) {

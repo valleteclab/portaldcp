@@ -60,7 +60,8 @@ describe('mapeamento licitação → PNCP (tabelas de domínio e conformidade)',
     ['DISPENSA_ELETRONICA', { tipo_contratacao: 'SERVICO_ENGENHARIA' }, 2, 8, 4, 18, 1, 1],
     ['DISPENSA_ELETRONICA', { modo_disputa: null }, 3, 8, 5, 19, 7, 20],
     ['INEXIGIBILIDADE', {}, 3, 9, 5, 50, 7, 20],
-    ['CREDENCIAMENTO', {}, 1, 12, 1, 47, 1, 2],
+    // E7b: edital de chamamento sem disputa nem julgamento — modo e critério "não se aplica"
+    ['CREDENCIAMENTO', {}, 1, 12, 5, 47, 7, 2],
   ])('%s %j', (modalidade, extra, inst, mod, modo, amparo, criterio, doc) => {
     expect(cenario(modalidade, extra as Partial<LicitacaoParaPncp>)).toEqual({ inst, modalidade: mod, modo, amparo, criterio, doc });
   });
@@ -205,3 +206,19 @@ describe('mapeamento licitação → PNCP (tabelas de domínio e conformidade)',
     expect(['COMPRA', 'SERVICO', 'SERVICO_ENGENHARIA', 'OBRA', 'ALIENACAO'].map(categoriaProcessoId)).toEqual([2, 8, 9, 7, 11]);
   });
 });
+
+describe('E7c — leilão, concurso e diálogo no PNCP', () => {
+  const { criterioJulgamentoIdPncp, modoDisputaIdPncp, montarItemCompra } = require('./mapeamento-pncp');
+  test('concurso artístico → conteúdo artístico (9); técnico → melhor técnica (8); modo sempre fechado', () => {
+    expect(criterioJulgamentoIdPncp({ modalidade: 'CONCURSO', criterio_julgamento: 'MELHOR_TECNICA', natureza_trabalho_concurso: 'ARTISTICO' }, 1)).toBe(9);
+    expect(criterioJulgamentoIdPncp({ modalidade: 'CONCURSO', criterio_julgamento: 'MELHOR_TECNICA', natureza_trabalho_concurso: 'TECNICO' }, 1)).toBe(8);
+    expect(criterioJulgamentoIdPncp({ modalidade: 'CONCORRENCIA', criterio_julgamento: 'MELHOR_TECNICA', natureza_trabalho_concurso: 'ARTISTICO' }, 1)).toBe(8);
+    expect(modoDisputaIdPncp({ modalidade: 'CONCURSO', modo_disputa: 'ABERTO' }, 1)).toBe(2);
+  });
+  test('leilão: categoria do item pelo tipo do bem (imóvel 1; móvel 2)', () => {
+    const lic = { id: 'l', modalidade: 'LEILAO', criterio_julgamento: 'MAIOR_LANCE', numero_processo: 'P', objeto: 'o' };
+    expect(montarItemCompra({ quantidade: 1, valor_unitario_estimado: 10, tipo_bem_leilao: 'IMOVEL' }, 0, lic, null, 1).itemCategoriaId).toBe(1);
+    expect(montarItemCompra({ quantidade: 1, valor_unitario_estimado: 10, tipo_bem_leilao: 'VEICULO' }, 0, lic, null, 1).itemCategoriaId).toBe(2);
+  });
+});
+

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { API_URL, authFetch } from "@/lib/api"
+import { CamposModalidadeEspecial, MODALIDADES_ESPECIAIS_WIZARD, salvarCamposModalidadeEspecial } from "@/components/modalidades/CamposModalidadeEspecial"
 
 function getOrgaoId(): string {
   if (typeof window === "undefined") return ""
@@ -419,6 +420,8 @@ function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: stri
   // Ao trocar modalidade: limpa critério incompatível e ajusta modo de disputa
   const handleModalidade = (v: string) => {
     onChange("modalidade", v)
+    // Leilão é alienação de bens (art. 6º XL) — E7c
+    if (v === "Leilão") onChange("categoria", "Alienação de Bens")
     const criteriosValidos = CRITERIOS_POR_MODALIDADE[v] || []
     if (!criteriosValidos.includes(dados.criterio)) {
       onChange("criterio", criteriosValidos[0] || "")
@@ -615,6 +618,15 @@ Formato de resposta:
               </div>
             )}
           </div>
+        )}
+
+        {/* Leilão, concurso e diálogo competitivo (E7c): dados próprios da modalidade */}
+        {MODALIDADES_ESPECIAIS_WIZARD.includes(dados.modalidade) && (
+          <CamposModalidadeEspecial
+            modalidade={dados.modalidade}
+            valor={dados.especiais ?? {}}
+            onChange={(v) => onChange("especiais", v as any)}
+          />
         )}
 
         {/* Área demandante + Valor estimado */}
@@ -1571,6 +1583,9 @@ export default function NovoProcessoPage() {
       }
       const licitacao = await res.json()
       const licitacaoId = processoId || licitacao.id
+      // Leilão/concurso/diálogo (E7c): campos próprios — o que faltar vira pendência no cockpit
+      const erroEspeciais = await salvarCamposModalidadeEspecial(licitacaoId, dados.modalidade, (dados as any).especiais)
+      if (erroEspeciais) console.warn(`Dados da modalidade pendentes: ${erroEspeciais}`)
       const wizardRes = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -1,54 +1,26 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import {
-  ArrowLeft,
-  Building2,
-  Calendar,
-  Download,
-  FileText,
-} from "lucide-react";
+import { ArrowLeft, Building2, Calendar, CheckCircle, Download, ExternalLink, FileText, Users } from "lucide-react";
 import { API_URL } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HIPOTESES, REGRAS, dataCurta, dataHora, moeda, situacaoCredenciamento } from "@/lib/credenciamento";
 
-interface CredenciamentoPublico {
-  id: string;
-  numero_edital: string;
-  numero_processo: string;
-  tipo: string;
-  status: string;
-  objeto: string;
-  objeto_detalhado?: string;
-  justificativa?: string;
-  requisitos_habilitacao?: string;
-  requisitos_tecnicos?: string;
-  documentos_exigidos?: string;
-  valor_estimado?: number | string;
-  forma_pagamento?: string;
-  data_publicacao?: string;
-  data_inicio_inscricoes?: string;
-  data_fim_inscricoes?: string;
-  inscricao_permanente: boolean;
-  edital_url?: string;
-  anexos_url?: string;
-  amparo_legal?: string;
-  orgao: {
-    nome: string;
-    cnpj: string;
-    cidade: string;
-    uf: string;
-  };
-}
-
+/**
+ * EDITAL DE CREDENCIAMENTO — página pública (plano E7b). Só o que foi
+ * divulgado: regras do art. 79 (hipótese, distribuição, vigência, condições
+ * padronizadas, denúncia), tabela de valores, exigências de habilitação,
+ * edital em PDF, PNCP e a relação de credenciados.
+ */
 export default function CredenciamentoPublicoDetalhePage() {
   const params = useParams();
   const id = params.id as string;
-  const [credenciamento, setCredenciamento] =
-    useState<CredenciamentoPublico | null>(null);
+  const [c, setC] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,30 +28,17 @@ export default function CredenciamentoPublicoDetalhePage() {
     fetch(`${API_URL}/api/credenciamento/publicos/${id}`)
       .then(async (response) => {
         if (!response.ok) throw new Error("Credenciamento não encontrado");
-        setCredenciamento(await response.json());
+        setC(await response.json());
       })
-      .catch(() => setCredenciamento(null))
+      .catch(() => setC(null))
       .finally(() => setLoading(false));
   }, [id]);
 
-  const formatarData = (data?: string) =>
-    data ? new Date(data).toLocaleDateString("pt-BR") : "-";
-
-  const formatarMoeda = (valor?: number | string) =>
-    Number(valor || 0).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
-
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        Carregando...
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
   }
 
-  if (!credenciamento) {
+  if (!c) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
         <p className="text-gray-600">Credenciamento público não encontrado.</p>
@@ -89,6 +48,8 @@ export default function CredenciamentoPublicoDetalhePage() {
       </div>
     );
   }
+
+  const s = situacaoCredenciamento(c);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -102,44 +63,36 @@ export default function CredenciamentoPublicoDetalhePage() {
           </Button>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="mb-2 flex gap-2">
-                <Badge>{credenciamento.status}</Badge>
-                <Badge variant="outline">
-                  {credenciamento.tipo === "PRE_QUALIFICACAO"
-                    ? "Pré-qualificação"
-                    : "Credenciamento"}
-                </Badge>
+              <div className="mb-2 flex gap-2 flex-wrap">
+                <Badge className={s.cor}>{s.label}</Badge>
+                <Badge variant="outline">Credenciamento</Badge>
+                {c.hipotese && <Badge variant="outline">{HIPOTESES[c.hipotese]?.rotulo}</Badge>}
               </div>
-              <h1 className="text-2xl font-bold">
-                Edital nº {credenciamento.numero_edital}
-              </h1>
-              <p className="text-gray-600">
-                Processo {credenciamento.numero_processo}
-              </p>
+              <h1 className="text-2xl font-bold">Edital de credenciamento nº {c.numero_edital}</h1>
+              <p className="text-gray-600">Processo {c.numero_processo}</p>
             </div>
-            <div className="flex gap-2">
-              {credenciamento.edital_url && (
-                <Button asChild>
-                  <a
-                    href={credenciamento.edital_url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
+            <div className="flex gap-2 flex-wrap">
+              {c.edital?.arquivo_url && (
+                <Button asChild variant="outline">
+                  <a href={`${API_URL}${c.edital.arquivo_url}`} target="_blank" rel="noreferrer">
                     <Download className="mr-2 h-4 w-4" />
                     Baixar edital
                   </a>
                 </Button>
               )}
-              {credenciamento.anexos_url && (
-                <Button variant="outline" asChild>
-                  <a
-                    href={credenciamento.anexos_url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <FileText className="mr-2 h-4 w-4" />
-                    Baixar anexos
+              {c.link_pncp && (
+                <Button asChild variant="outline">
+                  <a href={c.link_pncp} target="_blank" rel="noreferrer">
+                    PNCP <ExternalLink className="ml-1 h-3 w-3" />
                   </a>
+                </Button>
+              )}
+              {c.inscricoes_abertas && (
+                <Button asChild>
+                  <Link href={`/credenciamento/${c.id}/inscrever`}>
+                    <CheckCircle className="mr-2 h-4 w-4" />
+                    Inscrever-se
+                  </Link>
                 </Button>
               )}
             </div>
@@ -154,36 +107,71 @@ export default function CredenciamentoPublicoDetalhePage() {
               <CardTitle>Objeto</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p>{credenciamento.objeto}</p>
-              {credenciamento.objeto_detalhado && (
-                <p className="whitespace-pre-line text-sm text-gray-600">
-                  {credenciamento.objeto_detalhado}
-                </p>
-              )}
+              <p>{c.objeto}</p>
+              {c.objeto_detalhado && <p className="whitespace-pre-line text-sm text-gray-600">{c.objeto_detalhado}</p>}
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle>Condições de participação</CardTitle>
+              <CardTitle>Valores da contratação</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-gray-500 mb-2">
+                {c.hipotese === "MERCADO_FLUIDO"
+                  ? "Valores de referência — o preço é cotado no momento de cada contratação (art. 79, parágrafo único, IV)."
+                  : "Valor fixado no edital (art. 79, parágrafo único, III) — igual para todos os credenciados."}
+              </p>
+              <table className="w-full text-sm border">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="p-2 text-left">Item</th>
+                    <th className="p-2 text-right">Demanda estimada</th>
+                    <th className="p-2 text-right">Valor unitário</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(c.itens || []).map((i: any) => (
+                    <tr key={i.numero_item} className="border-t">
+                      <td className="p-2">
+                        {i.numero_item}. {i.descricao}
+                      </td>
+                      <td className="p-2 text-right">
+                        {i.quantidade_estimada} {String(i.unidade_medida || "").toLowerCase()}
+                      </td>
+                      <td className="p-2 text-right">{moeda(i.valor_unitario)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Condições de participação e contratação</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
               <div>
-                <strong>Habilitação:</strong>
-                <p className="whitespace-pre-line text-gray-600">
-                  {credenciamento.requisitos_habilitacao || "-"}
-                </p>
+                <strong>Distribuição da demanda:</strong> {REGRAS[c.regra_distribuicao] ?? "—"}
+                {c.regras_distribuicao_texto && <p className="whitespace-pre-line text-gray-600">{c.regras_distribuicao_texto}</p>}
               </div>
               <div>
-                <strong>Requisitos técnicos:</strong>
-                <p className="whitespace-pre-line text-gray-600">
-                  {credenciamento.requisitos_tecnicos || "-"}
-                </p>
+                <strong>Condições padronizadas:</strong>
+                <p className="whitespace-pre-line text-gray-600">{c.condicoes_padronizadas || "-"}</p>
               </div>
               <div>
-                <strong>Documentos exigidos:</strong>
-                <p className="whitespace-pre-line text-gray-600">
-                  {credenciamento.documentos_exigidos || "-"}
-                </p>
+                <strong>Denúncia:</strong> qualquer das partes pode denunciar o credenciamento com aviso prévio de {c.prazo_denuncia_dias ?? "—"} dia(s) (art. 79, parágrafo único, VI).
+              </div>
+              <div>
+                <strong>Documentos de habilitação exigidos:</strong>
+                <ul className="list-disc pl-5 text-gray-600">
+                  {(c.exigencias || []).map((e: any) => (
+                    <li key={e.id}>
+                      {e.descricao} {e.obrigatorio ? "" : "(opcional)"} {e.base_legal ? <span className="text-xs text-gray-400">— {e.base_legal}</span> : null}
+                    </li>
+                  ))}
+                </ul>
               </div>
             </CardContent>
           </Card>
@@ -198,10 +186,10 @@ export default function CredenciamentoPublicoDetalhePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm">
-              <p className="font-medium">{credenciamento.orgao.nome}</p>
-              <p>CNPJ {credenciamento.orgao.cnpj}</p>
+              <p className="font-medium">{c.orgao?.nome}</p>
+              <p>CNPJ {c.orgao?.cnpj}</p>
               <p>
-                {credenciamento.orgao.cidade}/{credenciamento.orgao.uf}
+                {c.orgao?.cidade}/{c.orgao?.uf}
               </p>
             </CardContent>
           </Card>
@@ -209,24 +197,32 @@ export default function CredenciamentoPublicoDetalhePage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Calendar className="h-5 w-5" />
-                Prazos
+                Vigência
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <p>Publicação: {formatarData(credenciamento.data_publicacao)}</p>
-              <p>
-                Início: {formatarData(credenciamento.data_inicio_inscricoes)}
+              <p>Publicação: {dataHora(c.data_publicacao)}</p>
+              <p>Inscrições: de {dataHora(c.data_inicio_inscricoes)} até {dataHora(c.data_fim_inscricoes)} (a qualquer tempo durante a vigência)</p>
+              <p>Validade do credenciamento: {c.validade_credenciado_meses ? `${c.validade_credenciado_meses} mês(es)` : "até o fim da vigência"}</p>
+              <p className="flex items-start gap-1">
+                <FileText className="h-4 w-4 mt-0.5" /> {c.amparo_legal}
               </p>
-              <p>
-                Fim:{" "}
-                {credenciamento.inscricao_permanente
-                  ? "Inscrição permanente"
-                  : formatarData(credenciamento.data_fim_inscricoes)}
-              </p>
-              <p>
-                Valor estimado: {formatarMoeda(credenciamento.valor_estimado)}
-              </p>
-              <p>Amparo legal: {credenciamento.amparo_legal || "-"}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Credenciados ({c.credenciados?.length ?? 0})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1 text-sm">
+              {!c.credenciados?.length && <p className="text-gray-500">Nenhum credenciado até o momento.</p>}
+              {c.credenciados?.map((x: any, k: number) => (
+                <p key={k}>
+                  {x.razao_social} <span className="text-xs text-gray-500">({x.cnpj}) — desde {dataCurta(x.credenciado_em)}</span>
+                </p>
+              ))}
             </CardContent>
           </Card>
         </div>

@@ -23,6 +23,7 @@ import { ItensDoLote, ehLote, rotuloUnidade } from '@/components/disputa-v3/unid
 import {
   calcularDiferencaParaLider,
   calcularLanceSugerido,
+  direcaoDoCriterioV3,
   descricaoFaseItem,
   formatarMoeda,
   getItemStatusClass,
@@ -103,8 +104,10 @@ export default function DisputaV3FornecedorPage() {
   const contexto = board?.contexto
   const itensOrdenados = board ? [...board.colunas.emDisputa, ...board.colunas.aguardando, ...board.colunas.encerrados] : []
   const itemFoco = selectedItem || itensOrdenados[0] || null
-  const diferenca = calcularDiferencaParaLider(itemFoco)
-  const lanceSugerido = calcularLanceSugerido(itemFoco, contexto?.cronometria.diferencaMinimaLances, contexto?.cronometria.tipoDiferencaMinimaLances)
+  // Leilão (E7c): maior lance — o lance SOBE
+  const direcao = direcaoDoCriterioV3(contexto?.criterioJulgamento)
+  const diferenca = calcularDiferencaParaLider(itemFoco, direcao)
+  const lanceSugerido = calcularLanceSugerido(itemFoco, contexto?.cronometria.diferencaMinimaLances, contexto?.cronometria.tipoDiferencaMinimaLances, direcao)
   // Fase do item no modo de disputa (E2.4)
   const etapaFechada = itemFoco?.status === 'EM_DISPUTA' && itemFoco.faseModo === 'FECHADA'
   const tempoOculto = !!itemFoco?.cronometro.oculto || itemFoco?.faseModo === 'ALEATORIO'
@@ -323,7 +326,9 @@ export default function DisputaV3FornecedorPage() {
                                 ? 'Um único lance, menor que o seu último valor, sigiloso até o fim do prazo. Para manter o último lance da etapa aberta, não envie.'
                                 : itemFoco.valorPrimeiraColocacao != null
                                   ? `Reinício para as demais colocações: o lance não pode alcançar ${formatarMoeda(itemFoco.valorPrimeiraColocacao)} (1ª colocação).`
-                                  : 'Lance abaixo do seu proprio ultimo lance (e da melhor oferta, para liderar).'}
+                                  : direcao === 'MAIOR'
+                                    ? 'Leilão: lance ACIMA do seu próprio último lance (e da melhor oferta, para liderar).'
+                                    : 'Lance abaixo do seu proprio ultimo lance (e da melhor oferta, para liderar).'}
                             </CardDescription>
                             {itemFoco.meuLanceFechado != null && (
                               <p className="text-sm font-medium text-violet-800">

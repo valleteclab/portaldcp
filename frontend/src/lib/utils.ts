@@ -16,6 +16,7 @@ export function formatarModalidadeLicitacao(modalidade: string | null | undefine
     DIALOGO_COMPETITIVO: 'Diálogo Competitivo',
     DISPENSA_ELETRONICA: 'Dispensa Eletrônica',
     INEXIGIBILIDADE: 'Inexigibilidade',
+    CREDENCIAMENTO: 'Credenciamento',
     PREGAO_PRESENCIAL: 'Pregão Presencial',
     CONCORRENCIA_PUBLICA: 'Concorrência Pública',
   }

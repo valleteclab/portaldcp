@@ -32,6 +32,9 @@ import { RetificarEdital, FASES_RETIFICACAO } from "./RetificarEdital"
 import { ExtincaoLicitacao } from "./ExtincaoLicitacao"
 import { FilaPncp } from "./FilaPncp"
 import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
+import { LeilaoPainel } from "@/components/modalidades/LeilaoPainel"
+import { ConcursoPainel } from "@/components/modalidades/ConcursoPainel"
+import { DialogoPainel } from "@/components/modalidades/DialogoPainel"
 import {
   consultarPrazos, inputLocalParaISO, lerErro, erroDeExcecao, sugestaoAPartirDoMinimo,
   type ErroBackend, type PrazosPublicacao,
@@ -339,7 +342,8 @@ export default function CockpitProcessoPage() {
   useEffect(() => {
     if (!dados) return
     const m = dados.licitacao.modalidade
-    if (m !== "DISPENSA_ELETRONICA" && m !== "INEXIGIBILIDADE") return
+    // Credenciamento (E7b): instrução do art. 72 + edital de chamamento
+    if (m !== "DISPENSA_ELETRONICA" && m !== "INEXIGIBILIDADE" && m !== "CREDENCIAMENTO") return
     authFetch(`${API_URL}/api/fase-interna/${id}/instrucao`)
       .then(async (r) => { if (r.ok) setInstrucao(await r.json()) })
       .catch(() => { /* card da instrução fica oculto */ })
@@ -725,7 +729,10 @@ export default function CockpitProcessoPage() {
   const podeRegistrarResultado = ativa && !checklist.homologado
   // Resultado único (E6): adjudicação/homologação no ResultadoPanel (valor calculado, autoridade do login)
   const mostrarResultado =
-    checklist.resultado_registrado || ["HABILITACAO", "RECURSO", "ADJUDICACAO", "HOMOLOGACAO"].includes(licitacao.fase)
+    checklist.resultado_registrado ||
+    ["HABILITACAO", "RECURSO", "ADJUDICACAO", "HOMOLOGACAO"].includes(licitacao.fase) ||
+    // Leilão e concurso (E7c): o resultado é declarado no JULGAMENTO (sem habilitação)
+    (["LEILAO", "CONCURSO"].includes(licitacao.modalidade) && licitacao.fase === "JULGAMENTO")
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -773,6 +780,24 @@ export default function CockpitProcessoPage() {
           )}
         </div>
       </div>
+
+      {/* Credenciamento (E7b): inscrições, análise e contratações ficam no painel próprio */}
+      {licitacao.modalidade === "CREDENCIAMENTO" && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm flex items-center justify-between gap-2 flex-wrap">
+          <span>
+            Credenciamento (Lei 14.133/2021, arts. 78, I, e 79): edital, inscrições, análise dos documentos, contratações pela regra do edital
+            e descredenciamento ficam no painel do credenciamento.
+          </span>
+          <Link href={`/orgao/credenciamentos/${id}`} className="text-blue-700 font-medium hover:underline">
+            Abrir painel do credenciamento →
+          </Link>
+        </div>
+      )}
+
+      {/* Leilão, concurso e diálogo competitivo (E7c): dados próprios de cada modalidade e as fases específicas */}
+      {licitacao.modalidade === "LEILAO" && <LeilaoPainel licitacaoId={id} onAtualizado={carregar} />}
+      {licitacao.modalidade === "CONCURSO" && <ConcursoPainel licitacaoId={id} onAtualizado={carregar} />}
+      {licitacao.modalidade === "DIALOGO_COMPETITIVO" && <DialogoPainel licitacaoId={id} onAtualizado={carregar} />}
 
       {/* Atos nomeados do processo (suspender, retomar, revogar, deserta...) */}
       <AtosProcesso licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />

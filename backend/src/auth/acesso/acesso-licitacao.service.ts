@@ -186,7 +186,15 @@ export class AcessoLicitacaoService {
   }
 
   async assertOrgaoDoCredenciamento(ator: Ator | null | undefined, credenciamentoId: string, modo: ModoAcesso = 'escrita'): Promise<{ orgaoId: string }> {
-    const orgaoId = await this.orgaoPorTabela('credenciamentos', credenciamentoId);
+    // E7b: o credenciamento é um processo (licitação com modalidade CREDENCIAMENTO)
+    let orgaoId: string | null = null;
+    if (ehUuid(credenciamentoId)) {
+      const r = await this.dataSource.query(
+        `SELECT orgao_id FROM licitacoes WHERE id = $1 AND modalidade::text = 'CREDENCIAMENTO'`,
+        [credenciamentoId],
+      );
+      orgaoId = r[0]?.orgao_id ?? null;
+    }
     this.assertMesmoOrgao(ator, orgaoId, modo, 'Credenciamento');
     return { orgaoId: orgaoId! };
   }
@@ -244,6 +252,9 @@ export class AcessoLicitacaoService {
         WHERE l.orgao_id::text = $1 AND p.fornecedor_id::text = $2 AND p.status::text <> 'RASCUNHO'
        UNION ALL
        SELECT 1 FROM contratos c WHERE c.orgao_id::text = $1 AND c.fornecedor_id::text = $2
+       UNION ALL
+       SELECT 1 FROM credenciamento_inscricoes i JOIN licitacoes l ON l.id = i.licitacao_id
+        WHERE l.orgao_id::text = $1 AND i.fornecedor_id = $2
        LIMIT 1`,
       [orgaoId, fornecedorId],
     );
@@ -252,7 +263,7 @@ export class AcessoLicitacaoService {
 
   // ---------------------------------------------------------------------------
 
-  private async orgaoPorTabela(tabela: 'atas_registro_preco' | 'credenciamentos', id: string): Promise<string | null> {
+  private async orgaoPorTabela(tabela: 'atas_registro_preco', id: string): Promise<string | null> {
     if (!ehUuid(id)) return null;
     const r = await this.dataSource.query(`SELECT orgao_id FROM ${tabela} WHERE id = $1`, [id]);
     return r[0]?.orgao_id ?? null;

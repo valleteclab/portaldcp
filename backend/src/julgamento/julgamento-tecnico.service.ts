@@ -103,6 +103,20 @@ export class JulgamentoTecnicoService {
     }
   }
 
+  /**
+   * CONCURSO (E7c): sigilo de autoria até a publicação do julgamento — a banca
+   * usa o painel do concurso (só códigos); estas rotas identificam licitantes.
+   */
+  private async exigirForaDoSigiloDoConcurso(licitacaoId: string) {
+    const [l] = await this.dataSource.query(
+      `SELECT l.modalidade::text AS m, j.publicado_em FROM licitacoes l LEFT JOIN julgamento_tecnico j ON j.licitacao_id = l.id WHERE l.id = $1`,
+      [licitacaoId],
+    );
+    if (l?.m === 'CONCURSO' && !l.publicado_em) {
+      throw new ConflictException('Concurso: sigilo de autoria até a publicação do julgamento — use o painel da banca do concurso (/api/concurso/licitacao/:id/banca).');
+    }
+  }
+
   private exigirAtiva(situacao: string) {
     if (situacao && situacao !== 'ATIVA') throw new ConflictException(`Licitação ${situacao.toLowerCase()}: ato não permitido`);
   }
@@ -390,6 +404,7 @@ export class JulgamentoTecnicoService {
 
   /** Painel da banca (órgão dono): quesitos, membros, licitantes, notas por membro, progresso, pendências. */
   async painelNotas(licitacaoId: string, usuarioId: string | null) {
+    await this.exigirForaDoSigiloDoConcurso(licitacaoId);
     const cfg = await this.configuracao(licitacaoId);
     const licitantes = await this.licitantes(licitacaoId);
     const notas = await this.notas(licitacaoId);
@@ -455,6 +470,7 @@ export class JulgamentoTecnicoService {
     const l = await this.licitacao(licitacaoId);
     this.exigirTecnico(l.criterio);
     this.exigirAtiva(l.situacao);
+    await this.exigirForaDoSigiloDoConcurso(licitacaoId);
     if (!FASES_AVALIACAO.includes(l.fase)) {
       throw new ConflictException('As notas técnicas são atribuídas depois do acolhimento e antes da etapa de preços (art. 36 §2º)');
     }

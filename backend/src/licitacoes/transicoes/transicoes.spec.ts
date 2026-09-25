@@ -1,5 +1,6 @@
 import { FaseLicitacao, Licitacao, ModalidadeLicitacao, SituacaoLicitacao } from '../entities/licitacao.entity';
 import { definicaoDoAto, FLUXOS } from './definicoes';
+import { manifestacaoPreviaAssegurada } from './definicoes';
 import {
   aplicarNoEstado,
   atoDeRetorno,
@@ -82,10 +83,17 @@ describe('TransicoesService — matriz de transições por modalidade', () => {
     [M.PREGAO_ELETRONICO, F.JULGAMENTO, A.DECLARAR_FRACASSADA, null, S.FRACASSADA],
     [M.PREGAO_ELETRONICO, F.PLANEJAMENTO, A.REVOGAR, null, S.REVOGADA],
     [M.PREGAO_ELETRONICO, F.HOMOLOGACAO, A.ANULAR, null, S.ANULADA],
-    // Concorrência e o rito genérico (leilão, concurso, diálogo)
+    // Concorrência
     [M.CONCORRENCIA, F.EM_DISPUTA, A.ENCERRAR_DISPUTA, F.JULGAMENTO],
+    // Leilão, concurso e diálogo (E7c — definicoes-especiais.ts)
     [M.LEILAO, F.ANALISE_PROPOSTAS, A.INICIAR_DISPUTA, F.EM_DISPUTA],
-    [M.CONCURSO, F.HABILITACAO, A.ABRIR_PRAZO_RECURSAL, F.RECURSO],
+    [M.LEILAO, F.JULGAMENTO, A.ABRIR_PRAZO_RECURSAL, F.RECURSO],
+    [M.LEILAO, F.JULGAMENTO, A.ADJUDICAR, F.ADJUDICACAO],
+    [M.LEILAO, F.RECURSO, A.DECIDIR_RECURSOS, F.ADJUDICACAO],
+    [M.CONCURSO, F.ANALISE_PROPOSTAS, A.JULGAR_CONCURSO, F.JULGAMENTO],
+    [M.CONCURSO, F.JULGAMENTO, A.ABRIR_PRAZO_RECURSAL, F.RECURSO],
+    [M.DIALOGO_COMPETITIVO, F.ANALISE_PROPOSTAS, A.CONCLUIR_DIALOGO, null],
+    [M.DIALOGO_COMPETITIVO, F.HABILITACAO, A.ABRIR_PRAZO_RECURSAL, F.RECURSO],
     [M.DIALOGO_COMPETITIVO, F.ADJUDICACAO, A.HOMOLOGAR, F.HOMOLOGACAO],
     // E6: gravar a adjudicação dos itens depois de DECIDIR_RECURSOS (ADJUDICACAO → ADJUDICACAO)
     [M.PREGAO_ELETRONICO, F.ADJUDICACAO, A.ADJUDICAR, null],
@@ -128,6 +136,11 @@ describe('TransicoesService — matriz de transições por modalidade', () => {
     // E6: dispensa/inexigibilidade adjudicam pelos próprios atos (julgamento / resultado externo)
     [M.DISPENSA_ELETRONICA, F.ADJUDICACAO, A.ADJUDICAR, /não se aplica/],
     [M.PREGAO_ELETRONICO, F.HOMOLOGACAO, A.ADJUDICAR],
+    // E7c: leilão e concurso não têm habilitação (resultado declarado no julgamento)
+    [M.LEILAO, F.JULGAMENTO, A.INICIAR_HABILITACAO, /não se aplica/],
+    [M.CONCURSO, F.HABILITACAO, A.ABRIR_PRAZO_RECURSAL],
+    [M.PREGAO_ELETRONICO, F.ANALISE_PROPOSTAS, A.JULGAR_CONCURSO, /não se aplica/],
+    [M.CONCORRENCIA, F.ANALISE_PROPOSTAS, A.ABRIR_FASE_COMPETITIVA, /não se aplica/],
     [M.PREGAO_ELETRONICO, F.HOMOLOGACAO, A.REGISTRAR_RESULTADO_EXTERNO, /já homologada/],
     [M.DISPENSA_ELETRONICA, F.ANALISE_PROPOSTAS, A.INICIAR_DISPUTA, /não se aplica/],
     [M.DISPENSA_ELETRONICA, F.HABILITACAO, A.ABRIR_PRAZO_RECURSAL, /não se aplica/],
@@ -168,6 +181,8 @@ describe('TransicoesService — matriz de transições por modalidade', () => {
 
   test('toda modalidade tem fluxo e todo fluxo leva da fase interna à homologação', () => {
     for (const modalidade of Object.values(M)) {
+      // Credenciamento (E7b) é procedimento auxiliar: não homologa (vigência + contratações) — teste próprio abaixo
+      if (modalidade === M.CREDENCIAMENTO) continue;
       const fluxo = FLUXOS[modalidade];
       expect(fluxo.length).toBeGreaterThan(5);
       expect(fluxo.some((d) => d.ato === A.PUBLICAR)).toBe(true);
@@ -176,6 +191,52 @@ describe('TransicoesService — matriz de transições por modalidade', () => {
         expect(fluxo.some((d) => d.ato === a)).toBe(true);
       }
     }
+  });
+});
+
+describe('TransicoesService — credenciamento (E7b: arts. 78 I, 79 e 74 IV)', () => {
+  const C = M.CREDENCIAMENTO;
+  test('fase interna em etapa única (art. 72) → publicar → inscrições → vigência encerrada (CONCLUIDA)', () => {
+    expect(permite(C, F.PLANEJAMENTO, A.CONCLUIR_FASE_INTERNA)).toBe(true);
+    expect(permite(C, F.APROVACAO_INTERNA, A.PUBLICAR)).toBe(true);
+    expect(faseDestino(definicaoDoAto(C, A.PUBLICAR)!, lic({ modalidade: C, fase: F.APROVACAO_INTERNA }))).toBe(F.PUBLICADO);
+    expect(faseDestino(definicaoDoAto(C, A.INICIAR_ACOLHIMENTO)!, lic({ modalidade: C, fase: F.PUBLICADO }))).toBe(F.ACOLHIMENTO_PROPOSTAS);
+    const enc = definicaoDoAto(C, A.ENCERRAR_ACOLHIMENTO)!;
+    expect(enc.situacaoPara).toBe(S.CONCLUIDA);
+    expect(faseDestino(enc, lic({ modalidade: C, fase: F.ACOLHIMENTO_PROPOSTAS }))).toBe(F.ACOLHIMENTO_PROPOSTAS);
+  });
+  test('art. 71 §3º: inscritos/credenciados são interessados — revogar exige a intenção quando há inscrições', async () => {
+    const ctx = (interessados: number) =>
+      ({
+        licitacao: lic({ modalidade: C, fase: F.ACOLHIMENTO_PROPOSTAS }),
+        ato: A.REVOGAR,
+        agora: new Date(),
+        consultas: {
+          propostasRecebidas: async () => 0,
+          interessadosExtincao: async () => interessados,
+          intencaoExtincaoAberta: async () => null,
+        },
+      }) as any;
+    expect(await manifestacaoPreviaAssegurada(ctx(0))).toBeNull();
+    expect(String(await manifestacaoPreviaAssegurada(ctx(2)))).toMatch(/71, §3º/);
+  });
+  test('análise, contratação e descredenciamento não mudam a fase, só pelo serviço (somenteSistema) e só com o processo ativo', () => {
+    for (const a of [A.DEFERIR_CREDENCIAMENTO, A.INDEFERIR_CREDENCIAMENTO, A.DECIDIR_RECURSO_CREDENCIAMENTO, A.DESCREDENCIAR]) {
+      const d = definicaoDoAto(C, a)!;
+      expect(d.somenteSistema).toBe(true);
+      expect(permite(C, F.ACOLHIMENTO_PROPOSTAS, a)).toBe(true);
+      expect(faseDestino(d, lic({ modalidade: C, fase: F.ACOLHIMENTO_PROPOSTAS }))).toBe(F.ACOLHIMENTO_PROPOSTAS);
+      expect(permite(C, F.ACOLHIMENTO_PROPOSTAS, a, S.SUSPENSA)).toBe(false);
+      expect(permite(C, F.ACOLHIMENTO_PROPOSTAS, a, S.CONCLUIDA)).toBe(false);
+    }
+    expect(permite(C, F.ACOLHIMENTO_PROPOSTAS, A.CONTRATAR_CREDENCIADO)).toBe(true);
+    expect(permite(C, F.PUBLICADO, A.CONTRATAR_CREDENCIADO)).toBe(false);
+    // sem disputa, julgamento, homologação nem roll-up de itens
+    for (const a of [A.INICIAR_DISPUTA, A.JULGAR_DISPENSA, A.HOMOLOGAR, A.DECLARAR_DESERTA, A.CONCLUIR]) {
+      expect(definicaoDoAto(C, a)).toBeUndefined();
+    }
+    // e os atos do credenciamento não existem nas outras modalidades
+    expect(definicaoDoAto(M.PREGAO_ELETRONICO, A.CONTRATAR_CREDENCIADO)).toBeUndefined();
   });
 });
 

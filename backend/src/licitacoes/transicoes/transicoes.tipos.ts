@@ -47,6 +47,21 @@ export enum AtoLicitacao {
   INTENCAO_REVOGAR = 'INTENCAO_REVOGAR', // art. 71 §3º: prazo de manifestação prévia dos interessados
   INTENCAO_ANULAR = 'INTENCAO_ANULAR', // art. 71 §3º
 
+  // --- Credenciamento (plano E7b — Lei 14.133 arts. 78 I, 79 e 74 IV) ---
+  // Atos que NÃO mudam a fase (a inscrição fica aberta durante toda a
+  // vigência): passam pela máquina para ter trava da linha, histórico e
+  // evento. Só o CredenciamentoService os pratica (somenteSistema).
+  DEFERIR_CREDENCIAMENTO = 'DEFERIR_CREDENCIAMENTO', // inscrição analisada → credenciado
+  INDEFERIR_CREDENCIAMENTO = 'INDEFERIR_CREDENCIAMENTO', // inscrição indeferida (motivo; cabe recurso — art. 165)
+  DECIDIR_RECURSO_CREDENCIAMENTO = 'DECIDIR_RECURSO_CREDENCIAMENTO', // recurso contra o indeferimento
+  CONTRATAR_CREDENCIADO = 'CONTRATAR_CREDENCIADO', // demanda distribuída pela regra do edital (art. 79 par. único II)
+  DESCREDENCIAR = 'DESCREDENCIAR', // descredenciamento pela Administração ou denúncia do credenciado (art. 79 par. único VI)
+
+  // --- Modalidades especiais (plano E7c) ---
+  JULGAR_CONCURSO = 'JULGAR_CONCURSO', // concurso (art. 30): banca julga, notas publicadas, autoria revelada
+  CONCLUIR_DIALOGO = 'CONCLUIR_DIALOGO', // diálogo (art. 32 §1º V e VIII): decisão fundamentada + juntada dos registros
+  ABRIR_FASE_COMPETITIVA = 'ABRIR_FASE_COMPETITIVA', // diálogo (art. 32 §1º VIII): edital da fase competitiva, ≥ 60 dias úteis
+
   // --- Situação ---
   SUSPENDER = 'SUSPENDER',
   RETOMAR = 'RETOMAR',
@@ -143,8 +158,27 @@ export interface ConsultasTransicao {
   impugnacoesSemRetificacao?(): Promise<string[]>;
   /** Propostas que aguardam confirmação do licitante depois de retificação que afetou propostas. */
   propostasAguardandoConfirmacao?(): Promise<number>;
+  /**
+   * Interessados a ouvir antes de revogar/anular (art. 71 §3º): licitantes com
+   * proposta e, no credenciamento (E7b), os inscritos/credenciados.
+   * Opcional: ausente = conta só as propostas (`propostasRecebidas`).
+   */
+  interessadosExtincao?(): Promise<number>;
   /** Intenção de revogar/anular aberta (art. 71 §3º). */
   intencaoExtincaoAberta?(): Promise<{ id: string; tipo: 'REVOGAR' | 'ANULAR'; prazo_fim: Date } | null>;
+  /**
+   * CREDENCIAMENTO (plano E7b): regras do edital de chamamento (hipótese do
+   * art. 79, regra de distribuição, vigência) e itens com o valor fixado.
+   * null = sem configuração. Opcional: ausente = sem checagem.
+   */
+  credenciamento?(): Promise<import('../../credenciamento/regras-credenciamento').EstadoEditalCredenciamento | null>;
+  /**
+   * MODALIDADES ESPECIAIS (plano E7c — leilão, concurso, diálogo competitivo):
+   * pendências específicas por CHAVE (ex.: 'LEILAO_EDITAL', 'DIALOGO_CONCLUIR'),
+   * calculadas por SQL sem DI em `modalidades-especiais/pendencias.sql.ts`.
+   * Opcional: ausente = sem checagem (testes unitários antigos).
+   */
+  pendenciasModalidade?(chave: string, contexto?: { dados?: Record<string, any>; agora?: Date; somenteAvaliacao?: boolean }): Promise<string[]>;
 }
 
 /** Retrato do estado recursal da licitação (consulta das pré-condições — E5). */

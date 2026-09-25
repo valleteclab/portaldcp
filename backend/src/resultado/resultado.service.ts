@@ -93,11 +93,30 @@ export interface EntradaAdjudicacao {
   valores: ValorAdjudicado[];
   /** Aceitação de origem (sala) — trilha. */
   aceitacaoId?: string | null;
+  /** De onde vêm os valores (texto do evento) — padrão "proposta adequada aceita". */
+  origemValor?: string;
 }
 
 export interface PlanoAdjudicacao {
   unidades: EntradaAdjudicacao[];
   pendencias: string[];
+}
+
+/**
+ * RESULTADO POR MODALIDADE (plano E7c): leilão e concurso não têm aceitação
+ * de proposta readequada nem habilitação — o plano da adjudicação vem do
+ * resultado DECLARADO (arrematação paga; trabalho vencedor qualificado) e o
+ * instrumento não é contrato/ata (termo de arrematação; premiação e cessão
+ * de direitos). O módulo da modalidade registra aqui o seu tratamento.
+ */
+export interface ResultadoDaModalidade {
+  planoAdjudicacao(licitacaoId: string, m: EntityManager): Promise<PlanoAdjudicacao>;
+  /** Gera (idempotente) os instrumentos depois da homologação. */
+  gerarInstrumentos(licitacaoId: string, ator: AtorTransicao): Promise<any[]>;
+  /** Instrumentos já gerados (painel do resultado). */
+  listarInstrumentos(licitacaoId: string): Promise<any[]>;
+  /** Nome do instrumento para a tela (ex.: "Termo de arrematação"). */
+  rotuloInstrumento: string;
 }
 
 /** Modalidades cujo resultado nasce da sala (ADJUDICAR/DECIDIR_RECURSOS). */
@@ -133,6 +152,7 @@ const brl = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'curr
 @Injectable()
 export class ResultadoService implements OnModuleInit {
   private readonly logger = new Logger(ResultadoService.name);
+  private readonly porModalidade = new Map<string, ResultadoDaModalidade>();
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
@@ -147,6 +167,16 @@ export class ResultadoService implements OnModuleInit {
   onModuleInit(): void {
     // Termo assinado pela autoridade (modo ASSINATURA_ELETRONICA) → efeito do ato
     this.formalizacao.registrarAoConcluir((docId, url) => this.aoConcluirAssinatura(docId, url));
+  }
+
+  /** Módulos das modalidades especiais (leilão, concurso) registram o seu resultado (E7c). */
+  registrarModalidade(modalidade: ModalidadeLicitacao | string, tratamento: ResultadoDaModalidade): void {
+    this.porModalidade.set(String(modalidade), tratamento);
+  }
+
+  private async tratamentoDaLicitacao(licitacaoId: string, m: EntityManager = this.dataSource.manager): Promise<ResultadoDaModalidade | null> {
+    const [l] = await m.query(`SELECT modalidade::text AS m FROM licitacoes WHERE id = $1`, [licitacaoId]);
+    return (l && this.porModalidade.get(String(l.m))) || null;
   }
 
   // ==========================================================================
@@ -182,6 +212,8 @@ export class ResultadoService implements OnModuleInit {
    * listadas — o ato só acontece sem nenhuma.
    */
   async planoAdjudicacao(licitacaoId: string, m: EntityManager = this.dataSource.manager): Promise<PlanoAdjudicacao> {
+    const especial = await this.tratamentoDaLicitacao(licitacaoId, m);
+    if (especial) return especial.planoAdjudicacao(licitacaoId, m);
     const unidades = await this.ranking.unidades(licitacaoId, m);
     const plano: PlanoAdjudicacao = { unidades: [], pendencias: [] };
     for (const u of unidades) {
@@ -244,7 +276,9 @@ export class ResultadoService implements OnModuleInit {
     );
     const porItem = new Map(itensDb.map((i) => [String(i.id), i]));
 
-    const fasesDePrevia = [FaseLicitacao.HABILITACAO, FaseLicitacao.RECURSO, FaseLicitacao.ADJUDICACAO];
+    const especial = await this.tratamentoDaLicitacao(licitacaoId, m);
+    // Leilão/concurso (E7c): o resultado é declarado no JULGAMENTO
+    const fasesDePrevia = [...(especial ? [FaseLicitacao.JULGAMENTO] : []), FaseLicitacao.HABILITACAO, FaseLicitacao.RECURSO, FaseLicitacao.ADJUDICACAO];
     const previa = pelaSala && fasesDePrevia.includes(lic.fase) ? await this.planoAdjudicacao(licitacaoId, m) : null;
     const previaPorUnidade = new Map((previa?.unidades ?? []).map((e) => [e.unidadeId, e]));
 
@@ -365,7 +399,9 @@ export class ResultadoService implements OnModuleInit {
       /** Autoridade padrão (quem pratica o ato quando o operador não escolhe outra). */
       autoridade: formalizacao.autoridadePadrao ? { nome: formalizacao.autoridadePadrao.nome, cargo: formalizacao.autoridadePadrao.cargo } : null,
       formalizacao,
-      instrumentos: { tipo: (lic as any).srp ? 'ATA' : 'CONTRATO', contratos, atas },
+      instrumentos: especial
+        ? { tipo: 'TERMO', rotulo: especial.rotuloInstrumento, contratos, atas, termos: await especial.listarInstrumentos(licitacaoId) }
+        : { tipo: (lic as any).srp ? 'ATA' : 'CONTRATO', contratos, atas },
     };
   }
 
@@ -765,7 +801,7 @@ export class ResultadoService implements OnModuleInit {
             await this.evento(m, {
               sessaoId: sessao.id,
               tipo: TipoEvento.ITEM_ADJUDICADO,
-              descricao: `${this.rotulo(g)} adjudicado a ${g.razaoSocial || g.fornecedorId} por ${brl(g.valorTotal)} (proposta adequada aceita).`,
+              descricao: `${this.rotulo(g)} adjudicado a ${g.razaoSocial || g.fornecedorId} por ${brl(g.valorTotal)} (${g.origemValor ?? 'proposta adequada aceita'}).`,
               itemId: g.tipo === 'ITEM' ? g.unidadeId : null,
               fornecedorId: g.fornecedorId,
               usuario,
@@ -1117,6 +1153,12 @@ export class ResultadoService implements OnModuleInit {
     const lic = await this.licitacao(licitacaoId);
     if (lic.fase !== FaseLicitacao.HOMOLOGACAO) {
       throw new ConflictException('Contrato/ata só são gerados a partir da licitação homologada.');
+    }
+    const especial = this.porModalidade.get(String(lic.modalidade));
+    if (especial) {
+      // Leilão: termo de arrematação; concurso: premiação e cessão de direitos (E7c)
+      const termos = await especial.gerarInstrumentos(licitacaoId, ator);
+      return { tipo: 'TERMO' as any, atas: [] as any[], contratos: [] as any[], termos };
     }
     if ((lic as any).srp) {
       const atas = await this.geradorAta.gerarAtaRegistroPreco(licitacaoId, { ator });

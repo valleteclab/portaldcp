@@ -34,6 +34,7 @@ import {
   Landmark,
   Wrench,
   BookMarked,
+  Users,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -132,6 +133,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/fornecedor/contratos", label: "Meus Contratos", icon: FileCheck },
     { href: "/fornecedor/ordens", label: "Ordens de Fornecimento", icon: Send },
     { href: "/fornecedor/atas", label: "Atas de Registro de Preços", icon: BookMarked },
+    { href: "/fornecedor/credenciamentos", label: "Meus Credenciamentos", icon: ClipboardCheck },
     { href: "/fornecedor/cadastro-sicaf", label: "Meu Cadastro", icon: User },
   ]
 
@@ -146,6 +148,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/disputa-v3", label: "Sala de Disputa V3", icon: Search, modulo: ModuloSistema.DISPUTA },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/atas", label: "Atas de Registro de Preços", icon: BookMarked, modulo: ModuloSistema.ATAS },
+    { href: "/orgao/credenciamentos", label: "Credenciamentos", icon: Users, modulo: ModuloSistema.CREDENCIAMENTO },
     { href: "/orgao/medicoes-v2", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/agente-contratos", label: "Verif. Aditivos", icon: Bot, modulo: ModuloSistema.IA_CONTRATOS },
     { href: "/orgao/analisar-contrato", label: "Analisar Contrato", icon: FileSearch, modulo: ModuloSistema.IA_CONTRATOS },

@@ -200,6 +200,25 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
       });
       return;
     }
+    // Diálogo competitivo (E7c — art. 32 §1º VIII): edital da fase competitiva + retificação da compra (novas datas/critério)
+    if (ato === AtoLicitacao.ABRIR_FASE_COMPETITIVA) {
+      const [d] = await this.ds.query(`SELECT edital_competitivo_caminho AS caminho FROM dialogo_competitivo WHERE licitacao_id::text = $1`, [e.licitacao_id]);
+      if (d?.caminho) {
+        await this.enfileirar({
+          ...base,
+          tipo: TipoSincronizacao.DOCUMENTO,
+          chave: chaveFila.documento(e.licitacao_id, `FASE_COMPETITIVA:${e.transicao_id}`),
+          referencia: { origem: 'ARQUIVO', arquivo: d.caminho, nome: 'edital-fase-competitiva.pdf', tipo_documento_id: TIPO_DOCUMENTO.EDITAL, titulo: 'Edital da fase competitiva (art. 32, §1º, VIII)' },
+        });
+      }
+      await this.enfileirar({
+        ...base,
+        tipo: TipoSincronizacao.RETIFICACAO_COMPRA,
+        chave: chaveFila.retificacaoCompra(e.licitacao_id, e.transicao_id),
+        referencia: { justificativa: 'Diálogo competitivo: abertura da fase competitiva (art. 32, §1º, VIII)', transicao_id: e.transicao_id },
+      });
+      return;
+    }
     if (ATOS_DE_SITUACAO.includes(ato)) {
       await this.enfileirar({
         ...base,

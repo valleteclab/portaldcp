@@ -31,6 +31,7 @@ import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
 import { ehFaseInterna, ROTULO_FASE } from './transicoes/fases';
 import { camposDoEditalAlterados, mesmoValor, normalizarNaturezaObjeto } from '../publicacao/regras-publicacao';
 import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
+import { motivoModalidadeCriterioInvalido } from '../modalidades-especiais/perfil-modalidade';
 import { motivoInversaoInvalida } from '../habilitacao/regras-habilitacao';
 import { desempatarNoAto } from '../julgamento/desempate.sql';
 import { ResultadoService, EntradaAdjudicacao } from '../resultado/resultado.service';
@@ -140,6 +141,9 @@ export class LicitacoesService {
     // Modo de disputa × critério de julgamento (Lei 14.133 art. 56 §§1º e 2º)
     const vedacao = motivoModoCriterioInvalido(createDto.modo_disputa, createDto.criterio_julgamento);
     if (vedacao) throw new BadRequestException(vedacao);
+    // Modalidade × critério (leilão = maior lance; concurso = melhor técnica/conteúdo artístico — E7c)
+    const vedacaoModalidade = motivoModalidadeCriterioInvalido(createDto.modalidade, createDto.criterio_julgamento, createDto.modo_disputa);
+    if (vedacaoModalidade) throw new BadRequestException(vedacaoModalidade);
     // Natureza do objeto (art. 6º XIII/XIV — prazo do art. 55, II; E7a)
     if ((createDto as any).natureza_objeto !== undefined) {
       (createDto as any).natureza_objeto = this.naturezaValida((createDto as any).natureza_objeto);
@@ -343,6 +347,8 @@ export class LicitacoesService {
     // Modo (padrão ABERTO) × critério — Lei 14.133 art. 56 §§1º e 2º
     const vedacaoModo = motivoModoCriterioInvalido(undefined, dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO);
     if (vedacaoModo) throw new BadRequestException(vedacaoModo);
+    const vedacaoModalidadeDemanda = motivoModalidadeCriterioInvalido(dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO, dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO);
+    if (vedacaoModalidadeDemanda) throw new BadRequestException(vedacaoModalidadeDemanda);
 
     // 6. Cria e salva a Licitacao
     const licitacao = this.licitacaoRepository.create({
@@ -548,6 +554,12 @@ export class LicitacoesService {
       dadosLicitacao.criterio_julgamento ?? licitacao.criterio_julgamento,
     );
     if (vedacaoModo) throw new BadRequestException(vedacaoModo);
+    const vedacaoModalidade = motivoModalidadeCriterioInvalido(
+      dadosLicitacao.modalidade ?? licitacao.modalidade,
+      dadosLicitacao.criterio_julgamento ?? licitacao.criterio_julgamento,
+      dadosLicitacao.modo_disputa ?? licitacao.modo_disputa,
+    );
+    if (vedacaoModalidade) throw new BadRequestException(vedacaoModalidade);
     // Inversão de fases (art. 17 §1º; plano E4): só concorrência, definida antes da publicação
     if (dadosLicitacao.inversao_fases !== undefined) {
       dadosLicitacao.inversao_fases = dadosLicitacao.inversao_fases === true || dadosLicitacao.inversao_fases === 'true';
@@ -836,6 +848,19 @@ export class LicitacoesService {
       case AtoLicitacao.INTENCAO_REVOGAR:
       case AtoLicitacao.INTENCAO_ANULAR:
         throw new BadRequestException('A intenção de revogar/anular abre o prazo de manifestação — use POST /publicacao/licitacao/:id/intencao-extincao.');
+      // Credenciamento (E7b): atos com regra própria (habilitação, distribuição, contrato)
+      case AtoLicitacao.DEFERIR_CREDENCIAMENTO:
+      case AtoLicitacao.INDEFERIR_CREDENCIAMENTO:
+      case AtoLicitacao.DECIDIR_RECURSO_CREDENCIAMENTO:
+      case AtoLicitacao.CONTRATAR_CREDENCIADO:
+      case AtoLicitacao.DESCREDENCIAR:
+        throw new BadRequestException('Ato do credenciamento — use as rotas de /credenciamento (inscrições, contratações, descredenciamento).');
+      // Modalidades especiais (E7c): atos com arquivo/regra própria
+      case AtoLicitacao.JULGAR_CONCURSO:
+        throw new BadRequestException('O julgamento do concurso publica as notas da banca e revela a autoria — use POST /concurso/licitacao/:id/julgar.');
+      case AtoLicitacao.CONCLUIR_DIALOGO:
+      case AtoLicitacao.ABRIR_FASE_COMPETITIVA:
+        throw new BadRequestException('Ato do diálogo competitivo — use as rotas de /dialogo-competitivo (conclusão motivada e edital da fase competitiva).');
       // Resultado único (E6): adjudicar/homologar só pelo ResultadoService
       // (valor homologado calculado — nunca do corpo; autoridade do token).
       case AtoLicitacao.HOMOLOGAR: {
@@ -912,7 +937,7 @@ export class LicitacoesService {
       licitacao,
       TipoNotificacao.DEMANDA_EM_CONTRATACAO,
       'Sua demanda entrou em contratação 📢',
-      `O processo ${licitacao.numero_processo} foi divulgado — prazo de propostas aberto até ${new Date(dados.data_fim_acolhimento).toLocaleString('pt-BR')}.`,
+      `O processo ${licitacao.numero_processo} foi divulgado — prazo de propostas aberto até ${new Date(dados.data_fim_acolhimento || licitacao.data_fim_acolhimento).toLocaleString('pt-BR')}.`,
     ).catch(() => undefined);
 
     // PNCP (E7): o ato PUBLICAR enfileira compra + itens + edital/aviso para

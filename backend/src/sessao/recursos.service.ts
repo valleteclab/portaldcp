@@ -64,6 +64,8 @@ import {
   situacoesDoAlvo,
   situacoesDoAtoProprio,
 } from './regras-recursos';
+import { faseDaJanelaRecursal, resultadoDeclarado, situacoesDeResultado } from '../modalidades-especiais/perfil-modalidade';
+import { unidadesSemResultadoDeclaradoSql } from '../modalidades-especiais/resultado-declarado.sql';
 
 /** Arquivo das razões/contrarrazões (PDF/JPG/PNG, até 10 MB — mesmo padrão da proposta adequada). */
 export interface ArquivoRecurso {
@@ -522,11 +524,16 @@ export class RecursosService {
   /** Por que a janela não pode ser aberta agora (null = pode). */
   async motivoNaoAbreJanela(licitacaoId: string, sessaoId: string, agora = new Date()): Promise<string | null> {
     const m = this.dataSource.manager;
-    const [lic] = await m.query(`SELECT fase::text AS fase, situacao::text AS situacao FROM licitacoes WHERE id = $1`, [licitacaoId]);
+    const [lic] = await m.query(`SELECT fase::text AS fase, situacao::text AS situacao, modalidade::text AS modalidade FROM licitacoes WHERE id = $1`, [licitacaoId]);
     if (!lic) return 'Licitação não encontrada';
-    if (lic.fase !== FaseLicitacao.HABILITACAO) {
-      return `A intenção de recurso é manifestada após o resultado da habilitação (fase única — art. 165 §1º II); a licitação está em ${lic.fase}.`;
+    // Leilão/concurso (E7c): sem habilitação — a fase recursal vem logo após o resultado declarado no JULGAMENTO
+    const faseEsperada = faseDaJanelaRecursal(lic.modalidade);
+    if (lic.fase !== faseEsperada) {
+      return faseEsperada === FaseLicitacao.JULGAMENTO
+        ? `A intenção de recurso é manifestada após o resultado declarado no julgamento (art. 165 §1º I; art. 31 §4º); a licitação está em ${lic.fase}.`
+        : `A intenção de recurso é manifestada após o resultado da habilitação (fase única — art. 165 §1º II); a licitação está em ${lic.fase}.`;
     }
+    const situacoesOk = situacoesDeResultado(lic.modalidade);
     const aberta = (await m.find(JanelaIntencaoRecurso, { where: { sessao_id: sessaoId } })).find((j) => estadoJanela(j, agora) === 'ABERTA');
     if (aberta) return `Já há janela de intenção aberta até ${dataHora(aberta.fecha_em)}.`;
     const pend = await m.count(RecursoAdministrativo, { where: { licitacao_id: licitacaoId, status: In([...STATUS_RECURSO_PENDENTES]) } });
@@ -537,10 +544,12 @@ export class RecursosService {
       const ranking = await this.ranking.ranking(u);
       if (!ranking.length) continue;
       const atual = atualDaUnidade(ranking);
-      if (!atual || ![SituacaoLicitante.HABILITADO, SituacaoLicitante.VENCEDOR].includes(atual.situacao)) semResultado.push(this.rotuloUnidade(u));
+      if (!atual || !situacoesOk.includes(atual.situacao)) semResultado.push(this.rotuloUnidade(u));
     }
     if (semResultado.length) {
-      return `O resultado da habilitação ainda não está completo (licitante na vez não habilitado): ${semResultado.join(', ')}.`;
+      return resultadoDeclarado(lic.modalidade)
+        ? `Declare o resultado de todas as unidades antes de abrir o prazo recursal: ${semResultado.join(', ')}.`
+        : `O resultado da habilitação ainda não está completo (licitante na vez não habilitado): ${semResultado.join(', ')}.`;
     }
     return null;
   }
@@ -1157,8 +1166,9 @@ export class RecursosService {
    */
   async concluirSePossivel(licitacaoId: string, sessaoId: string, ator: AtorRecurso): Promise<string | null> {
     const m = this.dataSource.manager;
-    const [lic] = await m.query(`SELECT fase::text AS fase, situacao::text AS situacao FROM licitacoes WHERE id = $1`, [licitacaoId]);
+    const [lic] = await m.query(`SELECT fase::text AS fase, situacao::text AS situacao, modalidade::text AS modalidade FROM licitacoes WHERE id = $1`, [licitacaoId]);
     if (!lic || lic.fase !== FaseLicitacao.RECURSO || lic.situacao !== 'ATIVA') return null;
+    const declarado = resultadoDeclarado(lic.modalidade);
     const pendentes = await m.count(RecursoAdministrativo, { where: { licitacao_id: licitacaoId, status: In([...STATUS_RECURSO_PENDENTES]) } });
     if (pendentes) return null;
     const agora = new Date();
@@ -1168,8 +1178,13 @@ export class RecursosService {
     const providos = (await m.find(RecursoAdministrativo, { where: { licitacao_id: licitacaoId, status: StatusRecurso.PROVIDO } })).filter(
       (r) => r.efeitos?.alterou_resultado && !r.efeitos?.fase_concluida,
     );
-    const semAceite = await this.transicoes.unidadesSemPropostaAceita(licitacaoId);
-    const desfecho = desfechoDaFaseRecursal({ unidadesSemAceite: semAceite.length, resultadoAlterado: providos.length > 0 });
+    // Leilão/concurso (E7c): "sem aceite" = unidade sem resultado declarado (arrematante/vencedor ACEITO)
+    const semAceite = declarado
+      ? await unidadesSemResultadoDeclaradoSql(m, licitacaoId)
+      : await this.transicoes.unidadesSemPropostaAceita(licitacaoId);
+    let desfecho = desfechoDaFaseRecursal({ unidadesSemAceite: semAceite.length, resultadoAlterado: providos.length > 0 });
+    // Sem habilitação, resultado refeito e completo segue direto (não há "habilitação" a que voltar)
+    if (declarado && desfecho === 'RETORNAR_HABILITACAO') desfecho = 'DECIDIR_RECURSOS';
     const ROTULO_DECISAO: Record<string, string> = {
       [StatusRecurso.PROVIDO]: 'provido sem alteração do resultado',
       [StatusRecurso.IMPROVIDO]: 'improvido',
@@ -1223,7 +1238,7 @@ export class RecursosService {
         dados: { ato: desfecho, recursos_providos: providos.map((p) => p.id) },
       });
     });
-    if (desfecho === 'RETORNAR_JULGAMENTO') {
+    if (desfecho === 'RETORNAR_JULGAMENTO' && !declarado) {
       await this.aceitacao.convocarPendentesAposRecurso(sessaoId, ator, ator.nome ?? undefined);
     }
     return desfecho;

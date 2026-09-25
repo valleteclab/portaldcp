@@ -37,6 +37,9 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { LeilaoFornecedor } from '@/components/modalidades/LeilaoFornecedor'
+import { ConcursoFornecedor } from '@/components/modalidades/ConcursoFornecedor'
+import { DialogoFornecedor } from '@/components/modalidades/DialogoFornecedor'
 import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
 
 interface Licitacao {
@@ -747,6 +750,11 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
           </div>
         </CardContent>
       </Card>
+
+      {/* Leilão, concurso e diálogo competitivo (E7c): participação própria de cada modalidade */}
+      {licitacao.modalidade === 'LEILAO' && <LeilaoFornecedor licitacaoId={licitacao.id} />}
+      {licitacao.modalidade === 'CONCURSO' && <ConcursoFornecedor licitacaoId={licitacao.id} />}
+      {licitacao.modalidade === 'DIALOGO_COMPETITIVO' && <DialogoFornecedor licitacaoId={licitacao.id} />}
 
       {/* Tabs */}
       <Tabs defaultValue="objeto">

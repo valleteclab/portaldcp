@@ -129,6 +129,15 @@ export class PncpEnviosService {
     const lic = await this.ds.getRepository(Licitacao).findOne({ where: { id }, relations: ['orgao', 'itens'] });
     if (!lic) throw falhaDefinitiva(`Licitação ${id} não encontrada`);
     lic.itens = [...(lic.itens || [])].sort((a, b) => (a.numero_item ?? 0) - (b.numero_item ?? 0));
+    // Modalidades especiais (E7c): natureza do trabalho do concurso (conteúdo artístico) e tipo do bem leiloado (imóvel/móvel)
+    if (String(lic.modalidade) === 'CONCURSO') {
+      const [r] = await this.ds.query(`SELECT natureza_trabalho FROM concurso_regulamentos WHERE licitacao_id = $1`, [lic.id]);
+      (lic as any).natureza_trabalho_concurso = r?.natureza_trabalho ?? null;
+    }
+    if (String(lic.modalidade) === 'LEILAO' && lic.itens.length) {
+      const bens: any[] = await this.ds.query(`SELECT item_licitacao_id::text AS item, tipo_bem FROM leilao_bens WHERE licitacao_id = $1`, [lic.id]);
+      for (const it of lic.itens) (it as any).tipo_bem_leilao = bens.find((b) => b.item === String(it.id))?.tipo_bem ?? null;
+    }
     return lic;
   }
 

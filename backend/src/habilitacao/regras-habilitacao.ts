@@ -109,6 +109,8 @@ export enum OrigemHabilitacao {
   INVERSAO = 'INVERSAO',
   /** Convocação anterior à E4 (sessão com `fornecedor_habilitacao_id`), trazida pela migração. */
   MIGRACAO = 'MIGRACAO',
+  /** Inscrição em CREDENCIAMENTO (plano E7b): documentos do interessado, analisados para credenciar. */
+  INSCRICAO = 'INSCRICAO',
 }
 
 export enum OrigemDocumento {
@@ -383,6 +385,7 @@ export function statusEfetivo(h: EstadoHabilitacao, diligencias: EstadoDiligenci
 /** Prorrogação: uma única vez, pelo mesmo período, antes do fim do prazo, só na convocação. */
 export function motivoNaoProrroga(h: EstadoHabilitacao, agora: Date = new Date()): string | null {
   if (h.origem === OrigemHabilitacao.INVERSAO) return 'Na inversão de fases o prazo é o do recebimento das propostas (edital)';
+  if (h.origem === OrigemHabilitacao.INSCRICAO) return 'Na inscrição em credenciamento o prazo é a vigência do edital';
   if (h.status !== StatusHabilitacao.AGUARDANDO_ENVIO) return 'Só se prorroga o prazo da convocação aguardando o envio dos documentos';
   if (h.prorrogada_em) return 'O prazo já foi prorrogado uma vez (prorrogação única, pelo mesmo período)';
   if (prazoEntregaEncerrado(h, agora)) return 'O prazo já terminou — não é possível prorrogá-lo';

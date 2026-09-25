@@ -49,6 +49,13 @@ export enum ModalidadeLicitacao {
   DIALOGO_COMPETITIVO = 'DIALOGO_COMPETITIVO', // Art. 28, V
   DISPENSA_ELETRONICA = 'DISPENSA_ELETRONICA', // Art. 75 (Contratação Direta)
   INEXIGIBILIDADE = 'INEXIGIBILIDADE', // Art. 74
+  /**
+   * Procedimento auxiliar (art. 78 I e art. 79) — não é modalidade de
+   * licitação (art. 28), mas é um PROCESSO da mesma base (fase interna,
+   * edital, PNCP, cockpit). Contratação dos credenciados por inexigibilidade
+   * (art. 74 IV). Plano E7b — backend/src/credenciamento/.
+   */
+  CREDENCIAMENTO = 'CREDENCIAMENTO',
 }
 
 export enum CriterioJulgamento {

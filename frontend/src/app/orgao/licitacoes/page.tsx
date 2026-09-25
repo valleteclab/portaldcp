@@ -81,6 +81,7 @@ const getModalidadeLabel = (modalidade: string) => {
     'LEILAO': 'Leilão',
     'DIALOGO_COMPETITIVO': 'Diálogo Competitivo',
     'INEXIGIBILIDADE': 'Inexigibilidade',
+    'CREDENCIAMENTO': 'Credenciamento',
   }
   return labels[modalidade] || modalidade
 }

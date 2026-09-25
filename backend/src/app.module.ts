@@ -62,6 +62,9 @@ import { McpModule } from './mcp/mcp.module';
 import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-licitacao.module';
 import { FeriadosModule } from './feriados/feriados.module';
 import { PublicacaoModule } from './publicacao/publicacao.module';
+import { LeilaoModule } from './leilao/leilao.module';
+import { ConcursoModule } from './concurso/concurso.module';
+import { DialogoCompetitivoModule } from './dialogo-competitivo/dialogo.module';
 
 @Module({
   imports: [
@@ -172,6 +175,9 @@ import { PublicacaoModule } from './publicacao/publicacao.module';
     ParametrosLicitacaoModule,
     FeriadosModule, // calendário de feriados (E7a)
     PublicacaoModule, // publicação, prazos, retificação (E7a)
+    LeilaoModule, // leilão (E7c — art. 31)
+    ConcursoModule, // concurso (E7c — art. 30)
+    DialogoCompetitivoModule, // diálogo competitivo (E7c — art. 32)
   ],
   controllers: [HealthController],
   providers: [

@@ -95,7 +95,10 @@ interface PainelResultado {
   autoridade: { nome: string; cargo: string } | null;
   formalizacao?: FormalizacaoPainel;
   instrumentos: {
-    tipo: "ATA" | "CONTRATO";
+    /** TERMO (E7c): leilão → termo de arrematação; concurso → termo de premiação e cessão de direitos. */
+    tipo: "ATA" | "CONTRATO" | "TERMO";
+    rotulo?: string;
+    termos?: Array<{ id: string; titulo: string; fornecedor_razao_social: string | null; valor: number; gerado_em: string | null; status?: string }>;
     contratos: Array<{ id: string; numero_contrato: string; fornecedor_razao_social: string; valor_global: number; status: string; data_assinatura: string | null; prazo_execucao_dias: number | null }>;
     atas: Array<{ id: string; numero_ata: string; fornecedor_razao_social: string; valor_total: number; status: string }>;
   };
@@ -287,7 +290,9 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
     : painel.valorAdjudicado > 0
       ? painel.valorAdjudicado
       : painel.valorPrevia ?? 0;
-  const semInstrumento = homologada && painel.instrumentos.contratos.length === 0 && painel.instrumentos.atas.length === 0;
+  const termos = painel.instrumentos.termos ?? [];
+  const ehTermo = painel.instrumentos.tipo === "TERMO";
+  const semInstrumento = homologada && painel.instrumentos.contratos.length === 0 && painel.instrumentos.atas.length === 0 && (!ehTermo || termos.every((t) => !t.gerado_em));
   const form = painel.formalizacao;
 
   return (
@@ -481,8 +486,21 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
         {semInstrumento && (
           <Button variant="outline" className="w-full" onClick={gerarInstrumentos} disabled={executando}>
             {executando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {painel.licitacao.srp ? "Gerar ata de registro de preços" : "Gerar contrato(s)"}
+            {ehTermo ? `Gerar ${painel.instrumentos.rotulo?.toLowerCase() ?? "termo"}` : painel.licitacao.srp ? "Gerar ata de registro de preços" : "Gerar contrato(s)"}
           </Button>
+        )}
+
+        {homologada && ehTermo && termos.some((t) => t.gerado_em) && (
+          <div className="space-y-1 text-sm">
+            {termos.filter((t) => t.gerado_em).map((t) => (
+              <div key={t.id} className="flex justify-between gap-2 rounded border px-2 py-1">
+                <span>
+                  {t.titulo} — {t.fornecedor_razao_social ?? "—"}
+                </span>
+                <span className="text-slate-500">{fmt(t.valor)}{t.status ? ` · ${t.status.toLowerCase().replace(/_/g, " ")}` : ""}</span>
+              </div>
+            ))}
+          </div>
         )}
 
         {homologada && (painel.instrumentos.contratos.length > 0 || painel.instrumentos.atas.length > 0) && (
@@ -515,8 +533,10 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
             <DialogTitle>{dialogo === "homologar" ? "Homologar o resultado" : "Adjudicar o objeto"}</DialogTitle>
             <DialogDescription>
               {dialogo === "homologar"
-                ? `Ato da autoridade competente (art. 71 IV), registrado por você. ${painel.licitacao.srp ? "Será gerada a ata de registro de preços." : "Será gerado um contrato por vencedor, aguardando as assinaturas."}`
-                : "Cada unidade será adjudicada ao licitante habilitado, pelos valores da proposta adequada aceita (art. 71 IV; IN SEGES 73/2022, art. 29)."}
+                ? `Ato da autoridade competente (art. 71 IV), registrado por você. ${ehTermo ? `Será gerado o ${painel.instrumentos.rotulo?.toLowerCase() ?? "termo"}.` : painel.licitacao.srp ? "Será gerada a ata de registro de preços." : "Será gerado um contrato por vencedor, aguardando as assinaturas."}`
+                : ehTermo
+                  ? "Cada unidade será adjudicada ao vencedor declarado (arrematação paga no leilão; trabalho vencedor qualificado no concurso), pelo valor do resultado."
+                  : "Cada unidade será adjudicada ao licitante habilitado, pelos valores da proposta adequada aceita (art. 71 IV; IN SEGES 73/2022, art. 29)."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 text-sm">

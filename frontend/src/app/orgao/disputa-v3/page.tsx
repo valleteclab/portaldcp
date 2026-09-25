@@ -32,6 +32,7 @@ import { HabilitacaoPanel } from '@/components/disputa-v3/HabilitacaoPanel'
 import { DesempatePanel } from '@/components/disputa-v3/DesempatePanel'
 import { BeneficioMeEppPanel } from '@/components/disputa-v3/BeneficioMeEppPanel'
 import { NegociacaoPanel } from '@/components/disputa-v3/NegociacaoPanel'
+import { LeilaoPainel } from '@/components/modalidades/LeilaoPainel'
 import {
   descricaoFaseItem,
   formatarMoeda,
@@ -660,7 +661,15 @@ export default function DisputaV3OrgaoPage() {
                   {contexto?.licitacaoId && (etapaCodigo === 'ABERTURA' || etapaCodigo === 'ANALISE_PROPOSTAS') && (
                     <HabilitacaoPanel licitacaoId={contexto.licitacaoId} somentePreviaInversao />
                   )}
-                  {etapaCodigo === 'ACEITACAO' && sessaoId ? (
+                  {contexto?.criterioJulgamento === 'MAIOR_LANCE' && contexto?.licitacaoId && sessaoId && ['ACEITACAO', 'RECURSOS'].includes(etapaCodigo) ? (
+                    /* LEILÃO (art. 31 §4º; E7c): sem aceitação nem habilitação — arrematantes
+                       declarados, fase recursal, pagamento e resultado */
+                    <div className="space-y-4">
+                      <LeilaoPainel licitacaoId={contexto.licitacaoId} modo="sala" />
+                      <RecursosPanel sessaoId={sessaoId} />
+                      <ResultadoPanel licitacaoId={contexto.licitacaoId} />
+                    </div>
+                  ) : etapaCodigo === 'ACEITACAO' && sessaoId ? (
                     /* =============================================
                        PAINEL DE ACEITAÇÃO DA PROPOSTA (IN 73/2022 art. 29)
                        ============================================= */

@@ -1,192 +1,317 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
+  ForbiddenException,
   Get,
+  NotFoundException,
+  Param,
+  Patch,
   Post,
   Put,
-  Patch,
-  Param,
-  Body,
   Query,
-  ForbiddenException,
-  NotFoundException,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { CredenciamentoService } from './credenciamento.service';
-import { Credenciamento, StatusCredenciamento, StatusCredenciado, TipoCredenciamento } from './entities/credenciamento.entity';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Public } from '../auth/public.decorator';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
-import { AtorAtual, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
-import { ehOrgao } from '../auth/acesso/ator';
+import { AtorAtual, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
+import { ehFornecedor, ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
-import { orgaoSemSegredos } from '../licitacoes/licitacao-visao.util';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
+import { HabilitacaoService } from '../habilitacao/habilitacao.service';
+import { CredenciamentoService } from './credenciamento.service';
+import type { ArquivoRecurso, DadosCredenciamento, PedidoContratacao } from './credenciamento.service';
 
 /**
- * AUTORIZAÇÃO (E1a):
- *  - lista interna: só os credenciamentos do órgão do token (?orgaoId= só admin);
- *  - credenciamento por id (não público), estatísticas, credenciados e atos
- *    (alterar, publicar, iniciar inscrições, encerrar, analisar inscrito):
- *    somente o órgão DONO (leitura de outro órgão → 404; ato → 403);
- *  - inscrição: só fornecedor, com identidade (id, CNPJ, razão social) do token/cadastro;
- *  - publicos/*: inalterados (dados públicos).
+ * CREDENCIAMENTO COMO PROCESSO (plano E7b) — rotas em /api/credenciamento.
+ * O `:id` do credenciamento é o id da LICITAÇÃO (modalidade CREDENCIAMENTO).
+ *
+ * AUTORIZAÇÃO (camada E1a):
+ *  - cadastro, painel, análise, contratações e descredenciamento: só o órgão
+ *    DONO (leitura de outro órgão → 404; ato → 403);
+ *  - inscrição, "minha inscrição", recurso e denúncia: só FORNECEDOR, sempre o
+ *    do TOKEN; inscrição de outro → 404. Documentos da inscrição: rotas da
+ *    habilitação (/api/habilitacao — envio, entrega, diligência);
+ *  - publicos/*: só credenciamentos DIVULGADOS (fase externa), com o edital,
+ *    as regras, a tabela de valores, as exigências e a relação de credenciados.
  */
 @Controller('credenciamento')
 export class CredenciamentoController {
   constructor(
     private readonly service: CredenciamentoService,
+    private readonly habilitacao: HabilitacaoService,
     private readonly acesso: AcessoLicitacaoService,
   ) {}
 
-  /** Órgão das listas: o do token; admin da plataforma filtra por ?orgaoId=. */
   private orgaoDaLista(ator: Ator, orgaoIdParam?: string): string {
     if (ator?.admin && orgaoIdParam) return orgaoIdParam;
     if (ehOrgao(ator)) return ator.orgaoId;
     throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
   }
 
-  /** Remove credenciais do órgão relacionado (senha, SMTP, PNCP...). */
-  private semSegredos<T extends { orgao?: any }>(c: T): T {
-    if (c?.orgao) c.orgao = orgaoSemSegredos(c.orgao);
-    return c;
+  private async donoDaInscricao(ator: Ator, inscricaoId: string, modo: 'leitura' | 'escrita' = 'escrita') {
+    const dono = await this.service.donoDaInscricao(inscricaoId);
+    if (!dono) throw new NotFoundException('Inscrição não encontrada');
+    await this.acesso.assertOrgaoDoCredenciamento(ator, dono.licitacaoId, modo);
+    return dono;
   }
 
-  // ============ CRUD ============
+  // ============ CADASTRO (órgão) ============
 
   @Post()
   @SomenteOrgao()
-  async criar(@Body() dados: Partial<Credenciamento>, @AtorAtual() ator: Ator) {
-    // Órgão só cria no próprio nome (admin da plataforma escolhe o órgão)
-    if (!ator.admin) {
-      if (dados.orgao_id && dados.orgao_id !== ator.orgaoId) {
-        throw new ForbiddenException('Acesso negado: não é possível criar credenciamento para outro órgão');
-      }
-      dados.orgao_id = ator.orgaoId!;
+  async criar(@Body() dados: DadosCredenciamento & { orgao_id?: string }, @AtorAtual() ator: Ator) {
+    let orgaoId = ator.orgaoId;
+    if (ator.admin) orgaoId = dados?.orgao_id ?? null;
+    else if (dados?.orgao_id && dados.orgao_id !== ator.orgaoId) {
+      throw new ForbiddenException('Acesso negado: não é possível criar credenciamento para outro órgão');
     }
-    return this.service.criar(dados);
+    if (!orgaoId) throw new BadRequestException('Órgão não identificado');
+    return this.service.criar(dados || {}, orgaoId, atorTransicaoDe(ator));
   }
 
   @Get()
   @SomenteOrgao()
-  async findAll(
-    @AtorAtual() ator: Ator,
-    @Query('orgaoId') orgaoIdParam?: string,
-    @Query('status') status?: StatusCredenciamento,
-    @Query('tipo') tipo?: TipoCredenciamento
-  ) {
-    const orgaoId = this.orgaoDaLista(ator, orgaoIdParam);
-    return this.service.findAll({ orgaoId, status, tipo });
+  async listar(@AtorAtual() ator: Ator, @Query('orgaoId') orgaoIdParam?: string, @Query('status') status?: string) {
+    return this.service.listarDoOrgao(this.orgaoDaLista(ator, orgaoIdParam), { status });
   }
+
+  // ============ PÚBLICO ============
 
   @Public()
   @Get('publicos')
-  async findPublicos(
-    @Query('tipo') tipo?: TipoCredenciamento,
-    @Query('uf') uf?: string
-  ) {
-    return this.service.findPublicos({ tipo, uf });
+  async publicos(@Query('tipo') tipo?: string, @Query('uf') uf?: string) {
+    return this.service.listarPublicos({ tipo, uf });
   }
 
   @Public()
   @Get('publicos/:id')
-  async findPublicoById(@Param('id') id: string) {
+  async publico(@Param('id') id: string) {
     if (!ehUuid(id)) throw new NotFoundException('Credenciamento não encontrado');
-    return this.service.findPublicoById(id);
+    return this.service.publicoPorId(id);
   }
+
+  // ============ FORNECEDOR (identidade do token) ============
+
+  @Get('fornecedor/minhas')
+  @SomenteFornecedor()
+  async minhas(@AtorAtual() ator: Ator) {
+    return this.service.minhasInscricoes(this.acesso.fornecedorDoToken(ator));
+  }
+
+  @Post(':id/inscrever')
+  @SomenteFornecedor()
+  async inscrever(@Param('id') id: string, @Body() dados: { fornecedor_id?: string }, @AtorAtual() ator: Ator) {
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, dados?.fornecedor_id);
+    if (!ehUuid(id)) throw new NotFoundException('Credenciamento não encontrado');
+    return this.service.inscrever(id, fornecedorId);
+  }
+
+  @Get(':id/minha-inscricao')
+  @SomenteFornecedor()
+  async minhaInscricao(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    if (!ehUuid(id)) throw new NotFoundException('Credenciamento não encontrado');
+    return this.service.minhaInscricao(id, this.acesso.fornecedorDoToken(ator));
+  }
+
+  /** Razões do recurso (art. 165 I "a"): texto + arquivo opcional (multipart `arquivo`), só o próprio interessado. */
+  @Post('inscricoes/:inscricaoId/recurso')
+  @SomenteFornecedor()
+  @UseInterceptors(FileInterceptor('arquivo', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
+  async recorrer(
+    @Param('inscricaoId') inscricaoId: string,
+    @Body() body: { razoes?: string },
+    @UploadedFile() arquivo: ArquivoRecurso | undefined,
+    @AtorAtual() ator: Ator,
+  ) {
+    if (!ehUuid(inscricaoId)) throw new NotFoundException('Inscrição não encontrada');
+    return this.service.recorrer(inscricaoId, this.acesso.fornecedorDoToken(ator), body?.razoes, arquivo);
+  }
+
+  /** Arquivo das razões: órgão dono ou o próprio recorrente; público nunca. */
+  @Get('inscricoes/:inscricaoId/recurso/arquivo')
+  @OrgaoOuFornecedor()
+  async arquivoDoRecurso(@Param('inscricaoId') inscricaoId: string, @AtorAtual() ator: Ator) {
+    const dono = await this.service.donoDaInscricao(inscricaoId);
+    if (!dono) throw new NotFoundException('Inscrição não encontrada');
+    if (ehFornecedor(ator)) {
+      if (ator.fornecedorId !== dono.fornecedorId) throw new NotFoundException('Inscrição não encontrada');
+    } else {
+      await this.acesso.assertOrgaoDoCredenciamento(ator, dono.licitacaoId, 'leitura');
+    }
+    const a = await this.service.arquivoDoRecurso(inscricaoId);
+    return new StreamableFile(a.conteudo, { type: a.mime, disposition: `attachment; filename="${encodeURIComponent(a.nome)}"` });
+  }
+
+  @Post('inscricoes/:inscricaoId/denunciar')
+  @SomenteFornecedor()
+  async denunciar(@Param('inscricaoId') inscricaoId: string, @Body() body: { motivo?: string }, @AtorAtual() ator: Ator) {
+    if (!ehUuid(inscricaoId)) throw new NotFoundException('Inscrição não encontrada');
+    return this.service.denunciar(inscricaoId, this.acesso.fornecedorDoToken(ator), body?.motivo);
+  }
+
+  // ============ PROCESSO (órgão dono) ============
 
   @Get(':id')
   @SomenteOrgao()
-  async findOne(@Param('id') id: string, @AtorAtual() ator: Ator) {
+  async detalhe(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDoCredenciamento(ator, id, 'leitura');
-    return this.semSegredos(await this.service.findOne(id));
+    return this.service.visaoOrgao(id);
   }
 
   @Get(':id/estatisticas')
   @SomenteOrgao()
-  async getEstatisticas(@Param('id') id: string, @AtorAtual() ator: Ator) {
+  async estatisticas(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDoCredenciamento(ator, id, 'leitura');
-    return this.service.getEstatisticas(id);
+    return this.service.estatisticas(id);
   }
 
   @Put(':id')
   @SomenteOrgao()
-  async atualizar(@Param('id') id: string, @Body() dados: Partial<Credenciamento>, @AtorAtual() ator: Ator) {
+  async atualizar(@Param('id') id: string, @Body() dados: DadosCredenciamento, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDoCredenciamento(ator, id);
-    // Não muda de órgão nem mexe nos inscritos por edição
-    const { orgao_id: _orgaoId, orgao: _orgao, credenciados: _cred, ...resto } = (dados || {}) as any;
-    return this.semSegredos(await this.service.atualizar(id, resto));
+    const { orgao_id: _o, orgao: _org, credenciados: _c, ...resto } = (dados || {}) as any;
+    return this.service.atualizar(id, resto);
   }
 
   @Patch(':id/publicar')
   @SomenteOrgao()
-  async publicar(@Param('id') id: string, @AtorAtual() ator: Ator) {
+  async publicar(@Param('id') id: string, @Body() dados: Partial<DadosCredenciamento>, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDoCredenciamento(ator, id);
-    return this.semSegredos(await this.service.publicar(id));
+    return this.service.publicar(id, dados, atorTransicaoDe(ator));
   }
 
   @Patch(':id/iniciar-inscricoes')
   @SomenteOrgao()
   async iniciarInscricoes(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDoCredenciamento(ator, id);
-    return this.semSegredos(await this.service.iniciarInscricoes(id));
+    return this.service.iniciarInscricoes(id, atorTransicaoDe(ator));
   }
 
   @Patch(':id/encerrar')
   @SomenteOrgao()
   async encerrar(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.acesso.assertOrgaoDoCredenciamento(ator, id);
-    return this.semSegredos(await this.service.encerrar(id));
-  }
-
-  // ============ CREDENCIADOS ============
-
-  /** Inscrição do fornecedor: identidade SEMPRE do token/cadastro (fornecedor_id do corpo divergente → 403). */
-  @Post(':id/inscrever')
-  @SomenteFornecedor()
-  async inscreverFornecedor(
-    @Param('id') id: string,
-    @Body() dados: {
-      fornecedor_id?: string;
-      fornecedor_cnpj?: string;
-      fornecedor_razao_social?: string;
-      documentos_enviados?: any;
-    },
-    @AtorAtual() ator: Ator,
-  ) {
-    const fornecedorId = this.acesso.fornecedorDoToken(ator, dados?.fornecedor_id);
-    if (!ehUuid(id)) throw new NotFoundException('Credenciamento não encontrado');
-    const cadastro = await this.service.dadosDoFornecedor(fornecedorId);
-    return this.service.inscreverFornecedor(id, {
-      fornecedor_id: fornecedorId,
-      fornecedor_cnpj: cadastro?.cpf_cnpj ?? dados?.fornecedor_cnpj ?? '',
-      fornecedor_razao_social: cadastro?.razao_social ?? dados?.fornecedor_razao_social ?? '',
-      documentos_enviados: dados?.documentos_enviados,
-    });
+    return this.service.encerrar(id, atorTransicaoDe(ator));
   }
 
   @Get(':id/credenciados')
   @SomenteOrgao()
-  async findCredenciados(
-    @Param('id') id: string,
-    @AtorAtual() ator: Ator,
-    @Query('status') status?: StatusCredenciado
-  ) {
+  async credenciados(@Param('id') id: string, @AtorAtual() ator: Ator, @Query('status') status?: string) {
     await this.acesso.assertOrgaoDoCredenciamento(ator, id, 'leitura');
-    return this.service.findCredenciados(id, status);
+    const v = await this.service.visaoOrgao(id);
+    return status ? v.inscricoes.filter((i: any) => i.status === status) : v.inscricoes;
   }
 
-  @Patch('credenciados/:credenciadoId/analisar')
+  // ============ ANÁLISE DAS INSCRIÇÕES (órgão dono) ============
+
+  @Get('inscricoes/:inscricaoId/habilitacao')
   @SomenteOrgao()
-  async analisarCredenciado(
-    @Param('credenciadoId') credenciadoId: string,
-    @Body() dados: {
-      status: StatusCredenciado;
-      parecer: string;
-      analista_nome: string;
-      motivo_reprovacao?: string;
-    },
+  async habilitacaoDaInscricao(@Param('inscricaoId') inscricaoId: string, @AtorAtual() ator: Ator) {
+    const dono = await this.donoDaInscricao(ator, inscricaoId, 'leitura');
+    const habilitacaoId = await this.service.habilitacaoDaInscricao(inscricaoId);
+    return {
+      inscricaoId,
+      licitacaoId: dono.licitacaoId,
+      habilitacao: habilitacaoId ? await this.habilitacao.visaoPorId(habilitacaoId, 'ORGAO') : null,
+    };
+  }
+
+  @Post('inscricoes/:inscricaoId/deferir')
+  @SomenteOrgao()
+  async deferir(@Param('inscricaoId') inscricaoId: string, @Body() body: { observacao?: string }, @AtorAtual() ator: Ator) {
+    await this.donoDaInscricao(ator, inscricaoId);
+    return this.service.deferir(inscricaoId, body?.observacao, atorTransicaoDe(ator));
+  }
+
+  @Post('inscricoes/:inscricaoId/indeferir')
+  @SomenteOrgao()
+  async indeferir(@Param('inscricaoId') inscricaoId: string, @Body() body: { motivo?: string }, @AtorAtual() ator: Ator) {
+    await this.donoDaInscricao(ator, inscricaoId);
+    return this.service.indeferir(inscricaoId, body?.motivo, atorTransicaoDe(ator));
+  }
+
+  /** Reconsideração pelo agente (art. 165 §2º): reconsidera (provido) ou mantém e encaminha à autoridade. */
+  @Post('inscricoes/:inscricaoId/recurso/reconsiderar')
+  @SomenteOrgao()
+  async reconsiderar(@Param('inscricaoId') inscricaoId: string, @Body() body: { reconsiderar?: boolean; fundamentacao?: string }, @AtorAtual() ator: Ator) {
+    await this.donoDaInscricao(ator, inscricaoId);
+    return this.service.reconsiderarRecurso(inscricaoId, body || {}, atorTransicaoDe(ator));
+  }
+
+  /** Decisão da autoridade superior (art. 165 §2º) sobre o recurso mantido pelo agente. */
+  @Post('inscricoes/:inscricaoId/recurso/decisao-autoridade')
+  @SomenteOrgao()
+  async decisaoAutoridade(
+    @Param('inscricaoId') inscricaoId: string,
+    @Body() body: { provido?: boolean; fundamentacao?: string; nome?: string; cargo?: string },
     @AtorAtual() ator: Ator,
   ) {
-    const credenciamentoId = await this.service.credenciamentoIdDoCredenciado(credenciadoId);
-    if (!credenciamentoId) throw new NotFoundException('Credenciado não encontrado');
-    await this.acesso.assertOrgaoDoCredenciamento(ator, credenciamentoId);
-    return this.service.analisarCredenciado(credenciadoId, dados);
+    await this.donoDaInscricao(ator, inscricaoId);
+    return this.service.decidirRecursoAutoridade(inscricaoId, body || {}, ator);
+  }
+
+  @Post('inscricoes/:inscricaoId/descredenciar')
+  @SomenteOrgao()
+  async descredenciar(@Param('inscricaoId') inscricaoId: string, @Body() body: { motivo?: string; iniciativa?: string }, @AtorAtual() ator: Ator) {
+    await this.donoDaInscricao(ator, inscricaoId);
+    return this.service.descredenciar(inscricaoId, body || {}, atorTransicaoDe(ator));
+  }
+
+  /** Rota antiga da tela: APROVADO → deferir; REPROVADO → indeferir (motivo). */
+  @Patch('credenciados/:credenciadoId/analisar')
+  @SomenteOrgao()
+  async analisarLegado(
+    @Param('credenciadoId') inscricaoId: string,
+    @Body() dados: { status?: string; parecer?: string; motivo_reprovacao?: string },
+    @AtorAtual() ator: Ator,
+  ) {
+    await this.donoDaInscricao(ator, inscricaoId);
+    if (dados?.status === 'APROVADO') return this.service.deferir(inscricaoId, dados.parecer, atorTransicaoDe(ator));
+    if (dados?.status === 'REPROVADO') return this.service.indeferir(inscricaoId, dados.motivo_reprovacao || dados.parecer, atorTransicaoDe(ator));
+    throw new BadRequestException('Decisão: APROVADO (deferir) ou REPROVADO (indeferir, com motivo)');
+  }
+
+  // ============ CONTRATAÇÕES (órgão dono) ============
+
+  @Get(':id/contratacoes')
+  @SomenteOrgao()
+  async contratacoes(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoCredenciamento(ator, id, 'leitura');
+    return this.service.listarContratacoes(id);
+  }
+
+  @Post(':id/contratacoes')
+  @SomenteOrgao()
+  async contratar(@Param('id') id: string, @Body() pedido: PedidoContratacao, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoCredenciamento(ator, id);
+    return this.service.contratar(id, pedido || {}, ator);
+  }
+
+  @Post('contratacoes/:contratacaoId/contrato')
+  @SomenteOrgao()
+  async gerarContrato(@Param('contratacaoId') contratacaoId: string, @AtorAtual() ator: Ator) {
+    const dono = await this.service.donoDaContratacao(contratacaoId);
+    if (!dono) throw new NotFoundException('Contratação não encontrada');
+    await this.acesso.assertOrgaoDoCredenciamento(ator, dono.licitacaoId);
+    return this.service.gerarContrato(contratacaoId, atorTransicaoDe(ator));
+  }
+
+  /** Conferência do sorteio: órgão dono ou fornecedor inscrito no credenciamento. */
+  @Get('contratacoes/:contratacaoId/sorteio')
+  @OrgaoOuFornecedor()
+  async conferirSorteio(@Param('contratacaoId') contratacaoId: string, @AtorAtual() ator: Ator) {
+    const dono = await this.service.donoDaContratacao(contratacaoId);
+    if (!dono) throw new NotFoundException('Contratação não encontrada');
+    if (ehFornecedor(ator)) {
+      if (!(await this.service.fornecedorInscrito(dono.licitacaoId, ator.fornecedorId))) throw new NotFoundException('Contratação não encontrada');
+    } else {
+      await this.acesso.assertOrgaoDoCredenciamento(ator, dono.licitacaoId, 'leitura');
+    }
+    return this.service.conferirSorteioDaContratacao(contratacaoId);
   }
 }

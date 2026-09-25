@@ -76,7 +76,11 @@ export const MODALIDADES_ART55: ModalidadeLicitacao[] = [
 ];
 
 /** Modalidades cujo PUBLICAR exige o edital anexado (instrumento convocatório). */
-export const MODALIDADES_COM_EDITAL = MODALIDADES_ART55;
+export const MODALIDADES_COM_EDITAL: ModalidadeLicitacao[] = [
+  ...MODALIDADES_ART55,
+  // Edital de chamamento público (art. 79 par. único I) — plano E7b; sem prazo do art. 55
+  ModalidadeLicitacao.CREDENCIAMENTO,
+];
 
 export const DIAS_UTEIS_DISPENSA = 3;
 

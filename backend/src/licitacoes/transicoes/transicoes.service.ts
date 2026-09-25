@@ -40,8 +40,11 @@ import {
   editalVigenteSql,
   impugnacoesSemRetificacaoSql,
   intencaoExtincaoAbertaSql,
+  interessadosDaLicitacaoSql,
   propostasAguardandoConfirmacaoSql,
 } from '../../publicacao/publicacao.sql';
+import { estadoEditalCredenciamentoSql } from '../../credenciamento/credenciamento.sql';
+import { pendenciasModalidadeSql } from '../../modalidades-especiais/pendencias.sql';
 
 /**
  * ============================================================================
@@ -367,6 +370,11 @@ export class TransicoesService {
       impugnacoesSemRetificacao: () => impugnacoesSemRetificacaoSql(manager, licitacaoId),
       propostasAguardandoConfirmacao: () => propostasAguardandoConfirmacaoSql(manager, licitacaoId),
       intencaoExtincaoAberta: () => intencaoExtincaoAbertaSql(manager, licitacaoId),
+      interessadosExtincao: async () => (await interessadosDaLicitacaoSql(manager, licitacaoId)).length,
+      // Credenciamento (E7b)
+      credenciamento: () => estadoEditalCredenciamentoSql(manager, licitacaoId),
+      // Leilão, concurso e diálogo competitivo (E7c)
+      pendenciasModalidade: (chave, contexto) => pendenciasModalidadeSql(manager, licitacaoId, chave, contexto ?? {}),
       instrucaoProcesso: async (etapa) => {
         // Resolução tardia: evita ciclo de módulos (a fase-interna depende
         // deste serviço para as próprias transições).

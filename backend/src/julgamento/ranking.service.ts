@@ -9,6 +9,7 @@ import type { AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
 import { registrarLicitantesDaUnidade } from './licitantes-unidade.sql';
 import { ehCriterioPontuado, montarRankingPontuado } from './criterios-julgamento';
 import { criterioDaLicitacao, dadosPontuacao } from './julgamento-tecnico.sql';
+import { ehConcursoSql, ofertasDoConcursoSql } from '../concurso/concurso.sql';
 import {
   Desempatador,
   EntradaRanking,
@@ -188,7 +189,7 @@ export class RankingService {
   async sincronizar(u: UnidadeJulgamento, manager?: EntityManager): Promise<void> {
     if (!u.encerrada) return;
     const m = this.m(manager);
-    const ofertas = await this.disputa.rankingDoItem(u.id, m);
+    const ofertas = await this.ofertasDaUnidade(u, m);
     if (!ofertas.length) return;
     const direcao = await this.direcao(u.licitacaoId, m);
     const ordenado = await montarRanking(ofertas, new Map(), direcao, { unidadeId: u.id, licitacaoId: u.licitacaoId });
@@ -200,13 +201,23 @@ export class RankingService {
     });
   }
 
+  /**
+   * Ofertas da unidade: as do motor de disputa (lances) ou, no CONCURSO (E7c
+   * — sem lances), os trabalhos inscritos, que concorrem pelo prêmio fixo e
+   * são ordenados pela nota técnica publicada (ranking pontuado).
+   */
+  private async ofertasDaUnidade(u: UnidadeJulgamento, m: EntityManager) {
+    if (u.tipo === 'ITEM' && (await ehConcursoSql(m, u.licitacaoId))) return ofertasDoConcursoSql(m, u.id);
+    return this.disputa.rankingDoItem(u.id, m);
+  }
+
   /** Ranking ÚNICO da unidade (ver cabeçalho). */
   async ranking(u: UnidadeJulgamento | string, manager?: EntityManager): Promise<EntradaRanking[]> {
     const m = this.m(manager);
     const unidade = typeof u === 'string' ? await this.unidade(u, m) : u;
     if (!unidade) return [];
     await this.sincronizar(unidade, m);
-    const ofertas = await this.disputa.rankingDoItem(unidade.id, m);
+    const ofertas = await this.ofertasDaUnidade(unidade, m);
     const situacoes = await this.situacoes(unidade.id, m);
     // Estratégia por critério (art. 33): técnica e preço, melhor técnica e maior
     // retorno ordenam pela pontuação (criterios-julgamento.ts); os demais, pelo valor.

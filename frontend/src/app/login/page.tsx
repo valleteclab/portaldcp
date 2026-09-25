@@ -62,8 +62,9 @@ export default function LoginPage() {
         // Cadastro incompleto, redireciona para completar
         router.push("/fornecedor/cadastro-sicaf")
       } else {
-        // Cadastro completo, vai para o dashboard
-        router.push("/fornecedor")
+        // Cadastro completo: volta para onde estava (ex.: inscrição em credenciamento) ou o dashboard
+        const destino = new URLSearchParams(window.location.search).get("redirect")
+        router.push(destino && destino.startsWith("/") && !destino.startsWith("//") ? destino : "/fornecedor")
       }
 
     } catch (err: any) {

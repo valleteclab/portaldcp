@@ -10,6 +10,7 @@ import { licitacaoParaOrgao, licitacaoParaPublico } from '../licitacoes/licitaca
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { beneficioDaUnidadeSql } from '../julgamento/me-epp/beneficio-mpe.sql';
 import { enquadramentoMpe, motivoDeclaracaoIncompativel, motivoForaDaExclusividade } from '../julgamento/me-epp/regras-me-epp';
+import { motivoPropostaPelaModalidade } from '../modalidades-especiais/pendencias.sql';
 
 /** Campos do fornecedor que nunca saem nas respostas de proposta. */
 const SEGREDOS_FORNECEDOR = ['senha', 'api_key_hash', 'spedy_api_key', 'spedy_company_id'];
@@ -131,6 +132,16 @@ export class PropostasService {
         throw new BadRequestException('Item informado não pertence a esta licitação');
       }
     }
+
+    // Leilão (lance inicial ≥ preço mínimo), concurso (inscrição pelo módulo) e
+    // diálogo (só pré-selecionados na fase competitiva) — plano E7c
+    const motivoModalidade = await motivoPropostaPelaModalidade(
+      this.propostaRepository.manager,
+      createDto.licitacao_id,
+      fornecedorId,
+      (createDto.itens || []).map((i) => ({ item_licitacao_id: i.item_licitacao_id, valor_unitario: Number(i.valor_unitario) })),
+    );
+    if (motivoModalidade) throw new BadRequestException(motivoModalidade);
 
     // ME/EPP (LC 123/2006; Lei 14.133 art. 4º): o porte vem do CADASTRO (retratado na
     // proposta), nunca do corpo; a declaração precisa ser compatível com ele, e unidade
@@ -551,6 +562,14 @@ export class PropostasService {
     await this.validarAntesAberturaSessao(item.proposta.licitacao_id);
 
     if (dados.valor_unitario !== undefined) {
+      // Leilão: o lance inicial continua ≥ preço mínimo (E7c)
+      const motivoModalidade = await motivoPropostaPelaModalidade(
+        this.propostaRepository.manager,
+        item.proposta.licitacao_id,
+        item.proposta.fornecedor_id,
+        [{ item_licitacao_id: item.item_licitacao_id, valor_unitario: Number(dados.valor_unitario) }],
+      );
+      if (motivoModalidade) throw new BadRequestException(motivoModalidade);
       item.valor_unitario = dados.valor_unitario;
       // Recalcula valor total do item
       const quantidade = item.item_licitacao?.quantidade || 0;

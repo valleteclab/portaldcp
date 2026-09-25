@@ -27,6 +27,9 @@ import {
   excluirPropostasNaoConfirmadasSql,
   marcarEditalPublicadoSql,
 } from '../../publicacao/publicacao.sql';
+import { montarFluxosEspeciais } from './definicoes-especiais';
+import { pendenciasEditalCredenciamento } from '../../credenciamento/regras-credenciamento';
+import { arquivarInscricoesPendentesSql } from '../../credenciamento/credenciamento.sql';
 import {
   AtoLicitacao,
   ContextoTransicao,
@@ -59,7 +62,13 @@ import {
 
 const CONTRATACAO_DIRETA = [ModalidadeLicitacao.DISPENSA_ELETRONICA, ModalidadeLicitacao.INEXIGIBILIDADE];
 
-const ehContratacaoDireta = (ctx: ContextoTransicao) => CONTRATACAO_DIRETA.includes(ctx.licitacao.modalidade);
+/**
+ * Instrução em etapa única (art. 72): contratação direta e, no plano E7b, o
+ * CREDENCIAMENTO — cujas contratações são inexigibilidade (art. 74 IV); a
+ * fase interna é a instrução da contratação direta + o edital de chamamento.
+ */
+const ehContratacaoDireta = (ctx: ContextoTransicao) =>
+  CONTRATACAO_DIRETA.includes(ctx.licitacao.modalidade) || ctx.licitacao.modalidade === ModalidadeLicitacao.CREDENCIAMENTO;
 
 /**
  * GATE DOCUMENTAL ÚNICO DA FASE INTERNA (plano E1.7) — vale para o
@@ -322,14 +331,15 @@ export const excluirPropostasNaoConfirmadas: EfeitoPersistido = async (lic, mana
  */
 export const manifestacaoPreviaAssegurada: Precondicao = async (ctx) => {
   if (!ctx.consultas.intencaoExtincaoAberta) return null;
-  const n = await ctx.consultas.propostasRecebidas();
+  // Interessados = licitantes com proposta e, no credenciamento, inscritos/credenciados (E7b)
+  const n = ctx.consultas.interessadosExtincao ? await ctx.consultas.interessadosExtincao() : await ctx.consultas.propostasRecebidas();
   if (n === 0) return null;
   const tipo = ctx.ato === AtoLicitacao.ANULAR ? 'ANULAR' : 'REVOGAR';
   const verbo = tipo === 'ANULAR' ? 'anular' : 'revogar';
   const i = await ctx.consultas.intencaoExtincaoAberta();
   if (!i || i.tipo !== tipo) {
     return (
-      `Há ${n} licitante(s) interessado(s): antes de ${verbo}, abra o prazo de manifestação prévia (art. 71, §3º, Lei 14.133/2021) ` +
+      `Há ${n} interessado(s) (licitantes/inscritos): antes de ${verbo}, abra o prazo de manifestação prévia (art. 71, §3º, Lei 14.133/2021) ` +
       `— ato "Intenção de ${verbo}".`
     );
   }
@@ -991,15 +1001,161 @@ const FLUXO_INEXIGIBILIDADE: DefinicaoAto[] = [
   ...ATOS_SITUACAO,
 ];
 
+// ---------------------------------------------------------------------------
+// CREDENCIAMENTO (plano E7b — Lei 14.133 arts. 6º XLIII, 78 I, 79 e 74 IV)
+// ---------------------------------------------------------------------------
+
+/** Regras do edital de chamamento configuradas (hipótese × regra, vigência, condições, valor fixado). */
+export const editalCredenciamentoConfigurado: Precondicao = async (ctx) => {
+  if (!ctx.consultas.credenciamento) return null;
+  return pendenciasEditalCredenciamento(await ctx.consultas.credenciamento(), ctx.agora);
+};
+
+/** Encerramento da vigência só no fim do prazo do edital (antes disso: revogar — art. 71). */
+export const fimVigenciaCredenciamentoAlcancado: Precondicao = (ctx) => {
+  const fim = ctx.licitacao.data_fim_acolhimento;
+  if (fim && ctx.agora < new Date(fim)) {
+    return `A vigência do edital de credenciamento vai até ${formatarDataHora(fim)} — para encerrá-lo antes, revogue o credenciamento (art. 71, II).`;
+  }
+  return null;
+};
+
+/** Contratar só durante a vigência (inscrições abertas). */
+export const vigenciaCredenciamentoEmCurso: Precondicao = (ctx) => {
+  const fim = ctx.licitacao.data_fim_acolhimento;
+  if (fim && ctx.agora > new Date(fim)) return 'A vigência do edital de credenciamento terminou — não há novas contratações.';
+  return null;
+};
+
+/**
+ * PUBLICAR do credenciamento: a vigência do edital (configuração) vira o
+ * período de inscrições da licitação (`data_inicio/fim_acolhimento`) — é o
+ * que o PNCP recebe como abertura/encerramento e o que o relógio usa.
+ */
+const gravarVigenciaCredenciamento: EfeitoPersistido = async (lic, manager, ctx) => {
+  const [c] = await manager.query(`SELECT vigencia_inicio, vigencia_fim FROM credenciamento_configuracoes WHERE licitacao_id::text = $1`, [lic.id]);
+  lic.fase_interna_concluida = true;
+  if (!lic.data_publicacao_edital) lic.data_publicacao_edital = ctx.agora;
+  if (c?.vigencia_inicio) {
+    const ini = new Date(c.vigencia_inicio);
+    lic.data_inicio_acolhimento = ini.getTime() < ctx.agora.getTime() ? ctx.agora : ini;
+  }
+  if (c?.vigencia_fim) lic.data_fim_acolhimento = new Date(c.vigencia_fim);
+  (lic as any).data_abertura_sessao = null;
+};
+
+const PUBLICAR_CREDENCIAMENTO: DefinicaoAto = {
+  ato: A.PUBLICAR,
+  rotulo: 'Publicar edital de credenciamento (chamamento público)',
+  de: [F.APROVACAO_INTERNA],
+  para: F.PUBLICADO,
+  requerDados: true,
+  endpoint: 'PATCH /credenciamento/:id/publicar',
+  principal: true,
+  // Sem prazo mínimo do art. 55 (não é modalidade de licitação); inscrições
+  // abertas durante toda a vigência (art. 79 par. único I).
+  precondicoes: [instrucaoCompleta, editalAnexado, editalCredenciamentoConfigurado],
+  efeitosPersistidos: [gravarVigenciaCredenciamento, async (lic, m) => marcarEditalPublicadoSql(m, lic.id)],
+  mensagemForaDaFase: () => 'Conclua a instrução (fase interna) antes de publicar o edital de credenciamento',
+};
+
+const ABRIR_INSCRICOES_CREDENCIAMENTO: DefinicaoAto = {
+  ato: A.INICIAR_ACOLHIMENTO,
+  rotulo: 'Abrir inscrições (início da vigência do edital)',
+  de: [F.PUBLICADO],
+  para: F.ACOLHIMENTO_PROPOSTAS,
+  principal: true,
+  precondicoes: [inicioAcolhimentoAlcancado],
+};
+
+/** Fim da vigência (relógio — LicitacoesSchedulerService): processo CONCLUÍDO, inscrições pendentes arquivadas. */
+const ENCERRAR_VIGENCIA_CREDENCIAMENTO: DefinicaoAto = {
+  ato: A.ENCERRAR_ACOLHIMENTO,
+  rotulo: 'Encerrar vigência do edital de credenciamento',
+  de: [F.PUBLICADO, F.ACOLHIMENTO_PROPOSTAS],
+  situacaoPara: S.CONCLUIDA,
+  precondicoes: [fimVigenciaCredenciamentoAlcancado],
+  efeitosPersistidos: [async (lic, m) => { await arquivarInscricoesPendentesSql(m, lic.id); }],
+};
+
+/** Atos do credenciamento que não mudam a fase (trava + histórico + evento). Só pelo CredenciamentoService. */
+const atoDoCredenciamento = (ato: AtoLicitacao, rotulo: string, extra: Partial<DefinicaoAto> = {}): DefinicaoAto => ({
+  ato,
+  rotulo,
+  de: [F.PUBLICADO, F.ACOLHIMENTO_PROPOSTAS],
+  somenteSistema: true,
+  requerDados: true,
+  ...extra,
+});
+
+const FLUXO_CREDENCIAMENTO: DefinicaoAto[] = [
+  ...ATOS_ETAPAS_INTERNAS,
+  CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA,
+  PUBLICAR_CREDENCIAMENTO,
+  CANCELAR_PUBLICACAO,
+  ABRIR_INSCRICOES_CREDENCIAMENTO,
+  ENCERRAR_VIGENCIA_CREDENCIAMENTO,
+  atoDoCredenciamento(A.DEFERIR_CREDENCIAMENTO, 'Deferir inscrição (credenciar)', { endpoint: 'POST /credenciamento/inscricoes/:id/deferir' }),
+  atoDoCredenciamento(A.INDEFERIR_CREDENCIAMENTO, 'Indeferir inscrição', { requerMotivo: true, endpoint: 'POST /credenciamento/inscricoes/:id/indeferir' }),
+  atoDoCredenciamento(A.DECIDIR_RECURSO_CREDENCIAMENTO, 'Decidir recurso contra indeferimento (art. 165)', {
+    requerMotivo: true,
+    endpoint: 'POST /credenciamento/inscricoes/:id/recurso/decidir',
+  }),
+  atoDoCredenciamento(A.CONTRATAR_CREDENCIADO, 'Contratar credenciado (distribuição da demanda — art. 74 IV)', {
+    de: [F.ACOLHIMENTO_PROPOSTAS],
+    endpoint: 'POST /credenciamento/:id/contratacoes',
+    precondicoes: [vigenciaCredenciamentoEmCurso],
+  }),
+  atoDoCredenciamento(A.DESCREDENCIAR, 'Descredenciar / denúncia (art. 79, parágrafo único, VI)', {
+    requerMotivo: true,
+    endpoint: 'POST /credenciamento/inscricoes/:id/descredenciar',
+  }),
+  SUSPENDER,
+  RETOMAR,
+  INTENCAO_REVOGAR,
+  REVOGAR,
+  INTENCAO_ANULAR,
+  ANULAR,
+];
+
+/**
+ * Leilão, concurso e diálogo competitivo (plano E7c): mesmos atos do rito
+ * completo + atos/pré-condições próprios (`definicoes-especiais.ts`).
+ */
+const ESPECIAIS = montarFluxosEspeciais({
+  etapasInternas: ATOS_ETAPAS_INTERNAS,
+  concluirFaseInterna: CONCLUIR_FASE_INTERNA_RITO_COMPLETO,
+  publicar: PUBLICAR,
+  cancelarPublicacao: CANCELAR_PUBLICACAO,
+  retificarEdital: RETIFICAR_EDITAL,
+  iniciarAcolhimento: INICIAR_ACOLHIMENTO,
+  encerrarAcolhimento: ENCERRAR_ACOLHIMENTO,
+  iniciarDisputa: INICIAR_DISPUTA,
+  encerrarDisputa: ENCERRAR_DISPUTA,
+  iniciarHabilitacao: INICIAR_HABILITACAO,
+  abrirPrazoRecursal: ABRIR_PRAZO_RECURSAL,
+  adjudicar: ADJUDICAR,
+  decidirRecursos: DECIDIR_RECURSOS,
+  retornarJulgamento: RETORNAR_JULGAMENTO,
+  retornarHabilitacao: RETORNAR_HABILITACAO,
+  homologar: HOMOLOGAR,
+  situacao: ATOS_SITUACAO,
+  semRecursoPendente,
+  efeitosDosRecursosAplicados,
+  marcarDataAdjudicacao: marcarData('data_adjudicacao'),
+});
+
 export const FLUXOS: FluxosPorModalidade = {
   [ModalidadeLicitacao.PREGAO_ELETRONICO]: FLUXO_COMPETITIVO,
   [ModalidadeLicitacao.CONCORRENCIA]: FLUXO_COMPETITIVO,
-  // Leilão, concurso e diálogo competitivo: rito genérico até a E7c.
-  [ModalidadeLicitacao.LEILAO]: FLUXO_COMPETITIVO,
-  [ModalidadeLicitacao.CONCURSO]: FLUXO_COMPETITIVO,
-  [ModalidadeLicitacao.DIALOGO_COMPETITIVO]: FLUXO_COMPETITIVO,
+  // Leilão, concurso e diálogo competitivo (plano E7c — definicoes-especiais.ts)
+  [ModalidadeLicitacao.LEILAO]: ESPECIAIS.leilao,
+  [ModalidadeLicitacao.CONCURSO]: ESPECIAIS.concurso,
+  [ModalidadeLicitacao.DIALOGO_COMPETITIVO]: ESPECIAIS.dialogo,
   [ModalidadeLicitacao.DISPENSA_ELETRONICA]: FLUXO_DISPENSA,
   [ModalidadeLicitacao.INEXIGIBILIDADE]: FLUXO_INEXIGIBILIDADE,
+  // Procedimento auxiliar (art. 78 I) — plano E7b
+  [ModalidadeLicitacao.CREDENCIAMENTO]: FLUXO_CREDENCIAMENTO,
 };
 
 export function fluxoDaModalidade(modalidade: ModalidadeLicitacao | string | null | undefined): DefinicaoAto[] {

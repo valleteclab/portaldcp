@@ -145,3 +145,25 @@ export async function marcarEditalPublicadoSql(m: EntityManager, licitacaoId: st
     [licitacaoId, vigente.documento_id],
   );
 }
+
+/**
+ * INTERESSADOS a ouvir antes de revogar/anular (art. 71 §3º): licitantes com
+ * proposta enviada e, no CREDENCIAMENTO (plano E7b), os inscritos ainda com
+ * interesse — inscrição em análise, credenciados e indeferidos (que podem
+ * recorrer). Arquivadas e descredenciadas não contam.
+ */
+export async function interessadosDaLicitacaoSql(
+  m: EntityManager,
+  licitacaoId: string,
+): Promise<Array<{ fornecedor_id: string; email: string | null; razao_social: string | null }>> {
+  return m.query(
+    `SELECT DISTINCT x.fornecedor_id, f.email, f.razao_social FROM (
+       SELECT p.fornecedor_id::text AS fornecedor_id FROM propostas p
+        WHERE p.licitacao_id::text = $1 AND p.status::text <> 'RASCUNHO'
+       UNION
+       SELECT i.fornecedor_id::text FROM credenciamento_inscricoes i
+        WHERE i.licitacao_id::text = $1 AND i.status IN ('PENDENTE','CREDENCIADO','INDEFERIDO')
+     ) x JOIN fornecedores f ON f.id::text = x.fornecedor_id`,
+    [licitacaoId],
+  );
+}

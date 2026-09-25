@@ -1281,6 +1281,75 @@ export class HabilitacaoService {
   }
 
   // ==========================================================================
+  // CREDENCIAMENTO (plano E7b) — a inscrição usa a MESMA habilitação: exigências
+  // do edital, registro cadastral (art. 70), envio sem substituição (art. 64),
+  // análise por documento e diligência. O credenciamento decide (deferir /
+  // indeferir) pela sua máquina; aqui só o estado da habilitação.
+  // ==========================================================================
+
+  /** Habilitação da inscrição (origem INSCRICAO), com a pré-checagem do cadastro; prazo = fim da vigência. */
+  async abrirHabilitacaoDeInscricao(
+    m: EntityManager,
+    p: { licitacaoId: string; fornecedorId: string; prazoAte: Date | null },
+  ): Promise<{ id: string; cobertas: number; total: number }> {
+    const r = await this.criarHabilitacao(m, {
+      licitacaoId: p.licitacaoId,
+      sessaoId: null,
+      fornecedorId: p.fornecedorId,
+      origem: OrigemHabilitacao.INSCRICAO,
+      prazoHoras: null,
+      prazoAte: p.prazoAte,
+      ator: null,
+    });
+    return { id: r.h.id, cobertas: r.cobertas, total: r.total };
+  }
+
+  /**
+   * Decisão sobre a habilitação da inscrição, na transação do chamador:
+   * HABILITADO só com a documentação entregue, sem diligência aberta e toda
+   * exigência obrigatória atendida; INABILITADO com a documentação entregue.
+   * `reforma` (recurso provido) ignora o estado final anterior.
+   */
+  async decidirHabilitacaoDeInscricao(
+    m: EntityManager,
+    habilitacaoId: string,
+    decisao: 'HABILITADO' | 'INABILITADO',
+    motivo: string | null,
+    ator: AtorTransicao,
+    opts: { reforma?: boolean } = {},
+  ): Promise<void> {
+    const h = await this.habilitacaoPorId(m, habilitacaoId, true);
+    const dils = await this.diligencias(m, h.id);
+    await this.normalizar(m, h, dils);
+    if (!opts.reforma) {
+      const erro = motivoNaoAnalisa(h.status);
+      if (erro) throw new ConflictException(erro);
+    }
+    if (decisao === StatusHabilitacao.HABILITADO) {
+      const exigencias = await exigenciasDaLicitacaoSql(m, h.licitacao_id);
+      const pendencias = pendenciasParaHabilitar(exigencias, await this.documentos(m, h.id), opts.reforma ? [] : this.estadoDils(dils));
+      if (pendencias.length && !opts.reforma) {
+        throw new BadRequestException({ message: `Não é possível credenciar: ${pendencias.join(' | ')}`, pendencias });
+      }
+    }
+    h.status = decisao;
+    h.decidida_em = new Date();
+    h.decisao_motivo = motivo;
+    h.decidida_por_tipo = ator.tipo;
+    h.decidida_por_id = ator.id;
+    await m.save(h);
+  }
+
+  /** Visão de UMA habilitação (órgão dono ou o próprio interessado — autorização no controller). */
+  async visaoPorId(habilitacaoId: string, papel: 'ORGAO' | 'FORNECEDOR') {
+    await this.dataSource.transaction(async (m) => {
+      const h = await this.habilitacaoPorId(m, habilitacaoId);
+      await this.normalizar(m, h, await this.diligencias(m, h.id));
+    });
+    return this.visaoDoAto(habilitacaoId, papel);
+  }
+
+  // ==========================================================================
   // ARQUIVO / AUTORIZAÇÃO
   // ==========================================================================
 

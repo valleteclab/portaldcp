@@ -27,6 +27,7 @@ import { exigirLicitacaoAtiva } from '../sessao/licitacao-ativa';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import type { ItemDisputa, LanceRegistrado, LancePainelCancelamentoV3 } from './disputa.service';
 import { ModoDisputaService } from './modo-disputa.service';
+import { DirecaoLance, ordemSql } from './modos-disputa';
 import { motivoForaDoBeneficioMpe } from '../julgamento/me-epp/beneficio-mpe.sql';
 
 /**
@@ -206,12 +207,22 @@ export class DisputaLoteService {
     return elegibilidadeNoLote(this.referenciaItens(itens), propostas.get(fornecedorId)?.itens ?? []);
   }
 
+  /**
+   * Direção do critério da licitação do lote (E7c): maior lance (leilão) ordena
+   * DECRESCENTE — o "melhor" do lote é o maior valor; os demais, crescente.
+   */
+  private async direcaoDoLote(m: EntityManager, loteId: string): Promise<DirecaoLance> {
+    const [l] = await m.query(`SELECT licitacao_id FROM lotes_licitacao WHERE id = $1`, [loteId]);
+    return l ? this.modos.direcao(String(l.licitacao_id), m) : 'MENOR';
+  }
+
   private async lancesAtivosDoLote(m: EntityManager, loteId: string): Promise<LinhaAtiva[]> {
+    const direcao = await this.direcaoDoLote(m, loteId);
     return m.query(
       // Lance final fechado: sigiloso até o fim do prazo (IN 73 art. 24 §2º) — fora do melhor/ranking
       `SELECT id, fornecedor_id, fornecedor_nome, valor, origem, created_at FROM lances l
         WHERE lote_id = $1 AND item_id IS NULL AND cancelado = false AND ${ModoDisputaService.SQL_LANCE_LOTE_VISIVEL}
-        ORDER BY valor ASC, created_at ASC`,
+        ORDER BY valor ${ordemSql(direcao)}, created_at ASC`,
       [loteId],
     );
   }
@@ -514,6 +525,8 @@ export class DisputaLoteService {
           diferencaMinima: params.diferencaMinima,
           intervaloProprioSegundos: params.intervaloProprioSegundos,
           agora,
+          // E7c: maior lance (leilão) — o lance do lote precisa SUBIR
+          direcao: ctxModo.direcao,
         });
         regraModo.conferir(valor);
 
@@ -613,7 +626,7 @@ export class DisputaLoteService {
   // RANKING E LEITURAS
   // ==========================================================================
 
-  /** Ranking do lote: melhor valor ATIVO de cada fornecedor (lance do lote), crescente. */
+  /** Ranking do lote: melhor valor ATIVO de cada fornecedor (lance do lote), na direção do critério (maior lance = decrescente). */
   async ranking(loteId: string, manager?: EntityManager): Promise<Array<{
     fornecedorId: string;
     fornecedorNome: string;
@@ -622,6 +635,8 @@ export class DisputaLoteService {
     totalLances: number;
   }>> {
     const m = manager ?? this.dataSource.manager;
+    const direcao = await this.direcaoDoLote(m, loteId);
+    const sinal = direcao === 'MAIOR' ? -1 : 1;
     const rows: any[] = await m.query(
       `WITH ativos AS (
          SELECT l.*, COUNT(*) OVER (PARTITION BY l.fornecedor_id) AS total
@@ -632,7 +647,7 @@ export class DisputaLoteService {
        SELECT DISTINCT ON (a.fornecedor_id)
               a.fornecedor_id, COALESCE(f.razao_social, a.fornecedor_nome) AS nome, a.valor, a.created_at, a.total
          FROM ativos a LEFT JOIN fornecedores f ON f.id::text = a.fornecedor_id
-        ORDER BY a.fornecedor_id, a.valor ASC, a.created_at ASC`,
+        ORDER BY a.fornecedor_id, a.valor ${ordemSql(direcao)}, a.created_at ASC`,
       [loteId],
     );
     return rows
@@ -643,7 +658,7 @@ export class DisputaLoteService {
         registradoEm: new Date(r.created_at),
         totalLances: Number(r.total),
       }))
-      .sort((a, b) => a.melhorValor - b.melhorValor || a.registradoEm.getTime() - b.registradoEm.getTime());
+      .sort((a, b) => sinal * (a.melhorValor - b.melhorValor) || a.registradoEm.getTime() - b.registradoEm.getTime());
   }
 
   /**
@@ -662,11 +677,12 @@ export class DisputaLoteService {
     const lotes = await m.find(LoteLicitacao, { where: { licitacao_id: sessao.licitacao_id }, order: { numero: 'ASC' } });
     if (!lotes.length) return [];
     const itens = await m.find(ItemLicitacao, { where: { licitacao_id: sessao.licitacao_id }, order: { numero_item: 'ASC' } });
+    const direcao = await this.modos.direcao(sessao.licitacao_id, m);
     const ativos: Array<{ lote_id: string; fornecedor_id: string | null; valor: string }> = await m.query(
       `SELECT lote_id::text AS lote_id, fornecedor_id, valor FROM lances l
         WHERE licitacao_id = $1 AND lote_id IS NOT NULL AND item_id IS NULL AND cancelado = false
           AND ${ModoDisputaService.SQL_LANCE_LOTE_VISIVEL}
-        ORDER BY valor ASC, created_at ASC`,
+        ORDER BY valor ${ordemSql(direcao)}, created_at ASC`,
       [sessao.licitacao_id],
     );
     const propostas = await this.propostasNosItens(m, sessao.licitacao_id, itens.map((i) => i.id));
@@ -759,10 +775,11 @@ export class DisputaLoteService {
     if (!lote) return [];
     const itens = await this.itensDoLote(m, loteId);
     const ref = this.referenciaItens(itens);
+    const sinal = (await this.modos.direcao(lote.licitacao_id, m)) === 'MAIOR' ? -1 : 1;
     const propostas = [...(await this.propostasNosItens(m, lote.licitacao_id, itens.map((i) => i.id))).values()]
       .map((p) => ({ p, e: elegibilidadeNoLote(ref, p.itens) }))
       .filter((x) => x.e.elegivel)
-      .sort((a, b) => a.e.totalProposta - b.e.totalProposta || a.p.enviadaEm - b.p.enviadaEm);
+      .sort((a, b) => sinal * (a.e.totalProposta - b.e.totalProposta) || a.p.enviadaEm - b.p.enviadaEm);
     return Promise.all(
       propostas.map(async ({ p, e }, index) => {
         let fornecedorId = p.fornecedorId;

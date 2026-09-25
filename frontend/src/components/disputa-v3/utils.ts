@@ -140,9 +140,13 @@ export function rotuloModo(modo?: string | null): string {
   }
 }
 
-export function calcularDiferencaParaLider(item?: DisputaV3ItemBoard | null) {
+/** Direção do critério: maior lance (leilão — E7c) sobe; os demais descem. */
+export type DirecaoLanceV3 = 'MENOR' | 'MAIOR'
+export const direcaoDoCriterioV3 = (criterio?: string | null): DirecaoLanceV3 => (criterio === 'MAIOR_LANCE' ? 'MAIOR' : 'MENOR')
+
+export function calcularDiferencaParaLider(item?: DisputaV3ItemBoard | null, direcao: DirecaoLanceV3 = 'MENOR') {
   if (!item?.melhorLance || !item?.meuMelhorLance) return null
-  const diferenca = item.meuMelhorLance - item.melhorLance.valor
+  const diferenca = direcao === 'MAIOR' ? item.melhorLance.valor - item.meuMelhorLance : item.meuMelhorLance - item.melhorLance.valor
   return diferenca > 0 ? diferenca : 0
 }
 
@@ -150,8 +154,15 @@ export function calcularLanceSugerido(
   item?: DisputaV3ItemBoard | null,
   diferencaMinimaLances?: number | null,
   tipoDiferenca: 'VALOR' | 'PERCENTUAL' = 'VALOR',
+  direcao: DirecaoLanceV3 = 'MENOR',
 ) {
   if (!item?.melhorLance) return null
+  if (direcao === 'MAIOR') {
+    // Leilão (maior lance): cobrir o melhor com a diferença mínima do edital (o backend valida)
+    const ref = Math.max(item.melhorLance.valor, item.meuMelhorLance ?? 0)
+    const min = diferencaMinimaLances && diferencaMinimaLances > 0 ? (tipoDiferenca === 'PERCENTUAL' ? (ref * diferencaMinimaLances) / 100 : diferencaMinimaLances) : 0
+    return Number((ref + Math.max(0.01, Math.ceil(min * 100) / 100)).toFixed(2))
+  }
   const referencia = item.meuMelhorLance && item.meuMelhorLance < item.melhorLance.valor
     ? item.meuMelhorLance
     : item.melhorLance.valor

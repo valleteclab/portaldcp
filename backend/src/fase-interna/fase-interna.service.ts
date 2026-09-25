@@ -153,7 +153,10 @@ export class FaseInternaService {
   private isContratacaoDireta(licitacao: Licitacao): boolean {
     return (
       licitacao.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA ||
-      licitacao.modalidade === ModalidadeLicitacao.INEXIGIBILIDADE
+      licitacao.modalidade === ModalidadeLicitacao.INEXIGIBILIDADE ||
+      // Credenciamento (E7b): as contratações são inexigibilidade (art. 74 IV) —
+      // instrução do art. 72 + edital de chamamento (gate do PUBLICAR).
+      licitacao.modalidade === ModalidadeLicitacao.CREDENCIAMENTO
     );
   }
 

@@ -50,6 +50,8 @@ export interface LicitacaoParaPncp {
   data_inicio_acolhimento?: DataLike;
   data_fim_acolhimento?: DataLike;
   data_abertura_sessao?: DataLike;
+  /** Concurso (E7c): TECNICO | CIENTIFICO | ARTISTICO — ARTISTICO → critério "conteúdo artístico". */
+  natureza_trabalho_concurso?: Texto;
 }
 
 export interface ItemParaPncp {
@@ -66,6 +68,8 @@ export interface ItemParaPncp {
   margem_preferencia?: boolean | null;
   percentual_margem?: Numero;
   status?: Texto;
+  /** Leilão (E7c): tipo do bem (IMOVEL → categoria "bens imóveis"; demais → "bens móveis"). */
+  tipo_bem_leilao?: Texto;
 }
 
 /** Benefício ME/EPP da unidade (julgamento/me-epp — `beneficioDaUnidade`). */
@@ -85,6 +89,8 @@ export const arred4 = (v: number) => Math.round(v * 10_000) / 10_000;
 const ehContratacaoDireta = (modalidade: Texto) => /DISPENSA|INEXIGIBILIDADE/.test(up(modalidade));
 const ehLeilao = (modalidade: Texto) => up(modalidade).startsWith('LEILAO');
 const ehDispensa = (modalidade: Texto) => up(modalidade).startsWith('DISPENSA');
+/** Credenciamento (procedimento auxiliar — art. 78 I): sem disputa nem julgamento; valor fixado no edital (art. 79). */
+const ehCredenciamento = (modalidade: Texto) => up(modalidade) === 'CREDENCIAMENTO';
 
 // ============================================================================
 // Modalidade, instrumento, modo de disputa, amparo legal, critério
@@ -113,6 +119,11 @@ export function instrumentoConvocatorioId(lic: Pick<LicitacaoParaPncp, 'modalida
 export function modoDisputaIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'modo_disputa'>, instrumento: number): number {
   if (instrumento === INSTRUMENTO_CONVOCATORIO.AVISO_CONTRATACAO_DIRETA) return MODO_DISPUTA.DISPENSA_COM_DISPUTA;
   if (instrumento === INSTRUMENTO_CONVOCATORIO.ATO_AUTORIZA_CONTRATACAO_DIRETA) return MODO_DISPUTA.NAO_SE_APLICA;
+  // Credenciamento (E7b): edital de chamamento sem disputa — "não se aplica"
+  // (conferir a regra Edital × Modo de Disputa no PNCP de treinamento).
+  if (ehCredenciamento(lic.modalidade)) return MODO_DISPUTA.NAO_SE_APLICA;
+  // Concurso (E7c): julgamento de trabalhos, sem lances — propostas fechadas
+  if (up(lic.modalidade) === 'CONCURSO') return MODO_DISPUTA.FECHADO;
   switch (up(lic.modo_disputa)) {
     case 'ABERTO':
       return MODO_DISPUTA.ABERTO;
@@ -153,8 +164,9 @@ export function amparoLegalIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 't
 }
 
 /** Critério de julgamento do item (art. 33) — contratação direta sem disputa: "não se aplica". */
-export function criterioJulgamentoIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'criterio_julgamento'>, instrumento: number): number {
+export function criterioJulgamentoIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'criterio_julgamento' | 'natureza_trabalho_concurso'>, instrumento: number): number {
   if (instrumento === INSTRUMENTO_CONVOCATORIO.ATO_AUTORIZA_CONTRATACAO_DIRETA) return CRITERIO_JULGAMENTO.NAO_SE_APLICA;
+  if (ehCredenciamento(lic.modalidade)) return CRITERIO_JULGAMENTO.NAO_SE_APLICA; // sem julgamento (E7b)
   if (ehLeilao(lic.modalidade)) return CRITERIO_JULGAMENTO.MAIOR_LANCE;
   switch (up(lic.criterio_julgamento)) {
     case 'MAIOR_DESCONTO':
@@ -166,7 +178,10 @@ export function criterioJulgamentoIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidad
     case 'MAIOR_RETORNO_ECONOMICO':
       return CRITERIO_JULGAMENTO.MAIOR_RETORNO_ECONOMICO;
     case 'MELHOR_TECNICA':
-      return CRITERIO_JULGAMENTO.MELHOR_TECNICA;
+      // Concurso de trabalho ARTÍSTICO → "conteúdo artístico" (art. 33 III; E7c)
+      return up(lic.modalidade) === 'CONCURSO' && up(lic.natureza_trabalho_concurso) === 'ARTISTICO'
+        ? CRITERIO_JULGAMENTO.CONTEUDO_ARTISTICO
+        : CRITERIO_JULGAMENTO.MELHOR_TECNICA;
     default:
       return CRITERIO_JULGAMENTO.MENOR_PRECO;
   }
@@ -236,7 +251,7 @@ export function montarItemCompra(
     dto.percentualMargemPreferenciaNormal = arred4(num(item.percentual_margem));
     dto.percentualMargemPreferenciaAdicional = null;
   }
-  if (leilao) dto.itemCategoriaId = 2; // bens móveis (o sistema ainda não cadastra imóveis em leilão)
+  if (leilao) dto.itemCategoriaId = up(item.tipo_bem_leilao) === 'IMOVEL' ? 1 : 2; // bens imóveis | bens móveis (E7c — cadastro do bem)
   return dto;
 }
 

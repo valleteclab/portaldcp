@@ -57,6 +57,7 @@ export const TIPOS_PUBLICOS: readonly string[] = [
   'logos', // logo do órgão (cabeçalhos, páginas públicas)
   'patrimonio', // fotos de bens públicos (páginas /p/:id, inventário por token)
   'licitacao', // anexos do edital enviados na aba Documentos do cadastro da licitação
+  'leilao-bens', // fotos dos bens leiloados (públicas por natureza — art. 31 §2º; plano E7c)
 ];
 
 /**
@@ -88,6 +89,9 @@ export const TIPOS_SENSIVEIS_CONHECIDOS: readonly string[] = [
   'licitacoes',
   'atas', // termo da ARP (órgão gerenciador + fornecedor da ata)
   'resultados', // termo de adjudicação/homologação (órgão da licitação; público depois da homologação)
+  'leilao', // termo de arrematação (órgão da licitação + arrematante) — E7c
+  'concurso', // termo de premiação e cessão de direitos (órgão + vencedor) — E7c
+  'dialogo-competitivo', // atas, gravações e soluções do diálogo (sigilo entre licitantes — art. 32 §1º IV) — E7c
 ];
 
 /** Pastas do REGISTRO CADASTRAL do fornecedor (upload genérico da tela de cadastro). */

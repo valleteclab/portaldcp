@@ -497,7 +497,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                   <TableHead>Descricao</TableHead>
                   <TableHead className="text-center">Qtd</TableHead>
                   {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
-                    <TableHead className="text-right">Valor Ref.</TableHead>
+                    <TableHead className="text-right">{(licitacao as any)?.modalidade === 'LEILAO' ? 'Preço mínimo' : 'Valor Ref.'}</TableHead>
                   )}
                   <TableHead className="text-right">Seu Valor Unit.</TableHead>
                   <TableHead>Marca/Modelo</TableHead>

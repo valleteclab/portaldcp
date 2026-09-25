@@ -474,8 +474,12 @@ export class PncpService implements OnModuleInit {
     }
 
     // === DATAS ===
-    if (licitacao.data_abertura_sessao) {
-      const dataAbertura = new Date(licitacao.data_abertura_sessao);
+    // Credenciamento (E7b): não há sessão — a referência é o fim da vigência do edital (inscrições)
+    const dataReferencia =
+      licitacao.data_abertura_sessao ||
+      ((licitacao.modalidade as string) === 'CREDENCIAMENTO' ? licitacao.data_fim_acolhimento : null);
+    if (dataReferencia) {
+      const dataAbertura = new Date(dataReferencia);
       if (!isNaN(dataAbertura.getTime())) {
         if (dataAbertura > new Date()) {
           checklist.push({ campo: 'Data Abertura', status: 'ok', mensagem: dataAbertura.toISOString().slice(0, 19) });
