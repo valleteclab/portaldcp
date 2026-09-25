@@ -10,6 +10,7 @@
  *     encerrar item e suspender a sessão — por REST e por socket — e o relógio
  *     não encerra itens; retomada a licitação, a sala volta a aceitar.
  */
+import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 import { Socket } from 'socket.io-client';
 import {
   AppE2E,
@@ -255,8 +256,9 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.ADJUDICACAO);
     });
 
-    test('homologar (resultado único): HOMOLOGAR com o valor calculado na mesma transação; pregoeiro não homologa', async () => {
-      await homologarResultado(ctx, lic.id, pregoeiro.token).expect(403);
+    test('homologar (resultado único): HOMOLOGAR com o valor calculado na mesma transação; equipe de apoio não registra', async () => {
+      const apoio = await criarUsuarioOrgao(ctx, orgao, { nome: 'Apoio Sala E1', role: RoleUsuario.EQUIPE_APOIO });
+      await homologarResultado(ctx, lic.id, apoio.token).expect(403);
       const r = await homologarResultado(ctx, lic.id, orgao.token).expect(200);
       expect(r.body.itensHomologados).toBe(1);
       const l = await buscarLicitacao(ctx, lic);

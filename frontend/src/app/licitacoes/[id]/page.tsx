@@ -95,12 +95,26 @@ interface Licitacao {
 import { API_URL, getAuthHeaders } from '@/lib/api'
 import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
 
+/** Termo de adjudicação/homologação — público depois da homologação (art. 71 IV). */
+interface TermoResultado {
+  id: string
+  tipo: 'ADJUDICACAO' | 'HOMOLOGACAO'
+  titulo: string
+  autoridade_nome: string
+  autoridade_cargo: string
+  autoridade_ato_delegacao_numero: string | null
+  valor_total: number | null
+  efetivado_em: string | null
+  assinado: boolean
+}
+
 export default function DetalheLicitacaoPublicaPage() {
   const params = useParams()
   const id = params.id as string
 
   const [licitacao, setLicitacao] = useState<Licitacao | null>(null)
   const [documentos, setDocumentos] = useState<Documento[]>([])
+  const [termos, setTermos] = useState<TermoResultado[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -112,10 +126,14 @@ export default function DetalheLicitacaoPublicaPage() {
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const [licRes, docsRes] = await Promise.all([
+      const [licRes, docsRes, termosRes] = await Promise.all([
         fetch(`${API_URL}/api/licitacoes/publicas/${id}`),
-        fetch(`${API_URL}/api/documentos/licitacao/${id}/publicos`)
+        fetch(`${API_URL}/api/documentos/licitacao/${id}/publicos`),
+        fetch(`${API_URL}/api/resultado/publico/licitacao/${id}/termos`).catch(() => null)
       ])
+      if (termosRes?.ok) {
+        setTermos(await termosRes.json())
+      }
 
       if (licRes.ok) {
         setLicitacao(await licRes.json())
@@ -291,7 +309,33 @@ export default function DetalheLicitacaoPublicaPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {documentos.length === 0 ? (
+                    {termos.length > 0 && (
+                      <div className="space-y-3 mb-4">
+                        {termos.map((t) => (
+                          <div key={t.id} className="flex items-center justify-between p-4 border border-emerald-200 bg-emerald-50 rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <FileText className="w-8 h-8 text-emerald-600" />
+                              <div>
+                                <p className="font-medium">{t.titulo}</p>
+                                <p className="text-sm text-gray-600">
+                                  {t.autoridade_nome} — {t.autoridade_cargo}
+                                  {t.autoridade_ato_delegacao_numero ? ` (delegação ${t.autoridade_ato_delegacao_numero})` : ''}
+                                  {t.efetivado_em ? ` • ${new Date(t.efetivado_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}
+                                  {t.valor_total != null ? ` • ${formatarMoeda(t.valor_total)}` : ''}
+                                </p>
+                              </div>
+                            </div>
+                            <Button variant="outline" size="sm" asChild>
+                              <a href={`${API_URL}/api/resultado/publico/formalizacao/${t.id}/arquivo`} target="_blank">
+                                <Download className="w-4 h-4 mr-2" />
+                                Baixar
+                              </a>
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {documentos.length === 0 && termos.length === 0 ? (
                       <p className="text-gray-500 text-center py-8">
                         Nenhum documento disponível no momento.
                       </p>

@@ -6,7 +6,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
 import { FaseLicitacao, Licitacao, ModalidadeLicitacao } from '../licitacoes/entities/licitacao.entity';
@@ -30,12 +32,58 @@ import {
   STATUS_ITEM_SEM_RESULTADO,
   ValorAdjudicado,
   arred,
-  motivoAutoridadeInvalida,
   motivoVencedorInvalido,
   valorHomologado,
   valoresAdjudicadosDaAceitacao,
 } from './regras-resultado';
 import { marcarContratacaoIniciada } from './status-demanda-pca.sql';
+import { FormalizacaoService, PlanoParaTermo } from './formalizacao/formalizacao.service';
+import { FormalizacaoResultado } from './formalizacao/formalizacao.entities';
+import {
+  AutoridadeDoAto,
+  ModoFormalizacao,
+  ROTULO_MODO,
+  STATUS_EM_ANDAMENTO,
+  StatusFormalizacao,
+  TipoFormalizacao,
+  efeitoDoRegistro,
+  motivoArquivoExternoInvalido,
+  motivoAutoridadeInaptaParaModo,
+  motivoOperadorInvalido,
+  termoEhPublico,
+} from './formalizacao/regras-formalizacao';
+
+/** Arquivo enviado (multer, memória) — termo externo. */
+export interface ArquivoEnviado {
+  buffer: Buffer;
+  originalname?: string;
+  mimetype?: string;
+  size?: number;
+}
+
+/** Opções de quem registra o ato (operador): autoridade escolhida, termo externo. */
+export interface OpcoesRegistroAto {
+  motivo?: string | null;
+  usuarioNome?: string | null;
+  /** Autoridade do cadastro do órgão (padrão quando ausente). */
+  autoridadeId?: string | null;
+  /** TERMO_EXTERNO: termo assinado / publicação no Diário Oficial. */
+  arquivo?: ArquivoEnviado | null;
+  publicacao?: { veiculo?: string | null; data?: string | null } | null;
+}
+
+/** Contexto da formalização levado ao efeito do ato. */
+interface ContextoFormalizacao {
+  id: string;
+  /** true → INSERT (efeito imediato); false → UPDATE da pendente (assinatura). */
+  novo: boolean;
+  modo: ModoFormalizacao;
+  autoridade: AutoridadeDoAto;
+  operador: AtorTransicao;
+  operadorNome: string;
+  arquivoAssinado?: string | null;
+  dados?: Record<string, any> | null;
+}
 
 /** Uma unidade pronta para a adjudicação: vencedor + valores por item. */
 export interface EntradaAdjudicacao {
@@ -72,14 +120,19 @@ const brl = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'curr
  *  - Dispensa (JULGAR_DISPENSA) e seleção externa (REGISTRAR_RESULTADO_EXTERNO)
  *    gravam o MESMO dado por `gravarAdjudicacao` (vencedor VENCEDOR + item
  *    ADJUDICADO + valores), dentro do próprio ato.
- *  - HOMOLOGAR (um método para TODAS as modalidades): autoridade do cadastro
- *    (token), data (efeito do ato), valor = soma dos valores adjudicados
+ *  - OPERADOR × AUTORIDADE (decisão 25/09/2026): o agente de contratação/
+ *    pregoeiro (ou ADMIN/conta do órgão) REGISTRA adjudicar/homologar em nome
+ *    da AUTORIDADE escolhida do cadastro do órgão; efeito conforme o modo do
+ *    órgão (registro direto, assinatura eletrônica da autoridade, termo
+ *    externo) e termo em PDF com os dados da autoridade — formalizacao/.
+ *  - HOMOLOGAR (um método para TODAS as modalidades): autoridade escolhida,
+ *    data (efeito do ato), valor = soma dos valores adjudicados
  *    (nunca do corpo), itens → HOMOLOGADO, sessão encerrada; depois do
  *    commit: contrato por vencedor (não SRP) ou gancho da ARP (SRP), PNCP e
  *    avisos. Efeito suspensivo dos recursos: pré-condição do ato (art. 168).
  */
 @Injectable()
-export class ResultadoService {
+export class ResultadoService implements OnModuleInit {
   private readonly logger = new Logger(ResultadoService.name);
 
   constructor(
@@ -90,7 +143,13 @@ export class ResultadoService {
     private readonly pncp: PncpService,
     private readonly notificacoes: NotificacoesService,
     @Inject(GERADOR_ATA_REGISTRO_PRECO) private readonly geradorAta: GeradorAtaRegistroPreco,
+    private readonly formalizacao: FormalizacaoService,
   ) {}
+
+  onModuleInit(): void {
+    // Termo assinado pela autoridade (modo ASSINATURA_ELETRONICA) → efeito do ato
+    this.formalizacao.registrarAoConcluir((docId, url) => this.aoConcluirAssinatura(docId, url));
+  }
 
   // ==========================================================================
   // LEITURA
@@ -248,15 +307,21 @@ export class ResultadoService {
       const d = atos.find((x) => x.ato === a);
       return d ? { disponivel: d.disponivel, pendencias: d.pendencias } : null;
     };
+    const formalizacao = await this.painelFormalizacao(lic, ator ?? null);
+    const bloqueios = [
+      ...(formalizacao.operador.motivo ? [formalizacao.operador.motivo] : []),
+      ...(formalizacao.pendente
+        ? [`Há ${formalizacao.pendente.tipo === TipoFormalizacao.ADJUDICACAO ? 'adjudicação' : 'homologação'} aguardando a assinatura da autoridade ${formalizacao.pendente.autoridade_nome}.`]
+        : []),
+    ];
     const atoAdjudicar = lic.fase === FaseLicitacao.RECURSO ? ato(AtoLicitacao.DECIDIR_RECURSOS) : ato(AtoLicitacao.ADJUDICAR);
     const adjudicar = pelaSala && atoAdjudicar
       ? {
-          disponivel: atoAdjudicar.disponivel && !!previa && previa.pendencias.length === 0 && previa.unidades.length > 0,
-          pendencias: [...atoAdjudicar.pendencias, ...(previa?.pendencias ?? [])],
+          disponivel: atoAdjudicar.disponivel && !!previa && previa.pendencias.length === 0 && previa.unidades.length > 0 && bloqueios.length === 0,
+          pendencias: [...atoAdjudicar.pendencias, ...(previa?.pendencias ?? []), ...bloqueios],
         }
       : null;
     const homologar = ato(AtoLicitacao.HOMOLOGAR);
-    const autoridadeInvalida = ator ? motivoAutoridadeInvalida(ator) : null;
 
     const [contratos, atas] = await Promise.all([
       m.query(
@@ -294,13 +359,69 @@ export class ResultadoService {
         adjudicar,
         homologar: homologar
           ? {
-              disponivel: homologar.disponivel && !autoridadeInvalida,
-              pendencias: [...homologar.pendencias, ...(autoridadeInvalida ? [autoridadeInvalida] : [])],
+              disponivel: homologar.disponivel && bloqueios.length === 0,
+              pendencias: [...homologar.pendencias, ...bloqueios],
             }
           : null,
       },
-      autoridade: ator && !autoridadeInvalida ? await this.autoridadeDoAtor(ator, m) : null,
+      /** Autoridade padrão (quem pratica o ato quando o operador não escolhe outra). */
+      autoridade: formalizacao.autoridadePadrao ? { nome: formalizacao.autoridadePadrao.nome, cargo: formalizacao.autoridadePadrao.cargo } : null,
+      formalizacao,
       instrumentos: { tipo: (lic as any).srp ? 'ATA' : 'CONTRATO', contratos, atas },
+    };
+  }
+
+  /** Bloco da formalização no painel: modo, autoridades, operador, registros e pendência. */
+  private async painelFormalizacao(lic: Licitacao, ator: Ator | null) {
+    const orgaoId = String(lic.orgao_id);
+    const modo = await this.formalizacao.modoDoOrgao(orgaoId);
+    const autoridades = await this.formalizacao.listarAutoridades(orgaoId);
+    const autoridadePadrao = await this.formalizacao.autoridadeDoAto(orgaoId, null);
+    const regs = await this.dataSource.getRepository(FormalizacaoResultado).find({
+      where: { licitacao_id: lic.id },
+      order: { created_at: 'DESC' },
+    });
+    const registros = [];
+    for (const f of regs) {
+      registros.push({
+        id: f.id,
+        tipo: f.tipo,
+        modo: f.modo,
+        status: f.status,
+        autoridade_nome: f.autoridade_nome,
+        autoridade_cargo: f.autoridade_cargo,
+        autoridade_ato_delegacao_numero: f.autoridade_ato_delegacao_numero,
+        autoridade_ato_delegacao_data: f.autoridade_ato_delegacao_data,
+        operador_nome: f.operador_nome,
+        operador_tipo: f.operador_tipo,
+        valor_total: f.valor_total != null ? Number(f.valor_total) : null,
+        created_at: f.created_at,
+        efetivado_em: f.efetivado_em,
+        erro: f.erro,
+        tem_termo: !!f.arquivo_termo,
+        tem_assinado: !!f.arquivo_assinado,
+        publico: termoEhPublico(f, lic),
+        assinatura: STATUS_EM_ANDAMENTO.includes(f.status) || f.status === StatusFormalizacao.FALHOU ? await this.formalizacao.situacaoAssinatura(f) : null,
+      });
+    }
+    const operadorMotivo = ator ? motivoOperadorInvalido(ator) : null;
+    return {
+      modo,
+      rotuloModo: ROTULO_MODO[modo],
+      autoridades: autoridades.map((a) => ({
+        id: a.id,
+        nome: a.nome,
+        cargo: a.cargo,
+        padrao: a.padrao,
+        tem_email: !!a.email,
+        tem_cpf: !!a.cpf,
+        ato_delegacao_numero: a.ato_delegacao_numero,
+        ato_delegacao_data: a.ato_delegacao_data,
+      })),
+      autoridadePadrao,
+      operador: { pode: !operadorMotivo, motivo: operadorMotivo },
+      registros,
+      pendente: registros.find((r) => STATUS_EM_ANDAMENTO.includes(r.status)) ?? null,
     };
   }
 
@@ -378,12 +499,183 @@ export class ResultadoService {
     );
   }
 
+  // --------------------------------------------------------------------------
+  // Registro do ato pelo OPERADOR × prática pela AUTORIDADE (art. 71 IV)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Preparação comum de ADJUDICAR/HOMOLOGAR: operador habilitado, modo do
+   * órgão, autoridade (escolhida/padrão), nada pendente, e o que o modo exige
+   * (e-mail da autoridade na assinatura; arquivo no termo externo).
+   */
+  private async prepararRegistro(lic: Licitacao, atorJwt: Ator, opts: OpcoesRegistroAto) {
+    const invalido = motivoOperadorInvalido(atorJwt);
+    if (invalido) throw new ForbiddenException(invalido);
+    const orgaoId = String(lic.orgao_id);
+    const modo = await this.formalizacao.modoDoOrgao(orgaoId);
+    const autoridade = await this.formalizacao.autoridadeDoAto(orgaoId, opts.autoridadeId ?? null);
+    const inapta = motivoAutoridadeInaptaParaModo(modo, autoridade);
+    if (inapta) throw new BadRequestException(inapta);
+    const efeito = efeitoDoRegistro(modo, !!opts.arquivo);
+    if (efeito.efeito === 'RECUSADO') throw new BadRequestException(efeito.motivo);
+    if (modo === ModoFormalizacao.TERMO_EXTERNO) {
+      const arqInvalido = motivoArquivoExternoInvalido(opts.arquivo);
+      if (arqInvalido) throw new BadRequestException(arqInvalido);
+    }
+    const [pend] = await this.dataSource.query(
+      `SELECT tipo, autoridade_nome FROM formalizacoes_resultado WHERE licitacao_id = $1 AND status = ANY($2) LIMIT 1`,
+      [lic.id, STATUS_EM_ANDAMENTO],
+    );
+    if (pend) {
+      throw new ConflictException(
+        `Já há ${pend.tipo === TipoFormalizacao.ADJUDICACAO ? 'adjudicação' : 'homologação'} aguardando a assinatura da autoridade ${pend.autoridade_nome} — ` +
+          'aguarde a assinatura ou cancele o pedido antes de registrar outro ato.',
+      );
+    }
+    const ctx: ContextoFormalizacao = {
+      id: randomUUID(),
+      novo: true,
+      modo,
+      autoridade,
+      operador: atorTransicaoDe(atorJwt),
+      operadorNome: await this.formalizacao.nomeOperador(atorJwt),
+      dados: opts.publicacao && (opts.publicacao.veiculo || opts.publicacao.data) ? { publicacao: opts.publicacao } : null,
+    };
+    return { ctx, efeito: efeito.efeito };
+  }
+
+  /** Grava (INSERT no efeito imediato; UPDATE da pendente) a formalização EFETIVADA, na transação do ato. */
+  private async gravarFormalizacaoEfetivada(
+    m: EntityManager,
+    lic: Licitacao,
+    tipo: TipoFormalizacao,
+    f: ContextoFormalizacao,
+    valor: number,
+    motivo: string | null,
+  ): Promise<void> {
+    if (f.novo) {
+      await m.getRepository(FormalizacaoResultado).insert(this.novaFormalizacao(lic, tipo, f, StatusFormalizacao.EFETIVADO, valor, motivo, true));
+      return;
+    }
+    await m.query(
+      `UPDATE formalizacoes_resultado SET status = $2, efetivado_em = now(), erro = NULL, valor_total = $3, updated_at = now() WHERE id = $1`,
+      [f.id, StatusFormalizacao.EFETIVADO, valor],
+    );
+  }
+
+  private novaFormalizacao(
+    lic: Licitacao,
+    tipo: TipoFormalizacao,
+    f: ContextoFormalizacao,
+    status: StatusFormalizacao,
+    valor: number | null,
+    motivo: string | null,
+    efetivado: boolean,
+  ): Partial<FormalizacaoResultado> {
+    const a = f.autoridade;
+    return {
+      id: f.id,
+      licitacao_id: lic.id,
+      orgao_id: String(lic.orgao_id),
+      tipo,
+      modo: f.modo,
+      status,
+      autoridade_id: a.id,
+      autoridade_nome: a.nome,
+      autoridade_cargo: a.cargo,
+      autoridade_cpf: a.cpf,
+      autoridade_email: a.email,
+      autoridade_ato_delegacao_numero: a.ato_delegacao_numero,
+      autoridade_ato_delegacao_data: a.ato_delegacao_data,
+      operador_tipo: f.operador.tipo,
+      operador_id: f.operador.id,
+      operador_nome: f.operadorNome,
+      motivo,
+      valor_total: valor,
+      dados: f.dados ?? null,
+      arquivo_assinado: f.arquivoAssinado ?? null,
+      efetivado_em: efetivado ? new Date() : null,
+    };
+  }
+
+  /** Registro da trilha (transição): autoridade que pratica × operador que registrou. */
+  private registroDoAto(f: ContextoFormalizacao) {
+    return {
+      origem: 'resultado',
+      autoridade: {
+        id: f.autoridade.id,
+        nome: f.autoridade.nome,
+        cargo: f.autoridade.cargo,
+        ato_delegacao_numero: f.autoridade.ato_delegacao_numero,
+        ato_delegacao_data: f.autoridade.ato_delegacao_data,
+      },
+      operador: { tipo: f.operador.tipo, id: f.operador.id, nome: f.operadorNome },
+      formalizacao_id: f.id,
+      modo: f.modo,
+    };
+  }
+
+  /** Depois do efeito (REGISTRO_DIRETO/TERMO_EXTERNO): gera e guarda o termo — falha não desfaz o ato. */
+  private async gerarTermoDoAto(formalizacaoId: string): Promise<void> {
+    try {
+      const f = await this.dataSource.getRepository(FormalizacaoResultado).findOne({ where: { id: formalizacaoId } });
+      if (!f || f.arquivo_termo) return;
+      const dados = await this.formalizacao.dadosDoTermo(f.licitacao_id, { ...f, autoridade: this.formalizacao.autoridadeDaFormalizacao(f) });
+      const { buffer } = this.formalizacao.gerarPdf(dados);
+      await this.formalizacao.gravarTermo(f, buffer);
+    } catch (e: any) {
+      this.logger.error(`Termo da formalização ${formalizacaoId} não gerado: ${e?.message ?? e}`);
+    }
+  }
+
+  /**
+   * ASSINATURA_ELETRONICA: cria o ato PENDENTE com o termo (prévia dos valores)
+   * no assinador, tendo a autoridade como signatária. O efeito só vem com a
+   * assinatura (`aoConcluirAssinatura`).
+   */
+  private async criarPendente(lic: Licitacao, tipo: TipoFormalizacao, f: ContextoFormalizacao, valor: number, motivo: string | null, plano: PlanoParaTermo | null) {
+    const repo = this.dataSource.getRepository(FormalizacaoResultado);
+    await this.dataSource.transaction(async (m) => {
+      // um pedido por licitação (dois cliques simultâneos)
+      await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`formalizacao:${lic.id}`]);
+      const [pend] = await m.query(`SELECT 1 FROM formalizacoes_resultado WHERE licitacao_id = $1 AND status = ANY($2) LIMIT 1`, [lic.id, STATUS_EM_ANDAMENTO]);
+      if (pend) throw new ConflictException('Já há um ato do resultado aguardando a assinatura da autoridade.');
+      const dados = { ...(f.dados ?? {}), ...(plano ? { plano } : {}), motivo };
+      await m.getRepository(FormalizacaoResultado).insert({
+        ...this.novaFormalizacao(lic, tipo, { ...f, dados }, StatusFormalizacao.PENDENTE_ASSINATURA, valor, motivo, false),
+      });
+    });
+    const reg = (await repo.findOne({ where: { id: f.id } }))!;
+    try {
+      const dadosTermo = await this.formalizacao.dadosDoTermo(lic.id, { ...reg, autoridade: f.autoridade }, { plano });
+      const { buffer, ultimaPagina } = this.formalizacao.gerarPdf(dadosTermo);
+      const rel = await this.formalizacao.gravarTermo(reg, buffer);
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const criadoPor = f.operador.id && uuid.test(String(f.operador.id)) ? String(f.operador.id) : String(lic.orgao_id);
+      const doc = await this.formalizacao.criarDocumentoAssinatura(reg, rel, ultimaPagina, criadoPor, lic);
+      await this.dataSource.query(`UPDATE formalizacoes_resultado SET documento_assinatura_id = $2, updated_at = now() WHERE id = $1`, [reg.id, doc.id]);
+      this.logger.log(`[${lic.numero_processo}] ${tipo} registrada por ${f.operadorNome} — aguardando a assinatura de ${f.autoridade.nome}`);
+    } catch (e: any) {
+      await this.dataSource.query(`UPDATE formalizacoes_resultado SET status = $2, erro = $3, updated_at = now() WHERE id = $1`, [
+        reg.id,
+        StatusFormalizacao.CANCELADO,
+        `Termo não enviado ao assinador: ${e?.message ?? e}`,
+      ]);
+      throw e;
+    }
+  }
+
   // ==========================================================================
   // ADJUDICAR (sala — pregão/concorrência)
   // ==========================================================================
 
-  async adjudicar(licitacaoId: string, atorJwt: Ator, opts: { motivo?: string | null; usuarioNome?: string | null } = {}) {
-    const ator = atorTransicaoDe(atorJwt);
+  /**
+   * ADJUDICAR registrado pelo operador (agente de contratação/pregoeiro, ADMIN
+   * ou conta do órgão) em nome da AUTORIDADE escolhida (art. 71 IV). Efeito
+   * conforme o modo do órgão: imediato (registro direto / termo externo
+   * enviado) ou pendente da assinatura da autoridade.
+   */
+  async adjudicar(licitacaoId: string, atorJwt: Ator, opts: OpcoesRegistroAto = {}) {
     const lic = await this.licitacao(licitacaoId);
     if (!ResultadoService.adjudicaPelaSala(lic.modalidade)) {
       throw new BadRequestException(
@@ -392,28 +684,85 @@ export class ResultadoService {
           : 'Nesta modalidade o resultado é registrado pelo resultado externo (POST /licitacoes/:id/resultado-externo).',
       );
     }
+    const { ctx, efeito } = await this.prepararRegistro(lic, atorJwt, opts);
     const ato = lic.fase === FaseLicitacao.RECURSO ? AtoLicitacao.DECIDIR_RECURSOS : AtoLicitacao.ADJUDICAR;
+    const motivo = (opts.motivo ?? '').trim() || null;
+
+    if (efeito === 'AGUARDA_ASSINATURA') {
+      await this.transicoes.verificar(licitacaoId, ato, { ator: ctx.operador, motivo: motivo ?? undefined });
+      const plano = await this.planoAdjudicacao(licitacaoId);
+      this.assertPlano(plano);
+      const valor = arred(plano.unidades.reduce((s, e) => s + e.valores.reduce((x, v) => x + v.valorTotal, 0), 0), 2);
+      await this.criarPendente(lic, TipoFormalizacao.ADJUDICACAO, ctx, valor, motivo, { unidades: plano.unidades });
+      return this.painel(licitacaoId, atorJwt);
+    }
+
+    const arquivoRel = opts.arquivo ? this.formalizacao.gravarArquivoExterno(lic.id, ctx.id, opts.arquivo) : null;
+    try {
+      await this.efetivarAdjudicacao(licitacaoId, { ...ctx, arquivoAssinado: arquivoRel }, { motivo, usuarioNome: opts.usuarioNome ?? null });
+    } catch (e) {
+      this.apagarArquivo(arquivoRel);
+      throw e;
+    }
+    await this.gerarTermoDoAto(ctx.id);
+    return this.painel(licitacaoId, atorJwt);
+  }
+
+  private assertPlano(plano: PlanoAdjudicacao) {
+    if (plano.pendencias.length) {
+      throw new BadRequestException({
+        message: plano.pendencias.length === 1 ? plano.pendencias[0] : `Pendências para adjudicar: ${plano.pendencias.join(' | ')}`,
+        pendencias: plano.pendencias,
+      });
+    }
+    if (!plano.unidades.length) throw new BadRequestException('Nenhuma unidade com vencedor habilitado para adjudicar.');
+  }
+
+  private apagarArquivo(rel: string | null) {
+    if (!rel) return;
+    try {
+      const p = this.formalizacao.caminhoFisico(rel);
+      if (p) require('fs').unlinkSync(p);
+    } catch {
+      /* arquivo órfão não é problema */
+    }
+  }
+
+  /**
+   * EFEITO da adjudicação (transação do ato): vencedores e itens ADJUDICADO,
+   * sala → HOMOLOGACAO, eventos e a formalização EFETIVADA. `planoAssinado`
+   * (assinatura eletrônica): o resultado precisa ser o MESMO que a autoridade
+   * assinou — senão o ato não produz efeito.
+   */
+  private async efetivarAdjudicacao(
+    licitacaoId: string,
+    f: ContextoFormalizacao,
+    opts: { motivo?: string | null; usuarioNome?: string | null; planoAssinado?: PlanoParaTermo | null },
+  ) {
+    const lic0 = await this.licitacao(licitacaoId);
+    const ato = lic0.fase === FaseLicitacao.RECURSO ? AtoLicitacao.DECIDIR_RECURSOS : AtoLicitacao.ADJUDICAR;
     let gravadas: Awaited<ReturnType<ResultadoService['gravarAdjudicacao']>> = [];
     await this.transicoes.executar(licitacaoId, ato, {
-      ator,
+      ator: f.operador,
       motivo: opts.motivo ?? undefined,
-      registro: { origem: 'resultado' },
-      aplicar: async (_l, m) => {
+      registro: this.registroDoAto(f),
+      aplicar: async (l, m) => {
         const plano = await this.planoAdjudicacao(licitacaoId, m);
-        if (plano.pendencias.length) {
-          throw new BadRequestException({
-            message: plano.pendencias.length === 1 ? plano.pendencias[0] : `Pendências para adjudicar: ${plano.pendencias.join(' | ')}`,
-            pendencias: plano.pendencias,
-          });
+        this.assertPlano(plano);
+        if (opts.planoAssinado && !ResultadoService.mesmoPlano(opts.planoAssinado, plano)) {
+          throw new ConflictException(
+            'O resultado mudou depois que a autoridade assinou o termo (vencedor ou valores diferentes) — cancele e registre a adjudicação novamente.',
+          );
         }
-        if (!plano.unidades.length) throw new BadRequestException('Nenhuma unidade com vencedor habilitado para adjudicar.');
-        gravadas = await this.gravarAdjudicacao(m, licitacaoId, plano.unidades, ator, 'SALA');
+        gravadas = await this.gravarAdjudicacao(m, licitacaoId, plano.unidades, f.operador, 'SALA');
+        const total = arred(gravadas.reduce((s, g) => s + g.valorTotal, 0), 2);
+        await this.gravarFormalizacaoEfetivada(m, l, TipoFormalizacao.ADJUDICACAO, f, total, opts.motivo ?? null);
 
         // Sala: etapa HOMOLOGACAO + registro na ata da sessão
         const [sessao] = (await this.sessoes(m, licitacaoId)).filter((s) => s.status !== StatusSessao.ENCERRADA);
         if (sessao) {
           await m.query(`UPDATE sessoes_disputa SET etapa = $2, updated_at = now() WHERE id = $1`, [sessao.id, EtapaSessao.HOMOLOGACAO]);
-          const usuario = opts.usuarioNome ?? sessao.pregoeiro_nome ?? null;
+          const usuario = opts.usuarioNome ?? f.operadorNome ?? sessao.pregoeiro_nome ?? null;
           for (const g of gravadas) {
             await this.evento(m, {
               sessaoId: sessao.id,
@@ -426,20 +775,30 @@ export class ResultadoService {
               dados: { unidade_id: g.unidadeId, tipo_unidade: g.tipo, aceitacao_id: g.aceitacaoId ?? null, itens: g.valores },
             });
           }
-          const total = arred(gravadas.reduce((s, g) => s + g.valorTotal, 0), 2);
           await this.evento(m, {
             sessaoId: sessao.id,
             tipo: TipoEvento.LICITACAO_ADJUDICADA,
-            descricao: `Licitação adjudicada: ${gravadas.length} unidade(s), ${brl(total)} (art. 71 IV, Lei 14.133/2021).`,
+            descricao:
+              `Licitação adjudicada por ${f.autoridade.nome} (${f.autoridade.cargo}): ${gravadas.length} unidade(s), ${brl(total)} ` +
+              `(art. 71 IV, Lei 14.133/2021) — registrado por ${f.operadorNome}.`,
             usuario,
             valor: total,
-            dados: { unidades: gravadas.length },
+            dados: { unidades: gravadas.length, autoridade: f.autoridade, operador: f.operadorNome, formalizacao_id: f.id },
           });
         }
       },
     });
-    this.logger.log(`[${lic.numero_processo}] adjudicada: ${gravadas.length} unidade(s)`);
-    return this.painel(licitacaoId, atorJwt);
+    this.logger.log(`[${lic0.numero_processo}] adjudicada: ${gravadas.length} unidade(s) — autoridade ${f.autoridade.nome}, operador ${f.operadorNome}`);
+  }
+
+  /** Mesmo vencedor e mesmos valores por item (plano assinado × plano atual). */
+  static mesmoPlano(a: PlanoParaTermo, b: PlanoParaTermo): boolean {
+    const chave = (p: PlanoParaTermo) =>
+      p.unidades
+        .flatMap((u) => u.valores.map((v) => `${u.unidadeId}|${u.fornecedorId}|${v.itemId}|${arred(Number(v.valorTotal), 2)}`))
+        .sort()
+        .join(';');
+    return chave(a) === chave(b);
   }
 
   // ==========================================================================
@@ -463,20 +822,59 @@ export class ResultadoService {
   }
 
   /**
-   * HOMOLOGAR: valor = soma dos valores adjudicados; itens → HOMOLOGADO;
-   * autoridade do cadastro; sessão encerrada. Depois do commit: contrato(s)
-   * ou ARP, PNCP e avisos (falhas não desfazem a homologação).
+   * HOMOLOGAR registrado pelo operador em nome da AUTORIDADE escolhida (art.
+   * 71 IV): valor = soma dos valores adjudicados; itens → HOMOLOGADO; sessão
+   * encerrada; depois do efeito: contrato(s) ou ARP, PNCP e avisos (falhas
+   * não desfazem a homologação). Modo ASSINATURA_ELETRONICA: pendente até a
+   * autoridade assinar o Termo de Adjudicação e Homologação.
    */
-  async homologar(licitacaoId: string, atorJwt: Ator) {
-    const invalida = motivoAutoridadeInvalida(atorJwt);
-    if (invalida) throw new ForbiddenException(invalida);
-    const ator = atorTransicaoDe(atorJwt);
-    const autoridade = await this.autoridadeDoAtor(atorJwt);
+  async homologar(licitacaoId: string, atorJwt: Ator, opts: OpcoesRegistroAto = {}) {
+    const lic0 = await this.licitacao(licitacaoId);
+    const { ctx, efeito } = await this.prepararRegistro(lic0, atorJwt, opts);
+
+    if (efeito === 'AGUARDA_ASSINATURA') {
+      await this.transicoes.verificar(licitacaoId, AtoLicitacao.HOMOLOGAR, { ator: ctx.operador });
+      const itens: any[] = await this.dataSource.query(
+        `SELECT status::text AS status, fornecedor_vencedor_id, valor_total_homologado FROM itens_licitacao WHERE licitacao_id = $1`,
+        [licitacaoId],
+      );
+      const valor = valorHomologado(itens);
+      if (!(valor > 0)) throw new BadRequestException('Nenhum item adjudicado com valor — adjudique o resultado antes de homologar (art. 71 IV).');
+      await this.criarPendente(lic0, TipoFormalizacao.HOMOLOGACAO, ctx, valor, null, null);
+      const f = await this.dataSource.getRepository(FormalizacaoResultado).findOne({ where: { id: ctx.id } });
+      return {
+        licitacao_id: lic0.id,
+        fase: lic0.fase,
+        pendente_assinatura: true,
+        valorHomologado: null,
+        valorAHomologar: valor,
+        autoridade: { nome: ctx.autoridade.nome, cargo: ctx.autoridade.cargo },
+        operador: ctx.operadorNome,
+        formalizacao: { id: ctx.id, status: f?.status, documento_assinatura_id: f?.documento_assinatura_id ?? null },
+        instrumentos: null,
+      };
+    }
+
+    const arquivoRel = opts.arquivo ? this.formalizacao.gravarArquivoExterno(lic0.id, ctx.id, opts.arquivo) : null;
+    let r: Awaited<ReturnType<ResultadoService['efetivarHomologacao']>>;
+    try {
+      r = await this.efetivarHomologacao(licitacaoId, { ...ctx, arquivoAssinado: arquivoRel });
+    } catch (e) {
+      this.apagarArquivo(arquivoRel);
+      throw e;
+    }
+    await this.gerarTermoDoAto(ctx.id);
+    return { ...r, pendente_assinatura: false, operador: ctx.operadorNome, formalizacao: { id: ctx.id, status: StatusFormalizacao.EFETIVADO } };
+  }
+
+  /** EFEITO da homologação (transação do ato) + instrumentos e efeitos externos depois do commit. */
+  private async efetivarHomologacao(licitacaoId: string, f: ContextoFormalizacao, opts: { valorAssinado?: number | null } = {}) {
+    const autoridade = { nome: f.autoridade.nome, cargo: f.autoridade.cargo };
     let valor = 0;
     let itensHomologados = 0;
     const lic = await this.transicoes.executar(licitacaoId, AtoLicitacao.HOMOLOGAR, {
-      ator,
-      registro: { origem: 'resultado', autoridade },
+      ator: f.operador,
+      registro: this.registroDoAto(f),
       aplicar: async (l, m) => {
         const itens: any[] = await m.query(
           `SELECT id, status::text AS status, fornecedor_vencedor_id, valor_total_homologado FROM itens_licitacao WHERE licitacao_id = $1`,
@@ -485,6 +883,11 @@ export class ResultadoService {
         valor = valorHomologado(itens);
         if (!(valor > 0)) {
           throw new BadRequestException('Nenhum item adjudicado com valor — adjudique o resultado antes de homologar (art. 71 IV).');
+        }
+        if (opts.valorAssinado != null && arred(Number(opts.valorAssinado), 2) !== valor) {
+          throw new ConflictException(
+            `O valor a homologar mudou depois da assinatura da autoridade (${brl(Number(opts.valorAssinado))} assinado × ${brl(valor)} atual) — cancele e registre de novo.`,
+          );
         }
         const r = await m.query(
           `UPDATE itens_licitacao SET status = 'HOMOLOGADO', updated_at = now()
@@ -495,6 +898,7 @@ export class ResultadoService {
         l.valor_homologado = valor;
         l.homologacao_autoridade_nome = autoridade.nome.slice(0, 200);
         l.homologacao_autoridade_cargo = autoridade.cargo.slice(0, 200);
+        await this.gravarFormalizacaoEfetivada(m, l, TipoFormalizacao.HOMOLOGACAO, f, valor, null);
 
         // Sessão pública: encerrada com o registro da homologação na ata
         const sessoes = await this.sessoes(m, licitacaoId);
@@ -512,16 +916,16 @@ export class ResultadoService {
             tipo: TipoEvento.LICITACAO_HOMOLOGADA,
             descricao:
               `Resultado HOMOLOGADO por ${autoridade.nome} (${autoridade.cargo}): ${itensHomologados} item(ns), ` +
-              `valor total ${brl(valor)} (art. 71 IV, Lei 14.133/2021).`,
+              `valor total ${brl(valor)} (art. 71 IV, Lei 14.133/2021) — registrado por ${f.operadorNome}.`,
             usuario: autoridade.nome,
             valor,
-            dados: { autoridade, itensHomologados, valorTotal: valor },
+            dados: { autoridade, itensHomologados, valorTotal: valor, operador: f.operadorNome, formalizacao_id: f.id },
           });
         }
       },
     });
 
-    const instrumentos = await this.gerarInstrumentosSemFalhar(licitacaoId, ator);
+    const instrumentos = await this.gerarInstrumentosSemFalhar(licitacaoId, f.operador);
     this.efeitosExternosDaHomologacao(lic, instrumentos).catch(() => undefined);
 
     return {
@@ -533,6 +937,174 @@ export class ResultadoService {
       data_homologacao: lic.data_homologacao,
       instrumentos,
     };
+  }
+
+  // ==========================================================================
+  // ASSINATURA DA AUTORIDADE (ouvinte do assinador) · CANCELAR · REPROCESSAR
+  // ==========================================================================
+
+  /**
+   * Última assinatura do termo (a da autoridade) → o ato produz efeito:
+   * ADJUDICAR/HOMOLOGAR pela máquina (com o operador que registrou), contrato
+   * ou ata. Idempotente (trava pelo status); falha → FALHOU com o motivo.
+   */
+  async aoConcluirAssinatura(documentoId: string, arquivoAssinadoUrl?: string): Promise<void> {
+    const rows: any[] = await this.dataSource.query(
+      `UPDATE formalizacoes_resultado SET status = $3, arquivo_assinado = COALESCE($2, arquivo_assinado), updated_at = now()
+        WHERE documento_assinatura_id = $1 AND status = $4 RETURNING id`,
+      [documentoId, arquivoAssinadoUrl || null, StatusFormalizacao.EFETIVANDO, StatusFormalizacao.PENDENTE_ASSINATURA],
+    );
+    const lista = Array.isArray(rows[0]) ? rows[0] : rows;
+    const id = lista?.[0]?.id;
+    if (!id) return;
+    await this.efetivarPendente(String(id));
+  }
+
+  private async efetivarPendente(formalizacaoId: string): Promise<void> {
+    const f = await this.dataSource.getRepository(FormalizacaoResultado).findOne({ where: { id: formalizacaoId } });
+    if (!f) return;
+    const ctx: ContextoFormalizacao = {
+      id: f.id,
+      novo: false,
+      modo: f.modo as ModoFormalizacao,
+      autoridade: this.formalizacao.autoridadeDaFormalizacao(f),
+      operador: { tipo: f.operador_tipo as AtorTransicao['tipo'], id: f.operador_id },
+      operadorNome: f.operador_nome,
+      arquivoAssinado: f.arquivo_assinado,
+      dados: f.dados,
+    };
+    try {
+      if (f.tipo === TipoFormalizacao.ADJUDICACAO) {
+        await this.efetivarAdjudicacao(f.licitacao_id, ctx, { motivo: f.motivo, planoAssinado: (f.dados?.plano as PlanoParaTermo) ?? null });
+      } else {
+        await this.efetivarHomologacao(f.licitacao_id, ctx, { valorAssinado: f.valor_total != null ? Number(f.valor_total) : null });
+      }
+      this.logger.log(`Formalização ${f.id} (${f.tipo}) efetivada pela assinatura de ${f.autoridade_nome}`);
+    } catch (e: any) {
+      const msg = String(e?.response?.message ?? e?.message ?? e);
+      await this.dataSource.query(`UPDATE formalizacoes_resultado SET status = $2, erro = $3, updated_at = now() WHERE id = $1`, [
+        f.id,
+        StatusFormalizacao.FALHOU,
+        msg.slice(0, 2000),
+      ]);
+      this.logger.warn(`Formalização ${f.id} (${f.tipo}) assinada, mas o efeito falhou: ${msg}`);
+    }
+  }
+
+  private async formalizacaoDoOrgao(formalizacaoId: string, ator: Ator): Promise<FormalizacaoResultado> {
+    const f = await this.dataSource.getRepository(FormalizacaoResultado).findOne({ where: { id: formalizacaoId } });
+    if (!f) throw new NotFoundException('Formalização não encontrada');
+    if (!ator.admin && String(ator.orgaoId) !== String(f.orgao_id)) throw new NotFoundException('Formalização não encontrada');
+    return f;
+  }
+
+  /** Cancela o pedido pendente (ou que falhou): o documento no assinador é cancelado; nenhum efeito. */
+  async cancelarFormalizacao(formalizacaoId: string, ator: Ator, motivo?: string | null) {
+    const invalido = motivoOperadorInvalido(ator);
+    if (invalido) throw new ForbiddenException(invalido);
+    const f = await this.formalizacaoDoOrgao(formalizacaoId, ator);
+    if (![StatusFormalizacao.PENDENTE_ASSINATURA, StatusFormalizacao.FALHOU].includes(f.status as StatusFormalizacao)) {
+      throw new ConflictException(`A formalização está ${f.status} — só se cancela a pendente de assinatura ou a que falhou.`);
+    }
+    if (f.status === StatusFormalizacao.PENDENTE_ASSINATURA) await this.formalizacao.cancelarDocumento(f);
+    await this.dataSource.query(
+      `UPDATE formalizacoes_resultado SET status = $2, erro = COALESCE($3, erro), updated_at = now() WHERE id = $1 AND status = $4`,
+      [f.id, StatusFormalizacao.CANCELADO, motivo ? `Cancelado: ${String(motivo).slice(0, 500)}` : null, f.status],
+    );
+    return this.painel(f.licitacao_id, ator);
+  }
+
+  /** Assinado mas o efeito falhou (ex.: estado mudou e foi corrigido): tenta o efeito de novo. */
+  async reprocessarFormalizacao(formalizacaoId: string, ator: Ator) {
+    const invalido = motivoOperadorInvalido(ator);
+    if (invalido) throw new ForbiddenException(invalido);
+    const f = await this.formalizacaoDoOrgao(formalizacaoId, ator);
+    if (f.status !== StatusFormalizacao.FALHOU) throw new ConflictException('Só se reprocessa a formalização assinada cujo efeito falhou.');
+    const r: any[] = await this.dataSource.query(
+      `UPDATE formalizacoes_resultado SET status = $2, updated_at = now() WHERE id = $1 AND status = $3 RETURNING id`,
+      [f.id, StatusFormalizacao.EFETIVANDO, StatusFormalizacao.FALHOU],
+    );
+    const lista = Array.isArray(r[0]) ? r[0] : r;
+    if (lista?.length) await this.efetivarPendente(f.id);
+    return this.painel(f.licitacao_id, ator);
+  }
+
+  // ==========================================================================
+  // TERMO: prévia, download (órgão dono) e consulta pública
+  // ==========================================================================
+
+  /** Prévia do termo (não grava nada): adjudicação = plano; homologação = itens adjudicados. */
+  async previaTermo(licitacaoId: string, ator: Ator, tipo: string, autoridadeId?: string | null): Promise<Buffer> {
+    const lic = await this.licitacao(licitacaoId);
+    const t = tipo === TipoFormalizacao.ADJUDICACAO ? TipoFormalizacao.ADJUDICACAO : TipoFormalizacao.HOMOLOGACAO;
+    const autoridade = await this.formalizacao.autoridadeDoAto(String(lic.orgao_id), autoridadeId ?? null);
+    const modo = await this.formalizacao.modoDoOrgao(String(lic.orgao_id));
+    let plano: PlanoParaTermo | null = null;
+    if (t === TipoFormalizacao.ADJUDICACAO) {
+      if (!ResultadoService.adjudicaPelaSala(lic.modalidade)) throw new BadRequestException('Nesta modalidade a adjudicação vem do julgamento — gere a prévia da homologação.');
+      const p = await this.planoAdjudicacao(licitacaoId);
+      this.assertPlano(p);
+      plano = { unidades: p.unidades };
+    }
+    const dados = await this.formalizacao.dadosDoTermo(
+      licitacaoId,
+      {
+        tipo: t,
+        modo,
+        status: 'PREVIA',
+        operador_nome: await this.formalizacao.nomeOperador(ator),
+        created_at: new Date(),
+        efetivado_em: null,
+        autoridade,
+      },
+      { plano, previa: true },
+    );
+    if (!dados.linhas.length) throw new BadRequestException('Nenhum item com vencedor para o termo — adjudique antes de gerar o termo de homologação.');
+    return this.formalizacao.gerarPdf(dados).buffer;
+  }
+
+  /** Arquivo da formalização para o órgão dono: termo gerado ou assinado/enviado. */
+  async arquivoFormalizacao(formalizacaoId: string, ator: Ator, versao: string): Promise<{ caminho: string; nome: string }> {
+    const f = await this.formalizacaoDoOrgao(formalizacaoId, ator);
+    return this.arquivoDe(f, versao);
+  }
+
+  private arquivoDe(f: FormalizacaoResultado, versao: string): { caminho: string; nome: string } {
+    const rel = versao === 'termo' ? f.arquivo_termo : (f.arquivo_assinado ?? f.arquivo_termo);
+    const caminho = this.formalizacao.caminhoFisico(rel);
+    if (!rel || !caminho) throw new NotFoundException('Arquivo do termo não encontrado');
+    return { caminho, nome: String(rel).split('/').pop() || 'termo.pdf' };
+  }
+
+  /** Termos PÚBLICOS da licitação: só depois da homologação e só atos efetivados. */
+  async termosPublicos(licitacaoId: string) {
+    const lic = await this.dataSource.getRepository(Licitacao).findOne({ where: { id: licitacaoId } });
+    if (!lic || !lic.data_homologacao) return [];
+    const regs = await this.dataSource.getRepository(FormalizacaoResultado).find({
+      where: { licitacao_id: licitacaoId, status: StatusFormalizacao.EFETIVADO },
+      order: { efetivado_em: 'ASC' },
+    });
+    return regs
+      .filter((f) => termoEhPublico(f, lic) && (f.arquivo_termo || f.arquivo_assinado))
+      .map((f) => ({
+        id: f.id,
+        tipo: f.tipo,
+        titulo: f.tipo === TipoFormalizacao.ADJUDICACAO ? 'Termo de Adjudicação' : 'Termo de Adjudicação e Homologação',
+        autoridade_nome: f.autoridade_nome,
+        autoridade_cargo: f.autoridade_cargo,
+        autoridade_ato_delegacao_numero: f.autoridade_ato_delegacao_numero,
+        autoridade_ato_delegacao_data: f.autoridade_ato_delegacao_data,
+        valor_total: f.valor_total != null ? Number(f.valor_total) : null,
+        efetivado_em: f.efetivado_em,
+        assinado: !!f.arquivo_assinado,
+      }));
+  }
+
+  async arquivoPublico(formalizacaoId: string): Promise<{ caminho: string; nome: string }> {
+    const f = await this.dataSource.getRepository(FormalizacaoResultado).findOne({ where: { id: formalizacaoId } });
+    const lic = f ? await this.dataSource.getRepository(Licitacao).findOne({ where: { id: f.licitacao_id } }) : null;
+    if (!f || !lic || !termoEhPublico(f, lic)) throw new NotFoundException('Termo não encontrado');
+    return this.arquivoDe(f, 'oficial');
   }
 
   // ==========================================================================

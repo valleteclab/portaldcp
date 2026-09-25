@@ -44,6 +44,7 @@
  *   A ordem das PROPOSTAS (B, A, C, D) é diferente da ordem dos LANCES de
  *   propósito: é o que separa ranking certo (lances) de ranking errado (B4).
  */
+import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 import { Socket } from 'socket.io-client';
 import {
   AppE2E,
@@ -1050,8 +1051,12 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       },
     );
 
-    test('o pregoeiro não homologa o próprio julgamento (art. 71; segregação de funções)', async () => {
-      const r = await homologarResultado(ctx, lic.id, pregoeiro.token);
+    // Decisão do usuário (25/09/2026): o agente de contratação/pregoeiro REGISTRA a
+    // homologação em nome da autoridade escolhida (art. 71 IV) — ver
+    // formalizacao-resultado.e2e-spec.ts. A equipe de apoio não registra.
+    test('a equipe de apoio não registra a homologação (art. 71 IV — só agente/pregoeiro ou acima)', async () => {
+      const apoio = await criarUsuarioOrgao(ctx, orgao, { nome: 'Apoio E2E', role: RoleUsuario.EQUIPE_APOIO });
+      const r = await homologarResultado(ctx, lic.id, apoio.token);
       expect(r.status).toBe(403);
     });
 

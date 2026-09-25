@@ -87,6 +87,7 @@ export const TIPOS_SENSIVEIS_CONHECIDOS: readonly string[] = [
   'desclassificacoes',
   'licitacoes',
   'atas', // termo da ARP (órgão gerenciador + fornecedor da ata)
+  'resultados', // termo de adjudicação/homologação (órgão da licitação; público depois da homologação)
 ];
 
 /** Pastas do REGISTRO CADASTRAL do fornecedor (upload genérico da tela de cadastro). */

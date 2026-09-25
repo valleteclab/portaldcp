@@ -168,6 +168,19 @@ export class AcessoArquivosService {
         // Termo da ARP (E6): órgão gerenciador e fornecedor da ata
         const r = await q(`SELECT orgao_id, fornecedor_id FROM atas_registro_preco WHERE id = $1`, [sub]);
         r.forEach((x) => (addOrgao(x.orgao_id), addForn(x.fornecedor_id)));
+      } else if (c.tipo === 'resultados') {
+        // Termo de adjudicação/homologação (E6 — formalização): órgão da
+        // licitação; ato público depois da homologação (só o termo efetivado)
+        const r = await q(`SELECT orgao_id, data_homologacao FROM licitacoes WHERE id = $1`, [sub]);
+        r.forEach((x) => addOrgao(x.orgao_id));
+        if (r[0]?.data_homologacao) {
+          const f = await q(
+            `SELECT 1 FROM formalizacoes_resultado
+              WHERE licitacao_id = $1 AND status = 'EFETIVADO' AND ($2 IN (arquivo_termo, arquivo_assinado)) LIMIT 1`,
+            [sub, c.rel],
+          );
+          if (f.length) d.publico = true;
+        }
       } else if (c.tipo === 'licitacoes') {
         const r = await q(`SELECT orgao_id FROM licitacoes WHERE id = $1`, [sub]);
         r.forEach((x) => addOrgao(x.orgao_id));

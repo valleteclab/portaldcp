@@ -9,7 +9,8 @@
  *     autoridade do login) → contrato AGUARDANDO_ASSINATURA, sem data de
  *     assinatura, prazo de entrega da proposta vencedora. Efeito suspensivo:
  *     janela/intenção pendente bloqueiam. Isolamento: órgão B e fornecedor
- *     não adjudicam nem homologam; pregoeiro não homologa.
+ *     não adjudicam nem homologam; equipe de apoio não registra (o pregoeiro
+ *     registra em nome da autoridade — formalizacao-resultado.e2e-spec.ts).
  *  B. Dispensa: o julgamento grava o MESMO dado (VENCEDOR + itens ADJUDICADO)
  *     e a homologação é o mesmo método (prazo da proposta vencedora).
  *  C. Seleção externa numa licitação SRP: mesmo dado; homologar NÃO gera
@@ -187,8 +188,9 @@ describe('E6 — resultado único (adjudicação, homologação) e contrato', ()
       expect(l.data_adjudicacao).toBeTruthy();
     });
 
-    test('HOMOLOGAR: pregoeiro → 403; autoridade → valor = soma calculada (890), sem valor no corpo', async () => {
-      expect((await homologarResultado(ctx, licId, pregoeira.token)).status).toBe(403);
+    test('HOMOLOGAR: equipe de apoio → 403; conta do órgão → valor = soma calculada (890), sem valor no corpo', async () => {
+      const apoio = await criarUsuarioOrgao(ctx, orgao, { nome: 'Apoio E6', role: RoleUsuario.EQUIPE_APOIO });
+      expect((await homologarResultado(ctx, licId, apoio.token)).status).toBe(403);
       const r = await http()
         .post(`/api/resultado/licitacao/${licId}/homologar`)
         .set(bearer(orgao.token))

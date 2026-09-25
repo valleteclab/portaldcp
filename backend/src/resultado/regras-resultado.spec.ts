@@ -1,5 +1,4 @@
 import {
-  motivoAutoridadeInvalida,
   motivoVencedorInvalido,
   valorAdjudicadoDoUnitario,
   valorHomologado,
@@ -110,17 +109,5 @@ describe('regras do resultado (E6)', () => {
       expect(valorHomologado([])).toBe(0);
     });
   });
-
-  describe('autoridade da homologação (art. 71; segregação — art. 7º §1º)', () => {
-    test('conta do órgão, usuário ADMIN do órgão e admin da plataforma homologam', () => {
-      expect(motivoAutoridadeInvalida({ tipo: 'ORGAO' })).toBeNull();
-      expect(motivoAutoridadeInvalida({ tipo: 'USUARIO', role: 'ADMIN' })).toBeNull();
-      expect(motivoAutoridadeInvalida({ tipo: 'ADMIN', admin: true })).toBeNull();
-    });
-    test('pregoeiro/equipe de apoio/fornecedor não homologam', () => {
-      expect(motivoAutoridadeInvalida({ tipo: 'USUARIO', role: 'PREGOEIRO' })).toMatch(/autoridade competente/);
-      expect(motivoAutoridadeInvalida({ tipo: 'USUARIO', role: 'EQUIPE_APOIO' })).toMatch(/autoridade competente/);
-      expect(motivoAutoridadeInvalida({ tipo: 'FORNECEDOR' })).toMatch(/autoridade competente/);
-    });
-  });
+  // Operador × autoridade (quem registra × quem pratica o ato): formalizacao/regras-formalizacao.spec.ts
 });

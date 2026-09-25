@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BadgeCheck, CheckCircle2, Gavel, Loader2, RefreshCw } from "lucide-react";
+import { BadgeCheck, CheckCircle2, Clock, FileText, Gavel, Loader2, RefreshCw, Upload, XCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +43,41 @@ interface AtoResultado {
   pendencias: string[];
 }
 
+type ModoFormalizacao = "REGISTRO_DIRETO" | "ASSINATURA_ELETRONICA" | "TERMO_EXTERNO";
+
+interface RegistroFormalizacao {
+  id: string;
+  tipo: "ADJUDICACAO" | "HOMOLOGACAO";
+  modo: ModoFormalizacao;
+  status: "EFETIVADO" | "PENDENTE_ASSINATURA" | "EFETIVANDO" | "FALHOU" | "CANCELADO";
+  autoridade_nome: string;
+  autoridade_cargo: string;
+  autoridade_ato_delegacao_numero: string | null;
+  operador_nome: string;
+  valor_total: number | null;
+  created_at: string;
+  efetivado_em: string | null;
+  erro: string | null;
+  tem_termo: boolean;
+  tem_assinado: boolean;
+  publico: boolean;
+  assinatura: {
+    documento_id: string;
+    status: string;
+    signatarios: Array<{ nome: string; status: string; interno: boolean; data_assinatura: string | null }>;
+  } | null;
+}
+
+interface FormalizacaoPainel {
+  modo: ModoFormalizacao;
+  rotuloModo: string;
+  autoridades: Array<{ id: string; nome: string; cargo: string; padrao: boolean; tem_email: boolean; tem_cpf: boolean; ato_delegacao_numero: string | null; ato_delegacao_data: string | null }>;
+  autoridadePadrao: { id: string | null; nome: string; cargo: string } | null;
+  operador: { pode: boolean; motivo: string | null };
+  registros: RegistroFormalizacao[];
+  pendente: RegistroFormalizacao | null;
+}
+
 interface PainelResultado {
   licitacao: {
     id: string;
@@ -58,6 +93,7 @@ interface PainelResultado {
   valorPrevia: number | null;
   atos: { adjudicar: AtoResultado | null; homologar: AtoResultado | null };
   autoridade: { nome: string; cargo: string } | null;
+  formalizacao?: FormalizacaoPainel;
   instrumentos: {
     tipo: "ATA" | "CONTRATO";
     contratos: Array<{ id: string; numero_contrato: string; fornecedor_razao_social: string; valor_global: number; status: string; data_assinatura: string | null; prazo_execucao_dias: number | null }>;
@@ -77,12 +113,38 @@ const ROTULO_SITUACAO: Record<UnidadeResultado["situacao"], { texto: string; cor
   SEM_RESULTADO: { texto: "Fracassada/cancelada", cor: "bg-slate-100 text-slate-500" },
 };
 
+const ROTULO_STATUS_FORMALIZACAO: Record<RegistroFormalizacao["status"], { texto: string; cor: string }> = {
+  EFETIVADO: { texto: "Efetivado", cor: "bg-emerald-100 text-emerald-800" },
+  PENDENTE_ASSINATURA: { texto: "Aguardando assinatura da autoridade", cor: "bg-amber-100 text-amber-800" },
+  EFETIVANDO: { texto: "Aplicando o efeito", cor: "bg-blue-100 text-blue-800" },
+  FALHOU: { texto: "Assinado — efeito falhou", cor: "bg-red-100 text-red-800" },
+  CANCELADO: { texto: "Cancelado", cor: "bg-slate-100 text-slate-500" },
+};
+
+const fmtDataHora = (d: string | null | undefined) =>
+  d ? new Date(d).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "—";
+
+/** Abre um PDF protegido (com o token) numa nova aba. */
+async function abrirPdf(url: string) {
+  const res = await authFetch(url);
+  if (!res.ok) {
+    const j = await res.json().catch(() => null);
+    throw new Error(j?.message || `HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  const href = URL.createObjectURL(blob);
+  window.open(href, "_blank");
+  setTimeout(() => URL.revokeObjectURL(href), 60_000);
+}
+
 /**
  * RESULTADO (plano E6 — Lei 14.133/2021 art. 71): um só painel para o órgão,
  * na sala e no cockpit. "Adjudicar" grava o vencedor HABILITADO de cada
- * unidade com os valores da proposta adequada aceita; "Homologar" é da
- * autoridade (identificada pelo login) e o valor é a SOMA calculada pelo
- * backend — não há campo de valor nem de nome/cargo na tela.
+ * unidade com os valores da proposta adequada aceita; "Homologar" calcula o
+ * valor (SOMA no backend). O agente de contratação/pregoeiro REGISTRA o ato
+ * em nome da AUTORIDADE escolhida (cadastro do órgão, com a padrão); o efeito
+ * segue o modo do órgão: registro direto, assinatura eletrônica da autoridade
+ * ou termo externo (upload do termo assinado/publicação).
  */
 export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: string; onAtualizado?: () => void }) {
   const [painel, setPainel] = useState<PainelResultado | null>(null);
@@ -91,6 +153,10 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
   const [dialogo, setDialogo] = useState<"adjudicar" | "homologar" | null>(null);
   const [executando, setExecutando] = useState(false);
   const [avisoInstrumento, setAvisoInstrumento] = useState<string | null>(null);
+  const [autoridadeId, setAutoridadeId] = useState<string>("");
+  const [arquivoTermo, setArquivoTermo] = useState<File | null>(null);
+  const [publicacaoVeiculo, setPublicacaoVeiculo] = useState("");
+  const [publicacaoData, setPublicacaoData] = useState("");
 
   const carregar = useCallback(async () => {
     try {
@@ -98,6 +164,7 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`);
       setPainel(j);
+      setAutoridadeId((atual) => atual || j?.formalizacao?.autoridadePadrao?.id || "");
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar o resultado");
     } finally {
@@ -114,15 +181,67 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
     setErro(null);
     setAvisoInstrumento(null);
     try {
-      const res = await authFetch(`${API_URL}/api/resultado/licitacao/${licitacaoId}/${ato}`, { method: "POST", body: "{}" });
+      const modo = painel?.formalizacao?.modo;
+      let body: BodyInit;
+      if (modo === "TERMO_EXTERNO") {
+        if (!arquivoTermo) throw new Error("Anexe o termo assinado pela autoridade ou a publicação no Diário Oficial.");
+        const fd = new FormData();
+        fd.append("termo", arquivoTermo);
+        if (autoridadeId) fd.append("autoridade_id", autoridadeId);
+        if (publicacaoVeiculo) fd.append("publicacao_veiculo", publicacaoVeiculo);
+        if (publicacaoData) fd.append("publicacao_data", publicacaoData);
+        body = fd;
+      } else {
+        body = JSON.stringify(autoridadeId ? { autoridade_id: autoridadeId } : {});
+      }
+      const res = await authFetch(`${API_URL}/api/resultado/licitacao/${licitacaoId}/${ato}`, { method: "POST", body });
       const j = await res.json().catch(() => null);
       if (!res.ok) {
         const pend = Array.isArray(j?.pendencias) ? `: ${j.pendencias.join(" | ")}` : "";
         throw new Error((j?.message || `HTTP ${res.status}`) + (j?.message?.includes("Pendências") ? "" : pend));
       }
       if (ato === "homologar" && j?.instrumentos?.erro) setAvisoInstrumento(j.instrumentos.erro);
+      setArquivoTermo(null);
+      setPublicacaoVeiculo("");
+      setPublicacaoData("");
       setDialogo(null);
       await carregar();
+      onAtualizado?.();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro");
+    } finally {
+      setExecutando(false);
+    }
+  };
+
+  const previaTermo = async (ato: "adjudicar" | "homologar") => {
+    setErro(null);
+    try {
+      const tipo = ato === "adjudicar" ? "ADJUDICACAO" : "HOMOLOGACAO";
+      const q = new URLSearchParams({ tipo, ...(autoridadeId ? { autoridade_id: autoridadeId } : {}) });
+      await abrirPdf(`${API_URL}/api/resultado/licitacao/${licitacaoId}/termo/previa?${q}`);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro ao gerar o termo");
+    }
+  };
+
+  const baixarTermo = async (formalizacaoId: string, versao: "termo" | "oficial") => {
+    setErro(null);
+    try {
+      await abrirPdf(`${API_URL}/api/resultado/formalizacao/${formalizacaoId}/arquivo?versao=${versao}`);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro ao abrir o termo");
+    }
+  };
+
+  const acaoFormalizacao = async (formalizacaoId: string, acao: "cancelar" | "reprocessar") => {
+    setExecutando(true);
+    setErro(null);
+    try {
+      const res = await authFetch(`${API_URL}/api/resultado/formalizacao/${formalizacaoId}/${acao}`, { method: "POST", body: "{}" });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`);
+      setPainel(j);
       onAtualizado?.();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro");
@@ -169,6 +288,7 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
       ? painel.valorAdjudicado
       : painel.valorPrevia ?? 0;
   const semInstrumento = homologada && painel.instrumentos.contratos.length === 0 && painel.instrumentos.atas.length === 0;
+  const form = painel.formalizacao;
 
   return (
     <Card>
@@ -239,6 +359,97 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
           </div>
         )}
 
+        {form && (
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-slate-600">
+                Formalização: <b className="text-slate-900">{form.rotuloModo}</b>
+              </span>
+              {form.autoridadePadrao && (
+                <span className="text-xs text-slate-500">
+                  Autoridade padrão: {form.autoridadePadrao.nome} ({form.autoridadePadrao.cargo})
+                </span>
+              )}
+            </div>
+            {form.autoridades.length === 0 && (
+              <div className="text-xs text-amber-700">
+                Nenhuma autoridade cadastrada — o termo sairá com o responsável do órgão. Cadastre em Configurações › Parâmetros de licitação.
+              </div>
+            )}
+            {form.pendente && (
+              <div className="space-y-2 rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">
+                <div className="flex items-center gap-2 font-medium">
+                  <Clock className="h-4 w-4" />
+                  {form.pendente.tipo === "ADJUDICACAO" ? "Adjudicação" : "Homologação"} aguardando a assinatura de {form.pendente.autoridade_nome}
+                </div>
+                <div className="text-xs">
+                  Registrada por {form.pendente.operador_nome} em {fmtDataHora(form.pendente.created_at)}. O ato só produz efeito com a assinatura
+                  {form.pendente.assinatura?.signatarios?.[0]?.interno
+                    ? " no Portal de Assinaturas do órgão."
+                    : " pelo link enviado ao e-mail da autoridade (CPF + código)."}
+                  {form.pendente.assinatura ? ` Situação do documento: ${form.pendente.assinatura.status}.` : ""}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => baixarTermo(form.pendente!.id, "termo")}>
+                    <FileText className="mr-1 h-3.5 w-3.5" /> Ver termo enviado
+                  </Button>
+                  <a href="/orgao/portal-assinaturas" className="inline-flex items-center rounded-md border px-3 text-xs text-slate-700 hover:bg-white">
+                    Portal de assinaturas
+                  </a>
+                  <Button size="sm" variant="outline" className="text-red-700" disabled={executando} onClick={() => acaoFormalizacao(form.pendente!.id, "cancelar")}>
+                    <XCircle className="mr-1 h-3.5 w-3.5" /> Cancelar pedido
+                  </Button>
+                </div>
+              </div>
+            )}
+            {form.registros
+              .filter((r) => r.status === "FALHOU")
+              .map((r) => (
+                <div key={r.id} className="space-y-1 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+                  <div>
+                    {r.tipo === "ADJUDICACAO" ? "Adjudicação" : "Homologação"} assinada por {r.autoridade_nome}, mas o efeito falhou: {r.erro}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" disabled={executando} onClick={() => acaoFormalizacao(r.id, "reprocessar")}>
+                      Tentar de novo
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={executando} onClick={() => acaoFormalizacao(r.id, "cancelar")}>
+                      Descartar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            {form.registros.filter((r) => r.status === "EFETIVADO").length > 0 && (
+              <div className="space-y-1">
+                {form.registros
+                  .filter((r) => r.status === "EFETIVADO")
+                  .map((r) => (
+                    <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded border bg-white px-2 py-1 text-xs">
+                      <span>
+                        <b>{r.tipo === "ADJUDICACAO" ? "Termo de Adjudicação" : "Termo de Adjudicação e Homologação"}</b> — {r.autoridade_nome} ({r.autoridade_cargo}
+                        {r.autoridade_ato_delegacao_numero ? `, delegação ${r.autoridade_ato_delegacao_numero}` : ""}) · registrado por {r.operador_nome} em{" "}
+                        {fmtDataHora(r.efetivado_em ?? r.created_at)}
+                        {r.publico ? " · público" : ""}
+                      </span>
+                      <span className="flex gap-1">
+                        {r.tem_assinado && (
+                          <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => baixarTermo(r.id, "oficial")}>
+                            <FileText className="mr-1 h-3 w-3" /> {r.modo === "TERMO_EXTERNO" ? "Termo enviado" : "Assinado"}
+                          </Button>
+                        )}
+                        {r.tem_termo && (
+                          <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => baixarTermo(r.id, "termo")}>
+                            <FileText className="mr-1 h-3 w-3" /> Termo
+                          </Button>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {atos.adjudicar && !homologada && (
           <div className="space-y-1">
             <Button className="w-full" onClick={() => setDialogo("adjudicar")} disabled={executando || !atos.adjudicar.disponivel}>
@@ -304,7 +515,7 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
             <DialogTitle>{dialogo === "homologar" ? "Homologar o resultado" : "Adjudicar o objeto"}</DialogTitle>
             <DialogDescription>
               {dialogo === "homologar"
-                ? `Ato da autoridade competente (art. 71 IV). ${painel.licitacao.srp ? "Será gerada a ata de registro de preços." : "Será gerado um contrato por vencedor, aguardando as assinaturas."}`
+                ? `Ato da autoridade competente (art. 71 IV), registrado por você. ${painel.licitacao.srp ? "Será gerada a ata de registro de preços." : "Será gerado um contrato por vencedor, aguardando as assinaturas."}`
                 : "Cada unidade será adjudicada ao licitante habilitado, pelos valores da proposta adequada aceita (art. 71 IV; IN SEGES 73/2022, art. 29)."}
             </DialogDescription>
           </DialogHeader>
@@ -323,9 +534,81 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
               <span>Total {dialogo === "homologar" ? "a homologar" : "a adjudicar"}</span>
               <span>{fmt(dialogo === "homologar" ? painel.valorAdjudicado : painel.valorPrevia ?? painel.valorAdjudicado)}</span>
             </div>
-            {dialogo === "homologar" && painel.autoridade && (
-              <div className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">
-                Autoridade: <b>{painel.autoridade.nome}</b> — {painel.autoridade.cargo}
+            {form && (
+              <div className="space-y-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+                <div className="text-xs">
+                  Ato da <b>autoridade competente</b> (art. 71, IV) — você registra no sistema e o termo sai com os dados dela.
+                </div>
+                {form.autoridades.length > 0 ? (
+                  <label className="block text-xs">
+                    Autoridade
+                    <select
+                      className="mt-1 w-full rounded border border-emerald-300 bg-white px-2 py-1.5 text-sm text-slate-900"
+                      value={autoridadeId}
+                      onChange={(e) => setAutoridadeId(e.target.value)}
+                    >
+                      {form.autoridades.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.nome} — {a.cargo}
+                          {a.ato_delegacao_numero ? ` (delegação ${a.ato_delegacao_numero})` : ""}
+                          {a.padrao ? " · padrão" : ""}
+                          {form.modo === "ASSINATURA_ELETRONICA" && !a.tem_email ? " · sem e-mail" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  form.autoridadePadrao && (
+                    <div>
+                      Autoridade: <b>{form.autoridadePadrao.nome}</b> — {form.autoridadePadrao.cargo}
+                    </div>
+                  )
+                )}
+                <div className="text-xs">
+                  {form.modo === "ASSINATURA_ELETRONICA"
+                    ? "Assinatura eletrônica: o termo vai para a autoridade assinar; o ato só produz efeito depois da assinatura."
+                    : form.modo === "TERMO_EXTERNO"
+                      ? "Termo externo: anexe o termo assinado pela autoridade ou a publicação no Diário Oficial — o efeito é imediato."
+                      : "Registro direto: efeito imediato; o termo é gerado com os dados da autoridade."}
+                </div>
+                {form.modo === "TERMO_EXTERNO" && (
+                  <div className="space-y-2">
+                    <label className="block text-xs">
+                      <span className="flex items-center gap-1">
+                        <Upload className="h-3.5 w-3.5" /> Termo assinado / publicação (PDF, PNG ou JPG, até 20 MB)
+                      </span>
+                      <input
+                        type="file"
+                        accept="application/pdf,image/png,image/jpeg"
+                        className="mt-1 block w-full text-xs"
+                        onChange={(e) => setArquivoTermo(e.target.files?.[0] ?? null)}
+                      />
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block text-xs">
+                        Veículo da publicação (opcional)
+                        <input
+                          className="mt-1 w-full rounded border border-emerald-300 bg-white px-2 py-1 text-sm text-slate-900"
+                          value={publicacaoVeiculo}
+                          onChange={(e) => setPublicacaoVeiculo(e.target.value)}
+                          placeholder="Diário Oficial do Município"
+                        />
+                      </label>
+                      <label className="block text-xs">
+                        Data da publicação
+                        <input
+                          type="date"
+                          className="mt-1 w-full rounded border border-emerald-300 bg-white px-2 py-1 text-sm text-slate-900"
+                          value={publicacaoData}
+                          onChange={(e) => setPublicacaoData(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+                <Button size="sm" variant="outline" onClick={() => dialogo && previaTermo(dialogo)}>
+                  <FileText className="mr-1 h-3.5 w-3.5" /> Gerar termo (prévia)
+                </Button>
               </div>
             )}
           </div>
@@ -335,11 +618,15 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
             </Button>
             <Button
               className={dialogo === "homologar" ? "bg-emerald-700 hover:bg-emerald-800" : undefined}
-              disabled={executando}
+              disabled={executando || (form?.modo === "TERMO_EXTERNO" && !arquivoTermo)}
               onClick={() => dialogo && executar(dialogo)}
             >
               {executando && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              {dialogo === "homologar" ? "Confirmar homologação" : "Confirmar adjudicação"}
+              {form?.modo === "ASSINATURA_ELETRONICA"
+                ? "Enviar para assinatura da autoridade"
+                : dialogo === "homologar"
+                  ? "Confirmar homologação"
+                  : "Confirmar adjudicação"}
             </Button>
           </DialogFooter>
         </DialogContent>

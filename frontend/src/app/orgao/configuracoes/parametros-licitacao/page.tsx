@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { API_URL, authFetch, formatarDataBR } from "@/lib/api";
+import { FormalizacaoResultadoConfig } from "@/components/resultado/FormalizacaoResultadoConfig";
 
 interface Parametros {
   tempo_inatividade_minutos: number;
@@ -292,6 +293,8 @@ export default function ParametrosLicitacaoPage() {
             </CardHeader>
             <CardContent>{renderCampos(CAMPOS_MPE)}</CardContent>
           </Card>
+
+          <FormalizacaoResultadoConfig />
 
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-3">

@@ -127,14 +127,4 @@ export function valorHomologado(
   return arred(soma, 2);
 }
 
-/**
- * Autoridade competente para HOMOLOGAR (art. 71 caput e IV — autoridade
- * superior; segregação de funções, art. 7º §1º): a conta do órgão ou um
- * usuário ADMIN do órgão. Pregoeiro/equipe de apoio conduzem a sessão e não
- * homologam o próprio julgamento. Mesma regra da autoridade do recurso (E5).
- */
-export function motivoAutoridadeInvalida(ator: { tipo: string; role?: string | null; admin?: boolean }): string | null {
-  if (ator.admin || ator.tipo === 'ORGAO') return null;
-  if (ator.tipo === 'USUARIO' && String(ator.role ?? '').toUpperCase() === 'ADMIN') return null;
-  return 'A homologação é ato da autoridade competente (Lei 14.133/2021, art. 71): use a conta do órgão ou um usuário ADMIN do órgão — o agente de contratação/equipe de apoio não homologa (segregação de funções, art. 7º §1º).';
-}
+// Quem REGISTRA × quem PRATICA a adjudicação/homologação: formalizacao/regras-formalizacao.ts

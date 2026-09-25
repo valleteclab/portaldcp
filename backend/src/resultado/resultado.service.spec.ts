@@ -41,7 +41,7 @@ describe('ResultadoService.planoAdjudicacao', () => {
         return a ? [a] : [];
       }),
     };
-    const s = new ResultadoService({ manager: m } as any, {} as any, ranking as any, {} as any, {} as any, {} as any, {} as any);
+    const s = new ResultadoService({ manager: m } as any, {} as any, ranking as any, {} as any, {} as any, {} as any, {} as any, {} as any);
     return { s, m };
   }
 
@@ -107,5 +107,106 @@ describe('ResultadoService.planoAdjudicacao', () => {
       ['b', 450],
     ]);
     expect(plano.unidades[0].valores.reduce((t, v) => t + v.valorTotal, 0)).toBe(900);
+  });
+});
+
+/**
+ * Formalização (decisão do usuário 25/09/2026 — art. 71 IV): o OPERADOR
+ * (pregoeiro/agente) registra; a AUTORIDADE escolhida pratica o ato. O ato
+ * guarda os dois; no modo ASSINATURA_ELETRONICA nada muda até a assinatura.
+ */
+describe('ResultadoService.homologar — operador × autoridade', () => {
+  const autoridade = {
+    id: 'aut-1',
+    nome: 'Maria Prefeita',
+    cargo: 'Prefeita Municipal',
+    cpf: null,
+    email: 'prefeita@x.gov.br',
+    ato_delegacao_numero: null,
+    ato_delegacao_data: null,
+  };
+  const pregoeiro = { tipo: 'USUARIO', id: 'u-1', usuarioId: 'u-1', orgaoId: 'org-1', fornecedorId: null, admin: false, role: 'PREGOEIRO' } as any;
+
+  function montar(modo: string) {
+    const lic: any = { id: 'lic-1', orgao_id: 'org-1', numero_processo: 'P-1', fase: 'ADJUDICACAO', selecao_externa: true, demanda_id: null };
+    const inseridas: any[] = [];
+    const repo = (nome: string) => ({
+      findOne: jest.fn(async () => (nome === 'Licitacao' ? lic : (inseridas[inseridas.length - 1] ?? null))),
+      insert: jest.fn(async (x: any) => inseridas.push(x)),
+    });
+    const m: any = {
+      query: jest.fn(async (sql: string) => {
+        if (/FROM itens_licitacao WHERE licitacao_id/.test(sql) && /SELECT/.test(sql)) {
+          return [{ id: 'i1', status: 'ADJUDICADO', fornecedor_vencedor_id: 'F', valor_total_homologado: 890 }];
+        }
+        if (/UPDATE itens_licitacao/.test(sql)) return [[], 1];
+        return [];
+      }),
+      getRepository: (e: any) => repo(e?.name ?? String(e)),
+    };
+    const ds: any = { manager: m, query: m.query, getRepository: m.getRepository, transaction: async (cb: any) => cb(m) };
+    const transicoes = {
+      executar: jest.fn(async (_id: string, _ato: string, opts: any) => {
+        await opts.aplicar(lic, m);
+        return { ...lic, fase: 'HOMOLOGACAO' };
+      }),
+      verificar: jest.fn(async () => undefined),
+    };
+    const formalizacao = {
+      modoDoOrgao: jest.fn(async () => modo),
+      autoridadeDoAto: jest.fn(async () => autoridade),
+      nomeOperador: jest.fn(async () => 'Pedro Pregoeiro (agente de contratação/pregoeiro)'),
+      dadosDoTermo: jest.fn(async () => ({})),
+      gerarPdf: jest.fn(() => ({ buffer: Buffer.from('pdf'), ultimaPagina: 1 })),
+      gravarTermo: jest.fn(async () => 'resultados/lic-1/termo.pdf'),
+      criarDocumentoAssinatura: jest.fn(async () => ({ id: 'doc-1' })),
+    };
+    const contratos = { gerarContratoAutomatico: jest.fn(async () => []) };
+    const s = new ResultadoService(ds, transicoes as any, {} as any, contratos as any, {} as any, {} as any, {} as any, formalizacao as any);
+    return { s, lic, transicoes, formalizacao, inseridas };
+  }
+
+  test('REGISTRO_DIRETO: o pregoeiro registra, o ato é da autoridade (transição, licitação e formalização)', async () => {
+    const { s, lic, transicoes, inseridas } = montar('REGISTRO_DIRETO');
+    const r: any = await s.homologar('lic-1', pregoeiro, { autoridadeId: 'aut-1' });
+    expect(r).toMatchObject({ pendente_assinatura: false, valorHomologado: 890, autoridade: { nome: 'Maria Prefeita', cargo: 'Prefeita Municipal' } });
+    const [, ato, opts] = transicoes.executar.mock.calls[0];
+    expect(ato).toBe('HOMOLOGAR');
+    expect(opts.ator).toEqual({ tipo: 'USUARIO', id: 'u-1' }); // quem registrou
+    expect(opts.registro).toMatchObject({
+      autoridade: { id: 'aut-1', nome: 'Maria Prefeita' },
+      operador: { tipo: 'USUARIO', id: 'u-1', nome: expect.stringMatching(/Pedro Pregoeiro/) },
+      modo: 'REGISTRO_DIRETO',
+    });
+    expect(lic.homologacao_autoridade_nome).toBe('Maria Prefeita');
+    expect(inseridas).toEqual([
+      expect.objectContaining({
+        tipo: 'HOMOLOGACAO',
+        status: 'EFETIVADO',
+        autoridade_nome: 'Maria Prefeita',
+        operador_tipo: 'USUARIO',
+        operador_id: 'u-1',
+        operador_nome: expect.stringMatching(/Pedro Pregoeiro/),
+        valor_total: 890,
+      }),
+    ]);
+  });
+
+  test('ASSINATURA_ELETRONICA: só verifica e cria o pedido PENDENTE com o termo no assinador — sem transição', async () => {
+    const { s, transicoes, formalizacao, inseridas } = montar('ASSINATURA_ELETRONICA');
+    const r: any = await s.homologar('lic-1', pregoeiro, {});
+    expect(r).toMatchObject({ pendente_assinatura: true, valorHomologado: null, valorAHomologar: 890 });
+    expect(transicoes.verificar).toHaveBeenCalled();
+    expect(transicoes.executar).not.toHaveBeenCalled();
+    expect(inseridas).toEqual([expect.objectContaining({ status: 'PENDENTE_ASSINATURA', autoridade_email: 'prefeita@x.gov.br', operador_id: 'u-1' })]);
+    expect(formalizacao.criarDocumentoAssinatura).toHaveBeenCalled();
+  });
+
+  test('equipe de apoio não registra (403); TERMO_EXTERNO sem arquivo → 400', async () => {
+    const { s } = montar('REGISTRO_DIRETO');
+    await expect(s.homologar('lic-1', { ...pregoeiro, role: 'EQUIPE_APOIO' })).rejects.toMatchObject({ status: 403 });
+    const t = montar('TERMO_EXTERNO');
+    await expect(t.s.homologar('lic-1', pregoeiro, {})).rejects.toMatchObject({ status: 400 });
+    expect(t.transicoes.executar).not.toHaveBeenCalled();
   });
 });

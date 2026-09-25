@@ -15,6 +15,7 @@ import * as crypto from 'crypto';
 import * as QRCode from 'qrcode';
 
 import { marcarContratado } from '../resultado/status-demanda-pca.sql';
+import { resolverArquivoDeUrl } from '../common/arquivos/arquivos';
 @Injectable()
 export class PortalAssinaturasService {
   private readonly logger = new Logger(PortalAssinaturasService.name);
@@ -104,7 +105,8 @@ export class PortalAssinaturasService {
       // Calcular SHA-256 do arquivo
       let documentoHash: string | undefined;
       try {
-        const filePath = join(this.uploadDir, arquivoUrl);
+        // Pasta sensível nova (privado) primeiro; legado (UPLOAD_DIR) depois
+        const filePath = resolverArquivoDeUrl(arquivoUrl) ?? join(this.uploadDir, arquivoUrl);
         if (existsSync(filePath)) {
           const fileBuffer = readFileSync(filePath);
           documentoHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
@@ -626,7 +628,7 @@ export class PortalAssinaturasService {
   private async gerarPdfFinalAssinado(documento: DocumentoAssinatura): Promise<string> {
     const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
-    const originalPath = join(this.uploadDir, documento.arquivo_original_url);
+    const originalPath = resolverArquivoDeUrl(documento.arquivo_original_url) ?? join(this.uploadDir, documento.arquivo_original_url);
     if (!existsSync(originalPath)) {
       throw new BadRequestException('Arquivo original do documento não encontrado.');
     }
