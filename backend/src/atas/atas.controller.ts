@@ -11,6 +11,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AtasService } from './atas.service';
+import { ArpService } from './arp.service';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { AtaRegistroPreco, ItemAta, StatusAta } from './entities/ata-registro-preco.entity';
 import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -26,13 +28,16 @@ import type { Ator } from '../auth/acesso/ator';
  *    fornecedor só as dele (id do token);
  *  - ata por id, itens e atos (criar, alterar, status, itens, utilizar):
  *    somente o órgão DONO da ata (leitura de outro órgão → 404; ato → 403);
- *  - endpoints públicos (publicas/*): só campos públicos (seleção no service).
+ *  - endpoints públicos (publicas/*): só campos públicos (seleção no service)
+ *    e só atas assinadas.
+ * Ciclo da ARP (assinatura, saldo, adesão, vigência): ArpController.
  */
 @Controller('atas')
 @RequireModule(ModuloSistema.ATAS)
 export class AtasController {
   constructor(
     private readonly atasService: AtasService,
+    private readonly arp: ArpService,
     private readonly acesso: AcessoLicitacaoService,
   ) {}
 
@@ -80,7 +85,11 @@ export class AtasController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
-    return this.atasService.criarAPartirDaLicitacao(licitacaoId, dados);
+    // E6: a ARP da licitação SRP homologada vem do RESULTADO (uma ata por
+    // fornecedor vencedor, com itens, preços e cadastro de reserva) — mesma
+    // geração idempotente de POST /api/resultado/licitacao/:id/instrumentos.
+    void dados;
+    return this.arp.gerarAtaRegistroPreco(licitacaoId, { ator: atorTransicaoDe(ator) });
   }
 
   @Get()
@@ -139,13 +148,17 @@ export class AtasController {
     @Query('orgaoId') orgaoId?: string,
     @Query('fornecedorCnpj') fornecedorCnpj?: string,
     @Query('ano') ano?: string,
-    @Query('vigentes') vigentes?: string
+    @Query('vigentes') vigentes?: string,
+    @Query('permiteAdesao') permiteAdesao?: string,
+    @Query('busca') busca?: string,
   ) {
     return this.atasService.findPublicas({
       orgaoId,
       fornecedorCnpj,
       ano: ano ? parseInt(ano) : undefined,
-      vigentes: vigentes === 'true'
+      vigentes: vigentes === 'true',
+      permiteAdesao: permiteAdesao === 'true',
+      busca: busca?.trim() || undefined,
     });
   }
 
@@ -229,6 +242,7 @@ export class AtasController {
     @AtorAtual() ator: Ator,
   ) {
     await this.assertOrgaoDoItemAta(ator, itemId);
-    return this.atasService.utilizarItem(itemId, quantidade);
+    // Consumo MANUAL pelo mesmo caminho do saldo (lock da ata, recusa além do saldo)
+    return this.arp.utilizarItemManual(itemId, Number(quantidade), ator);
   }
 }

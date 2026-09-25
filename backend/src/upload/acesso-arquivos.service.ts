@@ -164,6 +164,10 @@ export class AcessoArquivosService {
       else if (c.tipo === 'contratos') {
         const r = await q(`SELECT orgao_id, fornecedor_id FROM contratos WHERE id = $1`, [sub]);
         r.forEach((x) => (addOrgao(x.orgao_id), addForn(x.fornecedor_id)));
+      } else if (c.tipo === 'atas') {
+        // Termo da ARP (E6): órgão gerenciador e fornecedor da ata
+        const r = await q(`SELECT orgao_id, fornecedor_id FROM atas_registro_preco WHERE id = $1`, [sub]);
+        r.forEach((x) => (addOrgao(x.orgao_id), addForn(x.fornecedor_id)));
       } else if (c.tipo === 'licitacoes') {
         const r = await q(`SELECT orgao_id FROM licitacoes WHERE id = $1`, [sub]);
         r.forEach((x) => addOrgao(x.orgao_id));

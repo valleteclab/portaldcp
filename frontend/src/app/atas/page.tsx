@@ -7,11 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { 
-  Search, 
-  FileText, 
-  Calendar, 
-  Building2, 
+import {
+  Search,
+  FileText,
+  Calendar,
+  Building2,
   DollarSign,
   Filter,
   ExternalLink,
@@ -60,6 +60,7 @@ const STATUS_ATA = [
   { value: 'VIGENTE', label: 'Vigente', cor: 'bg-green-100 text-green-800' },
   { value: 'ENCERRADA', label: 'Encerrada', cor: 'bg-gray-100 text-gray-800' },
   { value: 'ESGOTADA', label: 'Esgotada', cor: 'bg-yellow-100 text-yellow-800' },
+  { value: 'VENCIDA', label: 'Vencida', cor: 'bg-gray-100 text-gray-800' },
   { value: 'CANCELADA', label: 'Cancelada', cor: 'bg-red-100 text-red-800' }
 ]
 
@@ -70,7 +71,7 @@ export default function AtasPublicasPage() {
     busca: '',
     status: '',
     ano: '',
-    apenasVigentes: false
+    apenasVigentes: true
   })
 
   useEffect(() => {
@@ -97,9 +98,11 @@ export default function AtasPublicasPage() {
     return (numero || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   }
 
+  // Colunas date ('YYYY-MM-DD') sem deslocar o dia pelo fuso (UTC-3)
   const formatarData = (data: string) => {
     if (!data) return '-'
-    return new Date(data).toLocaleDateString('pt-BR')
+    const [a, m, d] = String(data).slice(0, 10).split('-')
+    return `${d}/${m}/${a}`
   }
 
   const getStatusBadge = (status: string) => {
@@ -121,7 +124,7 @@ export default function AtasPublicasPage() {
   const atasFiltradas = atas.filter(ata => {
     if (filtros.busca) {
       const busca = filtros.busca.toLowerCase()
-      if (!ata.objeto.toLowerCase().includes(busca) && 
+      if (!ata.objeto.toLowerCase().includes(busca) &&
           !ata.numero_ata.toLowerCase().includes(busca) &&
           !ata.fornecedor_razao_social.toLowerCase().includes(busca)) {
         return false
@@ -129,7 +132,7 @@ export default function AtasPublicasPage() {
     }
     if (filtros.status && ata.status !== filtros.status) return false
     if (filtros.ano && ata.ano !== parseInt(filtros.ano)) return false
-    if (filtros.apenasVigentes && ata.status !== 'VIGENTE') return false
+    if (filtros.apenasVigentes && !['VIGENTE', 'ESGOTADA'].includes(ata.status)) return false
     return true
   })
 
@@ -242,7 +245,7 @@ export default function AtasPublicasPage() {
           <div className="space-y-4">
             {atasFiltradas.map((ata) => {
               const percentualSaldo = calcularPercentualSaldo(ata.valor_total, ata.valor_saldo)
-              
+
               return (
                 <Card key={ata.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-6">
@@ -254,11 +257,11 @@ export default function AtasPublicasPage() {
                             <Badge variant="secondary">Permite Adesão</Badge>
                           )}
                         </div>
-                        
+
                         <h3 className="text-lg font-semibold text-gray-900 mb-2">
                           Ata nº {ata.numero_ata}
                         </h3>
-                        
+
                         <p className="text-gray-600 mb-4 line-clamp-2">
                           {ata.objeto}
                         </p>
@@ -284,7 +287,7 @@ export default function AtasPublicasPage() {
 
                         {/* Barra de Saldo */}
                         <div className="bg-gray-100 rounded-full h-2 mb-2">
-                          <div 
+                          <div
                             className={`h-2 rounded-full ${percentualSaldo > 50 ? 'bg-green-500' : percentualSaldo > 20 ? 'bg-yellow-500' : 'bg-red-500'}`}
                             style={{ width: `${percentualSaldo}%` }}
                           />

@@ -3,12 +3,32 @@ import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { Fornecedor } from '../../fornecedores/entities/fornecedor.entity';
 
+/**
+ * Situação da ARP (Lei 14.133/2021 arts. 82–86; Decreto 11.462/2023):
+ *  - AGUARDANDO_ASSINATURA: gerada pela homologação (ou convocação do
+ *    cadastro de reserva), termo aguardando as assinaturas das partes;
+ *  - VIGENTE: assinada por todas as partes (data_assinatura = última);
+ *  - ESGOTADA: todo o quantitativo do gerenciador/participantes consumido
+ *    (adesões autorizadas ainda consomem o que lhes foi autorizado);
+ *  - VENCIDA: passou do fim da vigência (job diário) — nada mais se consome;
+ *  - CANCELADA: registro do fornecedor cancelado (motivo + hipótese);
+ *  - ENCERRADA / SUSPENSA: legado do cadastro manual.
+ */
 export enum StatusAta {
+  AGUARDANDO_ASSINATURA = 'AGUARDANDO_ASSINATURA',
   VIGENTE = 'VIGENTE',
   ENCERRADA = 'ENCERRADA',
   CANCELADA = 'CANCELADA',
   SUSPENSA = 'SUSPENSA',
-  ESGOTADA = 'ESGOTADA'
+  ESGOTADA = 'ESGOTADA',
+  VENCIDA = 'VENCIDA',
+}
+
+/** Origem da ata: homologação do SRP, convocação do cadastro de reserva ou cadastro manual (legado). */
+export enum OrigemAta {
+  HOMOLOGACAO = 'HOMOLOGACAO',
+  RESERVA = 'RESERVA',
+  MANUAL = 'MANUAL',
 }
 
 @Entity('atas_registro_preco')
@@ -77,9 +97,9 @@ export class AtaRegistroPreco {
   @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
   valor_saldo: number;
 
-  // Datas
-  @Column({ type: 'date' })
-  data_assinatura: Date;
+  // Datas — data_assinatura só existe depois da ÚLTIMA assinatura (E6)
+  @Column({ type: 'date', nullable: true })
+  data_assinatura: Date | null;
 
   @Column({ type: 'date' })
   data_vigencia_inicio: Date;
@@ -121,6 +141,51 @@ export class AtaRegistroPreco {
   // Observações
   @Column({ type: 'text', nullable: true })
   observacoes: string;
+
+  // ==========================================================================
+  // ARP gerada pelo resultado (plano E6 — parte ARP)
+  // ==========================================================================
+
+  @Column({ type: 'varchar', length: 20, default: OrigemAta.MANUAL })
+  origem: OrigemAta;
+
+  /** Ata cancelada cujo saldo esta ata (convocação do cadastro de reserva) assumiu. */
+  @Column({ type: 'uuid', nullable: true })
+  ata_origem_id: string | null;
+
+  /** Documento do assinador eletrônico (documentos_assinatura.id) do termo da ata. */
+  @Column({ type: 'uuid', nullable: true })
+  documento_assinatura_id: string | null;
+
+  /** Prazo para os demais licitantes aderirem ao cadastro de reserva (Dec. 11.462 art. 18). */
+  @Column({ type: 'timestamp', nullable: true })
+  prazo_cadastro_reserva: Date | null;
+
+  // Prorrogação (art. 84: uma vez, por até igual período, preço vantajoso)
+  @Column({ type: 'boolean', default: false })
+  prorrogada: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  prorrogacao_meses: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  prorrogacao_motivo: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  prorrogada_em: Date | null;
+
+  @Column({ type: 'date', nullable: true })
+  data_vigencia_fim_original: Date | null;
+
+  // Cancelamento do registro do fornecedor (Dec. 11.462 arts. 28–29)
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  cancelamento_hipotese: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  cancelamento_motivo: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  cancelada_em: Date | null;
 
   // Itens da Ata
   @OneToMany(() => ItemAta, item => item.ata)
@@ -198,6 +263,20 @@ export class ItemAta {
   // Status
   @Column({ default: true })
   ativo: boolean;
+
+  /** Item da licitação de origem (ARP gerada pela homologação). */
+  @Column({ type: 'uuid', nullable: true })
+  item_licitacao_id: string | null;
+
+  /**
+   * Adesões (art. 86): soma das quantidades AUTORIZADAS e das consumidas por
+   * órgãos não participantes — contadores SEPARADOS do saldo do gerenciador.
+   */
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
+  quantidade_adesao_autorizada: number;
+
+  @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
+  quantidade_adesao_utilizada: number;
 
   @CreateDateColumn()
   created_at: Date;

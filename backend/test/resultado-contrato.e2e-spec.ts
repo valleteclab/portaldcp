@@ -13,7 +13,8 @@
  *  B. Dispensa: o julgamento grava o MESMO dado (VENCEDOR + itens ADJUDICADO)
  *     e a homologação é o mesmo método (prazo da proposta vencedora).
  *  C. Seleção externa numa licitação SRP: mesmo dado; homologar NÃO gera
- *     contrato — chama o gancho da ARP (padrão: 501 registrado na resposta).
+ *     contrato — gera a ARP pelo gancho (ArpService: uma ata por vencedor —
+ *     o ciclo da ata está em ata-registro-precos.e2e-spec.ts).
  *  D. Demanda → processo: demanda EM_CONTRATACAO; contrato assinado → CONTRATADA.
  *  E. Migração (boot) das licitações homologadas pelos caminhos antigos:
  *     coerente e idempotente, sem gerar contrato.
@@ -294,15 +295,22 @@ describe('E6 — resultado único (adjudicação, homologação) e contrato', ()
       expect((await situacoes(lic.id)).filter((s) => s.situacao === 'VENCEDOR').map((s) => s.f)).toEqual([D.id, D.id]);
     });
 
-    test('homologar: SRP não gera contrato; o gancho padrão da ARP responde 501 (registrado na resposta)', async () => {
+    test('homologar: SRP não gera contrato; gera a ARP do vencedor (AGUARDANDO_ASSINATURA) — idempotente', async () => {
       const r = await homologarResultado(ctx, lic.id, orgao.token);
       expect(r.status).toBe(200);
       expect(r.body.valorHomologado).toBe(1600);
-      expect(r.body.instrumentos.erro).toMatch(/Ata de Registro de Preços ainda não implementada/);
-      expect(r.body.instrumentos.status).toBe(501);
+      expect(r.body.instrumentos).toMatchObject({ tipo: 'ATA', erro: null });
+      expect(r.body.instrumentos.atas).toHaveLength(1);
+      expect(r.body.instrumentos.atas[0]).toMatchObject({ fornecedorId: D.id, valorTotal: 1600 });
       expect(await contratosDb(lic.id)).toHaveLength(0);
       expect((await itensDb(lic.id)).map((i) => i.status)).toEqual(['HOMOLOGADO', 'HOMOLOGADO']);
-      expect((await gerarInstrumentos(ctx, lic.id, orgao.token)).status).toBe(501);
+      const [ata] = await q(`SELECT status::text AS status, data_assinatura FROM atas_registro_preco WHERE licitacao_id = $1`, [lic.id]);
+      expect(ata).toEqual({ status: 'AGUARDANDO_ASSINATURA', data_assinatura: null });
+      const g = await gerarInstrumentos(ctx, lic.id, orgao.token);
+      expect(g.status).toBe(200);
+      expect(g.body.atas.map((a: any) => a.id)).toEqual(r.body.instrumentos.atas.map((a: any) => a.id));
+      const atos = (await http().get(`/api/licitacoes/${lic.id}/atos`).set(bearer(orgao.token)).expect(200)).body as any[];
+      expect(atos.find((a) => a.ato === 'CONCLUIR')).toMatchObject({ disponivel: true });
     });
 
     test('gerar instrumentos chama o gancho da ARP (implementação plugável) — nunca contrato', async () => {

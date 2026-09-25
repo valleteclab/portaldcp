@@ -29,10 +29,11 @@ import type { AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
  *    falha e devolve o erro na resposta; a homologação continua válida e o
  *    órgão pode tentar de novo por `POST /api/resultado/licitacao/:id/instrumentos`).
  *
- * Enquanto a parte ARP não é implementada, o provedor padrão lança
- * NotImplementedException (501) — nunca gera contrato no lugar da ata (B10).
- * Para plugar: no `ResultadoModule`, trocar o provider de
- * `GERADOR_ATA_REGISTRO_PRECO` (`useExisting`/`useClass` do serviço de atas).
+ * IMPLEMENTAÇÃO: `ArpService` (src/atas/arp.service.ts — uma ata por
+ * fornecedor vencedor, cadastro de reserva, assinatura, saldo, adesão e
+ * vigência), plugado no `ResultadoModule` por `useExisting`.
+ * `GeradorAtaNaoImplementado` (501) fica só para testes/ambientes que queiram
+ * desligar a geração — nunca gera contrato no lugar da ata (B10).
  */
 export const GERADOR_ATA_REGISTRO_PRECO = Symbol('GERADOR_ATA_REGISTRO_PRECO');
 

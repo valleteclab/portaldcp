@@ -31,6 +31,17 @@ export class PortalAssinaturasService {
     private readonly pncpService: PncpService,
   ) {}
 
+  /**
+   * Ouvintes da conclusão de um documento (todas as partes assinaram) — outros
+   * módulos se registram aqui sem criar dependência circular (ex.: a ARP passa
+   * a VIGENTE e é publicada no PNCP quando o termo da ata é concluído — E6).
+   */
+  private readonly ouvintesConclusao: Array<(documentoId: string, arquivoAssinadoUrl?: string) => Promise<void>> = [];
+
+  registrarAoConcluir(ouvinte: (documentoId: string, arquivoAssinadoUrl?: string) => Promise<void>): void {
+    this.ouvintesConclusao.push(ouvinte);
+  }
+
   private normalizarEmail(email?: string | null): string {
     return (email || '').trim().toLowerCase();
   }
@@ -507,6 +518,15 @@ export class PortalAssinaturasService {
    * art. 94 da Lei 14.133/2021: a divulgação é condição de eficácia.
    */
   private async aoConcluirDocumento(documentoId: string, arquivoAssinadoUrl?: string): Promise<void> {
+    // Ouvintes de outros módulos (ex.: ARP — atas_registro_preco.documento_assinatura_id)
+    for (const ouvinte of this.ouvintesConclusao) {
+      try {
+        await ouvinte(documentoId, arquivoAssinadoUrl);
+      } catch (e: any) {
+        this.logger.warn(`Efeito de conclusão (ouvinte) do documento ${documentoId}: ${e?.message ?? e}`);
+      }
+    }
+
     const [ctr] = await this.dataSource.query(
       `SELECT id, licitacao_id, numero_contrato FROM contratos WHERE documento_assinatura_id = $1`,
       [documentoId],

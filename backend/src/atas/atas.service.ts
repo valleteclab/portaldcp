@@ -1,8 +1,30 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { AtaRegistroPreco, ItemAta, StatusAta } from './entities/ata-registro-preco.entity';
-import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { AtaRegistroPreco, ItemAta, OrigemAta, StatusAta } from './entities/ata-registro-preco.entity';
+import { recalcularSaldoAta } from './saldo-ata.sql';
+import { ataVencida, hojeBrasilia } from './regras-arp';
+
+/** Campos que nunca vêm do corpo: calculados (saldo), atos próprios (status, assinatura, vigência, PNCP) ou identidade. */
+const CAMPOS_PROTEGIDOS_ATA = [
+  'id', 'orgao_id', 'orgao', 'licitacao', 'fornecedor', 'itens', 'numero_ata', 'ano', 'sequencial', 'status',
+  'valor_total', 'valor_utilizado', 'valor_saldo', 'origem', 'ata_origem_id', 'documento_assinatura_id',
+  'prazo_cadastro_reserva', 'prorrogada', 'prorrogacao_meses', 'prorrogacao_motivo', 'prorrogada_em',
+  'data_vigencia_fim_original', 'cancelamento_hipotese', 'cancelamento_motivo', 'cancelada_em',
+  'enviado_pncp', 'numero_controle_pncp', 'sequencial_pncp', 'data_envio_pncp', 'created_at', 'updated_at',
+];
+/** Na ata gerada pelo resultado, também vêm do resultado/assinatura: fornecedor, licitação, datas. */
+const CAMPOS_DO_RESULTADO = [
+  'licitacao_id', 'fornecedor_id', 'fornecedor_cnpj', 'fornecedor_razao_social', 'data_assinatura',
+  'data_vigencia_inicio', 'data_vigencia_fim', 'prazo_vigencia_meses', 'limite_adesao_percentual', 'arquivo_ata',
+];
+const CAMPOS_CALCULADOS_ITEM = ['id', 'ata_id', 'ata', 'quantidade_utilizada', 'quantidade_saldo', 'quantidade_adesao_autorizada', 'quantidade_adesao_utilizada', 'valor_total', 'created_at', 'updated_at'];
+
+const semCampos = <T extends Record<string, any>>(dados: T, campos: string[]): Partial<T> => {
+  const r: any = { ...(dados || {}) };
+  for (const c of campos) delete r[c];
+  return r;
+};
 
 @Injectable()
 export class AtasService {
@@ -11,8 +33,6 @@ export class AtasService {
     private ataRepository: Repository<AtaRegistroPreco>,
     @InjectRepository(ItemAta)
     private itemAtaRepository: Repository<ItemAta>,
-    @InjectRepository(Licitacao)
-    private licitacaoRepository: Repository<Licitacao>,
   ) {}
 
   // ============ ATAS ============
@@ -28,37 +48,20 @@ export class AtasService {
     const sequencial = ultimaAta ? ultimaAta.sequencial + 1 : 1;
     const numeroAta = `${String(sequencial).padStart(3, '0')}/${ano}`;
 
+    // Cadastro MANUAL (ata de fora da plataforma / legado). A ARP de licitação
+    // SRP homologada é gerada pelo resultado (ArpService) — nunca por aqui.
     const ata = this.ataRepository.create({
-      ...dados,
+      ...semCampos(dados, CAMPOS_PROTEGIDOS_ATA.filter((c) => c !== 'orgao_id')),
       ano,
       sequencial,
       numero_ata: numeroAta,
-      valor_saldo: dados.valor_total
-    });
+      origem: OrigemAta.MANUAL,
+      valor_total: Number(dados.valor_total) || 0,
+      valor_utilizado: 0,
+      valor_saldo: Number(dados.valor_total) || 0,
+    } as Partial<AtaRegistroPreco>);
 
     return this.ataRepository.save(ata);
-  }
-
-  async criarAPartirDaLicitacao(licitacaoId: string, dados: Partial<AtaRegistroPreco>): Promise<AtaRegistroPreco> {
-    const licitacao = await this.licitacaoRepository.findOne({
-      where: { id: licitacaoId },
-      relations: ['orgao', 'itens']
-    });
-
-    if (!licitacao) {
-      throw new NotFoundException('Licitação não encontrada');
-    }
-
-    if (!licitacao.srp) {
-      throw new BadRequestException('Licitação não é do tipo Sistema de Registro de Preços');
-    }
-
-    return this.criar({
-      ...dados,
-      licitacao_id: licitacaoId,
-      orgao_id: licitacao.orgao_id,
-      objeto: dados.objeto || licitacao.objeto
-    });
   }
 
   async findAll(filtros?: {
@@ -90,9 +93,8 @@ export class AtasService {
     }
 
     if (filtros?.vigentes) {
-      const hoje = new Date();
-      query.andWhere('ata.status = :statusVigente', { statusVigente: StatusAta.VIGENTE })
-        .andWhere('ata.data_vigencia_fim >= :hoje', { hoje });
+      query.andWhere('ata.status IN (:...vig)', { vig: [StatusAta.VIGENTE, StatusAta.ESGOTADA] })
+        .andWhere('ata.data_vigencia_fim >= :hoje', { hoje: hojeBrasilia() });
     }
 
     return query.orderBy('ata.created_at', 'DESC').getMany();
@@ -111,22 +113,55 @@ export class AtasService {
     return ata;
   }
 
+  /**
+   * Edição cadastral: saldo, situação, assinatura, vigência, prorrogação,
+   * cancelamento e PNCP têm atos próprios (nunca vêm do corpo). Na ata gerada
+   * pelo resultado, fornecedor/licitação/datas também são do resultado.
+   */
   async atualizar(id: string, dados: Partial<AtaRegistroPreco>): Promise<AtaRegistroPreco> {
     const ata = await this.findOne(id);
-    Object.assign(ata, dados);
-    return this.ataRepository.save(ata);
+    const protegidos = ata.origem === OrigemAta.MANUAL ? CAMPOS_PROTEGIDOS_ATA : [...CAMPOS_PROTEGIDOS_ATA, ...CAMPOS_DO_RESULTADO];
+    const permitido = semCampos(dados as any, protegidos);
+    if (!Object.keys(permitido).length) return ata;
+    await this.ataRepository.update(id, permitido as any);
+    return this.findOne(id);
   }
 
+  /**
+   * Situação por rota genérica — só a SUSPENSÃO (e a retomada) e, na ata
+   * manual, o encerramento. VIGENTE vem da assinatura; VENCIDA do job;
+   * CANCELADA do cancelamento do registro (com hipótese e motivo); ESGOTADA
+   * do saldo.
+   */
   async alterarStatus(id: string, status: StatusAta): Promise<AtaRegistroPreco> {
     const ata = await this.findOne(id);
-    ata.status = status;
-    return this.ataRepository.save(ata);
+    const de = ata.status;
+    const permitido =
+      (de === StatusAta.VIGENTE && status === StatusAta.SUSPENSA) ||
+      (de === StatusAta.SUSPENSA && status === StatusAta.VIGENTE && !ataVencida(ata.data_vigencia_fim)) ||
+      (ata.origem === OrigemAta.MANUAL && status === StatusAta.ENCERRADA && de !== StatusAta.CANCELADA);
+    if (!permitido) {
+      throw new BadRequestException(
+        `Mudança de situação ${de} → ${status} não é feita por aqui: VIGENTE vem da assinatura, VENCIDA da vigência, ` +
+          'CANCELADA do cancelamento do registro (com hipótese e motivo) e ESGOTADA do saldo.',
+      );
+    }
+    await this.ataRepository.update(id, { status });
+    return this.findOne(id);
+  }
+
+  private assertItensEditaveis(ata: AtaRegistroPreco) {
+    if (ata.origem && ata.origem !== OrigemAta.MANUAL) {
+      throw new BadRequestException('Os itens da ata gerada pela homologação vêm do resultado (preços e quantidades homologados) — não se editam.');
+    }
   }
 
   // ============ ITENS DA ATA ============
 
   async adicionarItem(ataId: string, dados: Partial<ItemAta>): Promise<ItemAta> {
     const ata = await this.findOne(ataId);
+    this.assertItensEditaveis(ata);
+    dados = semCampos(dados as any, CAMPOS_CALCULADOS_ITEM) as Partial<ItemAta>;
 
     // Gerar número do item
     const ultimoItem = await this.itemAtaRepository.findOne({
@@ -140,16 +175,17 @@ export class AtasService {
       ...dados,
       ata_id: ataId,
       numero_item: numeroItem,
+      quantidade_utilizada: 0,
       quantidade_saldo: dados.quantidade_registrada,
       valor_total: Number(dados.quantidade_registrada) * Number(dados.valor_unitario)
     });
 
     const itemSalvo = await this.itemAtaRepository.save(item);
 
-    // Atualizar valor total da ata
-    await this.recalcularValorAta(ataId);
+    // Totais da ata a partir dos itens e dos consumos (nunca zera o consumo — B10)
+    await recalcularSaldoAta(this.ataRepository.manager, ataId);
 
-    return itemSalvo;
+    return this.itemAtaRepository.findOneOrFail({ where: { id: itemSalvo.id } });
   }
 
   /** Ata do item (null se o item não existe ou o id é inválido). */
@@ -171,67 +207,15 @@ export class AtasService {
     if (!item) {
       throw new NotFoundException('Item não encontrado');
     }
-
-    Object.assign(item, dados);
-    
-    if (dados.quantidade_registrada || dados.valor_unitario) {
-      item.valor_total = Number(item.quantidade_registrada) * Number(item.valor_unitario);
+    this.assertItensEditaveis(await this.findOne(item.ata_id));
+    const permitido = semCampos(dados as any, CAMPOS_CALCULADOS_ITEM);
+    if (permitido.quantidade_registrada != null && Number(permitido.quantidade_registrada) < Number(item.quantidade_utilizada)) {
+      throw new BadRequestException('A quantidade registrada não pode ficar abaixo da já utilizada.');
     }
-
-    const itemSalvo = await this.itemAtaRepository.save(item);
-    await this.recalcularValorAta(item.ata_id);
-
-    return itemSalvo;
-  }
-
-  async utilizarItem(itemId: string, quantidade: number): Promise<ItemAta> {
-    const item = await this.itemAtaRepository.findOne({ 
-      where: { id: itemId },
-      relations: ['ata']
-    });
-
-    if (!item) {
-      throw new NotFoundException('Item não encontrado');
-    }
-
-    if (quantidade > Number(item.quantidade_saldo)) {
-      throw new BadRequestException('Quantidade solicitada maior que o saldo disponível');
-    }
-
-    item.quantidade_utilizada = Number(item.quantidade_utilizada) + quantidade;
-    item.quantidade_saldo = Number(item.quantidade_registrada) - Number(item.quantidade_utilizada);
-
-    const itemSalvo = await this.itemAtaRepository.save(item);
-    await this.recalcularSaldoAta(item.ata_id);
-
-    return itemSalvo;
-  }
-
-  private async recalcularValorAta(ataId: string): Promise<void> {
-    const itens = await this.itemAtaRepository.find({ where: { ata_id: ataId, ativo: true } });
-    const valorTotal = itens.reduce((sum, item) => sum + Number(item.valor_total), 0);
-
-    await this.ataRepository.update(ataId, { valor_total: valorTotal, valor_saldo: valorTotal });
-  }
-
-  private async recalcularSaldoAta(ataId: string): Promise<void> {
-    const itens = await this.itemAtaRepository.find({ where: { ata_id: ataId, ativo: true } });
-    
-    const valorUtilizado = itens.reduce((sum, item) => 
-      sum + (Number(item.quantidade_utilizada) * Number(item.valor_unitario)), 0);
-    
-    const valorSaldo = itens.reduce((sum, item) => 
-      sum + (Number(item.quantidade_saldo) * Number(item.valor_unitario)), 0);
-
-    await this.ataRepository.update(ataId, { 
-      valor_utilizado: valorUtilizado, 
-      valor_saldo: valorSaldo 
-    });
-
-    // Verificar se ata está esgotada
-    if (valorSaldo <= 0) {
-      await this.ataRepository.update(ataId, { status: StatusAta.ESGOTADA });
-    }
+    if (Object.keys(permitido).length) await this.itemAtaRepository.update(itemId, permitido as any);
+    // saldo/valores do item e da ata recalculados dos consumos (nunca zera — B10)
+    await recalcularSaldoAta(this.ataRepository.manager, item.ata_id);
+    return this.itemAtaRepository.findOneOrFail({ where: { id: itemId } });
   }
 
   // ============ CONSULTAS PÚBLICAS ============
@@ -241,6 +225,8 @@ export class AtasService {
     fornecedorCnpj?: string;
     ano?: number;
     vigentes?: boolean;
+    permiteAdesao?: boolean;
+    busca?: string;
   }): Promise<AtaRegistroPreco[]> {
     const query = this.ataRepository.createQueryBuilder('ata')
       .leftJoinAndSelect('ata.orgao', 'orgao')
@@ -260,7 +246,7 @@ export class AtasService {
         'ata.fornecedor_razao_social',
         'ata.permite_adesao',
         'ata.limite_adesao_percentual',
-        'ata.arquivo_ata',
+        'ata.prorrogada',
         'orgao.id',
         'orgao.nome',
         'orgao.cnpj',
@@ -272,8 +258,11 @@ export class AtasService {
         'itens.unidade_medida',
         'itens.quantidade_registrada',
         'itens.quantidade_saldo',
+        'itens.quantidade_adesao_autorizada',
         'itens.valor_unitario'
-      ]);
+      ])
+      // Público: só atas assinadas (a ata aguardando assinatura ainda não produz efeitos)
+      .where('ata.status NOT IN (:...naoPublicas)', { naoPublicas: [StatusAta.AGUARDANDO_ASSINATURA] });
 
     if (filtros?.orgaoId) {
       query.andWhere('ata.orgao_id = :orgaoId', { orgaoId: filtros.orgaoId });
@@ -288,12 +277,19 @@ export class AtasService {
     }
 
     if (filtros?.vigentes) {
-      const hoje = new Date();
-      query.andWhere('ata.status = :status', { status: StatusAta.VIGENTE })
-        .andWhere('ata.data_vigencia_fim >= :hoje', { hoje });
+      query.andWhere('ata.status IN (:...vig)', { vig: [StatusAta.VIGENTE, StatusAta.ESGOTADA] })
+        .andWhere('ata.data_vigencia_fim >= :hoje', { hoje: hojeBrasilia() });
+    }
+    if (filtros?.permiteAdesao) {
+      query.andWhere('ata.permite_adesao = true');
+    }
+    if (filtros?.busca) {
+      query.andWhere('(ata.objeto ILIKE :busca OR ata.fornecedor_razao_social ILIKE :busca OR orgao.nome ILIKE :busca OR itens.descricao ILIKE :busca)', {
+        busca: `%${filtros.busca}%`,
+      });
     }
 
-    return query.orderBy('ata.data_assinatura', 'DESC').getMany();
+    return query.orderBy('ata.data_assinatura', 'DESC', 'NULLS LAST').getMany();
   }
 
   async findPublicaById(id: string): Promise<AtaRegistroPreco> {
@@ -320,7 +316,9 @@ export class AtasService {
         'ata.fornecedor_razao_social',
         'ata.permite_adesao',
         'ata.limite_adesao_percentual',
-        'ata.arquivo_ata',
+        'ata.prorrogada',
+        'ata.data_vigencia_fim_original',
+        'ata.numero_controle_pncp',
         'orgao.id',
         'orgao.nome',
         'orgao.cnpj',
@@ -342,9 +340,11 @@ export class AtasService {
         'itens.valor_total',
         'itens.marca',
         'itens.modelo',
+        'itens.quantidade_adesao_autorizada',
+        'itens.quantidade_adesao_utilizada',
       ])
       .where('ata.id = :id', { id })
-      .andWhere('ata.status != :cancelada', { cancelada: StatusAta.CANCELADA })
+      .andWhere('ata.status NOT IN (:...naoPublicas)', { naoPublicas: [StatusAta.CANCELADA, StatusAta.AGUARDANDO_ASSINATURA] })
       .getOne();
 
     if (!ata) {
@@ -358,7 +358,7 @@ export class AtasService {
 
   async contarPorStatus(orgaoId: string): Promise<Record<string, number>> {
     const atas = await this.ataRepository.find({ where: { orgao_id: orgaoId } });
-    
+
     const contagem: Record<string, number> = {};
     atas.forEach(a => {
       contagem[a.status] = (contagem[a.status] || 0) + 1;

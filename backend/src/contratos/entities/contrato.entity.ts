@@ -303,6 +303,13 @@ export class Contrato {
   @Column({ type: 'uuid', nullable: true })
   documento_assinatura_id: string | null;
 
+  /**
+   * Ata de registro de preços de origem (contrato/ordem criado "a partir da
+   * ata" — E6): o consumo do saldo fica em `ata_consumos.contrato_id`.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  ata_registro_preco_id: string | null;
+
   // Integração PNCP
   @Column({ nullable: true })
   numero_controle_pncp: string;

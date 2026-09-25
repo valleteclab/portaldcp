@@ -10,7 +10,9 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { ResultadoService } from './resultado.service';
 import { ResultadoController } from './resultado.controller';
 import { MigracaoResultadoBootService } from './migracao-resultado-boot.service';
-import { GERADOR_ATA_REGISTRO_PRECO, GeradorAtaNaoImplementado } from './gerador-ata';
+import { GERADOR_ATA_REGISTRO_PRECO } from './gerador-ata';
+import { AtasModule } from '../atas/atas.module';
+import { ArpService } from '../atas/arp.service';
 
 /**
  * RESULTADO (plano E6): adjudicação, homologação e geração do instrumento
@@ -28,13 +30,14 @@ import { GERADOR_ATA_REGISTRO_PRECO, GeradorAtaNaoImplementado } from './gerador
     ContratosModule,
     PncpModule,
     NotificacoesModule,
+    AtasModule,
   ],
   controllers: [ResultadoController],
   providers: [
     ResultadoService,
     MigracaoResultadoBootService,
-    // Parte ARP (E6 item 2/3): trocar por useExisting/useClass do serviço de atas
-    { provide: GERADOR_ATA_REGISTRO_PRECO, useClass: GeradorAtaNaoImplementado },
+    // Parte ARP (E6): a homologação do SRP gera as atas pelo ArpService
+    { provide: GERADOR_ATA_REGISTRO_PRECO, useExisting: ArpService },
   ],
   exports: [ResultadoService, GERADOR_ATA_REGISTRO_PRECO],
 })

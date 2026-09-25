@@ -6,11 +6,11 @@ import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { 
+import {
   ArrowLeft,
-  FileText, 
-  Calendar, 
-  Building2, 
+  FileText,
+  Calendar,
+  Building2,
   DollarSign,
   Download,
   User,
@@ -100,9 +100,11 @@ export default function DetalheAtaPublicaPage() {
     return (numero || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   }
 
+  // Colunas date ('YYYY-MM-DD') sem deslocar o dia pelo fuso (UTC-3)
   const formatarData = (data: string) => {
     if (!data) return '-'
-    return new Date(data).toLocaleDateString('pt-BR')
+    const [a, m, d] = String(data).slice(0, 10).split('-')
+    return `${d}/${m}/${a}`
   }
 
   const getStatusBadge = (status: string) => {
@@ -175,7 +177,7 @@ export default function DetalheAtaPublicaPage() {
               Voltar para Atas
             </Link>
           </Button>
-          
+
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-2">
@@ -188,7 +190,7 @@ export default function DetalheAtaPublicaPage() {
                 Ata de Registro de Preço nº {ata.numero_ata}
               </h1>
             </div>
-            
+
             {ata.arquivo_ata && (
               <Button asChild>
                 <a href={ata.arquivo_ata} target="_blank" rel="noreferrer">
@@ -238,9 +240,9 @@ export default function DetalheAtaPublicaPage() {
 
                 {/* Barra de Progresso */}
                 <div className="bg-gray-200 rounded-full h-4 mb-2">
-                  <div 
+                  <div
                     className={`h-4 rounded-full transition-all ${
-                      percentualSaldo > 50 ? 'bg-green-500' : 
+                      percentualSaldo > 50 ? 'bg-green-500' :
                       percentualSaldo > 20 ? 'bg-yellow-500' : 'bg-red-500'
                     }`}
                     style={{ width: `${percentualSaldo}%` }}
@@ -284,10 +286,10 @@ export default function DetalheAtaPublicaPage() {
                       <tbody>
                         {ata.itens.map((item) => {
                           const saldoPercentual = calcularPercentualSaldo(
-                            item.quantidade_registrada, 
+                            item.quantidade_registrada,
                             item.quantidade_saldo
                           )
-                          
+
                           return (
                             <tr key={item.id} className="border-b hover:bg-gray-50">
                               <td className="py-3 px-2 font-medium">{item.numero_item}</td>
@@ -303,7 +305,7 @@ export default function DetalheAtaPublicaPage() {
                               <td className="py-3 px-2 text-right">{item.quantidade_registrada}</td>
                               <td className="py-3 px-2 text-right">
                                 <span className={`font-medium ${
-                                  saldoPercentual > 50 ? 'text-green-600' : 
+                                  saldoPercentual > 50 ? 'text-green-600' :
                                   saldoPercentual > 20 ? 'text-yellow-600' : 'text-red-600'
                                 }`}>
                                   {item.quantidade_saldo}
@@ -349,7 +351,7 @@ export default function DetalheAtaPublicaPage() {
                   <p className="text-sm text-gray-500">Fim da Vigência</p>
                   <p className="font-medium">{formatarData(ata.data_vigencia_fim)}</p>
                 </div>
-                
+
                 {ata.status === 'VIGENTE' && (
                   <div className={`p-3 rounded-lg ${diasRestantes <= 30 ? 'bg-yellow-50' : 'bg-green-50'}`}>
                     <div className="flex items-center gap-2">

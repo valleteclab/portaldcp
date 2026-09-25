@@ -39,6 +39,7 @@ import { aguardarUmDe, tiqueRelogioDisputa } from './support/pregao';
 import { abrirJanelaLances, criarDispensaComPropostas, darLance, moverFimDaJanela, painelPublico } from './support/dispensa';
 import { migrarDispensaParaMotor } from '../src/disputa-v2/migracao-dispensa';
 import { LicitacoesService } from '../src/licitacoes/licitacoes.service';
+import { conferirSorteio } from '../src/julgamento/sorteio';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const MIN = 60_000;
@@ -462,12 +463,29 @@ describe('Dispensa eletrônica no motor único (E2)', () => {
       expect(r.status).toBe(201);
       const adj = [...r.body.adjudicados].sort((a: any, b: any) => a.item - b.item);
       const nome = (id: string) => (id === f1.id ? f1.razao_social : f2.razao_social);
+      // Item 1: empate 97,5 × 97,5 (f1 e f2). Desde a E3 o empate não é mais "a melhor
+      // proposta inicial" do cálculo antigo: é o art. 60 (critérios e, persistindo,
+      // SORTEIO AUDITÁVEL — IN 73 art. 28 §2º), cuja entrada inclui o instante do ato.
+      // O vencedor esperado é o 1º da ordem REGISTRADA no desempate, e o sorteio é
+      // conferido refazendo a conta (determinístico) — o teste não depende da sorte.
+      expect(esperado.get(item1)!.valor).toBe(97.5);
+      const [des] = await ctx.dataSource.query(
+        `SELECT fornecedores, ordem_final, valor_empatado::float AS valor, sorteio FROM desempates
+          WHERE unidade_id::text = $1 AND status = 'RESOLVIDO' ORDER BY resolvido_em DESC LIMIT 1`,
+        [item1],
+      );
+      expect(des).toBeTruthy();
+      expect([...des.fornecedores].sort()).toEqual([f1.id, f2.id].sort());
+      expect(des.valor).toBe(97.5);
+      for (const reg of des.sorteio ?? []) expect(conferirSorteio(reg)).toBe(true);
+      const vencedorItem1: string = des.ordem_final[0];
+      expect([f1.id, f2.id]).toContain(vencedorItem1);
       expect(adj.map((a: any) => [a.item, a.fornecedor, a.valor_unitario])).toEqual([
-        [1, nome(esperado.get(item1)!.fornecedor), esperado.get(item1)!.valor],
+        [1, nome(vencedorItem1), esperado.get(item1)!.valor],
         [2, nome(esperado.get(item2)!.fornecedor), esperado.get(item2)!.valor],
       ]);
-      // empate 97,5 × 97,5 no item 1: como antes, prevalece quem tinha a melhor PROPOSTA inicial (f2: 98 < 100)
-      expect(adj[0]).toMatchObject({ fornecedor: f2.razao_social, valor_unitario: 97.5, valor_total: 975 });
+      expect(adj[0]).toMatchObject({ fornecedor: nome(vencedorItem1), valor_unitario: 97.5, valor_total: 975 });
+      // Item 2 sem empate: igual ao cálculo de antes (f1 com o lance de 49)
       expect(adj[1]).toMatchObject({ fornecedor: f1.razao_social, valor_unitario: 49, valor_total: 980 });
     });
 
