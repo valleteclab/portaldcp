@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/table'
 
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface ItemCSV {
   numero_item: number
@@ -327,7 +328,7 @@ export function ImportarCSVParaPCA({ pcaId, onImportSuccess }: ImportarCSVParaPC
 
   const importarItens = async () => {
     if (itensSelecionados.length === 0) {
-      alert('Selecione pelo menos um item para importar.')
+      toast.warning('Selecione pelo menos um item para importar.')
       return
     }
 

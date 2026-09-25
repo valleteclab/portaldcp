@@ -75,7 +75,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
   });
 
   const encerrar = async (orgao: OrgaoFixture, sessaoId: string, unidadeId: string) => {
-    const r = await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${unidadeId}`).set(bearer(orgao.token));
+    const r = await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${unidadeId}`).set(bearer(orgao.token));
     expect(r.status).toBe(201);
   };
 
@@ -228,7 +228,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(hab).toMatchObject({ fornecedorId: F1.id, status: 'AGUARDANDO_ENVIO', prazoHoras: 3, origem: 'CONVOCACAO' });
       expect((new Date(hab.prazoAte).getTime() - Date.now()) / 3_600_000).toBeGreaterThan(2.9);
       expect((await buscarLicitacao(ctx, { id: licId, orgao } as any)).fase).toBe(FaseLicitacao.HABILITACAO);
-      const s = (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body;
+      const s = (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body;
       expect(s.etapa).toBe(EtapaSessao.CONVOCACAO_HABILITACAO);
       expect((await convocarHabilitacao(ctx, licId, F1.id, orgao.token)).status).toBe(409);
     });
@@ -286,7 +286,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       const e = await entregarHabilitacao(ctx, licId, F1.token);
       expect(e.status).toBe(201);
       expect(e.body.status).toBe('ENVIADA');
-      const s = (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body;
+      const s = (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body;
       expect(s.etapa).toBe(EtapaSessao.ANALISE_HABILITACAO);
     });
 
@@ -400,7 +400,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(r.body.status).toBe('HABILITADO');
       const [lu] = await q(`SELECT situacao FROM licitantes_unidade WHERE unidade_id = $1 AND fornecedor_id = $2`, [item, F1.id]);
       expect(lu.situacao).toBe('HABILITADO');
-      const s = (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body;
+      const s = (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body;
       expect(s.etapa).toBe(EtapaSessao.INTENCAO_RECURSO);
       const eventos = (await http().get(`/api/sessao/${sessaoId}/eventos`).set(bearer(orgao.token)).expect(200)).body;
       expect(eventos.some((e: any) => e.tipo === 'HABILITACAO_APROVADA' && e.fornecedor_identificador === F1.id)).toBe(true);
@@ -465,7 +465,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(lu).toMatchObject({ situacao: 'INABILITADO', motivo: 'Não apresentou os documentos de habilitação no prazo' });
       const painel = await painelAceitacao(ctx, p.sessaoId, orgao.token);
       expect(painel.unidades[0].aceitacaoAtual).toMatchObject({ fornecedorId: F2.id, status: 'AGUARDANDO_ENVIO' });
-      const s = (await http().get(`/api/disputa-v2/sessao/${p.sessaoId}`).expect(200)).body;
+      const s = (await http().get(`/api/disputa/sessao/${p.sessaoId}`).expect(200)).body;
       expect(s.etapa).toBe(EtapaSessao.ACEITACAO_PROPOSTA);
       const eventos = (await http().get(`/api/sessao/${p.sessaoId}/eventos`).set(bearer(orgao.token)).expect(200)).body;
       expect(eventos.some((e: any) => e.tipo === 'HABILITACAO_REPROVADA' && /no prazo/.test(e.descricao))).toBe(true);
@@ -571,7 +571,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(s.status).toBe(201);
       sessaoId = s.body.id;
       expect((await http().put(`/api/sessao/${sessaoId}/iniciar`).set(bearer(orgao.token))).status).toBe(200);
-      const it = await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: lic.itens.map((i: any) => i.id) });
+      const it = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: lic.itens.map((i: any) => i.id) });
       expect(it.status).toBe(400);
       expect(JSON.stringify(it.body)).toMatch(/Inversão de fases/);
     });
@@ -597,14 +597,14 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
     });
 
     test('só os habilitados disputam: F3 (inabilitado) sem lance; vencedor confirmado habilitado após a aceitação', async () => {
-      const it = await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: lic.itens.map((i: any) => i.id) });
+      const it = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: lic.itens.map((i: any) => i.id) });
       expect(it.status).toBe(201);
       const item = lic.itens[0].id;
-      const lance3 = await http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`).set(bearer(F3.token)).send({ itemId: item, valor: 800 });
+      const lance3 = await http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(F3.token)).send({ itemId: item, valor: 800 });
       expect(lance3.status).toBeGreaterThanOrEqual(400);
       const [n3] = await q(`SELECT COUNT(*)::int AS n FROM lances WHERE item_id = $1 AND fornecedor_id = $2`, [item, F3.id]);
       expect(n3.n).toBe(0);
-      expect((await http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`).set(bearer(F2.token)).send({ itemId: item, valor: 880 })).status).toBe(201);
+      expect((await http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(F2.token)).send({ itemId: item, valor: 880 })).status).toBe(201);
       await encerrar(orgao, sessaoId, item);
       const linhas = await q(`SELECT fornecedor_id FROM licitantes_unidade WHERE unidade_id = $1 ORDER BY posicao_final`, [item]);
       expect(linhas.map((l: any) => l.fornecedor_id)).toEqual([F2.id, F1.id]);
@@ -618,7 +618,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(lu.situacao).toBe('HABILITADO');
       const adj = (await atos(lic.id, orgao.token)).find((a) => a.ato === 'ADJUDICAR');
       expect(adj?.pendencias.join(' ') ?? '').not.toMatch(/Habilitação pendente/);
-      const s = (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body;
+      const s = (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body;
       expect(s.etapa).toBe(EtapaSessao.INTENCAO_RECURSO);
     });
   });

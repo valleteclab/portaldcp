@@ -1,17 +1,17 @@
 import { Controller, Get, Post, Put, Param, Body, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
-import { OrigemLance } from '../disputa-v2/modelo-lance';
+import { OrigemLance } from '../disputa/modelo-lance';
 import { AdminGuard } from '../auth/admin.guard';
 import { SessaoDisputa, StatusSessao } from '../sessao/entities/sessao-disputa.entity';
 import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
-import { Lance } from '../disputa-v2/entities/lance.entity';
+import { Lance } from '../disputa/entities/lance.entity';
 import { EventoSessao, TipoEvento } from '../sessao/entities/evento-sessao.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
-import { DisputaGateway } from '../disputa-v2/disputa.gateway';
-import { DisputaService } from '../disputa-v2/disputa.service';
-import { AnonimizacaoService } from '../disputa-v2/anonimizacao.service';
-import { ModoDisputaService } from '../disputa-v2/modo-disputa.service';
+import { DisputaGateway } from '../disputa/disputa.gateway';
+import { DisputaService } from '../disputa/disputa.service';
+import { AnonimizacaoService } from '../disputa/anonimizacao.service';
+import { ModoDisputaService } from '../disputa/modo-disputa.service';
 import { atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
@@ -85,7 +85,7 @@ export class AdminMonitoramentoController {
       return {
         id: sessao.id,
         licitacao_id: sessao.licitacao_id,
-        licitacao_numero: sessao.licitacao?.numero_controle_pncp || sessao.licitacao?.numero_processo || 'N/A',
+        licitacao_numero: sessao.licitacao?.numero_processo || 'N/A',
         licitacao_objeto: sessao.licitacao?.objeto || 'N/A',
         orgao_nome: sessao.licitacao?.orgao?.nome || 'N/A',
         pregoeiro_nome: sessao.pregoeiro_nome,

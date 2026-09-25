@@ -1,9 +1,9 @@
-import type { ExecutorSql } from '../disputa-v2/migracao-lances';
+import type { ExecutorSql } from '../disputa/migracao-lances';
 import { DadosPontuacao, ehCriterioTecnico } from './criterios-julgamento';
 
 /**
  * Funções SQL do julgamento técnico SEM injeção de dependência — o motor de
- * disputa (disputa-v2) as chama sem importar o módulo de julgamento (mesmo
+ * disputa (disputa) as chama sem importar o módulo de julgamento (mesmo
  * padrão de `licitantes-unidade.sql.ts`).
  */
 

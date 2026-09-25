@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ArrowLeft, CalendarClock, CheckCircle, FilePen, FileText, Package, Send, Users, XCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 
 /**
  * ATA DE REGISTRO DE PREÇOS — painel do órgão GERENCIADOR (Lei 14.133/2021
@@ -98,11 +100,11 @@ export default function AtaDetalhePage() {
       })
       const b = await r.json().catch(() => null)
       if (!r.ok) throw new Error(Array.isArray(b?.message) ? b.message.join(' ') : b?.message || `HTTP ${r.status}`)
-      if (sucesso) alert(sucesso)
+      if (sucesso) toast.success(sucesso)
       await carregar()
       return b
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
       return null
     } finally {
       setOcupado(false)
@@ -132,11 +134,11 @@ export default function AtaDetalhePage() {
     const itens = Object.entries(quantidades)
       .map(([item_ata_id, q]) => ({ item_ata_id, quantidade: Number(String(q).replace(',', '.')) }))
       .filter((i) => i.quantidade > 0)
-    if (!itens.length) return alert('Informe a quantidade de pelo menos um item.')
+    if (!itens.length) return toast.warning('Informe a quantidade de pelo menos um item.')
     const r = await ato(`${id}/contratar`, { tipo, itens, prazo_execucao_dias: Number(prazo) || 30 })
     if (r?.contrato) {
       setQuantidades({})
-      alert(`${r.contrato.tipo === 'CONTRATO' ? 'Contrato' : 'Ordem'} ${r.contrato.numero_contrato} criado(a) — aguardando assinatura (${moeda(r.valor_total)}).`)
+      toast(`${r.contrato.tipo === 'CONTRATO' ? 'Contrato' : 'Ordem'} ${r.contrato.numero_contrato} criado(a) — aguardando assinatura (${moeda(r.valor_total)}).`)
     }
   }
 
@@ -368,8 +370,8 @@ export default function AtaDetalhePage() {
                         <Button size="sm" disabled={ocupado} onClick={() => ato(`adesoes/${ad.id}/anuencia`, { aceitar: true }, 'Anuência registrada — aguardando o aceite do fornecedor.')}>
                           Anuir
                         </Button>
-                        <Button size="sm" variant="outline" disabled={ocupado} onClick={() => {
-                          const motivo = prompt('Motivo da recusa:')
+                        <Button size="sm" variant="outline" disabled={ocupado} onClick={async () => {
+                          const motivo = (await pedirTextoAcao({ titulo: 'Motivo da recusa:' }))
                           if (motivo) ato(`adesoes/${ad.id}/anuencia`, { aceitar: false, motivo })
                         }}>Recusar</Button>
                       </>
@@ -507,9 +509,9 @@ export default function AtaDetalhePage() {
                       variant="destructive"
                       disabled={ocupado || !['VIGENTE', 'ESGOTADA', 'AGUARDANDO_ASSINATURA'].includes(a.status)}
                       onClick={async () => {
-                        if (!confirm('Cancelar o registro do fornecedor nesta ata? A ata deixa de admitir contratações.')) return
+                        if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Cancelar o registro do fornecedor nesta ata? A ata deixa de admitir contratações.', destrutivo: true }))) return
                         const r = await ato(`${id}/cancelar-registro`, { hipotese: cancHipotese, motivo: cancMotivo })
-                        if (r) alert(r.convocadas?.length ? `Convocado(s) do cadastro de reserva: ${r.convocadas.map((c: any) => `${c.fornecedor_razao_social} (ata ${c.numero_ata})`).join(', ')}` : 'Registro cancelado. Não há cadastro de reserva para o saldo.')
+                        if (r) toast(r.convocadas?.length ? `Convocado(s) do cadastro de reserva: ${r.convocadas.map((c: any) => `${c.fornecedor_razao_social} (ata ${c.numero_ata})`).join(', ')}` : 'Registro cancelado. Não há cadastro de reserva para o saldo.')
                       }}
                     >
                       Cancelar registro

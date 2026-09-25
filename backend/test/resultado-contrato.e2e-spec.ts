@@ -110,7 +110,7 @@ describe('E6 — resultado único (adjudicação, homologação) e contrato', ()
       item = p.lic.itens[0].id;
       // prazo de entrega da proposta de A (atalho de fixture: a tela da proposta grava este campo)
       await q(`UPDATE propostas SET prazo_entrega_dias = 15 WHERE licitacao_id = $1 AND fornecedor_id = $2`, [licId, A.id]);
-      expect((await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token))).status).toBe(201);
+      expect((await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token))).status).toBe(201);
     });
 
     test('lance final de A = R$ 900,00 (total do item)', async () => {

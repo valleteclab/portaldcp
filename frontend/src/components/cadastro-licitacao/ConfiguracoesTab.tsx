@@ -1,22 +1,61 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Settings, Users, Eye, EyeOff, AlertCircle } from "lucide-react"
 import { Configuracoes } from "./types"
+import { API_URL, authFetch } from "@/lib/api"
 
 interface ConfiguracoesTabProps {
   dados: Configuracoes
   onChange: (dados: Configuracoes) => void
 }
 
+interface UsuarioDoOrgao {
+  id: string
+  nome: string
+  role?: string
+  ativo?: boolean
+}
+
+const ROTULO_PAPEL: Record<string, string> = {
+  PREGOEIRO: 'Pregoeiro',
+  EQUIPE_APOIO: 'Equipe de apoio',
+  ADMIN: 'Administrador',
+}
+
+const SEM_PREGOEIRO = '__nenhum__'
+
 export function ConfiguracoesTab({ dados, onChange }: ConfiguracoesTabProps) {
   const updateField = (field: keyof Configuracoes, value: any) => {
     onChange({ ...dados, [field]: value })
   }
+
+  // Usuários ativos do órgão (o backend lista só os do órgão do token)
+  const [usuarios, setUsuarios] = useState<UsuarioDoOrgao[]>([])
+  const [carregandoUsuarios, setCarregandoUsuarios] = useState(true)
+  useEffect(() => {
+    let ativo = true
+    authFetch(`${API_URL}/api/usuarios`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((lista: UsuarioDoOrgao[]) => {
+        if (!ativo) return
+        const ativos = (Array.isArray(lista) ? lista : []).filter((u) => u.ativo !== false)
+        ativos.sort((a, b) => (a.role === 'PREGOEIRO' ? 0 : 1) - (b.role === 'PREGOEIRO' ? 0 : 1) || a.nome.localeCompare(b.nome))
+        setUsuarios(ativos)
+      })
+      .catch(() => ativo && setUsuarios([]))
+      .finally(() => ativo && setCarregandoUsuarios(false))
+    return () => {
+      ativo = false
+    }
+  }, [])
+  const pregoeiroForaDaLista = !!dados.pregoeiro_id && !usuarios.some((u) => u.id === dados.pregoeiro_id)
 
   return (
     <div className="space-y-6">
@@ -197,32 +236,44 @@ export function ConfiguracoesTab({ dados, onChange }: ConfiguracoesTabProps) {
             Responsáveis
           </CardTitle>
           <CardDescription>
-            Pregoeiro e equipe de apoio
+            Pregoeiro / agente de contratação: um usuário do órgão (quem conduz a sessão)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="pregoeiro">Pregoeiro / Agente de Contratação</Label>
-            <Input 
-              id="pregoeiro"
-              placeholder="Nome completo do pregoeiro"
-              value={dados.pregoeiro_nome}
-              onChange={(e) => updateField('pregoeiro_nome', e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="equipe_apoio">Equipe de Apoio</Label>
-            <Textarea 
-              id="equipe_apoio"
-              placeholder="Nomes dos membros da equipe de apoio (um por linha)"
-              rows={3}
-              value={dados.equipe_apoio}
-              onChange={(e) => updateField('equipe_apoio', e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              Informe os nomes dos membros da equipe de apoio
-            </p>
+            <Select
+              value={dados.pregoeiro_id || SEM_PREGOEIRO}
+              onValueChange={(v) => updateField('pregoeiro_id', v === SEM_PREGOEIRO ? null : v)}
+              disabled={carregandoUsuarios}
+            >
+              <SelectTrigger id="pregoeiro">
+                <SelectValue placeholder={carregandoUsuarios ? 'Carregando usuários...' : 'Selecione o usuário'} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SEM_PREGOEIRO}>Não definido</SelectItem>
+                {pregoeiroForaDaLista && (
+                  <SelectItem value={dados.pregoeiro_id as string}>
+                    {dados.pregoeiro_nome_atual || 'Usuário atual'} (inativo)
+                  </SelectItem>
+                )}
+                {usuarios.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.nome}{u.role ? ` — ${ROTULO_PAPEL[u.role] || u.role}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!dados.pregoeiro_id && dados.pregoeiro_nome_atual && (
+              <p className="text-xs text-amber-700">
+                Registrado antes como texto livre: &quot;{dados.pregoeiro_nome_atual}&quot;. Selecione o usuário correspondente.
+              </p>
+            )}
+            {!carregandoUsuarios && usuarios.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Nenhum usuário ativo no órgão. Cadastre os usuários em Configurações do órgão.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

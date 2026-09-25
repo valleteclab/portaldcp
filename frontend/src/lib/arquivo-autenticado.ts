@@ -1,4 +1,5 @@
 import { authFetch } from './api'
+import { toast } from "sonner"
 
 /**
  * Abre em nova aba um arquivo servido por rota AUTENTICADA da API.
@@ -18,7 +19,7 @@ export async function abrirArquivoAutenticado(url: string): Promise<void> {
     if (!res.ok) {
       aba?.close()
       const erro = await res.json().catch(() => null)
-      alert(erro?.message || 'Não foi possível abrir o arquivo.')
+      toast.error(erro?.message || 'Não foi possível abrir o arquivo.')
       return
     }
     const blobUrl = URL.createObjectURL(await res.blob())
@@ -30,6 +31,6 @@ export async function abrirArquivoAutenticado(url: string): Promise<void> {
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
   } catch {
     aba?.close()
-    alert('Não foi possível abrir o arquivo.')
+    toast.error('Não foi possível abrir o arquivo.')
   }
 }

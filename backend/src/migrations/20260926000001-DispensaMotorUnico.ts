@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { migrarDispensaParaMotor, resumoMigracaoDispensa } from '../disputa-v2/migracao-dispensa';
+import { migrarDispensaParaMotor, resumoMigracaoDispensa } from '../disputa/migracao-dispensa';
 
 /**
  * E2 item 7 — Dispensa eletrônica no motor único: `dispensa_lances` → `lances`

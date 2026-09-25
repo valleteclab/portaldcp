@@ -53,6 +53,7 @@ import {
 } from 'lucide-react'
 
 import { API_URL, adminFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface Orgao {
   id: string
@@ -209,17 +210,17 @@ export default function AdminOrgaosPage() {
       })
 
       if (response.ok) {
-        alert('Órgão cadastrado com sucesso!')
+        toast.success('Órgão cadastrado com sucesso!')
         setShowNovoOrgao(false)
         limparForm()
         carregarOrgaos()
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao cadastrar órgão')
+        toast.error(error.message || 'Erro ao cadastrar órgão')
       }
     } catch (error) {
       console.error('Erro ao salvar órgão:', error)
-      alert('Erro ao cadastrar órgão')
+      toast.error('Erro ao cadastrar órgão')
     }
   }
 
@@ -233,17 +234,17 @@ export default function AdminOrgaosPage() {
       })
 
       if (response.ok) {
-        alert('Órgão atualizado com sucesso!')
+        toast.success('Órgão atualizado com sucesso!')
         setShowEditarOrgao(false)
         setOrgaoSelecionado(null)
         carregarOrgaos()
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao atualizar órgão')
+        toast.error(error.message || 'Erro ao atualizar órgão')
       }
     } catch (error) {
       console.error('Erro ao atualizar órgão:', error)
-      alert('Erro ao atualizar órgão')
+      toast.error('Erro ao atualizar órgão')
     }
   }
 
@@ -256,17 +257,17 @@ export default function AdminOrgaosPage() {
       })
 
       if (response.ok) {
-        alert('Órgão desativado com sucesso!')
+        toast.success('Órgão desativado com sucesso!')
         setShowConfirmarExclusao(false)
         setOrgaoSelecionado(null)
         carregarOrgaos()
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao desativar órgão')
+        toast.error(error.message || 'Erro ao desativar órgão')
       }
     } catch (error) {
       console.error('Erro ao desativar órgão:', error)
-      alert('Erro ao desativar órgão')
+      toast.error('Erro ao desativar órgão')
     }
   }
 
@@ -280,15 +281,15 @@ export default function AdminOrgaosPage() {
       })
 
       if (response.ok) {
-        alert('Configuração PNCP salva com sucesso!')
+        toast.success('Configuração PNCP salva com sucesso!')
         carregarOrgaos()
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao salvar configuração')
+        toast.error(error.message || 'Erro ao salvar configuração')
       }
     } catch (error) {
       console.error('Erro ao salvar configuração PNCP:', error)
-      alert('Erro ao salvar configuração')
+      toast.error('Erro ao salvar configuração')
     }
   }
 
@@ -387,11 +388,11 @@ export default function AdminOrgaosPage() {
     if (formEmail.email_metodo === 'SMTP') {
       const host = (formEmail.email_smtp_host || '').toLowerCase()
       if (host.includes('pop.') || host.includes('imap.')) {
-        alert('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
+        toast('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
         return
       }
       if ([993, 995].includes(formEmail.email_smtp_port)) {
-        alert('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
+        toast('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
         return
       }
     }
@@ -405,10 +406,10 @@ export default function AdminOrgaosPage() {
       if (!temApiKey && !temEmailFrom) {
         // OK - vai usar variáveis de ambiente
       } else if (temApiKey && !temEmailFrom) {
-        alert('Se preencher a API Key, também preencha o email de origem.')
+        toast.warning('Se preencher a API Key, também preencha o email de origem.')
         return
       } else if (!temApiKey && temEmailFrom) {
-        alert('Se preencher o email de origem, também preencha a API Key.')
+        toast.warning('Se preencher o email de origem, também preencha a API Key.')
         return
       }
     }
@@ -428,15 +429,15 @@ export default function AdminOrgaosPage() {
         })
       })
       if (res.ok) {
-        alert('Configuração de email salva com sucesso!')
+        toast.success('Configuração de email salva com sucesso!')
         setShowConfigurarEmail(false)
       } else {
         const err = await res.json()
-        alert(err.message || 'Erro ao salvar configuração')
+        toast.error(err.message || 'Erro ao salvar configuração')
       }
     } catch (e) {
       console.error('Erro ao salvar config email:', e)
-      alert('Erro ao salvar configuração')
+      toast.error('Erro ao salvar configuração')
     } finally {
       setSalvandoEmail(false)
     }
@@ -449,11 +450,11 @@ export default function AdminOrgaosPage() {
     if (formEmail.email_metodo === 'SMTP') {
       const host = (formEmail.email_smtp_host || '').toLowerCase()
       if (host.includes('pop.') || host.includes('imap.')) {
-        alert('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
+        toast('SMTP é para ENVIAR emails. Você digitou pop. ou imap. — use smtp.gmail.com (Gmail) ou smtp.office365.com (Outlook).')
         return
       }
       if ([993, 995].includes(formEmail.email_smtp_port)) {
-        alert('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
+        toast('Portas 993 (IMAP) e 995 (POP3) são para receber. Para SMTP use 587 ou 465.')
         return
       }
     }
@@ -467,10 +468,10 @@ export default function AdminOrgaosPage() {
       if (!temApiKey && !temEmailFrom) {
         // OK - vai usar variáveis de ambiente
       } else if (temApiKey && !temEmailFrom) {
-        alert('Se preencher a API Key, também preencha o email de origem.')
+        toast.warning('Se preencher a API Key, também preencha o email de origem.')
         return
       } else if (!temApiKey && temEmailFrom) {
-        alert('Se preencher o email de origem, também preencha a API Key.')
+        toast.warning('Se preencher o email de origem, também preencha a API Key.')
         return
       }
     }
@@ -491,9 +492,9 @@ export default function AdminOrgaosPage() {
         body: JSON.stringify({ email: emailTeste })
       })
       const data = await res.json()
-      alert(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
+      toast.success(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
     } catch (e) {
-      alert('Erro ao testar conexao')
+      toast.error('Erro ao testar conexao')
     } finally {
       setTestandoEmail(false)
     }
@@ -533,15 +534,15 @@ export default function AdminOrgaosPage() {
         })
       })
       if (res.ok) {
-        alert('Configuracao de WhatsApp salva com sucesso!')
+        toast.success('Configuracao de WhatsApp salva com sucesso!')
         carregarOrgaos()
       } else {
         const err = await res.json()
-        alert(err.message || 'Erro ao salvar')
+        toast.error(err.message || 'Erro ao salvar')
       }
     } catch (e) {
       console.error(e)
-      alert('Erro ao salvar configuracao')
+      toast.error('Erro ao salvar configuracao')
     } finally {
       setSalvandoWhatsApp(false)
     }
@@ -551,7 +552,7 @@ export default function AdminOrgaosPage() {
     if (!orgaoSelecionado) return
     const num = whatsappNumeroTeste.replace(/\D/g, '')
     if (num.length < 10) {
-      alert('Informe um numero de teste valido (ex: 5511999999999)')
+      toast.warning('Informe um numero de teste valido (ex: 5511999999999)')
       return
     }
     setTestandoWhatsApp(true)
@@ -562,9 +563,9 @@ export default function AdminOrgaosPage() {
         body: JSON.stringify({ numero: num })
       })
       const data = await res.json()
-      alert(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
+      toast.success(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
     } catch (e) {
-      alert('Erro ao testar WhatsApp')
+      toast.error('Erro ao testar WhatsApp')
     } finally {
       setTestandoWhatsApp(false)
     }
@@ -600,15 +601,15 @@ export default function AdminOrgaosPage() {
         })
       })
       if (res.ok) {
-        alert('Config WhatsApp global salva com sucesso!')
+        toast.success('Config WhatsApp global salva com sucesso!')
         setShowConfigWhatsAppGlobal(false)
       } else {
         const err = await res.json()
-        alert(err.message || 'Erro ao salvar')
+        toast.error(err.message || 'Erro ao salvar')
       }
     } catch (e) {
       console.error(e)
-      alert('Erro ao salvar')
+      toast.error('Erro ao salvar')
     } finally {
       setSalvandoWhatsApp(false)
     }
@@ -617,7 +618,7 @@ export default function AdminOrgaosPage() {
   const consultarCnpj = async () => {
     const cnpjLimpo = formOrgao.cnpj.replace(/\D/g, '')
     if (cnpjLimpo.length !== 14) {
-      alert('CNPJ deve ter 14 dígitos')
+      toast.warning('CNPJ deve ter 14 dígitos')
       return
     }
 
@@ -643,11 +644,11 @@ export default function AdminOrgaosPage() {
         }))
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao consultar CNPJ')
+        toast.error(error.message || 'Erro ao consultar CNPJ')
       }
     } catch (error) {
       console.error('Erro ao consultar CNPJ:', error)
-      alert('Erro ao consultar CNPJ. Verifique sua conexão.')
+      toast.error('Erro ao consultar CNPJ. Verifique sua conexão.')
     } finally {
       setConsultandoCnpj(false)
     }
@@ -1572,9 +1573,9 @@ export default function AdminOrgaosPage() {
                 try {
                   const res = await adminFetch(`${API_URL}/api/orgaos/${orgaoSelecionado.id}/email-config/testar-imap`, { method: 'POST' })
                   const data = await res.json()
-                  alert(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
+                  toast.success(data.sucesso ? data.mensagem : `Erro: ${data.mensagem}`)
                 } catch (e) {
-                  alert('Erro ao testar IMAP')
+                  toast.error('Erro ao testar IMAP')
                 } finally {
                   setTestandoImap(false)
                 }

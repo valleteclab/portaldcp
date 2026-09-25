@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda, STATUS_DEMANDA_EM_PROCESSO } from './entities/demanda.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
 
 @Injectable()
 export class DemandasService {
@@ -267,10 +268,12 @@ export class DemandasService {
     const [licitacao] = await this.dataSource.query(
       `SELECT id, numero_processo, modalidade, fase, valor_total_estimado,
               data_publicacao_edital, data_homologacao, valor_homologado,
-              numero_controle_pncp, link_pncp
+              link_pncp
        FROM licitacoes WHERE demanda_id = $1 ORDER BY created_at ASC LIMIT 1`,
       [id],
     ).catch(() => [null]);
+    // Estado da compra no PNCP: fila (E9)
+    if (licitacao) await aplicarEstadoCompraPncp(this.dataSource.manager, [licitacao]);
 
     // Contratos do processo
     const contratos = licitacao

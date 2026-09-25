@@ -71,9 +71,16 @@ export class SessaoDisputa {
   @Column()
   licitacao_id: string;
 
+  /**
+   * @deprecated E9 — "item atual" da sala legada (um item por vez). O motor
+   * único (E2) guarda o estado POR UNIDADE (item/lote); nada lê nem grava.
+   * Drop físico: plano, E9.
+   */
   @ManyToOne(() => ItemLicitacao, { nullable: true })
   @JoinColumn({ name: 'item_atual_id' })
   item_atual: ItemLicitacao;
+
+  /** @deprecated E9 — ver `item_atual`. */
 
   @Column({ nullable: true })
   item_atual_id: string;
@@ -113,15 +120,20 @@ export class SessaoDisputa {
   @Column({ type: 'int', default: 30 })
   tempo_aleatorio_max_minutos: number;
 
-  // Tempo sorteado para encerramento
+  /**
+   * @deprecated E9 — relógio da sessão legada. O relógio é POR UNIDADE
+   * (`itens_licitacao`/`lotes_licitacao`: `ultimo_lance_em`,
+   * `tempo_aleatorio_sorteado`, `inicio_tempo_aleatorio`, E2); estas três
+   * colunas da sessão não são lidas nem gravadas. Drop físico: plano, E9.
+   */
   @Column({ type: 'int', nullable: true })
   tempo_aleatorio_sorteado: number;
 
-  // Timestamp do ultimo lance (para calcular inatividade)
+  /** @deprecated E9 — ver `tempo_aleatorio_sorteado`. */
   @Column({ type: 'timestamp', nullable: true })
   ultimo_lance_em: Date;
 
-  // Timestamp de inicio do tempo aleatorio
+  /** @deprecated E9 — ver `tempo_aleatorio_sorteado`. */
   @Column({ type: 'timestamp', nullable: true })
   inicio_tempo_aleatorio: Date;
 
@@ -140,9 +152,11 @@ export class SessaoDisputa {
   @Column({ type: 'int', default: 2 })
   tempo_prorrogacao_minutos: number;
 
+  /** @deprecated E9 — contadores da sala legada; nada lê nem grava. Drop físico: plano, E9. */
   @Column({ type: 'int', default: 0 })
   quantidade_prorrogacoes: number;
 
+  /** @deprecated E9 — ver `quantidade_prorrogacoes`. */
   @Column({ type: 'int', default: 0 })
   prorrogacoes_utilizadas: number;
 

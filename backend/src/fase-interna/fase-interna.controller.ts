@@ -210,43 +210,9 @@ export class FaseInternaController {
     return this.faseInternaService.getDocumento(id);
   }
 
-  // === APROVACAO ===
-
-  @Put('documento/:id/submeter')
-  @DonoPor('documento', 'id')
-  async submeterParaAprovacao(@Param('id') id: string) {
-    return this.faseInternaService.submeterParaAprovacao(id);
-  }
-
-  @Put('documento/:id/aprovar')
-  @DonoPor('documento', 'id')
-  async aprovarDocumento(
-    @Param('id') id: string,
-    @Body()
-    body: { aprovadorId: string; aprovadorNome: string; observacao?: string },
-  ) {
-    return this.faseInternaService.aprovarDocumento(
-      id,
-      body.aprovadorId,
-      body.aprovadorNome,
-      body.observacao,
-    );
-  }
-
-  @Put('documento/:id/reprovar')
-  @DonoPor('documento', 'id')
-  async reprovarDocumento(
-    @Param('id') id: string,
-    @Body()
-    body: { aprovadorId: string; aprovadorNome: string; observacao: string },
-  ) {
-    return this.faseInternaService.reprovarDocumento(
-      id,
-      body.aprovadorId,
-      body.aprovadorNome,
-      body.observacao,
-    );
-  }
+  // O envio para aprovação é pelo fluxo por etapa (`documento/:id/submeter-fluxo`,
+  // `aprovacoes/etapa/:id/{aprovar,reprovar}`); a aprovação por documento
+  // (submeter/aprovar/reprovar e GET aprovacoes) foi apagada na E9.
 
   /** Preço de referência rápido por código CATMAT/CATSER (dados abertos) */
   @Get('preco-referencia')
@@ -727,13 +693,6 @@ export class FaseInternaController {
       buffer,
       relPath,
     );
-  }
-
-  // === APROVACOES AGREGADAS ===
-
-  @Get('aprovacoes')
-  async getAprovacoes(@Query('orgao_id') orgaoId: string, @AtorAtual() ator: Ator) {
-    return this.faseInternaService.getAprovacoesOrgao(ator.admin ? orgaoId : ator.orgaoId!);
   }
 
   // === WIZARD ===

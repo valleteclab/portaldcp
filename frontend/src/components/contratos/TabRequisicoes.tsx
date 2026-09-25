@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import ModalMedicaoRetroativa from './ModalMedicaoRetroativa'
+import { toast } from "sonner"
 
 // ============================================================================
 // INTERFACES
@@ -340,14 +341,14 @@ export default function TabRequisicoes({ contratoId, contratoNumero }: { contrat
         })
       }
       if (res.ok) {
-        alert('Empenhos vinculados com sucesso!')
+        toast.success('Empenhos vinculados com sucesso!')
         setModalEmpenho(null)
         carregarDados()
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro ao vincular empenhos')
+        toast.error(err.message || 'Erro ao vincular empenhos')
       }
-    } catch { alert('Erro ao vincular empenhos') }
+    } catch { toast.error('Erro ao vincular empenhos') }
     setSalvandoEmpenho(false)
   }
 

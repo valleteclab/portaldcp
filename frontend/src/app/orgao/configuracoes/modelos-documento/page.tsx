@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { API_URL, authFetch } from "@/lib/api";
 import { TITULOS_TIPO } from "@/lib/fase-interna/secoes-template";
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface SecaoModelo {
   id: string;
@@ -138,7 +139,7 @@ export default function ModelosDocumentoPage() {
   };
 
   const desativar = async (modelo: ModeloDocumento) => {
-    if (!confirm(`Remover o modelo "${modelo.nome}"?`)) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Remover o modelo "${modelo.nome}"?`, destrutivo: true }))) return;
     const res = await authFetch(`${API_URL}/api/fase-interna/modelos/${modelo.id}`, {
       method: "DELETE",
     });

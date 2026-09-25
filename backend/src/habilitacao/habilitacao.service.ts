@@ -23,7 +23,7 @@ import { ParametrosLicitacaoService } from '../parametros-licitacao/parametros-l
 import { AceitacaoService } from '../julgamento/aceitacao.service';
 import { RankingService } from '../julgamento/ranking.service';
 import { SITUACOES_PROPOSTA_ACEITA, SituacaoLicitante } from '../julgamento/regras-julgamento';
-import { BaseLance } from '../disputa-v2/modelo-lance';
+import { BaseLance } from '../disputa/modelo-lance';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { PrioridadeNotificacao, TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import {

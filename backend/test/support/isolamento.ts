@@ -96,7 +96,7 @@ export function identidadeNoPayload(payload: any, f: FornecedorFixture): string[
 
 /**
  * Valores estritamente decrescentes na execução: cada lance novo é menor que
- * todos os anteriores, o que satisfaz ao mesmo tempo as regras da disputa-v2
+ * todos os anteriores, o que satisfaz ao mesmo tempo as regras da disputa
  * (menor que a própria proposta/último lance, diferente do melhor) e do
  * gateway /sessao (menor que o melhor lance do item).
  */
@@ -169,7 +169,7 @@ export async function prepararPregaoEmAcolhimento(
  * Pregão com sessão criada — mesmo caminho do simulador de disputa:
  * acolhimento → abertura → análise → classificação → POST /sessao/:licitacaoId.
  *  - `iniciarSessao` (padrão true): PUT /sessao/:id/iniciar;
- *  - `iniciarItens` (padrão true): POST /disputa-v2/sessao/:id/iniciar-itens com
+ *  - `iniciarItens` (padrão true): POST /disputa/sessao/:id/iniciar-itens com
  *    todos os itens (o botão "iniciar" do pregoeiro na sala v2/v3).
  */
 export async function prepararPregaoEmDisputa(
@@ -200,7 +200,7 @@ export async function prepararPregaoEmDisputa(
   // intervalo de tempo entre lances do mesmo fornecedor já é 0 (não é exigência legal).
   const cfg = await ctx
     .http()
-    .put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`)
+    .put(`/api/disputa/sessao/${sessaoId}/configuracoes`)
     .set(bearer(orgao.token))
     .send({ tempo_inatividade_minutos: 10, tempo_prorrogacao_minutos: 2, intervalo_minimo_lances_minutos: 0 });
   exigir(cfg, 200, 'configurar sessão');
@@ -211,7 +211,7 @@ export async function prepararPregaoEmDisputa(
     if (opts.iniciarItens !== false) {
       const it = await ctx
         .http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`)
+        .post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`)
         .set(bearer(orgao.token))
         .send({ itensIds: lic.itens.map((i) => i.id) });
       exigir(it, 201, 'iniciar itens da disputa');
@@ -223,14 +223,14 @@ export async function prepararPregaoEmDisputa(
   return { lic, sessaoId, propostas };
 }
 
-/** Lance pela API REST da disputa-v2 (o corpo diz quem é o fornecedor). */
+/** Lance pela API REST da disputa (o corpo diz quem é o fornecedor). */
 export function lanceV2(
   ctx: AppE2E,
   sessaoId: string,
   corpo: { itemId: string; fornecedorId: string; fornecedorNome: string; valor: number },
   token?: string,
 ) {
-  const req = ctx.http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`);
+  const req = ctx.http().post(`/api/disputa/sessao/${sessaoId}/lance`);
   if (token) req.set(bearer(token));
   return req.send(corpo);
 }

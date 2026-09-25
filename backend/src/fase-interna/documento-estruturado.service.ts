@@ -4,7 +4,6 @@ import { Repository } from 'typeorm';
 import {
   DocumentoFaseInterna,
   TipoDocumentoFaseInterna,
-  StatusDocumento,
 } from './entities/documento-fase-interna.entity';
 import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 import { AuditLogService, ContextoUsuario } from './audit-log.service';
@@ -168,62 +167,6 @@ export class DocumentoEstruturadoService {
       });
     } catch {
       // Falha de auditoria nao deve impedir a operacao principal
-    }
-
-    return salvo;
-  }
-
-  // ========================================
-  // SUBMISSAO PARA APROVACAO
-  // ========================================
-
-  async submeterParaAprovacao(
-    documentoId: string,
-    contexto?: ContextoUsuario,
-  ): Promise<DocumentoFaseInterna> {
-    const documento = await this.docRepo.findOneBy({ id: documentoId });
-    if (!documento) {
-      throw new NotFoundException('Documento nao encontrado');
-    }
-
-    if (documento.status !== StatusDocumento.EM_ELABORACAO) {
-      throw new BadRequestException(
-        'Documento nao esta em elaboracao e nao pode ser submetido',
-      );
-    }
-
-    const validacao = this.validarDados(documento.tipo, documento.dados_estruturados);
-    if (!validacao.valido) {
-      throw new BadRequestException({
-        message: 'Documento nao pode ser submetido: existem dados invalidos',
-        erros: validacao.erros,
-      });
-    }
-
-    const statusAntes = documento.status;
-    documento.status = StatusDocumento.AGUARDANDO_APROVACAO;
-
-    let salvo: DocumentoFaseInterna;
-    try {
-      salvo = await this.docRepo.save(documento);
-    } catch (e: any) {
-      throw new BadRequestException(
-        `Erro ao submeter documento: ${e?.message || 'erro desconhecido'}`,
-      );
-    }
-
-    try {
-      await this.auditLog.log({
-        licitacao_id: salvo.licitacao_id,
-        documento_id: salvo.id,
-        acao: AcaoLogFaseInterna.DOCUMENTO_SUBMETIDO,
-        descricao: `Documento submetido para aprovacao (${salvo.tipo})`,
-        dados_antes: { status: statusAntes },
-        dados_depois: { status: salvo.status },
-        contexto,
-      });
-    } catch {
-      // ignora falha de auditoria
     }
 
     return salvo;

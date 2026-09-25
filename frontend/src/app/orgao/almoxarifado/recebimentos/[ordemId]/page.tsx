@@ -14,6 +14,7 @@ import { StepIndicator } from '../components/StepIndicator'
 import { EtapaNF } from '../components/EtapaNF'
 import { EtapaMapeamento } from '../components/EtapaMapeamento'
 import { EtapaRecebimento } from '../components/EtapaRecebimento'
+import { toast } from "sonner"
 
 const STEPS = [
   { key: 'nf', label: '1. Nota Fiscal' },
@@ -181,7 +182,7 @@ function RecebimentoUnificadoContent() {
         setEtapa('recebimento')
       } else {
         const data = await res.json().catch(() => ({}))
-        alert(data.message || 'Erro ao confirmar mapeamento')
+        toast.error(data.message || 'Erro ao confirmar mapeamento')
       }
     } catch {
     } finally {

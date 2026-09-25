@@ -43,18 +43,6 @@ export class DocumentoEstruturadoController {
     );
   }
 
-  @Put(':documentoId/submeter')
-  @DonoPor('documento', 'documentoId')
-  async submeter(
-    @Param('documentoId') documentoId: string,
-    @Body() body: { contexto?: ContextoUsuario },
-  ): Promise<DocumentoFaseInterna> {
-    return this.documentoEstruturadoService.submeterParaAprovacao(
-      documentoId,
-      body?.contexto,
-    );
-  }
-
   @Put(':documentoId/recalcular')
   @DonoPor('documento', 'documentoId')
   async recalcular(

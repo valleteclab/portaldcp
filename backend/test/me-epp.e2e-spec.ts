@@ -60,7 +60,7 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
   });
 
   const encerrar = async (orgao: OrgaoFixture, sessaoId: string, unidadeId: string) => {
-    const r = await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${unidadeId}`).set(bearer(orgao.token));
+    const r = await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${unidadeId}`).set(bearer(orgao.token));
     expect(r.status).toBe(201);
     return r.body;
   };
@@ -76,7 +76,7 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
   };
   const declinar = (sessaoId: string, convId: string, token: string) =>
     http().post(`/api/julgamento/sessao/${sessaoId}/me-epp/${convId}/declinar`).set(bearer(token)).send({});
-  const etapa = async (sessaoId: string) => (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body.etapa;
+  const etapa = async (sessaoId: string) => (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body.etapa;
 
   // --------------------------------------------------------------------------
   describe('A. pregão por item — empate ficto aceito, recusado, prazo, sem ME no intervalo, melhor já ME', () => {
@@ -296,16 +296,16 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
       const [i1, i2] = p.lic.itens.map((i) => i.id);
       // o item 1 passa a exclusivo depois das propostas (dado legado/edição): o motor barra
       await q(`UPDATE itens_licitacao SET tipo_participacao = 'EXCLUSIVO_MPE' WHERE id = $1`, [i1]);
-      const it = await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [i1, i2] });
+      const it = await http().post(`/api/disputa/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [i1, i2] });
       expect(it.status).toBe(201);
       const l1 = await q(`SELECT fornecedor_id FROM lances WHERE item_id = $1 AND origem = 'PROPOSTA' AND cancelado = false`, [i1]);
       expect(l1.map((x: any) => x.fornecedor_id)).toEqual([M.id]);
       const l2 = await q(`SELECT fornecedor_id FROM lances WHERE item_id = $1 AND origem = 'PROPOSTA' AND cancelado = false`, [i2]);
       expect(l2).toHaveLength(2);
-      const lanceG = await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/lance`).set(bearer(G.token)).send({ itemId: i1, valor: 80 });
+      const lanceG = await http().post(`/api/disputa/sessao/${p.sessaoId}/lance`).set(bearer(G.token)).send({ itemId: i1, valor: 80 });
       expect(lanceG.status).toBe(400);
       expect(lanceG.body.message).toMatch(/EXCLUSIVO para ME\/EPP/);
-      const lanceM = await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/lance`).set(bearer(M.token)).send({ itemId: i1, valor: 94 });
+      const lanceM = await http().post(`/api/disputa/sessao/${p.sessaoId}/lance`).set(bearer(M.token)).send({ itemId: i1, valor: 94 });
       expect(lanceM.status).toBe(201);
       // item exclusivo: não há empate ficto (todas as participantes são ME/EPP)
       await encerrar(orgao, p.sessaoId, i1);
@@ -384,10 +384,10 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
       const s = await http().post(`/api/sessao/${lic.id}`).set(bearer(orgao.token)).send({ pregoeiroId: orgao.id, pregoeiroNome: 'Pregoeiro Cota' });
       expect(s.status).toBe(201);
       expect((await http().put(`/api/sessao/${s.body.id}/iniciar`).set(bearer(orgao.token))).status).toBe(200);
-      expect((await http().post(`/api/disputa-v2/sessao/${s.body.id}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [principal, cota] })).status).toBe(201);
+      expect((await http().post(`/api/disputa/sessao/${s.body.id}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [principal, cota] })).status).toBe(201);
       const naCotaLances = await q(`SELECT DISTINCT fornecedor_id FROM lances WHERE item_id = $1 AND cancelado = false`, [cota]);
       expect(naCotaLances.map((x: any) => x.fornecedor_id)).toEqual([M.id]);
-      const lanceG = await http().post(`/api/disputa-v2/sessao/${s.body.id}/lance`).set(bearer(G.token)).send({ itemId: cota, valor: 500 });
+      const lanceG = await http().post(`/api/disputa/sessao/${s.body.id}/lance`).set(bearer(G.token)).send({ itemId: cota, valor: 500 });
       expect(lanceG.status).toBe(400);
       expect(lanceG.body.message).toMatch(/COTA RESERVADA/);
     });
@@ -424,7 +424,7 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
       expect(s.status).toBe(201);
       const sessaoId = s.body.id;
       expect((await http().put(`/api/sessao/${sessaoId}/iniciar`).set(bearer(orgao.token))).status).toBe(200);
-      expect((await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [lote.body.id] })).status).toBe(201);
+      expect((await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [lote.body.id] })).status).toBe(201);
       await encerrar(orgao, sessaoId, lote.body.id);
 
       expect(await etapa(sessaoId)).toBe(EtapaSessao.BENEFICIO_MPE);
@@ -475,7 +475,7 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
       expect(conv).toMatchObject({ status: 'AGUARDANDO', prazoPausado: false });
 
       const s = await http()
-        .post(`/api/disputa-v2/sessao/${p.sessaoId}/suspender`)
+        .post(`/api/disputa/sessao/${p.sessaoId}/suspender`)
         .set(bearer(orgao.token))
         .send({ motivo: 'ADMINISTRATIVO', justificativa: 'Diligência sobre as propostas' });
       expect(s.status).toBe(201);
@@ -500,7 +500,7 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
       expect(durante.body.message).toMatch(/suspensa.*PAUSADO/);
       expect((await declinar(p.sessaoId, conv.id, M.token)).status).toBe(409);
 
-      expect((await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/retomar`).set(bearer(orgao.token)).send({})).status).toBe(201);
+      expect((await http().post(`/api/disputa/sessao/${p.sessaoId}/retomar`).set(bearer(orgao.token)).send({})).status).toBe(201);
       const depois = (await meEpp(p.sessaoId, M.token)).convocacoes[0];
       expect(depois).toMatchObject({ status: 'AGUARDANDO', prazoPausado: false, podeResponder: true });
       expect(depois.segundosRestantes).toBeGreaterThan(280);

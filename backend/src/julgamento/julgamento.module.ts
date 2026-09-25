@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { DisputaModule } from '../disputa-v2/disputa.module';
+import { DisputaModule } from '../disputa/disputa.module';
 import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { SessaoDisputa } from '../sessao/entities/sessao-disputa.entity';
@@ -48,7 +48,7 @@ const ENTIDADES_DESEMPATE_E_TECNICA = [
 
 /**
  * JULGAMENTO (plano E3): ranking único por unidade, situação do licitante na
- * unidade e aceitação da proposta. Depende do motor (disputa-v2) — nunca o
+ * unidade e aceitação da proposta. Depende do motor (disputa) — nunca o
  * contrário (o motor usa só as funções SQL de `licitantes-unidade.sql.ts`).
  * Próximas partes da E3 (ME/EPP, negociação, julgamento técnico) entram aqui.
  */

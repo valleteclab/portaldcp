@@ -19,7 +19,7 @@ import {
  *   ...
  *   return <>{...}{dialogo}</>
  */
-interface OpcoesBase {
+export interface OpcoesBase {
   titulo: string
   mensagem?: ReactNode
   confirmarRotulo?: string
@@ -28,7 +28,7 @@ interface OpcoesBase {
   destrutivo?: boolean
 }
 
-interface OpcoesTexto extends OpcoesBase {
+export interface OpcoesTexto extends OpcoesBase {
   rotulo?: string
   placeholder?: string
   valorInicial?: string

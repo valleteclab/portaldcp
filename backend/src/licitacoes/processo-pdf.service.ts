@@ -8,6 +8,7 @@ import { Licitacao } from './entities/licitacao.entity';
 import { GeradorDocumentoService } from '../fase-interna/gerador-documento.service';
 import { LicitacoesService } from './licitacoes.service';
 import { gerarAvisoDispensaPdf } from './aviso-dispensa-pdf';
+import { estadoCompraPncp } from '../pncp/estado-compra-pncp';
 
 /**
  * AUTOS DO PROCESSO — compila o processo administrativo INTEIRO num único
@@ -265,8 +266,9 @@ export class ProcessoPdfService {
         }
         if (y < 70) break;
       }
-      if ((licitacao as any).link_pncp) {
-        pg.drawText(`Consulta pública: ${(licitacao as any).link_pncp}`, { x: 60, y: 60, size: 9, font: fonte, color: rgb(0.1, 0.3, 0.7) });
+      const linkPncp = (await estadoCompraPncp(this.dataSource.manager, [licitacao.id])).get(licitacao.id)?.link_pncp ?? licitacao.link_pncp;
+      if (linkPncp) {
+        pg.drawText(`Consulta pública: ${linkPncp}`, { x: 60, y: 60, size: 9, font: fonte, color: rgb(0.1, 0.3, 0.7) });
       }
     }
 

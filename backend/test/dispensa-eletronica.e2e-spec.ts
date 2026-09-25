@@ -383,7 +383,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
   // --------------------------------------------------------------------------
   describe('Bloco 3 — janela de lances (IN SEGES 67/2021)', () => {
     it('o órgão abre a janela (30 min, prorrogação de 2 min) e a regra fica registrada no chat', async () => {
-      // E2 item 8: canal único — o feed da dispensa é a sala pública da licitação no /disputa-v2
+      // E2 item 8: canal único — o feed da dispensa é a sala pública da licitação no /disputa
       // (antes: namespace /dispensa + 'entrar_sala'). Mesmos eventos: sala_ok, janela, painel_atualizado, chat.
       sala = await conectarSocket(ctx, '/disputa');
       const ok = aguardarEvento(sala, 'sala_ok');

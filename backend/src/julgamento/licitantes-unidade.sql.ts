@@ -1,8 +1,8 @@
-import type { ExecutorSql } from '../disputa-v2/migracao-lances';
+import type { ExecutorSql } from '../disputa/migracao-lances';
 import { STATUS_ACEITACAO_ATIVOS, SituacaoLicitante, StatusAceitacao } from './regras-julgamento';
 
 /**
- * Funções SQL SEM injeção de dependência — o motor de disputa (disputa-v2) as
+ * Funções SQL SEM injeção de dependência — o motor de disputa (disputa) as
  * chama sem importar o módulo de julgamento (evita ciclo de módulos: o
  * julgamento depende do motor, não o contrário).
  */

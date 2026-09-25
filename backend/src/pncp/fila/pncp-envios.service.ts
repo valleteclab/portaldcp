@@ -147,7 +147,10 @@ export class PncpEnviosService {
     return c;
   }
 
-  /** Compra já publicada no PNCP (registro da fila/histórico ou vínculo manual na licitação); null se ainda não. */
+  /**
+   * Compra já publicada no PNCP (linha ENVIADA da fila — inclusive o vínculo
+   * manual e a migração E9 das colunas antigas da licitação); null se ainda não.
+   */
   async compraPublicada(licitacaoId: string | null | undefined): Promise<CompraPublicada | null> {
     if (!licitacaoId) return null;
     const [s] = await this.ds.query(
@@ -158,20 +161,16 @@ export class PncpEnviosService {
         ORDER BY s.created_at DESC LIMIT 1`,
       [licitacaoId],
     );
+    if (!s) return null;
     const [l] = await this.ds.query(
-      `SELECT l.numero_controle_pncp, l.ano_compra_pncp, l.sequencial_compra_pncp, l.enviado_pncp, l.codigo_unidade_compradora,
-              o.cnpj, o.pncp_cnpj_orgao, o.pncp_codigo_unidade
+      `SELECT l.codigo_unidade_compradora, o.cnpj, o.pncp_cnpj_orgao, o.pncp_codigo_unidade
          FROM licitacoes l LEFT JOIN orgaos o ON o.id = l.orgao_id WHERE l.id::text = $1`,
       [licitacaoId],
     );
     if (!l) return null;
     const cnpj = this.pncp.cnpjDoOrgao(l) || String(process.env.PNCP_CNPJ_ORGAO || '').replace(/\D/g, '');
-    const unidade = s?.unidade || l.codigo_unidade_compradora || l.pncp_codigo_unidade || null;
-    if (s) return { cnpj, ano: Number(s.ano_compra), sequencial: Number(s.sequencial_compra), numeroControle: s.numero_controle_pncp, codigoUnidade: unidade };
-    if (l.enviado_pncp && l.ano_compra_pncp && l.sequencial_compra_pncp) {
-      return { cnpj, ano: Number(l.ano_compra_pncp), sequencial: Number(l.sequencial_compra_pncp), numeroControle: l.numero_controle_pncp, codigoUnidade: unidade };
-    }
-    return null;
+    const unidade = s.unidade || l.codigo_unidade_compradora || l.pncp_codigo_unidade || null;
+    return { cnpj, ano: Number(s.ano_compra), sequencial: Number(s.sequencial_compra), numeroControle: s.numero_controle_pncp, codigoUnidade: unidade };
   }
 
   private async exigirCompra(licitacaoId: string | null | undefined): Promise<CompraPublicada> {
@@ -314,11 +313,8 @@ export class PncpEnviosService {
     }
     if (!ano || !sequencial) throw falhaDefinitiva('O PNCP aceitou a compra mas não devolveu ano/sequencial (Location) — confira no portal e vincule manualmente.');
     const link = this.pncp.linkCompra(cnpj, ano, sequencial);
-    await this.pncp.registrarPublicacaoPncp(
-      licitacaoId,
-      { numero_controle_pncp: numeroControle ?? undefined, ano_compra_pncp: ano, sequencial_compra_pncp: sequencial, link_pncp: link, enviado_pncp: true } as Partial<Licitacao>,
-      ator,
-    );
+    // O estado da compra fica nesta linha da fila (fonte única, E9); aqui só o ato PUBLICAR
+    await this.pncp.registrarPublicacaoPncp(licitacaoId, { numeroControle, ano, sequencial }, ator);
     return { resposta, payload: { ...compra, documento: { tipoDocumentoId: doc.tipoDocumentoId, nome: doc.arquivo.nome } }, numeroControle, ano, sequencial, link, observacao };
   }
 

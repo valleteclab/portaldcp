@@ -11,7 +11,7 @@ const logger = new Logger('TransicoesSessao');
  * nunca pediu INICIAR_DISPUTA) ou está parada, registra no log e segue: o
  * encerramento do ITEM nunca é desfeito por causa da licitação.
  *
- * Usado pelo relógio da disputa-v2 (ator SISTEMA), pelo encerramento manual
+ * Usado pelo relógio da disputa (ator SISTEMA), pelo encerramento manual
  * do último item (ator = pregoeiro) e pela sala legada /sessao.
  */
 export async function pedirEncerramentoDisputa(

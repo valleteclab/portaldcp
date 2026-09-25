@@ -19,6 +19,8 @@ import {
 import { BeneficioParaPncp, ItemParaPncp, LicitacaoParaPncp, instrumentoConvocatorioId, montarCompra, montarItemCompra } from './mapeamento-pncp';
 import { ErroPncp, naturezaDaFalhaHttp } from './fila/regras-fila';
 import { STATUS_DE_ERRO, STATUS_PROCESSAVEIS } from './fila/regras-fila';
+import { registrarCompraExistente } from './estado-compra-pncp';
+import { comoErro } from '../common/erros';
 
 @Injectable()
 export class PncpService implements OnModuleInit {
@@ -237,7 +239,8 @@ export class PncpService implements OnModuleInit {
           mensagem: 'Resposta inesperada do PNCP'
         };
       }
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       this.logger.error('Erro ao testar conexão PNCP:', error.response?.data || error.message);
       return {
         sucesso: false,
@@ -270,6 +273,31 @@ export class PncpService implements OnModuleInit {
   private obterCnpjPncpDoOrgao(orgao?: Partial<Orgao> | null): string {
     return String(orgao?.pncp_cnpj_orgao || orgao?.cnpj || '')
       .replace(/\D/g, '');
+  }
+
+  /**
+   * CNPJ usado numa operação crua do PNCP: o do escopo (órgão da rota) ou, só
+   * para o admin da plataforma, o padrão `PNCP_CNPJ_ORGAO`.
+   */
+  private cnpjDaOperacao(cnpjEscopo?: string | null): string {
+    const cnpj = String(cnpjEscopo || this.configService.get<string>('PNCP_CNPJ_ORGAO') || '').replace(/\D/g, '');
+    if (!cnpj) throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
+    return cnpj;
+  }
+
+  /**
+   * CNPJ do PNCP do órgão (E9 — escopo das rotas cruas de `/api/pncp`): o
+   * órgão só opera compras, atas, contratos e PCAs sob o PRÓPRIO CNPJ no PNCP.
+   * O órgão de teste (12.345.678/0001-99) usa o CNPJ padrão da plataforma,
+   * como no envio do PCA.
+   */
+  async cnpjPncpDoOrgaoId(orgaoId: string): Promise<string> {
+    const orgao = await this.orgaoRepository.findOne({ where: { id: orgaoId } });
+    if (!orgao) throw new HttpException('Órgão não encontrado', HttpStatus.NOT_FOUND);
+    const cnpj = this.obterCnpjPncpDoOrgao(orgao);
+    if (cnpj === '12345678000199') return this.cnpjDaOperacao(null);
+    if (!cnpj) throw new HttpException('CNPJ do órgão não cadastrado', HttpStatus.BAD_REQUEST);
+    return cnpj;
   }
 
   /** Base da API pública de consulta, no mesmo ambiente de PNCP_API_URL. */
@@ -371,7 +399,8 @@ export class PncpService implements OnModuleInit {
       
       this.logger.log('Login PNCP realizado com sucesso');
       return this.token;
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       this.logger.error('Erro ao fazer login no PNCP', error.response?.data || error.message);
       // Distinguir REDE de CREDENCIAL — um timeout aparecia como "falha na
       // autenticação" e mascarava a causa real (ex.: instabilidade do treina).
@@ -556,7 +585,8 @@ export class PncpService implements OnModuleInit {
           linkSistemaOrigem: this.linkSistemaOrigem(licitacao.id),
           beneficioDoItem: (i) => beneficioSimples(licitacao.itens[i], licitacao),
         });
-      } catch (e: any) {
+      } catch (eCapturado: unknown) {
+        const e = comoErro(eCapturado);
         erros.push(e?.message ?? String(e));
       }
     }
@@ -602,15 +632,18 @@ export class PncpService implements OnModuleInit {
         dados: this.dadosPublicacaoPncp(licitacao),
       });
     }
+    // E9: a compra vinculada vira linha ENVIADA da fila (fonte única do estado no PNCP)
+    await registrarCompraExistente(this.dataSource.manager, {
+      licitacaoId,
+      orgaoId: licitacao.orgao_id,
+      numeroControle: numeroControlePNCP,
+      ano: Number(anoCompra),
+      sequencial: Number(sequencialCompra),
+      origem: 'VINCULO_MANUAL',
+    });
     await this.registrarPublicacaoPncp(
       licitacaoId,
-      {
-        numero_controle_pncp: numeroControlePNCP,
-        ano_compra_pncp: anoCompra,
-        sequencial_compra_pncp: sequencialCompra,
-        link_pncp: linkPncp,
-        enviado_pncp: true,
-      },
+      { numeroControle: numeroControlePNCP, ano: Number(anoCompra), sequencial: Number(sequencialCompra) },
       ator,
     );
 
@@ -636,16 +669,17 @@ export class PncpService implements OnModuleInit {
   }
 
   /**
-   * Grava os dados da compra no PNCP e, se a licitação ainda está na fase
-   * interna, pratica o ato PUBLICAR (idempotente: `ignorarSeJaAplicado`).
-   * Nunca move para trás uma licitação já divulgada/adiante.
+   * Compra publicada no PNCP: se a licitação ainda está na fase interna,
+   * pratica o ato PUBLICAR (idempotente: `ignorarSeJaAplicado`). Nunca move
+   * para trás uma licitação já divulgada/adiante. O ESTADO da compra (número
+   * de controle, ano/sequencial, link) fica só em `pncp_sync` (E9 — a
+   * licitação não guarda mais cópia; ver `estado-compra-pncp.ts`).
    */
   async registrarPublicacaoPncp(
     licitacaoId: string,
-    campos: Partial<Licitacao>,
+    compra: { numeroControle?: string | null; ano: number; sequencial: number },
     ator: AtorTransicao,
   ): Promise<void> {
-    await this.licitacaoRepository.update(licitacaoId, campos as any);
     const licitacao = await this.licitacaoRepository.findOne({ where: { id: licitacaoId } });
     if (!licitacao || !ehFaseInterna(licitacao.fase)) return;
     try {
@@ -653,9 +687,10 @@ export class PncpService implements OnModuleInit {
         ator,
         ignorarSeJaAplicado: true,
         dados: this.dadosPublicacaoPncp(licitacao),
-        registro: { origem: 'PNCP', numero_controle_pncp: campos.numero_controle_pncp ?? null },
+        registro: { origem: 'PNCP', numero_controle_pncp: compra.numeroControle ?? null, compra: `${compra.ano}/${compra.sequencial}` },
       });
-    } catch (e: any) {
+    } catch (eCapturado: unknown) {
+      const e = comoErro(eCapturado);
       // A compra já está no PNCP (o gate foi conferido antes do envio): não
       // derruba o envio — a divulgação local fica pendente no cockpit.
       this.logger.error(
@@ -705,6 +740,11 @@ export class PncpService implements OnModuleInit {
     return this.obterCnpjPncpDoOrgao(orgao);
   }
 
+  async orgaoDoPca(pcaId: string): Promise<string | null> {
+    const pca = await this.pcaRepository.findOne({ where: { id: pcaId }, select: ['id', 'orgao_id'] });
+    return pca?.orgao_id ?? null;
+  }
+
   orgaoDoContrato(contratoId: string): Promise<Array<{ orgao_id: string }>> {
     return this.dataSource.query(`SELECT orgao_id::text AS orgao_id FROM contratos WHERE id::text = $1`, [contratoId]);
   }
@@ -731,7 +771,8 @@ export class PncpService implements OnModuleInit {
     let token: string;
     try {
       token = await this.getValidToken();
-    } catch (e: any) {
+    } catch (eCapturado: unknown) {
+      const e = comoErro(eCapturado);
       throw new ErroPncp(`Login no PNCP: ${e?.message ?? e}`, 'TEMPORARIA');
     }
     try {
@@ -745,7 +786,8 @@ export class PncpService implements OnModuleInit {
         maxBodyLength: Infinity,
       });
       return { status: r.status, data: r.data, headers: (r.headers ?? {}) as Record<string, any> };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       const status: number | undefined = error?.response?.status;
       if (status === 401) {
         this.token = '';
@@ -762,7 +804,9 @@ export class PncpService implements OnModuleInit {
     return dto;
   }
 
-  private extrairMensagemErro(error: any): string {
+  private extrairMensagemErro(erro: unknown): string {
+    const error = comoErro(erro);
+    type ErroCampo = string | { campo?: string; mensagem?: string; field?: string; message?: string };
     if (error.response?.data?.message) {
       return error.response.data.message;
     }
@@ -771,7 +815,7 @@ export class PncpService implements OnModuleInit {
     }
     if (error.response?.data?.erros && Array.isArray(error.response.data.erros)) {
       // Erros podem ser objetos com propriedades como {campo, mensagem}
-      return error.response.data.erros.map((e: any) => {
+      return error.response.data.erros.map((e: ErroCampo) => {
         if (typeof e === 'string') return e;
         if (e.mensagem) return `${e.campo || 'Campo'}: ${e.mensagem}`;
         if (e.message) return `${e.field || 'Campo'}: ${e.message}`;
@@ -779,7 +823,7 @@ export class PncpService implements OnModuleInit {
       }).join(' | ');
     }
     if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
-      return error.response.data.errors.map((e: any) => {
+      return error.response.data.errors.map((e: ErroCampo) => {
         if (typeof e === 'string') return e;
         return e.message || e.mensagem || JSON.stringify(e);
       }).join(' | ');
@@ -995,11 +1039,8 @@ export class PncpService implements OnModuleInit {
     return null;
   }
 
-  async enviarItemPCA(pcaId: string, item: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+  async enviarItemPCA(pcaId: string, item: any, cnpjEscopo?: string): Promise<PncpResponseDto> {
+    const cnpj = this.cnpjDaOperacao(cnpjEscopo);
 
     // Buscar PCA sync para obter número de controle
     const pcaSync = await this.pncpSyncRepository.findOne({
@@ -1062,8 +1103,8 @@ export class PncpService implements OnModuleInit {
 
   // ============ PCA - RETIFICAÇÃO E EXCLUSÃO ============
 
-  async retificarPCA(anoPca: string, sequencialPca: string, pca: any): Promise<PncpResponseDto> {
-    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca);
+  async retificarPCA(anoPca: string, sequencialPca: string, pca: any, orgaoEscopo?: string): Promise<PncpResponseDto> {
+    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca, orgaoEscopo);
 
     const pcaDto = {
       anoPca: parseInt(anoPca),
@@ -1091,8 +1132,8 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async excluirPCA(anoPca: string, sequencialPca: string, justificativa?: string): Promise<PncpResponseDto> {
-    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca);
+  async excluirPCA(anoPca: string, sequencialPca: string, justificativa?: string, orgaoEscopo?: string): Promise<PncpResponseDto> {
+    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca, orgaoEscopo);
 
     // Garantir que temos um token válido antes de fazer a requisição
     this.logger.log(`[EXCLUIR_PCA] Iniciando exclusão - Ano: ${anoPca}, Seq: ${sequencialPca}, CNPJ: ${cnpj}`);
@@ -1114,7 +1155,8 @@ export class PncpService implements OnModuleInit {
         sucesso: true,
         mensagem: 'PCA excluído com sucesso'
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       const status = error.response?.status;
       const errorData = error.response?.data;
       
@@ -1141,14 +1183,28 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  private async obterCnpjParaOperacaoPca(anoPca: string | number, sequencialPca: string | number): Promise<string> {
+  /**
+   * CNPJ do PNCP para operar o PCA `ano/sequencial`. Com `orgaoEscopo` (rota
+   * chamada por um órgão), o PCA precisa ser DESSE órgão — 404 caso contrário;
+   * sem ele (admin da plataforma), vale o PCA local ou o CNPJ padrão.
+   */
+  private async obterCnpjParaOperacaoPca(
+    anoPca: string | number,
+    sequencialPca: string | number,
+    orgaoEscopo?: string,
+  ): Promise<string> {
     const ano = parseInt(String(anoPca), 10);
     const sequencial = parseInt(String(sequencialPca), 10);
 
     const pca = await this.pcaRepository.findOne({
-      where: { ano_exercicio: ano, sequencial_pncp: sequencial },
+      where: orgaoEscopo
+        ? { ano_exercicio: ano, sequencial_pncp: sequencial, orgao_id: orgaoEscopo }
+        : { ano_exercicio: ano, sequencial_pncp: sequencial },
       relations: ['orgao'],
     });
+    if (orgaoEscopo && !pca) {
+      throw new HttpException('PCA não encontrado', HttpStatus.NOT_FOUND);
+    }
 
     const cnpjPadrao = this.configService.get<string>('PNCP_CNPJ_ORGAO') || '';
     const cnpjPadraoLimpo = cnpjPadrao.replace(/\D/g, '');
@@ -1167,8 +1223,8 @@ export class PncpService implements OnModuleInit {
     return cnpjPadraoLimpo;
   }
 
-  async retificarItemPCA(anoPca: string, sequencialPca: string, numeroItem: string, item: any): Promise<PncpResponseDto> {
-    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca);
+  async retificarItemPCA(anoPca: string, sequencialPca: string, numeroItem: string, item: any, orgaoEscopo?: string): Promise<PncpResponseDto> {
+    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca, orgaoEscopo);
 
     const valorUnitario = parseFloat(item.valor_unitario_estimado) || parseFloat(item.valor_estimado) || undefined;
     const quantidade = parseFloat(item.quantidade_estimada) || undefined;
@@ -1206,11 +1262,8 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async excluirItemPCA(anoPca: string, sequencialPca: string, numeroItem: string): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+  async excluirItemPCA(anoPca: string, sequencialPca: string, numeroItem: string, orgaoEscopo?: string): Promise<PncpResponseDto> {
+    const cnpj = await this.obterCnpjParaOperacaoPca(anoPca, sequencialPca, orgaoEscopo);
 
     try {
       await this.axiosInstance.delete(
@@ -1233,113 +1286,11 @@ export class PncpService implements OnModuleInit {
 
   // ============ COMPRAS/EDITAIS - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
 
-  async incluirCompra(compra: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
-
-    // Mapeamento conforme manual PNCP 6.3.1
-    // Conformidade válida conforme exemplo da documentação:
-    // - tipoInstrumentoConvocatorioId: 1 (Edital)
-    // - modalidadeId: 6 (Pregão Eletrônico)
-    // - modoDisputaId: 1 (Aberto)
-    // - amparoLegalId: 1 (Lei nº 14.133/2021, Art. 28, caput)
-    const compraDto = {
-      codigoUnidadeCompradora: compra.codigo_unidade || '1',
-      anoCompra: compra.ano_compra || new Date().getFullYear(),
-      numeroCompra: compra.numero_compra || compra.numero_processo,
-      numeroProcesso: compra.numero_processo,
-      objetoCompra: compra.objeto,
-      tipoInstrumentoConvocatorioId: compra.tipo_instrumento_id || 1, // 1 = Edital
-      modalidadeId: compra.modalidade_id || 6, // 6 = Pregão Eletrônico
-      modoDisputaId: compra.modo_disputa_id || 1, // 1 = Aberto
-      srp: compra.srp || false,
-      dataAberturaProposta: compra.data_abertura_proposta,
-      dataEncerramentoProposta: compra.data_encerramento_proposta,
-      informacaoComplementar: compra.informacao_complementar || '',
-      amparoLegalId: compra.amparo_legal_id || 1, // 1 = Lei nº 14.133/2021, Art. 28, caput
-      linkSistemaOrigem: compra.link_sistema_origem,
-      // Itens com campos obrigatórios de margem de preferência DENTRO de cada item
-      itensCompra: (compra.itens || []).map((item: any, index: number) => ({
-        numeroItem: item.numero_item || (index + 1),
-        descricao: item.descricao,
-        materialOuServico: item.tipo === 'SERVICO' ? 'S' : 'M',
-        tipoBeneficioId: item.tipo_beneficio_id || 1,
-        incentivoProdutivoBasico: item.incentivo_produtivo || false,
-        quantidade: parseFloat(item.quantidade) || 1,
-        unidadeMedida: item.unidade_medida || 'Unidade',
-        valorUnitarioEstimado: parseFloat(item.valor_unitario) || 0,
-        valorTotal: parseFloat(item.valor_total) || (parseFloat(item.quantidade) * parseFloat(item.valor_unitario)) || 0,
-        criterioJulgamentoId: item.criterio_julgamento_id || 1,
-        orcamentoSigiloso: item.orcamento_sigiloso || false,
-        // itemCategoriaId removido - campo opcional que pode causar conflito com modalidade
-        // Campos obrigatórios de margem de preferência (por item)
-        aplicabilidadeMargemPreferenciaNormal: item.margem_preferencia_normal || false,
-        aplicabilidadeMargemPreferenciaAdicional: item.margem_preferencia_adicional || false,
-      }))
-    };
-
-    try {
-      // PNCP requer multipart/form-data para compras com documento obrigatório
-      const FormData = require('form-data');
-      const formData = new FormData();
-      
-      // Log para debug
-      this.logger.log(`Enviando compra: ${JSON.stringify(compraDto)}`);
-      
-      // Adicionar dados da compra como Buffer com nome de arquivo
-      const compraBuffer = Buffer.from(JSON.stringify(compraDto), 'utf-8');
-      formData.append('compra', compraBuffer, 'compra.json');
-      
-      // Criar PDF de teste mínimo válido
-      const pdfContent = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n199\n%%EOF');
-      formData.append('documento', pdfContent, 'edital.pdf');
-
-      // Obter token válido
-      await this.getValidToken();
-
-      const response = await axios.post(
-        `${this.configService.get<string>('PNCP_API_URL') || 'https://treina.pncp.gov.br/api/pncp/v1'}/orgaos/${cnpj.replace(/\D/g, '')}/compras`,
-        formData,
-        {
-          headers: {
-            ...formData.getHeaders(),
-            'Authorization': `Bearer ${this.token}`,
-            'Titulo-Documento': compra.titulo_documento || 'Edital de Licitacao',
-            'Tipo-Documento-Id': '1'
-          },
-          timeout: 60000,
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity
-        }
-      );
-
-      const numeroControlePNCP = response.data?.numeroControlePNCP;
-      const anoCompra = response.data?.anoCompra || compraDto.anoCompra;
-      const sequencialCompra = response.data?.sequencialCompra;
-
-      this.logger.log(`Compra incluída no PNCP: ${numeroControlePNCP}`);
-
-      return {
-        sucesso: true,
-        numeroControlePNCP,
-        mensagem: `Compra incluída com sucesso. Link: ${this.getPortalBaseUrl()}/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`,
-        dados: { anoCompra, sequencialCompra }
-      };
-    } catch (error) {
-      throw new HttpException(
-        `Erro ao incluir compra: ${this.extrairMensagemErro(error)}`,
-        HttpStatus.BAD_REQUEST
-      );
-    }
-  }
-
-  async retificarCompra(anoCompra: string, sequencialCompra: string, compra: any): Promise<PncpResponseDto> {
+  async retificarCompra(anoCompra: string, sequencialCompra: string, compra: any, cnpjEscopo?: string): Promise<PncpResponseDto> {
     // Buscar licitação para obter CNPJ do órgão
-    let cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    
-    if (compra.licitacaoId) {
+    let cnpj = cnpjEscopo || this.configService.get<string>('PNCP_CNPJ_ORGAO');
+
+    if (compra.licitacaoId && !cnpjEscopo) {
       const licitacao = await this.licitacaoRepository.findOne({
         where: { id: compra.licitacaoId },
         relations: ['orgao']
@@ -1418,7 +1369,8 @@ export class PncpService implements OnModuleInit {
                 itemDto
               );
               this.logger.log(`[retificarCompra] Item ${numeroItem} retificado com sucesso. Resposta: ${JSON.stringify(itemResponse.data)}`);
-            } catch (itemError: any) {
+            } catch (itemErrorCapturado: unknown) {
+              const itemError = comoErro(itemErrorCapturado);
               const errorMsg = this.extrairMensagemErro(itemError);
               const errorData = itemError.response?.data ? JSON.stringify(itemError.response.data) : 'sem dados';
               this.logger.error(`[retificarCompra] Erro ao retificar item ${numeroItem}: ${errorMsg}. Dados: ${errorData}`);
@@ -1428,12 +1380,9 @@ export class PncpService implements OnModuleInit {
         }
       }
 
-      // Atualizar licitação local se informado
-      if (compra.licitacaoId && compra.objetoCompra) {
-        await this.licitacaoRepository.update(compra.licitacaoId, {
-          objeto: compra.objetoCompra
-        });
-      }
+      // E9: a retificação crua NÃO altera mais a licitação local — depois da
+      // publicação a regra do edital (objeto incluído) só muda pela
+      // Retificação do edital (`/api/publicacao/licitacao/:id/retificar`, E7).
 
       this.logger.log(`Compra retificada: ${anoCompra}/${sequencialCompra}`);
 
@@ -1449,12 +1398,8 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async consultarQuantidadeItens(anoCompra: string, sequencialCompra: string): Promise<any> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+  async consultarQuantidadeItens(anoCompra: string, sequencialCompra: string, cnpjEscopo?: string): Promise<any> {
+    const cnpj = this.cnpjDaOperacao(cnpjEscopo);
 
     try {
       await this.getValidToken();
@@ -1481,7 +1426,8 @@ export class PncpService implements OnModuleInit {
   async incluirItemCompra(
     anoCompra: string, 
     sequencialCompra: string, 
-    itemInput: any
+    itemInput: any,
+    cnpjEscopo?: string,
   ): Promise<PncpResponseDto> {
     // Buscar licitação com o item do banco de dados
     if (!itemInput.licitacaoId) {
@@ -1497,7 +1443,7 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('Licitação não encontrada', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+    const cnpj = cnpjEscopo || this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
       this.configService.get<string>('PNCP_CNPJ_ORGAO');
     
     if (!cnpj) {
@@ -1548,7 +1494,8 @@ export class PncpService implements OnModuleInit {
     anoCompra: string, 
     sequencialCompra: string, 
     numeroItem: string,
-    itemInput: any
+    itemInput: any,
+    cnpjEscopo?: string,
   ): Promise<PncpResponseDto> {
     // Buscar licitação com itens para obter dados completos
     if (!itemInput.licitacaoId) {
@@ -1564,7 +1511,7 @@ export class PncpService implements OnModuleInit {
       throw new HttpException('Licitação não encontrada', HttpStatus.BAD_REQUEST);
     }
 
-    const cnpj = this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
+    const cnpj = cnpjEscopo || this.obterCnpjPncpDoOrgao(licitacao.orgao) ||
       this.configService.get<string>('PNCP_CNPJ_ORGAO');
     
     if (!cnpj) {
@@ -1616,13 +1563,10 @@ export class PncpService implements OnModuleInit {
     anoCompra: string, 
     sequencialCompra: string, 
     numeroItem: string,
-    justificativa?: string
+    justificativa?: string,
+    cnpjEscopo?: string,
   ): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+    const cnpj = this.cnpjDaOperacao(cnpjEscopo);
 
     try {
       await this.getValidToken();
@@ -1657,13 +1601,14 @@ export class PncpService implements OnModuleInit {
     sequencialCompra: string,
     dados: any,
     ator: AtorTransicao = atorSistema('pncp'),
+    cnpjEscopo?: string,
   ): Promise<PncpResponseDto> {
     const justificativa = typeof dados === 'string' ? dados : dados?.justificativa;
     const licitacaoId = typeof dados === 'object' ? dados?.licitacaoId : null;
     const motivo = (justificativa || '').trim() || 'Exclusão da compra no PNCP solicitada pelo órgão';
 
     // Buscar licitação para obter CNPJ do órgão
-    let cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
+    let cnpj = cnpjEscopo || this.configService.get<string>('PNCP_CNPJ_ORGAO');
 
     // Licitação divulgada e em andamento: excluir a compra do PNCP é o ato
     // CANCELAR_PUBLICACAO (volta a APROVACAO_INTERNA) — só antes de haver
@@ -1675,7 +1620,7 @@ export class PncpService implements OnModuleInit {
         where: { id: licitacaoId },
         relations: ['orgao']
       });
-      if (this.obterCnpjPncpDoOrgao(licitacao?.orgao)) {
+      if (!cnpjEscopo && this.obterCnpjPncpDoOrgao(licitacao?.orgao)) {
         cnpj = this.obterCnpjPncpDoOrgao(licitacao?.orgao);
       }
       const situacao = licitacao?.situacao ?? SituacaoLicitacao.ATIVA;
@@ -1701,7 +1646,8 @@ export class PncpService implements OnModuleInit {
         { data: { justificativa: justificativa || 'Exclusão solicitada pelo órgão' } }
       );
 
-      // Limpar dados PNCP da licitação local
+      // Limpar as colunas legadas (E9: deprecated — limpar evita que a migração
+      // do boot recrie a compra excluída a partir delas)
       if (licitacaoId) {
         await this.licitacaoRepository
           .createQueryBuilder()
@@ -1736,7 +1682,8 @@ export class PncpService implements OnModuleInit {
               motivo,
               registro: { origem: 'PNCP', compra: `${anoCompra}/${sequencialCompra}` },
             });
-          } catch (e: any) {
+          } catch (eCapturado: unknown) {
+            const e = comoErro(eCapturado);
             // A compra já saiu do PNCP; a licitação fica na fase em que estava
             // (corrida: proposta chegou entre a conferência e a exclusão).
             this.logger.error(
@@ -1760,11 +1707,8 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async consultarCompra(anoCompra: string, sequencialCompra: string): Promise<any> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+  async consultarCompra(anoCompra: string, sequencialCompra: string, cnpjEscopo?: string): Promise<any> {
+    const cnpj = this.cnpjDaOperacao(cnpjEscopo);
 
     try {
       const response = await this.axiosInstance.get(
@@ -1777,7 +1721,8 @@ export class PncpService implements OnModuleInit {
         numeroControlePNCP: response.data?.numeroControlePNCP || response.data?.numeroControle,
         link: `${this.getPortalBaseUrl()}/app/editais/${cnpj.replace(/\D/g, '')}/${anoCompra}/${sequencialCompra}`
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       if (error.response?.status === 404) {
         return {
           encontrado: false,
@@ -1791,34 +1736,10 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  // Método auxiliar para atualizar número de controle na licitação
-  async atualizarNumeroControleLicitacao(
-    licitacaoId: string, 
-    numeroControlePNCP: string, 
-    ano: number, 
-    sequencial: number
-  ): Promise<void> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    const linkPncp = `${this.getPortalBaseUrl()}/app/editais/${cnpj?.replace(/\D/g, '')}/${ano}/${sequencial}`;
-    
-    await this.licitacaoRepository.update(licitacaoId, {
-      numero_controle_pncp: numeroControlePNCP,
-      ano_compra_pncp: ano,
-      sequencial_compra_pncp: sequencial,
-      link_pncp: linkPncp,
-      enviado_pncp: true
-    });
-    
-    this.logger.log(`Número de controle atualizado: ${numeroControlePNCP}`);
-  }
-
   // ============ RESULTADO DE ITENS DA COMPRA ============
 
-  async incluirResultadoItem(anoCompra: string, sequencialCompra: string, numeroItem: string, resultado: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+  async incluirResultadoItem(anoCompra: string, sequencialCompra: string, numeroItem: string, resultado: any, cnpjEscopo?: string): Promise<PncpResponseDto> {
+    const cnpj = this.cnpjDaOperacao(cnpjEscopo);
 
     // Determinar tipo de pessoa pela quantidade de dígitos do NI
     // tipoPessoaId: "PJ" = Pessoa Jurídica, "PF" = Pessoa Física, "PE" = Pessoa Estrangeira
@@ -1876,11 +1797,8 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async retificarResultadoItem(anoCompra: string, sequencialCompra: string, numeroItem: string, resultado: any): Promise<PncpResponseDto> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+  async retificarResultadoItem(anoCompra: string, sequencialCompra: string, numeroItem: string, resultado: any, cnpjEscopo?: string): Promise<PncpResponseDto> {
+    const cnpj = this.cnpjDaOperacao(cnpjEscopo);
 
     const resultadoDto: any = {};
     if (resultado.quantidade_homologada) resultadoDto.quantidadeHomologada = parseFloat(resultado.quantidade_homologada);
@@ -2197,11 +2115,8 @@ export class PncpService implements OnModuleInit {
     }
   }
 
-  async consultarContrato(anoContrato: string, sequencialContrato: string): Promise<any> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+  async consultarContrato(anoContrato: string, sequencialContrato: string, cnpjEscopo?: string): Promise<any> {
+    const cnpj = this.cnpjDaOperacao(cnpjEscopo);
 
     try {
       const response = await this.axiosInstance.get(
@@ -2212,7 +2127,8 @@ export class PncpService implements OnModuleInit {
         encontrado: true,
         contrato: response.data
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       if (error.response?.status === 404) {
         return {
           encontrado: false,
@@ -2242,11 +2158,8 @@ export class PncpService implements OnModuleInit {
     };
   }
 
-  async consultarPCAsNoOrgao(): Promise<any> {
-    const cnpj = this.configService.get<string>('PNCP_CNPJ_ORGAO');
-    if (!cnpj) {
-      throw new HttpException('CNPJ do órgão não configurado', HttpStatus.BAD_REQUEST);
-    }
+  async consultarPCAsNoOrgao(cnpjEscopo?: string): Promise<any> {
+    const cnpj = this.cnpjDaOperacao(cnpjEscopo);
 
     try {
       const response = await this.axiosInstance.get(`/orgaos/${cnpj.replace(/\D/g, '')}/pca`);
@@ -2255,7 +2168,8 @@ export class PncpService implements OnModuleInit {
         pcas: response.data,
         total: response.data?.length || 0
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       if (error.response?.status === 404) {
         return {
           orgao: cnpj,
@@ -2274,28 +2188,14 @@ export class PncpService implements OnModuleInit {
   // ============ CONFIGURAÇÃO E TESTE ============
 
   async verificarConfiguracao(): Promise<any> {
-    console.log('[SERVICE] verificarConfiguracao iniciado');
-    
-    // Teste direto do process.env
-    console.log('[SERVICE] process.env direto:', {
-      PNCP_API_URL: process.env.PNCP_API_URL ? 'DEFINIDO' : 'NÃO DEFINIDO',
-      PNCP_LOGIN: process.env.PNCP_LOGIN ? 'DEFINIDO' : 'NÃO DEFINIDO',
-      PNCP_SENHA: process.env.PNCP_SENHA ? 'DEFINIDO' : 'NÃO DEFINIDO',
-      PNCP_CNPJ_ORGAO: process.env.PNCP_CNPJ_ORGAO ? 'DEFINIDO' : 'NÃO DEFINIDO'
-    });
-    
     // Usar getEnvVar para garantir que funcione no Railway
     const apiUrl = this.getEnvVar('PNCP_API_URL') || '';
     const login = this.getEnvVar('PNCP_LOGIN');
     const senha = this.getEnvVar('PNCP_SENHA');
     const cnpj = this.getEnvVar('PNCP_CNPJ_ORGAO');
-    
-    console.log('[SERVICE] Variáveis lidas via getEnvVar:', { 
-      apiUrl: !!apiUrl, 
-      login: !!login, 
-      senha: !!senha, 
-      cnpj: !!cnpj 
-    });
+    this.logger.debug(
+      `verificarConfiguracao: apiUrl=${!!apiUrl} login=${!!login} senha=${!!senha} cnpj=${!!cnpj}`,
+    );
 
     return {
       configurado: !!(login && cnpj && apiUrl && senha),
@@ -2331,7 +2231,8 @@ export class PncpService implements OnModuleInit {
         sucesso: true,
         mensagem: 'Conexão com PNCP estabelecida com sucesso!'
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       return {
         sucesso: false,
         mensagem: `Erro na conexão: ${this.extrairMensagemErro(error)}`,
@@ -2373,7 +2274,8 @@ export class PncpService implements OnModuleInit {
         sucesso: true,
         mensagem: 'Configurações PNCP atualizadas com sucesso!'
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       this.logger.error('[CONFIG] Erro ao atualizar configurações PNCP:', error);
       return {
         sucesso: false,
@@ -2402,7 +2304,8 @@ export class PncpService implements OnModuleInit {
         encontrado: true,
         orgao: response.data
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       if (error.response?.status === 404) {
         return {
           encontrado: false,
@@ -2432,7 +2335,8 @@ export class PncpService implements OnModuleInit {
         orgao: response.data,
         mensagem: 'Órgão cadastrado com sucesso no PNCP'
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       throw new HttpException(
         `Erro ao cadastrar órgão: ${this.extrairMensagemErro(error)}`,
         HttpStatus.BAD_REQUEST
@@ -2449,7 +2353,8 @@ export class PncpService implements OnModuleInit {
         unidades: response.data,
         total: response.data?.length || 0
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       if (error.response?.status === 404) {
         return {
           unidades: [],
@@ -2483,7 +2388,8 @@ export class PncpService implements OnModuleInit {
         unidade: response.data,
         mensagem: 'Unidade cadastrada com sucesso no PNCP'
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       throw new HttpException(
         `Erro ao cadastrar unidade: ${this.extrairMensagemErro(error)}`,
         HttpStatus.BAD_REQUEST
@@ -2525,7 +2431,8 @@ export class PncpService implements OnModuleInit {
         usuario: response.data,
         entesAutorizados: response.data?.entesAutorizados || []
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       throw new HttpException(
         `Erro ao consultar usuário: ${this.extrairMensagemErro(error)}`,
         HttpStatus.BAD_REQUEST
@@ -2560,7 +2467,8 @@ export class PncpService implements OnModuleInit {
         entesAutorizados: cnpjsLimpos,
         mensagem: 'Entes autorizados atualizados com sucesso'
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       throw new HttpException(
         `Erro ao atualizar entes autorizados: ${this.extrairMensagemErro(error)}`,
         HttpStatus.BAD_REQUEST
@@ -2750,7 +2658,8 @@ export class PncpService implements OnModuleInit {
         total: 1,
         mensagem: 'Nenhuma unidade encontrada.'
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       this.logger.error(`Erro ao consultar unidades: ${error.message}`);
       return {
         cnpj: cnpjLimpo,
@@ -2809,7 +2718,8 @@ export class PncpService implements OnModuleInit {
                   });
                   this.logger.log(`PCA encontrado: ${anoBusca}/${seq}`);
                 }
-              } catch (err: any) {
+              } catch (errCapturado: unknown) {
+                const err = comoErro(errCapturado);
                 // 404 = não existe esse sequencial, continua
                 if (err.response?.status !== 404) {
                   this.logger.warn(`Erro ao buscar PCA ${anoBusca}/${seq}: ${err.response?.status}`);
@@ -2817,7 +2727,8 @@ export class PncpService implements OnModuleInit {
               }
             }
           }
-        } catch (err: any) {
+        } catch (errCapturado: unknown) {
+          const err = comoErro(errCapturado);
           // Erro ao consultar quantidade do ano, tentar próximo ano
           this.logger.warn(`Erro ao consultar quantidade para ano ${anoBusca}: ${err.response?.status}`);
         }
@@ -2831,7 +2742,8 @@ export class PncpService implements OnModuleInit {
         total: pcasEncontrados.length,
         ambienteTreinamento: false
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       this.logger.error(`Erro ao consultar PCAs no PNCP: ${error.message}`);
       return {
         cnpj: cnpjLimpo,
@@ -2859,7 +2771,8 @@ export class PncpService implements OnModuleInit {
         sucesso: true,
         pca: response.data
       };
-    } catch (error: any) {
+    } catch (errorCapturado: unknown) {
+      const error = comoErro(errorCapturado);
       this.logger.error(`Erro ao consultar PCA detalhado: ${error.message}`, error.response?.data);
       if (error.response?.status === 404) {
         return {
@@ -2976,7 +2889,8 @@ export class PncpService implements OnModuleInit {
         } else {
           resultados.atualizados++;
         }
-      } catch (error: any) {
+      } catch (errorCapturado: unknown) {
+        const error = comoErro(errorCapturado);
         resultados.erros.push(`PCA ${pcaPncp.anoPca}/${pcaPncp.sequencialPca}: ${error.message}`);
       }
     }
@@ -2990,32 +2904,6 @@ export class PncpService implements OnModuleInit {
 
   // ============ ESTATÍSTICAS ============
 
-  async getEstatisticasSincronizacao(): Promise<{
-    total: number;
-    enviados: number;
-    pendentes: number;
-    erros: number;
-    porTipo: Record<string, number>;
-  }> {
-    const todos = await this.pncpSyncRepository.find();
-    
-    const porStatus = {
-      enviados: todos.filter(s => s.status === StatusSincronizacao.ENVIADO).length,
-      pendentes: todos.filter(s => s.status === StatusSincronizacao.PENDENTE).length,
-      erros: todos.filter(s => s.status === StatusSincronizacao.ERRO).length,
-    };
-
-    const porTipo: Record<string, number> = {};
-    todos.forEach(s => {
-      porTipo[s.tipo] = (porTipo[s.tipo] || 0) + 1;
-    });
-
-    return {
-      total: todos.length,
-      ...porStatus,
-      porTipo
-    };
-  }
 }
 
 /**
@@ -3028,9 +2916,9 @@ function beneficioSimples(item: any, lic: any): BeneficioParaPncp {
   let tipo: BeneficioParaPncp['tipo'] = 'NENHUM';
   if (modo === 'POR_ITEM' || modo === 'POR_LOTE') {
     tipo = item?.tipo_participacao === 'EXCLUSIVO_MPE' ? 'EXCLUSIVO' : item?.tipo_participacao === 'COTA_RESERVADA' ? 'COTA_RESERVADA' : 'NENHUM';
-  } else if (lic?.tipo_beneficio_mpe === 'EXCLUSIVO' || lic?.exclusivo_mpe === true) {
+  } else if (lic?.tipo_beneficio_mpe === 'EXCLUSIVO') {
     tipo = 'EXCLUSIVO';
-  } else if (lic?.tipo_beneficio_mpe === 'COTA_RESERVADA' || lic?.cota_reservada === true) {
+  } else if (lic?.tipo_beneficio_mpe === 'COTA_RESERVADA') {
     tipo = 'COTA_RESERVADA';
   }
   if (lic?.tratamento_diferenciado_mpe === false && !ehCota) tipo = 'NENHUM';

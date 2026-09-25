@@ -47,6 +47,8 @@ import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 // Tipos
 interface ItemDemanda {
@@ -185,7 +187,7 @@ function DemandasPageContent() {
       const melhorado = String(data.resposta || '').trim()
       if (melhorado) setNovaDemanda((d) => ({ ...d, descricao_sucinta_objeto: melhorado }))
     } catch {
-      alert('Não foi possível melhorar o texto agora — você pode continuar com o seu.')
+      toast.error('Não foi possível melhorar o texto agora — você pode continuar com o seu.')
     } finally {
       setMelhorandoDescricao(false)
     }
@@ -222,7 +224,7 @@ function DemandasPageContent() {
       const novo = String(data.resposta || '').trim()
       if (novo) setNovaDemanda((d) => ({ ...d, observacoes: novo }))
     } catch {
-      alert('Não foi possível gerar agora — você pode preencher depois, na seção 2 da demanda.')
+      toast.error('Não foi possível gerar agora — você pode preencher depois, na seção 2 da demanda.')
     } finally {
       setMelhorandoJustificativa(false)
     }
@@ -291,11 +293,11 @@ function DemandasPageContent() {
 
   const criarDemanda = async () => {
     if (!novaDemanda.unidade_requisitante) {
-      alert('Informe a unidade requisitante')
+      toast.warning('Informe a unidade requisitante')
       return
     }
     if (!novaDemanda.descricao_sucinta_objeto.trim()) {
-      alert('Informe a descrição sucinta do objeto')
+      toast.warning('Informe a descrição sucinta do objeto')
       return
     }
 
@@ -334,11 +336,11 @@ function DemandasPageContent() {
       } else {
         const err = await response.json().catch(() => ({}))
         const msg = Array.isArray(err.message) ? err.message.join('\n') : err.message
-        alert(msg || 'Erro ao criar demanda — verifique os campos obrigatórios (*)')
+        toast.error(msg || 'Erro ao criar demanda — verifique os campos obrigatórios (*)')
       }
     } catch (error) {
       console.error('Erro ao criar demanda:', error)
-      alert('Erro ao criar demanda')
+      toast.error('Erro ao criar demanda')
     } finally {
       setSalvando(false)
     }
@@ -353,7 +355,7 @@ function DemandasPageContent() {
         carregarDados()
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao enviar demanda')
+        toast.error(error.message || 'Erro ao enviar demanda')
       }
     } catch (error) {
       console.error('Erro ao enviar demanda:', error)
@@ -361,7 +363,7 @@ function DemandasPageContent() {
   }
 
   const excluirDemanda = async (demandaId: string) => {
-    if (!confirm('Tem certeza que deseja excluir esta demanda?')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Tem certeza que deseja excluir esta demanda?', destrutivo: true }))) return
     try {
       const response = await authFetch(`${API_URL}/api/demandas/${demandaId}`, { method: 'DELETE' })
       if (response.ok) carregarDados()

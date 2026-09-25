@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
-import { DisputaService } from '../disputa-v2/disputa.service';
-import { ModoDisputaService } from '../disputa-v2/modo-disputa.service';
-import { BaseLance } from '../disputa-v2/modelo-lance';
-import type { DirecaoLance } from '../disputa-v2/modos-disputa';
+import { DisputaService } from '../disputa/disputa.service';
+import { ModoDisputaService } from '../disputa/modo-disputa.service';
+import { BaseLance } from '../disputa/modelo-lance';
+import type { DirecaoLance } from '../disputa/modos-disputa';
 import type { AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
 import { registrarLicitantesDaUnidade } from './licitantes-unidade.sql';
 import { ehCriterioPontuado, montarRankingPontuado } from './criterios-julgamento';

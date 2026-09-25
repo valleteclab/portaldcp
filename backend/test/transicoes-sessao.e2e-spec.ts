@@ -1,5 +1,5 @@
 /**
- * E1 — ATOS DA SALA (sessão pública / disputa-v2 / recursos) PELA MÁQUINA DE
+ * E1 — ATOS DA SALA (sessão pública / disputa / recursos) PELA MÁQUINA DE
  * ESTADOS, contra o banco real.
  *
  *  1. cada ato da sala que muda a fase vira linha em `licitacao_transicoes`,
@@ -118,7 +118,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
         .expect(201);
       sessaoId = criada.body.id;
       await http()
-        .put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`)
+        .put(`/api/disputa/sessao/${sessaoId}/configuracoes`)
         .set(bearer(pregoeiro.token))
         .send({ intervalo_minimo_lances_minutos: 0 })
         .expect(200);
@@ -169,7 +169,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       const l = await buscarLicitacao(ctx, lic);
       expect(l.fase).toBe(FaseLicitacao.JULGAMENTO);
       expect(l.data_fim_disputa).toBeTruthy();
-      const s = (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body;
+      const s = (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body;
       expect(s.status).toBe(StatusSessao.EM_ANDAMENTO);
       // E3: depois dos lances vem a aceitação da proposta (IN 73 art. 29)
       expect(s.etapa).toBe(EtapaSessao.ACEITACAO_PROPOSTA);
@@ -323,7 +323,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       [item1, item2] = lic.itens.map((i) => i.id);
 
       await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`)
+        .post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`)
         .set(bearer(orgao.token))
         .send({ itensIds: [item1] })
         .expect(201);
@@ -342,7 +342,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
 
     test('lance por REST → 409; por socket → erro "suspensa"', async () => {
       const r = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/lance`)
+        .post(`/api/disputa/sessao/${sessaoId}/lance`)
         .set(bearer(F1.token))
         .send({ itemId: item1, valor: 84 });
       expect(r.status).toBe(409);
@@ -355,7 +355,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
 
     test('iniciar item por REST → 409; por socket → erro; o item continua aguardando', async () => {
       const r = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`)
+        .post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`)
         .set(bearer(orgao.token))
         .send({ itensIds: [item2] });
       expect(r.status).toBe(409);
@@ -372,10 +372,10 @@ describe('E1 — atos da sala pela máquina de estados', () => {
 
     test('encerrar item, suspender/retomar/reiniciar a sessão e atos pós-disputa → 409', async () => {
       const casos = [
-        http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${item1}`).set(bearer(orgao.token)),
-        http().post(`/api/disputa-v2/sessao/${sessaoId}/suspender`).set(bearer(orgao.token)).send({ motivo: 'ADMINISTRATIVO', justificativa: 'x' }),
-        http().post(`/api/disputa-v2/sessao/${sessaoId}/retomar`).set(bearer(orgao.token)),
-        http().post(`/api/disputa-v2/sessao/${sessaoId}/reiniciar`).set(bearer(orgao.token)).send({ justificativa: 'x' }),
+        http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${item1}`).set(bearer(orgao.token)),
+        http().post(`/api/disputa/sessao/${sessaoId}/suspender`).set(bearer(orgao.token)).send({ motivo: 'ADMINISTRATIVO', justificativa: 'x' }),
+        http().post(`/api/disputa/sessao/${sessaoId}/retomar`).set(bearer(orgao.token)),
+        http().post(`/api/disputa/sessao/${sessaoId}/reiniciar`).set(bearer(orgao.token)).send({ justificativa: 'x' }),
         convocarHabilitacao(ctx, lic.id, F1.id, orgao.token),
         homologarResultado(ctx, lic.id, orgao.token),
       ];

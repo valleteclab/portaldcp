@@ -10,7 +10,7 @@
  * AceitacaoService) só juntam os dados e chamam estas funções.
  */
 
-import type { DirecaoLance } from '../disputa-v2/modos-disputa';
+import type { DirecaoLance } from '../disputa/modos-disputa';
 
 // ============================================================================
 // SITUAÇÃO DO LICITANTE NA UNIDADE (item ou lote) — plano §2.3

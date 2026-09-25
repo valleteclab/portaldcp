@@ -158,7 +158,7 @@ describe('E3 — julgamento técnico e desempate (art. 60)', () => {
       expect(s.status).toBe(201);
       sessaoId = s.body.id;
       await http().put(`/api/sessao/${sessaoId}/iniciar`).set(bearer(orgao.token)).expect(200);
-      const r = await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
+      const r = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
       expect(r.status).toBe(409);
       expect(r.body.message).toMatch(/notas técnicas/);
       // Depois do acolhimento o órgão abre as propostas técnicas
@@ -227,7 +227,7 @@ describe('E3 — julgamento técnico e desempate (art. 60)', () => {
     });
 
     test('preços lacrados (fechado) → ranking pelo índice técnica e preço', async () => {
-      await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] }).expect(201);
+      await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] }).expect(201);
       const r = await http().get(`/api/julgamento/sessao/${sessaoId}/ranking`).set(bearer(orgao.token)).expect(200);
       const ranking = r.body.unidades[0].ranking;
       // IF = 0,7·NT/100 + 0,3·1000/preço → F2 0,94 · F3 0,8794 · F1 0,8133 (o mais barato fica em 3º)
@@ -273,7 +273,7 @@ describe('E3 — julgamento técnico e desempate (art. 60)', () => {
       );
       sessaoId = p.sessaoId;
       itemId = p.lic.itens[0].id;
-      await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${itemId}`).set(bearer(orgao.token)).expect(201);
+      await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${itemId}`).set(bearer(orgao.token)).expect(201);
     });
 
     test('empate no 1º lugar: ranking marca pendente; aceitação recusada até o desempate', async () => {

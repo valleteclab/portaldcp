@@ -1,5 +1,5 @@
 /**
- * Simulador de disputa (plano E0 item 3) — modo ABERTO da disputa-v2.
+ * Simulador de disputa (plano E0 item 3) — modo ABERTO da disputa.
  *
  * Duas licitações ao mesmo tempo (A e B), cada uma com 10 fornecedores robôs
  * (um socket e um token por robô) × 2 itens. O relógio real do backend
@@ -118,7 +118,7 @@ describe('Simulador de disputa — modo aberto (10 robôs × 2 itens, 2 licitaç
 
   // CORRIGIDO NA E2 (era defeito): o motor recusa valor igual a lance ATIVO de outro
   // fornecedor no item — prevalece o registrado primeiro (ordem da trava do item);
-  // regra e base legal em backend/src/disputa-v2/modelo-lance.ts (validarLance, regra 5)
+  // regra e base legal em backend/src/disputa/modelo-lance.ts (validarLance, regra 5)
   test('3b. lances iguais no mesmo ms com valor intermediário: no máximo um aceito', () => {
     expect(relatorios().flatMap((rel) => verificarSimultaneos(rel, 'simultaneo_intermediario'))).toEqual([]);
   });
@@ -151,7 +151,7 @@ describe('Simulador de disputa — modo aberto (10 robôs × 2 itens, 2 licitaç
 
   // CORRIGIDO NA E2 (era defeito): atribuição do código anônimo sob advisory lock por
   // sessão + índice único (sessao_id, indice); os códigos são atribuídos de uma vez ao
-  // abrir os itens — backend/src/disputa-v2/anonimizacao.service.ts (atribuirCodigos)
+  // abrir os itens — backend/src/disputa/anonimizacao.service.ts (atribuirCodigos)
   test('5c. cada fornecedor tem código anônimo próprio na sessão', () => {
     expect(relatorios().flatMap((rel) => verificarCodigosAnonimosUnicos(rel))).toEqual([]);
   });
@@ -170,7 +170,7 @@ describe('Simulador de disputa — modo aberto (10 robôs × 2 itens, 2 licitaç
 
   // CORRIGIDO NA E2 (era defeito): o gateway confirma o lance logo após o commit e a
   // difusão (anonimização/broadcast) não pode mais virar "erro" para quem deu o lance —
-  // backend/src/disputa-v2/disputa.gateway.ts (handleEnviarLance / difundirNovoLance)
+  // backend/src/disputa/disputa.gateway.ts (handleEnviarLance / difundirNovoLance)
   test('7b. o que o robô ouviu (lance_confirmado/erro) bate com o que foi gravado', () => {
     expect(relatorios().flatMap((rel) => verificarRespostasCoerentes(rel))).toEqual([]);
   });

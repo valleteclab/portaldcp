@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation'
 import { Loader2, Fuel, ClipboardList, Home, User, ChevronRight, CheckCircle, Clock, XCircle, Lock, LogOut, ExternalLink, Share2 } from 'lucide-react'
 import { API_URL } from '@/lib/api'
 import { QrCodeImg } from '../../QrCodeImg'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -200,7 +202,7 @@ export default function VereadorSlugPage() {
           observacoes: formPedido.observacoes,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao enviar'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao enviar'); return }
       setPedidoSucesso(true)
       setFormPedido({ veiculo_placa: '', tipo_combustivel: 'GASOLINA', finalidade: '', km_hodometro: '', observacoes: '' })
       setQtdSelecionada(30)
@@ -210,13 +212,13 @@ export default function VereadorSlugPage() {
 
   const handleCancelarPedido = async (r: Requisicao) => {
     if (!token) return
-    if (!confirm(`Cancelar o pedido ${r.codigo} (${fmtLitros(r.quantidade_autorizada)})? A cota volta a ficar disponível.`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Cancelar o pedido ${r.codigo} (${fmtLitros(r.quantidade_autorizada)})? A cota volta a ficar disponível.`, destrutivo: true }))) return
     setCancelandoId(r.id)
     try {
       const res = await fetch(`${FROTA_PUB}/vereador/requisicao/${r.id}/cancelar`, {
         method: 'PUT', headers: { Authorization: `Bearer ${token}` },
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Não foi possível cancelar'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Não foi possível cancelar'); return }
       await carregarDados(token)
     } finally { setCancelandoId(null) }
   }

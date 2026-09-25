@@ -10,12 +10,12 @@ import {
  * @deprecated E2 item 7 — a dispensa usa o MOTOR ÚNICO: lances na tabela
  * `lances` (origem JANELA_DISPENSA, via DisputaService.registrarLance).
  * Esta tabela NÃO é mais escrita; fica só como origem da migração
- * (disputa-v2/migracao-dispensa.ts) e para conferência — remoção na E9.
+ * (disputa/migracao-dispensa.ts) e para conferência — remoção na E9.
  *
  * (Histórico) Lance da DISPENSA ELETRÔNICA (fase de lances leve, espelhando a IN SEGES
  * 67/2021): após o fim do acolhimento de propostas, o órgão pode abrir uma
  * janela de lances em que cada fornecedor reduz o próprio valor por item.
- * Independente do motor de disputa do pregão (disputa-v2) de propósito —
+ * Independente do motor de disputa do pregão (disputa) de propósito —
  * a dispensa não usa sala de sessão, timer por item nem prorrogações.
  */
 @Entity('dispensa_lances')

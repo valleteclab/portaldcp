@@ -38,9 +38,9 @@ import { prepararPregaoEmDisputa } from './support/isolamento';
 import { julgamentoTecnicoSimples } from './support/julgamento-tecnico';
 import { SalaModos } from './support/simulador-disputa';
 import { CriterioJulgamento, FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
-import { DesconexaoPregoeiroService } from '../src/disputa-v2/desconexao-pregoeiro.service';
+import { DesconexaoPregoeiroService } from '../src/disputa/desconexao-pregoeiro.service';
 import { ItemLicitacao } from '../src/itens/entities/item-licitacao.entity';
-import { DisputaService } from '../src/disputa-v2/disputa.service';
+import { DisputaService } from '../src/disputa/disputa.service';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const UM = [{ descricao: 'Item modos E2.4', quantidade: 1, valor_unitario_estimado: 200 }];
@@ -53,13 +53,13 @@ describe('E2.4 — modos de disputa', () => {
   const http = () => ctx.http();
 
   const board = (sessaoId: string, token: string) =>
-    http().get(`/api/disputa-v3/sessao/${sessaoId}/board`).set(bearer(token));
+    http().get(`/api/disputa/sessao/${sessaoId}/board`).set(bearer(token));
   const itemDoBoard = (b: any, itemId: string) =>
     [...b.colunas.aguardando, ...b.colunas.emDisputa, ...b.colunas.encerrados].find((i: any) => i.id === itemId);
   /** Ranking do motor (identidades reais — as rotas anonimizam conforme a visão). */
   const ranking = (itemId: string) => ctx.app.get(DisputaService, { strict: false }).rankingDoItem(itemId);
   const lanceRest = (sessaoId: string, f: FornecedorFixture, itemId: string, valor: number) =>
-    http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`).set(bearer(f.token)).send({ itemId, valor });
+    http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(f.token)).send({ itemId, valor });
 
   beforeAll(async () => {
     ctx = await criarApp();
@@ -110,7 +110,7 @@ describe('E2.4 — modos de disputa', () => {
       expect(r.body.message).toMatch(/§1º/);
       const ok = await http().put(`/api/licitacoes/${lic.id}`).set(bearer(orgao.token)).send({ modo_disputa: 'ABERTO_FECHADO' });
       expect(ok.status).toBe(200);
-      const v = await http().get('/api/disputa-v2/modos/validar?modo=ABERTO&criterio=TECNICA_E_PRECO');
+      const v = await http().get('/api/disputa/modos/validar?modo=ABERTO&criterio=TECNICA_E_PRECO');
       expect(v.body).toEqual({ valido: false, motivo: expect.stringMatching(/§2º/) });
     });
 
@@ -169,7 +169,7 @@ describe('E2.4 — modos de disputa', () => {
     });
 
     test('pregoeiro NÃO encerra o item manualmente no aberto-fechado (encerramento automático)', async () => {
-      const r = await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${itemId}`).set(bearer(orgao.token));
+      const r = await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${itemId}`).set(bearer(orgao.token));
       expect(r.status).toBe(409);
       expect(r.body.message).toMatch(/art\. 24/);
     });
@@ -192,7 +192,7 @@ describe('E2.4 — modos de disputa', () => {
       expect(Number(est.s)).toBeGreaterThan(0);
       expect(Number(est.s)).toBeLessThanOrEqual(600);
       for (const r of sala.robos.values()) expect(r.eventos.some((e) => e.evento === 'fechamento_iminente')).toBe(true);
-      const msgs = await http().get(`/api/disputa-v2/sessao/${sessaoId}/mensagens`).set(bearer(F[0].token));
+      const msgs = await http().get(`/api/disputa/sessao/${sessaoId}/mensagens`).set(bearer(F[0].token));
       expect(JSON.stringify(msgs.body)).toMatch(/FECHAMENTO IMINENTE/);
 
       // Ninguém recebe o restante: board e tique trazem 0 e 'oculto'
@@ -274,9 +274,9 @@ describe('E2.4 — modos de disputa', () => {
 
       // Leituras REST: órgão, fornecedor e público
       for (const token of [orgao.token, F[0].token, F[3].token]) {
-        const lances = await http().get(`/api/disputa-v2/item/${itemId}/lances`).set(bearer(token));
+        const lances = await http().get(`/api/disputa/item/${itemId}/lances`).set(bearer(token));
         expect(JSON.stringify(lances.body)).not.toMatch(/97\.37|96\.53/);
-        const melhores = await http().get(`/api/disputa-v2/item/${itemId}/melhores`).set(bearer(token));
+        const melhores = await http().get(`/api/disputa/item/${itemId}/melhores`).set(bearer(token));
         expect(JSON.stringify(melhores.body)).not.toMatch(/97\.37|96\.53/);
         const b = await board(sessaoId, token);
         expect(JSON.stringify(b.body).replace(/"meuLanceFechado":9[67]\.[35]7/, '')).not.toMatch(/97\.37|96\.53/);
@@ -311,7 +311,7 @@ describe('E2.4 — modos de disputa', () => {
         [F[3].id, 115],
         [F[4].id, 130],
       ]);
-      const lances = await http().get(`/api/disputa-v2/item/${itemId}/lances`).set(bearer(orgao.token));
+      const lances = await http().get(`/api/disputa/item/${itemId}/lances`).set(bearer(orgao.token));
       expect(JSON.stringify(lances.body)).toMatch(/97\.37/);
     });
   });
@@ -377,10 +377,10 @@ describe('E2.4 — modos de disputa', () => {
       );
       const itemId = p.lic.itens[0].id;
       // Melhor técnica: a etapa de preços só abre com as notas técnicas publicadas (Lei 14.133 art. 36 §2º / 37)
-      const antes = await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
+      const antes = await http().post(`/api/disputa/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
       expect(antes.status).toBe(409);
       await julgamentoTecnicoSimples(ctx, orgao, p.lic.id, { [F[0].id]: 80, [F[1].id]: 70, [F[2].id]: 90 });
-      await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] }).expect(201);
+      await http().post(`/api/disputa/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] }).expect(201);
       const [it] = await ctx.dataSource.query(`SELECT status_disputa::text AS st FROM itens_licitacao WHERE id = $1`, [itemId]);
       expect(it.st).toBe('ENCERRADO');
       const r = await lanceRest(p.sessaoId, F[0], itemId, 90);
@@ -406,9 +406,9 @@ describe('E2.4 — modos de disputa', () => {
         { itens: UM },
       );
       const itemId = p.lic.itens[0].id;
-      await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/encerrar-item/${itemId}`).set(bearer(orgao.token)).expect(201);
+      await http().post(`/api/disputa/sessao/${p.sessaoId}/encerrar-item/${itemId}`).set(bearer(orgao.token)).expect(201);
       const r = await http()
-        .post(`/api/disputa-v2/sessao/${p.sessaoId}/item/${itemId}/reiniciar-demais`)
+        .post(`/api/disputa/sessao/${p.sessaoId}/item/${itemId}/reiniciar-demais`)
         .set(bearer(orgao.token))
         .send({ justificativa: 'teste' });
       expect(r.status).toBe(409);
@@ -424,18 +424,18 @@ describe('E2.4 — modos de disputa', () => {
       );
       const { sessaoId } = p;
       const itemId = p.lic.itens[0].id;
-      await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${itemId}`).set(bearer(orgao.token)).expect(201);
+      await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${itemId}`).set(bearer(orgao.token)).expect(201);
 
-      const semJust = await http().post(`/api/disputa-v2/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`).set(bearer(orgao.token)).send({});
+      const semJust = await http().post(`/api/disputa/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`).set(bearer(orgao.token)).send({});
       expect(semJust.status).toBe(400);
       const fornecedorNao = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`)
+        .post(`/api/disputa/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`)
         .set(bearer(F[1].token))
         .send({ justificativa: 'x' });
       expect(fornecedorNao.status).toBe(403);
 
       const r = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`)
+        .post(`/api/disputa/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`)
         .set(bearer(orgao.token))
         .send({ justificativa: 'Diferença de 10% para a 2ª colocação — definir as demais colocações' });
       expect(r.status).toBe(201);
@@ -467,7 +467,7 @@ describe('E2.4 — modos de disputa', () => {
       expect(st2.s).toBe('EM_ANDAMENTO');
 
       const denovo = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`)
+        .post(`/api/disputa/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`)
         .set(bearer(orgao.token))
         .send({ justificativa: 'de novo' });
       expect(denovo.status).toBe(409);
@@ -504,24 +504,24 @@ describe('E2.4 — modos de disputa', () => {
       expect((await lanceRest(sessaoId, F[0], itemId, 95)).status).toBe(409);
 
       // Sem comunicação → 409; comunicação com menos de 24 h → 400
-      const sem = await http().post(`/api/disputa-v2/sessao/${sessaoId}/retomar`).set(bearer(orgao.token));
+      const sem = await http().post(`/api/disputa/sessao/${sessaoId}/retomar`).set(bearer(orgao.token));
       expect(sem.status).toBe(409);
       expect(sem.body.message).toMatch(/comunique aos participantes/);
       const cedo = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/agendar-retomada`)
+        .post(`/api/disputa/sessao/${sessaoId}/agendar-retomada`)
         .set(bearer(orgao.token))
         .send({ retomadaEm: new Date(Date.now() + 3_600_000).toISOString() });
       expect(cedo.status).toBe(400);
       const ag = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/agendar-retomada`)
+        .post(`/api/disputa/sessao/${sessaoId}/agendar-retomada`)
         .set(bearer(orgao.token))
         .send({ retomadaEm: new Date(Date.now() + 25 * 3_600_000).toISOString() });
       expect(ag.status).toBe(201);
-      const msgs = await http().get(`/api/disputa-v2/sessao/${sessaoId}/mensagens`).set(bearer(F[0].token));
+      const msgs = await http().get(`/api/disputa/sessao/${sessaoId}/mensagens`).set(bearer(F[0].token));
       expect(JSON.stringify(msgs.body)).toMatch(/COMUNICADO: a sessão pública suspensa/);
 
       // Antes da data → 409
-      const antes = await http().post(`/api/disputa-v2/sessao/${sessaoId}/retomar`).set(bearer(orgao.token));
+      const antes = await http().post(`/api/disputa/sessao/${sessaoId}/retomar`).set(bearer(orgao.token));
       expect(antes.status).toBe(409);
       expect(antes.body.message).toMatch(/só pode ser reiniciada a partir de/);
 
@@ -539,7 +539,7 @@ describe('E2.4 — modos de disputa', () => {
         }),
       ]);
       await ctx.dataSource.query(`UPDATE itens_licitacao SET disputa_iniciada_em = $2 WHERE id = $1`, [itemId, new Date(Date.now() - 86_400_000)]);
-      const ok = await http().post(`/api/disputa-v2/sessao/${sessaoId}/retomar`).set(bearer(orgao.token));
+      const ok = await http().post(`/api/disputa/sessao/${sessaoId}/retomar`).set(bearer(orgao.token));
       expect(ok.status).toBe(201);
       const [s2] = await ctx.dataSource.query(`SELECT status::text AS st FROM sessoes_disputa WHERE id = $1`, [sessaoId]);
       expect(s2.st).toBe('MODO_ABERTO');
@@ -579,7 +579,7 @@ describe('E2.4 — modos de disputa', () => {
       expect(s.status).toBe(201);
       const sessaoId: string = s.body.id;
       await http()
-        .put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`)
+        .put(`/api/disputa/sessao/${sessaoId}/configuracoes`)
         .set(bearer(orgao.token))
         .send({ tempo_inatividade_minutos: 10, tempo_prorrogacao_minutos: 2, intervalo_minimo_lances_minutos: 0 })
         .expect(200);
@@ -590,7 +590,7 @@ describe('E2.4 — modos de disputa', () => {
           pesoTecnica: criterio === CriterioJulgamento.TECNICA_E_PRECO ? 70 : null,
         });
       }
-      const ini = await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [lote.body.id] });
+      const ini = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [lote.body.id] });
       expect(ini.status).toBe(201);
       expect(ini.body).toMatchObject({ lotesIniciados: 1 });
       return { lic, sessaoId, loteId: lote.body.id as string };
@@ -607,7 +607,7 @@ describe('E2.4 — modos de disputa', () => {
       await dormir(400);
       expect(await svc.verificarDesconexoes(Date.now() + 10 * 60_000 + 5_000)).toContain(p.sessaoId);
       await http()
-        .post(`/api/disputa-v2/sessao/${p.sessaoId}/agendar-retomada`)
+        .post(`/api/disputa/sessao/${p.sessaoId}/agendar-retomada`)
         .set(bearer(orgao.token))
         .send({ retomadaEm: new Date(Date.now() + 25 * 3_600_000).toISOString() })
         .expect(201);
@@ -626,7 +626,7 @@ describe('E2.4 — modos de disputa', () => {
       const ontem = new Date(Date.now() - 86_400_000);
       await ctx.dataSource.query(`UPDATE lotes_licitacao SET disputa_iniciada_em = $2, ultimo_lance_em = $2 WHERE id = $1`, [p.loteId, ontem]);
       await ctx.dataSource.query(`UPDATE itens_licitacao SET disputa_iniciada_em = $2, ultimo_lance_em = $2 WHERE lote_id = $1`, [p.loteId, ontem]);
-      expect((await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/retomar`).set(bearer(orgao.token))).status).toBe(201);
+      expect((await http().post(`/api/disputa/sessao/${p.sessaoId}/retomar`).set(bearer(orgao.token))).status).toBe(201);
       const [lote] = await ctx.dataSource.query(`SELECT disputa_iniciada_em FROM lotes_licitacao WHERE id = $1`, [p.loteId]);
       expect(Math.abs(Date.now() - new Date(lote.disputa_iniciada_em).getTime())).toBeLessThan(60_000);
       const itens = await ctx.dataSource.query(`SELECT disputa_iniciada_em FROM itens_licitacao WHERE lote_id = $1`, [p.loteId]);
@@ -636,7 +636,7 @@ describe('E2.4 — modos de disputa', () => {
     test('suspensão comum: ao retomar, o relógio do lote é DESLOCADO pela pausa (não vence na retomada)', async () => {
       const p = await pregaoPorLote(ModoDisputa.ABERTO, [200, 220]);
       await http()
-        .post(`/api/disputa-v2/sessao/${p.sessaoId}/suspender`)
+        .post(`/api/disputa/sessao/${p.sessaoId}/suspender`)
         .set(bearer(orgao.token))
         .send({ motivo: 'ADMINISTRATIVO', justificativa: 'Pausa técnica' })
         .expect(201);
@@ -644,7 +644,7 @@ describe('E2.4 — modos de disputa', () => {
       const umaHora = new Date(Date.now() - 3_600_000);
       await ctx.dataSource.query(`UPDATE eventos_sessao SET created_at = $2 WHERE sessao_id = $1 AND tipo::text = 'SESSAO_SUSPENSA'`, [p.sessaoId, umaHora]);
       await ctx.dataSource.query(`UPDATE lotes_licitacao SET disputa_iniciada_em = $2, ultimo_lance_em = $2 WHERE id = $1`, [p.loteId, umaHora]);
-      expect((await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/retomar`).set(bearer(orgao.token))).status).toBe(201);
+      expect((await http().post(`/api/disputa/sessao/${p.sessaoId}/retomar`).set(bearer(orgao.token))).status).toBe(201);
       await tiqueRelogioDisputa(ctx);
       expect(await statusLote(p.loteId)).toBe('EM_DISPUTA');
       const b = await boardLote(p.sessaoId, orgao.token, p.loteId);
@@ -687,12 +687,12 @@ describe('E2.4 — modos de disputa', () => {
         await dormir(300);
         expect(sala.quemRecebeu('193.46', t0).filter((q) => q !== 'F2')).toEqual([]);
         for (const token of [orgao.token, F[0].token]) {
-          const l = await http().get(`/api/disputa-v2/item/${p.loteId}/lances`).set(bearer(token));
+          const l = await http().get(`/api/disputa/item/${p.loteId}/lances`).set(bearer(token));
           expect(JSON.stringify(l.body)).not.toMatch(/193\.46|96\.73/);
-          const mb = await http().get(`/api/disputa-v2/item/${p.loteId}/melhores`).set(bearer(token));
+          const mb = await http().get(`/api/disputa/item/${p.loteId}/melhores`).set(bearer(token));
           expect(JSON.stringify(mb.body)).not.toMatch(/193\.46/);
           for (const it of p.lic.itens) {
-            const li = await http().get(`/api/disputa-v2/item/${it.id}/lances`).set(bearer(token));
+            const li = await http().get(`/api/disputa/item/${it.id}/lances`).set(bearer(token));
             expect(JSON.stringify(li.body)).not.toMatch(/193\.46|96\.73/);
           }
         }
@@ -702,7 +702,7 @@ describe('E2.4 — modos de disputa', () => {
         expect((await boardLote(p.sessaoId, F[2].token, p.loteId)).meuLanceFechado).toBe(193.46);
         const [lt] = await ctx.dataSource.query(`SELECT melhor_lance_valor FROM lotes_licitacao WHERE id = $1`, [p.loteId]);
         expect(Number(lt.melhor_lance_valor)).toBe(196);
-        expect((await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/encerrar-item/${p.loteId}`).set(bearer(orgao.token))).status).toBe(409);
+        expect((await http().post(`/api/disputa/sessao/${p.sessaoId}/encerrar-item/${p.loteId}`).set(bearer(orgao.token))).status).toBe(409);
 
         await sala.expirarFase(p.loteId); // fim do prazo
         expect(await statusLote(p.loteId)).toBe('ENCERRADO');
@@ -747,9 +747,9 @@ describe('E2.4 — modos de disputa', () => {
 
     test('reinício para as demais colocações no lote (≥ 5%)', async () => {
       const p = await pregaoPorLote(ModoDisputa.ABERTO, [200, 220, 230]);
-      await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/encerrar-item/${p.loteId}`).set(bearer(orgao.token)).expect(201);
+      await http().post(`/api/disputa/sessao/${p.sessaoId}/encerrar-item/${p.loteId}`).set(bearer(orgao.token)).expect(201);
       const r = await http()
-        .post(`/api/disputa-v2/sessao/${p.sessaoId}/item/${p.loteId}/reiniciar-demais`)
+        .post(`/api/disputa/sessao/${p.sessaoId}/item/${p.loteId}/reiniciar-demais`)
         .set(bearer(orgao.token))
         .send({ justificativa: 'Definir as demais colocações do lote' });
       expect(r.status).toBe(201);

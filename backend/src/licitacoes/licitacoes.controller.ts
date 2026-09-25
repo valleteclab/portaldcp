@@ -133,12 +133,12 @@ export class LicitacoesController {
   @Get(':id')
   async findOne(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Licitacao> {
     if (ehFornecedor(ator)) {
-      const lic = await this.licitacoesService.findOne(id);
+      const lic = await this.licitacoesService.findOneParaLeitura(id);
       if (!licitacaoEhPublica(lic)) throw new NotFoundException(`Licitação com ID ${id} não encontrada`);
       return licitacaoParaPublico(lic);
     }
     await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
-    return licitacaoParaOrgao(await this.licitacoesService.findOne(id));
+    return licitacaoParaOrgao(await this.licitacoesService.findOneParaLeitura(id));
   }
 
   @Put(':id')

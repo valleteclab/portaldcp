@@ -35,6 +35,7 @@ import {
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch, formatarDataBR } from '@/lib/api';
+import { toast } from "sonner"
 
 interface DossieItem {
   ordem_id: string;
@@ -99,11 +100,11 @@ function DossieFiscalContent() {
         const blob = await res.blob();
         abrirDocumentoEmNovaAba(blob, 'OF');
       } else {
-        alert('OF não disponível');
+        toast('OF não disponível');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao visualizar OF');
+      toast.error('Erro ao visualizar OF');
     }
   };
 
@@ -121,7 +122,7 @@ function DossieFiscalContent() {
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao baixar OF');
+      toast.error('Erro ao baixar OF');
     }
   };
 
@@ -132,11 +133,11 @@ function DossieFiscalContent() {
         const blob = await res.blob();
         abrirDocumentoEmNovaAba(blob, 'Comprovação');
       } else {
-        alert('Comprovação não disponível');
+        toast('Comprovação não disponível');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao visualizar comprovação');
+      toast.error('Erro ao visualizar comprovação');
     }
   };
 
@@ -152,11 +153,11 @@ function DossieFiscalContent() {
         a.click();
         window.URL.revokeObjectURL(url);
       } else {
-        alert('Comprovação não disponível');
+        toast('Comprovação não disponível');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao baixar comprovação');
+      toast.error('Erro ao baixar comprovação');
     }
   };
 
@@ -167,11 +168,11 @@ function DossieFiscalContent() {
         const blob = await res.blob();
         abrirDocumentoEmNovaAba(blob, 'NF');
       } else {
-        alert('NF não disponível');
+        toast('NF não disponível');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao visualizar NF');
+      toast.error('Erro ao visualizar NF');
     }
   };
 
@@ -188,11 +189,11 @@ function DossieFiscalContent() {
         a.click();
         window.URL.revokeObjectURL(url);
       } else {
-        alert('Erro ao gerar ZIP');
+        toast.error('Erro ao gerar ZIP');
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao baixar dossiê');
+      toast.error('Erro ao baixar dossiê');
     } finally {
       setBaixandoZip(null);
     }
@@ -209,16 +210,16 @@ function DossieFiscalContent() {
         body: formData,
       });
       if (res.ok) {
-        alert('Anexo enviado com sucesso!');
+        toast.success('Anexo enviado com sucesso!');
         setShowUpload(false);
         carregarDossies();
       } else {
         const err = await res.json();
-        alert(`Erro: ${err.message || 'Erro ao enviar anexo'}`);
+        toast.error(`Erro: ${err.message || 'Erro ao enviar anexo'}`);
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao enviar anexo');
+      toast.error('Erro ao enviar anexo');
     } finally {
       setUploading(false);
     }
@@ -231,15 +232,15 @@ function DossieFiscalContent() {
         method: 'POST',
       });
       if (res.ok) {
-        alert('Marcado como entregue ao financeiro!');
+        toast('Marcado como entregue ao financeiro!');
         carregarDossies();
       } else {
         const err = await res.json();
-        alert(`Erro: ${err.message || 'Erro ao marcar'}`);
+        toast.error(`Erro: ${err.message || 'Erro ao marcar'}`);
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao marcar');
+      toast.error('Erro ao marcar');
     } finally {
       setMarcandoEntregue(null);
     }

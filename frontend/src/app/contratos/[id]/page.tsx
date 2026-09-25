@@ -75,6 +75,7 @@ interface Contrato {
 }
 
 import { API_URL, getAuthHeaders } from '@/lib/api'
+import { rotuloModalidade } from '@/lib/licitacao-rotulos'
 
 export default function DetalheContratoPublicoPage() {
   const params = useParams()
@@ -428,7 +429,7 @@ export default function DetalheContratoPublicoPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="font-medium">{contrato.licitacao.numero_processo}</p>
-                  <p className="text-sm text-gray-500">{contrato.licitacao.modalidade}</p>
+                  <p className="text-sm text-gray-500">{rotuloModalidade(contrato.licitacao.modalidade)}</p>
                   <Button variant="link" className="p-0 h-auto mt-2" asChild>
                     <Link href={`/licitacoes/${contrato.licitacao.id}`}>
                       Ver licitação →

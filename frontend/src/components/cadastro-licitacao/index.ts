@@ -1,7 +1,0 @@
-export * from './types'
-export { DadosBasicosTab } from './DadosBasicosTab'
-export { ClassificacaoTab } from './ClassificacaoTab'
-export { ItensTab } from './ItensTab'
-export { CronogramaTab } from './CronogramaTab'
-export { ConfiguracoesTab } from './ConfiguracoesTab'
-export { LotesManager } from './LotesManager'

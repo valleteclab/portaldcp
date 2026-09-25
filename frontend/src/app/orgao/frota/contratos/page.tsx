@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/select'
 import { FileText, Plus, Pencil, Trash2, Loader2, CheckCircle, Download, TrendingUp } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface PrecoAnp {
   produto: string
@@ -173,17 +175,17 @@ export default function ContratosPage() {
       }
       const url = editando ? `${API_URL}/api/frota/contratos/${editando.id}` : `${API_URL}/api/frota/contratos`
       const res = await authFetch(url, { method: editando ? 'PUT' : 'POST', body: JSON.stringify(payload) })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao salvar'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao salvar'); return }
       setModalOpen(false); carregar()
     } finally { setActionLoading(false) }
   }
 
   const importarContrato = async () => {
-    if (!contratoImportarId) { alert('Selecione um contrato'); return }
+    if (!contratoImportarId) { toast.warning('Selecione um contrato'); return }
     const itensLitros = (contratoSelecionado?.itens || []).filter((i: ItemContratoPrincipal) => i.unidade_medida === 'LITRO')
     const preco = parseFloat(precoLitroImportar)
     if (itensLitros.length === 0 && (!preco || preco <= 0)) {
-      alert('Informe o preço por litro ou selecione um contrato com itens em LITRO')
+      toast.warning('Informe o preço por litro ou selecione um contrato com itens em LITRO')
       return
     }
     setActionLoading(true)
@@ -195,13 +197,13 @@ export default function ContratosPage() {
           limite_litros_mensal: limiteLitrosImportar ? parseFloat(limiteLitrosImportar) : undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao importar'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao importar'); return }
       setModalImportarOpen(false); carregar()
     } finally { setActionLoading(false) }
   }
 
   const excluir = async (id: string, numero: string) => {
-    if (!confirm(`Excluir o contrato ${numero}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir o contrato ${numero}?`, destrutivo: true }))) return
     await authFetch(`${API_URL}/api/frota/contratos/${id}`, { method: 'DELETE' })
     carregar()
   }

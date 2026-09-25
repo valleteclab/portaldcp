@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { migrarModeloLances, resumoMigracaoLances } from '../disputa-v2/migracao-lances';
+import { migrarModeloLances, resumoMigracaoLances } from '../disputa/migracao-lances';
 
 /**
  * E2 — Motor de disputa único: modelo de lance (valor_unitario/valor_total

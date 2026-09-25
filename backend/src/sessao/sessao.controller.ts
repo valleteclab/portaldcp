@@ -19,7 +19,7 @@ import {
 } from '../auth/acesso/acesso.decorators';
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
-import { SigiloDisputaService } from '../disputa-v2/sigilo-disputa.service';
+import { SigiloDisputaService } from '../disputa/sigilo-disputa.service';
 import { licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
 import { StatusSessao } from './entities/sessao-disputa.entity';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
@@ -39,9 +39,9 @@ import { filtrarEventosVisiveis, VisaoEvento } from '../julgamento/regras-negoci
  *  - leituras: órgão dono vê tudo; demais recebem as identidades dos outros
  *    licitantes trocadas pelo código anônimo. Habilitação: só o órgão dono (o
  *    fornecedor convocado vê só a própria convocação);
- *  - lance: só pelo motor (disputa-v2); por LOTE → 501 até o motor de lote (E2);
+ *  - lance: só pelo motor (disputa); por LOTE → 501 até o motor de lote (E2);
  *  - as leituras da antiga sala /sessao (sala-disputa) foram removidas na E2
- *    (as telas usam disputa-v2/disputa-v3).
+ *    (as telas usam disputa (REST /api/disputa)).
  */
 @Controller('sessao')
 export class SessaoController {
@@ -114,11 +114,11 @@ export class SessaoController {
   // REMOVIDOS NA E2 (item 8 — canal único): PUT :id/reabrir, :id/avancar-disputa,
   // :id/iniciar-item/:itemId, :id/iniciar-todos-itens e :id/encerrar-item. Eram o
   // par REST dos atos do antigo socket /sessao, sem chamador nas telas; iniciar e
-  // encerrar itens é do motor: POST /disputa-v2/sessao/:id/iniciar-itens e
+  // encerrar itens é do motor: POST /disputa/sessao/:id/iniciar-itens e
   // /encerrar-item/:itemId (ou o socket /disputa).
 
   // REMOVIDO NA E2 (item 5 — lote no motor único): POST :id/lance-lote. O lance
-  // por lote é o lance do motor com o id do lote: POST /disputa-v2/sessao/:id/lance
+  // por lote é o lance do motor com o id do lote: POST /disputa/sessao/:id/lance
   // { loteId, valor } (ou o socket /disputa `enviar_lance` com o id do lote).
 
   // HABILITAÇÃO (plano E4): rotas em /api/habilitacao (habilitacao/habilitacao.controller.ts).
@@ -203,7 +203,6 @@ export class SessaoController {
     const publica = {
       ...sessao,
       licitacao: sessao.licitacao ? licitacaoParaPublico(sessao.licitacao) : sessao.licitacao,
-      item_atual: sessao.item_atual ? { ...sessao.item_atual, melhor_lance_fornecedor_id: null } : sessao.item_atual,
     };
     return this.sigilo.aplicarVisao(publica, licitacaoId, visao, { sessaoId: id });
   }

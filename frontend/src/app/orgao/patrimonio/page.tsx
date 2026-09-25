@@ -33,6 +33,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { toast } from "sonner"
 
 const STATUS_COLORS: Record<string, string> = {
   ATIVO: "bg-green-100 text-green-800",
@@ -90,7 +91,7 @@ export default function PatrimonioPage() {
       setResultadoImport(r)
       carregarDados()
     } catch (err: any) {
-      alert(err?.message || "Erro ao importar planilha")
+      toast.error(err?.message || "Erro ao importar planilha")
     } finally {
       setImportando(false)
     }

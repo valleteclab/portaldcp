@@ -5,8 +5,8 @@
  *
  * Pregão eletrônico, menor preço, modo ABERTO, 2 itens, 4 fornecedores (1 ME),
  * conduzido pela API de hoje do jeito que o frontend faz:
- *   - sala do pregoeiro/fornecedor: frontend/src/app/{orgao,fornecedor}/disputa-v3
- *     + frontend/src/hooks/useDisputaV3.ts (socket /disputa, board /disputa-v3,
+ *   - sala do pregoeiro/fornecedor: frontend/src/app/{orgao,fornecedor}/.../sessao
+ *     + frontend/src/hooks/useSalaDisputa.ts (socket /disputa, board /api/disputa,
  *     etapas pós-disputa em /api/sessao/...);
  *   - homologação/contrato: cockpit frontend/src/app/orgao/processos/[id].
  *
@@ -21,7 +21,7 @@
  * passos posteriores continuem medindo alguma coisa.
  *
  * ---------------------------------------------------------------------------
- * Cenário (valores de lance = TOTAL do item, como a disputa-v2 registra)
+ * Cenário (valores de lance = TOTAL do item, como a disputa registra)
  * ---------------------------------------------------------------------------
  *   Item 1: 10 un. (estimado R$ 100,00/un)   Item 2: 20 un. (estimado R$ 50,00/un)
  *
@@ -165,7 +165,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
 
   async function sessao(): Promise<any> {
     const r = await http()
-      .get(`/api/disputa-v2/sessao/${sessaoId}`)
+      .get(`/api/disputa/sessao/${sessaoId}`)
       .expect(200);
     return r.body;
   }
@@ -177,7 +177,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
 
   async function boardPregoeiro(): Promise<any> {
     const r = await http()
-      .get(`/api/disputa-v3/sessao/${sessaoId}/board`)
+      .get(`/api/disputa/sessao/${sessaoId}/board`)
       .set(bearer(pregoeiro.token))
       .expect(200);
     return r.body;
@@ -194,7 +194,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
 
   async function melhores(itemId: string): Promise<any[]> {
     const r = await http()
-      .get(`/api/disputa-v2/item/${itemId}/melhores`)
+      .get(`/api/disputa/item/${itemId}/melhores`)
       .expect(200);
     return r.body;
   }
@@ -443,19 +443,19 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       // O padrão de "intervalo mínimo entre lances do mesmo fornecedor" é 3 min;
       // o pregoeiro zera pela configuração da sala para o roteiro de lances.
       await http()
-        .put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`)
+        .put(`/api/disputa/sessao/${sessaoId}/configuracoes`)
         .set(bearer(pregoeiro.token))
         .send({ intervalo_minimo_lances_minutos: 0 })
         .expect(200);
       const cfg = await http()
-        .get(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`)
+        .get(`/api/disputa/sessao/${sessaoId}/configuracoes`)
         .expect(200);
       expect(cfg.body.tempo_inatividade_minutos).toBe(10);
       expect(cfg.body.tempo_prorrogacao_minutos).toBe(2);
       expect(cfg.body.modo_aberto).toBe(true);
 
       const contexto = await http()
-        .get(`/api/disputa-v3/sessao/${sessaoId}/contexto`)
+        .get(`/api/disputa/sessao/${sessaoId}/contexto`)
         .set(bearer(pregoeiro.token))
         .expect(200);
       expect(contexto.body.modo).toBe('ABERTO');
@@ -534,7 +534,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       async () => {
         // valor acima da proposta: se o defeito persistir, é recusado por 400 (sem efeito colateral)
         const r = await http()
-          .post(`/api/disputa-v2/sessao/${sessaoId}/lance`)
+          .post(`/api/disputa/sessao/${sessaoId}/lance`)
           .send({
             itemId: item1,
             fornecedorId: F.A.id,
@@ -556,7 +556,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect((await lance('D', 1, 920)).ok).toBe(true);
 
       const lances = await http()
-        .get(`/api/disputa-v2/item/${item1}/lances`)
+        .get(`/api/disputa/item/${item1}/lances`)
         .expect(200);
       // E2: a proposta convertida é um lance de origem PROPOSTA (uma por
       // fornecedor, sem duplicata) — antes vinha repetida como 'LANCE' + 'PROPOSTA'
@@ -607,7 +607,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
 
     test('fornecedor vê só a própria visão do board (sem pedidos de cancelamento do pregoeiro)', async () => {
       const r = await http()
-        .get(`/api/disputa-v3/sessao/${sessaoId}/board`)
+        .get(`/api/disputa/sessao/${sessaoId}/board`)
         .set(bearer(F.A.token))
         .expect(200);
       expect(r.body.visao).toBe('FORNECEDOR');
@@ -699,7 +699,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect(m2[3].melhorValor / m2[0].melhorValor).toBeGreaterThan(1.05);
     });
 
-    // CORRIGIDO NA E1 (era o defeito B7): encerrado o último item, a disputa-v2 tira a
+    // CORRIGIDO NA E1 (era o defeito B7): encerrado o último item, a disputa tira a
     // sessão da etapa de lances e pede ENCERRAR_DISPUTA à máquina de estados
     test(
       'com todos os itens encerrados, a sessão sai da etapa de lances e a licitação vai a julgamento',

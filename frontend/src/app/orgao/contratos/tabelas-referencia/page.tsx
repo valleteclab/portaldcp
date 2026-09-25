@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { ArrowLeft, Plus, Upload, FileText, Loader2, Trash2, Table2, Sparkles, Eye, Pencil, Search } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface TabelaReferencia {
   id: string
@@ -103,7 +105,7 @@ export default function TabelasReferenciaPage() {
         await carregar()
       } else {
         const e = await res.json().catch(() => ({}))
-        alert(e.message || 'Erro ao salvar o item.')
+        toast.error(e.message || 'Erro ao salvar o item.')
       }
     } finally {
       setSalvandoItem(false)
@@ -112,14 +114,14 @@ export default function TabelasReferenciaPage() {
 
   const excluirItem = async (it: ItemTabela) => {
     if (!viewTabela || !it.id) return
-    if (!confirm(`Excluir o item "${it.codigo || ''} ${it.descricao.slice(0, 60)}"?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir o item "${it.codigo || ''} ${it.descricao.slice(0, 60)}"?`, destrutivo: true }))) return
     const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/itens/${it.id}`, { method: 'DELETE' })
     if (res.ok) {
       await recarregarItens(viewTabela.id)
       await carregar()
     } else {
       const e = await res.json().catch(() => ({}))
-      alert(e.message || 'Erro ao excluir o item.')
+      toast.error(e.message || 'Erro ao excluir o item.')
     }
   }
 
@@ -140,7 +142,7 @@ export default function TabelasReferenciaPage() {
   useEffect(() => { carregar() }, [carregar])
 
   const semearSinapro = async () => {
-    if (!confirm('Importar a tabela SINAPRO-BA 2025/2026 (345 itens) para este órgão?')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Importar a tabela SINAPRO-BA 2025/2026 (345 itens) para este órgão?' }))) return
     setSeeding(true)
     setErro(null)
     try {
@@ -237,12 +239,12 @@ export default function TabelasReferenciaPage() {
   }
 
   const excluir = async (t: TabelaReferencia) => {
-    if (!confirm(`Excluir a tabela "${t.nome}"? Os itens serão removidos.`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir a tabela "${t.nome}"? Os itens serão removidos.`, destrutivo: true }))) return
     const res = await authFetch(`${API_URL}/api/contratos/tabelas-referencia/${t.id}`, { method: 'DELETE' })
     if (res.ok) await carregar()
     else {
       const e = await res.json().catch(() => ({}))
-      alert(e.message || 'Erro ao excluir.')
+      toast.error(e.message || 'Erro ao excluir.')
     }
   }
 

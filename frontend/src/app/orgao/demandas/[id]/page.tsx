@@ -25,6 +25,8 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BuscaItemCatalogoProprio } from '@/components/catalogo'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -164,7 +166,7 @@ function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) 
       setSugestoesIA(validos)
       setTermo(validos[0]) // dispara a busca automática
     } catch {
-      alert('A IA não conseguiu sugerir termos agora — tente buscar por uma palavra-chave simples (ex: "cadeira").')
+      toast('A IA não conseguiu sugerir termos agora — tente buscar por uma palavra-chave simples (ex: "cadeira").')
     } finally {
       setBuscandoIA(false)
     }
@@ -623,7 +625,7 @@ function FormAdicionarItem({
       setBuscaClasse('')
       setClasseOpen(false)
     } catch {
-      alert('Não foi possível criar a classificação agora. Tente novamente.')
+      toast.error('Não foi possível criar a classificação agora. Tente novamente.')
     } finally {
       setCriandoClasse(false)
     }
@@ -926,7 +928,7 @@ function JustificativaDemanda({
       setSalvo(false)
       await salvar(novo)
     } catch {
-      alert('Não foi possível gerar agora — tente novamente em instantes.')
+      toast.error('Não foi possível gerar agora — tente novamente em instantes.')
     } finally {
       setMelhorando(false)
     }
@@ -1166,7 +1168,7 @@ export default function DetalheDemandaPage() {
       const o = JSON.parse(localStorage.getItem('orgao') || '{}')
       aprovador = u?.nome || o?.nome || 'Aprovador'
     } catch { /* usa default */ }
-    if (!confirm(`Aprovar a demanda de ${demanda.unidade_requisitante}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Aprovar a demanda de ${demanda.unidade_requisitante}?` }))) return
     setDecidindo(true)
     try {
       const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/aprovar`, {
@@ -1180,7 +1182,7 @@ export default function DetalheDemandaPage() {
       }
       await carregarDemanda()
     } catch (e: any) {
-      alert(`Erro ao aprovar: ${e.message}`)
+      toast.error(`Erro ao aprovar: ${e.message}`)
     } finally {
       setDecidindo(false)
     }
@@ -1188,7 +1190,7 @@ export default function DetalheDemandaPage() {
 
   const rejeitarAqui = async () => {
     if (!demanda || decidindo) return
-    const motivo = prompt('Motivo da rejeição (fica registrado e visível ao requisitante):')
+    const motivo = (await pedirTextoAcao({ titulo: 'Motivo da rejeição (fica registrado e visível ao requisitante):' }))
     if (!motivo || !motivo.trim()) return
     setDecidindo(true)
     try {
@@ -1203,7 +1205,7 @@ export default function DetalheDemandaPage() {
       }
       await carregarDemanda()
     } catch (e: any) {
-      alert(`Erro ao rejeitar: ${e.message}`)
+      toast.error(`Erro ao rejeitar: ${e.message}`)
     } finally {
       setDecidindo(false)
     }
@@ -1271,7 +1273,7 @@ export default function DetalheDemandaPage() {
       }
       router.push(`/orgao/processos/${j.id}`)
     } catch (e: any) {
-      alert(`Não foi possível iniciar a contratação: ${e.message}`)
+      toast.error(`Não foi possível iniciar a contratação: ${e.message}`)
       setIniciando(false)
     }
   }
@@ -1290,7 +1292,7 @@ export default function DetalheDemandaPage() {
         setDemanda({ ...atualizada, itens: atualizada.itens ?? demanda.itens ?? [] })
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro ao salvar dados da demanda')
+        toast.error(err.message || 'Erro ao salvar dados da demanda')
       }
     } finally {
       setSalvando(false)
@@ -1362,7 +1364,7 @@ export default function DetalheDemandaPage() {
 
   // ── Remover item ───────────────────────────────────────────────────────────
   const removerItem = async (itemId: string) => {
-    if (!confirm('Remover este item da demanda?')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Remover este item da demanda?', destrutivo: true }))) return
     await authFetch(`${API_URL}/api/demandas/itens/${itemId}`, { method: 'DELETE' })
     carregarDemanda()
   }
@@ -1377,7 +1379,7 @@ export default function DetalheDemandaPage() {
         carregarDemanda()
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro ao enviar demanda')
+        toast.error(err.message || 'Erro ao enviar demanda')
       }
     } finally {
       setEnviando(false)

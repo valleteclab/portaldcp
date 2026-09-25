@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { API_URL, adminFetch, formatarDataHoraBR } from '@/lib/api'
 import Link from 'next/link'
+import { toast } from "sonner"
 
 interface SessaoAtiva {
   id: string
@@ -129,7 +130,7 @@ export default function MonitoramentoPage() {
   // Alterar anonimização
   const toggleAnonimizacao = async (ativa: boolean) => {
     if (!sessaoSelecionada || !justificativaConfig.trim()) {
-      alert('Justificativa é obrigatória para alterar anonimização')
+      toast.warning('Justificativa é obrigatória para alterar anonimização')
       return
     }
 
@@ -147,14 +148,14 @@ export default function MonitoramentoPage() {
       if (res.ok) {
         setConfigSessao(prev => prev ? { ...prev, anonimizacao_ativa: ativa } : null)
         setJustificativaConfig('')
-        alert(`Anonimização ${ativa ? 'ativada' : 'desativada'} com sucesso`)
+        toast.success(`Anonimização ${ativa ? 'ativada' : 'desativada'} com sucesso`)
       } else {
         const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        toast.error(`Erro: ${error.message}`)
       }
     } catch (error) {
       console.error('Erro ao alterar anonimização:', error)
-      alert('Erro ao alterar anonimização')
+      toast.error('Erro ao alterar anonimização')
     } finally {
       setSalvandoConfig(false)
     }
@@ -173,14 +174,14 @@ export default function MonitoramentoPage() {
 
       if (res.ok) {
         setConfigSessao(prev => prev ? { ...prev, chat_desabilitado: desabilitado } : null)
-        alert(`Chat ${desabilitado ? 'desabilitado' : 'habilitado'} com sucesso`)
+        toast.success(`Chat ${desabilitado ? 'desabilitado' : 'habilitado'} com sucesso`)
       } else {
         const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        toast.error(`Erro: ${error.message}`)
       }
     } catch (error) {
       console.error('Erro ao alterar chat:', error)
-      alert('Erro ao alterar chat')
+      toast.error('Erro ao alterar chat')
     } finally {
       setSalvandoConfig(false)
     }
@@ -223,11 +224,11 @@ export default function MonitoramentoPage() {
         buscarItensDisputa(sessaoSelecionada.id)
       } else {
         const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        toast.error(`Erro: ${error.message}`)
       }
     } catch (error) {
       console.error('Erro ao encerrar item:', error)
-      alert('Erro ao encerrar item')
+      toast.error('Erro ao encerrar item')
     } finally {
       setEncerrando(false)
     }

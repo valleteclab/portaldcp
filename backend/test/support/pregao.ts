@@ -14,7 +14,7 @@ import { conectarSocket } from './socket';
 import { OrgaoFixture } from './fixtures';
 import { pncpMock, RequisicaoCapturada } from './pncp-mock';
 import { ItemLicitacao } from '../../src/itens/entities/item-licitacao.entity';
-import { DisputaTimerService } from '../../src/disputa-v2/disputa-timer.service';
+import { DisputaTimerService } from '../../src/disputa/disputa-timer.service';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -70,7 +70,7 @@ export function pararTodosOsCrons(ctx: AppE2E): number {
 }
 
 // ---------------------------------------------------------------------------
-// Socket da sala (/disputa-v2) — mesmo protocolo do useDisputaV3.ts
+// Socket da sala (/disputa) — mesmo protocolo do useDisputaV3.ts
 // ---------------------------------------------------------------------------
 
 export interface EventoRecebido<T = any> {
@@ -127,7 +127,7 @@ export interface EntradaSala {
 }
 
 /**
- * Conecta em /disputa-v2 (token no handshake) e emite `entrar_sala` como o hook
+ * Conecta em /disputa (token no handshake) e emite `entrar_sala` como o hook
  * do frontend faz: identidade e papel vêm SÓ do token (E1a). `usuarioIdDeclarado`
  * simula um cliente que tenta se passar por outro fornecedor.
  */
@@ -196,8 +196,8 @@ export async function iniciarItensNaSala(
 /**
  * Simula a passagem do tempo de um item em disputa, reescrevendo o início da
  * disputa e o momento do último lance. Não existe rota para isso (e não deve
- * existir): cai para o repositório — o relógio da disputa-v2 lê exatamente
- * esses dois campos (fórmula única em disputa-v2/relogio-disputa.ts).
+ * existir): cai para o repositório — o relógio da disputa lê exatamente
+ * esses dois campos (fórmula única em disputa/relogio-disputa.ts).
  */
 export async function deslocarRelogioItem(
   ctx: AppE2E,

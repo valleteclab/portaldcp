@@ -311,7 +311,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       await ctx.processarFilaPncp({ licitacaoId: lic.id }); // compra + itens da publicação
       expect(compras().length).toBeGreaterThanOrEqual(1);
       const item = lic.itens[0].id;
-      exigir(await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(A.token)), 201, 'encerrar item');
+      exigir(await http().post(`/api/disputa/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(A.token)), 201, 'encerrar item');
       const c = await convocarAceitacao(ctx, p.sessaoId, item, A.token);
       exigir(c, 201, 'convocar aceitação');
       exigir(await enviarPropostaAdequada(ctx, p.sessaoId, c.body.id, ME1.token, [{ itemId: item, valorUnitario: 89 }]), 201, 'proposta adequada');

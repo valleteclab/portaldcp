@@ -131,6 +131,9 @@ interface ItemPcaForm {
 }
 
 import { API_URL, authFetch, getAuthHeaders } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
+import { rotuloFase } from '@/lib/licitacao-rotulos'
 
 function PncpPageContent() {
   const [pendentes, setPendentes] = useState<SyncRecord[]>([])
@@ -310,7 +313,7 @@ function PncpPageContent() {
   // Funções para importar PCAs do PNCP
   const buscarPCAsNoPncp = async () => {
     if (!orgaoAtual?.cnpj) {
-      alert('CNPJ do órgão não encontrado')
+      toast('CNPJ do órgão não encontrado')
       return
     }
 
@@ -324,11 +327,11 @@ function PncpPageContent() {
         setPcasNoPncp(data.pcas || [])
         setAmbienteTreinamento(data.ambienteTreinamento || false)
       } else {
-        alert(data.message || 'Erro ao buscar PCAs no PNCP')
+        toast.error(data.message || 'Erro ao buscar PCAs no PNCP')
       }
     } catch (error: any) {
       console.error('Erro ao buscar PCAs no PNCP:', error)
-      alert('Erro ao buscar PCAs no PNCP')
+      toast.error('Erro ao buscar PCAs no PNCP')
     } finally {
       setCarregandoPcasPncp(false)
     }
@@ -337,24 +340,23 @@ function PncpPageContent() {
   // Importar PCA manualmente (para ambiente de treinamento)
   const importarPcaManual = async () => {
     if (!orgaoAtual?.id || !orgaoAtual?.cnpj) {
-      alert('Dados do órgão não encontrados')
+      toast('Dados do órgão não encontrados')
       return
     }
 
     const { ano, sequencial } = formImportManual
     if (!ano || !sequencial) {
-      alert('Informe o ano e sequencial do PCA')
+      toast.warning('Informe o ano e sequencial do PCA')
       return
     }
 
     setImportandoPca(`${ano}-${sequencial}`)
     try {
-      const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
       const response = await authFetch(`${API_URL}/api/pncp/importar/pca`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // órgão e CNPJ no PNCP vêm do token (backend)
         body: JSON.stringify({
-          cnpj: cnpjLimpo,
           ano: ano,
           sequencial: sequencial
         })
@@ -363,15 +365,15 @@ function PncpPageContent() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert(`PCA ${ano}/${sequencial} importado com sucesso!\n${data.mensagem}`)
+        toast.success(`PCA ${ano}/${sequencial} importado com sucesso!\n${data.mensagem}`, { className: 'whitespace-pre-line' })
         await carregarDados()
         setModalImportarPncp(false)
       } else {
-        alert(data.message || data.mensagem || 'Erro ao importar PCA')
+        toast.error(data.message || data.mensagem || 'Erro ao importar PCA')
       }
     } catch (error: any) {
       console.error('Erro ao importar PCA:', error)
-      alert('Erro ao importar PCA do PNCP')
+      toast.error('Erro ao importar PCA do PNCP')
     } finally {
       setImportandoPca(null)
     }
@@ -379,7 +381,7 @@ function PncpPageContent() {
 
   const importarPcaDoPncp = async (pcaPncp: any) => {
     if (!orgaoAtual?.id || !orgaoAtual?.cnpj) {
-      alert('Dados do órgão não encontrados')
+      toast('Dados do órgão não encontrados')
       return
     }
 
@@ -387,12 +389,11 @@ function PncpPageContent() {
     setImportandoPca(chave)
     
     try {
-      const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
       const response = await authFetch(`${API_URL}/api/pncp/importar/pca`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // órgão e CNPJ no PNCP vêm do token (backend)
         body: JSON.stringify({
-          cnpj: cnpjLimpo,
           ano: pcaPncp.anoPca,
           sequencial: pcaPncp.sequencialPca
         })
@@ -401,18 +402,18 @@ function PncpPageContent() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert(`PCA ${pcaPncp.anoPca} importado com sucesso!\n${data.mensagem}`)
+        toast.success(`PCA ${pcaPncp.anoPca} importado com sucesso!\n${data.mensagem}`, { className: 'whitespace-pre-line' })
         await carregarDados()
         // Remover da lista de PCAs no PNCP
         setPcasNoPncp(prev => prev.filter(p => 
           !(p.anoPca === pcaPncp.anoPca && p.sequencialPca === pcaPncp.sequencialPca)
         ))
       } else {
-        alert(data.message || 'Erro ao importar PCA')
+        toast.error(data.message || 'Erro ao importar PCA')
       }
     } catch (error: any) {
       console.error('Erro ao importar PCA:', error)
-      alert('Erro ao importar PCA do PNCP')
+      toast.error('Erro ao importar PCA do PNCP')
     } finally {
       setImportandoPca(null)
     }
@@ -420,39 +421,36 @@ function PncpPageContent() {
 
   const importarTodosPcasDoPncp = async () => {
     if (!orgaoAtual?.id || !orgaoAtual?.cnpj) {
-      alert('Dados do órgão não encontrados')
+      toast('Dados do órgão não encontrados')
       return
     }
 
-    if (!confirm('Deseja importar todos os PCAs encontrados no PNCP?')) {
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Deseja importar todos os PCAs encontrados no PNCP?' }))) {
       return
     }
 
     setCarregandoPcasPncp(true)
     try {
-      const cnpjLimpo = orgaoAtual.cnpj.replace(/\D/g, '')
       const response = await authFetch(`${API_URL}/api/pncp/importar/pcas/todos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cnpj: cnpjLimpo,
-          orgaoId: orgaoAtual.id
-        })
+        // órgão e CNPJ no PNCP vêm do token (backend)
+        body: JSON.stringify({})
       })
 
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert(`Sincronização concluída!\n\nImportados: ${data.importados}\nAtualizados: ${data.atualizados}${data.erros?.length > 0 ? `\nErros: ${data.erros.length}` : ''}`)
+        toast.success(`Sincronização concluída!\n\nImportados: ${data.importados}\nAtualizados: ${data.atualizados}${data.erros?.length > 0 ? `\nErros: ${data.erros.length}` : ''}`, { className: 'whitespace-pre-line' })
         await carregarDados()
         setModalImportarPncp(false)
         setPcasNoPncp([])
       } else {
-        alert(data.message || 'Erro ao sincronizar PCAs')
+        toast.error(data.message || 'Erro ao sincronizar PCAs')
       }
     } catch (error: any) {
       console.error('Erro ao sincronizar PCAs:', error)
-      alert('Erro ao sincronizar PCAs do PNCP')
+      toast.error('Erro ao sincronizar PCAs do PNCP')
     } finally {
       setCarregandoPcasPncp(false)
     }
@@ -478,14 +476,14 @@ function PncpPageContent() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert(`PCA enviado ao PNCP com sucesso!\nNúmero de Controle: ${data.numeroControlePNCP}\nSequencial: ${data.sequencial}`)
+        toast.success(`PCA enviado ao PNCP com sucesso!\nNúmero de Controle: ${data.numeroControlePNCP}\nSequencial: ${data.sequencial}`, { className: 'whitespace-pre-line' })
         await carregarDados()
       } else {
-        alert(data.message || 'Erro ao enviar PCA para o PNCP')
+        toast.error(data.message || 'Erro ao enviar PCA para o PNCP')
       }
     } catch (error: any) {
       console.error('Erro ao enviar PCA:', error)
-      alert(error.message || 'Erro ao enviar PCA para o PNCP')
+      toast.error(error.message || 'Erro ao enviar PCA para o PNCP')
     } finally {
       setEnviando(null)
     }
@@ -512,18 +510,16 @@ function PncpPageContent() {
       
       if (!validacao.valido) {
         const mensagemErros = validacao.erros?.join('\n') || 'Licitação com dados inválidos'
-        alert(`❌ Não é possível enviar ao PNCP:\n\n${mensagemErros}`)
+        toast.error(`❌ Não é possível enviar ao PNCP:\n\n${mensagemErros}`, { className: 'whitespace-pre-line' })
         setEnviando(null)
         return
       }
 
       // Se válido, confirmar envio
-      const confirmar = confirm(
-        `✅ Licitação validada com sucesso!\n\n` +
+      const confirmar = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `✅ Licitação validada com sucesso!\n\n` +
         `Checklist:\n` +
         validacao.checklist?.map((c: any) => `${c.status === 'ok' ? '✓' : '⚠'} ${c.campo}: ${c.mensagem}`).join('\n') +
-        `\n\nDeseja enviar ao PNCP?`
-      )
+        `\n\nDeseja enviar ao PNCP?` }))
 
       if (!confirmar) {
         setEnviando(null)
@@ -554,19 +550,19 @@ function PncpPageContent() {
         await carregarDados()
         
         if (linkFinal && !linkFinal.includes('undefined')) {
-          const abrirLink = confirm(`✅ Licitação enviada ao PNCP com sucesso!\n\nNúmero Controle: ${numeroControle}\nLink: ${linkFinal}\n\nDeseja abrir no navegador?`)
+          const abrirLink = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `✅ Licitação enviada ao PNCP com sucesso!\n\nNúmero Controle: ${numeroControle}\nLink: ${linkFinal}\n\nDeseja abrir no navegador?` }))
           if (abrirLink) {
             window.open(linkFinal, '_blank')
           }
         } else {
-          alert(`✅ Licitação enviada ao PNCP com sucesso!\n\nNúmero Controle: ${numeroControle}`)
+          toast.success(`✅ Licitação enviada ao PNCP com sucesso!\n\nNúmero Controle: ${numeroControle}`, { className: 'whitespace-pre-line' })
         }
       } else {
-        alert(`❌ Erro ao enviar compra ao PNCP: ${data.message || 'Erro desconhecido'}`)
+        toast.error(`❌ Erro ao enviar compra ao PNCP: ${data.message || 'Erro desconhecido'}`)
       }
     } catch (error) {
       console.error('Erro ao enviar:', error)
-      alert('❌ Erro ao enviar para o PNCP. Verifique o console.')
+      toast.error('❌ Erro ao enviar para o PNCP. Verifique o console.')
     } finally {
       setEnviando(null)
     }
@@ -579,25 +575,25 @@ function PncpPageContent() {
       })
 
       if (response.ok) {
-        alert('Reenvio iniciado!')
+        toast('Reenvio iniciado!')
         carregarDados()
       } else {
-        alert('Erro ao reenviar')
+        toast.error('Erro ao reenviar')
       }
     } catch (error) {
-      alert('Erro ao reenviar')
+      toast.error('Erro ao reenviar')
     }
   }
 
   // ============ FUNÇÕES PNCP - RETIFICAR/EXCLUIR COMPRA ============
 
   const retificarCompra = async (licitacao: Licitacao) => {
-    const novoObjeto = prompt('Digite o novo objeto da licitação (ou cancele para manter):', licitacao.objeto)
+    const novoObjeto = (await pedirTextoAcao({ titulo: 'Digite o novo objeto da licitação (ou cancele para manter):', valorInicial: String(licitacao.objeto ?? ''), linhaUnica: true }))
     if (novoObjeto === null) return
 
-    const justificativa = prompt('Justificativa da retificação (obrigatório):')
+    const justificativa = (await pedirTextoAcao({ titulo: 'Justificativa da retificação (obrigatório):' }))
     if (!justificativa) {
-      alert('Justificativa é obrigatória para retificação')
+      toast.warning('Justificativa é obrigatória para retificação')
       return
     }
 
@@ -615,24 +611,24 @@ function PncpPageContent() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert('✅ Compra retificada no PNCP com sucesso!')
+        toast.success('✅ Compra retificada no PNCP com sucesso!')
         carregarDados()
       } else {
-        alert(`❌ Erro ao retificar: ${data.message || 'Erro desconhecido'}`)
+        toast.error(`❌ Erro ao retificar: ${data.message || 'Erro desconhecido'}`)
       }
     } catch (error) {
       console.error('Erro ao retificar:', error)
-      alert('❌ Erro ao retificar compra')
+      toast.error('❌ Erro ao retificar compra')
     }
   }
 
   const excluirCompra = async (licitacao: Licitacao) => {
-    const confirmar = confirm(`Tem certeza que deseja EXCLUIR a compra ${licitacao.numero_processo} do PNCP?\n\nEsta ação não pode ser desfeita!`)
+    const confirmar = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `Tem certeza que deseja EXCLUIR a compra ${licitacao.numero_processo} do PNCP?\n\nEsta ação não pode ser desfeita!`, destrutivo: true }))
     if (!confirmar) return
 
-    const justificativa = prompt('Justificativa da exclusão (obrigatório):')
+    const justificativa = (await pedirTextoAcao({ titulo: 'Justificativa da exclusão (obrigatório):' }))
     if (!justificativa) {
-      alert('Justificativa é obrigatória para exclusão')
+      toast.warning('Justificativa é obrigatória para exclusão')
       return
     }
 
@@ -649,14 +645,14 @@ function PncpPageContent() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert('✅ Compra excluída do PNCP com sucesso!')
+        toast.success('✅ Compra excluída do PNCP com sucesso!')
         carregarDados()
       } else {
-        alert(`❌ Erro ao excluir: ${data.message || 'Erro desconhecido'}`)
+        toast.error(`❌ Erro ao excluir: ${data.message || 'Erro desconhecido'}`)
       }
     } catch (error) {
       console.error('Erro ao excluir:', error)
-      alert('❌ Erro ao excluir compra')
+      toast.error('❌ Erro ao excluir compra')
     }
   }
 
@@ -684,12 +680,12 @@ function PncpPageContent() {
       )
       
       if (response.sucesso) {
-        alert(`✅ Resultado incluído com sucesso!\n${response.mensagem}`)
+        toast.success(`✅ Resultado incluído com sucesso!\n${response.mensagem}`, { className: 'whitespace-pre-line' })
         setModalResultado(false)
         carregarDados()
       }
     } catch (error: any) {
-      alert(`❌ Erro ao incluir resultado:\n${error.message}`)
+      toast.error(`❌ Erro ao incluir resultado:\n${error.message}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviando(null)
     }
@@ -722,12 +718,12 @@ function PncpPageContent() {
       )
       
       if (response.sucesso) {
-        alert(`✅ Ata incluída com sucesso!\n${response.mensagem}`)
+        toast.success(`✅ Ata incluída com sucesso!\n${response.mensagem}`, { className: 'whitespace-pre-line' })
         setModalAta(false)
         carregarDados()
       }
     } catch (error: any) {
-      alert(`❌ Erro ao incluir ata:\n${error.message}`)
+      toast.error(`❌ Erro ao incluir ata:\n${error.message}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviando(null)
     }
@@ -737,12 +733,12 @@ function PncpPageContent() {
   
   const incluirPcaPncp = async () => {
     if (itensPca.length === 0) {
-      alert('Adicione pelo menos um item ao PCA')
+      toast.warning('Adicione pelo menos um item ao PCA')
       return
     }
     
     if (!formPca.codigo_unidade) {
-      alert('Selecione a unidade do órgão')
+      toast.warning('Selecione a unidade do órgão')
       return
     }
     
@@ -756,13 +752,13 @@ function PncpPageContent() {
       })
       
       if (response.sucesso) {
-        alert(`✅ PCA incluído com sucesso!\n${response.mensagem}`)
+        toast.success(`✅ PCA incluído com sucesso!\n${response.mensagem}`, { className: 'whitespace-pre-line' })
         setModalPca(false)
         setItensPca([])
         carregarDados()
       }
     } catch (error: any) {
-      alert(`❌ Erro ao incluir PCA:\n${error.message}`)
+      toast.error(`❌ Erro ao incluir PCA:\n${error.message}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviando(null)
     }
@@ -770,7 +766,7 @@ function PncpPageContent() {
 
   const abrirGerenciarItensPca = async (pca: PCA) => {
     if (!pca.sequencial_pncp) {
-      alert('PCA não possui sequencial PNCP')
+      toast('PCA não possui sequencial PNCP')
       return
     }
     
@@ -783,20 +779,20 @@ function PncpPageContent() {
         setModalRetificarItem(true)
       }
     } catch (error) {
-      alert('Erro ao carregar itens do PCA')
+      toast.error('Erro ao carregar itens do PCA')
     }
   }
 
   const retificarItemPca = async (item: any) => {
     if (!pcaSelecionado?.sequencial_pncp) return
     
-    const novaDescricao = prompt('Nova descrição do item:', item.descricao_objeto)
+    const novaDescricao = (await pedirTextoAcao({ titulo: 'Nova descrição do item:', valorInicial: String(item.descricao_objeto ?? ''), linhaUnica: true }))
     if (!novaDescricao) return
     
-    const novaQuantidade = prompt('Nova quantidade:', item.quantidade_estimada?.toString())
+    const novaQuantidade = (await pedirTextoAcao({ titulo: 'Nova quantidade:', valorInicial: String(item.quantidade_estimada?.toString() ?? ''), linhaUnica: true }))
     if (!novaQuantidade) return
     
-    const novoValor = prompt('Novo valor unitário:', item.valor_unitario_estimado?.toString())
+    const novoValor = (await pedirTextoAcao({ titulo: 'Novo valor unitário:', valorInicial: String(item.valor_unitario_estimado?.toString() ?? ''), linhaUnica: true }))
     if (!novoValor) return
     
     setEnviando(item.id)
@@ -814,13 +810,13 @@ function PncpPageContent() {
       
       const data = await response.json()
       if (response.ok && data.sucesso) {
-        alert('✅ Item retificado com sucesso!')
+        toast.success('✅ Item retificado com sucesso!')
         abrirGerenciarItensPca(pcaSelecionado)
       } else {
-        alert(`❌ Erro: ${data.message || 'Erro ao retificar item'}`)
+        toast.error(`❌ Erro: ${data.message || 'Erro ao retificar item'}`)
       }
     } catch (error: any) {
-      alert(`❌ Erro ao retificar item:\n${error.message}`)
+      toast.error(`❌ Erro ao retificar item:\n${error.message}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviando(null)
     }
@@ -829,13 +825,13 @@ function PncpPageContent() {
   const excluirItemPcaPncp = async (item: any) => {
     if (!pcaSelecionado?.sequencial_pncp) return
     
-    const justificativa = prompt('Justificativa para exclusão do item:')
+    const justificativa = (await pedirTextoAcao({ titulo: 'Justificativa para exclusão do item:' }))
     if (!justificativa) {
-      alert('Justificativa é obrigatória')
+      toast.warning('Justificativa é obrigatória')
       return
     }
     
-    if (!confirm(`Excluir item ${item.numero_item}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir item ${item.numero_item}?`, destrutivo: true }))) return
     
     setEnviando(item.id)
     try {
@@ -847,13 +843,13 @@ function PncpPageContent() {
       
       const data = await response.json()
       if (response.ok && data.sucesso) {
-        alert('✅ Item excluído com sucesso!')
+        toast.success('✅ Item excluído com sucesso!')
         abrirGerenciarItensPca(pcaSelecionado)
       } else {
-        alert(`❌ Erro: ${data.message || 'Erro ao excluir item'}`)
+        toast.error(`❌ Erro: ${data.message || 'Erro ao excluir item'}`)
       }
     } catch (error: any) {
-      alert(`❌ Erro ao excluir item:\n${error.message}`)
+      toast.error(`❌ Erro ao excluir item:\n${error.message}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviando(null)
     }
@@ -861,17 +857,17 @@ function PncpPageContent() {
 
   const excluirPcaPncp = async (pca: PCA) => {
     if (!pca.sequencial_pncp) {
-      alert('PCA não possui sequencial PNCP')
+      toast('PCA não possui sequencial PNCP')
       return
     }
     
-    const justificativa = prompt('Informe a justificativa para exclusão do PCA:')
+    const justificativa = (await pedirTextoAcao({ titulo: 'Informe a justificativa para exclusão do PCA:' }))
     if (!justificativa) {
-      alert('Justificativa é obrigatória')
+      toast.warning('Justificativa é obrigatória')
       return
     }
     
-    if (!confirm(`Tem certeza que deseja excluir o PCA ${pca.ano_exercicio}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Tem certeza que deseja excluir o PCA ${pca.ano_exercicio}?`, destrutivo: true }))) return
     
     setEnviando(pca.id)
     try {
@@ -886,11 +882,11 @@ function PncpPageContent() {
         await authFetch(`${API_URL}/api/pca/${pca.id}/desmarcar-enviado-pncp`, {
           method: 'PATCH'
         })
-        alert('✅ PCA excluído do PNCP com sucesso!')
+        toast.success('✅ PCA excluído do PNCP com sucesso!')
         await carregarDados()
       }
     } catch (error: any) {
-      alert(`❌ Erro ao excluir PCA:\n${error.message}`)
+      toast.error(`❌ Erro ao excluir PCA:\n${error.message}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviando(null)
     }
@@ -898,7 +894,7 @@ function PncpPageContent() {
 
   const adicionarItemPca = () => {
     if (!formPcaItem.descricao || !formPcaItem.unidade_fornecimento || !formPcaItem.unidade_requisitante) {
-      alert('Preencha todos os campos obrigatórios do item')
+      toast.warning('Preencha todos os campos obrigatórios do item')
       return
     }
     
@@ -952,13 +948,13 @@ function PncpPageContent() {
       })
       
       if (response.sucesso) {
-        alert(`✅ Contrato incluído com sucesso!\n${response.mensagem}`)
+        toast.success(`✅ Contrato incluído com sucesso!\n${response.mensagem}`, { className: 'whitespace-pre-line' })
         setModalContrato(false)
         resetFormContrato()
         carregarDados()
       }
     } catch (error: any) {
-      alert(`❌ Erro ao incluir contrato:\n${error.message}`)
+      toast.error(`❌ Erro ao incluir contrato:\n${error.message}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviando(null)
     }
@@ -966,17 +962,17 @@ function PncpPageContent() {
 
   const excluirContratoPncp = async (contrato: ContratoPNCP) => {
     if (!contrato.sequencial_pncp) {
-      alert('Contrato não possui sequencial PNCP')
+      toast('Contrato não possui sequencial PNCP')
       return
     }
     
-    const justificativa = prompt('Informe a justificativa para exclusão do contrato:')
+    const justificativa = (await pedirTextoAcao({ titulo: 'Informe a justificativa para exclusão do contrato:' }))
     if (!justificativa) {
-      alert('Justificativa é obrigatória')
+      toast.warning('Justificativa é obrigatória')
       return
     }
     
-    if (!confirm(`Tem certeza que deseja excluir o contrato ${contrato.numero_contrato}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Tem certeza que deseja excluir o contrato ${contrato.numero_contrato}?`, destrutivo: true }))) return
     
     setEnviando(contrato.id)
     try {
@@ -987,11 +983,11 @@ function PncpPageContent() {
       )
       
       if (response.sucesso) {
-        alert('✅ Contrato excluído com sucesso!')
+        toast.success('✅ Contrato excluído com sucesso!')
         carregarDados()
       }
     } catch (error: any) {
-      alert(`❌ Erro ao excluir contrato:\n${error.message}`)
+      toast.error(`❌ Erro ao excluir contrato:\n${error.message}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviando(null)
     }
@@ -1439,7 +1435,7 @@ function PncpPageContent() {
                         <div className="flex items-center gap-2">
                           <FileText className="w-4 h-4 text-muted-foreground" />
                           <span className="font-medium">{licitacao.numero_processo}</span>
-                          <Badge variant="outline">{licitacao.fase}</Badge>
+                          <Badge variant="outline">{rotuloFase(licitacao.fase)}</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
                           {licitacao.objeto}
@@ -1702,10 +1698,10 @@ function PncpPageContent() {
                                       formResultado as Resultado
                                     )
                                     if (response.sucesso) {
-                                      alert(`✅ Resultado incluído!\n${response.mensagem}`)
+                                      toast.success(`✅ Resultado incluído!\n${response.mensagem}`, { className: 'whitespace-pre-line' })
                                     }
                                   } catch (error: any) {
-                                    alert(`❌ Erro: ${error.message}`)
+                                    toast.error(`❌ Erro: ${error.message}`)
                                   } finally {
                                     setEnviando(null)
                                   }
@@ -1875,10 +1871,10 @@ function PncpPageContent() {
                                     
                                     const response = await pncpService.incluirAta(ano, seq, ataData)
                                     if (response.sucesso) {
-                                      alert(`✅ Ata criada!\n${response.mensagem}`)
+                                      toast.success(`✅ Ata criada!\n${response.mensagem}`, { className: 'whitespace-pre-line' })
                                     }
                                   } catch (error: any) {
-                                    alert(`❌ Erro: ${error.message}`)
+                                    toast.error(`❌ Erro: ${error.message}`)
                                   } finally {
                                     setEnviando(null)
                                   }

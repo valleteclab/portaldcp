@@ -140,7 +140,7 @@ export default function SessaoDoProcessoPage({ params }: { params: Promise<{ id:
                   </SelectContent>
                 </Select>
               )}
-              <Link href={`/orgao/licitacoes/${licitacaoId}/ata`}>
+              <Link href={`/orgao/processos/${licitacaoId}/ata`}>
                 <Button variant="outline">
                   <FileText className="mr-2 h-4 w-4" />
                   Ata da sessão

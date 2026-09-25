@@ -205,6 +205,7 @@ export class LoteLicitacao {
    * de pequeno porte nos itens de contratação cujo valor seja de até 
    * R$ 80.000,00 (oitenta mil reais)"
    */
+  /** @deprecated E3/E9 — DERIVADO de `tipo_beneficio_mpe` (fonte); só para as telas antigas. */
   @Column({ type: 'boolean', default: false })
   exclusivo_mpe: boolean;
 
@@ -241,7 +242,7 @@ export class LoteLicitacao {
   // Mesmos nomes/semântica das colunas de disputa de `itens_licitacao`: o lote
   // é a UNIDADE DE DISPUTA (relógio, status, melhor lance). Os itens do lote
   // espelham o status (para as leituras por item: fim da etapa de lances,
-  // sigilo, homologação). Ver disputa-v2/disputa-lote.service.ts.
+  // sigilo, homologação). Ver disputa/disputa-lote.service.ts.
   // ==========================================================================
 
   @Column({ type: 'varchar', length: 20, nullable: true })

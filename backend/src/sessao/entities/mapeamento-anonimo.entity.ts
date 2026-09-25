@@ -17,7 +17,7 @@ import { SessaoDisputa } from './sessao-disputa.entity';
  */
 @Entity('mapeamento_anonimo')
 @Unique(['sessao_id', 'fornecedor_id'])
-// UNIQUE (sessao_id, indice) — ver disputa-v2/migracao-lances.ts
+// UNIQUE (sessao_id, indice) — ver disputa/migracao-lances.ts
 @Index('UQ_mapeamento_anonimo_sessao_indice', { synchronize: false })
 export class MapeamentoAnonimo {
   @PrimaryGeneratedColumn('uuid')

@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { garantirIndicesDisputaLote } from '../disputa-v2/migracao-lote';
+import { garantirIndicesDisputaLote } from '../disputa/migracao-lote';
 
 /**
  * E2 item 5 — Disputa por LOTE no motor único (`disputa-v2/disputa-lote.service.ts`):

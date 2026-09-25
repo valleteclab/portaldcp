@@ -13,6 +13,7 @@ const QrScannerModal = dynamic(
   { ssr: false, loading: () => <div className="flex items-center justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-orange-400" /></div> },
 )
 import { QrScannerErrorBoundary } from '../QrScannerErrorBoundary'
+import { toast } from "sonner"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -246,7 +247,7 @@ export default function PostoPage() {
       if (res.status === 401) { clearToken(); return }
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
-        alert(e.message || 'Erro ao confirmar')
+        toast.error(e.message || 'Erro ao confirmar')
         return
       }
       setModalConfirmar(false)

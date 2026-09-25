@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { API_URL, authFetch, formatarDataBR } from "@/lib/api";
 import { FormalizacaoResultadoConfig } from "@/components/resultado/FormalizacaoResultadoConfig";
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Parametros {
   tempo_inatividade_minutos: number;
@@ -160,7 +161,7 @@ export default function ParametrosLicitacaoPage() {
   const restaurarPadrao = async () => {
     const orgaoId = getOrgaoId();
     if (!orgaoId) return;
-    if (!confirm("Restaurar os parâmetros para o padrão do sistema? Suas personalizações serão perdidas.")) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Restaurar os parâmetros para o padrão do sistema? Suas personalizações serão perdidas." }))) return;
     const res = await authFetch(`${API_URL}/api/parametros-licitacao/${orgaoId}`, {
       method: "DELETE",
     });
@@ -191,7 +192,7 @@ export default function ParametrosLicitacaoPage() {
   };
 
   const removerLimite = async (id?: string) => {
-    if (!id || !confirm("Remover este limite?")) return;
+    if (!id || !(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Remover este limite?", destrutivo: true }))) return;
     const res = await authFetch(`${API_URL}/api/parametros-licitacao/limites/${id}`, {
       method: "DELETE",
     });

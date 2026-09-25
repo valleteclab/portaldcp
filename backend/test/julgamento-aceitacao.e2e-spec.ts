@@ -68,7 +68,7 @@ describe('E3 — julgamento: ranking único e aceitação da proposta', () => {
   });
 
   const encerrar = async (orgao: OrgaoFixture, sessaoId: string, unidadeId: string) => {
-    const r = await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${unidadeId}`).set(bearer(orgao.token));
+    const r = await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${unidadeId}`).set(bearer(orgao.token));
     expect(r.status).toBe(201);
     return r.body;
   };
@@ -112,14 +112,14 @@ describe('E3 — julgamento: ranking único e aceitação da proposta', () => {
       sessaoId = p.sessaoId;
       [item1, item2] = p.lic.itens.map((i) => i.id);
       // Lance: F3 (pior PROPOSTA no item 1) vira o 1º pelos LANCES
-      const l = await http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`).set(bearer(F3.token)).send({ itemId: item1, valor: 945 });
+      const l = await http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(F3.token)).send({ itemId: item1, valor: 945 });
       expect(l.status).toBe(201);
       await encerrar(orgao, sessaoId, item1);
       await encerrar(orgao, sessaoId, item2);
     });
 
     test('fim dos lances: sala na aceitação e licitantes da unidade pelo ranking de LANCES', async () => {
-      const s = (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body;
+      const s = (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body;
       expect(s.etapa).toBe(EtapaSessao.ACEITACAO_PROPOSTA);
       const l = await buscarLicitacao(ctx, { id: licId, orgao } as any);
       expect(l.fase).toBe(FaseLicitacao.JULGAMENTO);
@@ -358,9 +358,9 @@ describe('E3 — julgamento: ranking único e aceitação da proposta', () => {
       const sessaoId = s.body.id;
       expect((await http().put(`/api/sessao/${sessaoId}/iniciar`).set(bearer(orgao.token))).status).toBe(200);
       expect(
-        (await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [lote.body.id] })).status,
+        (await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [lote.body.id] })).status,
       ).toBe(201);
-      const lance = await http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`).set(bearer(F1.token)).send({ loteId: lote.body.id, valor: 4000 });
+      const lance = await http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(F1.token)).send({ loteId: lote.body.id, valor: 4000 });
       expect(lance.status).toBe(201);
       await encerrar(orgao, sessaoId, lote.body.id);
 

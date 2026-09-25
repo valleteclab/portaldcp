@@ -371,7 +371,7 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                     <Label className="text-base font-medium text-orange-800">Benefício para toda a Licitação</Label>
                     
                     <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200 cursor-pointer hover:bg-orange-50"
-                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'NENHUM', exclusivo_mpe: false, cota_reservada: false })}
+                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'NENHUM' })}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-4 h-4 rounded-full border-2 ${dados.tipo_beneficio_mpe === 'NENHUM' ? 'border-orange-500 bg-orange-500' : 'border-gray-300'}`} />
@@ -384,7 +384,7 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                     </div>
 
                     <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200 cursor-pointer hover:bg-orange-50"
-                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'EXCLUSIVO', exclusivo_mpe: true, cota_reservada: false })}
+                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'EXCLUSIVO' })}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-4 h-4 rounded-full border-2 ${dados.tipo_beneficio_mpe === 'EXCLUSIVO' ? 'border-orange-500 bg-orange-500' : 'border-gray-300'}`} />
@@ -397,7 +397,7 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                     </div>
 
                     <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200 cursor-pointer hover:bg-orange-50"
-                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'COTA_RESERVADA', exclusivo_mpe: false, cota_reservada: true })}
+                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'COTA_RESERVADA', percentual_cota_reservada: dados.percentual_cota_reservada || 25 })}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-4 h-4 rounded-full border-2 ${dados.tipo_beneficio_mpe === 'COTA_RESERVADA' ? 'border-orange-500 bg-orange-500' : 'border-gray-300'}`} />

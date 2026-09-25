@@ -70,6 +70,8 @@ import { ImportarCSVInteligente } from '@/components/catalogo/ImportarCSVIntelig
 import { ImportarXLSXParaPCA } from '@/components/catalogo/ImportarXLSXParaPCA'
 import { BuscaClassificacao, BuscaItemCatalogoProprio } from '@/components/catalogo/BuscaCatalogoProprio'
 import { baixarXlsxPca } from '@/lib/pca-export'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface ItemCatalogo {
   id: string
@@ -349,7 +351,7 @@ function PcaPageContent() {
 
       if (response.ok) {
         const novoPca = await response.json()
-        alert('PCA criado com sucesso!')
+        toast.success('PCA criado com sucesso!')
         setShowNovoPCA(false)
         await carregarPCAs()
         // Abrir o novo PCA
@@ -357,11 +359,11 @@ function PcaPageContent() {
         setVisualizacao('detalhes')
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao criar PCA')
+        toast.error(error.message || 'Erro ao criar PCA')
       }
     } catch (error) {
       console.error('Erro ao criar PCA:', error)
-      alert('Erro ao criar PCA')
+      toast.error('Erro ao criar PCA')
     }
   }
 
@@ -427,18 +429,18 @@ function PcaPageContent() {
 
       if (response.ok) {
         const novoPca = await response.json()
-        alert('PCA criado com sucesso!')
+        toast.success('PCA criado com sucesso!')
         setShowNovoPCA(false)
         await carregarPCAs()
         setPcaAtual(novoPca)
         setVisualizacao('detalhes')
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao criar PCA')
+        toast.error(error.message || 'Erro ao criar PCA')
       }
     } catch (error) {
       console.error('Erro ao criar PCA:', error)
-      alert('Erro ao criar PCA')
+      toast.error('Erro ao criar PCA')
     }
   }
 
@@ -451,17 +453,17 @@ function PcaPageContent() {
       })
 
       if (response.ok) {
-        alert('PCA excluído com sucesso!')
+        toast.success('PCA excluído com sucesso!')
         setShowConfirmarExclusaoPCA(false)
         setPcaParaExcluir(null)
         carregarPCAs()
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao excluir PCA')
+        toast.error(error.message || 'Erro ao excluir PCA')
       }
     } catch (error) {
       console.error('Erro ao excluir PCA:', error)
-      alert('Erro ao excluir PCA')
+      toast.error('Erro ao excluir PCA')
     }
   }
 
@@ -520,7 +522,7 @@ function PcaPageContent() {
       })
 
       if (response.ok) {
-        alert('Item adicionado com sucesso!')
+        toast.success('Item adicionado com sucesso!')
         setShowNovoItem(false)
         setItemCatalogoSelecionado(null)
         setNovoItem({
@@ -546,7 +548,7 @@ function PcaPageContent() {
       }
     } catch (error) {
       console.error('Erro ao adicionar item:', error)
-      alert('Erro ao adicionar item')
+      toast.error('Erro ao adicionar item')
     }
   }
 
@@ -609,16 +611,16 @@ function PcaPageContent() {
       })
 
       if (response.ok) {
-        alert('Item atualizado com sucesso!')
+        toast.success('Item atualizado com sucesso!')
         setShowEditarItem(false)
         setItemSelecionado(null)
         carregarPCAs()
       } else {
-        alert('Erro ao atualizar item')
+        toast.error('Erro ao atualizar item')
       }
     } catch (error) {
       console.error('Erro ao atualizar item:', error)
-      alert('Erro ao atualizar item')
+      toast.error('Erro ao atualizar item')
     }
   }
 
@@ -631,16 +633,16 @@ function PcaPageContent() {
       })
 
       if (response.ok) {
-        alert('Item excluído com sucesso!')
+        toast.success('Item excluído com sucesso!')
         setShowConfirmarExclusao(false)
         setItemSelecionado(null)
         carregarPCAs()
       } else {
-        alert('Erro ao excluir item')
+        toast.error('Erro ao excluir item')
       }
     } catch (error) {
       console.error('Erro ao excluir item:', error)
-      alert('Erro ao excluir item')
+      toast.error('Erro ao excluir item')
     }
   }
 
@@ -652,7 +654,7 @@ function PcaPageContent() {
     try {
       const orgaoData = localStorage.getItem('orgao')
       if (!orgaoData) {
-        alert('Não foi possível identificar o órgão para buscar demandas.')
+        toast.error('Não foi possível identificar o órgão para buscar demandas.')
         return
       }
       const orgao = JSON.parse(orgaoData)
@@ -660,7 +662,7 @@ function PcaPageContent() {
       const response = await authFetch(`${API_URL}/api/demandas/para-consolidar?orgaoId=${orgao.id}&ano=${pcaAtual.ano_exercicio}`)
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
-        alert(error.message || 'Erro ao carregar demandas para consolidar')
+        toast.error(error.message || 'Erro ao carregar demandas para consolidar')
         return
       }
 
@@ -670,7 +672,7 @@ function PcaPageContent() {
       setShowConsolidarDemandas(true)
     } catch (error) {
       console.error('Erro ao carregar demandas:', error)
-      alert('Erro ao carregar demandas para consolidar')
+      toast.error('Erro ao carregar demandas para consolidar')
     }
   }
 
@@ -687,16 +689,16 @@ function PcaPageContent() {
 
       if (response.ok) {
         const result = await response.json()
-        alert(`Consolidação concluída!\n${result.demandasConsolidadas} demanda(s) consolidada(s)\n${result.itensAdicionados} item(ns) adicionado(s) ao PCA`)
+        toast.success(`Consolidação concluída!\n${result.demandasConsolidadas} demanda(s) consolidada(s)\n${result.itensAdicionados} item(ns) adicionado(s) ao PCA`, { className: 'whitespace-pre-line' })
         setShowConsolidarDemandas(false)
         carregarPCAs()
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao consolidar demandas')
+        toast.error(error.message || 'Erro ao consolidar demandas')
       }
     } catch (error) {
       console.error('Erro ao consolidar demandas:', error)
-      alert('Erro ao consolidar demandas')
+      toast.error('Erro ao consolidar demandas')
     } finally {
       setConsolidando(false)
     }
@@ -747,7 +749,7 @@ function PcaPageContent() {
       })
 
       if (response.ok) {
-        alert('PCA aprovado com sucesso!')
+        toast.success('PCA aprovado com sucesso!')
         carregarPCAs()
       }
     } catch (error) {
@@ -764,7 +766,7 @@ function PcaPageContent() {
       })
 
       if (response.ok) {
-        alert('PCA publicado com sucesso!')
+        toast.success('PCA publicado com sucesso!')
         carregarPCAs()
       }
     } catch (error) {
@@ -777,7 +779,7 @@ function PcaPageContent() {
   const enviarPNCP = async () => {
     if (!pcaAtual) return
     
-    if (!confirm(`Deseja enviar o PCA ${pcaAtual.ano_exercicio} para o PNCP?\n\nEsta ação não pode ser desfeita.`)) {
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Deseja enviar o PCA ${pcaAtual.ano_exercicio} para o PNCP?\n\nEsta ação não pode ser desfeita.` }))) {
       return
     }
 
@@ -793,14 +795,14 @@ function PcaPageContent() {
       const data = await response.json()
 
       if (response.ok && data.sucesso) {
-        alert(`PCA enviado ao PNCP com sucesso!\n\nNúmero de Controle: ${data.numeroControlePNCP}\nSequencial: ${data.sequencial}`)
+        toast.success(`PCA enviado ao PNCP com sucesso!\n\nNúmero de Controle: ${data.numeroControlePNCP}\nSequencial: ${data.sequencial}`, { className: 'whitespace-pre-line' })
         await carregarPCAs()
       } else {
-        alert(`Erro ao enviar PCA ao PNCP:\n${data.message || 'Erro desconhecido'}`)
+        toast.error(`Erro ao enviar PCA ao PNCP:\n${data.message || 'Erro desconhecido'}`, { className: 'whitespace-pre-line' })
       }
     } catch (error: any) {
       console.error('Erro ao enviar PCA ao PNCP:', error)
-      alert(`Erro ao enviar PCA ao PNCP:\n${error.message || 'Erro de conexão'}`)
+      toast.error(`Erro ao enviar PCA ao PNCP:\n${error.message || 'Erro de conexão'}`, { className: 'whitespace-pre-line' })
     } finally {
       setEnviandoPNCP(false)
     }
@@ -812,7 +814,7 @@ function PcaPageContent() {
     if (!pcaAtual) return
     
     const proximoAno = pcaAtual.ano_exercicio + 1
-    const confirmar = confirm(`Deseja duplicar o PCA ${pcaAtual.ano_exercicio} para ${proximoAno}?\n\nTodos os itens serão copiados para o novo PCA.`)
+    const confirmar = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `Deseja duplicar o PCA ${pcaAtual.ano_exercicio} para ${proximoAno}?\n\nTodos os itens serão copiados para o novo PCA.` }))
     if (!confirmar) return
 
     setDuplicando(true)
@@ -824,17 +826,17 @@ function PcaPageContent() {
 
       if (response.ok) {
         const novoPca = await response.json()
-        alert(`✅ PCA duplicado com sucesso!\n\nNovo PCA criado para ${proximoAno} com ${novoPca.itens?.length || 0} itens.`)
+        toast.success(`✅ PCA duplicado com sucesso!\n\nNovo PCA criado para ${proximoAno} com ${novoPca.itens?.length || 0} itens.`, { className: 'whitespace-pre-line' })
         await carregarPCAs()
         // Mudar para o novo ano
         setAnoSelecionado(proximoAno)
       } else {
         const erro = await response.json().catch(() => ({ message: 'Erro desconhecido' }))
-        alert(`❌ Erro ao duplicar PCA:\n\n${erro.message || 'Erro desconhecido'}`)
+        toast.error(`❌ Erro ao duplicar PCA:\n\n${erro.message || 'Erro desconhecido'}`, { className: 'whitespace-pre-line' })
       }
     } catch (error) {
       console.error('Erro ao duplicar PCA:', error)
-      alert('❌ Erro de conexão ao duplicar PCA. Tente novamente.')
+      toast.error('❌ Erro de conexão ao duplicar PCA. Tente novamente.')
     } finally {
       setDuplicando(false)
     }
@@ -849,7 +851,7 @@ function PcaPageContent() {
 
   const exportarParaPNCP = () => {
     if (!pcaAtual || !pcaAtual.itens || pcaAtual.itens.length === 0) {
-      alert('Não há itens para exportar')
+      toast('Não há itens para exportar')
       return
     }
 

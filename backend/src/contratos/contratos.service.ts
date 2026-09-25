@@ -33,6 +33,7 @@ import {
   calcularPrecoAditivado,
   calcularQuantidadeAditivada,
 } from './ajuste-itens.utils';
+import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
 
 type AjusteItensAditivo = {
   modo: 'PENDENTE' | 'SEM_ALTERACAO' | 'TODOS' | 'SELECIONADOS';
@@ -2359,6 +2360,8 @@ export class ContratosService implements OnModuleInit {
     const licitacao = contrato.licitacao_id
       ? await this.licitacaoRepository.findOneBy({ id: contrato.licitacao_id })
       : null;
+    // Nº de controle da compra no PNCP: estado da fila (E9)
+    if (licitacao) await aplicarEstadoCompraPncp(this.licitacaoRepository.manager, [licitacao]);
     const fornecedor = (contrato as any).fornecedor_id
       ? await this.fornecedorRepository.findOneBy({ id: (contrato as any).fornecedor_id })
       : null;

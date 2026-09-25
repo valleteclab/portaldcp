@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation"
 
 import { API_URL, authFetch } from '@/lib/api'
 import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
+import { FASES_INTERNAS, rotuloFase, rotuloModalidade } from '@/lib/licitacao-rotulos'
 
 interface Licitacao {
   id: string
@@ -33,37 +34,11 @@ interface Licitacao {
   numero_controle_pncp?: string
 }
 
-const FASES_INTERNAS = ['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA']
 const FASES_PROPOSTAS = ['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS']
 const FASES_DISPUTA = ['EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO']
 const FASES_CONCLUIDAS = ['ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO']
 
-const getFaseLabel = (fase: string) => {
-  const labels: Record<string, string> = {
-    'PLANEJAMENTO': 'Planejamento',
-    'TERMO_REFERENCIA': 'Termo de Referência',
-    'PESQUISA_PRECOS': 'Pesquisa de Preços',
-    'ANALISE_JURIDICA': 'Análise Jurídica',
-    'APROVACAO_INTERNA': 'Aprovação Interna',
-    'PUBLICADO': 'Publicado',
-    'IMPUGNACAO': 'Impugnação',
-    'ACOLHIMENTO_PROPOSTAS': 'Recebendo Propostas',
-    'ANALISE_PROPOSTAS': 'Análise de Propostas',
-    'EM_DISPUTA': 'Em Disputa',
-    'JULGAMENTO': 'Julgamento',
-    'HABILITACAO': 'Habilitação',
-    'RECURSO': 'Recurso',
-    'ADJUDICACAO': 'Adjudicação',
-    'HOMOLOGACAO': 'Homologação',
-    'CONCLUIDO': 'Concluído',
-    'FRACASSADO': 'Fracassado',
-    'DESERTO': 'Deserto',
-    'REVOGADO': 'Revogado',
-    'ANULADO': 'Anulado',
-    'SUSPENSO': 'Suspenso',
-  }
-  return labels[fase] || fase
-}
+const getFaseLabel = (fase: string) => rotuloFase(fase)
 
 const getFaseBadgeColor = (fase: string) => {
   if (FASES_INTERNAS.includes(fase)) return 'bg-purple-100 text-purple-700'
@@ -73,19 +48,7 @@ const getFaseBadgeColor = (fase: string) => {
   return 'bg-slate-100 text-slate-700'
 }
 
-const getModalidadeLabel = (modalidade: string) => {
-  const labels: Record<string, string> = {
-    'PREGAO_ELETRONICO': 'Pregão Eletrônico',
-    'CONCORRENCIA': 'Concorrência',
-    'DISPENSA_ELETRONICA': 'Dispensa Eletrônica',
-    'CONCURSO': 'Concurso',
-    'LEILAO': 'Leilão',
-    'DIALOGO_COMPETITIVO': 'Diálogo Competitivo',
-    'INEXIGIBILIDADE': 'Inexigibilidade',
-    'CREDENCIAMENTO': 'Credenciamento',
-  }
-  return labels[modalidade] || modalidade
-}
+const getModalidadeLabel = (modalidade: string) => rotuloModalidade(modalidade)
 
 const formatarData = (dataISO: string) => {
   if (!dataISO) return '-'

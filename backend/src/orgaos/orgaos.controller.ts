@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, UnauthorizedException, Req, Logger, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, UnauthorizedException, Req, Logger, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import * as path from 'path';
@@ -11,12 +11,14 @@ import { ImapService } from '../imap/imap.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CreateOrgaoDto } from './dto/create-orgao.dto';
 import { Orgao } from './entities/orgao.entity';
-import { Usuario } from '../usuarios/entities/usuario.entity';
+import { Usuario, RoleUsuario } from '../usuarios/entities/usuario.entity';
 import { ModuloSistema } from './enums/modulos.enum';
 import { createHash } from 'crypto';
 import { AuthService } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
 import { JwtPayload, UserType } from '../auth/auth.service';
+import { AdminGuard } from '../auth/admin.guard';
+import { orgaoSemSegredos } from './orgao-sem-segredos';
 
 @Controller('orgaos')
 export class OrgaosController {
@@ -32,15 +34,45 @@ export class OrgaosController {
     private readonly usuarioRepository: Repository<Usuario>,
   ) {}
 
+  /**
+   * Membro do órgão (login do próprio órgão ou usuário vinculado a ele) ou o
+   * admin da plataforma. Fornecedor nunca passa (o token dele não tem órgão).
+   */
   private podeAcessarOrgao(user: JwtPayload, orgaoId: string): boolean {
+    if (!user) return false;
     if (user.type === UserType.ADMIN) return true;
-    const userOrgaoId = user.orgaoId || (user as any).orgao_id || (user.type === UserType.ORGAO ? user.sub : null);
-    return userOrgaoId === orgaoId;
+    if (user.type === UserType.ORGAO) return user.sub === orgaoId;
+    if (user.type === UserType.USUARIO) return (user.orgaoId || (user as any).orgao_id) === orgaoId;
+    return false;
   }
 
+  private exigirMembro(user: JwtPayload, orgaoId: string): void {
+    if (!this.podeAcessarOrgao(user, orgaoId)) {
+      throw new ForbiddenException('Sem permissão para acessar este órgão');
+    }
+  }
+
+  /**
+   * Gestão das credenciais (e-mail/WhatsApp) e dos envios de teste: o login do
+   * próprio órgão, um usuário do órgão com papel ADMIN (do órgão) ou o admin da
+   * plataforma. Pregoeiro/apoio só LEEM a configuração (já mascarada).
+   */
+  private exigirGestorDoOrgao(user: JwtPayload, orgaoId: string): void {
+    if (user?.type === UserType.ADMIN) return;
+    if (user?.type === UserType.ORGAO && user.sub === orgaoId) return;
+    if (
+      user?.type === UserType.USUARIO &&
+      (user.orgaoId || (user as any).orgao_id) === orgaoId &&
+      user.role === RoleUsuario.ADMIN
+    ) return;
+    throw new ForbiddenException('Somente o próprio órgão (administrador) pode alterar ou testar esta configuração');
+  }
+
+  /** Cadastro de órgão pela administração da plataforma (o autocadastro é `registro`). */
   @Post()
+  @UseGuards(AdminGuard)
   async create(@Body(new ValidationPipe({ transform: true, whitelist: true })) createOrgaoDto: CreateOrgaoDto): Promise<Orgao> {
-    return await this.orgaosService.create(createOrgaoDto);
+    return orgaoSemSegredos(await this.orgaosService.create(createOrgaoDto));
   }
 
   @Public()
@@ -56,13 +88,18 @@ export class OrgaosController {
     
     return {
       success: true,
-      orgao: result.orgao,
+      orgao: orgaoSemSegredos(result.orgao),
       token: result.token,
     };
   }
 
-  @Public()
+  /**
+   * Cadastro rápido de órgão com login (tela Admin > PNCP). NÃO é autocadastro:
+   * só o admin da plataforma. O pedido público de acesso de um órgão é
+   * `POST /api/solicitacoes-acesso` (fica PENDENTE até o admin aprovar).
+   */
   @Post('registro')
+  @UseGuards(AdminGuard)
   async registro(@Body() body: { email: string; senha: string; nome: string; cnpj: string; codigo: string }) {
     const { email, senha, nome, cnpj, codigo } = body;
     
@@ -91,16 +128,18 @@ export class OrgaosController {
       responsavel_cpf: '000.000.000-00',
     } as any);
 
-    const { senha_hash: _, ...orgaoSemSenha } = orgao;
-    
     return {
       success: true,
-      orgao: orgaoSemSenha,
+      orgao: orgaoSemSegredos(orgao),
     };
   }
 
-  @Public()
+  /**
+   * Redefine e-mail/senha de login do órgão pelo CNPJ — só o admin da
+   * plataforma (era público: quem soubesse o CNPJ tomava a conta do órgão).
+   */
   @Post('reset-credenciais')
+  @UseGuards(AdminGuard)
   async resetCredenciais(@Body() body: { cnpj: string; email: string; senha: string }) {
     const { cnpj, email, senha } = body;
 
@@ -125,12 +164,14 @@ export class OrgaosController {
       .map((o: any) => ({ id: o.id, nome: o.nome, cnpj: o.cnpj }));
   }
 
+  /** Lista completa (telas do admin da plataforma). Para o público há `GET /orgaos/publico`. */
   @Get()
+  @UseGuards(AdminGuard)
   async findAll(): Promise<any[]> {
     const orgaos = await this.orgaosService.findAll();
     // Mapeia modulos_habilitados para modulos_ativos para compatibilidade com frontend
     return orgaos.map(orgao => {
-      const { senha_hash, ...orgaoSemSenha } = orgao;
+      const orgaoSemSenha = orgaoSemSegredos(orgao);
       const modulos = orgao.modulos_habilitados || [];
       return {
         ...orgaoSemSenha,
@@ -207,8 +248,8 @@ export class OrgaosController {
     
     this.logger.log(`[GET /me] Módulos efetivos para ${user.type} ${user.sub}: ${JSON.stringify(modulosEfetivos)}`);
     
-    // Remove senha do retorno
-    const { senha_hash, ...orgaoSemSenha } = orgao;
+    // Remove senha e credenciais do retorno
+    const orgaoSemSenha = orgaoSemSegredos(orgao);
     
     return {
       ...orgaoSemSenha,
@@ -221,13 +262,19 @@ export class OrgaosController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string): Promise<Orgao> {
-    return await this.orgaosService.findOne(id);
+  async findOne(@Param('id') id: string, @Req() req: { user: JwtPayload }): Promise<Orgao> {
+    this.exigirMembro(req.user, id);
+    return orgaoSemSegredos(await this.orgaosService.findOne(id));
   }
 
+  /** Por código: só o próprio órgão (ou o admin); de outro órgão → 404 (não revela que existe). */
   @Get('codigo/:codigo')
-  async findByCodigo(@Param('codigo') codigo: string): Promise<Orgao> {
-    return await this.orgaosService.findByCodigo(codigo);
+  async findByCodigo(@Param('codigo') codigo: string, @Req() req: { user: JwtPayload }): Promise<Orgao> {
+    const orgao = await this.orgaosService.findByCodigo(codigo);
+    if (!this.podeAcessarOrgao(req.user, orgao.id)) {
+      throw new NotFoundException(`Órgão com código ${codigo} não encontrado`);
+    }
+    return orgaoSemSegredos(orgao);
   }
 
   @Post(':id/logo')
@@ -265,25 +312,41 @@ export class OrgaosController {
     @UploadedFile() file: Express.Multer.File,
   ): Promise<Orgao> {
     if (!this.podeAcessarOrgao(req.user, id)) {
-      throw new UnauthorizedException('Sem permissão para alterar este órgão');
+      throw new ForbiddenException('Sem permissão para alterar este órgão');
     }
     if (!file) {
       throw new BadRequestException('Arquivo de logo é obrigatório');
     }
-    return await this.orgaosService.uploadLogo(id, file);
+    return orgaoSemSegredos(await this.orgaosService.uploadLogo(id, file));
   }
 
+  /**
+   * Dados do órgão: o próprio órgão (ou o admin da plataforma). Vínculo com o
+   * PNCP (CNPJ/unidade usados nas APIs do PNCP) e ativação ficam só com o
+   * admin — o CNPJ do PNCP é a fronteira de isolamento das rotas `/api/pncp`.
+   */
   @Put(':id')
   async update(
     @Param('id') id: string,
-    @Body(new ValidationPipe({ skipMissingProperties: true })) updateData: Partial<CreateOrgaoDto>
+    @Body(new ValidationPipe({ skipMissingProperties: true })) updateData: Partial<CreateOrgaoDto>,
+    @Req() req: { user: JwtPayload },
   ): Promise<Orgao> {
-    return await this.orgaosService.update(id, updateData);
+    if (!this.podeAcessarOrgao(req.user, id)) {
+      throw new ForbiddenException('Sem permissão para alterar este órgão');
+    }
+    if (req.user.type !== UserType.ADMIN) {
+      delete updateData.pncp_vinculado;
+      delete updateData.pncp_codigo_unidade;
+      delete updateData.pncp_cnpj_orgao;
+      delete updateData.ativo;
+    }
+    return orgaoSemSegredos(await this.orgaosService.update(id, updateData));
   }
 
   @Delete(':id')
+  @UseGuards(AdminGuard)
   async deactivate(@Param('id') id: string): Promise<Orgao> {
-    return await this.orgaosService.deactivate(id);
+    return orgaoSemSegredos(await this.orgaosService.deactivate(id));
   }
 
   // ============ VINCULAÇÃO PNCP ============
@@ -291,6 +354,7 @@ export class OrgaosController {
   // Aqui gerenciamos quais órgãos estão vinculados à plataforma
 
   @Put(':id/pncp')
+  @UseGuards(AdminGuard)
   async vincularPNCP(
     @Param('id') id: string,
     @Body() config: {
@@ -299,11 +363,12 @@ export class OrgaosController {
       pncp_cnpj_orgao?: string;
     }
   ): Promise<Orgao> {
-    return await this.orgaosService.vincularPNCP(id, config);
+    return orgaoSemSegredos(await this.orgaosService.vincularPNCP(id, config));
   }
 
   @Get(':id/pncp/status')
-  async statusPNCP(@Param('id') id: string) {
+  async statusPNCP(@Param('id') id: string, @Req() req: { user: JwtPayload }) {
+    this.exigirMembro(req.user, id);
     return await this.orgaosService.statusPNCP(id);
   }
 
@@ -315,12 +380,14 @@ export class OrgaosController {
   }
 
   @Get(':id/modulos')
-  async getModulosOrgao(@Param('id') id: string) {
+  async getModulosOrgao(@Param('id') id: string, @Req() req: { user: JwtPayload }) {
+    this.exigirMembro(req.user, id);
     const modulos = await this.orgaosService.getModulosOrgao(id);
     return { modulos };
   }
 
   @Put(':id/modulos')
+  @UseGuards(AdminGuard)
   async atualizarModulos(
     @Param('id') id: string,
     @Body() body: { modulos: string[]; fluxo_os?: 'REQUISICAO' | 'MODULO_OS'; envio_automatico_os?: boolean },
@@ -332,7 +399,7 @@ export class OrgaosController {
     return {
       success: true,
       orgao: {
-        ...orgao,
+        ...orgaoSemSegredos(orgao),
         modulos_ativos: orgao.modulos_habilitados || [],
         modulos_habilitados: orgao.modulos_habilitados || [],
         fluxo_os: orgao.fluxo_os || 'REQUISICAO',
@@ -342,14 +409,19 @@ export class OrgaosController {
 
   // ============ CONFIGURAÇÃO EMAIL (SMTP) ============
 
+  // Leitura (mascarada) por qualquer membro do órgão; alteração e testes só
+  // pelo gestor do órgão (exigirGestorDoOrgao) ou pelo admin da plataforma.
+
   @Get(':id/email-config')
-  async getEmailConfig(@Param('id') id: string) {
+  async getEmailConfig(@Param('id') id: string, @Req() req: { user: JwtPayload }) {
+    this.exigirMembro(req.user, id);
     return await this.orgaosService.getEmailConfig(id);
   }
 
   @Put(':id/email-config')
   async atualizarEmailConfig(
     @Param('id') id: string,
+    @Req() req: { user: JwtPayload },
     @Body() config: {
       email_metodo?: 'SMTP' | 'RESEND';
       email_smtp_host?: string;
@@ -366,7 +438,8 @@ export class OrgaosController {
       email_resend_from?: string;
     }
   ) {
-    const orgao = await this.orgaosService.atualizarEmailConfig(id, config);
+    this.exigirGestorDoOrgao(req.user, id);
+    await this.orgaosService.atualizarEmailConfig(id, config);
     return {
       success: true,
       config: await this.orgaosService.getEmailConfig(id),
@@ -376,26 +449,31 @@ export class OrgaosController {
   @Post(':id/email-config/testar')
   async testarEmailConfig(
     @Param('id') id: string,
+    @Req() req: { user: JwtPayload },
     @Body() body: { email: string }
   ) {
+    this.exigirGestorDoOrgao(req.user, id);
     return await this.emailService.testarConexao(id, body?.email);
   }
 
   @Post(':id/email-config/testar-imap')
-  async testarImapConfig(@Param('id') id: string) {
+  async testarImapConfig(@Param('id') id: string, @Req() req: { user: JwtPayload }) {
+    this.exigirGestorDoOrgao(req.user, id);
     return await this.imapService.testarConexao(id);
   }
 
   // ============ CONFIGURAÇÃO WHATSAPP ============
 
   @Get(':id/whatsapp-config')
-  async getWhatsAppConfig(@Param('id') id: string) {
+  async getWhatsAppConfig(@Param('id') id: string, @Req() req: { user: JwtPayload }) {
+    this.exigirMembro(req.user, id);
     return await this.orgaosService.getWhatsAppConfig(id);
   }
 
   @Put(':id/whatsapp-config')
   async atualizarWhatsAppConfig(
     @Param('id') id: string,
+    @Req() req: { user: JwtPayload },
     @Body() config: {
       whatsapp_provider?: string;
       whatsapp_instance_id?: string;
@@ -403,7 +481,8 @@ export class OrgaosController {
       whatsapp_client_token?: string;
     }
   ) {
-    const orgao = await this.orgaosService.atualizarWhatsAppConfig(id, config);
+    this.exigirGestorDoOrgao(req.user, id);
+    await this.orgaosService.atualizarWhatsAppConfig(id, config);
     return {
       success: true,
       config: await this.orgaosService.getWhatsAppConfig(id),
@@ -413,8 +492,10 @@ export class OrgaosController {
   @Post(':id/whatsapp-config/testar')
   async testarWhatsAppConfig(
     @Param('id') id: string,
+    @Req() req: { user: JwtPayload },
     @Body() body: { numero: string }
   ) {
+    this.exigirGestorDoOrgao(req.user, id);
     return await this.whatsappService.testarConexao(id, body?.numero || '');
   }
 
@@ -429,7 +510,7 @@ export class OrgaosController {
     @Query('offset') offset?: string
   ) {
     if (!this.podeAcessarOrgao(req.user, id)) {
-      throw new UnauthorizedException('Sem permissão para acessar este órgão');
+      throw new ForbiddenException('Sem permissão para acessar este órgão');
     }
     const lim = limit ? parseInt(limit, 10) : 50;
     const off = offset ? parseInt(offset, 10) : 0;
@@ -443,7 +524,7 @@ export class OrgaosController {
     @Req() req: { user: JwtPayload }
   ) {
     if (!this.podeAcessarOrgao(req.user, id)) {
-      throw new UnauthorizedException('Sem permissão para acessar este órgão');
+      throw new ForbiddenException('Sem permissão para acessar este órgão');
     }
     const email = await this.imapService.obterEmail(id, parseInt(uid, 10));
     await this.imapService.marcarComoLido(id, parseInt(uid, 10));
@@ -531,7 +612,7 @@ export class OrgaosController {
     @Body() body: { subject: string; text: string; replyTo: string }
   ) {
     if (!this.podeAcessarOrgao(req.user, id)) {
-      throw new UnauthorizedException('Sem permissão para acessar este órgão');
+      throw new ForbiddenException('Sem permissão para acessar este órgão');
     }
     const email = await this.imapService.obterEmail(id, parseInt(uid, 10));
     const toRaw = body.replyTo || email.from;

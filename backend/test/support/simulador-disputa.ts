@@ -4,7 +4,7 @@
  * ============================================================================
  *
  * Motor reutilizável: dado um cenário (licitação com sessão criada e propostas
- * classificadas), conecta N fornecedores robôs no namespace `/disputa-v2` — cada
+ * classificadas), conecta N fornecedores robôs no namespace `/disputa` — cada
  * um com o SEU token e a SUA conexão, exatamente como o `useDisputaV3.ts` do
  * frontend (entrar_sala → enviar_lance → novo_lance/lance_confirmado/erro) —,
  * dá lances conforme a estratégia de cada robô, força prorrogações com lances
@@ -18,9 +18,9 @@
  *   expect(verificarRanking(rel)).toEqual([]); // verificadores devolvem lista de violações
  *
  * RELÓGIO VIRTUAL (por que se mexe em timestamps pelo DataSource)
- *   O relógio da disputa-v2 lê `sessoes_disputa.tempo_inatividade_minutos` e
+ *   O relógio da disputa lê `sessoes_disputa.tempo_inatividade_minutos` e
  *   `tempo_prorrogacao_minutos`: colunas INT em MINUTOS, e o PUT
- *   /api/disputa-v2/sessao/:id/configuracoes recusa valores < 1. Não há como
+ *   /api/disputa/sessao/:id/configuracoes recusa valores < 1. Não há como
  *   configurar segundos. Então o simulador usa os tempos LEGAIS (10 min + 2 min,
  *   IN 73 art. 23), configurados pela API, e "adianta o relógio" de cada item
  *   deslocando para trás, juntos, `disputa_iniciada_em` e `ultimo_lance_em`
@@ -52,7 +52,7 @@ import {
 } from './fixtures';
 import { aguardarEvento, conectarSocket } from './socket';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../../src/licitacoes/entities/licitacao.entity';
-import { DisputaTimerService } from '../../src/disputa-v2/disputa-timer.service';
+import { DisputaTimerService } from '../../src/disputa/disputa-timer.service';
 
 // ---------------------------------------------------------------------------
 // Aleatoriedade com semente (determinismo no CI)
@@ -265,7 +265,7 @@ export interface RelatorioItem {
   numero: number;
   propostas: Record<string, number>;
   tentativas: TentativaLance[];
-  /** Ranking final do backend (GET /api/disputa-v2/item/:id/melhores após encerrar). */
+  /** Ranking final do backend (GET /api/disputa/item/:id/melhores após encerrar). */
   ranking: RankingLinha[];
   prorrogacoes: RegistroProrrogacao[];
   /** Lances aceitos cujo momento virtual caiu na janela de prorrogação (últimos P min ou depois). */
@@ -403,7 +403,7 @@ export class SimuladorDisputa {
     const { ctx, cenario } = this;
     const cfg = await ctx
       .http()
-      .put(`/api/disputa-v2/sessao/${cenario.sessaoId}/configuracoes`)
+      .put(`/api/disputa/sessao/${cenario.sessaoId}/configuracoes`)
       .set(bearer(cenario.orgao.token))
       .send({
         tempo_inatividade_minutos: this.tempoInicialMin,
@@ -763,7 +763,7 @@ export class SimuladorDisputa {
     for (const item of this.cenario.licitacao.itens) {
       const e = this.estado(item.id);
       const row = await this.lerItem(item.id);
-      const rk = await this.ctx.http().get(`/api/disputa-v2/item/${item.id}/melhores`);
+      const rk = await this.ctx.http().get(`/api/disputa/item/${item.id}/melhores`);
       const lances: Array<{ fornecedor_id: string; valor: string }> = await this.ctx.dataSource.query(
         `SELECT fornecedor_id, valor FROM lances
           WHERE item_id = $1 AND cancelado = false AND ip_origem <> 'SISTEMA'
@@ -1192,12 +1192,12 @@ export class SalaModos {
     return resposta;
   }
 
-  /** Lance final fechado explícito pela API (POST /disputa-v2/sessao/:id/lance-fechado). */
+  /** Lance final fechado explícito pela API (POST /disputa/sessao/:id/lance-fechado). */
   lanceFechadoRest(nome: string, itemId: string, valor: number) {
     const robo = this.robos.get(nome)!;
     return this.ctx
       .http()
-      .post(`/api/disputa-v2/sessao/${this.sessaoId}/lance-fechado`)
+      .post(`/api/disputa/sessao/${this.sessaoId}/lance-fechado`)
       .set(bearer(robo.fornecedor.token))
       .send({ itemId, valor });
   }

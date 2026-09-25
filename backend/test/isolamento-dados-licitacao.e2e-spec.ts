@@ -177,10 +177,10 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   });
 
   // ==========================================================================
-  // 1. disputa-v2 REST (disputa.controller.ts — todas as rotas @Public)
+  // 1. disputa REST (disputa.controller.ts — todas as rotas @Public)
   // ==========================================================================
-  describe('1. disputa-v2 REST', () => {
-    // CORRIGIDO NA E1a (era vazamento): lance da v2 é @Public e confia no fornecedorId do corpo — disputa-v2/disputa.controller.ts:155-175
+  describe('1. disputa REST', () => {
+    // CORRIGIDO NA E1a (era vazamento): lance da v2 é @Public e confia no fornecedorId do corpo — disputa/disputa.controller.ts:155-175
     test('anônimo (sem token) não registra lance', async () => {
       const r = await lanceV2(ctx, X.sessaoId, {
         itemId: X.lic.itens[0].id,
@@ -192,7 +192,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(RECUSADO).toContain(r.status);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): identidade do lance vem do corpo, não do token — disputa-v2/disputa.controller.ts:167-174
+    // CORRIGIDO NA E1a (era vazamento): identidade do lance vem do corpo, não do token — disputa/disputa.controller.ts:167-174
     test('F2 não registra lance com o fornecedorId de F1', async () => {
       const r = await lanceV2(
         ctx,
@@ -204,61 +204,61 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect([401, 403]).toContain(r.status);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): mensagem da sala é @Public e o remetente vem do corpo — disputa-v2/disputa.controller.ts:177-189
+    // CORRIGIDO NA E1a (era vazamento): mensagem da sala é @Public e o remetente vem do corpo — disputa/disputa.controller.ts:177-189
     test('anônimo não envia mensagem na sala (remetente livre)', async () => {
       const r = await ctx
         .http()
-        .post(`/api/disputa-v2/sessao/${X.sessaoId}/mensagem`)
+        .post(`/api/disputa/sessao/${X.sessaoId}/mensagem`)
         .send({ remetente: 'Pregoeiro', conteudo: 'Atenção: disputa suspensa (mensagem forjada)' });
       registrarHttp('1 anônimo POST mensagem (X)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): iniciar itens é @Public — disputa-v2/disputa.controller.ts:97-104
+    // CORRIGIDO NA E1a (era vazamento): iniciar itens é @Public — disputa/disputa.controller.ts:97-104
     test('anônimo não inicia itens', async () => {
       const r = await ctx
         .http()
-        .post(`/api/disputa-v2/sessao/${W.sessaoId}/iniciar-itens`)
+        .post(`/api/disputa/sessao/${W.sessaoId}/iniciar-itens`)
         .send({ itensIds: [] });
       registrarHttp('1 anônimo POST iniciar-itens (W)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): configurações da sessão são @Public — disputa-v2/disputa.controller.ts:201-217
+    // CORRIGIDO NA E1a (era vazamento): configurações da sessão são @Public — disputa/disputa.controller.ts:201-217
     test('anônimo não altera configurações da sessão', async () => {
       const r = await ctx
         .http()
-        .put(`/api/disputa-v2/sessao/${W.sessaoId}/configuracoes`)
+        .put(`/api/disputa/sessao/${W.sessaoId}/configuracoes`)
         .send({ tempo_inatividade_minutos: 10 });
       registrarHttp('1 anônimo PUT configuracoes (W)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): encerrar item é @Public — disputa-v2/disputa.controller.ts:106-113
+    // CORRIGIDO NA E1a (era vazamento): encerrar item é @Public — disputa/disputa.controller.ts:106-113
     test('anônimo não encerra item', async () => {
-      const r = await ctx.http().post(`/api/disputa-v2/sessao/${W.sessaoId}/encerrar-item/${W.lic.itens[1].id}`);
+      const r = await ctx.http().post(`/api/disputa/sessao/${W.sessaoId}/encerrar-item/${W.lic.itens[1].id}`);
       registrarHttp('1 anônimo POST encerrar-item (W)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): suspender/retomar são @Public — disputa-v2/disputa.controller.ts:115-140
+    // CORRIGIDO NA E1a (era vazamento): suspender/retomar são @Public — disputa/disputa.controller.ts:115-140
     test('anônimo não suspende nem retoma a sessão', async () => {
       const s = await ctx
         .http()
-        .post(`/api/disputa-v2/sessao/${W.sessaoId}/suspender`)
+        .post(`/api/disputa/sessao/${W.sessaoId}/suspender`)
         .send({ motivo: 'ADMINISTRATIVO', justificativa: 'forjado' });
       registrarHttp('1 anônimo POST suspender (W)', s);
-      const r = await ctx.http().post(`/api/disputa-v2/sessao/${W.sessaoId}/retomar`);
+      const r = await ctx.http().post(`/api/disputa/sessao/${W.sessaoId}/retomar`);
       registrarHttp('1 anônimo POST retomar (W)', r);
       expect(RECUSADO).toContain(s.status);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): reiniciar a sessão (cancela todos os lances) é @Public — disputa-v2/disputa.controller.ts:142-153
+    // CORRIGIDO NA E1a (era vazamento): reiniciar a sessão (cancela todos os lances) é @Public — disputa/disputa.controller.ts:142-153
     test('anônimo não reinicia a sessão', async () => {
       const r = await ctx
         .http()
-        .post(`/api/disputa-v2/sessao/${W.sessaoId}/reiniciar`)
+        .post(`/api/disputa/sessao/${W.sessaoId}/reiniciar`)
         .send({ justificativa: 'forjado' });
       registrarHttp('1 anônimo POST reiniciar (W)', r);
       expect(RECUSADO).toContain(r.status);
@@ -281,7 +281,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       s2 = e2.socket;
     });
 
-    // CORRIGIDO NA E1a (era vazamento): tipo=PREGOEIRO é declarado pelo cliente, sem token — disputa-v2/disputa.gateway.ts:63-105,135-144
+    // CORRIGIDO NA E1a (era vazamento): tipo=PREGOEIRO é declarado pelo cliente, sem token — disputa/disputa.gateway.ts:63-105,135-144
     test('anônimo declarando tipo=PREGOEIRO não executa ação de pregoeiro', async () => {
       const anon = await entrarNaSala(ctx, X.sessaoId, { id: 'pregoeiro-falso', nome: 'Pregoeiro', tipo: 'PREGOEIRO' });
       if (anon.resposta.evento !== 'dados_iniciais') {
@@ -294,7 +294,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.evento).toBe('erro');
     });
 
-    // CORRIGIDO NA E1a (era vazamento): usuarioId do entrar_sala vem do cliente; lance sai em nome de F1 — disputa-v2/disputa.gateway.ts:79-102,331-338
+    // CORRIGIDO NA E1a (era vazamento): usuarioId do entrar_sala vem do cliente; lance sai em nome de F1 — disputa/disputa.gateway.ts:79-102,331-338
     test('anônimo declarando usuarioId=F1 não dá lance como F1', async () => {
       const anon = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: 'Qualquer', tipo: 'FORNECEDOR' });
       if (anon.resposta.evento !== 'dados_iniciais') {
@@ -307,7 +307,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.ok).toBe(false);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): token de F2 não é confrontado com o usuarioId declarado — disputa-v2/disputa.gateway.ts:79-102
+    // CORRIGIDO NA E1a (era vazamento): token de F2 não é confrontado com o usuarioId declarado — disputa/disputa.gateway.ts:79-102
     test('F2 (com o próprio token) declarando usuarioId=F1 não dá lance como F1', async () => {
       const e = await entrarNaSala(
         ctx,
@@ -371,7 +371,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): itemEncerrado vem do cliente e desliga a anonimização — disputa-v2/disputa.gateway.ts:405-425
+    // CORRIGIDO NA E1a (era vazamento): itemEncerrado vem do cliente e desliga a anonimização — disputa/disputa.gateway.ts:405-425
     test('buscar_lances_item com itemEncerrado=true durante a disputa não revela identidades', async () => {
       const resp = aguardarEvento(s2, 'lances_item');
       s2.emit('buscar_lances_item', { itemId: X.lic.itens[0].id, tipo: 'todos', itemEncerrado: true });
@@ -381,7 +381,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): participante_entrou repassa o usuarioNome (razão social) — disputa-v2/disputa.gateway.ts:121-124
+    // CORRIGIDO NA E1a (era vazamento): participante_entrou repassa o usuarioNome (razão social) — disputa/disputa.gateway.ts:121-124
     test('participante_entrou não carrega a razão social de outro licitante', async () => {
       const evento = aguardarEvento(s2, 'participante_entrou');
       const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
@@ -395,7 +395,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): novo_lance leva lance.fornecedorNome = usuarioNome do autor — disputa-v2/disputa.gateway.ts:350-356
+    // CORRIGIDO NA E1a (era vazamento): novo_lance leva lance.fornecedorNome = usuarioNome do autor — disputa/disputa.gateway.ts:350-356
     test('novo_lance não carrega razão social/cnpj/id de outro licitante', async () => {
       if (!s1) {
         const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
@@ -410,7 +410,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(achados).toEqual([]);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): nova_mensagem leva remetente = usuarioNome (razão social) — disputa-v2/disputa.gateway.ts:300-305
+    // CORRIGIDO NA E1a (era vazamento): nova_mensagem leva remetente = usuarioNome (razão social) — disputa/disputa.gateway.ts:300-305
     test('chat (nova_mensagem) não carrega a razão social de outro licitante', async () => {
       if (!s1) {
         const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
@@ -426,7 +426,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   });
 
   // ==========================================================================
-  // 3. salas legadas /sessao e "/" → canal ÚNICO /disputa-v2 (E2 item 8)
+  // 3. salas legadas /sessao e "/" → canal ÚNICO /disputa (E2 item 8)
   //    Os casos que miravam o gateway /sessao (removido na E2) passam a mirar o
   //    gateway único, com as MESMAS afirmações (nenhuma identidade vaza, nenhum
   //    ato sem papel). Diferença intencional: o anônimo não entra mais na sala
@@ -443,7 +443,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
     test('anônimo na sala da sessão não recebe ids reais dos licitantes (recusado no canal único)', async () => {
       const e = await entrarNaSala(ctx, X.sessaoId, visitante);
       const achados = [...identidadeNoPayload(e.resposta.payload, F1), ...identidadeNoPayload(e.resposta.payload, F2)];
-      registrar('3 /disputa-v2 entrar_sala anônimo (X)', `${e.resposta.evento} identidade=[${achados}]`);
+      registrar('3 /disputa entrar_sala anônimo (X)', `${e.resposta.evento} identidade=[${achados}]`);
       e.socket.close();
       expect(e.resposta.evento).toBe('acesso_negado');
       expect(achados).toEqual([]);
@@ -463,7 +463,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       });
       const r = await resp;
       const depois = (await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM lances WHERE licitacao_id = $1`, [X.lic.id]))[0].n;
-      registrar('3 /disputa-v2 anônimo enviar_lance como F1 (X)', `${r.evento} ${JSON.stringify(r.payload?.mensagem ?? '')} lances ${antes}→${depois}`);
+      registrar('3 /disputa anônimo enviar_lance como F1 (X)', `${r.evento} ${JSON.stringify(r.payload?.mensagem ?? '')} lances ${antes}→${depois}`);
       s.close();
       expect(r.evento).toBe('erro');
       expect(depois).toBe(antes);
@@ -477,7 +477,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       const r = await darLanceSala(e1.socket, X.sessaoId, X.lic.itens[0].id, valores.proximo());
       const p: any = await evento;
       const achados = identidadeNoPayload(p, F1);
-      registrar('3 /disputa-v2 novo_lance recebido por F2', `F1 ok=${r.ok} vigia=${p ? `chaves=${Object.keys(p)}` : 'nada'} identidadeF1=[${achados}]`);
+      registrar('3 /disputa novo_lance recebido por F2', `F1 ok=${r.ok} vigia=${p ? `chaves=${Object.keys(p)}` : 'nada'} identidadeF1=[${achados}]`);
       vigia.socket.close();
       e1.socket.close();
       expect(achados).toEqual([]);
@@ -492,7 +492,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       anon.emit('enviar_mensagem', { sessaoId: X.sessaoId, conteudo: 'Sessão encerrada (forjado)', tipo: 'PREGOEIRO', isPregoeiro: true });
       const r = await resp;
       const p = await evento;
-      registrar('3 /disputa-v2 anônimo enviar_mensagem como pregoeiro', `${r.evento} vigia=${p ? `tipo=${p.tipo}` : 'nada'}`);
+      registrar('3 /disputa anônimo enviar_mensagem como pregoeiro', `${r.evento} vigia=${p ? `tipo=${p.tipo}` : 'nada'}`);
       vigia.socket.close();
       anon.close();
       expect(r.evento).toBe('erro');
@@ -507,7 +507,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       e1.socket.emit('enviar_mensagem', { sessaoId: X.sessaoId, conteudo: 'Dúvida', fornecedorId: F1.id });
       const p = await evento;
       const achados = identidadeNoPayload(p, F1);
-      registrar('3 /disputa-v2 nova_mensagem recebida por F2', `remetente=${p?.remetente} identidadeF1=[${achados}]`);
+      registrar('3 /disputa nova_mensagem recebida por F2', `remetente=${p?.remetente} identidadeF1=[${achados}]`);
       vigia.socket.close();
       e1.socket.close();
       expect(achados).toEqual([]);
@@ -519,7 +519,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       const resp = aguardarUmDe(anon, ['item_encerrado', 'erro']);
       anon.emit('encerrar_item', { sessaoId: W.sessaoId, itemId: W.lic.itens[0].id });
       const r = await resp;
-      registrar('3 /disputa-v2 anônimo encerrar_item (W)', r.evento);
+      registrar('3 /disputa anônimo encerrar_item (W)', r.evento);
       anon.close();
       expect(r.evento).toBe('erro');
     });
@@ -530,13 +530,13 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       const resp = aguardarUmDe(anon, ['sessao_reiniciada', 'erro']);
       anon.emit('reiniciar_sessao', { sessaoId: W.sessaoId, justificativa: 'forjado' });
       const r = await resp;
-      registrar('3 /disputa-v2 anônimo reiniciar_sessao (W)', r.evento);
+      registrar('3 /disputa anônimo reiniciar_sessao (W)', r.evento);
       anon.close();
       expect(r.evento).toBe('erro');
     });
 
     // REMOVIDO NA E2: o gateway legado "/" (módulo `lances`) foi apagado — o único
-    // caminho de lance é o motor /disputa-v2. Um cliente no namespace padrão não
+    // caminho de lance é o motor /disputa. Um cliente no namespace padrão não
     // recebe estado, não dá lance, não fala no chat e não encerra nada.
     test('"/": gateway legado removido — entrar_sala/enviar_lance/enviar_mensagem/encerrar_item não têm efeito', async () => {
       const s = await conectarSocket(ctx, '/');
@@ -896,12 +896,12 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   });
 
   // ==========================================================================
-  // 7. disputa-v2 item/:id/propostas durante o sigilo
+  // 7. disputa item/:id/propostas durante o sigilo
   // ==========================================================================
-  describe('7. disputa-v2 propostas do item', () => {
-    // CORRIGIDO NA E1a (era vazamento): sem sessão não há anonimização nem sigilo — disputa-v2/disputa.controller.ts:62-66; disputa-v2/disputa.service.ts:1060-1095
+  describe('7. disputa propostas do item', () => {
+    // CORRIGIDO NA E1a (era vazamento): sem sessão não há anonimização nem sigilo — disputa/disputa.controller.ts:62-66; disputa/disputa.service.ts:1060-1095
     test('item/:id/propostas durante o acolhimento não expõe nomes nem valores', async () => {
-      const r = await ctx.http().get(`/api/disputa-v2/item/${P.lic.itens[0].id}/propostas`);
+      const r = await ctx.http().get(`/api/disputa/item/${P.lic.itens[0].id}/propostas`);
       const achados = identidadeNoPayload(r.body, F1);
       const comValor = Array.isArray(r.body) && r.body.some((p: any) => p.valor !== null && p.valor !== undefined);
       registrar('7 anônimo GET item/:id/propostas (P, sigilo)', `HTTP ${r.status} n=${r.body?.length} identidadeF1=[${achados}] comValor=${comValor}`);
@@ -988,33 +988,33 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   });
 
   // ==========================================================================
-  // 9. disputa-v3 board + cancelamento de lance
+  // 9. disputa/presenter board + cancelamento de lance
   // ==========================================================================
-  describe('9. disputa-v3', () => {
+  describe('9. disputa/presenter', () => {
     it('órgão B (token ORGAO) não lê o board do pregoeiro de X (controle)', async () => {
-      const r = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board`).set(bearer(B.token));
+      const r = await ctx.http().get(`/api/disputa/sessao/${X.sessaoId}/board`).set(bearer(B.token));
       registrarHttp('9 órgão B GET board (X)', r);
       expect(r.status).toBe(403);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): token USUARIO não passa orgaoId para a checagem — disputa-v3/disputa-v3.controller.ts:47-49
+    // CORRIGIDO NA E1a (era vazamento): token USUARIO não passa orgaoId para a checagem — disputa/presenter/sala-disputa.controller.ts:47-49
     test('pregoeiro de B (token USUARIO) não lê o board de X', async () => {
-      const r = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board`).set(bearer(pregB.token));
+      const r = await ctx.http().get(`/api/disputa/sessao/${X.sessaoId}/board`).set(bearer(pregB.token));
       registrarHttp('9 pregoeiro B GET board (X)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
-    // CORRIGIDO NA E1a (era vazamento): ?fornecedorId= pula a checagem de órgão (visão de F1 para o órgão B) — disputa-v3/disputa-v3.controller.ts:43-45
+    // CORRIGIDO NA E1a (era vazamento): ?fornecedorId= pula a checagem de órgão (visão de F1 para o órgão B) — disputa/presenter/sala-disputa.controller.ts:43-45
     test('órgão B não lê o board de F1 em X via ?fornecedorId=', async () => {
-      const r = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board?fornecedorId=${F1.id}`).set(bearer(B.token));
+      const r = await ctx.http().get(`/api/disputa/sessao/${X.sessaoId}/board?fornecedorId=${F1.id}`).set(bearer(B.token));
       registrarHttp('9 órgão B GET board ?fornecedorId=F1 (X)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
     it('F2 não vê o board "como" F1 (?fornecedorId=F1); F3 (sem proposta) não lê o board de X (E1a)', async () => {
-      const f2 = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board?fornecedorId=${F1.id}`).set(bearer(F2.token));
-      const f3 = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board`).set(bearer(F3.token));
-      const proprio = await ctx.http().get(`/api/disputa-v3/sessao/${X.sessaoId}/board`).set(bearer(F2.token));
+      const f2 = await ctx.http().get(`/api/disputa/sessao/${X.sessaoId}/board?fornecedorId=${F1.id}`).set(bearer(F2.token));
+      const f3 = await ctx.http().get(`/api/disputa/sessao/${X.sessaoId}/board`).set(bearer(F3.token));
+      const proprio = await ctx.http().get(`/api/disputa/sessao/${X.sessaoId}/board`).set(bearer(F2.token));
       registrar('9 board F2 como F1 / F3 / F2 próprio', `${f2.status}/${f3.status}/${proprio.status}`);
       expect(f2.status).toBe(403);
       expect(f3.status).toBe(403);
@@ -1023,7 +1023,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(identidadeNoPayload(proprio.body, F1)).toEqual([]);
     });
 
-    const base = () => `/api/disputa-v3/sessao/${X.sessaoId}/item/${X.lic.itens[0].id}/lance/${lanceF1X}`;
+    const base = () => `/api/disputa/sessao/${X.sessaoId}/item/${X.lic.itens[0].id}/lance/${lanceF1X}`;
 
     it('F2 não cancela o lance de F1 (controle)', async () => {
       const r = await ctx.http().post(`${base()}/cancelar-fornecedor`).set(bearer(F2.token));
@@ -1195,7 +1195,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 12. lance v2 com item de outra licitação
   // ==========================================================================
   describe('12. lance v2 cruzando licitações', () => {
-    // CORRIGIDO NA E1a (era vazamento): registrarLance não confere se o item pertence à licitação da sessão — disputa-v2/disputa.service.ts:603-615
+    // CORRIGIDO NA E1a (era vazamento): registrarLance não confere se o item pertence à licitação da sessão — disputa/disputa.service.ts:603-615
     test('lance para item de Z enviado na sessão de X é recusado', async () => {
       const r = await lanceV2(
         ctx,
@@ -1261,7 +1261,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       const r = await ctx.http().get(`/api/itens/${X.lic.itens[1].id}`);
       registrar(
         '13 anônimo GET itens/:id melhor lance (X)',
-        `lance /disputa-v2=${lance.evento} status_disputa=${r.body?.status_disputa} melhor_lance_fornecedor_id=${r.body?.melhor_lance_fornecedor_id === F1.id ? 'F1' : r.body?.melhor_lance_fornecedor_id}`,
+        `lance /disputa=${lance.evento} status_disputa=${r.body?.status_disputa} melhor_lance_fornecedor_id=${r.body?.melhor_lance_fornecedor_id === F1.id ? 'F1' : r.body?.melhor_lance_fornecedor_id}`,
       );
       expect(r.body?.melhor_lance_fornecedor_id ?? null).toBeNull();
       expect(identidadeNoPayload(r.body, F1)).toEqual([]);
@@ -1439,7 +1439,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         .set(bearer(pregB.token))
         .send({ tipo: 'ETP', titulo: 'ETP do órgão B' });
       const porId = await ctx.http().get(`/api/fase-interna/documento/${docFaseInterna}`).set(bearer(pregB.token));
-      const submeter = await ctx.http().put(`/api/fase-interna/documento/${docFaseInterna}/submeter`).set(bearer(pregB.token));
+      const submeter = await ctx.http().put(`/api/fase-interna/documento/${docFaseInterna}/submeter-fluxo`).set(bearer(pregB.token)).send({});
       const estruturado = await ctx
         .http()
         .put(`/api/fase-interna/estruturado/${docFaseInterna}/dados`)

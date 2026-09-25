@@ -88,6 +88,8 @@ import {
   type FrequenciaExecucaoContrato,
 } from "@/lib/cronograma-contrato";
 import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner"
+import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 
 interface OSRequisicao {
   id: string;
@@ -823,11 +825,9 @@ export default function TabMedicao({
       link.click();
       URL.revokeObjectURL(url);
     } catch (erro) {
-      alert(
-        erro instanceof Error
+      toast.error(erro instanceof Error
           ? erro.message
-          : "Erro ao baixar a relação da equipe",
-      );
+          : "Erro ao baixar a relação da equipe", { className: 'whitespace-pre-line' });
     }
   };
 
@@ -836,7 +836,7 @@ export default function TabMedicao({
     dados: { descricao?: string; valor?: number; percentual?: number },
   ) => {
     if (!motivoCorrecao.trim()) {
-      alert("Informe o motivo da correção");
+      toast.warning("Informe o motivo da correção");
       return;
     }
     try {
@@ -859,10 +859,10 @@ export default function TabMedicao({
         setMotivoCorrecao("");
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || "Erro ao corrigir discriminação");
+        toast.error(err.message || "Erro ao corrigir discriminação");
       }
     } catch {
-      alert("Erro ao corrigir discriminação");
+      toast.error("Erro ao corrigir discriminação");
     }
   };
 
@@ -903,9 +903,7 @@ export default function TabMedicao({
   /** Suporte: refaz o retrato congelado das aprovadas com as regras atuais. */
   const recalcularRetratos = async () => {
     if (
-      !confirm(
-        "Recalcular os retratos (execução fiscal/financeira) de TODAS as medições aprovadas deste contrato com as regras atuais?\n\nOs boletins serão gerados de novo na próxima abertura. Use depois de uma mudança de cálculo; valores medidos e aprovações não mudam.",
-      )
+      !(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Recalcular os retratos (execução fiscal/financeira) de TODAS as medições aprovadas deste contrato com as regras atuais?\n\nOs boletins serão gerados de novo na próxima abertura. Use depois de uma mudança de cálculo; valores medidos e aprovações não mudam." }))
     )
       return;
     setRecalculandoRetratos(true);
@@ -917,13 +915,11 @@ export default function TabMedicao({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "Não foi possível recalcular os retratos");
       carregarDados();
-      alert(
-        data.recalculadas
+      toast(data.recalculadas
           ? `${data.recalculadas} medição(ões) recalculada(s): ${(data.numeros || []).join(", ")}. Abra o boletim para gerar o PDF novo.`
-          : "Este contrato não tem medição aprovada para recalcular.",
-      );
+          : "Este contrato não tem medição aprovada para recalcular.", { className: 'whitespace-pre-line' });
     } catch (e: any) {
-      alert(e?.message || "Não foi possível recalcular os retratos");
+      toast.error(e?.message || "Não foi possível recalcular os retratos");
     } finally {
       setRecalculandoRetratos(false);
     }
@@ -939,12 +935,12 @@ export default function TabMedicao({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "Não foi possível conferir a ordem das medições");
       if (!data.alteracoes?.length) {
-        alert("As medições já estão numeradas na ordem da competência.");
+        toast("As medições já estão numeradas na ordem da competência.");
         return;
       }
       setModalReordenar({ alteracoes: data.alteracoes, total_medicoes: data.total_medicoes });
     } catch (e: any) {
-      alert(e?.message || "Não foi possível conferir a ordem das medições");
+      toast.error(e?.message || "Não foi possível conferir a ordem das medições");
     } finally {
       setReordenando(false);
     }
@@ -961,11 +957,9 @@ export default function TabMedicao({
       if (!res.ok) throw new Error(data?.message || "Não foi possível renumerar as medições");
       setModalReordenar(null);
       carregarDados();
-      alert(
-        `${data.alteracoes?.length || 0} medição(ões) renumerada(s). Os boletins serão gerados de novo com a numeração nova.`,
-      );
+      toast(`${data.alteracoes?.length || 0} medição(ões) renumerada(s). Os boletins serão gerados de novo com a numeração nova.`);
     } catch (e: any) {
-      alert(e?.message || "Não foi possível renumerar as medições");
+      toast.error(e?.message || "Não foi possível renumerar as medições");
     } finally {
       setReordenando(false);
     }
@@ -989,7 +983,7 @@ export default function TabMedicao({
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err: any) {
       aba?.close();
-      alert(err?.message || "Não foi possível gerar o boletim no modelo novo");
+      toast.error(err?.message || "Não foi possível gerar o boletim no modelo novo");
     } finally {
       setAbrindoBoletimV2(null);
     }
@@ -1292,21 +1286,19 @@ export default function TabMedicao({
     const atual = (modalCorrigir as any).requisicao_id ?? "";
     const nova = osSelecionadaTroca || "";
     if (nova === atual) {
-      alert("Selecione uma OS diferente da atual (ou 'Nenhuma' para desvincular).");
+      toast.warning("Selecione uma OS diferente da atual (ou 'Nenhuma' para desvincular).");
       return;
     }
     if (motivoTrocaOs.trim().length < 10) {
-      alert("Informe o motivo da troca (mínimo 10 caracteres).");
+      toast.warning("Informe o motivo da troca (mínimo 10 caracteres).");
       return;
     }
     const escolhida = osDoContrato.find((o) => o.id === nova);
     const rotulo = escolhida ? `OS ${escolhida.numero}` : "nenhuma OS (desvincular)";
     if (
-      !confirm(
-        `Vincular esta medição a ${rotulo}?\n\n` +
+      !(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Vincular esta medição a ${rotulo}?\n\n` +
           "Isso recalcula o saldo dos itens: a OS anterior deixa de ser consumida por " +
-          "esta medição e a nova passa a ser.",
-      )
+          "esta medição e a nova passa a ser." }))
     )
       return;
     setSalvandoTrocaOs(true);
@@ -1322,15 +1314,15 @@ export default function TabMedicao({
         },
       );
       if (res.ok) {
-        alert("OS da medição atualizada. O saldo dos itens foi recalculado.");
+        toast("OS da medição atualizada. O saldo dos itens foi recalculado.");
         setModalCorrigir(null);
         carregarDados();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || "Erro ao trocar a OS da medição");
+        toast.error(err.message || "Erro ao trocar a OS da medição");
       }
     } catch {
-      alert("Erro ao trocar a OS da medição");
+      toast.error("Erro ao trocar a OS da medição");
     } finally {
       setSalvandoTrocaOs(false);
     }
@@ -1379,7 +1371,7 @@ export default function TabMedicao({
       if (cabecalhoForm.objeto_contrato !== (contratoProp?.objeto ?? ""))
         body.objeto_contrato = cabecalhoForm.objeto_contrato;
       if (Object.keys(body).length === 0) {
-        alert("Nenhuma alteração detectada.");
+        toast.warning("Nenhuma alteração detectada.");
         return;
       }
       const res = await authFetch(
@@ -1390,16 +1382,14 @@ export default function TabMedicao({
         },
       );
       if (res.ok) {
-        alert(
-          'Cabeçalho salvo! Clique em "Regenerar PDF" para atualizar o documento.',
-        );
+        toast.success('Cabeçalho salvo! Clique em "Regenerar PDF" para atualizar o documento.');
         carregarDados();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || "Erro ao salvar cabeçalho");
+        toast.error(err.message || "Erro ao salvar cabeçalho");
       }
     } catch {
-      alert("Erro ao salvar cabeçalho");
+      toast.error("Erro ao salvar cabeçalho");
     } finally {
       setSalvandoCorrecao(false);
     }
@@ -1473,7 +1463,7 @@ export default function TabMedicao({
   const salvarDiscriminacoes = async () => {
     if (!modalCorrigir) return;
     if (!motivoDiscCorrigir.trim()) {
-      alert("Informe o motivo da correção");
+      toast.warning("Informe o motivo da correção");
       return;
     }
     setSalvandoCorrecao(true);
@@ -1484,7 +1474,7 @@ export default function TabMedicao({
           : null;
 
       if (valorTotal == null || Number.isNaN(valorTotal)) {
-        alert("Informe um valor total válido");
+        toast.warning("Informe um valor total válido");
         return;
       }
 
@@ -1504,7 +1494,7 @@ export default function TabMedicao({
 
       if (!resCabecalho.ok) {
         const err = await resCabecalho.json().catch(() => ({}));
-        alert(err.message || "Erro ao salvar valor total da medição");
+        toast.error(err.message || "Erro ao salvar valor total da medição");
         return;
       }
 
@@ -1516,15 +1506,13 @@ export default function TabMedicao({
         },
       );
       if (res.ok) {
-        alert(
-          'Discriminações salvas! Clique em "Regenerar PDF" para atualizar o documento.',
-        );
+        toast('Discriminações salvas! Clique em "Regenerar PDF" para atualizar o documento.');
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || "Erro ao salvar discriminações");
+        toast.error(err.message || "Erro ao salvar discriminações");
       }
     } catch {
-      alert("Erro ao salvar discriminações");
+      toast.error("Erro ao salvar discriminações");
     } finally {
       setSalvandoCorrecao(false);
     }
@@ -1555,15 +1543,13 @@ export default function TabMedicao({
         if (!res.ok) erros++;
       }
       if (erros === 0) {
-        alert(
-          'Itens salvos! Clique em "Regenerar PDF" para atualizar o documento.',
-        );
+        toast('Itens salvos! Clique em "Regenerar PDF" para atualizar o documento.');
         carregarDados();
       } else {
-        alert(`${erros} item(ns) não puderam ser salvos.`);
+        toast.error(`${erros} item(ns) não puderam ser salvos.`);
       }
     } catch {
-      alert("Erro ao salvar itens");
+      toast.error("Erro ao salvar itens");
     } finally {
       setSalvandoItensCrono(false);
     }
@@ -1673,15 +1659,13 @@ export default function TabMedicao({
         },
       );
       if (res.ok) {
-        alert(
-          'Execução fiscal salva! Clique em "Regenerar PDF" para atualizar o documento.',
-        );
+        toast.success('Execução fiscal salva! Clique em "Regenerar PDF" para atualizar o documento.');
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || "Erro ao salvar execução fiscal");
+        toast.error(err.message || "Erro ao salvar execução fiscal");
       }
     } catch {
-      alert("Erro ao salvar execução fiscal");
+      toast.error("Erro ao salvar execução fiscal");
     } finally {
       setSalvandoExecFiscal(false);
     }
@@ -1715,10 +1699,10 @@ export default function TabMedicao({
         carregarDados();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || "Erro ao regenerar PDF");
+        toast.error(err.message || "Erro ao regenerar PDF");
       }
     } catch {
-      alert("Erro ao regenerar PDF");
+      toast.error("Erro ao regenerar PDF");
     } finally {
       setRegenerandoPdf(false);
     }
@@ -1728,11 +1712,9 @@ export default function TabMedicao({
     anexoId: string,
     nomeAnexo: string,
   ) => {
-    if (!confirm(`Deseja excluir o anexo "${nomeAnexo}"?`)) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Deseja excluir o anexo "${nomeAnexo}"?`, destrutivo: true }))) return;
     if (
-      !confirm(
-        "CONFIRMAÇÃO FINAL: Esta ação é irreversível. Tem certeza que deseja excluir este arquivo?",
-      )
+      !(await confirmarAcao({ titulo: 'Confirmação', mensagem: "CONFIRMAÇÃO FINAL: Esta ação é irreversível. Tem certeza que deseja excluir este arquivo?", destrutivo: true }))
     )
       return;
     try {
@@ -1744,10 +1726,10 @@ export default function TabMedicao({
         setAnexosMedicao((prev) => prev.filter((a) => a.id !== anexoId));
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || "Erro ao excluir anexo");
+        toast.error(err.message || "Erro ao excluir anexo");
       }
     } catch {
-      alert("Erro ao excluir anexo");
+      toast.error("Erro ao excluir anexo");
     }
   };
 
@@ -1925,17 +1907,13 @@ export default function TabMedicao({
 
     if (somaValorOutras + novoValor > valorGlobalCronograma + 0.01) {
       const disponivel = Math.max(0, valorGlobalCronograma - somaValorOutras);
-      alert(
-        `O valor da etapa (R$ ${novoValor.toFixed(2)}) excede o saldo disponível.\n\n${labelValorCronograma}: R$ ${valorGlobalCronograma.toFixed(2)}\nJá alocado: R$ ${somaValorOutras.toFixed(2)}\nDisponível: R$ ${disponivel.toFixed(2)}`,
-      );
+      toast.warning(`O valor da etapa (R$ ${novoValor.toFixed(2)}) excede o saldo disponível.\n\n${labelValorCronograma}: R$ ${valorGlobalCronograma.toFixed(2)}\nJá alocado: R$ ${somaValorOutras.toFixed(2)}\nDisponível: R$ ${disponivel.toFixed(2)}`, { className: 'whitespace-pre-line' });
       return;
     }
 
     if (somaPercentualOutras + novoPercentual > 100.01) {
       const disponivel = Math.max(0, 100 - somaPercentualOutras);
-      alert(
-        `O percentual da etapa (${novoPercentual.toFixed(2)}%) excede o disponível.\n\nJá alocado: ${somaPercentualOutras.toFixed(2)}%\nDisponível: ${disponivel.toFixed(2)}%`,
-      );
+      toast.warning(`O percentual da etapa (${novoPercentual.toFixed(2)}%) excede o disponível.\n\nJá alocado: ${somaPercentualOutras.toFixed(2)}%\nDisponível: ${disponivel.toFixed(2)}%`, { className: 'whitespace-pre-line' });
       return;
     }
 
@@ -1971,7 +1949,7 @@ export default function TabMedicao({
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        alert(e.message || "Erro");
+        toast.error(e.message || "Erro");
         return;
       }
       setModalEtapa(false);
@@ -1983,7 +1961,7 @@ export default function TabMedicao({
   };
 
   const excluirEtapa = async (etapaId: string) => {
-    if (!confirm("Excluir esta etapa?")) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Excluir esta etapa?", destrutivo: true }))) return;
     await authFetch(`${API_URL}/api/contratos/etapas/${etapaId}`, {
       method: "DELETE",
     });
@@ -2293,9 +2271,7 @@ export default function TabMedicao({
     }
     if (somaOutras + novoValorTotal > valorGlobalCronograma + 0.01) {
       const disp = Math.max(0, valorGlobalCronograma - somaOutras);
-      alert(
-        `O valor total do item (R$ ${novoValorTotal.toFixed(2)}) excede o saldo disponível (R$ ${disp.toFixed(2)}).`,
-      );
+      toast.warning(`O valor total do item (R$ ${novoValorTotal.toFixed(2)}) excede o saldo disponível (R$ ${disp.toFixed(2)}).`);
       return;
     }
 
@@ -2330,7 +2306,7 @@ export default function TabMedicao({
         );
         if (!res.ok) {
           const e = await res.json().catch(() => ({}));
-          alert(e.message || "Erro");
+          toast.error(e.message || "Erro");
           return;
         }
         if (isAdmin) {
@@ -2353,7 +2329,7 @@ export default function TabMedicao({
           );
           if (!resMig.ok) {
             const e = await resMig.json().catch(() => ({}));
-            alert(e.message || "Erro ao salvar quantidade já utilizada");
+            toast.error(e.message || "Erro ao salvar quantidade já utilizada");
             return;
           }
         }
@@ -2364,7 +2340,7 @@ export default function TabMedicao({
         );
         if (!res.ok) {
           const e = await res.json().catch(() => ({}));
-          alert(e.message || "Erro");
+          toast.error(e.message || "Erro");
           return;
         }
         const itemCriado = await res.json().catch(() => null);
@@ -2388,7 +2364,7 @@ export default function TabMedicao({
           );
           if (!resMig.ok) {
             const e = await resMig.json().catch(() => ({}));
-            alert(e.message || "Item criado, mas houve erro ao salvar quantidade já utilizada: " + (e.message || "Erro"));
+            toast.error(e.message || "Item criado, mas houve erro ao salvar quantidade já utilizada: " + (e.message || "Erro"));
             return;
           }
         }
@@ -2402,7 +2378,7 @@ export default function TabMedicao({
   };
 
   const excluirItemCronograma = async (itemId: string) => {
-    if (!confirm("Excluir este item?")) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Excluir este item?", destrutivo: true }))) return;
     try {
       const res = await authFetch(
         `${API_URL}/api/contratos/itens-cronograma/${itemId}`,
@@ -2410,7 +2386,7 @@ export default function TabMedicao({
       );
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        alert(e.message || "Erro");
+        toast.error(e.message || "Erro");
         return;
       }
       carregarDados();
@@ -2437,13 +2413,13 @@ export default function TabMedicao({
       );
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        alert(e.message || "Erro");
+        toast.error(e.message || "Erro");
         return;
       }
       carregarDados();
     } catch (e) {
       console.error(e);
-      alert("Erro ao salvar quantidade medida");
+      toast.error("Erro ao salvar quantidade medida");
     }
   };
 
@@ -2628,23 +2604,19 @@ export default function TabMedicao({
 
   const salvarMedicao = async (comoRascunho: boolean) => {
     if (!formMedicao.periodo_inicio || !formMedicao.periodo_fim) {
-      alert("Informe o período de início e fim da medição");
+      toast.warning("Informe o período de início e fim da medição");
       return;
     }
     if (contratoProp?.data_vigencia_fim) {
       const dataFimPeriodo = new Date(formMedicao.periodo_fim);
       const dataVigenciaFim = new Date(contratoProp.data_vigencia_fim);
       if (dataFimPeriodo > dataVigenciaFim) {
-        alert(
-          `O período de medição não pode ultrapassar a data de vigência do contrato.`,
-        );
+        toast.warning(`O período de medição não pode ultrapassar a data de vigência do contrato.`);
         return;
       }
     }
     if (!comoRascunho && discriminacoes.length === 0) {
-      alert(
-        "A discriminação de despesas é obrigatória antes de salvar a medição.",
-      );
+      toast.warning("A discriminação de despesas é obrigatória antes de salvar a medição.");
       return;
     }
     setActionLoading(true);
@@ -2669,7 +2641,7 @@ export default function TabMedicao({
       if (isServicoContinuado) {
         const valor = parseFloat(formMedicao.valor_medido) || 0;
         if (valor <= 0) {
-          alert("Informe o valor medido");
+          toast.warning("Informe o valor medido");
           setActionLoading(false);
           return;
         }
@@ -2695,7 +2667,7 @@ export default function TabMedicao({
               : {}),
           }));
         if (itensComQtd.length === 0) {
-          alert("Informe a quantidade medida em pelo menos um item");
+          toast.warning("Informe a quantidade medida em pelo menos um item");
           setActionLoading(false);
           return;
         }
@@ -2710,9 +2682,7 @@ export default function TabMedicao({
           itensMensaisNoSubmit.length > 0 &&
           itensMensaisNoSubmit.length < itensComQtd.length
         ) {
-          alert(
-            "Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.",
-          );
+          toast.warning("Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.", { className: 'whitespace-pre-line' });
           setActionLoading(false);
           return;
         }
@@ -2740,9 +2710,7 @@ export default function TabMedicao({
               (i as any).valor_executado_atual || undefined,
           }));
         if (itensComValor.length === 0) {
-          alert(
-            "Informe o percentual ou valor executado em pelo menos uma etapa",
-          );
+          toast.warning("Informe o percentual ou valor executado em pelo menos uma etapa");
           setActionLoading(false);
           return;
         }
@@ -2758,7 +2726,7 @@ export default function TabMedicao({
       );
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        alert(e.message || "Erro");
+        toast.error(e.message || "Erro");
         setActionLoading(false);
         return;
       }
@@ -2946,9 +2914,7 @@ export default function TabMedicao({
         ? "\n\n⚠️ ATENÇÃO: Esta medição já foi APROVADA. Ao excluí-la, os valores e percentuais das etapas serão revertidos."
         : "";
     if (
-      !confirm(
-        `Excluir a ${numeroMedicao}ª Medição?${msgExtra}\n\nEsta ação não pode ser desfeita.`,
-      )
+      !(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir a ${numeroMedicao}ª Medição?${msgExtra}\n\nEsta ação não pode ser desfeita.`, destrutivo: true }))
     )
       return;
     setActionLoading(true);
@@ -2960,7 +2926,7 @@ export default function TabMedicao({
       );
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        alert(e.message || "Erro ao excluir medição");
+        toast.error(e.message || "Erro ao excluir medição");
       } else {
         carregarDados();
       }
@@ -3028,9 +2994,7 @@ export default function TabMedicao({
     const temAcao =
       itensSelecionados.length > 0 || itensCancelarAteste.length > 0;
     if (!temAcao) {
-      alert(
-        "Selecione itens para atestar ou desmarque itens para cancelar o ateste.",
-      );
+      toast.warning("Selecione itens para atestar ou desmarque itens para cancelar o ateste.");
       return;
     }
 
@@ -3043,9 +3007,7 @@ export default function TabMedicao({
         (i) => !itensAteste[i.id]?.selecionado && !i.atestado,
       ).length;
       if (itensNaoSelecionados > 0) {
-        alert(
-          "No ateste parcial, informe o motivo da devolução para os itens não atestados.",
-        );
+        toast.warning("No ateste parcial, informe o motivo da devolução para os itens não atestados.");
         return;
       }
     }
@@ -3076,7 +3038,7 @@ export default function TabMedicao({
       );
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        alert(e.message || "Erro");
+        toast.error(e.message || "Erro");
         setActionLoading(false);
         return;
       }
@@ -3091,21 +3053,13 @@ export default function TabMedicao({
       carregarDados();
       // Mensagem informativa ao fiscal
       if (resultado.status === "AGUARDANDO_APROVACAO") {
-        alert(
-          "Medição atestada com sucesso! Foi enviada para aprovação do gestor na Central de Aprovações.",
-        );
+        toast.success("Medição atestada com sucesso! Foi enviada para aprovação do gestor na Central de Aprovações.");
       } else if (resultado.status === "DEVOLVIDA") {
-        alert(
-          "Itens atestados e medição devolvida ao fornecedor com sucesso! O fornecedor será notificado para corrigir os itens não atestados.",
-        );
+        toast.success("Itens atestados e medição devolvida ao fornecedor com sucesso! O fornecedor será notificado para corrigir os itens não atestados.");
       } else if (resultado.status === "SUBMETIDA") {
-        alert(
-          "Ateste(s) cancelado(s) com sucesso! A medição voltou ao status submetida.",
-        );
+        toast.success("Ateste(s) cancelado(s) com sucesso! A medição voltou ao status submetida.");
       } else if (resultado.status === "PARCIALMENTE_ATESTADA") {
-        alert(
-          "Alterações salvas com sucesso! A medição ficou parcialmente atestada.",
-        );
+        toast.success("Alterações salvas com sucesso! A medição ficou parcialmente atestada.");
       }
     } catch (e) {
       console.error(e);
@@ -3131,7 +3085,7 @@ export default function TabMedicao({
       );
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
-        alert(e.message || "Erro");
+        toast.error(e.message || "Erro");
         return;
       }
       setModalDevolver(null);
@@ -6892,11 +6846,9 @@ export default function TabMedicao({
                             size="sm"
                             onClick={async () => {
                               if (valorBaseDiscriminacao <= 0) {
-                                alert(
-                                  isServicoContinuado
+                                toast(isServicoContinuado
                                     ? "Informe o valor medido ou da nota fiscal antes de reaproveitar."
-                                    : "Preencha os itens da planilha ou valor da NF antes de reaproveitar.",
-                                );
+                                    : "Preencha os itens da planilha ou valor da NF antes de reaproveitar.", { className: 'whitespace-pre-line' });
                                 return;
                               }
                               try {
@@ -6907,9 +6859,7 @@ export default function TabMedicao({
                                 if (!res.ok) return;
                                 const sugestoes = await res.json();
                                 if (!sugestoes?.length) {
-                                  alert(
-                                    "Nenhuma medição anterior possui discriminação para reaproveitar.",
-                                  );
+                                  toast.warning("Nenhuma medição anterior possui discriminação para reaproveitar.");
                                   return;
                                 }
                                 setDiscriminacoes(
@@ -6925,9 +6875,7 @@ export default function TabMedicao({
                                   }),
                                 );
                               } catch {
-                                alert(
-                                  "Erro ao buscar despesas da última medição.",
-                                );
+                                toast.error("Erro ao buscar despesas da última medição.");
                               }
                             }}
                             className="text-amber-700 border-amber-300 hover:bg-amber-50"
@@ -7109,11 +7057,11 @@ export default function TabMedicao({
                         input.type = "file";
                         input.accept = "image/jpeg,image/png,image/jpg";
                         input.multiple = true;
-                        input.onchange = (e) => {
+                        input.onchange = async (e) => {
                           const files = (e.target as HTMLInputElement).files;
                           if (files) {
                             const titulo =
-                              prompt("Título da foto (opcional):") ?? "";
+                              (await pedirTextoAcao({ titulo: "Título da foto (opcional):" })) ?? "";
                             setArquivosPendentes((prev) => [
                               ...prev,
                               ...Array.from(files).map((f) => ({
@@ -7139,11 +7087,11 @@ export default function TabMedicao({
                         input.type = "file";
                         input.accept = "application/pdf,image/jpeg,image/png";
                         input.multiple = true;
-                        input.onchange = (e) => {
+                        input.onchange = async (e) => {
                           const files = (e.target as HTMLInputElement).files;
                           if (files && files.length > 0) {
                             const titulo =
-                              prompt("Título dos documentos (opcional):") ?? "";
+                              (await pedirTextoAcao({ titulo: "Título dos documentos (opcional):" })) ?? "";
                             setArquivosPendentes((prev) => [
                               ...prev,
                               ...Array.from(files).map((f) => ({

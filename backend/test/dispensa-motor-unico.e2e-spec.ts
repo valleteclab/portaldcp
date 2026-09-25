@@ -17,7 +17,7 @@
  *     lance e ENCERRAMENTO pelo relógio único (DisputaTimerService) — sem
  *     outro timer; julgamento igual ao cálculo de antes.
  *  3. CANAL ÚNICO: o feed da dispensa é a sala pública da licitação no
- *     `/disputa-v2` (`entrar_licitacao`): anônimo entra, órgão dono e
+ *     `/disputa` (`entrar_licitacao`): anônimo entra, órgão dono e
  *     fornecedor com proposta entram, outro órgão e fornecedor sem proposta
  *     não; os namespaces `/dispensa` e `/sessao` não existem mais.
  *  4. Nenhuma escrita nas tabelas legadas.
@@ -37,7 +37,7 @@ import {
 } from './support';
 import { aguardarUmDe, tiqueRelogioDisputa } from './support/pregao';
 import { abrirJanelaLances, criarDispensaComPropostas, darLance, moverFimDaJanela, painelPublico } from './support/dispensa';
-import { migrarDispensaParaMotor } from '../src/disputa-v2/migracao-dispensa';
+import { migrarDispensaParaMotor } from '../src/disputa/migracao-dispensa';
 import { LicitacoesService } from '../src/licitacoes/licitacoes.service';
 import { conferirSorteio } from '../src/julgamento/sorteio';
 

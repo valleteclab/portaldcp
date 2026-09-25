@@ -71,6 +71,7 @@ import TabRelatorios from '@/components/contratos/TabRelatorios'
 import SimuladorPedidoModal from '@/components/contratos/SimuladorPedidoModal'
 import AplicarTabelaSinaproModal from '@/components/contratos/AplicarTabelaSinaproModal'
 import PreOsOrgaoSection from '@/components/contratos/PreOsOrgaoSection'
+import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 
 interface TermoAditivo {
   id: string
@@ -617,10 +618,10 @@ export default function DetalheContratoOrgaoPage() {
         await buscarEmpenhos()
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro ao salvar o processo licitatório')
+        toast.error(err.message || 'Erro ao salvar o processo licitatório')
       }
     } catch {
-      alert('Erro ao salvar o processo licitatório')
+      toast.error('Erro ao salvar o processo licitatório')
     } finally {
       setSalvandoProcessoPortal(false)
     }
@@ -670,9 +671,9 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro ao salvar ajuste')
+        toast.error(err.message || 'Erro ao salvar ajuste')
       }
-    } catch { alert('Erro ao salvar ajuste') }
+    } catch { toast.error('Erro ao salvar ajuste') }
     finally { setLoadingAction(false) }
   }
 
@@ -754,11 +755,11 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const error = await res.json()
-        alert(error.message || 'Erro ao criar termo aditivo')
+        toast.error(error.message || 'Erro ao criar termo aditivo')
       }
     } catch (error) {
       console.error('Erro ao criar termo:', error)
-      alert('Erro ao criar termo aditivo')
+      toast.error('Erro ao criar termo aditivo')
     } finally {
       setLoadingAction(false)
     }
@@ -780,16 +781,14 @@ export default function DetalheContratoOrgaoPage() {
       setAjusteItensForm(ajusteItensInicial)
       carregarDados()
     } catch (error: any) {
-      alert(error.message || 'Erro ao conciliar os itens')
+      toast.error(error.message || 'Erro ao conciliar os itens')
     } finally {
       setLoadingAction(false)
     }
   }
 
   const handleReabrirAjusteItensTermo = async (termo: TermoAditivo) => {
-    const confirmado = window.confirm(
-      `Reabrir o ajuste de ${termo.numero_termo}? Os itens voltarão aos valores anteriores para uma nova conferência.`,
-    )
+    const confirmado = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `Reabrir o ajuste de ${termo.numero_termo}? Os itens voltarão aos valores anteriores para uma nova conferência.` }))
     if (!confirmado) return
     setLoadingAction(true)
     try {
@@ -803,9 +802,9 @@ export default function DetalheContratoOrgaoPage() {
       }
       setAjusteItensForm(ajusteItensInicial)
       await carregarDados()
-      alert('Ajuste reaberto. Clique em “Ajustar itens” para informar os valores corretos.')
+      toast('Ajuste reaberto. Clique em “Ajustar itens” para informar os valores corretos.')
     } catch (error: any) {
-      alert(error.message || 'Erro ao reabrir o ajuste dos itens')
+      toast.error(error.message || 'Erro ao reabrir o ajuste dos itens')
     } finally {
       setLoadingAction(false)
     }
@@ -872,18 +871,18 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const error = await res.json()
-        alert(error.message || 'Erro ao editar termo')
+        toast.error(error.message || 'Erro ao editar termo')
       }
     } catch (error) {
       console.error('Erro ao editar termo:', error)
-      alert('Erro ao editar termo aditivo')
+      toast.error('Erro ao editar termo aditivo')
     } finally {
       setLoadingAction(false)
     }
   }
 
   const handleCancelarTermo = async () => {
-    if (!modalCancelarTermo || !confirm('Cancelar este termo aditivo? Os valores do contrato serão revertidos.')) return
+    if (!modalCancelarTermo || !(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Cancelar este termo aditivo? Os valores do contrato serão revertidos.', destrutivo: true }))) return
     setLoadingAction(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/${id}/termos/${modalCancelarTermo.id}/cancelar`, {
@@ -894,18 +893,18 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const error = await res.json()
-        alert(error.message || 'Erro ao cancelar termo')
+        toast.error(error.message || 'Erro ao cancelar termo')
       }
     } catch (error) {
       console.error('Erro ao cancelar termo:', error)
-      alert('Erro ao cancelar termo aditivo')
+      toast.error('Erro ao cancelar termo aditivo')
     } finally {
       setLoadingAction(false)
     }
   }
 
   const handleExcluirTermo = async (termo: TermoAditivo) => {
-    if (!confirm(`Excluir o termo aditivo "${termo.numero_termo}"? O número ficará disponível para um novo termo. Os documentos vinculados permanecerão no contrato.`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir o termo aditivo "${termo.numero_termo}"? O número ficará disponível para um novo termo. Os documentos vinculados permanecerão no contrato.`, destrutivo: true }))) return
     setLoadingAction(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/${id}/termos/${termo.id}`, {
@@ -915,11 +914,11 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const error = await res.json()
-        alert(error.message || 'Erro ao excluir termo')
+        toast.error(error.message || 'Erro ao excluir termo')
       }
     } catch (error) {
       console.error('Erro ao excluir termo:', error)
-      alert('Erro ao excluir termo aditivo')
+      toast.error('Erro ao excluir termo aditivo')
     } finally {
       setLoadingAction(false)
     }
@@ -927,7 +926,7 @@ export default function DetalheContratoOrgaoPage() {
 
   const handleUploadDocumento = async () => {
     if (!arquivoDocumento || !novoDocumento.titulo.trim()) {
-      alert('Selecione um arquivo e preencha o título')
+      toast.warning('Selecione um arquivo e preencha o título')
       return
     }
     setUploadingDoc(true)
@@ -949,11 +948,11 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const err = await res.json()
-        alert(err.message || 'Erro ao enviar documento')
+        toast.error(err.message || 'Erro ao enviar documento')
       }
     } catch (e) {
       console.error('Erro ao enviar documento:', e)
-      alert('Erro ao enviar documento')
+      toast.error('Erro ao enviar documento')
     } finally {
       setUploadingDoc(false)
     }
@@ -972,19 +971,19 @@ export default function DetalheContratoOrgaoPage() {
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
-      alert('Erro ao baixar documento')
+      toast.error('Erro ao baixar documento')
     }
   }
 
   const handleExcluirDocumento = async (docId: string) => {
-    if (!confirm('Excluir este documento?')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Excluir este documento?', destrutivo: true }))) return
     setLoadingAction(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/${id}/documentos/${docId}`, { method: 'DELETE' })
       if (res.ok) carregarDados()
-      else alert('Erro ao excluir')
+      else toast.error('Erro ao excluir')
     } catch (e) {
-      alert('Erro ao excluir documento')
+      toast.error('Erro ao excluir documento')
     } finally {
       setLoadingAction(false)
     }
@@ -1002,11 +1001,11 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const error = await res.json()
-        alert(error.message || 'Erro ao alterar status')
+        toast.error(error.message || 'Erro ao alterar status')
       }
     } catch (error) {
       console.error('Erro ao alterar status:', error)
-      alert('Erro ao alterar status')
+      toast.error('Erro ao alterar status')
     } finally {
       setLoadingAction(false)
     }
@@ -1042,7 +1041,7 @@ export default function DetalheContratoOrgaoPage() {
   }
 
   const handleLiberarContrato = async () => {
-    if (!confirm('Deseja LIBERAR este contrato para pedidos/requisições? Após liberado, o contrato ficará VIGENTE e poderá receber requisições.')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Deseja LIBERAR este contrato para pedidos/requisições? Após liberado, o contrato ficará VIGENTE e poderá receber requisições.' }))) return
     setLoadingAction(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/${id}/liberar`, { method: 'POST' })
@@ -1050,18 +1049,18 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const error = await res.json().catch(() => ({}))
-        alert(error.message || 'Erro ao liberar contrato')
+        toast.error(error.message || 'Erro ao liberar contrato')
       }
     } catch (error) {
       console.error('Erro:', error)
-      alert('Erro ao liberar contrato')
+      toast.error('Erro ao liberar contrato')
     } finally {
       setLoadingAction(false)
     }
   }
 
   const handleRejeitarLiberacao = async () => {
-    const motivo = prompt('Informe o motivo da rejeição (opcional):')
+    const motivo = (await pedirTextoAcao({ titulo: 'Informe o motivo da rejeição (opcional):' }))
     if (motivo === null) return // cancelou o prompt
     setLoadingAction(true)
     try {
@@ -1073,11 +1072,11 @@ export default function DetalheContratoOrgaoPage() {
         carregarDados()
       } else {
         const error = await res.json().catch(() => ({}))
-        alert(error.message || 'Erro ao rejeitar liberação')
+        toast.error(error.message || 'Erro ao rejeitar liberação')
       }
     } catch (error) {
       console.error('Erro:', error)
-      alert('Erro ao rejeitar liberação')
+      toast.error('Erro ao rejeitar liberação')
     } finally {
       setLoadingAction(false)
     }
@@ -1095,7 +1094,7 @@ export default function DetalheContratoOrgaoPage() {
         const data = await res.json()
         setDuplicados(data)
         if (data.total_duplicados > 0) setModalDuplicados(true)
-        else alert('Nenhum item duplicado encontrado.')
+        else toast.warning('Nenhum item duplicado encontrado.')
       }
     } catch { /* ignora */ }
   }
@@ -1109,7 +1108,7 @@ export default function DetalheContratoOrgaoPage() {
         setModalDuplicados(false)
         setDuplicados(null)
         carregarDados()
-        alert(`${data.removidos} item(ns) duplicado(s) removido(s) de ${data.grupos} grupo(s).`)
+        toast(`${data.removidos} item(ns) duplicado(s) removido(s) de ${data.grupos} grupo(s).`)
       }
     } catch { /* ignora */ }
     setRemovendoDuplicados(false)
@@ -1231,7 +1230,7 @@ export default function DetalheContratoOrgaoPage() {
       carregarDados()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido'
-      alert(msg)
+      toast(msg)
     } finally {
       setLoadingAction(false)
     }
@@ -1300,7 +1299,7 @@ export default function DetalheContratoOrgaoPage() {
       if (!text) return
 
       const linhas = text.split('\n').map(l => l.trim()).filter(l => l)
-      if (linhas.length < 2) { alert('Arquivo vazio ou sem dados'); return }
+      if (linhas.length < 2) { toast('Arquivo vazio ou sem dados'); return }
 
       const separador = linhas[0].includes(';') ? ';' : ','
       const headers = linhas[0].split(separador).map(h => normalizarHeader(h.trim().replace(/"/g, '')))
@@ -1333,26 +1332,26 @@ export default function DetalheContratoOrgaoPage() {
         if (result.importados > 0) carregarDados()
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro na importação')
+        toast.error(err.message || 'Erro na importação')
       }
-    } catch (e) { alert('Erro ao importar itens') }
+    } catch (e) { toast.error('Erro ao importar itens') }
     finally { setImportandoCSV(false) }
   }
 
   const handleRemoverItem = async (itemId: string, descricao: string) => {
-    if (!confirm(`Remover item "${descricao}"? Esta ação não pode ser desfeita.`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Remover item "${descricao}"? Esta ação não pode ser desfeita.`, destrutivo: true }))) return
     setLoadingAction(true)
     try {
       const res = await authFetch(`${API_URL}/api/almoxarifado/itens-contrato/${itemId}`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro ao remover item')
+        toast.error(err.message || 'Erro ao remover item')
       } else {
         carregarDados()
       }
     } catch (error) {
       console.error('Erro ao remover item:', error)
-      alert('Erro ao remover item')
+      toast.error('Erro ao remover item')
     } finally {
       setLoadingAction(false)
     }
@@ -1364,14 +1363,14 @@ export default function DetalheContratoOrgaoPage() {
       const res = await authFetch(`${API_URL}/api/almoxarifado/contratos/${id}/itens`, { method: 'DELETE' })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        alert(body.message || 'Erro ao excluir itens')
+        toast.error(body.message || 'Erro ao excluir itens')
         return
       }
       setModalExcluirTodosItens(false)
       setPaginaItens(1)
       carregarDados()
     } catch {
-      alert('Erro ao excluir itens')
+      toast.error('Erro ao excluir itens')
     } finally {
       setExcluindoTodosItens(false)
     }
@@ -1738,7 +1737,7 @@ export default function DetalheContratoOrgaoPage() {
           descontoPct={contrato.remuneracao_publicidade?.desconto_tabela_pct ?? 0}
           open={modalSinapro}
           onOpenChange={setModalSinapro}
-          onApplied={(qtd) => { alert(`${qtd} item(ns) gerado(s) no contrato.`); carregarDados() }}
+          onApplied={(qtd) => { toast(`${qtd} item(ns) gerado(s) no contrato.`); carregarDados() }}
         />
       )}
 
@@ -2042,10 +2041,10 @@ export default function DetalheContratoOrgaoPage() {
                               setEditandoObservacoes(false)
                             } else {
                               const err = await res.json().catch(() => ({}))
-                              alert(err.message || 'Erro ao salvar')
+                              toast.error(err.message || 'Erro ao salvar')
                             }
                           } catch (e) {
-                            alert('Erro ao salvar observações')
+                            toast.error('Erro ao salvar observações')
                           } finally {
                             setLoadingAction(false)
                           }

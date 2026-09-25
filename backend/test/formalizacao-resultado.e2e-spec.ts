@@ -90,7 +90,7 @@ describe('E6 — formalização do resultado (operador × autoridade)', () => {
       { itens: [{ descricao, quantidade: 10, valor_unitario_estimado: 100 }] },
     );
     const item = p.lic.itens[0].id;
-    exigir(await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token)), 201, 'encerrar item');
+    exigir(await http().post(`/api/disputa/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token)), 201, 'encerrar item');
     const c = await convocarAceitacao(ctx, p.sessaoId, item, orgao.token);
     exigir(c, 201, 'convocar aceitação');
     exigir(await enviarPropostaAdequada(ctx, p.sessaoId, c.body.id, A.token, [{ itemId: item, valorUnitario: 89 }]), 201, 'proposta adequada');

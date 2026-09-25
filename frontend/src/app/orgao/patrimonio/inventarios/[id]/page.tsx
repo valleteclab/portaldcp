@@ -18,6 +18,7 @@ import {
 } from "@/services/patrimonio.service"
 import { TransferenciaDialog, BaixaDialog } from "../../movimentacoes/BemAcoes"
 import { FileText } from "lucide-react"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 const STATUS_SETOR: Record<string, { label: string; cls: string }> = {
   PENDENTE: { label: "Não iniciado", cls: "bg-gray-100 text-gray-800" },
@@ -56,7 +57,7 @@ export default function InventarioDetalhePage() {
   }
   const [enviandoTodos, setEnviandoTodos] = useState(false)
   const enviarTodos = async () => {
-    if (!confirm("Enviar o link por WhatsApp a todos os responsáveis dos setores ainda abertos? Quem responde por vários setores recebe uma única mensagem.")) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Enviar o link por WhatsApp a todos os responsáveis dos setores ainda abertos? Quem responde por vários setores recebe uma única mensagem." }))) return
     setEnviandoTodos(true)
     try {
       const r = await enviarLinksInventario(id)
@@ -69,7 +70,7 @@ export default function InventarioDetalhePage() {
   }
   const copiar = (link: string) => { navigator.clipboard.writeText(link); toast.success("Link copiado") }
   const reabrir = async (s: any) => {
-    if (!confirm(`Reabrir a conferência de ${s.setor_nome}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Reabrir a conferência de ${s.setor_nome}?` }))) return
     try { await reabrirSetorInventario(id, s.id); carregar() } catch (e: any) { toast.error(e.message) }
   }
   const salvarEdicao = async () => {
@@ -79,7 +80,7 @@ export default function InventarioDetalhePage() {
     } catch (e: any) { toast.error(e.message) }
   }
   const fechar = async (forcar: boolean) => {
-    if (!confirm(forcar ? "Fechar a campanha mesmo com setores abertos? Os pendentes ficam registrados como não localizados." : "Fechar a campanha de inventário?")) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: forcar ? "Fechar a campanha mesmo com setores abertos? Os pendentes ficam registrados como não localizados." : "Fechar a campanha de inventário?" }))) return
     try { await fecharInventario(id, forcar); toast.success("Campanha fechada"); carregar() } catch (e: any) { toast.error(e.message) }
   }
 

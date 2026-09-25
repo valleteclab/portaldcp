@@ -69,9 +69,6 @@ export interface DadosBeneficio {
   tratamentoDiferenciado?: boolean | null;
   modo?: string | null;
   tipoLicitacao?: string | null;
-  /** Legado (somente leitura): só vale quando `tipoLicitacao` é NENHUM/vazio. */
-  exclusivoLegado?: boolean | null;
-  cotaLegado?: boolean | null;
   /** Lote da unidade (POR_LOTE) */
   tipoLote?: string | null;
   /** Item (POR_ITEM): AMPLA | EXCLUSIVO_MPE | COTA_RESERVADA. No lote: os itens do lote. */
@@ -123,12 +120,9 @@ export function beneficioDaUnidade(d: DadosBeneficio): BeneficioUnidade {
     if (tipos.length === 1) return montar(tipos[0]);
     return montar(tipos.some((t) => t === 'COTA_RESERVADA') ? 'COTA_RESERVADA' : 'NENHUM');
   }
-  let tipo = normTipo(d.tipoLicitacao);
-  if (tipo === 'NENHUM') {
-    if (d.exclusivoLegado) tipo = 'EXCLUSIVO';
-    else if (d.cotaLegado) tipo = 'COTA_RESERVADA';
-  }
-  return montar(tipo);
+  // E9: só `tipo_beneficio_mpe` (o legado exclusivo_mpe/cota_reservada foi
+  // convertido pela migração da E3 e não é mais lido)
+  return montar(normTipo(d.tipoLicitacao));
 }
 
 /** Participação na unidade: exclusiva/cota recusa quem não é ME/EPP enquadrada. */

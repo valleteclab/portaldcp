@@ -1,4 +1,4 @@
-import type { ExecutorSql } from '../disputa-v2/migracao-lances';
+import type { ExecutorSql } from '../disputa/migracao-lances';
 import { pendenciasPublicacao } from '../julgamento/criterios-julgamento';
 import { pendenciasEditalConcurso, pendenciasPremiacao } from './regras-concurso';
 

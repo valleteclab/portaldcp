@@ -2,7 +2,6 @@
 
 import { Sidebar, Header } from "@/components/layout/navigation"
 import { AuthGuard } from "@/components/auth/auth-guard"
-import { Toaster } from "sonner"
 import { AssistenteIA } from "@/components/assistente-ia/AssistenteIA"
 import { MedicoesBriefingModal } from "@/components/MedicoesBriefingModal"
 
@@ -24,7 +23,6 @@ export default function OrgaoLayout({
           </main>
         </div>
       </div>
-      <Toaster />
       <AssistenteIA />
       <MedicoesBriefingModal />
     </AuthGuard>

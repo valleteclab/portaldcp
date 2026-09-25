@@ -1,4 +1,4 @@
-import type { ExecutorSql } from '../../disputa-v2/migracao-lances';
+import type { ExecutorSql } from '../../disputa/migracao-lances';
 import {
   BeneficioUnidade,
   ConferenciaArt48,
@@ -16,7 +16,7 @@ import {
  */
 
 const LICITACAO_COLS = `l.id AS licitacao_id, l.modalidade::text AS modalidade, l.tratamento_diferenciado_mpe, l.modo_beneficio_mpe,
-  l.tipo_beneficio_mpe AS tipo_licitacao, l.exclusivo_mpe AS exclusivo_legado, l.cota_reservada AS cota_legado,
+  l.tipo_beneficio_mpe AS tipo_licitacao,
   l.percentual_cota_reservada AS percentual_licitacao, COALESCE(l.base_lance, 'TOTAL_ITEM') AS base_lance`;
 
 export interface UnidadeBeneficio {
@@ -32,8 +32,6 @@ const dadosDaLinha = (r: any, tipos: Array<string | null>, ehCota: boolean, tipo
   tratamentoDiferenciado: r.tratamento_diferenciado_mpe,
   modo: r.modo_beneficio_mpe,
   tipoLicitacao: r.tipo_licitacao,
-  exclusivoLegado: r.exclusivo_legado,
-  cotaLegado: r.cota_legado,
   tipoLote,
   tiposParticipacaoItens: tipos,
   ehCota,

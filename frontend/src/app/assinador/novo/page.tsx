@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, ArrowRight, Upload, Info, ShieldCheck, Plus, Trash2, Search, Check, Users, Building2, Briefcase, Globe, ChevronDown, Loader2 } from 'lucide-react';
 import { assinadorFetch, assinadorGet } from '@/lib/assinador-api';
 import { API_URL } from '@/lib/api';
+import { toast } from "sonner"
 
 // ---- Stepper ----
 function Stepper({ steps, current }: { steps: string[]; current: number }) {
@@ -655,7 +656,7 @@ export default function NovoPage() {
       const doc = await res.json();
       router.push(`/assinador/enviado?id=${doc.id}`);
     } catch (err: any) {
-      alert(err.message || 'Erro ao enviar documento');
+      toast.error(err.message || 'Erro ao enviar documento');
     } finally {
       setSending(false);
     }

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * E2 — MOTOR DE LANCES ÚNICO (disputa-v2), contra o banco real
+ * E2 — MOTOR DE LANCES ÚNICO (disputa), contra o banco real
  * ============================================================================
  *
  *  A. Regras do lance (IN SEGES 73/2022 arts. 21–22; Lei 14.133 art. 56 §3º):
@@ -29,7 +29,7 @@ import {
 } from './support';
 import { aguardarUmDe, darLance, desligarLimiteDeRequisicoes, entrarNaSala, pararTodosOsCrons } from './support/pregao';
 import { prepararPregaoEmDisputa } from './support/isolamento';
-import { hashCanonico } from '../src/disputa-v2/disputa.service';
+import { hashCanonico } from '../src/disputa/disputa.service';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const UM = [{ descricao: 'Item único E2', quantidade: 1, valor_unitario_estimado: 100 }];
@@ -146,16 +146,16 @@ describe('E2 — motor de lances único', () => {
     });
 
     test('intervalo de TEMPO entre lances do próprio fornecedor: padrão 0; configurado 1 min recusa; 0 volta a aceitar', async () => {
-      const cfg = await http().get(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`).expect(200);
+      const cfg = await http().get(`/api/disputa/sessao/${sessaoId}/configuracoes`).expect(200);
       expect(cfg.body.cancelamento_direto_segundos).toBe(15);
       expect(cfg.body.diferenca_minima_lances).toEqual({ tipo: 'VALOR', valor: 2 });
 
-      await http().put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ intervalo_minimo_lances_minutos: 1 }).expect(200);
+      await http().put(`/api/disputa/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ intervalo_minimo_lances_minutos: 1 }).expect(200);
       const r = await darLance(s2, sessaoId, item1, 93);
       expect(r.ok).toBe(false);
       expect(r.mensagem).toMatch(/Intervalo mínimo entre seus lances/i);
 
-      await http().put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ intervalo_minimo_lances_minutos: 0 }).expect(200);
+      await http().put(`/api/disputa/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ intervalo_minimo_lances_minutos: 0 }).expect(200);
       expect((await darLance(s2, sessaoId, item1, 93)).ok).toBe(true);
     });
 
@@ -188,7 +188,7 @@ describe('E2 — motor de lances único', () => {
       expect(JSON.stringify(mf)).not.toContain(F1.id);
       expect(JSON.stringify(mf)).not.toContain(F1.razao_social);
 
-      const r = await http().get(`/api/disputa-v2/sessao/${sessaoId}/mensagens`).set(bearer(orgao.token)).expect(200);
+      const r = await http().get(`/api/disputa/sessao/${sessaoId}/mensagens`).set(bearer(orgao.token)).expect(200);
       const tipos = new Set(r.body.map((m: any) => m.tipo));
       for (const t of tipos) expect(['PREGOEIRO', 'FORNECEDOR', 'SISTEMA']).toContain(t);
       expect(r.body.some((m: any) => /Lance de R\$/.test(m.conteudo))).toBe(false);
@@ -201,7 +201,7 @@ describe('E2 — motor de lances único', () => {
     });
 
     test('CHAT desabilitado: fornecedor recebe erro; o pregoeiro continua falando', async () => {
-      await http().put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ chat_desabilitado: true }).expect(200);
+      await http().put(`/api/disputa/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ chat_desabilitado: true }).expect(200);
       const r = aguardarUmDe(s1, ['erro', 'nova_mensagem']);
       s1.emit('enviar_mensagem', { sessaoId, conteudo: 'Tentativa com chat fechado' });
       const ev = await r;
@@ -211,7 +211,7 @@ describe('E2 — motor de lances único', () => {
       const ok = aguardarUmDe(sp, ['erro', 'nova_mensagem']);
       sp.emit('enviar_mensagem', { sessaoId, conteudo: 'Pregoeiro com chat fechado' });
       expect((await ok).evento).toBe('nova_mensagem');
-      await http().put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ chat_desabilitado: false }).expect(200);
+      await http().put(`/api/disputa/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ chat_desabilitado: false }).expect(200);
     });
 
     test('item_encerrado com outro item em disputa: fornecedor recebe o vencedor ANÔNIMO; órgão recebe a identidade', async () => {
@@ -228,9 +228,9 @@ describe('E2 — motor de lances único', () => {
       expect(o.vencedor.fornecedorId).toBe(F2.id);
 
       // leituras REST do item encerrado também seguem sem identidade para não-donos
-      const m = await http().get(`/api/disputa-v2/item/${item1}/melhores`).set(bearer(F3.token)).expect(200);
+      const m = await http().get(`/api/disputa/item/${item1}/melhores`).set(bearer(F3.token)).expect(200);
       expect(JSON.stringify(m.body)).not.toContain(F2.id);
-      const pub = await http().get(`/api/disputa-v2/item/${item1}/lances`).expect(200);
+      const pub = await http().get(`/api/disputa/item/${item1}/lances`).expect(200);
       expect(JSON.stringify(pub.body)).not.toContain(F2.id);
     });
 
@@ -240,7 +240,7 @@ describe('E2 — motor de lances único', () => {
       const f = await paraF1;
       expect(f.etapaDeLancesEncerrada).toBe(true);
       expect(f.vencedor.fornecedorId).toBe(F3.id);
-      const m = await http().get(`/api/disputa-v2/item/${item1}/melhores`).set(bearer(F3.token)).expect(200);
+      const m = await http().get(`/api/disputa/item/${item1}/melhores`).set(bearer(F3.token)).expect(200);
       expect(m.body[0].fornecedorId).toBe(F2.id);
     });
 
@@ -306,9 +306,9 @@ describe('E2 — motor de lances único', () => {
       expect(ativosAntes).toBeGreaterThanOrEqual(5);
       const codigosAntes = await ctx.dataSource.query(`SELECT fornecedor_id, codigo_anonimo FROM mapeamento_anonimo WHERE sessao_id = $1 ORDER BY indice`, [sessaoId]);
 
-      await http().post(`/api/disputa-v2/sessao/${sessaoId}/reiniciar`).set(bearer(orgao.token)).send({ justificativa: '  ' }).expect(400);
+      await http().post(`/api/disputa/sessao/${sessaoId}/reiniciar`).set(bearer(orgao.token)).send({ justificativa: '  ' }).expect(400);
       const r = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/reiniciar`)
+        .post(`/api/disputa/sessao/${sessaoId}/reiniciar`)
         .set(bearer(orgao.token))
         .send({ justificativa: 'Falha de conexão generalizada comprovada' })
         .expect(201);
@@ -332,7 +332,7 @@ describe('E2 — motor de lances único', () => {
 
     test('reabrir o item recria uma proposta-lance ativa por fornecedor (índice único impede duplicata)', async () => {
       await http().put(`/api/sessao/${sessaoId}/iniciar`).set(bearer(orgao.token));
-      const ini = await http().post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
+      const ini = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
       expect(ini.status).toBe(201);
       expect(ini.body.itensIniciados).toBe(1);
       const ativos = await ctx.dataSource.query(

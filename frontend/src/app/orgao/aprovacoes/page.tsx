@@ -311,11 +311,11 @@ export default function CentralAprovacoesPage() {
     setBaixandoBoletim(medicao.id);
     try {
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/boletim-oficial`);
-      if (!res.ok) { alert('Boletim não disponível'); return; }
+      if (!res.ok) { toast('Boletim não disponível'); return; }
       const boletim = await res.json();
-      if (!boletim?.pdf_url) { alert('Boletim não disponível'); return; }
+      if (!boletim?.pdf_url) { toast('Boletim não disponível'); return; }
       const fileRes = await fetch(boletim.pdf_url.startsWith('http') ? boletim.pdf_url : `${API_URL}${boletim.pdf_url}`);
-      if (!fileRes.ok) { alert('Erro ao baixar arquivo'); return; }
+      if (!fileRes.ok) { toast.error('Erro ao baixar arquivo'); return; }
       const blob = await fileRes.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -521,11 +521,11 @@ export default function CentralAprovacoesPage() {
         await carregarContratos();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao liberar contrato');
+        toast.error(error.message || 'Erro ao liberar contrato');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao liberar contrato');
+      toast.error('Erro ao liberar contrato');
     } finally {
       setProcessando(false);
     }
@@ -545,11 +545,11 @@ export default function CentralAprovacoesPage() {
         await carregarContratos();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao rejeitar contrato');
+        toast.error(error.message || 'Erro ao rejeitar contrato');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao rejeitar liberação');
+      toast.error('Erro ao rejeitar liberação');
     } finally {
       setProcessando(false);
     }
@@ -580,11 +580,11 @@ export default function CentralAprovacoesPage() {
         await carregarRequisicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao aprovar requisição');
+        toast.error(error.message || 'Erro ao aprovar requisição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao aprovar requisição');
+      toast.error('Erro ao aprovar requisição');
     } finally {
       setProcessando(false);
     }
@@ -604,11 +604,11 @@ export default function CentralAprovacoesPage() {
         await carregarRequisicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao negar requisição');
+        toast.error(error.message || 'Erro ao negar requisição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao negar requisição');
+      toast.error('Erro ao negar requisição');
     } finally {
       setProcessando(false);
     }
@@ -678,11 +678,11 @@ export default function CentralAprovacoesPage() {
         await carregarRequisicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao devolver requisição');
+        toast.error(error.message || 'Erro ao devolver requisição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao devolver requisição');
+      toast.error('Erro ao devolver requisição');
     } finally {
       setProcessando(false);
     }
@@ -708,10 +708,10 @@ export default function CentralAprovacoesPage() {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(urlObj);
       } else {
-        alert(isOF ? 'PDF não disponível. A OF pode ainda estar sendo processada.' : 'PDF não disponível. A OS pode ainda estar sendo processada.');
+        toast(isOF ? 'PDF não disponível. A OF pode ainda estar sendo processada.' : 'PDF não disponível. A OS pode ainda estar sendo processada.');
       }
     } catch {
-      alert('Erro ao baixar PDF');
+      toast.error('Erro ao baixar PDF');
     } finally {
       setBaixandoPdf(false);
     }
@@ -738,16 +738,16 @@ export default function CentralAprovacoesPage() {
         const data = await res.json();
         const n = data.notificacoes_fornecedor;
         if (tipo === 'email') {
-          alert(n?.email ? 'Email enviado ao fornecedor!' : 'Email não pôde ser enviado. Verifique o endereço.');
+          toast(n?.email ? 'Email enviado ao fornecedor!' : 'Email não pôde ser enviado. Verifique o endereço.');
         } else {
-          alert(n?.whatsapp ? 'WhatsApp enviado ao fornecedor!' : 'WhatsApp não pôde ser enviado. Verifique o telefone.');
+          toast(n?.whatsapp ? 'WhatsApp enviado ao fornecedor!' : 'WhatsApp não pôde ser enviado. Verifique o telefone.');
         }
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao enviar notificação');
+        toast.error(error.message || 'Erro ao enviar notificação');
       }
     } catch {
-      alert('Erro ao enviar notificação ao fornecedor');
+      toast.error('Erro ao enviar notificação ao fornecedor');
     } finally {
       setEnviandoFornecedor(null);
     }
@@ -770,10 +770,10 @@ export default function CentralAprovacoesPage() {
         await carregarOrdensServico();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao aprovar OS');
+        toast.error(error.message || 'Erro ao aprovar OS');
       }
     } catch (error) {
-      alert('Erro ao aprovar OS');
+      toast.error('Erro ao aprovar OS');
     } finally {
       setProcessando(false);
     }
@@ -794,10 +794,10 @@ export default function CentralAprovacoesPage() {
         await carregarOrdensServico();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao rejeitar OS');
+        toast.error(error.message || 'Erro ao rejeitar OS');
       }
     } catch (error) {
-      alert('Erro ao rejeitar OS');
+      toast.error('Erro ao rejeitar OS');
     } finally {
       setProcessando(false);
     }
@@ -836,11 +836,11 @@ export default function CentralAprovacoesPage() {
         await carregarMedicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao aprovar medição');
+        toast.error(error.message || 'Erro ao aprovar medição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao aprovar medição');
+      toast.error('Erro ao aprovar medição');
     } finally {
       setProcessando(false);
     }
@@ -878,11 +878,11 @@ export default function CentralAprovacoesPage() {
         await carregarMedicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao rejeitar medição');
+        toast.error(error.message || 'Erro ao rejeitar medição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao rejeitar medição');
+      toast.error('Erro ao rejeitar medição');
     } finally {
       setProcessando(false);
     }

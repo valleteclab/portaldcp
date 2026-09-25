@@ -14,7 +14,7 @@ import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dt
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item-licitacao.entity';
 import { gerarAtaDispensaPdf, DadosAtaDispensa } from './ata-dispensa-pdf';
-import { JanelaDispensaService } from '../disputa-v2/janela-dispensa.service';
+import { JanelaDispensaService } from '../disputa/janela-dispensa.service';
 import { FaseInternaService } from '../fase-interna/fase-interna.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
@@ -30,13 +30,16 @@ import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
 import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
 import { ehFaseInterna, ROTULO_FASE } from './transicoes/fases';
 import { camposDoEditalAlterados, mesmoValor, normalizarNaturezaObjeto } from '../publicacao/regras-publicacao';
-import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
+import { motivoModoCriterioInvalido } from '../disputa/modos-disputa';
 import { motivoModalidadeCriterioInvalido } from '../modalidades-especiais/perfil-modalidade';
 import { motivoInversaoInvalida } from '../habilitacao/regras-habilitacao';
 import { desempatarNoAto } from '../julgamento/desempate.sql';
 import { ResultadoService, EntradaAdjudicacao } from '../resultado/resultado.service';
 import { valorAdjudicadoDoUnitario } from '../resultado/regras-resultado';
 import type { Ator } from '../auth/acesso/ator';
+import { aplicarEstadoCompraPncp, estadoCompraPncp } from '../pncp/estado-compra-pncp';
+import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
+import { comoErro } from '../common/erros';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -114,7 +117,7 @@ export class LicitacoesService {
       await this.notificacoesService.criar({
         orgao_id: licitacao.orgao_id,
         usuario_id: licitacao.orgao_id,
-        usuario_email: (demanda as any).responsavel_email || undefined,
+        usuario_email: demanda.responsavel_email || undefined,
         tipo,
         titulo,
         mensagem,
@@ -122,7 +125,8 @@ export class LicitacoesService {
         entidade_id: demanda.id,
         link: `/orgao/demandas/${demanda.id}`,
       } as any);
-    } catch (e: any) {
+    } catch (eCapturado: unknown) {
+      const e = comoErro(eCapturado);
       this.logger.warn(`Notificação da demanda de origem não enviada: ${e.message}`);
     }
   }
@@ -145,8 +149,8 @@ export class LicitacoesService {
     const vedacaoModalidade = motivoModalidadeCriterioInvalido(createDto.modalidade, createDto.criterio_julgamento, createDto.modo_disputa);
     if (vedacaoModalidade) throw new BadRequestException(vedacaoModalidade);
     // Natureza do objeto (art. 6º XIII/XIV — prazo do art. 55, II; E7a)
-    if ((createDto as any).natureza_objeto !== undefined) {
-      (createDto as any).natureza_objeto = this.naturezaValida((createDto as any).natureza_objeto);
+    if (createDto.natureza_objeto !== undefined) {
+      createDto.natureza_objeto = this.naturezaValida(createDto.natureza_objeto);
     }
     // Inversão de fases (art. 17 §1º; plano E4): só concorrência
     const vedacaoInversao = motivoInversaoInvalida({
@@ -175,7 +179,8 @@ export class LicitacoesService {
     let beneficioMpe: ReturnType<typeof normalizarBeneficioMpeLicitacao>;
     try {
       beneficioMpe = normalizarBeneficioMpeLicitacao(createDto as any);
-    } catch (e: any) {
+    } catch (eCapturado: unknown) {
+      const e = comoErro(eCapturado);
       throw new BadRequestException(e?.message ?? 'Benefício ME/EPP inválido');
     }
 
@@ -436,7 +441,8 @@ export class LicitacoesService {
           JSON.stringify(dadosDfd),
         ],
       );
-    } catch (e: any) {
+    } catch (eCapturado: unknown) {
+      const e = comoErro(eCapturado);
       this.logger.warn(`DFD automático da demanda não gerado: ${e.message}`);
     }
 
@@ -463,11 +469,13 @@ export class LicitacoesService {
     if (filtros?.orgao_id) where.orgao_id = filtros.orgao_id;
     if (filtros?.demanda_id) where.demanda_id = filtros.demanda_id;
 
-    return await this.licitacaoRepository.find({
+    const lista = await this.licitacaoRepository.find({
       where,
       relations: ['orgao'],
       order: { created_at: 'DESC' }
     });
+    // Estado da compra no PNCP vem da fila (E9); mesmos campos para as telas
+    return aplicarEstadoCompraPncp(this.dataSource.manager, lista);
   }
 
   async findOne(id: string): Promise<any> {
@@ -490,6 +498,18 @@ export class LicitacoesService {
       data_abertura_sessao: formatarDataLocal(licitacao.data_abertura_sessao),
     };
     
+    return resultado;
+  }
+
+  /**
+   * Leitura para as telas: `findOne` + estado da compra no PNCP vindo da fila
+   * (E9). Não usar o retorno para gravar (o `update` usa `findOne`).
+   */
+  async findOneParaLeitura(id: string): Promise<any> {
+    const resultado = await this.findOne(id);
+    await aplicarEstadoCompraPncp(this.dataSource.manager, [resultado]);
+    // Pregoeiro: usuário vinculado é a fonte; texto livre só sem vínculo (E9)
+    resultado.pregoeiro_nome = await nomeDoPregoeiroSql(this.dataSource.manager, id);
     return resultado;
   }
 
@@ -521,6 +541,20 @@ export class LicitacoesService {
     // (gate documental, E1.7) ou o PUBLICAR a marcam.
     for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao']) {
       delete dadosLicitacao[campo];
+    }
+
+    // Pregoeiro/agente (E9): só usuário ATIVO do próprio órgão da licitação
+    // (a tela escolhe da lista de usuários; id de outro órgão → 400).
+    if (dadosLicitacao.pregoeiro_id !== undefined) {
+      if (!dadosLicitacao.pregoeiro_id) {
+        dadosLicitacao.pregoeiro_id = null;
+      } else {
+        const [usuario] = await this.licitacaoRepository.query(
+          `SELECT id FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2 AND ativo = true`,
+          [String(dadosLicitacao.pregoeiro_id), String(licitacao.orgao_id)],
+        );
+        if (!usuario) throw new BadRequestException('Pregoeiro/agente de contratação deve ser um usuário ativo do órgão');
+      }
     }
 
     // EDITAL PUBLICADO (plano E7a — Lei 14.133/2021, art. 55 §1º): regra do
@@ -577,7 +611,8 @@ export class LicitacoesService {
     // Benefício ME/EPP (LC 123 art. 48): fonte da verdade = tipo_beneficio_mpe; legado derivado
     try {
       Object.assign(dadosLicitacao, normalizarBeneficioMpeLicitacao(dadosLicitacao, licitacao as any));
-    } catch (e: any) {
+    } catch (eCapturado: unknown) {
+      const e = comoErro(eCapturado);
       throw new BadRequestException(e?.message ?? 'Benefício ME/EPP inválido');
     }
     Object.assign(licitacao, dadosLicitacao);
@@ -974,7 +1009,7 @@ export class LicitacoesService {
 
     const itens = await this.itemRepository.find({
       where: { licitacao_id: id },
-      order: { numero_item: 'ASC' } as any,
+      order: { numero_item: 'ASC' },
     });
 
     const [documentos, contratos, atas, propostas] = await Promise.all([
@@ -1051,7 +1086,7 @@ export class LicitacoesService {
         fase: licitacao.fase,
         situacao: licitacao.situacao ?? SituacaoLicitacao.ATIVA,
         fase_anterior: licitacao.fase_anterior ?? null,
-        srp: (licitacao as any).srp ?? false,
+        srp: licitacao.srp ?? false,
         valor_total_estimado: licitacao.valor_total_estimado,
         valor_homologado: licitacao.valor_homologado,
         data_homologacao: licitacao.data_homologacao,
@@ -1064,15 +1099,15 @@ export class LicitacoesService {
         data_abertura_sessao: licitacao.data_abertura_sessao,
         dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
         dispensa_lances_fim: licitacao.dispensa_lances_fim,
-        link_pncp: (licitacao as any).link_pncp ?? null,
-        preparacao_automatica: (licitacao as any).preparacao_automatica ?? null,
+        link_pncp: (await estadoCompraPncp(this.dataSource.manager, [licitacao.id])).get(licitacao.id)?.link_pncp ?? licitacao.link_pncp ?? null,
+        preparacao_automatica: licitacao.preparacao_automatica ?? null,
       },
       item_pca: licitacao.item_pca
         ? {
             id: licitacao.item_pca.id,
-            numero_item: (licitacao.item_pca as any).numero_item,
-            descricao_objeto: (licitacao.item_pca as any).descricao_objeto,
-            valor_estimado: (licitacao.item_pca as any).valor_estimado,
+            numero_item: licitacao.item_pca.numero_item,
+            descricao_objeto: licitacao.item_pca.descricao_objeto,
+            valor_estimado: licitacao.item_pca.valor_estimado,
           }
         : null,
       demanda: licitacao.demanda
@@ -1084,10 +1119,10 @@ export class LicitacoesService {
         : null,
       itens: itens.map((i) => ({
         id: i.id,
-        numero_item: (i as any).numero_item,
+        numero_item: i.numero_item,
         descricao: (i as any).descricao,
-        quantidade: (i as any).quantidade,
-        unidade_medida: (i as any).unidade_medida,
+        quantidade: i.quantidade,
+        unidade_medida: i.unidade_medida,
         valor_unitario_estimado: i.valor_unitario_estimado,
         valor_unitario_homologado: i.valor_unitario_homologado,
         valor_total_homologado: i.valor_total_homologado,
@@ -1161,7 +1196,7 @@ export class LicitacoesService {
       const valorUnit = Number(r.valor_unitario);
       if (!(valorUnit > 0)) {
         throw new BadRequestException(
-          `Valor unitário inválido para o item ${(item as any).numero_item}`,
+          `Valor unitário inválido para o item ${item.numero_item}`,
         );
       }
       const forn = await this.dataSource.query(
@@ -1180,11 +1215,11 @@ export class LicitacoesService {
     const entradas: EntradaAdjudicacao[] = alteracoes.map((a) => ({
       tipo: 'ITEM',
       unidadeId: a.item.id,
-      numero: Number((a.item as any).numero_item),
+      numero: Number(a.item.numero_item),
       fornecedorId: a.fornecedor_id,
       valores: [
         valorAdjudicadoDoUnitario(
-          { itemId: a.item.id, numero: Number((a.item as any).numero_item), quantidade: Number((a.item as any).quantidade || 0) },
+          { itemId: a.item.id, numero: Number(a.item.numero_item), quantidade: Number(a.item.quantidade || 0) },
           a.valorUnit,
         ),
       ],
@@ -1353,17 +1388,17 @@ export class LicitacoesService {
     for (const item of itens) {
       const v = vencedorPorItem.get(item.id);
       if (!v) {
-        semProposta.push((item as any).numero_item);
+        semProposta.push(item.numero_item);
         continue;
       }
       const valor = valorAdjudicadoDoUnitario(
-        { itemId: item.id, numero: Number((item as any).numero_item), quantidade: Number((item as any).quantidade || 0) },
+        { itemId: item.id, numero: Number(item.numero_item), quantidade: Number(item.quantidade || 0) },
         Number(v.valor_unitario),
       );
       entradas.push({ tipo: 'ITEM', unidadeId: item.id, numero: valor.numero, fornecedorId: v.fornecedor_id, valores: [valor] });
       propostasVencedoras.add(v.proposta_id);
       adjudicados.push({
-        item: (item as any).numero_item,
+        item: item.numero_item,
         fornecedor: v.razao_social,
         valor_unitario: valor.valorUnitario,
         valor_total: valor.valorTotal,
@@ -1412,7 +1447,7 @@ export class LicitacoesService {
    * Abre a fase de LANCES da dispensa (opcional — modelo IN SEGES 67/2021).
    * Camada de PROCESSO aqui (modalidade, situação, homologação, fim do
    * acolhimento); a janela em si é do motor único (JanelaDispensaService:
-   * sala, relógio, chat, tempo real no gateway /disputa-v2).
+   * sala, relógio, chat, tempo real no gateway /disputa).
    */
   async abrirLancesDispensa(
     id: string,
@@ -1476,7 +1511,7 @@ export class LicitacoesService {
     }
     const itens = await this.itemRepository.find({
       where: { licitacao_id: id },
-      order: { numero_item: 'ASC' } as any,
+      order: { numero_item: 'ASC' },
     });
     const houveJulgamento =
       !!licitacao.data_homologacao || itens.some((i) => i.fornecedor_vencedor_id);
@@ -1683,6 +1718,7 @@ export class LicitacoesService {
       .createQueryBuilder('licitacao')
       .leftJoinAndSelect('licitacao.orgao', 'orgao')
       .leftJoinAndSelect('licitacao.itens', 'itens')
+      .leftJoin('licitacao.pregoeiro', 'pregoeiro')
       .select([
         'licitacao.id',
         'licitacao.numero_processo',
@@ -1705,7 +1741,12 @@ export class LicitacoesService {
         'licitacao.data_fim_acolhimento',
         'licitacao.data_abertura_sessao',
         'licitacao.pregoeiro_nome',
-        'licitacao.exclusivo_mpe',
+        'pregoeiro.id',
+        'pregoeiro.nome',
+        'licitacao.exclusivo_mpe', // derivado de tipo_beneficio_mpe (a tela pública já usa tipo_beneficio_mpe — E9b)
+        'licitacao.tipo_beneficio_mpe',
+        'licitacao.modo_beneficio_mpe',
+        'licitacao.percentual_cota_reservada',
         'licitacao.tratamento_diferenciado_mpe',
         'licitacao.srp',
         'orgao.id',
@@ -1740,6 +1781,11 @@ export class LicitacoesService {
     if (!licitacao) {
       throw new NotFoundException('Licitação pública não encontrada');
     }
+
+    // Pregoeiro: usuário vinculado (fonte, E9); o texto livre só sem vínculo.
+    // Só o NOME sai na rota pública.
+    licitacao.pregoeiro_nome = nomeDoPregoeiro(licitacao) as string;
+    delete (licitacao as Partial<Licitacao>).pregoeiro;
 
     // Orçamento sigiloso (art. 24) não sai em rota pública
     return licitacaoParaPublico(licitacao);

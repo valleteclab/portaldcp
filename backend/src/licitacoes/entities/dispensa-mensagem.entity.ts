@@ -10,7 +10,7 @@ import {
  * @deprecated E2 item 7/10 — o chat da dispensa é o CHAT ÚNICO da sala
  * (eventos_sessao MENSAGEM_*, via JanelaDispensaService/DisputaService).
  * Esta tabela NÃO é mais escrita; fica só como origem da migração
- * (disputa-v2/migracao-dispensa.ts) e para conferência — remoção na E9.
+ * (disputa/migracao-dispensa.ts) e para conferência — remoção na E9.
  *
  * (Histórico) Chat da DISPENSA ELETRÔNICA — registrado nos autos (transparência).
  * Usado para avisos do órgão e para a NEGOCIAÇÃO pós-lances com o melhor

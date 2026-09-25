@@ -40,6 +40,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { UnidadeMedidaSelect } from './UnidadeMedidaSelect'
 
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 const API_COMPRAS_GOV = 'https://dadosabertos.compras.gov.br'
 
 interface ClassificacaoItem {
@@ -205,7 +206,7 @@ export function ImportarParaPCA({ pcaId, onImportSuccess }: ImportarParaPCAProps
       }
     } catch (error) {
       console.error('Erro ao ler arquivo:', error)
-      alert('Erro ao ler arquivo JSON. Verifique se o formato está correto.')
+      toast.error('Erro ao ler arquivo JSON. Verifique se o formato está correto.')
     } finally {
       setLoading(false)
     }
@@ -304,7 +305,7 @@ export function ImportarParaPCA({ pcaId, onImportSuccess }: ImportarParaPCAProps
         setItemAtualIndex(itemAtualIndex + 1)
       }
     } else {
-      alert('Preencha todos os campos obrigatórios antes de continuar.')
+      toast.warning('Preencha todos os campos obrigatórios antes de continuar.')
     }
   }
 
@@ -316,7 +317,7 @@ export function ImportarParaPCA({ pcaId, onImportSuccess }: ImportarParaPCAProps
 
   const iniciarPreenchimento = () => {
     if (itensSelecionados.length === 0) {
-      alert('Selecione pelo menos um item para importar.')
+      toast.warning('Selecione pelo menos um item para importar.')
       return
     }
     setItemAtualIndex(0)
@@ -325,7 +326,7 @@ export function ImportarParaPCA({ pcaId, onImportSuccess }: ImportarParaPCAProps
 
   const importarItens = async () => {
     if (!validarItemAtual()) {
-      alert('Preencha todos os campos obrigatórios.')
+      toast.warning('Preencha todos os campos obrigatórios.')
       return
     }
     marcarPreenchido()

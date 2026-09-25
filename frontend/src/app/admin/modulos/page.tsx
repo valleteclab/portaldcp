@@ -39,6 +39,7 @@ import {
   Mail,
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface Orgao {
   id: string
@@ -162,11 +163,11 @@ export default function AdminModulosPage() {
         return
       } else {
         const error = await res.json()
-        alert(error.message || 'Erro ao salvar módulos')
+        toast.error(error.message || 'Erro ao salvar módulos')
       }
     } catch (error) {
       console.error('Erro ao salvar:', error)
-      alert('Erro ao salvar módulos')
+      toast.error('Erro ao salvar módulos')
     } finally {
       setSaving(false)
     }

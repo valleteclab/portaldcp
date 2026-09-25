@@ -74,6 +74,7 @@ import {
   validadeDoCredenciado,
 } from './regras-credenciamento';
 import { estadoEditalCredenciamentoSql } from './credenciamento.sql';
+import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ehUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
@@ -581,7 +582,7 @@ export class CredenciamentoService {
   private readonly SQL_PUBLICO = `
     SELECT l.id, l.numero_processo, l.numero_edital, l.objeto, l.objeto_detalhado, l.tipo_contratacao::text AS tipo_contratacao,
            l.fase::text AS fase, COALESCE(l.situacao::text, 'ATIVA') AS situacao, l.data_publicacao_edital,
-           l.data_inicio_acolhimento, l.data_fim_acolhimento, l.valor_total_estimado, l.link_pncp, l.numero_controle_pncp,
+           l.data_inicio_acolhimento, l.data_fim_acolhimento, l.valor_total_estimado, l.link_pncp,
            c.hipotese, c.regra_distribuicao, c.vigencia_inicio, c.vigencia_fim, c.validade_credenciado_meses,
            c.condicoes_padronizadas, c.regras_distribuicao_texto, c.prazo_denuncia_dias,
            o.id::text AS orgao_id, o.nome AS orgao_nome, o.cnpj AS orgao_cnpj, o.cidade AS orgao_cidade, o.uf AS orgao_uf
@@ -633,6 +634,7 @@ export class CredenciamentoService {
       sql += ` AND o.uf = $2`;
     }
     const rows = await this.ds.query(`${sql} ORDER BY l.data_publicacao_edital DESC NULLS LAST`, params);
+    await aplicarEstadoCompraPncp(this.ds.manager, rows);
     return rows.map((r: any) => this.visaoPublica(r));
   }
 
@@ -640,6 +642,7 @@ export class CredenciamentoService {
   async publicoPorId(id: string) {
     if (!ehUuid(id)) throw new NotFoundException('Credenciamento público não encontrado');
     const [r] = await this.ds.query(`${this.SQL_PUBLICO} AND l.id::text = $2`, [FASES_INTERNAS, id]);
+    if (r) await aplicarEstadoCompraPncp(this.ds.manager, [r]);
     if (!r) throw new NotFoundException('Credenciamento público não encontrado');
     const m = this.ds.manager;
     await this.normalizarDescredenciamentos(m, id);

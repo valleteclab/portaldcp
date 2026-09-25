@@ -17,6 +17,22 @@ export class PcaService {
     private itemCatalogoRepository: Repository<ItemCatalogoProprio>,
   ) {}
 
+  // ============ DONO (checagem de órgão no controller) ============
+
+  /** Órgão dono do PCA (sem carregar itens). 404 se não existe. */
+  async orgaoDoPca(id: string): Promise<string> {
+    const pca = await this.pcaRepository.findOne({ where: { id }, select: ['id', 'orgao_id'] });
+    if (!pca) throw new NotFoundException('PCA não encontrado');
+    return pca.orgao_id;
+  }
+
+  /** Órgão dono do item (pelo PCA do item). 404 se não existe. */
+  async orgaoDoItem(itemId: string): Promise<string> {
+    const item = await this.itemPcaRepository.findOne({ where: { id: itemId }, relations: ['pca'] });
+    if (!item || !item.pca) throw new NotFoundException('Item não encontrado');
+    return item.pca.orgao_id;
+  }
+
   // ============ PCA ============
 
   async criar(dados: Partial<PlanoContratacaoAnual>): Promise<PlanoContratacaoAnual> {
@@ -968,7 +984,8 @@ export class PcaService {
         relations: ['itens'],
       }) as any;
 
-      if (!demanda || demanda.status !== 'APROVADA') continue;
+      // Só demandas do MESMO órgão do PCA (ids de outro órgão são ignorados)
+      if (!demanda || demanda.status !== 'APROVADA' || demanda.orgao_id !== pca.orgao_id) continue;
 
       for (const item of demanda.itens || []) {
         todosItens.push({ item, demanda });

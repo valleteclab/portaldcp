@@ -30,7 +30,7 @@
  * (DesempateService); aqui só se monta o resultado dela em blocos.
  */
 
-import type { DirecaoLance } from '../disputa-v2/modos-disputa';
+import type { DirecaoLance } from '../disputa/modos-disputa';
 
 export enum CriterioDesempate {
   DISPUTA_FINAL = 'DISPUTA_FINAL',

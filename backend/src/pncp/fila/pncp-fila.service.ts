@@ -148,7 +148,7 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
   /** Órgão integrado ao PNCP (vinculado ou com unidade compradora) e licitação feita nesta plataforma. */
   private async contexto(licitacaoId: string) {
     const [l] = await this.ds.query(
-      `SELECT l.id, l.orgao_id::text AS orgao_id, l.selecao_externa, l.enviado_pncp, l.codigo_unidade_compradora,
+      `SELECT l.id, l.orgao_id::text AS orgao_id, l.selecao_externa, l.codigo_unidade_compradora,
               o.pncp_vinculado, o.pncp_codigo_unidade,
               EXISTS (SELECT 1 FROM pncp_sync s WHERE s.licitacao_id::text = l.id::text AND s.tipo::text = 'COMPRA' AND s.status::text <> 'EXCLUIDO') AS tem_compra
          FROM licitacoes l LEFT JOIN orgaos o ON o.id = l.orgao_id WHERE l.id::text = $1`,
@@ -156,7 +156,7 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
     );
     if (!l) return null;
     const vinculado = !!(l.pncp_vinculado || l.pncp_codigo_unidade || l.codigo_unidade_compradora);
-    const temCompra = !!(l.tem_compra || l.enviado_pncp);
+    const temCompra = !!l.tem_compra; // pncp_sync é a fonte (E9 — colunas antigas migradas no boot)
     return {
       orgaoId: l.orgao_id as string,
       externa: !!l.selecao_externa,

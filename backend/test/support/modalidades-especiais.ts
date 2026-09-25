@@ -54,27 +54,27 @@ export async function abrirSalaEIniciar(ctx: AppE2E, lic: LicitacaoFixture, unid
   exigir(
     await ctx
       .http()
-      .put(`/api/disputa-v2/sessao/${s.body.id}/configuracoes`)
+      .put(`/api/disputa/sessao/${s.body.id}/configuracoes`)
       .set(bearer(t))
       .send({ tempo_inatividade_minutos: 10, tempo_prorrogacao_minutos: 2, intervalo_minimo_lances_minutos: 0 }),
     200,
     'configurar sessão',
   );
   exigir(await ctx.http().put(`/api/sessao/${s.body.id}/iniciar`).set(bearer(t)), 200, 'iniciar sessão');
-  exigir(await ctx.http().post(`/api/disputa-v2/sessao/${s.body.id}/iniciar-itens`).set(bearer(t)).send({ itensIds: unidades }), 201, 'iniciar unidades');
+  exigir(await ctx.http().post(`/api/disputa/sessao/${s.body.id}/iniciar-itens`).set(bearer(t)).send({ itensIds: unidades }), 201, 'iniciar unidades');
   return s.body.id;
 }
 
 export function encerrarUnidade(ctx: AppE2E, sessaoId: string, unidadeId: string, token: string) {
-  return ctx.http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${unidadeId}`).set(bearer(token));
+  return ctx.http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${unidadeId}`).set(bearer(token));
 }
 
 export function lanceRest(ctx: AppE2E, sessaoId: string, token: string, corpo: { itemId?: string; loteId?: string; valor: number }) {
-  return ctx.http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`).set(bearer(token)).send(corpo);
+  return ctx.http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(token)).send(corpo);
 }
 
 export async function board(ctx: AppE2E, sessaoId: string, token: string): Promise<any[]> {
-  const r = await ctx.http().get(`/api/disputa-v2/sessao/${sessaoId}/itens`).set(bearer(token));
+  const r = await ctx.http().get(`/api/disputa/sessao/${sessaoId}/itens`).set(bearer(token));
   exigir(r, 200, 'board');
   return [...(r.body.aguardando ?? []), ...(r.body.emDisputa ?? []), ...(r.body.encerrados ?? [])];
 }

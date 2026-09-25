@@ -1,26 +1,24 @@
-import { Injectable, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from './entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from './entities/evento-sessao.entity';
 import { Licitacao, FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
-import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
-import { Lance } from '../disputa-v2/entities/lance.entity';
-import { DisputaService } from '../disputa-v2/disputa.service';
-import { ParametrosDisputaService } from '../disputa-v2/parametros-disputa.service';
-import { OrigemLance, valoresGravados, BaseLance } from '../disputa-v2/modelo-lance';
+import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { Lance } from '../disputa/entities/lance.entity';
+import { DisputaService } from '../disputa/disputa.service';
+import { ParametrosDisputaService } from '../disputa/parametros-disputa.service';
+import { valoresGravados, BaseLance } from '../disputa/modelo-lance';
 import { Proposta } from '../propostas/entities/proposta.entity';
 import { PropostaItem } from '../propostas/entities/proposta-item.entity';
 import { ParametrosLicitacaoService } from '../parametros-licitacao/parametros-licitacao.service';
 import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
 import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
 import { exigirLicitacaoAtiva, motivoSessaoBloqueada } from './licitacao-ativa';
-import { pedirEncerramentoDisputa } from './transicoes-sessao';
-import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
-import { exigirRetomadaPermitida, retomarRelogiosDaSessao } from '../disputa-v2/desconexao-pregoeiro.service';
-import { ordemSql } from '../disputa-v2/modos-disputa';
-import { RankingService, UnidadeJulgamento } from '../julgamento/ranking.service';
+import { motivoModoCriterioInvalido } from '../disputa/modos-disputa';
+import { RankingService } from '../julgamento/ranking.service';
 import { AceitacaoService } from '../julgamento/aceitacao.service';
+import { nomeDoPregoeiroSql } from '../licitacoes/migracao-legado-e9';
 
 /**
  * Servico de Controle da Sessao de Disputa
@@ -28,6 +26,8 @@ import { AceitacaoService } from '../julgamento/aceitacao.service';
  */
 @Injectable()
 export class SessaoService {
+  private readonly logger = new Logger(SessaoService.name);
+
   constructor(
     private readonly parametrosService: ParametrosLicitacaoService,
     @InjectRepository(SessaoDisputa)
@@ -157,7 +157,7 @@ export class SessaoService {
     const modoAbertoFechado = licitacao.modo_disputa === 'ABERTO_FECHADO' || licitacao.modo_disputa === 'FECHADO_ABERTO';
 
     // Tempos: resolvedor único (licitação → órgão → sistema) — a sessão guarda
-    // a cópia; o pregoeiro pode ajustá-los na sala (disputa-v2 configuracoes).
+    // a cópia; o pregoeiro pode ajustá-los na sala (disputa configuracoes).
     const parametros = await this.parametrosService.resolver(licitacao.orgao_id);
     const iniciais = await this.parametrosDisputa.valoresIniciaisDaSessao(licitacaoId);
 
@@ -241,47 +241,6 @@ export class SessaoService {
     return sessao;
   }
 
-  /**
-   * Reabre uma sessão encerrada para continuar a disputa
-   */
-  async reabrirSessao(sessaoId: string): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    if (sessao.status !== StatusSessao.ENCERRADA && sessao.status !== StatusSessao.SUSPENSA) {
-      throw new BadRequestException('Apenas sessoes encerradas ou suspensas podem ser reabertas');
-    }
-    // Suspensa por desconexão do agente: só 24 h após a comunicação (IN 73 art. 27 §1º);
-    // relógios de itens/lotes recomeçam (desconexão) ou são deslocados pela pausa
-    if (sessao.status === StatusSessao.SUSPENSA) {
-      const retomada = await exigirRetomadaPermitida(this.sessaoRepository.manager, sessaoId);
-      await retomarRelogiosDaSessao(this.sessaoRepository.manager, sessaoId, sessao.licitacao_id, retomada.porDesconexao);
-    }
-
-    // Verifica se a licitação ainda está em fase de disputa
-    const licitacao = await this.licitacaoRepository.findOneBy({ id: sessao.licitacao_id });
-    if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
-
-    // Permite reabrir se a licitação ainda está em fase de disputa ou análise
-    const fasesPermitidas = [FaseLicitacao.EM_DISPUTA, FaseLicitacao.ANALISE_PROPOSTAS, FaseLicitacao.JULGAMENTO];
-    if (!fasesPermitidas.includes(licitacao.fase)) {
-      throw new BadRequestException(`Licitacao esta na fase ${licitacao.fase}, nao e possivel reabrir a sessao`);
-    }
-
-    sessao.status = StatusSessao.EM_ANDAMENTO;
-    sessao.etapa = EtapaSessao.DISPUTA_LANCES;
-
-    await this.sessaoRepository.save(sessao);
-    
-    // Limpar data de encerramento via query direta
-    await this.sessaoRepository.update(sessao.id, { data_hora_encerramento: null as any });
-
-    // Registra evento
-    await this.registrarEvento(sessao.id, TipoEvento.SESSAO_RETOMADA, 
-      'Sessao reaberta pelo Pregoeiro', undefined, undefined, sessao.pregoeiro_nome, true);
-
-    return sessao;
-  }
-
   // ========================================
   // CONTROLE DE ETAPAS
   // ========================================
@@ -299,7 +258,6 @@ export class SessaoService {
 
     sessao.etapa = EtapaSessao.DISPUTA_LANCES;
     sessao.status = StatusSessao.MODO_ABERTO;
-    sessao.ultimo_lance_em = new Date();
 
     await this.sessaoRepository.save(sessao);
 
@@ -309,125 +267,9 @@ export class SessaoService {
     return sessao;
   }
 
-  /**
-   * Inicia a disputa de um item pela sala legada — delega ao motor único
-   * (disputa-v2): conversão proposta→lance, códigos anônimos e relógio são dele.
-   */
-  async iniciarDisputaItem(sessaoId: string, itemId: string, ator: AtorTransicao): Promise<SessaoDisputa> {
-    await this.sessaoParaAto(sessaoId);
-    const item = await this.itemRepository.findOneBy({ id: itemId });
-    if (!item) throw new NotFoundException('Item nao encontrado');
-    await this.disputa.iniciarDisputa(sessaoId, [itemId], ator);
-    return this.sessaoRepository.findOneByOrFail({ id: sessaoId });
-  }
-
-  /**
-   * Inicia todos os itens aguardando — pelo motor único. A disputa por LOTE
-   * (valor global do lote) é do motor de lote (próxima etapa): o motor recusa
-   * com 409 enquanto a licitação estiver com base TOTAL_LOTE.
-   */
-  async iniciarDisputaTodosItens(sessaoId: string, ator: AtorTransicao): Promise<{
-    sessao: SessaoDisputa;
-    itensIniciados: number;
-    lotesIniciados: number;
-    tipoDisputa: 'POR_ITEM' | 'POR_LOTE';
-  }> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-    const itens = await this.itemRepository.find({ where: { licitacao_id: sessao.licitacao_id }, select: ['id'] });
-    const { itensIniciados } = await this.disputa.iniciarDisputa(sessaoId, itens.map((i) => i.id), ator);
-    return {
-      sessao: await this.sessaoRepository.findOneByOrFail({ id: sessaoId }),
-      itensIniciados,
-      lotesIniciados: 0,
-      tipoDisputa: 'POR_ITEM',
-    };
-  }
-
-  /** Inicia os itens selecionados — pelo motor único. */
-  async iniciarItensSelecionados(sessaoId: string, itensIds: string[], ator: AtorTransicao): Promise<{ itensIniciados: number }> {
-    await this.sessaoParaAto(sessaoId);
-    return this.disputa.iniciarDisputa(sessaoId, itensIds, ator);
-  }
-
-  /**
-   * Encerra a disputa do item atual (legado item_atual_id) — pelo motor.
-   */
-  async encerrarDisputaItem(sessaoId: string, ator: AtorTransicao): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-    if (!sessao.item_atual_id) throw new BadRequestException('Nenhum item em disputa nesta sessao');
-    await this.disputa.encerrarItem(sessaoId, sessao.item_atual_id, ator);
-    return this.sessaoRepository.findOneByOrFail({ id: sessaoId });
-  }
-
-  /** Encerra a disputa de um item por ID — pelo motor (único caminho de encerramento). */
-  async encerrarDisputaItemPorId(sessaoId: string, itemId: string | undefined, ator: AtorTransicao): Promise<{ sessao: SessaoDisputa; itemNumero?: number }> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-    const alvo = itemId || sessao.item_atual_id;
-    if (!alvo) throw new BadRequestException('Nenhum item especificado para encerrar');
-    const r = await this.disputa.encerrarItem(sessaoId, alvo, ator);
-    return { sessao: await this.sessaoRepository.findOneByOrFail({ id: sessaoId }), itemNumero: r.itemNumero };
-  }
-
   // ========================================
   // CONTROLE DE FASES - PREGOEIRO
   // ========================================
-
-  /**
-   * Permite ao pregoeiro alterar a fase/etapa da sessão
-   * Útil para corrigir erros ou voltar a fases anteriores
-   */
-  async alterarFaseSessao(
-    sessaoId: string, 
-    novaEtapa: EtapaSessao, 
-    novoStatus?: StatusSessao,
-    motivo?: string
-  ): Promise<SessaoDisputa> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    const etapaAnterior = sessao.etapa;
-    const statusAnterior = sessao.status;
-
-    sessao.etapa = novaEtapa;
-    
-    // Define status apropriado baseado na etapa
-    if (novoStatus) {
-      sessao.status = novoStatus;
-    } else {
-      // Status padrão por etapa
-      if (novaEtapa === EtapaSessao.DISPUTA_LANCES || novaEtapa === EtapaSessao.RANDOM_ENCERRAMENTO) {
-        sessao.status = StatusSessao.MODO_ABERTO;
-      } else if (novaEtapa === EtapaSessao.ENCERRAMENTO) {
-        sessao.status = StatusSessao.ENCERRADA;
-      } else {
-        sessao.status = StatusSessao.EM_ANDAMENTO;
-      }
-    }
-
-    await this.sessaoRepository.save(sessao);
-
-    // Registra evento de alteração de fase
-    await this.registrarEvento(
-      sessao.id,
-      TipoEvento.MENSAGEM_SISTEMA,
-      `Pregoeiro alterou fase: ${etapaAnterior} → ${novaEtapa}${motivo ? `. Motivo: ${motivo}` : ''}`,
-      undefined,
-      undefined,
-      sessao.pregoeiro_nome,
-      true,
-      { etapa_anterior: etapaAnterior, etapa_nova: novaEtapa, status_anterior: statusAnterior, status_novo: sessao.status }
-    );
-
-    return sessao;
-  }
-
-  /**
-   * Reinicia a disputa — pelo motor: retrato congelado + cancelamento LÓGICO
-   * dos lances (o antigo DELETE de todos os lances da licitação foi removido).
-   */
-  async reiniciarDisputa(sessaoId: string, motivo: string | undefined, ator: AtorTransicao): Promise<SessaoDisputa> {
-    await this.disputa.reiniciarSessao(sessaoId, motivo ?? '', ator);
-    return this.sessaoRepository.findOneByOrFail({ id: sessaoId });
-  }
 
   // ========================================
   // BENEFICIO ME/EPP (LC 123/2006) — E3: julgamento/me-epp (MeEppService).
@@ -588,7 +430,7 @@ export class SessaoService {
     }, 0);
 
     const valorTotalEstimado = itens.reduce((acc, item) => {
-      return acc + (parseFloat(item.valor_unitario_estimado as any) || 0) * (parseFloat(item.quantidade as any) || 1);
+      return acc + (parseFloat(String(item.valor_unitario_estimado)) || 0) * (parseFloat(String(item.quantidade)) || 1);
     }, 0);
 
     const economiaTotal = valorTotalEstimado - valorTotalAdjudicado;
@@ -598,7 +440,7 @@ export class SessaoService {
       const lancesItem = ativos.filter(l => l.item_id === item.id.toString());
       const melhorLance = melhorDoItem(item.id);
       const v = melhorLance ? totalDoLance(melhorLance, item) : null;
-      const estimadoTotal = (parseFloat(item.valor_unitario_estimado as any) || 0) * (parseFloat(item.quantidade as any) || 1);
+      const estimadoTotal = (parseFloat(String(item.valor_unitario_estimado)) || 0) * (parseFloat(String(item.quantidade)) || 1);
 
       return {
         id: item.id,
@@ -723,7 +565,7 @@ export class SessaoService {
   async getSessao(sessaoId: string): Promise<SessaoDisputa> {
     const sessao = await this.sessaoRepository.findOne({
       where: { id: sessaoId },
-      relations: ['licitacao', 'item_atual']
+      relations: ['licitacao'],
     });
 
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
@@ -784,22 +626,17 @@ export class SessaoService {
     };
     sessaoExistente: SessaoDisputa | null;
   }> {
-    console.log(`[SessaoService] prepararDadosSessao - Iniciando para licitacaoId: ${licitacaoId}`);
-    
     // Busca licitação com relações
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
       relations: ['orgao', 'itens']
     });
 
-    console.log(`[SessaoService] Licitação encontrada:`, licitacao ? 'Sim' : 'Não');
-
     if (!licitacao) {
       throw new NotFoundException('Licitação não encontrada');
     }
 
     // Busca propostas (sem revelar nomes dos fornecedores)
-    console.log(`[SessaoService] Buscando propostas...`);
     let propostasRaw: any[] = [];
     try {
       propostasRaw = await this.licitacaoRepository.manager.query(`
@@ -816,9 +653,8 @@ export class SessaoService {
         WHERE p.licitacao_id = $1
         ORDER BY p.valor_total_proposta ASC
       `, [licitacaoId]);
-      console.log(`[SessaoService] Propostas encontradas: ${propostasRaw.length}`);
-    } catch (err: any) {
-      console.error(`[SessaoService] Erro ao buscar propostas:`, err.message);
+    } catch (err: unknown) {
+      this.logger.error(`prepararDadosSessao(${licitacaoId}): erro ao buscar propostas: ${err instanceof Error ? err.message : String(err)}`);
       propostasRaw = [];
     }
 
@@ -854,8 +690,8 @@ export class SessaoService {
     const fasesExternas = ['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA'];
     const faseInternaOk = fasesExternas.includes(licitacao.fase);
     
-    // 2. Edital publicado (verificar se foi enviado ao PNCP ou tem data de publicação)
-    const editalPublicado = !!licitacao.data_publicacao_edital || !!licitacao.enviado_pncp;
+    // 2. Edital publicado (o ato PUBLICAR — inclusive pelo PNCP — grava a data de publicação)
+    const editalPublicado = !!licitacao.data_publicacao_edital;
     
     // 3. Prazo de impugnação encerrado
     const prazoImpugnacaoEncerrado = licitacao.data_limite_impugnacao 
@@ -900,10 +736,10 @@ export class SessaoService {
         modalidade: licitacao.modalidade,
         criterioJulgamento: licitacao.criterio_julgamento,
         modoDisputa: licitacao.modo_disputa,
-        valorEstimado: parseFloat(licitacao.valor_total_estimado as any) || 0,
+        valorEstimado: parseFloat(String(licitacao.valor_total_estimado)) || 0,
         dataAbertura: licitacao.data_abertura_sessao,
         fase: licitacao.fase,
-        pregoeiroNome: licitacao.pregoeiro_nome,
+        pregoeiroNome: await nomeDoPregoeiroSql(this.licitacaoRepository.manager, licitacao.id),
         pregoeiroId: licitacao.pregoeiro_id,
         orgao: licitacao.orgao ? {
           id: licitacao.orgao.id,

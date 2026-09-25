@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 
 import { API_URL, authFetch } from '@/lib/api'
 import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
+import { corFase, rotuloFase } from '@/lib/licitacao-rotulos'
 
 /** Documento da desclassificação: rota autenticada (fornecedor dono ou órgão dono). */
 async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?: string): Promise<boolean> {
@@ -116,27 +117,7 @@ export default function PropostasFornecedorPage() {
 
   const getFaseBadge = (fase?: string) => {
     if (!fase) return <span className="text-slate-400">-</span>
-    const map: Record<string, { label: string; className: string }> = {
-      RASCUNHO: { label: 'Rascunho', className: 'bg-slate-100 text-slate-700' },
-      PUBLICADO: { label: 'Publicado', className: 'bg-blue-100 text-blue-700' },
-      IMPUGNACAO: { label: 'Impugnação', className: 'bg-orange-100 text-orange-700' },
-      ACOLHIMENTO_PROPOSTAS: { label: 'Acolhimento', className: 'bg-cyan-100 text-cyan-700' },
-      ANALISE_PROPOSTAS: { label: 'Análise', className: 'bg-yellow-100 text-yellow-700' },
-      EM_DISPUTA: { label: 'Em Disputa', className: 'bg-purple-100 text-purple-700' },
-      JULGAMENTO: { label: 'Julgamento', className: 'bg-indigo-100 text-indigo-700' },
-      HABILITACAO: { label: 'Habilitação', className: 'bg-teal-100 text-teal-700' },
-      RECURSO: { label: 'Recurso', className: 'bg-amber-100 text-amber-700' },
-      ADJUDICACAO: { label: 'Adjudicação', className: 'bg-lime-100 text-lime-700' },
-      HOMOLOGACAO: { label: 'Homologado', className: 'bg-green-100 text-green-700' },
-      CONCLUIDO: { label: 'Concluído', className: 'bg-emerald-100 text-emerald-700' },
-      SUSPENSO: { label: 'Suspenso', className: 'bg-red-100 text-red-700' },
-      REVOGADO: { label: 'Revogado', className: 'bg-gray-100 text-gray-700' },
-      ANULADO: { label: 'Anulado', className: 'bg-gray-100 text-gray-700' },
-      FRACASSADO: { label: 'Fracassado', className: 'bg-red-100 text-red-700' },
-      DESERTO: { label: 'Deserto', className: 'bg-gray-100 text-gray-700' },
-    }
-    const config = map[fase] || { label: fase, className: 'bg-gray-100 text-gray-700' }
-    return <Badge variant="outline" className={config.className}>{config.label}</Badge>
+    return <Badge variant="outline" className={corFase(fase)}>{rotuloFase(fase)}</Badge>
   }
 
   // Estatísticas

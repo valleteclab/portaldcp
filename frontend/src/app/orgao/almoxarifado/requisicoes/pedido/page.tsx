@@ -38,6 +38,7 @@ import {
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch } from '@/lib/api';
+import { toast } from "sonner"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -404,7 +405,7 @@ export default function PedidoComprasPage() {
           { method: 'POST' }
         );
         if (!resEnviar.ok) {
-          alert('Pedido criado, mas ocorreu um erro ao enviar para autorização. Acesse a listagem para reenviar.');
+          toast.error('Pedido criado, mas ocorreu um erro ao enviar para autorização. Acesse a listagem para reenviar.');
         }
       }
 

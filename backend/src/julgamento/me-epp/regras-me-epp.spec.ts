@@ -160,10 +160,9 @@ describe('ME/EPP — resposta da convocada (art. 45 I e §3º)', () => {
 });
 
 describe('ME/EPP — art. 48: exclusivo e cota reservada', () => {
-  test('benefício por modo: GERAL (com legado só de leitura), POR_LOTE, POR_ITEM e cota', () => {
+  test('benefício por modo: GERAL (só tipo_beneficio_mpe), POR_LOTE, POR_ITEM e cota', () => {
     expect(beneficioDaUnidade({ modo: 'GERAL', tipoLicitacao: 'EXCLUSIVO' })).toMatchObject({ tipo: 'EXCLUSIVO', somenteMpe: true, empateFicto: false });
-    expect(beneficioDaUnidade({ modo: 'GERAL', tipoLicitacao: 'NENHUM', exclusivoLegado: true }).tipo).toBe('EXCLUSIVO');
-    expect(beneficioDaUnidade({ modo: 'GERAL', tipoLicitacao: 'NENHUM', cotaLegado: true }).tipo).toBe('COTA_RESERVADA');
+    expect(beneficioDaUnidade({ modo: 'GERAL', tipoLicitacao: 'COTA_RESERVADA' }).tipo).toBe('COTA_RESERVADA');
     expect(beneficioDaUnidade({ modo: 'GERAL', tipoLicitacao: 'NENHUM' })).toMatchObject({ tipo: 'NENHUM', empateFicto: true });
     expect(beneficioDaUnidade({ modo: 'POR_LOTE', tipoLicitacao: 'EXCLUSIVO', tipoLote: 'NENHUM' }).tipo).toBe('NENHUM');
     expect(beneficioDaUnidade({ modo: 'POR_LOTE', tipoLote: 'EXCLUSIVO' }).somenteMpe).toBe(true);

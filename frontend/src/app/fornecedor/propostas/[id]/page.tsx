@@ -453,8 +453,15 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
         />
       )}
 
-      {/* Inversão de fases (Lei 14.133 art. 17 §1º): habilitação enviada junto com a proposta — só aparece nesse caso */}
-      {proposta.licitacao?.id && <HabilitacaoFornecedorPanel licitacaoId={proposta.licitacao.id} somenteInversao />}
+      {/* Inversão de fases (Lei 14.133 art. 17 §1º): habilitação enviada junto com a proposta — só aparece nesse caso.
+          Encerrado o recebimento, só a situação e o link da sala (lugar único para agir — E9). */}
+      {proposta.licitacao?.id && (
+        <HabilitacaoFornecedorPanel
+          licitacaoId={proposta.licitacao.id}
+          somenteInversao
+          resumoComLinkSala={`/fornecedor/licitacoes/${proposta.licitacao.id}/sessao`}
+        />
+      )}
 
       {/* Itens da Proposta */}
       <Card>

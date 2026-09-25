@@ -14,6 +14,7 @@ import {
 } from "@/components/cadastro-sicaf"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 const ICONS = {
   credenciamento: Building2,
@@ -655,7 +656,7 @@ export default function CadastroSicafPage() {
       // Salva a última aba
       await salvarQualificacaoEconomicaDb()
       
-      alert('Cadastro realizado com sucesso!')
+      toast.success('Cadastro realizado com sucesso!')
       router.push('/fornecedor')
     } catch (err: any) {
       setError(err.message || 'Erro ao salvar cadastro')

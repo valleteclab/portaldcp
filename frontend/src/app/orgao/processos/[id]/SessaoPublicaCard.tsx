@@ -4,7 +4,7 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Gavel, Lock, Scale } from "lucide-react"
+import { FileText, Gavel, ListChecks, Lock, Scale } from "lucide-react"
 
 /** Fases em que a sala da sessão pública está aberta ao agente/pregoeiro. */
 export const FASES_SALA = [
@@ -70,6 +70,20 @@ export function SessaoPublicaCard({
             <Button size="sm" disabled title="A sala abre com o fim do recebimento de propostas (ato do cronograma)">
               <Gavel className="w-4 h-4 mr-1" /> Sala da sessão (após o recebimento)
             </Button>
+          )}
+          {salaAberta && (
+            <Link href={`/orgao/processos/${licitacaoId}/propostas`}>
+              <Button size="sm" variant="outline">
+                <ListChecks className="w-4 h-4 mr-1" /> Propostas recebidas
+              </Button>
+            </Link>
+          )}
+          {salaAberta && fase !== "ANALISE_PROPOSTAS" && (
+            <Link href={`/orgao/processos/${licitacaoId}/ata`}>
+              <Button size="sm" variant="outline">
+                <FileText className="w-4 h-4 mr-1" /> Ata da sessão
+              </Button>
+            </Link>
           )}
           {tecnico && (
             <Link href={`/orgao/processos/${licitacaoId}/julgamento-tecnico`}>

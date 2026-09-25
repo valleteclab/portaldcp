@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * E2 item 5 — DISPUTA POR LOTE no motor único (disputa-v2), contra o banco real
+ * E2 item 5 — DISPUTA POR LOTE no motor único (disputa), contra o banco real
  * ============================================================================
  *
  * Pregão aberto com base_lance TOTAL_LOTE: 2 lotes × 3 itens, 3 fornecedores.
@@ -35,7 +35,7 @@ import {
 } from './support';
 import { darLance, entrarNaSala, pararTodosOsCrons, tiqueRelogioDisputa } from './support/pregao';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
-import { ratearLanceLote } from '../src/disputa-v2/rateio-lote';
+import { ratearLanceLote } from '../src/disputa/rateio-lote';
 import {
   aceitarPropostaDaUnidade,
   convocarAceitacao,
@@ -89,7 +89,7 @@ describe('E2 — disputa por LOTE no motor único', () => {
     return e.socket;
   };
   const board = async (token: string) =>
-    (await http().get(`/api/disputa-v2/sessao/${sessaoId}/itens`).set(bearer(token)).expect(200)).body;
+    (await http().get(`/api/disputa/sessao/${sessaoId}/itens`).set(bearer(token)).expect(200)).body;
   const unidade = (b: any, id: string) => [...b.aguardando, ...b.emDisputa, ...b.encerrados].find((u: any) => u.id === id);
   const lancesAtivosDoLote = (loteId: string) =>
     q(
@@ -206,7 +206,7 @@ describe('E2 — disputa por LOTE no motor único', () => {
       expect(s.status).toBe(201);
       sessaoId = s.body.id;
       await http()
-        .put(`/api/disputa-v2/sessao/${sessaoId}/configuracoes`)
+        .put(`/api/disputa/sessao/${sessaoId}/configuracoes`)
         .set(bearer(orgao.token))
         .send({ tempo_inatividade_minutos: 10, tempo_prorrogacao_minutos: 2, intervalo_minimo_lances_minutos: 0 })
         .expect(200);
@@ -215,7 +215,7 @@ describe('E2 — disputa por LOTE no motor único', () => {
 
     test('lotes com a estrutura congelada depois da abertura da disputa', async () => {
       const ini = await http()
-        .post(`/api/disputa-v2/sessao/${sessaoId}/iniciar-itens`)
+        .post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`)
         .set(bearer(orgao.token))
         .send({ itensIds: [lote1, lote2] });
       expect(ini.status).toBe(201);
@@ -278,7 +278,7 @@ describe('E2 — disputa por LOTE no motor único', () => {
       const r = await darLance(s3, sessaoId, lote1, 1200);
       expect(r.ok).toBe(false);
       expect(r.mensagem).toMatch(/não cotou todos os itens do lote/);
-      const rest = await http().post(`/api/disputa-v2/sessao/${sessaoId}/lance`).set(bearer(F3.token)).send({ loteId: lote1, valor: 1200 });
+      const rest = await http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(F3.token)).send({ loteId: lote1, valor: 1200 });
       expect(rest.status).toBe(400);
       expect((await lancesAtivosDoLote(lote1)).some((l: any) => l.fornecedor_id === F3.id)).toBe(false);
     });
@@ -383,11 +383,11 @@ describe('E2 — disputa por LOTE no motor único', () => {
         `SELECT id FROM lances WHERE lote_id = $1 AND item_id IS NULL AND fornecedor_id = $2 AND origem = 'LANCE' AND cancelado = false`,
         [lote2, F1.id],
       );
-      const lista = await http().get(`/api/disputa-v3/sessao/${sessaoId}/item/${lote2}/lances-meus`).set(bearer(F1.token));
+      const lista = await http().get(`/api/disputa/sessao/${sessaoId}/item/${lote2}/lances-meus`).set(bearer(F1.token));
       expect(lista.status).toBe(200);
       expect(lista.body[0]).toMatchObject({ id: meu.id, podeCancelarDireto: true });
       const c = await http()
-        .post(`/api/disputa-v3/sessao/${sessaoId}/item/${lote2}/lance/${meu.id}/cancelar-fornecedor`)
+        .post(`/api/disputa/sessao/${sessaoId}/item/${lote2}/lance/${meu.id}/cancelar-fornecedor`)
         .set(bearer(F1.token));
       expect(c.status).toBe(201);
       const linhas = await q(`SELECT cancelado FROM lances WHERE id = $1 OR lance_lote_id = $1`, [meu.id]);
@@ -399,7 +399,7 @@ describe('E2 — disputa por LOTE no motor único', () => {
 
     test('pregoeiro encerra o Lote 2 → fim da etapa de lances da licitação (julgamento)', async () => {
       expect((await darLance(s3, sessaoId, lote2, 1020)).ok).toBe(true);
-      const r = await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${lote2}`).set(bearer(orgao.token));
+      const r = await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${lote2}`).set(bearer(orgao.token));
       expect(r.status).toBe(201);
       expect(r.body).toMatchObject({ etapaDeLancesEncerrada: true, itemNumero: 2, vencedor: { fornecedorId: F3.id, valor: 1020 } });
       const [l] = await q(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [lic.id]);
@@ -415,18 +415,18 @@ describe('E2 — disputa por LOTE no motor único', () => {
           m.codigo_anonimo,
         ]),
       );
-      const r1 = await http().get(`/api/disputa-v2/item/${lote1}/melhores`).set(bearer(orgao.token)).expect(200);
+      const r1 = await http().get(`/api/disputa/item/${lote1}/melhores`).set(bearer(orgao.token)).expect(200);
       expect(r1.body.map((x: any) => [x.fornecedorNome, x.melhorValor])).toEqual([
         [codigo.get(F1.id), 1285],
         [codigo.get(F2.id), 1289],
       ]);
-      const r2 = await http().get(`/api/disputa-v2/item/${lote2}/melhores`).set(bearer(orgao.token)).expect(200);
+      const r2 = await http().get(`/api/disputa/item/${lote2}/melhores`).set(bearer(orgao.token)).expect(200);
       expect(r2.body.map((x: any) => [x.fornecedorNome, x.melhorValor])).toEqual([
         [codigo.get(F3.id), 1020],
         [codigo.get(F1.id), 1050],
         [codigo.get(F2.id), 1055],
       ]);
-      const lances = await http().get(`/api/disputa-v2/item/${lote1}/lances`).set(bearer(orgao.token)).expect(200);
+      const lances = await http().get(`/api/disputa/item/${lote1}/lances`).set(bearer(orgao.token)).expect(200);
       const topo = lances.body.find((l: any) => l.valor === 1285);
       expect(topo.rateio.map((p: any) => p.numero)).toEqual([1, 2, 3]);
       expect(Math.round(topo.rateio.reduce((s: number, p: any) => s + p.valorTotal, 0) * 100) / 100).toBe(1285);

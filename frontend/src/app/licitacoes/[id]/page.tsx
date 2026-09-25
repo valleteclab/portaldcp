@@ -74,7 +74,9 @@ interface Licitacao {
   data_inicio_acolhimento: string
   data_fim_acolhimento: string
   pregoeiro_nome: string
-  exclusivo_mpe: boolean
+  tipo_beneficio_mpe?: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA'
+  modo_beneficio_mpe?: string
+  percentual_cota_reservada?: number
   tratamento_diferenciado_mpe: boolean
   srp: boolean
   orgao: {
@@ -98,7 +100,7 @@ import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-man
 import { ResultadoLicitacaoCard } from '@/components/licitacao/ResultadoLicitacaoCard'
 import { ManifestacoesPublicas } from '@/components/licitacao/ManifestacoesPublicas'
 import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
-import { ROTULO_FASE } from '@/lib/licitacao-rotulos'
+import { ROTULO_FASE, rotuloModalidade } from '@/lib/licitacao-rotulos'
 
 /** Fases em que o edital ainda recebe propostas (botão "Enviar proposta"). */
 const FASES_PROPOSTA = ['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS']
@@ -190,18 +192,7 @@ export default function DetalheLicitacaoPublicaPage() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
-  const getModalidadeLabel = (modalidade: string) => {
-    const labels: Record<string, string> = {
-      'PREGAO_ELETRONICO': 'Pregão Eletrônico',
-      'CONCORRENCIA': 'Concorrência',
-      'DISPENSA_ELETRONICA': 'Dispensa Eletrônica',
-      'INEXIGIBILIDADE': 'Inexigibilidade',
-      'CONCURSO': 'Concurso',
-      'LEILAO': 'Leilão',
-      'DIALOGO_COMPETITIVO': 'Diálogo Competitivo'
-    }
-    return labels[modalidade] || modalidade
-  }
+  const getModalidadeLabel = (modalidade: string) => rotuloModalidade(modalidade)
 
   const getTipoDocumentoLabel = (tipo: string) => {
     const labels: Record<string, string> = {
@@ -618,9 +609,14 @@ export default function DetalheLicitacaoPublicaPage() {
                 )}
 
                 <div className="pt-4 border-t space-y-2">
-                  {licitacao.exclusivo_mpe && (
+                  {licitacao.tipo_beneficio_mpe === 'EXCLUSIVO' && (
                     <Badge variant="secondary" className="w-full justify-center">
                       Exclusivo ME/EPP
+                    </Badge>
+                  )}
+                  {licitacao.tipo_beneficio_mpe === 'COTA_RESERVADA' && (
+                    <Badge variant="secondary" className="w-full justify-center">
+                      Cota reservada ME/EPP{licitacao.percentual_cota_reservada ? ` (${Number(licitacao.percentual_cota_reservada)}%)` : ''}
                     </Badge>
                   )}
                   {licitacao.tratamento_diferenciado_mpe && (

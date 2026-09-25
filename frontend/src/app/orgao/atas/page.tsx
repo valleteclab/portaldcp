@@ -54,6 +54,7 @@ interface Ata {
 
 import { API_URL, authFetch } from '@/lib/api'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { toast } from "sonner"
 
 const STATUS_ATA = {
   'AGUARDANDO_ASSINATURA': { label: 'Aguardando assinatura', cor: 'bg-blue-100 text-blue-800' },
@@ -104,7 +105,7 @@ export default function AtasOrgaoPage() {
 
   const criarNovaAta = async () => {
     if (!novaAta.licitacao_id) {
-      alert('Selecione a licitação SRP homologada.')
+      toast.warning('Selecione a licitação SRP homologada.')
       return
     }
     setSalvandoAta(true)
@@ -116,9 +117,9 @@ export default function AtasOrgaoPage() {
       setNovaAta({ licitacao_id: '' })
       await carregarDados()
       const n = body?.atas?.length || 0
-      alert(n ? `${n} ata(s) de registro de preços disponível(is) — aguardando assinatura.` : 'Nenhuma ata gerada.')
+      toast(n ? `${n} ata(s) de registro de preços disponível(is) — aguardando assinatura.` : 'Nenhuma ata gerada.')
     } catch (e: any) {
-      alert(`Erro ao gerar a ata: ${e.message}`)
+      toast.error(`Erro ao gerar a ata: ${e.message}`)
     } finally {
       setSalvandoAta(false)
     }

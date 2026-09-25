@@ -33,8 +33,7 @@ import { SystemConfigModule } from './system-config/system-config.module';
 import { LotesModule } from './lotes/lotes.module';
 import { EsclarecimentosModule } from './esclarecimentos/esclarecimentos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
-import { DisputaModule } from './disputa-v2/disputa.module';
-import { DisputaV3Module } from './disputa-v3/disputa-v3.module';
+import { DisputaModule } from './disputa/disputa.module';
 import { JulgamentoModule } from './julgamento/julgamento.module';
 import { HabilitacaoModule } from './habilitacao/habilitacao.module';
 import { ResultadoModule } from './resultado/resultado.module';
@@ -147,7 +146,6 @@ import { DialogoCompetitivoModule } from './dialogo-competitivo/dialogo.module';
     EsclarecimentosModule,
     UsuariosModule,
     DisputaModule,
-    DisputaV3Module,
     JulgamentoModule,
     HabilitacaoModule,
     ResultadoModule,

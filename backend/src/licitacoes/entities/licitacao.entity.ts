@@ -5,7 +5,7 @@ import { LoteLicitacao } from '../../lotes/entities/lote-licitacao.entity';
 import { ItemPCA } from '../../pca/entities/pca.entity';
 import { Usuario } from '../../usuarios/entities/usuario.entity';
 import { Demanda } from '../../demandas/entities/demanda.entity';
-import { BaseLance } from '../../disputa-v2/modelo-lance';
+import { BaseLance } from '../../disputa/modelo-lance';
 
 /**
  * ============================================================================
@@ -364,7 +364,7 @@ export class Licitacao {
 
   // === CONFIGURAÇÕES DA DISPUTA ===
   // Overrides do edital sobre os parâmetros do órgão (resolvedor:
-  // licitação → órgão → sistema — disputa-v2/parametros-disputa.ts). NULL = herda.
+  // licitação → órgão → sistema — disputa/parametros-disputa.ts). NULL = herda.
   @Column({ type: 'int', nullable: true })
   tempo_inatividade: number | null; // Etapa inicial do modo aberto (min) — IN 73 art. 23
 
@@ -402,13 +402,23 @@ export class Licitacao {
   @Column({ default: 'NENHUM' })
   tipo_beneficio_mpe: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA'; // Tipo de benefício quando GERAL
 
-  // === PREFERÊNCIAS (mantidos para compatibilidade) ===
+  // === PREFERÊNCIAS (legado) ===
+  /**
+   * @deprecated E3/E9 — DERIVADO de `tipo_beneficio_mpe` (fonte); gravado só
+   * para as telas antigas (edição, detalhe público, lotes). Nenhuma regra lê.
+   * Drop físico quando o frontend usar só `tipo_beneficio_mpe` (plano, E9).
+   */
   @Column({ default: false })
-  exclusivo_mpe: boolean; // Exclusivo para ME/EPP
+  exclusivo_mpe: boolean;
 
+  /** @deprecated E3/E9 — ver `exclusivo_mpe`. */
   @Column({ default: false })
-  cota_reservada: boolean; // Cota reservada para ME/EPP
+  cota_reservada: boolean;
 
+  /**
+   * Percentual da cota reservada (LC 123/2006 art. 48 III, ≤ 25%) — PARÂMETRO
+   * de `tipo_beneficio_mpe = COTA_RESERVADA` (não é cópia de outro campo; fica).
+   */
   @Column({ type: 'int', nullable: true })
   percentual_cota_reservada: number;
 
@@ -432,11 +442,21 @@ export class Licitacao {
   @JoinColumn({ name: 'pregoeiro_id' })
   pregoeiro: Usuario;
 
+  /**
+   * @deprecated E9 — texto livre; a fonte é `pregoeiro_id` (usuário do órgão —
+   * migração no boot por nome único). Lido só como alternativa quando não há
+   * vínculo (`nomeDoPregoeiro`). Drop físico: plano, E9.
+   */
   @Column({ nullable: true })
-  pregoeiro_nome: string; // Mantido para compatibilidade, mas preferir relação
+  pregoeiro_nome: string;
 
+  /**
+   * @deprecated E9 — texto livre (JSON/nomes) sem nenhuma regra que o leia; a
+   * equipe de apoio não é usada em ato algum. Mantido só para a tela de
+   * edição; tabela própria só quando houver regra (plano, E9).
+   */
   @Column({ nullable: true })
-  equipe_apoio: string; // JSON com IDs/nomes
+  equipe_apoio: string;
 
   // === FASE INTERNA ===
   @Column({ default: false })
@@ -456,20 +476,33 @@ export class Licitacao {
   @Column({ nullable: true })
   codigo_externo: string;
 
+  /**
+   * Link da compra no PNCP INFORMADO pelo órgão (seleção externa — compra
+   * publicada por outra plataforma). Compra publicada por ESTA plataforma: o
+   * link sai de `pncp_sync` (`pncp/estado-compra-pncp.ts`, E9).
+   */
   @Column({ nullable: true })
-  link_pncp: string; // Portal Nacional de Contratações Públicas
+  link_pncp: string;
 
+  /**
+   * @deprecated E9 — cópia do estado da compra no PNCP. Fonte: `pncp_sync`
+   * (linha COMPRA ENVIADA; migração no boot). Ninguém mais grava; as telas
+   * recebem o mesmo campo por `aplicarEstadoCompraPncp`. Drop físico: plano, E9.
+   */
   @Column({ nullable: true })
-  numero_controle_pncp: string; // Número de controle retornado pelo PNCP
+  numero_controle_pncp: string;
 
+  /** @deprecated E9 — ver `numero_controle_pncp`. */
   @Column({ type: 'int', nullable: true })
   ano_compra_pncp: number;
 
+  /** @deprecated E9 — ver `numero_controle_pncp`. */
   @Column({ type: 'int', nullable: true })
   sequencial_compra_pncp: number;
 
+  /** @deprecated E9 — ver `numero_controle_pncp`. */
   @Column({ default: false })
-  enviado_pncp: boolean; // Indica se foi enviado ao PNCP
+  enviado_pncp: boolean;
 
   @Column({ default: false })
   srp: boolean; // Sistema de Registro de Preços

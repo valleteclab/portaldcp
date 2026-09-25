@@ -25,6 +25,7 @@ import {
 import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api'
 import { gerarPdfMedicao, derivarCompetencia, type DadosMedicaoPdf } from '@/lib/pdf-medicao'
 import dynamic from 'next/dynamic'
+import { toast } from "sonner"
 
 const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
   loading: () => <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>,
@@ -328,7 +329,7 @@ export default function MedicoesPage() {
     setModalAteste(null)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}`)
-      if (!res.ok) { alert('Erro ao carregar medição'); setLoadingAteste(false); return }
+      if (!res.ok) { toast.error('Erro ao carregar medição'); setLoadingAteste(false); return }
       const medicaoCompleta = await res.json()
       setFormAteste({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
       const itens = medicaoCompleta.itens || []
@@ -370,7 +371,7 @@ export default function MedicoesPage() {
           }
         })
         .catch(() => {})
-    } catch { alert('Erro ao carregar medição') }
+    } catch { toast.error('Erro ao carregar medição') }
     setLoadingAteste(false)
   }
 
@@ -383,12 +384,12 @@ export default function MedicoesPage() {
     const todosSerao = jaAtestadosMantidos + itensSelecionados.length === itens.length && itens.length > 0
 
     const temAcao = itensSelecionados.length > 0 || itensCancelarAteste.length > 0
-    if (!temAcao) { alert('Selecione itens para atestar ou desmarque itens para cancelar.'); return }
+    if (!temAcao) { toast.warning('Selecione itens para atestar ou desmarque itens para cancelar.'); return }
 
     if (!todosSerao && itensSelecionados.length > 0) {
       const itensNaoSelecionados = itens.filter((i: any) => !itensAteste[i.id]?.selecionado && !i.atestado).length
       if (itensNaoSelecionados > 0 && !formAteste.motivo_devolucao_parcial?.trim()) {
-        alert('No ateste parcial, informe o motivo da devolução.'); return
+        toast.warning('No ateste parcial, informe o motivo da devolução.'); return
       }
     }
 
@@ -409,18 +410,18 @@ export default function MedicoesPage() {
           motivo_devolucao: !todosSerao ? formAteste.motivo_devolucao_parcial?.trim() || undefined : undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setActionLoading(false); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); setActionLoading(false); return }
       const resultado = await res.json().catch(() => ({}))
       setModalAteste(null)
       carregarDados()
       if (resultado.status === 'AGUARDANDO_APROVACAO') {
-        alert('Medição atestada com sucesso! Enviada para aprovação do gestor.')
+        toast.success('Medição atestada com sucesso! Enviada para aprovação do gestor.')
       } else if (resultado.status === 'DEVOLVIDA') {
-        alert('Itens atestados e medição devolvida ao fornecedor!')
+        toast('Itens atestados e medição devolvida ao fornecedor!')
       } else if (resultado.status === 'SUBMETIDA') {
-        alert('Ateste(s) cancelado(s) com sucesso!')
+        toast.success('Ateste(s) cancelado(s) com sucesso!')
       } else if (resultado.status === 'PARCIALMENTE_ATESTADA') {
-        alert('Alterações salvas com sucesso!')
+        toast.success('Alterações salvas com sucesso!')
       }
     } catch (e) { console.error(e) }
     setActionLoading(false)
@@ -437,7 +438,7 @@ export default function MedicoesPage() {
       } else {
         ids = Object.entries(contratosSelecionados).filter(([, v]) => v).map(([k]) => k)
       }
-      if (ids.length === 0) { alert('Nenhum contrato selecionado.'); setLoadingSolicitarLote(false); return }
+      if (ids.length === 0) { toast.warning('Nenhum contrato selecionado.'); setLoadingSolicitarLote(false); return }
 
       // Montar overrides de telefone para contratos que tiveram o número editado
       const telefoneOverrides: Record<string, string> = {}
@@ -459,7 +460,7 @@ export default function MedicoesPage() {
           telefone_overrides: Object.keys(telefoneOverrides).length > 0 ? telefoneOverrides : undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setLoadingSolicitarLote(false); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); setLoadingSolicitarLote(false); return }
       const resultado = await res.json()
       setMensagemLote('')
       setEnviarWhatsappLote(false)
@@ -467,11 +468,11 @@ export default function MedicoesPage() {
       if (enviarWhatsappLote && resultado.resultados?.length) {
         setResultadoLote(resultado.resultados)
       } else {
-        alert(resultado.message)
+        toast.error(resultado.message)
       }
       carregarDados()
       if (historicoAberto) carregarHistorico()
-    } catch { alert('Erro ao enviar solicitações') }
+    } catch { toast.error('Erro ao enviar solicitações') }
     setLoadingSolicitarLote(false)
   }
 
@@ -1562,9 +1563,9 @@ export default function MedicoesPage() {
                           }, 30_000)
                         } else {
                           const err = await res.json().catch(() => ({}))
-                          alert(err.message || 'Erro ao enviar solicitação.')
+                          toast.error(err.message || 'Erro ao enviar solicitação.')
                         }
-                      } catch { alert('Erro ao enviar solicitação.') }
+                      } catch { toast.error('Erro ao enviar solicitação.') }
                       setLoadingAssinatura(false)
                     }}
                   >

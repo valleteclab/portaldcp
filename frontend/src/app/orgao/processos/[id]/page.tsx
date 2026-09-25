@@ -27,6 +27,7 @@ import { BllIntegracao } from "./BllIntegracao"
 import { AtosProcesso, type AtoDisponivel } from "./AtosProcesso"
 import { ResultadoPanel } from "@/components/resultado/ResultadoPanel"
 import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
+import { FASES_INTERNAS, rotuloFase, rotuloModalidade } from "@/lib/licitacao-rotulos"
 import { CotasMeEppCard } from '@/components/licitacao/CotasMeEppCard'
 import { PublicacaoEdital, PainelPrazos, MODALIDADES_COMPETITIVAS } from "./PublicacaoEdital"
 import { RetificarEdital, FASES_RETIFICACAO } from "./RetificarEdital"
@@ -131,7 +132,6 @@ interface ProcessoCompleto {
 interface FornecedorOpt { id: string; razao_social: string; cpf_cnpj?: string; cnpj?: string }
 
 /** Fases da fase interna (antes da divulgação do edital/aviso). */
-const FASES_INTERNAS = ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS", "ANALISE_JURIDICA", "APROVACAO_INTERNA"]
 
 const fmtMoeda = (v?: number | string | null) =>
   Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -722,7 +722,7 @@ export default function CockpitProcessoPage() {
         resumo: dados.documentos.length > 0
           ? `${dados.documentos.length} documento(s) no processo eletrônico`
           : "Nenhum documento anexado ainda (DFD, ETP, TR, pareceres…)",
-        extra: c.fase_interna_concluida ? "Fase interna concluída" : `Fase atual: ${dados.licitacao.fase}`,
+        extra: c.fase_interna_concluida ? "Fase interna concluída" : `Fase atual: ${rotuloFase(dados.licitacao.fase)}`,
         link: { href: `/orgao/fase-interna/processos/${id}`, texto: "Abrir processo eletrônico" },
       },
       {
@@ -737,7 +737,7 @@ export default function CockpitProcessoPage() {
           ? `Disputa realizada em ${dados.licitacao.plataforma_externa || "plataforma externa"}${dados.licitacao.numero_processo_externo ? ` — nº ${dados.licitacao.numero_processo_externo}` : ""}`
           : dados.licitacao.modalidade === "DISPENSA_ELETRONICA"
             ? `Art. 75 §3º — cotação eletrônica pelo portal do fornecedor${(dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao) ? ` · propostas até ${new Date((dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao)!).toLocaleString("pt-BR")}` : ""}`
-            : `Modalidade ${dados.licitacao.modalidade} conduzida no sistema — fase ${dados.licitacao.fase}`,
+            : `${rotuloModalidade(dados.licitacao.modalidade)} conduzida no sistema — fase ${rotuloFase(dados.licitacao.fase)}`,
         extra: c.resultado_registrado
           ? `${dados.itens.filter(i => i.fornecedor_vencedor_id).length} item(ns) com vencedor definido`
           : "Resultado ainda não registrado",
@@ -814,13 +814,13 @@ export default function CockpitProcessoPage() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold">Processo {licitacao.numero_processo}</h1>
-              <Badge variant="outline">{licitacao.modalidade}</Badge>
+              <Badge variant="outline">{rotuloModalidade(licitacao.modalidade)}</Badge>
               {licitacao.srp && <Badge variant="outline">SRP</Badge>}
               {licitacao.selecao_externa && (
                 <Badge className="bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Seleção externa</Badge>
               )}
               <Badge className={checklist.homologado ? "bg-green-100 text-green-800 hover:bg-green-100" : "bg-blue-100 text-blue-800 hover:bg-blue-100"}>
-                {licitacao.fase}
+                {rotuloFase(licitacao.fase)}
               </Badge>
               <SituacaoBadge licitacao={licitacao} />
             </div>

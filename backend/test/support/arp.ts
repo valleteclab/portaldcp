@@ -43,7 +43,7 @@ export async function pregaoSrpHomologado(
   // SRP e vigência da ata (atalho de fixture: o cadastro da licitação grava estes campos)
   await ctx.dataSource.query(`UPDATE licitacoes SET srp = true, ata_vigencia_meses = $2 WHERE id = $1`, [p.lic.id, opts.ataVigenciaMeses ?? 12]);
   const item = p.lic.itens[0].id;
-  exigir(await ctx.http().post(`/api/disputa-v2/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token)), 201, 'encerrar item');
+  exigir(await ctx.http().post(`/api/disputa/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token)), 201, 'encerrar item');
   const vencedor = participantes[0].fornecedor;
   const c = await convocarAceitacao(ctx, p.sessaoId, item, orgao.token);
   exigir(c, 201, 'convocar aceitação');

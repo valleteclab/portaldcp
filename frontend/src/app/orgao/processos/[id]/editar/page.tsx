@@ -65,8 +65,6 @@ export default function EditarLicitacaoPage() {
     tratamento_diferenciado_mpe: true,
     modo_beneficio_mpe: 'GERAL',
     tipo_beneficio_mpe: 'NENHUM',
-    exclusivo_mpe: false,
-    cota_reservada: false,
     percentual_cota_reservada: 0,
     modo_vinculacao_pca: 'POR_LICITACAO',
     usa_lotes: false
@@ -88,8 +86,7 @@ export default function EditarLicitacaoPage() {
     tempo_prorrogacao: 2,
     diferenca_minima_lances: 0,
     permite_lances_intermediarios: true,
-    pregoeiro_nome: '',
-    equipe_apoio: '',
+    pregoeiro_id: null,
     sigilo_orcamento: 'PUBLICO'
   })
 
@@ -195,8 +192,6 @@ Deseja também limpar os itens vinculados aos lotes?`,
           tratamento_diferenciado_mpe: data.tratamento_diferenciado_mpe ?? true,
           modo_beneficio_mpe: data.modo_beneficio_mpe || 'GERAL',
           tipo_beneficio_mpe: data.tipo_beneficio_mpe || 'NENHUM',
-          exclusivo_mpe: data.exclusivo_mpe || false,
-          cota_reservada: data.cota_reservada || false,
           percentual_cota_reservada: data.percentual_cota_reservada || 0,
           modo_vinculacao_pca: data.modo_vinculacao_pca || 'POR_LICITACAO',
           base_lance: data.base_lance || 'TOTAL_ITEM',
@@ -241,8 +236,8 @@ Deseja também limpar os itens vinculados aos lotes?`,
           tempo_prorrogacao: emMinutos(data.tempo_prorrogacao, 2),
           diferenca_minima_lances: data.diferenca_minima_lances || 0,
           permite_lances_intermediarios: data.permite_lances_intermediarios ?? true,
-          pregoeiro_nome: data.pregoeiro_nome || '',
-          equipe_apoio: data.equipe_apoio || '',
+          pregoeiro_id: data.pregoeiro_id || null,
+          pregoeiro_nome_atual: data.pregoeiro_nome || '',
           sigilo_orcamento: data.sigilo_orcamento || 'PUBLICO',
           justificativa_sigilo: data.justificativa_sigilo
         })
@@ -298,7 +293,8 @@ Deseja também limpar os itens vinculados aos lotes?`,
         // Disputa por lote só com lotes (sem lotes volta a disputa por item)
         ...(classificacao.base_lance === 'TOTAL_LOTE' && !classificacao.usa_lotes ? { base_lance: 'TOTAL_ITEM' } : {}),
         ...cronograma,
-        ...configuracoes,
+        // pregoeiro_nome_atual é só exibição (o nome sai do usuário vinculado)
+        ...(({ pregoeiro_nome_atual: _nome, ...resto }) => resto)(configuracoes),
         itens,
         lotes,
         valor_total_estimado: itens.reduce((sum, item) => sum + (item.quantidade * item.valor_unitario), 0)

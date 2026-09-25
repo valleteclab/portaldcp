@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { FileText, Calculator } from "lucide-react"
+import { toast } from "sonner"
 
 const moeda = (v: any) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 
@@ -215,7 +216,7 @@ export default function RelatoriosPatrimonioPage() {
               <label className="text-sm font-medium">Responsável (nome no termo)</label>
               <Input value={responsavelTermo} onChange={(e) => setResponsavelTermo(e.target.value)} />
             </div>
-            <Button disabled={!setorTermo} onClick={() => abrirPdf(urlTermoResponsabilidade(setorTermo, responsavelTermo)).catch((e) => alert(e.message))}>Gerar PDF</Button>
+            <Button disabled={!setorTermo} onClick={() => abrirPdf(urlTermoResponsabilidade(setorTermo, responsavelTermo)).catch((e) => toast.error(e.message))}>Gerar PDF</Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">Relação dos bens ativos do setor com valor, para assinatura do responsável e da comissão.</p>
         </CardContent>

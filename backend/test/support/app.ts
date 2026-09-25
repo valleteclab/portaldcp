@@ -53,7 +53,7 @@ export interface AppE2E {
 
 export interface OpcoesCriarApp {
   /**
-   * Mantém os jobs do ScheduleModule rodando (relógio da disputa-v2,
+   * Mantém os jobs do ScheduleModule rodando (relógio da disputa,
    * transição de fases por data, alertas...). Padrão: false — os testes ficam
    * determinísticos; ligue quando o teste depender do relógio.
    */

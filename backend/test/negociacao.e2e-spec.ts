@@ -96,7 +96,7 @@ describe('E3 — negociação (art. 61; IN 73 art. 30)', () => {
     sessaoId = p.sessaoId;
     [item1, item2, item3] = p.lic.itens.map((i) => i.id);
     for (const id of [item1, item2, item3]) {
-      const r = await http().post(`/api/disputa-v2/sessao/${sessaoId}/encerrar-item/${id}`).set(bearer(orgao.token));
+      const r = await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${id}`).set(bearer(orgao.token));
       expect(r.status).toBe(201);
     }
     const entrar = async (quem: any, tipo: 'PREGOEIRO' | 'FORNECEDOR') => {

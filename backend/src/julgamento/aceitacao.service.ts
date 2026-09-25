@@ -17,9 +17,9 @@ import { ItemLicitacao, StatusItem } from '../itens/entities/item-licitacao.enti
 import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
 import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
 import { ParametrosLicitacaoService } from '../parametros-licitacao/parametros-licitacao.service';
-import { ModoDisputaService } from '../disputa-v2/modo-disputa.service';
-import { BaseLance, valoresGravados } from '../disputa-v2/modelo-lance';
-import { ordemSql } from '../disputa-v2/modos-disputa';
+import { ModoDisputaService } from '../disputa/modo-disputa.service';
+import { BaseLance, valoresGravados } from '../disputa/modelo-lance';
+import { ordemSql } from '../disputa/modos-disputa';
 import { AceitacaoProposta } from './entities/aceitacao-proposta.entity';
 import { RankingService, UnidadeJulgamento } from './ranking.service';
 import {

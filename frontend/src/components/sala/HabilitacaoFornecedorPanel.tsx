@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { AlertTriangle, CheckCircle2, Clock3, Database, FileText, FileUp, RefreshCw, Send, Trash2, UserCheck } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -96,7 +97,21 @@ function Envio({ licitacaoId, exigencia, complemento, onEnviado }: { licitacaoId
   )
 }
 
-export function HabilitacaoFornecedorPanel({ licitacaoId, somenteInversao = false }: { licitacaoId: string; somenteInversao?: boolean }) {
+export function HabilitacaoFornecedorPanel({
+  licitacaoId,
+  somenteInversao = false,
+  resumoComLinkSala,
+}: {
+  licitacaoId: string
+  somenteInversao?: boolean
+  /**
+   * Fora da sala (ex.: detalhe da proposta): o painel completo só aparece
+   * enquanto o envio COM A PROPOSTA está aberto (inversão, no recebimento).
+   * Depois disso mostra só a situação e o caminho da sala — lugar único para
+   * agir (E9).
+   */
+  resumoComLinkSala?: string
+}) {
   const [painel, setPainel] = useState<PainelFornecedor | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [agora, setAgora] = useState(Date.now())
@@ -155,6 +170,31 @@ export function HabilitacaoFornecedorPanel({ licitacaoId, somenteInversao = fals
       })
 
   const st = minha ? ROTULO_STATUS_HAB[minha.status] : null
+
+  if (resumoComLinkSala && !painel.envioInversaoAberto) {
+    const diligenciaAberta = !!minha?.diligenciaVigenteId
+    return (
+      <Card className="border-emerald-200">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+          <div className="space-y-1 text-sm">
+            <div className="flex items-center gap-2 font-semibold text-emerald-800">
+              <UserCheck className="h-4 w-4" /> Habilitação
+              {st && <Badge className={st.cls}>{st.label}</Badge>}
+            </div>
+            <p className="text-muted-foreground">
+              {diligenciaAberta
+                ? 'Há diligência aberta para você. Envio de documentos, diligências e resultado ficam na sala da sessão.'
+                : 'Envio de documentos, diligências e resultado da habilitação ficam na sala da sessão.'}
+            </p>
+          </div>
+          <Link href={resumoComLinkSala}>
+            <Button size="sm">Abrir na sala da sessão</Button>
+          </Link>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const prazo = minha?.prazoAte ?? painel.prazoInversao
   const diligencia = minha?.diligencias.find((d) => d.id === minha.diligenciaVigenteId) ?? null
   const faltando = exigencias.filter((e) => e.obrigatorio && !e.cobertaPeloCadastro && e.documentos.length === 0)

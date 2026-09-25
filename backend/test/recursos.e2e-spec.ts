@@ -101,7 +101,7 @@ describe('E5 — recursos com efeito', () => {
     );
   const historico = async (licId: string) =>
     (await http().get(`/api/licitacoes/${licId}/transicoes`).set(bearer(orgao.token)).expect(200)).body as any[];
-  const etapa = async (sessaoId: string) => (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body.etapa;
+  const etapa = async (sessaoId: string) => (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body.etapa;
   const recursoDe = (painel: any, fornecedorId: string, ato?: string) =>
     painel.recursos.find((r: any) => r.recorrente.id === fornecedorId && (!ato || r.atoRecorrido === ato));
 
@@ -127,7 +127,7 @@ describe('E5 — recursos com efeito', () => {
       { itens: [{ descricao: 'Notebook E5', quantidade: 1, valor_unitario_estimado: 100 }] },
     );
     const item = p.lic.itens[0].id;
-    expect((await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token))).status).toBe(201);
+    expect((await http().post(`/api/disputa/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token))).status).toBe(201);
     return { licId: p.lic.id, lic: p.lic, sessaoId: p.sessaoId, item };
   };
 

@@ -36,7 +36,7 @@
  *    sigiloso (`sigilo_orcamento`, Lei 14.133 art. 24).
  */
 
-import type { DirecaoLance } from '../disputa-v2/modos-disputa';
+import type { DirecaoLance } from '../disputa/modos-disputa';
 
 export enum StatusNegociacao {
   EM_ANDAMENTO = 'EM_ANDAMENTO',

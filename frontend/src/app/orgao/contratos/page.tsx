@@ -100,6 +100,7 @@ interface Contrato {
 
 import { API_URL, authFetch } from '@/lib/api'
 import { formatarModalidadeLicitacao } from '@/lib/utils'
+import { toast } from "sonner"
 
 const STATUS_CONTRATO = {
   'RASCUNHO': { label: 'Rascunho', cor: 'bg-slate-100 text-slate-800', icon: FileText },
@@ -282,10 +283,10 @@ window._extraindoContratos = true;
           setContratosImportar(json)
           setResultadoImportacao(null)
         } else {
-          alert('O arquivo deve conter um array de contratos.')
+          toast.warning('O arquivo deve conter um array de contratos.')
         }
       } catch {
-        alert('Arquivo JSON inválido.')
+        toast.error('Arquivo JSON inválido.')
       }
     }
     reader.readAsText(file)
@@ -308,11 +309,11 @@ window._extraindoContratos = true;
         setResultadoImportacao(resultado)
         carregarDados()
       } else {
-        alert('Erro ao importar contratos.')
+        toast.error('Erro ao importar contratos.')
       }
     } catch (error) {
       console.error('Erro na importação:', error)
-      alert('Erro ao importar contratos.')
+      toast.error('Erro ao importar contratos.')
     } finally {
       setImportando(false)
     }
@@ -527,11 +528,11 @@ window._extraindoContratos = true;
         carregarDados()
       } else {
         const data = await res.json().catch(() => ({}))
-        alert(data.message || 'Erro ao excluir contrato')
+        toast.error(data.message || 'Erro ao excluir contrato')
       }
     } catch (error) {
       console.error('Erro ao excluir contrato:', error)
-      alert('Erro ao excluir contrato')
+      toast.error('Erro ao excluir contrato')
     } finally {
       setExcluindoContrato(false)
     }

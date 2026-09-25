@@ -67,6 +67,7 @@ interface Ata {
 }
 
 import { API_URL, getAuthHeaders } from '@/lib/api'
+import { rotuloModalidade } from '@/lib/licitacao-rotulos'
 
 export default function DetalheAtaPublicaPage() {
   const params = useParams()
@@ -426,7 +427,7 @@ export default function DetalheAtaPublicaPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="font-medium">{ata.licitacao.numero_processo}</p>
-                  <p className="text-sm text-gray-500">{ata.licitacao.modalidade}</p>
+                  <p className="text-sm text-gray-500">{rotuloModalidade(ata.licitacao.modalidade)}</p>
                   <Button variant="link" className="p-0 h-auto mt-2" asChild>
                     <Link href={`/licitacoes/${ata.licitacao.id}`}>
                       Ver licitação →

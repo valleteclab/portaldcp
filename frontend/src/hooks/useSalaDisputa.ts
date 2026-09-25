@@ -92,7 +92,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       if (!targetSessaoId || !actor) return
 
       // A visão (pregoeiro ou do próprio fornecedor) é decidida pelo token no backend
-      const response = await authFetch(`${API_URL}/api/disputa-v3/sessao/${targetSessaoId}/board`)
+      const response = await authFetch(`${API_URL}/api/disputa/sessao/${targetSessaoId}/board`)
       if (!response.ok) {
         throw new Error('Nao foi possivel carregar o board da disputa.')
       }
@@ -123,7 +123,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
         setMeusLances([])
         return
       }
-      const res = await authFetch(`${API_URL}/api/disputa-v3/sessao/${sid}/item/${iid}/lances-meus`)
+      const res = await authFetch(`${API_URL}/api/disputa/sessao/${sid}/item/${iid}/lances-meus`)
       if (!res.ok) return
       const data = (await res.json()) as DisputaV3LanceMeu[]
       setMeusLances(Array.isArray(data) ? data : [])
@@ -136,7 +136,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       const targetSessaoId = resolvedSessaoId || sessaoId
       if (!targetSessaoId) return
 
-      const response = await authFetch(`${API_URL}/api/disputa-v2/sessao/${targetSessaoId}/mensagens`)
+      const response = await authFetch(`${API_URL}/api/disputa/sessao/${targetSessaoId}/mensagens`)
       if (!response.ok) return
 
       const data = await response.json()
@@ -355,7 +355,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     async (itemId: string, justificativa: string): Promise<boolean> => {
       if (!sessaoId || area !== 'orgao' || !justificativa.trim()) return false
       setActionError(null)
-      const res = await authFetch(`${API_URL}/api/disputa-v2/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`, {
+      const res = await authFetch(`${API_URL}/api/disputa/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ justificativa: justificativa.trim() }),
@@ -377,7 +377,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     async (retomadaEm: string): Promise<boolean> => {
       if (!sessaoId || area !== 'orgao' || !retomadaEm) return false
       setActionError(null)
-      const res = await authFetch(`${API_URL}/api/disputa-v2/sessao/${sessaoId}/agendar-retomada`, {
+      const res = await authFetch(`${API_URL}/api/disputa/sessao/${sessaoId}/agendar-retomada`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ retomadaEm: new Date(retomadaEm).toISOString() }),
@@ -401,7 +401,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       setSendingCancel(true)
       try {
         const res = await authFetch(
-          `${API_URL}/api/disputa-v3/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/cancelar-fornecedor`,
+          `${API_URL}/api/disputa/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/cancelar-fornecedor`,
           { method: 'POST' },
         )
         const body = await res.json().catch(() => ({}))
@@ -425,7 +425,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       setSendingCancel(true)
       try {
         const res = await authFetch(
-          `${API_URL}/api/disputa-v3/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/solicitar-cancelamento`,
+          `${API_URL}/api/disputa/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/solicitar-cancelamento`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -453,7 +453,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       setSendingCancel(true)
       try {
         const res = await authFetch(
-          `${API_URL}/api/disputa-v3/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/pregoeiro-cancelar`,
+          `${API_URL}/api/disputa/sessao/${sessaoId}/item/${itemId}/lance/${lanceId}/pregoeiro-cancelar`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

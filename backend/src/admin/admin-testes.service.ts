@@ -359,7 +359,7 @@ export class AdminTestesService implements OnModuleDestroy {
 
       // ── Step 16: Iniciar todos os itens ─────────────────────────────────
       await this.runStep(16, async () => {
-        const r = await this.post(base, `/disputa-v2/sessao/${sessaoId}/iniciar-itens`, orgaoToken, { itensIds: itemIds });
+        const r = await this.post(base, `/disputa/sessao/${sessaoId}/iniciar-itens`, orgaoToken, { itensIds: itemIds });
         return `${r?.itensIniciados ?? itemIds.length} itens iniciados`;
       });
 
@@ -372,7 +372,7 @@ export class AdminTestesService implements OnModuleDestroy {
           // Lance = propostaTotal * 0.98 - fi*100 (garante < proposta e valores únicos)
           const propostaTotal = 5_000.0 * multsTotal[fi] * 10;
           const valor = Number((propostaTotal * 0.98 - fi * 100).toFixed(2));
-          await this.postPublic(base, `/disputa-v2/sessao/${sessaoId}/lance`, {
+          await this.postPublic(base, `/disputa/sessao/${sessaoId}/lance`, {
             itemId,
             fornecedorId: forn.id,
             fornecedorNome: forn.nome,
@@ -389,7 +389,7 @@ export class AdminTestesService implements OnModuleDestroy {
         const promises = fornecedores.map((forn, fi) => {
           const propostaTotal = 1_200.0 * multsTotal[fi] * 10;
           const valor = Number((propostaTotal * 0.98 - fi * 100).toFixed(2));
-          return fetch(`${base}/disputa-v2/sessao/${sessaoId}/lance`, {
+          return fetch(`${base}/disputa/sessao/${sessaoId}/lance`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -415,7 +415,7 @@ export class AdminTestesService implements OnModuleDestroy {
         const itemId = itemIds[0];
         const forn = fornecedores[0];
         // Proposta de forn[0] no Item 1 = 5000 * 1.0 * 10 = 50.000
-        const resp = await fetch(`${base}/disputa-v2/sessao/${sessaoId}/lance`, {
+        const resp = await fetch(`${base}/disputa/sessao/${sessaoId}/lance`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -434,7 +434,7 @@ export class AdminTestesService implements OnModuleDestroy {
       // ── Step 20: Ranking final ────────────────────────────────────────────
       await this.runStep(20, async () => {
         const itemId = itemIds[0];
-        const melhores = (await this.getPublic(base, `/disputa-v2/item/${itemId}/melhores`)) as any[];
+        const melhores = (await this.getPublic(base, `/disputa/item/${itemId}/melhores`)) as any[];
         if (!Array.isArray(melhores) || melhores.length === 0) {
           throw new Error('Ranking vazio');
         }

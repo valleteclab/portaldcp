@@ -64,6 +64,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch } from '@/lib/api';
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface ItemRequisicao {
   id: string;
@@ -393,11 +395,11 @@ function RequisicoesList() {
       if (res.ok) {
         setShowVincularEmpenhoOS(false);
         await carregarRequisicoes();
-        alert('Empenhos vinculados e PDF atualizado com sucesso!');
+        toast.success('Empenhos vinculados e PDF atualizado com sucesso!');
       } else {
-        alert('Erro ao vincular empenhos');
+        toast.error('Erro ao vincular empenhos');
       }
-    } catch { alert('Erro ao vincular empenhos'); }
+    } catch { toast.error('Erro ao vincular empenhos'); }
     setSalvandoEmpenhosOS(false);
   };
 
@@ -526,9 +528,9 @@ function RequisicoesList() {
 
   const adicionarItemAvulso = async () => {
     if (!requisicaoSelecionada) return;
-    if (!novoItemAvulso.descricao.trim()) { alert('Informe a descrição do item.'); return; }
-    if (!novoItemAvulso.quantidade || parseFloat(novoItemAvulso.quantidade) <= 0) { alert('Informe a quantidade.'); return; }
-    if (!novoItemAvulso.valor_unitario || parseFloat(novoItemAvulso.valor_unitario) <= 0) { alert('Informe o valor unitário.'); return; }
+    if (!novoItemAvulso.descricao.trim()) { toast.warning('Informe a descrição do item.'); return; }
+    if (!novoItemAvulso.quantidade || parseFloat(novoItemAvulso.quantidade) <= 0) { toast.warning('Informe a quantidade.'); return; }
+    if (!novoItemAvulso.valor_unitario || parseFloat(novoItemAvulso.valor_unitario) <= 0) { toast.warning('Informe o valor unitário.'); return; }
     
     setSavingItemAvulso(true);
     try {
@@ -546,13 +548,13 @@ function RequisicoesList() {
         setNovoItemAvulso({ descricao: '', quantidade: '', valor_unitario: '' });
         await loadItensAvulsos(requisicaoSelecionada.id);
         await carregarRequisicoes();
-        alert('Item avulso adicionado com sucesso!');
+        toast.success('Item avulso adicionado com sucesso!');
       } else {
         const error = await res.json().catch(() => null);
-        alert(error?.message || 'Erro ao adicionar item avulso.');
+        toast.error(error?.message || 'Erro ao adicionar item avulso.');
       }
     } catch {
-      alert('Erro ao adicionar item avulso.');
+      toast.error('Erro ao adicionar item avulso.');
     } finally {
       setSavingItemAvulso(false);
     }
@@ -563,7 +565,7 @@ function RequisicoesList() {
     const msg = itemDoContrato
       ? 'Este é um item do CONTRATO. Ao removê-lo desta OS, o saldo volta ao contrato e a OS fica apenas com os demais itens. Confirma a remoção?'
       : 'Deseja realmente remover este item avulso?';
-    if (!confirm(msg)) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: msg }))) return;
     
     setSavingItemAvulso(true);
     try {
@@ -573,13 +575,13 @@ function RequisicoesList() {
       if (res.ok) {
         await loadItensAvulsos(requisicaoSelecionada.id);
         await carregarRequisicoes();
-        alert('Item avulso removido com sucesso!');
+        toast.success('Item avulso removido com sucesso!');
       } else {
         const error = await res.json().catch(() => null);
-        alert(error?.message || 'Erro ao remover item avulso.');
+        toast.error(error?.message || 'Erro ao remover item avulso.');
       }
     } catch {
-      alert('Erro ao remover item avulso.');
+      toast.error('Erro ao remover item avulso.');
     } finally {
       setSavingItemAvulso(false);
     }
@@ -615,35 +617,35 @@ function RequisicoesList() {
         } else {
           partes.push('Envio concluído.');
         }
-        alert(partes.join('\n'));
+        toast(partes.join('\n'), { className: 'whitespace-pre-line' });
         setShowEnviarFornecedor(false);
         carregarRequisicoes();
       } else {
         const err = await response.json();
-        alert(`Erro: ${err.message || 'Erro ao enviar ao fornecedor'}`);
+        toast.error(`Erro: ${err.message || 'Erro ao enviar ao fornecedor'}`);
       }
     } catch (error) {
       console.error('Erro ao enviar ao fornecedor:', error);
-        alert('Erro ao enviar ao fornecedor');
+        toast.error('Erro ao enviar ao fornecedor');
     } finally {
       setEnviandoFornecedorId(null);
     }
   };
 
   const handleRegenerarPdf = async (req: Requisicao) => {
-    if (!confirm(`Regenerar PDF da ${req.numero}? O PDF atual será substituído.`)) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Regenerar PDF da ${req.numero}? O PDF atual será substituído.` }))) return;
     setRegenerandoPdfId(req.id);
     try {
       const response = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${req.id}/regenerar-pdf`, { method: 'POST' });
       if (response.ok) {
-        alert('PDF regenerado com sucesso!');
+        toast.success('PDF regenerado com sucesso!');
         carregarRequisicoes();
       } else {
         const err = await response.json();
-        alert(`Erro: ${err.message || 'Erro ao regenerar PDF'}`);
+        toast.error(`Erro: ${err.message || 'Erro ao regenerar PDF'}`);
       }
     } catch (error) {
-      alert('Erro ao regenerar PDF');
+      toast.error('Erro ao regenerar PDF');
     } finally {
       setRegenerandoPdfId(null);
     }
@@ -660,7 +662,7 @@ function RequisicoesList() {
 
     const hoje = hojeInput();
     if (dataAutorizacaoCorrigida > hoje) {
-      alert('A data de autorização não pode ser futura.');
+      toast.warning('A data de autorização não pode ser futura.');
       return;
     }
 
@@ -676,15 +678,15 @@ function RequisicoesList() {
 
       if (response.ok) {
         setShowCorrigirDataAutorizacao(false);
-        alert('Data de autorização e quadro de assinaturas atualizados. O PDF foi regenerado.');
+        toast('Data de autorização e quadro de assinaturas atualizados. O PDF foi regenerado.');
         await carregarRequisicoes();
       } else {
         const err = await response.json().catch(() => ({}));
-        alert(`Erro: ${err.message || 'Erro ao corrigir data de autorização'}`);
+        toast.error(`Erro: ${err.message || 'Erro ao corrigir data de autorização'}`);
       }
     } catch (error) {
       console.error('Erro ao corrigir data de autorização:', error);
-      alert('Erro ao corrigir data de autorização');
+      toast.error('Erro ao corrigir data de autorização');
     } finally {
       setCorrigindoDataAutorizacaoId(null);
     }
@@ -760,17 +762,17 @@ function RequisicoesList() {
 
       if (response.ok) {
         const data = await response.json();
-        alert(data.message || `Requisição ${requisicaoSelecionada.numero} excluída com sucesso!`);
+        toast.success(data.message || `Requisição ${requisicaoSelecionada.numero} excluída com sucesso!`);
         setShowExcluir(false);
         setInfoExclusao(null);
         carregarRequisicoes();
       } else {
         const error = await response.json();
-        alert(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao excluir:', error);
-      alert('Erro ao excluir requisição');
+      toast.error('Erro ao excluir requisição');
     } finally {
       setProcessando(false);
     }
@@ -784,7 +786,7 @@ function RequisicoesList() {
 
   const handleReativar = async () => {
     if (!requisicaoSelecionada || !motivoReativacao.trim()) {
-      alert('Por favor, informe o motivo da reativação.');
+      toast.warning('Por favor, informe o motivo da reativação.');
       return;
     }
 
@@ -800,17 +802,17 @@ function RequisicoesList() {
 
       if (response.ok) {
         const data = await response.json();
-        alert(data.mensagem || `Requisição ${requisicaoSelecionada.numero} reativada com sucesso!`);
+        toast.success(data.mensagem || `Requisição ${requisicaoSelecionada.numero} reativada com sucesso!`);
         setShowReativar(false);
         setMotivoReativacao('');
         carregarRequisicoes();
       } else {
         const error = await response.json();
-        alert(`Erro ao reativar: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao reativar: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao reativar:', error);
-      alert('Erro ao reativar requisição.');
+      toast.error('Erro ao reativar requisição.');
     } finally {
       setProcessando(false);
     }
@@ -818,7 +820,7 @@ function RequisicoesList() {
 
   const handleCancelar = async () => {
     if (!requisicaoSelecionada || !motivoCancelamento.trim()) {
-      alert('Por favor, informe o motivo do cancelamento.');
+      toast.warning('Por favor, informe o motivo do cancelamento.');
       return;
     }
 
@@ -833,17 +835,17 @@ function RequisicoesList() {
       );
 
       if (response.ok) {
-        alert(`Requisição ${requisicaoSelecionada.numero} cancelada com sucesso!`);
+        toast.success(`Requisição ${requisicaoSelecionada.numero} cancelada com sucesso!`);
         setShowCancelar(false);
         setMotivoCancelamento('');
         carregarRequisicoes();
       } else {
         const error = await response.json();
-        alert(`Erro ao cancelar requisição: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao cancelar requisição: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao cancelar requisição:', error);
-      alert('Erro ao cancelar requisição.');
+      toast.error('Erro ao cancelar requisição.');
     } finally {
       setProcessando(false);
     }
@@ -881,16 +883,16 @@ function RequisicoesList() {
 
       if (response.ok) {
         const ordemGerada = await response.json();
-        alert(`Ordem de fornecimento ${ordemGerada.numero} gerada com sucesso!`);
+        toast.success(`Ordem de fornecimento ${ordemGerada.numero} gerada com sucesso!`);
         setShowGerarOrdem(false);
         carregarRequisicoes();
       } else {
         const error = await response.json();
-        alert(`Erro ao gerar ordem: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao gerar ordem: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao gerar ordem:', error);
-      alert('Erro ao gerar ordem de fornecimento');
+      toast.error('Erro ao gerar ordem de fornecimento');
     } finally {
       setGerandoOrdem(false);
     }
@@ -942,7 +944,7 @@ function RequisicoesList() {
           } else {
             partes.push('O fornecedor receberá por email, notificação e WhatsApp (se configurado).');
           }
-          alert(partes.join('\n\n'));
+          toast(partes.join('\n\n'), { className: 'whitespace-pre-line' });
         } else if (geraOF) {
           const data = await response.json();
           const n = data?.notificacoes_fornecedor;
@@ -957,17 +959,17 @@ function RequisicoesList() {
           } else if (!enviarAoFornecedor) {
             partes.push('Você pode enviar ao fornecedor depois na tela de Ordens.');
           }
-          alert(partes.join('\n\n'));
+          toast(partes.join('\n\n'), { className: 'whitespace-pre-line' });
         } else {
-          alert('Requisição autorizada com sucesso! Saldo reservado no contrato.');
+          toast.success('Requisição autorizada com sucesso! Saldo reservado no contrato.');
         }
       } else {
         const error = await response.json();
-        alert(`Erro ao autorizar: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao autorizar: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao autorizar:', error);
-      alert('Erro ao autorizar requisição');
+      toast.error('Erro ao autorizar requisição');
     } finally {
       setProcessando(false);
     }
@@ -994,9 +996,9 @@ function RequisicoesList() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Erro ao baixar PDF assinado:', error);
-      alert(error instanceof Error && error.message 
+      toast.error(error instanceof Error && error.message 
         ? error.message 
-        : 'Erro ao baixar PDF assinado. O PDF pode não ter sido gerado. Entre em contato com o suporte.');
+        : 'Erro ao baixar PDF assinado. O PDF pode não ter sido gerado. Entre em contato com o suporte.', { className: 'whitespace-pre-line' });
     } finally {
       setGerandoPDF(null);
     }
@@ -1004,7 +1006,7 @@ function RequisicoesList() {
 
   const handleNegar = async () => {
     if (!requisicaoSelecionada || !motivoNegativa.trim()) {
-      alert('Informe o motivo da negativa');
+      toast.warning('Informe o motivo da negativa');
       return;
     }
     
@@ -1019,16 +1021,16 @@ function RequisicoesList() {
       );
 
       if (response.ok) {
-        alert('Requisição negada.');
+        toast.error('Requisição negada.');
         setShowNegar(false);
         carregarRequisicoes();
       } else {
         const error = await response.json();
-        alert(`Erro ao negar: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao negar: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao negar:', error);
-      alert('Erro ao negar requisição');
+      toast.error('Erro ao negar requisição');
     } finally {
       setProcessando(false);
     }
@@ -1057,7 +1059,7 @@ function RequisicoesList() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Erro ao baixar PDF:', error);
-      alert('Erro ao baixar PDF da ordem');
+      toast.error('Erro ao baixar PDF da ordem');
     } finally {
       setGerandoPDF(null);
     }

@@ -1,5 +1,5 @@
 import { CalendarioDiasUteis, calendarioDoOrgao, fimDoPrazoEmDiasUteis, inicioDoDia } from '../common/prazos/dias-uteis';
-import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
+import { motivoModoCriterioInvalido } from '../disputa/modos-disputa';
 import { motivoModalidadeCriterioInvalido } from '../modalidades-especiais/perfil-modalidade';
 
 /**

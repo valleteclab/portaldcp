@@ -24,7 +24,6 @@ import { AuditLogService } from './audit-log.service';
 import { DocumentoEstruturadoService } from './documento-estruturado.service';
 import { DocumentoEstruturadoController } from './documento-estruturado.controller';
 import { GeradorDocumentoService } from './gerador-documento.service';
-import { PncpPublicacaoService } from './pncp-publicacao.service';
 import { AnaliseContratosService } from './analise-contratos.service';
 import { GeradorPpService } from './gerador-pp.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
@@ -86,7 +85,6 @@ import {
     AuditLogService,
     DocumentoEstruturadoService,
     GeradorDocumentoService,
-    PncpPublicacaoService,
     AnaliseContratosService,
     GeradorPpService,
     PesquisaPrecosAgentService,

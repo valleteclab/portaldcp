@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/popover'
 
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface Classificacao {
   id: string
@@ -284,7 +285,7 @@ export function BuscaItemCatalogoProprio({
 
   const handleSalvarNovoItem = async () => {
     if (!novoItem.descricao || !novoItem.classificacaoId) {
-      alert('Preencha a descrição e selecione uma classificação')
+      toast.warning('Preencha a descrição e selecione uma classificação')
       return
     }
 
@@ -323,11 +324,11 @@ export function BuscaItemCatalogoProprio({
         })
       } else {
         const error = await response.json()
-        alert(error.message || 'Erro ao cadastrar item')
+        toast.error(error.message || 'Erro ao cadastrar item')
       }
     } catch (error) {
       console.error('Erro ao salvar item:', error)
-      alert('Erro ao cadastrar item')
+      toast.error('Erro ao cadastrar item')
     } finally {
       setSalvando(false)
     }

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MigracaoEstadoPncpBootService } from './migracao-estado-pncp-boot.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { PncpController } from './pncp.controller';
@@ -20,7 +21,7 @@ import { PncpFilaService } from './fila/pncp-fila.service';
     TransicoesModule,
   ],
   controllers: [PncpController],
-  providers: [PncpService, PncpEnviosService, PncpFilaService],
+  providers: [PncpService, PncpEnviosService, PncpFilaService, MigracaoEstadoPncpBootService],
   exports: [PncpService, PncpFilaService]
 })
 export class PncpModule {}

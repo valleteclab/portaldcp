@@ -8,7 +8,7 @@
  * @date 2025-12-01
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+import { API_URL } from './api';
 
 // ============ TIPOS/INTERFACES ============
 
@@ -299,15 +299,6 @@ export const pncpService = {
   },
 
   // === COMPRAS ===
-
-  async incluirCompra(compra: Compra): Promise<PncpResponse> {
-    const response = await fetch(`${API_URL}/api/pncp/compras`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(compra),
-    });
-    return handleResponse(response);
-  },
 
   async retificarCompra(ano: number, sequencial: number, compra: CompraRetificacao): Promise<PncpResponse> {
     const response = await fetch(`${API_URL}/api/pncp/compras/${ano}/${sequencial}`, {

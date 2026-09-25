@@ -37,6 +37,7 @@ import {
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch } from '@/lib/api';
+import { toast } from "sonner"
 
 interface Contrato {
   id: string;
@@ -167,10 +168,10 @@ function LoteOSContent() {
         setResultado(json);
       } else {
         const err = await res.json().catch(() => null);
-        alert(err?.message || 'Erro ao criar OS em lote.');
+        toast.error(err?.message || 'Erro ao criar OS em lote.');
       }
     } catch {
-      alert('Erro ao criar OS em lote.');
+      toast.error('Erro ao criar OS em lote.');
     } finally {
       setEnviando(false);
     }

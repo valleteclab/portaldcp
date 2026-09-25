@@ -21,6 +21,8 @@ import {
   Copy, Trash2, QrCode, Share2,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Veiculo { id: string; placa: string; modelo: string; marca: string; tipo_combustivel: string; chassi?: string; renavam?: string; ativo?: boolean }
 interface Contrato { id: string; numero_contrato: string; fornecedor_nome: string; preco_litro: number; limite_litros_mensal?: number; itens?: { descricao: string; preco_litro: number; quantidade_contratada: number; quantidade_consumida?: number; valor_total: number }[] }
@@ -167,7 +169,7 @@ export default function RequisicoesPage() {
     setActionLoading(true)
     try {
       const res = await authFetch(`${API_URL}/api/frota/requisicoes/${req.id}/autorizar`, { method: 'PUT' })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       const atualizada: Requisicao = await res.json()
       carregar()
       if (atualizada.token_acesso) {
@@ -183,25 +185,25 @@ export default function RequisicoesPage() {
       const res = await authFetch(`${API_URL}/api/frota/requisicoes/${reqSelecionada.id}/negar`, {
         method: 'PUT', body: JSON.stringify({ motivo: motivoNegacao }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalNegar(false); setReqSelecionada(null); setMotivoNegacao(''); carregar()
     } finally { setActionLoading(false) }
   }
 
   const cancelar = async (req: Requisicao) => {
-    if (!confirm(`Cancelar a requisição ${req.codigo}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Cancelar a requisição ${req.codigo}?`, destrutivo: true }))) return
     await authFetch(`${API_URL}/api/frota/requisicoes/${req.id}/cancelar`, { method: 'PUT' })
     carregar()
   }
 
   const excluir = async (req: Requisicao) => {
-    if (!confirm('Excluir esta requisição? O saldo do contrato será restaurado.')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Excluir esta requisição? O saldo do contrato será restaurado.', destrutivo: true }))) return
     setActionLoading(true)
     try {
       const res = await authFetch(`${API_URL}/api/frota/requisicoes/${req.id}`, { method: 'DELETE' })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
-        alert(e.message || 'Erro ao excluir')
+        toast.error(e.message || 'Erro ao excluir')
         return
       }
       carregar()

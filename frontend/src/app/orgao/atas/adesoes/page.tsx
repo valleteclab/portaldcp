@@ -11,6 +11,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ArrowLeft, Search, Users } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 
 /**
  * ADESÃO A ATA DE REGISTRO DE PREÇOS ("carona" — Lei 14.133/2021 art. 86).
@@ -89,10 +91,10 @@ export default function AdesoesAtaPage() {
     setOcupado(true)
     try {
       await fn()
-      if (ok) alert(ok)
+      if (ok) toast(ok)
       await carregarListas()
     } catch (e: any) {
-      alert(e.message)
+      toast.error(e.message)
     } finally {
       setOcupado(false)
     }
@@ -247,7 +249,7 @@ export default function AdesoesAtaPage() {
                           if (!itens.length) throw new Error('Informe as quantidades.')
                           const r = await enviar(`${API_URL}/api/atas/${ad.ata_id}/contratar`, { adesao_id: ad.id, tipo: 'CONTRATO', itens })
                           setContratar((p) => ({ ...p, [ad.id]: {} }))
-                          alert(`Contrato ${r.contrato.numero_contrato} criado — aguardando assinatura.`)
+                          toast(`Contrato ${r.contrato.numero_contrato} criado — aguardando assinatura.`)
                         })
                       }
                     >
@@ -255,7 +257,7 @@ export default function AdesoesAtaPage() {
                     </Button>
                   )}
                   {['SOLICITADA', 'ANUENCIA_GERENCIADOR', 'ACEITE_FORNECEDOR'].includes(ad.status) && (
-                    <Button size="sm" variant="outline" disabled={ocupado} onClick={() => confirm('Desistir desta adesão?') && acao(() => enviar(`${API_URL}/api/atas/adesoes/${ad.id}/cancelar`, {}))}>
+                    <Button size="sm" variant="outline" disabled={ocupado} onClick={async () => (await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Desistir desta adesão?' })) && acao(() => enviar(`${API_URL}/api/atas/adesoes/${ad.id}/cancelar`, {}))}>
                       Desistir
                     </Button>
                   )}
@@ -286,8 +288,8 @@ export default function AdesoesAtaPage() {
                   {ad.status === 'SOLICITADA' && (
                     <>
                       <Button size="sm" disabled={ocupado} onClick={() => acao(() => enviar(`${API_URL}/api/atas/adesoes/${ad.id}/anuencia`, { aceitar: true }), 'Anuência registrada.')}>Anuir</Button>
-                      <Button size="sm" variant="outline" disabled={ocupado} onClick={() => {
-                        const motivo = prompt('Motivo da recusa:')
+                      <Button size="sm" variant="outline" disabled={ocupado} onClick={async () => {
+                        const motivo = (await pedirTextoAcao({ titulo: 'Motivo da recusa:' }))
                         if (motivo) acao(() => enviar(`${API_URL}/api/atas/adesoes/${ad.id}/anuencia`, { aceitar: false, motivo }))
                       }}>Recusar</Button>
                     </>

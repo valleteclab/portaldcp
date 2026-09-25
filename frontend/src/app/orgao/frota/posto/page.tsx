@@ -18,6 +18,7 @@ import {
   RefreshCw, Download,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 // ============ TIPOS ============
 
@@ -184,7 +185,7 @@ export default function PainelPostoPage() {
           atendente_nome: atendenteNome || undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao confirmar'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao confirmar'); return }
       setModalConfirmar(false)
       limparVerificacao()
       carregarDashboard(true)
@@ -195,7 +196,7 @@ export default function PainelPostoPage() {
 
   const downloadSiga = async () => {
     const res = await authFetch(`${API_URL}/api/frota/relatorio/siga?mes=${mes}`)
-    if (!res.ok) { alert('Erro ao gerar relatório'); return }
+    if (!res.ok) { toast.error('Erro ao gerar relatório'); return }
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

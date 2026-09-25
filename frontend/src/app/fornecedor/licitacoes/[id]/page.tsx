@@ -42,6 +42,7 @@ import { ConcursoFornecedor } from '@/components/modalidades/ConcursoFornecedor'
 import { DialogoFornecedor } from '@/components/modalidades/DialogoFornecedor'
 import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
 import { ResultadoLicitacaoCard } from '@/components/licitacao/ResultadoLicitacaoCard'
+import { ROTULO_CRITERIO, ROTULO_MODO_DISPUTA, corFase, rotuloFase, rotuloModalidade } from '@/lib/licitacao-rotulos'
 
 /** Fases em que a sala da sessão fica disponível ao licitante (ANALISE_PROPOSTAS → HOMOLOGACAO). */
 const FASES_SALA = ['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO']
@@ -231,64 +232,13 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  const getModalidadeLabel = (modalidade: string) => {
-    const map: Record<string, string> = {
-      PREGAO_ELETRONICO: 'Pregão Eletrônico',
-      PREGAO_PRESENCIAL: 'Pregão Presencial',
-      CONCORRENCIA: 'Concorrência',
-      TOMADA_PRECOS: 'Tomada de Preços',
-      CONVITE: 'Convite',
-      DISPENSA: 'Dispensa',
-      INEXIGIBILIDADE: 'Inexigibilidade',
-      LEILAO: 'Leilão',
-      DIALOGO_COMPETITIVO: 'Diálogo Competitivo'
-    }
-    return map[modalidade] || modalidade
-  }
+  const getModalidadeLabel = (modalidade: string) => rotuloModalidade(modalidade)
 
-  const getCriterioLabel = (criterio?: string) => {
-    const map: Record<string, string> = {
-      MENOR_PRECO: 'Menor Preço',
-      MAIOR_DESCONTO: 'Maior Desconto',
-      MELHOR_TECNICA: 'Melhor Técnica',
-      TECNICA_PRECO: 'Técnica e Preço',
-      MAIOR_LANCE: 'Maior Lance',
-      MAIOR_RETORNO_ECONOMICO: 'Maior Retorno Econômico'
-    }
-    return map[criterio || ''] || criterio || '-'
-  }
+  const getCriterioLabel = (criterio?: string) => ROTULO_CRITERIO[criterio || ''] || criterio || '-'
 
-  const getModoDisputaLabel = (modo?: string) => {
-    const map: Record<string, string> = {
-      ABERTO: 'Aberto',
-      FECHADO: 'Fechado',
-      ABERTO_FECHADO: 'Aberto e Fechado'
-    }
-    return map[modo || ''] || modo || '-'
-  }
+  const getModoDisputaLabel = (modo?: string) => ROTULO_MODO_DISPUTA[modo || ''] || modo || '-'
 
-  const getFaseBadge = (fase: string) => {
-    const map: Record<string, { label: string; className: string }> = {
-      PLANEJAMENTO: { label: 'Planejamento', className: 'bg-gray-100 text-gray-800' },
-      TERMO_REFERENCIA: { label: 'Termo de Referência', className: 'bg-gray-100 text-gray-800' },
-      PESQUISA_PRECOS: { label: 'Pesquisa de Preços', className: 'bg-gray-100 text-gray-800' },
-      ANALISE_JURIDICA: { label: 'Análise Jurídica', className: 'bg-gray-100 text-gray-800' },
-      APROVACAO_INTERNA: { label: 'Aprovação Interna', className: 'bg-gray-100 text-gray-800' },
-      PUBLICADO: { label: 'Publicado', className: 'bg-blue-100 text-blue-800' },
-      IMPUGNACAO: { label: 'Impugnação', className: 'bg-yellow-100 text-yellow-800' },
-      ACOLHIMENTO_PROPOSTAS: { label: 'Recebendo Propostas', className: 'bg-green-100 text-green-800' },
-      ANALISE_PROPOSTAS: { label: 'Análise de Propostas', className: 'bg-purple-100 text-purple-800' },
-      EM_DISPUTA: { label: 'Em Disputa', className: 'bg-red-100 text-red-800' },
-      JULGAMENTO: { label: 'Julgamento', className: 'bg-orange-100 text-orange-800' },
-      HABILITACAO: { label: 'Habilitação', className: 'bg-indigo-100 text-indigo-800' },
-      RECURSO: { label: 'Recurso', className: 'bg-pink-100 text-pink-800' },
-      ADJUDICACAO: { label: 'Adjudicação', className: 'bg-teal-100 text-teal-800' },
-      HOMOLOGACAO: { label: 'Homologação', className: 'bg-emerald-100 text-emerald-800' },
-      CONCLUIDO: { label: 'Concluído', className: 'bg-green-100 text-green-800' },
-    }
-    const config = map[fase] || { label: fase, className: 'bg-gray-100' }
-    return <Badge className={config.className}>{config.label}</Badge>
-  }
+  const getFaseBadge = (fase: string) => <Badge className={corFase(fase)}>{rotuloFase(fase)}</Badge>
 
   const diasRestantes = () => {
     if (!licitacao?.data_abertura_sessao) return 0

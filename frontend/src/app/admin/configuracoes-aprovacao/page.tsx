@@ -34,6 +34,8 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { API_URL, adminFetch } from '@/lib/api';
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Orgao {
   id: string;
@@ -147,7 +149,7 @@ export default function AdminConfiguracoesAprovacaoPage() {
 
   const criarConfiguracaoPadrao = async () => {
     if (!orgaoSelecionado) {
-      alert('Selecione um órgão primeiro');
+      toast.warning('Selecione um órgão primeiro');
       return;
     }
     
@@ -159,14 +161,14 @@ export default function AdminConfiguracoesAprovacaoPage() {
       
       if (response.ok) {
         await carregarConfiguracoes();
-        alert('Configuração padrão criada com sucesso!');
+        toast.success('Configuração padrão criada com sucesso!');
       } else {
         const error = await response.json();
-        alert(`Erro: ${error.message}`);
+        toast.error(`Erro: ${error.message}`);
       }
     } catch (error) {
       console.error('Erro ao criar configuração padrão:', error);
-      alert('Erro ao criar configuração padrão');
+      toast.error('Erro ao criar configuração padrão');
     } finally {
       setSaving(false);
     }
@@ -174,7 +176,7 @@ export default function AdminConfiguracoesAprovacaoPage() {
 
   const abrirModalNovo = () => {
     if (!orgaoSelecionado) {
-      alert('Selecione um órgão primeiro');
+      toast.warning('Selecione um órgão primeiro');
       return;
     }
     
@@ -217,7 +219,7 @@ export default function AdminConfiguracoesAprovacaoPage() {
 
   const salvarConfiguracao = async () => {
     if (!form.nome.trim()) {
-      alert('Informe o nome da configuração');
+      toast.warning('Informe o nome da configuração');
       return;
     }
 
@@ -248,18 +250,18 @@ export default function AdminConfiguracoesAprovacaoPage() {
         await carregarConfiguracoes();
       } else {
         const error = await response.json();
-        alert(`Erro: ${error.message}`);
+        toast.error(`Erro: ${error.message}`);
       }
     } catch (error) {
       console.error('Erro ao salvar:', error);
-      alert('Erro ao salvar configuração');
+      toast.error('Erro ao salvar configuração');
     } finally {
       setSaving(false);
     }
   };
 
   const desativarConfiguracao = async (id: string) => {
-    if (!confirm('Deseja realmente desativar esta configuração?')) {
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Deseja realmente desativar esta configuração?' }))) {
       return;
     }
 
@@ -272,11 +274,11 @@ export default function AdminConfiguracoesAprovacaoPage() {
         await carregarConfiguracoes();
       } else {
         const error = await response.json();
-        alert(`Erro: ${error.message}`);
+        toast.error(`Erro: ${error.message}`);
       }
     } catch (error) {
       console.error('Erro ao desativar:', error);
-      alert('Erro ao desativar configuração');
+      toast.error('Erro ao desativar configuração');
     }
   };
 

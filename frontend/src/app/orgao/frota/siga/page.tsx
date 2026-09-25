@@ -18,6 +18,7 @@ import { ArrowLeft, Download, FileText, Fuel, Loader2, Pencil, RefreshCw } from 
 import { API_URL, authFetch } from '@/lib/api'
 import ConfiguracaoSiga from '@/components/siga/ConfiguracaoSiga'
 import { baixarArquivoSiga } from '@/services/siga.service'
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface VeiculoSiga {
   id: string
@@ -245,9 +246,7 @@ export default function FrotaSigaPage() {
 
   async function gerarCombustivel() {
     if (previa && previa.totais.linhas_com_pendencia > 0) {
-      const ok = window.confirm(
-        `${previa.totais.linhas_com_pendencia} linha(s) com pendência NÃO entram no arquivo. Gerar mesmo assim?`,
-      )
+      const ok = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `${previa.totais.linhas_com_pendencia} linha(s) com pendência NÃO entram no arquivo. Gerar mesmo assim?` }))
       if (!ok) return
     }
     setGerandoCombustivel(true)

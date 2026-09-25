@@ -9,7 +9,7 @@ import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda } from '../demandas/entities/demanda.entity';
 import { DispensaLance } from './entities/dispensa-lance.entity';
 import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
-import { DisputaModule } from '../disputa-v2/disputa.module';
+import { DisputaModule } from '../disputa/disputa.module';
 import { ContratosModule } from '../contratos/contratos.module';
 import { PncpModule } from '../pncp/pncp.module';
 import { FaseInternaModule } from '../fase-interna/fase-interna.module';
@@ -23,6 +23,7 @@ import { TransicoesModule } from './transicoes/transicoes.module';
 import { ResultadoModule } from '../resultado/resultado.module';
 import { PortalFornecedorController } from './portal-fornecedor.controller';
 import { PortalFornecedorService } from './portal-fornecedor.service';
+import { MigracaoLegadoE9BootService } from './migracao-legado-e9-boot.service';
 
 @Module({
   imports: [
@@ -40,7 +41,7 @@ import { PortalFornecedorService } from './portal-fornecedor.service';
     ResultadoModule,
   ],
   controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService],
+  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}
