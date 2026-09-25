@@ -18,6 +18,9 @@ import { exigirLicitacaoAtiva, motivoSessaoBloqueada } from './licitacao-ativa';
 import { pedirEncerramentoDisputa } from './transicoes-sessao';
 import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
 import { exigirRetomadaPermitida, retomarRelogiosDaSessao } from '../disputa-v2/desconexao-pregoeiro.service';
+import { ordemSql } from '../disputa-v2/modos-disputa';
+import { RankingService, UnidadeJulgamento } from '../julgamento/ranking.service';
+import { AceitacaoService } from '../julgamento/aceitacao.service';
 
 /**
  * Servico de Controle da Sessao de Disputa
@@ -44,7 +47,95 @@ export class SessaoService {
     private readonly transicoes: TransicoesService,
     private readonly disputa: DisputaService,
     private readonly parametrosDisputa: ParametrosDisputaService,
+    private readonly ranking: RankingService,
+    private readonly aceitacao: AceitacaoService,
   ) {}
+
+  // ========================================
+  // RANKING ÚNICO (plano E3 — fim do B4/B3)
+  // ========================================
+
+  /** Razão social / CNPJ / porte dos licitantes (cadastro). */
+  private async cadastroFornecedores(ids: string[]): Promise<Map<string, { razaoSocial: string; cpfCnpj: string; porte: string | null }>> {
+    const validos = [...new Set(ids.filter(Boolean))];
+    if (!validos.length) return new Map();
+    const rows: any[] = await this.licitacaoRepository.manager.query(
+      `SELECT id::text AS id, razao_social, cpf_cnpj, porte::text AS porte FROM fornecedores WHERE id::text = ANY($1)`,
+      [validos],
+    );
+    return new Map(rows.map((r) => [r.id, { razaoSocial: r.razao_social, cpfCnpj: r.cpf_cnpj ?? '', porte: r.porte ?? null }]));
+  }
+
+  /**
+   * Ranking por LICITANTE da licitação, a partir do ranking único por unidade
+   * (lances + situação do licitante). `valorTotal` = soma, nas unidades em que
+   * ele está na vez ou classificado, do seu melhor valor TOTAL.
+   */
+  private async rankingPorLicitante(licitacaoId: string) {
+    const { porUnidade, agregado } = await this.ranking.rankingAgregado(licitacaoId);
+    const cadastro = await this.cadastroFornecedores(agregado.map((a) => a.fornecedorId));
+    const totalDoLicitante = (fid: string) =>
+      Math.round(
+        porUnidade.reduce((soma, { unidade, ranking }) => {
+          const e = ranking.find((r) => r.fornecedorId === fid);
+          if (!e) return soma;
+          const qtd = unidade.tipo === 'ITEM' ? unidade.itens[0]?.quantidade || 1 : 1;
+          return soma + (unidade.baseLance === BaseLance.UNITARIO ? e.melhorValor * qtd : e.melhorValor);
+        }, 0) * 100,
+      ) / 100;
+    const situacoesDo = (fid: string) =>
+      porUnidade
+        .map(({ unidade, ranking }) => ({ unidade, e: ranking.find((r) => r.fornecedorId === fid) }))
+        .filter((x) => !!x.e)
+        .map(({ unidade, e }) => ({ tipo: unidade.tipo, unidadeId: unidade.id, numero: unidade.numero, posicao: e!.posicao, situacao: e!.situacao }));
+    const lista = agregado.map((a) => ({
+      fornecedorId: a.fornecedorId,
+      razaoSocial: cadastro.get(a.fornecedorId)?.razaoSocial ?? a.fornecedorNome,
+      cpfCnpj: cadastro.get(a.fornecedorId)?.cpfCnpj ?? '',
+      porte: cadastro.get(a.fornecedorId)?.porte ?? null,
+      valorTotal: totalDoLicitante(a.fornecedorId),
+      melhorPosicao: a.melhorPosicao,
+      excluido: a.excluidoEmTodas,
+      unidades: situacoesDo(a.fornecedorId),
+    }));
+    return { porUnidade, lista };
+  }
+
+  /**
+   * Resultado de cada ITEM pelo ranking único: vencedor da unidade (item ou
+   * lote do item) — nunca RECUSADO/INABILITADO/DESCLASSIFICADO — e o melhor
+   * lance ATIVO dele no item (no lote, a linha de rateio do lance vencedor).
+   */
+  private async resultadoPorItem(
+    licitacaoId: string,
+    manager?: EntityManager,
+  ): Promise<Map<string, { item: ItemLicitacao; fornecedorId: string; lance: Lance } | null>> {
+    const m = manager ?? this.licitacaoRepository.manager;
+    const unidades = await this.ranking.unidades(licitacaoId, m);
+    const direcao = await this.ranking.direcao(licitacaoId, m);
+    const itens = await m.find(ItemLicitacao, { where: { licitacao_id: licitacaoId }, order: { numero_item: 'ASC' } });
+    const vencedores = new Map<string, string | null>();
+    const saida = new Map<string, { item: ItemLicitacao; fornecedorId: string; lance: Lance } | null>();
+    for (const item of itens) {
+      const u: UnidadeJulgamento | undefined = unidades.find((x) => x.itens.some((i) => i.id === item.id));
+      if (!u) {
+        saida.set(item.id, null);
+        continue;
+      }
+      if (!vencedores.has(u.id)) vencedores.set(u.id, (await this.ranking.vencedor(u, m))?.fornecedorId ?? null);
+      const fid = vencedores.get(u.id);
+      if (!fid) {
+        saida.set(item.id, null);
+        continue;
+      }
+      const lance = await m.findOne(Lance, {
+        where: { item_id: item.id, licitacao_id: licitacaoId, fornecedor_id: fid, cancelado: false },
+        order: { valor: ordemSql(direcao), created_at: 'ASC' },
+      });
+      saida.set(item.id, lance ? { item, fornecedorId: fid, lance } : null);
+    }
+    return saida;
+  }
 
   // ========================================
   // GUARDAS E TRANSIÇÕES DA LICITAÇÃO (plano E1)
@@ -543,8 +634,13 @@ export class SessaoService {
   async convocarParaHabilitacao(sessaoId: string, fornecedorId: string, ator: AtorTransicao): Promise<void> {
     const sessao = await this.sessaoParaAto(sessaoId);
 
+    // E3: só se convoca para a habilitação o licitante com proposta ACEITA
+    // (IN 73 art. 29 → Lei 14.133 art. 62)
+    await this.aceitacao.exigirPropostaAceita(sessao.licitacao_id, fornecedorId);
+
     // Licitação → HABILITACAO (Art. 62): ENCERRAR_DISPUTA (se ainda em disputa)
-    // + INICIAR_HABILITACAO — antes da sessão, para não deixar a sala à frente
+    // + INICIAR_HABILITACAO (pré-condição: toda unidade com proposta aceita) —
+    // antes da sessão, para não deixar a sala à frente
     await this.levarAHabilitacao(sessao.licitacao_id, ator);
 
     sessao.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
@@ -563,8 +659,15 @@ export class SessaoService {
       undefined, fornecedorId, sessao.pregoeiro_nome, true);
   }
 
-  async aprovarHabilitacao(sessaoId: string, fornecedorId: string): Promise<void> {
+  async aprovarHabilitacao(sessaoId: string, fornecedorId: string, ator?: AtorTransicao): Promise<void> {
     const sessao = await this.sessaoParaAto(sessaoId);
+
+    // E3/B3: o licitante habilitado fica HABILITADO nas unidades em que a
+    // proposta dele foi aceita (é o que a adjudicação consulta)
+    const unidades = await this.aceitacao.aoHabilitar(sessao.licitacao_id, fornecedorId, ator ?? { tipo: 'SISTEMA', id: 'sessao' });
+    if (!unidades) {
+      throw new BadRequestException('O licitante não tem proposta aceita nesta licitação — não há o que habilitar.');
+    }
 
     // Avança para prazo de intenção de recurso (Art. 165, Lei 14.133/2021)
     sessao.etapa = EtapaSessao.INTENCAO_RECURSO;
@@ -578,51 +681,58 @@ export class SessaoService {
 
   async reprovarHabilitacao(sessaoId: string, fornecedorId: string, motivo: string, ator: AtorTransicao): Promise<void> {
     const sessao = await this.sessaoParaAto(sessaoId);
+    const texto = (motivo ?? '').trim();
+    if (!texto) throw new BadRequestException('Informe o motivo da inabilitação');
 
     await this.registrarEvento(sessao.id, TipoEvento.HABILITACAO_REPROVADA,
-      `Habilitacao REPROVADA. Motivo: ${motivo}. Proximo classificado sera convocado.`,
-      undefined, fornecedorId, sessao.pregoeiro_nome, true, { motivo });
+      `Habilitacao REPROVADA. Motivo: ${texto}. O proximo classificado (ranking de lances) sera convocado para a aceitacao da proposta.`,
+      undefined, fornecedorId, sessao.pregoeiro_nome, true, { motivo: texto });
 
-    // Convoca o próximo classificado automaticamente
-    const proximoId = await this.encontrarProximoClassificado(sessao.licitacao_id, fornecedorId);
-    if (proximoId) {
-      await this.convocarParaHabilitacao(sessaoId, proximoId, ator);
+    // B3/B4: o inabilitado sai do ranking em TODAS as unidades; onde ele era o
+    // licitante na vez, a licitação volta ao julgamento e o PRÓXIMO PELOS
+    // LANCES é convocado para a aceitação da proposta (IN 73 art. 29)
+    const r = await this.aceitacao.aoInabilitar(sessaoId, fornecedorId, texto, ator, sessao.pregoeiro_nome);
+
+    const atual = await this.sessaoRepository.findOneByOrFail({ id: sessaoId });
+    atual.fornecedor_habilitacao_id = null;
+    if (r.reconvocadas > 0) {
+      atual.etapa = EtapaSessao.ACEITACAO_PROPOSTA;
+    } else if (r.restantesComAceite > 0) {
+      atual.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
     } else {
-      // Sem próximo — sessão vai para encerramento sem vencedor
-      sessao.etapa = EtapaSessao.ENCERRAMENTO;
-      sessao.fornecedor_habilitacao_id = null;
-      await this.sessaoRepository.save(sessao);
+      // Sem próximo em nenhuma unidade — sessão vai para encerramento sem vencedor
+      atual.etapa = EtapaSessao.ENCERRAMENTO;
+    }
+    await this.sessaoRepository.save(atual);
+    if (r.reconvocadas === 0 && r.restantesComAceite === 0) {
       await this.registrarEvento(sessao.id, TipoEvento.SESSAO_ENCERRADA,
-        'Nenhum fornecedor habilitado. Sessao encerrada sem vencedor.',
+        'Nenhum licitante classificado restante. Sessao encerrada sem vencedor.',
         undefined, undefined, sessao.pregoeiro_nome, true);
     }
   }
 
-  /** Retorna o ranking de habilitação: convocado atual + todos os classificados em ordem */
+  /**
+   * Estado da habilitação: convocado atual + licitantes em ordem pelo RANKING
+   * ÚNICO (lances e situação por unidade — nunca a proposta inicial). Os
+   * excluídos (recusado/inabilitado/desclassificado em todas as unidades) vêm
+   * em `excluidos`.
+   */
   async getHabilitacaoStatus(sessaoId: string) {
     const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
 
-    // Propostas classificadas ordenadas por valor total (menor = melhor colocado)
-    const propostas = await this.propostaRepository.find({
-      where: { licitacao_id: sessao.licitacao_id },
-      relations: ['fornecedor'],
-      order: { valor_total_proposta: 'ASC' },
-    });
-
-    const classificadas = propostas.filter(p =>
-      ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA', 'ENVIADA', 'VALIDA'].includes(p.status)
-    );
-
-    const ranking = classificadas.map((p, i) => ({
+    const { lista } = await this.rankingPorLicitante(sessao.licitacao_id);
+    const validos = lista.filter((l) => !l.excluido);
+    const ranking = validos.map((l, i) => ({
       posicao: i + 1,
-      fornecedorId: p.fornecedor_id,
-      razaoSocial: p.fornecedor?.razao_social ?? 'Desconhecido',
-      cpfCnpj: p.fornecedor?.cpf_cnpj ?? '',
-      porte: (p.fornecedor as any)?.porte ?? null,
-      valorTotal: Number(p.valor_total_proposta),
-      status: p.status,
-      isConvocado: p.fornecedor_id === sessao.fornecedor_habilitacao_id,
+      fornecedorId: l.fornecedorId,
+      razaoSocial: l.razaoSocial,
+      cpfCnpj: l.cpfCnpj,
+      porte: l.porte,
+      valorTotal: l.valorTotal,
+      unidades: l.unidades,
+      propostaAceita: l.unidades.some((u) => ['ACEITO', 'HABILITADO', 'VENCEDOR'].includes(u.situacao)),
+      isConvocado: l.fornecedorId === sessao.fornecedor_habilitacao_id,
     }));
 
     const convocado = ranking.find(r => r.isConvocado) ?? null;
@@ -633,20 +743,8 @@ export class SessaoService {
       etapa: sessao.etapa,
       convocado,
       ranking,
+      excluidos: lista.filter((l) => l.excluido).map((l) => ({ fornecedorId: l.fornecedorId, razaoSocial: l.razaoSocial, unidades: l.unidades })),
     };
-  }
-
-  /** Encontra o próximo fornecedor classificado após o atual (para reprovar habilitação) */
-  private async encontrarProximoClassificado(licitacaoId: string, fornecedorAtualId: string): Promise<string | null> {
-    const propostas = await this.propostaRepository.find({
-      where: { licitacao_id: licitacaoId },
-      order: { valor_total_proposta: 'ASC' },
-    });
-    const classificadas = propostas.filter(p =>
-      ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA', 'ENVIADA', 'VALIDA'].includes(p.status)
-    );
-    const idx = classificadas.findIndex(p => p.fornecedor_id === fornecedorAtualId);
-    return classificadas[idx + 1]?.fornecedor_id ?? null;
   }
 
   // ========================================
@@ -683,6 +781,13 @@ export class SessaoService {
 
   async adjudicarItem(sessaoId: string, itemId: string, fornecedorId: string, valor: number): Promise<void> {
     const sessao = await this.sessaoParaAto(sessaoId);
+
+    // B3: só se adjudica ao vencedor do ranking único (proposta aceita/habilitado;
+    // nunca recusado, inabilitado ou desclassificado)
+    const resultado = (await this.resultadoPorItem(sessao.licitacao_id)).get(itemId);
+    if (!resultado || resultado.fornecedorId !== fornecedorId) {
+      throw new BadRequestException('O fornecedor informado não é o vencedor deste item pelo julgamento (ranking de lances e situação do licitante).');
+    }
 
     sessao.etapa = EtapaSessao.ADJUDICACAO;
     await this.sessaoRepository.save(sessao);
@@ -722,22 +827,18 @@ export class SessaoService {
     const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
 
-    // 1º classificado = proposta de menor valor total entre as classificadas
-    const propostas = await this.propostaRepository.find({
-      where: { licitacao_id: sessao.licitacao_id },
-      relations: ['fornecedor'],
-      order: { valor_total_proposta: 'ASC' },
-    });
-    const classificadas = propostas.filter(p =>
-      ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA', 'ENVIADA', 'VALIDA'].includes(p.status)
-    );
-    const primeiro = classificadas[0] ?? null;
+    // 1º classificado = licitante na vez pelo RANKING ÚNICO (lances + situação)
+    const { porUnidade, lista } = await this.rankingPorLicitante(sessao.licitacao_id);
+    const primeiro = lista.find((l) => !l.excluido) ?? null;
 
-    // Melhor lance registrado (menor valor entre todos os lances da licitação)
-    const melhorLance = await this.lanceRepository.findOne({
-      where: { licitacao_id: sessao.licitacao_id, cancelado: false },
-      order: { valor: 'ASC' },
-    });
+    // Melhor valor do 1º (na base do lance) nas unidades em que ele está na vez
+    const melhorDoPrimeiro = primeiro
+      ? porUnidade
+          .map(({ ranking }) => ranking.find((e) => !e.excluido))
+          .filter((e) => e?.fornecedorId === primeiro.fornecedorId)
+          .map((e) => e!.melhorValor)
+      : [];
+    const melhorLance = melhorDoPrimeiro.length ? { valor: melhorDoPrimeiro[0] } : null;
 
     // Histórico de eventos de negociação
     const eventos = await this.eventoRepository.find({
@@ -765,11 +866,12 @@ export class SessaoService {
       sessaoId,
       etapa: sessao.etapa,
       vencedor: primeiro ? {
-        fornecedorId: primeiro.fornecedor_id,
-        razaoSocial: primeiro.fornecedor?.razao_social ?? 'Desconhecido',
-        cpfCnpj: primeiro.fornecedor?.cpf_cnpj ?? '',
-        porte: (primeiro.fornecedor as any)?.porte ?? null,
-        valorProposta: Number(primeiro.valor_total_proposta),
+        fornecedorId: primeiro.fornecedorId,
+        razaoSocial: primeiro.razaoSocial,
+        cpfCnpj: primeiro.cpfCnpj,
+        porte: primeiro.porte,
+        // valor do licitante pelos LANCES (soma dos totais nas unidades), não a proposta inicial
+        valorProposta: primeiro.valorTotal,
       } : null,
       melhorLance: melhorLance ? Number(melhorLance.valor) : null,
       historicoNegociacao,
@@ -804,19 +906,14 @@ export class SessaoService {
     const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
     if (!sessao) throw new NotFoundException('Sessao nao encontrada');
 
-    // Participantes com propostas classificadas
-    const propostas = await this.propostaRepository.find({
-      where: { licitacao_id: sessao.licitacao_id },
-      relations: ['fornecedor'],
-      order: { valor_total_proposta: 'ASC' },
-    });
-    const participantes = propostas
-      .filter(p => ['CLASSIFICADA', 'VENCEDORA', 'SEGUNDA_COLOCADA', 'ENVIADA', 'VALIDA'].includes(p.status))
-      .map(p => ({
-        fornecedorId: p.fornecedor_id,
-        razaoSocial: p.fornecedor?.razao_social ?? 'Desconhecido',
-        cpfCnpj: p.fornecedor?.cpf_cnpj ?? '',
-      }));
+    // Participantes: todos os licitantes do ranking único (inclusive
+    // recusados/inabilitados — podem manifestar intenção de recurso)
+    const { lista } = await this.rankingPorLicitante(sessao.licitacao_id);
+    const participantes = lista.map((l) => ({
+      fornecedorId: l.fornecedorId,
+      razaoSocial: l.razaoSocial,
+      cpfCnpj: l.cpfCnpj,
+    }));
 
     // Eventos de intenção de recurso
     const eventos = await this.eventoRepository.find({
@@ -887,41 +984,34 @@ export class SessaoService {
       order: { numero_item: 'ASC' },
     });
 
-    // Para cada item, busca o melhor lance
-    const itensPorLance = await Promise.all(
-      itens.map(async (item) => {
-        const melhorLance = await this.lanceRepository.findOne({
-          where: { item_id: item.id, licitacao_id: sessao.licitacao_id, cancelado: false },
-          order: { valor: 'ASC', created_at: 'ASC' },
-        });
-
-        let vencedor: any = null;
-        if (melhorLance) {
-          const proposta = await this.propostaRepository.findOne({
-            where: { licitacao_id: sessao.licitacao_id, fornecedor_id: melhorLance.fornecedor_id },
-            relations: ['fornecedor'],
-          });
-          const v = valoresGravados(melhorLance, (melhorLance.base_lance as BaseLance) || BaseLance.TOTAL_ITEM, Number(item.quantidade));
-          vencedor = {
-            fornecedorId: melhorLance.fornecedor_id,
-            razaoSocial: proposta?.fornecedor?.razao_social ?? 'Desconhecido',
-            cpfCnpj: proposta?.fornecedor?.cpf_cnpj ?? '',
-            // valor TOTAL do item (o painel soma); unitário explícito
-            valor: v.valor_total,
-            valorUnitario: v.valor_unitario,
-          };
-        }
-
-        return {
-          itemId: item.id,
-          numero: item.numero_item,
-          descricao: item.descricao_resumida ?? item.descricao_detalhada,
-          quantidade: item.quantidade,
-          unidade: item.unidade_medida,
-          vencedor,
-        };
-      })
+    // Vencedor de cada item pelo RANKING ÚNICO (B3: nunca o recusado/inabilitado)
+    const resultados = await this.resultadoPorItem(sessao.licitacao_id);
+    const cadastro = await this.cadastroFornecedores(
+      [...resultados.values()].filter((r) => !!r).map((r) => r!.fornecedorId),
     );
+    const itensPorLance = itens.map((item) => {
+      const r = resultados.get(item.id);
+      let vencedor: any = null;
+      if (r) {
+        const v = valoresGravados(r.lance, (r.lance.base_lance as BaseLance) || BaseLance.TOTAL_ITEM, Number(item.quantidade));
+        vencedor = {
+          fornecedorId: r.fornecedorId,
+          razaoSocial: cadastro.get(r.fornecedorId)?.razaoSocial ?? 'Desconhecido',
+          cpfCnpj: cadastro.get(r.fornecedorId)?.cpfCnpj ?? '',
+          // valor TOTAL do item (o painel soma); unitário explícito
+          valor: v.valor_total,
+          valorUnitario: v.valor_unitario,
+        };
+      }
+      return {
+        itemId: item.id,
+        numero: item.numero_item,
+        descricao: item.descricao_resumida ?? item.descricao_detalhada,
+        quantidade: item.quantidade,
+        unidade: item.unidade_medida,
+        vencedor,
+      };
+    });
 
     return {
       sessaoId,
@@ -944,17 +1034,16 @@ export class SessaoService {
       order: { numero_item: 'ASC' },
     });
 
+    // B3: vencedor pelo ranking único (nunca recusado/inabilitado/desclassificado)
+    const resultados = await this.resultadoPorItem(sessao.licitacao_id);
     let totalAdjudicados = 0;
     for (const item of itens) {
-      const melhorLance = await this.lanceRepository.findOne({
-        where: { item_id: item.id, licitacao_id: sessao.licitacao_id, cancelado: false },
-        order: { valor: 'ASC' },
-      });
-      if (melhorLance) {
-        const v = valoresGravados(melhorLance, (melhorLance.base_lance as BaseLance) || BaseLance.TOTAL_ITEM, Number(item.quantidade));
+      const r = resultados.get(item.id);
+      if (r) {
+        const v = valoresGravados(r.lance, (r.lance.base_lance as BaseLance) || BaseLance.TOTAL_ITEM, Number(item.quantidade));
         await this.registrarEvento(sessao.id, TipoEvento.ITEM_ADJUDICADO,
-          `Item ${item.numero_item} adjudicado ao fornecedor ${melhorLance.fornecedor_id} por R$ ${v.valor_total.toFixed(2)}`,
-          item.id, melhorLance.fornecedor_id, sessao.pregoeiro_nome, true,
+          `Item ${item.numero_item} adjudicado ao fornecedor ${r.fornecedorId} por R$ ${v.valor_total.toFixed(2)}`,
+          item.id, r.fornecedorId, sessao.pregoeiro_nome, true,
           { valor: v.valor_total, valor_unitario: v.valor_unitario });
         totalAdjudicados++;
       }
@@ -1002,15 +1091,14 @@ export class SessaoService {
     let valorTotal = 0;
     // Uma transação: vencedor/valor de cada item + HOMOLOGAR (a pré-condição
     // "item adjudicado" lê os itens gravados aqui) + encerramento da sessão.
-    // Valor: colunas explícitas do lance (B2 corrigido na E2). Vencedor: menor
-    // lance de qualquer licitante — B3 (inabilitado) fica para a E4/E6.
+    // Valor: colunas explícitas do lance (B2 corrigido na E2). Vencedor: o do
+    // RANKING ÚNICO (E3/B3) — nunca recusado, inabilitado ou desclassificado.
     await this.sessaoRepository.manager.transaction(async (manager) => {
+      const resultados = await this.resultadoPorItem(sessao.licitacao_id, manager);
       for (const item of itens) {
-        const melhorLance = await manager.findOne(Lance, {
-          where: { item_id: item.id, licitacao_id: sessao.licitacao_id, cancelado: false },
-          order: { valor: 'ASC', created_at: 'ASC' },
-        });
-        if (!melhorLance) continue;
+        const r = resultados.get(item.id);
+        if (!r) continue;
+        const melhorLance = r.lance;
 
         // B2: unitário e total vêm das colunas explícitas do lance (o lance do
         // pregão por item é o TOTAL — nunca multiplicar pela quantidade de novo)

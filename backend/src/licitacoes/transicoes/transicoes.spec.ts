@@ -38,6 +38,7 @@ function consultas(p: Partial<Record<keyof ConsultasTransicao, any>> = {}): Cons
     itens: async () => p.itens ?? [{ status: 'ADJUDICADO', fornecedor_vencedor_id: 'f1' }],
     instrucaoProcesso: async (etapa?: FaseLicitacao) =>
       (typeof p.instrucaoProcesso === 'function' ? p.instrucaoProcesso(etapa) : p.instrucaoProcesso) ?? { pode_divulgar: true, pendentes: [] },
+    unidadesSemPropostaAceita: async () => p.unidadesSemPropostaAceita ?? [],
   };
 }
 
@@ -292,6 +293,15 @@ describe('TransicoesService — pré-condições', () => {
       ctx(l, A.CONCLUIR_FASE_INTERNA, { consultas: consultas({ instrucaoProcesso: pendente }) }),
     );
     expect(c).toEqual([expect.stringMatching(/Instrução do processo incompleta \(Art\. 72.*Autorização/)]);
+  });
+
+  test('habilitação só com proposta aceita em todas as unidades (E3 — IN 73 art. 29)', async () => {
+    const l = lic({ fase: F.JULGAMENTO });
+    const def = definicaoDoAto(l.modalidade, A.INICIAR_HABILITACAO)!;
+    expect(
+      await pendenciasDoAto(def, ctx(l, A.INICIAR_HABILITACAO, { consultas: consultas({ unidadesSemPropostaAceita: ['Item 1', 'Lote 2'] }) })),
+    ).toEqual([expect.stringMatching(/Aceitação da proposta pendente.*Item 1, Lote 2/)]);
+    expect(await pendenciasDoAto(def, ctx(l, A.INICIAR_HABILITACAO))).toEqual([]);
   });
 
   test('acolhimento, abertura e propostas para a disputa', async () => {

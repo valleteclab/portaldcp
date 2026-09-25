@@ -44,6 +44,7 @@ import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
 import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
 import { exigirLicitacaoAtiva, licitacaoEstaAtiva } from '../sessao/licitacao-ativa';
 import { pedirEncerramentoDisputa } from '../sessao/transicoes-sessao';
+import { registrarLicitantesDaUnidade, reiniciarJulgamentoDaLicitacao } from '../julgamento/licitantes-unidade.sql';
 
 /**
  * ============================================================================
@@ -299,8 +300,12 @@ export class DisputaService {
 
   /**
    * Fim da etapa de lances: com TODOS os itens encerrados, a sessão sai da
-   * etapa de lances (→ NEGOCIACAO) e a licitação vai a julgamento
-   * (ENCERRAR_DISPUTA). Idempotente.
+   * etapa de lances (→ ACEITACAO_PROPOSTA — plano E3: lances encerrados →
+   * [desempate ME/EPP] → aceitação → [negociação] → habilitação) e a
+   * licitação vai a julgamento (ENCERRAR_DISPUTA). Idempotente.
+   * GANCHO ME/EPP: a etapa do desempate (BENEFICIO_MPE) entra aqui, antes da
+   * aceitação, quando houver empate ficto; a aceitação recusa convocar
+   * enquanto o gancho da ME/EPP indicar pendência na unidade.
    */
   private async concluirEtapaDeLancesSeTerminou(sessaoId: string, licitacaoId: string, ator: AtorTransicao): Promise<boolean> {
     if (!(await this.etapaDeLancesEncerrada(licitacaoId))) return false;
@@ -308,7 +313,7 @@ export class DisputaService {
     const r = await this.sessaoRepo
       .createQueryBuilder()
       .update(SessaoDisputa)
-      .set({ status: StatusSessao.EM_ANDAMENTO, etapa: EtapaSessao.NEGOCIACAO })
+      .set({ status: StatusSessao.EM_ANDAMENTO, etapa: EtapaSessao.ACEITACAO_PROPOSTA })
       .where('id = :id', { id: sessaoId })
       .andWhere('etapa IN (:...etapas)', { etapas: [EtapaSessao.DISPUTA_LANCES, EtapaSessao.RANDOM_ENCERRAMENTO] })
       .execute();
@@ -1119,6 +1124,7 @@ export class DisputaService {
       };
     }
 
+    await this.registrarLicitantesAposEncerrar(sessao.licitacao_id, 'ITEM', itemId);
     const etapaDeLancesEncerrada = await this.concluirEtapaDeLancesSeTerminou(sessaoId, sessao.licitacao_id, ator);
     await this.modos.aposEncerrar(sessaoId, sessao.licitacao_id, itemId);
     const alertaReinicio = await this.avaliarReinicio(sessaoId, r.item).catch(() => null);
@@ -1133,6 +1139,21 @@ export class DisputaService {
     };
   }
 
+  /**
+   * Fim da etapa de lances da UNIDADE: o ranking final entra em
+   * `licitantes_unidade` (CLASSIFICADO) — base do julgamento (E3). Idempotente;
+   * falha só é logada (o encerramento nunca é desfeito por isso: o julgamento
+   * recompõe as linhas ao ler a unidade).
+   */
+  private async registrarLicitantesAposEncerrar(licitacaoId: string, tipoUnidade: 'ITEM' | 'LOTE', unidadeId: string): Promise<void> {
+    try {
+      const ranking = await this.rankingDoItem(unidadeId);
+      await registrarLicitantesDaUnidade(this.dataSource.manager, { licitacaoId, tipoUnidade, unidadeId, ranking });
+    } catch (e: any) {
+      this.logger.warn(`Licitantes da unidade ${unidadeId} não registrados no encerramento: ${e?.message ?? e}`);
+    }
+  }
+
   /** Encerramento da unidade LOTE: mesmo pós-ato do item (fim da etapa de lances, aviso de reinício). */
   private async encerrarLote(sessao: SessaoDisputa, loteId: string, ator: AtorTransicao): Promise<ResultadoEncerramento> {
     const r = await this.lotes.encerrar(sessao, loteId);
@@ -1143,6 +1164,7 @@ export class DisputaService {
         jaEstavaEncerrado: true,
       };
     }
+    await this.registrarLicitantesAposEncerrar(sessao.licitacao_id, 'LOTE', r.lote.id);
     const etapaDeLancesEncerrada = await this.concluirEtapaDeLancesSeTerminou(sessao.id, sessao.licitacao_id, ator);
     await this.modos.aposEncerrar(sessao.id, sessao.licitacao_id, r.lote.id);
     const alertaReinicio = await this.avaliarReinicio(sessao.id, { id: r.lote.id, numero_item: r.lote.numero }).catch(() => null);
@@ -1277,6 +1299,8 @@ export class DisputaService {
 
       await m.update(SessaoDisputa, sessaoId, { status: StatusSessao.AGUARDANDO_INICIO, etapa: EtapaSessao.ANALISE_PROPOSTAS });
       await this.lotes.reiniciarLotes(m, sessao.licitacao_id);
+      // Julgamento (E3) recomeça: convocações de aceitação canceladas, situações descartadas
+      await reiniciarJulgamentoDaLicitacao(m, sessao.licitacao_id, motivo);
       const lancesCancelados = cancelados.affected || 0;
       const itensReiniciados = itens.affected || 0;
       await m.save(

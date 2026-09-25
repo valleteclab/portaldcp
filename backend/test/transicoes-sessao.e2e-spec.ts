@@ -38,6 +38,7 @@ import {
   tiqueRelogioDisputa,
 } from './support/pregao';
 import { prepararPregaoEmDisputa } from './support/isolamento';
+import { aceitarPropostaDaUnidade } from './support/julgamento';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao, StatusSessao } from '../src/sessao/entities/sessao-disputa.entity';
 
@@ -159,7 +160,8 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       expect(l.data_fim_disputa).toBeTruthy();
       const s = (await http().get(`/api/disputa-v2/sessao/${sessaoId}`).expect(200)).body;
       expect(s.status).toBe(StatusSessao.EM_ANDAMENTO);
-      expect(s.etapa).toBe(EtapaSessao.NEGOCIACAO);
+      // E3: depois dos lances vem a aceitação da proposta (IN 73 art. 29)
+      expect(s.etapa).toBe(EtapaSessao.ACEITACAO_PROPOSTA);
 
       const h = await historico(lic.id, orgao.token);
       expect(atoDo(h, 'ENCERRAR_DISPUTA')).toHaveLength(1);
@@ -171,6 +173,9 @@ describe('E1 — atos da sala pela máquina de estados', () => {
     });
 
     test('convocar para a habilitação: INICIAR_HABILITACAO com o pregoeiro; reconvocar não duplica', async () => {
+      // E3: a habilitação exige a proposta ACEITA (aceitação não muda a fase: segue em JULGAMENTO)
+      await aceitarPropostaDaUnidade(ctx, sessaoId, itemId, pregoeiro.token, F1.token);
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.JULGAMENTO);
       await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F1.id}`).set(bearer(pregoeiro.token)).send({}).expect(200);
       await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F1.id}`).set(bearer(pregoeiro.token)).send({}).expect(200);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.HABILITACAO);

@@ -15,6 +15,7 @@ import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-li
 import { SigiloDisputaService } from '../disputa-v2/sigilo-disputa.service';
 import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 import { DisputaModule } from '../disputa-v2/disputa.module';
+import { JulgamentoModule } from '../julgamento/julgamento.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { DisputaModule } from '../disputa-v2/disputa.module';
     ParametrosLicitacaoModule,
     TransicoesModule,
     DisputaModule,
+    JulgamentoModule,
   ],
   controllers: [SessaoController],
   // Tempo real: gateway único /disputa-v2 (o gateway /sessao foi removido na E2 item 8)

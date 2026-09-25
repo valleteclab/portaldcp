@@ -379,12 +379,25 @@ const ENCERRAR_DISPUTA: DefinicaoAto = {
   mensagemForaDaFase: () => 'Licitação não está em disputa',
 };
 
+/**
+ * Julgamento concluído (plano E3): toda unidade com lances (item, ou lote na
+ * disputa por lote) tem licitante com proposta ACEITA — ou está deserta/
+ * fracassada. A aceitação da proposta (IN SEGES 73/2022 art. 29) precede a
+ * habilitação (Lei 14.133 art. 17, V e art. 62).
+ */
+export const propostasAceitasEmTodasAsUnidades: Precondicao = async (ctx) => {
+  const pendentes = (await ctx.consultas.unidadesSemPropostaAceita?.()) ?? [];
+  if (!pendentes.length) return null;
+  return `Aceitação da proposta pendente (IN SEGES 73/2022, art. 29): ${pendentes.join(', ')}`;
+};
+
 const INICIAR_HABILITACAO: DefinicaoAto = {
   ato: A.INICIAR_HABILITACAO,
   rotulo: 'Concluir julgamento e iniciar habilitação',
   de: [F.JULGAMENTO],
   para: F.HABILITACAO,
   principal: true,
+  precondicoes: [propostasAceitasEmTodasAsUnidades],
 };
 
 const ABRIR_PRAZO_RECURSAL: DefinicaoAto = {

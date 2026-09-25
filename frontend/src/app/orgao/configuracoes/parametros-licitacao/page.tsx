@@ -51,6 +51,7 @@ interface Parametros {
   percentual_empate_ficto_demais: number;
   percentual_cota_maxima_mpe: number;
   validade_proposta_dias: number;
+  prazo_proposta_adequada_horas: number;
 }
 
 interface LimiteLegal {
@@ -85,6 +86,7 @@ const CAMPOS_MPE: { key: keyof Parametros; label: string; sufixo: string; fundam
   { key: "percentual_empate_ficto_demais", label: "Empate ficto nas demais modalidades", sufixo: "%", fundamento: "LC 123, art. 44, §2º" },
   { key: "percentual_cota_maxima_mpe", label: "Cota reservada máxima ME/EPP", sufixo: "%", fundamento: "LC 123, art. 48, III" },
   { key: "validade_proposta_dias", label: "Validade padrão da proposta", sufixo: "dias", fundamento: "Art. 90" },
+  { key: "prazo_proposta_adequada_horas", label: "Prazo da proposta adequada ao último lance (mín. 2 h)", sufixo: "h", fundamento: "IN 73/2022, art. 29" },
 ];
 
 function getOrgaoId(): string | undefined {

@@ -32,6 +32,10 @@ export enum EtapaSessao {
   DISPUTA_LANCES = 'DISPUTA_LANCES',
   RANDOM_ENCERRAMENTO = 'RANDOM_ENCERRAMENTO',
   
+  // Aceitacao da proposta (IN 73/2022 art. 29; plano E3): proposta adequada ao
+  // ultimo lance, aceite/recusa com motivo, recusa chama o proximo
+  ACEITACAO_PROPOSTA = 'ACEITACAO_PROPOSTA',
+
   // Negociacao
   NEGOCIACAO = 'NEGOCIACAO',
   

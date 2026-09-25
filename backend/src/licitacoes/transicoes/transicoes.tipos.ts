@@ -96,6 +96,12 @@ export interface ConsultasTransicao {
    * internas (art. 18). null quando indisponível.
    */
   instrucaoProcesso(etapa?: FaseLicitacao): Promise<{ pode_divulgar: boolean; pendentes: string[] } | null>;
+  /**
+   * Unidades (item/lote) com lances e resultado possível que ainda NÃO têm
+   * licitante com proposta aceita (plano E3 — aceitação, IN 73 art. 29).
+   * Opcional: ausente = sem checagem (testes unitários antigos).
+   */
+  unidadesSemPropostaAceita?(): Promise<string[]>;
 }
 
 export interface ContextoTransicao {

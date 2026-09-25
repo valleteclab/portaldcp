@@ -13,6 +13,7 @@ import {
   Trophy,
 } from 'lucide-react'
 import { useDisputaV3 } from '@/hooks/useDisputaV3'
+import { PropostaAdequadaPanel } from '@/components/disputa-v3/PropostaAdequadaPanel'
 import { ItensDoLote, ehLote, rotuloUnidade } from '@/components/disputa-v3/unidade-lote'
 import {
   calcularDiferencaParaLider,
@@ -196,6 +197,9 @@ export default function DisputaV3FornecedorPage() {
                 <CardContent className="py-4 text-sm text-red-700">{actionError}</CardContent>
               </Card>
             )}
+
+            {/* Aceitação (IN 73/2022 art. 29): só aparece quando este licitante é convocado */}
+            {sessaoId && <PropostaAdequadaPanel sessaoId={sessaoId} />}
 
             <div className="grid gap-4 lg:grid-cols-4">
               <Card className="lg:col-span-3 overflow-hidden">

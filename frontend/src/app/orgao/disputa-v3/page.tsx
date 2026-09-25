@@ -27,6 +27,7 @@ import { ItensDoLote, rotuloUnidade } from '@/components/disputa-v3/unidade-lote
 import { DisputaV3Stepper } from '@/components/disputa-v3/disputa-v3-stepper'
 import { RecursosPanel } from '@/components/disputa-v3/RecursosPanel'
 import { HomologacaoPanel } from '@/components/disputa-v3/HomologacaoPanel'
+import { AceitacaoPanel } from '@/components/disputa-v3/AceitacaoPanel'
 import {
   descricaoFaseItem,
   formatarMoeda,
@@ -882,7 +883,12 @@ export default function DisputaV3OrgaoPage() {
                 </div>
 
                 <div className="space-y-4 xl:col-span-3">
-                  {isNegociacaoAtiva ? (
+                  {etapaCodigo === 'ACEITACAO' && sessaoId ? (
+                    /* =============================================
+                       PAINEL DE ACEITAÇÃO DA PROPOSTA (IN 73/2022 art. 29)
+                       ============================================= */
+                    <AceitacaoPanel sessaoId={sessaoId} />
+                  ) : isNegociacaoAtiva ? (
                     /* =============================================
                        PAINEL DE NEGOCIAÇÃO (Art. 61 Lei 14.133)
                        ============================================= */

@@ -714,10 +714,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
   // 5. Julgamento: aceitação, negociação
   // ==========================================================================
   describe('5. Julgamento da proposta do 1º colocado', () => {
-    // DEFEITO CONHECIDO B4: habilitação/negociação ordenam por valor_total_proposta (a
-    // PROPOSTA, não o lance) e filtram status inexistentes (VALIDA, SEGUNDA_COLOCADA) —
-    // backend/src/sessao/sessao.service.ts:1149,1272 (e 1183,1355) — corrigir na E3
-    test.failing(
+    // CORRIGIDO NA E3 (era o defeito B4): habilitação/negociação/recurso/adjudicação leem
+    // o RANKING ÚNICO (julgamento/ranking.service.ts — lances + situação do licitante)
+    test(
       'o 1º colocado do julgamento é o 1º nos LANCES (A), não a menor proposta (B)',
       async () => {
         const hab = await http()
@@ -733,19 +732,78 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       },
     );
 
-    // DEFEITO CONHECIDO (§1.2 "Incompleto — aceitação da proposta não existe"): não há
-    // etapa/ato de aceitação da proposta do 1º colocado (IN 73 art. 29: aceitar/recusar
-    // com motivo; proposta adequada ao último lance em ≥ 2 h) —
-    // backend/src/sessao/entities/sessao-disputa.entity.ts:23-55 (EtapaSessao sem
-    // ACEITACAO) e sessao.controller.ts (sem rota) — corrigir na E3
-    test.failing(
+    // CORRIGIDO NA E3: etapa de ACEITAÇÃO da proposta (IN 73 art. 29) — julgamento/aceitacao.service.ts
+    test(
       'existe a etapa de aceitação da proposta do 1º colocado antes da habilitação (IN 73 art. 29)',
       async () => {
         expect(Object.values(EtapaSessao).some((e) => /ACEITA/.test(e))).toBe(
           true,
         );
+        // fim da etapa de lances → sala na etapa de aceitação
+        expect((await sessao()).etapa).toBe(EtapaSessao.ACEITACAO_PROPOSTA);
       },
     );
+
+    test('habilitação antes da aceitação é recusada (INICIAR_HABILITACAO exige proposta aceita)', async () => {
+      const r = await http()
+        .put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F.A.id}`)
+        .set(bearer(pregoeiro.token))
+        .send({});
+      expect(r.status).toBe(400);
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.JULGAMENTO);
+    });
+
+    test('pregoeiro convoca o 1º nos lances (A) em cada item para a proposta adequada (prazo ≥ 2 h)', async () => {
+      const curto = await http()
+        .post(`/api/julgamento/sessao/${sessaoId}/aceitacao/unidade/${item1}/convocar`)
+        .set(bearer(pregoeiro.token))
+        .send({ prazoHoras: 1 });
+      expect(curto.status).toBe(400);
+      for (const itemId of [item1, item2]) {
+        const r = await http()
+          .post(`/api/julgamento/sessao/${sessaoId}/aceitacao/unidade/${itemId}/convocar`)
+          .set(bearer(pregoeiro.token))
+          .send({ prazoHoras: 2 })
+          .expect(201);
+        expect(r.body.fornecedorId).toBe(F.A.id);
+        const horas = (new Date(r.body.prazoAte).getTime() - Date.now()) / 3_600_000;
+        expect(horas).toBeGreaterThan(1.9);
+        expect(horas).toBeLessThanOrEqual(2);
+      }
+    });
+
+    test('A envia a proposta adequada ao último lance (arquivo + valores) e o pregoeiro aceita', async () => {
+      const minhas = await http()
+        .get(`/api/julgamento/sessao/${sessaoId}/aceitacao`)
+        .set(bearer(F.A.token))
+        .expect(200);
+      expect(minhas.body.convocacoes).toHaveLength(2);
+      for (const c of minhas.body.convocacoes) {
+        const item = c.limites.itens[0];
+        await http()
+          .post(`/api/julgamento/sessao/${sessaoId}/aceitacao/${c.id}/proposta`)
+          .set(bearer(F.A.token))
+          .field('valores', JSON.stringify([{ itemId: item.itemId, valorUnitario: item.valorMaximoTotal / item.quantidade }]))
+          .attach('arquivo', Buffer.from('%PDF-1.4\nproposta adequada A\n%%EOF'), { filename: 'proposta-a.pdf', contentType: 'application/pdf' })
+          .expect(201);
+        await http()
+          .post(`/api/julgamento/sessao/${sessaoId}/aceitacao/${c.id}/aceitar`)
+          .set(bearer(pregoeiro.token))
+          .send({})
+          .expect(201);
+      }
+      const painel = await http()
+        .get(`/api/julgamento/sessao/${sessaoId}/aceitacao`)
+        .set(bearer(pregoeiro.token))
+        .expect(200);
+      expect(painel.body.todasResolvidas).toBe(true);
+      expect(painel.body.unidades.map((u: any) => u.atual)).toEqual([
+        { fornecedorId: F.A.id, situacao: 'ACEITO' },
+        { fornecedorId: F.A.id, situacao: 'ACEITO' },
+      ]);
+      const eventos = await eventosSessao();
+      expect(eventos.filter((e) => e.tipo === TipoEvento.PROPOSTA_ACEITA)).toHaveLength(2);
+    });
 
     // DEFEITO CONHECIDO B8: PUT :id/negociacao/:fornecedorId é declarado antes de
     // PUT :id/negociacao/encerrar — "encerrar" vira fornecedorId e a rota chama
@@ -801,23 +859,52 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect(rep?.descricao).toMatch(/Certid/);
     });
 
-    // DEFEITO CONHECIDO B4: o "próximo classificado" vem da ordem das PROPOSTAS
-    // (B 1900, A 1920, C 1970, D 1978) → depois de A convoca C, não D —
-    // backend/src/sessao/sessao.service.ts:1182-1192 (encontrarProximoClassificado) — corrigir na E4
-    test.failing(
+    // CORRIGIDO NA E3 (era o defeito B4): o "próximo" é o 2º pelos LANCES (D), não pela
+    // ordem das propostas (B 1900, A 1920, C 1970, D 1978). Inabilitar A tira A do ranking,
+    // a licitação volta ao julgamento (RETORNAR_JULGAMENTO) e D é convocado para a
+    // aceitação da proposta em cada item (a habilitação exige proposta aceita).
+    test(
       'com A inabilitado, o convocado é o 2º colocado nos LANCES (D)',
       async () => {
+        const painel = await http()
+          .get(`/api/julgamento/sessao/${sessaoId}/aceitacao`)
+          .set(bearer(pregoeiro.token))
+          .expect(200);
+        for (const u of painel.body.unidades) {
+          expect(u.aceitacaoAtual?.fornecedorId).toBe(F.D.id);
+          expect(u.ranking.find((r: any) => r.fornecedorId === F.A.id)).toMatchObject({ situacao: 'INABILITADO', excluido: true });
+        }
         const hab = await http()
           .get(`/api/sessao/${sessaoId}/habilitacao`)
           .set(bearer(pregoeiro.token))
           .expect(200);
-        expect(hab.body.convocado?.fornecedorId).toBe(F.D.id);
+        expect(hab.body.ranking[0].fornecedorId).toBe(F.D.id);
+        expect(hab.body.excluidos.map((e: any) => e.fornecedorId)).toEqual([F.A.id]);
+        expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.JULGAMENTO);
       },
     );
 
-    test('pregoeiro convoca D (2º nos lances) e o habilita — caminho manual disponível hoje', async () => {
-      // Continuação da cadeia apesar do B4: PUT /sessao/:id/habilitacao/convocar/:D
-      // (a mesma ação do botão "convocar" da sala V3) com o fornecedor correto.
+    test('D envia a proposta adequada, é aceito, convocado e habilitado', async () => {
+      const minhas = await http()
+        .get(`/api/julgamento/sessao/${sessaoId}/aceitacao`)
+        .set(bearer(F.D.token))
+        .expect(200);
+      const ativas = minhas.body.convocacoes.filter((c: any) => c.status === 'AGUARDANDO_ENVIO');
+      expect(ativas).toHaveLength(2);
+      for (const c of ativas) {
+        const item = c.limites.itens[0];
+        await http()
+          .post(`/api/julgamento/sessao/${sessaoId}/aceitacao/${c.id}/proposta`)
+          .set(bearer(F.D.token))
+          .field('valores', JSON.stringify([{ itemId: item.itemId, valorUnitario: item.valorMaximoTotal / item.quantidade }]))
+          .attach('arquivo', Buffer.from('%PDF-1.4\nproposta adequada D\n%%EOF'), { filename: 'proposta-d.pdf', contentType: 'application/pdf' })
+          .expect(201);
+        await http()
+          .post(`/api/julgamento/sessao/${sessaoId}/aceitacao/${c.id}/aceitar`)
+          .set(bearer(pregoeiro.token))
+          .send({})
+          .expect(201);
+      }
       await http()
         .put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F.D.id}`)
         .set(bearer(pregoeiro.token))
@@ -927,10 +1014,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       );
     });
 
-    // DEFEITO CONHECIDO B3: adjudicação/homologação pegam o menor lance de QUALQUER
-    // licitante — o inabilitado A "vence" — backend/src/sessao/sessao.service.ts:1441,1491
-    // (getAdjudicacaoStatus/adjudicarTodos); reprovar não marca o licitante (1120-1141) — corrigir na E4/E6
-    test.failing(
+    // CORRIGIDO NA E3 (era o defeito B3): reprovar marca o licitante INABILITADO na
+    // unidade e a adjudicação lê o ranking único (nunca recusado/inabilitado)
+    test(
       'adjudicação aponta o habilitado D como vencedor dos dois itens',
       async () => {
         const r = await http()
@@ -972,9 +1058,8 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect((await sessao()).status).toBe(StatusSessao.ENCERRADA);
     });
 
-    // DEFEITO CONHECIDO B3: sessao.homologar grava como vencedor o menor lance de
-    // qualquer um (o inabilitado A) — backend/src/sessao/sessao.service.ts:1547-1566 — corrigir na E6
-    test.failing(
+    // CORRIGIDO NA E3 (era o defeito B3): a homologação grava o vencedor do ranking único
+    test(
       'homologação grava o habilitado D como vencedor de cada item',
       async () => {
         const proc = await processoCompleto(ctx, lic.id, orgao.token);

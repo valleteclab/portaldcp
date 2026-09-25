@@ -20,6 +20,7 @@ export type DisputaV3Etapa =
   | 'ABERTURA'
   | 'ANALISE_PROPOSTAS'
   | 'DISPUTA'
+  | 'ACEITACAO'
   | 'NEGOCIACAO'
   | 'HABILITACAO'
   | 'BENEFICIO_MPE'
@@ -184,6 +185,8 @@ export function mapearEtapaSessaoV3(etapa: EtapaSessao): DisputaV3Etapa {
     case EtapaSessao.DISPUTA_LANCES:
     case EtapaSessao.RANDOM_ENCERRAMENTO:
       return 'DISPUTA';
+    case EtapaSessao.ACEITACAO_PROPOSTA:
+      return 'ACEITACAO';
     case EtapaSessao.NEGOCIACAO:
       return 'NEGOCIACAO';
     case EtapaSessao.CONVOCACAO_HABILITACAO:

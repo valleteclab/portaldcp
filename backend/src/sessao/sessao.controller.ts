@@ -191,7 +191,7 @@ export class SessaoController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.aprovarHabilitacao(id, fornecedorId);
+    return this.sessaoService.aprovarHabilitacao(id, fornecedorId, atorTransicaoDe(ator));
   }
 
   @SomenteOrgao()

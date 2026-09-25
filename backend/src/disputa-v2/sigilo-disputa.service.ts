@@ -7,6 +7,10 @@ import { EtapaSessao, StatusSessao } from '../sessao/entities/sessao-disputa.ent
 
 /** Etapas em que a disputa de lances acabou e a identidade dos licitantes é pública. */
 export const ETAPAS_IDENTIDADE_REVELADA: string[] = [
+  // Aceitação (E3): só existe com TODAS as unidades fora da etapa de lances
+  // (fase JULGAMENTO) — sem risco de conluio entre itens; é também a etapa a
+  // que a sala volta depois de uma inabilitação (identidades já públicas)
+  EtapaSessao.ACEITACAO_PROPOSTA,
   EtapaSessao.CONVOCACAO_HABILITACAO,
   EtapaSessao.ANALISE_HABILITACAO,
   EtapaSessao.INTENCAO_RECURSO,

@@ -257,6 +257,39 @@ export class TransicoesService {
     });
   }
 
+  /**
+   * Julgamento (plano E3): unidades de disputa — itens, ou lotes quando a
+   * licitação disputa por lote — que tiveram lances, têm resultado possível
+   * (não DESERTO/FRACASSADO/CANCELADO) e ainda NÃO têm licitante com proposta
+   * aceita (ACEITO/HABILITADO/VENCEDOR em `licitantes_unidade`). Rótulos
+   * "Item N"/"Lote N". Usado pela pré-condição do INICIAR_HABILITACAO.
+   */
+  async unidadesSemPropostaAceita(licitacaoId: string, manager?: EntityManager): Promise<string[]> {
+    const rows: any[] = await (manager ?? this.dataSource.manager).query(
+      `WITH lic AS (SELECT COALESCE(base_lance, 'TOTAL_ITEM') AS base FROM licitacoes WHERE id = $1),
+       unidades AS (
+         SELECT i.id::text AS unidade_id, 'Item ' || i.numero_item AS rotulo, i.numero_item AS ordem
+           FROM itens_licitacao i, lic
+          WHERE i.licitacao_id = $1 AND lic.base <> 'TOTAL_LOTE'
+            AND i.status::text NOT IN ('DESERTO','FRACASSADO','CANCELADO')
+            AND EXISTS (SELECT 1 FROM lances l WHERE l.item_id = i.id AND l.cancelado = false AND l.fornecedor_id IS NOT NULL)
+         UNION ALL
+         SELECT lt.id::text, 'Lote ' || lt.numero, lt.numero
+           FROM lotes_licitacao lt, lic
+          WHERE lt.licitacao_id = $1 AND lic.base = 'TOTAL_LOTE'
+            AND EXISTS (SELECT 1 FROM itens_licitacao i WHERE i.lote_id = lt.id AND i.status::text NOT IN ('DESERTO','FRACASSADO','CANCELADO'))
+            AND EXISTS (SELECT 1 FROM lances l WHERE l.lote_id = lt.id AND l.item_id IS NULL AND l.cancelado = false AND l.fornecedor_id IS NOT NULL)
+       )
+       SELECT u.rotulo FROM unidades u
+        WHERE NOT EXISTS (
+          SELECT 1 FROM licitantes_unidade lu
+           WHERE lu.unidade_id::text = u.unidade_id AND lu.situacao IN ('ACEITO','HABILITADO','VENCEDOR'))
+        ORDER BY u.ordem`,
+      [licitacaoId],
+    );
+    return rows.map((r) => String(r.rotulo));
+  }
+
   // ---------------------------------------------------------------------------
   // Internos
   // ---------------------------------------------------------------------------
@@ -314,6 +347,7 @@ export class TransicoesService {
           `SELECT status::text AS status, fornecedor_vencedor_id FROM itens_licitacao WHERE licitacao_id = $1`,
           [licitacaoId],
         ),
+      unidadesSemPropostaAceita: () => this.unidadesSemPropostaAceita(licitacaoId, manager),
       instrucaoProcesso: async (etapa) => {
         // Resolução tardia: evita ciclo de módulos (a fase-interna depende
         // deste serviço para as próprias transições).

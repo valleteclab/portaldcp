@@ -4,6 +4,7 @@ export type DisputaV3Etapa =
   | 'ABERTURA'
   | 'ANALISE_PROPOSTAS'
   | 'DISPUTA'
+  | 'ACEITACAO'
   | 'NEGOCIACAO'
   | 'HABILITACAO'
   | 'BENEFICIO_MPE'

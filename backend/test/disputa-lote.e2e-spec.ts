@@ -36,6 +36,13 @@ import {
 import { darLance, entrarNaSala, pararTodosOsCrons, tiqueRelogioDisputa } from './support/pregao';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { ratearLanceLote } from '../src/disputa-v2/rateio-lote';
+import {
+  aceitarPropostaDaUnidade,
+  convocarAceitacao,
+  decidirAceitacao,
+  enviarPropostaAdequada,
+  valoresNoLimite,
+} from './support/julgamento';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -468,6 +475,24 @@ describe('E2 — disputa por LOTE no motor único', () => {
 
   // --------------------------------------------------------------------------
   describe('F. Homologação: valores por item = rateio do lance vencedor do lote', () => {
+    test('aceitação da proposta por LOTE: valores por item validados contra o rateio (E3)', async () => {
+      // F1 (Lote 1): convocado; subir um item acima do rateio é recusado; no limite é aceito
+      const c = await convocarAceitacao(ctx, sessaoId, lote1, orgao.token);
+      expect(c.status).toBe(201);
+      expect(c.body).toMatchObject({ fornecedorId: F1.id, tipoUnidade: 'LOTE' });
+      expect(c.body.limites.valorFinalTotal).toBe(1285);
+      expect(c.body.limites.itens).toHaveLength(3);
+      const limite = valoresNoLimite(c.body.limites);
+      const acima = limite.map((v, i) => (i === 0 ? { ...v, valorUnitario: v.valorUnitario + 1 } : { ...v, valorUnitario: v.valorUnitario - 5 }));
+      const r = await enviarPropostaAdequada(ctx, sessaoId, c.body.id, F1.token, acima);
+      expect(r.status).toBe(400);
+      expect(r.body.message).toMatch(/Item 1.*acima do limite/);
+      expect((await enviarPropostaAdequada(ctx, sessaoId, c.body.id, F1.token, limite)).status).toBe(201);
+      expect((await decidirAceitacao(ctx, sessaoId, c.body.id, orgao.token, 'aceitar')).status).toBe(201);
+      // F3 (Lote 2)
+      await aceitarPropostaDaUnidade(ctx, sessaoId, lote2, orgao.token, F3.token);
+    });
+
     test('habilitação → adjudicação → homologação pela sala', async () => {
       for (const f of [F1, F3]) {
         await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${f.id}`).set(bearer(orgao.token)).send({}).expect(200);

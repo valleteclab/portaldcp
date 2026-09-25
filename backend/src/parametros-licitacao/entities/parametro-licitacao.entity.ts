@@ -94,6 +94,14 @@ export class ParametroLicitacao {
   @Column({ type: 'int', default: 60 })
   validade_proposta_dias: number;
 
+  /**
+   * Prazo para o licitante convocado enviar a proposta adequada ao último
+   * lance, na aceitação (IN SEGES 73/2022 art. 29: mínimo de 2 horas,
+   * prorrogável). O sistema nunca aplica menos que 2 h.
+   */
+  @Column({ type: 'int', default: 2 })
+  prazo_proposta_adequada_horas: number;
+
   @CreateDateColumn()
   created_at: Date;
 

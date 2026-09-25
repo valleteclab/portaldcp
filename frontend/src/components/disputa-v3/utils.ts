@@ -4,10 +4,12 @@ export const ETAPAS_V3: Array<{ codigo: DisputaV3Etapa; label: string }> = [
   { codigo: 'ABERTURA', label: 'Abertura' },
   { codigo: 'ANALISE_PROPOSTAS', label: 'Analise' },
   { codigo: 'DISPUTA', label: 'Lances' },
+  // LC 123/2006, Arts. 44-45 - desempate ME/EPP logo apos os lances, antes da aceitacao
+  { codigo: 'BENEFICIO_MPE', label: 'Benef. ME/EPP' },
+  // IN SEGES 73/2022, Art. 29 - proposta adequada ao ultimo lance, aceite/recusa
+  { codigo: 'ACEITACAO', label: 'Aceitacao' },
   { codigo: 'NEGOCIACAO', label: 'Negociacao' },
   { codigo: 'HABILITACAO', label: 'Habilitacao' },
-  // LC 123/2006, Art. 48 - beneficio ME/EPP deve ser etapa visivel no fluxo
-  { codigo: 'BENEFICIO_MPE', label: 'Benef. ME/EPP' },
   { codigo: 'RECURSOS', label: 'Recursos' },
   { codigo: 'ADJUDICACAO', label: 'Adjudicacao' },
   // Lei 14.133/2021, Art. 71 - homologacao obrigatoria antes do encerramento
