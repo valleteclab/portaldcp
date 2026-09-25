@@ -47,7 +47,7 @@ let sessaoIdAtual = SESSAO_ID;
 
 function conectarFornecedor(fornecedor) {
   return new Promise((resolve, reject) => {
-    const socket = io(`${BACKEND_URL}/disputa-v2`, {
+    const socket = io(`${BACKEND_URL}/disputa`, {
       transports: ['websocket', 'polling'],
     });
 

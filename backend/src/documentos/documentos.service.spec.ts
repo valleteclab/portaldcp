@@ -20,8 +20,13 @@ describe('DocumentosService — caminhos de arquivo', () => {
     save: jest.fn(async (d) => ({ id: 'novo', ...d })),
     remove: jest.fn(),
     delete: jest.fn(),
+    // versão: MAX(versao) via query builder
+    createQueryBuilder: jest.fn(() => {
+      const qb: any = { select: () => qb, where: () => qb, getRawOne: async () => ({ max: 0 }) };
+      return qb;
+    }),
   };
-  const licRepo = { findOne: jest.fn(async () => ({ id: 'lic' })) };
+  const licRepo = { findOne: jest.fn(async () => ({ id: 'lic', fase: 'PLANEJAMENTO' })) };
 
   beforeAll(() => {
     raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'docs-'));
@@ -42,7 +47,7 @@ describe('DocumentosService — caminhos de arquivo', () => {
   beforeEach(() => jest.clearAllMocks());
 
   const vincular = (caminho: string) =>
-    service.vincularDocumentoExistente('lic', { tipo: 'EDITAL' as any, titulo: 't', nome_original: 'n.pdf', caminho });
+    service.vincularDocumentoExistente('lic', { tipo: 'TERMO_REFERENCIA' as any, titulo: 't', nome_original: 'n.pdf', caminho });
 
   it('vincula arquivo enviado pelo upload do sistema', async () => {
     const doc = await vincular('/uploads/documentos/edital.pdf');
