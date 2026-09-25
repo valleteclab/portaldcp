@@ -386,11 +386,11 @@ export const JUSTIFICATIVA_ART49_E2E = 'Art. 49, II: não há 3 fornecedores ME/
 
 /**
  * Datas padrão do edital: publicado agora, acolhimento aberto e abertura da
- * sessão daqui a 21 dias corridos — cobre, em qualquer dia do ano, o prazo
- * mínimo do art. 55 para bens (8 dias úteis) e serviços comuns (10), com os
- * feriados nacionais (E7a), e os 3 dias úteis da dispensa (art. 75 §3º). Limite
- * de impugnação na véspera da abertura (nunca antes dos 3 dias úteis do art.
- * 164). Propostas só são aceitas ANTES da abertura — use `abrirSessaoAgora`
+ * sessão daqui a 70 dias corridos — cobre, em qualquer dia do ano, o maior
+ * prazo mínimo do art. 55 usado nos fixtures (35 dias úteis: técnica e preço,
+ * melhor técnica, semi-integrada), com os feriados nacionais (E7a), e os 3
+ * dias úteis da dispensa (art. 75 §3º). Limite de impugnação na véspera da
+ * abertura (nunca antes dos 3 dias úteis do art. 164). Propostas só são aceitas ANTES da abertura — use `abrirSessaoAgora`
  * depois de enviá-las.
  */
 export function datasEditalPadrao(): DatasEdital {
@@ -398,10 +398,10 @@ export function datasEditalPadrao(): DatasEdital {
   const h = 3_600_000;
   return {
     data_publicacao_edital: new Date(agora - 60_000).toISOString(),
-    data_limite_impugnacao: new Date(agora + 20 * 24 * h).toISOString(),
+    data_limite_impugnacao: new Date(agora + 69 * 24 * h).toISOString(),
     data_inicio_acolhimento: new Date(agora - 60_000).toISOString(),
-    data_fim_acolhimento: new Date(agora + 21 * 24 * h).toISOString(),
-    data_abertura_sessao: new Date(agora + 21 * 24 * h).toISOString(),
+    data_fim_acolhimento: new Date(agora + 70 * 24 * h).toISOString(),
+    data_abertura_sessao: new Date(agora + 70 * 24 * h).toISOString(),
     justificativa_nao_exclusividade_mpe: JUSTIFICATIVA_ART49_E2E,
   };
 }

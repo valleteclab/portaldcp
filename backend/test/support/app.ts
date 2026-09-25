@@ -196,6 +196,10 @@ export async function criarApp(opcoes: OpcoesCriarApp = {}): Promise<AppE2E> {
   const jwt = app.get(JwtService);
   const processarFilaPncp = (o?: { agora?: Date; licitacaoId?: string }) => app.get(PncpFilaService).processarFila(o);
   processadorFilaPncp = () => processarFilaPncp();
+  // O banco é compartilhado entre os arquivos: operações do PNCP que outro
+  // arquivo deixou na fila são enviadas AGORA (mock), antes dos testes deste —
+  // senão o worker as enviaria no meio das asserções de outro arquivo.
+  for (let i = 0; i < 5 && (await processarFilaPncp()).processados > 0; i++);
 
   return {
     app,

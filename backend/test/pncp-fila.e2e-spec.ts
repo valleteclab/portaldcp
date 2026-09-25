@@ -107,7 +107,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
     });
 
     it('worker: compra antes dos itens, com o EDITAL anexado (não PDF em branco) e mapeamento da licitação', async () => {
-      const r = await ctx.processarFilaPncp();
+      const r = await ctx.processarFilaPncp({ licitacaoId: lic.id });
       expect(r).toMatchObject({ bloqueado: false, enviados: 2, erros: 0 });
       const [compra] = compras();
       const [itens] = pncpMock.filtrar('POST', /\/compras\/\d+\/\d+\/itens$/);
@@ -153,7 +153,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
     });
 
     it('idempotência: worker de novo não reenvia; o botão do cockpit devolve a compra já publicada', async () => {
-      expect((await ctx.processarFilaPncp()).processados).toBe(0);
+      expect((await ctx.processarFilaPncp({ licitacaoId: lic.id })).processados).toBe(0);
       const r = await http().post(`/api/pncp/compras/${lic.id}/completo`).set(bearer(A.token));
       expect(r.status).toBe(201);
       expect(r.body.sucesso).toBe(true);
@@ -172,7 +172,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
         .attach('arquivo', pdfDeTeste('Edital retificado v2'), { filename: 'edital-v2.pdf', contentType: 'application/pdf' });
       expect(r.status).toBe(201);
       expect(pncpMock.filtrar()).toHaveLength(0); // só enfileirou
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       const [doc] = pncpMock.filtrar('POST', /\/compras\/\d+\/\d+\/arquivos$/);
       expect(doc).toBeDefined();
       expect(headerCapturado(doc, 'Tipo-Documento-Id')).toBe('2');
@@ -191,7 +191,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       exigir(await ato('SUSPENDER', 'Suspensão para análise de questionamento'), 201, 'suspender');
       exigir(await ato('RETOMAR', 'Questionamento respondido — retomada'), 201, 'retomar');
       exigir(await ato('REVOGAR', 'Fato superveniente: dotação orçamentária cancelada'), 201, 'revogar');
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       const patches = pncpMock.filtrar('PATCH', /\/compras\/\d+\/\d+$/).map((p) => p.corpo);
       expect(patches.map((p) => p.situacaoCompraId)).toEqual([4, 1, 2]); // suspensa, divulgada, revogada
       expect(patches[2].justificativa).toBe('Fato superveniente: dotação orçamentária cancelada');
@@ -205,7 +205,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       pncpMock.responder('POST', new RegExp(`/orgaos/${cnpjA}/compras$`), { status: 500, corpo: { message: 'Serviço indisponível' } }, 1);
       const lic = await pregaoPublicado();
       const inicio = Date.now();
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       let compra = await linha(lic, 'COMPRA');
       expect(compra).toMatchObject({ status: 'ERRO_TEMPORARIO', tentativas: 1 });
       expect(compra.erro_mensagem).toMatch(/indisponível|500/);
@@ -214,10 +214,10 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       expect(pncpMock.filtrar('POST', /\/itens$/)).toHaveLength(0);
 
       // antes do backoff: nada
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       expect(compras()).toHaveLength(1);
       // relógio do worker depois do backoff: reenvia sozinho e libera os itens
-      await ctx.processarFilaPncp({ agora: new Date(Date.now() + 2 * MIN) });
+      await ctx.processarFilaPncp({ licitacaoId: lic.id, agora: new Date(Date.now() + 2 * MIN) });
       compra = await linha(lic, 'COMPRA');
       expect(compra).toMatchObject({ status: 'ENVIADO', tentativas: 2, erro_mensagem: null });
       expect(await linha(lic, 'ITEM')).toMatchObject({ status: 'ENVIADO' });
@@ -229,8 +229,9 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       pncpMock.limpar();
       pncpMock.responder('POST', new RegExp(`/orgaos/${cnpjA}/compras$`), { status: 422, corpo: { message: 'Unidade compradora não cadastrada' } }, 1);
       licDefinitivo = await pregaoPublicado();
-      await ctx.processarFilaPncp();
-      await ctx.processarFilaPncp({ agora: new Date(Date.now() + 24 * 60 * MIN) });
+      await ctx.processarFilaPncp({ licitacaoId: licDefinitivo.id });
+      // horas depois (bem além de qualquer backoff, antes do limite de 24 h de espera por dependência)
+      await ctx.processarFilaPncp({ licitacaoId: licDefinitivo.id, agora: new Date(Date.now() + 6 * 60 * MIN) });
       expect(compras()).toHaveLength(1);
       const compra = await linha(licDefinitivo, 'COMPRA');
       expect(compra).toMatchObject({ status: 'ERRO_DEFINITIVO', tentativas: 1 });
@@ -268,7 +269,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
         1,
       );
       const lic = await pregaoPublicado();
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       const compra = await linha(lic, 'COMPRA');
       expect(compra).toMatchObject({ status: 'ENVIADO', numero_controle_pncp: `${cnpjA}-1-000777/2026` });
       const [itens] = pncpMock.filtrar('POST', /\/itens$/);
@@ -280,7 +281,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
         201,
         'anular',
       );
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       const [p] = pncpMock.filtrar('PATCH', /\/compras\/2026\/777$/);
       expect(p.corpo.situacaoCompraId).toBe(3);
     });
@@ -307,7 +308,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
         { itens: [{ descricao: 'Resma de papel A4 (fila PNCP)', quantidade: 10, valor_unitario_estimado: 100 }], extras: { tipo_beneficio_mpe: 'EXCLUSIVO' } },
       );
       lic = p.lic;
-      await ctx.processarFilaPncp(); // compra + itens da publicação
+      await ctx.processarFilaPncp({ licitacaoId: lic.id }); // compra + itens da publicação
       expect(compras().length).toBeGreaterThanOrEqual(1);
       const item = lic.itens[0].id;
       exigir(await http().post(`/api/disputa-v2/sessao/${p.sessaoId}/encerrar-item/${item}`).set(bearer(A.token)), 201, 'encerrar item');
@@ -323,7 +324,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
 
       // porte mudou no cadastro depois da proposta: o PNCP recebe o do RETRATO da proposta (E3)
       await ctx.dataSource.query(`UPDATE fornecedores SET porte = 'MEDIO' WHERE id = $1`, [ME1.id]);
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
 
       const [termo] = pncpMock.filtrar('POST', /\/compras\/\d+\/\d+\/arquivos$/);
       expect(termo).toBeDefined();
@@ -351,7 +352,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       const [ct] = await ctx.dataSource.query(`SELECT id::text AS id, status::text AS status FROM contratos WHERE licitacao_id = $1`, [lic.id]);
       contratoId = ct.id;
       expect(ct.status).toBe('AGUARDANDO_ASSINATURA');
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       expect(pncpMock.filtrar('POST', /\/contratos$/)).toHaveLength(0);
       expect((await fila(lic)).some((x) => x.tipo === 'CONTRATO')).toBe(false);
       const r = await http().post(`/api/pncp/contratos/${contratoId}/enviar`).set(bearer(A.token));
@@ -365,7 +366,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       const operacao = await linha(lic, 'CONTRATO');
       expect(operacao).toMatchObject({ status: 'PENDENTE' });
       pncpMock.limpar();
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       const [envio] = pncpMock.filtrar('POST', new RegExp(`/orgaos/${cnpjA}/contratos$`));
       expect(envio).toBeDefined();
       expect(headerCapturado(envio, 'Tipo-Documento-Id')).toBe('12');
@@ -407,7 +408,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       await abrirSessaoAgora(ctx, lic);
       exigir(await http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(A.token)), 201, 'julgar dispensa');
       exigir(await homologarResultado(ctx, lic.id, A.token), 200, 'homologar');
-      await ctx.processarFilaPncp();
+      await ctx.processarFilaPncp({ licitacaoId: lic.id });
       const [res] = pncpMock.filtrar('POST', /\/itens\/1\/resultados$/);
       expect(res).toBeDefined();
       expect(res.corpo).toMatchObject({
