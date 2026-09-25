@@ -43,7 +43,8 @@ interface Licitacao {
 
 import { API_URL, getAuthHeaders } from '@/lib/api'
 import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
-import { situacaoDaLicitacao } from '@/lib/licitacao-situacao'
+import { ROTULO_SITUACAO, situacaoDaLicitacao } from '@/lib/licitacao-situacao'
+import { COR_FASE, ROTULO_FASE } from '@/lib/licitacao-rotulos'
 
 const MODALIDADES = [
   { value: 'PREGAO_ELETRONICO', label: 'Pregão Eletrônico' },
@@ -52,17 +53,12 @@ const MODALIDADES = [
   { value: 'INEXIGIBILIDADE', label: 'Inexigibilidade' },
   { value: 'CONCURSO', label: 'Concurso' },
   { value: 'LEILAO', label: 'Leilão' },
-  { value: 'DIALOGO_COMPETITIVO', label: 'Diálogo Competitivo' }
+  { value: 'DIALOGO_COMPETITIVO', label: 'Diálogo Competitivo' },
+  { value: 'CREDENCIAMENTO', label: 'Credenciamento' }
 ]
 
-const FASES = [
-  { value: 'PUBLICADO', label: 'Publicado' },
-  { value: 'ACOLHIMENTO_PROPOSTAS', label: 'Recebendo Propostas' },
-  { value: 'EM_DISPUTA', label: 'Em Disputa' },
-  { value: 'HABILITACAO', label: 'Habilitação' },
-  { value: 'HOMOLOGACAO', label: 'Homologação' },
-  { value: 'CONCLUIDO', label: 'Concluído' }
-]
+// Todas as fases públicas (E8): impugnação, recurso e adjudicação inclusive
+const FASES = Object.entries(ROTULO_FASE).map(([value, label]) => ({ value, label }))
 
 export default function LicitacoesPublicasPage() {
   const [licitacoes, setLicitacoes] = useState<Licitacao[]>([])
@@ -71,6 +67,7 @@ export default function LicitacoesPublicasPage() {
     busca: '',
     modalidade: '',
     fase: '',
+    situacao: '',
     uf: ''
   })
 
@@ -114,45 +111,28 @@ export default function LicitacoesPublicasPage() {
     return mod?.label || modalidade
   }
 
-  const getFaseBadge = (fase: string) => {
-    const cores: Record<string, string> = {
-      'PUBLICADO': 'bg-blue-100 text-blue-800',
-      'ACOLHIMENTO_PROPOSTAS': 'bg-green-100 text-green-800',
-      'EM_DISPUTA': 'bg-yellow-100 text-yellow-800',
-      'HABILITACAO': 'bg-purple-100 text-purple-800',
-      'HOMOLOGACAO': 'bg-indigo-100 text-indigo-800',
-      'CONCLUIDO': 'bg-gray-100 text-gray-800'
-    }
+  const getFaseBadge = (fase: string) => (
+    <span className={`px-2 py-1 rounded-full text-xs font-medium ${COR_FASE[fase] || 'bg-gray-100 text-gray-800'}`}>
+      {ROTULO_FASE[fase] || fase}
+    </span>
+  )
 
-    const labels: Record<string, string> = {
-      'PUBLICADO': 'Publicado',
-      'ACOLHIMENTO_PROPOSTAS': 'Recebendo Propostas',
-      'EM_DISPUTA': 'Em Disputa',
-      'HABILITACAO': 'Habilitação',
-      'HOMOLOGACAO': 'Homologação',
-      'CONCLUIDO': 'Concluído'
-    }
-
-    return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${cores[fase] || 'bg-gray-100 text-gray-800'}`}>
-        {labels[fase] || fase}
-      </span>
-    )
-  }
+  const ufs = Array.from(new Set(licitacoes.map((l) => l.orgao?.uf).filter(Boolean))).sort() as string[]
 
   const licitacoesFiltradas = licitacoes.filter(lic => {
     if (filtros.busca) {
       const busca = filtros.busca.toLowerCase()
-      if (!lic.objeto.toLowerCase().includes(busca) && 
-          !lic.numero_processo.toLowerCase().includes(busca)) {
+      if (!lic.objeto?.toLowerCase().includes(busca) &&
+          !lic.numero_processo?.toLowerCase().includes(busca) &&
+          !lic.numero_edital?.toLowerCase().includes(busca) &&
+          !lic.orgao?.nome?.toLowerCase().includes(busca)) {
         return false
       }
     }
     if (filtros.modalidade && lic.modalidade !== filtros.modalidade) return false
-    // "Concluído" é SITUAÇÃO desde a E1 (a fase continua sendo a homologação)
-    if (filtros.fase === 'CONCLUIDO') {
-      if (situacaoDaLicitacao(lic) !== 'CONCLUIDA') return false
-    } else if (filtros.fase && lic.fase !== filtros.fase) return false
+    if (filtros.fase && lic.fase !== filtros.fase) return false
+    // Situação (E1): suspensa, revogada, deserta... independe da fase
+    if (filtros.situacao && situacaoDaLicitacao(lic) !== filtros.situacao) return false
     if (filtros.uf && lic.orgao?.uf !== filtros.uf) return false
     return true
   })
@@ -202,7 +182,7 @@ export default function LicitacoesPublicasPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div className="md:col-span-2">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -233,12 +213,40 @@ export default function LicitacoesPublicasPage() {
                 onValueChange={(value) => setFiltros({ ...filtros, fase: value === 'all' ? '' : value })}
               >
                 <SelectTrigger>
+                  <SelectValue placeholder="Fase" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as fases</SelectItem>
+                  {FASES.map(fase => (
+                    <SelectItem key={fase.value} value={fase.value}>{fase.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={filtros.situacao}
+                onValueChange={(value) => setFiltros({ ...filtros, situacao: value === 'all' ? '' : value })}
+              >
+                <SelectTrigger>
                   <SelectValue placeholder="Situação" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  {FASES.map(fase => (
-                    <SelectItem key={fase.value} value={fase.value}>{fase.label}</SelectItem>
+                  <SelectItem value="all">Todas as situações</SelectItem>
+                  {Object.entries(ROTULO_SITUACAO).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={filtros.uf}
+                onValueChange={(value) => setFiltros({ ...filtros, uf: value === 'all' ? '' : value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="UF" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as UFs</SelectItem>
+                  {ufs.map((uf) => (
+                    <SelectItem key={uf} value={uf}>{uf}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

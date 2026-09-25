@@ -61,6 +61,7 @@ interface Licitacao {
   criterio_julgamento: string
   modo_disputa: string
   fase: string
+  situacao?: string
   valor_total_estimado: number | string
   sigilo_orcamento?: 'PUBLICO' | 'SIGILOSO'
   data_publicacao_edital: string
@@ -94,6 +95,22 @@ interface Licitacao {
 
 import { API_URL, getAuthHeaders } from '@/lib/api'
 import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
+import { ResultadoLicitacaoCard } from '@/components/licitacao/ResultadoLicitacaoCard'
+import { ManifestacoesPublicas } from '@/components/licitacao/ManifestacoesPublicas'
+import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
+import { ROTULO_FASE } from '@/lib/licitacao-rotulos'
+
+/** Fases em que o edital ainda recebe propostas (botão "Enviar proposta"). */
+const FASES_PROPOSTA = ['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS']
+
+/** Como cada modalidade é disputada — orientação pública (E7b/E7c). */
+const COMO_PARTICIPAR: Record<string, string> = {
+  LEILAO: 'Leilão (art. 31): vence o MAIOR lance. Os lances são dados na sala da sessão pelo portal do fornecedor; o arrematante paga no prazo do edital.',
+  CONCURSO: 'Concurso (art. 30): os trabalhos são julgados por comissão pelo critério de melhor técnica ou conteúdo artístico; o vencedor recebe o prêmio do edital.',
+  DIALOGO_COMPETITIVO: 'Diálogo competitivo (art. 32): os licitantes pré-selecionados dialogam com a Administração e, depois, apresentam propostas na fase competitiva.',
+  DISPENSA_ELETRONICA: 'Dispensa eletrônica (art. 75 §3º): propostas pelo portal no prazo do aviso; havendo janela de lances, cada fornecedor só reduz o próprio valor.',
+  CREDENCIAMENTO: 'Credenciamento (arts. 78 e 79): todos os interessados que cumprirem o edital são credenciados; a contratação é por inexigibilidade (art. 74 IV).',
+}
 
 /** Termo de adjudicação/homologação — público depois da homologação (art. 71 IV). */
 interface TermoResultado {
@@ -147,6 +164,9 @@ export default function DetalheLicitacaoPublicaPage() {
       setLoading(false)
     }
   }
+
+  // Edital vigente (o retificado prevalece sobre o original)
+  const editalDoc = documentos.find((d) => d.tipo === 'EDITAL_RETIFICADO') || documentos.find((d) => d.tipo === 'EDITAL')
 
   const formatarMoeda = (valor: number | string) => {
     const numero = typeof valor === 'string' ? parseFloat(valor) : valor
@@ -240,7 +260,8 @@ export default function DetalheLicitacaoPublicaPage() {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Badge variant="outline">{getModalidadeLabel(licitacao.modalidade)}</Badge>
-                <Badge>{licitacao.fase}</Badge>
+                <Badge>{ROTULO_FASE[licitacao.fase] || licitacao.fase}</Badge>
+                <SituacaoBadge licitacao={licitacao} />
                 {licitacao.srp && <Badge variant="secondary">SRP</Badge>}
               </div>
               <h1 className="text-2xl font-bold text-gray-900">
@@ -252,15 +273,21 @@ export default function DetalheLicitacaoPublicaPage() {
             </div>
             
             <div className="flex gap-2">
-              <Button variant="outline" asChild>
-                <Link href={`/fornecedor/licitacoes/${id}/proposta`}>
-                  Enviar Proposta
-                </Link>
-              </Button>
-              <Button>
-                <Download className="w-4 h-4 mr-2" />
-                Baixar Edital
-              </Button>
+              {FASES_PROPOSTA.includes(licitacao.fase) && (
+                <Button variant="outline" asChild>
+                  <Link href={`/fornecedor/licitacoes/${id}/proposta`}>
+                    Enviar Proposta
+                  </Link>
+                </Button>
+              )}
+              {editalDoc && (
+                <Button asChild>
+                  <a href={`${API_URL}/api/documentos/publicos/${editalDoc.id}/download`} target="_blank" rel="noopener noreferrer">
+                    <Download className="w-4 h-4 mr-2" />
+                    Baixar Edital
+                  </a>
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -284,7 +311,7 @@ export default function DetalheLicitacaoPublicaPage() {
 
             {/* Tabs */}
             <Tabs defaultValue="documentos">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 h-auto">
                 <TabsTrigger value="documentos">
                   <FileText className="w-4 h-4 mr-2" />
                   Documentos
@@ -296,6 +323,14 @@ export default function DetalheLicitacaoPublicaPage() {
                 <TabsTrigger value="cronograma">
                   <Calendar className="w-4 h-4 mr-2" />
                   Cronograma
+                </TabsTrigger>
+                <TabsTrigger value="manifestacoes">
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Esclarecimentos
+                </TabsTrigger>
+                <TabsTrigger value="resultado">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Resultado
                 </TabsTrigger>
               </TabsList>
 
@@ -367,6 +402,16 @@ export default function DetalheLicitacaoPublicaPage() {
                     )}
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              {/* Esclarecimentos e impugnações respondidos (art. 164) */}
+              <TabsContent value="manifestacoes">
+                <ManifestacoesPublicas licitacaoId={id} />
+              </TabsContent>
+
+              {/* Resultado: ata da sessão, vencedores/valores, termos e contratos/atas (após homologação) */}
+              <TabsContent value="resultado">
+                <ResultadoLicitacaoCard licitacaoId={id} />
               </TabsContent>
 
               {/* Itens */}
@@ -639,11 +684,22 @@ export default function DetalheLicitacaoPublicaPage() {
                 <CardTitle>Ações</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button className="w-full" asChild>
-                  <Link href={`/fornecedor/licitacoes/${id}/proposta`}>
-                    Enviar Proposta
-                  </Link>
-                </Button>
+                {COMO_PARTICIPAR[licitacao.modalidade] && (
+                  <p className="text-sm text-gray-600">{COMO_PARTICIPAR[licitacao.modalidade]}</p>
+                )}
+                {FASES_PROPOSTA.includes(licitacao.fase) ? (
+                  <Button className="w-full" asChild>
+                    <Link href={`/fornecedor/licitacoes/${id}/proposta`}>
+                      Enviar Proposta
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button variant="outline" className="w-full" asChild>
+                    <Link href={`/fornecedor/licitacoes/${id}`}>
+                      Acompanhar no portal do fornecedor
+                    </Link>
+                  </Button>
+                )}
                 {/* Impugnação/esclarecimento: até o prazo do art. 164 (calculado no backend) */}
                 {prazoManifestacaoAberto(licitacao) && (
                   <>

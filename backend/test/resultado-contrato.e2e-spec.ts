@@ -228,6 +228,21 @@ describe('E6 — resultado único (adjudicação, homologação) e contrato', ()
       const atos = (await http().get(`/api/licitacoes/${licId}/atos`).set(bearer(orgao.token)).expect(200)).body as any[];
       expect(atos.find((a) => a.ato === 'CONCLUIR')).toMatchObject({ disponivel: true });
     });
+
+    test('E8: resultado público mostra vencedor/valor; contrato só depois de assinado; participação do vencedor pede a assinatura', async () => {
+      const pub = (await http().get(`/api/resultado/publico/licitacao/${licId}`).expect(200)).body;
+      expect(pub.homologada).toBe(true);
+      expect(pub.itens[0]).toMatchObject({ vencedor: { fornecedorId: A.id }, valorUnitario: 89, valorTotal: 890 });
+      // Contrato AGUARDANDO_ASSINATURA não é publicado
+      expect(pub.contratos).toEqual([]);
+      const part = (await http().get('/api/portal-fornecedor/participacoes').set(bearer(A.token)).expect(200)).body as any[];
+      const p = part.find((x) => x.licitacao.id === licId);
+      expect(p.resultado).toMatchObject({ venceu: true, valorTotal: 890 });
+      expect(p.contratos).toHaveLength(1);
+      expect(p.proximaAcao.codigo).toBe('ASSINAR_CONTRATO');
+      const partD = (await http().get('/api/portal-fornecedor/participacoes').set(bearer(D.token)).expect(200)).body as any[];
+      expect(partD.find((x) => x.licitacao.id === licId)?.resultado).toMatchObject({ venceu: false });
+    });
   });
 
   // ==========================================================================
