@@ -9,7 +9,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SessaoService } from './sessao.service';
-import { RecursosService } from './recursos.service';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import {
   AtorAtual,
@@ -31,13 +30,12 @@ import { filtrarEventosVisiveis, VisaoEvento } from '../julgamento/regras-negoci
  *
  * AUTORIZAÇÃO (E1a):
  *  - atos do pregoeiro (criar/iniciar/suspender/encerrar, itens, negociação,
- *    habilitação, recursos — abrir/encerrar prazo, admitir/recusar, decidir —,
+ *    habilitação — /api/habilitacao —, recursos — /api/recursos (E5) —,
  *    ME/EPP convocar, adjudicar, homologar) → @SomenteOrgao + órgão DONO;
- *  - atos do fornecedor (intenção de recurso, ME/EPP aceitar/recusar) →
+ *  - atos do fornecedor (ME/EPP aceitar/recusar; intenção de recurso em /api/recursos) →
  *    @SomenteFornecedor, fornecedor = token (id da rota/corpo tem de conferir)
  *    e com proposta válida;
- *  - razões/contrarrazões: o próprio fornecedor (token) ou o órgão dono
- *    registrando em nome dele (painel do pregoeiro);
+ *  - razões/contrarrazões: só o próprio licitante (token), em /api/recursos (E5);
  *  - leituras: órgão dono vê tudo; demais recebem as identidades dos outros
  *    licitantes trocadas pelo código anônimo. Habilitação: só o órgão dono (o
  *    fornecedor convocado vê só a própria convocação);
@@ -49,7 +47,6 @@ import { filtrarEventosVisiveis, VisaoEvento } from '../julgamento/regras-negoci
 export class SessaoController {
   constructor(
     private readonly sessaoService: SessaoService,
-    private readonly recursosService: RecursosService,
     private readonly acesso: AcessoLicitacaoService,
     private readonly sigilo: SigiloDisputaService,
   ) {}
@@ -59,13 +56,6 @@ export class SessaoController {
     const dono = await this.acesso.donoDaSessao(sessaoId);
     if (!dono) throw new NotFoundException('Sessao nao encontrada');
     return dono.licitacaoId;
-  }
-
-  /** Órgão dono (escrita) de um recurso administrativo. */
-  private async assertOrgaoDoRecurso(ator: Ator, recursoId: string) {
-    const recurso = await this.recursosService.buscar(recursoId);
-    await this.acesso.assertOrgaoDaSessao(ator, recurso.sessao_id);
-    return recurso;
   }
 
   // ========================================
@@ -119,197 +109,20 @@ export class SessaoController {
   // por lote é o lance do motor com o id do lote: POST /disputa-v2/sessao/:id/lance
   // { loteId, valor } (ou o socket /disputa-v2 `enviar_lance` com o id do lote).
 
-  /**
-   * Estado da habilitação: ranking completo (cnpj, valores) só para o órgão
-   * dono. O fornecedor participante vê só a etapa e, se for o convocado, a
-   * própria convocação.
-   */
-  @OrgaoOuFornecedor()
-  @Get(':id/habilitacao')
-  async getHabilitacaoStatus(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    if (ehFornecedor(ator)) {
-      const licitacaoId = await this.licitacaoDaSessao(id);
-      await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
-      const hab = await this.sessaoService.getHabilitacaoStatus(id);
-      const meu = hab.convocado && hab.convocado.fornecedorId === ator.fornecedorId ? hab.convocado : null;
-      return {
-        sessaoId: hab.sessaoId,
-        licitacaoId: hab.licitacaoId,
-        etapa: hab.etapa,
-        souConvocado: !!meu,
-        convocado: meu,
-      };
-    }
-    await this.acesso.assertOrgaoDaSessao(ator, id, 'leitura');
-    return this.sessaoService.getHabilitacaoStatus(id);
-  }
-
-  // NEGOCIAÇÃO (art. 61): rotas explícitas em /api/julgamento/sessao/:id/negociacao/...
-  // (julgamento/negociacao.controller.ts — fim do B8: `:fornecedorId` competia com `encerrar`).
-
-  @SomenteOrgao()
-  @Put(':id/habilitacao/convocar/:fornecedorId')
-  async convocarHabilitacao(
-    @Param('id') id: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.convocarParaHabilitacao(id, fornecedorId, atorTransicaoDe(ator));
-  }
-
-  @SomenteOrgao()
-  @Put(':id/habilitacao/aprovar/:fornecedorId')
-  async aprovarHabilitacao(
-    @Param('id') id: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.aprovarHabilitacao(id, fornecedorId, atorTransicaoDe(ator));
-  }
-
-  @SomenteOrgao()
-  @Put(':id/habilitacao/reprovar/:fornecedorId')
-  async reprovarHabilitacao(
-    @Param('id') id: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @Body() body: { motivo: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.reprovarHabilitacao(id, fornecedorId, body.motivo, atorTransicaoDe(ator));
-  }
-
-  @SomenteOrgao()
-  @Put(':id/recursos/abrir-prazo')
-  async abrirPrazoRecurso(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.abrirPrazoIntencaoRecurso(id);
-  }
-
-  @SomenteOrgao()
-  @Get(':id/recursos/intencoes')
-  async getIntencaoRecursoStatus(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id, 'leitura');
-    return this.sessaoService.getIntencaoRecursoStatus(id);
-  }
-
-  /** Intenção de recurso do fornecedor do token (id do corpo, se vier, tem de conferir). */
-  @SomenteFornecedor()
-  @Post(':id/recursos/intencao')
-  async registrarIntencaoRecurso(
-    @Param('id') id: string,
-    @Body() body: { fornecedorId?: string; motivacao: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    const fid = this.acesso.fornecedorDoToken(ator, body?.fornecedorId);
-    await this.acesso.assertFornecedorParticipa(ator, await this.licitacaoDaSessao(id));
-    return this.sessaoService.registrarIntencaoRecurso(id, fid, body.motivacao);
-  }
-
-  @SomenteOrgao()
-  @Put(':id/recursos/encerrar-prazo')
-  async encerrarPrazoIntencaoRecurso(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.encerrarPrazoIntencaoRecurso(id);
-  }
+  // HABILITAÇÃO (plano E4): rotas em /api/habilitacao (habilitacao/habilitacao.controller.ts).
+  // REMOVIDOS: GET :id/habilitacao e PUT :id/habilitacao/{convocar,aprovar,reprovar}/:fornecedorId
+  // (checklist só no navegador, sem documentos). NEGOCIAÇÃO (art. 61): /api/julgamento/sessao/:id/negociacao.
 
   // === BENEFÍCIO ME/EPP (LC 123, art. 44/45) ===
   // E3: rotas em /api/julgamento/sessao/:id/me-epp (MeEppController) — a ME/EPP
   // convocada responde sozinha pelo token; o pregoeiro não responde por ela.
 
-  // === RECURSOS FORMAIS (Art. 165) ===
-
-  @SomenteOrgao()
-  @Get(':id/recursos')
-  async listarRecursos(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id, 'leitura');
-    return this.recursosService.listarPorSessao(id);
-  }
-
-  @SomenteOrgao()
-  @Post(':id/recursos/:fornecedorId/admitir')
-  async admitirIntencao(
-    @Param('id') id: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @Body() body: { fornecedorNome?: string; itemId?: string; motivacao?: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.recursosService.admitirIntencao(id, fornecedorId, body, atorTransicaoDe(ator));
-  }
-
-  @SomenteOrgao()
-  @Post(':id/recursos/:fornecedorId/recusar')
-  async recusarIntencao(
-    @Param('id') id: string,
-    @Param('fornecedorId') fornecedorId: string,
-    @Body() body: { motivo: string; fornecedorNome?: string; itemId?: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.recursosService.recusarIntencao(id, fornecedorId, body.motivo, body);
-  }
-
-  /**
-   * Razões do recurso: o próprio recorrente (token) ou o órgão dono
-   * registrando-as em nome dele (painel do pregoeiro).
-   */
-  @OrgaoOuFornecedor()
-  @Put('recursos/:recursoId/razoes')
-  async apresentarRazoes(
-    @Param('recursoId') recursoId: string,
-    @Body() body: { razoes: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    if (ehFornecedor(ator)) {
-      const recurso = await this.recursosService.buscar(recursoId);
-      if (recurso.fornecedor_id !== ator.fornecedorId) {
-        throw new ForbiddenException('Apenas o recorrente apresenta as razões do recurso');
-      }
-    } else {
-      await this.assertOrgaoDoRecurso(ator, recursoId);
-    }
-    return this.recursosService.apresentarRazoes(recursoId, body.razoes);
-  }
-
-  /**
-   * Contrarrazões: fornecedor participante (token — o `fornecedorId` do corpo,
-   * se vier, tem de conferir) ou o órgão dono registrando em nome de um licitante.
-   */
-  @OrgaoOuFornecedor()
-  @Put('recursos/:recursoId/contrarrazoes')
-  async apresentarContrarrazoes(
-    @Param('recursoId') recursoId: string,
-    @Body() body: { fornecedorId?: string; fornecedorNome?: string; texto: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    if (ehFornecedor(ator)) {
-      const fid = this.acesso.fornecedorDoToken(ator, body?.fornecedorId);
-      const recurso = await this.recursosService.buscar(recursoId);
-      await this.acesso.assertFornecedorParticipa(ator, recurso.licitacao_id);
-      return this.recursosService.apresentarContrarrazoes(recursoId, {
-        fornecedorId: fid,
-        fornecedorNome: body?.fornecedorNome,
-        texto: body?.texto,
-      });
-    }
-    await this.assertOrgaoDoRecurso(ator, recursoId);
-    return this.recursosService.apresentarContrarrazoes(recursoId, body as any);
-  }
-
-  @SomenteOrgao()
-  @Put('recursos/:recursoId/decidir')
-  async decidirRecurso(
-    @Param('recursoId') recursoId: string,
-    @Body()
-    body: { provido: boolean; decisao: string; decididoPor?: string; decididoPorCargo?: string },
-    @AtorAtual() ator: Ator,
-  ) {
-    await this.assertOrgaoDoRecurso(ator, recursoId);
-    return this.recursosService.decidir(recursoId, body, atorTransicaoDe(ator));
-  }
+  // === RECURSOS (Art. 165) — plano E5: rotas em /api/recursos (recursos.controller.ts).
+  // REMOVIDOS: PUT :id/recursos/abrir-prazo|encerrar-prazo, GET :id/recursos/intencoes,
+  // POST :id/recursos/intencao (fluxo paralelo por eventos), GET :id/recursos,
+  // POST :id/recursos/:fornecedorId/admitir|recusar e PUT recursos/:recursoId/
+  // razoes|contrarrazoes|decidir (o órgão registrava razões/contrarrazões em nome
+  // do licitante — pendência da E1a).
 
   // === HOMOLOGAÇÃO (Art. 71) ===
 

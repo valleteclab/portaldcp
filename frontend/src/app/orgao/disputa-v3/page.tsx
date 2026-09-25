@@ -28,6 +28,7 @@ import { DisputaV3Stepper } from '@/components/disputa-v3/disputa-v3-stepper'
 import { RecursosPanel } from '@/components/disputa-v3/RecursosPanel'
 import { HomologacaoPanel } from '@/components/disputa-v3/HomologacaoPanel'
 import { AceitacaoPanel } from '@/components/disputa-v3/AceitacaoPanel'
+import { HabilitacaoPanel } from '@/components/disputa-v3/HabilitacaoPanel'
 import { DesempatePanel } from '@/components/disputa-v3/DesempatePanel'
 import { BeneficioMeEppPanel } from '@/components/disputa-v3/BeneficioMeEppPanel'
 import { NegociacaoPanel } from '@/components/disputa-v3/NegociacaoPanel'
@@ -114,38 +115,12 @@ export default function DisputaV3OrgaoPage() {
   } | null>(null)
   const [justificativaCancelPregoeiro, setJustificativaCancelPregoeiro] = useState('')
 
-  // === HABILITAÇÃO STATE ===
-  type DocStatus = 'PENDENTE' | 'VALIDO' | 'INVALIDO'
-  interface HabRanking {
-    posicao: number
-    fornecedorId: string
-    razaoSocial: string
-    cpfCnpj: string
-    valorTotal: number
-    status: string
-    isConvocado: boolean
-  }
-  interface HabStatus {
-    sessaoId: string
-    licitacaoId: string
-    etapa: string
-    convocado: HabRanking | null
-    ranking: HabRanking[]
-  }
-  const [habStatus, setHabStatus] = useState<HabStatus | null>(null)
-  const [habLoading, setHabLoading] = useState(false)
-  const [habDocStatus, setHabDocStatus] = useState<Record<string, DocStatus>>({})
-  const [habMotivoReprovar, setHabMotivoReprovar] = useState('')
-  const [habActionError, setHabActionError] = useState<string | null>(null)
-  const [habActionLoading, setHabActionLoading] = useState(false)
+  // === HABILITAÇÃO (plano E4) ===
+  // Toda a habilitação está no HabilitacaoPanel (/api/habilitacao): exigências do
+  // edital, registro cadastral, documentos, diligência, habilitar/inabilitar.
+  // O antigo checklist só no navegador (habDocStatus) foi removido.
 
   // === INTENÇÃO DE RECURSO STATE ===
-  interface IntencaoItem { fornecedorId: string; mensagem: string; dataHora: string }
-  interface IntencaoStatus { sessaoId: string; etapa: string; intencoes: IntencaoItem[]; participantes: { fornecedorId: string; razaoSocial: string }[]; semIntencao: { fornecedorId: string; razaoSocial: string }[]; totalIntencoes: number }
-  const [intencaoStatus, setIntencaoStatus] = useState<IntencaoStatus | null>(null)
-  const [intencaoActionLoading, setIntencaoActionLoading] = useState(false)
-  const [intencaoActionError, setIntencaoActionError] = useState<string | null>(null)
-  const [intencaoTimer, setIntencaoTimer] = useState(0)
 
   // === ADJUDICAÇÃO STATE ===
   interface AdjItem { itemId: string; numero: number; descricao: string; quantidade: number; unidade: string; vencedor: { fornecedorId: string; razaoSocial: string; cpfCnpj: string; valor: number } | null }
@@ -242,145 +217,16 @@ export default function DisputaV3OrgaoPage() {
   const etapaCodigo = contexto?.etapa?.codigo || ''
   const isHabilitacaoAtiva = etapaCodigo === 'HABILITACAO'
 
-  const carregarHabilitacao = useCallback(async () => {
-    if (!sessaoId) return
-    setHabLoading(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao`)
-      if (!res.ok) throw new Error('Erro ao carregar habilitação')
-      const data: HabStatus = await res.json()
-      setHabStatus(data)
-      // Init doc status map for convocado if changed
-      if (data.convocado) {
-        setHabDocStatus((prev) => {
-          const tipos = ['HABILITACAO_JURIDICA', 'REGULARIDADE_FISCAL', 'QUALIFICACAO_TECNICA', 'QUALIFICACAO_ECONOMICA']
-          const next: Record<string, DocStatus> = {}
-          tipos.forEach((t) => { next[t] = prev[t] || 'PENDENTE' })
-          return next
-        })
-      }
-    } catch {
-      // silently ignore poll errors
-    } finally {
-      setHabLoading(false)
-    }
-  }, [sessaoId])
-
-  useEffect(() => {
-    if (!isHabilitacaoAtiva || !sessaoId) return
-    carregarHabilitacao()
-    const interval = setInterval(carregarHabilitacao, 5000)
-    return () => clearInterval(interval)
-  }, [isHabilitacaoAtiva, sessaoId, carregarHabilitacao])
-
-  const convocarFornecedor = async (fornecedorId: string) => {
-    if (!sessaoId) return
-    setHabActionLoading(true)
-    setHabActionError(null)
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao/convocar/${fornecedorId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao convocar') }
-      await carregarHabilitacao()
-    } catch (e: any) {
-      setHabActionError(e.message)
-    } finally {
-      setHabActionLoading(false)
-    }
-  }
-
-  const aprovarHabilitacao = async () => {
-    if (!sessaoId || !habStatus?.convocado) return
-    setHabActionLoading(true)
-    setHabActionError(null)
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao/aprovar/${habStatus.convocado.fornecedorId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao aprovar') }
-      await carregarHabilitacao()
-    } catch (e: any) {
-      setHabActionError(e.message)
-    } finally {
-      setHabActionLoading(false)
-    }
-  }
-
-  const reprovarHabilitacao = async () => {
-    if (!sessaoId || !habStatus?.convocado || !habMotivoReprovar.trim()) return
-    setHabActionLoading(true)
-    setHabActionError(null)
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/habilitacao/reprovar/${habStatus.convocado.fornecedorId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ motivo: habMotivoReprovar }),
-      })
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao reprovar') }
-      setHabMotivoReprovar('')
-      await carregarHabilitacao()
-    } catch (e: any) {
-      setHabActionError(e.message)
-    } finally {
-      setHabActionLoading(false)
-    }
-  }
-
-  const toggleDoc = (tipo: string) => {
-    setHabDocStatus((prev) => {
-      const atual = prev[tipo] || 'PENDENTE'
-      const proximo: DocStatus = atual === 'PENDENTE' ? 'VALIDO' : atual === 'VALIDO' ? 'INVALIDO' : 'PENDENTE'
-      return { ...prev, [tipo]: proximo }
-    })
-  }
-
-  const todosDocsValidos = Object.values(habDocStatus).length > 0 && Object.values(habDocStatus).every((s) => s === 'VALIDO')
-
-  const DOC_LABELS: Record<string, string> = {
-    HABILITACAO_JURIDICA: 'Habilitação Jurídica',
-    REGULARIDADE_FISCAL: 'Regularidade Fiscal',
-    QUALIFICACAO_TECNICA: 'Qualificação Técnica',
-    QUALIFICACAO_ECONOMICA: 'Qualificação Econômica',
-  }
-
   // === NEGOCIAÇÃO (art. 61) ===
   // Por unidade, em /api/julgamento (NegociacaoPanel): na etapa de aceitação junto do painel de
   // aceitação e, em sessões antigas paradas na etapa NEGOCIACAO, sozinho.
   const isNegociacaoAtiva = etapaCodigo === 'NEGOCIACAO'
 
-  // === INTENÇÃO DE RECURSO LOGIC ===
+  // === RECURSOS (art. 165) — plano E5 ===
+  // Janela de intenção, admissibilidade, prazos, reconsideração e autoridade:
+  // tudo no RecursosPanel (/api/recursos). O fluxo antigo por eventos
+  // (intencoes/encerrar-prazo com contagem fixa na tela) foi removido.
   const isIntencaoAtiva = etapaCodigo === 'RECURSOS'
-  const carregarIntencao = useCallback(async () => {
-    if (!sessaoId) return
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/recursos/intencoes`)
-      if (res.ok) setIntencaoStatus(await res.json())
-    } catch { /* silently ignore */ }
-  }, [sessaoId])
-  useEffect(() => {
-    if (!isIntencaoAtiva || !sessaoId) return
-    carregarIntencao()
-    const iv = setInterval(carregarIntencao, 5000)
-    // Timer countdown (30 min displayed)
-    setIntencaoTimer(30 * 60)
-    const tiv = setInterval(() => setIntencaoTimer(t => Math.max(0, t - 1)), 1000)
-    return () => { clearInterval(iv); clearInterval(tiv) }
-  }, [isIntencaoAtiva, sessaoId, carregarIntencao])
-
-  const encerrarPrazoIntencao = async () => {
-    if (!sessaoId) return
-    setIntencaoActionLoading(true)
-    setIntencaoActionError(null)
-    try {
-      const res = await authFetch(`${API_URL}/api/sessao/${sessaoId}/recursos/encerrar-prazo`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Erro ao encerrar prazo') }
-    } catch (e: any) {
-      setIntencaoActionError(e.message)
-    } finally {
-      setIntencaoActionLoading(false)
-    }
-  }
 
   // === ADJUDICAÇÃO LOGIC ===
   const isAdjudicacaoAtiva = etapaCodigo === 'ADJUDICACAO'
@@ -413,12 +259,6 @@ export default function DisputaV3OrgaoPage() {
     } finally {
       setAdjActionLoading(false)
     }
-  }
-
-  const formatTimer = (s: number) => {
-    const m = Math.floor(s / 60).toString().padStart(2, '0')
-    const sec = (s % 60).toString().padStart(2, '0')
-    return `${m}:${sec}`
   }
 
   return (
@@ -852,6 +692,10 @@ export default function DisputaV3OrgaoPage() {
                   {sessaoId && <BeneficioMeEppPanel sessaoId={sessaoId} sempreVisivel={etapaCodigo === 'BENEFICIO_MPE'} />}
                   {/* DESEMPATE (Lei 14.133 art. 60; IN 73 art. 28): aparece só com empate nas unidades encerradas */}
                   {sessaoId && <DesempatePanel sessaoId={sessaoId} />}
+                  {/* INVERSÃO DE FASES (art. 17 §1º): habilitação de todos antes da disputa — só aparece nesse caso */}
+                  {contexto?.licitacaoId && (etapaCodigo === 'ABERTURA' || etapaCodigo === 'ANALISE_PROPOSTAS') && (
+                    <HabilitacaoPanel licitacaoId={contexto.licitacaoId} somentePreviaInversao />
+                  )}
                   {etapaCodigo === 'ACEITACAO' && sessaoId ? (
                     /* =============================================
                        PAINEL DE ACEITAÇÃO DA PROPOSTA (IN 73/2022 art. 29)
@@ -866,219 +710,12 @@ export default function DisputaV3OrgaoPage() {
                        ============================================= */
                     <NegociacaoPanel sessaoId={sessaoId} versao={negociacaoVersao} />
                   ) : isHabilitacaoAtiva ? (
-                    /* =============================================
-                       PAINEL DE HABILITAÇÃO (Art. 62-70 Lei 14.133)
-                       Substitui o chat quando em fase de habilitação
-                       ============================================= */
-                    <Card>
-                      <CardHeader className="border-b bg-emerald-50">
-                        <CardTitle className="flex items-center gap-2 text-emerald-800">
-                          <UserCheck className="h-4 w-4" />
-                          Habilitação
-                        </CardTitle>
-                        <CardDescription>
-                          Art. 62-70 — Lei 14.133/2021. Convoque o vencedor e analise os documentos.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4 pt-4">
-                        {habActionError && (
-                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                            {habActionError}
-                          </div>
-                        )}
-
-                        {habLoading && !habStatus ? (
-                          <div className="py-6 text-center text-sm text-slate-400">
-                            <RefreshCw className="mx-auto mb-2 h-5 w-5 animate-spin" />
-                            Carregando...
-                          </div>
-                        ) : habStatus?.convocado ? (
-                          /* Fornecedor convocado — mostrar identidade + docs */
-                          <div className="space-y-4">
-                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Convocado</div>
-                              <div className="mt-1 font-semibold text-slate-900">{habStatus.convocado.razaoSocial}</div>
-                              <div className="text-sm text-slate-600">{habStatus.convocado.cpfCnpj}</div>
-                              <div className="mt-1 text-sm font-medium text-emerald-700">
-                                {habStatus.convocado.valorTotal?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documentos</div>
-                              {Object.entries(DOC_LABELS).map(([tipo, label]) => {
-                                const status = habDocStatus[tipo] || 'PENDENTE'
-                                return (
-                                  <div key={tipo} className={`flex items-center justify-between rounded-lg border p-2 text-sm ${
-                                    status === 'VALIDO' ? 'border-emerald-200 bg-emerald-50' :
-                                    status === 'INVALIDO' ? 'border-red-200 bg-red-50' :
-                                    'border-slate-200 bg-white'
-                                  }`}>
-                                    <span className={status === 'INVALIDO' ? 'text-red-700' : status === 'VALIDO' ? 'text-emerald-700' : 'text-slate-700'}>
-                                      {label}
-                                    </span>
-                                    <div className="flex gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => setHabDocStatus((p) => ({ ...p, [tipo]: 'VALIDO' }))}
-                                        className={`rounded p-1 transition ${status === 'VALIDO' ? 'bg-emerald-600 text-white' : 'hover:bg-emerald-100 text-slate-400'}`}
-                                        title="Aprovar documento"
-                                      >
-                                        <ThumbsUp className="h-3.5 w-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setHabDocStatus((p) => ({ ...p, [tipo]: 'INVALIDO' }))}
-                                        className={`rounded p-1 transition ${status === 'INVALIDO' ? 'bg-red-600 text-white' : 'hover:bg-red-100 text-slate-400'}`}
-                                        title="Reprovar documento"
-                                      >
-                                        <ThumbsDown className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-
-                            <Button
-                              className="w-full bg-emerald-600 hover:bg-emerald-700"
-                              onClick={aprovarHabilitacao}
-                              disabled={habActionLoading || !todosDocsValidos}
-                              title={!todosDocsValidos ? 'Todos os documentos devem estar aprovados' : ''}
-                            >
-                              <CheckCircle2 className="mr-2 h-4 w-4" />
-                              Habilitar fornecedor
-                            </Button>
-
-                            <div className="space-y-2">
-                              <Textarea
-                                value={habMotivoReprovar}
-                                onChange={(e) => setHabMotivoReprovar(e.target.value)}
-                                placeholder="Motivo da inabilitação (obrigatório para reprovar)..."
-                                rows={3}
-                              />
-                              <Button
-                                variant="destructive"
-                                className="w-full"
-                                onClick={reprovarHabilitacao}
-                                disabled={habActionLoading || !habMotivoReprovar.trim()}
-                              >
-                                <XCircle className="mr-2 h-4 w-4" />
-                                Inabilitar e convocar próximo
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          /* Nenhum convocado ainda — mostrar ranking para convocar */
-                          <div className="space-y-3">
-                            <p className="text-sm text-slate-600">
-                              Convoque o 1º classificado para apresentar documentos de habilitação.
-                            </p>
-                            <ScrollArea className="h-[calc(100vh-560px)] pr-1">
-                              <div className="space-y-2">
-                                {(habStatus?.ranking || []).map((item) => (
-                                  <div
-                                    key={item.fornecedorId}
-                                    className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-3"
-                                  >
-                                    <div>
-                                      <div className="text-xs text-slate-500">{item.posicao}º colocado</div>
-                                      <div className="font-medium text-slate-900">{item.razaoSocial}</div>
-                                      <div className="text-sm text-slate-600">
-                                        {item.valorTotal?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                      </div>
-                                    </div>
-                                    <Button
-                                      size="sm"
-                                      onClick={() => convocarFornecedor(item.fornecedorId)}
-                                      disabled={habActionLoading}
-                                    >
-                                      Convocar
-                                    </Button>
-                                  </div>
-                                ))}
-                                {(!habStatus?.ranking || habStatus.ranking.length === 0) && (
-                                  <div className="rounded-lg border border-dashed px-3 py-5 text-sm text-slate-400">
-                                    Nenhum classificado disponível.
-                                  </div>
-                                )}
-                              </div>
-                            </ScrollArea>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
+                    /* HABILITAÇÃO (Arts. 62-70 Lei 14.133; IN 73 art. 39) — plano E4 */
+                    contexto?.licitacaoId ? <HabilitacaoPanel licitacaoId={contexto.licitacaoId} /> : null
                   ) : isIntencaoAtiva ? (
-                    /* =============================================
-                       PAINEL DE INTENÇÃO DE RECURSO (Art. 165)
-                       + gestão de recursos formais (razões/contrarrazões/decisão)
-                       ============================================= */
-                    <div className="space-y-4">
-                    <Card>
-                      <CardHeader className="border-b bg-amber-50">
-                        <CardTitle className="flex items-center gap-2 text-amber-800">
-                          <AlertTriangle className="h-4 w-4" />
-                          Intenção de Recurso (Art. 165)
-                        </CardTitle>
-                        <CardDescription>Prazo para fornecedores manifestarem intenção de recorrer.</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4 pt-4">
-                        {intencaoActionError && (
-                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                            {intencaoActionError}
-                          </div>
-                        )}
-
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Tempo restante</div>
-                          <div className="mt-1 text-3xl font-bold tabular-nums text-amber-800">{formatTimer(intencaoTimer)}</div>
-                        </div>
-
-                        {intencaoStatus && (
-                          <div className="space-y-3">
-                            {intencaoStatus.intencoes.length > 0 && (
-                              <div className="space-y-2">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                  Registraram intenção ({intencaoStatus.intencoes.length})
-                                </div>
-                                {intencaoStatus.intencoes.map((it, i) => (
-                                  <div key={i} className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm">
-                                    <div className="font-medium text-amber-800">
-                                      {intencaoStatus.participantes.find(p => p.fornecedorId === it.fornecedorId)?.razaoSocial || it.fornecedorId}
-                                    </div>
-                                    <div className="text-xs text-slate-600">{it.mensagem}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {intencaoStatus.semIntencao.length > 0 && (
-                              <div className="space-y-1">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sem manifestação</div>
-                                {intencaoStatus.semIntencao.map((p, i) => (
-                                  <div key={i} className="text-sm text-slate-500">{p.razaoSocial}</div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        <Button
-                          className="w-full"
-                          onClick={encerrarPrazoIntencao}
-                          disabled={intencaoActionLoading}
-                          variant={intencaoStatus && intencaoStatus.totalIntencoes > 0 ? 'default' : 'outline'}
-                        >
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                          {intencaoStatus && intencaoStatus.totalIntencoes > 0
-                            ? `Encerrar prazo (${intencaoStatus.totalIntencoes} intenção/ões → Prazo Recursal)`
-                            : 'Encerrar prazo sem recursos → Adjudicar'
-                          }
-                        </Button>
-                      </CardContent>
-                    </Card>
-                    {sessaoId && <RecursosPanel sessaoId={sessaoId} />}
-                    </div>
+                    /* RECURSOS (Art. 165) — janela de intenção, admissibilidade, prazos,
+                       reconsideração do agente e decisão da autoridade superior (E5) */
+                    sessaoId ? <RecursosPanel sessaoId={sessaoId} /> : null
                   ) : etapaCodigo === 'HOMOLOGACAO' ? (
                     sessaoId ? <HomologacaoPanel sessaoId={sessaoId} /> : null
                   ) : isAdjudicacaoAtiva ? (

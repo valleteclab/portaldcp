@@ -17,6 +17,8 @@ import { PropostaAdequadaPanel } from '@/components/disputa-v3/PropostaAdequadaP
 import { DisputaFinalPanel } from '@/components/disputa-v3/DisputaFinalPanel'
 import { DesempateMeEppFornecedorPanel } from '@/components/disputa-v3/DesempateMeEppFornecedorPanel'
 import { NegociacaoFornecedorPanel } from '@/components/disputa-v3/NegociacaoFornecedorPanel'
+import { HabilitacaoFornecedorPanel } from '@/components/disputa-v3/HabilitacaoFornecedorPanel'
+import { RecursosFornecedorPanel } from '@/components/disputa-v3/RecursosFornecedorPanel'
 import { ItensDoLote, ehLote, rotuloUnidade } from '@/components/disputa-v3/unidade-lote'
 import {
   calcularDiferencaParaLider,
@@ -210,8 +212,14 @@ export default function DisputaV3FornecedorPage() {
             {/* Desempate (Lei 14.133 art. 60): disputa final sigilosa e resultado do sorteio — só para quem empatou */}
             {sessaoId && <DisputaFinalPanel sessaoId={sessaoId} />}
 
+            {/* Habilitação (Lei 14.133 arts. 62–70): só aparece quando este licitante é convocado (ou na inversão de fases) */}
+            {contexto?.licitacaoId && <HabilitacaoFornecedorPanel licitacaoId={contexto.licitacaoId} />}
+
             {/* Negociação (Lei 14.133 art. 61): a própria (responde) e as dos demais (só leitura — IN 73 art. 30 §2º) */}
             {sessaoId && <NegociacaoFornecedorPanel sessaoId={sessaoId} versao={negociacaoVersao} />}
+
+            {/* Recursos (Lei 14.133 art. 165): intenção na janela, razões/contrarrazões e decisões — só aparece com janela/recurso */}
+            {sessaoId && <RecursosFornecedorPanel sessaoId={sessaoId} />}
 
             <div className="grid gap-4 lg:grid-cols-4">
               <Card className="lg:col-span-3 overflow-hidden">

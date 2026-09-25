@@ -34,6 +34,8 @@ import {
   REGISTRO_CRIACAO,
 } from './transicoes.tipos';
 import { conferenciaArt48Sql } from '../../julgamento/me-epp/beneficio-mpe.sql';
+import { habilitacaoPreviaPendenteSql, unidadesSemHabilitadoSql } from '../../habilitacao/habilitacao.sql';
+import { estadoRecursalSql } from '../../sessao/recursos.sql';
 
 /**
  * ============================================================================
@@ -350,6 +352,9 @@ export class TransicoesService {
         ),
       unidadesSemPropostaAceita: () => this.unidadesSemPropostaAceita(licitacaoId, manager),
       conferenciaArt48: () => conferenciaArt48Sql(manager, licitacaoId),
+      habilitacaoPreviaPendente: () => habilitacaoPreviaPendenteSql(manager, licitacaoId),
+      unidadesSemHabilitado: () => unidadesSemHabilitadoSql(manager, licitacaoId),
+      estadoRecursal: () => estadoRecursalSql(manager, licitacaoId),
       instrucaoProcesso: async (etapa) => {
         // Resolução tardia: evita ciclo de módulos (a fase-interna depende
         // deste serviço para as próprias transições).

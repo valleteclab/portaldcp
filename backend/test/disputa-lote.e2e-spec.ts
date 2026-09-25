@@ -43,6 +43,8 @@ import {
   enviarPropostaAdequada,
   valoresNoLimite,
 } from './support/julgamento';
+import { habilitarLicitante } from './support/habilitacao';
+import { precluirIntencaoDeRecurso } from './support/recursos';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -504,11 +506,12 @@ describe('E2 — disputa por LOTE no motor único', () => {
     });
 
     test('habilitação → adjudicação → homologação pela sala', async () => {
+      // E4: habilitação real (convocação, documentos, análise, habilitar) de cada vencedor de lote
       for (const f of [F1, F3]) {
-        await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${f.id}`).set(bearer(orgao.token)).send({}).expect(200);
-        await http().put(`/api/sessao/${sessaoId}/habilitacao/aprovar/${f.id}`).set(bearer(orgao.token)).send({}).expect(200);
+        expect((await habilitarLicitante(ctx, lic.id, f, orgao.token)).status).toBe('HABILITADO');
       }
-      await http().put(`/api/sessao/${sessaoId}/recursos/encerrar-prazo`).set(bearer(orgao.token)).send({}).expect(200);
+      // E5: janela de intenção de recurso aberta e encerrada sem manifestação (preclusão)
+      await precluirIntencaoDeRecurso(ctx, sessaoId, orgao.token);
       await http().put(`/api/sessao/${sessaoId}/adjudicar-todos`).set(bearer(orgao.token)).send({}).expect(200);
       const h = await http().put(`/api/sessao/${sessaoId}/homologar`).set(bearer(orgao.token)).send({ nome: 'Prefeito', cargo: 'Autoridade' });
       expect(h.status).toBe(200);

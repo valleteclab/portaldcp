@@ -46,6 +46,7 @@ import {
   painelAceitacao,
   valoresNoLimite,
 } from './support/julgamento';
+import { convocarHabilitacao } from './support/habilitacao';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao } from '../src/sessao/entities/sessao-disputa.entity';
 
@@ -233,11 +234,11 @@ describe('E3 — julgamento: ranking único e aceitação da proposta', () => {
     });
 
     test('habilitação antes de todas as unidades aceitas → 400 (item 2 pendente)', async () => {
-      const r = await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F1.id}`).set(bearer(orgao.token)).send({});
+      const r = await convocarHabilitacao(ctx, licId, F1.id, orgao.token);
       expect(r.status).toBe(400);
       expect(JSON.stringify(r.body)).toMatch(/Item 2/);
       // licitante sem proposta aceita não é convocado para a habilitação
-      const semAceite = await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F2.id}`).set(bearer(orgao.token)).send({});
+      const semAceite = await convocarHabilitacao(ctx, licId, F2.id, orgao.token);
       expect(semAceite.status).toBe(400);
     });
 
@@ -283,7 +284,7 @@ describe('E3 — julgamento: ranking único e aceitação da proposta', () => {
       const depois = await painelAceitacao(ctx, sessaoId, orgao.token);
       expect(depois.todasResolvidas).toBe(true);
       expect(depois.etapa).toBe(EtapaSessao.CONVOCACAO_HABILITACAO);
-      await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F1.id}`).set(bearer(orgao.token)).send({}).expect(200);
+      expect((await convocarHabilitacao(ctx, licId, F1.id, orgao.token)).status).toBe(201);
       const l = await buscarLicitacao(ctx, { id: licId, orgao } as any);
       expect(l.fase).toBe(FaseLicitacao.HABILITACAO);
       // fora do julgamento, a aceitação não aceita atos

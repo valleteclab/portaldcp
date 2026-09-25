@@ -3,9 +3,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SessaoDisputa } from './entities/sessao-disputa.entity';
 import { EventoSessao } from './entities/evento-sessao.entity';
 import { RecursoAdministrativo } from './entities/recurso-administrativo.entity';
+import { JanelaIntencaoRecurso } from './entities/janela-intencao-recurso.entity';
+import { ContrarrazaoRecurso } from './entities/contrarrazao-recurso.entity';
 import { SessaoService } from './sessao.service';
 import { RecursosService } from './recursos.service';
 import { SessaoController } from './sessao.controller';
+import { RecursosController } from './recursos.controller';
+import { MigracaoRecursosBootService } from './migracao-recursos-boot.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { Lance } from '../disputa-v2/entities/lance.entity';
@@ -23,6 +27,8 @@ import { JulgamentoModule } from '../julgamento/julgamento.module';
       SessaoDisputa,
       EventoSessao,
       RecursoAdministrativo,
+      JanelaIntencaoRecurso,
+      ContrarrazaoRecurso,
       Licitacao,
       ItemLicitacao,
       Lance,
@@ -34,9 +40,9 @@ import { JulgamentoModule } from '../julgamento/julgamento.module';
     DisputaModule,
     JulgamentoModule,
   ],
-  controllers: [SessaoController],
+  controllers: [SessaoController, RecursosController],
   // Tempo real: gateway único /disputa-v2 (o gateway /sessao foi removido na E2 item 8)
-  providers: [SessaoService, RecursosService, SigiloDisputaService],
+  providers: [SessaoService, RecursosService, SigiloDisputaService, MigracaoRecursosBootService],
   exports: [SessaoService, RecursosService],
 })
 export class SessaoModule {}

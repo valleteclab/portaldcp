@@ -1004,4 +1004,37 @@ export class AceitacaoService {
     });
     return a;
   }
+
+  // ==========================================================================
+  // GANCHO DOS RECURSOS (plano E5 — Lei 14.133 art. 165 §3º)
+  // ==========================================================================
+
+  /**
+   * Recurso provido devolveu a licitação ao julgamento (RETORNAR_JULGAMENTO já
+   * praticado): em cada unidade encerrada, com resultado possível, sem proposta
+   * aceita e sem convocação ativa, o licitante NA VEZ do ranking recalculado é
+   * convocado para a aceitação (ou a unidade fracassa, sem ninguém). Devolve
+   * quantas convocações foram feitas.
+   */
+  async convocarPendentesAposRecurso(sessaoId: string, ator: AtorTransicao, usuarioNome?: string): Promise<{ convocadas: number; fracassadas: number }> {
+    const sessao = await this.sessao(sessaoId);
+    const horas = await this.prazoMinimoHoras(sessao.licitacao_id);
+    let convocadas = 0;
+    let fracassadas = 0;
+    for (const u of await this.ranking.unidades(sessao.licitacao_id)) {
+      if (!u.encerrada || !RankingService.unidadeComResultadoPossivel(u)) continue;
+      await this.dataSource.transaction(async (m) => {
+        await this.prepararAto(m, sessao, u.id);
+        const ativa = await m.findOne(AceitacaoProposta, { where: STATUS_ACEITACAO_ATIVOS.map((status) => ({ unidade_id: u.id, status })) });
+        if (ativa) return;
+        const atual = atualDaUnidade(await this.ranking.ranking(u, m));
+        if (atual && ehPropostaAceita(atual.situacao)) return;
+        const nova = await this.convocarProximoOuFracassar(m, sessao, u, horas, ator, usuarioNome);
+        if (nova) convocadas++;
+        else if (await this.unidadeFracassada(m, u)) fracassadas++;
+      });
+    }
+    if (fracassadas) await this.transicoes.aplicarRollup(sessao.licitacao_id, ator);
+    return { convocadas, fracassadas };
+  }
 }

@@ -37,6 +37,7 @@ export enum AtoLicitacao {
   DECIDIR_RECURSOS = 'DECIDIR_RECURSOS', // decisão dos recursos + adjudicação (art. 165 §2º, art. 71 I)
   ADJUDICAR = 'ADJUDICAR', // sem recurso: adjudicação (art. 71, IV)
   RETORNAR_JULGAMENTO = 'RETORNAR_JULGAMENTO', // inabilitação / recurso provido (motivo)
+  RETORNAR_HABILITACAO = 'RETORNAR_HABILITACAO', // recurso provido que refez o resultado da habilitação (E5; só a sala)
   JULGAR_DISPENSA = 'JULGAR_DISPENSA', // dispensa: julga por menor preço e adjudica
   REGISTRAR_RESULTADO_EXTERNO = 'REGISTRAR_RESULTADO_EXTERNO', // seleção feita fora do sistema
   HOMOLOGAR = 'HOMOLOGAR', // art. 71, IV
@@ -108,6 +109,36 @@ export interface ConsultasTransicao {
    * Opcional: ausente = sem checagem (testes unitários antigos).
    */
   conferenciaArt48?(): Promise<import('../../julgamento/me-epp/regras-me-epp').ConferenciaArt48 | null>;
+  /**
+   * INVERSÃO DE FASES (plano E4 — Lei 14.133 art. 17 §1º): licitantes com
+   * proposta apta ainda não HABILITADOS. Vazio fora da inversão.
+   * Opcional: ausente = sem checagem (testes unitários antigos).
+   */
+  habilitacaoPreviaPendente?(): Promise<string[]>;
+  /**
+   * Unidades com proposta ACEITA cujo licitante ainda não foi HABILITADO
+   * (plano E4 — adjudicar só a quem passou pela habilitação, art. 62).
+   * Opcional: ausente = sem checagem.
+   */
+  unidadesSemHabilitado?(): Promise<string[]>;
+  /**
+   * Estado recursal (plano E5 — Lei 14.133 arts. 165 e 168): janela de
+   * intenção aberta/encerrada, recursos pendentes (efeito suspensivo),
+   * intenções admitidas e provimentos cujo efeito ainda não levou a
+   * licitação ao ato de fase. Opcional: ausente = sem checagem.
+   */
+  estadoRecursal?(): Promise<EstadoRecursal>;
+}
+
+/** Retrato do estado recursal da licitação (consulta das pré-condições — E5). */
+export interface EstadoRecursal {
+  janelaAberta: boolean;
+  /** Há janela de intenção ENCERRADA e não superada (o direito de recorrer foi dado sobre o resultado atual). */
+  janelaEncerrada: boolean;
+  /** Rótulos dos recursos/intenções sem decisão final. */
+  pendentes: string[];
+  intencoesAdmitidas: number;
+  providosSemDesfecho: number;
 }
 
 export interface ContextoTransicao {

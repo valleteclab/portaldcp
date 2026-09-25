@@ -31,6 +31,7 @@ import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
 import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
 import { ROTULO_FASE } from './transicoes/fases';
 import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
+import { motivoInversaoInvalida } from '../habilitacao/regras-habilitacao';
 import { desempatarNoAto } from '../julgamento/desempate.sql';
 
 // Formata Date para string ISO local (sem conversão UTC)
@@ -107,6 +108,13 @@ export class LicitacoesService {
     // Modo de disputa × critério de julgamento (Lei 14.133 art. 56 §§1º e 2º)
     const vedacao = motivoModoCriterioInvalido(createDto.modo_disputa, createDto.criterio_julgamento);
     if (vedacao) throw new BadRequestException(vedacao);
+    // Inversão de fases (art. 17 §1º; plano E4): só concorrência
+    const vedacaoInversao = motivoInversaoInvalida({
+      inversaoFinal: !!(createDto as any).inversao_fases,
+      inversaoAtual: !!(createDto as any).inversao_fases,
+      modalidadeFinal: createDto.modalidade,
+    });
+    if (vedacaoInversao) throw new BadRequestException(vedacaoInversao.mensagem);
     const existing = await this.licitacaoRepository.findOne({
       where: { numero_processo: createDto.numero_processo },
     });
@@ -475,6 +483,20 @@ export class LicitacoesService {
       dadosLicitacao.criterio_julgamento ?? licitacao.criterio_julgamento,
     );
     if (vedacaoModo) throw new BadRequestException(vedacaoModo);
+    // Inversão de fases (art. 17 §1º; plano E4): só concorrência, definida antes da publicação
+    if (dadosLicitacao.inversao_fases !== undefined) {
+      dadosLicitacao.inversao_fases = dadosLicitacao.inversao_fases === true || dadosLicitacao.inversao_fases === 'true';
+    }
+    const vedacaoInversao = motivoInversaoInvalida({
+      inversaoFinal: !!(dadosLicitacao.inversao_fases ?? licitacao.inversao_fases),
+      inversaoAtual: !!licitacao.inversao_fases,
+      modalidadeFinal: dadosLicitacao.modalidade ?? licitacao.modalidade,
+      faseAtual: licitacao.fase,
+    });
+    if (vedacaoInversao) {
+      if (vedacaoInversao.status === 409) throw new ConflictException(vedacaoInversao.mensagem);
+      throw new BadRequestException(vedacaoInversao.mensagem);
+    }
     // Benefício ME/EPP (LC 123 art. 48): fonte da verdade = tipo_beneficio_mpe; legado derivado
     try {
       Object.assign(dadosLicitacao, normalizarBeneficioMpeLicitacao(dadosLicitacao, licitacao as any));

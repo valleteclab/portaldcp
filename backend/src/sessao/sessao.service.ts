@@ -162,31 +162,6 @@ export class SessaoService {
   }
 
   /**
-   * Habilitação (art. 62): ENCERRAR_DISPUTA (se ainda em disputa) +
-   * INICIAR_HABILITACAO, na mesma transação. Idempotente: convocar o próximo
-   * classificado com a licitação já em HABILITACAO não registra nada.
-   */
-  private async levarAHabilitacao(licitacaoId: string, ator: AtorTransicao): Promise<void> {
-    await this.licitacaoRepository.manager.transaction(async (manager) => {
-      const lic = await manager.findOne(Licitacao, { where: { id: licitacaoId }, select: { id: true, fase: true } });
-      if (lic?.fase === FaseLicitacao.EM_DISPUTA) {
-        await this.transicoes.executar(licitacaoId, AtoLicitacao.ENCERRAR_DISPUTA, {
-          ator,
-          manager,
-          ignorarSeJaAplicado: true,
-          registro: { origem: 'sessao' },
-        });
-      }
-      await this.transicoes.executar(licitacaoId, AtoLicitacao.INICIAR_HABILITACAO, {
-        ator,
-        manager,
-        ignorarSeJaAplicado: true,
-        registro: { origem: 'sessao' },
-      });
-    });
-  }
-
-  /**
    * Adjudicação pela sala: DECIDIR_RECURSOS se a licitação está em RECURSO,
    * senão ADJUDICAR (idempotente se já adjudicada/homologada).
    */
@@ -517,153 +492,18 @@ export class SessaoService {
   // antigos verificar/convocar/aceitar/recusar desta sala foram removidos.
   // ========================================
 
-  // ========================================
-  // HABILITACAO
-  // ========================================
-
-  async convocarParaHabilitacao(sessaoId: string, fornecedorId: string, ator: AtorTransicao): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    // E3: só se convoca para a habilitação o licitante com proposta ACEITA
-    // (IN 73 art. 29 → Lei 14.133 art. 62)
-    await this.aceitacao.exigirPropostaAceita(sessao.licitacao_id, fornecedorId);
-
-    // Licitação → HABILITACAO (Art. 62): ENCERRAR_DISPUTA (se ainda em disputa)
-    // + INICIAR_HABILITACAO (pré-condição: toda unidade com proposta aceita) —
-    // antes da sessão, para não deixar a sala à frente
-    await this.levarAHabilitacao(sessao.licitacao_id, ator);
-
-    sessao.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
-    sessao.fornecedor_habilitacao_id = fornecedorId;
-    await this.sessaoRepository.save(sessao);
-
-    // Busca nome do fornecedor para o evento
-    const proposta = await this.propostaRepository.findOne({
-      where: { licitacao_id: sessao.licitacao_id, fornecedor_id: fornecedorId },
-      relations: ['fornecedor'],
-    });
-    const nomeFornecedor = proposta?.fornecedor?.razao_social ?? fornecedorId;
-
-    await this.registrarEvento(sessao.id, TipoEvento.CONVOCACAO_HABILITACAO,
-      `Fornecedor ${nomeFornecedor} convocado para apresentar documentos de habilitacao (Art. 62, Lei 14.133/2021)`,
-      undefined, fornecedorId, sessao.pregoeiro_nome, true);
-  }
-
-  async aprovarHabilitacao(sessaoId: string, fornecedorId: string, ator?: AtorTransicao): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    // E3/B3: o licitante habilitado fica HABILITADO nas unidades em que a
-    // proposta dele foi aceita (é o que a adjudicação consulta)
-    const unidades = await this.aceitacao.aoHabilitar(sessao.licitacao_id, fornecedorId, ator ?? { tipo: 'SISTEMA', id: 'sessao' });
-    if (!unidades) {
-      throw new BadRequestException('O licitante não tem proposta aceita nesta licitação — não há o que habilitar.');
-    }
-
-    // Avança para prazo de intenção de recurso (Art. 165, Lei 14.133/2021)
-    sessao.etapa = EtapaSessao.INTENCAO_RECURSO;
-    sessao.fornecedor_habilitacao_id = null;
-    await this.sessaoRepository.save(sessao);
-
-    await this.registrarEvento(sessao.id, TipoEvento.HABILITACAO_APROVADA,
-      `Habilitacao APROVADA. Sessao avancou para fase de intencao de recurso (Art. 165)`,
-      undefined, fornecedorId, sessao.pregoeiro_nome, true);
-  }
-
-  async reprovarHabilitacao(sessaoId: string, fornecedorId: string, motivo: string, ator: AtorTransicao): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-    const texto = (motivo ?? '').trim();
-    if (!texto) throw new BadRequestException('Informe o motivo da inabilitação');
-
-    await this.registrarEvento(sessao.id, TipoEvento.HABILITACAO_REPROVADA,
-      `Habilitacao REPROVADA. Motivo: ${texto}. O proximo classificado (ranking de lances) sera convocado para a aceitacao da proposta.`,
-      undefined, fornecedorId, sessao.pregoeiro_nome, true, { motivo: texto });
-
-    // B3/B4: o inabilitado sai do ranking em TODAS as unidades; onde ele era o
-    // licitante na vez, a licitação volta ao julgamento e o PRÓXIMO PELOS
-    // LANCES é convocado para a aceitação da proposta (IN 73 art. 29)
-    const r = await this.aceitacao.aoInabilitar(sessaoId, fornecedorId, texto, ator, sessao.pregoeiro_nome);
-
-    const atual = await this.sessaoRepository.findOneByOrFail({ id: sessaoId });
-    atual.fornecedor_habilitacao_id = null;
-    if (r.reconvocadas > 0) {
-      atual.etapa = EtapaSessao.ACEITACAO_PROPOSTA;
-    } else if (r.restantesComAceite > 0) {
-      atual.etapa = EtapaSessao.CONVOCACAO_HABILITACAO;
-    } else {
-      // Sem próximo em nenhuma unidade — sessão vai para encerramento sem vencedor
-      atual.etapa = EtapaSessao.ENCERRAMENTO;
-    }
-    await this.sessaoRepository.save(atual);
-    if (r.reconvocadas === 0 && r.restantesComAceite === 0) {
-      await this.registrarEvento(sessao.id, TipoEvento.SESSAO_ENCERRADA,
-        'Nenhum licitante classificado restante. Sessao encerrada sem vencedor.',
-        undefined, undefined, sessao.pregoeiro_nome, true);
-    }
-  }
-
-  /**
-   * Estado da habilitação: convocado atual + licitantes em ordem pelo RANKING
-   * ÚNICO (lances e situação por unidade — nunca a proposta inicial). Os
-   * excluídos (recusado/inabilitado/desclassificado em todas as unidades) vêm
-   * em `excluidos`.
-   */
-  async getHabilitacaoStatus(sessaoId: string) {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
-
-    const { lista } = await this.rankingPorLicitante(sessao.licitacao_id);
-    const validos = lista.filter((l) => !l.excluido);
-    const ranking = validos.map((l, i) => ({
-      posicao: i + 1,
-      fornecedorId: l.fornecedorId,
-      razaoSocial: l.razaoSocial,
-      cpfCnpj: l.cpfCnpj,
-      porte: l.porte,
-      valorTotal: l.valorTotal,
-      unidades: l.unidades,
-      propostaAceita: l.unidades.some((u) => ['ACEITO', 'HABILITADO', 'VENCEDOR'].includes(u.situacao)),
-      isConvocado: l.fornecedorId === sessao.fornecedor_habilitacao_id,
-    }));
-
-    const convocado = ranking.find(r => r.isConvocado) ?? null;
-
-    return {
-      sessaoId,
-      licitacaoId: sessao.licitacao_id,
-      etapa: sessao.etapa,
-      convocado,
-      ranking,
-      excluidos: lista.filter((l) => l.excluido).map((l) => ({ fornecedorId: l.fornecedorId, razaoSocial: l.razaoSocial, unidades: l.unidades })),
-    };
-  }
+  // HABILITAÇÃO (arts. 62–70) — plano E4: habilitacao/habilitacao.service.ts
+  // (exigências do edital, convocação com pré-checagem do registro cadastral,
+  // documentos no banco, diligência, análise por documento, habilitar/
+  // inabilitar, inversão de fases). Os antigos convocar/aprovar/reprovar e o
+  // estado da habilitação desta sala foram removidos.
 
   // ========================================
-  // RECURSOS (Art. 165)
+  // RECURSOS (Art. 165) — plano E5: sessao/recursos.service.ts (janela de
+  // intenção, admissibilidade, razões/contrarrazões do próprio licitante,
+  // reconsideração/autoridade e efeito do provimento). O fluxo paralelo de
+  // intenção por eventos (abrir/encerrar prazo, registrar, status) foi removido.
   // ========================================
-
-  async abrirPrazoIntencaoRecurso(sessaoId: string): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    sessao.etapa = EtapaSessao.INTENCAO_RECURSO;
-    await this.sessaoRepository.save(sessao);
-
-    // Prazo de 10 minutos para manifestar intencao de recurso
-    await this.registrarEvento(sessao.id, TipoEvento.PRAZO_RECURSAL_INICIADO,
-      'Prazo de 10 minutos para manifestacao de intencao de recurso iniciado',
-      undefined, undefined, sessao.pregoeiro_nome, true);
-  }
-
-  async registrarIntencaoRecurso(
-    sessaoId: string, 
-    fornecedorId: string, 
-    motivacao: string
-  ): Promise<void> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    await this.registrarEvento(sessao.id, TipoEvento.INTENCAO_RECURSO_REGISTRADA,
-      `Fornecedor ${fornecedorId} manifestou intencao de recurso: ${motivacao}`,
-      undefined, fornecedorId, fornecedorId, false, { motivacao });
-  }
 
   // ========================================
   // ADJUDICACAO E ENCERRAMENTO
@@ -710,78 +550,6 @@ export class SessaoService {
 
   // NEGOCIAÇÃO (art. 61): julgamento/negociacao.service.ts (plano E3 — por unidade,
   // contraproposta privada, lance NEGOCIACAO pelo motor, resultado público).
-
-  // ========================================
-  // INTENÇÃO DE RECURSO — métodos adicionais
-  // ========================================
-
-  /** Retorna participantes da sessão e quais registraram intenção de recurso */
-  async getIntencaoRecursoStatus(sessaoId: string) {
-    const sessao = await this.sessaoRepository.findOneBy({ id: sessaoId });
-    if (!sessao) throw new NotFoundException('Sessao nao encontrada');
-
-    // Participantes: todos os licitantes do ranking único (inclusive
-    // recusados/inabilitados — podem manifestar intenção de recurso)
-    const { lista } = await this.rankingPorLicitante(sessao.licitacao_id);
-    const participantes = lista.map((l) => ({
-      fornecedorId: l.fornecedorId,
-      razaoSocial: l.razaoSocial,
-      cpfCnpj: l.cpfCnpj,
-    }));
-
-    // Eventos de intenção de recurso
-    const eventos = await this.eventoRepository.find({
-      where: { sessao_id: sessaoId, tipo: TipoEvento.INTENCAO_RECURSO_REGISTRADA },
-      order: { created_at: 'ASC' },
-    });
-    const intencoes = eventos.map(e => ({
-      fornecedorId: e.fornecedor_identificador,
-      mensagem: e.descricao,
-      dataHora: e.created_at,
-      dados: e.dados_adicionais,
-    }));
-
-    const fornecedoresComIntencao = new Set(intencoes.map(i => i.fornecedorId));
-    const semIntencao = participantes.filter(p => !fornecedoresComIntencao.has(p.fornecedorId));
-
-    return {
-      sessaoId,
-      etapa: sessao.etapa,
-      intencoes,
-      participantes,
-      semIntencao,
-      totalIntencoes: intencoes.length,
-    };
-  }
-
-  /** Encerra o prazo de intenção de recurso e avança a etapa */
-  async encerrarPrazoIntencaoRecurso(sessaoId: string): Promise<{ etapaProxima: string; totalIntencoes: number }> {
-    const sessao = await this.sessaoParaAto(sessaoId);
-
-    // Conta intenções registradas
-    const totalIntencoes = await this.eventoRepository.count({
-      where: { sessao_id: sessaoId, tipo: TipoEvento.INTENCAO_RECURSO_REGISTRADA as any },
-    });
-
-    let etapaProxima: EtapaSessao;
-    let mensagem: string;
-
-    if (totalIntencoes > 0) {
-      etapaProxima = EtapaSessao.PRAZO_RECURSAL;
-      mensagem = `Prazo de intencao de recurso encerrado. ${totalIntencoes} intencao(oes) registrada(s). Prazo recursal aberto (3 dias uteis).`;
-    } else {
-      etapaProxima = EtapaSessao.ADJUDICACAO;
-      mensagem = 'Prazo de intencao de recurso encerrado sem manifestacoes. Sessao avancada para adjudicacao direta (Art. 71).';
-    }
-
-    sessao.etapa = etapaProxima;
-    await this.sessaoRepository.save(sessao);
-
-    await this.registrarEvento(sessao.id, TipoEvento.MENSAGEM_SISTEMA,
-      mensagem, undefined, undefined, sessao.pregoeiro_nome, true);
-
-    return { etapaProxima, totalIntencoes };
-  }
 
   // ========================================
   // ADJUDICAÇÃO — métodos adicionais

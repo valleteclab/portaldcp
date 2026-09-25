@@ -1,4 +1,5 @@
 import { FaseLicitacao, ModalidadeLicitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.entity';
+import { ehDiaUtil, limiteDiasUteisAntes as limiteDiasUteisAntesComum } from '../common/prazos/dias-uteis';
 
 /**
  * ============================================================================
@@ -32,14 +33,13 @@ import { FaseLicitacao, ModalidadeLicitacao, SituacaoLicitacao } from '../licita
  *
  * Dias úteis = segunda a sexta. FERIADOS ainda não são considerados — o
  * calendário de feriados (nacionais + municipais por órgão) é a E7 item 2;
- * quando existir, substituir `ehDiaUtil` aqui.
+ * quando existir, substituir `ehDiaUtil` em `common/prazos/dias-uteis.ts`
+ * (função única, também usada pelos prazos de recurso — art. 165).
  */
 
 export const DIAS_UTEIS_ANTES_DA_ABERTURA = 3;
 
-/** Brasília é UTC-3 fixo (sem horário de verão desde 2019). */
 const DESLOCAMENTO_BRASILIA_MS = 3 * 3_600_000;
-const DIA_MS = 86_400_000;
 
 /** Fases em que ainda cabe impugnação/esclarecimento (antes da sessão). */
 export const FASES_COM_PRAZO_DE_MANIFESTACAO: FaseLicitacao[] = [
@@ -81,26 +81,15 @@ function data(v: Date | string | null | undefined): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** Segunda a sexta. Feriados: E7 item 2 (calendário). */
-export function ehDiaUtil(diaUtc: Date): boolean {
-  const dow = diaUtc.getUTCDay();
-  return dow !== 0 && dow !== 6;
-}
+/** Dia útil: função ÚNICA de `common/prazos/dias-uteis.ts` (feriados: E7 item 2). */
+export { ehDiaUtil };
 
 /**
  * Último instante (23:59:59.999, Brasília) do N-ésimo dia útil ANTERIOR ao dia
  * (em Brasília) de `abertura`. O dia da abertura não conta.
  */
 export function limiteDiasUteisAntes(abertura: Date, dias = DIAS_UTEIS_ANTES_DA_ABERTURA): Date {
-  // Relógio de parede de Brasília nos campos UTC
-  const local = new Date(abertura.getTime() - DESLOCAMENTO_BRASILIA_MS);
-  let cursor = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
-  let contados = 0;
-  while (contados < dias) {
-    cursor -= DIA_MS;
-    if (ehDiaUtil(new Date(cursor))) contados++;
-  }
-  return new Date(cursor + DIA_MS - 1 + DESLOCAMENTO_BRASILIA_MS);
+  return limiteDiasUteisAntesComum(abertura, dias);
 }
 
 /** Data de abertura do certame usada como referência do art. 164. */

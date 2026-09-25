@@ -106,9 +106,10 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
   // Ao selecionar DISPENSA_ELETRONICA, forçar modo ABERTO e critério MENOR_PRECO
   const handleModalidadeChange = (v: string) => {
     if (v === 'DISPENSA_ELETRONICA') {
-      onChange({ ...dados, modalidade: v, modo_disputa: 'ABERTO', criterio_julgamento: 'MENOR_PRECO' })
+      onChange({ ...dados, modalidade: v, modo_disputa: 'ABERTO', criterio_julgamento: 'MENOR_PRECO', inversao_fases: false })
     } else {
-      updateField('modalidade', v)
+      // Inversão de fases só na concorrência (Lei 14.133 art. 17 §1º)
+      onChange({ ...dados, modalidade: v, ...(v !== 'CONCORRENCIA' ? { inversao_fases: false } : {}) })
     }
   }
 
@@ -297,6 +298,20 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
             )}
           </div>
         </div>
+
+        {/* Inversão de fases (Lei 14.133 art. 17 §1º) — só concorrência; definida no edital */}
+        {dados.modalidade === 'CONCORRENCIA' && (
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-violet-200 bg-violet-50 p-4">
+            <div>
+              <Label className="text-base">Inversão de fases (habilitação antes do julgamento)</Label>
+              <p className="text-sm text-slate-600">
+                Todos os licitantes enviam a habilitação com a proposta; a comissão julga a habilitação de todos antes da disputa
+                e só os habilitados dão lances (art. 17 §1º). Não pode ser alterada depois da publicação.
+              </p>
+            </div>
+            <Switch checked={!!dados.inversao_fases} onCheckedChange={(v) => updateField('inversao_fases', v)} />
+          </div>
+        )}
 
         {/* Tratamento ME/EPP */}
         <div className="border-t pt-6">

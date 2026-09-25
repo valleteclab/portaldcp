@@ -21,6 +21,7 @@ import {
 
 import { API_URL, authFetch } from '@/lib/api'
 import { JulgamentoTecnicoConfig } from "@/components/julgamento/JulgamentoTecnicoConfig"
+import { ExigenciasHabilitacaoEditor } from "@/components/habilitacao/ExigenciasHabilitacaoEditor"
 
 /** Valor de tempo da licitação em minutos (null = herda do órgão → padrão legal). */
 function emMinutos(v: unknown, padrao: number): number {
@@ -136,7 +137,7 @@ export default function EditarLicitacaoPage() {
   }
 
   // Ordem das abas para navegação
-  const abas = ['dados', 'classificacao', 'itens', ...(classificacao.usa_lotes ? ['lotes'] : []), 'cronograma', 'configuracoes']
+  const abas = ['dados', 'classificacao', 'itens', ...(classificacao.usa_lotes ? ['lotes'] : []), 'cronograma', 'habilitacao', 'configuracoes']
   const abaAtualIndex = abas.indexOf(abaAtiva)
   const temAnterior = abaAtualIndex > 0
   const temProximo = abaAtualIndex < abas.length - 1
@@ -196,6 +197,7 @@ export default function EditarLicitacaoPage() {
           percentual_cota_reservada: data.percentual_cota_reservada || 0,
           modo_vinculacao_pca: data.modo_vinculacao_pca || 'POR_LICITACAO',
           base_lance: data.base_lance || 'TOTAL_ITEM',
+          inversao_fases: !!data.inversao_fases,
           item_pca_id: data.item_pca_id,
           item_pca: data.item_pca,
           sem_pca: data.sem_pca,
@@ -571,12 +573,13 @@ export default function EditarLicitacaoPage() {
 
       {/* Tabs */}
       <Tabs value={abaAtiva} onValueChange={setAbaAtiva}>
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="dados">Dados Básicos</TabsTrigger>
           <TabsTrigger value="classificacao">Classificação</TabsTrigger>
           <TabsTrigger value="itens">Itens</TabsTrigger>
           <TabsTrigger value="lotes" disabled={!classificacao.usa_lotes}>Lotes</TabsTrigger>
           <TabsTrigger value="cronograma">Cronograma</TabsTrigger>
+          <TabsTrigger value="habilitacao">Habilitação</TabsTrigger>
           <TabsTrigger value="configuracoes">Configurações</TabsTrigger>
         </TabsList>
 
@@ -622,6 +625,11 @@ export default function EditarLicitacaoPage() {
 
         <TabsContent value="cronograma">
           <CronogramaTab dados={cronograma} onChange={setCronograma} />
+        </TabsContent>
+
+        <TabsContent value="habilitacao">
+          {/* Exigências de habilitação do edital (Lei 14.133 arts. 62–70) — plano E4 */}
+          <ExigenciasHabilitacaoEditor licitacaoId={id} />
         </TabsContent>
 
         <TabsContent value="configuracoes">

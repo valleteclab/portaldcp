@@ -109,6 +109,14 @@ export class ParametroLicitacao {
   @Column({ type: 'int', default: 2 })
   prazo_proposta_adequada_horas: number;
 
+  /**
+   * Prazo para o licitante convocado enviar os documentos de habilitação
+   * (IN SEGES 73/2022 art. 39: mínimo de 2 horas, prorrogável). O sistema
+   * nunca aplica menos que 2 h. Plano E4.
+   */
+  @Column({ type: 'int', default: 2 })
+  prazo_habilitacao_horas: number;
+
   @CreateDateColumn()
   created_at: Date;
 

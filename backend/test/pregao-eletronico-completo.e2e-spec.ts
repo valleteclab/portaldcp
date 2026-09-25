@@ -91,6 +91,21 @@ import {
   StatusSessao,
 } from '../src/sessao/entities/sessao-disputa.entity';
 import { TipoEvento } from '../src/sessao/entities/evento-sessao.entity';
+import {
+  convocarHabilitacao,
+  decidirHabilitacao,
+  entregarHabilitacao,
+  habilitarLicitante,
+  painelHabilitacao,
+} from './support/habilitacao';
+import {
+  abrirJanelaIntencao,
+  encerrarJanelaNoRelogio,
+  enviarPeca,
+  manifestarIntencao,
+  painelRecursos,
+  vencerPrazoDoRecurso,
+} from './support/recursos';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const MIN = 60_000;
@@ -724,11 +739,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
     test(
       'o 1º colocado do julgamento é o 1º nos LANCES (A), não a menor proposta (B)',
       async () => {
-        const hab = await http()
-          .get(`/api/sessao/${sessaoId}/habilitacao`)
-          .set(bearer(pregoeiro.token))
-          .expect(200);
-        expect(hab.body.ranking[0].fornecedorId).toBe(F.A.id);
+        // E4: o painel da habilitação (/api/habilitacao) ordena pelo mesmo ranking único
+        const hab = await painelHabilitacao(ctx, lic.id, pregoeiro.token);
+        expect(hab.ranking[0].fornecedorId).toBe(F.A.id);
         // negociação (E3): painel por unidade em /api/julgamento — o licitante na vez é A
         const neg = await http()
           .get(`/api/julgamento/sessao/${sessaoId}/negociacao`)
@@ -751,10 +764,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
     );
 
     test('habilitação antes da aceitação é recusada (INICIAR_HABILITACAO exige proposta aceita)', async () => {
-      const r = await http()
-        .put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F.A.id}`)
-        .set(bearer(pregoeiro.token))
-        .send({});
+      const r = await convocarHabilitacao(ctx, lic.id, F.A.id, pregoeiro.token);
       expect(r.status).toBe(400);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.JULGAMENTO);
     });
@@ -842,28 +852,28 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
   // 6. Habilitação: inabilita o 1º, habilita o 2º
   // ==========================================================================
   describe('6. Habilitação', () => {
+    // E4: habilitação real (habilitacao/habilitacao.service.ts) — convocação com prazo ≥ 2 h,
+    // documentos pelo portal, análise por documento; as rotas antigas da sala foram removidas.
+    let habA: any;
     test('pregoeiro convoca o 1º colocado (A) para a habilitação (art. 62)', async () => {
-      await http()
-        .put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F.A.id}`)
-        .set(bearer(pregoeiro.token))
-        .send({})
-        .expect(200);
-      const hab = await http()
-        .get(`/api/sessao/${sessaoId}/habilitacao`)
-        .set(bearer(pregoeiro.token))
-        .expect(200);
-      expect(hab.body.convocado.fornecedorId).toBe(F.A.id);
+      const c = await convocarHabilitacao(ctx, lic.id, F.A.id, pregoeiro.token);
+      expect(c.status).toBe(201);
+      habA = c.body;
+      expect(habA.prazoHoras).toBeGreaterThanOrEqual(2);
+      const hab = await painelHabilitacao(ctx, lic.id, pregoeiro.token);
+      expect(hab.convocado.fornecedorId).toBe(F.A.id);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(
         FaseLicitacao.HABILITACAO,
       );
     });
 
     test('A é inabilitado com motivo registrado', async () => {
-      await http()
-        .put(`/api/sessao/${sessaoId}/habilitacao/reprovar/${F.A.id}`)
-        .set(bearer(pregoeiro.token))
-        .send({ motivo: 'Certidão de regularidade fiscal federal vencida' })
-        .expect(200);
+      // A entrega a documentação (sem a certidão) e o agente inabilita
+      expect((await entregarHabilitacao(ctx, lic.id, F.A.token)).status).toBe(201);
+      const r = await decidirHabilitacao(ctx, habA.id, pregoeiro.token, 'inabilitar', {
+        motivo: 'Certidão de regularidade fiscal federal vencida',
+      });
+      expect(r.status).toBe(201);
       const eventos = await eventosSessao();
       const rep = eventos.find(
         (e) => e.tipo === TipoEvento.HABILITACAO_REPROVADA,
@@ -887,12 +897,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
           expect(u.aceitacaoAtual?.fornecedorId).toBe(F.D.id);
           expect(u.ranking.find((r: any) => r.fornecedorId === F.A.id)).toMatchObject({ situacao: 'INABILITADO', excluido: true });
         }
-        const hab = await http()
-          .get(`/api/sessao/${sessaoId}/habilitacao`)
-          .set(bearer(pregoeiro.token))
-          .expect(200);
-        expect(hab.body.ranking[0].fornecedorId).toBe(F.D.id);
-        expect(hab.body.excluidos.map((e: any) => e.fornecedorId)).toEqual([F.A.id]);
+        const hab = await painelHabilitacao(ctx, lic.id, pregoeiro.token);
+        expect(hab.ranking[0].fornecedorId).toBe(F.D.id);
+        expect(hab.excluidos.map((e: any) => e.fornecedorId)).toEqual([F.A.id]);
         expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.JULGAMENTO);
       },
     );
@@ -918,16 +925,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
           .send({})
           .expect(201);
       }
-      await http()
-        .put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F.D.id}`)
-        .set(bearer(pregoeiro.token))
-        .send({})
-        .expect(200);
-      await http()
-        .put(`/api/sessao/${sessaoId}/habilitacao/aprovar/${F.D.id}`)
-        .set(bearer(pregoeiro.token))
-        .send({})
-        .expect(200);
+      // convocação, documentos de D pelo portal, análise ATENDE e habilitação
+      const hD = await habilitarLicitante(ctx, lic.id, F.D, pregoeiro.token);
+      expect(hD.status).toBe('HABILITADO');
       expect((await sessao()).etapa).toBe(EtapaSessao.INTENCAO_RECURSO);
       const eventos = await eventosSessao();
       const ok = eventos.find(
@@ -943,71 +943,64 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
   describe('7. Intenção de recurso e recurso', () => {
     let recursoId: string;
 
-    test('A (inabilitado) manifesta intenção de recurso com o próprio token', async () => {
-      await http()
-        .post(`/api/sessao/${sessaoId}/recursos/intencao`)
-        .set(bearer(F.A.token))
-        .send({
-          fornecedorId: F.A.id,
-          motivacao: 'A certidão estava válida na data da sessão',
-        })
-        .expect(201);
-      const st = await http()
-        .get(`/api/sessao/${sessaoId}/recursos/intencoes`)
-        .set(bearer(pregoeiro.token))
-        .expect(200);
-      expect(st.body.totalIntencoes).toBe(1);
-      expect(st.body.intencoes[0].fornecedorId).toBe(F.A.id);
+    // E5: a janela de intenção é aberta pelo agente depois do resultado da
+    // habilitação (≥ 10 min — IN 73 art. 40) e a intenção é do LICITANTE, pelo
+    // próprio token; fora da janela, preclusão (art. 165 §1º I).
+    test('A (inabilitado) manifesta intenção de recurso com o próprio token, na janela aberta pelo pregoeiro', async () => {
+      const cedo = await manifestarIntencao(ctx, sessaoId, F.A.token, {
+        motivacao: 'A certidão estava válida na data da sessão',
+        atoRecorrido: 'INABILITACAO',
+      });
+      expect(cedo.status).toBe(409);
+      const j = await abrirJanelaIntencao(ctx, sessaoId, pregoeiro.token);
+      expect(j.status).toBe(201);
+      expect(j.body.minutos).toBeGreaterThanOrEqual(10);
+      await manifestarIntencao(ctx, sessaoId, F.A.token, {
+        fornecedorId: F.A.id,
+        motivacao: 'A certidão estava válida na data da sessão',
+        atoRecorrido: 'INABILITACAO',
+      }).expect(201);
+      const st = (await painelRecursos(ctx, sessaoId, pregoeiro.token).expect(200)).body;
+      expect(st.recursos).toHaveLength(1);
+      expect(st.recursos[0]).toMatchObject({ status: 'INTENCAO', recorrente: { id: F.A.id }, atoRecorrido: 'INABILITACAO' });
+      recursoId = st.recursos[0].id;
     });
 
-    test('encerrado o prazo de intenção, abre-se o prazo recursal', async () => {
-      const r = await http()
-        .put(`/api/sessao/${sessaoId}/recursos/encerrar-prazo`)
-        .set(bearer(pregoeiro.token))
-        .send({})
-        .expect(200);
-      expect(r.body.etapaProxima).toBe(EtapaSessao.PRAZO_RECURSAL);
-    });
-
-    test('intenção admitida → razões (A) → contrarrazões (D) → recurso improvido → adjudicação', async () => {
-      const adm = await http()
-        .post(`/api/sessao/${sessaoId}/recursos/${F.A.id}/admitir`)
-        .set(bearer(pregoeiro.token))
-        .send({
-          fornecedorNome: F.A.razao_social,
-          motivacao: 'Certidão válida',
-        })
-        .expect(201);
-      recursoId = adm.body.id;
+    test('encerrada a janela, a intenção preclui e, admitida a de A, abre-se o prazo recursal', async () => {
+      await encerrarJanelaNoRelogio(ctx, sessaoId);
+      const tarde = await manifestarIntencao(ctx, sessaoId, F.B.token, { motivacao: 'Intenção depois do prazo', atoRecorrido: 'OUTRO' });
+      expect(tarde.status).toBe(409);
+      const adm = await http().post(`/api/recursos/${recursoId}/admitir`).set(bearer(pregoeiro.token)).send({}).expect(201);
       expect(adm.body.status).toBe('AGUARDANDO_RAZOES');
+      expect((await sessao()).etapa).toBe(EtapaSessao.PRAZO_RECURSAL);
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.RECURSO);
+    });
 
+    test('razões (A) → contrarrazões (D) → agente mantém → autoridade: recurso improvido → adjudicação', async () => {
+      await enviarPeca(ctx, recursoId, 'razoes', F.A.token, 'A certidão juntada tinha validade até o dia da sessão.').expect(201);
+      // só o recorrente apresenta razões; o recorrente não contrarrazoa
+      expect((await enviarPeca(ctx, recursoId, 'razoes', F.D.token, 'Razões de quem não recorreu nada.')).status).toBe(403);
+      expect((await enviarPeca(ctx, recursoId, 'contrarrazoes', F.A.token, 'Contrarrazões do próprio recorrente.')).status).toBe(403);
+      await enviarPeca(ctx, recursoId, 'contrarrazoes', F.D.token, 'A certidão venceu antes da sessão pública.').expect(201);
+      await vencerPrazoDoRecurso(ctx, recursoId, 'prazo_contrarrazoes');
       await http()
-        .put(`/api/sessao/recursos/${recursoId}/razoes`)
-        .set(bearer(F.A.token))
-        .send({
-          razoes: 'A certidão juntada tinha validade até o dia da sessão.',
-        })
-        .expect(200);
-      await http()
-        .put(`/api/sessao/recursos/${recursoId}/contrarrazoes`)
-        .set(bearer(F.D.token))
-        .send({
-          fornecedorId: F.D.id,
-          fornecedorNome: F.D.razao_social,
-          texto: 'A certidão venceu antes da sessão.',
-        })
-        .expect(200);
+        .post(`/api/recursos/${recursoId}/reconsiderar`)
+        .set(bearer(pregoeiro.token))
+        .send({ reconsiderar: false, fundamentacao: 'Mantenho a inabilitação: a certidão estava vencida na sessão.' })
+        .expect(201);
       const dec = await http()
-        .put(`/api/sessao/recursos/${recursoId}/decidir`)
+        .post(`/api/recursos/${recursoId}/decisao-autoridade`)
         .set(bearer(orgao.token))
         .send({
           provido: false,
-          decisao: 'Certidão vencida na data da sessão. Recurso improvido.',
-          decididoPor: 'Prefeito E2E',
+          fundamentacao: 'Certidão vencida na data da sessão. Recurso improvido.',
+          nome: 'Prefeito E2E',
+          cargo: 'Autoridade superior',
         })
-        .expect(200);
+        .expect(201);
       expect(dec.body.status).toBe('IMPROVIDO');
       expect((await sessao()).etapa).toBe(EtapaSessao.ADJUDICACAO);
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.ADJUDICACAO);
     });
   });
 

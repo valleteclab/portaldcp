@@ -563,10 +563,16 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   // 4. sessao REST (sessao.controller.ts — só exige token, sem papel/órgão)
   // ==========================================================================
   describe('4. sessao REST', () => {
-    const acoes: Array<{ nome: string; metodo: 'put'; caminho: () => string; corpo?: () => any }> = [
+    const acoes: Array<{ nome: string; metodo: 'put' | 'post'; caminho: () => string; corpo?: () => any }> = [
       { nome: 'iniciar', metodo: 'put', caminho: () => `/api/sessao/${W2.sessaoId}/iniciar` },
       { nome: 'suspender', metodo: 'put', caminho: () => `/api/sessao/${W2.sessaoId}/suspender`, corpo: () => ({ motivo: 'forjado' }) },
-      { nome: 'habilitar (aprovar habilitação)', metodo: 'put', caminho: () => `/api/sessao/${W2.sessaoId}/habilitacao/aprovar/${F1.id}` },
+      // E4: a habilitação saiu da sala (/api/habilitacao); convocar é ato do órgão dono
+      {
+        nome: 'convocar para a habilitação',
+        metodo: 'post',
+        caminho: () => `/api/habilitacao/licitacao/${W2.lic.id}/convocar`,
+        corpo: () => ({ fornecedorId: F1.id }),
+      },
       {
         nome: 'adjudicar item',
         metodo: 'put',
@@ -594,14 +600,14 @@ describe('Isolamento de dados da licitação (autorização)', () => {
 
     // CORRIGIDO NA E1a (era vazamento): ranking de habilitação (cnpj, razão social, valores) sem checagem de órgão — sessao/sessao.controller.ts:164-167; sessao/sessao.service.ts:1144-1170
     test('órgão B não lê a habilitação de X', async () => {
-      const r = await ctx.http().get(`/api/sessao/${X.sessaoId}/habilitacao`).set(bearer(B.token));
+      const r = await ctx.http().get(`/api/habilitacao/licitacao/${X.lic.id}`).set(bearer(B.token));
       registrarHttp('4 órgão B GET habilitacao (X)', r);
       expect(RECUSADO).toContain(r.status);
     });
 
     // CORRIGIDO NA E1a (era vazamento): fornecedor lê o ranking de habilitação com cnpj dos concorrentes — sessao/sessao.controller.ts:164-167
     test('F2 não lê a habilitação de X (cnpj/valores dos concorrentes)', async () => {
-      const r = await ctx.http().get(`/api/sessao/${X.sessaoId}/habilitacao`).set(bearer(F2.token));
+      const r = await ctx.http().get(`/api/habilitacao/licitacao/${X.lic.id}`).set(bearer(F2.token));
       registrarHttp('4 F2 GET habilitacao (X)', r);
       const vaza = r.status === 200 && identidadeNoPayload(r.body, F1).length > 0;
       expect(vaza).toBe(false);

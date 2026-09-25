@@ -243,6 +243,15 @@ export class Licitacao {
   })
   modo_disputa: ModoDisputa;
 
+  /**
+   * INVERSÃO DE FASES (Lei 14.133 art. 17 §1º — só concorrência, plano E4):
+   * todos os licitantes entregam a habilitação com a proposta; a comissão
+   * julga a habilitação de todos ANTES da etapa de lances e só os HABILITADOS
+   * disputam (pré-condição do INICIAR_DISPUTA). Congelada após a publicação.
+   */
+  @Column({ type: 'boolean', default: false })
+  inversao_fases: boolean;
+
   @Column({
     type: 'enum',
     enum: RegimeExecucao,

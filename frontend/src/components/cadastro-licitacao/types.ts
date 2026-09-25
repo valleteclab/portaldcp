@@ -223,6 +223,8 @@ export interface Classificacao {
    * itens do lote e o valor de cada item sai do rateio proporcional do lance).
    */
   base_lance?: 'UNITARIO' | 'TOTAL_ITEM' | 'TOTAL_LOTE'
+  /** Inversão de fases (Lei 14.133 art. 17 §1º) — só concorrência; habilitação antes da disputa. */
+  inversao_fases?: boolean
   justificativa_nao_parcelamento?: string
 }
 

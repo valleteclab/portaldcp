@@ -889,7 +889,6 @@ export default function GestaoLicitacaoPage({ params }: { params: Promise<{ id: 
           break
         case 'HABILITACAO':
           acoes.push({ label: 'Sala de Disputa V3 (Habilitação)', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/sala`), variant: 'default', icon: Gavel })
-          acoes.push({ label: 'Página de Habilitação', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/habilitacao`), icon: FileText })
           acoes.push({ label: 'Ver Ata da Sessão', action: () => router.push(`/orgao/licitacoes/${licitacaoId}/ata`), icon: FileText })
           break
         case 'RECURSO':

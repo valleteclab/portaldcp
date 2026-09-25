@@ -39,6 +39,15 @@ import {
 } from './support/pregao';
 import { prepararPregaoEmDisputa } from './support/isolamento';
 import { aceitarPropostaDaUnidade } from './support/julgamento';
+import { atenderTodos, convocarHabilitacao, decidirHabilitacao, entregarHabilitacao, enviarDocumentosFaltantes } from './support/habilitacao';
+import {
+  abrirJanelaIntencao,
+  encerrarJanelaNoRelogio,
+  enviarPeca,
+  manifestarIntencao,
+  painelRecursos,
+  vencerPrazoDoRecurso,
+} from './support/recursos';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao, StatusSessao } from '../src/sessao/entities/sessao-disputa.entity';
 
@@ -176,48 +185,57 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       // E3: a habilitação exige a proposta ACEITA (aceitação não muda a fase: segue em JULGAMENTO)
       await aceitarPropostaDaUnidade(ctx, sessaoId, itemId, pregoeiro.token, F1.token);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.JULGAMENTO);
-      await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F1.id}`).set(bearer(pregoeiro.token)).send({}).expect(200);
-      await http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F1.id}`).set(bearer(pregoeiro.token)).send({}).expect(200);
+      // E4: /api/habilitacao — a segunda convocação do mesmo licitante é recusada (409) e não repete o ato
+      const conv = await convocarHabilitacao(ctx, lic.id, F1.id, pregoeiro.token);
+      expect(conv.status).toBe(201);
+      expect((await convocarHabilitacao(ctx, lic.id, F1.id, pregoeiro.token)).status).toBe(409);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.HABILITACAO);
       const h = atoDo(await historico(lic.id, orgao.token), 'INICIAR_HABILITACAO');
       expect(h).toHaveLength(1);
       expect(h[0]).toMatchObject({ fase_de: 'JULGAMENTO', fase_para: 'HABILITACAO', ...doPregoeiro, ator_id: pregoeiro.id });
-      await http().put(`/api/sessao/${sessaoId}/habilitacao/aprovar/${F1.id}`).set(bearer(pregoeiro.token)).send({}).expect(200);
+      await enviarDocumentosFaltantes(ctx, lic.id, F1.token);
+      expect((await entregarHabilitacao(ctx, lic.id, F1.token)).status).toBe(201);
+      await atenderTodos(ctx, lic.id, conv.body.id, pregoeiro.token);
+      expect((await decidirHabilitacao(ctx, conv.body.id, pregoeiro.token, 'habilitar')).status).toBe(201);
     });
 
     test('intenção admitida abre o prazo recursal: licitação vai a RECURSO (ABRIR_PRAZO_RECURSAL)', async () => {
-      await http()
-        .post(`/api/sessao/${sessaoId}/recursos/intencao`)
-        .set(bearer(F2.token))
-        .send({ motivacao: 'Proposta de F1 inexequível' })
-        .expect(201);
-      await http().put(`/api/sessao/${sessaoId}/recursos/encerrar-prazo`).set(bearer(pregoeiro.token)).send({}).expect(200);
-      // encerrar o prazo de INTENÇÃO não muda a fase: o recurso só nasce na admissão
+      // E5: o pregoeiro abre a janela; o LICITANTE manifesta a intenção pela sala (próprio token)
+      expect((await abrirJanelaIntencao(ctx, sessaoId, pregoeiro.token)).status).toBe(201);
+      await manifestarIntencao(ctx, sessaoId, F2.token, {
+        motivacao: 'Proposta de F1 inexequível',
+        atoRecorrido: 'ACEITACAO_TERCEIRO',
+        fornecedorAlvoId: F1.id,
+      }).expect(201);
+      await encerrarJanelaNoRelogio(ctx, sessaoId);
+      // encerrar a janela de INTENÇÃO não muda a fase: o recurso só nasce na admissão
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.HABILITACAO);
 
-      const adm = await http()
-        .post(`/api/sessao/${sessaoId}/recursos/${F2.id}/admitir`)
-        .set(bearer(pregoeiro.token))
-        .send({ fornecedorNome: F2.razao_social, motivacao: 'Inexequibilidade' })
-        .expect(201);
+      const painel = (await painelRecursos(ctx, sessaoId, pregoeiro.token).expect(200)).body;
+      const intencao = painel.recursos.find((r: any) => r.recorrente.id === F2.id);
+      expect(intencao.status).toBe('INTENCAO');
+      const adm = await http().post(`/api/recursos/${intencao.id}/admitir`).set(bearer(pregoeiro.token)).send({}).expect(201);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.RECURSO);
       const [t] = atoDo(await historico(lic.id, orgao.token), 'ABRIR_PRAZO_RECURSAL');
       expect(t).toMatchObject({ fase_de: 'HABILITACAO', fase_para: 'RECURSO', ...doPregoeiro, ator_id: pregoeiro.id });
 
-      await http()
-        .put(`/api/sessao/recursos/${adm.body.id}/razoes`)
-        .set(bearer(F2.token))
-        .send({ razoes: 'O preço de F1 está abaixo do custo.' })
-        .expect(200);
+      await enviarPeca(ctx, adm.body.id, 'razoes', F2.token, 'O preço de F1 está abaixo do custo de produção.').expect(201);
       recursoId = adm.body.id;
     });
 
     test('decidido o último recurso, a licitação volta a ADJUDICACAO (DECIDIR_RECURSOS); adjudicar pela sala não duplica', async () => {
+      // E5: encerrado o contraditório, o agente mantém e a autoridade superior (conta do órgão) decide
+      await vencerPrazoDoRecurso(ctx, recursoId, 'prazo_contrarrazoes');
       await http()
-        .put(`/api/sessao/recursos/${recursoId}/decidir`)
+        .post(`/api/recursos/${recursoId}/reconsiderar`)
+        .set(bearer(pregoeiro.token))
+        .send({ reconsiderar: false, fundamentacao: 'Mantenho: a exequibilidade foi demonstrada na aceitação.' })
+        .expect(201);
+      await http()
+        .post(`/api/recursos/${recursoId}/decisao-autoridade`)
         .set(bearer(orgao.token))
-        .send({ provido: false, decisao: 'Exequibilidade comprovada. Recurso improvido.', decididoPor: 'Prefeito E1' })
-        .expect(200);
+        .send({ provido: false, fundamentacao: 'Exequibilidade comprovada. Recurso improvido.', nome: 'Prefeito E1', cargo: 'Autoridade superior' })
+        .expect(201);
       const l = await buscarLicitacao(ctx, lic);
       expect(l.fase).toBe(FaseLicitacao.ADJUDICACAO);
       expect(l.data_adjudicacao).toBeTruthy();
@@ -351,7 +369,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
         http().post(`/api/disputa-v2/sessao/${sessaoId}/suspender`).set(bearer(orgao.token)).send({ motivo: 'ADMINISTRATIVO', justificativa: 'x' }),
         http().post(`/api/disputa-v2/sessao/${sessaoId}/retomar`).set(bearer(orgao.token)),
         http().post(`/api/disputa-v2/sessao/${sessaoId}/reiniciar`).set(bearer(orgao.token)).send({ justificativa: 'x' }),
-        http().put(`/api/sessao/${sessaoId}/habilitacao/convocar/${F1.id}`).set(bearer(orgao.token)).send({}),
+        convocarHabilitacao(ctx, lic.id, F1.id, orgao.token),
         http().put(`/api/sessao/${sessaoId}/homologar`).set(bearer(orgao.token)).send({}),
       ];
       for (const r of await Promise.all(casos)) expect(r.status).toBe(409);

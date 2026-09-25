@@ -379,13 +379,38 @@ const ENCERRAR_ACOLHIMENTO: DefinicaoAto = {
   precondicoes: [fimAcolhimentoAlcancado],
 };
 
+/**
+ * INVERSÃO DE FASES (Lei 14.133 art. 17 §1º; plano E4): na concorrência com
+ * `inversao_fases`, a habilitação de TODOS os licitantes é julgada antes da
+ * etapa de lances — só os HABILITADOS disputam (os inabilitados têm a proposta
+ * desclassificada). Sem inversão, não se aplica.
+ */
+export const habilitacaoPreviaJulgada: Precondicao = async (ctx) => {
+  if (!(ctx.licitacao as any).inversao_fases || !ctx.consultas.habilitacaoPreviaPendente) return null;
+  const pendentes = await ctx.consultas.habilitacaoPreviaPendente();
+  if (!pendentes.length) return null;
+  return `Inversão de fases (art. 17 §1º): julgue a habilitação de todos os licitantes antes da disputa — pendente(s): ${pendentes.join(', ')}`;
+};
+
+/**
+ * ADJUDICAR / DECIDIR_RECURSOS (plano E4): toda unidade com proposta aceita
+ * tem o licitante HABILITADO — o vencedor final nunca é quem não passou pela
+ * habilitação (Lei 14.133 art. 62; fim do B3).
+ */
+export const licitantesAceitosHabilitados: Precondicao = async (ctx) => {
+  if (!ctx.consultas.unidadesSemHabilitado) return null;
+  const pendentes = await ctx.consultas.unidadesSemHabilitado();
+  if (!pendentes.length) return null;
+  return `Habilitação pendente (Lei 14.133/2021, art. 62) do licitante com proposta aceita: ${pendentes.join(', ')}`;
+};
+
 const INICIAR_DISPUTA: DefinicaoAto = {
   ato: A.INICIAR_DISPUTA,
   rotulo: 'Abrir sessão de disputa',
   de: [F.ANALISE_PROPOSTAS],
   para: F.EM_DISPUTA,
   principal: true,
-  precondicoes: [aberturaSessaoAlcancada, haPropostasAptas],
+  precondicoes: [aberturaSessaoAlcancada, haPropostasAptas, habilitacaoPreviaJulgada],
   efeitos: [marcarData('data_inicio_disputa')],
   mensagemForaDaFase: () => 'Licitação precisa estar na fase de análise de propostas',
 };
@@ -421,12 +446,66 @@ const INICIAR_HABILITACAO: DefinicaoAto = {
   precondicoes: [propostasAceitasEmTodasAsUnidades],
 };
 
+// ---------------------------------------------------------------------------
+// Recursos (plano E5 — Lei 14.133/2021 arts. 165 e 168; IN SEGES 73/2022 art. 40)
+// ---------------------------------------------------------------------------
+
+/**
+ * O prazo recursal só se abre com INTENÇÃO ADMITIDA pelo agente (art. 165 §1º
+ * I): sem recurso, a licitação segue da habilitação para a adjudicação.
+ */
+export const intencaoDeRecursoAdmitida: Precondicao = async (ctx) => {
+  if (!ctx.consultas.estadoRecursal) return null;
+  const e = await ctx.consultas.estadoRecursal();
+  if (e.intencoesAdmitidas > 0) return null;
+  return 'Não há intenção de recurso admitida (art. 165 §1º I, Lei 14.133/2021): o prazo recursal nasce da admissão da intenção manifestada pelo licitante na sala.';
+};
+
+/**
+ * EFEITO SUSPENSIVO (art. 168): enquanto houver janela de intenção aberta,
+ * intenção sem juízo de admissibilidade ou recurso sem decisão final, a
+ * adjudicação e a homologação ficam bloqueadas.
+ */
+export const semRecursoPendente: Precondicao = async (ctx) => {
+  if (!ctx.consultas.estadoRecursal) return null;
+  const e = await ctx.consultas.estadoRecursal();
+  const p: string[] = [];
+  if (e.janelaAberta) p.push('Janela de intenção de recurso em curso (art. 165 §1º I; IN SEGES 73/2022, art. 40)');
+  for (const r of e.pendentes) p.push(`Efeito suspensivo (art. 168, Lei 14.133/2021): ${r}`);
+  return p;
+};
+
+/**
+ * O provimento que alterou o resultado precisa levar a licitação ao ato de
+ * fase próprio (retorno ao julgamento ou à habilitação) — não se adjudica o
+ * resultado antigo (art. 165 §3º).
+ */
+export const efeitosDosRecursosAplicados: Precondicao = async (ctx) => {
+  if (!ctx.consultas.estadoRecursal) return null;
+  const e = await ctx.consultas.estadoRecursal();
+  if (!e.providosSemDesfecho) return null;
+  return 'Há recurso PROVIDO que alterou o resultado: a sala conclui a fase recursal com o retorno à etapa atingida (art. 165 §3º) — não é possível adjudicar o resultado anterior.';
+};
+
+/**
+ * Sem recurso, a adjudicação exige que o direito de recorrer tenha sido dado
+ * sobre o resultado ATUAL: janela de intenção aberta pelo agente e já
+ * encerrada (preclusão — art. 165 §1º I; IN SEGES 73/2022, art. 40).
+ */
+export const janelaDeIntencaoEncerrada: Precondicao = async (ctx) => {
+  if (!ctx.consultas.estadoRecursal) return null;
+  const e = await ctx.consultas.estadoRecursal();
+  if (e.janelaEncerrada || e.janelaAberta) return null;
+  return 'Abra na sala o prazo de intenção de recurso (mínimo de 10 minutos — IN SEGES 73/2022, art. 40) sobre o resultado da habilitação antes de adjudicar (art. 165 §1º I, Lei 14.133/2021).';
+};
+
 const ABRIR_PRAZO_RECURSAL: DefinicaoAto = {
   ato: A.ABRIR_PRAZO_RECURSAL,
   rotulo: 'Abrir prazo recursal',
   de: [F.HABILITACAO],
   para: F.RECURSO,
   principal: true,
+  precondicoes: [intencaoDeRecursoAdmitida],
 };
 
 const DECIDIR_RECURSOS: DefinicaoAto = {
@@ -435,6 +514,7 @@ const DECIDIR_RECURSOS: DefinicaoAto = {
   de: [F.RECURSO],
   para: F.ADJUDICACAO,
   principal: true,
+  precondicoes: [licitantesAceitosHabilitados, semRecursoPendente, efeitosDosRecursosAplicados],
   efeitos: [marcarData('data_adjudicacao')],
 };
 
@@ -443,6 +523,7 @@ const ADJUDICAR: DefinicaoAto = {
   rotulo: 'Adjudicar (sem recurso)',
   de: [F.HABILITACAO],
   para: F.ADJUDICACAO,
+  precondicoes: [licitantesAceitosHabilitados, semRecursoPendente, efeitosDosRecursosAplicados, janelaDeIntencaoEncerrada],
   efeitos: [marcarData('data_adjudicacao')],
 };
 
@@ -453,6 +534,22 @@ const RETORNAR_JULGAMENTO: DefinicaoAto = {
   para: F.JULGAMENTO,
   requerMotivo: true,
   retorno: true,
+};
+
+/**
+ * Recurso PROVIDO que refez o resultado da habilitação sem exigir novo
+ * julgamento (ex.: inabilitação reformada — o recorrente volta HABILITADO):
+ * a licitação sai de RECURSO de volta à HABILITACAO com o novo resultado e
+ * segue a adjudicação (art. 165 §3º). Praticado só pela sala (recursos).
+ */
+const RETORNAR_HABILITACAO: DefinicaoAto = {
+  ato: A.RETORNAR_HABILITACAO,
+  rotulo: 'Retornar à habilitação (recurso provido)',
+  de: [F.RECURSO],
+  para: F.HABILITACAO,
+  requerMotivo: true,
+  somenteSistema: true,
+  precondicoes: [semRecursoPendente],
 };
 
 const JULGAR_DISPENSA: DefinicaoAto = {
@@ -494,7 +591,7 @@ const HOMOLOGAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/homologar',
   principal: true,
-  precondicoes: [haItemAdjudicado, rehomologacaoSemContrato],
+  precondicoes: [haItemAdjudicado, rehomologacaoSemContrato, semRecursoPendente],
   efeitos: [marcarData('data_homologacao')],
 };
 
@@ -589,6 +686,7 @@ const FLUXO_COMPETITIVO: DefinicaoAto[] = [
   ADJUDICAR,
   DECIDIR_RECURSOS,
   RETORNAR_JULGAMENTO,
+  RETORNAR_HABILITACAO,
   REGISTRAR_RESULTADO_EXTERNO,
   HOMOLOGAR,
   ...ATOS_SITUACAO,
