@@ -199,10 +199,10 @@ export default function OrgaoDashboard() {
         </div>
         <div className="flex gap-2">
           {temAcesso(ModuloSistema.LICITACOES) && (
-            <Link href="/orgao/licitacoes/nova">
+            <Link href="/orgao/fase-interna/processos/novo">
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
-                Nova Licitação
+                Novo processo
               </Button>
             </Link>
           )}
@@ -462,10 +462,10 @@ export default function OrgaoDashboard() {
           </CardHeader>
           <CardContent className="space-y-3">
             {temAcesso(ModuloSistema.LICITACOES) && (
-              <Link href="/orgao/licitacoes/nova" className="block">
+              <Link href="/orgao/fase-interna/processos/novo" className="block">
                 <Button variant="outline" className="w-full justify-start">
                   <Plus className="mr-2 h-4 w-4" />
-                  Nova Licitação
+                  Novo processo
                 </Button>
               </Link>
             )}

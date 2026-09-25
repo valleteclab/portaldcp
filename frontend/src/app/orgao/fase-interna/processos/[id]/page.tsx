@@ -15,7 +15,9 @@ import {
   Lock,
   CircleCheck,
   CircleAlert,
+  Gavel,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -486,13 +488,19 @@ function ProximoPassoBanner({
         <CircleCheck className="w-5 h-5 text-[#168821] shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-[#0d5b18]">
-            Fase interna concluída
+            Peças da fase interna preenchidas
           </p>
           <p className="text-xs text-[#168821]/80">
-            Todas as etapas foram preenchidas. O processo está pronto para
-            encaminhamento.
+            Com as aprovações concluídas, siga para o processo: itens,
+            cronograma, edital e publicação.
           </p>
         </div>
+        <Link href={`/orgao/processos/${processoId}`}>
+          <Button size="sm" className="bg-[#168821] hover:bg-[#0d5b18] text-white gap-1.5">
+            <Gavel className="w-3.5 h-3.5" />
+            Ir para o processo / publicar
+          </Button>
+        </Link>
       </div>
     );
   }
@@ -543,6 +551,7 @@ export default function ProcessoDetailPage({
   const [contexto, setContexto] = useState<ContextoLicitacao | null>(null);
   const [loading, setLoading] = useState(true);
   const [abaAtiva, setAbaAtiva] = useState("visao-geral");
+  const [exportando, setExportando] = useState(false);
   const [abrirEncaminhar, setAbrirEncaminhar] = useState(false);
 
   useEffect(() => {
@@ -614,6 +623,27 @@ export default function ProcessoDetailPage({
       ]
     : [];
 
+  const exportarDossie = async () => {
+    setExportando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/processo-pdf`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `processo-${(licitacao.numero_processo || id).replace(/\W+/g, "-")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error(`Não foi possível gerar o dossiê: ${e.message}`);
+    } finally {
+      setExportando(false);
+    }
+  };
+
   return (
     <div className="p-6 pb-12 max-w-6xl">
       {/* Breadcrumb */}
@@ -665,14 +695,22 @@ export default function ProcessoDetailPage({
 
         {/* Action buttons */}
         <div className="flex gap-2 shrink-0">
-          <Button variant="ghost" size="sm" className="gap-1.5">
+          <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setAbaAtiva("comentarios")}>
             <MessageSquare className="w-3.5 h-3.5" />
             Comentar
           </Button>
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <Download className="w-3.5 h-3.5" />
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={exportarDossie} disabled={exportando}
+            title="Autos do processo em PDF único (capa, sumário e todas as peças)">
+            {exportando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             Exportar dossiê
           </Button>
+          <Link href={`/orgao/processos/${id}`}>
+            <Button variant="outline" size="sm" className="gap-1.5 text-[#1351b4] border-[#c5d4eb]"
+              title="Painel do processo: itens, cronograma, publicação do edital, sessão, resultado e contratos">
+              <Gavel className="w-3.5 h-3.5" />
+              Ir para o processo / publicar
+            </Button>
+          </Link>
           <Button
             size="sm"
             className="bg-[#1351b4] hover:bg-[#0c326f] text-white gap-1.5"

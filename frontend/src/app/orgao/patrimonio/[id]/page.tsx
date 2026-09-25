@@ -43,6 +43,7 @@ import { toast } from "sonner"
 import { API_URL } from "@/lib/api"
 import { BemAcoes } from "../movimentacoes/BemAcoes"
 import { listarMovimentacoes, devolverEmprestimo, abrirPdf, urlTermoTransferencia, urlTermoBaixa } from "@/services/patrimonio.service"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 const TIPO_MOV: Record<string, string> = { TRANSFERENCIA: "Transferência", BAIXA: "Baixa", EMPRESTIMO: "Empréstimo" }
 const STATUS_MOV: Record<string, string> = { PENDENTE: "aguardando aceite", ACEITA: "aceita", RECUSADA: "recusada", CANCELADA: "cancelada", EM_ANDAMENTO: "em andamento", CONCLUIDA: "concluída" }
@@ -146,7 +147,7 @@ export default function DetalheBemPage() {
     try {
       await atualizarBem(params.id as string, { setor_id: setorId || null })
       carregarBem()
-    } catch (e: any) { alert(e?.message || "Erro ao alterar setor") }
+    } catch (e: any) { toast.error(e?.message || "Erro ao alterar setor") }
   }
 
   const abrirDialogFoto = () => {
@@ -186,7 +187,7 @@ export default function DetalheBemPage() {
   }
 
   const handleExcluirFoto = async (fotoId: string) => {
-    if (!confirm("Excluir esta foto? Esta ação não pode ser desfeita.")) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Excluir esta foto? Esta ação não pode ser desfeita.", destrutivo: true }))) return
     setFotoAcao(fotoId)
     try {
       await excluirFotoBem(params.id as string, fotoId)
@@ -247,7 +248,7 @@ export default function DetalheBemPage() {
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900 flex items-center justify-between gap-3">
           <span>Emprestado para <strong>{bem.emprestado_para}</strong> · retorno previsto {fmtData(bem.emprestado_ate)}{new Date(String(bem.emprestado_ate).slice(0, 10) + "T23:59:59") < new Date() ? <span className="ml-2 font-semibold text-red-700">(atrasado)</span> : null}</span>
           {movs.find((m) => m.tipo === "EMPRESTIMO" && m.status === "EM_ANDAMENTO") && (
-            <Button size="sm" variant="outline" onClick={async () => { try { await devolverEmprestimo(movs.find((m) => m.tipo === "EMPRESTIMO" && m.status === "EM_ANDAMENTO").id); carregarBem() } catch (e: any) { alert(e.message) } }}>Registrar devolução</Button>
+            <Button size="sm" variant="outline" onClick={async () => { try { await devolverEmprestimo(movs.find((m) => m.tipo === "EMPRESTIMO" && m.status === "EM_ANDAMENTO").id); carregarBem() } catch (e: any) { toast.error(e.message) } }}>Registrar devolução</Button>
           )}
         </div>
       )}
@@ -522,9 +523,9 @@ export default function DetalheBemPage() {
                     <TableCell className="text-sm">{STATUS_MOV[m.status] || m.status}{m.recusa_motivo ? ` — ${m.recusa_motivo}` : ""}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{m.solicitado_por}{m.aceito_por && m.aceito_por !== m.solicitado_por ? ` / ${m.aceito_por}` : ""}</TableCell>
                     <TableCell>
-                      {m.tipo === "TRANSFERENCIA" && m.status === "ACEITA" && <Button size="sm" variant="ghost" onClick={() => abrirPdf(urlTermoTransferencia(m.lote_id)).catch((e) => alert(e.message))}>Termo</Button>}
-                      {m.tipo === "BAIXA" && <Button size="sm" variant="ghost" onClick={() => abrirPdf(urlTermoBaixa(m.id)).catch((e) => alert(e.message))}>Termo</Button>}
-                      {m.tipo === "TRANSFERENCIA" && m.status === "PENDENTE" && m.link_aceite && <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(m.link_aceite); alert("Link de aceite copiado") }}>Copiar link</Button>}
+                      {m.tipo === "TRANSFERENCIA" && m.status === "ACEITA" && <Button size="sm" variant="ghost" onClick={() => abrirPdf(urlTermoTransferencia(m.lote_id)).catch((e) => toast.error(e.message))}>Termo</Button>}
+                      {m.tipo === "BAIXA" && <Button size="sm" variant="ghost" onClick={() => abrirPdf(urlTermoBaixa(m.id)).catch((e) => toast.error(e.message))}>Termo</Button>}
+                      {m.tipo === "TRANSFERENCIA" && m.status === "PENDENTE" && m.link_aceite && <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(m.link_aceite); toast.success("Link de aceite copiado") }}>Copiar link</Button>}
                     </TableCell>
                   </TableRow>
                 ))}

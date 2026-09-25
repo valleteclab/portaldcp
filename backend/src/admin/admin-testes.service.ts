@@ -3,6 +3,10 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { Orgao, TipoOrgao, EsferaAdministrativa } from '../orgaos/entities/orgao.entity';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { AtoLicitacao, atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
+import { DOCUMENTOS_OBRIGATORIOS_POR_ETAPA } from '../fase-interna/documentos-obrigatorios';
+import { FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 
 // ============================================================================
 // Tipos
@@ -38,9 +42,9 @@ const STEP_DEFINITIONS: Pick<TestStep, 'id' | 'descricao'>[] = [
   { id: 3, descricao: 'Adicionar Item 1 — Notebook Dell i7' },
   { id: 4, descricao: 'Adicionar Item 2 — Monitor 24 pol Full HD' },
   { id: 5, descricao: 'Adicionar Item 3 — Teclado e Mouse sem fio' },
-  { id: 6, descricao: 'Avançar fases internas 4× (→ APROVACAO_INTERNA)' },
+  { id: 6, descricao: 'Fase interna: documentos obrigatórios + atos das etapas (→ APROVACAO_INTERNA concluída)' },
   { id: 7, descricao: 'Publicar Edital (data abertura no passado)' },
-  { id: 8, descricao: 'Avançar 2× para ACOLHIMENTO_PROPOSTAS' },
+  { id: 8, descricao: 'Iniciar acolhimento (→ ACOLHIMENTO_PROPOSTAS)' },
   { id: 9, descricao: 'Cadastrar 5 Fornecedores (cadastro-rápido)' },
   { id: 10, descricao: 'Enviar Propostas dos 5 Fornecedores' },
   { id: 11, descricao: 'Avançar para ANALISE_PROPOSTAS' },
@@ -67,6 +71,7 @@ export class AdminTestesService implements OnModuleDestroy {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
+    private readonly transicoes: TransicoesService,
   ) {}
 
   onModuleDestroy() {
@@ -192,12 +197,29 @@ export class AdminTestesService implements OnModuleDestroy {
         });
       }
 
-      // ── Step 6: Avançar fases internas 4× ───────────────────────────────
+      // ── Step 6: Fase interna pelo gate documental (E1.7) ────────────────
+      // Cada etapa exige os seus documentos obrigatórios; o PUT
+      // /fase-interna/:id/avancar pratica o ato da etapa e, em
+      // APROVACAO_INTERNA, CONCLUIR_FASE_INTERNA.
       await this.runStep(6, async () => {
-        for (let i = 0; i < 4; i++) {
-          await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
+        const etapas = [
+          FaseLicitacao.PLANEJAMENTO,
+          FaseLicitacao.TERMO_REFERENCIA,
+          FaseLicitacao.PESQUISA_PRECOS,
+          FaseLicitacao.ANALISE_JURIDICA,
+          FaseLicitacao.APROVACAO_INTERNA,
+        ];
+        for (const etapa of etapas) {
+          for (const tipo of DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[etapa] ?? []) {
+            await this.post(base, `/fase-interna/${licitacaoId}/documento`, orgaoToken, {
+              tipo,
+              titulo: `${tipo} — Teste Admin E2E`,
+              descricao: `Documento ${tipo} gerado pelo teste admin E2E`,
+            });
+          }
+          await this.put(base, `/fase-interna/${licitacaoId}/avancar`, orgaoToken, {});
         }
-        return 'PLANEJAMENTO → APROVACAO_INTERNA';
+        return 'PLANEJAMENTO → APROVACAO_INTERNA (fase interna concluída)';
       });
 
       // ── Step 7: Publicar edital ──────────────────────────────────────────
@@ -219,10 +241,11 @@ export class AdminTestesService implements OnModuleDestroy {
         return 'fim acolhimento: +2d · abertura sessão: +3d (futuro, bloqueia scheduler)';
       });
 
-      // ── Step 8: Avançar 2× → ACOLHIMENTO_PROPOSTAS ──────────────────────
+      // ── Step 8: PUBLICADO → ACOLHIMENTO_PROPOSTAS (ato INICIAR_ACOLHIMENTO) ──
       await this.runStep(8, async () => {
-        for (let i = 0; i < 2; i++) {
-          await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
+        const r = await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
+        if (r.fase !== 'ACOLHIMENTO_PROPOSTAS') {
+          throw new Error(`Fase esperada ACOLHIMENTO_PROPOSTAS, obteve ${r.fase}`);
         }
         return 'PUBLICADO → ACOLHIMENTO_PROPOSTAS';
       });
@@ -268,19 +291,24 @@ export class AdminTestesService implements OnModuleDestroy {
           propostaIds.push(r.id);
           await this.put(base, `/propostas/${r.id}/enviar`, orgaoToken, {});
         }
-        // Avanço atômico: seta fase + retroage datas em uma única operação, sem janela para o scheduler
+        // Retroage o cronograma (só datas) e encerra o acolhimento PELO ATO
+        // (E1): ENCERRAR_ACOLHIMENTO idempotente — se o scheduler chegar
+        // primeiro, o pedido não falha nem duplica a transição.
         await this.dataSource.query(
           `UPDATE licitacoes
-           SET fase = 'ANALISE_PROPOSTAS',
-               data_fim_acolhimento  = NOW() - INTERVAL '2 hours',
+           SET data_fim_acolhimento  = NOW() - INTERVAL '2 hours',
                data_abertura_sessao  = NOW() - INTERVAL '1 hour'
            WHERE id = $1`,
           [licitacaoId],
         );
-        return `${propostaIds.length} propostas enviadas; fase→ANALISE_PROPOSTAS, datas→passado`;
+        await this.transicoes.executar(licitacaoId, AtoLicitacao.ENCERRAR_ACOLHIMENTO, {
+          ator: atorSistema('admin-testes'),
+          ignorarSeJaAplicado: true,
+        });
+        return `${propostaIds.length} propostas enviadas; datas→passado; ENCERRAR_ACOLHIMENTO → ANALISE_PROPOSTAS`;
       });
 
-      // ── Step 11: Verificar ANALISE_PROPOSTAS (fase já setada via DataSource no step 10) ──
+      // ── Step 11: Verificar ANALISE_PROPOSTAS (ato ENCERRAR_ACOLHIMENTO no step 10) ──
       await this.runStep(11, async () => {
         const r = await this.get(base, `/licitacoes/${licitacaoId}`, orgaoToken);
         if (r.fase !== 'ANALISE_PROPOSTAS') {
@@ -324,15 +352,15 @@ export class AdminTestesService implements OnModuleDestroy {
       });
 
       // ── Step 15: Avançar para disputa ────────────────────────────────────
-      await this.runStep(15, async () => {
-        await this.put(base, `/sessao/${sessaoId}/avancar-disputa`, orgaoToken, {});
-        return 'em disputa';
-      });
+      // E2 (canal único): as rotas legadas /sessao/:id/avancar-disputa e
+      // /iniciar-todos-itens foram removidas — o motor abre a etapa de lances
+      // (INICIAR_DISPUTA) ao iniciar o primeiro item (passo 16).
+      await this.runStep(15, async () => 'etapa de lances aberta pelo motor ao iniciar os itens');
 
       // ── Step 16: Iniciar todos os itens ─────────────────────────────────
       await this.runStep(16, async () => {
-        await this.put(base, `/sessao/${sessaoId}/iniciar-todos-itens`, orgaoToken, {});
-        return `${itemIds.length} itens iniciados`;
+        const r = await this.post(base, `/disputa/sessao/${sessaoId}/iniciar-itens`, orgaoToken, { itensIds: itemIds });
+        return `${r?.itensIniciados ?? itemIds.length} itens iniciados`;
       });
 
       // ── Step 17: Lances sequenciais ──────────────────────────────────────
@@ -344,7 +372,7 @@ export class AdminTestesService implements OnModuleDestroy {
           // Lance = propostaTotal * 0.98 - fi*100 (garante < proposta e valores únicos)
           const propostaTotal = 5_000.0 * multsTotal[fi] * 10;
           const valor = Number((propostaTotal * 0.98 - fi * 100).toFixed(2));
-          await this.postPublic(base, `/disputa-v2/sessao/${sessaoId}/lance`, {
+          await this.postPublic(base, `/disputa/sessao/${sessaoId}/lance`, {
             itemId,
             fornecedorId: forn.id,
             fornecedorNome: forn.nome,
@@ -361,7 +389,7 @@ export class AdminTestesService implements OnModuleDestroy {
         const promises = fornecedores.map((forn, fi) => {
           const propostaTotal = 1_200.0 * multsTotal[fi] * 10;
           const valor = Number((propostaTotal * 0.98 - fi * 100).toFixed(2));
-          return fetch(`${base}/disputa-v2/sessao/${sessaoId}/lance`, {
+          return fetch(`${base}/disputa/sessao/${sessaoId}/lance`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -387,7 +415,7 @@ export class AdminTestesService implements OnModuleDestroy {
         const itemId = itemIds[0];
         const forn = fornecedores[0];
         // Proposta de forn[0] no Item 1 = 5000 * 1.0 * 10 = 50.000
-        const resp = await fetch(`${base}/disputa-v2/sessao/${sessaoId}/lance`, {
+        const resp = await fetch(`${base}/disputa/sessao/${sessaoId}/lance`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -406,7 +434,7 @@ export class AdminTestesService implements OnModuleDestroy {
       // ── Step 20: Ranking final ────────────────────────────────────────────
       await this.runStep(20, async () => {
         const itemId = itemIds[0];
-        const melhores = (await this.getPublic(base, `/disputa-v2/item/${itemId}/melhores`)) as any[];
+        const melhores = (await this.getPublic(base, `/disputa/item/${itemId}/melhores`)) as any[];
         if (!Array.isArray(melhores) || melhores.length === 0) {
           throw new Error('Ranking vazio');
         }

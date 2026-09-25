@@ -1,5 +1,6 @@
 "use client"
 
+import { toast } from "sonner"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Search, Plus, FileText, Eye, Calendar, Building2, Loader2, CheckCircle2, Edit2, Trash2, AlertTriangle } from "lucide-react"
@@ -15,6 +16,8 @@ import {
 import { useRouter } from "next/navigation"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
+import { FASES_INTERNAS, rotuloFase, rotuloModalidade } from '@/lib/licitacao-rotulos'
 
 interface Licitacao {
   id: string
@@ -22,6 +25,7 @@ interface Licitacao {
   objeto: string
   modalidade: string
   fase: string
+  situacao?: string
   valor_total_estimado: number | string
   data_abertura_sessao: string
   created_at: string
@@ -30,37 +34,11 @@ interface Licitacao {
   numero_controle_pncp?: string
 }
 
-const FASES_INTERNAS = ['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA']
 const FASES_PROPOSTAS = ['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS']
 const FASES_DISPUTA = ['EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO']
 const FASES_CONCLUIDAS = ['ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO']
 
-const getFaseLabel = (fase: string) => {
-  const labels: Record<string, string> = {
-    'PLANEJAMENTO': 'Planejamento',
-    'TERMO_REFERENCIA': 'Termo de Referência',
-    'PESQUISA_PRECOS': 'Pesquisa de Preços',
-    'ANALISE_JURIDICA': 'Análise Jurídica',
-    'APROVACAO_INTERNA': 'Aprovação Interna',
-    'PUBLICADO': 'Publicado',
-    'IMPUGNACAO': 'Impugnação',
-    'ACOLHIMENTO_PROPOSTAS': 'Recebendo Propostas',
-    'ANALISE_PROPOSTAS': 'Análise de Propostas',
-    'EM_DISPUTA': 'Em Disputa',
-    'JULGAMENTO': 'Julgamento',
-    'HABILITACAO': 'Habilitação',
-    'RECURSO': 'Recurso',
-    'ADJUDICACAO': 'Adjudicação',
-    'HOMOLOGACAO': 'Homologação',
-    'CONCLUIDO': 'Concluído',
-    'FRACASSADO': 'Fracassado',
-    'DESERTO': 'Deserto',
-    'REVOGADO': 'Revogado',
-    'ANULADO': 'Anulado',
-    'SUSPENSO': 'Suspenso',
-  }
-  return labels[fase] || fase
-}
+const getFaseLabel = (fase: string) => rotuloFase(fase)
 
 const getFaseBadgeColor = (fase: string) => {
   if (FASES_INTERNAS.includes(fase)) return 'bg-purple-100 text-purple-700'
@@ -70,18 +48,7 @@ const getFaseBadgeColor = (fase: string) => {
   return 'bg-slate-100 text-slate-700'
 }
 
-const getModalidadeLabel = (modalidade: string) => {
-  const labels: Record<string, string> = {
-    'PREGAO_ELETRONICO': 'Pregão Eletrônico',
-    'CONCORRENCIA': 'Concorrência',
-    'DISPENSA_ELETRONICA': 'Dispensa Eletrônica',
-    'CONCURSO': 'Concurso',
-    'LEILAO': 'Leilão',
-    'DIALOGO_COMPETITIVO': 'Diálogo Competitivo',
-    'INEXIGIBILIDADE': 'Inexigibilidade',
-  }
-  return labels[modalidade] || modalidade
-}
+const getModalidadeLabel = (modalidade: string) => rotuloModalidade(modalidade)
 
 const formatarData = (dataISO: string) => {
   if (!dataISO) return '-'
@@ -142,11 +109,11 @@ function LicitacoesOrgaoPageContent() {
         setLicitacaoParaDeletar(null)
       } else {
         const error = await res.json()
-        alert(error.message || 'Erro ao deletar licitação')
+        toast.error(error.message || 'Erro ao excluir o processo')
       }
     } catch (error) {
       console.error('Erro ao deletar licitação:', error)
-      alert('Erro ao deletar licitação')
+      toast.error('Erro ao excluir o processo')
     } finally {
       setDeletando(false)
     }
@@ -180,20 +147,20 @@ function LicitacoesOrgaoPageContent() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Licitações</h1>
-          <p className="text-muted-foreground">Gerencie os processos licitatórios do órgão</p>
+          <h1 className="text-2xl font-bold text-slate-800">Processos</h1>
+          <p className="text-muted-foreground">Processos de contratação do órgão — cada um abre no seu painel (planejamento → publicação → sessão → resultado → contrato)</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/orgao/licitacoes/nova?modalidade=DISPENSA_ELETRONICA">
+          <Link href="/orgao/fase-interna/processos/novo?modalidade=DISPENSA_ELETRONICA">
             <Button className="bg-green-600 hover:bg-green-700" title="Cotação eletrônica do art. 75 §3º — prazo, propostas, julgamento e contrato automáticos">
               <Plus className="mr-2 h-4 w-4" />
               Nova Dispensa
             </Button>
           </Link>
-          <Link href="/orgao/licitacoes/nova">
+          <Link href="/orgao/fase-interna/processos/novo">
             <Button variant="outline">
               <Plus className="mr-2 h-4 w-4" />
-              Nova Licitação
+              Novo processo
             </Button>
           </Link>
         </div>
@@ -295,14 +262,14 @@ function LicitacoesOrgaoPageContent() {
               <p>Nenhuma licitação encontrada</p>
               <p className="text-sm mb-4">
                 {licitacoes.length === 0 
-                  ? 'Clique em "Nova Licitação" para criar seu primeiro processo'
+                  ? 'Clique em "Novo processo" para criar o primeiro processo (ou crie a partir de uma demanda)'
                   : 'Tente ajustar os filtros de busca'}
               </p>
               {licitacoes.length === 0 && (
-                <Link href="/orgao/licitacoes/nova">
+                <Link href="/orgao/fase-interna/processos/novo">
                   <Button>
                     <Plus className="mr-2 h-4 w-4" />
-                    Criar Licitação
+                    Novo processo
                   </Button>
                 </Link>
               )}
@@ -321,6 +288,7 @@ function LicitacoesOrgaoPageContent() {
                         <Badge className={getFaseBadgeColor(lic.fase)}>
                           {getFaseLabel(lic.fase)}
                         </Badge>
+                        <SituacaoBadge licitacao={lic} />
                         {lic.enviado_pncp && (
                           <Badge className="bg-green-100 text-green-700">
                             <CheckCircle2 className="h-3 w-3 mr-1" />
@@ -348,31 +316,28 @@ function LicitacoesOrgaoPageContent() {
                     <div className="flex items-center gap-2">
                       <Link href={`/orgao/processos/${lic.id}`}>
                         <Button variant="outline" size="sm" className="text-blue-700 border-blue-200 hover:bg-blue-50" title="Visão completa: planejamento → seleção → contrato">
-                          <FileText className="h-4 w-4 mr-1" />
-                          Processo
-                        </Button>
-                      </Link>
-                      <Link href={`/orgao/licitacoes/${lic.id}`}>
-                        <Button variant="outline" size="sm">
                           <Eye className="h-4 w-4 mr-1" />
-                          Visualizar
+                          Abrir
                         </Button>
                       </Link>
-                      <Link href={`/orgao/licitacoes/${lic.id}/editar`}>
+                      <Link href={`/orgao/processos/${lic.id}/editar`}>
                         <Button variant="outline" size="sm">
                           <Edit2 className="h-4 w-4 mr-1" />
                           Editar
                         </Button>
                       </Link>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                        onClick={() => setLicitacaoParaDeletar(lic)}
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Excluir
-                      </Button>
+                      {/* Exclusão só antes da publicação (depois: revogar/anular no processo) */}
+                      {FASES_INTERNAS.includes(lic.fase) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                          onClick={() => setLicitacaoParaDeletar(lic)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Excluir
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -391,7 +356,7 @@ function LicitacoesOrgaoPageContent() {
               Confirmar Exclusão
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir a licitação <strong>{licitacaoParaDeletar?.numero_processo}</strong>?
+              Tem certeza que deseja excluir o processo <strong>{licitacaoParaDeletar?.numero_processo}</strong>?
               <br /><br />
               <span className="text-red-600">Esta ação não pode ser desfeita.</span>
               {licitacaoParaDeletar?.enviado_pncp && (

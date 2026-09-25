@@ -8,6 +8,7 @@ import {
   ClipboardCheck, RefreshCw, WifiOff, Search, ScanLine, Volume2, VolumeX,
 } from 'lucide-react'
 import { API_URL } from '@/lib/api'
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 const Scanner = dynamic(
   () => import('@yudiel/react-qr-scanner').then((mod) => mod.Scanner),
@@ -547,10 +548,10 @@ export default function ConferenciaSetorPage() {
                 <span className="sr-only">Trocar de setor</span>
                 <select
                   value={token}
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const destino = e.target.value
                     if (destino === token) return
-                    if (fila.length && !confirm(`Há ${fila.length} leitura(s) guardada(s) sem internet neste setor. Elas continuam guardadas e são enviadas quando você voltar a ele. Trocar mesmo assim?`)) return
+                    if (fila.length && !(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Há ${fila.length} leitura(s) guardada(s) sem internet neste setor. Elas continuam guardadas e são enviadas quando você voltar a ele. Trocar mesmo assim?` }))) return
                     window.location.href = `/inventario/${destino}`
                   }}
                   className="w-full max-w-full bg-transparent text-lg font-bold leading-tight truncate border-b border-dashed border-blue-300/60 focus:outline-none pr-6"

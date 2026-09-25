@@ -53,6 +53,7 @@ import {
 } from 'lucide-react'
 
 import { API_URL, adminFetch, formatarDataHoraBR } from '@/lib/api'
+import { toast } from "sonner"
 
 interface Solicitacao {
   id: string
@@ -167,16 +168,16 @@ export default function AdminSolicitacoesPage() {
 
       if (response.ok) {
         const result = await response.json()
-        alert(`✅ Solicitação aprovada!\n\nÓrgão criado com sucesso.\nEmail: ${result.credenciais?.email || formAprovacao.email_login}`)
+        toast.success(`✅ Solicitação aprovada!\n\nÓrgão criado com sucesso.\nEmail: ${result.credenciais?.email || formAprovacao.email_login}`, { className: 'whitespace-pre-line' })
         setShowAprovar(false)
         carregarDados()
       } else {
         const error = await response.json()
-        alert('Erro: ' + error.message)
+        toast.error('Erro: ' + error.message)
       }
     } catch (error) {
       console.error('Erro ao aprovar:', error)
-      alert('Erro ao aprovar solicitação')
+      toast.error('Erro ao aprovar solicitação')
     } finally {
       setProcessando(false)
     }
@@ -196,16 +197,16 @@ export default function AdminSolicitacoesPage() {
       })
 
       if (response.ok) {
-        alert('Solicitação rejeitada')
+        toast('Solicitação rejeitada')
         setShowRejeitar(false)
         carregarDados()
       } else {
         const error = await response.json()
-        alert('Erro: ' + error.message)
+        toast.error('Erro: ' + error.message)
       }
     } catch (error) {
       console.error('Erro ao rejeitar:', error)
-      alert('Erro ao rejeitar solicitação')
+      toast.error('Erro ao rejeitar solicitação')
     } finally {
       setProcessando(false)
     }

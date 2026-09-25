@@ -61,6 +61,8 @@ import {
 import { Checkbox } from '@/components/ui/checkbox'
 
 import { API_URL, adminFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Orgao {
   id: string
@@ -449,10 +451,10 @@ export default function AdminUsuariosPage() {
 
       setShowModulosUsuario(false)
       carregarDados()
-      alert('Módulos do usuário atualizados com sucesso!')
+      toast.success('Módulos do usuário atualizados com sucesso!')
     } catch (error: any) {
       setErro(error.message)
-      alert(`Erro: ${error.message}`)
+      toast.error(`Erro: ${error.message}`)
     } finally {
       setSalvando(false)
     }
@@ -477,7 +479,7 @@ export default function AdminUsuariosPage() {
   }
 
   const rejeitarUsuario = async (usuario: Usuario) => {
-    if (!confirm(`Rejeitar acesso de ${usuario.nome}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Rejeitar acesso de ${usuario.nome}?`, destrutivo: true }))) return
     setAprovandoId(usuario.id)
     try {
       const res = await adminFetch(`${API_URL}/api/usuarios/${usuario.id}/rejeitar`, {

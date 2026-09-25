@@ -98,6 +98,13 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
     responsabilidade: false,
   })
 
+  // ME/EPP (LC 123/2006 art. 48): itens exclusivos/cota só para ME/EPP (porte do cadastro + declaração)
+  const [participacao, setParticipacao] = useState<{
+    porte: string | null
+    porteMpe: boolean
+    itens: Array<{ itemId: string; numero: number; somenteMpe: boolean; ehCota: boolean }>
+  } | null>(null)
+
   const [itensPropostos, setItensPropostos] = useState<Array<{
     id: string
     descricao: string
@@ -113,10 +120,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const fornecedorStr = localStorage.getItem('fornecedor')
-        if (fornecedorStr) {
-          const fornecedor = JSON.parse(fornecedorStr)
-          const resPropostas = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+        if (localStorage.getItem('fornecedor')) {
+          const resPropostas = await authFetch(`${API_URL}/api/propostas/minhas`)
           if (resPropostas.ok) {
             const propostas = await resPropostas.json()
             const existente = propostas.find((p: any) => p.licitacao_id === resolvedParams.id)
@@ -132,6 +137,12 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         if (resLicitacao.ok) {
           const dataLicitacao = await resLicitacao.json()
           setLicitacao(dataLicitacao)
+        }
+
+        // Participação ME/EPP por item (o backend barra de qualquer forma; aqui é o aviso)
+        if (localStorage.getItem('fornecedor')) {
+          const resPart = await authFetch(`${API_URL}/api/julgamento/licitacao/${resolvedParams.id}/me-epp/participacao`)
+          if (resPart.ok) setParticipacao(await resPart.json())
         }
 
         // Buscar itens da licitação
@@ -164,8 +175,18 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
     ))
   }
 
+  const exclusivos = new Map((participacao?.itens ?? []).filter((i) => i.somenteMpe).map((i) => [i.itemId, i]))
+  const podeExclusivos = !!participacao?.porteMpe && declaracoes.mpe
+  const bloqueado = (id: string) => exclusivos.has(id) && !podeExclusivos
+  const itensPermitidos = itensPropostos.filter((i) => !bloqueado(i.id))
+  const avisoExclusivo = exclusivos.size === 0 || podeExclusivos
+    ? null
+    : participacao?.porteMpe
+      ? 'Há itens EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48). Para cotá-los, marque a "Declaração ME/EPP" na etapa 1.'
+      : `Há itens EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48, I e III). Seu cadastro indica porte ${participacao?.porte ?? 'não informado'}: esses itens ficam fora da sua proposta.`
+
   const calcularTotalProposta = () => {
-    return itensPropostos.reduce((total, item) => {
+    return itensPermitidos.reduce((total, item) => {
       return total + (item.quantidade * (item.valorProposto || 0))
     }, 0)
   }
@@ -188,7 +209,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       )
     }
     if (currentStep === 2) {
-      return itensPropostos.length > 0 && itensPropostos.every(item => item.valorProposto > 0)
+      return itensPermitidos.length > 0 && itensPermitidos.every(item => item.valorProposto > 0)
     }
     return true
   }
@@ -204,19 +225,16 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         return
       }
 
-      // Buscar fornecedor logado
-      const fornecedorStr = localStorage.getItem('fornecedor')
-      if (!fornecedorStr) {
+      // Fornecedor logado (a identidade vai pelo token, não pelo corpo)
+      if (!localStorage.getItem('fornecedor')) {
         setError('Você precisa estar logado para enviar uma proposta')
         setIsSubmitting(false)
         return
       }
-      const fornecedor = JSON.parse(fornecedorStr)
 
       // Criar proposta
       const propostaData = {
         licitacao_id: resolvedParams.id,
-        fornecedor_id: fornecedor.id,
         declaracao_termos: declaracoes.termos,
         declaracao_mpe: declaracoes.mpe,
         declaracao_integridade: declaracoes.integridade,
@@ -226,7 +244,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         declaracao_custos_trabalhistas: declaracoes.custosTrabalhistas,
         declaracao_responsabilidade: declaracoes.responsabilidade,
         valor_total_proposta: calcularTotalProposta(),
-        itens: itensPropostos.map(item => ({
+        itens: itensPermitidos.map(item => ({
           item_licitacao_id: item.id,
           valor_unitario: item.valorProposto,
           marca: item.marca || null,
@@ -251,12 +269,16 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       const proposta = await res.json()
 
       // Enviar proposta (mudar status de RASCUNHO para ENVIADA)
-      await authFetch(`${API_URL}/api/propostas/${proposta.id}/enviar`, {
+      const resEnvio = await authFetch(`${API_URL}/api/propostas/${proposta.id}/enviar`, {
         method: 'PUT'
       })
+      if (!resEnvio.ok) {
+        const corpo = await resEnvio.json().catch(() => ({}))
+        throw new Error(corpo.message || 'A proposta foi salva como rascunho, mas não foi enviada. Abra a proposta e envie novamente.')
+      }
 
-      alert("Proposta enviada com sucesso!")
-      router.push("/fornecedor/propostas")
+      // O detalhe da proposta mostra o status ENVIADA (sem alert())
+      router.push(`/fornecedor/propostas/${proposta.id}`)
     } catch (err: any) {
       setError(err.message || 'Erro ao enviar proposta')
     } finally {
@@ -462,6 +484,16 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
             <CardDescription>Informe os valores e especificacoes para cada item</CardDescription>
           </CardHeader>
           <CardContent>
+            {avisoExclusivo && (
+              <Alert className="mb-4 border-amber-300 bg-amber-50">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Participação exclusiva de ME/EPP</AlertTitle>
+                <AlertDescription>
+                  {avisoExclusivo}
+                  {itensPermitidos.length === 0 && ' Todos os itens desta licitação são exclusivos: não é possível enviar proposta.'}
+                </AlertDescription>
+              </Alert>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>
@@ -469,7 +501,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                   <TableHead>Descricao</TableHead>
                   <TableHead className="text-center">Qtd</TableHead>
                   {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
-                    <TableHead className="text-right">Valor Ref.</TableHead>
+                    <TableHead className="text-right">{(licitacao as any)?.modalidade === 'LEILAO' ? 'Preço mínimo' : 'Valor Ref.'}</TableHead>
                   )}
                   <TableHead className="text-right">Seu Valor Unit.</TableHead>
                   <TableHead>Marca/Modelo</TableHead>
@@ -482,6 +514,12 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                     <TableCell className="font-medium align-top">{index + 1}</TableCell>
                     <TableCell className="max-w-md align-top">
                       <p className="whitespace-pre-wrap break-words">{item.descricao}</p>
+                      {exclusivos.has(item.id) && (
+                        <Badge variant="outline" className="mt-1 border-amber-400 text-amber-800">
+                          {exclusivos.get(item.id)?.ehCota ? 'Cota reservada ME/EPP' : 'Exclusivo ME/EPP'}
+                          {bloqueado(item.id) ? ' — fora da sua proposta' : ''}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-center align-top">{item.quantidade} {item.unidade}</TableCell>
                     {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
@@ -496,6 +534,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                         className="w-32 text-right"
                         placeholder="0,00"
                         value={item.valorProposto || ""}
+                        disabled={bloqueado(item.id)}
                         onChange={(e) => updateItemValue(item.id, 'valorProposto', parseFloat(e.target.value) || 0)}
                       />
                     </TableCell>
@@ -552,7 +591,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
               <div>
                 <h3 className="font-medium mb-2">Resumo Financeiro</h3>
                 <div className="space-y-2 text-sm">
-                  <p>Itens cotados: {itensPropostos.filter(i => i.valorProposto > 0).length} de {itensPropostos.length}</p>
+                  <p>Itens cotados: {itensPermitidos.filter(i => i.valorProposto > 0).length} de {itensPropostos.length}</p>
                   <p>Valor Estimado: R$ {calcularTotalEstimado().toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                   <p className="text-lg font-bold text-blue-600">
                     Total: R$ {calcularTotalProposta().toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -565,6 +604,12 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
               <Info className="h-4 w-4 text-blue-600" />
               <AlertTitle className="text-blue-800">Informação</AlertTitle>
               <AlertDescription className="text-blue-700">
+                {['MELHOR_TECNICA', 'TECNICA_E_PRECO', 'MAIOR_RETORNO_ECONOMICO'].includes(licitacao?.criterio_julgamento ?? '') && (
+                  <span className="mb-1 block font-medium">
+                    Critério {licitacao?.criterio_julgamento === 'MAIOR_RETORNO_ECONOMICO' ? 'maior retorno econômico' : 'técnico'}: depois de enviar,
+                    anexe a {licitacao?.criterio_julgamento === 'MAIOR_RETORNO_ECONOMICO' ? 'proposta de trabalho' : 'proposta técnica'} na página da proposta, até o fim do acolhimento.
+                  </span>
+                )}
                 Você poderá alterar sua proposta até a abertura da sessão.
                 Após a abertura da sessão, alterações só serão permitidas se solicitadas pelo pregoeiro 
                 (ex: adequação de preços após fase de lances).

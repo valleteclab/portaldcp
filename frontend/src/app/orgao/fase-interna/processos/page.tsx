@@ -1,5 +1,6 @@
 "use client";
 
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
@@ -180,6 +181,7 @@ function calcularEtapaAtual(documentos: Documento[]): EtapaInfo | undefined {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProcessosPage() {
+  const { confirmar, dialogo } = useDialogoConfirmacao();
   const [processos, setProcessos] = useState<Licitacao[]>([]);
   const [loading, setLoading] = useState(true);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
@@ -243,9 +245,12 @@ export default function ProcessosPage() {
   const excluirProcesso = async (processo: Licitacao) => {
     const identificador =
       processo.numero_processo || processo.objeto || processo.id;
-    const confirmado = window.confirm(
-      `Excluir o processo ${identificador}?\n\nEsta ação remove o processo e não pode ser desfeita.`,
-    );
+    const confirmado = await confirmar({
+      titulo: `Excluir o processo ${identificador}?`,
+      mensagem: "Esta ação remove o processo e não pode ser desfeita.",
+      confirmarRotulo: "Excluir",
+      destrutivo: true,
+    });
 
     if (!confirmado) return;
 
@@ -274,6 +279,7 @@ export default function ProcessosPage() {
 
   return (
     <div className="p-6 pb-10 max-w-6xl">
+      {dialogo}
       {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-4">
         <span>Processos</span>

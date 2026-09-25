@@ -67,6 +67,8 @@ import {
   gerarSugestaoPedidoExata,
 } from '@/lib/pedido-simulator';
 import { cn } from '@/lib/utils';
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 // Chave para localStorage
 const RASCUNHO_KEY = 'requisicao_rascunho';
@@ -916,19 +918,19 @@ function NovaRequisicaoForm() {
       try {
         const res = await authFetch(`${API_URL}/api/almoxarifado/requisicoes/${editarId}`);
         if (!res.ok) {
-          alert('Requisição não encontrada ou sem permissão.');
+          toast('Requisição não encontrada ou sem permissão.');
           router.push('/orgao/almoxarifado/requisicoes');
           return;
         }
         const req = await res.json();
         if (req.status !== 'RASCUNHO' || req.tipo !== 'ORDEM_SERVICO') {
-          alert('Apenas OS em rascunho podem ser editadas.');
+          toast('Apenas OS em rascunho podem ser editadas.');
           router.push('/orgao/almoxarifado/requisicoes');
           return;
         }
         const contrato = req.contrato;
         if (!contrato) {
-          alert('Contrato da OS não encontrado.');
+          toast('Contrato da OS não encontrado.');
           router.push('/orgao/almoxarifado/requisicoes');
           return;
         }
@@ -977,7 +979,7 @@ function NovaRequisicaoForm() {
         limparRascunhoLocal();
       } catch (e) {
         console.error('Erro ao carregar OS para edição:', e);
-        alert('Erro ao carregar OS para edição.');
+        toast.error('Erro ao carregar OS para edição.');
         router.push('/orgao/almoxarifado/requisicoes');
       } finally {
         setLoading(false);
@@ -1408,11 +1410,9 @@ function NovaRequisicaoForm() {
     setItensRequisicao([]);
   };
 
-  const handleAplicarSugestaoRestosAPagar = () => {
+  const handleAplicarSugestaoRestosAPagar = async () => {
     if (itensRequisicao.length > 0) {
-      const confirmar = window.confirm(
-        'Aplicar a sugestão de restos a pagar vai substituir os itens já selecionados. Deseja continuar?',
-      );
+      const confirmar = (await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Aplicar a sugestão de restos a pagar vai substituir os itens já selecionados. Deseja continuar?' }));
       if (!confirmar) return;
     }
 
@@ -1685,7 +1685,7 @@ function NovaRequisicaoForm() {
   const handleProximaEtapa = () => {
     const erro = validarEtapa();
     if (erro) {
-      alert(erro);
+      toast.error(erro);
       return;
     }
     setEtapa(prev => Math.min(prev + 1, STEPS.length - 1));
@@ -1844,22 +1844,22 @@ function NovaRequisicaoForm() {
         );
 
         if (!responseEnviar.ok) {
-          alert(isOS ? 'OS criada, mas erro ao enviar para autorização.' : 'Requisição criada, mas erro ao enviar para autorização.');
+          toast.error(isOS ? 'OS criada, mas erro ao enviar para autorização.' : 'Requisição criada, mas erro ao enviar para autorização.');
         } else {
-          alert(isOS 
+          toast.success(isOS 
             ? '✅ Ordem de Serviço criada e enviada para autorização!' 
-            : '✅ Requisição criada e enviada para autorização!\n\nSaldo reservado no contrato.');
+            : '✅ Requisição criada e enviada para autorização!\n\nSaldo reservado no contrato.', { className: 'whitespace-pre-line' });
         }
       } else {
-        alert(isOS 
+        toast.success(isOS 
           ? '✅ Ordem de Serviço salva como rascunho!' 
-          : '✅ Requisição salva como rascunho!\n\nSaldo reservado no contrato.');
+          : '✅ Requisição salva como rascunho!\n\nSaldo reservado no contrato.', { className: 'whitespace-pre-line' });
       }
 
       router.push('/orgao/almoxarifado/requisicoes');
     } catch (error: any) {
       console.error('Erro ao salvar:', error);
-      alert(error.message || 'Erro ao salvar requisição');
+      toast.error(error.message || 'Erro ao salvar requisição');
     } finally {
       setSalvando(false);
     }

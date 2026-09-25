@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Impugnacao, StatusImpugnacao } from './impugnacao.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { avaliarPrazoManifestacao } from './prazo-manifestacao.util';
 
 @Injectable()
 export class ImpugnacoesService {
@@ -33,7 +34,6 @@ export class ImpugnacoesService {
   }
 
   async create(data: Partial<Impugnacao>): Promise<Impugnacao> {
-    // Verifica se a licitação existe e está em fase de impugnação
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: data.licitacao_id }
     });
@@ -42,10 +42,11 @@ export class ImpugnacoesService {
       throw new NotFoundException('Licitação não encontrada');
     }
 
-    // Verifica se está no prazo de impugnação
-    const fasesPermitidas = ['PUBLICADO', 'IMPUGNACAO'];
-    if (!fasesPermitidas.includes(licitacao.fase)) {
-      throw new BadRequestException('Fora do prazo para impugnação. A licitação deve estar na fase de Publicação ou Impugnação.');
+    // Prazo do art. 164 (até 3 dias úteis antes da abertura do certame):
+    // decidido pela DATA-limite, não pela fase — corre em paralelo ao acolhimento.
+    const prazo = avaliarPrazoManifestacao(licitacao, 'IMPUGNACAO');
+    if (!prazo.aberto) {
+      throw new BadRequestException(prazo.motivo);
     }
 
     const impugnacao = this.impugnacaoRepository.create({

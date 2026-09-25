@@ -23,6 +23,8 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Licitacao {
   id: string
@@ -30,6 +32,9 @@ interface Licitacao {
   objeto: string
   fase: string
   data_limite_impugnacao?: string
+  /** Prazo do art. 164 calculado pelo backend */
+  data_limite_impugnacao_efetiva?: string | null
+  prazo_manifestacao_aberto?: boolean
 }
 
 interface MinhaImpugnacao {
@@ -52,6 +57,8 @@ export default function ImpugnarPage() {
   const [minhasImpugnacoes, setMinhasImpugnacoes] = useState<MinhaImpugnacao[]>([])
   const [loading, setLoading] = useState(true)
   const [enviando, setEnviando] = useState(false)
+  // Retorno do envio na própria tela (sem alert())
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
 
   // Formulário
   const [texto, setTexto] = useState('')
@@ -91,12 +98,12 @@ export default function ImpugnarPage() {
     const file = e.target.files?.[0]
     if (file) {
       if (file.type !== 'application/pdf') {
-        alert('Apenas arquivos PDF são permitidos')
+        setAviso({ tipo: 'erro', texto: 'Apenas arquivos PDF são permitidos' })
         e.target.value = ''
         return
       }
       if (file.size > 10 * 1024 * 1024) { // 10MB
-        alert('O arquivo deve ter no máximo 10MB')
+        setAviso({ tipo: 'erro', texto: 'O arquivo deve ter no máximo 10MB' })
         e.target.value = ''
         return
       }
@@ -119,12 +126,12 @@ export default function ImpugnarPage() {
 
   const enviarImpugnacao = async () => {
     if (!texto.trim()) {
-      alert('Digite o texto da impugnação')
+      setAviso({ tipo: 'erro', texto: 'Digite o texto da impugnação' })
       return
     }
 
     if (!arquivo) {
-      alert('Anexe o documento PDF da impugnação')
+      setAviso({ tipo: 'erro', texto: 'Anexe o documento PDF da impugnação' })
       return
     }
 
@@ -148,7 +155,7 @@ export default function ImpugnarPage() {
       })
 
       if (res.ok) {
-        alert('Impugnação enviada com sucesso!')
+        setAviso({ tipo: 'ok', texto: 'Impugnação enviada com sucesso!' })
         setTexto('')
         setItemEdital('')
         setFundamentacao('')
@@ -156,10 +163,10 @@ export default function ImpugnarPage() {
         carregarDados()
       } else {
         const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        setAviso({ tipo: 'erro', texto: `Erro: ${error.message}` })
       }
     } catch (error) {
-      alert('Erro ao enviar impugnação')
+      setAviso({ tipo: 'erro', texto: 'Erro ao enviar impugnação' })
     } finally {
       setEnviando(false)
     }
@@ -175,11 +182,8 @@ export default function ImpugnarPage() {
     })
   }
 
-  const podeImpugnar = () => {
-    if (!licitacao) return false
-    const fasesPermitidas = ['PUBLICADO', 'IMPUGNACAO']
-    return fasesPermitidas.includes(licitacao.fase)
-  }
+  // Decidido pela data-limite (art. 164), não pela fase — calculado no backend
+  const podeImpugnar = () => prazoManifestacaoAberto(licitacao)
 
   const getStatusBadge = (status: string) => {
     const config: Record<string, { label: string; color: string; icon: any }> = {
@@ -235,9 +239,9 @@ export default function ImpugnarPage() {
                 A impugnação é o instrumento pelo qual qualquer pessoa pode questionar os termos do edital.
                 O prazo para impugnação é de até 3 dias úteis antes da data de abertura da sessão (Art. 164, Lei 14.133/2021).
               </p>
-              {licitacao?.data_limite_impugnacao && (
+              {dataLimiteManifestacao(licitacao) && (
                 <p className="mt-2 font-medium">
-                  Prazo limite: {formatarData(licitacao.data_limite_impugnacao)}
+                  Prazo limite: {formatarData(dataLimiteManifestacao(licitacao)!)}
                 </p>
               )}
             </div>
@@ -332,6 +336,11 @@ export default function ImpugnarPage() {
               </div>
             </div>
 
+            {aviso && (
+              <p className={`rounded-md border px-3 py-2 text-sm ${aviso.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                {aviso.texto}
+              </p>
+            )}
             <Button onClick={enviarImpugnacao} disabled={enviando || !arquivo}>
               {enviando ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -347,7 +356,7 @@ export default function ImpugnarPage() {
           <CardContent className="py-8 text-center">
             <AlertCircle className="h-12 w-12 mx-auto mb-4 text-slate-400" />
             <p className="text-muted-foreground">
-              O prazo para impugnação já encerrou ou a licitação não está mais na fase de impugnação.
+              O prazo para impugnação já encerrou (até 3 dias úteis antes da abertura do certame — art. 164 da Lei 14.133/2021).
             </p>
           </CardContent>
         </Card>
@@ -378,6 +387,7 @@ export default function ImpugnarPage() {
                     <span className="text-sm text-gray-700">{imp.documento_nome}</span>
                     <a
                       href={`${API_URL}/api/impugnacoes/${imp.id}/documento`}
+                      onClick={(e) => { e.preventDefault(); abrirArquivoAutenticado(`${API_URL}/api/impugnacoes/${imp.id}/documento`) }}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-auto text-blue-600 hover:text-blue-800"

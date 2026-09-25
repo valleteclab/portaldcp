@@ -69,6 +69,8 @@ import {
 } from 'lucide-react'
 
 import { API_URL, adminFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface EnteAutorizado {
   id: number
@@ -353,7 +355,7 @@ export default function AdminPNCPPage() {
   const autorizarNovoEnte = async () => {
     const cnpj = novoCnpjEnte.replace(/\D/g, '')
     if (cnpj.length !== 14) {
-      alert('Informe um CNPJ válido com 14 dígitos.')
+      toast.warning('Informe um CNPJ válido com 14 dígitos.')
       return
     }
     setVinculandoEnte(true)
@@ -367,9 +369,9 @@ export default function AdminPNCPPage() {
       }
       setNovoCnpjEnte('')
       await carregarDados()
-      alert(data.mensagem || 'Ente autorizado com sucesso.')
+      toast.success(data.mensagem || 'Ente autorizado com sucesso.')
     } catch (error: any) {
-      alert(`Erro ao autorizar ente: ${error.message}`)
+      toast.error(`Erro ao autorizar ente: ${error.message}`)
     } finally {
       setVinculandoEnte(false)
     }
@@ -409,7 +411,7 @@ export default function AdminPNCPPage() {
 
   const associarEnteAoOrgao = async (reassociar = false) => {
     if (!orgaoSelecionado || !orgaoLocalSelecionado || !unidadeSelecionada) {
-      alert('Selecione o órgão do PortalDCP e a unidade do PNCP.')
+      toast.warning('Selecione o órgão do PortalDCP e a unidade do PNCP.')
       return
     }
     setAssociandoOrgao(true)
@@ -426,9 +428,7 @@ export default function AdminPNCPPage() {
       const data = await response.json()
       if (response.status === 409 && !reassociar) {
         const detalhe = typeof data.message === 'object' ? data.message : data
-        const confirmar = confirm(
-          `${detalhe.message || 'Este ente já está associado a outro órgão.'}\n\nDeseja transferir o vínculo para o órgão selecionado?`,
-        )
+        const confirmar = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `${detalhe.message || 'Este ente já está associado a outro órgão.'}\n\nDeseja transferir o vínculo para o órgão selecionado?` }))
         if (confirmar) {
           setAssociandoOrgao(false)
           await associarEnteAoOrgao(true)
@@ -443,9 +443,9 @@ export default function AdminPNCPPage() {
       }
       await carregarOrgaosCadastrados()
       setShowAssociarOrgao(false)
-      alert(data.mensagem || 'Associação salva com sucesso.')
+      toast.success(data.mensagem || 'Associação salva com sucesso.')
     } catch (error: any) {
-      alert(`Erro ao associar órgão: ${error.message}`)
+      toast.error(`Erro ao associar órgão: ${error.message}`)
     } finally {
       setAssociandoOrgao(false)
     }
@@ -468,16 +468,14 @@ export default function AdminPNCPPage() {
     try {
       // Validar campos obrigatórios
       if (!pncpCredentials.apiUrl || !pncpCredentials.login || !pncpCredentials.senha || !pncpCredentials.cnpjOrgao) {
-        alert('Todos os campos são obrigatórios!')
+        toast.warning('Todos os campos são obrigatórios!')
         return
       }
 
       // Trocar de ambiente muda para onde TODA publicação vai; vale confirmar.
       const ambiente = ambienteDaUrl(pncpCredentials.apiUrl)
-      if (ambiente?.id === 'PRODUCAO' && !confirm(
-        'Apontar a plataforma para o ambiente de PRODUÇÃO do PNCP?\n\n' +
-        'A partir daí, PCA, contratações, atas e contratos publicados valem oficialmente.'
-      )) {
+      if (ambiente?.id === 'PRODUCAO' && !(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Apontar a plataforma para o ambiente de PRODUÇÃO do PNCP?\n\n' +
+        'A partir daí, PCA, contratações, atas e contratos publicados valem oficialmente.' }))) {
         return
       }
 
@@ -493,7 +491,7 @@ export default function AdminPNCPPage() {
       })
 
       if (response.ok) {
-        alert('✅ Credenciais PNCP da plataforma salvas com sucesso!')
+        toast.success('✅ Credenciais PNCP da plataforma salvas com sucesso!')
         setShowCredentialsForm(false)
         
         // Recarregar dados para mostrar as credenciais salvas
@@ -501,11 +499,11 @@ export default function AdminPNCPPage() {
         await carregarDados()
       } else {
         const error = await response.json()
-        alert(`❌ Erro ao salvar credenciais: ${error.message || 'Erro desconhecido'}`)
+        toast.error(`❌ Erro ao salvar credenciais: ${error.message || 'Erro desconhecido'}`)
       }
     } catch (error: any) {
       console.error('Erro ao salvar credenciais:', error)
-      alert(`❌ Erro ao salvar credenciais: ${error.message}`)
+      toast.error(`❌ Erro ao salvar credenciais: ${error.message}`)
     } finally {
       setSavingCredentials(false)
     }
@@ -532,7 +530,7 @@ export default function AdminPNCPPage() {
   }
 
   const limparCredenciaisPNCP = async () => {
-    if (confirm('Tem certeza que deseja limpar as credenciais PNCP da plataforma?')) {
+    if ((await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Tem certeza que deseja limpar as credenciais PNCP da plataforma?', destrutivo: true }))) {
       try {
         const response = await adminFetch(`${API_URL}/api/pncp/credentials`, {
           method: 'PUT',
@@ -552,21 +550,21 @@ export default function AdminPNCPPage() {
             senha: '',
             cnpjOrgao: ''
           })
-          alert('✅ Credenciais PNCP da plataforma limpas com sucesso!')
+          toast.success('✅ Credenciais PNCP da plataforma limpas com sucesso!')
           carregarDados()
         } else {
-          alert('❌ Erro ao limpar credenciais')
+          toast.error('❌ Erro ao limpar credenciais')
         }
       } catch (error) {
         console.error('Erro ao limpar credenciais:', error)
-        alert('❌ Erro ao limpar credenciais')
+        toast.error('❌ Erro ao limpar credenciais')
       }
     }
   }
 
   const testarCredenciaisPNCP = async () => {
     if (!pncpCredentials.apiUrl || !pncpCredentials.login || !pncpCredentials.senha) {
-      alert('Configure as credenciais antes de testar!')
+      toast.warning('Configure as credenciais antes de testar!')
       return
     }
 
@@ -582,19 +580,19 @@ export default function AdminPNCPPage() {
       if (response.ok) {
         const data = await response.json()
         if (data.sucesso) {
-          alert('✅ Credenciais PNCP da plataforma testadas com sucesso!')
+          toast.success('✅ Credenciais PNCP da plataforma testadas com sucesso!')
           // Recarregar dados para mostrar os entes autorizados
           await carregarDados()
         } else {
-          alert(`❌ Erro ao testar credenciais: ${data.mensagem}`)
+          toast.error(`❌ Erro ao testar credenciais: ${data.mensagem}`)
         }
       } else {
         const errorData = await response.json()
-        alert(`❌ Erro ao testar credenciais: ${errorData.message || 'Erro desconhecido'}`)
+        toast.error(`❌ Erro ao testar credenciais: ${errorData.message || 'Erro desconhecido'}`)
       }
     } catch (error: any) {
       console.error('Erro ao testar credenciais:', error)
-      alert(`❌ Erro ao testar credenciais: ${error.message}`)
+      toast.error(`❌ Erro ao testar credenciais: ${error.message}`)
     }
   }
 
@@ -727,7 +725,7 @@ export default function AdminPNCPPage() {
 
       if (responseUsuario.ok) {
         const roleLabels = { ADMIN: 'Administrador', PREGOEIRO: 'Pregoeiro', EQUIPE_APOIO: 'Equipe de Apoio' }
-        alert(`✅ Usuário criado com sucesso!\n\nEmail: ${formUsuario.email_login}\nSenha: ${formUsuario.senha}\nFunção: ${roleLabels[formUsuario.role]}`)
+        toast.success(`✅ Usuário criado com sucesso!\n\nEmail: ${formUsuario.email_login}\nSenha: ${formUsuario.senha}\nFunção: ${roleLabels[formUsuario.role]}`, { className: 'whitespace-pre-line' })
         setShowCriarUsuario(false)
       } else {
         const errorUsuario = await responseUsuario.json()
@@ -735,7 +733,7 @@ export default function AdminPNCPPage() {
       }
     } catch (error: any) {
       console.error('Erro ao criar órgão:', error)
-      alert('Erro ao criar órgão: ' + error.message)
+      toast.error('Erro ao criar órgão: ' + error.message)
     } finally {
       setCriandoUsuario(false)
     }
@@ -756,15 +754,15 @@ export default function AdminPNCPPage() {
       })
 
       if (response.ok) {
-        alert(`✅ Usuário resetado com sucesso!\n\nEmail: ${formUsuario.email_login}\nSenha: ${formUsuario.senha}`)
+        toast.success(`✅ Usuário resetado com sucesso!\n\nEmail: ${formUsuario.email_login}\nSenha: ${formUsuario.senha}`, { className: 'whitespace-pre-line' })
         setShowCriarUsuario(false)
       } else {
         const error = await response.json()
-        alert('Erro ao resetar usuário: ' + (error.message || 'Erro desconhecido'))
+        toast.error('Erro ao resetar usuário: ' + (error.message || 'Erro desconhecido'))
       }
     } catch (error: any) {
       console.error('Erro ao resetar usuário:', error)
-      alert('Erro ao resetar usuário: ' + error.message)
+      toast.error('Erro ao resetar usuário: ' + error.message)
     } finally {
       setResetandoUsuario(false)
     }

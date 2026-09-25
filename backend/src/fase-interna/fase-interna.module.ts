@@ -24,10 +24,10 @@ import { AuditLogService } from './audit-log.service';
 import { DocumentoEstruturadoService } from './documento-estruturado.service';
 import { DocumentoEstruturadoController } from './documento-estruturado.controller';
 import { GeradorDocumentoService } from './gerador-documento.service';
-import { PncpPublicacaoService } from './pncp-publicacao.service';
 import { AnaliseContratosService } from './analise-contratos.service';
 import { GeradorPpService } from './gerador-pp.service';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 import { Contrato } from '../contratos/entities/contrato.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { Demanda } from '../demandas/entities/demanda.entity';
@@ -52,6 +52,7 @@ import {
     SystemConfigModule,
     NotificacoesModule,
     IaModule,
+    TransicoesModule,
     TypeOrmModule.forFeature([
       DocumentoFaseInterna,
       LogFaseInterna,
@@ -84,7 +85,6 @@ import {
     AuditLogService,
     DocumentoEstruturadoService,
     GeradorDocumentoService,
-    PncpPublicacaoService,
     AnaliseContratosService,
     GeradorPpService,
     PesquisaPrecosAgentService,

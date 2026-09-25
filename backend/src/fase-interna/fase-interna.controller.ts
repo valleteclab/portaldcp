@@ -11,7 +11,10 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -26,8 +29,22 @@ import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
 import { GeradorPpService } from './gerador-pp.service';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 import { Public } from '../auth/public.decorator';
+import { AtorAtual } from '../auth/acesso/acesso.decorators';
+import type { Ator } from '../auth/acesso/ator';
+import { DonoFaseInternaGuard, DonoPor } from './dono-fase-interna.guard';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { licitacaoEhPublica } from '../licitacoes/licitacao-visao.util';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
+
+/**
+ * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
+ * com `:licitacaoId` (ou documento por id, via @DonoPor) exige o órgão DONO
+ * da licitação (leitura de outro órgão → 404; ato → 403). Listas agregadas
+ * usam o órgão do token (?orgao_id= só vale para o admin da plataforma).
+ */
 
 @Controller('fase-interna')
+@UseGuards(DonoFaseInternaGuard)
 export class FaseInternaController {
   constructor(
     private readonly faseInternaService: FaseInternaService,
@@ -35,6 +52,7 @@ export class FaseInternaController {
     private readonly derivacaoService: DerivacaoService,
     private readonly pesquisaPrecosAgentService: PesquisaPrecosAgentService,
     private readonly geradorPpService: GeradorPpService,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -116,8 +134,9 @@ export class FaseInternaController {
         caminhoArquivo?: string;
       }>;
     },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.faseInternaService.importarProcessoCompleto(body);
+    return this.faseInternaService.importarProcessoCompleto(body, atorTransicaoDe(ator));
   }
 
   @Get(':licitacaoId/contexto')
@@ -186,44 +205,14 @@ export class FaseInternaController {
   }
 
   @Get('documento/:id')
+  @DonoPor('documento', 'id')
   async getDocumento(@Param('id') id: string) {
     return this.faseInternaService.getDocumento(id);
   }
 
-  // === APROVACAO ===
-
-  @Put('documento/:id/submeter')
-  async submeterParaAprovacao(@Param('id') id: string) {
-    return this.faseInternaService.submeterParaAprovacao(id);
-  }
-
-  @Put('documento/:id/aprovar')
-  async aprovarDocumento(
-    @Param('id') id: string,
-    @Body()
-    body: { aprovadorId: string; aprovadorNome: string; observacao?: string },
-  ) {
-    return this.faseInternaService.aprovarDocumento(
-      id,
-      body.aprovadorId,
-      body.aprovadorNome,
-      body.observacao,
-    );
-  }
-
-  @Put('documento/:id/reprovar')
-  async reprovarDocumento(
-    @Param('id') id: string,
-    @Body()
-    body: { aprovadorId: string; aprovadorNome: string; observacao: string },
-  ) {
-    return this.faseInternaService.reprovarDocumento(
-      id,
-      body.aprovadorId,
-      body.aprovadorNome,
-      body.observacao,
-    );
-  }
+  // O envio para aprovação é pelo fluxo por etapa (`documento/:id/submeter-fluxo`,
+  // `aprovacoes/etapa/:id/{aprovar,reprovar}`); a aprovação por documento
+  // (submeter/aprovar/reprovar e GET aprovacoes) foi apagada na E9.
 
   /** Preço de referência rápido por código CATMAT/CATSER (dados abertos) */
   @Get('preco-referencia')
@@ -274,16 +263,21 @@ export class FaseInternaController {
     return this.faseInternaService.getResumoFaseInterna(licitacaoId);
   }
 
+  /**
+   * Conclui a etapa interna atual (rito completo) ou a instrução (contratação
+   * direta) pelos atos da máquina de estados — mesmo gate documental do
+   * PUT /licitacoes/:id/avancar-fase. 400 traz `pendencias` (lista).
+   */
   @Put(':licitacaoId/avancar')
-  async avancarFaseInterna(@Param('licitacaoId') licitacaoId: string) {
-    return this.faseInternaService.avancarFaseInterna(licitacaoId);
+  async avancarFaseInterna(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    return this.faseInternaService.avancarFaseInterna(licitacaoId, atorTransicaoDe(ator));
   }
 
   // === DASHBOARD ===
 
   @Get('dashboard')
-  async getDashboard(@Query('orgao_id') orgaoId: string) {
-    return this.faseInternaService.getDashboard(orgaoId);
+  async getDashboard(@Query('orgao_id') orgaoId: string, @AtorAtual() ator: Ator) {
+    return this.faseInternaService.getDashboard(ator.admin ? orgaoId : ator.orgaoId!);
   }
 
   // === RISCOS ===
@@ -339,10 +333,34 @@ export class FaseInternaController {
 
   // === PESQUISA DE PRECOS ===
 
+  /**
+   * Relatório público da pesquisa de preços (link/QR impresso no PDF da PP).
+   * Só existe publicamente depois que a licitação é divulgada (fase externa)
+   * e se o orçamento NÃO é sigiloso (art. 24); senão 404. Fontes e
+   * fornecedores das cotações ficam (a tela pública os mostra — art. 23),
+   * mas sem o caminho/hash do comprovante no servidor.
+   */
   @Public()
   @Get('publico/precos/:licitacaoId')
   async getPrecosPublicos(@Param('licitacaoId') licitacaoId: string) {
-    return this.faseInternaService.getPrecosPublicos(licitacaoId);
+    const r = ehUuid(licitacaoId)
+      ? await this.dataSource.query(
+          `SELECT fase, data_publicacao_edital, sigilo_orcamento FROM licitacoes WHERE id = $1`,
+          [licitacaoId],
+        )
+      : [];
+    const lic = r[0];
+    if (!lic || !licitacaoEhPublica(lic) || lic.sigilo_orcamento === 'SIGILOSO') {
+      throw new NotFoundException('Pesquisa de preços não encontrada');
+    }
+    const publico = await this.faseInternaService.getPrecosPublicos(licitacaoId);
+    const itens = (publico.dados?.itens || []).map((item: any) => ({
+      ...item,
+      cotacoes: (item.cotacoes || []).map(
+        ({ documento_comprobatorio_path: _p, documento_hash: _h, ...cotacao }: any) => cotacao,
+      ),
+    }));
+    return { ...publico, dados: { ...publico.dados, itens } };
   }
 
   @Get(':licitacaoId/precos')
@@ -675,13 +693,6 @@ export class FaseInternaController {
       buffer,
       relPath,
     );
-  }
-
-  // === APROVACOES AGREGADAS ===
-
-  @Get('aprovacoes')
-  async getAprovacoes(@Query('orgao_id') orgaoId: string) {
-    return this.faseInternaService.getAprovacoesOrgao(orgaoId);
   }
 
   // === WIZARD ===

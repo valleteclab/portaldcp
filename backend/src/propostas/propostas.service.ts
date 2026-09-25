@@ -1,11 +1,40 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Proposta, StatusProposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { ItensService } from '../itens/itens.service';
-import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { Licitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.entity';
+import { licitacaoParaOrgao, licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { beneficioDaUnidadeSql } from '../julgamento/me-epp/beneficio-mpe.sql';
+import { enquadramentoMpe, motivoDeclaracaoIncompativel, motivoForaDaExclusividade } from '../julgamento/me-epp/regras-me-epp';
+import { motivoPropostaPelaModalidade } from '../modalidades-especiais/pendencias.sql';
+
+/** Campos do fornecedor que nunca saem nas respostas de proposta. */
+const SEGREDOS_FORNECEDOR = ['senha', 'api_key_hash', 'spedy_api_key', 'spedy_company_id'];
+
+export function fornecedorSemSegredos<T>(fornecedor: T): T {
+  if (!fornecedor || typeof fornecedor !== 'object') return fornecedor;
+  const copia: Record<string, any> = { ...(fornecedor as any) };
+  for (const k of SEGREDOS_FORNECEDOR) delete copia[k];
+  return copia as T;
+}
+
+/** Dono de uma proposta (para as checagens de acesso no controller). */
+export interface DonoProposta {
+  id: string;
+  licitacao_id: string;
+  fornecedor_id: string;
+  status: StatusProposta;
+}
+
+/**
+ * Visão da proposta por id: fornecedor dono (tudo), órgão dono depois do
+ * sigilo (tudo) ou órgão dono durante o sigilo (só existência e autoria).
+ */
+export type VisaoProposta = 'FORNECEDOR' | 'ORGAO' | 'ORGAO_SIGILO';
 
 function formatarDataLocal(date: Date | null | undefined): string | null {
   if (!date) return null;
@@ -36,17 +65,16 @@ export class PropostasService {
    * acolhimento (ou da abertura da sessão), o conteúdo das propostas não pode
    * ser exposto — as rotas públicas por licitação/item retornam dados mascarados.
    */
-  private async emSigiloDePropostas(licitacaoId: string): Promise<boolean> {
+  async emSigiloDePropostas(licitacaoId: string): Promise<boolean> {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
     });
     const agora = new Date();
     // Durante a fase de LANCES da dispensa, as rotas públicas seguem sigilosas —
     // a informação pública é o painel anônimo (menor valor por item).
-    const lancesFim = (licitacao as any)?.dispensa_lances_fim;
+    const lancesFim = licitacao?.dispensa_lances_fim;
     if (lancesFim && agora < new Date(lancesFim)) return true;
-    const corte =
-      (licitacao as any)?.data_fim_acolhimento || licitacao?.data_abertura_sessao;
+    const corte = licitacao?.data_fim_acolhimento || licitacao?.data_abertura_sessao;
     if (!corte) return false;
     const d = new Date(corte);
     return !isNaN(d.getTime()) && agora < d;
@@ -57,6 +85,14 @@ export class PropostasService {
       where: { id: licitacaoId },
     });
 
+    // E1: licitação suspensa ou encerrada (revogada, anulada, deserta...) não
+    // recebe nem altera propostas — a situação é separada da fase.
+    if (licitacao?.situacao && licitacao.situacao !== SituacaoLicitacao.ATIVA) {
+      throw new ConflictException(
+        `Licitação ${licitacao.situacao.toLowerCase()} — não é possível enviar/alterar proposta`,
+      );
+    }
+
     const abertura = licitacao?.data_abertura_sessao;
     if (abertura instanceof Date && !isNaN(abertura.getTime())) {
       const agora = new Date();
@@ -66,22 +102,62 @@ export class PropostasService {
     }
   }
 
-  async create(createDto: CreatePropostaDto): Promise<Proposta> {
+  /**
+   * `fornecedorId` é SEMPRE o do token (resolvido no controller) — o
+   * `fornecedor_id` do corpo não é usado aqui.
+   */
+  async create(createDto: CreatePropostaDto, fornecedorId: string): Promise<Proposta> {
     await this.validarAntesAberturaSessao(createDto.licitacao_id);
 
     // Verifica se já existe proposta deste fornecedor para esta licitação
     const existing = await this.propostaRepository.findOne({
       where: {
         licitacao_id: createDto.licitacao_id,
-        fornecedor_id: createDto.fornecedor_id,
+        fornecedor_id: fornecedorId,
       }
     });
 
     if (existing) {
+      // A proposta existente é do próprio solicitante (fornecedor do token)
       throw new ConflictException({
         message: 'Fornecedor já possui proposta para esta licitação',
         propostaId: existing.id,
       });
+    }
+
+    // Itens precisam ser da própria licitação (não se mistura item de outro processo)
+    for (const itemDto of createDto.itens || []) {
+      const itemLicitacao = await this.itensService.findOne(itemDto.item_licitacao_id);
+      if (itemLicitacao.licitacao_id !== createDto.licitacao_id) {
+        throw new BadRequestException('Item informado não pertence a esta licitação');
+      }
+    }
+
+    // Leilão (lance inicial ≥ preço mínimo), concurso (inscrição pelo módulo) e
+    // diálogo (só pré-selecionados na fase competitiva) — plano E7c
+    const motivoModalidade = await motivoPropostaPelaModalidade(
+      this.propostaRepository.manager,
+      createDto.licitacao_id,
+      fornecedorId,
+      (createDto.itens || []).map((i) => ({ item_licitacao_id: i.item_licitacao_id, valor_unitario: Number(i.valor_unitario) })),
+    );
+    if (motivoModalidade) throw new BadRequestException(motivoModalidade);
+
+    // ME/EPP (LC 123/2006; Lei 14.133 art. 4º): o porte vem do CADASTRO (retratado na
+    // proposta), nunca do corpo; a declaração precisa ser compatível com ele, e unidade
+    // exclusiva/cota (art. 48 I e III) só recebe proposta de ME/EPP enquadrada.
+    const [cadastro] = await this.propostaRepository.manager.query(
+      `SELECT porte::text AS porte FROM fornecedores WHERE id::text = $1`,
+      [fornecedorId],
+    );
+    const porteCadastro: string | null = cadastro?.porte ?? null;
+    const declaracaoIncompativel = motivoDeclaracaoIncompativel(porteCadastro, createDto.declaracao_mpe);
+    if (declaracaoIncompativel) throw new BadRequestException(declaracaoIncompativel);
+    const enquadrada = enquadramentoMpe(porteCadastro, createDto.declaracao_mpe);
+    for (const itemDto of createDto.itens || []) {
+      const u = await beneficioDaUnidadeSql(this.propostaRepository.manager, itemDto.item_licitacao_id);
+      const fora = u ? motivoForaDaExclusividade(u.beneficio, enquadrada, u.rotulo) : null;
+      if (fora) throw new BadRequestException(fora);
     }
 
     // Valida declarações obrigatórias
@@ -98,9 +174,11 @@ export class PropostasService {
     // Cria a proposta
     const proposta = this.propostaRepository.create({
       licitacao_id: createDto.licitacao_id,
-      fornecedor_id: createDto.fornecedor_id,
+      fornecedor_id: fornecedorId,
       declaracao_termos: createDto.declaracao_termos,
       declaracao_mpe: createDto.declaracao_mpe || false,
+      porte_fornecedor: porteCadastro,
+      enquadramento_mpe: enquadrada,
       declaracao_integridade: createDto.declaracao_integridade,
       declaracao_inexistencia_fatos: createDto.declaracao_inexistencia_fatos,
       declaracao_menor: createDto.declaracao_menor,
@@ -196,8 +274,12 @@ export class PropostasService {
         };
       });
 
+      // `itens` crus (com a entidade do item: valor estimado, melhor lance...)
+      // não saem na rota pública — as telas usam `itens_proposta`.
+      const { itens: _itensCrus, ...semItens } = proposta;
       return {
-        ...proposta,
+        ...semItens,
+        fornecedor: fornecedorSemSegredos(proposta.fornecedor),
         itens_proposta,
       } as any;
     });
@@ -215,16 +297,67 @@ export class PropostasService {
       if (!lic) return p;
       return {
         ...p,
-        licitacao: {
+        // o fornecedor vê a licitação pela visão pública (órgão sem
+        // credenciais, orçamento sigiloso mascarado)
+        licitacao: licitacaoParaPublico({
           ...lic,
           data_publicacao_edital: formatarDataLocal(lic.data_publicacao_edital),
           data_limite_impugnacao: formatarDataLocal(lic.data_limite_impugnacao),
           data_inicio_acolhimento: formatarDataLocal(lic.data_inicio_acolhimento),
           data_fim_acolhimento: formatarDataLocal(lic.data_fim_acolhimento),
           data_abertura_sessao: formatarDataLocal(lic.data_abertura_sessao),
-        }
+        })
       } as any;
     });
+  }
+
+  /** Dados mínimos para checar o dono da proposta (404 se não existe). */
+  async donoDaProposta(id: string): Promise<DonoProposta> {
+    const p = ehUuid(id)
+      ? await this.propostaRepository.findOne({
+          where: { id },
+          select: ['id', 'licitacao_id', 'fornecedor_id', 'status'],
+        })
+      : null;
+    if (!p) throw new NotFoundException(`Proposta com ID ${id} não encontrada`);
+    return { id: p.id, licitacao_id: p.licitacao_id, fornecedor_id: p.fornecedor_id, status: p.status };
+  }
+
+  /** Dono do item de proposta (404 se não existe). */
+  async donoDoItemDaProposta(itemId: string): Promise<DonoProposta> {
+    const item = ehUuid(itemId)
+      ? await this.propostaItemRepository.findOne({ where: { id: itemId }, relations: ['proposta'] })
+      : null;
+    if (!item?.proposta) throw new NotFoundException('Item da proposta não encontrado');
+    const p = item.proposta;
+    return { id: p.id, licitacao_id: p.licitacao_id, fornecedor_id: p.fornecedor_id, status: p.status };
+  }
+
+  /** Proposta por id conforme a visão de quem lê (ver VisaoProposta). */
+  async findOneVisao(id: string, visao: VisaoProposta): Promise<any> {
+    const proposta: any = await this.findOne(id);
+    const saida: any = { ...proposta, fornecedor: fornecedorSemSegredos(proposta.fornecedor) };
+    if (saida.licitacao) {
+      saida.licitacao =
+        visao === 'FORNECEDOR' ? licitacaoParaPublico(saida.licitacao) : licitacaoParaOrgao(saida.licitacao);
+    }
+    if (visao !== 'ORGAO_SIGILO') return saida;
+    // Sigilo (art. 55/63; art. 75 §3º): o órgão vê existência e autoria, sem conteúdo
+    const f = proposta.fornecedor;
+    return {
+      id: proposta.id,
+      licitacao_id: proposta.licitacao_id,
+      fornecedor_id: proposta.fornecedor_id,
+      fornecedor: f
+        ? { id: f.id, razao_social: f.razao_social, nome_fantasia: f.nome_fantasia, cpf_cnpj: f.cpf_cnpj, porte: f.porte }
+        : null,
+      status: proposta.status,
+      data_envio: proposta.data_envio,
+      created_at: proposta.created_at,
+      licitacao: saida.licitacao,
+      valor_total_proposta: null,
+      sigilo: true,
+    };
   }
 
   async findOne(id: string): Promise<Proposta> {
@@ -330,9 +463,10 @@ export class PropostasService {
     return await this.propostaRepository.save(proposta);
   }
 
+  /** `fornecedorId` = fornecedor do token (resolvido no controller). */
   async remove(id: string, fornecedorId: string): Promise<void> {
     if (!fornecedorId) {
-      throw new BadRequestException('fornecedorId é obrigatório');
+      throw new ForbiddenException('Apenas o fornecedor da proposta pode excluí-la');
     }
 
     const proposta = await this.propostaRepository.findOne({
@@ -343,7 +477,7 @@ export class PropostasService {
     }
 
     if (proposta.fornecedor_id !== fornecedorId) {
-      throw new BadRequestException('Apenas o fornecedor da proposta pode excluí-la');
+      throw new ForbiddenException('Apenas o fornecedor da proposta pode excluí-la');
     }
 
     const licitacao = await this.licitacaoRepository.findOne({
@@ -428,6 +562,14 @@ export class PropostasService {
     await this.validarAntesAberturaSessao(item.proposta.licitacao_id);
 
     if (dados.valor_unitario !== undefined) {
+      // Leilão: o lance inicial continua ≥ preço mínimo (E7c)
+      const motivoModalidade = await motivoPropostaPelaModalidade(
+        this.propostaRepository.manager,
+        item.proposta.licitacao_id,
+        item.proposta.fornecedor_id,
+        [{ item_licitacao_id: item.item_licitacao_id, valor_unitario: Number(dados.valor_unitario) }],
+      );
+      if (motivoModalidade) throw new BadRequestException(motivoModalidade);
       item.valor_unitario = dados.valor_unitario;
       // Recalcula valor total do item
       const quantidade = item.item_licitacao?.quantidade || 0;

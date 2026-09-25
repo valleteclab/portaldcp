@@ -38,6 +38,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface ItemDemanda {
   id: string
@@ -232,7 +233,7 @@ function ConsolidacaoDemandasContent() {
 
   const salvarContratacao = async () => {
     if (selecionadas.length === 0) {
-      alert('Selecione ao menos uma DFD')
+      toast.warning('Selecione ao menos uma DFD')
       return
     }
     setSalvando(true)
@@ -261,7 +262,7 @@ function ConsolidacaoDemandasContent() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro ao salvar contratação futura')
+        toast.error(err.message || 'Erro ao salvar contratação futura')
         return
       }
 

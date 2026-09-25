@@ -13,23 +13,33 @@ import {
   HttpStatus,
   Req,
   ForbiddenException,
+  UnauthorizedException,
+  BadRequestException,
   UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PncpService } from './pncp.service';
-import { ResultadoItemDto, ContratoDto, TIPO_DOCUMENTO } from './dto/pncp.dto';
+import { TIPO_DOCUMENTO } from './dto/pncp.dto';
+import { PncpFilaService } from './fila/pncp-fila.service';
+import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { RequireModule } from '../auth/require-module.decorator';
 import { AdminGuard } from '../auth/admin.guard';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
+import { AtorAtual } from '../auth/acesso/acesso.decorators';
+import type { Ator } from '../auth/acesso/ator';
+import { ehOrgao } from '../auth/acesso/ator';
+import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 
 @Controller('pncp')
 @RequireModule(ModuloSistema.PNCP)
 export class PncpController {
-  constructor(private readonly pncpService: PncpService) {
-    console.log('[PncpController] Controller initialized');
-  }
+  constructor(
+    private readonly pncpService: PncpService,
+    private readonly fila: PncpFilaService,
+    private readonly acesso: AcessoLicitacaoService,
+  ) {}
 
   private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
     if (user.type === UserType.ORGAO) return user.sub;
@@ -68,38 +78,54 @@ export class PncpController {
   }
 
   // ============ COMPRA/LICITAÇÃO ============
+  // Desde a E7 todo envio passa pela FILA (pncp_sync): as rotas abaixo
+  // enfileiram a operação e a processam na hora (se falhar, o registro fica na
+  // fila com o erro do PNCP e o reenvio automático). Só o órgão dono.
 
   @Get('compras/:licitacaoId/validar')
-  async validarLicitacao(@Param('licitacaoId') licitacaoId: string) {
+  async validarLicitacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId, 'leitura');
     return this.pncpService.validarLicitacaoParaPNCP(licitacaoId);
   }
 
   @Post('compras/:licitacaoId')
-  async enviarCompra(@Param('licitacaoId') licitacaoId: string) {
-    return this.pncpService.enviarCompra(licitacaoId);
+  async enviarCompra(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarCompraAgora(licitacaoId, atorTransicaoDe(ator));
   }
 
   @Post('compras/:licitacaoId/itens')
-  async enviarItens(@Param('licitacaoId') licitacaoId: string) {
-    return this.pncpService.enviarItens(licitacaoId);
+  async enviarItens(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarItensAgora(licitacaoId);
   }
 
   @Post('compras/:licitacaoId/completo')
-  async enviarCompraCompleta(@Param('licitacaoId') licitacaoId: string) {
-    // Lógica movida para o service (D5) — usada também pelo disparo automático
-    return await this.pncpService.enviarCompraCompleta(licitacaoId);
+  async enviarCompraCompleta(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarCompraCompletaAgora(licitacaoId, atorTransicaoDe(ator));
   }
 
-  /** D5: envia o resultado por item (vencedores/valores) após a homologação */
+  /** Resultado por item da homologação (mesmas operações do disparo automático — sem duplicar). */
   @Post('compras/:licitacaoId/resultados-homologacao')
-  async enviarResultadoHomologacao(@Param('licitacaoId') licitacaoId: string) {
-    return await this.pncpService.enviarResultadoHomologacao(licitacaoId);
+  async enviarResultadoHomologacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarResultadosAgora(licitacaoId);
   }
 
-  /** D5: publica os contratos da licitação no PNCP (art. 94 — eficácia) */
+  /** Contratos ASSINADOS da licitação (art. 94 — eficácia); os não assinados aguardam. */
   @Post('compras/:licitacaoId/contratos')
-  async enviarContratosHomologacao(@Param('licitacaoId') licitacaoId: string) {
-    return await this.pncpService.enviarContratosHomologacao(licitacaoId);
+  async enviarContratosHomologacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    return this.fila.enviarContratosAgora(licitacaoId);
+  }
+
+  /** Contrato assinado (tela do contrato). */
+  @Post('contratos/:contratoId/enviar')
+  async enviarContrato(@Param('contratoId') contratoId: string, @AtorAtual() ator: Ator) {
+    const [c] = ehUuid(contratoId) ? await this.pncpService.orgaoDoContrato(contratoId) : [];
+    this.acesso.assertMesmoOrgao(ator, c?.orgao_id, 'escrita', 'Contrato');
+    return this.fila.enviarContratoAgora(contratoId);
   }
 
   // Vincular manualmente uma licitação já enviada ao PNCP
@@ -110,13 +136,16 @@ export class PncpController {
       numeroControlePNCP: string;
       anoCompra: number;
       sequencialCompra: number;
-    }
+    },
+    @AtorAtual() ator: Ator,
   ) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
     return this.pncpService.vincularLicitacaoExistente(
       licitacaoId,
       body.numeroControlePNCP,
       body.anoCompra,
-      body.sequencialCompra
+      body.sequencialCompra,
+      atorTransicaoDe(ator),
     );
   }
 
@@ -127,80 +156,52 @@ export class PncpController {
   async enviarDocumento(
     @Param('licitacaoId') licitacaoId: string,
     @Param('tipoDocumento') tipoDocumento: string,
-    @UploadedFile() arquivo: Express.Multer.File
+    @UploadedFile() arquivo: Express.Multer.File,
+    @AtorAtual() ator: Ator,
   ) {
-    if (!arquivo) {
-      throw new HttpException('Arquivo não enviado', HttpStatus.BAD_REQUEST);
-    }
-
-    const tipoDocumentoId = this.mapearTipoDocumento(tipoDocumento);
-    
-    return this.pncpService.enviarDocumento(
-      licitacaoId,
-      tipoDocumentoId,
-      arquivo.buffer,
-      arquivo.originalname
-    );
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    if (!arquivo) throw new HttpException('Arquivo não enviado', HttpStatus.BAD_REQUEST);
+    return this.fila.enviarDocumentoAgora(licitacaoId, this.mapearTipoDocumento(tipoDocumento), arquivo.buffer, arquivo.originalname);
   }
 
   @Post('compras/:licitacaoId/edital')
   @UseInterceptors(FileInterceptor('arquivo'))
-  async enviarEdital(
-    @Param('licitacaoId') licitacaoId: string,
-    @UploadedFile() arquivo: Express.Multer.File
-  ) {
-    if (!arquivo) {
-      throw new HttpException('Arquivo do edital não enviado', HttpStatus.BAD_REQUEST);
-    }
-
-    return this.pncpService.enviarDocumento(
-      licitacaoId,
-      TIPO_DOCUMENTO.EDITAL,
-      arquivo.buffer,
-      arquivo.originalname
-    );
+  async enviarEdital(@Param('licitacaoId') licitacaoId: string, @UploadedFile() arquivo: Express.Multer.File, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    if (!arquivo) throw new HttpException('Arquivo do edital não enviado', HttpStatus.BAD_REQUEST);
+    return this.fila.enviarDocumentoAgora(licitacaoId, TIPO_DOCUMENTO.EDITAL, arquivo.buffer, arquivo.originalname);
   }
 
   @Post('compras/:licitacaoId/termo-referencia')
   @UseInterceptors(FileInterceptor('arquivo'))
-  async enviarTermoReferencia(
-    @Param('licitacaoId') licitacaoId: string,
-    @UploadedFile() arquivo: Express.Multer.File
-  ) {
-    if (!arquivo) {
-      throw new HttpException('Arquivo do TR não enviado', HttpStatus.BAD_REQUEST);
-    }
-
-    return this.pncpService.enviarDocumento(
-      licitacaoId,
-      TIPO_DOCUMENTO.TERMO_REFERENCIA,
-      arquivo.buffer,
-      arquivo.originalname
-    );
+  async enviarTermoReferencia(@Param('licitacaoId') licitacaoId: string, @UploadedFile() arquivo: Express.Multer.File, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    if (!arquivo) throw new HttpException('Arquivo do TR não enviado', HttpStatus.BAD_REQUEST);
+    return this.fila.enviarDocumentoAgora(licitacaoId, TIPO_DOCUMENTO.TERMO_REFERENCIA, arquivo.buffer, arquivo.originalname);
   }
 
-  // ============ RESULTADO ============
+  // ============ FILA (E7) ============
 
-  @Post('compras/:licitacaoId/itens/:itemNumero/resultado')
-  async enviarResultado(
-    @Param('licitacaoId') licitacaoId: string,
-    @Param('itemNumero') itemNumero: number,
-    @Body() resultado: ResultadoItemDto
-  ) {
-    return this.pncpService.enviarResultado(licitacaoId, itemNumero, resultado);
+  /** Operações da licitação no PNCP (status, tentativas, próximo envio, erro do PNCP). Órgão dono. */
+  @Get('fila')
+  async listarFila(@Query('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    if (!licitacaoId) throw new HttpException('Informe licitacaoId', HttpStatus.BAD_REQUEST);
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId, 'leitura');
+    return this.fila.listarFila(licitacaoId);
   }
 
-  // ============ CONTRATO ============
-
-  @Post('contratos')
-  async enviarContrato(@Body() contrato: ContratoDto) {
-    return this.pncpService.enviarContrato(contrato);
+  /** "Reenviar agora" (inclusive erro definitivo, depois de corrigido o dado). Órgão dono. */
+  @Post('fila/:id/reenviar')
+  async reenviarDaFila(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.exigirDonoDaLinha(ator, id);
+    return this.fila.reenviarAgora(id, atorTransicaoDe(ator));
   }
 
   // ============ CONSULTAS ============
 
   @Get('status/:licitacaoId')
-  async consultarStatus(@Param('licitacaoId') licitacaoId: string) {
+  async consultarStatus(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId, 'leitura');
     return this.pncpService.consultarStatusSincronizacao(licitacaoId);
   }
 
@@ -222,18 +223,54 @@ export class PncpController {
     return this.pncpService.listarErros(orgaoId);
   }
 
+  /** Compatibilidade com a tela PNCP: mesmo "reenviar agora" da fila. */
   @Post('reenviar/:syncId')
-  async reenviar(@Param('syncId') syncId: string) {
-    return this.pncpService.reenviar(syncId);
+  async reenviar(@Param('syncId') syncId: string, @AtorAtual() ator: Ator) {
+    await this.exigirDonoDaLinha(ator, syncId);
+    return this.fila.reenviarAgora(syncId, atorTransicaoDe(ator));
+  }
+
+  private async exigirDonoDaLinha(ator: Ator, id: string) {
+    const dono = ehUuid(id) ? await this.fila.orgaoDaLinha(id) : null;
+    this.acesso.assertMesmoOrgao(ator, dono?.orgaoId, 'escrita', 'Registro do PNCP');
+  }
+
+  // ============ ESCOPO DAS ROTAS CRUAS (E9) ============
+  // As rotas abaixo falam direto com a API do PNCP (ferramentas manuais da
+  // tela Integração PNCP). O que o processo publica passa pela FILA (rotas
+  // acima). Aqui o órgão só opera sob o PRÓPRIO CNPJ no PNCP (compras, itens,
+  // resultados, atas, contratos) e só os PRÓPRIOS registros locais (PCA,
+  // licitação do corpo); o CNPJ vindo do corpo só vale para o admin da
+  // plataforma. Antes, qualquer órgão com o módulo PNCP operava o CNPJ padrão
+  // ou o `cnpj_orgao` que mandasse no corpo.
+
+  private async escopoPncp(ator: Ator | null, cnpjInformado?: string | null): Promise<{ cnpj?: string; orgaoId?: string }> {
+    if (!ator) throw new UnauthorizedException('Autenticação necessária');
+    const informado = String(cnpjInformado || '').replace(/\D/g, '');
+    if (ator.admin) return { cnpj: informado || undefined };
+    if (!ehOrgao(ator)) throw new ForbiddenException('Ação exclusiva do órgão');
+    const cnpj = await this.pncpService.cnpjPncpDoOrgaoId(ator.orgaoId);
+    if (informado && informado !== cnpj) {
+      throw new ForbiddenException('Acesso negado: o CNPJ informado não é o do seu órgão no PNCP');
+    }
+    return { cnpj, orgaoId: ator.orgaoId };
+  }
+
+  /** Licitação informada no corpo (efeitos locais) precisa ser do órgão. */
+  private async exigirLicitacaoDoCorpo(ator: Ator | null, licitacaoId?: string | null): Promise<void> {
+    if (licitacaoId) await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+  }
+
+  private async exigirDonoDoPca(ator: Ator | null, pcaId: string, modo: 'leitura' | 'escrita' = 'escrita'): Promise<void> {
+    const orgaoId = ehUuid(pcaId) ? await this.pncpService.orgaoDoPca(pcaId) : null;
+    this.acesso.assertMesmoOrgao(ator, orgaoId, modo, 'PCA');
   }
 
   // ============ PCA - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
 
   @Post('pca/:pcaId')
-  async enviarPCA(
-    @Param('pcaId') pcaId: string,
-    @Body() pca: any
-  ) {
+  async enviarPCA(@Param('pcaId') pcaId: string, @Body() pca: Record<string, any>, @AtorAtual() ator: Ator) {
+    await this.exigirDonoDoPca(ator, pcaId);
     return this.pncpService.enviarPCA(pcaId, pca);
   }
 
@@ -241,26 +278,29 @@ export class PncpController {
   async retificarPCA(
     @Param('anoPca') anoPca: string,
     @Param('sequencialPca') sequencialPca: string,
-    @Body() pca: any
+    @Body() pca: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.retificarPCA(anoPca, sequencialPca, pca);
+    const { orgaoId } = await this.escopoPncp(ator);
+    return this.pncpService.retificarPCA(anoPca, sequencialPca, pca, orgaoId);
   }
 
   @Delete('pca/:anoPca/:sequencialPca')
   async excluirPCA(
     @Param('anoPca') anoPca: string,
     @Param('sequencialPca') sequencialPca: string,
-    @Body() body?: { justificativa?: string }
+    @AtorAtual() ator: Ator,
+    @Body() body?: { justificativa?: string },
   ) {
-    return this.pncpService.excluirPCA(anoPca, sequencialPca, body?.justificativa);
+    const { orgaoId } = await this.escopoPncp(ator);
+    return this.pncpService.excluirPCA(anoPca, sequencialPca, body?.justificativa, orgaoId);
   }
 
   @Post('pca/:pcaId/itens')
-  async enviarItemPCA(
-    @Param('pcaId') pcaId: string,
-    @Body() item: any
-  ) {
-    return this.pncpService.enviarItemPCA(pcaId, item);
+  async enviarItemPCA(@Param('pcaId') pcaId: string, @Body() item: Record<string, any>, @AtorAtual() ator: Ator) {
+    await this.exigirDonoDoPca(ator, pcaId);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.enviarItemPCA(pcaId, item, cnpj);
   }
 
   @Put('pca/:anoPca/:sequencialPca/itens/:numeroItem')
@@ -268,61 +308,73 @@ export class PncpController {
     @Param('anoPca') anoPca: string,
     @Param('sequencialPca') sequencialPca: string,
     @Param('numeroItem') numeroItem: string,
-    @Body() item: any
+    @Body() item: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.retificarItemPCA(anoPca, sequencialPca, numeroItem, item);
+    const { orgaoId } = await this.escopoPncp(ator);
+    return this.pncpService.retificarItemPCA(anoPca, sequencialPca, numeroItem, item, orgaoId);
   }
 
   @Delete('pca/:anoPca/:sequencialPca/itens/:numeroItem')
   async excluirItemPCA(
     @Param('anoPca') anoPca: string,
     @Param('sequencialPca') sequencialPca: string,
-    @Param('numeroItem') numeroItem: string
+    @Param('numeroItem') numeroItem: string,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.excluirItemPCA(anoPca, sequencialPca, numeroItem);
+    const { orgaoId } = await this.escopoPncp(ator);
+    return this.pncpService.excluirItemPCA(anoPca, sequencialPca, numeroItem, orgaoId);
   }
 
   @Get('pca/:pcaId/status')
-  async consultarStatusPCA(@Param('pcaId') pcaId: string) {
+  async consultarStatusPCA(@Param('pcaId') pcaId: string, @AtorAtual() ator: Ator) {
+    await this.exigirDonoDoPca(ator, pcaId, 'leitura');
     return this.pncpService.consultarStatusPCA(pcaId);
   }
 
   @Get('pca/orgao/listar')
-  async listarPCAsNoOrgao() {
-    return this.pncpService.consultarPCAsNoOrgao();
+  async listarPCAsNoOrgao(@AtorAtual() ator: Ator) {
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.consultarPCAsNoOrgao(cnpj);
   }
 
-  // ============ COMPRAS/EDITAIS - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
-
-  @Post('compras')
-  async incluirCompra(@Body() compra: any) {
-    return this.pncpService.incluirCompra(compra);
-  }
+  // ============ COMPRAS/EDITAIS - RETIFICAÇÃO / EXCLUSÃO ============
+  // A inclusão da compra é pela fila (`POST compras/:licitacaoId` ou o ato
+  // PUBLICAR) com o edital real — o `POST compras` cru (PDF em branco) foi
+  // apagado na E9.
 
   @Put('compras/:anoCompra/:sequencialCompra')
   async retificarCompra(
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
-    @Body() compra: any
+    @Body() compra: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.retificarCompra(anoCompra, sequencialCompra, compra);
+    await this.exigirLicitacaoDoCorpo(ator, compra?.licitacaoId);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.retificarCompra(anoCompra, sequencialCompra, compra, cnpj);
   }
 
   @Delete('compras/:anoCompra/:sequencialCompra')
   async excluirCompra(
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
-    @Body() body: { justificativa: string; licitacaoId?: string }
+    @Body() body: { justificativa: string; licitacaoId?: string },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.excluirCompra(anoCompra, sequencialCompra, body);
+    await this.exigirLicitacaoDoCorpo(ator, body?.licitacaoId);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.excluirCompra(anoCompra, sequencialCompra, body, atorTransicaoDe(ator), cnpj);
   }
 
   @Get('compras/:anoCompra/:sequencialCompra')
   async consultarCompra(
     @Param('anoCompra') anoCompra: string,
-    @Param('sequencialCompra') sequencialCompra: string
+    @Param('sequencialCompra') sequencialCompra: string,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.consultarCompra(anoCompra, sequencialCompra);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.consultarCompra(anoCompra, sequencialCompra, cnpj);
   }
 
   // ============ ITENS DA COMPRA ============
@@ -330,18 +382,23 @@ export class PncpController {
   @Get('compras/:anoCompra/:sequencialCompra/itens/quantidade')
   async consultarQuantidadeItens(
     @Param('anoCompra') anoCompra: string,
-    @Param('sequencialCompra') sequencialCompra: string
+    @Param('sequencialCompra') sequencialCompra: string,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.consultarQuantidadeItens(anoCompra, sequencialCompra);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.consultarQuantidadeItens(anoCompra, sequencialCompra, cnpj);
   }
 
   @Post('compras/:anoCompra/:sequencialCompra/itens')
   async incluirItemCompra(
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
-    @Body() item: any
+    @Body() item: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.incluirItemCompra(anoCompra, sequencialCompra, item);
+    await this.exigirLicitacaoDoCorpo(ator, item?.licitacaoId);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.incluirItemCompra(anoCompra, sequencialCompra, item, cnpj);
   }
 
   @Put('compras/:anoCompra/:sequencialCompra/itens/:numeroItem')
@@ -349,9 +406,12 @@ export class PncpController {
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
     @Param('numeroItem') numeroItem: string,
-    @Body() item: any
+    @Body() item: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.retificarItemCompra(anoCompra, sequencialCompra, numeroItem, item);
+    await this.exigirLicitacaoDoCorpo(ator, item?.licitacaoId);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.retificarItemCompra(anoCompra, sequencialCompra, numeroItem, item, cnpj);
   }
 
   @Delete('compras/:anoCompra/:sequencialCompra/itens/:numeroItem')
@@ -359,9 +419,11 @@ export class PncpController {
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
     @Param('numeroItem') numeroItem: string,
-    @Body() body?: { justificativa?: string }
+    @AtorAtual() ator: Ator,
+    @Body() body?: { justificativa?: string },
   ) {
-    return this.pncpService.excluirItemCompra(anoCompra, sequencialCompra, numeroItem, body?.justificativa);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.excluirItemCompra(anoCompra, sequencialCompra, numeroItem, body?.justificativa, cnpj);
   }
 
   // ============ RESULTADO DE ITENS DA COMPRA ============
@@ -371,9 +433,11 @@ export class PncpController {
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
     @Param('numeroItem') numeroItem: string,
-    @Body() resultado: any
+    @Body() resultado: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.incluirResultadoItem(anoCompra, sequencialCompra, numeroItem, resultado);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.incluirResultadoItem(anoCompra, sequencialCompra, numeroItem, resultado, cnpj);
   }
 
   @Put('compras/:anoCompra/:sequencialCompra/itens/:numeroItem/resultado')
@@ -381,9 +445,11 @@ export class PncpController {
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
     @Param('numeroItem') numeroItem: string,
-    @Body() resultado: any
+    @Body() resultado: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.retificarResultadoItem(anoCompra, sequencialCompra, numeroItem, resultado);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.retificarResultadoItem(anoCompra, sequencialCompra, numeroItem, resultado, cnpj);
   }
 
   // ============ ATA DE REGISTRO DE PREÇO ============
@@ -392,9 +458,11 @@ export class PncpController {
   async incluirAtaRegistroPreco(
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
-    @Body() ata: any
+    @Body() ata: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.incluirAtaRegistroPreco(anoCompra, sequencialCompra, ata);
+    const { cnpj } = await this.escopoPncp(ator, ata?.cnpj_orgao);
+    return this.pncpService.incluirAtaRegistroPreco(anoCompra, sequencialCompra, { ...ata, cnpj_orgao: cnpj });
   }
 
   @Put('compras/:anoCompra/:sequencialCompra/atas/:sequencialAta')
@@ -402,9 +470,11 @@ export class PncpController {
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
     @Param('sequencialAta') sequencialAta: string,
-    @Body() ata: any
+    @Body() ata: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.retificarAtaRegistroPreco(anoCompra, sequencialCompra, sequencialAta, ata);
+    const { cnpj } = await this.escopoPncp(ator, ata?.cnpj_orgao);
+    return this.pncpService.retificarAtaRegistroPreco(anoCompra, sequencialCompra, sequencialAta, { ...ata, cnpj_orgao: cnpj });
   }
 
   @Delete('compras/:anoCompra/:sequencialCompra/atas/:sequencialAta')
@@ -412,56 +482,59 @@ export class PncpController {
     @Param('anoCompra') anoCompra: string,
     @Param('sequencialCompra') sequencialCompra: string,
     @Param('sequencialAta') sequencialAta: string,
-    @Body() body: { justificativa: string; cnpj_orgao?: string }
+    @Body() body: { justificativa: string; cnpj_orgao?: string },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.excluirAtaRegistroPreco(
-      anoCompra,
-      sequencialCompra,
-      sequencialAta,
-      body.justificativa,
-      body.cnpj_orgao,
-    );
+    const { cnpj } = await this.escopoPncp(ator, body?.cnpj_orgao);
+    return this.pncpService.excluirAtaRegistroPreco(anoCompra, sequencialCompra, sequencialAta, body?.justificativa, cnpj);
   }
 
   // ============ CONTRATOS - INCLUSÃO / RETIFICAÇÃO / EXCLUSÃO ============
+  // O contrato do processo vai pela fila (`POST contratos/:contratoId/enviar`,
+  // só depois de assinado). A inclusão crua fica para contratos de fora do
+  // sistema, sob o CNPJ do próprio órgão.
 
   @Post('contratos')
-  async incluirContrato(@Body() contrato: any) {
-    return this.pncpService.incluirContrato(contrato);
+  async incluirContrato(@Body() contrato: Record<string, any>, @AtorAtual() ator: Ator) {
+    const { cnpj } = await this.escopoPncp(ator, contrato?.cnpj_orgao);
+    return this.pncpService.incluirContrato({ ...contrato, cnpj_orgao: cnpj });
   }
 
   @Put('contratos/:anoContrato/:sequencialContrato')
   async retificarContrato(
     @Param('anoContrato') anoContrato: string,
     @Param('sequencialContrato') sequencialContrato: string,
-    @Body() contrato: any
+    @Body() contrato: Record<string, any>,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.retificarContrato(anoContrato, sequencialContrato, contrato);
+    const { cnpj } = await this.escopoPncp(ator, contrato?.cnpj_orgao);
+    return this.pncpService.retificarContrato(anoContrato, sequencialContrato, { ...contrato, cnpj_orgao: cnpj });
   }
 
   @Delete('contratos/:anoContrato/:sequencialContrato')
   async excluirContrato(
     @Param('anoContrato') anoContrato: string,
     @Param('sequencialContrato') sequencialContrato: string,
-    @Body() body: { justificativa: string; cnpj_orgao?: string }
+    @Body() body: { justificativa: string; cnpj_orgao?: string },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.excluirContrato(
-      anoContrato,
-      sequencialContrato,
-      body.justificativa,
-      body.cnpj_orgao,
-    );
+    const { cnpj } = await this.escopoPncp(ator, body?.cnpj_orgao);
+    return this.pncpService.excluirContrato(anoContrato, sequencialContrato, body?.justificativa, cnpj);
   }
 
   @Get('contratos/:anoContrato/:sequencialContrato')
   async consultarContrato(
     @Param('anoContrato') anoContrato: string,
-    @Param('sequencialContrato') sequencialContrato: string
+    @Param('sequencialContrato') sequencialContrato: string,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.consultarContrato(anoContrato, sequencialContrato);
+    const { cnpj } = await this.escopoPncp(ator);
+    return this.pncpService.consultarContrato(anoContrato, sequencialContrato, cnpj);
   }
 
   // ============ ÓRGÃOS E UNIDADES ============
+  // Consultas ao cadastro do PNCP (dados públicos) ficam para o órgão; o que
+  // ALTERA o cadastro do PNCP ou a credencial da plataforma é do admin.
 
   @Get('orgaos/:cnpj')
   async consultarOrgao(@Param('cnpj') cnpj: string) {
@@ -469,7 +542,8 @@ export class PncpController {
   }
 
   @Post('orgaos')
-  async cadastrarOrgao(@Body() orgao: any) {
+  @UseGuards(AdminGuard)
+  async cadastrarOrgao(@Body() orgao: Record<string, any>) {
     return this.pncpService.cadastrarOrgao(orgao);
   }
 
@@ -479,28 +553,34 @@ export class PncpController {
   }
 
   @Post('orgaos/:cnpj/unidades')
-  async cadastrarUnidade(@Param('cnpj') cnpj: string, @Body() unidade: any) {
+  @UseGuards(AdminGuard)
+  async cadastrarUnidade(@Param('cnpj') cnpj: string, @Body() unidade: Record<string, any>) {
     return this.pncpService.cadastrarUnidade(cnpj, unidade);
   }
 
-  // ============ USUÁRIO E ENTES AUTORIZADOS ============
+  // ============ USUÁRIO E ENTES AUTORIZADOS (credencial da plataforma) ============
 
   @Get('usuario')
-  async consultarUsuario(@Req() request: any) {
+  @UseGuards(AdminGuard)
+  async consultarUsuario(@Req() request: unknown) {
     return this.pncpService.consultarUsuario(request);
   }
 
   @Put('usuario/entes-autorizados')
+  @UseGuards(AdminGuard)
   async atualizarEntesAutorizados(@Body() body: { cnpjs: string[] }) {
     return this.pncpService.atualizarEntesAutorizados(body.cnpjs);
   }
 
   @Post('usuario/vincular-ente/:cnpj')
+  @UseGuards(AdminGuard)
   async vincularEnte(@Param('cnpj') cnpj: string) {
     return this.pncpService.vincularEnte(cnpj);
   }
 
+  /** Associa um ente do PNCP a um órgão local — define o CNPJ do escopo acima. */
   @Post('usuario/associar-orgao-local')
+  @UseGuards(AdminGuard)
   async associarOrgaoLocal(
     @Body() body: {
       cnpjEnte: string;
@@ -516,30 +596,24 @@ export class PncpController {
 
   @Get('config/status')
   async verificarConfiguracao() {
-    console.log('[CONTROLLER] verificarConfiguracao chamado');
     return this.pncpService.verificarConfiguracao();
   }
 
   @Post('config/testar-conexao')
-  async testarConexao(@Req() request: any) {
+  async testarConexao(@Req() request: unknown) {
     return this.pncpService.testarConexao(request);
   }
 
   @Post('config-update')
   @UseGuards(AdminGuard)
-  async atualizarConfiguracao(@Body() config: any) {
+  async atualizarConfiguracao(@Body() config: Parameters<PncpService['atualizarConfiguracao']>[0]) {
     // Não logar o corpo: aqui trafega a senha da plataforma no PNCP.
-    console.log('[CONTROLLER] atualizarConfiguracao chamado');
     return this.pncpService.atualizarConfiguracao(config);
   }
 
-  @Post('test-endpoint')
-  async testEndpoint() {
-    console.log('[CONTROLLER] testEndpoint chamado');
-    return { message: 'Test endpoint working!' };
-  }
-
   // ============ IMPORTAÇÃO DE PCAs DO PNCP ============
+  // Leitura dos PCAs publicados (dado público) de qualquer CNPJ; a IMPORTAÇÃO
+  // grava no órgão do token (o `orgaoId` do corpo só vale para o admin).
 
   @Get('importar/pcas/:cnpj')
   async consultarPCAsNoPncp(
@@ -558,18 +632,36 @@ export class PncpController {
     return this.pncpService.consultarPCADetalhado(cnpj, parseInt(ano), parseInt(sequencial));
   }
 
+  /**
+   * Órgão e CNPJ da importação: do TOKEN (a tela não manda mais nenhum dos
+   * dois). `orgaoId`/`cnpj` do corpo só valem para o admin da plataforma; de
+   * outro órgão/CNPJ → 403.
+   */
+  private async escopoImportacao(ator: Ator, body: { orgaoId?: string; cnpj?: string } | undefined) {
+    if (body?.orgaoId) this.acesso.assertProprioOrgao(ator, body.orgaoId);
+    const orgaoId = ator?.admin ? body?.orgaoId : ator?.orgaoId ?? undefined;
+    if (!orgaoId) throw new BadRequestException('orgaoId é obrigatório para o administrador da plataforma');
+    const { cnpj } = await this.escopoPncp(ator, body?.cnpj);
+    if (!cnpj) throw new BadRequestException('cnpj é obrigatório para o administrador da plataforma');
+    return { orgaoId, cnpj };
+  }
+
   @Post('importar/pca')
   async importarPCADoPncp(
-    @Body() body: { orgaoId: string; cnpj: string; ano: number; sequencial: number }
+    @Body() body: { orgaoId?: string; cnpj?: string; ano: number; sequencial: number },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.importarPCADoPncp(body.orgaoId, body.cnpj, body.ano, body.sequencial);
+    const { orgaoId, cnpj } = await this.escopoImportacao(ator, body);
+    return this.pncpService.importarPCADoPncp(orgaoId, cnpj, body.ano, body.sequencial);
   }
 
   @Post('importar/pcas/todos')
   async sincronizarTodosPCAsDoPncp(
-    @Body() body: { orgaoId: string; cnpj: string }
+    @Body() body: { orgaoId?: string; cnpj?: string },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.pncpService.sincronizarTodosPCAsDoPncp(body.orgaoId, body.cnpj);
+    const { orgaoId, cnpj } = await this.escopoImportacao(ator, body);
+    return this.pncpService.sincronizarTodosPCAsDoPncp(orgaoId, cnpj);
   }
 
   // ============ UNIDADES DO ÓRGÃO ============

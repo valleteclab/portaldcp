@@ -1,5 +1,6 @@
 import { IsEnum, IsNotEmpty, IsNumber, IsString, IsDateString, Min, IsOptional, IsBoolean, IsUUID } from 'class-validator';
 import { ModalidadeLicitacao, ModoDisputa, CriterioJulgamento, TipoContratacao, RegimeExecucao } from '../entities/licitacao.entity';
+import { BaseLance } from '../../disputa/modelo-lance';
 
 export class CreateLicitacaoDto {
   @IsString()
@@ -46,6 +47,11 @@ export class CreateLicitacaoDto {
   @IsOptional()
   regime_execucao?: RegimeExecucao;
 
+  /** Art. 6º XIII/XIV — define o prazo do art. 55, II (plano E7a). */
+  @IsString()
+  @IsOptional()
+  natureza_objeto?: 'COMUM' | 'ESPECIAL' | null;
+
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsOptional()
   valor_total_estimado?: number;
@@ -79,6 +85,19 @@ export class CreateLicitacaoDto {
   @IsNumber()
   @IsOptional()
   diferenca_minima_lances?: number;
+
+  /**
+   * Unidade dos lances (plano E2 §2.3): UNITARIO, TOTAL_ITEM (padrão) ou
+   * TOTAL_LOTE — disputa por LOTE (grupo): lances pelo valor global do lote,
+   * rateio proporcional para os itens (disputa/rateio-lote.ts).
+   */
+  @IsOptional()
+  @IsEnum(BaseLance)
+  base_lance?: BaseLance;
+
+  @IsBoolean()
+  @IsOptional()
+  usa_lotes?: boolean;
 
   @IsBoolean()
   @IsOptional()
@@ -150,4 +169,13 @@ export class PublicarEditalDto {
   @IsString()
   @IsOptional()
   link_pncp?: string;
+
+  /**
+   * Justificativa (LC 123/2006 art. 49) para publicar com itens de até
+   * R$ 80.000 SEM participação exclusiva de ME/EPP (art. 48 I) — registrada
+   * na transição PUBLICAR.
+   */
+  @IsString()
+  @IsOptional()
+  justificativa_nao_exclusividade_mpe?: string;
 }

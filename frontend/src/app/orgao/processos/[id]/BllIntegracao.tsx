@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { API_URL, authFetch } from "@/lib/api"
+import { toast } from "sonner"
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -42,6 +44,7 @@ const fmtMoeda = (v?: number | null) => Number(v ?? 0).toLocaleString("pt-BR", {
  * com o resultado. A aplicação usa a mesma rota da seleção externa.
  */
 export function BllIntegracao({ licitacaoId, homologado, onAtualizado }: { licitacaoId: string; homologado: boolean; onAtualizado: () => void }) {
+  const { confirmar, dialogo } = useDialogoConfirmacao()
   const [previa, setPrevia] = useState<Previa | null>(null)
   const [historico, setHistorico] = useState<Historico[]>([])
   const [form, setForm] = useState({ numero_edital: "", entrega_local: "", entrega_prazo: "", garantia_produto: "", ata_vigencia_meses: "" })
@@ -94,10 +97,10 @@ export function BllIntegracao({ licitacaoId, homologado, onAtualizado }: { licit
       const a = document.createElement("a"); a.href = url; a.download = nome; a.click()
       setTimeout(() => URL.revokeObjectURL(url), 5000)
       const avisos = res.headers.get("X-Avisos")
-      if (avisos) { try { const l = JSON.parse(decodeURIComponent(avisos)); if (l.length) alert(`Arquivo gerado com avisos:\n\n${l.join("\n")}`) } catch { /* sem avisos */ } }
+      if (avisos) { try { const l = JSON.parse(decodeURIComponent(avisos)); if (l.length) toast.warning(`Arquivo gerado com avisos: ${l.join(" · ")}`, { duration: 15000 }) } catch { /* sem avisos */ } }
       setMostrarExport(false)
       carregar()
-    } catch (e: any) { alert(`Não foi possível gerar o arquivo:\n\n${e.message}`) } finally { setExportando(false) }
+    } catch (e: any) { toast.error(`Não foi possível gerar o arquivo: ${e.message}`) } finally { setExportando(false) }
   }
 
   const enviarArquivo = async (file: File, aplicar: boolean) => {
@@ -118,24 +121,26 @@ export function BllIntegracao({ licitacaoId, homologado, onAtualizado }: { licit
     try {
       const r = await enviarArquivo(file, false)
       setArquivoImport(file); setPreviaImport(r.previa)
-    } catch (err: any) { alert(`Não foi possível ler o arquivo:\n\n${err.message}`) } finally { setImportando(false) }
+    } catch (err: any) { toast.error(`Não foi possível ler o arquivo: ${err.message}`) } finally { setImportando(false) }
   }
 
   const aplicar = async () => {
     if (!arquivoImport || !previaImport) return
-    if (!confirm(`Aplicar o resultado da BLL?\n\n${previaImport.vencedores.length} item(ns) serão adjudicados e ${previaImport.fornecedores.filter((f) => f.situacao === "NOVO").length} fornecedor(es) novo(s) cadastrado(s). Depois é só homologar para gerar o contrato.`)) return
+    if (!(await confirmar({ titulo: "Aplicar o resultado da BLL?", mensagem: `${previaImport.vencedores.length} item(ns) serão adjudicados e ${previaImport.fornecedores.filter((f) => f.situacao === "NOVO").length} fornecedor(es) novo(s) cadastrado(s). Depois é só homologar para gerar o contrato.`, confirmarRotulo: "Aplicar" }))) return
     setAplicando(true)
     try {
       const r = await enviarArquivo(arquivoImport, true)
       setPreviaImport(null); setArquivoImport(null)
-      if (r?.previa?.avisos?.length) alert(`Resultado aplicado.\n\nAvisos:\n${r.previa.avisos.join("\n")}`)
+      if (r?.previa?.avisos?.length) toast.warning(`Resultado aplicado. Avisos: ${r.previa.avisos.join(" · ")}`, { duration: 15000 }); else toast.success("Resultado aplicado")
       onAtualizado(); carregar()
-    } catch (err: any) { alert(`Não foi possível aplicar:\n\n${err.message}`) } finally { setAplicando(false) }
+    } catch (err: any) { toast.error(`Não foi possível aplicar: ${err.message}`) } finally { setAplicando(false) }
   }
 
   const baixar = (h: Historico) => window.open(`${API_URL}/api/licitacoes/${licitacaoId}/bll/historico/${h.id}/arquivo`, "_blank")
 
   return (
+    <>
+    {dialogo}
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
@@ -289,5 +294,6 @@ export function BllIntegracao({ licitacaoId, homologado, onAtualizado }: { licit
         </DialogContent>
       </Dialog>
     </Card>
+    </>
   )
 }

@@ -2,61 +2,98 @@
  * ============================================================================
  * CONTROLLER: LOTES DE LICITAÇÃO
  * ============================================================================
- * 
+ *
  * Endpoints para gerenciamento de lotes em licitações.
- * 
+ *
  * Fundamentação Legal - Lei 14.133/2021:
- * 
- * Art. 40, §3º - "O parcelamento será adotado quando técnica e economicamente 
+ *
+ * Art. 40, §3º - "O parcelamento será adotado quando técnica e economicamente
  * viável, e deverá ser justificado quando não for adotado."
- * 
+ *
  * Art. 12, VII - Vinculação obrigatória ao PCA ou justificativa
- * 
+ *
  * ============================================================================
- * 
- * ENDPOINTS:
- * 
+ *
+ * ENDPOINTS (prefixo global `api` — até a E2 o controller repetia `api/` e as
+ * rotas saíam em /api/api/lotes):
+ *
  * POST   /api/lotes                     - Criar novo lote
  * GET    /api/lotes/licitacao/:id       - Listar lotes de uma licitação
  * GET    /api/lotes/:id                 - Buscar lote por ID
  * PUT    /api/lotes/:id                 - Atualizar lote
  * DELETE /api/lotes/:id                 - Excluir lote
- * 
+ *
  * POST   /api/lotes/:id/itens/:itemId   - Adicionar item ao lote
  * DELETE /api/lotes/:id/itens/:itemId   - Remover item do lote
  * POST   /api/lotes/:id/mover-item      - Mover item entre lotes
- * 
+ *
  * POST   /api/lotes/:id/vincular-pca    - Vincular PCA ao lote
  * POST   /api/lotes/:id/desvincular-pca - Desvincular PCA (com justificativa)
- * 
+ *
  * GET    /api/lotes/:id/estatisticas    - Estatísticas do lote
  * POST   /api/lotes/:id/recalcular      - Recalcular totais do lote
- * 
+ *
+ * ACESSO (padrão E1a):
+ *  - escrita: só o órgão DONO da licitação (@SomenteOrgao + dono; admin passa);
+ *  - leitura: pública com login opcional — órgão dono vê tudo; os demais só
+ *    lotes de licitação já divulgada, sem a identidade do melhor lance e, com
+ *    orçamento SIGILOSO (art. 24), sem os valores estimados.
  * ============================================================================
  */
 
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Put, 
-  Delete, 
-  Body, 
-  Param, 
-  HttpCode, 
-  HttpStatus 
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  HttpCode,
+  HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
 import { LotesService } from './lotes.service';
-import { 
-  CreateLoteDto, 
-  UpdateLoteDto, 
+import {
+  CreateLoteDto,
+  UpdateLoteDto,
   VincularPcaLoteDto,
-  MoveItemBetweenLotesDto 
+  MoveItemBetweenLotesDto
 } from './dto/lote.dto';
+import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
+import { AtorAtual, AutenticacaoOpcional, SomenteOrgao } from '../auth/acesso/acesso.decorators';
+import { ehOrgao } from '../auth/acesso/ator';
+import type { Ator } from '../auth/acesso/ator';
+import { licitacaoEhPublica, orcamentoSigiloso } from '../licitacoes/licitacao-visao.util';
+import { itensParaPublico } from '../itens/item-visao.util';
 
-@Controller('api/lotes')
+/** Lote na visão pública (sem identidade do melhor lance; sigilo do orçamento). */
+function loteParaPublico(lote: any, lic: { sigilo_orcamento?: string | null }) {
+  if (!lote || typeof lote !== 'object') return lote;
+  const { licitacao: _lic, itens, ...resto } = lote;
+  return {
+    ...resto,
+    melhor_lance_fornecedor_id: null,
+    ...(orcamentoSigiloso(lic) ? { valor_total_estimado: null } : {}),
+    ...(Array.isArray(itens) ? { itens: itensParaPublico(itens, lic) } : {}),
+  };
+}
+
+@Controller('lotes')
 export class LotesController {
-  constructor(private readonly lotesService: LotesService) {}
+  constructor(
+    private readonly lotesService: LotesService,
+    private readonly acesso: AcessoLicitacaoService,
+  ) {}
+
+  /** Visão da leitura: 'ORGAO' (dono/admin) ou 'PUBLICO' (licitação divulgada; senão 404). */
+  private async visao(ator: Ator | null, licitacaoId: string) {
+    const lic = await this.lotesService.licitacaoParaVisao(licitacaoId);
+    if (!lic) throw new NotFoundException('Licitação não encontrada');
+    if (ator?.admin || (ehOrgao(ator) && ator.orgaoId === lic.orgao_id)) return { visao: 'ORGAO' as const, lic };
+    if (!licitacaoEhPublica(lic)) throw new NotFoundException('Licitação não encontrada');
+    return { visao: 'PUBLICO' as const, lic };
+  }
 
   // ============================================================================
   // CRUD BÁSICO
@@ -64,172 +101,112 @@ export class LotesController {
 
   /**
    * Criar novo lote
-   * 
+   *
    * Lei 14.133/2021, Art. 40, §3º:
    * "O parcelamento será adotado quando técnica e economicamente viável"
-   * 
+   *
    * @example POST /api/lotes
-   * {
-   *   "numero": 1,
-   *   "descricao": "Equipamentos de Informática",
-   *   "licitacao_id": "uuid",
-   *   "item_pca_id": "uuid" // opcional
-   * }
+   * { "numero": 1, "descricao": "Equipamentos de Informática", "licitacao_id": "uuid",
+   *   "tipo_beneficio_mpe": "NENHUM" }
    */
+  @SomenteOrgao()
   @Post()
-  async create(@Body() dto: CreateLoteDto) {
+  async create(@Body() dto: CreateLoteDto, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, dto?.licitacao_id, 'escrita');
     return this.lotesService.create(dto);
   }
 
-  /**
-   * Listar todos os lotes de uma licitação
-   * 
-   * @example GET /api/lotes/licitacao/uuid
-   */
+  /** Listar todos os lotes de uma licitação (com os itens). */
+  @AutenticacaoOpcional()
   @Get('licitacao/:licitacaoId')
-  async findByLicitacao(@Param('licitacaoId') licitacaoId: string) {
-    return this.lotesService.findByLicitacao(licitacaoId);
+  async findByLicitacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator | null) {
+    const { visao, lic } = await this.visao(ator, licitacaoId);
+    const lotes = await this.lotesService.findByLicitacao(licitacaoId);
+    return visao === 'ORGAO' ? lotes : lotes.map((l) => loteParaPublico(l, lic));
   }
 
-  /**
-   * Buscar lote por ID
-   * 
-   * @example GET /api/lotes/uuid
-   */
+  /** Buscar lote por ID. */
+  @AutenticacaoOpcional()
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.lotesService.findOne(id);
+  async findOne(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
+    const dono = await this.acesso.donoDoLote(id);
+    if (!dono) throw new NotFoundException('Lote não encontrado');
+    const { visao, lic } = await this.visao(ator, dono.licitacaoId);
+    const lote = await this.lotesService.findOne(id);
+    if (visao === 'PUBLICO') return loteParaPublico(lote, lic);
+    const { licitacao: _l, ...resto } = lote as any;
+    return resto;
   }
 
-  /**
-   * Atualizar lote
-   * 
-   * @example PUT /api/lotes/uuid
-   * {
-   *   "descricao": "Nova descrição",
-   *   "item_pca_id": "uuid"
-   * }
-   */
+  /** Atualizar lote. */
+  @SomenteOrgao()
   @Put(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateLoteDto) {
+  async update(@Param('id') id: string, @Body() dto: UpdateLoteDto, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoLote(ator, id, 'escrita');
     return this.lotesService.update(id, dto);
   }
 
   /**
-   * Excluir lote
-   * 
-   * Nota: Não é possível excluir lotes com itens vinculados.
-   * Remova os itens primeiro ou mova-os para outro lote.
-   * 
-   * @example DELETE /api/lotes/uuid
+   * Excluir lote. Não é possível excluir lotes com itens vinculados —
+   * remova os itens primeiro ou mova-os para outro lote.
    */
+  @SomenteOrgao()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Param('id') id: string) {
+  async remove(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoLote(ator, id, 'escrita');
     await this.lotesService.remove(id);
   }
 
   // ============================================================================
-  // GERENCIAMENTO DE ITENS
+  // GERENCIAMENTO DE ITENS (um item pertence a no máximo um lote)
   // ============================================================================
 
-  /**
-   * Adicionar item ao lote
-   * 
-   * Quando o modo de vinculação da licitação é POR_LOTE,
-   * o item herda automaticamente o PCA do lote.
-   * 
-   * @example POST /api/lotes/uuid/itens/uuid
-   */
+  @SomenteOrgao()
   @Post(':loteId/itens/:itemId')
-  async addItemToLote(
-    @Param('loteId') loteId: string,
-    @Param('itemId') itemId: string
-  ) {
+  async addItemToLote(@Param('loteId') loteId: string, @Param('itemId') itemId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoLote(ator, loteId, 'escrita');
     return this.lotesService.addItemToLote(loteId, itemId);
   }
 
-  /**
-   * Remover item do lote
-   * 
-   * @example DELETE /api/lotes/uuid/itens/uuid
-   */
+  @SomenteOrgao()
   @Delete(':loteId/itens/:itemId')
-  async removeItemFromLote(
-    @Param('loteId') loteId: string,
-    @Param('itemId') itemId: string
-  ) {
+  async removeItemFromLote(@Param('loteId') loteId: string, @Param('itemId') itemId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoLote(ator, loteId, 'escrita');
     return this.lotesService.removeItemFromLote(loteId, itemId);
   }
 
-  /**
-   * Mover item entre lotes
-   * 
-   * @example POST /api/lotes/uuid/mover-item
-   * {
-   *   "item_id": "uuid",
-   *   "lote_destino_id": "uuid"
-   * }
-   */
+  /** Mover item entre lotes. @example POST /api/lotes/uuid/mover-item { "item_id", "lote_destino_id" } */
+  @SomenteOrgao()
   @Post(':loteOrigemId/mover-item')
   async moveItemBetweenLotes(
     @Param('loteOrigemId') loteOrigemId: string,
-    @Body() dto: MoveItemBetweenLotesDto
+    @Body() dto: MoveItemBetweenLotesDto,
+    @AtorAtual() ator: Ator,
   ) {
-    return this.lotesService.moveItemBetweenLotes(
-      dto.item_id,
-      loteOrigemId,
-      dto.lote_destino_id
-    );
+    const origem = await this.acesso.assertOrgaoDoLote(ator, loteOrigemId, 'escrita');
+    const destino = await this.acesso.assertOrgaoDoLote(ator, dto?.lote_destino_id, 'escrita');
+    if (origem.licitacaoId !== destino.licitacaoId) throw new NotFoundException('Lote de destino não encontrado nesta licitação');
+    return this.lotesService.moveItemBetweenLotes(dto.item_id, loteOrigemId, dto.lote_destino_id);
   }
 
   // ============================================================================
   // VINCULAÇÃO COM PCA
   // ============================================================================
 
-  /**
-   * Vincular PCA ao lote
-   * 
-   * Lei 14.133/2021, Art. 12, VII:
-   * "As contratações públicas deverão submeter-se a práticas contínuas e 
-   * permanentes de gestão de riscos e de controle preventivo, inclusive 
-   * mediante adoção de recursos de tecnologia da informação, e, além de 
-   * estar subordinadas ao controle social, sujeitar-se-ão às seguintes 
-   * linhas de defesa: VII - o plano de contratações anual"
-   * 
-   * @example POST /api/lotes/uuid/vincular-pca
-   * {
-   *   "item_pca_id": "uuid",
-   *   "propagar_para_itens": true
-   * }
-   */
+  /** Vincular PCA ao lote (Lei 14.133/2021, Art. 12, VII). */
+  @SomenteOrgao()
   @Post(':id/vincular-pca')
-  async vincularPca(
-    @Param('id') id: string,
-    @Body() dto: VincularPcaLoteDto
-  ) {
+  async vincularPca(@Param('id') id: string, @Body() dto: VincularPcaLoteDto, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoLote(ator, id, 'escrita');
     return this.lotesService.vincularPca(id, dto);
   }
 
-  /**
-   * Desvincular PCA do lote (marcar como sem PCA)
-   * 
-   * Lei 14.133/2021, Art. 12, §1º:
-   * "A não observância do disposto no inciso VII do caput deste artigo 
-   * deverá ser justificada pelo ordenador de despesa"
-   * 
-   * REQUER justificativa com no mínimo 50 caracteres.
-   * 
-   * @example POST /api/lotes/uuid/desvincular-pca
-   * {
-   *   "justificativa": "Contratação emergencial não prevista no planejamento anual..."
-   * }
-   */
+  /** Desvincular PCA do lote — justificativa ≥ 50 caracteres (Art. 12, §1º). */
+  @SomenteOrgao()
   @Post(':id/desvincular-pca')
-  async desvincularPca(
-    @Param('id') id: string,
-    @Body('justificativa') justificativa: string
-  ) {
+  async desvincularPca(@Param('id') id: string, @Body('justificativa') justificativa: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoLote(ator, id, 'escrita');
     return this.lotesService.desvincularPca(id, justificativa);
   }
 
@@ -237,42 +214,25 @@ export class LotesController {
   // ESTATÍSTICAS E CÁLCULOS
   // ============================================================================
 
-  /**
-   * Obter estatísticas do lote
-   * 
-   * Retorna:
-   * - Quantidade de itens
-   * - Valor total estimado/homologado
-   * - Status da vinculação PCA
-   * - Saldo PCA disponível
-   * - Itens agrupados por status
-   * 
-   * @example GET /api/lotes/uuid/estatisticas
-   */
+  @SomenteOrgao()
   @Get(':id/estatisticas')
-  async getEstatisticas(@Param('id') id: string) {
+  async getEstatisticas(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoLote(ator, id, 'leitura');
     return this.lotesService.getEstatisticas(id);
   }
 
-  /**
-   * Recalcular totais do lote
-   * 
-   * Útil após alterações manuais nos itens.
-   * 
-   * @example POST /api/lotes/uuid/recalcular
-   */
+  @SomenteOrgao()
   @Post(':id/recalcular')
-  async recalcularTotais(@Param('id') id: string) {
+  async recalcularTotais(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDoLote(ator, id, 'escrita');
     return this.lotesService.recalcularTotaisLote(id);
   }
 
-  /**
-   * Reorganizar números dos lotes de uma licitação
-   * 
-   * @example POST /api/lotes/licitacao/uuid/reorganizar
-   */
+  /** Reorganizar números dos lotes de uma licitação. */
+  @SomenteOrgao()
   @Post('licitacao/:licitacaoId/reorganizar')
-  async reorganizarNumeros(@Param('licitacaoId') licitacaoId: string) {
+  async reorganizarNumeros(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId, 'escrita');
     return this.lotesService.reorganizarNumeros(licitacaoId);
   }
 }

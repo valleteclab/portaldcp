@@ -6,6 +6,7 @@ import { API_URL, authFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "sonner"
 
 export interface ItemEquipeLote {
   id: string;
@@ -281,7 +282,7 @@ export default function EquipeLoteMedicao({
       if (!resposta.ok) throw new Error("Não foi possível buscar a equipe anterior");
       const anterior = await resposta.json();
       if (!anterior?.funcionarios?.length) {
-        alert("Nenhuma relação de funcionários anterior foi encontrada.");
+        toast.warning("Nenhuma relação de funcionários anterior foi encontrada.");
         return;
       }
       onChange({
@@ -296,7 +297,7 @@ export default function EquipeLoteMedicao({
         }),
       });
     } catch (erro) {
-      alert(erro instanceof Error ? erro.message : "Erro ao copiar equipe anterior");
+      toast.error(erro instanceof Error ? erro.message : "Erro ao copiar equipe anterior");
     } finally {
       setCopiando(false);
     }

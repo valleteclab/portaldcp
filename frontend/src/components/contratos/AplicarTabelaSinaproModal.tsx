@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Loader2, Search, Calculator } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface ItemTabela {
   id: string
@@ -113,7 +114,7 @@ export default function AplicarTabelaSinaproModal({ contratoId, tabelaId, descon
         onApplied?.(data.total)
         onOpenChange(false)
       } else {
-        alert(data.message || 'Erro ao aplicar itens.')
+        toast.error(data.message || 'Erro ao aplicar itens.')
       }
     } finally {
       setSalvando(false)

@@ -2,8 +2,11 @@ import { Controller, Post, Get, Query, UseGuards, Request, Body, BadRequestExcep
 import { PortalTransparenciaService, PortalTransparenciaResponse } from './portal-transparencia.service';
 import type { PortalTransparenciaContrato } from './portal-transparencia.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AcessoContratoDoOrgao } from '../auth/acesso';
 
 @Controller('contratos/portal-transparencia')
+// :contratoId e contrato_id (corpo) = contrato interno do órgão do token
+@AcessoContratoDoOrgao()
 @UseGuards(JwtAuthGuard)
 export class PortalTransparenciaController {
   private readonly logger = new Logger(PortalTransparenciaController.name);

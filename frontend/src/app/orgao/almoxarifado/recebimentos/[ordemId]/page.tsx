@@ -9,10 +9,12 @@ import { Badge } from '@/components/ui/badge'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { API_URL, authFetch } from '@/lib/api'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 import { StepIndicator } from '../components/StepIndicator'
 import { EtapaNF } from '../components/EtapaNF'
 import { EtapaMapeamento } from '../components/EtapaMapeamento'
 import { EtapaRecebimento } from '../components/EtapaRecebimento'
+import { toast } from "sonner"
 
 const STEPS = [
   { key: 'nf', label: '1. Nota Fiscal' },
@@ -180,7 +182,7 @@ function RecebimentoUnificadoContent() {
         setEtapa('recebimento')
       } else {
         const data = await res.json().catch(() => ({}))
-        alert(data.message || 'Erro ao confirmar mapeamento')
+        toast.error(data.message || 'Erro ao confirmar mapeamento')
       }
     } catch {
     } finally {
@@ -373,7 +375,7 @@ function RecebimentoUnificadoContent() {
                             <div className="flex gap-2 flex-wrap">
                               {ultimaNf.caminho_xml && (
                                 <a
-                                  href={getFileUrl(ultimaNf.caminho_xml) || '#'}
+                                  href={getFileUrl(ultimaNf.caminho_xml) || '#'} onClick={(e) => { const u = getFileUrl(ultimaNf.caminho_xml); if (u) { e.preventDefault(); abrirArquivoAutenticado(u) } }}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 transition text-sm"
@@ -385,7 +387,7 @@ function RecebimentoUnificadoContent() {
                               )}
                               {ultimaNf.caminho_pdf && (
                                 <a
-                                  href={getFileUrl(ultimaNf.caminho_pdf) || '#'}
+                                  href={getFileUrl(ultimaNf.caminho_pdf) || '#'} onClick={(e) => { const u = getFileUrl(ultimaNf.caminho_pdf); if (u) { e.preventDefault(); abrirArquivoAutenticado(u) } }}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 transition text-sm"

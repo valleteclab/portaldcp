@@ -12,25 +12,27 @@ import {
 } from '@nestjs/common';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { AtualizacoesService } from './atualizacoes.service';
-import { AtualizacaoSistema } from './entities/atualizacao-sistema.entity';
+import { AcessoLicitacaoService, AtorAtual, SomenteFornecedor } from '../auth/acesso';
+import type { Ator } from '../auth/acesso';
 
 @Controller('atualizacoes')
 export class AtualizacoesController {
-  constructor(private readonly service: AtualizacoesService) {}
+  constructor(
+    private readonly service: AtualizacoesService,
+    private readonly acesso: AcessoLicitacaoService,
+  ) {}
 
   /**
    * Fornecedor busca a última atualização não lida.
    * GET /api/atualizacoes/nao-lida?fornecedorId=X
    */
   @Get('nao-lida')
+  @SomenteFornecedor()
   async buscarNaoLida(
-    @Query('fornecedorId') fornecedorId: string,
-    @Req() request: { user: JwtPayload },
+    @Query('fornecedorId') fornecedorIdInformado: string,
+    @AtorAtual() ator: Ator,
   ) {
-    if (!fornecedorId) throw new BadRequestException('fornecedorId é obrigatório');
-    if (request.user.type === UserType.FORNECEDOR && request.user.sub !== fornecedorId) {
-      throw new ForbiddenException('Acesso negado');
-    }
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, fornecedorIdInformado);
     return this.service.buscarUltimaNaoLida(fornecedorId);
   }
 
@@ -39,16 +41,14 @@ export class AtualizacoesController {
    * POST /api/atualizacoes/:atualizacaoId/marcar-lida
    */
   @Post(':atualizacaoId/marcar-lida')
+  @SomenteFornecedor()
   async marcarComoLida(
     @Param('atualizacaoId') atualizacaoId: string,
-    @Body() body: { fornecedor_id: string },
-    @Req() request: { user: JwtPayload },
+    @Body() body: { fornecedor_id?: string },
+    @AtorAtual() ator: Ator,
   ) {
-    if (!body.fornecedor_id) throw new BadRequestException('fornecedor_id é obrigatório');
-    if (request.user.type === UserType.FORNECEDOR && request.user.sub !== body.fornecedor_id) {
-      throw new ForbiddenException('Acesso negado');
-    }
-    return this.service.marcarComoLida(body.fornecedor_id, atualizacaoId);
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, body?.fornecedor_id);
+    return this.service.marcarComoLida(fornecedorId, atualizacaoId);
   }
 
   // === Rotas admin ===

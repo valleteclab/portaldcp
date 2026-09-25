@@ -21,7 +21,8 @@ import {
   GitBranch,
   Plus,
   Pencil,
-  Trash2
+  Trash2,
+  CalendarDays
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/dialog"
 
 import { API_URL, authFetch, getAssetUrl } from '@/lib/api'
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Setor {
   id: string
@@ -168,11 +170,11 @@ export default function ConfiguracoesPage() {
     const file = e.target.files?.[0]
     if (!file || !orgao.id) return
     if (!['image/png', 'image/jpeg', 'image/jpg'].includes(file.type)) {
-      alert('Use apenas PNG ou JPG')
+      toast('Use apenas PNG ou JPG')
       return
     }
     if (file.size > 2 * 1024 * 1024) {
-      alert('Arquivo deve ter no máximo 2MB')
+      toast.warning('Arquivo deve ter no máximo 2MB')
       return
     }
     setUploadingLogo(true)
@@ -191,14 +193,14 @@ export default function ConfiguracoesPage() {
         const orgaoAtual = JSON.parse(localStorage.getItem('orgao') || '{}')
         orgaoAtual.logo_url = data.logo_url
         localStorage.setItem('orgao', JSON.stringify(orgaoAtual))
-        alert('Logo enviada com sucesso!')
+        toast.success('Logo enviada com sucesso!')
       } else {
         const err = await response.json()
-        alert(err.message || 'Erro ao enviar logo')
+        toast.error(err.message || 'Erro ao enviar logo')
       }
     } catch (error) {
       console.error('Erro ao enviar logo:', error)
-      alert('Erro ao enviar logo')
+      toast.error('Erro ao enviar logo')
     } finally {
       setUploadingLogo(false)
       e.target.value = ''
@@ -214,19 +216,12 @@ export default function ConfiguracoesPage() {
     pushDisputa: true,
   })
 
-  const [pncpConfig, setPncpConfig] = useState({
-    apiUrl: '',
-    login: '',
-    senha: '',
-    cnpjOrgao: '',
-  })
   const [pncpStatus, setPncpStatus] = useState({
     configurado: false,
     ambiente: '',
     cnpjOrgao: '',
     loginConfigurado: false,
   })
-  const [loadingPncp, setLoadingPncp] = useState(false)
   const [testingConnection, setTestingConnection] = useState(false)
 
   // Fator Transparência
@@ -300,7 +295,7 @@ export default function ConfiguracoesPage() {
   }
 
   const revogarMcpKey = async (id: string) => {
-    if (!orgao.id || !confirm('Revogar esta chave? Quem a usa perde o acesso na hora.')) return
+    if (!orgao.id || !(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Revogar esta chave? Quem a usa perde o acesso na hora.', destrutivo: true }))) return
     const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}/mcp-keys/${id}`, { method: 'DELETE' })
     if (res.ok) { toast.success('Chave revogada'); carregarMcpKeys(orgao.id) } else toast.error('Erro ao revogar')
   }
@@ -412,7 +407,7 @@ export default function ConfiguracoesPage() {
 
   const excluirSetor = async (id: string) => {
     if (!orgao.id) return
-    if (!confirm("Tem certeza que deseja excluir este setor? Esta ação não pode ser desfeita.")) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Tem certeza que deseja excluir este setor? Esta ação não pode ser desfeita.", destrutivo: true }))) return
     try {
       const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}/setores/${id}`, { method: "DELETE" })
       if (res.ok) {
@@ -459,44 +454,15 @@ export default function ConfiguracoesPage() {
       })
       const data = await response.json()
       if (response.ok) {
-        alert('Conexão com PNCP estabelecida com sucesso!')
+        toast.success('Conexão com PNCP estabelecida com sucesso!')
       } else {
-        alert(`Erro na conexão: ${data.message || 'Falha ao conectar'}`)
+        toast.error(`Erro na conexão: ${data.message || 'Falha ao conectar'}`)
       }
     } catch (error) {
-      alert('Erro ao testar conexão com PNCP')
+      toast.error('Erro ao testar conexão com PNCP')
       console.error(error)
     } finally {
       setTestingConnection(false)
-    }
-  }
-
-  // Salvar configurações PNCP
-  const salvarConfigPNCP = async () => {
-    setLoadingPncp(true)
-    try {
-      const token = localStorage.getItem('orgao_token')
-      const response = await authFetch(`${API_URL}/api/pncp/config/atualizar`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(pncpConfig)
-      })
-      const data = await response.json()
-      if (response.ok) {
-        alert('Configurações PNCP salvas com sucesso!')
-        // Recarregar status
-        await carregarStatusPNCP()
-      } else {
-        alert(`Erro ao salvar: ${data.message || 'Falha ao salvar configurações'}`)
-      }
-    } catch (error) {
-      alert('Erro ao salvar configurações PNCP')
-      console.error(error)
-    } finally {
-      setLoadingPncp(false)
     }
   }
 
@@ -539,6 +505,16 @@ export default function ConfiguracoesPage() {
           >
             <Settings className="h-4 w-4" />
             Parâmetros de licitação
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push('/orgao/configuracoes/feriados')}
+            title="Dias sem expediente usados na contagem dos prazos em dias úteis (art. 183, III)"
+          >
+            <CalendarDays className="h-4 w-4" />
+            Feriados
           </Button>
         </div>
       </div>
@@ -1024,76 +1000,9 @@ export default function ConfiguracoesPage() {
                 </div>
               </div>
 
-              <div className="border-t pt-4">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-amber-600" />
-                    <span className="text-sm text-amber-600">
-                      Configure manualmente as credenciais PNCP (apenas para desenvolvimento)
-                    </span>
-                  </div>
-                  <Button 
-                    onClick={salvarConfigPNCP}
-                    disabled={loadingPncp}
-                  >
-                    {loadingPncp ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4 mr-2" />
-                    )}
-                    Salvar Configurações
-                  </Button>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div className="space-y-2">
-                    <Label>URL da API PNCP</Label>
-                    <Input
-                      value={pncpConfig.apiUrl}
-                      onChange={(e) => setPncpConfig({...pncpConfig, apiUrl: e.target.value})}
-                      placeholder="https://treina.pncp.gov.br/api/pncp/v1"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>Login PNCP</Label>
-                    <Input
-                      value={pncpConfig.login}
-                      onChange={(e) => setPncpConfig({...pncpConfig, login: e.target.value})}
-                      placeholder="Login de acesso ao PNCP"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>Senha PNCP</Label>
-                    <Input
-                      type="password"
-                      value={pncpConfig.senha}
-                      onChange={(e) => setPncpConfig({...pncpConfig, senha: e.target.value})}
-                      placeholder="Senha de acesso ao PNCP"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label>CNPJ do Órgão</Label>
-                    <Input
-                      value={pncpConfig.cnpjOrgao}
-                      onChange={(e) => setPncpConfig({...pncpConfig, cnpjOrgao: e.target.value})}
-                      placeholder="CNPJ do órgão no PNCP"
-                    />
-                  </div>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-lg">
-                  <p className="text-sm font-medium mb-2">Variáveis de Ambiente (produção):</p>
-                  <ul className="text-xs text-muted-foreground space-y-1 font-mono">
-                    <li>• PNCP_API_URL - URL da API do PNCP</li>
-                    <li>• PNCP_LOGIN - Login de acesso ao PNCP</li>
-                    <li>• PNCP_SENHA - Senha de acesso ao PNCP</li>
-                    <li>• PNCP_CNPJ_ORGAO - CNPJ do órgão no PNCP</li>
-                  </ul>
-                </div>
-              </div>
+              <p className="text-xs text-muted-foreground border-t pt-4">
+                A credencial da plataforma no PNCP e o CNPJ do órgão no PNCP são definidos pelo administrador da plataforma.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

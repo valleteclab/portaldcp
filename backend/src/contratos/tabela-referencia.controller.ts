@@ -15,11 +15,14 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { AcessoContratoDoOrgao } from '../auth/acesso';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { TabelaReferenciaService } from './tabela-referencia.service';
 import type { ItemTabelaInput } from './tabela-referencia.service';
 
 @Controller('contratos/tabelas-referencia')
+// Só as rotas por contrato (:contratoId) têm dono aqui; `:id` é a tabela.
+@AcessoContratoDoOrgao({ id: null, itemId: null })
 @RequireModule(ModuloSistema.CONTRATOS)
 export class TabelaReferenciaController {
   constructor(private readonly service: TabelaReferenciaService) {}

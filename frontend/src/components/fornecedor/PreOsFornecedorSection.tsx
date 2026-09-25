@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Loader2, Plus, Send, Pencil, Trash2, FileText, Megaphone } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import AdicionarServicoPublicidadeModal, { LinhaPayload } from '@/components/contratos/AdicionarServicoPublicidadeModal'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface PreOs {
   id: string
@@ -120,8 +122,8 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDis
   }
 
   const salvar = async (enviarDepois: boolean) => {
-    if (!titulo.trim()) { alert('Informe o título/campanha.'); return }
-    if (linhas.length === 0) { alert('Monte os serviços da pré-OS.'); return }
+    if (!titulo.trim()) { toast.warning('Informe o título/campanha.'); return }
+    if (linhas.length === 0) { toast('Monte os serviços da pré-OS.'); return }
     setSalvando(true)
     try {
       let id = editando?.id
@@ -130,12 +132,12 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDis
         ? await authFetch(`${API_URL}/api/fornecedor/contratos/pre-os/${id}?${qs}`, { method: 'PUT', body })
         : await authFetch(`${API_URL}/api/fornecedor/contratos/${contratoId}/pre-os?${qs}`, { method: 'POST', body })
       const data = await res.json()
-      if (!res.ok) { alert(data.message || 'Erro ao salvar a pré-OS.'); return }
+      if (!res.ok) { toast.error(data.message || 'Erro ao salvar a pré-OS.'); return }
       id = data.id
       if (enviarDepois && id) {
         const resEnv = await authFetch(`${API_URL}/api/fornecedor/contratos/pre-os/${id}/enviar?${qs}`, { method: 'POST' })
         const dEnv = await resEnv.json()
-        if (!resEnv.ok) { alert(dEnv.message || 'Salvo como rascunho, mas o envio falhou.'); }
+        if (!resEnv.ok) { toast.error(dEnv.message || 'Salvo como rascunho, mas o envio falhou.'); }
       }
       setFormAberto(false)
       await carregar()
@@ -145,14 +147,14 @@ export default function PreOsFornecedorSection({ contratoId, fornecedorId, onDis
   }
 
   const enviarExistente = async (p: PreOs) => {
-    if (!confirm(`Enviar a pré-OS #${p.sequencial} "${p.titulo}" para análise do órgão?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Enviar a pré-OS #${p.sequencial} "${p.titulo}" para análise do órgão?` }))) return
     const res = await authFetch(`${API_URL}/api/fornecedor/contratos/pre-os/${p.id}/enviar?${qs}`, { method: 'POST' })
     if (res.ok) await carregar()
-    else { const d = await res.json().catch(() => ({})); alert(d.message || 'Erro ao enviar.') }
+    else { const d = await res.json().catch(() => ({})); toast.error(d.message || 'Erro ao enviar.') }
   }
 
   const excluir = async (p: PreOs) => {
-    if (!confirm(`Excluir o rascunho #${p.sequencial} "${p.titulo}"?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir o rascunho #${p.sequencial} "${p.titulo}"?`, destrutivo: true }))) return
     const res = await authFetch(`${API_URL}/api/fornecedor/contratos/pre-os/${p.id}?${qs}`, { method: 'DELETE' })
     if (res.ok) await carregar()
   }

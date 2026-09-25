@@ -1,27 +1,31 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { join } from 'path';
 import { existsSync, unlinkSync, mkdirSync } from 'fs';
+import { caminhoLogico, diretorioPrivado, diretorioUploads, resolverArquivo } from '../common/arquivos/arquivos';
 
 @Injectable()
 export class UploadService {
   private readonly logger = new Logger(UploadService.name);
 
   // Permite configurar o diretório via variável de ambiente (para Railway volume persistente)
-  private readonly uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+  private readonly uploadDir = diretorioUploads();
 
   constructor() {
     // Tenta criar diretório (pode falhar no Railway se volume ainda não estiver montado)
-    try {
-      if (!existsSync(this.uploadDir)) {
-        mkdirSync(this.uploadDir, { recursive: true });
-        this.logger.log(`Diretório de uploads criado: ${this.uploadDir}`);
+    for (const dir of [this.uploadDir, diretorioPrivado()]) {
+      try {
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+          this.logger.log(`Diretório de uploads criado: ${dir}`);
+        }
+      } catch (e) {
+        this.logger.warn(`Não foi possível criar ${dir} na inicialização (será criado sob demanda): ${(e as any).message}`);
       }
-    } catch (e) {
-      this.logger.warn(`Não foi possível criar ${this.uploadDir} na inicialização (será criado sob demanda): ${(e as any).message}`);
     }
-    this.logger.log(`Upload dir: ${this.uploadDir}`);
+    this.logger.log(`Upload dir: ${this.uploadDir} | privado: ${diretorioPrivado()}`);
   }
 
+  /** Caminho no diretório LEGADO (público). Para ler, prefira `resolverArquivo`. */
   getFilePath(tipo: string, filename: string): string {
     return join(this.uploadDir, tipo, filename);
   }
@@ -30,9 +34,11 @@ export class UploadService {
     return `/api/uploads/${tipo}/${filename}`;
   }
 
+  /** Apaga o arquivo onde ele estiver (privado ou legado). `tipo` pode ter subpasta (`medicoes/<id>`). */
   deleteFile(tipo: string, filename: string): boolean {
-    const filePath = this.getFilePath(tipo, filename);
-    if (existsSync(filePath)) {
+    const c = caminhoLogico([...String(tipo).split('/'), filename]);
+    const filePath = resolverArquivo(c);
+    if (filePath && existsSync(filePath)) {
       unlinkSync(filePath);
       return true;
     }
@@ -40,6 +46,6 @@ export class UploadService {
   }
 
   fileExists(tipo: string, filename: string): boolean {
-    return existsSync(this.getFilePath(tipo, filename));
+    return !!resolverArquivo(caminhoLogico([...String(tipo).split('/'), filename]));
   }
 }

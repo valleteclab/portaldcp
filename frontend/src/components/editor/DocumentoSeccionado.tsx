@@ -25,6 +25,8 @@ import {
   TITULOS_TIPO,
   type SecaoTemplate,
 } from '@/lib/fase-interna/secoes-template'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -332,15 +334,13 @@ export function DocumentoSeccionado({
       (s) => (conteudo[s.id] || '').replace(/<[^>]+>/g, '').trim().length <= 10,
     )
     if (vazias.length === 0) {
-      alert('Todas as seções já têm conteúdo. Para regenerar uma seção, apague o texto dela e gere novamente.')
+      toast('Todas as seções já têm conteúdo. Para regenerar uma seção, apague o texto dela e gere novamente.')
       return
     }
     if (
-      !confirm(
-        `Gerar rascunho com IA para ${vazias.length} seção(ões) vazia(s) do ${tituloDocumento}?\n\n` +
+      !(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Gerar rascunho com IA para ${vazias.length} seção(ões) vazia(s) do ${tituloDocumento}?\n\n` +
           'O texto é um RASCUNHO fundamentado nos dados do processo (objeto, itens, demanda). ' +
-          'Revise cada seção antes de enviar para aprovação — a responsabilidade pelo conteúdo é do servidor.',
-      )
+          'Revise cada seção antes de enviar para aprovação — a responsabilidade pelo conteúdo é do servidor.' }))
     )
       return
 
@@ -434,7 +434,7 @@ export function DocumentoSeccionado({
         setInserirConteudo((prev) => ({ ...prev, [secaoId]: html }))
         salvarSecao(secaoId, html)
       } catch {
-        alert('Não foi possível melhorar o texto agora — tente novamente ou use o painel Procura+ AI ao lado.')
+        toast.error('Não foi possível melhorar o texto agora — tente novamente ou use o painel Procura+ AI ao lado.')
       } finally {
         setMelhorandoSecao(null)
       }

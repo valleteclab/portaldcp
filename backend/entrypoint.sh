@@ -12,5 +12,13 @@ elif [ -d "/data" ]; then
   echo "[entrypoint] /data permissions fixed"
 fi
 
+# Diretório PRIVADO dos uploads sensíveis, se estiver em outro volume
+# (sem a variável, ele fica em $UPLOAD_DIR/.privado e já foi corrigido acima)
+if [ -n "$UPLOAD_PRIVATE_DIR" ]; then
+  mkdir -p "$UPLOAD_PRIVATE_DIR" 2>/dev/null || true
+  chown -R nestjs:nodejs "$UPLOAD_PRIVATE_DIR" 2>/dev/null || true
+  echo "[entrypoint] Upload privado: $UPLOAD_PRIVATE_DIR (permissions fixed)"
+fi
+
 # Executar app como usuario nestjs
 exec su-exec nestjs node dist/src/main

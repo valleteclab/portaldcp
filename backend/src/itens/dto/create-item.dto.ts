@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsNumber, IsString, IsOptional, IsBoolean, IsUUID, Min } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsString, IsOptional, IsBoolean, IsUUID, Min, IsIn } from 'class-validator';
 import { UnidadeMedida, TipoParticipacao } from '../entities/item-licitacao.entity';
 
 export class CreateItemDto {
@@ -72,6 +72,11 @@ export class CreateItemDto {
   @IsOptional()
   marca_referencia?: string;
 
+  /** MATERIAL | SERVICO (PNCP); ausente = derivado do catálogo/tipo da contratação. */
+  @IsIn(['MATERIAL', 'SERVICO'])
+  @IsOptional()
+  tipo_item?: 'MATERIAL' | 'SERVICO';
+
   @IsNumber()
   @Min(0.0001)
   @IsNotEmpty()
@@ -128,6 +133,10 @@ export class UpdateItemDto {
   @IsOptional()
   tipo_participacao?: TipoParticipacao;
 
+  @IsIn(['MATERIAL', 'SERVICO'])
+  @IsOptional()
+  tipo_item?: 'MATERIAL' | 'SERVICO';
+
   @IsString()
   @IsOptional()
   observacoes?: string;
@@ -166,20 +175,6 @@ export class UpdateItemDto {
   nome_grupo?: string; // Nome do grupo
 }
 
-export class AdjudicarItemDto {
-  @IsUUID()
-  @IsNotEmpty()
-  fornecedor_id: string;
-
-  @IsString()
-  @IsNotEmpty()
-  fornecedor_nome: string;
-
-  @IsNumber()
-  @Min(0.0001)
-  @IsNotEmpty()
-  valor_unitario_homologado: number;
-}
 
 // DTO para importar múltiplos itens do PCA
 export class ImportarItensPcaDto {

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2, Search, Plus, Trash2, Calculator, Download, Upload } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface ItemTabela {
   id: string
@@ -311,7 +312,7 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
     if (novas.length > 0) setLinhas((p) => [...p, ...novas])
     const resumo = [`${novas.length} linha(s) importada(s).`]
     if (erros.length > 0) resumo.push(`\nProblemas:\n- ${erros.slice(0, 12).join('\n- ')}${erros.length > 12 ? `\n(+${erros.length - 12})` : ''}`)
-    alert(resumo.join(''))
+    toast(resumo.join(''))
   }
 
   const montarPayload = (): LinhaPayload[] =>
@@ -342,7 +343,7 @@ export default function AdicionarServicoPublicidadeModal({ contratoId, tabelaId,
         onCreated?.(data.itens || [])
         onOpenChange(false)
       } else {
-        alert(data.message || 'Erro ao gerar linhas.')
+        toast.error(data.message || 'Erro ao gerar linhas.')
       }
     } finally {
       setSalvando(false)

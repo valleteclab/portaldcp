@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import { API_URL, authFetch } from "@/lib/api";
 import { TITULOS_TIPO } from "@/lib/fase-interna/secoes-template";
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 // Tipos de documento que costumam ter fluxo próprio de aprovação
 const TIPOS_DOCUMENTO = [
@@ -175,7 +176,7 @@ export default function FluxosAprovacaoPage() {
   };
 
   const remover = async (f: FluxoAprovacao) => {
-    if (!confirm(`Remover o fluxo "${f.nome}"?`)) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Remover o fluxo "${f.nome}"?`, destrutivo: true }))) return;
     const res = await authFetch(
       `${API_URL}/api/fase-interna/fluxos-aprovacao/${f.id}`,
       { method: "DELETE" },

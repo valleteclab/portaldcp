@@ -257,6 +257,16 @@ export class Orgao {
   @Column({ type: 'boolean', default: false })
   envio_automatico_os: boolean;
 
+  /**
+   * Formalização da adjudicação/homologação (Lei 14.133/2021 art. 71 IV — ato
+   * da autoridade; o agente de contratação registra): REGISTRO_DIRETO (padrão —
+   * efeito imediato, termo com os dados da autoridade), ASSINATURA_ELETRONICA
+   * (efeito só com a assinatura da autoridade no assinador) ou TERMO_EXTERNO
+   * (efeito com o envio do termo assinado/publicação no Diário Oficial).
+   */
+  @Column({ type: 'varchar', length: 30, default: 'REGISTRO_DIRETO' })
+  modo_formalizacao_resultado: string;
+
   @CreateDateColumn()
   created_at: Date;
 

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Check, Bot, ArrowRight, AlertTriangle, TrendingUp, TrendingDown, Info, ShieldAlert } from 'lucide-react'
+import { toast } from "sonner"
 
 interface MapeamentoItem {
   produto_nf_index: number
@@ -119,7 +120,7 @@ export function EtapaMapeamento({
     }))
     const comItensRecebidos = result.filter(r => r.item_contrato_id && idsJaRecebidos.has(r.item_contrato_id))
     if (comItensRecebidos.length > 0) {
-      alert(`Os itens [${comItensRecebidos.map(r => itensJaRecebidos.find(i => i.item_contrato_id === r.item_contrato_id)?.descricao || r.descricao_of).join(', ')}] já foram recebidos. Altere o mapeamento para itens pendentes.`)
+      toast(`Os itens [${comItensRecebidos.map(r => itensJaRecebidos.find(i => i.item_contrato_id === r.item_contrato_id)?.descricao || r.descricao_of).join(', ')}] já foram recebidos. Altere o mapeamento para itens pendentes.`)
       return
     }
     onConfirmar(result)

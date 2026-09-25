@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { API_URL, authFetch } from '@/lib/api';
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Notificacao {
   id: string;
@@ -128,7 +129,7 @@ export function NotificacoesBadge() {
   };
 
   const limparTodas = async () => {
-    if (!confirm('Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita.')) {
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Tem certeza que deseja limpar todas as notificações? Esta ação não pode ser desfeita.', destrutivo: true }))) {
       return;
     }
 

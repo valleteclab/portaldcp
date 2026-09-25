@@ -18,6 +18,7 @@ import {
   Plus, Loader2, CheckCircle, XCircle, ClipboardCheck, Star, AlertTriangle, Layers, RotateCcw,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface Atestacao {
   id: string
@@ -114,8 +115,8 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
 
   const preCriarAtestacoes = async () => {
     const valor = parseFloat(formPreCriar.valor_mensal)
-    if (!valor || valor <= 0) { alert('Informe o valor mensal'); return }
-    if (!formPreCriar.data_inicio || !formPreCriar.data_fim) { alert('Informe as datas de início e fim'); return }
+    if (!valor || valor <= 0) { toast.warning('Informe o valor mensal'); return }
+    if (!formPreCriar.data_inicio || !formPreCriar.data_fim) { toast.warning('Informe as datas de início e fim'); return }
     setActionLoading(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/atestacoes/pre-criar`, {
@@ -131,17 +132,17 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
-        alert(e.message || 'Erro ao pré-criar atestações')
+        toast.error(e.message || 'Erro ao pré-criar atestações')
         return
       }
       const result = await res.json()
-      alert(`${result.criadas} atestação(ões) criada(s). ${result.ignoradas > 0 ? `${result.ignoradas} mês(es) já existiam.` : ''}`)
+      toast(`${result.criadas} atestação(ões) criada(s). ${result.ignoradas > 0 ? `${result.ignoradas} mês(es) já existiam.` : ''}`)
       setModalPreCriar(false)
       setFormPreCriar({ ...formPreCriar, valor_mensal: '' })
       carregarDados()
     } catch (e) {
       console.error(e)
-      alert('Erro ao pré-criar atestações. Tente novamente.')
+      toast.error('Erro ao pré-criar atestações. Tente novamente.')
     } finally {
       setActionLoading(false)
     }
@@ -161,7 +162,7 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
         method: 'POST',
         body: JSON.stringify(payload),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalCriar(false)
       setFormCriar({ mes_referencia: '', valor_mensal_contratado: '', empenho: '', data_empenho: '', tipo_empenho: '' })
       carregarDados()
@@ -209,7 +210,7 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
           observacoes: formAtestar.observacoes || null,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalAtestar(null)
       carregarDados()
     } catch (e) { console.error(e) }
@@ -239,13 +240,13 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
-        alert(e.message || 'Erro ao reabrir atestação')
+        toast.error(e.message || 'Erro ao reabrir atestação')
         return
       }
       carregarDados()
     } catch (e) {
       console.error(e)
-      alert('Erro ao reabrir atestação')
+      toast.error('Erro ao reabrir atestação')
     } finally {
       setActionLoading(false)
     }
@@ -260,14 +261,14 @@ export default function TabAtestacao({ contratoId, valorGlobal, dataVigenciaInic
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
-        alert(e.message || 'Erro ao cancelar atestação')
+        toast.error(e.message || 'Erro ao cancelar atestação')
         return
       }
       setModalCancelar(null)
       carregarDados()
     } catch (e) {
       console.error(e)
-      alert('Erro ao cancelar atestação')
+      toast.error('Erro ao cancelar atestação')
     } finally {
       setActionLoading(false)
     }

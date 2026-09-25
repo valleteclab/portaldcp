@@ -3,6 +3,10 @@
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
+import { EditalRetificadoBanner } from "@/components/licitacao/EditalRetificadoBanner"
+import { ManifestacaoExtincaoCard } from "@/components/licitacao/ManifestacaoExtincaoCard"
+import { ROTULO_SITUACAO, situacaoDaLicitacao } from "@/lib/licitacao-situacao"
 import { 
   ArrowLeft,
   Building2,
@@ -33,6 +37,15 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { LeilaoFornecedor } from '@/components/modalidades/LeilaoFornecedor'
+import { ConcursoFornecedor } from '@/components/modalidades/ConcursoFornecedor'
+import { DialogoFornecedor } from '@/components/modalidades/DialogoFornecedor'
+import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
+import { ResultadoLicitacaoCard } from '@/components/licitacao/ResultadoLicitacaoCard'
+import { ROTULO_CRITERIO, ROTULO_MODO_DISPUTA, corFase, rotuloFase, rotuloModalidade } from '@/lib/licitacao-rotulos'
+
+/** Fases em que a sala da sessão fica disponível ao licitante (ANALISE_PROPOSTAS → HOMOLOGACAO). */
+const FASES_SALA = ['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO']
 
 interface Licitacao {
   id: string
@@ -43,10 +56,17 @@ interface Licitacao {
   objeto_detalhado?: string
   valor_total_estimado: number
   fase: string
+  /** Situação do processo (E1): ATIVA, SUSPENSA, REVOGADA... */
+  situacao?: string
   data_publicacao_edital?: string
   data_abertura_sessao?: string
   data_inicio_acolhimento?: string
   data_fim_acolhimento?: string
+  data_limite_impugnacao?: string | null
+  /** Prazo do art. 164 calculado pelo backend (edital ou 3 dias úteis antes da abertura) */
+  data_limite_impugnacao_efetiva?: string | null
+  /** Cabe impugnação/esclarecimento agora (decidido pela data, não pela fase) */
+  prazo_manifestacao_aberto?: boolean
   criterio_julgamento?: string
   modo_disputa?: string
   sigilo_orcamento?: 'PUBLICO' | 'SIGILOSO'
@@ -100,6 +120,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
   const [loading, setLoading] = useState(true)
   const [minhaProposta, setMinhaProposta] = useState<null | { id: string; valorTotal: number; status: string; motivo_desclassificacao?: string }>(null)
   const [sessaoAtiva, setSessaoAtiva] = useState<{ id: string; status: string; etapa: string } | null>(null)
+  const [fornecedorLogadoId, setFornecedorLogadoId] = useState<string | null>(null)
 
   useEffect(() => {
     carregarDados()
@@ -121,10 +142,13 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
         setDocumentos(await docRes.json())
       }
 
-      const fornecedorStr = localStorage.getItem('fornecedor')
-      if (fornecedorStr) {
-        const fornecedor = JSON.parse(fornecedorStr)
-        const resPropostas = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+      try {
+        setFornecedorLogadoId(JSON.parse(localStorage.getItem('fornecedor') || 'null')?.id ?? null)
+      } catch {
+        setFornecedorLogadoId(null)
+      }
+      if (localStorage.getItem('fornecedor')) {
+        const resPropostas = await authFetch(`${API_URL}/api/propostas/minhas`)
         if (resPropostas.ok) {
           const propostas = await resPropostas.json()
           const existente = propostas.find((p: any) => p.licitacao_id === licitacaoId)
@@ -208,64 +232,13 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  const getModalidadeLabel = (modalidade: string) => {
-    const map: Record<string, string> = {
-      PREGAO_ELETRONICO: 'Pregão Eletrônico',
-      PREGAO_PRESENCIAL: 'Pregão Presencial',
-      CONCORRENCIA: 'Concorrência',
-      TOMADA_PRECOS: 'Tomada de Preços',
-      CONVITE: 'Convite',
-      DISPENSA: 'Dispensa',
-      INEXIGIBILIDADE: 'Inexigibilidade',
-      LEILAO: 'Leilão',
-      DIALOGO_COMPETITIVO: 'Diálogo Competitivo'
-    }
-    return map[modalidade] || modalidade
-  }
+  const getModalidadeLabel = (modalidade: string) => rotuloModalidade(modalidade)
 
-  const getCriterioLabel = (criterio?: string) => {
-    const map: Record<string, string> = {
-      MENOR_PRECO: 'Menor Preço',
-      MAIOR_DESCONTO: 'Maior Desconto',
-      MELHOR_TECNICA: 'Melhor Técnica',
-      TECNICA_PRECO: 'Técnica e Preço',
-      MAIOR_LANCE: 'Maior Lance',
-      MAIOR_RETORNO_ECONOMICO: 'Maior Retorno Econômico'
-    }
-    return map[criterio || ''] || criterio || '-'
-  }
+  const getCriterioLabel = (criterio?: string) => ROTULO_CRITERIO[criterio || ''] || criterio || '-'
 
-  const getModoDisputaLabel = (modo?: string) => {
-    const map: Record<string, string> = {
-      ABERTO: 'Aberto',
-      FECHADO: 'Fechado',
-      ABERTO_FECHADO: 'Aberto e Fechado'
-    }
-    return map[modo || ''] || modo || '-'
-  }
+  const getModoDisputaLabel = (modo?: string) => ROTULO_MODO_DISPUTA[modo || ''] || modo || '-'
 
-  const getFaseBadge = (fase: string) => {
-    const map: Record<string, { label: string; className: string }> = {
-      PLANEJAMENTO: { label: 'Planejamento', className: 'bg-gray-100 text-gray-800' },
-      TERMO_REFERENCIA: { label: 'Termo de Referência', className: 'bg-gray-100 text-gray-800' },
-      PESQUISA_PRECOS: { label: 'Pesquisa de Preços', className: 'bg-gray-100 text-gray-800' },
-      ANALISE_JURIDICA: { label: 'Análise Jurídica', className: 'bg-gray-100 text-gray-800' },
-      APROVACAO_INTERNA: { label: 'Aprovação Interna', className: 'bg-gray-100 text-gray-800' },
-      PUBLICADO: { label: 'Publicado', className: 'bg-blue-100 text-blue-800' },
-      IMPUGNACAO: { label: 'Impugnação', className: 'bg-yellow-100 text-yellow-800' },
-      ACOLHIMENTO_PROPOSTAS: { label: 'Recebendo Propostas', className: 'bg-green-100 text-green-800' },
-      ANALISE_PROPOSTAS: { label: 'Análise de Propostas', className: 'bg-purple-100 text-purple-800' },
-      EM_DISPUTA: { label: 'Em Disputa', className: 'bg-red-100 text-red-800' },
-      JULGAMENTO: { label: 'Julgamento', className: 'bg-orange-100 text-orange-800' },
-      HABILITACAO: { label: 'Habilitação', className: 'bg-indigo-100 text-indigo-800' },
-      RECURSO: { label: 'Recurso', className: 'bg-pink-100 text-pink-800' },
-      ADJUDICACAO: { label: 'Adjudicação', className: 'bg-teal-100 text-teal-800' },
-      HOMOLOGACAO: { label: 'Homologação', className: 'bg-emerald-100 text-emerald-800' },
-      CONCLUIDO: { label: 'Concluído', className: 'bg-green-100 text-green-800' },
-    }
-    const config = map[fase] || { label: fase, className: 'bg-gray-100' }
-    return <Badge className={config.className}>{config.label}</Badge>
-  }
+  const getFaseBadge = (fase: string) => <Badge className={corFase(fase)}>{rotuloFase(fase)}</Badge>
 
   const diasRestantes = () => {
     if (!licitacao?.data_abertura_sessao) return 0
@@ -343,29 +316,37 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                 {licitacao.numero_edital || licitacao.numero_processo}
               </h1>
               {getFaseBadge(licitacao.fase)}
+              <SituacaoBadge licitacao={licitacao} />
             </div>
             <p className="text-muted-foreground">{getModalidadeLabel(licitacao.modalidade)}</p>
+            {situacaoDaLicitacao(licitacao) !== 'ATIVA' && (
+              <p className="text-sm text-amber-700 mt-1">
+                Licitação {ROTULO_SITUACAO[situacaoDaLicitacao(licitacao)].toLowerCase()} pelo órgão
+                {situacaoDaLicitacao(licitacao) === 'SUSPENSA'
+                  ? ' — propostas e lances ficam bloqueados até a retomada.'
+                  : ' — processo encerrado.'}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           {/* Dispensa: sala de lances aberta */}
           {(licitacao as any).dispensa_lances_fim && new Date((licitacao as any).dispensa_lances_fim) > new Date() && (
-            <Link href={`/fornecedor/licitacoes/${licitacao.id}/lances`}>
+            <Link href={`/fornecedor/licitacoes/${licitacao.id}/sessao`}>
               <Button className="bg-green-600 hover:bg-green-700 animate-pulse">
                 ⚡ Fase de lances aberta — Entrar
               </Button>
             </Link>
           )}
-          {/* Esclarecimentos - disponível em várias fases */}
-          {['PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS'].includes(licitacao.fase) && (
+          {/* Esclarecimentos e impugnação: até o prazo do art. 164 (corre junto com o acolhimento) */}
+          {prazoManifestacaoAberto(licitacao) && (
             <Link href={`/fornecedor/licitacoes/${licitacao.id}/esclarecimentos`}>
               <Button variant="outline">
                 <HelpCircle className="mr-2 h-4 w-4" /> Esclarecimentos
               </Button>
             </Link>
           )}
-          {/* Impugnação - apenas em fases iniciais */}
-          {(licitacao.fase === 'PUBLICADO' || licitacao.fase === 'IMPUGNACAO') && (
+          {prazoManifestacaoAberto(licitacao) && (
             <Link href={`/fornecedor/licitacoes/${licitacao.id}/impugnar`}>
               <Button variant="outline" className="text-orange-600 border-orange-300 hover:bg-orange-50">
                 <AlertCircle className="mr-2 h-4 w-4" /> Impugnar Edital
@@ -374,6 +355,12 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
           )}
         </div>
       </div>
+
+      {/* Edital retificado: confirmação da proposta (art. 55 §1º) */}
+      <EditalRetificadoBanner licitacaoId={licitacao.id} onConfirmada={carregarDados} />
+
+      {/* Intenção de revogar/anular: manifestação do licitante (art. 71 §3º) */}
+      <ManifestacaoExtincaoCard licitacaoId={licitacao.id} />
 
       {/* Cronograma Visual em Etapas */}
       <Card className="border-2 border-slate-200">
@@ -409,7 +396,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
               {/* 2. Impugnação */}
               <div className="flex flex-col items-center w-1/6">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${
-                  licitacao.fase === 'IMPUGNACAO' 
+                  prazoManifestacaoAberto(licitacao)
                     ? 'bg-yellow-500 border-yellow-500 text-white' 
                     : ['ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase)
                       ? 'bg-green-500 border-green-500 text-white'
@@ -417,10 +404,10 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                 }`}>
                   <AlertCircle className="h-5 w-5" />
                 </div>
-                <p className={`text-xs font-medium mt-2 text-center ${licitacao.fase === 'IMPUGNACAO' ? 'text-yellow-600' : ''}`}>
+                <p className={`text-xs font-medium mt-2 text-center ${prazoManifestacaoAberto(licitacao) ? 'text-yellow-600' : ''}`}>
                   Impugnação
                 </p>
-                <p className="text-[10px] text-muted-foreground">Até {formatarData(licitacao.data_fim_acolhimento)}</p>
+                <p className="text-[10px] text-muted-foreground">Até {formatarData(dataLimiteManifestacao(licitacao) || undefined)}</p>
               </div>
 
               {/* 3. Propostas */}
@@ -597,57 +584,31 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                   )}
                 </div>
               )}
-              {/* Sala de Disputa - mostrar quando proposta enviada, classificada e fase permite */}
-              {minhaProposta && minhaProposta.status !== 'DESCLASSIFICADA' && ['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO'].includes(licitacao.fase) && (
-                <div className="text-center">
+              {/* Sala única (plano E8): de ANALISE_PROPOSTAS até a homologação, para quem enviou proposta —
+                  inclusive a desclassificada, que pode manifestar intenção de recurso */}
+              {minhaProposta && minhaProposta.status !== 'RASCUNHO' && FASES_SALA.includes(licitacao.fase) && (
+                <div className="text-center mt-4">
                   {licitacao.fase === 'EM_DISPUTA' || sessaoAtiva ? (
-                    <>
-                      <div className="mb-3">
-                        <Badge className="bg-red-100 text-red-800 text-sm px-3 py-1 animate-pulse">
-                          🔴 Sessão em Andamento
-                        </Badge>
-                      </div>
-                      <Button 
-                        size="lg" 
-                        className="w-full bg-red-600 hover:bg-red-700"
-                        onClick={() => {
-                          window.location.href = `/fornecedor/licitacoes/${licitacao.id}/sala`
-                        }}
-                      >
-                        <Gavel className="mr-2 h-5 w-5" /> Entrar na Sala de Disputa
-                      </Button>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        {sessaoAtiva?.etapa === 'DISPUTA_LANCES' 
-                          ? 'Etapa de lances em andamento' 
-                          : 'Aguardando início dos lances'}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="mb-3">
-                        <Badge variant="outline" className="text-sm px-3 py-1">
-                          ⏳ Aguardando Abertura
-                        </Badge>
-                      </div>
-                      <Button 
-                        size="lg" 
-                        variant="outline"
-                        className="w-full"
-                        onClick={() => {
-                          window.location.href = `/fornecedor/licitacoes/${licitacao.id}/sala`
-                        }}
-                      >
-                        <Gavel className="mr-2 h-5 w-5" /> Acessar Sala de Disputa
-                      </Button>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        Abertura prevista: {formatarDataHora(licitacao.data_abertura_sessao)}
-                      </p>
-                    </>
-                  )}
+                    <div className="mb-3">
+                      <Badge className="bg-red-100 text-red-800 text-sm px-3 py-1 animate-pulse">Sessão em andamento</Badge>
+                    </div>
+                  ) : null}
+                  <Link href={`/fornecedor/licitacoes/${licitacao.id}/sessao`}>
+                    <Button size="lg" className={`w-full ${licitacao.fase === 'EM_DISPUTA' || sessaoAtiva ? 'bg-red-600 hover:bg-red-700' : ''}`} variant={licitacao.fase === 'EM_DISPUTA' || sessaoAtiva ? 'default' : 'outline'}>
+                      <Gavel className="mr-2 h-5 w-5" /> Entrar na sala da sessão
+                    </Button>
+                  </Link>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {sessaoAtiva?.etapa === 'DISPUTA_LANCES'
+                      ? 'Etapa de lances em andamento'
+                      : sessaoAtiva
+                        ? 'Acompanhe a sessão: aceitação, negociação, habilitação, recursos e resultado'
+                        : `Abertura prevista: ${formatarDataHora(licitacao.data_abertura_sessao)}`}
+                  </p>
                 </div>
               )}
               {/* Homologado */}
-              {licitacao.fase === 'HOMOLOGADO' && (
+              {licitacao.fase === 'HOMOLOGACAO' && (
                 <div className="text-center">
                   <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
                     <CheckCircle2 className="h-8 w-8 text-green-600" />
@@ -723,6 +684,14 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
           </div>
         </CardContent>
       </Card>
+
+      {/* Resultado (após a homologação): vencedores, valores, termos, ata e contrato/ARP */}
+      <ResultadoLicitacaoCard licitacaoId={licitacao.id} destaqueFornecedorId={fornecedorLogadoId} ocultarSeVazio />
+
+      {/* Leilão, concurso e diálogo competitivo (E7c): participação própria de cada modalidade */}
+      {licitacao.modalidade === 'LEILAO' && <LeilaoFornecedor licitacaoId={licitacao.id} />}
+      {licitacao.modalidade === 'CONCURSO' && <ConcursoFornecedor licitacaoId={licitacao.id} />}
+      {licitacao.modalidade === 'DIALOGO_COMPETITIVO' && <DialogoFornecedor licitacaoId={licitacao.id} />}
 
       {/* Tabs */}
       <Tabs defaultValue="objeto">

@@ -14,6 +14,7 @@ import {
 } from "@/components/cadastro-sicaf"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 const ICONS = {
   credenciamento: Building2,
@@ -129,8 +130,8 @@ export default function CadastroSicafPage() {
                 
                 // Helper para criar info do arquivo
                 const criarArquivoInfo = (doc: any) => doc?.caminho_arquivo ? {
-                  filename: doc.caminho_arquivo.split('/').pop(),
-                  originalname: doc.nome_arquivo || doc.caminho_arquivo.split('/').pop(),
+                  filename: doc.caminho_arquivo.split('?')[0].split('/').pop(),
+                  originalname: doc.nome_arquivo || doc.caminho_arquivo.split('?')[0].split('/').pop(),
                   url: doc.caminho_arquivo,
                 } : undefined
                 
@@ -655,7 +656,7 @@ export default function CadastroSicafPage() {
       // Salva a última aba
       await salvarQualificacaoEconomicaDb()
       
-      alert('Cadastro realizado com sucesso!')
+      toast.success('Cadastro realizado com sucesso!')
       router.push('/fornecedor')
     } catch (err: any) {
       setError(err.message || 'Erro ao salvar cadastro')

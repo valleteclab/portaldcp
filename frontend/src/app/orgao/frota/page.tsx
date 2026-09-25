@@ -22,6 +22,8 @@ import {
   TrendingUp, DollarSign, Droplets, AlertTriangle,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 // ============ TIPOS ============
 
@@ -250,18 +252,18 @@ export default function FrotaPage() {
         method: editandoVeiculo ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao salvar'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao salvar'); return }
       setModalVeiculo(false)
       recarregar()
     } finally { setActionLoading(false) }
   }
 
   const excluirVeiculo = async (id: string, placa: string) => {
-    if (!confirm(`Excluir o veículo ${placa}? Todos os registros associados serão removidos.`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir o veículo ${placa}? Todos os registros associados serão removidos.`, destrutivo: true }))) return
     setActionLoading(true)
     try {
       const res = await authFetch(`${API_URL}/api/frota/veiculos/${id}`, { method: 'DELETE' })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao excluir'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao excluir'); return }
       recarregar()
     } finally { setActionLoading(false) }
   }
@@ -310,14 +312,14 @@ export default function FrotaPage() {
         method: editandoAbastecimento ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao salvar'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao salvar'); return }
       setModalAbastecimento(false)
       recarregar()
     } finally { setActionLoading(false) }
   }
 
   const excluirAbastecimento = async (id: string) => {
-    if (!confirm('Excluir este abastecimento?')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Excluir este abastecimento?', destrutivo: true }))) return
     await authFetch(`${API_URL}/api/frota/abastecimentos/${id}`, { method: 'DELETE' })
     recarregar()
   }
@@ -355,14 +357,14 @@ export default function FrotaPage() {
         method: editandoManutencao ? 'PUT' : 'POST',
         body: JSON.stringify(payload),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao salvar'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao salvar'); return }
       setModalManutencao(false)
       recarregar()
     } finally { setActionLoading(false) }
   }
 
   const excluirManutencao = async (id: string) => {
-    if (!confirm('Excluir esta manutenção?')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Excluir esta manutenção?', destrutivo: true }))) return
     await authFetch(`${API_URL}/api/frota/manutencoes/${id}`, { method: 'DELETE' })
     recarregar()
   }

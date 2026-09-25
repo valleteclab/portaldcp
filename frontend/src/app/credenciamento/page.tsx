@@ -158,7 +158,6 @@ export default function CredenciamentoPublicoPage() {
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="CREDENCIAMENTO">Credenciamento</SelectItem>
-                  <SelectItem value="PRE_QUALIFICACAO">Pré-Qualificação</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={filtros.uf || 'all'} onValueChange={(v) => setFiltros({ ...filtros, uf: v === 'all' ? '' : v })}>
@@ -260,7 +259,7 @@ export default function CredenciamentoPublicoPage() {
                           </a>
                         </Button>
                       )}
-                      {cred.status === 'EM_ANDAMENTO' && (
+                      {(cred as any).inscricoes_abertas && (
                         <Button variant="secondary" size="sm" asChild>
                           <Link href={`/credenciamento/${cred.id}/inscrever`}>
                             <CheckCircle className="w-4 h-4 mr-2" />

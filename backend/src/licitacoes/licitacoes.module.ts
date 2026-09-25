@@ -9,7 +9,7 @@ import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda } from '../demandas/entities/demanda.entity';
 import { DispensaLance } from './entities/dispensa-lance.entity';
 import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
-import { DispensaGateway } from './dispensa.gateway';
+import { DisputaModule } from '../disputa/disputa.module';
 import { ContratosModule } from '../contratos/contratos.module';
 import { PncpModule } from '../pncp/pncp.module';
 import { FaseInternaModule } from '../fase-interna/fase-interna.module';
@@ -19,18 +19,29 @@ import { IntegracaoPlataformaLicitacao } from './entities/integracao-plataforma.
 import { BllIntegracaoService } from './bll-integracao.service';
 import { BllIntegracaoController } from './bll-integracao.controller';
 import { FornecedoresModule } from '../fornecedores/fornecedores.module';
+import { TransicoesModule } from './transicoes/transicoes.module';
+import { ResultadoModule } from '../resultado/resultado.module';
+import { PortalFornecedorController } from './portal-fornecedor.controller';
+import { PortalFornecedorService } from './portal-fornecedor.service';
+import { MigracaoLegadoE9BootService } from './migracao-legado-e9-boot.service';
 
 @Module({
   imports: [
+    // DispensaLance/DispensaMensagem: @deprecated — só para o synchronize manter as tabelas legadas (migração E2; ninguém escreve)
     TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao]),
     forwardRef(() => ContratosModule),
     PncpModule,
     FaseInternaModule,
     NotificacoesModule,
     FornecedoresModule,
+    TransicoesModule,
+    // Sala da dispensa (janela de lances, chat, tempo real) = motor único (E2 item 7)
+    DisputaModule,
+    // Resultado único (E6): julgamento da dispensa e resultado externo gravam por ele
+    ResultadoModule,
   ],
-  controllers: [LicitacoesController, BllIntegracaoController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway, ProcessoPdfService, BllIntegracaoService],
-  exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService],
+  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController],
+  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService],
+  exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}

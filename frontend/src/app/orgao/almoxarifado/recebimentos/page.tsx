@@ -53,6 +53,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch } from '@/lib/api';
+import { toast } from "sonner"
 
 interface Recebimento {
   id: string;
@@ -222,15 +223,15 @@ function RecebimentosList() {
       );
 
       if (response.ok) {
-        alert('Recebimento conferido! Agora pode ser aceito.');
+        toast('Recebimento conferido! Agora pode ser aceito.');
         carregarRecebimentos();
       } else {
         const error = await response.json();
-        alert(`Erro: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao conferir:', error);
-      alert('Erro ao conferir recebimento');
+      toast.error('Erro ao conferir recebimento');
     } finally {
       setProcessando(false);
     }
@@ -255,16 +256,16 @@ function RecebimentosList() {
       );
 
       if (response.ok) {
-        alert('Recebimento aceito! Baixa realizada no contrato.');
+        toast('Recebimento aceito! Baixa realizada no contrato.');
         setShowAceitar(false);
         carregarRecebimentos();
       } else {
         const error = await response.json();
-        alert(`Erro: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao aceitar:', error);
-      alert('Erro ao aceitar recebimento');
+      toast.error('Erro ao aceitar recebimento');
     } finally {
       setProcessando(false);
     }
@@ -279,16 +280,16 @@ function RecebimentosList() {
         { method: 'POST' }
       );
       if (response.ok) {
-        alert('Itens de almoxarifado (consumo) aceitos! Baixa realizada.');
+        toast('Itens de almoxarifado (consumo) aceitos! Baixa realizada.');
         setShowAceitarAlmox(false);
         carregarRecebimentos();
       } else {
         const error = await response.json();
-        alert(`Erro: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao aceitar almoxarifado:', error);
-      alert('Erro ao aceitar itens de almoxarifado');
+      toast.error('Erro ao aceitar itens de almoxarifado');
     } finally {
       setProcessando(false);
     }
@@ -303,16 +304,16 @@ function RecebimentosList() {
         { method: 'POST' }
       );
       if (response.ok) {
-        alert('Itens de patrimônio (permanente) aceitos! Baixa realizada.');
+        toast('Itens de patrimônio (permanente) aceitos! Baixa realizada.');
         setShowAceitarPatrimonio(false);
         carregarRecebimentos();
       } else {
         const error = await response.json();
-        alert(`Erro: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao aceitar patrimônio:', error);
-      alert('Erro ao aceitar itens de patrimônio');
+      toast.error('Erro ao aceitar itens de patrimônio');
     } finally {
       setProcessando(false);
     }
@@ -326,7 +327,7 @@ function RecebimentosList() {
 
   const handleRejeitar = async () => {
     if (!recebimentoSelecionado || !motivoRejeicao.trim()) {
-      alert('Informe o motivo da rejeição');
+      toast.warning('Informe o motivo da rejeição');
       return;
     }
     
@@ -341,16 +342,16 @@ function RecebimentosList() {
       );
 
       if (response.ok) {
-        alert('Recebimento rejeitado.');
+        toast('Recebimento rejeitado.');
         setShowRejeitar(false);
         carregarRecebimentos();
       } else {
         const error = await response.json();
-        alert(`Erro: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao rejeitar:', error);
-      alert('Erro ao rejeitar recebimento');
+      toast.error('Erro ao rejeitar recebimento');
     } finally {
       setProcessando(false);
     }
@@ -364,7 +365,7 @@ function RecebimentosList() {
 
   const handleEstornar = async () => {
     if (!recebimentoSelecionado || !motivoEstorno.trim()) {
-      alert('Por favor, informe o motivo do estorno.');
+      toast.warning('Por favor, informe o motivo do estorno.');
       return;
     }
 
@@ -379,17 +380,17 @@ function RecebimentosList() {
       );
 
       if (response.ok) {
-        alert(`Recebimento ${recebimentoSelecionado.numero} estornado com sucesso! O saldo foi revertido no contrato.`);
+        toast.success(`Recebimento ${recebimentoSelecionado.numero} estornado com sucesso! O saldo foi revertido no contrato.`);
         setShowEstornar(false);
         setMotivoEstorno('');
         carregarRecebimentos();
       } else {
         const error = await response.json();
-        alert(`Erro ao estornar recebimento: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao estornar recebimento: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao estornar recebimento:', error);
-      alert('Erro ao estornar recebimento.');
+      toast.error('Erro ao estornar recebimento.');
     } finally {
       setProcessando(false);
     }
@@ -403,7 +404,7 @@ function RecebimentosList() {
       
       if (!response.ok) {
         const error = await response.json();
-        alert(error.message || 'PDF não disponível');
+        toast.error(error.message || 'PDF não disponível');
         return;
       }
       
@@ -418,7 +419,7 @@ function RecebimentosList() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Erro ao baixar PDF:', error);
-      alert('Erro ao baixar PDF');
+      toast.error('Erro ao baixar PDF');
     }
   };
 
@@ -440,16 +441,16 @@ function RecebimentosList() {
       );
 
       if (response.ok) {
-        alert(`Recebimento ${recebimentoSelecionado.numero} excluído com sucesso!`);
+        toast.success(`Recebimento ${recebimentoSelecionado.numero} excluído com sucesso!`);
         setShowExcluir(false);
         carregarRecebimentos();
       } else {
         const error = await response.json();
-        alert(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao excluir:', error);
-      alert('Erro ao excluir recebimento');
+      toast.error('Erro ao excluir recebimento');
     } finally {
       setProcessando(false);
     }

@@ -29,6 +29,14 @@ const LIMITES_PADRAO: Array<Partial<LimiteLegal>> = [
     vigencia_inicio: '2025-01-01',
     fonte: 'Decreto 12.343/2024',
   },
+  {
+    // Não é atualizado pelo Decreto 12.343/2024 (que atualiza os valores da Lei 14.133)
+    chave: 'MPE_EXCLUSIVO_ITEM',
+    descricao: 'Participação exclusiva de ME/EPP — itens de contratação de até (LC 123/2006, art. 48, I)',
+    valor: 80000,
+    vigencia_inicio: '2014-08-07',
+    fonte: 'LC 147/2014',
+  },
 ];
 
 @Injectable()
@@ -149,6 +157,10 @@ export class ParametrosLicitacaoService implements OnApplicationBootstrap {
       if (limite) return Number(limite.valor);
     }
     return null;
+  }
+
+  async buscarLimite(id: string): Promise<LimiteLegal | null> {
+    return this.limiteRepo.findOne({ where: { id } });
   }
 
   async salvarLimite(dados: Partial<LimiteLegal>): Promise<LimiteLegal> {

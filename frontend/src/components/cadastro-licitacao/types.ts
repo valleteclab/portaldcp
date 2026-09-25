@@ -56,7 +56,6 @@ export interface LoteLicitacao {
   quantidade_itens?: number
   // Benefício ME/EPP (LC 123/2006, Art. 48) - quando modo = POR_LOTE
   tipo_beneficio_mpe?: TipoBeneficioMPE // NENHUM, EXCLUSIVO, COTA_RESERVADA
-  exclusivo_mpe?: boolean // Mantido para compatibilidade
   percentual_cota_reservada?: number
   criterio_julgamento?: string
   // Status
@@ -206,8 +205,6 @@ export interface Classificacao {
   tratamento_diferenciado_mpe: boolean
   modo_beneficio_mpe: ModoAplicacaoBeneficioMPE // GERAL, POR_LOTE, POR_ITEM
   tipo_beneficio_mpe: TipoBeneficioMPE // NENHUM, EXCLUSIVO, COTA_RESERVADA (quando GERAL)
-  exclusivo_mpe: boolean // Mantido para compatibilidade
-  cota_reservada: boolean // Mantido para compatibilidade
   percentual_cota_reservada: number
   // Vinculação com PCA (Lei 14.133/2021, Art. 12, VII)
   modo_vinculacao_pca: ModoVinculacaoPCA
@@ -217,6 +214,14 @@ export interface Classificacao {
   justificativa_sem_pca?: string
   // Lotes (Lei 14.133/2021, Art. 40, §3º)
   usa_lotes: boolean
+  /**
+   * Unidade da disputa: TOTAL_ITEM (lances por item) ou TOTAL_LOTE (adjudicação
+   * por lote/grupo — lances pelo valor global do lote; o licitante cota todos os
+   * itens do lote e o valor de cada item sai do rateio proporcional do lance).
+   */
+  base_lance?: 'UNITARIO' | 'TOTAL_ITEM' | 'TOTAL_LOTE'
+  /** Inversão de fases (Lei 14.133 art. 17 §1º) — só concorrência; habilitação antes da disputa. */
+  inversao_fases?: boolean
   justificativa_nao_parcelamento?: string
 }
 
@@ -233,8 +238,10 @@ export interface Configuracoes {
   tempo_prorrogacao: number
   diferenca_minima_lances: number
   permite_lances_intermediarios: boolean
-  pregoeiro_nome: string
-  equipe_apoio: string
+  /** Usuário do órgão que conduz a sessão (fonte: `pregoeiro_id`). */
+  pregoeiro_id: string | null
+  /** Só exibição: nome vindo do backend (usuário vinculado ou texto legado). Não é enviado. */
+  pregoeiro_nome_atual?: string
   // Sigilo de valores conforme Lei 14.133/2021
   sigilo_orcamento: 'PUBLICO' | 'SIGILOSO'
   justificativa_sigilo?: string

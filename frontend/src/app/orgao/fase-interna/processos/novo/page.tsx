@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { API_URL, authFetch } from "@/lib/api"
+import { toast } from "sonner"
+import { CamposModalidadeEspecial, MODALIDADES_ESPECIAIS_WIZARD, salvarCamposModalidadeEspecial } from "@/components/modalidades/CamposModalidadeEspecial"
 
 function getOrgaoId(): string {
   if (typeof window === "undefined") return ""
@@ -419,6 +421,8 @@ function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: stri
   // Ao trocar modalidade: limpa critério incompatível e ajusta modo de disputa
   const handleModalidade = (v: string) => {
     onChange("modalidade", v)
+    // Leilão é alienação de bens (art. 6º XL) — E7c
+    if (v === "Leilão") onChange("categoria", "Alienação de Bens")
     const criteriosValidos = CRITERIOS_POR_MODALIDADE[v] || []
     if (!criteriosValidos.includes(dados.criterio)) {
       onChange("criterio", criteriosValidos[0] || "")
@@ -615,6 +619,15 @@ Formato de resposta:
               </div>
             )}
           </div>
+        )}
+
+        {/* Leilão, concurso e diálogo competitivo (E7c): dados próprios da modalidade */}
+        {MODALIDADES_ESPECIAIS_WIZARD.includes(dados.modalidade) && (
+          <CamposModalidadeEspecial
+            modalidade={dados.modalidade}
+            valor={dados.especiais ?? {}}
+            onChange={(v) => onChange("especiais", v as any)}
+          />
         )}
 
         {/* Área demandante + Valor estimado */}
@@ -1341,9 +1354,10 @@ function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => voi
       <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mb-6">
         <Check className="w-8 h-8 text-green-600" />
       </div>
-      <h2 className="text-xl font-bold text-gray-900 mb-2">Fase interna concluída!</h2>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">Rascunhos da fase interna prontos</h2>
       <p className="text-sm text-gray-500 mb-6 max-w-md">
-        Todos os documentos foram elaborados em conformidade com a Lei 14.133/2021.
+        As peças abaixo foram redigidas (Lei 14.133/2021, art. 18). No dossiê do processo você revisa, envia para aprovação
+        e, com tudo aprovado, segue para o processo: itens, cronograma e publicação.
         {isContratacaoDireta && " Fluxo de contratação direta (sem minuta de edital)."}
       </p>
       <div className="grid grid-cols-2 gap-3 text-xs mb-8 text-left w-full max-w-sm">
@@ -1354,7 +1368,7 @@ function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => voi
         ))}
       </div>
       <Button onClick={onCriar} disabled={criando} className="bg-[#1351b4] hover:bg-[#0c326f] px-8">
-        {criando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Criando processo…</> : "Criar processo no sistema →"}
+        {criando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando…</> : "Salvar e abrir o dossiê →"}
       </Button>
     </div>
   )
@@ -1380,6 +1394,27 @@ export default function NovoProcessoPage() {
   const [fontes, setFontes] = useState<any[]>([{ fonte: "", valor: 0 }, { fonte: "", valor: 0 }, { fonte: "", valor: 0 }])
   const [autorizacao, setAutorizacao] = useState("")
   const [parecer, setParecer] = useState("")
+
+  // Pré-seleção da modalidade pela URL (?modalidade=DISPENSA_ELETRONICA, LEILAO...).
+  // Credenciamento tem cadastro próprio (hipótese, regra, vigência) — E7b.
+  const modalidadeParam = searchParams.get("modalidade")
+  useEffect(() => {
+    if (processoId || !modalidadeParam) return
+    if (modalidadeParam === "CREDENCIAMENTO") {
+      router.replace("/orgao/credenciamentos")
+      return
+    }
+    const rotulo = desmapearModalidade(modalidadeParam)
+    if (!rotulo || !mapearModalidade(rotulo) || mapearModalidade(rotulo) !== modalidadeParam) return
+    const criterios = CRITERIOS_POR_MODALIDADE[rotulo] || []
+    setDados((p) => ({
+      ...p,
+      modalidade: rotulo,
+      ...(rotulo === "Leilão" ? { categoria: "Alienação de Bens" } : {}),
+      criterio: criterios[0] || "",
+      modoDisputa: MODALIDADES_LICITACAO.includes(rotulo) ? "Aberto" : "",
+    }))
+  }, [processoId, modalidadeParam, router])
 
   useEffect(() => {
     if (!processoId) return
@@ -1497,93 +1532,89 @@ export default function NovoProcessoPage() {
     juridico_obs: parecer,
   })
 
+  /**
+   * Grava o processo (cria na primeira vez; depois atualiza) + campos da
+   * modalidade especial + peças do wizard. Um caminho só para "Salvar
+   * rascunho" e para a conclusão do assistente. Devolve o id do processo.
+   */
+  const persistirProcesso = async (): Promise<string> => {
+    if (!dados.objeto || !dados.modalidade || !dados.categoria) {
+      throw new Error("Preencha os dados básicos primeiro (objeto, modalidade e categoria)")
+    }
+    const orgaoId = getOrgaoId()
+    if (!orgaoId) throw new Error("Órgão não identificado. Faça login novamente.")
+
+    let valorEstimado = 0
+    if (dados.valor) {
+      // "R$ 1.500,50" (digitado) ou "1500.5" (vindo do backend)
+      const bruto = dados.valor.replace(/[R$\s]/g, "")
+      const valorLimpo = bruto.includes(",") ? bruto.replace(/\./g, "").replace(",", ".") : bruto
+      valorEstimado = parseFloat(valorLimpo) || 0
+    }
+
+    const payloadLicitacao = {
+      ...(processoId ? {} : { numero_processo: gerarNumeroProcesso() }),
+      orgao_id: orgaoId,
+      objeto: dados.objeto,
+      modalidade: mapearModalidade(dados.modalidade),
+      tipo_contratacao: mapearCategoria(dados.categoria),
+      criterio_julgamento: mapearCriterio(dados.criterio || "Menor preço"),
+      modo_disputa: mapearModoDisputa(dados.modoDisputa || "Aberto"),
+      valor_total_estimado: valorEstimado > 0 ? valorEstimado : undefined,
+    }
+    const res = await authFetch(
+      processoId ? `${API_URL}/api/licitacoes/${processoId}` : `${API_URL}/api/licitacoes`,
+      {
+        method: processoId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadLicitacao),
+      }
+    )
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message || err.errors?.[0]?.message || "Erro ao gravar o processo")
+    }
+    const licitacao = await res.json()
+    const licitacaoId = processoId || licitacao.id
+    // Leilão/concurso/diálogo (E7c): campos próprios — o que faltar vira pendência no cockpit
+    const erroEspeciais = await salvarCamposModalidadeEspecial(licitacaoId, dados.modalidade, (dados as any).especiais)
+    if (erroEspeciais) toast.warning(`Dados da modalidade pendentes: ${erroEspeciais}`)
+    const wizardRes = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildWizardPayload()),
+    })
+    if (!wizardRes.ok) {
+      const err = await wizardRes.json().catch(() => ({}))
+      throw new Error(err.message || "Erro ao salvar os documentos do processo")
+    }
+    return licitacaoId
+  }
+
   const criarProcesso = async () => {
     setCriando(true)
     try {
-      const res = await authFetch(`${API_URL}/api/licitacoes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          objeto: dados.objeto,
-          modalidade: dados.modalidade,
-          categoria: dados.categoria,
-          valor_total_estimado: dados.valor || 0,
-          fase: "PLANEJAMENTO",
-        }),
-      })
-      if (res.ok) {
-        const licitacao = await res.json()
-        await authFetch(`${API_URL}/api/fase-interna/${licitacao.id}/wizard`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildWizardPayload()),
-        })
-        router.push(`/orgao/fase-interna/processos/${licitacao.id}`)
-      }
-    } catch (e) {
+      const licitacaoId = await persistirProcesso()
+      window.dispatchEvent(new Event("processos-updated"))
+      router.push(`/orgao/fase-interna/processos/${licitacaoId}`)
+    } catch (e: any) {
       console.error(e)
+      toast.error(e.message || "Erro ao gravar o processo")
     } finally {
       setCriando(false)
     }
   }
 
   const salvarRascunho = async () => {
-    if (!dados.objeto || !dados.modalidade || !dados.categoria) {
-      alert("Preencha os dados básicos primeiro (objeto, modalidade e categoria)")
-      return
-    }
-    const orgaoId = getOrgaoId()
-    if (!orgaoId) {
-      alert("Erro: órgão não identificado. Faça login novamente.")
-      return
-    }
-    
-    let valorEstimado = 0
-    if (dados.valor) {
-      const valorLimpo = dados.valor.replace(/[R$\s.,]/g, "").replace(",", ".")
-      valorEstimado = parseFloat(valorLimpo) || 0
-    }
-    
     setSalvandoRascunho(true)
     try {
-      const payloadLicitacao = {
-        numero_processo: gerarNumeroProcesso(),
-        orgao_id: orgaoId,
-        objeto: dados.objeto,
-        modalidade: mapearModalidade(dados.modalidade),
-        tipo_contratacao: mapearCategoria(dados.categoria),
-        criterio_julgamento: mapearCriterio(dados.criterio || "Menor preço"),
-        modo_disputa: mapearModoDisputa(dados.modoDisputa || "Aberto"),
-        valor_total_estimado: valorEstimado > 0 ? valorEstimado : undefined,
-      }
-      const res = await authFetch(
-        processoId ? `${API_URL}/api/licitacoes/${processoId}` : `${API_URL}/api/licitacoes`,
-        {
-        method: processoId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payloadLicitacao),
-        }
-      )
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        const msg = err.message || err.errors?.[0]?.message || "Erro ao criar processo"
-        throw new Error(msg)
-      }
-      const licitacao = await res.json()
-      const licitacaoId = processoId || licitacao.id
-      const wizardRes = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildWizardPayload()),
-      })
-      if (!wizardRes.ok) {
-        const err = await wizardRes.json().catch(() => ({}))
-        throw new Error(err.message || "Erro ao salvar documentos do rascunho")
-      }
+      const licitacaoId = await persistirProcesso()
+      if (!processoId) window.dispatchEvent(new Event("processos-updated"))
+      toast.success("Rascunho salvo")
       router.push(`/orgao/fase-interna/processos/novo?id=${licitacaoId}&step=${step}`)
     } catch (e: any) {
       console.error(e)
-      alert(e.message || "Erro ao salvar rascunho")
+      toast.error(e.message || "Erro ao salvar rascunho")
     } finally {
       setSalvandoRascunho(false)
     }

@@ -1,5 +1,7 @@
 "use client"
 
+import { toast } from "sonner"
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { useRef, useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -43,6 +45,7 @@ export function ItensTab({
   modoBeneficioMpe = 'GERAL',
   enviadoPncp = false
 }: ItensTabProps) {
+  const { confirmar, dialogo } = useDialogoConfirmacao()
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   // Estados para busca no catálogo
@@ -243,14 +246,14 @@ export function ItensTab({
   }
 
   // REGRA PNCP: Não permite excluir itens após envio ao PNCP
-  const removeItem = (index: number) => {
+  const removeItem = async (index: number) => {
     if (enviadoPncp) {
-      alert('⚠️ Não é possível excluir itens de uma licitação já enviada ao PNCP.\n\nItens já publicados não podem ser removidos, apenas editados (descrição, quantidade, valor).')
+      toast.error('Itens já publicados não podem ser removidos — mudar o objeto exige revogar e republicar.')
       return
     }
     
     const item = itens[index]
-    if (!confirm(`Deseja realmente excluir o item "${item.descricao}"?`)) return
+    if (!(await confirmar({ titulo: 'Excluir item', mensagem: `Excluir o item "${item.descricao}"?`, confirmarRotulo: 'Excluir', destrutivo: true }))) return
     
     const novosItens = itens
       .filter((_, i) => i !== index)
@@ -401,6 +404,7 @@ export function ItensTab({
 
   return (
     <div className="space-y-6">
+      {dialogo}
       {/* Info do PCA quando modo POR_LICITACAO */}
       {modoVinculacaoPca === 'POR_LICITACAO' && itemPcaSelecionado && (
         <Alert className="border-green-200 bg-green-50">

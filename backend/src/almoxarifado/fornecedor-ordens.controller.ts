@@ -8,6 +8,7 @@ import {
   Req,
   ParseUUIDPipe,
   ForbiddenException,
+  NotFoundException,
   BadRequestException,
   UseGuards,
   UseInterceptors,
@@ -57,7 +58,7 @@ export class FornecedorOrdensController {
     const ordem = await this.ordemService.findOne(id);
 
     if (ordem.fornecedor_id !== fornecedorId) {
-      throw new ForbiddenException('Esta ordem não pertence ao seu cadastro');
+      throw new NotFoundException('Ordem não encontrada');
     }
 
     return ordem;
@@ -179,7 +180,7 @@ export class FornecedorOrdensController {
     const fornecedorId = this.getFornecedorId(request.user);
     const ordem = await this.ordemService.findOne(ordemId);
     if (ordem.fornecedor_id !== fornecedorId) {
-      throw new ForbiddenException('Esta ordem não pertence ao seu cadastro');
+      throw new NotFoundException('Ordem não encontrada');
     }
     return this.nfService.findByOrdem(ordemId);
   }
@@ -192,7 +193,7 @@ export class FornecedorOrdensController {
     const fornecedorId = this.getFornecedorId(request.user);
     const ordem = await this.ordemService.findOne(ordemId);
     if (ordem.fornecedor_id !== fornecedorId) {
-      throw new ForbiddenException('Esta ordem não pertence ao seu cadastro');
+      throw new NotFoundException('Ordem não encontrada');
     }
     return this.nfService.findAllByOrdem(ordemId);
   }

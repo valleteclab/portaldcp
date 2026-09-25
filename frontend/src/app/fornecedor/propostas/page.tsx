@@ -10,6 +10,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { SituacaoBadge } from '@/components/licitacao/SituacaoBadge'
+import { corFase, rotuloFase } from '@/lib/licitacao-rotulos'
+
+/** Documento da desclassificação: rota autenticada (fornecedor dono ou órgão dono). */
+async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?: string): Promise<boolean> {
+  const res = await authFetch(`${API_URL}/api/propostas/${propostaId}/documento-desclassificacao`)
+  if (!res.ok) return false
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo || 'documento-desclassificacao'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return true
+}
 
 interface Proposta {
   id: string
@@ -24,6 +42,7 @@ interface Proposta {
     objeto: string
     modalidade: string
     fase: string
+    situacao?: string
     data_abertura_sessao?: string
     data_fim_acolhimento?: string
     orgao?: {
@@ -40,20 +59,19 @@ export default function PropostasFornecedorPage() {
   const [propostas, setPropostas] = useState<Proposta[]>([])
   const [loading, setLoading] = useState(true)
   const [modalMotivo, setModalMotivo] = useState<Proposta | null>(null)
+  const [erroDownload, setErroDownload] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchPropostas = async () => {
       try {
         // Buscar fornecedor logado do localStorage
-        const fornecedorStr = localStorage.getItem('fornecedor')
-        if (!fornecedorStr) {
+        if (!localStorage.getItem('fornecedor')) {
           setLoading(false)
           return
         }
-        const fornecedor = JSON.parse(fornecedorStr)
-        
-        // Buscar propostas do fornecedor
-        const res = await authFetch(`${API_URL}/api/propostas/fornecedor/${fornecedor.id}`)
+
+        // Buscar propostas do fornecedor (identificado pelo token)
+        const res = await authFetch(`${API_URL}/api/propostas/minhas`)
         if (res.ok) {
           const data = await res.json()
           setPropostas(data)
@@ -99,27 +117,7 @@ export default function PropostasFornecedorPage() {
 
   const getFaseBadge = (fase?: string) => {
     if (!fase) return <span className="text-slate-400">-</span>
-    const map: Record<string, { label: string; className: string }> = {
-      RASCUNHO: { label: 'Rascunho', className: 'bg-slate-100 text-slate-700' },
-      PUBLICADO: { label: 'Publicado', className: 'bg-blue-100 text-blue-700' },
-      IMPUGNACAO: { label: 'Impugnação', className: 'bg-orange-100 text-orange-700' },
-      ACOLHIMENTO_PROPOSTAS: { label: 'Acolhimento', className: 'bg-cyan-100 text-cyan-700' },
-      ANALISE_PROPOSTAS: { label: 'Análise', className: 'bg-yellow-100 text-yellow-700' },
-      EM_DISPUTA: { label: 'Em Disputa', className: 'bg-purple-100 text-purple-700' },
-      JULGAMENTO: { label: 'Julgamento', className: 'bg-indigo-100 text-indigo-700' },
-      HABILITACAO: { label: 'Habilitação', className: 'bg-teal-100 text-teal-700' },
-      RECURSO: { label: 'Recurso', className: 'bg-amber-100 text-amber-700' },
-      ADJUDICACAO: { label: 'Adjudicação', className: 'bg-lime-100 text-lime-700' },
-      HOMOLOGACAO: { label: 'Homologado', className: 'bg-green-100 text-green-700' },
-      CONCLUIDO: { label: 'Concluído', className: 'bg-emerald-100 text-emerald-700' },
-      SUSPENSO: { label: 'Suspenso', className: 'bg-red-100 text-red-700' },
-      REVOGADO: { label: 'Revogado', className: 'bg-gray-100 text-gray-700' },
-      ANULADO: { label: 'Anulado', className: 'bg-gray-100 text-gray-700' },
-      FRACASSADO: { label: 'Fracassado', className: 'bg-red-100 text-red-700' },
-      DESERTO: { label: 'Deserto', className: 'bg-gray-100 text-gray-700' },
-    }
-    const config = map[fase] || { label: fase, className: 'bg-gray-100 text-gray-700' }
-    return <Badge variant="outline" className={config.className}>{config.label}</Badge>
+    return <Badge variant="outline" className={corFase(fase)}>{rotuloFase(fase)}</Badge>
   }
 
   // Estatísticas
@@ -285,7 +283,10 @@ export default function PropostasFornecedorPage() {
                         </div>
                       </td>
                       <td className="p-3">
-                        {getFaseBadge(proposta.licitacao?.fase)}
+                        <div className="flex flex-wrap gap-1">
+                          {getFaseBadge(proposta.licitacao?.fase)}
+                          <SituacaoBadge licitacao={proposta.licitacao} />
+                        </div>
                       </td>
                       <td className="p-3">
                         <div className="flex flex-col gap-1">
@@ -371,15 +372,20 @@ export default function PropostasFornecedorPage() {
               {modalMotivo.documento_desclassificacao_nome && (
                 <div>
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Documento Anexado</p>
-                  <a 
-                    href={`${API_URL}/api/propostas/${modalMotivo.id}/documento-desclassificacao`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setErroDownload(null)
+                      if (!(await baixarDocumentoDesclassificacao(modalMotivo.id, modalMotivo.documento_desclassificacao_nome))) {
+                        setErroDownload('Não foi possível baixar o documento.')
+                      }
+                    }}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors"
                   >
                     <Download className="h-4 w-4" />
                     {modalMotivo.documento_desclassificacao_nome}
-                  </a>
+                  </button>
+                  {erroDownload && <p className="mt-2 text-xs text-red-700">{erroDownload}</p>}
                 </div>
               )}
             </div>

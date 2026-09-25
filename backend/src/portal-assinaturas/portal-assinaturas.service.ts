@@ -8,12 +8,14 @@ import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { AssinaturasService } from '../assinaturas/assinaturas.service';
 import { EntidadeTipo, PapelAssinante } from '../assinaturas/entities/assinatura-digital.entity';
-import { PncpService } from '../pncp/pncp.service';
+import { PncpFilaService } from '../pncp/fila/pncp-fila.service';
 import { join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import * as crypto from 'crypto';
 import * as QRCode from 'qrcode';
 
+import { marcarContratado } from '../resultado/status-demanda-pca.sql';
+import { resolverArquivoDeUrl } from '../common/arquivos/arquivos';
 @Injectable()
 export class PortalAssinaturasService {
   private readonly logger = new Logger(PortalAssinaturasService.name);
@@ -27,8 +29,19 @@ export class PortalAssinaturasService {
     private readonly dataSource: DataSource,
     private readonly notificacoesService: NotificacoesService,
     private readonly assinaturasService: AssinaturasService,
-    private readonly pncpService: PncpService,
+    private readonly pncpFila: PncpFilaService,
   ) {}
+
+  /**
+   * Ouvintes da conclusão de um documento (todas as partes assinaram) — outros
+   * módulos se registram aqui sem criar dependência circular (ex.: a ARP passa
+   * a VIGENTE e é publicada no PNCP quando o termo da ata é concluído — E6).
+   */
+  private readonly ouvintesConclusao: Array<(documentoId: string, arquivoAssinadoUrl?: string) => Promise<void>> = [];
+
+  registrarAoConcluir(ouvinte: (documentoId: string, arquivoAssinadoUrl?: string) => Promise<void>): void {
+    this.ouvintesConclusao.push(ouvinte);
+  }
 
   private normalizarEmail(email?: string | null): string {
     return (email || '').trim().toLowerCase();
@@ -92,7 +105,8 @@ export class PortalAssinaturasService {
       // Calcular SHA-256 do arquivo
       let documentoHash: string | undefined;
       try {
-        const filePath = join(this.uploadDir, arquivoUrl);
+        // Pasta sensível nova (privado) primeiro; legado (UPLOAD_DIR) depois
+        const filePath = resolverArquivoDeUrl(arquivoUrl) ?? join(this.uploadDir, arquivoUrl);
         if (existsSync(filePath)) {
           const fileBuffer = readFileSync(filePath);
           documentoHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
@@ -506,15 +520,30 @@ export class PortalAssinaturasService {
    * art. 94 da Lei 14.133/2021: a divulgação é condição de eficácia.
    */
   private async aoConcluirDocumento(documentoId: string, arquivoAssinadoUrl?: string): Promise<void> {
+    // Ouvintes de outros módulos (ex.: ARP — atas_registro_preco.documento_assinatura_id)
+    for (const ouvinte of this.ouvintesConclusao) {
+      try {
+        await ouvinte(documentoId, arquivoAssinadoUrl);
+      } catch (e: any) {
+        this.logger.warn(`Efeito de conclusão (ouvinte) do documento ${documentoId}: ${e?.message ?? e}`);
+      }
+    }
+
     const [ctr] = await this.dataSource.query(
       `SELECT id, licitacao_id, numero_contrato FROM contratos WHERE documento_assinatura_id = $1`,
       [documentoId],
     );
     if (!ctr) return;
 
+    // Contrato gerado pela homologação (E6): sai de AGUARDANDO_ASSINATURA para
+    // a liberação, com a vigência recontada da data REAL da assinatura.
     await this.dataSource.query(
       `UPDATE contratos
-       SET data_assinatura = NOW(), arquivo_contrato = COALESCE($2, arquivo_contrato)
+       SET data_assinatura = NOW(), arquivo_contrato = COALESCE($2, arquivo_contrato),
+           data_vigencia_inicio = CASE WHEN status::text = 'AGUARDANDO_ASSINATURA' THEN CURRENT_DATE ELSE data_vigencia_inicio END,
+           data_vigencia_fim = CASE WHEN status::text = 'AGUARDANDO_ASSINATURA' AND prazo_execucao_dias IS NOT NULL
+                                    THEN CURRENT_DATE + prazo_execucao_dias ELSE data_vigencia_fim END,
+           status = CASE WHEN status::text = 'AGUARDANDO_ASSINATURA' THEN 'AGUARDANDO_LIBERACAO' ELSE status END
        WHERE id = $1`,
       [ctr.id, arquivoAssinadoUrl || null],
     );
@@ -522,15 +551,17 @@ export class PortalAssinaturasService {
       `Contrato ${ctr.numero_contrato}: termo assinado por todas as partes — data de assinatura atualizada`,
     );
 
+    // Demanda de origem → CONTRATADA; item do PCA → CONTRATADO (E6.5)
     if (ctr.licitacao_id) {
-      this.pncpService
-        .enviarContratosHomologacao(ctr.licitacao_id)
-        .then((r: any) =>
-          this.logger.log(`[PNCP] Contratos pós-assinatura: ${r?.enviados}/${r?.total} publicado(s)`),
-        )
-        .catch((e: any) =>
-          this.logger.warn(`[PNCP] Contrato assinado não publicado: ${e.message} (reenvie pelo cockpit)`),
-        );
+      await marcarContratado(this.dataSource, ctr.licitacao_id).catch((e: any) =>
+        this.logger.warn(`Status da demanda/PCA não atualizado: ${e?.message ?? e}`),
+      );
+    }
+
+    // PNCP (art. 94 — eficácia): SÓ agora, com o termo assinado — na fila
+    // (reenvio automático; contrato já enviado antes da assinatura é retificado).
+    if (ctr.licitacao_id) {
+      await this.pncpFila.aoAssinarContrato(ctr.id);
     }
   }
 
@@ -592,7 +623,7 @@ export class PortalAssinaturasService {
   private async gerarPdfFinalAssinado(documento: DocumentoAssinatura): Promise<string> {
     const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 
-    const originalPath = join(this.uploadDir, documento.arquivo_original_url);
+    const originalPath = resolverArquivoDeUrl(documento.arquivo_original_url) ?? join(this.uploadDir, documento.arquivo_original_url);
     if (!existsSync(originalPath)) {
       throw new BadRequestException('Arquivo original do documento não encontrado.');
     }

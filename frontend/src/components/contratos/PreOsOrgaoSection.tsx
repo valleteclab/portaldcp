@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog'
 import { Loader2, Inbox, CheckCircle2, Undo2 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface LinhaPreOs {
   tipo: 'SINAPRO' | 'TERCEIROS' | 'MIDIA'
@@ -73,7 +75,7 @@ export default function PreOsOrgaoSection({ contratoId }: { contratoId: string }
   const pendentes = lista.filter((p) => p.status === 'ENVIADA').length
 
   const devolver = async () => {
-    if (!revisando || !motivo.trim()) { alert('Informe o motivo da devolução.'); return }
+    if (!revisando || !motivo.trim()) { toast.warning('Informe o motivo da devolução.'); return }
     setAcao(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/pre-os/${revisando.id}/devolver`, {
@@ -81,7 +83,7 @@ export default function PreOsOrgaoSection({ contratoId }: { contratoId: string }
         body: JSON.stringify({ motivo: motivo.trim() }),
       })
       const d = await res.json()
-      if (!res.ok) { alert(d.message || 'Erro ao devolver.'); return }
+      if (!res.ok) { toast.error(d.message || 'Erro ao devolver.'); return }
       setRevisando(null); setMotivo('')
       await carregar()
     } finally {
@@ -91,7 +93,7 @@ export default function PreOsOrgaoSection({ contratoId }: { contratoId: string }
 
   const aceitar = async () => {
     if (!revisando) return
-    if (!confirm(`Aceitar a pré-OS #${revisando.sequencial}?\n\nSerão gerados ${revisando.linhas.length} item(ns) no contrato e a OS será criada em RASCUNHO para você completar e enviar ao gestor. O fornecedor recebe a aprovação prévia (sino + WhatsApp).`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Aceitar a pré-OS #${revisando.sequencial}?\n\nSerão gerados ${revisando.linhas.length} item(ns) no contrato e a OS será criada em RASCUNHO para você completar e enviar ao gestor. O fornecedor recebe a aprovação prévia (sino + WhatsApp).` }))) return
     setAcao(true)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/pre-os/${revisando.id}/aceitar`, {
@@ -99,10 +101,8 @@ export default function PreOsOrgaoSection({ contratoId }: { contratoId: string }
         body: JSON.stringify({ setor_solicitante: setor.trim() || undefined }),
       })
       const d = await res.json()
-      if (!res.ok) { alert(d.message || 'Erro ao aceitar.'); return }
-      const irParaOS = confirm(
-        `✅ Pré-OS aprovada!\n\n· ${d.itens_gerados_ids?.length || revisando.linhas.length} item(ns) gerados no contrato\n· OS ${d.requisicao_numero || ''} criada em rascunho\n· PDF da aprovação prévia emitido\n\nAbrir a OS agora para completar e enviar ao gestor?`,
-      )
+      if (!res.ok) { toast.error(d.message || 'Erro ao aceitar.'); return }
+      const irParaOS = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `✅ Pré-OS aprovada!\n\n· ${d.itens_gerados_ids?.length || revisando.linhas.length} item(ns) gerados no contrato\n· OS ${d.requisicao_numero || ''} criada em rascunho\n· PDF da aprovação prévia emitido\n\nAbrir a OS agora para completar e enviar ao gestor?` }))
       setRevisando(null)
       await carregar()
       if (irParaOS && d.requisicao_id) {

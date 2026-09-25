@@ -5,6 +5,8 @@
  * "O parcelamento será adotado quando técnica e economicamente viável"
  */
 
+import { toast } from "sonner"
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { useState, useEffect, useMemo, useCallback, memo } from 'react'
 import { 
   Package, Plus, Trash2, Edit2, ChevronDown, ChevronRight,
@@ -26,8 +28,7 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Switch } from '@/components/ui/switch'
-import { LoteLicitacao, ItemLicitacao, ItemPCA, UNIDADES } from './types'
+import { LoteLicitacao, ItemLicitacao, ItemPCA, UNIDADES, TIPOS_BENEFICIO_MPE, TipoBeneficioMPE } from './types'
 
 import { API_URL, authFetch } from '@/lib/api'
 
@@ -498,9 +499,72 @@ interface LotesManagerProps {
   enviadoPncp?: boolean // Se true, bloqueia exclusão de itens (PNCP não permite deletar)
 }
 
+/**
+ * Benefício ME/EPP do lote (LC 123/2006, art. 48). Fonte única:
+ * `tipo_beneficio_mpe`; o percentual só vale para COTA_RESERVADA (até 25%).
+ */
+function BeneficioMpeLoteCampos({
+  tipo,
+  percentual,
+  onChange,
+}: {
+  tipo: TipoBeneficioMPE
+  percentual: number
+  onChange: (v: { tipo_beneficio_mpe: TipoBeneficioMPE; percentual_cota_reservada: number }) => void
+}) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label>Benefício ME/EPP</Label>
+        <Select
+          value={tipo}
+          onValueChange={(v) =>
+            onChange({
+              tipo_beneficio_mpe: v as TipoBeneficioMPE,
+              percentual_cota_reservada: v === 'COTA_RESERVADA' ? (percentual > 0 ? percentual : 25) : 0,
+            })
+          }
+        >
+          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {TIPOS_BENEFICIO_MPE.map((t) => (
+              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground mt-1">
+          {TIPOS_BENEFICIO_MPE.find((t) => t.value === tipo)?.descricao} (LC 123/2006, art. 48)
+        </p>
+      </div>
+      {tipo === 'COTA_RESERVADA' && (
+        <div>
+          <Label>Percentual da cota reservada (%)</Label>
+          <Input
+            type="number"
+            min={1}
+            max={25}
+            value={percentual}
+            onChange={(e) =>
+              onChange({ tipo_beneficio_mpe: tipo, percentual_cota_reservada: Math.min(25, parseInt(e.target.value) || 0) })
+            }
+            className="mt-1"
+          />
+          <p className="text-xs text-muted-foreground mt-1">LC 123/2006, art. 48, III: até 25% do objeto</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Tipo do benefício do lote (o backend sempre devolve `tipo_beneficio_mpe`). */
+function tipoBeneficioDoLote(lote: Partial<LoteLicitacao>): TipoBeneficioMPE {
+  return lote.tipo_beneficio_mpe || 'NENHUM'
+}
+
 export function LotesManager({
   lotes, itens, itensPca, onLotesChange, onItensChange, onLoadItensPca, orgaoId, disabled = false, enviadoPncp = false
 }: LotesManagerProps) {
+  const { confirmar, dialogo } = useDialogoConfirmacao()
   const [modalNovoLote, setModalNovoLote] = useState(false)
   const [modalEditarLote, setModalEditarLote] = useState(false)
   const [modalVincularPca, setModalVincularPca] = useState(false)
@@ -509,7 +573,7 @@ export function LotesManager({
   const [itemEmEdicao, setItemEmEdicao] = useState<ItemLicitacao | null>(null)
   const [loteAtual, setLoteAtual] = useState<LoteLicitacao | null>(null)
   const [lotesExpandidos, setLotesExpandidos] = useState<Set<number>>(new Set([1]))
-  const [novoLote, setNovoLote] = useState({ descricao: '', exclusivo_mpe: false, percentual_cota_reservada: 0 })
+  const [novoLote, setNovoLote] = useState<{ descricao: string; tipo_beneficio_mpe: TipoBeneficioMPE; percentual_cota_reservada: number }>({ descricao: '', tipo_beneficio_mpe: 'NENHUM', percentual_cota_reservada: 0 })
   
   // Filtros do PCA no modal
   const [pcaFiltroAno, setPcaFiltroAno] = useState<number>(new Date().getFullYear())
@@ -565,8 +629,8 @@ export function LotesManager({
       id: `temp-${Date.now()}`,
       numero: proximoNumeroLote,
       descricao: novoLote.descricao,
-      exclusivo_mpe: novoLote.exclusivo_mpe,
-      percentual_cota_reservada: novoLote.percentual_cota_reservada,
+      tipo_beneficio_mpe: novoLote.tipo_beneficio_mpe,
+      percentual_cota_reservada: novoLote.tipo_beneficio_mpe === 'COTA_RESERVADA' ? novoLote.percentual_cota_reservada : 0,
       valor_total_estimado: 0,
       quantidade_itens: 0,
       status: 'RASCUNHO',
@@ -574,7 +638,7 @@ export function LotesManager({
     }
     onLotesChange([...lotes, lote])
     setModalNovoLote(false)
-    setNovoLote({ descricao: '', exclusivo_mpe: false, percentual_cota_reservada: 0 })
+    setNovoLote({ descricao: '', tipo_beneficio_mpe: 'NENHUM', percentual_cota_reservada: 0 })
     setLotesExpandidos(new Set([...lotesExpandidos, lote.numero]))
   }
 
@@ -586,15 +650,15 @@ export function LotesManager({
   }
 
   // REGRA PNCP: Não permite excluir lotes com itens após envio ao PNCP
-  const excluirLote = (lote: LoteLicitacao) => {
+  const excluirLote = async (lote: LoteLicitacao) => {
     const itensDoLote = itens.filter(i => i.lote_numero === lote.numero || i.lote_id === lote.id)
     
     if (enviadoPncp && itensDoLote.length > 0) {
-      alert('⚠️ Não é possível excluir lotes com itens de uma licitação já enviada ao PNCP.\n\nA API do PNCP não permite exclusão de itens. Você pode apenas retificar os itens existentes.')
+      toast.error('Itens já publicados não podem ser removidos — mudar o objeto exige revogar e republicar.')
       return
     }
     
-    if (!confirm(`Deseja realmente excluir o Lote ${lote.numero}?${itensDoLote.length > 0 ? `\n\nOs ${itensDoLote.length} item(ns) serão desvinculados do lote.` : ''}`)) return
+    if (!(await confirmar({ titulo: `Excluir o lote ${lote.numero}`, mensagem: itensDoLote.length > 0 ? `Os ${itensDoLote.length} item(ns) serão desvinculados do lote.` : 'O lote está vazio.', confirmarRotulo: 'Excluir', destrutivo: true }))) return
     
     onItensChange(itens.map(item => 
       item.lote_id === lote.id ? { ...item, lote_id: undefined, lote_numero: undefined } : item
@@ -648,13 +712,13 @@ export function LotesManager({
 
   // Excluir item do lote E da licitação
   // REGRA PNCP: Não permite excluir itens após envio ao PNCP
-  const excluirItemDoLote = (item: ItemLicitacao) => {
+  const excluirItemDoLote = async (item: ItemLicitacao) => {
     if (enviadoPncp) {
-      alert('⚠️ Não é possível excluir itens de uma licitação já enviada ao PNCP.\n\nItens já publicados não podem ser removidos, apenas editados (descrição, quantidade, valor).')
+      toast.error('Itens já publicados não podem ser removidos — mudar o objeto exige revogar e republicar.')
       return
     }
     
-    if (!confirm(`Deseja realmente excluir o item "${item.descricao}"?`)) return
+    if (!(await confirmar({ titulo: 'Excluir item', mensagem: `Excluir o item "${item.descricao}"?`, confirmarRotulo: 'Excluir', destrutivo: true }))) return
     
     const itensAtualizados = itens.filter(i => i.numero !== item.numero)
     onItensChange(itensAtualizados)
@@ -691,6 +755,7 @@ export function LotesManager({
 
   return (
     <div className="space-y-4">
+      {dialogo}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -735,7 +800,8 @@ export function LotesManager({
                       <div>
                         <CardTitle className="text-base flex items-center gap-2">
                           Lote {lote.numero}: {lote.descricao}
-                          {lote.exclusivo_mpe && <Badge variant="secondary" className="text-xs"><Building2 className="h-3 w-3 mr-1" />Exclusivo ME/EPP</Badge>}
+                          {tipoBeneficioDoLote(lote) === 'EXCLUSIVO' && <Badge variant="secondary" className="text-xs"><Building2 className="h-3 w-3 mr-1" />Exclusivo ME/EPP</Badge>}
+                          {tipoBeneficioDoLote(lote) === 'COTA_RESERVADA' && <Badge variant="secondary" className="text-xs"><Building2 className="h-3 w-3 mr-1" />Cota ME/EPP {lote.percentual_cota_reservada || 0}%</Badge>}
                         </CardTitle>
                         <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
                           <span>{itensDoLote.length} item(ns)</span>
@@ -933,12 +999,12 @@ export function LotesManager({
                       className="text-red-500 hover:text-red-700 hover:bg-red-50"
                       disabled={enviadoPncp}
                       title={enviadoPncp ? 'Itens já enviados ao PNCP não podem ser excluídos' : 'Excluir item'}
-                      onClick={() => {
+                      onClick={async () => {
                         if (enviadoPncp) {
-                          alert('⚠️ Não é possível excluir itens de uma licitação já enviada ao PNCP.\n\nItens já publicados não podem ser removidos, apenas editados.')
+                          toast.error('Itens já publicados não podem ser removidos — mudar o objeto exige revogar e republicar.')
                           return
                         }
-                        if (!confirm(`Deseja realmente excluir o item "${item.descricao}"?`)) return
+                        if (!(await confirmar({ titulo: 'Excluir item', mensagem: `Excluir o item "${item.descricao}"?`, confirmarRotulo: 'Excluir', destrutivo: true }))) return
                         const novosItens = itens.filter(i => i.numero !== item.numero)
                         onItensChange(novosItens)
                       }}
@@ -969,20 +1035,11 @@ export function LotesManager({
               <Label>Descrição do Lote *</Label>
               <Input value={novoLote.descricao} onChange={(e) => setNovoLote({ ...novoLote, descricao: e.target.value })} placeholder="Ex: Equipamentos de Informática" className="mt-1" />
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <Label>Exclusivo para ME/EPP</Label>
-                <p className="text-xs text-muted-foreground">LC 123/2006, Art. 48, I: Até R$ 80.000,00</p>
-              </div>
-              <Switch checked={novoLote.exclusivo_mpe} onCheckedChange={(checked) => setNovoLote({ ...novoLote, exclusivo_mpe: checked })} />
-            </div>
-            {!novoLote.exclusivo_mpe && (
-              <div>
-                <Label>Cota Reservada ME/EPP (%)</Label>
-                <Input type="number" min={0} max={25} value={novoLote.percentual_cota_reservada} onChange={(e) => setNovoLote({ ...novoLote, percentual_cota_reservada: Math.min(25, parseInt(e.target.value) || 0) })} className="mt-1" />
-                <p className="text-xs text-muted-foreground mt-1">LC 123/2006, Art. 48, III: Até 25% do objeto</p>
-              </div>
-            )}
+            <BeneficioMpeLoteCampos
+              tipo={novoLote.tipo_beneficio_mpe}
+              percentual={novoLote.percentual_cota_reservada}
+              onChange={(v) => setNovoLote({ ...novoLote, ...v })}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalNovoLote(false)}>Cancelar</Button>
@@ -1001,16 +1058,11 @@ export function LotesManager({
                 <Label>Descrição do Lote *</Label>
                 <Input value={loteAtual.descricao} onChange={(e) => setLoteAtual({ ...loteAtual, descricao: e.target.value })} className="mt-1" />
               </div>
-              <div className="flex items-center justify-between">
-                <div><Label>Exclusivo para ME/EPP</Label></div>
-                <Switch checked={loteAtual.exclusivo_mpe || false} onCheckedChange={(checked) => setLoteAtual({ ...loteAtual, exclusivo_mpe: checked })} />
-              </div>
-              {!loteAtual.exclusivo_mpe && (
-                <div>
-                  <Label>Cota Reservada ME/EPP (%)</Label>
-                  <Input type="number" min={0} max={25} value={loteAtual.percentual_cota_reservada || 0} onChange={(e) => setLoteAtual({ ...loteAtual, percentual_cota_reservada: Math.min(25, parseInt(e.target.value) || 0) })} className="mt-1" />
-                </div>
-              )}
+              <BeneficioMpeLoteCampos
+                tipo={tipoBeneficioDoLote(loteAtual)}
+                percentual={loteAtual.percentual_cota_reservada || 0}
+                onChange={(v) => setLoteAtual({ ...loteAtual, ...v })}
+              />
               <div>
                 <Label>Observações</Label>
                 <Textarea value={loteAtual.observacoes || ''} onChange={(e) => setLoteAtual({ ...loteAtual, observacoes: e.target.value })} className="mt-1" rows={3} />

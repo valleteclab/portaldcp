@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { getAuthToken } from '@/lib/api'
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -266,7 +267,7 @@ export default function FrotaCredenciaisPage() {
   // ─── Excluir ──────────────────────────────────────────────────────────────
 
   async function handleExcluir(id: string) {
-    if (!confirm('Excluir esta credencial? O acesso será revogado imediatamente.')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Excluir esta credencial? O acesso será revogado imediatamente.', destrutivo: true }))) return
     setExcluindo(id)
     try {
       await fetch(`/api/frota/credenciais/${id}`, {

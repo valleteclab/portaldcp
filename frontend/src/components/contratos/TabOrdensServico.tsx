@@ -20,6 +20,7 @@ import {
   BarChart3, AlertTriangle, Clock, Database,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface BancoMetricas {
   id: string
@@ -185,7 +186,7 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
         : `${API_URL}/api/contratos/${contratoId}/banco-metricas`
       const method = editandoBanco ? 'PUT' : 'POST'
       const res = await authFetch(url, { method, body: JSON.stringify(payload) })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalBanco(false)
       carregarDados()
     } catch (e) { console.error(e) }
@@ -233,7 +234,7 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
       const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/ordens-servico`, {
         method: 'POST', body: JSON.stringify(payload),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalOS(false)
       carregarDados()
     } catch (e) { console.error(e) }
@@ -262,7 +263,7 @@ export default function TabOrdensServico({ contratoId, valorGlobal }: { contrato
           parecer_aceite: formAceite.parecer_aceite || null,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalAceitar(null)
       carregarDados()
     } catch (e) { console.error(e) }

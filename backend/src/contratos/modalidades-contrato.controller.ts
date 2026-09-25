@@ -23,6 +23,7 @@ import type { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import * as path from 'path';
 import { RequireModule } from '../auth/require-module.decorator';
+import { AcessoContratoDoOrgao } from '../auth/acesso';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -46,6 +47,8 @@ import { MedicaoEquipeService } from './medicao-equipe.service';
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
+// Dono: todo :contratoId/:medicaoId/:osId/... é conferido contra o órgão do token
+@AcessoContratoDoOrgao()
 export class ModalidadesContratoController {
   constructor(
     private readonly medicaoService: MedicaoService,
@@ -356,7 +359,8 @@ export class ModalidadesContratoController {
     @Query('orgaoId') orgaoId: string,
     @Req() request: { user: JwtPayload },
   ) {
-    const oid = orgaoId || this.getOrgaoId(request.user, undefined);
+    // orgaoId da query só vale para o admin da plataforma
+    const oid = this.getOrgaoId(request.user, orgaoId);
     return this.medicaoService.listarFiscaisOrgao(oid);
   }
 

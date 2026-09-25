@@ -34,6 +34,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { API_URL, authFetch, formatarDataBR } from "@/lib/api";
+import { FormalizacaoResultadoConfig } from "@/components/resultado/FormalizacaoResultadoConfig";
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Parametros {
   tempo_inatividade_minutos: number;
@@ -51,6 +53,7 @@ interface Parametros {
   percentual_empate_ficto_demais: number;
   percentual_cota_maxima_mpe: number;
   validade_proposta_dias: number;
+  prazo_proposta_adequada_horas: number;
 }
 
 interface LimiteLegal {
@@ -85,6 +88,7 @@ const CAMPOS_MPE: { key: keyof Parametros; label: string; sufixo: string; fundam
   { key: "percentual_empate_ficto_demais", label: "Empate ficto nas demais modalidades", sufixo: "%", fundamento: "LC 123, art. 44, §2º" },
   { key: "percentual_cota_maxima_mpe", label: "Cota reservada máxima ME/EPP", sufixo: "%", fundamento: "LC 123, art. 48, III" },
   { key: "validade_proposta_dias", label: "Validade padrão da proposta", sufixo: "dias", fundamento: "Art. 90" },
+  { key: "prazo_proposta_adequada_horas", label: "Prazo da proposta adequada ao último lance (mín. 2 h)", sufixo: "h", fundamento: "IN 73/2022, art. 29" },
 ];
 
 function getOrgaoId(): string | undefined {
@@ -157,7 +161,7 @@ export default function ParametrosLicitacaoPage() {
   const restaurarPadrao = async () => {
     const orgaoId = getOrgaoId();
     if (!orgaoId) return;
-    if (!confirm("Restaurar os parâmetros para o padrão do sistema? Suas personalizações serão perdidas.")) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Restaurar os parâmetros para o padrão do sistema? Suas personalizações serão perdidas." }))) return;
     const res = await authFetch(`${API_URL}/api/parametros-licitacao/${orgaoId}`, {
       method: "DELETE",
     });
@@ -188,7 +192,7 @@ export default function ParametrosLicitacaoPage() {
   };
 
   const removerLimite = async (id?: string) => {
-    if (!id || !confirm("Remover este limite?")) return;
+    if (!id || !(await confirmarAcao({ titulo: 'Confirmação', mensagem: "Remover este limite?", destrutivo: true }))) return;
     const res = await authFetch(`${API_URL}/api/parametros-licitacao/limites/${id}`, {
       method: "DELETE",
     });
@@ -290,6 +294,8 @@ export default function ParametrosLicitacaoPage() {
             </CardHeader>
             <CardContent>{renderCampos(CAMPOS_MPE)}</CardContent>
           </Card>
+
+          <FormalizacaoResultadoConfig />
 
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-3">

@@ -28,6 +28,9 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { PropostaTecnicaPanel } from '@/components/julgamento/PropostaTecnicaPanel'
+import { HabilitacaoFornecedorPanel } from '@/components/sala/HabilitacaoFornecedorPanel'
+import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao'
 
 interface PropostaItem {
   id: string
@@ -71,6 +74,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
   const resolvedParams = use(params)
   const router = useRouter()
   const [proposta, setProposta] = useState<Proposta | null>(null)
+  const { confirmar, dialogo } = useDialogoConfirmacao()
   const [itensEditados, setItensEditados] = useState<PropostaItem[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -145,16 +149,15 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
       setError(null)
       setSuccess(null)
 
-      const fornecedorStr = localStorage.getItem('fornecedor')
-      if (!fornecedorStr) {
+      if (!localStorage.getItem('fornecedor')) {
         setError('Você precisa estar logado')
         return
       }
-      const fornecedor = JSON.parse(fornecedorStr)
 
-      if (!confirm('Deseja realmente excluir esta proposta?')) return
+      if (!(await confirmar({ titulo: 'Excluir proposta?', mensagem: 'A proposta será excluída e não poderá ser recuperada.', confirmarRotulo: 'Excluir', destrutivo: true }))) return
 
-      const res = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}?fornecedorId=${fornecedor.id}`, {
+      // O fornecedor é identificado pelo token (não vai mais na URL)
+      const res = await authFetch(`${API_URL}/api/propostas/${resolvedParams.id}`, {
         method: 'DELETE'
       })
 
@@ -437,6 +440,29 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
         </CardContent>
       </Card>
 
+      {/* Proposta técnica / de trabalho (critérios técnicos e maior retorno — Lei 14.133 arts. 35–39) */}
+      {proposta.licitacao?.id && (
+        <PropostaTecnicaPanel
+          licitacaoId={proposta.licitacao.id}
+          fornecedorId={(proposta as { fornecedor_id?: string }).fornecedor_id ?? null}
+          itens={(proposta.itens ?? []).map((i) => ({
+            id: i.item_licitacao_id,
+            numero: i.item_licitacao?.numero_item ?? 0,
+            descricao: i.item_licitacao?.descricao_resumida ?? '',
+          }))}
+        />
+      )}
+
+      {/* Inversão de fases (Lei 14.133 art. 17 §1º): habilitação enviada junto com a proposta — só aparece nesse caso.
+          Encerrado o recebimento, só a situação e o link da sala (lugar único para agir — E9). */}
+      {proposta.licitacao?.id && (
+        <HabilitacaoFornecedorPanel
+          licitacaoId={proposta.licitacao.id}
+          somenteInversao
+          resumoComLinkSala={`/fornecedor/licitacoes/${proposta.licitacao.id}/sessao`}
+        />
+      )}
+
       {/* Itens da Proposta */}
       <Card>
         <CardHeader>
@@ -523,30 +549,23 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
         </CardContent>
       </Card>
 
-      {/* Link para sala de disputa */}
-      {proposta.licitacao?.fase === 'EM_DISPUTA' && (
+      {/* Sala única da sessão (plano E8) */}
+      {['ANALISE_PROPOSTAS', 'EM_DISPUTA', 'JULGAMENTO', 'HABILITACAO', 'RECURSO', 'ADJUDICACAO', 'HOMOLOGACAO'].includes(proposta.licitacao?.fase || '') && proposta.licitacao?.id && (
         <Card className="bg-blue-50 border-blue-200">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-blue-800">Disputa em andamento!</h3>
-                <p className="text-blue-600">A fase de lances já começou. Acesse a sala de disputa para participar.</p>
+                <h3 className="font-semibold text-blue-800">{proposta.licitacao?.fase === 'EM_DISPUTA' ? 'Disputa em andamento!' : 'Sessão pública'}</h3>
+                <p className="text-blue-600">Lances, convocações, negociação, habilitação, recursos e resultado ficam na sala da sessão.</p>
               </div>
-              <Button 
-                className="bg-blue-600 hover:bg-blue-700"
-                onClick={() => {
-                  if (proposta.licitacao?.id) {
-                    // Redirecionar para nova sala de disputa v2
-                    window.location.href = `/fornecedor/licitacoes/${proposta.licitacao.id}/sala`
-                  }
-                }}
-              >
-                Entrar na Sala de Disputa
-              </Button>
+              <Link href={`/fornecedor/licitacoes/${proposta.licitacao.id}/sessao`}>
+                <Button className="bg-blue-600 hover:bg-blue-700">Entrar na sala da sessão</Button>
+              </Link>
             </div>
           </CardContent>
         </Card>
       )}
+      {dialogo}
     </div>
   )
 }

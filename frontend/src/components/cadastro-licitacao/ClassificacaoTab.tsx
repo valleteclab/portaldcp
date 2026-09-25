@@ -106,9 +106,10 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
   // Ao selecionar DISPENSA_ELETRONICA, forçar modo ABERTO e critério MENOR_PRECO
   const handleModalidadeChange = (v: string) => {
     if (v === 'DISPENSA_ELETRONICA') {
-      onChange({ ...dados, modalidade: v, modo_disputa: 'ABERTO', criterio_julgamento: 'MENOR_PRECO' })
+      onChange({ ...dados, modalidade: v, modo_disputa: 'ABERTO', criterio_julgamento: 'MENOR_PRECO', inversao_fases: false })
     } else {
-      updateField('modalidade', v)
+      // Inversão de fases só na concorrência (Lei 14.133 art. 17 §1º)
+      onChange({ ...dados, modalidade: v, ...(v !== 'CONCORRENCIA' ? { inversao_fases: false } : {}) })
     }
   }
 
@@ -298,6 +299,20 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
           </div>
         </div>
 
+        {/* Inversão de fases (Lei 14.133 art. 17 §1º) — só concorrência; definida no edital */}
+        {dados.modalidade === 'CONCORRENCIA' && (
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-violet-200 bg-violet-50 p-4">
+            <div>
+              <Label className="text-base">Inversão de fases (habilitação antes do julgamento)</Label>
+              <p className="text-sm text-slate-600">
+                Todos os licitantes enviam a habilitação com a proposta; a comissão julga a habilitação de todos antes da disputa
+                e só os habilitados dão lances (art. 17 §1º). Não pode ser alterada depois da publicação.
+              </p>
+            </div>
+            <Switch checked={!!dados.inversao_fases} onCheckedChange={(v) => updateField('inversao_fases', v)} />
+          </div>
+        )}
+
         {/* Tratamento ME/EPP */}
         <div className="border-t pt-6">
           <h3 className="font-medium mb-4">Tratamento Diferenciado ME/EPP (LC 123/2006)</h3>
@@ -356,7 +371,7 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                     <Label className="text-base font-medium text-orange-800">Benefício para toda a Licitação</Label>
                     
                     <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200 cursor-pointer hover:bg-orange-50"
-                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'NENHUM', exclusivo_mpe: false, cota_reservada: false })}
+                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'NENHUM' })}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-4 h-4 rounded-full border-2 ${dados.tipo_beneficio_mpe === 'NENHUM' ? 'border-orange-500 bg-orange-500' : 'border-gray-300'}`} />
@@ -369,7 +384,7 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                     </div>
 
                     <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200 cursor-pointer hover:bg-orange-50"
-                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'EXCLUSIVO', exclusivo_mpe: true, cota_reservada: false })}
+                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'EXCLUSIVO' })}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-4 h-4 rounded-full border-2 ${dados.tipo_beneficio_mpe === 'EXCLUSIVO' ? 'border-orange-500 bg-orange-500' : 'border-gray-300'}`} />
@@ -382,7 +397,7 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                     </div>
 
                     <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200 cursor-pointer hover:bg-orange-50"
-                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'COTA_RESERVADA', exclusivo_mpe: false, cota_reservada: true })}
+                      onClick={() => onChange({ ...dados, tipo_beneficio_mpe: 'COTA_RESERVADA', percentual_cota_reservada: dados.percentual_cota_reservada || 25 })}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-4 h-4 rounded-full border-2 ${dados.tipo_beneficio_mpe === 'COTA_RESERVADA' ? 'border-orange-500 bg-orange-500' : 'border-gray-300'}`} />
@@ -679,6 +694,31 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                 }}
               />
             </div>
+
+            {/* Disputa por lote (adjudicação por grupo) — E2 item 5 */}
+            {dados.usa_lotes && (
+              <div className="space-y-2 p-4 border rounded-lg">
+                <Label>Disputa e adjudicação</Label>
+                <Select
+                  value={dados.base_lance === 'TOTAL_LOTE' ? 'TOTAL_LOTE' : 'TOTAL_ITEM'}
+                  onValueChange={(v) => updateField('base_lance', v as Classificacao['base_lance'])}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TOTAL_ITEM">Por item (lances em cada item; lotes só agrupam)</SelectItem>
+                    <SelectItem value="TOTAL_LOTE">Por lote (lances pelo valor global do lote)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {dados.base_lance === 'TOTAL_LOTE' && (
+                  <p className="text-xs text-muted-foreground">
+                    O licitante deve cotar todos os itens do lote. O valor adjudicado de cada item é o rateio proporcional do
+                    lance vencedor sobre a proposta do licitante. Todos os itens precisam pertencer a um lote.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Justificativa para não parcelamento */}
             {!dados.usa_lotes && (

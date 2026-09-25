@@ -1,3 +1,4 @@
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import {
   BadRequestException,
   Injectable,
@@ -600,6 +601,7 @@ export class MedicaoChatService {
   }
 
   private async buscarSessao(sessionId: string, fornecedorId: string) {
+    if (!ehUuid(sessionId)) throw new NotFoundException('Sessão de medição assistida não encontrada');
     const session = await this.sessionRepository.findOne({
       where: { id: sessionId, fornecedor_id: fornecedorId },
     });
@@ -610,15 +612,14 @@ export class MedicaoChatService {
   }
 
   private async validarContexto(contratoId: string, fornecedorId: string) {
+    // Contrato de outro fornecedor (ou inexistente) → 404: não confirma que existe
+    if (!ehUuid(contratoId)) throw new NotFoundException('Contrato não encontrado');
     const contrato = await this.contratoRepository.findOne({
       where: { id: contratoId },
       relations: ['orgao'],
     });
-    if (!contrato) {
+    if (!contrato || contrato.fornecedor_id !== fornecedorId) {
       throw new NotFoundException('Contrato não encontrado');
-    }
-    if (contrato.fornecedor_id !== fornecedorId) {
-      throw new BadRequestException('Fornecedor sem acesso a este contrato');
     }
     return contrato;
   }

@@ -9,8 +9,19 @@ export enum StatusDemanda {
   EM_ANALISE = 'EM_ANALISE',       // Sendo analisada
   APROVADA = 'APROVADA',           // Aprovada para o PCA
   REJEITADA = 'REJEITADA',         // Rejeitada
-  CONSOLIDADA = 'CONSOLIDADA'      // Já incluída no PCA
+  CONSOLIDADA = 'CONSOLIDADA',     // Já incluída no PCA
+  /** Originou um processo de contratação (plano E6 item 5 — automático). */
+  EM_CONTRATACAO = 'EM_CONTRATACAO',
+  /** Contrato do processo de origem assinado por todas as partes (automático). */
+  CONTRATADA = 'CONTRATADA',
 }
+
+/** Demanda que já originou processo: não se edita, não se exclui, não volta a rascunho. */
+export const STATUS_DEMANDA_EM_PROCESSO: ReadonlyArray<StatusDemanda> = [
+  StatusDemanda.CONSOLIDADA,
+  StatusDemanda.EM_CONTRATACAO,
+  StatusDemanda.CONTRATADA,
+];
 
 /**
  * Demanda de Contratação

@@ -2,8 +2,37 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ItemLicitacao, StatusItem, UnidadeMedida } from './entities/item-licitacao.entity';
-import { CreateItemDto, UpdateItemDto, AdjudicarItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
+import { CreateItemDto, UpdateItemDto, ImportarItensPcaDto } from './dto/create-item.dto';
 import { ItemPCA } from '../pca/entities/pca.entity';
+import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { AtorTransicao, atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
+
+/**
+ * Campos que o PUT do item nunca altera: vínculo com a licitação (mover item
+ * para processo de outro órgão), estado e resultado da disputa. Não há
+ * ValidationPipe global com whitelist, então o corpo é filtrado aqui.
+ */
+const CAMPOS_PROTEGIDOS_ITEM = [
+  'id',
+  'licitacao_id',
+  'licitacao',
+  'status',
+  'status_disputa',
+  'melhor_lance_valor',
+  'melhor_lance_fornecedor_id',
+  'fornecedor_vencedor_id',
+  'fornecedor_vencedor_nome',
+  'marca_vencedora',
+  'valor_unitario_homologado',
+  'valor_total_homologado',
+  'created_at',
+  'updated_at',
+];
+
+/** Dados da licitação que decidem a visão pública dos itens. */
+export type LicitacaoVisaoItem = Pick<Licitacao, 'id' | 'orgao_id' | 'fase' | 'data_publicacao_edital' | 'sigilo_orcamento'>;
 
 @Injectable()
 export class ItensService {
@@ -14,6 +43,7 @@ export class ItensService {
     private readonly itemRepository: Repository<ItemLicitacao>,
     @InjectRepository(ItemPCA)
     private readonly itemPcaRepository: Repository<ItemPCA>,
+    private readonly transicoes: TransicoesService,
   ) {}
 
   async create(createDto: CreateItemDto): Promise<ItemLicitacao> {
@@ -86,7 +116,9 @@ export class ItensService {
       throw new BadRequestException('Não é possível alterar item que não está ativo');
     }
 
-    Object.assign(item, updateDto);
+    const dados: Record<string, any> = { ...(updateDto as any) };
+    for (const k of CAMPOS_PROTEGIDOS_ITEM) delete dados[k];
+    Object.assign(item, dados);
 
     // Recalcula valor total se quantidade ou valor unitário mudou
     if (updateDto.quantidade || updateDto.valor_unitario_estimado) {
@@ -103,40 +135,23 @@ export class ItensService {
     return await this.itemRepository.save(item);
   }
 
-  async marcarDeserto(id: string): Promise<ItemLicitacao> {
+  async marcarDeserto(id: string, ator: AtorTransicao = atorSistema('itens')): Promise<ItemLicitacao> {
     const item = await this.findOne(id);
     item.status = StatusItem.DESERTO;
-    return await this.itemRepository.save(item);
+    const salvo = await this.itemRepository.save(item);
+    // E1: todos os itens desertos → licitação DESERTA (roll-up)
+    await this.transicoes.aplicarRollup(salvo.licitacao_id, ator);
+    return salvo;
   }
 
-  async marcarFracassado(id: string, motivo: string): Promise<ItemLicitacao> {
+  async marcarFracassado(id: string, motivo: string, ator: AtorTransicao = atorSistema('itens')): Promise<ItemLicitacao> {
     const item = await this.findOne(id);
     item.status = StatusItem.FRACASSADO;
     item.observacoes = `Fracassado: ${motivo}`;
-    return await this.itemRepository.save(item);
-  }
-
-  async adjudicar(id: string, dados: AdjudicarItemDto): Promise<ItemLicitacao> {
-    const item = await this.findOne(id);
-
-    item.status = StatusItem.ADJUDICADO;
-    item.fornecedor_vencedor_id = dados.fornecedor_id;
-    item.fornecedor_vencedor_nome = dados.fornecedor_nome;
-    item.valor_unitario_homologado = dados.valor_unitario_homologado;
-    item.valor_total_homologado = item.quantidade * dados.valor_unitario_homologado;
-
-    return await this.itemRepository.save(item);
-  }
-
-  async homologar(id: string): Promise<ItemLicitacao> {
-    const item = await this.findOne(id);
-
-    if (item.status !== StatusItem.ADJUDICADO) {
-      throw new BadRequestException('Item precisa estar adjudicado para ser homologado');
-    }
-
-    item.status = StatusItem.HOMOLOGADO;
-    return await this.itemRepository.save(item);
+    const salvo = await this.itemRepository.save(item);
+    // E1: nenhum item com vencedor e algum fracassado → licitação FRACASSADA (roll-up)
+    await this.transicoes.aplicarRollup(salvo.licitacao_id, ator);
+    return salvo;
   }
 
   async delete(id: string): Promise<void> {
@@ -148,6 +163,25 @@ export class ItensService {
     }
     
     await this.itemRepository.remove(item);
+  }
+
+  /** Licitação (campos de visão) — null se não existe. */
+  async licitacaoParaVisao(licitacaoId: string): Promise<LicitacaoVisaoItem | null> {
+    if (!ehUuid(licitacaoId)) return null;
+    return await this.itemRepository.manager.getRepository(Licitacao).findOne({
+      where: { id: licitacaoId },
+      select: ['id', 'orgao_id', 'fase', 'data_publicacao_edital', 'sigilo_orcamento'],
+    });
+  }
+
+  /** Órgão dono do PCA de um item do PCA (null se não existe). */
+  async orgaoDoItemPca(itemPcaId: string): Promise<string | null> {
+    if (!ehUuid(itemPcaId)) return null;
+    const r = await this.itemPcaRepository.manager.query(
+      `SELECT p.orgao_id FROM itens_pca i JOIN planos_contratacao_anual p ON p.id = i.pca_id WHERE i.id = $1`,
+      [itemPcaId],
+    );
+    return r[0]?.orgao_id ?? null;
   }
 
   // Estatísticas

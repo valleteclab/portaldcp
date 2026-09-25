@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Unique } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Unique, Index } from 'typeorm';
 import { SessaoDisputa } from './sessao-disputa.entity';
 
 /**
@@ -9,9 +9,16 @@ import { SessaoDisputa } from './sessao-disputa.entity';
  * 
  * O mapeamento é criado na primeira vez que o fornecedor aparece na sessão
  * e mantido até o fim da sessão para consistência.
+ *
+ * E2: atribuição ATÔMICA (AnonimizacaoService — advisory lock por sessão) e
+ * código único por sessão: índice único (sessao_id, indice) criado pela
+ * migração de dados depois de renumerar as duplicatas antigas (por isso
+ * `synchronize: false`).
  */
 @Entity('mapeamento_anonimo')
 @Unique(['sessao_id', 'fornecedor_id'])
+// UNIQUE (sessao_id, indice) — ver disputa/migracao-lances.ts
+@Index('UQ_mapeamento_anonimo_sessao_indice', { synchronize: false })
 export class MapeamentoAnonimo {
   @PrimaryGeneratedColumn('uuid')
   id: string;

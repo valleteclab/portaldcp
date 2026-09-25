@@ -94,21 +94,50 @@ export class NfseSpedyService {
     }
   }
 
-  async consultarStatus(id: string) {
-    const client = this.getClient();
+  /**
+   * Status de uma NFS-e — só do PRÓPRIO fornecedor. Com a chave Spedy da
+   * empresa do fornecedor a API já só enxerga as notas dela; com a chave da
+   * plataforma (fornecedor sem chave própria) a nota só é devolvida se o CNPJ
+   * do emitente conferir com o do fornecedor. De outro emitente → 404.
+   */
+  async consultarStatus(id: string, fornecedorId: string) {
+    const fornecedor = await this.fornecedorRepo.findOne({ where: { id: fornecedorId } });
+    if (!fornecedor) throw new NotFoundException('Fornecedor não encontrado');
+    if (!id || !/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new NotFoundException('NFS-e não encontrada');
+    const chavePropria = !!fornecedor.spedy_api_key;
+    const client = this.getClient(fornecedor.spedy_api_key);
+    let data: any;
     try {
-      const response = await client.get(`/v1/service-invoices/${id}`);
-      return {
-        provider: 'SPEDY',
-        id,
-        status: response.data?.status,
-        providerResponse: response.data,
-      };
+      const response = await client.get(`/v1/service-invoices/${encodeURIComponent(id)}`);
+      data = response.data;
     } catch (error: any) {
+      if (error?.response?.status === 404) throw new NotFoundException('NFS-e não encontrada');
       const message = error?.response?.data?.message || error?.message || 'Erro ao consultar status da NFS-e';
       this.logger.error(`Falha ao consultar NFS-e Spedy [${id}]: ${message}`);
       throw new BadRequestException(message);
     }
+    if (!chavePropria && !this.emitidaPor(data, fornecedor.cpf_cnpj)) {
+      throw new NotFoundException('NFS-e não encontrada');
+    }
+    return {
+      provider: 'SPEDY',
+      id,
+      status: data?.status,
+      providerResponse: data,
+    };
+  }
+
+  /** CNPJ do emitente (prestador) informado pela Spedy confere com o do fornecedor? */
+  private emitidaPor(nota: any, cnpjFornecedor: string | null | undefined): boolean {
+    const alvo = String(cnpjFornecedor || '').replace(/\D/g, '');
+    if (!alvo) return false;
+    const candidatos = [
+      nota?.issuer?.federalTaxNumber,
+      nota?.provider?.federalTaxNumber,
+      nota?.company?.federalTaxNumber,
+      nota?.companyFederalTaxNumber,
+    ];
+    return candidatos.some((c) => c && String(c).replace(/\D/g, '') === alvo);
   }
 
   async vincularEmpresaSpedy(fornecedorId: string, spedyCompanyId: string, spedyApiKey: string) {

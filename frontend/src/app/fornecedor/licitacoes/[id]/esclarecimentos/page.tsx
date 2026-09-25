@@ -24,6 +24,8 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { dataLimiteManifestacao, prazoManifestacaoAberto } from '@/lib/prazo-manifestacao'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Licitacao {
   id: string
@@ -31,6 +33,10 @@ interface Licitacao {
   numero_edital?: string
   objeto: string
   fase: string
+  data_limite_impugnacao?: string | null
+  /** Prazo do art. 164 (mesmo da impugnação) calculado pelo backend */
+  data_limite_impugnacao_efetiva?: string | null
+  prazo_manifestacao_aberto?: boolean
 }
 
 interface MeuEsclarecimento {
@@ -54,6 +60,8 @@ export default function EsclarecimentosPage() {
   const [meusEsclarecimentos, setMeusEsclarecimentos] = useState<MeuEsclarecimento[]>([])
   const [loading, setLoading] = useState(true)
   const [enviando, setEnviando] = useState(false)
+  // Retorno do envio na própria tela (sem alert())
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
 
   // Formulário
   const [texto, setTexto] = useState('')
@@ -92,12 +100,12 @@ export default function EsclarecimentosPage() {
     const file = e.target.files?.[0]
     if (file) {
       if (file.type !== 'application/pdf') {
-        alert('Apenas arquivos PDF são permitidos')
+        setAviso({ tipo: 'erro', texto: 'Apenas arquivos PDF são permitidos' })
         e.target.value = ''
         return
       }
       if (file.size > 10 * 1024 * 1024) { // 10MB
-        alert('O arquivo deve ter no máximo 10MB')
+        setAviso({ tipo: 'erro', texto: 'O arquivo deve ter no máximo 10MB' })
         e.target.value = ''
         return
       }
@@ -107,7 +115,7 @@ export default function EsclarecimentosPage() {
 
   const enviarEsclarecimento = async () => {
     if (!texto.trim()) {
-      alert('Por favor, descreva sua dúvida ou pedido de esclarecimento')
+      setAviso({ tipo: 'erro', texto: 'Por favor, descreva sua dúvida ou pedido de esclarecimento' })
       return
     }
 
@@ -129,18 +137,18 @@ export default function EsclarecimentosPage() {
       })
 
       if (res.ok) {
-        alert('Pedido de esclarecimento enviado com sucesso!')
+        setAviso({ tipo: 'ok', texto: 'Pedido de esclarecimento enviado com sucesso!' })
         setTexto('')
         setItemEdital('')
         setArquivo(null)
         carregarDados()
       } else {
         const error = await res.json()
-        alert(`Erro ao enviar: ${error.message}`)
+        setAviso({ tipo: 'erro', texto: `Erro ao enviar: ${error.message}` })
       }
     } catch (error) {
       console.error('Erro ao enviar esclarecimento:', error)
-      alert('Erro ao enviar esclarecimento. Tente novamente.')
+      setAviso({ tipo: 'erro', texto: 'Erro ao enviar esclarecimento. Tente novamente.' })
     } finally {
       setEnviando(false)
     }
@@ -208,7 +216,15 @@ export default function EsclarecimentosPage() {
           </CardTitle>
           <CardDescription>
             Descreva sua dúvida de forma clara e objetiva
+            {dataLimiteManifestacao(licitacao) && (
+              <> — prazo até {new Date(dataLimiteManifestacao(licitacao)!).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (art. 164 da Lei 14.133/2021)</>
+            )}
           </CardDescription>
+          {licitacao && !prazoManifestacaoAberto(licitacao) && (
+            <p className="text-sm text-amber-700 mt-2">
+              O prazo para pedidos de esclarecimento encerrou (até 3 dias úteis antes da abertura do certame).
+            </p>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -277,9 +293,14 @@ export default function EsclarecimentosPage() {
             </div>
           </div>
 
+          {aviso && (
+            <p className={`rounded-md border px-3 py-2 text-sm ${aviso.tipo === 'ok' ? 'border-green-200 bg-green-50 text-green-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
+              {aviso.texto}
+            </p>
+          )}
           <Button 
             onClick={enviarEsclarecimento} 
-            disabled={enviando || !texto.trim()}
+            disabled={enviando || !texto.trim() || !prazoManifestacaoAberto(licitacao)}
             className="w-full"
           >
             {enviando ? (
@@ -331,6 +352,7 @@ export default function EsclarecimentosPage() {
                     <span className="text-sm text-blue-700">{esc.documento_nome}</span>
                     <a
                       href={`${API_URL}/api/esclarecimentos/${esc.id}/documento`}
+                      onClick={(e) => { e.preventDefault(); abrirArquivoAutenticado(`${API_URL}/api/esclarecimentos/${esc.id}/documento`) }}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-auto"

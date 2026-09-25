@@ -31,6 +31,7 @@ import { Progress } from '@/components/ui/progress'
 import { Checkbox } from '@/components/ui/checkbox'
 
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface ItemCatalogoImportado {
   sequencial?: string
@@ -81,7 +82,7 @@ export function ImportarCatalogo({ onImportSuccess }: ImportarCatalogoProps) {
       setItens(itensComStatus)
     } catch (error) {
       console.error('Erro ao ler arquivo:', error)
-      alert('Erro ao ler arquivo JSON. Verifique se o formato está correto.')
+      toast.error('Erro ao ler arquivo JSON. Verifique se o formato está correto.')
     } finally {
       setLoading(false)
     }

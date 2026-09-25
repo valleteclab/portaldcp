@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { listarBens, gerarEtiquetas, gerarZpl } from "@/services/patrimonio.service"
+import { toast } from "sonner"
 
 const TIPOS_ETIQUETA = [
   { value: "PLAQUETA", label: "Plaqueta com QR code (inventário)", cor: "bg-[#1f3a5f]" },
@@ -80,7 +81,7 @@ export default function EtiquetasPage() {
   }
 
   const handleZpl = async () => {
-    if (selecionados.size === 0) { alert("Selecione pelo menos um bem"); return }
+    if (selecionados.size === 0) { toast.warning("Selecione pelo menos um bem"); return }
     setGerando(true)
     try {
       const texto = await gerarZpl({ bem_ids: idsEmOrdem(), ...zpl, incluir_epc: incluirEpc })
@@ -93,7 +94,7 @@ export default function EtiquetasPage() {
       setTimeout(() => URL.revokeObjectURL(url), 5000)
     } catch (error) {
       console.error("Erro ao gerar ZPL:", error)
-      alert("Erro ao gerar arquivo ZPL")
+      toast.error("Erro ao gerar arquivo ZPL")
     } finally {
       setGerando(false)
     }
@@ -126,7 +127,7 @@ export default function EtiquetasPage() {
 
   const handleGerar = async () => {
     if (selecionados.size === 0) {
-      alert("Selecione pelo menos um bem")
+      toast.warning("Selecione pelo menos um bem")
       return
     }
     setGerando(true)
@@ -141,7 +142,7 @@ export default function EtiquetasPage() {
       window.open(url, "_blank")
     } catch (error) {
       console.error("Erro ao gerar etiquetas:", error)
-      alert("Erro ao gerar etiquetas")
+      toast.error("Erro ao gerar etiquetas")
     } finally {
       setGerando(false)
     }

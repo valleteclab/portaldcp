@@ -66,6 +66,8 @@ import {
 } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
 import { textoFrequenciaNaTela, textoUnidadeCronogramaNaTela } from '@/lib/cronograma-contrato';
+import { toast } from "sonner"
+import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 
 // ============ INTERFACES ============
 
@@ -1036,7 +1038,7 @@ export default function FornecedorContratoDetalhePage() {
     // Validação de tamanho (máx 10MB)
     const MAX_SIZE = 10 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
-      alert(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Tamanho máximo: 10MB.`);
+      toast.warning(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(1)}MB). Tamanho máximo: 10MB.`);
       return;
     }
 
@@ -1045,7 +1047,7 @@ export default function FornecedorContratoDetalhePage() {
       ? ['image/jpeg', 'image/jpg', 'image/png']
       : ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
     if (!tiposPermitidos.includes(file.type)) {
-      alert(`Tipo de arquivo não permitido (${file.type}). ${tipo === 'FOTO' ? 'Use JPG ou PNG.' : 'Use PDF, JPG ou PNG.'}`);
+      toast.warning(`Tipo de arquivo não permitido (${file.type}). ${tipo === 'FOTO' ? 'Use JPG ou PNG.' : 'Use PDF, JPG ou PNG.'}`);
       return;
     }
 
@@ -1068,17 +1070,17 @@ export default function FornecedorContratoDetalhePage() {
         await carregarAnexos(medicaoId);
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || 'Erro ao enviar arquivo');
+        toast.error(err.message || 'Erro ao enviar arquivo');
       }
     } catch (error) {
-      alert('Erro ao enviar arquivo');
+      toast.error('Erro ao enviar arquivo');
     } finally {
       setUploadingAnexo(false);
     }
   };
 
   const handleExcluirAnexo = async (anexoId: string, medicaoId: string) => {
-    if (!confirm('Excluir este anexo?')) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Excluir este anexo?', destrutivo: true }))) return;
     try {
       const fId = fornecedor?.id || '';
       const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/anexos/${anexoId}?fornecedorId=${fId}`, {
@@ -1088,7 +1090,7 @@ export default function FornecedorContratoDetalhePage() {
         await carregarAnexos(medicaoId);
       }
     } catch (error) {
-      alert('Erro ao excluir anexo');
+      toast.error('Erro ao excluir anexo');
     }
   };
 
@@ -1145,8 +1147,8 @@ export default function FornecedorContratoDetalhePage() {
     setCarregandoReplicar(true);
     try {
       const [detRes, discRes] = await Promise.all([
-        authFetch(`${API_URL}/api/contratos/medicoes/${ultimaMedicao.id}`),
-        authFetch(`${API_URL}/api/contratos/medicoes/${ultimaMedicao.id}/discriminacoes`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${ultimaMedicao.id}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${ultimaMedicao.id}/discriminacoes`),
       ]);
       const det = detRes.ok ? await detRes.json() : null;
       const discs = discRes.ok ? await discRes.json() : [];
@@ -1229,7 +1231,7 @@ export default function FornecedorContratoDetalhePage() {
     setSubmitting(true);
     try {
       if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
-        alert('Informe o período de início e fim da medição');
+        toast.warning('Informe o período de início e fim da medição');
         setSubmitting(false);
         return;
       }
@@ -1239,7 +1241,7 @@ export default function FornecedorContratoDetalhePage() {
         const dataFimPeriodo = new Date(novaMedicao.periodo_fim);
         const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
         if (dataFimPeriodo > dataVigenciaFim) {
-          alert(`O período de medição não pode ultrapassar a data de vigência do contrato.\n\nPeríodo informado: ${formatarData(novaMedicao.periodo_fim)}\nVigência do contrato: ${formatarData(contrato.data_vigencia_fim)}`);
+          toast.warning(`O período de medição não pode ultrapassar a data de vigência do contrato.\n\nPeríodo informado: ${formatarData(novaMedicao.periodo_fim)}\nVigência do contrato: ${formatarData(contrato.data_vigencia_fim)}`, { className: 'whitespace-pre-line' });
           setSubmitting(false);
           return;
         }
@@ -1247,7 +1249,7 @@ export default function FornecedorContratoDetalhePage() {
 
       // Aviso de "gap": período que pula um intervalo sem medição (não conta como executado)
       const gapMsg = verificarGapMedicao();
-      if (gapMsg && !window.confirm(gapMsg)) {
+      if (gapMsg && !(await confirmarAcao({ titulo: 'Confirmação', mensagem: gapMsg }))) {
         setSubmitting(false);
         return;
       }
@@ -1267,9 +1269,9 @@ export default function FornecedorContratoDetalhePage() {
 
       if (isServicoContinuado) {
         const valor = parseFloat(novaMedicao.valor_medido) || 0;
-        if (valor <= 0) { alert('Informe o valor medido'); setSubmitting(false); return; }
+        if (valor <= 0) { toast.warning('Informe o valor medido'); setSubmitting(false); return; }
         if (resumo && valor > resumo.saldo_disponivel + 0.01) {
-          alert(`O valor da medição (${formatarMoeda(valor)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`);
+          toast.warning(`O valor da medição (${formatarMoeda(valor)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`);
           setSubmitting(false); return;
         }
         payload.valor_medido = valor;
@@ -1289,7 +1291,7 @@ export default function FornecedorContratoDetalhePage() {
             quantidade_medida: Number(i.quantidade_medida),
             valor_medido_override: i.valor_override,
           }));
-        if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        if (itensComQtd.length === 0) { toast.warning('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
         const lotesAtivos = new Set(
           itensComQtd.map((item) =>
             Number(
@@ -1300,7 +1302,7 @@ export default function FornecedorContratoDetalhePage() {
           ),
         );
         if (lotesAtivos.size > 1) {
-          alert('Os lotes devem ser medidos separadamente. Mantenha nesta medição somente os itens de um lote.');
+          toast.warning('Os lotes devem ser medidos separadamente. Mantenha nesta medição somente os itens de um lote.');
           setSubmitting(false);
           return;
         }
@@ -1310,7 +1312,7 @@ export default function FornecedorContratoDetalhePage() {
           ),
         );
         if (exigeEquipeNestaMedicao && equipeMedicao.funcionarios.length === 0) {
-          alert('Informe a relação de funcionários exigida por este contrato antes de salvar a medição.');
+          toast.warning('Informe a relação de funcionários exigida por este contrato antes de salvar a medição.');
           setSubmitting(false);
           return;
         }
@@ -1320,7 +1322,7 @@ export default function FornecedorContratoDetalhePage() {
           return ic?.unidade_medida === 'MENSAL';
         });
         if (itensMensaisNoSubmit.length > 0 && itensMensaisNoSubmit.length < itensComQtd.length) {
-          alert('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.');
+          toast.warning('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.', { className: 'whitespace-pre-line' });
           setSubmitting(false);
           return;
         }
@@ -1329,21 +1331,21 @@ export default function FornecedorContratoDetalhePage() {
             const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
             return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
           }, 0);
-          if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
+          if (totalMedicao > resumo.saldo_disponivel + 0.01) { toast.warning(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
         payload.itens = itensComQtd;
       } else {
         const itensComValor = novaMedicao.itens
           .filter((i): i is ItemMedicaoEtapaState => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual != null && i.valor_executado_atual > 0)))
           .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined, itens_etapa_medidos: i.itens_etapa_medidos || undefined }));
-        if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
+        if (itensComValor.length === 0) { toast.warning('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
         if (resumo) {
           const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
             const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
             return acc + valorItemEtapaMedicao(item, etapa);
           }, 0);
-          if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
+          if (totalMedicao > resumo.saldo_disponivel + 0.01) { toast.warning(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
 
         const etapasCompr = resumo?.etapas_comprometidas || {};
@@ -1353,8 +1355,8 @@ export default function FornecedorContratoDetalhePage() {
           const valorUsado = valorItemEtapaMedicao(item, etapa);
           const saldoValorEtapa = valorSaldoEtapa(etapa, percEmTransito);
           const percUsado = (item.modo_input === 'valor' || item.modo_input === 'itens') && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
-          if (valorUsado > saldoValorEtapa + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${formatarMoeda(saldoValorEtapa)} disponivel, mas voce informou ${formatarMoeda(valorUsado)}.`); setSubmitting(false); return; }
-          if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
+          if (valorUsado > saldoValorEtapa + 0.01) { toast.warning(`A etapa "${etapa.descricao}" tem ${formatarMoeda(saldoValorEtapa)} disponivel, mas voce informou ${formatarMoeda(valorUsado)}.`); setSubmitting(false); return; }
+          if (percUsado > restante + 0.01) { toast.warning(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
         }
         payload.itens = itensComValor;
       }
@@ -1413,13 +1415,13 @@ export default function FornecedorContratoDetalhePage() {
         setDiscriminacoes([]); setArquivosPendentes([]); setAnexosReaproveitados([]); setMedicaoParaEditar(null); carregarDados();
         
         if (medicaoParaEditar) {
-          alert('Medição atualizada com sucesso! Clique em "Submeter" para reenviar.');
+          toast.success('Medição atualizada com sucesso! Clique em "Submeter" para reenviar.');
         }
       } else {
-        const err = await res.json(); alert(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+        const err = await res.json(); toast.error(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
       }
     } catch (error) {
-      alert(error instanceof Error ? error.message : `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+      toast.error(error instanceof Error ? error.message : `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
     } finally {
       setSubmitting(false);
     }
@@ -1454,7 +1456,7 @@ export default function FornecedorContratoDetalhePage() {
         divergencias.push(`• Data de emissão: você digitou ${formatarData(novaMedicao.nota_fiscal_data)} — a nota diz ${formatarData(nf.nota_fiscal_data)}`);
       }
       const usarDadosDaNota = divergencias.length > 0
-        ? window.confirm(`⚠️ Os dados digitados divergem da nota fiscal anexada:\n\n${divergencias.join('\n')}\n\nUsar os dados lidos da NOTA? (Cancelar mantém o que você digitou)`)
+        ? (await confirmarAcao({ titulo: 'Confirmação', mensagem: `⚠️ Os dados digitados divergem da nota fiscal anexada:\n\n${divergencias.join('\n')}\n\nUsar os dados lidos da NOTA? (Cancelar mantém o que você digitou)`, destrutivo: true }))
         : false;
       setNovaMedicao(prev => ({
         ...prev,
@@ -1480,7 +1482,7 @@ export default function FornecedorContratoDetalhePage() {
           }
           return linhas;
         });
-        alert(`🧾 Nota fiscal lida: ${rets.length} retenção(ões) encontradas e discriminação pré-preenchida. Confira os valores antes de enviar.`);
+        toast(`🧾 Nota fiscal lida: ${rets.length} retenção(ões) encontradas e discriminação pré-preenchida. Confira os valores antes de enviar.`);
       }
     } catch { /* leitura da NF é melhor-esforço */ } finally {
       setLendoNf(false);
@@ -1507,7 +1509,7 @@ export default function FornecedorContratoDetalhePage() {
         ),
       );
       if (lotesAtivosEnvio.size > 1) {
-        alert('Os lotes devem ser medidos separadamente. Mantenha nesta medição somente os itens de um lote.');
+        toast.warning('Os lotes devem ser medidos separadamente. Mantenha nesta medição somente os itens de um lote.');
         setSubmitting(false);
         return;
       }
@@ -1517,17 +1519,17 @@ export default function FornecedorContratoDetalhePage() {
         ),
       );
       if (exigeEquipeNoEnvio && equipeMedicao.funcionarios.length === 0) {
-        alert('Informe a relação de funcionários exigida por este contrato antes de enviar para ateste.');
+        toast.warning('Informe a relação de funcionários exigida por este contrato antes de enviar para ateste.');
         setSubmitting(false);
         return;
       }
       if (!novaMedicao.periodo_inicio || !novaMedicao.periodo_fim) {
-        alert('Informe o período de início e fim da medição');
+        toast.warning('Informe o período de início e fim da medição');
         setSubmitting(false);
         return;
       }
       if (discriminacoes.length === 0) {
-        alert('A discriminação de despesas é obrigatória antes de enviar para ateste.');
+        toast.warning('A discriminação de despesas é obrigatória antes de enviar para ateste.');
         setSubmitting(false);
         return;
       }
@@ -1540,10 +1542,8 @@ export default function FornecedorContratoDetalhePage() {
         );
         if (faltantes.length > 0) {
           const lista = faltantes.map(r => `• ${r.descricao}: ${formatarMoeda(Number(r.valor))}`).join('\n');
-          alert(
-            `❌ A nota fiscal anexada destaca retenções que NÃO estão na discriminação de despesas:\n\n${lista}\n\n` +
-            'Inclua essas linhas (ou corrija os valores) antes de enviar — medições com discriminação divergente da NF são recusadas pela contabilidade.'
-          );
+          toast.error(`❌ A nota fiscal anexada destaca retenções que NÃO estão na discriminação de despesas:\n\n${lista}\n\n` +
+            'Inclua essas linhas (ou corrija os valores) antes de enviar — medições com discriminação divergente da NF são recusadas pela contabilidade.', { className: 'whitespace-pre-line' });
           setSubmitting(false);
           return;
         }
@@ -1554,11 +1554,9 @@ export default function FornecedorContratoDetalhePage() {
         /imposto\s*de\s*renda|irrf|\bir\b|\biss\b|\binss\b|csll|pis|cofins|reten[cç]/i.test(d.descricao || '')
       );
       if (!(retencoesNf && retencoesNf.length > 0) && !temRetencao) {
-        const confirmaSemRetencao = window.confirm(
-          'ATENÇÃO: nenhuma linha da discriminação parece ser uma retenção (Imposto de Renda, ISS, INSS...).\n\n' +
+        const confirmaSemRetencao = (await confirmarAcao({ titulo: 'Confirmação', mensagem: 'ATENÇÃO: nenhuma linha da discriminação parece ser uma retenção (Imposto de Renda, ISS, INSS...).\n\n' +
           'Confira a nota fiscal: se houver retenções destacadas, TODAS devem ser discriminadas — medições com discriminação incompleta são devolvidas pela contabilidade.\n\n' +
-          'Confirma que a nota fiscal NÃO possui retenções e deseja enviar assim mesmo?'
-        );
+          'Confirma que a nota fiscal NÃO possui retenções e deseja enviar assim mesmo?' }));
         if (!confirmaSemRetencao) {
           setSubmitting(false);
           return;
@@ -1570,7 +1568,7 @@ export default function FornecedorContratoDetalhePage() {
         const dataFimPeriodo = new Date(novaMedicao.periodo_fim);
         const dataVigenciaFim = new Date(contrato.data_vigencia_fim);
         if (dataFimPeriodo > dataVigenciaFim) {
-          alert(`O período de medição não pode ultrapassar a data de vigência do contrato.\n\nPeríodo informado: ${formatarData(novaMedicao.periodo_fim)}\nVigência do contrato: ${formatarData(contrato.data_vigencia_fim)}`);
+          toast.warning(`O período de medição não pode ultrapassar a data de vigência do contrato.\n\nPeríodo informado: ${formatarData(novaMedicao.periodo_fim)}\nVigência do contrato: ${formatarData(contrato.data_vigencia_fim)}`, { className: 'whitespace-pre-line' });
           setSubmitting(false);
           return;
         }
@@ -1578,7 +1576,7 @@ export default function FornecedorContratoDetalhePage() {
 
       // Aviso de "gap": período que pula um intervalo sem medição (não conta como executado)
       const gapMsg = verificarGapMedicao();
-      if (gapMsg && !window.confirm(gapMsg)) {
+      if (gapMsg && !(await confirmarAcao({ titulo: 'Confirmação', mensagem: gapMsg }))) {
         setSubmitting(false);
         return;
       }
@@ -1598,9 +1596,9 @@ export default function FornecedorContratoDetalhePage() {
 
       if (isServicoContinuado) {
         const valor = parseFloat(novaMedicao.valor_medido) || 0;
-        if (valor <= 0) { alert('Informe o valor medido'); setSubmitting(false); return; }
+        if (valor <= 0) { toast.warning('Informe o valor medido'); setSubmitting(false); return; }
         if (resumo && valor > resumo.saldo_disponivel + 0.01) {
-          alert(`O valor da medição (${formatarMoeda(valor)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`);
+          toast.warning(`O valor da medição (${formatarMoeda(valor)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`);
           setSubmitting(false); return;
         }
         payload.valor_medido = valor;
@@ -1620,14 +1618,14 @@ export default function FornecedorContratoDetalhePage() {
             quantidade_medida: Number(i.quantidade_medida),
             valor_medido_override: i.valor_override,
           }));
-        if (itensComQtd.length === 0) { alert('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
+        if (itensComQtd.length === 0) { toast.warning('Informe a quantidade medida em pelo menos um item'); setSubmitting(false); return; }
         // Validar que não há mistura de tipos (mensal vs quantidade)
         const itensMensaisNoSubmit = itensComQtd.filter(item => {
           const ic = itensCronograma.find(c => c.id === item.item_cronograma_id);
           return ic?.unidade_medida === 'MENSAL';
         });
         if (itensMensaisNoSubmit.length > 0 && itensMensaisNoSubmit.length < itensComQtd.length) {
-          alert('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.');
+          toast.warning('Não é possível misturar itens mensais com itens medidos por quantidade na mesma medição.\n\nCrie uma medição separada para os itens de cada tipo.', { className: 'whitespace-pre-line' });
           setSubmitting(false);
           return;
         }
@@ -1636,21 +1634,21 @@ export default function FornecedorContratoDetalhePage() {
             const ic = itensCronograma.find(i => i.id === item.item_cronograma_id);
             return acc + (ic ? item.quantidade_medida * Number(ic.valor_unitario) : 0);
           }, 0);
-          if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
+          if (totalMedicao > resumo.saldo_disponivel + 0.01) { toast.warning(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
         payload.itens = itensComQtd;
       } else {
         const itensComValor = novaMedicao.itens
           .filter((i): i is ItemMedicaoEtapaState => 'etapa_id' in i && (i.percentual_executado_atual > 0 || (i.valor_executado_atual != null && i.valor_executado_atual > 0)))
           .map(i => ({ etapa_id: i.etapa_id, percentual_executado_atual: i.percentual_executado_atual || 0, valor_executado_atual: i.valor_executado_atual || undefined, itens_etapa_medidos: i.itens_etapa_medidos || undefined }));
-        if (itensComValor.length === 0) { alert('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
+        if (itensComValor.length === 0) { toast.warning('Informe o percentual ou valor executado em pelo menos uma etapa'); setSubmitting(false); return; }
 
         if (resumo) {
           const totalMedicao = novaMedicao.itens.reduce((acc, item, idx) => {
             const etapa = etapas[idx]; if (!etapa || !('etapa_id' in item)) return acc;
             return acc + valorItemEtapaMedicao(item, etapa);
           }, 0);
-          if (totalMedicao > resumo.saldo_disponivel + 0.01) { alert(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
+          if (totalMedicao > resumo.saldo_disponivel + 0.01) { toast.warning(`O valor da medição (${formatarMoeda(totalMedicao)}) excede o saldo disponível do contrato (${formatarMoeda(resumo.saldo_disponivel)}).`); setSubmitting(false); return; }
         }
 
         const etapasComprCS = resumo?.etapas_comprometidas || {};
@@ -1660,8 +1658,8 @@ export default function FornecedorContratoDetalhePage() {
           const valorUsado = valorItemEtapaMedicao(item, etapa);
           const saldoValorEtapa = valorSaldoEtapa(etapa, percEmTransito);
           const percUsado = (item.modo_input === 'valor' || item.modo_input === 'itens') && Number(etapa.valor_previsto) > 0 ? ((item.valor_executado_atual || 0) / Number(etapa.valor_previsto)) * 100 : item.percentual_executado_atual;
-          if (valorUsado > saldoValorEtapa + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${formatarMoeda(saldoValorEtapa)} disponivel, mas voce informou ${formatarMoeda(valorUsado)}.`); setSubmitting(false); return; }
-          if (percUsado > restante + 0.01) { alert(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
+          if (valorUsado > saldoValorEtapa + 0.01) { toast.warning(`A etapa "${etapa.descricao}" tem ${formatarMoeda(saldoValorEtapa)} disponivel, mas voce informou ${formatarMoeda(valorUsado)}.`); setSubmitting(false); return; }
+          if (percUsado > restante + 0.01) { toast.warning(`A etapa "${etapa.descricao}" tem ${restante.toFixed(1)}% disponível, mas você informou ${percUsado.toFixed(1)}%.`); setSubmitting(false); return; }
         }
         payload.itens = itensComValor;
       }
@@ -1676,7 +1674,7 @@ export default function FornecedorContratoDetalhePage() {
 
       if (!resCriar.ok) {
         const err = await resCriar.json();
-        alert(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+        toast.error(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
         setSubmitting(false);
         return;
       }
@@ -1727,7 +1725,7 @@ export default function FornecedorContratoDetalhePage() {
       const medicaoIdParaOtp = medicaoCriada.id;
       setTimeout(() => { abrirModalOtp(medicaoIdParaOtp); }, 150);
     } catch (error) {
-      alert(`Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+      toast.error(`Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
     } finally {
       setSubmitting(false);
     }
@@ -1736,7 +1734,7 @@ export default function FornecedorContratoDetalhePage() {
   // Excluir medição em rascunho/devolvida
   const handleExcluirMedicao = async (medicao: Medicao) => {
     if (!fornecedor) return;
-    if (!confirm(`Excluir a ${medicao.numero_medicao}ª Medição? Esta ação não pode ser desfeita.`)) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir a ${medicao.numero_medicao}ª Medição? Esta ação não pode ser desfeita.`, destrutivo: true }))) return;
     try {
       const res = await authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${medicao.id}?fornecedorId=${fornecedor.id}`, {
         method: 'DELETE',
@@ -1745,10 +1743,10 @@ export default function FornecedorContratoDetalhePage() {
         carregarDados();
       } else {
         const err = await res.json();
-        alert(err.message || 'Erro ao excluir medição');
+        toast.error(err.message || 'Erro ao excluir medição');
       }
     } catch (error) {
-      alert('Erro ao excluir medição');
+      toast.error('Erro ao excluir medição');
     }
   };
 
@@ -1873,7 +1871,7 @@ export default function FornecedorContratoDetalhePage() {
     );
     if (!resposta.ok) {
       const erro = await resposta.json().catch(() => ({}));
-      alert(erro.message || 'Esta medição não possui relação de funcionários.');
+      toast.error(erro.message || 'Esta medição não possui relação de funcionários.');
       return;
     }
     const blob = await resposta.blob();
@@ -1923,11 +1921,11 @@ export default function FornecedorContratoDetalhePage() {
     const valorBaseDiscriminacao = escolherValorBaseDiscriminacao(novaMedicao.nota_fiscal_valor, valorMedidoAtual);
 
     if (valorBaseDiscriminacao <= 0) {
-      alert(isServicoContinuado ? 'Informe o valor medido ou da nota fiscal antes de reaproveitar.' : 'Preencha os itens da planilha ou valor da NF antes de reaproveitar.');
+      toast(isServicoContinuado ? 'Informe o valor medido ou da nota fiscal antes de reaproveitar.' : 'Preencha os itens da planilha ou valor da NF antes de reaproveitar.');
       return;
     }
     if (medicoes.length === 0) {
-      alert('Não há medições anteriores para reaproveitar.');
+      toast('Não há medições anteriores para reaproveitar.');
       return;
     }
 
@@ -1938,7 +1936,7 @@ export default function FornecedorContratoDetalhePage() {
       if (!sugRes.ok) return;
       const sugestoes = await sugRes.json();
       if (!sugestoes || sugestoes.length === 0) {
-        alert('Nenhuma medição anterior possui discriminação de despesas para reaproveitar.');
+        toast.warning('Nenhuma medição anterior possui discriminação de despesas para reaproveitar.');
         return;
       }
       // Usa apenas descricao e % da última medição; recalcula valor pela medição atual
@@ -1952,7 +1950,7 @@ export default function FornecedorContratoDetalhePage() {
         };
       }));
     } catch {
-      alert('Erro ao buscar despesas da última medição.');
+      toast.error('Erro ao buscar despesas da última medição.');
     }
   };
 
@@ -1979,10 +1977,10 @@ export default function FornecedorContratoDetalhePage() {
         carregarDados();
       } else {
         const err = await res.json();
-        alert(err?.message || 'Erro ao salvar itens.');
+        toast.error(err?.message || 'Erro ao salvar itens.');
       }
     } catch (e: any) {
-      alert(e?.message || 'Erro ao salvar itens.');
+      toast.error(e?.message || 'Erro ao salvar itens.');
     } finally {
       setSubmitting(false);
     }
@@ -2140,7 +2138,7 @@ export default function FornecedorContratoDetalhePage() {
       }
     } catch (error: any) {
       console.error('Erro ao carregar medição:', error);
-      alert(`Erro ao carregar dados da medição para edição.${error?.message ? `\nDetalhe: ${error.message}` : ''}`);
+      toast.error(`Erro ao carregar dados da medição para edição.${error?.message ? `\nDetalhe: ${error.message}` : ''}`, { className: 'whitespace-pre-line' });
     }
   };
 
@@ -2441,7 +2439,7 @@ export default function FornecedorContratoDetalhePage() {
                                   input.onchange = async (e) => {
                                     const files = (e.target as HTMLInputElement).files;
                                     if (files) {
-                                      const titulo = prompt('Título da foto (ex: Fundação concluída, Alvenaria 2º pavimento):');
+                                      const titulo = (await pedirTextoAcao({ titulo: 'Título da foto (ex: Fundação concluída, Alvenaria 2º pavimento):' }));
                                       if (titulo === null) return;
                                       for (const file of Array.from(files)) {
                                         await handleUploadAnexo(medicao.id, file, 'FOTO', titulo || undefined);
@@ -2463,7 +2461,7 @@ export default function FornecedorContratoDetalhePage() {
                                   input.onchange = async (e) => {
                                     const files = (e.target as HTMLInputElement).files;
                                     if (files && files[0]) {
-                                      const titulo = prompt('Título do documento (ex: Nota Fiscal, Relatório de medição):');
+                                      const titulo = (await pedirTextoAcao({ titulo: 'Título do documento (ex: Nota Fiscal, Relatório de medição):' }));
                                       if (titulo === null) return;
                                       await handleUploadAnexo(medicao.id, files[0], 'DOCUMENTO', titulo || undefined);
                                     }
@@ -3652,10 +3650,10 @@ export default function FornecedorContratoDetalhePage() {
                       input.type = 'file';
                       input.accept = 'image/jpeg,image/png,image/jpg';
                       input.multiple = true;
-                      input.onchange = (e) => {
+                      input.onchange = async (e) => {
                         const files = (e.target as HTMLInputElement).files;
                         if (files) {
-                          const titulo = prompt('Título da foto (opcional):') ?? '';
+                          const titulo = (await pedirTextoAcao({ titulo: 'Título da foto (opcional):' })) ?? '';
                           const novos = Array.from(files).map(f => ({ file: f, tipo: 'FOTO' as const, descricao: titulo }));
                           setArquivosPendentes(prev => [...prev, ...novos]);
                           // Foto pode ser a NF: tenta ler por IA
@@ -3674,10 +3672,10 @@ export default function FornecedorContratoDetalhePage() {
                       input.type = 'file';
                       input.accept = 'application/pdf,image/jpeg,image/png';
                       input.multiple = true;
-                      input.onchange = (e) => {
+                      input.onchange = async (e) => {
                         const files = (e.target as HTMLInputElement).files;
                         if (files && files.length > 0) {
-                          const titulo = prompt('Título dos documentos (opcional):') ?? '';
+                          const titulo = (await pedirTextoAcao({ titulo: 'Título dos documentos (opcional):' })) ?? '';
                           setArquivosPendentes(prev => [...prev, ...Array.from(files).map(f => ({ file: f, tipo: 'DOCUMENTO' as const, descricao: titulo }))]);
                           // Lê a NF por IA: pré-preenche nº/data/valor e discriminação (retenções)
                           extrairDadosNf(files[0]);

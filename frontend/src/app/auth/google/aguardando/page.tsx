@@ -7,7 +7,7 @@ import { Clock, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '')
+import { API_URL } from '@/lib/api'
 
 function AguardandoContent() {
   const searchParams = useSearchParams()

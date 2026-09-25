@@ -60,6 +60,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { ModuleGuard } from '@/components/ModuleGuard';
 import { ModuloSistema } from '@/hooks/useModulosOrgao';
 import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api';
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface OrdemFornecimento {
   id: string;
@@ -311,9 +313,9 @@ function OrdensList() {
 
   const adicionarItemAvulsoOF = async () => {
     if (!ordemSelecionada) return;
-    if (!novoItemAvulso.descricao.trim()) { alert('Informe a descricao do item.'); return; }
-    if (!novoItemAvulso.quantidade || parseFloat(novoItemAvulso.quantidade) <= 0) { alert('Informe a quantidade.'); return; }
-    if (!novoItemAvulso.valor_unitario || parseFloat(novoItemAvulso.valor_unitario) <= 0) { alert('Informe o valor unitario.'); return; }
+    if (!novoItemAvulso.descricao.trim()) { toast.warning('Informe a descricao do item.'); return; }
+    if (!novoItemAvulso.quantidade || parseFloat(novoItemAvulso.quantidade) <= 0) { toast.warning('Informe a quantidade.'); return; }
+    if (!novoItemAvulso.valor_unitario || parseFloat(novoItemAvulso.valor_unitario) <= 0) { toast.warning('Informe o valor unitario.'); return; }
     setSavingItemAvulso(true);
     try {
       const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/itens-avulsos`, {
@@ -328,15 +330,15 @@ function OrdensList() {
         await carregarOrdens();
       } else {
         const err = await res.json().catch(() => null);
-        alert(err?.message || 'Erro ao adicionar item avulso.');
+        toast.error(err?.message || 'Erro ao adicionar item avulso.');
       }
-    } catch { alert('Erro ao adicionar item avulso.'); }
+    } catch { toast.error('Erro ao adicionar item avulso.'); }
     finally { setSavingItemAvulso(false); }
   };
 
   const removerItemAvulsoOF = async (itemId: string) => {
     if (!ordemSelecionada) return;
-    if (!confirm('Deseja remover este item avulso?')) return;
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Deseja remover este item avulso?', destrutivo: true }))) return;
     setSavingItemAvulso(true);
     try {
       const res = await authFetch(`${API_URL}/api/almoxarifado/ordens/${ordemSelecionada.id}/itens-avulsos/${itemId}`, { method: 'DELETE' });
@@ -346,9 +348,9 @@ function OrdensList() {
         await carregarOrdens();
       } else {
         const err = await res.json().catch(() => null);
-        alert(err?.message || 'Erro ao remover item avulso.');
+        toast.error(err?.message || 'Erro ao remover item avulso.');
       }
-    } catch { alert('Erro ao remover item avulso.'); }
+    } catch { toast.error('Erro ao remover item avulso.'); }
     finally { setSavingItemAvulso(false); }
   };
 
@@ -400,7 +402,7 @@ function OrdensList() {
   const handleSalvarDatas = async () => {
     if (!ordemSelecionada) return;
     if (!formDatas.data_emissao && !formDatas.data_assinatura) {
-      alert('Informe ao menos a data de emissão ou a data/hora da assinatura.');
+      toast.warning('Informe ao menos a data de emissão ou a data/hora da assinatura.');
       return;
     }
     setSalvandoDatas(true);
@@ -416,13 +418,13 @@ function OrdensList() {
       if (res.ok) {
         setShowCorrigirDatas(false);
         await carregarOrdens();
-        alert('Datas corrigidas e PDF regenerado com sucesso!');
+        toast.success('Datas corrigidas e PDF regenerado com sucesso!');
       } else {
         const err = await res.json().catch(() => null);
-        alert(err?.message || 'Erro ao corrigir datas.');
+        toast.error(err?.message || 'Erro ao corrigir datas.');
       }
     } catch {
-      alert('Erro ao corrigir datas.');
+      toast.error('Erro ao corrigir datas.');
     } finally {
       setSalvandoDatas(false);
     }
@@ -436,24 +438,22 @@ function OrdensList() {
         method: 'POST',
       });
       if (res.ok) {
-        alert('PDF regenerado com sucesso!');
+        toast.success('PDF regenerado com sucesso!');
       } else {
         const err = await res.json().catch(() => null);
-        alert(err?.message || 'Erro ao regenerar PDF.');
+        toast.error(err?.message || 'Erro ao regenerar PDF.');
       }
     } catch {
-      alert('Erro ao regenerar PDF.');
+      toast.error('Erro ao regenerar PDF.');
     } finally {
       setSalvandoDatas(false);
     }
   };
 
   const handleAtualizarValoresContrato = async (ordem: OrdemFornecimento) => {
-    const confirmado = confirm(
-      `Atualizar os preços da ${ordem.numero} conforme os valores atuais do contrato? ` +
+    const confirmado = (await confirmarAcao({ titulo: 'Confirmação', mensagem: `Atualizar os preços da ${ordem.numero} conforme os valores atuais do contrato? ` +
       'A requisição de origem também será atualizada e o PDF será regenerado. ' +
-      'O documento enviado anteriormente deverá ser desconsiderado.',
-    );
+      'O documento enviado anteriormente deverá ser desconsiderado.' }));
     if (!confirmado) return;
     setProcessando(true);
     try {
@@ -463,18 +463,16 @@ function OrdensList() {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data?.message || 'Erro ao atualizar os valores da ordem.');
+        toast.error(data?.message || 'Erro ao atualizar os valores da ordem.');
         return;
       }
       await carregarOrdens();
-      alert(
-        `Valores atualizados com sucesso!\n` +
+      toast.success(`Valores atualizados com sucesso!\n` +
         `Anterior: ${formatarMoeda(Number(data.valor_anterior))}\n` +
         `Novo: ${formatarMoeda(Number(data.valor_novo))}\n` +
-        `${data.itens_atualizados} item(ns) atualizado(s).`,
-      );
+        `${data.itens_atualizados} item(ns) atualizado(s).`, { className: 'whitespace-pre-line' });
     } catch {
-      alert('Erro ao atualizar os valores da ordem.');
+      toast.error('Erro ao atualizar os valores da ordem.');
     } finally {
       setProcessando(false);
     }
@@ -488,11 +486,11 @@ function OrdensList() {
   const handleEnviarAoFornecedor = async (tipo: 'email' | 'whatsapp') => {
     if (!ordemSelecionada) return;
     if (tipo === 'email' && !emailEnviarFornecedor.trim()) {
-      alert('Informe o email do fornecedor');
+      toast.warning('Informe o email do fornecedor');
       return;
     }
     if (tipo === 'whatsapp' && !telefoneEnviarFornecedor.trim()) {
-      alert('Informe o telefone do fornecedor');
+      toast.warning('Informe o telefone do fornecedor');
       return;
     }
     setEnviandoTipo(tipo);
@@ -510,16 +508,16 @@ function OrdensList() {
         const msg = tipo === 'email'
           ? (n.email ? 'Email enviado com sucesso!' : 'Email não pôde ser enviado.')
           : (n.whatsapp ? 'WhatsApp enviado com sucesso!' : 'WhatsApp não pôde ser enviado.');
-        alert(msg);
+        toast(msg);
         setShowEnviarAoFornecedor(false);
         carregarOrdens();
       } else {
         const err = await response.json();
-        alert(`Erro: ${err.message || 'Erro ao enviar'}`);
+        toast.error(`Erro: ${err.message || 'Erro ao enviar'}`);
       }
     } catch (e) {
       console.error(e);
-      alert('Erro ao enviar ao fornecedor');
+      toast.error('Erro ao enviar ao fornecedor');
     } finally {
       setEnviandoTipo(null);
     }
@@ -529,7 +527,7 @@ function OrdensList() {
     if (!ordemSelecionada) return;
     
     if (!motivoCancelamento.trim() || motivoCancelamento.trim().length < 10) {
-      alert('Por favor, informe o motivo do cancelamento (mínimo 10 caracteres)');
+      toast.warning('Por favor, informe o motivo do cancelamento (mínimo 10 caracteres)');
       return;
     }
 
@@ -545,19 +543,17 @@ function OrdensList() {
 
       if (response.ok) {
         const foiEnviada = ['ENVIADA', 'EM_ATENDIMENTO', 'ATENDIDA_PARCIAL'].includes(ordemSelecionada.status);
-        alert(
-          `Ordem ${ordemSelecionada.numero} cancelada com sucesso!` + 
-          (foiEnviada ? '\n\nO fornecedor foi notificado sobre o cancelamento.' : '')
-        );
+        toast.success(`Ordem ${ordemSelecionada.numero} cancelada com sucesso!` + 
+          (foiEnviada ? '\n\nO fornecedor foi notificado sobre o cancelamento.' : ''), { className: 'whitespace-pre-line' });
         setShowCancelar(false);
         carregarOrdens();
       } else {
         const error = await response.json();
-        alert(`Erro ao cancelar: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao cancelar: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao cancelar:', error);
-      alert('Erro ao cancelar ordem');
+      toast.error('Erro ao cancelar ordem');
     } finally {
       setProcessando(false);
     }
@@ -592,16 +588,16 @@ function OrdensList() {
       );
 
       if (response.ok) {
-        alert('Ordem atualizada com sucesso!');
+        toast.success('Ordem atualizada com sucesso!');
         setShowEditar(false);
         carregarOrdens();
       } else {
         const error = await response.json();
-        alert(`Erro ao editar: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao editar: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao editar:', error);
-      alert('Erro ao editar ordem');
+      toast.error('Erro ao editar ordem');
     } finally {
       setProcessando(false);
     }
@@ -618,16 +614,16 @@ function OrdensList() {
       );
 
       if (response.ok) {
-        alert(`Ordem ${ordemSelecionada.numero} excluída com sucesso!`);
+        toast.success(`Ordem ${ordemSelecionada.numero} excluída com sucesso!`);
         setShowExcluir(false);
         carregarOrdens();
       } else {
         const error = await response.json();
-        alert(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
+        toast.error(`Erro ao excluir: ${error.message || 'Erro desconhecido'}`);
       }
     } catch (error) {
       console.error('Erro ao excluir:', error);
-      alert('Erro ao excluir ordem');
+      toast.error('Erro ao excluir ordem');
     } finally {
       setProcessando(false);
     }
@@ -653,7 +649,7 @@ function OrdensList() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Erro ao baixar PDF:', error);
-      alert('Erro ao baixar PDF da ordem');
+      toast.error('Erro ao baixar PDF da ordem');
     } finally {
       setGerandoPDF(null);
     }
@@ -712,11 +708,11 @@ function OrdensList() {
           });
           if (updated) setOrdemSelecionada({ ...updated, numeros_empenhos: numsComAno });
         }
-        alert('Empenhos vinculados e PDF atualizado com sucesso!');
+        toast.success('Empenhos vinculados e PDF atualizado com sucesso!');
       } else {
-        alert('Erro ao vincular empenhos');
+        toast.error('Erro ao vincular empenhos');
       }
-    } catch (e) { alert('Erro ao vincular empenhos'); }
+    } catch (e) { toast.error('Erro ao vincular empenhos'); }
     setSalvandoEmpenhos(false);
   };
 

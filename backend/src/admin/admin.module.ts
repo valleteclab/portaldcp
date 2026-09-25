@@ -6,11 +6,12 @@ import { AdminTestesService } from './admin-testes.service';
 import { SessaoDisputa } from '../sessao/entities/sessao-disputa.entity';
 import { EventoSessao } from '../sessao/entities/evento-sessao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
-import { Lance } from '../lances/entities/lance.entity';
+import { Lance } from '../disputa/entities/lance.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
-import { DisputaModule } from '../disputa-v2/disputa.module';
+import { DisputaModule } from '../disputa/disputa.module';
 import { AuthModule } from '../auth/auth.module';
+import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 
 @Module({
   imports: [
@@ -24,7 +25,8 @@ import { AuthModule } from '../auth/auth.module';
     ]),
     forwardRef(() => DisputaModule),
     AuthModule, // fornece JwtService para AdminTestesService
-  ],
+    TransicoesModule, // atos da licitação (ENCERRAR_ACOLHIMENTO no teste admin)
+],
   controllers: [AdminMonitoramentoController, AdminTestesController],
   providers: [AdminTestesService],
 })

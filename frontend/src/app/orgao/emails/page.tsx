@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table'
 import { Mail, Loader2, RefreshCw, Reply, Inbox } from 'lucide-react'
 import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api'
+import { toast } from "sonner"
 
 interface EmailResumido {
   uid: number
@@ -136,16 +137,16 @@ function OrgaoEmailsPageContent() {
         }),
       })
       if (res.ok) {
-        alert('Resposta enviada com sucesso!')
+        toast.success('Resposta enviada com sucesso!')
         setShowResponder(false)
         setRespostaTexto('')
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(err.message || 'Erro ao enviar resposta')
+        toast.error(err.message || 'Erro ao enviar resposta')
       }
     } catch (e) {
       console.error(e)
-      alert('Erro ao enviar resposta')
+      toast.error('Erro ao enviar resposta')
     } finally {
       setEnviando(false)
     }

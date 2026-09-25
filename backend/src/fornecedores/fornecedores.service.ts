@@ -158,7 +158,7 @@ export class FornecedoresService {
       { tabela: 'lances', descricao: 'lances em sessões' },
       { tabela: 'atas_registro_preco', descricao: 'atas de registro de preço' },
       { tabela: 'ordens_fornecimento', descricao: 'ordens de fornecimento' },
-      { tabela: 'credenciamentos', descricao: 'credenciamentos' },
+      { tabela: 'credenciamento_inscricoes', descricao: 'inscrições em credenciamentos' },
       { tabela: 'impugnacoes', descricao: 'impugnações' },
       { tabela: 'esclarecimentos', descricao: 'esclarecimentos' },
       { tabela: 'contratacoes_direta', descricao: 'contratações diretas' },

@@ -57,6 +57,7 @@ import {
 } from 'lucide-react'
 
 import { API_URL, adminFetch } from '@/lib/api'
+import { toast } from "sonner"
 
 interface ItemCatalogo {
   id: string
@@ -184,11 +185,11 @@ export default function CatalogoAdminPage() {
         await carregarDados()
       } else {
         const error = await response.json()
-        alert(`Erro na migração: ${error.message || 'Erro desconhecido'}`)
+        toast.error(`Erro na migração: ${error.message || 'Erro desconhecido'}`)
       }
     } catch (error: any) {
       console.error('Erro na migração:', error)
-      alert(`Erro na migração: ${error.message}`)
+      toast.error(`Erro na migração: ${error.message}`)
     } finally {
       setMigrando(false)
     }
@@ -203,15 +204,15 @@ export default function CatalogoAdminPage() {
       
       if (response.ok) {
         const resultado = await response.json()
-        alert(`✅ Seed executado!\n\nClassificações criadas: ${resultado.classificacoes}\nJá existentes: ${resultado.existentes}`)
+        toast.success(`✅ Seed executado!\n\nClassificações criadas: ${resultado.classificacoes}\nJá existentes: ${resultado.existentes}`, { className: 'whitespace-pre-line' })
         await carregarDados()
       } else {
         const error = await response.json()
-        alert(`Erro no seed: ${error.message || 'Erro desconhecido'}`)
+        toast.error(`Erro no seed: ${error.message || 'Erro desconhecido'}`)
       }
     } catch (error: any) {
       console.error('Erro no seed:', error)
-      alert(`Erro no seed: ${error.message}`)
+      toast.error(`Erro no seed: ${error.message}`)
     } finally {
       setExecutandoSeed(false)
     }
@@ -233,7 +234,7 @@ export default function CatalogoAdminPage() {
 
   const salvarClassificacao = async () => {
     if (!formClassificacao.nome.trim()) {
-      alert('Informe o nome da classificação')
+      toast.warning('Informe o nome da classificação')
       return
     }
     setSalvandoClassificacao(true)
@@ -253,10 +254,10 @@ export default function CatalogoAdminPage() {
         await carregarDados()
       } else {
         const error = await response.json()
-        alert(`Erro: ${error.message || 'Erro ao salvar'}`)
+        toast.error(`Erro: ${error.message || 'Erro ao salvar'}`)
       }
     } catch (error: any) {
-      alert(`Erro: ${error.message}`)
+      toast.error(`Erro: ${error.message}`)
     } finally {
       setSalvandoClassificacao(false)
     }
@@ -274,10 +275,10 @@ export default function CatalogoAdminPage() {
         await carregarDados()
       } else {
         const error = await response.json()
-        alert(`Erro: ${error.message || 'Erro ao excluir'}`)
+        toast.error(`Erro: ${error.message || 'Erro ao excluir'}`)
       }
     } catch (error: any) {
-      alert(`Erro: ${error.message}`)
+      toast.error(`Erro: ${error.message}`)
     }
   }
 
@@ -303,11 +304,11 @@ export default function CatalogoAdminPage() {
 
   const salvarItem = async () => {
     if (!formItem.descricao.trim()) {
-      alert('Informe a descrição do item')
+      toast.warning('Informe a descrição do item')
       return
     }
     if (!formItem.classificacaoId && !itemEditando) {
-      alert('Selecione uma classificação')
+      toast.warning('Selecione uma classificação')
       return
     }
     setSalvandoItem(true)
@@ -340,10 +341,10 @@ export default function CatalogoAdminPage() {
         await carregarDados()
       } else {
         const error = await response.json()
-        alert(`Erro: ${error.message || 'Erro ao salvar'}`)
+        toast.error(`Erro: ${error.message || 'Erro ao salvar'}`)
       }
     } catch (error: any) {
-      alert(`Erro: ${error.message}`)
+      toast.error(`Erro: ${error.message}`)
     } finally {
       setSalvandoItem(false)
     }
@@ -361,10 +362,10 @@ export default function CatalogoAdminPage() {
         await carregarDados()
       } else {
         const error = await response.json()
-        alert(`Erro: ${error.message || 'Erro ao excluir'}`)
+        toast.error(`Erro: ${error.message || 'Erro ao excluir'}`)
       }
     } catch (error: any) {
-      alert(`Erro: ${error.message}`)
+      toast.error(`Erro: ${error.message}`)
     }
   }
 

@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Loader2, FileText, FileCode, Clock, Upload, AlertTriangle, History, Download, Eye, ListOrdered, BellRing, CheckCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
+import { toast } from "sonner"
 
 const getFileUrl = (caminho: string | null) => {
   if (!caminho) return null
@@ -74,12 +76,12 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
 
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
-        alert(`Notificação reenviada com sucesso para ${data.destinatarios ?? 0} usuário(s).`)
+        toast.success(`Notificação reenviada com sucesso para ${data.destinatarios ?? 0} usuário(s).`)
       } else {
-        alert(data.message || 'Erro ao reenviar notificação da NF')
+        toast.error(data.message || 'Erro ao reenviar notificação da NF')
       }
     } catch {
-      alert('Erro ao reenviar notificação da NF')
+      toast.error('Erro ao reenviar notificação da NF')
     } finally {
       setReenviandoNotificacao(false)
     }
@@ -392,7 +394,7 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
           <CardContent>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {notaFiscal.caminho_xml && (
-                <a href={getFileUrl(notaFiscal.caminho_xml) || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4 hover:bg-white">
+                <a href={getFileUrl(notaFiscal.caminho_xml) || '#'} onClick={(e) => { const u = getFileUrl(notaFiscal.caminho_xml); if (u) { e.preventDefault(); abrirArquivoAutenticado(u) } }} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4 hover:bg-white">
                   <FileCode className="h-6 w-6 text-[#b194c8]" />
                   <div className="min-w-0 flex-1">
                     <p className="font-black text-[#06162d]">XML da NF-e</p>
@@ -402,7 +404,7 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
                 </a>
               )}
               {notaFiscal.caminho_pdf && (
-                <a href={getFileUrl(notaFiscal.caminho_pdf) || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4 hover:bg-white">
+                <a href={getFileUrl(notaFiscal.caminho_pdf) || '#'} onClick={(e) => { const u = getFileUrl(notaFiscal.caminho_pdf); if (u) { e.preventDefault(); abrirArquivoAutenticado(u) } }} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 rounded-lg border border-[#d8e2f2] bg-[#f8fbff] p-4 hover:bg-white">
                   <FileText className="h-6 w-6 text-[#d83d68]" />
                   <div className="min-w-0 flex-1">
                     <p className="font-black text-[#06162d]">PDF da Nota Fiscal</p>

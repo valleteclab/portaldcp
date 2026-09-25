@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { API_URL, adminFetch, formatarDataHoraBR } from '@/lib/api'
 import Link from 'next/link'
+import { toast } from "sonner"
 
 interface SessaoAtiva {
   id: string
@@ -43,8 +44,12 @@ interface ItemEmDisputa {
   id: string
   numero: number
   descricao: string
-  tempo_restante: number
+  /** null no tempo aleatório (sigiloso — IN 73 art. 24 §1º) */
+  tempo_restante: number | null
   em_prorrogacao: boolean
+  /** ETAPA_ABERTA | PRORROGACAO | TEMPO_ALEATORIO | LANCE_FECHADO */
+  fase?: string
+  tempo_oculto?: boolean
   ultimo_lance_em: string
   total_lances: number
   melhor_lance_valor: number
@@ -125,7 +130,7 @@ export default function MonitoramentoPage() {
   // Alterar anonimização
   const toggleAnonimizacao = async (ativa: boolean) => {
     if (!sessaoSelecionada || !justificativaConfig.trim()) {
-      alert('Justificativa é obrigatória para alterar anonimização')
+      toast.warning('Justificativa é obrigatória para alterar anonimização')
       return
     }
 
@@ -143,14 +148,14 @@ export default function MonitoramentoPage() {
       if (res.ok) {
         setConfigSessao(prev => prev ? { ...prev, anonimizacao_ativa: ativa } : null)
         setJustificativaConfig('')
-        alert(`Anonimização ${ativa ? 'ativada' : 'desativada'} com sucesso`)
+        toast.success(`Anonimização ${ativa ? 'ativada' : 'desativada'} com sucesso`)
       } else {
         const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        toast.error(`Erro: ${error.message}`)
       }
     } catch (error) {
       console.error('Erro ao alterar anonimização:', error)
-      alert('Erro ao alterar anonimização')
+      toast.error('Erro ao alterar anonimização')
     } finally {
       setSalvandoConfig(false)
     }
@@ -169,14 +174,14 @@ export default function MonitoramentoPage() {
 
       if (res.ok) {
         setConfigSessao(prev => prev ? { ...prev, chat_desabilitado: desabilitado } : null)
-        alert(`Chat ${desabilitado ? 'desabilitado' : 'habilitado'} com sucesso`)
+        toast.success(`Chat ${desabilitado ? 'desabilitado' : 'habilitado'} com sucesso`)
       } else {
         const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        toast.error(`Erro: ${error.message}`)
       }
     } catch (error) {
       console.error('Erro ao alterar chat:', error)
-      alert('Erro ao alterar chat')
+      toast.error('Erro ao alterar chat')
     } finally {
       setSalvandoConfig(false)
     }
@@ -219,17 +224,19 @@ export default function MonitoramentoPage() {
         buscarItensDisputa(sessaoSelecionada.id)
       } else {
         const error = await res.json()
-        alert(`Erro: ${error.message}`)
+        toast.error(`Erro: ${error.message}`)
       }
     } catch (error) {
       console.error('Erro ao encerrar item:', error)
-      alert('Erro ao encerrar item')
+      toast.error('Erro ao encerrar item')
     } finally {
       setEncerrando(false)
     }
   }
 
-  const formatarTempo = (segundos: number) => {
+  const formatarTempo = (segundos: number | null) => {
+    // Tempo aleatório do modo aberto-fechado: sem contagem (não é "00:00")
+    if (segundos === null || segundos === undefined) return 'Tempo aleatório'
     const min = Math.floor(segundos / 60)
     const seg = segundos % 60
     return `${min.toString().padStart(2, '0')}:${seg.toString().padStart(2, '0')}`
@@ -358,7 +365,7 @@ export default function MonitoramentoPage() {
                       </CardDescription>
                     </div>
                     <Link 
-                      href={`/orgao/disputa?sessao=${sessaoSelecionada.id}`}
+                      href={`/orgao/processos/${sessaoSelecionada.licitacao_id}/sessao`}
                       target="_blank"
                     >
                       <Button variant="outline" size="sm">
@@ -505,11 +512,16 @@ export default function MonitoramentoPage() {
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               <Badge 
-                                variant={item.tempo_restante < 60 ? 'destructive' : 'outline'}
-                                className={item.tempo_restante <= 30 ? 'animate-pulse' : ''}
+                                variant={item.tempo_restante !== null && item.tempo_restante < 60 ? 'destructive' : 'outline'}
+                                className={item.tempo_restante !== null && item.tempo_restante <= 30 ? 'animate-pulse' : ''}
                               >
                                 {formatarTempo(item.tempo_restante)}
                               </Badge>
+                              {item.fase === 'LANCE_FECHADO' && (
+                                <Badge variant="outline" className="border-violet-500 text-violet-700 text-xs">
+                                  Lance final fechado
+                                </Badge>
+                              )}
                               {item.em_prorrogacao && (
                                 <Badge variant="outline" className="border-orange-500 text-orange-600 text-xs animate-pulse">
                                   Prorrogação

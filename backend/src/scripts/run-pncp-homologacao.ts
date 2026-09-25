@@ -3,6 +3,8 @@ import { NestFactory } from '@nestjs/core';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../app.module';
 import { PncpService } from '../pncp/pncp.service';
+import { PncpFilaService } from '../pncp/fila/pncp-fila.service';
+import { atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
 
 const IDS = {
   pca: 'e1000000-0000-4000-8000-000000000301',
@@ -20,6 +22,7 @@ async function main() {
 
   try {
     const pncp = app.get(PncpService);
+    const fila = app.get(PncpFilaService);
     const dataSource = app.get(DataSource);
     let resultado: any;
 
@@ -42,23 +45,23 @@ async function main() {
         itens,
       });
     } else if (etapa === 'compra') {
-      resultado = await pncp.enviarCompraCompleta(IDS.licitacao);
+      resultado = await fila.enviarCompraCompletaAgora(IDS.licitacao, atorSistema('script-homologacao'));
     } else if (etapa === 'resultado') {
-      resultado = await pncp.enviarResultadoHomologacao(IDS.licitacao);
+      resultado = await fila.enviarResultadosAgora(IDS.licitacao);
     } else if (etapa === 'documento') {
       const { readFileSync } = await import('fs');
       const { join } = await import('path');
       const arquivo = readFileSync(
         join(process.cwd(), 'demo-docs', 'anexo-edital-pregao-demo.pdf'),
       );
-      resultado = await pncp.enviarDocumento(
+      resultado = await fila.enviarDocumentoAgora(
         IDS.licitacao,
         4,
         arquivo,
         'termo-referencia-homologacao-portaldcp.pdf',
       );
     } else if (etapa === 'retificar-compra') {
-      resultado = await pncp.enviarCompra(IDS.licitacao);
+      resultado = await fila.enviarCompraAgora(IDS.licitacao, atorSistema('script-homologacao'));
     } else if (etapa === 'retificar-pca') {
       const [pca] = await dataSource.query(
         `SELECT ano_exercicio, sequencial_pncp FROM planos_contratacao_anual WHERE id = $1`,
@@ -128,7 +131,7 @@ async function main() {
         },
       );
     } else if (etapa === 'contrato') {
-      resultado = await pncp.enviarContratosHomologacao(IDS.licitacao);
+      resultado = await fila.enviarContratosAgora(IDS.licitacao);
     } else if (etapa === 'retificar-contrato') {
       const [sync] = await dataSource.query(
         `SELECT numero_controle_pncp

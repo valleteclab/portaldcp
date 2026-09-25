@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda } from './entities/demanda.entity';
+import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda, STATUS_DEMANDA_EM_PROCESSO } from './entities/demanda.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
 
 @Injectable()
 export class DemandasService {
@@ -131,9 +132,9 @@ export class DemandasService {
   async update(id: string, dados: Partial<Demanda>): Promise<Demanda> {
     const demanda = await this.findOne(id);
 
-    // Não permite editar demandas já consolidadas
-    if (demanda.status === StatusDemanda.CONSOLIDADA) {
-      throw new BadRequestException('Demanda já consolidada não pode ser editada');
+    // Não permite editar demandas já consolidadas / em contratação / contratadas
+    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
+      throw new BadRequestException('Demanda já consolidada ou em contratação não pode ser editada');
     }
 
     Object.assign(demanda, dados);
@@ -143,8 +144,8 @@ export class DemandasService {
   async delete(id: string): Promise<void> {
     const demanda = await this.findOne(id);
 
-    if (demanda.status === StatusDemanda.CONSOLIDADA) {
-      throw new BadRequestException('Demanda já consolidada não pode ser excluída');
+    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
+      throw new BadRequestException('Demanda já consolidada ou em contratação não pode ser excluída');
     }
 
     await this.demandaRepository.remove(demanda);
@@ -229,8 +230,8 @@ export class DemandasService {
   async voltarParaRascunho(id: string): Promise<Demanda> {
     const demanda = await this.findOne(id);
 
-    if (demanda.status === StatusDemanda.CONSOLIDADA) {
-      throw new BadRequestException('Demanda consolidada não pode voltar para rascunho');
+    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
+      throw new BadRequestException('Demanda consolidada ou em contratação não pode voltar para rascunho');
     }
 
     demanda.status = StatusDemanda.RASCUNHO;
@@ -267,10 +268,12 @@ export class DemandasService {
     const [licitacao] = await this.dataSource.query(
       `SELECT id, numero_processo, modalidade, fase, valor_total_estimado,
               data_publicacao_edital, data_homologacao, valor_homologado,
-              numero_controle_pncp, link_pncp
+              link_pncp
        FROM licitacoes WHERE demanda_id = $1 ORDER BY created_at ASC LIMIT 1`,
       [id],
     ).catch(() => [null]);
+    // Estado da compra no PNCP: fila (E9)
+    if (licitacao) await aplicarEstadoCompraPncp(this.dataSource.manager, [licitacao]);
 
     // Contratos do processo
     const contratos = licitacao

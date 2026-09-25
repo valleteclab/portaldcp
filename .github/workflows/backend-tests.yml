@@ -1,0 +1,66 @@
+name: Backend — testes
+
+# Unitários (jest) + e2e (jest-e2e com Postgres descartável via embedded-postgres).
+# Não depende de banco externo nem de segredos: o e2e sobe o próprio Postgres
+# e bloqueia rede externa (PNCP é mock).
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unitarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes unitários
+        run: npm test -- --ci
+
+  e2e:
+    # A bateria e2e cresceu (30+ suítes): num único processo em sequência o
+    # heap estourava. Cada parte roda num processo próprio, com seu Postgres
+    # descartável.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        parte: [1, 2, 3]
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes e2e (parte ${{ matrix.parte }}/3)
+        run: npm run test:e2e -- --ci --shard=${{ matrix.parte }}/3

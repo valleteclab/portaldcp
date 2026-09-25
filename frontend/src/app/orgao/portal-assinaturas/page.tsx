@@ -19,6 +19,8 @@ import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { API_URL, authFetch } from '@/lib/api'
 import PdfViewer, { type PdfMarker } from '@/components/PdfViewer'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -446,34 +448,34 @@ export default function PortalAssinaturasPage() {
   }
 
   const handleCancelar = async (docId: string) => {
-    if (!confirm('Tem certeza que deseja cancelar este documento? Esta ação não pode ser desfeita.')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Tem certeza que deseja cancelar este documento? Esta ação não pode ser desfeita.', destrutivo: true }))) return
     try {
       const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docId}/cancelar`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json()
-        alert(err.message || 'Erro ao cancelar')
+        toast.error(err.message || 'Erro ao cancelar')
         return
       }
       voltarLista()
       carregar()
     } catch (e: any) {
-      alert(e.message || 'Erro ao cancelar documento')
+      toast.error(e.message || 'Erro ao cancelar documento')
     }
   }
 
   const handleExcluir = async (docId: string) => {
-    if (!confirm('Tem certeza que deseja EXCLUIR este processo de assinatura? Esta ação é permanente e não pode ser desfeita.')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Tem certeza que deseja EXCLUIR este processo de assinatura? Esta ação é permanente e não pode ser desfeita.', destrutivo: true }))) return
     try {
       const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docId}`, { method: 'DELETE' })
       if (!res.ok) {
         const err = await res.json()
-        alert(err.message || 'Erro ao excluir')
+        toast.error(err.message || 'Erro ao excluir')
         return
       }
       voltarLista()
       carregar()
     } catch (e: any) {
-      alert(e.message || 'Erro ao excluir documento')
+      toast.error(e.message || 'Erro ao excluir documento')
     }
   }
 
@@ -482,13 +484,13 @@ export default function PortalAssinaturasPage() {
       const res = await authFetch(`${API_URL}/api/portal-assinaturas/${docId}/reenviar`, { method: 'POST' })
       if (!res.ok) {
         const err = await res.json()
-        alert(err.message || 'Erro ao reenviar')
+        toast.error(err.message || 'Erro ao reenviar')
         return
       }
       const data = await res.json()
-      alert(`Notificações reenviadas para ${data.enviados} signatário(s) pendente(s).`)
+      toast(`Notificações reenviadas para ${data.enviados} signatário(s) pendente(s).`)
     } catch (e: any) {
-      alert(e.message || 'Erro ao reenviar notificações')
+      toast.error(e.message || 'Erro ao reenviar notificações')
     }
   }
 
@@ -567,11 +569,11 @@ export default function PortalAssinaturasPage() {
   const salvarNovosSigs = async () => {
     if (!docAtivo) return
     const validos = novosSigs.filter(s => s.nome.trim())
-    if (validos.length === 0) { alert('Adicione ao menos um signatário com nome.'); return }
+    if (validos.length === 0) { toast.warning('Adicione ao menos um signatário com nome.'); return }
 
     for (const s of validos) {
       if (s.tipo === 'externo' && !s.email && !s.telefone) {
-        alert(`Signatário "${s.nome}": informe e-mail ou telefone.`)
+        toast.warning(`Signatário "${s.nome}": informe e-mail ou telefone.`)
         return
       }
     }
@@ -582,7 +584,7 @@ export default function PortalAssinaturasPage() {
       if (!sig.nome.trim()) continue
       const marker = novoSigMarkers.find(m => m.id === `newsig-${i}`)
       if (!marker) {
-        alert(`Signatário "${sig.nome}": marque a posição da assinatura no PDF (clique na página).`)
+        toast(`Signatário "${sig.nome}": marque a posição da assinatura no PDF (clique na página).`)
         return
       }
     }
@@ -610,7 +612,7 @@ export default function PortalAssinaturasPage() {
         })
         if (!res.ok) {
           const err = await res.json()
-          alert(err.message || `Erro ao adicionar signatário "${sig.nome}"`)
+          toast.error(err.message || `Erro ao adicionar signatário "${sig.nome}"`)
           return
         }
       }
@@ -620,7 +622,7 @@ export default function PortalAssinaturasPage() {
       carregar()
       cancelarAdicionando()
     } catch (e: any) {
-      alert(e.message || 'Erro ao adicionar signatários')
+      toast.error(e.message || 'Erro ao adicionar signatários')
     } finally {
       setAddSigLoading(false)
     }

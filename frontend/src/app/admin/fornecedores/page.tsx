@@ -56,6 +56,8 @@ import {
   GitMerge
 } from 'lucide-react'
 import { API_URL, adminFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Fornecedor {
   id: string
@@ -137,7 +139,7 @@ export default function AdminFornecedoresPage() {
   }
 
   const handleAprovar = async (fornecedor: Fornecedor) => {
-    if (!confirm(`Deseja aprovar o fornecedor ${fornecedor.razao_social}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Deseja aprovar o fornecedor ${fornecedor.razao_social}?` }))) return
     
     setActionLoading(true)
     try {
@@ -148,11 +150,11 @@ export default function AdminFornecedoresPage() {
       if (res.ok) {
         await fetchFornecedores()
       } else {
-        alert('Erro ao aprovar fornecedor')
+        toast.error('Erro ao aprovar fornecedor')
       }
     } catch (error) {
       console.error('Erro ao aprovar:', error)
-      alert('Erro ao aprovar fornecedor')
+      toast.error('Erro ao aprovar fornecedor')
     } finally {
       setActionLoading(false)
     }
@@ -174,18 +176,18 @@ export default function AdminFornecedoresPage() {
         setModalSuspender(false)
         setFornecedorSelecionado(null)
       } else {
-        alert('Erro ao suspender fornecedor')
+        toast.error('Erro ao suspender fornecedor')
       }
     } catch (error) {
       console.error('Erro ao suspender:', error)
-      alert('Erro ao suspender fornecedor')
+      toast.error('Erro ao suspender fornecedor')
     } finally {
       setActionLoading(false)
     }
   }
 
   const handleReativar = async (fornecedor: Fornecedor) => {
-    if (!confirm(`Deseja reativar o fornecedor ${fornecedor.razao_social}?`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Deseja reativar o fornecedor ${fornecedor.razao_social}?` }))) return
     
     setActionLoading(true)
     try {
@@ -196,11 +198,11 @@ export default function AdminFornecedoresPage() {
       if (res.ok) {
         await fetchFornecedores()
       } else {
-        alert('Erro ao reativar fornecedor')
+        toast.error('Erro ao reativar fornecedor')
       }
     } catch (error) {
       console.error('Erro ao reativar:', error)
-      alert('Erro ao reativar fornecedor')
+      toast.error('Erro ao reativar fornecedor')
     } finally {
       setActionLoading(false)
     }
@@ -241,14 +243,14 @@ export default function AdminFornecedoresPage() {
         await fetchFornecedores()
         setModalEditar(false)
         setFornecedorSelecionado(null)
-        alert('Dados atualizados com sucesso!')
+        toast.success('Dados atualizados com sucesso!')
       } else {
         const data = await res.json()
-        alert(`Erro: ${data.message || 'Erro ao salvar dados'}`)
+        toast.error(`Erro: ${data.message || 'Erro ao salvar dados'}`)
       }
     } catch (error) {
       console.error('Erro ao salvar:', error)
-      alert('Erro ao salvar dados')
+      toast.error('Erro ao salvar dados')
     } finally {
       setActionLoading(false)
     }
@@ -274,11 +276,11 @@ export default function AdminFornecedoresPage() {
         setSenhaTemporaria(data.senhaTemporaria)
       } else {
         const data = await res.json()
-        alert(`Erro: ${data.message || 'Erro ao resetar senha'}`)
+        toast.error(`Erro: ${data.message || 'Erro ao resetar senha'}`)
       }
     } catch (error) {
       console.error('Erro ao resetar senha:', error)
-      alert('Erro ao resetar senha')
+      toast.error('Erro ao resetar senha')
     } finally {
       setActionLoading(false)
     }
@@ -287,7 +289,7 @@ export default function AdminFornecedoresPage() {
   const copiarSenha = () => {
     if (senhaTemporaria) {
       navigator.clipboard.writeText(senhaTemporaria)
-      alert('Senha copiada para a área de transferência!')
+      toast.success('Senha copiada para a área de transferência!')
     }
   }
 
@@ -299,14 +301,12 @@ export default function AdminFornecedoresPage() {
   const handleMigrarVinculos = async (fornecedor: Fornecedor) => {
     const cnpj = fornecedor.cnpj || fornecedor.cpf_cnpj || ''
     if (!cnpj.startsWith('TEMP_')) {
-      alert('Migração só está disponível para fornecedores com CNPJ temporário (TEMP_)')
+      toast('Migração só está disponível para fornecedores com CNPJ temporário (TEMP_)')
       return
     }
-    if (!confirm(
-      `Migrar vínculos do cadastro pendente "${fornecedor.razao_social}"?\n\n` +
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Migrar vínculos do cadastro pendente "${fornecedor.razao_social}"?\n\n` +
       `O sistema vai procurar o fornecedor real com base no CNPJ armazenado em cada contrato ` +
-      `e re-vincular os registros ao fornecedor correto.`
-    )) return
+      `e re-vincular os registros ao fornecedor correto.` }))) return
 
     setActionLoading(true)
     try {
@@ -334,7 +334,7 @@ export default function AdminFornecedoresPage() {
             msg += `  • ${s.motivo}\n`
           }
         }
-        alert(msg)
+        toast(msg)
         await fetchFornecedores()
       } else {
         let msg = 'Erro ao migrar vínculos'
@@ -344,11 +344,11 @@ export default function AdminFornecedoresPage() {
         } catch {
           msg = `${msg} (HTTP ${res.status})`
         }
-        alert(msg)
+        toast(msg)
       }
     } catch (error) {
       console.error('Erro ao migrar vínculos:', error)
-      alert('Erro ao migrar vínculos')
+      toast.error('Erro ao migrar vínculos')
     } finally {
       setActionLoading(false)
     }
@@ -375,11 +375,11 @@ export default function AdminFornecedoresPage() {
         } catch {
           msg = `${msg} (HTTP ${res.status})`
         }
-        alert(msg)
+        toast(msg)
       }
     } catch (error) {
       console.error('Erro ao excluir:', error)
-      alert('Erro ao excluir fornecedor')
+      toast.error('Erro ao excluir fornecedor')
     } finally {
       setActionLoading(false)
     }

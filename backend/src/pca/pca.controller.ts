@@ -10,6 +10,7 @@ import {
   Query,
   Req,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PcaService } from './pca.service';
 import { PlanoContratacaoAnual, ItemPCA, StatusPCA, StatusItemPCA, CategoriaItemPCA } from './entities/pca.entity';
@@ -17,11 +18,43 @@ import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
+import { AcessoLicitacaoService, Ator, AtorAtual, SomenteOrgao } from '../auth/acesso';
 
+/**
+ * PCA — só o órgão dono (ou o admin da plataforma). O órgão vem do TOKEN:
+ * `orgao_id` do corpo de outro órgão é recusado (403); nas listagens o
+ * `orgaoId` da consulta só vale para o admin. Por id: leitura de PCA/item de
+ * outro órgão → 404; escrita → 403. As rotas `publico/*` continuam públicas.
+ */
 @Controller('pca')
 @RequireModule(ModuloSistema.PCA)
+@SomenteOrgao()
 export class PcaController {
-  constructor(private readonly pcaService: PcaService) {}
+  constructor(
+    private readonly pcaService: PcaService,
+    private readonly acesso: AcessoLicitacaoService,
+  ) {}
+
+  private async exigirPca(ator: Ator | null, pcaId: string, modo: 'leitura' | 'escrita' = 'escrita'): Promise<void> {
+    const orgaoId = await this.pcaService.orgaoDoPca(pcaId);
+    this.acesso.assertProprioOrgao(ator, orgaoId, modo);
+  }
+
+  private async exigirItem(ator: Ator | null, itemId: string, modo: 'leitura' | 'escrita' = 'escrita'): Promise<void> {
+    const orgaoId = await this.pcaService.orgaoDoItem(itemId);
+    this.acesso.assertProprioOrgao(ator, orgaoId, modo);
+  }
+
+  /** Campos de vínculo que o cliente não troca por update (dono e PCA do item). */
+  private semVinculo<T extends object>(dados: T | undefined): T {
+    const copia: any = { ...(dados || {}) };
+    delete copia.orgao_id;
+    delete copia.orgao;
+    delete copia.pca_id;
+    delete copia.pca;
+    delete copia.id;
+    return copia;
+  }
 
   private getOrgaoId(user: JwtPayload, orgaoIdParam?: string): string {
     if (user.type === UserType.ORGAO) return user.sub;
@@ -34,8 +67,19 @@ export class PcaController {
   // ============ CRUD PCA ============
 
   @Post()
-  async criar(@Body() dados: Partial<PlanoContratacaoAnual>) {
-    return this.pcaService.criar(dados);
+  async criar(@Body() dados: Partial<PlanoContratacaoAnual>, @AtorAtual() ator: Ator | null) {
+    let orgaoId: string | null | undefined;
+    if (ator?.admin) {
+      orgaoId = dados?.orgao_id;
+      if (!orgaoId) throw new BadRequestException('orgao_id é obrigatório para o administrador da plataforma');
+    } else {
+      orgaoId = ator?.orgaoId;
+      if (dados?.orgao_id && dados.orgao_id !== orgaoId) {
+        throw new ForbiddenException('Acesso negado: o PCA só pode ser criado para o seu órgão');
+      }
+    }
+    const { orgao: _o, id: _id, ...resto } = (dados || {}) as any;
+    return this.pcaService.criar({ ...resto, orgao_id: orgaoId });
   }
 
   @Get()
@@ -54,7 +98,8 @@ export class PcaController {
   }
 
   @Get('estatisticas/:id')
-  async getEstatisticas(@Param('id') id: string) {
+  async getEstatisticas(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
+    await this.exigirPca(ator, id, 'leitura');
     return this.pcaService.getEstatisticas(id);
   }
 
@@ -104,51 +149,62 @@ export class PcaController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
+    await this.exigirPca(ator, id, 'leitura');
     return this.pcaService.findOne(id);
   }
 
   @Put(':id')
-  async atualizar(@Param('id') id: string, @Body() dados: Partial<PlanoContratacaoAnual>) {
-    return this.pcaService.atualizar(id, dados);
+  async atualizar(@Param('id') id: string, @Body() dados: Partial<PlanoContratacaoAnual>, @AtorAtual() ator: Ator | null) {
+    await this.exigirPca(ator, id);
+    return this.pcaService.atualizar(id, this.semVinculo(dados));
   }
 
   @Delete(':id')
-  async excluir(@Param('id') id: string) {
+  async excluir(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
+    await this.exigirPca(ator, id);
     return this.pcaService.excluir(id);
   }
 
   @Patch(':id/aprovar')
   async aprovar(
     @Param('id') id: string,
-    @Body() responsavel: { id: string; nome: string; cargo: string }
+    @Body() responsavel: { id: string; nome: string; cargo: string },
+    @AtorAtual() ator: Ator | null,
   ) {
+    await this.exigirPca(ator, id);
     return this.pcaService.aprovar(id, responsavel);
   }
 
   @Patch(':id/publicar')
-  async publicar(@Param('id') id: string) {
+  async publicar(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
+    await this.exigirPca(ator, id);
     return this.pcaService.publicar(id);
   }
 
   @Patch(':id/marcar-enviado-pncp')
   async marcarEnviadoPNCP(
     @Param('id') id: string,
-    @Body() body: { numeroControle: string; sequencial: number }
+    @Body() body: { numeroControle: string; sequencial: number },
+    @AtorAtual() ator: Ator | null,
   ) {
+    await this.exigirPca(ator, id);
     return this.pcaService.marcarEnviadoPNCP(id, body.numeroControle, body.sequencial);
   }
 
   @Patch(':id/desmarcar-enviado-pncp')
-  async desmarcarEnviadoPNCP(@Param('id') id: string) {
+  async desmarcarEnviadoPNCP(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
+    await this.exigirPca(ator, id);
     return this.pcaService.desmarcarEnviadoPNCP(id);
   }
 
   @Post(':id/duplicar')
   async duplicarParaProximoAno(
     @Param('id') id: string,
+    @AtorAtual() ator: Ator | null,
     @Body() body?: { copiarTodosItens?: boolean }
   ) {
+    await this.exigirPca(ator, id);
     const copiarTodosItens = body?.copiarTodosItens !== false; // Default: true
     return this.pcaService.duplicarParaProximoAno(id, copiarTodosItens);
   }
@@ -156,8 +212,10 @@ export class PcaController {
   @Post(':id/consolidar-demandas')
   async consolidarDemandas(
     @Param('id') pcaId: string,
-    @Body() body: { demandaIds: string[] }
+    @Body() body: { demandaIds: string[] },
+    @AtorAtual() ator: Ator | null,
   ) {
+    await this.exigirPca(ator, pcaId);
     return this.pcaService.consolidarDemandas(pcaId, body.demandaIds);
   }
 
@@ -166,26 +224,32 @@ export class PcaController {
   @Post(':pcaId/itens')
   async adicionarItem(
     @Param('pcaId') pcaId: string,
-    @Body() dados: Partial<ItemPCA>
+    @Body() dados: Partial<ItemPCA>,
+    @AtorAtual() ator: Ator | null,
   ) {
-    return this.pcaService.adicionarItem(pcaId, dados);
+    await this.exigirPca(ator, pcaId);
+    return this.pcaService.adicionarItem(pcaId, this.semVinculo(dados));
   }
 
   @Post(':pcaId/importar-itens')
   async importarItens(
     @Param('pcaId') pcaId: string,
-    @Body() body: { itens: Partial<ItemPCA>[] }
+    @Body() body: { itens: Partial<ItemPCA>[] },
+    @AtorAtual() ator: Ator | null,
   ) {
-    return this.pcaService.importarItens(pcaId, body.itens);
+    await this.exigirPca(ator, pcaId);
+    return this.pcaService.importarItens(pcaId, (body?.itens || []).map((i) => this.semVinculo(i)));
   }
 
   @Get(':pcaId/itens')
   async findItens(
     @Param('pcaId') pcaId: string,
+    @AtorAtual() ator: Ator | null,
     @Query('categoria') categoria?: CategoriaItemPCA,
     @Query('status') status?: StatusItemPCA,
     @Query('trimestre') trimestre?: string
   ) {
+    await this.exigirPca(ator, pcaId, 'leitura');
     return this.pcaService.findItens(pcaId, {
       categoria,
       status,
@@ -194,34 +258,45 @@ export class PcaController {
   }
 
   @Get('itens/:itemId')
-  async findItem(@Param('itemId') itemId: string) {
+  async findItem(@Param('itemId') itemId: string, @AtorAtual() ator: Ator | null) {
+    await this.exigirItem(ator, itemId, 'leitura');
     return this.pcaService.findItem(itemId);
   }
 
   @Put('itens/:itemId')
   async atualizarItem(
     @Param('itemId') itemId: string,
-    @Body() dados: Partial<ItemPCA>
+    @Body() dados: Partial<ItemPCA>,
+    @AtorAtual() ator: Ator | null,
   ) {
-    return this.pcaService.atualizarItem(itemId, dados);
+    await this.exigirItem(ator, itemId);
+    return this.pcaService.atualizarItem(itemId, this.semVinculo(dados));
   }
 
   @Patch('itens/:itemId/status')
   async alterarStatusItem(
     @Param('itemId') itemId: string,
-    @Body() body: { status: StatusItemPCA; licitacaoId?: string }
+    @Body() body: { status: StatusItemPCA; licitacaoId?: string },
+    @AtorAtual() ator: Ator | null,
   ) {
+    await this.exigirItem(ator, itemId);
+    if (body?.licitacaoId) {
+      // vínculo só com licitação do mesmo órgão
+      await this.acesso.assertOrgaoDaLicitacao(ator, body.licitacaoId);
+    }
     return this.pcaService.alterarStatusItem(itemId, body.status, body.licitacaoId);
   }
 
   @Delete('itens/:itemId')
-  async removerItem(@Param('itemId') itemId: string) {
+  async removerItem(@Param('itemId') itemId: string, @AtorAtual() ator: Ator | null) {
+    await this.exigirItem(ator, itemId);
     await this.pcaService.removerItem(itemId);
     return { message: 'Item removido com sucesso' };
   }
 
   @Delete(':pcaId/limpar-itens')
-  async limparItens(@Param('pcaId') pcaId: string) {
+  async limparItens(@Param('pcaId') pcaId: string, @AtorAtual() ator: Ator | null) {
+    await this.exigirPca(ator, pcaId);
     return this.pcaService.limparItens(pcaId);
   }
 
@@ -239,9 +314,11 @@ export class PcaController {
         unidade?: string; 
         renovacao?: string; 
         data_desejada?: string 
-      }[] 
-    }
+      }[]
+    },
+    @AtorAtual() ator: Ator | null,
   ) {
+    await this.exigirPca(ator, pcaId);
     return this.pcaService.importarItensInteligente(pcaId, body.itens);
   }
 }

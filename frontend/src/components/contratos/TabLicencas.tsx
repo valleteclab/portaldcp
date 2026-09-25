@@ -19,6 +19,8 @@ import {
   Plus, Loader2, Shield, Pencil, Trash2, Play, Pause, RefreshCw, AlertTriangle, Key,
 } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Licenca {
   id: string
@@ -169,7 +171,7 @@ export default function TabLicencas({ contratoId }: { contratoId: string }) {
         : `${API_URL}/api/contratos/${contratoId}/licencas`
       const method = editando ? 'PUT' : 'POST'
       const res = await authFetch(url, { method, body: JSON.stringify(payload) })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalCriar(false)
       carregarDados()
     } catch (e) { console.error(e) }
@@ -177,9 +179,9 @@ export default function TabLicencas({ contratoId }: { contratoId: string }) {
   }
 
   const excluir = async (id: string) => {
-    if (!confirm('Excluir esta licença?')) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Excluir esta licença?', destrutivo: true }))) return
     const res = await authFetch(`${API_URL}/api/contratos/licencas/${id}`, { method: 'DELETE' })
-    if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
     carregarDados()
   }
 
@@ -190,7 +192,7 @@ export default function TabLicencas({ contratoId }: { contratoId: string }) {
       const res = await authFetch(`${API_URL}/api/contratos/licencas/${modalAtivar.id}/ativar`, {
         method: 'PATCH', body: JSON.stringify({ quantidade: parseInt(qtdAtivar) }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalAtivar(null)
       carregarDados()
     } catch (e) { console.error(e) }
@@ -204,7 +206,7 @@ export default function TabLicencas({ contratoId }: { contratoId: string }) {
       const res = await authFetch(`${API_URL}/api/contratos/licencas/${modalDesativar.id}/desativar`, {
         method: 'PATCH', body: JSON.stringify({ quantidade: parseInt(qtdAtivar) }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); return }
       setModalDesativar(null)
       carregarDados()
     } catch (e) { console.error(e) }
@@ -226,8 +228,8 @@ export default function TabLicencas({ contratoId }: { contratoId: string }) {
     const res = await authFetch(`${API_URL}/api/contratos/${contratoId}/licencas/verificar-expiracoes`, { method: 'POST' })
     if (res.ok) {
       const expiradas = await res.json()
-      if (expiradas.length > 0) alert(`${expiradas.length} licença(s) marcada(s) como expirada(s)`)
-      else alert('Nenhuma licença expirada encontrada')
+      if (expiradas.length > 0) toast(`${expiradas.length} licença(s) marcada(s) como expirada(s)`)
+      else toast.warning('Nenhuma licença expirada encontrada')
     }
     carregarDados()
     setActionLoading(false)

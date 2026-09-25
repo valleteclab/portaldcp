@@ -25,6 +25,8 @@ import {
 import { API_URL, authFetch } from '@/lib/api'
 import { gerarPdfMedicao } from '@/lib/pdf-medicao'
 import dynamic from 'next/dynamic'
+import { toast } from "sonner"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
   loading: () => (
@@ -393,7 +395,7 @@ export default function MedicoesV2Page() {
 
   const baixarBoletim = async (medicao: any) => {
     const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/boletim-oficial`)
-    if (!res.ok) { alert('Boletim não disponível'); return }
+    if (!res.ok) { toast('Boletim não disponível'); return }
     const { pdf_url, filename } = await res.json()
     const fileUrl = pdf_url.startsWith('http') ? pdf_url : `${API_URL}${pdf_url}`
     const fileRes = await fetch(fileUrl)
@@ -410,7 +412,7 @@ export default function MedicoesV2Page() {
     setDownloadingZip(medicaoId)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}/download-zip`)
-      if (!res.ok) { alert('Erro ao gerar ZIP'); return }
+      if (!res.ok) { toast.error('Erro ao gerar ZIP'); return }
       const blob = await res.blob()
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
@@ -436,7 +438,7 @@ export default function MedicoesV2Page() {
           : m
       ))
     } else {
-      alert('Sem permissão para esta ação')
+      toast('Sem permissão para esta ação')
     }
   }
 
@@ -447,7 +449,7 @@ export default function MedicoesV2Page() {
     setModalAteste(null)
     try {
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}`)
-      if (!res.ok) { alert('Erro ao carregar medição'); setLoadingAteste(false); return }
+      if (!res.ok) { toast.error('Erro ao carregar medição'); setLoadingAteste(false); return }
       const medicaoCompleta = await res.json()
       setFormAteste({ observacoes: '', verificado_in_loco: false, motivo_devolucao_parcial: '' })
       const itens = medicaoCompleta.itens || []
@@ -494,7 +496,7 @@ export default function MedicoesV2Page() {
             else if (data.status === 'assinado') {
               setEtapaAssinatura('assinado')
               if (data.auto_encaminhada || data.medicao_status === 'AGUARDANDO_APROVACAO') {
-                alert('Assinatura concluída. A medição foi encaminhada automaticamente para aprovação do gestor.')
+                toast('Assinatura concluída. A medição foi encaminhada automaticamente para aprovação do gestor.')
                 setModalAteste(null)
                 setAnexosAteste([])
                 setEtapaAssinatura('idle')
@@ -522,7 +524,7 @@ export default function MedicoesV2Page() {
           }
         })
         .catch(() => {})
-    } catch { alert('Erro ao carregar medição') }
+    } catch { toast.error('Erro ao carregar medição') }
     setLoadingAteste(false)
   }
 
@@ -537,24 +539,20 @@ export default function MedicoesV2Page() {
   const executarAteste = async () => {
     if (!modalAteste) return
     if (!conferiuNfAteste) {
-      alert(
-        'Antes de atestar, confira a nota fiscal anexada e a discriminação de despesas ' +
-        '(retenções como IR, ISS e INSS devem estar discriminadas) e marque a caixa de conferência.',
-      )
+      toast('Antes de atestar, confira a nota fiscal anexada e a discriminação de despesas ' +
+        '(retenções como IR, ISS e INSS devem estar discriminadas) e marque a caixa de conferência.', { className: 'whitespace-pre-line' })
       return
     }
     const itens = (modalAteste.itens || []) as any[]
     const { todosSelecionados, naoSelecionados } = resumirSelecaoItensAteste(itens)
     if (!todosSelecionados) {
-      alert(
-        `Para atestar, é obrigatório selecionar 100% dos itens. ${naoSelecionados} item(ns) sem seleção. ` +
-        'Se houver divergência, devolva a medição inteira ao fornecedor.',
-      )
+      toast.warning(`Para atestar, é obrigatório selecionar 100% dos itens. ${naoSelecionados} item(ns) sem seleção. ` +
+        'Se houver divergência, devolva a medição inteira ao fornecedor.', { className: 'whitespace-pre-line' })
       return
     }
     const itensSelecionados = itens.filter((item: any) => itensAteste[item.id]?.selecionado && !item.atestado)
     if (itensSelecionados.length === 0) {
-      alert('Todos os itens já estão atestados nesta medição.')
+      toast('Todos os itens já estão atestados nesta medição.')
       return
     }
     setActionLoading(true)
@@ -575,7 +573,7 @@ export default function MedicoesV2Page() {
       })
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
-        alert(e.message || 'Erro ao atestar')
+        toast.error(e.message || 'Erro ao atestar')
         setActionLoading(false)
         return
       }
@@ -583,13 +581,13 @@ export default function MedicoesV2Page() {
       setModalAteste(null)
       carregarDados()
       if (resultado.status === 'AGUARDANDO_APROVACAO') {
-        alert('Medição atestada com sucesso! Enviada para aprovação do gestor.')
+        toast.success('Medição atestada com sucesso! Enviada para aprovação do gestor.')
       } else if (resultado.status === 'DEVOLVIDA') {
-        alert('Itens atestados e medição devolvida ao fornecedor!')
+        toast('Itens atestados e medição devolvida ao fornecedor!')
       } else if (resultado.status === 'SUBMETIDA') {
-        alert('Ateste(s) cancelado(s) com sucesso!')
+        toast.success('Ateste(s) cancelado(s) com sucesso!')
       } else if (resultado.status === 'PARCIALMENTE_ATESTADA') {
-        alert('Alterações salvas com sucesso!')
+        toast.success('Alterações salvas com sucesso!')
       }
     } catch (e) { console.error(e) }
     setActionLoading(false)
@@ -599,7 +597,7 @@ export default function MedicoesV2Page() {
 
   const devolverMedicao = async () => {
     if (!modalDevolver) return
-    if (!motivoDevolucao.trim()) { alert('Informe o motivo da devolução.'); return }
+    if (!motivoDevolucao.trim()) { toast.warning('Informe o motivo da devolução.'); return }
     setActionLoading(true)
     try {
       const usuario = JSON.parse(localStorage.getItem('usuario') || '{}')
@@ -607,8 +605,8 @@ export default function MedicoesV2Page() {
         method: 'PATCH',
         body: JSON.stringify({ fiscal_id: usuario.id || '', fiscal_nome: usuario.nome || 'Fiscal', motivo: motivoDevolucao }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao devolver medição') }
-      else { setModalDevolver(null); setMotivoDevolucao(''); carregarDados(); alert('Medição devolvida ao fornecedor com sucesso!') }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao devolver medição') }
+      else { setModalDevolver(null); setMotivoDevolucao(''); carregarDados(); toast.success('Medição devolvida ao fornecedor com sucesso!') }
     } catch (e) { console.error(e) }
     setActionLoading(false)
   }
@@ -617,11 +615,11 @@ export default function MedicoesV2Page() {
     const msgExtra = statusAtual === 'APROVADA'
       ? '\n\n⚠️ ATENÇÃO: Esta medição já foi APROVADA. Ao excluí-la, os valores e percentuais das etapas serão revertidos.'
       : ''
-    if (!confirm(`Excluir a ${numeroMedicao}ª Medição?${msgExtra}\n\nEsta ação não pode ser desfeita.`)) return
+    if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Excluir a ${numeroMedicao}ª Medição?${msgExtra}\n\nEsta ação não pode ser desfeita.`, destrutivo: true }))) return
     try {
       const params = podeExcluirMedicao ? '?podeExcluirMedicao=true' : ''
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicaoId}${params}`, { method: 'DELETE' })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro ao excluir medição') }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro ao excluir medição') }
       else { carregarDados() }
     } catch (e) { console.error(e) }
   }
@@ -669,7 +667,7 @@ export default function MedicoesV2Page() {
       } else {
         ids = Object.entries(contratosSelecionados).filter(([, v]) => v).map(([k]) => k)
       }
-      if (ids.length === 0) { alert('Nenhum contrato selecionado.'); setLoadingSolicitarLote(false); return }
+      if (ids.length === 0) { toast.warning('Nenhum contrato selecionado.'); setLoadingSolicitarLote(false); return }
 
       const telefoneOverrides: Record<string, string> = {}
       if (enviarWhatsappLote) {
@@ -690,15 +688,15 @@ export default function MedicoesV2Page() {
           telefone_overrides: Object.keys(telefoneOverrides).length > 0 ? telefoneOverrides : undefined,
         }),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.message || 'Erro'); setLoadingSolicitarLote(false); return }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Erro'); setLoadingSolicitarLote(false); return }
       const resultado = await res.json()
       setMensagemLote('')
       setEnviarWhatsappLote(false)
       setTelefonesLote({})
       setContratosSelecionados({})
-      alert(resultado.message || 'Solicitações enviadas!')
+      toast.error(resultado.message || 'Solicitações enviadas!')
       carregarDados()
-    } catch { alert('Erro ao enviar solicitações') }
+    } catch { toast.error('Erro ao enviar solicitações') }
     setLoadingSolicitarLote(false)
   }
 
@@ -1949,19 +1947,15 @@ export default function MedicoesV2Page() {
                     disabled={!fiscalSelecionado || loadingAssinatura || !resumirSelecaoItensAteste((modalAteste.itens || []) as any[]).todosSelecionados}
                     onClick={async () => {
                       if (!conferiuNfAteste) {
-                        alert(
-                          'Antes de enviar ao fiscal, confira a nota fiscal anexada e a discriminação de despesas ' +
-                          '(retenções como IR, ISS e INSS devem estar discriminadas) e marque a caixa de conferência.',
-                        )
+                        toast('Antes de enviar ao fiscal, confira a nota fiscal anexada e a discriminação de despesas ' +
+                          '(retenções como IR, ISS e INSS devem estar discriminadas) e marque a caixa de conferência.', { className: 'whitespace-pre-line' })
                         return
                       }
                       const itens = (modalAteste.itens || []) as any[]
                       const { naoSelecionados, todosSelecionados } = resumirSelecaoItensAteste(itens)
                       if (!todosSelecionados) {
-                        alert(
-                          `Para enviar ao fiscal, selecione 100% dos itens. ${naoSelecionados} item(ns) sem seleção. ` +
-                          'Se houver divergência, devolva a medição inteira ao fornecedor.',
-                        )
+                        toast.warning(`Para enviar ao fiscal, selecione 100% dos itens. ${naoSelecionados} item(ns) sem seleção. ` +
+                          'Se houver divergência, devolva a medição inteira ao fornecedor.', { className: 'whitespace-pre-line' })
                         return
                       }
                       const itensSelecionadosIds = itens
@@ -1995,7 +1989,7 @@ export default function MedicoesV2Page() {
                               clearInterval(pollingRef.current!)
                               pollingRef.current = null
                               if (s.auto_encaminhada || s.medicao_status === 'AGUARDANDO_APROVACAO') {
-                                alert('Assinatura concluída. A medição foi encaminhada automaticamente para aprovação do gestor.')
+                                toast('Assinatura concluída. A medição foi encaminhada automaticamente para aprovação do gestor.')
                                 setModalAteste(null)
                                 setAnexosAteste([])
                                 setEtapaAssinatura('idle')
@@ -2011,10 +2005,10 @@ export default function MedicoesV2Page() {
                           }, 30_000)
                         } else {
                           const err = await res.json().catch(() => ({}))
-                          alert(err.message || 'Erro ao enviar solicitação.')
+                          toast.error(err.message || 'Erro ao enviar solicitação.')
                         }
                       } catch {
-                        alert('Erro ao enviar solicitação.')
+                        toast.error('Erro ao enviar solicitação.')
                       }
                       setLoadingAssinatura(false)
                     }}
@@ -2120,10 +2114,10 @@ export default function MedicoesV2Page() {
                           }, 30_000)
                         } else {
                           const err = await res.json().catch(() => ({}))
-                          alert(err.message || 'Erro ao solicitar assinatura do engenheiro.')
+                          toast.error(err.message || 'Erro ao solicitar assinatura do engenheiro.')
                         }
                       } catch {
-                        alert('Erro ao solicitar assinatura do engenheiro.')
+                        toast.error('Erro ao solicitar assinatura do engenheiro.')
                       }
                       setLoadingEngenheiro(false)
                     }}

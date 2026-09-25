@@ -16,6 +16,7 @@ import {
   abrirPdf, urlTermoTransferencia, urlTermoBaixa, listarBens, listarSetores,
 } from "@/services/patrimonio.service"
 import { TransferenciaDialog } from "./BemAcoes"
+import { confirmarAcao } from "@/components/DialogoGlobal"
 
 const TIPO: Record<string, string> = { TRANSFERENCIA: "Transferência", BAIXA: "Baixa", EMPRESTIMO: "Empréstimo" }
 const STATUS: Record<string, { l: string; c: string }> = {
@@ -128,7 +129,7 @@ export default function MovimentacoesPage() {
                       <>
                         {m.link_aceite && <Button size="sm" variant="outline" title="Copiar link de aceite" onClick={() => { navigator.clipboard.writeText(m.link_aceite); toast.success("Link copiado") }}><Copy className="h-3.5 w-3.5" /></Button>}
                         <Button size="sm" variant="outline" title="Reenviar por WhatsApp" onClick={() => acao(() => reenviarLinkTransferencia(m.lote_id), "Link reenviado")}><Send className="h-3.5 w-3.5" /></Button>
-                        <Button size="sm" variant="outline" title="Cancelar" onClick={() => confirm("Cancelar esta transferência?") && acao(() => cancelarMovimentacao(m.id), "Transferência cancelada")}><XCircle className="h-3.5 w-3.5" /></Button>
+                        <Button size="sm" variant="outline" title="Cancelar" onClick={async () => (await confirmarAcao({ titulo: 'Confirmação', mensagem: "Cancelar esta transferência?", destrutivo: true })) && acao(() => cancelarMovimentacao(m.id), "Transferência cancelada")}><XCircle className="h-3.5 w-3.5" /></Button>
                       </>
                     )}
                     {m.tipo === "TRANSFERENCIA" && m.status === "ACEITA" && <Button size="sm" variant="outline" title="Termo de transferência" onClick={() => abrirPdf(urlTermoTransferencia(m.lote_id)).catch((e) => toast.error(e.message))}><FileText className="h-3.5 w-3.5" /></Button>}

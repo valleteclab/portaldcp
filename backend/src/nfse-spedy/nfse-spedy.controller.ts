@@ -62,8 +62,8 @@ export class NfseSpedyController {
     @Req() request: { user: JwtPayload },
     @Param('id') id: string,
   ) {
-    this.getFornecedorId(request.user);
-    return this.nfseSpedyService.consultarStatus(id);
+    const fornecedorId = this.getFornecedorId(request.user);
+    return this.nfseSpedyService.consultarStatus(id, fornecedorId);
   }
 
   @Public()

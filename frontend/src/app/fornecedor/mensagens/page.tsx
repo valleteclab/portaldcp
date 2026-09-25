@@ -8,9 +8,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import { Mail, Loader2, FileText, Building2, ChevronRight } from 'lucide-react'
-import { authFetch, formatarDataHoraBR } from '@/lib/api'
+import { API_URL, authFetch, formatarDataHoraBR } from '@/lib/api'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
 interface MensagemRecebida {
   id: string

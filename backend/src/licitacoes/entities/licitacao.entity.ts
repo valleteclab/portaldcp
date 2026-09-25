@@ -5,6 +5,7 @@ import { LoteLicitacao } from '../../lotes/entities/lote-licitacao.entity';
 import { ItemPCA } from '../../pca/entities/pca.entity';
 import { Usuario } from '../../usuarios/entities/usuario.entity';
 import { Demanda } from '../../demandas/entities/demanda.entity';
+import { BaseLance } from '../../disputa/modelo-lance';
 
 /**
  * ============================================================================
@@ -48,6 +49,13 @@ export enum ModalidadeLicitacao {
   DIALOGO_COMPETITIVO = 'DIALOGO_COMPETITIVO', // Art. 28, V
   DISPENSA_ELETRONICA = 'DISPENSA_ELETRONICA', // Art. 75 (Contratação Direta)
   INEXIGIBILIDADE = 'INEXIGIBILIDADE', // Art. 74
+  /**
+   * Procedimento auxiliar (art. 78 I e art. 79) — não é modalidade de
+   * licitação (art. 28), mas é um PROCESSO da mesma base (fase interna,
+   * edital, PNCP, cockpit). Contratação dos credenciados por inexigibilidade
+   * (art. 74 IV). Plano E7b — backend/src/credenciamento/.
+   */
+  CREDENCIAMENTO = 'CREDENCIAMENTO',
 }
 
 export enum CriterioJulgamento {
@@ -86,14 +94,63 @@ export enum FaseLicitacao {
   ADJUDICACAO = 'ADJUDICACAO', // Declaração do vencedor
   HOMOLOGACAO = 'HOMOLOGACAO', // Aprovação final
 
-  // FINALIZADOS
+  // LEGADO (E1) — NÃO atribuir. A situação do processo (suspenso, revogado,
+  // deserto...) agora vive em `licitacao.situacao` (SituacaoLicitacao) e a
+  // `fase` guarda só a fase do processo. Os valores continuam no enum apenas
+  // para o Postgres/TypeORM não falharem ao ler linhas antigas antes do
+  // backfill (transicoes/migracao-situacao.ts) e para o synchronize não tentar
+  // recriar o tipo `licitacoes_fase_enum`.
+  /** @deprecated use SituacaoLicitacao.CONCLUIDA */
   CONCLUIDO = 'CONCLUIDO',
+  /** @deprecated use SituacaoLicitacao.FRACASSADA */
   FRACASSADO = 'FRACASSADO',
+  /** @deprecated use SituacaoLicitacao.DESERTA */
   DESERTO = 'DESERTO',
+  /** @deprecated use SituacaoLicitacao.REVOGADA */
   REVOGADO = 'REVOGADO',
+  /** @deprecated use SituacaoLicitacao.ANULADA */
   ANULADO = 'ANULADO',
+  /** @deprecated use SituacaoLicitacao.SUSPENSA */
   SUSPENSO = 'SUSPENSO',
 }
+
+/**
+ * SITUAÇÃO do processo — separada da fase (plano E1 §2.3).
+ *
+ * `fase` diz ONDE o processo está (publicado, disputa, homologação...);
+ * `situacao` diz COMO ele está: correndo (ATIVA), parado (SUSPENSA) ou
+ * encerrado por um ato (REVOGADA, ANULADA, DESERTA, FRACASSADA, CONCLUIDA).
+ * Suspender/revogar/anular não apagam a fase: dá para saber em que ponto o
+ * processo foi suspenso/revogado e retomar exatamente dali.
+ */
+export enum SituacaoLicitacao {
+  ATIVA = 'ATIVA',
+  SUSPENSA = 'SUSPENSA',
+  REVOGADA = 'REVOGADA', // Art. 71, II — interesse público (fato superveniente)
+  ANULADA = 'ANULADA', // Art. 71, III — ilegalidade insanável
+  DESERTA = 'DESERTA', // nenhum interessado
+  FRACASSADA = 'FRACASSADA', // interessados, mas nenhum vencedor
+  CONCLUIDA = 'CONCLUIDA', // homologada e com contrato/ata gerados
+}
+
+/** Situações que encerram o processo (nenhum ato de fase é possível). */
+export const SITUACOES_TERMINAIS: SituacaoLicitacao[] = [
+  SituacaoLicitacao.REVOGADA,
+  SituacaoLicitacao.ANULADA,
+  SituacaoLicitacao.DESERTA,
+  SituacaoLicitacao.FRACASSADA,
+  SituacaoLicitacao.CONCLUIDA,
+];
+
+/** Valores LEGADOS de `fase` que eram, na verdade, situação. */
+export const FASES_LEGADAS_DE_SITUACAO: FaseLicitacao[] = [
+  FaseLicitacao.CONCLUIDO,
+  FaseLicitacao.FRACASSADO,
+  FaseLicitacao.DESERTO,
+  FaseLicitacao.REVOGADO,
+  FaseLicitacao.ANULADO,
+  FaseLicitacao.SUSPENSO,
+];
 
 export enum TipoContratacao {
   COMPRA = 'COMPRA',
@@ -193,12 +250,30 @@ export class Licitacao {
   })
   modo_disputa: ModoDisputa;
 
+  /**
+   * INVERSÃO DE FASES (Lei 14.133 art. 17 §1º — só concorrência, plano E4):
+   * todos os licitantes entregam a habilitação com a proposta; a comissão
+   * julga a habilitação de todos ANTES da etapa de lances e só os HABILITADOS
+   * disputam (pré-condição do INICIAR_DISPUTA). Congelada após a publicação.
+   */
+  @Column({ type: 'boolean', default: false })
+  inversao_fases: boolean;
+
   @Column({
     type: 'enum',
     enum: RegimeExecucao,
     nullable: true
   })
   regime_execucao: RegimeExecucao;
+
+  /**
+   * Natureza do objeto (Lei 14.133/2021, art. 6º XIII — bens e serviços
+   * COMUNS; XIV — ESPECIAIS). Define o prazo mínimo do art. 55, II (10 ou 25
+   * dias úteis) para serviços e obras por menor preço/maior desconto; exigida
+   * na publicação quando decide o prazo (plano E7a). Pregão = sempre COMUM.
+   */
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  natureza_objeto: 'COMUM' | 'ESPECIAL' | null;
 
   // === FASE E STATUS ===
   @Column({
@@ -207,6 +282,27 @@ export class Licitacao {
     default: FaseLicitacao.PLANEJAMENTO
   })
   fase: FaseLicitacao;
+
+  /**
+   * Situação do processo (E1). Só muda por ato do TransicoesService
+   * (suspender, retomar, revogar, anular, declarar deserta/fracassada, concluir).
+   */
+  @Column({
+    type: 'enum',
+    enum: SituacaoLicitacao,
+    // Sem `enumName`: o nome padrão do TypeORM já é `licitacoes_situacao_enum`
+    // (<tabela>_<coluna>_enum). Declará-lo igual ao padrão fazia o synchronize
+    // ver diferença a cada boot e recriar o tipo enum.
+    default: SituacaoLicitacao.ATIVA,
+  })
+  situacao: SituacaoLicitacao;
+
+  /**
+   * Fase imediatamente anterior à atual (gravada a cada mudança de fase pelo
+   * TransicoesService). O histórico completo fica em `licitacao_transicoes`.
+   */
+  @Column({ type: 'varchar', length: 40, nullable: true })
+  fase_anterior: FaseLicitacao | null;
 
   // === VALORES ===
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
@@ -257,18 +353,43 @@ export class Licitacao {
   @Column({ type: 'timestamp', nullable: true })
   data_homologacao: Date;
 
+  /**
+   * Autoridade que homologou (Lei 14.133 art. 71 IV) — retrato do cadastro no
+   * momento do ato (usuário do token ou responsável do órgão), nunca do corpo.
+   * Plano E6 (ResultadoService.homologar).
+   */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  homologacao_autoridade_nome: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  homologacao_autoridade_cargo: string | null;
+
   // === CONFIGURAÇÕES DA DISPUTA ===
-  @Column({ type: 'int', default: 10 })
-  tempo_inatividade: number; // Tempo inicial da disputa em minutos (Lei 14.133/2021)
+  // Overrides do edital sobre os parâmetros do órgão (resolvedor:
+  // licitação → órgão → sistema — disputa/parametros-disputa.ts). NULL = herda.
+  @Column({ type: 'int', nullable: true })
+  tempo_inatividade: number | null; // Etapa inicial do modo aberto (min) — IN 73 art. 23
 
-  @Column({ type: 'int', default: 3 })
-  intervalo_minimo_lances: number; // Em minutos
+  @Column({ type: 'int', nullable: true })
+  intervalo_minimo_lances: number | null; // Tempo entre lances do mesmo fornecedor (min) — não é exigência legal
 
-  @Column({ type: 'int', default: 2 })
-  tempo_prorrogacao: number; // Em minutos - prorrogação automática se houver lance
+  @Column({ type: 'int', nullable: true })
+  tempo_prorrogacao: number | null; // Prorrogação automática (min) — IN 73 art. 23
 
+  /** Intervalo mínimo de diferença entre lances (IN 73 art. 21 §2º, art. 22 §1º; Lei art. 56 §3º). */
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  diferenca_minima_lances: number; // Valor mínimo entre lances
+  diferenca_minima_lances: number;
+
+  /** VALOR (R$, na unidade da base do lance) ou PERCENTUAL. */
+  @Column({ type: 'varchar', length: 12, default: 'VALOR' })
+  tipo_diferenca_minima_lances: 'VALOR' | 'PERCENTUAL';
+
+  /**
+   * Unidade dos lances (plano E2 §2.3): UNITARIO, TOTAL_ITEM (padrão — como o
+   * pregão por item sempre funcionou) ou TOTAL_LOTE (disputa por lote).
+   */
+  @Column({ type: 'varchar', length: 20, default: BaseLance.TOTAL_ITEM })
+  base_lance: BaseLance;
 
   @Column({ default: true })
   permite_lances_intermediarios: boolean;
@@ -283,15 +404,34 @@ export class Licitacao {
   @Column({ default: 'NENHUM' })
   tipo_beneficio_mpe: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA'; // Tipo de benefício quando GERAL
 
-  // === PREFERÊNCIAS (mantidos para compatibilidade) ===
+  // === PREFERÊNCIAS (legado) ===
+  /**
+   * @deprecated E3/E9 — DERIVADO de `tipo_beneficio_mpe` (fonte); gravado só
+   * para as telas antigas (edição, detalhe público, lotes). Nenhuma regra lê.
+   * Drop físico quando o frontend usar só `tipo_beneficio_mpe` (plano, E9).
+   */
   @Column({ default: false })
-  exclusivo_mpe: boolean; // Exclusivo para ME/EPP
+  exclusivo_mpe: boolean;
 
+  /** @deprecated E3/E9 — ver `exclusivo_mpe`. */
   @Column({ default: false })
-  cota_reservada: boolean; // Cota reservada para ME/EPP
+  cota_reservada: boolean;
 
+  /**
+   * Percentual da cota reservada (LC 123/2006 art. 48 III, ≤ 25%) — PARÂMETRO
+   * de `tipo_beneficio_mpe = COTA_RESERVADA` (não é cópia de outro campo; fica).
+   */
   @Column({ type: 'int', nullable: true })
   percentual_cota_reservada: number;
+
+  /**
+   * Justificativa (LC 123/2006 art. 49) para itens de até R$ 80.000 SEM
+   * participação exclusiva de ME/EPP (art. 48 I). Exigida no ato PUBLICAR
+   * (informada no ato ou gravada antes na edição); o ato a grava aqui e na
+   * transição.
+   */
+  @Column({ type: 'text', nullable: true })
+  justificativa_nao_exclusividade_mpe: string | null;
 
   @Column({ default: false })
   margem_preferencia: boolean;
@@ -304,11 +444,21 @@ export class Licitacao {
   @JoinColumn({ name: 'pregoeiro_id' })
   pregoeiro: Usuario;
 
+  /**
+   * @deprecated E9 — texto livre; a fonte é `pregoeiro_id` (usuário do órgão —
+   * migração no boot por nome único). Lido só como alternativa quando não há
+   * vínculo (`nomeDoPregoeiro`). Drop físico: plano, E9.
+   */
   @Column({ nullable: true })
-  pregoeiro_nome: string; // Mantido para compatibilidade, mas preferir relação
+  pregoeiro_nome: string;
 
+  /**
+   * @deprecated E9 — texto livre (JSON/nomes) sem nenhuma regra que o leia; a
+   * equipe de apoio não é usada em ato algum. Mantido só para a tela de
+   * edição; tabela própria só quando houver regra (plano, E9).
+   */
   @Column({ nullable: true })
-  equipe_apoio: string; // JSON com IDs/nomes
+  equipe_apoio: string;
 
   // === FASE INTERNA ===
   @Column({ default: false })
@@ -328,20 +478,33 @@ export class Licitacao {
   @Column({ nullable: true })
   codigo_externo: string;
 
+  /**
+   * Link da compra no PNCP INFORMADO pelo órgão (seleção externa — compra
+   * publicada por outra plataforma). Compra publicada por ESTA plataforma: o
+   * link sai de `pncp_sync` (`pncp/estado-compra-pncp.ts`, E9).
+   */
   @Column({ nullable: true })
-  link_pncp: string; // Portal Nacional de Contratações Públicas
+  link_pncp: string;
 
+  /**
+   * @deprecated E9 — cópia do estado da compra no PNCP. Fonte: `pncp_sync`
+   * (linha COMPRA ENVIADA; migração no boot). Ninguém mais grava; as telas
+   * recebem o mesmo campo por `aplicarEstadoCompraPncp`. Drop físico: plano, E9.
+   */
   @Column({ nullable: true })
-  numero_controle_pncp: string; // Número de controle retornado pelo PNCP
+  numero_controle_pncp: string;
 
+  /** @deprecated E9 — ver `numero_controle_pncp`. */
   @Column({ type: 'int', nullable: true })
   ano_compra_pncp: number;
 
+  /** @deprecated E9 — ver `numero_controle_pncp`. */
   @Column({ type: 'int', nullable: true })
   sequencial_compra_pncp: number;
 
+  /** @deprecated E9 — ver `numero_controle_pncp`. */
   @Column({ default: false })
-  enviado_pncp: boolean; // Indica se foi enviado ao PNCP
+  enviado_pncp: boolean;
 
   @Column({ default: false })
   srp: boolean; // Sistema de Registro de Preços

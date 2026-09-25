@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { toast } from 'sonner';
+import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao';
+import { CaixaDocumentosAprovacao } from '@/components/fase-interna/CaixaDocumentosAprovacao';
 import {
   Loader2,
   CheckCircle,
@@ -241,6 +244,7 @@ const formatarCNPJ = (cnpj: string) => {
 
 export default function CentralAprovacoesPage() {
   const router = useRouter();
+  const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('contratos');
@@ -307,11 +311,11 @@ export default function CentralAprovacoesPage() {
     setBaixandoBoletim(medicao.id);
     try {
       const res = await authFetch(`${API_URL}/api/contratos/medicoes/${medicao.id}/boletim-oficial`);
-      if (!res.ok) { alert('Boletim não disponível'); return; }
+      if (!res.ok) { toast('Boletim não disponível'); return; }
       const boletim = await res.json();
-      if (!boletim?.pdf_url) { alert('Boletim não disponível'); return; }
+      if (!boletim?.pdf_url) { toast('Boletim não disponível'); return; }
       const fileRes = await fetch(boletim.pdf_url.startsWith('http') ? boletim.pdf_url : `${API_URL}${boletim.pdf_url}`);
-      if (!fileRes.ok) { alert('Erro ao baixar arquivo'); return; }
+      if (!fileRes.ok) { toast.error('Erro ao baixar arquivo'); return; }
       const blob = await fileRes.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -365,7 +369,7 @@ export default function CentralAprovacoesPage() {
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     if (!tabParam) return;
-    const tabsPermitidas = new Set(['contratos', 'demandas', 'requisicoes', 'medicoes', 'ordens-servico']);
+    const tabsPermitidas = new Set(['contratos', 'demandas', 'documentos', 'requisicoes', 'medicoes', 'ordens-servico']);
     if (tabsPermitidas.has(tabParam)) {
       setActiveTab(tabParam);
     }
@@ -517,11 +521,11 @@ export default function CentralAprovacoesPage() {
         await carregarContratos();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao liberar contrato');
+        toast.error(error.message || 'Erro ao liberar contrato');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao liberar contrato');
+      toast.error('Erro ao liberar contrato');
     } finally {
       setProcessando(false);
     }
@@ -541,11 +545,11 @@ export default function CentralAprovacoesPage() {
         await carregarContratos();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao rejeitar contrato');
+        toast.error(error.message || 'Erro ao rejeitar contrato');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao rejeitar liberação');
+      toast.error('Erro ao rejeitar liberação');
     } finally {
       setProcessando(false);
     }
@@ -576,11 +580,11 @@ export default function CentralAprovacoesPage() {
         await carregarRequisicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao aprovar requisição');
+        toast.error(error.message || 'Erro ao aprovar requisição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao aprovar requisição');
+      toast.error('Erro ao aprovar requisição');
     } finally {
       setProcessando(false);
     }
@@ -600,18 +604,18 @@ export default function CentralAprovacoesPage() {
         await carregarRequisicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao negar requisição');
+        toast.error(error.message || 'Erro ao negar requisição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao negar requisição');
+      toast.error('Erro ao negar requisição');
     } finally {
       setProcessando(false);
     }
   };
 
   const aprovarDemanda = async (demanda: DemandaAprovacao) => {
-    if (!confirm(`Aprovar a demanda "${demanda.unidade_requisitante}" para o PCA ${demanda.ano_referencia}?`)) return;
+    if (!(await confirmar({ titulo: 'Aprovar demanda', mensagem: `Aprovar a demanda "${demanda.unidade_requisitante}" para o PCA ${demanda.ano_referencia}?`, confirmarRotulo: 'Aprovar' }))) return;
     setProcessando(true);
     try {
       const usuarioStr = localStorage.getItem('usuario');
@@ -625,7 +629,7 @@ export default function CentralAprovacoesPage() {
         await carregarDemandas();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || 'Erro ao aprovar demanda');
+        toast.error(err.message || 'Erro ao aprovar demanda');
       }
     } finally {
       setProcessando(false);
@@ -633,8 +637,15 @@ export default function CentralAprovacoesPage() {
   };
 
   const rejeitarDemanda = async (demanda: DemandaAprovacao) => {
-    const motivo = prompt(`Informe o motivo da rejeição da demanda "${demanda.unidade_requisitante}":`);
-    if (!motivo?.trim()) return;
+    const motivo = await pedirTexto({
+      titulo: 'Rejeitar demanda',
+      mensagem: `Demanda "${demanda.unidade_requisitante}" — o motivo é registrado e comunicado à unidade requisitante.`,
+      rotulo: 'Motivo da rejeição',
+      obrigatorio: true,
+      confirmarRotulo: 'Rejeitar',
+      destrutivo: true,
+    });
+    if (!motivo) return;
     setProcessando(true);
     try {
       const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/rejeitar`, {
@@ -646,7 +657,7 @@ export default function CentralAprovacoesPage() {
         await carregarDemandas();
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.message || 'Erro ao rejeitar demanda');
+        toast.error(err.message || 'Erro ao rejeitar demanda');
       }
     } finally {
       setProcessando(false);
@@ -667,11 +678,11 @@ export default function CentralAprovacoesPage() {
         await carregarRequisicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao devolver requisição');
+        toast.error(error.message || 'Erro ao devolver requisição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao devolver requisição');
+      toast.error('Erro ao devolver requisição');
     } finally {
       setProcessando(false);
     }
@@ -697,10 +708,10 @@ export default function CentralAprovacoesPage() {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(urlObj);
       } else {
-        alert(isOF ? 'PDF não disponível. A OF pode ainda estar sendo processada.' : 'PDF não disponível. A OS pode ainda estar sendo processada.');
+        toast(isOF ? 'PDF não disponível. A OF pode ainda estar sendo processada.' : 'PDF não disponível. A OS pode ainda estar sendo processada.');
       }
     } catch {
-      alert('Erro ao baixar PDF');
+      toast.error('Erro ao baixar PDF');
     } finally {
       setBaixandoPdf(false);
     }
@@ -727,16 +738,16 @@ export default function CentralAprovacoesPage() {
         const data = await res.json();
         const n = data.notificacoes_fornecedor;
         if (tipo === 'email') {
-          alert(n?.email ? 'Email enviado ao fornecedor!' : 'Email não pôde ser enviado. Verifique o endereço.');
+          toast(n?.email ? 'Email enviado ao fornecedor!' : 'Email não pôde ser enviado. Verifique o endereço.');
         } else {
-          alert(n?.whatsapp ? 'WhatsApp enviado ao fornecedor!' : 'WhatsApp não pôde ser enviado. Verifique o telefone.');
+          toast(n?.whatsapp ? 'WhatsApp enviado ao fornecedor!' : 'WhatsApp não pôde ser enviado. Verifique o telefone.');
         }
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao enviar notificação');
+        toast.error(error.message || 'Erro ao enviar notificação');
       }
     } catch {
-      alert('Erro ao enviar notificação ao fornecedor');
+      toast.error('Erro ao enviar notificação ao fornecedor');
     } finally {
       setEnviandoFornecedor(null);
     }
@@ -759,10 +770,10 @@ export default function CentralAprovacoesPage() {
         await carregarOrdensServico();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao aprovar OS');
+        toast.error(error.message || 'Erro ao aprovar OS');
       }
     } catch (error) {
-      alert('Erro ao aprovar OS');
+      toast.error('Erro ao aprovar OS');
     } finally {
       setProcessando(false);
     }
@@ -783,10 +794,10 @@ export default function CentralAprovacoesPage() {
         await carregarOrdensServico();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao rejeitar OS');
+        toast.error(error.message || 'Erro ao rejeitar OS');
       }
     } catch (error) {
-      alert('Erro ao rejeitar OS');
+      toast.error('Erro ao rejeitar OS');
     } finally {
       setProcessando(false);
     }
@@ -825,11 +836,11 @@ export default function CentralAprovacoesPage() {
         await carregarMedicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao aprovar medição');
+        toast.error(error.message || 'Erro ao aprovar medição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao aprovar medição');
+      toast.error('Erro ao aprovar medição');
     } finally {
       setProcessando(false);
     }
@@ -867,11 +878,11 @@ export default function CentralAprovacoesPage() {
         await carregarMedicoes();
       } else {
         const error = await res.json().catch(() => ({}));
-        alert(error.message || 'Erro ao rejeitar medição');
+        toast.error(error.message || 'Erro ao rejeitar medição');
       }
     } catch (error) {
       console.error('Erro:', error);
-      alert('Erro ao rejeitar medição');
+      toast.error('Erro ao rejeitar medição');
     } finally {
       setProcessando(false);
     }
@@ -889,11 +900,13 @@ export default function CentralAprovacoesPage() {
 
   if (!podeAprovarRequisicoes && !podeLiberarContratos) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <Lock className="h-12 w-12 text-gray-400" />
-        <h2 className="text-xl font-semibold text-gray-700">Sem permissão</h2>
-        <p className="text-gray-500">Você não possui permissão para acessar a central de aprovações.</p>
-        <Button variant="outline" onClick={() => router.push('/orgao')}>Voltar ao Dashboard</Button>
+      <div className="space-y-6">
+        {dialogo}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Aprovações</h1>
+          <p className="text-gray-500">Documentos da fase interna aguardando a sua etapa no fluxo de aprovação.</p>
+        </div>
+        <CaixaDocumentosAprovacao />
       </div>
     );
   }
@@ -910,6 +923,7 @@ export default function CentralAprovacoesPage() {
 
   return (
     <div className="space-y-6">
+      {dialogo}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -2628,136 +2642,6 @@ export default function CentralAprovacoesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-// ─── Caixa de DOCUMENTOS em tramitação (fluxos de aprovação da fase interna) ──
-// O aprovador vê aqui os documentos parados na SUA etapa (por usuário, setor
-// ou etapas sem responsável definido) e decide sem sair da central.
-function CaixaDocumentosAprovacao() {
-  const [etapas, setEtapas] = useState<any[]>([]);
-  const [carregando, setCarregando] = useState(true);
-  const [decidindo, setDecidindo] = useState<string | null>(null);
-
-  const usuarioLocal = (() => {
-    try { return JSON.parse(localStorage.getItem('usuario') || 'null'); } catch { return null; }
-  })();
-  const orgaoLocal = (() => {
-    try { return JSON.parse(localStorage.getItem('orgao') || 'null'); } catch { return null; }
-  })();
-
-  const carregarCaixa = async () => {
-    setCarregando(true);
-    try {
-      const usuarioId = usuarioLocal?.id || orgaoLocal?.id;
-      const setorId = usuarioLocal?.setor_id || '';
-      const res = await authFetch(
-        `${API_URL}/api/fase-interna/aprovacoes/caixa?usuarioId=${usuarioId || ''}${setorId ? `&setorId=${setorId}` : ''}`,
-      );
-      if (res.ok) setEtapas(await res.json());
-    } catch { /* lista fica vazia */ }
-    finally { setCarregando(false); }
-  };
-
-  useEffect(() => { carregarCaixa(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-
-  const decidir = async (etapa: any, aprovar: boolean) => {
-    let justificativa: string | undefined;
-    if (!aprovar) {
-      const j = prompt('Motivo da reprovação (obrigatório — volta para o elaborador):');
-      if (!j || !j.trim()) return;
-      justificativa = j.trim();
-    } else if (!confirm(`Aprovar a etapa "${etapa.nome}" do documento "${etapa.documento?.titulo || etapa.documento_id}"?`)) {
-      return;
-    }
-    setDecidindo(etapa.id);
-    try {
-      const res = await authFetch(
-        `${API_URL}/api/fase-interna/aprovacoes/etapa/${etapa.id}/${aprovar ? 'aprovar' : 'reprovar'}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            usuarioId: usuarioLocal?.id,
-            usuarioNome: usuarioLocal?.nome || orgaoLocal?.nome || 'Aprovador',
-            justificativa,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `HTTP ${res.status}`);
-      }
-      await carregarCaixa();
-    } catch (e: any) {
-      alert(`Erro: ${e.message}`);
-    } finally {
-      setDecidindo(null);
-    }
-  };
-
-  if (carregando) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-      </div>
-    );
-  }
-  if (etapas.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center text-gray-500">
-          <FileCheck className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-          Nenhum documento aguardando a sua aprovação.
-          <p className="text-xs text-gray-400 mt-2">
-            Os fluxos de tramitação são configurados em Configurações → Fluxos de aprovação.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {etapas.map((etapa) => (
-        <Card key={etapa.id}>
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3 className="font-bold text-gray-900">{etapa.documento?.titulo || 'Documento'}</h3>
-                  <Badge variant="outline">{etapa.documento?.tipo}</Badge>
-                  <Badge className="bg-indigo-100 text-indigo-800">
-                    Etapa {etapa.ordem}: {etapa.nome}
-                  </Badge>
-                </div>
-                <p className="text-sm text-gray-500">
-                  {etapa.setor_nome ? `Setor: ${etapa.setor_nome} · ` : ''}
-                  {etapa.usuario_nome ? `Responsável: ${etapa.usuario_nome} · ` : ''}
-                  Aguardando desde {new Date(etapa.created_at).toLocaleString('pt-BR')}
-                </p>
-              </div>
-              <div className="flex gap-2 shrink-0 flex-wrap">
-                <Button size="sm" variant="ghost" asChild>
-                  <Link href={`/orgao/fase-interna/processos/${etapa.licitacao_id}/editor?tipo=${etapa.documento?.tipo}`}>
-                    <Eye className="h-4 w-4 mr-1" /> Ver documento
-                  </Link>
-                </Button>
-                <Button size="sm" className="bg-green-600 hover:bg-green-700"
-                  onClick={() => decidir(etapa, true)} disabled={decidindo === etapa.id}>
-                  {decidindo === etapa.id ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-1" />}
-                  Aprovar etapa
-                </Button>
-                <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50"
-                  onClick={() => decidir(etapa, false)} disabled={decidindo === etapa.id}>
-                  <XCircle className="h-4 w-4 mr-1" /> Reprovar
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
     </div>
   );
 }

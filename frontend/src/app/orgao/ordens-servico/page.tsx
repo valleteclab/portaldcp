@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, Search, FileText, Eye, Send, XCircle, Loader2, Building2, Calendar, Clock, CheckCircle2, ArrowLeft, RefreshCw, DollarSign, ClipboardList, TrendingUp } from 'lucide-react';
 import { API_URL, authFetch } from '@/lib/api';
 import { ModuleGuard } from '@/components/ModuleGuard';
+import { toast } from "sonner"
+import { pedirTextoAcao } from "@/components/DialogoGlobal"
 
 function formatarMoeda(v: number | string | null | undefined): string {
   const n = Number(v);
@@ -156,15 +158,15 @@ function OrdensServicoPage() {
 
   const saveOS = async () => {
     if (!cSel) return;
-    if (!nOS.desc.trim()) { alert('Informe a descricao da OS.'); return; }
-    if (!nOS.valor || parseFloat(nOS.valor) <= 0) { alert('Informe o valor total da OS.'); return; }
-    if (nOS.tipo === 'PARCIAL' && itensSelecionados.length === 0) { alert('Selecione pelo menos um item do cronograma para OS parcial.'); return; }
+    if (!nOS.desc.trim()) { toast.warning('Informe a descricao da OS.'); return; }
+    if (!nOS.valor || parseFloat(nOS.valor) <= 0) { toast.warning('Informe o valor total da OS.'); return; }
+    if (nOS.tipo === 'PARCIAL' && itensSelecionados.length === 0) { toast.warning('Selecione pelo menos um item do cronograma para OS parcial.'); return; }
     setSaving(true);
     try {
       const body: Record<string, unknown> = { descricao: nOS.desc, valor_total: parseFloat(nOS.valor), data_abertura: nOS.dAb || undefined, data_prazo: nOS.dPr || undefined, responsavel_tecnico: nOS.resp || undefined, escopo_detalhado: nOS.escopo || undefined, tipo_escopo: nOS.tipo, itens: itensSelecionados.map(id => ({ item_cronograma_id: id })), submeter_aprovacao: true };
       const r = await authFetch(`${API_URL}/api/contratos/${cSel.id}/ordens-servico`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (r.ok) { setShowNew(false); loadOS(); } else { const e = await r.json().catch(() => null); alert(e?.message || 'Erro ao criar OS.'); }
-    } catch { alert('Erro ao criar OS.'); } finally { setSaving(false); }
+      if (r.ok) { setShowNew(false); loadOS(); } else { const e = await r.json().catch(() => null); toast.error(e?.message || 'Erro ao criar OS.'); }
+    } catch { toast.error('Erro ao criar OS.'); } finally { setSaving(false); }
   };
 
   const submitOS = async (id: string) => {
@@ -173,7 +175,7 @@ function OrdensServicoPage() {
   };
 
   const cancelOS = async (id: string) => {
-    const m = window.prompt('Informe o motivo do cancelamento:');
+    const m = (await pedirTextoAcao({ titulo: 'Informe o motivo do cancelamento:' }));
     if (!m?.trim()) return; setSaving(true);
     try { const r = await authFetch(`${API_URL}/api/contratos/ordens-servico/${id}/cancelar`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ observacao: m.trim() }) }); if (r.ok) { setShowDet(false); setSel(null); loadOS(); } } finally { setSaving(false); }
   };
