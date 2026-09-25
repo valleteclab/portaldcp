@@ -43,8 +43,12 @@ interface ItemEmDisputa {
   id: string
   numero: number
   descricao: string
-  tempo_restante: number
+  /** null no tempo aleatório (sigiloso — IN 73 art. 24 §1º) */
+  tempo_restante: number | null
   em_prorrogacao: boolean
+  /** ETAPA_ABERTA | PRORROGACAO | TEMPO_ALEATORIO | LANCE_FECHADO */
+  fase?: string
+  tempo_oculto?: boolean
   ultimo_lance_em: string
   total_lances: number
   melhor_lance_valor: number
@@ -229,7 +233,9 @@ export default function MonitoramentoPage() {
     }
   }
 
-  const formatarTempo = (segundos: number) => {
+  const formatarTempo = (segundos: number | null) => {
+    // Tempo aleatório do modo aberto-fechado: sem contagem (não é "00:00")
+    if (segundos === null || segundos === undefined) return 'Tempo aleatório'
     const min = Math.floor(segundos / 60)
     const seg = segundos % 60
     return `${min.toString().padStart(2, '0')}:${seg.toString().padStart(2, '0')}`
@@ -505,11 +511,16 @@ export default function MonitoramentoPage() {
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               <Badge 
-                                variant={item.tempo_restante < 60 ? 'destructive' : 'outline'}
-                                className={item.tempo_restante <= 30 ? 'animate-pulse' : ''}
+                                variant={item.tempo_restante !== null && item.tempo_restante < 60 ? 'destructive' : 'outline'}
+                                className={item.tempo_restante !== null && item.tempo_restante <= 30 ? 'animate-pulse' : ''}
                               >
                                 {formatarTempo(item.tempo_restante)}
                               </Badge>
+                              {item.fase === 'LANCE_FECHADO' && (
+                                <Badge variant="outline" className="border-violet-500 text-violet-700 text-xs">
+                                  Lance final fechado
+                                </Badge>
+                              )}
                               {item.em_prorrogacao && (
                                 <Badge variant="outline" className="border-orange-500 text-orange-600 text-xs animate-pulse">
                                   Prorrogação

@@ -196,7 +196,9 @@ export class SigiloDisputaService {
   /** Identidades do item podem aparecer? Item encerrado E etapa de lances da licitação encerrada. */
   async identidadesReveladasNoItem(itemId: string): Promise<boolean> {
     if (!ehUuid(itemId)) return false;
-    const r = await this.dataSource.query(`SELECT status_disputa, licitacao_id FROM itens_licitacao WHERE id = $1`, [itemId]);
+    let r = await this.dataSource.query(`SELECT status_disputa, licitacao_id FROM itens_licitacao WHERE id = $1`, [itemId]);
+    // Unidade LOTE (disputa por lote): mesmo critério, pelo status do lote
+    if (!r[0]) r = await this.dataSource.query(`SELECT status_disputa, licitacao_id FROM lotes_licitacao WHERE id = $1`, [itemId]);
     if (!r[0] || itemEmFaseComAnonimizacaoObrigatoria(r[0].status_disputa)) return false;
     return this.etapaDeLancesEncerrada(r[0].licitacao_id);
   }

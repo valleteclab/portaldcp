@@ -158,7 +158,7 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     [sessaoId],
   )
 
-  const atualizarTempos = useCallback((itensTempo: Array<{ id: string; tempoRestante: number; emProrrogacao: boolean }>) => {
+  const atualizarTempos = useCallback((itensTempo: Array<{ id: string; tempoRestante: number; emProrrogacao: boolean; fase?: string; oculto?: boolean }>) => {
     setBoard((current) => {
       if (!current) return current
 
@@ -168,11 +168,16 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
           const novoTempo = mapTempo.get(item.id)
           if (!novoTempo) return item
 
+          // Fase vinda do relógio por modo; tempo aleatório chega sempre OCULTO (sem contagem)
+          const fase = (['ETAPA_ABERTA', 'PRORROGACAO', 'TEMPO_ALEATORIO', 'LANCE_FECHADO'].includes(novoTempo.fase || '')
+            ? novoTempo.fase
+            : novoTempo.emProrrogacao ? 'PRORROGACAO' : 'ETAPA_ABERTA') as DisputaV3ItemBoard['cronometro']['fase']
           return {
             ...item,
             cronometro: {
-              tempoRestanteSegundos: novoTempo.tempoRestante,
-              fase: novoTempo.emProrrogacao ? 'PRORROGACAO' : 'ETAPA_ABERTA',
+              tempoRestanteSegundos: novoTempo.oculto ? 0 : novoTempo.tempoRestante,
+              fase,
+              oculto: !!novoTempo.oculto,
             },
           }
         })
@@ -275,6 +280,12 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     socket.on('sessao_reiniciada', async () => {
       await refreshBoard(sessaoId)
     })
+    // Modos de disputa (E2.4): troca de fase do item, contagem de lances fechados, retomada agendada
+    for (const evento of ['fase_item_alterada', 'lance_fechado_recebido', 'retomada_agendada']) {
+      socket.on(evento, async () => {
+        await refreshBoard(sessaoId)
+      })
+    }
     socket.on('nova_mensagem', (mensagem: DisputaMensagem) => {
       setMensagens((current) => [mensagem, ...current].slice(0, 50))
     })
@@ -347,6 +358,50 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     setSendingBid(true)
     socketRef.current.emit('enviar_lance', { sessaoId, itemId, valor })
   }, [sessaoId])
+
+  /** Reinício da disputa para as demais colocações (Lei 14.133 art. 56 §4º) — pregoeiro. */
+  const reiniciarDemais = useCallback(
+    async (itemId: string, justificativa: string): Promise<boolean> => {
+      if (!sessaoId || area !== 'orgao' || !justificativa.trim()) return false
+      setActionError(null)
+      const res = await authFetch(`${API_URL}/api/disputa-v2/sessao/${sessaoId}/item/${itemId}/reiniciar-demais`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ justificativa: justificativa.trim() }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const msg = (body as { message?: string | string[] })?.message
+        setActionError(Array.isArray(msg) ? msg.join(', ') : msg || 'Nao foi possivel reiniciar a disputa.')
+        return false
+      }
+      await Promise.all([refreshBoard(sessaoId), refreshMensagens(sessaoId)])
+      return true
+    },
+    [area, sessaoId, refreshBoard, refreshMensagens],
+  )
+
+  /** Comunica a data de reinício após suspensão por desconexão do agente (IN 73 art. 27 §1º). */
+  const agendarRetomada = useCallback(
+    async (retomadaEm: string): Promise<boolean> => {
+      if (!sessaoId || area !== 'orgao' || !retomadaEm) return false
+      setActionError(null)
+      const res = await authFetch(`${API_URL}/api/disputa-v2/sessao/${sessaoId}/agendar-retomada`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retomadaEm: new Date(retomadaEm).toISOString() }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const msg = (body as { message?: string | string[] })?.message
+        setActionError(Array.isArray(msg) ? msg.join(', ') : msg || 'Nao foi possivel comunicar a retomada.')
+        return false
+      }
+      await refreshMensagens(sessaoId)
+      return true
+    },
+    [area, sessaoId, refreshMensagens],
+  )
 
   const cancelarLanceDireto = useCallback(
     async (itemId: string, lanceId: string) => {
@@ -458,6 +513,8 @@ export function useDisputaV3({ area, sessaoIdParam, licitacaoIdParam }: UseDispu
     suspenderSessao,
     retomarSessao,
     reiniciarSessao,
+    reiniciarDemais,
+    agendarRetomada,
     enviarMensagem,
     enviarLance,
     meusLances,

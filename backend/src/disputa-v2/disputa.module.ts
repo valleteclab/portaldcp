@@ -9,6 +9,14 @@ import { SigiloDisputaService } from './sigilo-disputa.service';
 import { ParametrosDisputaService } from './parametros-disputa.service';
 import { AtaSessaoSnapshot } from './entities/ata-sessao-snapshot.entity';
 import { MigracaoLancesBootService } from './migracao-lances-boot.service';
+import { DisputaLoteService } from './disputa-lote.service';
+import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
+import { JanelaDispensaService } from './janela-dispensa.service';
+import { MigracaoDispensaBootService } from './migracao-dispensa-boot.service';
+import { ModoDisputaService } from './modo-disputa.service';
+import { DesconexaoPregoeiroService } from './desconexao-pregoeiro.service';
+import { ModosDisputaController } from './modos-disputa.controller';
+import { EstadoModoItem } from './entities/estado-modo-item.entity';
 
 // Reutilizando entidades existentes
 import { SessaoDisputa } from '../sessao/entities/sessao-disputa.entity';
@@ -32,20 +40,27 @@ import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
       Lance,
       Proposta,
       PropostaItem,
+      LoteLicitacao,
       AtaSessaoSnapshot,
+      EstadoModoItem,
     ]),
     TransicoesModule,
   ],
-  controllers: [DisputaController],
+  controllers: [DisputaController, ModosDisputaController],
   providers: [
     DisputaService,
+    DisputaLoteService,
     DisputaGateway,
     DisputaTimerService,
     AnonimizacaoService,
     SigiloDisputaService,
     ParametrosDisputaService,
     MigracaoLancesBootService,
+    JanelaDispensaService,
+    MigracaoDispensaBootService,
+    ModoDisputaService,
+    DesconexaoPregoeiroService,
   ],
-  exports: [DisputaService, DisputaGateway, AnonimizacaoService, SigiloDisputaService, ParametrosDisputaService],
+  exports: [DisputaLoteService, ModoDisputaService, DesconexaoPregoeiroService, DisputaService, DisputaGateway, JanelaDispensaService, AnonimizacaoService, SigiloDisputaService, ParametrosDisputaService],
 })
 export class DisputaModule {}

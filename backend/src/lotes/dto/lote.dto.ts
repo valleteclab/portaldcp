@@ -115,6 +115,14 @@ export class CreateLoteDto {
   exclusivo_mpe?: boolean;
 
   @ApiPropertyOptional({
+    description: 'Benefício ME/EPP do lote (LC 123/2006 art. 48) quando a licitação usa modo_beneficio_mpe = POR_LOTE. exclusivo_mpe/percentual_cota_reservada são derivados dele.',
+    enum: ['NENHUM', 'EXCLUSIVO', 'COTA_RESERVADA'],
+  })
+  @IsOptional()
+  @IsEnum(['NENHUM', 'EXCLUSIVO', 'COTA_RESERVADA'])
+  tipo_beneficio_mpe?: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA';
+
+  @ApiPropertyOptional({
     description: `Percentual de cota reservada para ME/EPP (0-25%).
     
     Lei Complementar 123/2006, Art. 48, III:
@@ -194,6 +202,14 @@ export class UpdateLoteDto {
   @IsOptional()
   @IsBoolean()
   exclusivo_mpe?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Benefício ME/EPP do lote (LC 123/2006 art. 48) quando a licitação usa modo_beneficio_mpe = POR_LOTE. exclusivo_mpe/percentual_cota_reservada são derivados dele.',
+    enum: ['NENHUM', 'EXCLUSIVO', 'COTA_RESERVADA'],
+  })
+  @IsOptional()
+  @IsEnum(['NENHUM', 'EXCLUSIVO', 'COTA_RESERVADA'])
+  tipo_beneficio_mpe?: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA';
 
   @ApiPropertyOptional({
     description: 'Percentual de cota reservada para ME/EPP'

@@ -379,9 +379,11 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
   // --------------------------------------------------------------------------
   describe('Bloco 3 — janela de lances (IN SEGES 67/2021)', () => {
     it('o órgão abre a janela (30 min, prorrogação de 2 min) e a regra fica registrada no chat', async () => {
-      sala = await conectarSocket(ctx, '/dispensa');
+      // E2 item 8: canal único — o feed da dispensa é a sala pública da licitação no /disputa-v2
+      // (antes: namespace /dispensa + 'entrar_sala'). Mesmos eventos: sala_ok, janela, painel_atualizado, chat.
+      sala = await conectarSocket(ctx, '/disputa-v2');
       const ok = aguardarEvento(sala, 'sala_ok');
-      sala.emit('entrar_sala', { licitacaoId: lic.id });
+      sala.emit('entrar_licitacao', { licitacaoId: lic.id });
       await ok;
 
       const janela = aguardarEvento(sala, 'janela');
@@ -489,7 +491,10 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         .send({ mensagem: 'Pergunta: o frete está incluso?' }); // autoria vem do token
       expect(r.status).toBe(201);
       const ev = await push;
-      expect(ev).toMatchObject({ autor_tipo: 'FORNECEDOR', autor_nome: 'Fornecedor', mensagem: 'Pergunta: o frete está incluso?' });
+      // E2 item 10: anonimização única da sala (código 'Fornecedor A'), não mais o rótulo genérico 'Fornecedor'
+      expect(ev).toMatchObject({ autor_tipo: 'FORNECEDOR', mensagem: 'Pergunta: o frete está incluso?' });
+      expect(ev.autor_nome).toMatch(/^Fornecedor [A-Z]+$/);
+      expect(ev.fornecedor_id).toBeUndefined();
       expect(JSON.stringify(ev)).not.toContain(me.razao_social);
 
       await ctx
@@ -501,7 +506,9 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
 
       const msgs = await ctx.http().get(`/api/licitacoes/${lic.id}/dispensa/mensagens`).expect(200);
       const doFornecedor = msgs.body.find((m: any) => m.autor_tipo === 'FORNECEDOR');
-      expect(doFornecedor.autor_nome).toMatch(/^Fornecedor \d+$/);
+      // E2 item 10: o mesmo código anônimo da sala ('Fornecedor A') — antes numerado por ordem de mensagem ('Fornecedor 1')
+      expect(doFornecedor.autor_nome).toMatch(/^Fornecedor [A-Z]+$/);
+      expect(doFornecedor.autor_nome).toBe(ev.autor_nome);
       expect(doFornecedor.fornecedor_id).toBeUndefined();
       expect(msgs.body.find((m: any) => m.autor_tipo === 'ORGAO' && m.autor_nome === 'Agente de contratação')).toBeTruthy();
       expect(JSON.stringify(msgs.body)).not.toContain(me.razao_social);
@@ -550,7 +557,8 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       await moverFimDaJanela(ctx, lic.id, new Date(Date.now() - 1_000));
 
       const r = await darLance(ctx, me, lic, item1, 80);
-      expect(r.status).toBe(400);
+      // E2: lance fora da janela é conflito de ESTADO (409), como no motor único (antes 400)
+      expect(r.status).toBe(409);
       expect(r.body.message).toMatch(/não está aberta/);
 
       const p = await painelPublico(ctx, lic).expect(200);

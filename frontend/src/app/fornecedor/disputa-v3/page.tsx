@@ -13,15 +13,18 @@ import {
   Trophy,
 } from 'lucide-react'
 import { useDisputaV3 } from '@/hooks/useDisputaV3'
+import { ItensDoLote, ehLote, rotuloUnidade } from '@/components/disputa-v3/unidade-lote'
 import {
   calcularDiferencaParaLider,
   calcularLanceSugerido,
+  descricaoFaseItem,
   formatarMoeda,
-  formatarTempo,
   getItemStatusClass,
   getItemStatusLabel,
   getStatusBadgeClass,
   getStatusLabel,
+  rotuloModo,
+  textoCronometro,
 } from '@/components/disputa-v3/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -88,17 +91,25 @@ export default function DisputaV3FornecedorPage() {
   const [novaMensagem, setNovaMensagem] = useState('')
   const [dialogSolicitarLanceId, setDialogSolicitarLanceId] = useState<string | null>(null)
   const [motivoSolicitar, setMotivoSolicitar] = useState('')
+  const [confirmarFechado, setConfirmarFechado] = useState<number | null>(null)
 
   const contexto = board?.contexto
   const itensOrdenados = board ? [...board.colunas.emDisputa, ...board.colunas.aguardando, ...board.colunas.encerrados] : []
   const itemFoco = selectedItem || itensOrdenados[0] || null
   const diferenca = calcularDiferencaParaLider(itemFoco)
   const lanceSugerido = calcularLanceSugerido(itemFoco, contexto?.cronometria.diferencaMinimaLances, contexto?.cronometria.tipoDiferencaMinimaLances)
+  // Fase do item no modo de disputa (E2.4)
+  const etapaFechada = itemFoco?.status === 'EM_DISPUTA' && itemFoco.faseModo === 'FECHADA'
+  const tempoOculto = !!itemFoco?.cronometro.oculto || itemFoco?.faseModo === 'ALEATORIO'
+  const podeDarLance = itemFoco?.status === 'EM_DISPUTA' && itemFoco.possoDarLance !== false
+  const descricaoFase = itemFoco ? descricaoFaseItem(itemFoco) : null
   const percentualTempo = (() => {
-    if (!itemFoco || itemFoco.status !== 'EM_DISPUTA') return 0
+    if (!itemFoco || itemFoco.status !== 'EM_DISPUTA' || tempoOculto) return 0
     const totalMinutos = itemFoco.cronometro.fase === 'PRORROGACAO'
       ? contexto?.cronometria.duracaoProrrogacaoMinutos
-      : contexto?.cronometria.etapaAbertaMinutos
+      : itemFoco.cronometro.fase === 'LANCE_FECHADO'
+        ? contexto?.cronometria.lanceFinalFechadoMinutos
+        : contexto?.cronometria.etapaAbertaMinutos
     if (!totalMinutos) return 0
     return Math.max(0, Math.min(100, Math.round((itemFoco.cronometro.tempoRestanteSegundos / (totalMinutos * 60)) * 100)))
   })()
@@ -117,6 +128,11 @@ export default function DisputaV3FornecedorPage() {
     if (!itemFoco || !valorLance) return
     const valor = Number(valorLance.replace(',', '.'))
     if (!Number.isFinite(valor) || valor <= 0) return
+    // Lance final fechado é único e sigiloso: confirma antes de enviar (IN 73 art. 24 §2º)
+    if (etapaFechada) {
+      setConfirmarFechado(valor)
+      return
+    }
     enviarLance(itemFoco.id, valor)
     setValorLance('')
   }
@@ -136,7 +152,7 @@ export default function DisputaV3FornecedorPage() {
               <Badge className={getStatusBadgeClass(contexto?.status || 'AGENDADA')}>
                 {getStatusLabel(contexto?.status || 'AGENDADA')}
               </Badge>
-              <Badge variant="outline">{contexto?.modo || 'ABERTO'}</Badge>
+              <Badge variant="outline">Modo {rotuloModo(contexto?.modo)}</Badge>
               <Badge variant="outline" className={wsConectado ? 'border-emerald-300 text-emerald-700' : 'border-red-300 text-red-700'}>
                 {wsConectado ? 'WS online' : 'WS offline'}
               </Badge>
@@ -186,9 +202,11 @@ export default function DisputaV3FornecedorPage() {
                 <CardHeader className="border-b bg-emerald-950 text-white">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="space-y-2">
-                      <CardDescription className="text-emerald-200">Item em foco</CardDescription>
+                      <CardDescription className="text-emerald-200">
+                        {ehLote(itemFoco) ? 'Lote em foco — lance pelo valor global do lote' : 'Item em foco'}
+                      </CardDescription>
                       <CardTitle className="text-3xl">
-                        {itemFoco ? `Item ${itemFoco.numero}` : 'Selecione um item'}
+                        {itemFoco ? rotuloUnidade(itemFoco) : 'Selecione um item'}
                       </CardTitle>
                       <p className="max-w-2xl text-sm text-emerald-100">
                         {itemFoco?.descricao || 'Escolha um item da disputa para acompanhar sua posicao e enviar um novo lance.'}
@@ -196,10 +214,10 @@ export default function DisputaV3FornecedorPage() {
                     </div>
                     {itemFoco && (
                       <div className="rounded-2xl bg-white/10 px-5 py-3 text-center">
-                        <div className="mb-1 text-xs uppercase tracking-[0.2em] text-emerald-200">Tempo restante</div>
-                        <div className="text-4xl font-semibold tabular-nums">
-                          {formatarTempo(itemFoco.cronometro.tempoRestanteSegundos)}
+                        <div className="mb-1 text-xs uppercase tracking-[0.2em] text-emerald-200">
+                          {tempoOculto ? 'Encerramento em até 10 min' : etapaFechada ? 'Prazo do lance fechado' : 'Tempo restante'}
                         </div>
+                        <div className="text-4xl font-semibold tabular-nums">{textoCronometro(itemFoco)}</div>
                       </div>
                     )}
                   </div>
@@ -237,6 +255,19 @@ export default function DisputaV3FornecedorPage() {
                           <span>{percentualTempo}% do ciclo atual restante</span>
                         </div>
                         <Progress value={percentualTempo} />
+                        {descricaoFase && (
+                          <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+                            {descricaoFase}
+                          </div>
+                        )}
+                        <ItensDoLote item={itemFoco} visao="FORNECEDOR" />
+                        {itemFoco.status === 'EM_DISPUTA' && itemFoco.possoDarLance === false && !ehLote(itemFoco) && (
+                          <div className="rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-700">
+                            {itemFoco.meuLanceFechado != null
+                              ? 'Seu lance final fechado já foi registrado.'
+                              : 'Você não está entre os licitantes classificados para esta fase. Sua proposta/último lance continua na classificação.'}
+                          </div>
+                        )}
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2">
@@ -262,17 +293,26 @@ export default function DisputaV3FornecedorPage() {
 
                         <Card>
                           <CardHeader>
-                            <CardTitle className="text-base">Novo lance</CardTitle>
+                            <CardTitle className="text-base">{etapaFechada ? 'Lance final fechado' : 'Novo lance'}</CardTitle>
                             <CardDescription>
-                              Lance abaixo do melhor atual e do seu proprio ultimo lance.
+                              {etapaFechada
+                                ? 'Um único lance, menor que o seu último valor, sigiloso até o fim do prazo. Para manter o último lance da etapa aberta, não envie.'
+                                : itemFoco.valorPrimeiraColocacao != null
+                                  ? `Reinício para as demais colocações: o lance não pode alcançar ${formatarMoeda(itemFoco.valorPrimeiraColocacao)} (1ª colocação).`
+                                  : 'Lance abaixo do seu proprio ultimo lance (e da melhor oferta, para liderar).'}
                             </CardDescription>
+                            {itemFoco.meuLanceFechado != null && (
+                              <p className="text-sm font-medium text-violet-800">
+                                Seu lance final fechado: {formatarMoeda(itemFoco.meuLanceFechado)} (visível só para você até o fim do prazo)
+                              </p>
+                            )}
                           </CardHeader>
                           <CardContent className="space-y-3">
                             <Input
                               value={valorLance}
                               onChange={(event) => setValorLance(event.target.value)}
                               placeholder="Digite o valor em R$"
-                              disabled={itemFoco.status !== 'EM_DISPUTA' || sendingBid}
+                              disabled={!podeDarLance || sendingBid}
                             />
                             <div className="flex items-center justify-between rounded-xl border bg-slate-50 px-3 py-2 text-sm text-slate-600">
                               <span>Sugestao visual</span>
@@ -285,9 +325,13 @@ export default function DisputaV3FornecedorPage() {
                                 {lanceSugerido === null ? '-' : formatarMoeda(lanceSugerido)}
                               </button>
                             </div>
-                            <Button className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={confirmarLance} disabled={itemFoco.status !== 'EM_DISPUTA' || sendingBid}>
+                            <Button
+                              className={`w-full ${etapaFechada ? 'bg-violet-600 hover:bg-violet-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                              onClick={confirmarLance}
+                              disabled={!podeDarLance || sendingBid}
+                            >
                               <ArrowDown className="mr-2 h-4 w-4" />
-                              {sendingBid ? 'Enviando...' : 'Enviar lance'}
+                              {sendingBid ? 'Enviando...' : etapaFechada ? 'Enviar lance final fechado' : 'Enviar lance'}
                             </Button>
                           </CardContent>
                         </Card>
@@ -381,7 +425,7 @@ export default function DisputaV3FornecedorPage() {
                             }`}
                           >
                             <div className="mb-2 flex items-center justify-between gap-2">
-                              <div className="font-medium text-slate-900">Item {item.numero}</div>
+                              <div className="font-medium text-slate-900">{rotuloUnidade(item)}</div>
                               {item.minhaPosicao === 1 && (
                                 <Badge className="bg-yellow-100 text-yellow-800">
                                   <Trophy className="mr-1 h-3 w-3" />
@@ -461,6 +505,13 @@ export default function DisputaV3FornecedorPage() {
                       <Clock3 className="h-4 w-4 text-emerald-600" />
                       Prorrogacao: {contexto?.cronometria.duracaoProrrogacaoMinutos || '-'} min
                     </div>
+                    {contexto?.cronometria.fases && (
+                      <ol className="list-decimal space-y-1 pl-5 pt-2 text-xs text-slate-600">
+                        {contexto.cronometria.fases.map((f) => (
+                          <li key={f}>{f}</li>
+                        ))}
+                      </ol>
+                    )}
                     <p className="pt-2 text-xs text-slate-500">{contexto?.cronometria.observacao}</p>
                   </CardContent>
                 </Card>
@@ -469,6 +520,36 @@ export default function DisputaV3FornecedorPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={confirmarFechado !== null} onOpenChange={(open) => !open && setConfirmarFechado(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar lance final fechado</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-700">
+            Você vai enviar {formatarMoeda(confirmarFechado)} como lance final fechado do Item {itemFoco?.numero}. O lance é
+            único, não pode ser alterado e fica sigiloso até o fim do prazo (IN SEGES 73/2022, art. 24 §2º).
+          </p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setConfirmarFechado(null)}>
+              Voltar
+            </Button>
+            <Button
+              type="button"
+              className="bg-violet-600 hover:bg-violet-700"
+              disabled={sendingBid || !itemFoco || confirmarFechado === null}
+              onClick={() => {
+                if (!itemFoco || confirmarFechado === null) return
+                enviarLance(itemFoco.id, confirmarFechado)
+                setValorLance('')
+                setConfirmarFechado(null)
+              }}
+            >
+              Enviar lance final fechado
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={dialogSolicitarLanceId !== null}

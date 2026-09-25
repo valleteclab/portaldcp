@@ -29,11 +29,17 @@ import {
   centavos,
   referenciaNaBase,
   validarLance,
+  valorAtualNaJanela,
   valoresDoLance,
   valorPropostaNaBase,
 } from './modelo-lance';
-import { calcularRelogio } from './relogio-disputa';
+import { calcularRelogio, calcularRelogioJanela, prorrogacaoDaJanela } from './relogio-disputa';
 import { idAnonimo } from './sigilo-disputa.service';
+import { ModoDisputaService, CamposModoItem } from './modo-disputa.service';
+import { melhorQue, ordemSql } from './modos-disputa';
+import { exigirRetomadaPermitida, retomarRelogiosDaSessao } from './desconexao-pregoeiro.service';
+import { ContextoLeituraLote, DisputaLoteService } from './disputa-lote.service';
+import { podeExcluirLanceDireto } from './unidade-disputa';
 import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
 import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
 import { exigirLicitacaoAtiva, licitacaoEstaAtiva } from '../sessao/licitacao-ativa';
@@ -59,12 +65,13 @@ import { pedirEncerramentoDisputa } from '../sessao/transicoes-sessao';
  *  - Chat: eventos da sessão (MENSAGEM_*), respeitando `chat_desabilitado`.
  *
  * PONTOS DE EXTENSÃO (modos/lote/dispensa): `OrigemLance` (LANCE_FECHADO,
- * JANELA_DISPENSA), `BaseLance.TOTAL_LOTE` (hoje 409), status TEMPO_ALEATORIO
+ * JANELA_DISPENSA), unidade LOTE (`BaseLance.TOTAL_LOTE` → DisputaLoteService), status TEMPO_ALEATORIO
  * no relógio, `validarLance` por origem.
  * ============================================================================
  */
 
-export interface ItemDisputa {
+/** Campos do modo de disputa (fase, elegibilidade, lance fechado) — `CamposModoItem` (E2.4). */
+export interface ItemDisputa extends CamposModoItem {
   id: string;
   numero: number;
   descricao: string;
@@ -89,6 +96,24 @@ export interface ItemDisputa {
   minhaPropostaInicial?: number;
   totalPropostas: number;
   totalLances: number;
+  /**
+   * Unidade de disputa (`unidade-disputa.ts`): ITEM (padrão, ausente) ou LOTE
+   * (base TOTAL_LOTE — `id` é o id do lote, valores são o global do lote).
+   */
+  tipoUnidade?: 'ITEM' | 'LOTE';
+  /** LOTE: itens do lote (referência por item e, para o fornecedor, a própria cotação). */
+  itensDoLote?: Array<{
+    id: string;
+    numero: number;
+    descricao: string;
+    quantidade: number;
+    unidade: string;
+    valorReferencia: number;
+    minhaProposta?: { valorUnitario: number | null; valorTotal: number | null };
+  }>;
+  /** LOTE, visão do fornecedor: cotou todos os itens do lote (senão não disputa o lote). */
+  elegivel?: boolean;
+  itensNaoCotados?: number[];
 }
 
 /** Quem lê: `visaoOrgao` = órgão dono da licitação (ou admin). Padrão: público/fornecedor. */
@@ -145,7 +170,10 @@ export interface SolicitacaoCancelamentoPendenteV3 {
 
 export interface ComandoLance {
   sessaoId: string;
+  /** Id da UNIDADE de disputa: item (ou lote — ver `loteId`). */
   itemId: string;
+  /** Disputa por lote: id do lote (ou o próprio `itemId`, se for de lote). */
+  loteId?: string;
   /** SEMPRE do token (nunca do corpo/payload). */
   fornecedorId: string;
   valor: number;
@@ -180,9 +208,28 @@ interface LinhaLanceAtivo {
   id: string;
   fornecedor_id: string;
   valor: string;
+  valor_unitario?: string | null;
   origem: OrigemLance;
   created_at: Date;
 }
+
+/** Resultado do registro de lance (o `registrarLance` devolve só o `lance`). */
+export interface ResultadoRegistroLance {
+  lance: Lance;
+  /** Valor atual do fornecedor ANTES deste lance (na base do lance). */
+  valorAnterior: number | null;
+  /** JANELA_DISPENSA: estado da janela depois do lance. */
+  janela?: {
+    inicio: Date | null;
+    fim: Date;
+    prorrogada: boolean;
+    /** Mensagem de sistema registrada no chat (prorrogação automática). */
+    mensagemSistema?: EventoSessao;
+  };
+}
+
+/** Status de proposta que NÃO habilitam lance na dispensa (mesma regra do acolhimento). */
+const STATUS_PROPOSTA_INVALIDA_DISPENSA = ['RASCUNHO', 'DESCLASSIFICADA', 'CANCELADA'];
 
 @Injectable()
 export class DisputaService {
@@ -208,6 +255,9 @@ export class DisputaService {
     private readonly anonimizacaoService: AnonimizacaoService,
     private readonly transicoes: TransicoesService,
     private readonly parametros: ParametrosDisputaService,
+    private readonly modos: ModoDisputaService,
+    @Inject(forwardRef(() => DisputaLoteService))
+    private readonly lotes: DisputaLoteService,
   ) {}
 
   // ============================================================================
@@ -286,7 +336,8 @@ export class DisputaService {
       licitacaoId: sessao.licitacao_id,
       status: sessao.status,
       etapa: sessao.etapa,
-      modoDisputa: sessao.modo_aberto ? 'ABERTO' : 'FECHADO',
+      // Modo da LICITAÇÃO (Lei 14.133 art. 56) — os booleanos da sessão são legado
+      modoDisputa: (await this.modos.contexto(sessao.licitacao_id)).modo,
       disputaPorItem: sessao.disputa_por_item,
       pregoeiro: { id: sessao.pregoeiro_id, nome: sessao.pregoeiro_nome },
       tempoInatividade: sessao.tempo_inatividade_minutos,
@@ -356,6 +407,42 @@ export class DisputaService {
   }
 
   /** Item da proposta válida do fornecedor (CLASSIFICADA/RECEBIDA). */
+  /**
+   * Dispensa (JANELA_DISPENSA): proposta VÁLIDA do fornecedor no item — enviada
+   * e não desclassificada/cancelada (a dispensa não tem etapa de classificação
+   * antes dos lances).
+   */
+  private async propostaValidaDispensaNoItem(m: EntityManager, itemId: string, fornecedorId: string): Promise<PropostaItem | null> {
+    return m
+      .createQueryBuilder(PropostaItem, 'pi')
+      .innerJoin('pi.proposta', 'p')
+      .where('pi.item_licitacao_id = :itemId', { itemId })
+      .andWhere('p.fornecedor_id = :fornecedorId', { fornecedorId })
+      .andWhere('p.status::text NOT IN (:...status)', { status: STATUS_PROPOSTA_INVALIDA_DISPENSA })
+      .getOne();
+  }
+
+  /** Estado da janela da dispensa com a linha da licitação travada (FOR UPDATE). */
+  private async travarJanelaDispensa(
+    m: EntityManager,
+    licitacaoId: string,
+  ): Promise<{ inicio: Date | null; fim: Date | null; prorrogacaoMinutos: number }> {
+    const [l] = await m.query(
+      `SELECT modalidade::text AS modalidade, dispensa_lances_inicio, dispensa_lances_fim, dispensa_lances_prorrogacao_min
+         FROM licitacoes WHERE id = $1 FOR UPDATE`,
+      [licitacaoId],
+    );
+    if (!l) throw new NotFoundException('Licitação não encontrada');
+    if (l.modalidade !== 'DISPENSA_ELETRONICA') {
+      throw new ConflictException('Janela de lances disponível apenas para Dispensa Eletrônica');
+    }
+    return {
+      inicio: l.dispensa_lances_inicio ? new Date(l.dispensa_lances_inicio) : null,
+      fim: l.dispensa_lances_fim ? new Date(l.dispensa_lances_fim) : null,
+      prorrogacaoMinutos: Number(l.dispensa_lances_prorrogacao_min) || 0,
+    };
+  }
+
   private async propostaDoFornecedorNoItem(m: EntityManager, itemId: string, fornecedorId: string): Promise<PropostaItem | null> {
     return m
       .createQueryBuilder(PropostaItem, 'pi')
@@ -387,12 +474,31 @@ export class DisputaService {
     const itens = await this.itemRepo.find({ where: { licitacao_id: sessao.licitacao_id }, order: { numero_item: 'ASC' } });
     const params = await this.parametros.daSessao(sessaoId);
     const anonimizar = await this.deveAnonimizar(sessao, opts);
+    if (params.baseLance === BaseLance.TOTAL_LOTE) {
+      // Disputa por LOTE: a unidade da sala é o lote (disputa-lote.service.ts)
+      const codigosLote = anonimizar ? await this.anonimizacaoService.obterMapeamentoSessao(sessao.id) : new Map<string, string>();
+      const unidades = await this.lotes.unidades(sessao, params, anonimizar, codigosLote, fornecedorId);
+      // Estratégia do modo no LOTE (E2.4): fase, relógio da fase, elegibilidade, lance fechado próprio
+      const lotesDb = await m.query(
+        `SELECT id::text AS id, status_disputa::text AS status_disputa, disputa_iniciada_em, ultimo_lance_em, inicio_tempo_aleatorio
+           FROM lotes_licitacao WHERE licitacao_id = $1`,
+        [sessao.licitacao_id],
+      );
+      await this.modos.enriquecerItens(sessao, lotesDb, unidades, params, { fornecedorId, visaoOrgao: opts.visaoOrgao });
+      return {
+        aguardando: unidades.filter((u) => u.status === 'AGUARDANDO'),
+        emDisputa: unidades.filter((u) => u.status === 'EM_DISPUTA'),
+        encerrados: unidades.filter((u) => u.status === 'ENCERRADO'),
+      };
+    }
 
     const ativos: Array<{ item_id: string; fornecedor_id: string | null; fornecedor_identificador: string | null; fornecedor_nome: string | null; valor: string; created_at: Date }> =
       await m.query(
-        `SELECT item_id, fornecedor_id, fornecedor_identificador, fornecedor_nome, valor, created_at
-           FROM lances WHERE licitacao_id = $1 AND cancelado = false
-          ORDER BY valor ASC, created_at ASC`,
+        // Lance final fechado: sigiloso até o fim do prazo (IN 73 art. 24 §2º) — fora das leituras
+        `SELECT l.item_id, l.fornecedor_id, l.fornecedor_identificador, l.fornecedor_nome, l.valor, l.created_at
+           FROM lances l JOIN itens_licitacao i ON i.id = l.item_id
+          WHERE l.licitacao_id = $1 AND l.cancelado = false AND ${ModoDisputaService.SQL_LANCE_VISIVEL}
+          ORDER BY l.valor ${ordemSql(await this.modos.direcao(sessao.licitacao_id))}, l.created_at ASC`,
         [sessao.licitacao_id],
       );
     const porItem = new Map<string, typeof ativos>();
@@ -436,6 +542,11 @@ export class DisputaService {
       else if (itemDisputa.status === 'ENCERRADO') encerrados.push(itemDisputa);
       else aguardando.push(itemDisputa);
     }
+    // Estratégia do modo (E2.4): fase, relógio da fase (aleatório OCULTO), elegibilidade, lance fechado próprio
+    await this.modos.enriquecerItens(sessao, itens, [...aguardando, ...emDisputa, ...encerrados], params, {
+      fornecedorId,
+      visaoOrgao: opts.visaoOrgao,
+    });
     return { aguardando, emDisputa, encerrados };
   }
 
@@ -464,9 +575,11 @@ export class DisputaService {
   }
 
   private async melhorLanceAtivo(m: EntityManager, itemId: string): Promise<Lance | null> {
+    const doItem = await m.findOne(ItemLicitacao, { where: { id: itemId }, select: ['id', 'licitacao_id'] });
+    const direcao = doItem ? await this.modos.direcao(doItem.licitacao_id, m) : 'MENOR';
     return m.findOne(Lance, {
       where: { item_id: itemId, cancelado: false },
-      order: { valor: 'ASC', created_at: 'ASC' },
+      order: { valor: ordemSql(direcao), created_at: 'ASC' },
     });
   }
 
@@ -573,19 +686,26 @@ export class DisputaService {
     totalLances: number;
   }>> {
     const m = manager ?? this.dataSource.manager;
+    // Unidade LOTE: ranking pelo lance do lote
+    if (await this.lotes.ehLote(itemId, m)) return this.lotes.ranking(itemId, m);
+    // Direção do critério (maior lance em ordem decrescente) e sigilo do lance fechado em curso
+    const [linhaItem] = await m.query(`SELECT licitacao_id FROM itens_licitacao WHERE id = $1`, [itemId]);
+    const direcaoRanking = linhaItem ? await this.modos.direcao(linhaItem.licitacao_id, m) : 'MENOR';
     const rows: any[] = await m.query(
       `WITH ativos AS (
          SELECT l.*, COUNT(*) OVER (PARTITION BY l.fornecedor_id) AS total
-           FROM lances l
+           FROM lances l JOIN itens_licitacao i ON i.id = l.item_id
           WHERE l.item_id = $1 AND l.cancelado = false AND l.fornecedor_id IS NOT NULL
+            AND ${ModoDisputaService.SQL_LANCE_VISIVEL}
        )
        SELECT DISTINCT ON (a.fornecedor_id)
               a.fornecedor_id, COALESCE(f.razao_social, a.fornecedor_nome) AS nome,
               a.valor, a.created_at, a.total
          FROM ativos a LEFT JOIN fornecedores f ON f.id::text = a.fornecedor_id
-        ORDER BY a.fornecedor_id, a.valor ASC, a.created_at ASC`,
+        ORDER BY a.fornecedor_id, a.valor ${ordemSql(direcaoRanking)}, a.created_at ASC`,
       [itemId],
     );
+    const sinal = direcaoRanking === 'MAIOR' ? -1 : 1;
     return rows
       .map((r) => ({
         fornecedorId: String(r.fornecedor_id),
@@ -594,7 +714,7 @@ export class DisputaService {
         registradoEm: new Date(r.created_at),
         totalLances: Number(r.total),
       }))
-      .sort((a, b) => a.melhorValor - b.melhorValor || a.registradoEm.getTime() - b.registradoEm.getTime());
+      .sort((a, b) => sinal * (a.melhorValor - b.melhorValor) || a.registradoEm.getTime() - b.registradoEm.getTime());
   }
 
   // ============================================================================
@@ -605,7 +725,7 @@ export class DisputaService {
    * Inicia a disputa de um ou mais itens (converte as propostas em lances de
    * origem PROPOSTA e atribui os códigos anônimos da sessão).
    */
-  async iniciarDisputa(sessaoId: string, itensIds: string[], ator: AtorTransicao): Promise<{ itensIniciados: number }> {
+  async iniciarDisputa(sessaoId: string, itensIds: string[], ator: AtorTransicao): Promise<{ itensIniciados: number; lotesIniciados?: number }> {
     const sessao = await this.sessaoParaAto(sessaoId);
     if (sessao.status === StatusSessao.SUSPENSA) {
       throw new BadRequestException('Sessão está suspensa. Não é possível iniciar novos itens.');
@@ -621,9 +741,16 @@ export class DisputaService {
     }
 
     const params = await this.parametros.daSessao(sessaoId);
+    // Modo × critério (Lei 14.133 art. 56 §§1º-2º) conferidos antes de abrir lances (item e lote)
+    await this.modos.exigirModoCriterioDaLicitacao(sessao.licitacao_id);
     if (params.baseLance === BaseLance.TOTAL_LOTE) {
-      throw new ConflictException('Esta licitação disputa por LOTE — disponível na disputa por lote (motor de lote, próxima etapa).');
+      // Disputa por LOTE: ids de lote (ou de itens → seus lotes) — disputa-lote.service.ts
+      const r = await this.lotes.iniciar(sessao, itensIds, ator);
+      // Modo FECHADO: o lote encerra na abertura com o ranking das propostas
+      for (const loteId of r.encerrarNaAbertura) await this.encerrarItem(sessaoId, loteId, ator);
+      return { itensIniciados: r.itensIniciados, lotesIniciados: r.lotesIniciados };
     }
+    const encerrarNaAbertura: string[] = [];
 
     const aIniciar: ItemLicitacao[] = [];
     for (const itemId of itensIds) {
@@ -656,6 +783,9 @@ export class DisputaService {
         if (!item || (item.status_disputa && item.status_disputa !== StatusDisputaItem.AGUARDANDO)) return false;
         await this.converterPropostasEmLances(m, item, params.baseLance);
         const agora = new Date();
+        // Estratégia do modo: fechado encerra na hora; aberto-fechado/fechado-aberto gravam a fase
+        const inicioModo = await this.modos.aoIniciarItem(m, sessaoId, item, params.baseLance, agora);
+        if (inicioModo.encerrarImediatamente) encerrarNaAbertura.push(item.id);
         await m.update(ItemLicitacao, item.id, {
           status_disputa: StatusDisputaItem.EM_DISPUTA,
           disputa_iniciada_em: agora,
@@ -681,6 +811,10 @@ export class DisputaService {
 
     if (itensIniciados > 0) {
       await this.sessaoRepo.update(sessaoId, { status: StatusSessao.MODO_ABERTO, etapa: EtapaSessao.DISPUTA_LANCES });
+    }
+    // Modo FECHADO (Lei 14.133 art. 56 I): sem lances — o item encerra com o ranking das propostas
+    for (const itemId of encerrarNaAbertura) {
+      await this.encerrarItem(sessaoId, itemId, ator);
     }
     return { itensIniciados };
   }
@@ -736,9 +870,32 @@ export class DisputaService {
    * pessimista no item: dois lances do mesmo item são processados em fila, e a
    * ordem da trava é a ordem de registro (regra de lances iguais).
    * Recusa → 400 (valor) ou 409 (estado do processo).
+   *
+   * JANELA_DISPENSA (dispensa eletrônica, IN 67): mesmo caminho, com a janela
+   * da licitação travada (FOR UPDATE), valor UNITÁRIO, regra "reduz o próprio
+   * valor" (`validarJanelaDispensa`) e prorrogação da janela pelo relógio único
+   * (`prorrogacaoDaJanela`) DENTRO da transação do lance.
    */
   async registrarLance(cmd: ComandoLance): Promise<Lance> {
-    const origem = cmd.origem ?? OrigemLance.LANCE;
+    return (await this.registrarLanceComResultado(cmd)).lance;
+  }
+
+  /** `registrarLance` com o contexto do registro (valor anterior e, na dispensa, a janela). */
+  async registrarLanceComResultado(cmd: ComandoLance): Promise<ResultadoRegistroLance> {
+    // Unidade LOTE (id de lote no comando): mesmo motor, trava no lote — disputa-lote.service.ts
+    const loteId = cmd.loteId ?? ((await this.lotes.ehLote(cmd.itemId)) ? cmd.itemId : null);
+    if (loteId) {
+      const lance = await this.lotes.registrarLance({
+        sessaoId: cmd.sessaoId,
+        loteId,
+        fornecedorId: cmd.fornecedorId,
+        valor: cmd.valor,
+        ip: cmd.ip,
+        origem: cmd.origem,
+      });
+      return { lance, valorAnterior: null };
+    }
+    let origem = cmd.origem ?? OrigemLance.LANCE;
     const valor = Number(cmd.valor);
     try {
       return await this.dataSource.transaction(async (m) => {
@@ -750,20 +907,35 @@ export class DisputaService {
         if (item.licitacao_id !== sessao.licitacao_id) {
           throw new BadRequestException('Item não pertence à licitação desta sessão');
         }
+        // JANELA_DISPENSA: trava a licitação (FOR UPDATE) ANTES do FOR SHARE abaixo —
+        // o lance pode prorrogar a janela (UPDATE na mesma linha); sem isto, dois
+        // lances concorrentes em itens diferentes disputariam a promoção da trava.
+        const janela = origem === OrigemLance.JANELA_DISPENSA ? await this.travarJanelaDispensa(m, sessao.licitacao_id) : null;
         // E1: licitação ATIVA (FOR SHARE: um SUSPENDER concorrente espera este lance)
         await exigirLicitacaoAtiva(m, sessao.licitacao_id, { bloquear: true });
 
         const params = await this.parametros.daSessao(cmd.sessaoId, m);
+        if (janela && params.baseLance !== BaseLance.UNITARIO) {
+          throw new ConflictException('Janela de lances da dispensa exige lance por valor UNITÁRIO (base_lance UNITARIO).');
+        }
         if (params.baseLance === BaseLance.TOTAL_LOTE) {
-          throw new ConflictException('Lance por lote: disponível na disputa por lote (motor de lote, próxima etapa).');
+          throw new ConflictException('Esta licitação é disputada por LOTE: o lance é dado no lote (valor global), não no item.');
         }
         const quantidade = Number(item.quantidade) || 1;
-        const propostaItem = await this.propostaDoFornecedorNoItem(m, item.id, cmd.fornecedorId);
+        const propostaItem = janela
+          ? await this.propostaValidaDispensaNoItem(m, item.id, cmd.fornecedorId)
+          : await this.propostaDoFornecedorNoItem(m, item.id, cmd.fornecedorId);
+
+        // Estratégia do modo de disputa (E2.4): origem efetiva (lance fechado),
+        // participantes da fase, tempo aleatório = etapa aberta, piso do reinício
+        const ctxModo = janela ? null : await this.modos.contexto(sessao.licitacao_id, m);
+        const regraModo = ctxModo ? await this.modos.regraDoLance(m, { item, fornecedorId: cmd.fornecedorId, origem, ctx: ctxModo }) : null;
+        if (regraModo) origem = regraModo.origem;
 
         const ativos: LinhaLanceAtivo[] = await m.query(
-          `SELECT id, fornecedor_id, valor, origem, created_at FROM lances
+          `SELECT id, fornecedor_id, valor, valor_unitario, origem, created_at FROM lances
             WHERE item_id = $1 AND cancelado = false
-            ORDER BY valor ASC, created_at ASC`,
+            ORDER BY valor ${ordemSql(ctxModo?.direcao ?? 'MENOR')}, created_at ASC`,
           [item.id],
         );
         const meus = ativos
@@ -775,18 +947,32 @@ export class DisputaService {
         validarLance({
           origem,
           valor,
-          statusItem: item.status_disputa,
+          statusItem: regraModo ? regraModo.statusParaValidacao : item.status_disputa,
+          direcao: ctxModo?.direcao,
           sessaoSuspensa: sessao.status === StatusSessao.SUSPENSA,
           propostaNaBase: propostaItem ? valorPropostaNaBase(propostaItem, params.baseLance, quantidade) : null,
           meuUltimo: meus[0]
-            ? { valor: parseFloat(meus[0].valor), origem: meus[0].origem, criadoEm: new Date(meus[0].created_at) }
+            ? {
+                // janela (base UNITARIO): o unitário com 4 casas — `valor` guarda só 2
+                valor: parseFloat(janela ? String(meus[0].valor_unitario ?? meus[0].valor) : meus[0].valor),
+                origem: meus[0].origem,
+                criadoEm: new Date(meus[0].created_at),
+              }
             : null,
           melhor: melhor ? { valor: parseFloat(melhor.valor), fornecedorId: melhor.fornecedor_id } : null,
           valoresDeOutros: ativos.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
           diferencaMinima: params.diferencaMinima,
           intervaloProprioSegundos: params.intervaloProprioSegundos,
           agora,
+          janelaAberta: janela ? calcularRelogioJanela({ inicio: janela.inicio, fim: janela.fim, agora: agora.getTime() }).aberta : undefined,
         });
+        regraModo?.conferir(valor);
+        const propostaBase = propostaItem ? valorPropostaNaBase(propostaItem, params.baseLance, quantidade) : null;
+        const valorAnterior = janela
+          ? valorAtualNaJanela(propostaBase ?? Infinity, meus.map((l) => parseFloat(String(l.valor_unitario ?? l.valor))))
+          : meus[0]
+            ? parseFloat(meus[0].valor)
+            : propostaBase;
 
         const fornecedorNome = await this.nomeDoFornecedorNa(m, cmd.fornecedorId);
         const lance = await m.save(
@@ -805,11 +991,41 @@ export class DisputaService {
           } as Partial<Lance>),
         );
 
-        const novoMelhor = !melhor || valor < parseFloat(melhor.valor);
+        // Janela da dispensa: as propostas não viram lances (o julgamento lê
+        // proposta ∪ lances), então "melhor lance" do item não se aplica.
+        // Lance final fechado não mexe no melhor lance do item (sigiloso até o fim do prazo)
+        const novoMelhor =
+          !janela &&
+          origem !== OrigemLance.LANCE_FECHADO &&
+          (!melhor || melhorQue(valor, parseFloat(melhor.valor), ctxModo?.direcao ?? 'MENOR'));
         await m.update(ItemLicitacao, item.id, {
-          ...(origem === OrigemLance.LANCE ? { ultimo_lance_em: agora } : {}),
+          ...(origem === OrigemLance.LANCE || janela ? { ultimo_lance_em: agora } : {}),
           ...(novoMelhor ? { melhor_lance_valor: valor, melhor_lance_fornecedor_id: cmd.fornecedorId } : {}),
         });
+
+        // Prorrogação automática da janela (regra anunciada na abertura) — relógio único
+        let resultadoJanela: ResultadoRegistroLance['janela'];
+        if (janela) {
+          const novoFim = prorrogacaoDaJanela({ fim: janela.fim, prorrogacaoMinutos: janela.prorrogacaoMinutos, agora: agora.getTime() });
+          let mensagemSistema: EventoSessao | undefined;
+          if (novoFim) {
+            await m.query(`UPDATE licitacoes SET dispensa_lances_fim = $2 WHERE id = $1`, [sessao.licitacao_id, novoFim]);
+            mensagemSistema = await m.save(
+              m.create(EventoSessao, {
+                sessao_id: cmd.sessaoId,
+                tipo: TipoEvento.MENSAGEM_SISTEMA,
+                descricao:
+                  `⏱ Janela prorrogada automaticamente até ${novoFim.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} — ` +
+                  `lance recebido nos últimos ${janela.prorrogacaoMinutos} min (regra da sessão).`,
+                item_id: item.id,
+                dados_adicionais: { origem: 'JANELA_DISPENSA', prorrogacao: true, fim: novoFim.toISOString() },
+                usuario_nome: 'Sistema',
+                is_sistema: true,
+              }),
+            );
+          }
+          resultadoJanela = { inicio: janela.inicio, fim: novoFim ?? janela.fim!, prorrogada: !!novoFim, mensagemSistema };
+        }
 
         await m.save(
           m.create(EventoSessao, {
@@ -818,17 +1034,20 @@ export class DisputaService {
             descricao:
               origem === OrigemLance.DESEMPATE_MPE
                 ? `ME/EPP exerceu o direito de preferência com lance de R$ ${valor.toFixed(2)} no Item ${item.numero_item} (LC 123, art. 45)`
-                : `Lance de R$ ${valor.toFixed(2)} registrado no Item ${item.numero_item}`,
+                : origem === OrigemLance.LANCE_FECHADO
+                  ? `Lance final fechado recebido no Item ${item.numero_item} (sigiloso até o fim do prazo — IN 73 art. 24 §2º)`
+                  : `Lance de R$ ${valor.toFixed(2)} registrado no Item ${item.numero_item}`,
             item_id: item.id,
             fornecedor_id: cmd.fornecedorId,
             lance_id: lance.id,
-            valor,
+            // O valor do lance fechado fica só na tabela de lances até o fim do prazo
+            valor: origem === OrigemLance.LANCE_FECHADO ? undefined : valor,
             dados_adicionais: { origem, base_lance: params.baseLance },
             usuario_nome: 'SISTEMA',
             is_sistema: true,
           }),
         );
-        return lance;
+        return { lance, valorAnterior, janela: resultadoJanela };
       });
     } catch (e) {
       if (e instanceof LanceRecusado) {
@@ -849,6 +1068,15 @@ export class DisputaService {
    */
   async encerrarItem(sessaoId: string, itemId: string, ator: AtorTransicao): Promise<ResultadoEncerramento> {
     const sessao = await this.sessaoParaAto(sessaoId);
+    // Unidade LOTE: o id é do lote, ou é item de licitação disputada por lote (encerra o lote dele)
+    const loteId = (await this.lotes.ehLote(itemId))
+      ? itemId
+      : (await this.parametros.daSessao(sessaoId)).baseLance === BaseLance.TOTAL_LOTE
+        ? await this.lotes.loteDoItem(itemId)
+        : null;
+    // Aberto-fechado: encerramento só pelo relógio (IN 73 art. 24) — item ou lote
+    await this.modos.antesDeEncerrar(sessao.licitacao_id, loteId ?? itemId, ator);
+    if (loteId) return this.encerrarLote(sessao, loteId, ator);
 
     const r = await this.dataSource.transaction(async (m) => {
       const item = await this.travarItem(m, itemId);
@@ -892,11 +1120,35 @@ export class DisputaService {
     }
 
     const etapaDeLancesEncerrada = await this.concluirEtapaDeLancesSeTerminou(sessaoId, sessao.licitacao_id, ator);
+    await this.modos.aposEncerrar(sessaoId, sessao.licitacao_id, itemId);
     const alertaReinicio = await this.avaliarReinicio(sessaoId, r.item).catch(() => null);
 
     return {
       etapaDeLancesEncerrada,
       itemNumero: r.item.numero_item,
+      alertaReinicio,
+      vencedor: r.melhor
+        ? { fornecedorId: r.melhor.fornecedor_id, fornecedorNome: r.melhor.fornecedor_nome, valor: Number(r.melhor.valor) }
+        : undefined,
+    };
+  }
+
+  /** Encerramento da unidade LOTE: mesmo pós-ato do item (fim da etapa de lances, aviso de reinício). */
+  private async encerrarLote(sessao: SessaoDisputa, loteId: string, ator: AtorTransicao): Promise<ResultadoEncerramento> {
+    const r = await this.lotes.encerrar(sessao, loteId);
+    if (r.jaEstavaEncerrado) {
+      return {
+        etapaDeLancesEncerrada: await this.etapaDeLancesEncerrada(sessao.licitacao_id),
+        itemNumero: r.lote.numero,
+        jaEstavaEncerrado: true,
+      };
+    }
+    const etapaDeLancesEncerrada = await this.concluirEtapaDeLancesSeTerminou(sessao.id, sessao.licitacao_id, ator);
+    await this.modos.aposEncerrar(sessao.id, sessao.licitacao_id, r.lote.id);
+    const alertaReinicio = await this.avaliarReinicio(sessao.id, { id: r.lote.id, numero_item: r.lote.numero }).catch(() => null);
+    return {
+      etapaDeLancesEncerrada,
+      itemNumero: r.lote.numero,
       alertaReinicio,
       vencedor: r.melhor
         ? { fornecedorId: r.melhor.fornecedor_id, fornecedorNome: r.melhor.fornecedor_nome, valor: Number(r.melhor.valor) }
@@ -914,7 +1166,8 @@ export class DisputaService {
     const ranking = await this.rankingDoItem(item.id);
     if (ranking.length < 2 || !(params.percentualReinicioDisputa > 0)) return null;
     const [p, s] = ranking;
-    const diferencaPercentual = ((s.melhorValor - p.melhorValor) / p.melhorValor) * 100;
+    // |2º − 1º| / 1º — vale nas duas direções (menor preço e maior lance)
+    const diferencaPercentual = (Math.abs(s.melhorValor - p.melhorValor) / p.melhorValor) * 100;
     if (diferencaPercentual < params.percentualReinicioDisputa) return null;
     return {
       itemId: item.id,
@@ -944,6 +1197,10 @@ export class DisputaService {
   async retomarSessao(sessaoId: string): Promise<void> {
     const sessao = await this.sessaoParaAto(sessaoId);
     if (sessao.status !== StatusSessao.SUSPENSA) throw new BadRequestException('Sessão não está suspensa');
+    // Suspensa por desconexão do agente: só 24 h após a comunicação (IN 73 art. 27 §1º).
+    // Relógios de itens e lotes: recomeçam (desconexão) ou são deslocados pela pausa (demais suspensões)
+    const retomada = await exigirRetomadaPermitida(this.dataSource.manager, sessaoId);
+    await retomarRelogiosDaSessao(this.dataSource.manager, sessaoId, sessao.licitacao_id, retomada.porDesconexao);
     await this.sessaoRepo.update(sessaoId, { status: StatusSessao.MODO_ABERTO, motivo_suspensao: undefined });
     await this.registrarEvento(sessaoId, TipoEvento.SESSAO_RETOMADA, 'Sessão retomada');
   }
@@ -1019,6 +1276,7 @@ export class DisputaService {
       );
 
       await m.update(SessaoDisputa, sessaoId, { status: StatusSessao.AGUARDANDO_INICIO, etapa: EtapaSessao.ANALISE_PROPOSTAS });
+      await this.lotes.reiniciarLotes(m, sessao.licitacao_id);
       const lancesCancelados = cancelados.affected || 0;
       const itensReiniciados = itens.affected || 0;
       await m.save(
@@ -1160,6 +1418,23 @@ export class DisputaService {
     return { sessaoId: sid, anonimizar, base: params.baseLance, quantidade: Number(item.quantidade) || 1 };
   }
 
+  /**
+   * Leitura de uma unidade LOTE: null = o id não é de lote; false = lote sem
+   * sessão (sigilo: nada); senão o contexto (mesma regra de anonimização do item).
+   */
+  private async contextoLeituraLote(id: string, sessaoId: string | undefined, opts: OpcoesVisaoDisputa): Promise<ContextoLeituraLote | null | false> {
+    const lote = await this.lotes.buscarLote(id);
+    if (!lote) return null;
+    const sid =
+      sessaoId ??
+      (await this.sessaoRepo.findOne({ where: { licitacao_id: lote.licitacao_id }, order: { created_at: 'DESC' }, select: ['id'] }))?.id;
+    if (!sid) return false;
+    const anonimizar = opts.visaoOrgao
+      ? await this.anonimizacaoService.isAnonimizacaoAtiva(sid)
+      : !(await this.etapaDeLancesEncerrada(lote.licitacao_id));
+    return { sessaoId: sid, anonimizar, anonimo: (f: string) => this.anonimo(sid, f) };
+  }
+
   private async anonimo(sessaoId: string, fornecedorId: string) {
     const codigo = await this.codigoAnonimoSeguro(sessaoId, fornecedorId);
     return { fornecedorId: idAnonimo(codigo), fornecedorNome: codigo };
@@ -1167,6 +1442,8 @@ export class DisputaService {
 
   /** Propostas iniciais do item (na base do lance). Sem sessão aberta: sigilo (nada). */
   async getPropostasIniciais(itemId: string, sessaoId?: string, opts: OpcoesVisaoDisputa = {}): Promise<any[]> {
+    const lote = await this.contextoLeituraLote(itemId, sessaoId, opts);
+    if (lote !== null) return lote ? this.lotes.propostasIniciais(itemId, lote) : [];
     const ctx = await this.contextoLeituraItem(itemId, sessaoId, opts);
     if (!ctx.sessaoId) return [];
 
@@ -1200,6 +1477,8 @@ export class DisputaService {
 
   /** Ranking (melhor valor de cada fornecedor). */
   async getMelhoresValoresPorFornecedor(itemId: string, sessaoId?: string, opts: OpcoesVisaoDisputa = {}): Promise<any[]> {
+    const lote = await this.contextoLeituraLote(itemId, sessaoId, opts);
+    if (lote !== null) return lote ? this.lotes.melhoresPorFornecedor(itemId, lote) : [];
     const ctx = await this.contextoLeituraItem(itemId, sessaoId, opts);
     if (!ctx.sessaoId) return [];
     const ranking = await this.rankingDoItem(itemId);
@@ -1214,10 +1493,15 @@ export class DisputaService {
 
   /** Todos os lances ativos do item (propostas convertidas incluídas, com a origem real). */
   async getTodosLances(itemId: string, sessaoId?: string, opts: OpcoesVisaoDisputa = {}): Promise<LanceRegistrado[]> {
+    const lote = await this.contextoLeituraLote(itemId, sessaoId, opts);
+    if (lote !== null) return lote ? this.lotes.lances(itemId, lote) : [];
     const ctx = await this.contextoLeituraItem(itemId, sessaoId, opts);
     if (!ctx.sessaoId) return [];
 
-    const lances = await this.lanceRepo.find({ where: { item_id: itemId, cancelado: false }, order: { created_at: 'DESC' } });
+    const statusDoItem = (await this.itemRepo.findOne({ where: { id: itemId }, select: ['id', 'status_disputa'] }))?.status_disputa;
+    const lances = (await this.lanceRepo.find({ where: { item_id: itemId, cancelado: false }, order: { created_at: 'DESC' } }))
+      // Lance final fechado: sigiloso até o fim do prazo (IN 73 art. 24 §2º)
+      .filter((l) => ModoDisputaService.lanceVisivel(l.origem, statusDoItem));
     const saida: LanceRegistrado[] = await Promise.all(
       lances.map(async (l) => {
         let fornecedorId = l.fornecedor_id || l.fornecedor_identificador || '';
@@ -1349,12 +1633,8 @@ export class DisputaService {
     prazoSegundos: number,
     agora: number,
   ): { pode: boolean; segundosRestantes: number; motivo?: string } {
-    const restante = Math.max(0, Math.floor((new Date(lance.created_at).getTime() + prazoSegundos * 1000 - agora) / 1000));
-    if (lance.origem !== OrigemLance.LANCE) return { pode: false, segundosRestantes: 0, motivo: 'Só lances da etapa aberta podem ser excluídos' };
-    if (lance.id !== ultimoProprioId) return { pode: false, segundosRestantes: 0, motivo: 'Só o seu último lance pode ser excluído (IN 73 art. 21 §3º)' };
-    if (jaExcluiu) return { pode: false, segundosRestantes: 0, motivo: 'A exclusão do próprio lance só pode ser feita uma única vez (IN 73 art. 21 §3º)' };
-    if (restante <= 0) return { pode: false, segundosRestantes: 0, motivo: `Prazo de ${prazoSegundos} segundos para exclusão direta expirou. Solicite ao pregoeiro.` };
-    return { pode: true, segundosRestantes: restante };
+    // Regra pura comum a item e lote (unidade-disputa.ts)
+    return podeExcluirLanceDireto(lance, ultimoProprioId, jaExcluiu, prazoSegundos, agora);
   }
 
   private async estadoExclusao(m: EntityManager, itemId: string, fornecedorId: string) {
@@ -1367,6 +1647,9 @@ export class DisputaService {
   }
 
   async listarLancesFornecedorParaCancelamentoV3(sessaoId: string, itemId: string, fornecedorId: string): Promise<LancePainelCancelamentoV3[]> {
+    if (await this.lotes.ehLote(itemId)) {
+      return this.lotes.listarMeusLances(sessaoId, itemId, fornecedorId, (await this.parametros.daSessao(sessaoId)).cancelamentoDiretoSegundos);
+    }
     const sessao = await this.sessaoRepo.findOne({ where: { id: sessaoId } });
     if (!sessao) throw new NotFoundException('Sessão não encontrada');
     const item = await this.itemRepo.findOne({ where: { id: itemId } });
@@ -1407,7 +1690,7 @@ export class DisputaService {
     });
     return pendentes.map((l) => ({
       lanceId: l.id,
-      itemId: l.item_id,
+      itemId: l.item_id ?? (l.lote_id as string),
       itemNumero: l.item?.numero_item ?? 0,
       fornecedorId: l.fornecedor_id || '',
       fornecedorNome: l.fornecedor_nome || 'Fornecedor',
@@ -1432,6 +1715,18 @@ export class DisputaService {
   }
 
   async cancelarLanceFornecedorImediatoV3(sessaoId: string, itemId: string, lanceId: string, fornecedorId: string): Promise<{ ok: true }> {
+    if (await this.lotes.ehLote(itemId)) {
+      const p = await this.parametros.daSessao(sessaoId);
+      await this.lotes.cancelarProprio(sessaoId, itemId, lanceId, fornecedorId, p.cancelamentoDiretoSegundos);
+      await this.registrarEvento(
+        sessaoId,
+        TipoEvento.LANCE_CANCELADO,
+        `Lance de lote excluído pelo próprio fornecedor (até ${p.cancelamentoDiretoSegundos}s — IN 73 art. 21 §3º)`,
+        undefined,
+        fornecedorId,
+      );
+      return { ok: true };
+    }
     const params = await this.parametros.daSessao(sessaoId);
     await this.dataSource.transaction(async (m) => {
       const { lance } = await this.prepararCancelamento(m, sessaoId, itemId, lanceId);
@@ -1469,6 +1764,18 @@ export class DisputaService {
     fornecedorId: string,
     motivo?: string,
   ): Promise<{ ok: true }> {
+    if (await this.lotes.ehLote(itemId)) {
+      const p = await this.parametros.daSessao(sessaoId);
+      await this.lotes.solicitarCancelamento(sessaoId, itemId, lanceId, fornecedorId, p.cancelamentoDiretoSegundos, motivo);
+      await this.registrarEvento(
+        sessaoId,
+        TipoEvento.MENSAGEM_SISTEMA,
+        `Fornecedor solicitou cancelamento de lance de lote (aguardando pregoeiro). Motivo: ${motivo?.trim() || 'não informado'}`,
+        undefined,
+        fornecedorId,
+      );
+      return { ok: true };
+    }
     const params = await this.parametros.daSessao(sessaoId);
     await this.dataSource.transaction(async (m) => {
       const { lance } = await this.prepararCancelamento(m, sessaoId, itemId, lanceId);
@@ -1499,6 +1806,11 @@ export class DisputaService {
   async pregoeiroCancelarLanceV3(sessaoId: string, itemId: string, lanceId: string, orgaoId: string, justificativa: string): Promise<{ ok: true }> {
     const j = justificativa?.trim();
     if (!j) throw new BadRequestException('Justificativa é obrigatória');
+    if (await this.lotes.ehLote(itemId)) {
+      await this.lotes.pregoeiroCancelar(sessaoId, itemId, lanceId, orgaoId, j);
+      await this.registrarEvento(sessaoId, TipoEvento.LANCE_CANCELADO, `Lance de lote cancelado pelo pregoeiro/órgão. ${j}`, undefined, undefined, 'PREGOEIRO');
+      return { ok: true };
+    }
 
     await this.dataSource.transaction(async (m) => {
       const { sessao, lance } = await this.prepararCancelamento(m, sessaoId, itemId, lanceId);

@@ -54,7 +54,8 @@ export class DisputaV3Service {
 
   async getBoardPregoeiro(sessaoId: string, orgaoId?: string): Promise<DisputaV3Board> {
     const sessao = await this.buscarSessao(sessaoId, orgaoId);
-    const itens = await this.disputaService.getItensPorStatus(sessaoId);
+    // Visão do órgão dono (rota já conferida): contagem de lances fechados, sem valores
+    const itens = await this.disputaService.getItensPorStatus(sessaoId, undefined, { visaoOrgao: true });
     const solicitacoesCancelamento =
       await this.disputaService.listarSolicitacoesCancelamentoPendentesV3(sessaoId);
 

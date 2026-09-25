@@ -426,31 +426,35 @@ describe('Isolamento de dados da licitação (autorização)', () => {
   });
 
   // ==========================================================================
-  // 3. socket /sessao e socket padrão "/" (sessao.gateway.ts, lances.gateway.ts)
+  // 3. salas legadas /sessao e "/" → canal ÚNICO /disputa-v2 (E2 item 8)
+  //    Os casos que miravam o gateway /sessao (removido na E2) passam a mirar o
+  //    gateway único, com as MESMAS afirmações (nenhuma identidade vaza, nenhum
+  //    ato sem papel). Diferença intencional: o anônimo não entra mais na sala
+  //    da sessão do pregão (antes recebia um histórico anonimizado).
   // ==========================================================================
-  describe('3. socket /sessao e "/"', () => {
-    async function entrarSessao(sessaoId: string, participante: string, tipo: 'PREGOEIRO' | 'FORNECEDOR', token?: string) {
-      const s = await conectarSocket(ctx, '/sessao', { token });
-      const hist = aguardarEvento<any[]>(s, 'historico_eventos');
-      s.emit('entrar_sessao', { sessaoId, participante, tipo });
-      return { socket: s, historico: await hist };
-    }
+  describe('3. salas legadas (/sessao e "/") → canal único /disputa-v2', () => {
+    const visitante = { id: 'visitante', nome: 'Visitante', tipo: 'FORNECEDOR' as const };
+
+    it('/sessao removido: o namespace não existe mais (E2)', async () => {
+      await expect(conectarSocket(ctx, '/sessao')).rejects.toThrow(/Invalid namespace/i);
+    });
 
     // CORRIGIDO NA E1a (era vazamento): histórico de eventos entregue a qualquer um traz fornecedor_id real — sessao/sessao.gateway.ts:49-51
-    test('/sessao: entrar_sessao anônimo não recebe ids reais dos licitantes no histórico', async () => {
-      const { socket, historico } = await entrarSessao(X.sessaoId, 'Visitante', 'FORNECEDOR');
-      const achados = [...identidadeNoPayload(historico, F1), ...identidadeNoPayload(historico, F2)];
-      registrar('3 /sessao historico_eventos anônimo (X)', `eventos=${historico?.length} identidade=[${achados}]`);
-      socket.close();
-      expect(historico.length).toBeGreaterThan(0);
+    test('anônimo na sala da sessão não recebe ids reais dos licitantes (recusado no canal único)', async () => {
+      const e = await entrarNaSala(ctx, X.sessaoId, visitante);
+      const achados = [...identidadeNoPayload(e.resposta.payload, F1), ...identidadeNoPayload(e.resposta.payload, F2)];
+      registrar('3 /disputa-v2 entrar_sala anônimo (X)', `${e.resposta.evento} identidade=[${achados}]`);
+      e.socket.close();
+      expect(e.resposta.evento).toBe('acesso_negado');
       expect(achados).toEqual([]);
     });
 
     // CORRIGIDO NA E1a (era vazamento): enviar_lance do /sessao aceita fornecedorId do corpo, sem token nem proposta — sessao/sessao.gateway.ts:183-204
-    test('/sessao: anônimo não dá lance em nome de F1', async () => {
-      const { socket } = await entrarSessao(X.sessaoId, 'Visitante', 'FORNECEDOR');
-      const resp = aguardarUmDe(socket, ['novo_lance', 'erro_lance']);
-      socket.emit('enviar_lance', {
+    test('anônimo não dá lance em nome de F1', async () => {
+      const s = await conectarSocket(ctx, '/disputa-v2');
+      const antes = (await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM lances WHERE licitacao_id = $1`, [X.lic.id]))[0].n;
+      const resp = aguardarUmDe(s, ['lance_confirmado', 'erro']);
+      s.emit('enviar_lance', {
         sessaoId: X.sessaoId,
         itemId: X.lic.itens[1].id,
         fornecedorId: F1.id,
@@ -458,84 +462,75 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         valor: valores.proximo(),
       });
       const r = await resp;
-      registrar('3 /sessao anônimo enviar_lance como F1 (X)', `${r.evento} ${JSON.stringify(r.payload?.mensagem ?? '')}`);
-      socket.close();
-      expect(r.evento).toBe('erro_lance');
+      const depois = (await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM lances WHERE licitacao_id = $1`, [X.lic.id]))[0].n;
+      registrar('3 /disputa-v2 anônimo enviar_lance como F1 (X)', `${r.evento} ${JSON.stringify(r.payload?.mensagem ?? '')} lances ${antes}→${depois}`);
+      s.close();
+      expect(r.evento).toBe('erro');
+      expect(depois).toBe(antes);
     });
 
     // CORRIGIDO NA E1a (era vazamento): novo_lance do /sessao difunde a entidade Lance (fornecedor_identificador real) — sessao/sessao.gateway.ts:207-212
-    // O lance por esta sala foi desativado (E1a): nenhum novo_lance é difundido; se algum chegasse, não pode levar F1.
-    test('/sessao: novo_lance não carrega o id real de outro licitante (lance pela sala /sessao recusado)', async () => {
-      const { socket: vigia } = await entrarSessao(X.sessaoId, F2.razao_social, 'FORNECEDOR', F2.token);
-      const { socket: s1 } = await entrarSessao(X.sessaoId, F1.razao_social, 'FORNECEDOR', F1.token);
-      const evento = recebeEm<any>(vigia, 'novo_lance', 2000);
-      const resp = aguardarUmDe(s1, ['novo_lance', 'erro_lance']);
-      // como a sala do fornecedor faz (fornecedor/sala-disputa/page.tsx)
-      s1.emit('enviar_lance', {
-        sessaoId: X.sessaoId,
-        itemId: X.lic.itens[1].id,
-        fornecedorId: F1.id,
-        fornecedorNome: F1.razao_social,
-        valor: valores.proximo(),
-      });
-      const r = await resp;
+    test('novo_lance de F1 não carrega o id real de F1', async () => {
+      const vigia = await entrarNaSala(ctx, X.sessaoId, { id: F2.id, nome: F2.razao_social, tipo: 'FORNECEDOR', token: F2.token });
+      const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
+      const evento = recebeEm<any>(vigia.socket, 'novo_lance', 3000);
+      const r = await darLanceSala(e1.socket, X.sessaoId, X.lic.itens[0].id, valores.proximo());
       const p: any = await evento;
       const achados = identidadeNoPayload(p, F1);
-      registrar(
-        '3 /sessao novo_lance recebido por F2',
-        `F1 recebeu=${r.evento} vigia=${p ? `chaves=${Object.keys(p)}` : 'nada'} identidadeF1=[${achados}]`,
-      );
-      vigia.close();
-      s1.close();
-      expect(r.evento).toBe('erro_lance');
+      registrar('3 /disputa-v2 novo_lance recebido por F2', `F1 ok=${r.ok} vigia=${p ? `chaves=${Object.keys(p)}` : 'nada'} identidadeF1=[${achados}]`);
+      vigia.socket.close();
+      e1.socket.close();
       expect(achados).toEqual([]);
     });
 
     // CORRIGIDO NA E1a (era vazamento): mensagem_chat aceita isPregoeiro do cliente — sessao/sessao.gateway.ts:360-411
-    test('/sessao: anônimo não fala no chat como pregoeiro', async () => {
-      const { socket: vigia } = await entrarSessao(X.sessaoId, F2.razao_social, 'FORNECEDOR', F2.token);
-      const { socket: anon } = await entrarSessao(X.sessaoId, 'Visitante', 'FORNECEDOR');
-      const evento = recebeEm<any>(vigia, 'nova_mensagem', 2000);
-      anon.emit('mensagem_chat', { sessaoId: X.sessaoId, remetente: 'Pregoeiro', mensagem: 'Sessão encerrada (forjado)', isPregoeiro: true });
+    test('anônimo não fala no chat como pregoeiro', async () => {
+      const vigia = await entrarNaSala(ctx, X.sessaoId, { id: F2.id, nome: F2.razao_social, tipo: 'FORNECEDOR', token: F2.token });
+      const anon = await conectarSocket(ctx, '/disputa-v2');
+      const evento = recebeEm<any>(vigia.socket, 'nova_mensagem', 2000);
+      const resp = aguardarUmDe(anon, ['nova_mensagem', 'erro']);
+      anon.emit('enviar_mensagem', { sessaoId: X.sessaoId, conteudo: 'Sessão encerrada (forjado)', tipo: 'PREGOEIRO', isPregoeiro: true });
+      const r = await resp;
       const p = await evento;
-      registrar('3 /sessao anônimo mensagem_chat isPregoeiro', p ? `vigia recebeu remetente=${p.remetente} isPregoeiro=${p.isPregoeiro}` : 'nada chegou');
-      vigia.close();
+      registrar('3 /disputa-v2 anônimo enviar_mensagem como pregoeiro', `${r.evento} vigia=${p ? `tipo=${p.tipo}` : 'nada'}`);
+      vigia.socket.close();
       anon.close();
-      expect(p?.isPregoeiro === true).toBe(false);
+      expect(r.evento).toBe('erro');
+      expect(p?.tipo === 'PREGOEIRO').toBe(false);
     });
 
     // CORRIGIDO NA E1a (era vazamento): nova_mensagem do /sessao difunde fornecedorId real — sessao/sessao.gateway.ts:405-411
-    test('/sessao: nova_mensagem de F1 não carrega o id real de F1', async () => {
-      const { socket: vigia } = await entrarSessao(X.sessaoId, F2.razao_social, 'FORNECEDOR', F2.token);
-      const { socket: s1 } = await entrarSessao(X.sessaoId, F1.razao_social, 'FORNECEDOR', F1.token);
-      const evento = aguardarEvento<any>(vigia, 'nova_mensagem');
-      s1.emit('mensagem_chat', { sessaoId: X.sessaoId, remetente: F1.razao_social, mensagem: 'Dúvida', isPregoeiro: false, fornecedorId: F1.id });
+    test('nova_mensagem de F1 não carrega o id real de F1', async () => {
+      const vigia = await entrarNaSala(ctx, X.sessaoId, { id: F2.id, nome: F2.razao_social, tipo: 'FORNECEDOR', token: F2.token });
+      const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
+      const evento = aguardarEvento<any>(vigia.socket, 'nova_mensagem');
+      e1.socket.emit('enviar_mensagem', { sessaoId: X.sessaoId, conteudo: 'Dúvida', fornecedorId: F1.id });
       const p = await evento;
       const achados = identidadeNoPayload(p, F1);
-      registrar('3 /sessao nova_mensagem recebida por F2', `remetente=${p?.remetente} identidadeF1=[${achados}]`);
-      vigia.close();
-      s1.close();
+      registrar('3 /disputa-v2 nova_mensagem recebida por F2', `remetente=${p?.remetente} identidadeF1=[${achados}]`);
+      vigia.socket.close();
+      e1.socket.close();
       expect(achados).toEqual([]);
     });
 
     // CORRIGIDO NA E1a (era vazamento): encerrar_item do /sessao sem checagem de pregoeiro — sessao/sessao.gateway.ts:268-283
-    test('/sessao: anônimo não encerra item', async () => {
-      const { socket: anon } = await entrarSessao(W.sessaoId, 'Visitante', 'FORNECEDOR');
+    test('anônimo não encerra item', async () => {
+      const anon = await conectarSocket(ctx, '/disputa-v2');
       const resp = aguardarUmDe(anon, ['item_encerrado', 'erro']);
       anon.emit('encerrar_item', { sessaoId: W.sessaoId, itemId: W.lic.itens[0].id });
       const r = await resp;
-      registrar('3 /sessao anônimo encerrar_item (W)', r.evento);
+      registrar('3 /disputa-v2 anônimo encerrar_item (W)', r.evento);
       anon.close();
       expect(r.evento).toBe('erro');
     });
 
     // CORRIGIDO NA E1a (era vazamento): reiniciar_disputa do /sessao sem checagem de pregoeiro — sessao/sessao.gateway.ts:340-355
-    test('/sessao: anônimo não reinicia a disputa', async () => {
-      const { socket: anon } = await entrarSessao(W.sessaoId, 'Visitante', 'FORNECEDOR');
-      const resp = aguardarUmDe(anon, ['disputa_reiniciada', 'erro']);
-      anon.emit('reiniciar_disputa', { sessaoId: W.sessaoId, motivo: 'forjado' });
+    test('anônimo não reinicia a disputa', async () => {
+      const anon = await conectarSocket(ctx, '/disputa-v2');
+      const resp = aguardarUmDe(anon, ['sessao_reiniciada', 'erro']);
+      anon.emit('reiniciar_sessao', { sessaoId: W.sessaoId, justificativa: 'forjado' });
       const r = await resp;
-      registrar('3 /sessao anônimo reiniciar_disputa (W)', r.evento);
+      registrar('3 /disputa-v2 anônimo reiniciar_sessao (W)', r.evento);
       anon.close();
       expect(r.evento).toBe('erro');
     });
@@ -921,15 +916,17 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(r.body.itens.map((i: any) => i.meu_valor)).toEqual([97, 48]);
     });
 
-    it('socket /dispensa: token inválido é recusado no handshake (E1a)', async () => {
-      await expect(conectarSocket(ctx, '/dispensa', { token: 'token.invalido.x' })).rejects.toThrow(/Token inválido/);
+    // E2 item 8: o feed da dispensa (antigo namespace /dispensa) é a sala pública da licitação no canal único
+    it('socket da dispensa (/disputa-v2): token inválido é recusado no handshake (E1a)', async () => {
+      await expect(conectarSocket(ctx, '/disputa-v2', { token: 'token.invalido.x' })).rejects.toThrow(/Token inválido/);
+      await expect(conectarSocket(ctx, '/dispensa')).rejects.toThrow(/Invalid namespace/i);
     });
 
-    it('socket /dispensa: anônimo, órgão dono e fornecedor com proposta entram; órgão B e fornecedor sem proposta não (E1a)', async () => {
+    it('socket da dispensa (/disputa-v2 entrar_licitacao): anônimo, órgão dono e fornecedor com proposta entram; órgão B e fornecedor sem proposta não (E1a)', async () => {
       const entrar = async (token?: string) => {
-        const s = await conectarSocket(ctx, '/dispensa', { token });
+        const s = await conectarSocket(ctx, '/disputa-v2', { token });
         const r = aguardarUmDe(s, ['sala_ok', 'erro']);
-        s.emit('entrar_sala', { licitacaoId: Y.id });
+        s.emit('entrar_licitacao', { licitacaoId: Y.id });
         const ev = await r;
         s.close();
         return ev.evento;
@@ -942,7 +939,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         orgaoB: await entrar(B.token),
         F3: await entrar(F3.token),
       };
-      registrar('8 socket /dispensa entrar_sala (Y)', JSON.stringify(resultado));
+      registrar('8 socket /disputa-v2 entrar_licitacao (Y)', JSON.stringify(resultado));
       expect(resultado).toEqual({ anonimo: 'sala_ok', orgaoA: 'sala_ok', pregA: 'sala_ok', F1: 'sala_ok', orgaoB: 'erro', F3: 'erro' });
     });
 
@@ -1245,25 +1242,15 @@ describe('Isolamento de dados da licitação (autorização)', () => {
 
     // CORRIGIDO NA E1a (era vazamento): item público traz melhor_lance_fornecedor_id durante a disputa — itens/itens.controller.ts:36-40; sessao/sessao.service.ts:524-528
     test('item público não expõe melhor_lance_fornecedor_id durante a disputa', async () => {
-      // lance legítimo de F1 pela sala /sessao (como fornecedor/sala-disputa/page.tsx)
-      const s1 = await conectarSocket(ctx, '/sessao', { token: F1.token });
-      const hist = aguardarEvento(s1, 'historico_eventos');
-      s1.emit('entrar_sessao', { sessaoId: X.sessaoId, participante: F1.razao_social, tipo: 'FORNECEDOR' });
-      await hist;
-      const resp = aguardarUmDe(s1, ['novo_lance', 'erro_lance']);
-      s1.emit('enviar_lance', {
-        sessaoId: X.sessaoId,
-        itemId: X.lic.itens[1].id,
-        fornecedorId: F1.id,
-        fornecedorNome: F1.razao_social,
-        valor: valores.proximo(),
-      });
-      const lance = await resp;
-      s1.close();
+      // lance legítimo de F1 pelo canal único /disputa-v2 (E2 item 8 — a sala /sessao foi removida)
+      const e1 = await entrarNaSala(ctx, X.sessaoId, { id: F1.id, nome: F1.razao_social, tipo: 'FORNECEDOR', token: F1.token });
+      const r1 = await darLanceSala(e1.socket, X.sessaoId, X.lic.itens[1].id, valores.proximo());
+      const lance = { evento: r1.ok ? 'lance_confirmado' : `erro: ${r1.mensagem}` };
+      e1.socket.close();
       const r = await ctx.http().get(`/api/itens/${X.lic.itens[1].id}`);
       registrar(
         '13 anônimo GET itens/:id melhor lance (X)',
-        `lance /sessao=${lance.evento} status_disputa=${r.body?.status_disputa} melhor_lance_fornecedor_id=${r.body?.melhor_lance_fornecedor_id === F1.id ? 'F1' : r.body?.melhor_lance_fornecedor_id}`,
+        `lance /disputa-v2=${lance.evento} status_disputa=${r.body?.status_disputa} melhor_lance_fornecedor_id=${r.body?.melhor_lance_fornecedor_id === F1.id ? 'F1' : r.body?.melhor_lance_fornecedor_id}`,
       );
       expect(r.body?.melhor_lance_fornecedor_id ?? null).toBeNull();
       expect(identidadeNoPayload(r.body, F1)).toEqual([]);

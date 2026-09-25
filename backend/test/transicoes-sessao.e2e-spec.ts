@@ -334,9 +334,9 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       expect(s.evento).toBe('erro');
       expect(s.payload.mensagem).toMatch(/suspensa/i);
 
-      // sala legada /sessao também recusa
+      // rota legada da sala /sessao: REMOVIDA na E2 (item 8 — canal único); iniciar item é só pelo motor
       const legado = await http().put(`/api/sessao/${sessaoId}/iniciar-item/${item2}`).set(bearer(orgao.token));
-      expect(legado.status).toBe(409);
+      expect(legado.status).toBe(404);
       expect(await itemStatus(item2)).not.toBe('EM_DISPUTA');
     });
 

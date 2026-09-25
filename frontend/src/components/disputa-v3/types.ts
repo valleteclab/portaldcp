@@ -30,6 +30,8 @@ export interface DisputaV3Cronometria {
   faixaClassificacaoPercentual?: number
   usaTempoAleatorioNoModoAberto: boolean
   requerFluxoEspecificoNaV3: boolean
+  /** Fases do modo, na ordem (jornada mostrada na sala). */
+  fases?: string[]
   observacao?: string
 }
 
@@ -42,6 +44,7 @@ export interface DisputaV3Contexto {
     origem: string
   }
   modo: DisputaV3Modo
+  criterioJulgamento?: string | null
   disputaPorItem: boolean
   pregoeiro: {
     id: string | null
@@ -75,8 +78,27 @@ export interface DisputaV3ItemBoard {
   status: 'AGUARDANDO' | 'EM_DISPUTA' | 'ENCERRADO'
   cronometro: {
     tempoRestanteSegundos: number
-    fase: 'ETAPA_ABERTA' | 'PRORROGACAO' | 'ENCERRADO'
+    fase: 'ETAPA_ABERTA' | 'PRORROGACAO' | 'TEMPO_ALEATORIO' | 'LANCE_FECHADO' | 'ENCERRADO'
+    /** Tempo aleatório: o restante é sigiloso (IN 73 art. 24 §1º) — nunca mostrar contagem. */
+    oculto?: boolean
   }
+  /** Modo e fase do item no motor (E2.4). */
+  modoDisputa?: DisputaV3Modo
+  /** AGUARDANDO | ABERTA | ALEATORIO | FECHADA | REINICIO_DEMAIS | ENCERRADA */
+  faseModo?: string
+  /** Etapa fechada: fim do prazo do lance final (ISO). */
+  fimFaseEm?: string | null
+  /** A fase só admite lances dos classificados (fechado-aberto, lance fechado, reinício). */
+  participacaoRestrita?: boolean
+  classificadosFase?: number | null
+  /** Visão do fornecedor: pode dar lance nesta fase. */
+  possoDarLance?: boolean
+  /** Visão do fornecedor: o próprio lance final fechado (sigiloso para os demais). */
+  meuLanceFechado?: number | null
+  /** Visão do órgão: quantos lances fechados chegaram (sem valores até o fim do prazo). */
+  lancesFechadosRecebidos?: number | null
+  /** Reinício para as demais colocações: valor da 1ª colocação (limite). */
+  valorPrimeiraColocacao?: number | null
   melhorLance?: {
     valor: number
     fornecedorId: string
@@ -87,6 +109,21 @@ export interface DisputaV3ItemBoard {
   meuMelhorLance?: number | null
   minhaPosicao?: number | null
   minhaPropostaInicial?: number | null
+  /** Unidade de disputa: LOTE na disputa por lote (base TOTAL_LOTE); ausente = item. */
+  tipoUnidade?: 'ITEM' | 'LOTE'
+  /** LOTE: itens do lote (o valor global do lote vai em valorReferencia e nos lances). */
+  itensDoLote?: Array<{
+    id: string
+    numero: number
+    descricao: string
+    quantidade: number
+    unidade: string
+    valorReferencia: number | null
+    minhaProposta?: { valorUnitario: number | null; valorTotal: number | null }
+  }>
+  /** LOTE, visão do fornecedor: cotou todos os itens do lote (senão não disputa o lote). */
+  elegivel?: boolean
+  itensNaoCotados?: number[]
 }
 
 export interface DisputaV3SolicitacaoCancelamento {

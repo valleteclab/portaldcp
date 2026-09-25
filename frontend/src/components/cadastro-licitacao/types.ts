@@ -217,6 +217,12 @@ export interface Classificacao {
   justificativa_sem_pca?: string
   // Lotes (Lei 14.133/2021, Art. 40, §3º)
   usa_lotes: boolean
+  /**
+   * Unidade da disputa: TOTAL_ITEM (lances por item) ou TOTAL_LOTE (adjudicação
+   * por lote/grupo — lances pelo valor global do lote; o licitante cota todos os
+   * itens do lote e o valor de cada item sai do rateio proporcional do lance).
+   */
+  base_lance?: 'UNITARIO' | 'TOTAL_ITEM' | 'TOTAL_LOTE'
   justificativa_nao_parcelamento?: string
 }
 

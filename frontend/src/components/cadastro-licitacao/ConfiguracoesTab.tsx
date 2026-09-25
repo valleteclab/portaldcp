@@ -127,14 +127,14 @@ export function ConfiguracoesTab({ dados, onChange }: ConfiguracoesTabProps) {
                 <Input 
                   id="intervalo_lances"
                   type="number"
-                  min={1}
+                  min={0}
                   value={dados.intervalo_minimo_lances}
                   onChange={(e) => updateField('intervalo_minimo_lances', parseInt(e.target.value) || 0)}
                 />
                 <span className="text-sm text-muted-foreground">minutos</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Tempo mínimo entre lances do mesmo fornecedor
+                Tempo mínimo entre lances do mesmo fornecedor (0 = sem; não é exigência legal)
               </p>
             </div>
 
@@ -151,7 +151,7 @@ export function ConfiguracoesTab({ dados, onChange }: ConfiguracoesTabProps) {
                 <span className="text-sm text-muted-foreground">minutos</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Tempo adicional após cada lance
+                Lance nos últimos minutos prorroga por este tempo (IN 73 art. 23: 2 min)
               </p>
             </div>
 

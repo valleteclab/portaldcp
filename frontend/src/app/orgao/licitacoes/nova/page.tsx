@@ -327,6 +327,11 @@ export default function NovaLicitacaoPage() {
         tratamento_diferenciado_mpe: classificacao.tratamento_diferenciado_mpe,
         cota_reservada: classificacao.cota_reservada,
         percentual_cota_reservada: classificacao.percentual_cota_reservada,
+        modo_beneficio_mpe: classificacao.modo_beneficio_mpe,
+        tipo_beneficio_mpe: classificacao.tipo_beneficio_mpe,
+        // Lotes (Art. 40 §3º) e disputa por lote (valor global do lote — E2)
+        usa_lotes: classificacao.usa_lotes,
+        base_lance: classificacao.usa_lotes && classificacao.base_lance === 'TOTAL_LOTE' ? 'TOTAL_LOTE' : 'TOTAL_ITEM',
         valor_total_estimado: calcularValorTotal(),
         data_publicacao_edital: cronograma.data_publicacao_edital || null,
         data_limite_impugnacao: cronograma.data_limite_impugnacao || null,
@@ -374,6 +379,8 @@ export default function NovaLicitacaoPage() {
               quantidade: item.quantidade,
               unidade_medida: item.unidade || 'UNIDADE', // Campo correto do backend
               valor_unitario_estimado: item.valor_unitario,
+              // Lote do item (ligado ao lote pelo número ao salvar os lotes abaixo)
+              numero_lote: classificacao.usa_lotes ? item.lote_numero : undefined,
               // Dados do Catálogo de Compras (compras.gov.br)
               codigo_catalogo: item.codigo_catalogo,
               codigo_catmat: item.codigo_catmat,
@@ -385,6 +392,18 @@ export default function NovaLicitacaoPage() {
               nome_grupo: item.nome_grupo,
             }),
           })
+        }
+      }
+
+      // Salvar lotes: o backend cria os lotes e liga cada item pelo número do lote
+      if (classificacao.usa_lotes && lotes.length > 0) {
+        const resLotes = await authFetch(`${API_URL}/api/licitacoes/${licitacao.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ lotes }),
+        })
+        if (!resLotes.ok) {
+          const errorData = await resLotes.json().catch(() => ({}))
+          throw new Error(errorData.message || 'Licitação criada, mas houve erro ao salvar os lotes')
         }
       }
 

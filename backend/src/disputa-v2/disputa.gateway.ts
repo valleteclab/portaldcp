@@ -18,6 +18,9 @@ import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.
 import { ehFornecedor } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { idAnonimo } from './sigilo-disputa.service';
+import { DesconexaoPregoeiroService } from './desconexao-pregoeiro.service';
+import { OrigemLance } from './modelo-lance';
+import { ModoDisputaService } from './modo-disputa.service';
 
 /**
  * ============================================================================
@@ -26,6 +29,11 @@ import { idAnonimo } from './sigilo-disputa.service';
  *
  * WebSocket Gateway para comunicação em tempo real da Sala de Disputa
  * Baseado no modelo do Comprasnet
+ *
+ * CANAL ÚNICO (plano E2 item 8): absorveu os gateways `/dispensa` (feed da
+ * licitação: `entrar_licitacao`, `painel_atualizado`, `chat`, `janela`) e
+ * `/sessao` (chat on/off: `definir_chat`; os demais atos já eram do motor).
+ * O namespace continua `/disputa-v2` para não quebrar clientes (renomear é E8).
  *
  * AUTORIZAÇÃO (E1a):
  *  - handshake autenticado (WsAutenticador): token inválido recusa a conexão;
@@ -55,6 +63,15 @@ interface ClienteConectado {
 /** Sala só do órgão dono (eventos com dados que não são públicos). */
 export const salaOrgao = (sessaoId: string) => `sessao:${sessaoId}:orgao`;
 
+/**
+ * Sala PÚBLICA da licitação (feed anônimo — hoje: painel da janela de lances
+ * da dispensa). Entram anônimo, órgão dono/admin e fornecedor com proposta
+ * válida; logado sem relação é recusado. Só recebe dados públicos.
+ */
+export const salaLicitacao = (licitacaoId: string) => `licitacao:${licitacaoId}`;
+/** Sala do órgão dono dentro do feed da licitação. */
+export const salaLicitacaoOrgao = (licitacaoId: string) => `licitacao:${licitacaoId}:orgao`;
+
 @WebSocketGateway({
   namespace: '/disputa-v2',
   cors: {
@@ -74,10 +91,14 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     private readonly wsAuth: WsAutenticador,
     private readonly acesso: AcessoLicitacaoService,
     private readonly sigilo: SigiloDisputaService,
+    private readonly desconexao: DesconexaoPregoeiroService,
+    private readonly modos: ModoDisputaService,
   ) {}
 
   afterInit(server: Namespace) {
     this.wsAuth.instalar(server);
+    // Desconexão do agente (IN 73 art. 27): o verificador difunde a suspensão pela sala
+    this.desconexao.definirEmissor((sala, evento, payload) => this.server?.to(sala).emit(evento, payload));
   }
 
   // ============================================================================
@@ -90,6 +111,9 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
 
   handleDisconnect(client: Socket) {
     console.log(`[Disputa-v2] Cliente desconectado: ${client.id}`);
+    const info = this.clientes.get(client.id);
+    // Pregoeiro sem socket na sala: começa a contar a desconexão (IN 73 art. 27)
+    if (info?.tipo === 'PREGOEIRO') this.desconexao.pregoeiroSaiu(info.sessaoId, client.id);
     this.clientes.delete(client.id);
   }
 
@@ -195,10 +219,24 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
    * não pode transformar um lance válido em "erro" para o fornecedor (7b).
    */
   async difundirNovoLance(sessaoId: string, licitacaoId: string, lance: Lance): Promise<void> {
+    // Lance final fechado (IN 73 art. 24 §2º): sigiloso até o fim do prazo — ninguém recebe
+    // o valor; o órgão dono recebe só a CONTAGEM (o autor já recebeu 'lance_confirmado').
+    if (lance.origem === OrigemLance.LANCE_FECHADO) {
+      try {
+        const unidade = lance.lote_id ?? lance.item_id;
+        const total = await this.modos.contarLancesFechados(unidade);
+        this.server?.to(salaOrgao(sessaoId)).emit('lance_fechado_recebido', { itemId: unidade, total });
+      } catch (e: any) {
+        this.logger.warn(`Contagem de lances fechados não difundida: ${e?.message ?? e}`);
+      }
+      return;
+    }
+    // Unidade de disputa: o lance do LOTE tem `item_id` nulo e `lote_id` (unidade-disputa.ts)
+    const unidadeId = lance.lote_id ?? lance.item_id;
     try {
       const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, lance.fornecedor_id);
       const aplicar = await this.sigilo.aplicador(licitacaoId, sessaoId);
-      const lancesPublicos = await this.disputaService.getTodosLances(lance.item_id, sessaoId);
+      const lancesPublicos = await this.disputaService.getTodosLances(unidadeId, sessaoId);
       const clientesNaSala = await this.server.in(`sessao:${sessaoId}`).fetchSockets();
       for (const socketCliente of clientesNaSala) {
         try {
@@ -210,13 +248,13 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
             { visaoOrgao: orgao },
           );
           const lances = orgao
-            ? await this.disputaService.getTodosLances(lance.item_id, sessaoId, { visaoOrgao: true })
+            ? await this.disputaService.getTodosLances(unidadeId, sessaoId, { visaoOrgao: true })
             : lancesPublicos;
           socketCliente.emit(
             'novo_lance',
             aplicar(
               {
-                itemId: lance.item_id,
+                itemId: unidadeId,
                 lance: {
                   id: lance.id,
                   valor: Number(lance.valor),
@@ -312,6 +350,8 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
 
       client.join(`sessao:${sessaoId}`);
       if (tipo === 'PREGOEIRO') client.join(salaOrgao(sessaoId));
+      if (anterior?.tipo === 'PREGOEIRO' && anterior.sessaoId !== sessaoId) this.desconexao.pregoeiroSaiu(anterior.sessaoId, client.id);
+      if (tipo === 'PREGOEIRO') this.desconexao.pregoeiroEntrou(sessaoId, client.id);
 
       console.log(`[Disputa-v2] ${tipo} entrou na sessão ${sessaoId}`);
 
@@ -336,8 +376,76 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   }
 
   // ============================================================================
+  // FEED PÚBLICO DA LICITAÇÃO (dispensa — absorve o antigo gateway /dispensa)
+  // ============================================================================
+
+  /**
+   * Entra no feed da licitação (somente leitura). Regras (E1a): anônimo entra
+   * (o painel da dispensa é público e anônimo); logado precisa ter relação
+   * com a licitação (órgão dono/admin ou fornecedor com proposta válida) —
+   * senão 'erro'. O órgão dono entra também na sala própria.
+   */
+  @SubscribeMessage('entrar_licitacao')
+  async handleEntrarLicitacao(@ConnectedSocket() client: Socket, @MessageBody() data: { licitacaoId: string }) {
+    const licitacaoId = data?.licitacaoId;
+    if (!ehUuid(licitacaoId)) {
+      client.emit('erro', { mensagem: 'Licitação inválida' });
+      return;
+    }
+    const ator = atorDoSocket(client);
+    let relacao: string | null = null;
+    if (ator) {
+      relacao = await this.acesso.relacaoComLicitacao(ator, licitacaoId);
+      if (!relacao) {
+        client.emit('erro', { mensagem: 'Acesso negado a esta sala' });
+        return;
+      }
+    } else if (!(await this.acesso.orgaoDaLicitacao(licitacaoId))) {
+      client.emit('erro', { mensagem: 'Licitação inválida' });
+      return;
+    }
+    client.join(salaLicitacao(licitacaoId));
+    if (relacao === 'ORGAO_DONO' || relacao === 'ADMIN') client.join(salaLicitacaoOrgao(licitacaoId));
+    client.emit('sala_ok', { licitacaoId, server_time: new Date().toISOString() });
+  }
+
+  /** Dispensa: novo lance aceito → menor valor do item (anônimo). */
+  emitirPainelDispensa(licitacaoId: string, item: { item_licitacao_id: string; menor_valor: number | null; total_lances: number }) {
+    this.server?.to(salaLicitacao(licitacaoId)).emit('painel_atualizado', { ...item, server_time: new Date().toISOString() });
+  }
+
+  /** Dispensa: mensagem de chat (já na forma pública — anônima durante a janela). */
+  emitirChatDispensa(licitacaoId: string, mensagem: Record<string, any>) {
+    this.server?.to(salaLicitacao(licitacaoId)).emit('chat', mensagem);
+  }
+
+  /** Dispensa: janela aberta / prorrogada / encerrada. */
+  emitirJanelaDispensa(
+    licitacaoId: string,
+    janela: { dispensa_lances_inicio: Date | null; dispensa_lances_fim: Date | null; aberta: boolean },
+  ) {
+    this.server?.to(salaLicitacao(licitacaoId)).emit('janela', { ...janela, server_time: new Date().toISOString() });
+  }
+
+  // ============================================================================
   // AÇÕES DO PREGOEIRO
   // ============================================================================
+
+  /** Liga/desliga o chat dos licitantes (antigo `toggle_chat` da sala /sessao). */
+  @SubscribeMessage('definir_chat')
+  async handleDefinirChat(@ConnectedSocket() client: Socket, @MessageBody() data: { sessaoId: string; habilitado: boolean }) {
+    const info = this.pregoeiroDaSessao(client, data?.sessaoId, 'habilitar/desabilitar o chat');
+    if (!info) return;
+    try {
+      await this.disputaService.definirChat(data.sessaoId, !!data.habilitado);
+      this.server.to(`sessao:${data.sessaoId}`).emit('chat_status', {
+        habilitado: !!data.habilitado,
+        mensagem: data.habilitado ? 'Chat habilitado pelo pregoeiro' : 'Chat desabilitado pelo pregoeiro',
+      });
+    } catch (error) {
+      client.emit('erro', { mensagem: error.message });
+    }
+  }
 
   @SubscribeMessage('iniciar_itens')
   async handleIniciarItens(
@@ -508,7 +616,9 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     @ConnectedSocket() client: Socket,
     @MessageBody() data: {
       sessaoId: string;
+      /** Id da unidade de disputa: item, ou lote na disputa por lote. */
       itemId: string;
+      loteId?: string;
       valor: number;
     },
   ) {
@@ -526,7 +636,8 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     try {
       lance = await this.disputaService.registrarLance({
         sessaoId: data.sessaoId,
-        itemId: data.itemId,
+        itemId: data.loteId ?? data.itemId,
+        loteId: data.loteId,
         fornecedorId: info.usuarioId,
         valor: Number(data.valor),
         ip: client.handshake.address,
@@ -538,7 +649,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     }
 
     // Gravado: confirma ANTES de difundir — nada depois disto vira "erro" (simulador 7b)
-    client.emit('lance_confirmado', { itemId: data.itemId, lanceId: lance.id, valor: Number(lance.valor) });
+    client.emit('lance_confirmado', { itemId: data.loteId ?? data.itemId, lanceId: lance.id, valor: Number(lance.valor) });
     await this.difundirNovoLance(data.sessaoId, info.licitacaoId, lance);
   }
 
@@ -563,7 +674,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     }
 
     try {
-      const dono = await this.acesso.donoDoItem(data?.itemId);
+      const dono = await this.acesso.donoDaUnidade(data?.itemId);
       if (!dono || dono.licitacaoId !== info.licitacaoId) {
         client.emit('erro', { mensagem: 'Item não pertence a esta sessão' });
         return;

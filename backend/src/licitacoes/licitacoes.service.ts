@@ -13,15 +13,14 @@ import {
 import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dto';
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item-licitacao.entity';
-import { DispensaLance } from './entities/dispensa-lance.entity';
-import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
-import { DispensaGateway } from './dispensa.gateway';
-import { gerarAtaDispensaPdf } from './ata-dispensa-pdf';
+import { gerarAtaDispensaPdf, DadosAtaDispensa } from './ata-dispensa-pdf';
+import { JanelaDispensaService } from '../disputa-v2/janela-dispensa.service';
 import { PncpService } from '../pncp/pncp.service';
 import { FaseInternaService } from '../fase-interna/fase-interna.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
+import { normalizarBeneficioMpeLote } from '../lotes/lotes.service';
 import { Demanda, StatusDemanda } from '../demandas/entities/demanda.entity';
 import { ContratosService } from '../contratos/contratos.service';
 import { FASES_PUBLICAS, licitacaoParaPublico } from './licitacao-visao.util';
@@ -30,6 +29,7 @@ import { AtoLicitacao, AtorTransicao, atorSistema } from './transicoes/transicoe
 import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
 import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
 import { ROTULO_FASE } from './transicoes/fases';
+import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -58,11 +58,8 @@ export class LicitacoesService {
     private readonly loteRepository: Repository<LoteLicitacao>,
     @InjectRepository(Demanda)
     private readonly demandaRepository: Repository<Demanda>,
-    @InjectRepository(DispensaLance)
-    private readonly dispensaLanceRepository: Repository<DispensaLance>,
-    @InjectRepository(DispensaMensagem)
-    private readonly dispensaMensagemRepository: Repository<DispensaMensagem>,
-    private readonly dispensaGateway: DispensaGateway,
+    // Sala da dispensa (janela de lances, chat, tempo real) = motor único (E2 item 7)
+    private readonly janelaDispensa: JanelaDispensaService,
     @Inject(forwardRef(() => ContratosService))
     private readonly contratosService: ContratosService,
     @InjectDataSource()
@@ -105,6 +102,9 @@ export class LicitacoesService {
 
   // === CRUD ===
   async create(createDto: CreateLicitacaoDto, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
+    // Modo de disputa × critério de julgamento (Lei 14.133 art. 56 §§1º e 2º)
+    const vedacao = motivoModoCriterioInvalido(createDto.modo_disputa, createDto.criterio_julgamento);
+    if (vedacao) throw new BadRequestException(vedacao);
     const existing = await this.licitacaoRepository.findOne({
       where: { numero_processo: createDto.numero_processo },
     });
@@ -283,6 +283,10 @@ export class LicitacoesService {
       0,
     );
 
+    // Modo (padrão ABERTO) × critério — Lei 14.133 art. 56 §§1º e 2º
+    const vedacaoModo = motivoModoCriterioInvalido(undefined, dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO);
+    if (vedacaoModo) throw new BadRequestException(vedacaoModo);
+
     // 6. Cria e salva a Licitacao
     const licitacao = this.licitacaoRepository.create({
       orgao_id: demanda.orgao_id,
@@ -454,6 +458,12 @@ export class LicitacoesService {
     }
 
     // Atualizar dados da licitação
+    // Modo de disputa × critério (Lei 14.133 art. 56 §§1º e 2º) — combinação FINAL
+    const vedacaoModo = motivoModoCriterioInvalido(
+      dadosLicitacao.modo_disputa ?? licitacao.modo_disputa,
+      dadosLicitacao.criterio_julgamento ?? licitacao.criterio_julgamento,
+    );
+    if (vedacaoModo) throw new BadRequestException(vedacaoModo);
     Object.assign(licitacao, dadosLicitacao);
     await this.licitacaoRepository.save(licitacao);
 
@@ -579,23 +589,10 @@ export class LicitacoesService {
       }
     }
 
-    // Salvar lotes se fornecidos
+    // Salvar lotes se fornecidos (upsert por id/número + vínculo dos itens pelo
+    // número do lote — antes, apagar e recriar os lotes soltava os itens: E2)
     if (lotes && Array.isArray(lotes)) {
-      // Remover lotes antigos
-      await this.loteRepository.delete({ licitacao_id: id });
-      
-      // Criar novos lotes
-      for (const lote of lotes) {
-        // Extrair itens do lote (não deve ser salvo diretamente na entidade)
-        const { itens: itensDoLote, item_pca, ...dadosLote } = lote;
-        
-        const novoLote = this.loteRepository.create({
-          ...dadosLote,
-          licitacao_id: id,
-          id: undefined,
-        });
-        await this.loteRepository.save(novoLote);
-      }
+      await this.salvarLotesDaEdicao(id, lotes);
     }
 
     // Retornar licitação atualizada com itens
@@ -604,6 +601,69 @@ export class LicitacoesService {
       relations: ['itens', 'lotes']
     });
     return result!;
+  }
+
+  /**
+   * Lotes enviados pela edição da licitação (wizard): o frontend identifica o
+   * lote pelo NÚMERO (ids temporários) e o item aponta para o lote pelo
+   * `numero_lote`. Upsert por id (se for de um lote desta licitação) ou por
+   * número; lotes que saíram da lista são apagados; depois cada item é ligado
+   * ao lote do seu `numero_lote` (um item pertence a no máximo um lote — é
+   * uma coluna só). Campos de sistema (estado da disputa, totais) não vêm do
+   * corpo; o benefício ME/EPP do lote é normalizado (tipo_beneficio_mpe).
+   */
+  private async salvarLotesDaEdicao(licitacaoId: string, lotes: any[]): Promise<void> {
+    const existentes = await this.loteRepository.find({ where: { licitacao_id: licitacaoId } });
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const numeros = new Set<number>();
+    const mantidos = new Set<string>();
+    for (const l of lotes) {
+      const numero = Number(l?.numero);
+      if (!Number.isInteger(numero) || numero < 1) throw new BadRequestException('Lote sem número válido');
+      if (numeros.has(numero)) throw new BadRequestException(`Número de lote repetido: ${numero}`);
+      numeros.add(numero);
+      const dados: Record<string, any> = {
+        numero,
+        descricao: String(l.descricao ?? '').trim() || `Lote ${numero}`,
+        item_pca_id: typeof l.item_pca_id === 'string' && uuid.test(l.item_pca_id) ? l.item_pca_id : null,
+        sem_pca: !!l.sem_pca,
+        justificativa_sem_pca: l.justificativa_sem_pca ?? null,
+        criterio_julgamento: l.criterio_julgamento ?? null,
+        observacoes: l.observacoes ?? null,
+        ...normalizarBeneficioMpeLote(l),
+      };
+      const atual =
+        (typeof l.id === 'string' && uuid.test(l.id) ? existentes.find((e) => e.id === l.id) : undefined) ??
+        existentes.find((e) => e.numero === numero && !mantidos.has(e.id));
+      if (atual) {
+        await this.loteRepository.update(atual.id, dados);
+        mantidos.add(atual.id);
+      } else {
+        const novo = await this.loteRepository.save(this.loteRepository.create({ ...dados, licitacao_id: licitacaoId } as any));
+        mantidos.add((novo as any).id);
+      }
+    }
+    const remover = existentes.filter((e) => !mantidos.has(e.id)).map((e) => e.id);
+    if (remover.length) await this.loteRepository.delete(remover);
+
+    // Itens ↔ lotes pelo número do lote (item com número de lote inexistente
+    // fica solto; item sem número de lote mantém o vínculo que tinha)
+    const atuais = await this.loteRepository.find({ where: { licitacao_id: licitacaoId } });
+    await this.itemRepository
+      .createQueryBuilder()
+      .update()
+      .set({ lote_id: null as any })
+      .where('licitacao_id = :licitacaoId AND numero_lote IS NOT NULL', { licitacaoId })
+      .andWhere(atuais.length ? 'numero_lote NOT IN (:...numeros)' : '1=1', { numeros: atuais.map((l) => l.numero) })
+      .execute();
+    for (const lote of atuais) {
+      await this.itemRepository.update({ licitacao_id: licitacaoId, numero_lote: lote.numero }, { lote_id: lote.id });
+      const itens = await this.itemRepository.find({ where: { lote_id: lote.id }, select: ['id', 'valor_total_estimado'] });
+      await this.loteRepository.update(lote.id, {
+        quantidade_itens: itens.length,
+        valor_total_estimado: itens.reduce((acc, i) => acc + (Number(i.valor_total_estimado) || 0), 0),
+      });
+    }
   }
 
   // === GESTÃO DE FASES (E1: atos nomeados do TransicoesService) ===
@@ -1151,9 +1211,8 @@ export class LicitacoesService {
 
     // Fase de lances: o valor final de cada fornecedor no item é o MENOR entre
     // a proposta inicial e os seus próprios lances (modelo IN SEGES 67/2021).
-    const lances = await this.dispensaLanceRepository.find({
-      where: { licitacao_id: id },
-    });
+    // Lances da janela: tabela única do motor (origem JANELA_DISPENSA, valor unitário)
+    const lances = await this.janelaDispensa.lancesDaJanela(id);
     const dadosFornecedor = new Map<string, { proposta_id: string; razao_social: string }>();
     for (const l of linhas) {
       if (!dadosFornecedor.has(l.fornecedor_id)) {
@@ -1266,7 +1325,9 @@ export class LicitacoesService {
 
   /**
    * Abre a fase de LANCES da dispensa (opcional — modelo IN SEGES 67/2021).
-   * Só após o fim do acolhimento de propostas; duração parametrizada em minutos.
+   * Camada de PROCESSO aqui (modalidade, situação, homologação, fim do
+   * acolhimento); a janela em si é do motor único (JanelaDispensaService:
+   * sala, relógio, chat, tempo real no gateway /disputa-v2).
    */
   async abrirLancesDispensa(
     id: string,
@@ -1287,178 +1348,43 @@ export class LicitacoesService {
         'A fase de lances só pode ser aberta após o fim do recebimento de propostas',
       );
     }
-    if (
-      licitacao.dispensa_lances_fim &&
-      new Date() < new Date(licitacao.dispensa_lances_fim)
-    ) {
-      throw new BadRequestException('Já existe uma fase de lances aberta');
-    }
-    const duracao = Math.max(5, Math.min(24 * 60, Number(duracaoMinutos) || 360));
-    // Prorrogação automática OPCIONAL (0 = encerramento seco, padrão IN 67)
-    const prorrogacao = Math.max(0, Math.min(60, Number(prorrogacaoMinutos ?? 0)));
-    licitacao.dispensa_lances_inicio = new Date();
-    licitacao.dispensa_lances_fim = new Date(Date.now() + duracao * 60_000);
-    licitacao.dispensa_lances_prorrogacao_min = prorrogacao || null;
-    await this.licitacaoRepository.save(licitacao);
-    this.dispensaGateway.emitirJanela(id, {
-      dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
-      dispensa_lances_fim: licitacao.dispensa_lances_fim,
-    });
-    // Regra da sessão registrada nos autos (chat entra na ata)
-    try {
-      const fimStr = licitacao.dispensa_lances_fim.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-      await this.dispensaMensagemRepository.save(
-        this.dispensaMensagemRepository.create({
-          licitacao_id: id,
-          autor_tipo: 'ORGAO',
-          fornecedor_id: null,
-          autor_nome: 'Sistema',
-          mensagem: prorrogacao
-            ? `Fase de lances aberta até ${fimStr} (horário de Brasília). Regra da sessão: lance recebido nos últimos ${prorrogacao} min prorroga automaticamente a janela por mais ${prorrogacao} min, sucessivamente, até não haver novos lances.`
-            : `Fase de lances aberta até ${fimStr} (horário de Brasília). Encerramento no horário previsto, sem prorrogação automática (modelo IN SEGES 67/2021).`,
-        }),
-      );
-    } catch { /* registro é best-effort */ }
-    this.logger.log(
-      `Dispensa ${licitacao.numero_processo}: fase de lances aberta por ${duracao}min (até ${licitacao.dispensa_lances_fim.toISOString()}, prorrogação=${prorrogacao || 'sem'})`,
-    );
-    return {
-      dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
-      dispensa_lances_fim: licitacao.dispensa_lances_fim,
-      duracao_minutos: duracao,
-      prorrogacao_minutos: prorrogacao || null,
-    };
+    return this.janelaDispensa.abrir(id, duracaoMinutos, prorrogacaoMinutos);
   }
 
   /**
-   * Registra um lance do fornecedor na dispensa: precisa ter proposta válida,
-   * a janela precisa estar aberta e o valor deve ser MENOR que o último valor
-   * do próprio fornecedor no item (proposta inicial ou lance anterior).
+   * Lance do fornecedor na dispensa — pelo MOTOR ÚNICO (registrarLance, origem
+   * JANELA_DISPENSA): proposta válida, janela aberta pelo relógio único, valor
+   * MENOR que o próprio valor atual (proposta ou lance anterior), trava no
+   * item e prorrogação da janela na mesma transação. Fornecedor = o do token.
    */
   async registrarLanceDispensa(
     id: string,
     dto: { item_licitacao_id: string; fornecedor_id: string; valor_unitario: number },
   ): Promise<any> {
     const licitacao = await this.findOne(id);
+    if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+      throw new BadRequestException('Fase de lances disponível apenas para Dispensa Eletrônica');
+    }
     this.exigirAtiva(licitacao, 'registrar lance');
-    if (
-      !licitacao.dispensa_lances_fim ||
-      new Date() >= new Date(licitacao.dispensa_lances_fim)
-    ) {
-      throw new BadRequestException('A fase de lances não está aberta');
-    }
-    const valor = Number(dto.valor_unitario);
-    if (!(valor > 0)) throw new BadRequestException('Valor de lance inválido');
-
-    // Proposta válida do fornecedor com o item
-    const proposta = await this.dataSource.query(
-      `SELECT p.id, pi.valor_unitario
-       FROM propostas p
-       JOIN proposta_itens pi ON pi.proposta_id = p.id AND pi.item_licitacao_id = $2
-       WHERE p.licitacao_id = $1 AND p.fornecedor_id = $3
-         AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
-       LIMIT 1`,
-      [id, dto.item_licitacao_id, dto.fornecedor_id],
-    );
-    if (!proposta.length) {
-      throw new BadRequestException(
-        'Apenas fornecedores com proposta válida para o item podem dar lances',
-      );
-    }
-
-    // Último valor do próprio fornecedor no item (proposta ∪ lances)
-    const meusLances = await this.dispensaLanceRepository.find({
-      where: {
-        licitacao_id: id,
-        item_licitacao_id: dto.item_licitacao_id,
-        fornecedor_id: dto.fornecedor_id,
-      },
+    return this.janelaDispensa.registrarLance(id, {
+      itemId: dto.item_licitacao_id,
+      fornecedorId: dto.fornecedor_id,
+      valorUnitario: Number(dto.valor_unitario),
     });
-    const meuMenor = Math.min(
-      Number(proposta[0].valor_unitario),
-      ...meusLances.map((l) => Number(l.valor_unitario)),
-    );
-    if (valor >= meuMenor) {
-      throw new BadRequestException(
-        `O lance deve ser menor que o seu valor atual (${meuMenor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`,
-      );
-    }
-
-    const lance = this.dispensaLanceRepository.create({
-      licitacao_id: id,
-      item_licitacao_id: dto.item_licitacao_id,
-      fornecedor_id: dto.fornecedor_id,
-      valor_unitario: valor,
-    });
-    await this.dispensaLanceRepository.save(lance);
-
-    // Prorrogação automática (regra da sessão, anunciada na abertura): lance
-    // nos últimos N minutos empurra o fim para +N minutos, sucessivamente.
-    let novoFim: Date | null = null;
-    const prorrogacaoMin = Number(licitacao.dispensa_lances_prorrogacao_min || 0);
-    if (
-      prorrogacaoMin > 0 &&
-      new Date(licitacao.dispensa_lances_fim).getTime() - Date.now() <= prorrogacaoMin * 60_000
-    ) {
-      novoFim = new Date(Date.now() + prorrogacaoMin * 60_000);
-      await this.licitacaoRepository.update(id, { dispensa_lances_fim: novoFim });
-      this.dispensaGateway.emitirJanela(id, {
-        dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
-        dispensa_lances_fim: novoFim,
-      });
-      try {
-        const msg = await this.dispensaMensagemRepository.save(
-          this.dispensaMensagemRepository.create({
-            licitacao_id: id,
-            autor_tipo: 'ORGAO',
-            fornecedor_id: null,
-            autor_nome: 'Sistema',
-            mensagem: `⏱ Janela prorrogada automaticamente até ${novoFim.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} — lance recebido nos últimos ${prorrogacaoMin} min (regra da sessão).`,
-          }),
-        );
-        this.dispensaGateway.emitirMensagem(id, msg);
-      } catch { /* registro é best-effort */ }
-      this.logger.log(
-        `Dispensa ${licitacao.numero_processo}: janela de lances prorrogada até ${novoFim.toISOString()}`,
-      );
-    }
-
-    // Push em tempo real: novo menor valor do item (anônimo) para a sala
-    try {
-      const [agregado] = await this.dataSource.query(
-        `SELECT MIN(x.valor) AS menor, COUNT(*) FILTER (WHERE x.origem='LANCE') AS n_lances
-         FROM (
-           SELECT pi.valor_unitario AS valor, 'PROPOSTA' AS origem
-           FROM proposta_itens pi JOIN propostas p ON p.id = pi.proposta_id
-           WHERE p.licitacao_id = $1 AND pi.item_licitacao_id = $2
-             AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
-           UNION ALL
-           SELECT dl.valor_unitario, 'LANCE'
-           FROM dispensa_lances dl WHERE dl.licitacao_id = $1 AND dl.item_licitacao_id = $2
-         ) x`,
-        [id, dto.item_licitacao_id],
-      );
-      this.dispensaGateway.emitirPainelItem(id, {
-        item_licitacao_id: dto.item_licitacao_id,
-        menor_valor: agregado?.menor != null ? Number(agregado.menor) : null,
-        total_lances: Number(agregado?.n_lances || 0),
-      });
-    } catch { /* push é best-effort; o polling cobre */ }
-
-    return {
-      ok: true,
-      valor_unitario: valor,
-      seu_valor_anterior: meuMenor,
-      ...(novoFim ? { dispensa_lances_fim: novoFim, prorrogada: true } : {}),
-    };
   }
 
   /**
    * ATA DA SESSÃO da dispensa em PDF — gerada automaticamente dos registros
    * (propostas, lances com autoria, chat e resultado). Disponível após o
-   * julgamento (antes disso os dados são sigilosos/incompletos).
+   * julgamento (antes disso os dados são sigilosos/incompletos). Lances e chat
+   * vêm do armazenamento único do motor (tabela `lances`, eventos da sala).
    */
   async gerarAtaDispensa(id: string): Promise<Buffer> {
+    return gerarAtaDispensaPdf(await this.dadosAtaDispensa(id));
+  }
+
+  /** Dados da ata da dispensa (o PDF é função pura deles). */
+  async dadosAtaDispensa(id: string): Promise<DadosAtaDispensa> {
     const licitacao = await this.findOne(id);
     if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
       throw new BadRequestException('Ata de dispensa disponível apenas para Dispensa Eletrônica');
@@ -1473,7 +1399,7 @@ export class LicitacoesService {
       throw new BadRequestException('A ata fica disponível após o julgamento das propostas');
     }
 
-    const [orgaoRow, propostas, lances, mensagens] = await Promise.all([
+    const [orgaoRow, propostas, sala] = await Promise.all([
       this.dataSource.query(`SELECT nome FROM orgaos WHERE id = $1`, [licitacao.orgao_id]),
       this.dataSource.query(
         `SELECT f.razao_social, f.cpf_cnpj, p.valor_total_proposta, p.status,
@@ -1483,67 +1409,26 @@ export class LicitacoesService {
          ORDER BY p.valor_total_proposta ASC NULLS LAST`,
         [id],
       ),
-      this.dataSource.query(
-        `SELECT dl.created_at, il.numero_item, f.razao_social, dl.valor_unitario
-         FROM dispensa_lances dl
-         JOIN itens_licitacao il ON il.id = dl.item_licitacao_id
-         JOIN fornecedores f ON f.id = dl.fornecedor_id
-         WHERE dl.licitacao_id = $1
-         ORDER BY dl.created_at ASC`,
-        [id],
-      ),
-      this.dataSource.query(
-        `SELECT created_at, autor_tipo, autor_nome, mensagem
-         FROM dispensa_mensagens WHERE licitacao_id = $1 ORDER BY created_at ASC`,
-        [id],
-      ),
+      this.janelaDispensa.dadosAta(id),
     ]);
 
-    return gerarAtaDispensaPdf({
+    return {
       orgao_nome: orgaoRow?.[0]?.nome || 'Órgão',
       licitacao,
       itens,
       propostas,
-      lances,
-      mensagens,
-    });
+      lances: sala.lances,
+      mensagens: sala.mensagens,
+    };
   }
 
   /** Chat da dispensa — lista pública (autoria do fornecedor anônima durante os lances). */
   async listarMensagensDispensa(id: string): Promise<any[]> {
-    const licitacao = await this.findOne(id);
-    const lancesAbertos = !!(
-      licitacao.dispensa_lances_fim &&
-      new Date() < new Date(licitacao.dispensa_lances_fim)
-    );
-    const msgs = await this.dispensaMensagemRepository.find({
-      where: { licitacao_id: id },
-      order: { created_at: 'ASC' },
-      take: 500,
-    });
-    // Anonimiza fornecedores enquanto a janela de lances está aberta
-    const apelidos = new Map<string, string>();
-    let n = 0;
-    for (const m of msgs) {
-      if (m.autor_tipo === 'FORNECEDOR' && m.fornecedor_id && !apelidos.has(m.fornecedor_id)) {
-        n += 1;
-        apelidos.set(m.fornecedor_id, `Fornecedor ${n}`);
-      }
-    }
-    return msgs.map((m) => ({
-      id: m.id,
-      autor_tipo: m.autor_tipo,
-      autor_nome:
-        m.autor_tipo === 'FORNECEDOR' && lancesAbertos
-          ? apelidos.get(m.fornecedor_id || '') || 'Fornecedor'
-          : m.autor_nome,
-      fornecedor_id: lancesAbertos ? undefined : m.fornecedor_id,
-      mensagem: m.mensagem,
-      created_at: m.created_at,
-    }));
+    await this.findOne(id);
+    return this.janelaDispensa.listarMensagens(id);
   }
 
-  /** Chat da dispensa — envio (órgão ou fornecedor com proposta válida). Registrado nos autos. */
+  /** Chat da dispensa — envio (órgão ou fornecedor com proposta válida). Registrado nos autos (chat único da sala). */
   async enviarMensagemDispensa(
     id: string,
     dto: {
@@ -1553,134 +1438,19 @@ export class LicitacoesService {
       mensagem: string;
     },
   ): Promise<any> {
-    const licitacao = await this.findOne(id);
-    const texto = (dto.mensagem || '').trim();
-    if (!texto) throw new BadRequestException('Mensagem vazia');
-    if (texto.length > 1000) throw new BadRequestException('Mensagem muito longa (máx. 1000 caracteres)');
-    if (licitacao.data_homologacao) {
-      throw new BadRequestException('Licitação já homologada — chat encerrado');
-    }
-
-    let autorNome = (dto.autor_nome || '').trim();
-    if (dto.autor_tipo === 'FORNECEDOR') {
-      if (!dto.fornecedor_id) throw new BadRequestException('fornecedor_id obrigatório');
-      const prop = await this.dataSource.query(
-        `SELECT f.razao_social FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id
-         WHERE p.licitacao_id = $1 AND p.fornecedor_id = $2
-           AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA') LIMIT 1`,
-        [id, dto.fornecedor_id],
-      );
-      if (!prop.length) {
-        throw new BadRequestException('Apenas fornecedores com proposta válida podem enviar mensagens');
-      }
-      autorNome = prop[0].razao_social;
-    } else if (!autorNome) {
-      autorNome = 'Órgão';
-    }
-
-    const msg = this.dispensaMensagemRepository.create({
-      licitacao_id: id,
-      autor_tipo: dto.autor_tipo,
-      fornecedor_id: dto.autor_tipo === 'FORNECEDOR' ? dto.fornecedor_id || null : null,
-      autor_nome: autorNome,
-      mensagem: texto,
-    });
-    await this.dispensaMensagemRepository.save(msg);
-
-    // Push (com autoria mascarada se a janela de lances estiver aberta)
-    const lancesAbertos = !!(
-      licitacao.dispensa_lances_fim &&
-      new Date() < new Date(licitacao.dispensa_lances_fim)
-    );
-    this.dispensaGateway.emitirMensagem(id, {
-      id: msg.id,
-      autor_tipo: msg.autor_tipo,
-      autor_nome:
-        msg.autor_tipo === 'FORNECEDOR' && lancesAbertos ? 'Fornecedor' : msg.autor_nome,
-      mensagem: msg.mensagem,
-      created_at: msg.created_at,
-    });
-
-    return { ok: true, id: msg.id };
+    await this.findOne(id);
+    return this.janelaDispensa.enviarMensagem(id, dto);
   }
 
   /**
    * Painel público (ANÔNIMO) da fase de lances: menor valor atual e nº de
    * lances por item. Com fornecedorId, inclui o valor atual DAQUELE fornecedor
    * — o controller só passa o id do fornecedor AUTENTICADO (nunca da query).
-   * Sigilo: antes do fim do acolhimento o menor valor não é exposto (mesma
-   * regra das demais rotas públicas de propostas).
+   * Sigilo: antes do fim do acolhimento o menor valor não é exposto.
    */
   async painelLancesDispensa(id: string, fornecedorId?: string): Promise<any> {
-    const licitacao = await this.findOne(id);
-    const agora = new Date();
-    // Datas cruas (o findOne devolve o cronograma formatado em hora local)
-    const bruta = await this.licitacaoRepository.findOne({
-      where: { id },
-      select: ['id', 'data_fim_acolhimento', 'data_abertura_sessao'] as any,
-    });
-    const corteSigilo = bruta?.data_fim_acolhimento || bruta?.data_abertura_sessao;
-    const emSigilo = !!corteSigilo && agora < new Date(corteSigilo);
-    const aberta = !!(
-      licitacao.dispensa_lances_fim &&
-      agora < new Date(licitacao.dispensa_lances_fim)
-    );
-
-    const itens = await this.itemRepository.find({
-      where: { licitacao_id: id },
-      order: { numero_item: 'ASC' } as any,
-    });
-    const menores = await this.dataSource.query(
-      `SELECT x.item_licitacao_id, MIN(x.valor) AS menor, COUNT(*) FILTER (WHERE x.origem='LANCE') AS n_lances
-       FROM (
-         SELECT pi.item_licitacao_id, pi.valor_unitario AS valor, 'PROPOSTA' AS origem
-         FROM proposta_itens pi JOIN propostas p ON p.id = pi.proposta_id
-         WHERE p.licitacao_id = $1 AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
-         UNION ALL
-         SELECT dl.item_licitacao_id, dl.valor_unitario, 'LANCE'
-         FROM dispensa_lances dl WHERE dl.licitacao_id = $1
-       ) x GROUP BY x.item_licitacao_id`,
-      [id],
-    );
-    const meus = fornecedorId
-      ? await this.dataSource.query(
-          `SELECT x.item_licitacao_id, MIN(x.valor) AS meu_valor
-           FROM (
-             SELECT pi.item_licitacao_id, pi.valor_unitario AS valor
-             FROM proposta_itens pi JOIN propostas p ON p.id = pi.proposta_id
-             WHERE p.licitacao_id = $1 AND p.fornecedor_id = $2
-               AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
-             UNION ALL
-             SELECT dl.item_licitacao_id, dl.valor_unitario
-             FROM dispensa_lances dl WHERE dl.licitacao_id = $1 AND dl.fornecedor_id = $2
-           ) x GROUP BY x.item_licitacao_id`,
-          [id, fornecedorId],
-        )
-      : [];
-    const mapMenor = new Map<string, any>(
-      menores.map((m: any) => [m.item_licitacao_id, m]),
-    );
-    const mapMeu = new Map<string, any>(
-      meus.map((m: any) => [m.item_licitacao_id, m.meu_valor]),
-    );
-
-    return {
-      aberta,
-      // Relógio do SERVIDOR: o cliente calcula o offset e o countdown não sofre
-      // com relógio errado no computador do fornecedor.
-      server_time: agora.toISOString(),
-      dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
-      dispensa_lances_fim: licitacao.dispensa_lances_fim,
-      itens: itens.map((i) => ({
-        item_licitacao_id: i.id,
-        numero_item: (i as any).numero_item,
-        descricao: (i as any).descricao_resumida || (i as any).descricao_detalhada || (i as any).descricao,
-        quantidade: (i as any).quantidade,
-        menor_valor: !emSigilo && mapMenor.get(i.id)?.menor != null ? Number(mapMenor.get(i.id).menor) : null,
-        total_lances: emSigilo ? 0 : Number(mapMenor.get(i.id)?.n_lances || 0),
-        meu_valor: mapMeu.get(i.id) != null ? Number(mapMeu.get(i.id)) : undefined,
-      })),
-    };
+    await this.findOne(id);
+    return this.janelaDispensa.painel(id, fornecedorId);
   }
 
   /**

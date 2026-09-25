@@ -219,6 +219,48 @@ export class LoteLicitacao {
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   percentual_cota_reservada: number;
 
+  /**
+   * Benefício ME/EPP do lote (LC 123/2006 art. 48) — vale quando a licitação
+   * usa `modo_beneficio_mpe = 'POR_LOTE'` (mesmos valores de
+   * `licitacoes.tipo_beneficio_mpe`). `exclusivo_mpe` e
+   * `percentual_cota_reservada` são mantidos coerentes com este campo pelo
+   * LotesService (legado). As REGRAS de ME/EPP na disputa são da E3.
+   */
+  @Column({ type: 'varchar', length: 20, default: 'NENHUM' })
+  tipo_beneficio_mpe: 'NENHUM' | 'EXCLUSIVO' | 'COTA_RESERVADA';
+
+  // ==========================================================================
+  // ESTADO DA DISPUTA POR LOTE (base TOTAL_LOTE — plano E2 item 5)
+  // Mesmos nomes/semântica das colunas de disputa de `itens_licitacao`: o lote
+  // é a UNIDADE DE DISPUTA (relógio, status, melhor lance). Os itens do lote
+  // espelham o status (para as leituras por item: fim da etapa de lances,
+  // sigilo, homologação). Ver disputa-v2/disputa-lote.service.ts.
+  // ==========================================================================
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  status_disputa: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  disputa_iniciada_em: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  ultimo_lance_em: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  inicio_tempo_aleatorio: Date | null;
+
+  @Column({ type: 'int', nullable: true })
+  tempo_aleatorio_sorteado: number | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  disputa_encerrada_em: Date | null;
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  melhor_lance_valor: number | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  melhor_lance_fornecedor_id: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

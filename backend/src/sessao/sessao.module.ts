@@ -6,7 +6,6 @@ import { RecursoAdministrativo } from './entities/recurso-administrativo.entity'
 import { SessaoService } from './sessao.service';
 import { RecursosService } from './recursos.service';
 import { SessaoController } from './sessao.controller';
-import { SessaoGateway } from './sessao.gateway';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { Lance } from '../disputa-v2/entities/lance.entity';
@@ -34,7 +33,8 @@ import { DisputaModule } from '../disputa-v2/disputa.module';
     DisputaModule,
   ],
   controllers: [SessaoController],
-  providers: [SessaoService, RecursosService, SessaoGateway, SigiloDisputaService],
+  // Tempo real: gateway único /disputa-v2 (o gateway /sessao foi removido na E2 item 8)
+  providers: [SessaoService, RecursosService, SigiloDisputaService],
   exports: [SessaoService, RecursosService],
 })
 export class SessaoModule {}

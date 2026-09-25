@@ -115,7 +115,8 @@ export class DisputaController {
     ator: Ator | null,
     ler: (visaoOrgao: boolean) => Promise<T>,
   ): Promise<T> {
-    const dono = await this.acesso.donoDoItem(itemId);
+    // Unidade de disputa: item ou lote (disputa por lote) — mesmo sigilo
+    const dono = await this.acesso.donoDaUnidade(itemId);
     if (!dono) throw new NotFoundException('Item não encontrado');
     const visao = await this.sigilo.visaoDoAtor(ator, dono.licitacaoId);
     const dados = await ler(visao.tipo === 'ORGAO');
@@ -268,7 +269,10 @@ export class DisputaController {
     @Param('sessaoId') sessaoId: string,
     @Body()
     body: {
-      itemId: string;
+      /** Unidade de disputa: id do item (ou do lote, na disputa por lote). */
+      itemId?: string;
+      /** Disputa por lote: id do lote (alternativa a `itemId`). */
+      loteId?: string;
       /** Legado: se vier, precisa ser o do token. */
       fornecedorId?: string;
       fornecedorNome?: string;
@@ -279,10 +283,12 @@ export class DisputaController {
     const fornecedorId = this.acesso.fornecedorDoToken(ator, body?.fornecedorId);
     const licitacaoId = await this.licitacaoDaSessao(sessaoId);
     await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
-    if (!ehUuid(body?.itemId)) throw new BadRequestException('itemId inválido');
+    const unidadeId = body?.loteId ?? body?.itemId;
+    if (!ehUuid(unidadeId)) throw new BadRequestException('itemId (ou loteId) inválido');
     const lance = await this.disputaService.registrarLance({
       sessaoId,
-      itemId: body.itemId,
+      itemId: unidadeId,
+      loteId: ehUuid(body?.loteId) ? body.loteId : undefined,
       fornecedorId,
       valor: Number(body.valor),
       ip: 'API',

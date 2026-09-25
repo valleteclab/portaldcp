@@ -84,3 +84,55 @@ export function calcularRelogio(e: EntradaRelogio): SaidaRelogio {
   const fimProrrogacao = Math.max(ultimo + P, momentoUltimo < T - P ? inicio + T : ultimo + P);
   return saida('PRORROGACAO', fimProrrogacao - agora);
 }
+
+// ============================================================================
+// JANELA DE LANCES DA DISPENSA (IN SEGES 67/2021) — mesmo relógio, modo JANELA
+// ============================================================================
+//
+// A janela é UMA para a licitação inteira (todos os itens): abre em `inicio`,
+// termina em `fim` (duração escolhida pelo órgão). Prorrogação OPCIONAL
+// (0 = encerramento seco, padrão IN 67): lance recebido nos últimos P minutos
+// empurra o fim para "agora + P", sucessivamente. O estado (início, fim e P)
+// fica na licitação (`dispensa_lances_*`); quem o lê/escreve é o motor
+// (DisputaService.registrarLance e JanelaDispensaService). O encerramento é
+// feito pelo DisputaTimerService — nenhum outro timer.
+
+export interface EntradaRelogioJanela {
+  inicio: Date | string | null | undefined;
+  fim: Date | string | null | undefined;
+  agora?: number;
+}
+
+export interface SaidaRelogioJanela extends SaidaRelogio {
+  /** A janela está aberta agora (aceita lances). */
+  aberta: boolean;
+  /** Já houve janela e ela terminou (o timer deve encerrá-la). */
+  encerrada: boolean;
+}
+
+export function calcularRelogioJanela(e: EntradaRelogioJanela): SaidaRelogioJanela {
+  const agora = e.agora ?? Date.now();
+  const fim = ms(e.fim);
+  if (fim === null) {
+    return { fase: 'ENCERRADO', restanteMs: 0, restanteSegundos: 0, emProrrogacao: false, expirado: false, aberta: false, encerrada: false };
+  }
+  const inicio = ms(e.inicio);
+  if (inicio !== null && agora < inicio) {
+    return { fase: 'ENCERRADO', restanteMs: 0, restanteSegundos: 0, emProrrogacao: false, expirado: false, aberta: false, encerrada: false };
+  }
+  const s = saida('ETAPA_ABERTA', fim - agora);
+  return { ...s, aberta: !s.expirado, encerrada: s.expirado };
+}
+
+/**
+ * Prorrogação da janela por um lance recebido em `agora`: devolve o novo fim
+ * (agora + P) se o lance caiu nos últimos P minutos; senão null.
+ */
+export function prorrogacaoDaJanela(e: { fim: Date | string | null | undefined; prorrogacaoMinutos: number | null | undefined; agora?: number }): Date | null {
+  const P = Math.max(0, Number(e.prorrogacaoMinutos) || 0) * 60_000;
+  const fim = ms(e.fim);
+  const agora = e.agora ?? Date.now();
+  if (!(P > 0) || fim === null || agora >= fim) return null;
+  if (fim - agora > P) return null;
+  return new Date(agora + P);
+}

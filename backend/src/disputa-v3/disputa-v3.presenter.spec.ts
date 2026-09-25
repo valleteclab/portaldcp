@@ -7,6 +7,7 @@ import {
   mapearEtapaSessaoV3,
   mapearStatusSessaoV3,
   montarCronometriaSessaoV3,
+  mapearItemBoardV3,
 } from './disputa-v3.presenter';
 
 describe('disputa-v3.presenter', () => {
@@ -60,7 +61,7 @@ describe('disputa-v3.presenter', () => {
     expect(cronometria.requerFluxoEspecificoNaV3).toBe(false);
   });
 
-  it('sinaliza modos hibridos como dependentes de fluxo dedicado na V3', () => {
+  it('modos hibridos rodam no motor unico (sem fluxo paralelo) com os padroes da IN 73 art. 24', () => {
     const cronometria = montarCronometriaSessaoV3({
       modo_aberto: true,
       modo_aberto_fechado: true,
@@ -74,7 +75,11 @@ describe('disputa-v3.presenter', () => {
 
     expect(cronometria.modo).toBe('ABERTO_FECHADO');
     expect(cronometria.baseLegal).toContain('art. 24');
-    expect(cronometria.requerFluxoEspecificoNaV3).toBe(true);
+    expect(cronometria.requerFluxoEspecificoNaV3).toBe(false);
+    expect(cronometria.observacao).not.toMatch(/V2/);
+    // etapa aberta 15 min e aleatorio limitado a 10 min (art. 24 caput e §1º)
+    expect(cronometria.etapaAbertaMinutos).toBe(15);
+    expect(cronometria.fechamentoIminenteAleatorioMaxMinutos).toBe(10);
     // null => fallback para o padrao da IN 73/2022, art. 24
     expect(cronometria.lanceFinalFechadoMinutos).toBe(5);
   });
@@ -94,5 +99,23 @@ describe('disputa-v3.presenter', () => {
     expect(cronometria.etapaAbertaMinutos).toBe(20);
     expect(cronometria.lanceFinalFechadoMinutos).toBe(7);
     expect(cronometria.fechamentoIminenteAleatorioMaxMinutos).toBe(8);
+  });
+
+  it('o modo da LICITACAO prevalece sobre os flags legados da sessao', () => {
+    expect(inferirModoDisputaV3({ modo_aberto: true, modo_aberto_fechado: false }, 'FECHADO_ABERTO')).toBe('FECHADO_ABERTO');
+    expect(inferirModoDisputaV3({ modo_aberto: true, modo_aberto_fechado: false }, 'X')).toBe('ABERTO');
+  });
+
+  it('item em tempo aleatorio nunca expõe o tempo restante; etapa fechada vira LANCE_FECHADO', () => {
+    const base: any = {
+      id: 'i', numero: 1, descricao: '', quantidade: 1, unidade: 'UN', valorReferencia: 100, valorReferenciaUnitario: 100,
+      baseLance: 'TOTAL_ITEM', status: 'EM_DISPUTA', tempoRestante: 321, emProrrogacao: false, totalPropostas: 3, totalLances: 5,
+    };
+    const aleatorio = mapearItemBoardV3({ ...base, faseModo: 'ALEATORIO', tempoOculto: true });
+    expect(aleatorio.cronometro).toEqual({ tempoRestanteSegundos: 0, fase: 'TEMPO_ALEATORIO', oculto: true });
+    const fechada = mapearItemBoardV3({ ...base, faseModo: 'FECHADA', tempoRestante: 200, meuLanceFechado: 90 });
+    expect(fechada.cronometro.fase).toBe('LANCE_FECHADO');
+    expect(fechada.cronometro.tempoRestanteSegundos).toBe(200);
+    expect(fechada.meuLanceFechado).toBe(90);
   });
 });

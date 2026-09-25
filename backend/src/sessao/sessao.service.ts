@@ -16,6 +16,8 @@ import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
 import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes.tipos';
 import { exigirLicitacaoAtiva, motivoSessaoBloqueada } from './licitacao-ativa';
 import { pedirEncerramentoDisputa } from './transicoes-sessao';
+import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
+import { exigirRetomadaPermitida, retomarRelogiosDaSessao } from '../disputa-v2/desconexao-pregoeiro.service';
 
 /**
  * Servico de Controle da Sessao de Disputa
@@ -175,6 +177,14 @@ export class SessaoService {
   async iniciarSessao(sessaoId: string, ator: AtorTransicao): Promise<SessaoDisputa> {
     const sessao = await this.sessaoParaAto(sessaoId);
 
+    // Modo de disputa × critério (Lei 14.133 art. 56 §§1º e 2º) conferidos na abertura
+    const licModo = await this.licitacaoRepository.findOne({
+      where: { id: sessao.licitacao_id },
+      select: { id: true, modo_disputa: true, criterio_julgamento: true },
+    });
+    const vedacaoModo = motivoModoCriterioInvalido(licModo?.modo_disputa, licModo?.criterio_julgamento);
+    if (vedacaoModo) throw new BadRequestException(vedacaoModo);
+
     if (sessao.status !== StatusSessao.AGUARDANDO_INICIO) {
       throw new BadRequestException('Sessao ja foi iniciada ou encerrada');
     }
@@ -229,6 +239,12 @@ export class SessaoService {
 
     if (sessao.status !== StatusSessao.ENCERRADA && sessao.status !== StatusSessao.SUSPENSA) {
       throw new BadRequestException('Apenas sessoes encerradas ou suspensas podem ser reabertas');
+    }
+    // Suspensa por desconexão do agente: só 24 h após a comunicação (IN 73 art. 27 §1º);
+    // relógios de itens/lotes recomeçam (desconexão) ou são deslocados pela pausa
+    if (sessao.status === StatusSessao.SUSPENSA) {
+      const retomada = await exigirRetomadaPermitida(this.sessaoRepository.manager, sessaoId);
+      await retomarRelogiosDaSessao(this.sessaoRepository.manager, sessaoId, sessao.licitacao_id, retomada.porDesconexao);
     }
 
     // Verifica se a licitação ainda está em fase de disputa

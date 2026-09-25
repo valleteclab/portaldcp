@@ -171,9 +171,9 @@ describe('modelo-lance', () => {
     });
   });
 
-  it('origens dos modos ainda não ligadas → recusa explícita (409)', () => {
-    for (const origem of [OrigemLance.LANCE_FECHADO, OrigemLance.JANELA_DISPENSA, OrigemLance.PROPOSTA]) {
-      expect(codigo(base({ origem }))).toBe('ORIGEM_NAO_SUPORTADA');
-    }
+  it('PROPOSTA não é lance → recusa explícita (409)', () => {
+    // JANELA_DISPENSA ligada na E2 item 7 (validarJanelaDispensa — janela-dispensa.spec.ts);
+    // LANCE_FECHADO ligada na E2.4 (validarLanceFechado — modos-disputa.spec.ts)
+    expect(codigo(base({ origem: OrigemLance.PROPOSTA }))).toBe('ORIGEM_NAO_SUPORTADA');
   });
 });

@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Param, Body, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
+import { OrigemLance } from '../disputa-v2/modelo-lance';
 import { AdminGuard } from '../auth/admin.guard';
 import { SessaoDisputa, StatusSessao } from '../sessao/entities/sessao-disputa.entity';
 import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
@@ -10,7 +11,7 @@ import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { DisputaGateway } from '../disputa-v2/disputa.gateway';
 import { DisputaService } from '../disputa-v2/disputa.service';
 import { AnonimizacaoService } from '../disputa-v2/anonimizacao.service';
-import { calcularRelogio } from '../disputa-v2/relogio-disputa';
+import { ModoDisputaService } from '../disputa-v2/modo-disputa.service';
 import { atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
@@ -41,6 +42,7 @@ export class AdminMonitoramentoController {
     private readonly disputaGateway: DisputaGateway,
     private readonly disputaService: DisputaService,
     private readonly anonimizacaoService: AnonimizacaoService,
+    private readonly modos: ModoDisputaService,
   ) {}
 
   /**
@@ -111,17 +113,19 @@ export class AdminMonitoramentoController {
 
     const itens = await this.itemRepo.find({
       where: { 
-        licitacao_id: sessao.licitacao_id, 
-        status_disputa: StatusDisputaItem.EM_DISPUTA 
+        licitacao_id: sessao.licitacao_id,
+        status_disputa: In([StatusDisputaItem.EM_DISPUTA, StatusDisputaItem.TEMPO_ALEATORIO]),
       },
       order: { numero_item: 'ASC' }
     });
 
     const params = await this.disputaService.parametrosDaSessao(sessaoId);
+    // Relógio POR MODO (o mesmo do DisputaTimerService): tempo aleatório é sigiloso (IN 73 art. 24 §1º)
+    const relogios = await this.modos.relogiosDaSessao(sessao, itens, params);
     const resultado = await Promise.all(itens.map(async (item) => {
-      // Buscar melhor lance
+      // Buscar melhor lance (lance final fechado é sigiloso até o fim do prazo)
       const melhorLance = await this.lanceRepo.findOne({
-        where: { item_id: item.id, cancelado: false },
+        where: { item_id: item.id, cancelado: false, origem: Not(OrigemLance.LANCE_FECHADO) },
         order: { valor: 'ASC' }
       });
 
@@ -130,15 +134,9 @@ export class AdminMonitoramentoController {
         where: { item_id: item.id, cancelado: false }
       });
 
-      // Fórmula ÚNICA do relógio (disputa-v2/relogio-disputa.ts)
-      const relogio = calcularRelogio({
-        status: item.status_disputa,
-        disputaIniciadaEm: item.disputa_iniciada_em,
-        ultimoLanceEm: item.ultimo_lance_em,
-        tempoInicialMinutos: params.tempoInicialMinutos,
-        prorrogacaoMinutos: params.prorrogacaoMinutos,
-      });
-      const tempoRestante = relogio.restanteSegundos;
+      const relogio = relogios.get(item.id)!;
+      // Tempo aleatório: sem contagem (null) — a tela mostra "tempo aleatório", não "encerrado"
+      const tempoRestante = relogio.oculto ? null : relogio.restanteSegundos;
       const emProrrogacao = relogio.emProrrogacao;
 
       return {
@@ -147,6 +145,8 @@ export class AdminMonitoramentoController {
         descricao: item.descricao_resumida || item.descricao_detalhada || '',
         tempo_restante: tempoRestante,
         em_prorrogacao: emProrrogacao,
+        fase: relogio.fase,
+        tempo_oculto: relogio.oculto,
         ultimo_lance_em: item.ultimo_lance_em,
         total_lances: totalLances,
         melhor_lance_valor: melhorLance ? parseFloat(String(melhorLance.valor)) : 0,

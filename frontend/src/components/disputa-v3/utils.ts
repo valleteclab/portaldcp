@@ -80,6 +80,9 @@ export function escolherItemInicial(board?: {
 
 export function getItemStatusLabel(item: DisputaV3ItemBoard) {
   if (item.status === 'ENCERRADO') return 'Encerrado'
+  if (item.faseModo === 'ALEATORIO') return 'Fechamento iminente'
+  if (item.faseModo === 'FECHADA') return 'Lance final fechado'
+  if (item.faseModo === 'REINICIO_DEMAIS') return 'Reinicio (demais colocacoes)'
   if (item.cronometro.fase === 'PRORROGACAO') return 'Prorrogacao'
   if (item.status === 'EM_DISPUTA') return 'Etapa aberta'
   return 'Aguardando'
@@ -87,9 +90,52 @@ export function getItemStatusLabel(item: DisputaV3ItemBoard) {
 
 export function getItemStatusClass(item: DisputaV3ItemBoard) {
   if (item.status === 'ENCERRADO') return 'bg-slate-100 text-slate-700 border-slate-200'
+  if (item.faseModo === 'ALEATORIO') return 'bg-orange-100 text-orange-800 border-orange-200'
+  if (item.faseModo === 'FECHADA') return 'bg-violet-100 text-violet-800 border-violet-200'
+  if (item.faseModo === 'REINICIO_DEMAIS') return 'bg-sky-100 text-sky-800 border-sky-200'
   if (item.cronometro.fase === 'PRORROGACAO') return 'bg-amber-100 text-amber-800 border-amber-200'
   if (item.status === 'EM_DISPUTA') return 'bg-emerald-100 text-emerald-800 border-emerald-200'
   return 'bg-blue-100 text-blue-800 border-blue-200'
+}
+
+/** Texto do cronômetro: no tempo aleatório não há contagem (sigiloso — IN 73 art. 24 §1º). */
+export function textoCronometro(item: DisputaV3ItemBoard): string {
+  if (item.status !== 'EM_DISPUTA') return '--:--'
+  if (item.cronometro.oculto || item.faseModo === 'ALEATORIO') return 'Aleatório'
+  return formatarTempo(item.cronometro.tempoRestanteSegundos)
+}
+
+/** Explicação da fase do item para a sala (fornecedor e pregoeiro). */
+export function descricaoFaseItem(item: DisputaV3ItemBoard): string | null {
+  switch (item.faseModo) {
+    case 'ALEATORIO':
+      return 'Aviso de fechamento iminente: a recepção de lances será encerrada em até 10 minutos, em momento aleatório definido pelo sistema (IN SEGES 73/2022, art. 24 §1º). Os lances continuam sendo aceitos.'
+    case 'FECHADA':
+      return `Etapa de lance final fechado: ${item.classificadosFase ?? ''} licitante(s) convocado(s) podem enviar UM lance, sigiloso até o fim do prazo (art. 24 §§2º a 4º). Quem não enviar mantém o último lance da etapa aberta.`
+    case 'REINICIO_DEMAIS':
+      return 'Disputa reiniciada para a definição das demais colocações (Lei 14.133/2021, art. 56 §4º): a 1ª colocação está mantida e nenhum lance pode alcançá-la.'
+    case 'ABERTA':
+      if (item.participacaoRestrita) {
+        return `Etapa aberta só para as ${item.classificadosFase ?? ''} propostas classificadas (melhor e até 10% — IN SEGES 73/2022, art. 25).`
+      }
+      return null
+    default:
+      return null
+  }
+}
+
+/** Rótulo do modo de disputa. */
+export function rotuloModo(modo?: string | null): string {
+  switch (modo) {
+    case 'ABERTO_FECHADO':
+      return 'Aberto e fechado'
+    case 'FECHADO_ABERTO':
+      return 'Fechado e aberto'
+    case 'FECHADO':
+      return 'Fechado'
+    default:
+      return 'Aberto'
+  }
 }
 
 export function calcularDiferencaParaLider(item?: DisputaV3ItemBoard | null) {

@@ -8,7 +8,7 @@
  *     oferta; lances iguais (prevalece o registrado primeiro — sequencial e no
  *     mesmo instante); intervalo de tempo entre lances do mesmo fornecedor
  *     (parâmetro, padrão 0); desempate ME/EPP pelo motor (origem DESEMPATE_MPE);
- *     lance por lote → 501.
+ *     rota antiga de lance por lote removida (lote: disputa-lote.e2e-spec.ts).
  *  B. Chat único (eventos da sessão) respeitando `chat_desabilitado`;
  *     `mensagens` só com chat (sem lances).
  *  C. `item_encerrado` sem identidade do vencedor enquanto houver item da
@@ -22,7 +22,6 @@ import {
   FornecedorFixture,
   OrgaoFixture,
   aguardarEvento,
-  conectarSocket,
   criarApp,
   criarFornecedor,
   criarOrgao,
@@ -171,10 +170,10 @@ describe('E2 — motor de lances único', () => {
       expect(Number(it.melhor_lance_valor)).toBe(93);
     });
 
-    test('lance por lote → 501 (disponível na disputa por lote)', async () => {
+    test('rota antiga de lance por lote (/sessao/:id/lance-lote) removida — lote é o lance do motor com o id do lote', async () => {
+      // Disputa por lote: test/disputa-lote.e2e-spec.ts
       const r = await http().post(`/api/sessao/${sessaoId}/lance-lote`).set(bearer(F1.token)).send({ valor: 10 });
-      expect(r.status).toBe(501);
-      expect(r.body.message).toMatch(/disputa por lote/i);
+      expect(r.status).toBe(404);
     });
 
     test('CHAT único: mensagens do pregoeiro e do fornecedor no mesmo armazenamento; leitura só com chat', async () => {
@@ -347,15 +346,13 @@ describe('E2 — motor de lances único', () => {
       ).rejects.toThrow(/UQ_lances_proposta_ativa|duplicate key/);
     });
 
-    test('sala /sessao: reiniciar_disputa do pregoeiro também é lógico (sem DELETE)', async () => {
+    // E2 item 8: a sala /sessao foi removida — o reinício pelo socket é o do canal único /disputa-v2
+    test('socket (canal único): reiniciar_sessao do pregoeiro também é lógico (sem DELETE)', async () => {
       const antes = await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM lances WHERE item_id = $1`, [itemId]);
-      const s = await conectarSocket(ctx, '/sessao', { token: orgao.token });
-      const hist = aguardarEvento(s, 'historico_eventos');
-      s.emit('entrar_sessao', { sessaoId });
-      await hist;
-      const r = aguardarUmDe(s, ['disputa_reiniciada', 'erro'], 8000);
-      s.emit('reiniciar_disputa', { sessaoId, motivo: 'Reinício pela sala legada' });
-      expect((await r).evento).toBe('disputa_reiniciada');
+      const s = await sala(sessaoId, orgao, 'PREGOEIRO');
+      const r = aguardarUmDe(s, ['sessao_reiniciada', 'erro'], 8000);
+      s.emit('reiniciar_sessao', { sessaoId, justificativa: 'Reinício pelo socket do canal único' });
+      expect((await r).evento).toBe('sessao_reiniciada');
       s.close();
       const depois = await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM lances WHERE item_id = $1`, [itemId]);
       expect(depois[0].n).toBe(antes[0].n);

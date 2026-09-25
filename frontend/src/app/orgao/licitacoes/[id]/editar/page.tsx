@@ -21,6 +21,13 @@ import {
 
 import { API_URL, authFetch } from '@/lib/api'
 
+/** Valor de tempo da licitação em minutos (null = herda do órgão → padrão legal). */
+function emMinutos(v: unknown, padrao: number): number {
+  const n = Number(v)
+  if (v === null || v === undefined || v === '' || !Number.isFinite(n) || n < 0) return padrao
+  return n > 30 ? Math.round(n / 60) : n
+}
+
 export default function EditarLicitacaoPage() {
   const params = useParams()
   const router = useRouter()
@@ -70,8 +77,11 @@ export default function EditarLicitacaoPage() {
   })
 
   const [configuracoes, setConfiguracoes] = useState<Configuracoes>({
-    intervalo_minimo_lances: 60,
-    tempo_prorrogacao: 120,
+    // Campos em MINUTOS (licitacoes.intervalo_minimo_lances / tempo_prorrogacao).
+    // Intervalo de tempo entre lances do mesmo fornecedor não é exigência legal (0 = sem);
+    // prorrogação do modo aberto: 2 min (IN SEGES 73/2022, art. 23).
+    intervalo_minimo_lances: 0,
+    tempo_prorrogacao: 2,
     diferenca_minima_lances: 0,
     permite_lances_intermediarios: true,
     pregoeiro_nome: '',
@@ -184,6 +194,7 @@ export default function EditarLicitacaoPage() {
           cota_reservada: data.cota_reservada || false,
           percentual_cota_reservada: data.percentual_cota_reservada || 0,
           modo_vinculacao_pca: data.modo_vinculacao_pca || 'POR_LICITACAO',
+          base_lance: data.base_lance || 'TOTAL_ITEM',
           item_pca_id: data.item_pca_id,
           item_pca: data.item_pca,
           sem_pca: data.sem_pca,
@@ -218,8 +229,10 @@ export default function EditarLicitacaoPage() {
 
         // Preencher configurações
         setConfiguracoes({
-          intervalo_minimo_lances: data.intervalo_minimo_lances || 60,
-          tempo_prorrogacao: data.tempo_prorrogacao || 120,
+          // Minutos. Esta tela gravava 60/120 (segundos) por engano: valores > 30 são
+          // tratados como segundos legados e convertidos para minutos.
+          intervalo_minimo_lances: emMinutos(data.intervalo_minimo_lances, 0),
+          tempo_prorrogacao: emMinutos(data.tempo_prorrogacao, 2),
           diferenca_minima_lances: data.diferenca_minima_lances || 0,
           permite_lances_intermediarios: data.permite_lances_intermediarios ?? true,
           pregoeiro_nome: data.pregoeiro_nome || '',
@@ -271,6 +284,8 @@ export default function EditarLicitacaoPage() {
       const payload = {
         ...dadosBasicos,
         ...classificacao,
+        // Disputa por lote só com lotes (sem lotes volta a disputa por item)
+        ...(classificacao.base_lance === 'TOTAL_LOTE' && !classificacao.usa_lotes ? { base_lance: 'TOTAL_ITEM' } : {}),
         ...cronograma,
         ...configuracoes,
         itens,

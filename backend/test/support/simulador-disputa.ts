@@ -52,6 +52,7 @@ import {
 } from './fixtures';
 import { aguardarEvento, conectarSocket } from './socket';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../../src/licitacoes/entities/licitacao.entity';
+import { DisputaTimerService } from '../../src/disputa-v2/disputa-timer.service';
 
 // ---------------------------------------------------------------------------
 // Aleatoriedade com semente (determinismo no CI)
@@ -138,6 +139,8 @@ export interface OpcoesCenario {
   itens?: ItemEntrada[];
   semente?: number;
   orgao?: OrgaoFixture;
+  /** Modo de disputa da licitação (E2.4). Padrão ABERTO. */
+  modo?: ModoDisputa;
 }
 
 /**
@@ -150,7 +153,7 @@ export async function prepararCenarioDisputa(ctx: AppE2E, opts: OpcoesCenario = 
   const estrategias = opts.robos ?? ESTRATEGIAS_PADRAO;
   const orgao = opts.orgao ?? (await criarOrgao(ctx));
   const licitacao = await criarLicitacao(ctx, orgao, ModalidadeLicitacao.PREGAO_ELETRONICO, {
-    modo_disputa: ModoDisputa.ABERTO,
+    modo_disputa: opts.modo ?? ModoDisputa.ABERTO,
     itens: opts.itens,
   });
   await levarAteFase(ctx, licitacao, FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
@@ -1114,4 +1117,131 @@ export function resumirRelatorio(rel: RelatorioDisputa): string {
     linhas.push(`   eventos ${nomes.get(r.id)}: ${Object.entries(r.contagemEventos).map(([k, n]) => `${k}=${n}`).join(' ')}`);
   }
   return linhas.join('\n');
+}
+
+// ===========================================================================
+// MODOS DE DISPUTA (E2.4) — robôs cientes do modo
+// ===========================================================================
+//
+// Para os modos com fases (aberto-fechado, fechado-aberto, reinício), cada
+// robô é um fornecedor com o SEU socket e o SEU token, como no simulador
+// acima, mas dirigido pelo teste: dá lance aberto ou lance final fechado, e
+// registra TUDO o que recebe — para provar o sigilo (nenhum robô recebe o
+// valor de um lance fechado alheio antes do fim do prazo). `expirarFase`
+// adianta o relógio SÓ da fase atual do item (etapa aberta, tempo aleatório,
+// prazo do lance fechado) e dá um tique do relógio oficial.
+
+export interface RoboModo {
+  nome: string;
+  fornecedor: FornecedorFixture;
+  socket: Socket;
+  eventos: EventoRecebido[];
+}
+
+export class SalaModos {
+  readonly robos = new Map<string, RoboModo>();
+  pregoeiro?: { socket: Socket; eventos: EventoRecebido[] };
+
+  constructor(
+    private readonly ctx: AppE2E,
+    readonly sessaoId: string,
+  ) {}
+
+  private gravarTudo(socket: Socket, eventos: EventoRecebido[]) {
+    socket.onAny((evento: string, payload: any) => eventos.push({ evento, recebidoEm: Date.now(), payload }));
+  }
+
+  private async entrar(token: string): Promise<{ socket: Socket; eventos: EventoRecebido[] }> {
+    const socket = await conectarSocket(this.ctx, '/disputa-v2', { token });
+    const eventos: EventoRecebido[] = [];
+    this.gravarTudo(socket, eventos);
+    const espera = aguardarEvento(socket, 'dados_iniciais');
+    socket.emit('entrar_sala', { sessaoId: this.sessaoId });
+    await espera;
+    return { socket, eventos };
+  }
+
+  async conectarPregoeiro(orgao: OrgaoFixture) {
+    this.pregoeiro = await this.entrar(orgao.token);
+    return this.pregoeiro;
+  }
+
+  async conectarRobo(nome: string, fornecedor: FornecedorFixture): Promise<RoboModo> {
+    const { socket, eventos } = await this.entrar(fornecedor.token);
+    const robo = { nome, fornecedor, socket, eventos };
+    this.robos.set(nome, robo);
+    return robo;
+  }
+
+  /** Lance pelo socket (`enviar_lance`): na etapa fechada o motor o registra como LANCE_FECHADO. */
+  async lance(nome: string, itemId: string, valor: number): Promise<{ ok: boolean; mensagem?: string }> {
+    const robo = this.robos.get(nome)!;
+    const resposta = new Promise<{ ok: boolean; mensagem?: string }>((resolve) => {
+      const ok = () => {
+        robo.socket.off('erro', ko);
+        resolve({ ok: true });
+      };
+      const ko = (p: any) => {
+        robo.socket.off('lance_confirmado', ok);
+        resolve({ ok: false, mensagem: p?.mensagem });
+      };
+      robo.socket.once('lance_confirmado', ok);
+      robo.socket.once('erro', ko);
+    });
+    robo.socket.emit('enviar_lance', { sessaoId: this.sessaoId, itemId, valor });
+    return resposta;
+  }
+
+  /** Lance final fechado explícito pela API (POST /disputa-v2/sessao/:id/lance-fechado). */
+  lanceFechadoRest(nome: string, itemId: string, valor: number) {
+    const robo = this.robos.get(nome)!;
+    return this.ctx
+      .http()
+      .post(`/api/disputa-v2/sessao/${this.sessaoId}/lance-fechado`)
+      .set(bearer(robo.fornecedor.token))
+      .send({ itemId, valor });
+  }
+
+  /**
+   * Adianta o relógio da FASE ATUAL do item até expirar e dá um tique do
+   * relógio oficial (DisputaTimerService): etapa aberta (art. 23 ou etapa fixa
+   * do aberto-fechado) → tempo aleatório → prazo do lance fechado.
+   */
+  async expirarFase(itemId: string): Promise<void> {
+    const ds = this.ctx.dataSource;
+    // Unidade de disputa: item ou LOTE (mesmas colunas — unidade-disputa.ts)
+    const [lote] = await ds.query(`SELECT status_disputa::text AS st FROM lotes_licitacao WHERE id = $1`, [itemId]);
+    const [item] = lote ? [lote] : await ds.query(`SELECT status_disputa::text AS st FROM itens_licitacao WHERE id = $1`, [itemId]);
+    const [est] = await ds.query(`SELECT fase, aleatorio_sorteado_segundos FROM disputa_estado_modo_item WHERE item_id = $1`, [itemId]);
+    // Datas calculadas no processo (mesmo fuso do app que grava/lê as colunas `timestamp`)
+    const ha = (ms: number) => new Date(Date.now() - ms);
+    if (item?.st === 'TEMPO_ALEATORIO') {
+      await ds.query(`UPDATE disputa_estado_modo_item SET aleatorio_iniciado_em = $2 WHERE item_id = $1`, [
+        itemId,
+        ha((Number(est?.aleatorio_sorteado_segundos ?? 600) + 2) * 1000),
+      ]);
+    } else if (est?.fase === 'FECHADA') {
+      await ds.query(`UPDATE disputa_estado_modo_item SET fase_termina_em = $2 WHERE item_id = $1`, [itemId, ha(2000)]);
+    } else {
+      await ds.query(`UPDATE ${lote ? 'lotes_licitacao' : 'itens_licitacao'} SET disputa_iniciada_em = $2, ultimo_lance_em = $2 WHERE id = $1`, [
+        itemId,
+        ha(2 * 3_600_000),
+      ]);
+    }
+    await this.ctx.app.get(DisputaTimerService, { strict: false }).verificarItensEmDisputa();
+  }
+
+  /** Robôs (e o pregoeiro, como 'PREGOEIRO') que receberam algum payload contendo o texto. */
+  quemRecebeu(texto: string, desde = 0): string[] {
+    const quem: string[] = [];
+    const contem = (evs: EventoRecebido[]) => evs.some((e) => e.recebidoEm >= desde && JSON.stringify(e.payload ?? null).includes(texto));
+    for (const [nome, r] of this.robos) if (contem(r.eventos)) quem.push(nome);
+    if (this.pregoeiro && contem(this.pregoeiro.eventos)) quem.push('PREGOEIRO');
+    return quem;
+  }
+
+  fechar() {
+    for (const r of this.robos.values()) r.socket.disconnect();
+    this.pregoeiro?.socket.disconnect();
+  }
 }

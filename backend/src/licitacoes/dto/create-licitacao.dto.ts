@@ -1,5 +1,6 @@
 import { IsEnum, IsNotEmpty, IsNumber, IsString, IsDateString, Min, IsOptional, IsBoolean, IsUUID } from 'class-validator';
 import { ModalidadeLicitacao, ModoDisputa, CriterioJulgamento, TipoContratacao, RegimeExecucao } from '../entities/licitacao.entity';
+import { BaseLance } from '../../disputa-v2/modelo-lance';
 
 export class CreateLicitacaoDto {
   @IsString()
@@ -79,6 +80,19 @@ export class CreateLicitacaoDto {
   @IsNumber()
   @IsOptional()
   diferenca_minima_lances?: number;
+
+  /**
+   * Unidade dos lances (plano E2 §2.3): UNITARIO, TOTAL_ITEM (padrão) ou
+   * TOTAL_LOTE — disputa por LOTE (grupo): lances pelo valor global do lote,
+   * rateio proporcional para os itens (disputa-v2/rateio-lote.ts).
+   */
+  @IsOptional()
+  @IsEnum(BaseLance)
+  base_lance?: BaseLance;
+
+  @IsBoolean()
+  @IsOptional()
+  usa_lotes?: boolean;
 
   @IsBoolean()
   @IsOptional()

@@ -680,6 +680,31 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
               />
             </div>
 
+            {/* Disputa por lote (adjudicação por grupo) — E2 item 5 */}
+            {dados.usa_lotes && (
+              <div className="space-y-2 p-4 border rounded-lg">
+                <Label>Disputa e adjudicação</Label>
+                <Select
+                  value={dados.base_lance === 'TOTAL_LOTE' ? 'TOTAL_LOTE' : 'TOTAL_ITEM'}
+                  onValueChange={(v) => updateField('base_lance', v as Classificacao['base_lance'])}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TOTAL_ITEM">Por item (lances em cada item; lotes só agrupam)</SelectItem>
+                    <SelectItem value="TOTAL_LOTE">Por lote (lances pelo valor global do lote)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {dados.base_lance === 'TOTAL_LOTE' && (
+                  <p className="text-xs text-muted-foreground">
+                    O licitante deve cotar todos os itens do lote. O valor adjudicado de cada item é o rateio proporcional do
+                    lance vencedor sobre a proposta do licitante. Todos os itens precisam pertencer a um lote.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Justificativa para não parcelamento */}
             {!dados.usa_lotes && (
               <div className="space-y-2">

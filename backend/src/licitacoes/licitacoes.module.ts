@@ -9,7 +9,7 @@ import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
 import { Demanda } from '../demandas/entities/demanda.entity';
 import { DispensaLance } from './entities/dispensa-lance.entity';
 import { DispensaMensagem } from './entities/dispensa-mensagem.entity';
-import { DispensaGateway } from './dispensa.gateway';
+import { DisputaModule } from '../disputa-v2/disputa.module';
 import { ContratosModule } from '../contratos/contratos.module';
 import { PncpModule } from '../pncp/pncp.module';
 import { FaseInternaModule } from '../fase-interna/fase-interna.module';
@@ -23,6 +23,7 @@ import { TransicoesModule } from './transicoes/transicoes.module';
 
 @Module({
   imports: [
+    // DispensaLance/DispensaMensagem: @deprecated — só para o synchronize manter as tabelas legadas (migração E2; ninguém escreve)
     TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao]),
     forwardRef(() => ContratosModule),
     PncpModule,
@@ -30,9 +31,11 @@ import { TransicoesModule } from './transicoes/transicoes.module';
     NotificacoesModule,
     FornecedoresModule,
     TransicoesModule,
+    // Sala da dispensa (janela de lances, chat, tempo real) = motor único (E2 item 7)
+    DisputaModule,
   ],
   controllers: [LicitacoesController, BllIntegracaoController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, DispensaGateway, ProcessoPdfService, BllIntegracaoService],
+  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}

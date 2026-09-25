@@ -7,7 +7,6 @@ import {
   Body,
   ForbiddenException,
   NotFoundException,
-  NotImplementedException,
 } from '@nestjs/common';
 import { SessaoService } from './sessao.service';
 import { RecursosService } from './recursos.service';
@@ -109,61 +108,15 @@ export class SessaoController {
     return this.sessaoService.iniciarSessao(id, atorTransicaoDe(ator));
   }
 
-  @SomenteOrgao()
-  @Put(':id/reabrir')
-  async reabrirSessao(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.reabrirSessao(id);
-  }
+  // REMOVIDOS NA E2 (item 8 — canal único): PUT :id/reabrir, :id/avancar-disputa,
+  // :id/iniciar-item/:itemId, :id/iniciar-todos-itens e :id/encerrar-item. Eram o
+  // par REST dos atos do antigo socket /sessao, sem chamador nas telas; iniciar e
+  // encerrar itens é do motor: POST /disputa-v2/sessao/:id/iniciar-itens e
+  // /encerrar-item/:itemId (ou o socket /disputa-v2).
 
-  @SomenteOrgao()
-  @Put(':id/avancar-disputa')
-  async avancarParaDisputa(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.avancarParaDisputa(id, atorTransicaoDe(ator));
-  }
-
-  @SomenteOrgao()
-  @Put(':id/iniciar-item/:itemId')
-  async iniciarDisputaItem(
-    @Param('id') id: string,
-    @Param('itemId') itemId: string,
-    @AtorAtual() ator: Ator,
-  ) {
-    const dono = await this.acesso.assertOrgaoDaSessao(ator, id);
-    await this.assertItemDaLicitacao(itemId, dono.licitacaoId);
-    return this.sessaoService.iniciarDisputaItem(id, itemId, atorTransicaoDe(ator));
-  }
-
-  /**
-   * Inicia disputa de TODOS os itens simultaneamente
-   * Cada item terá seu próprio cronômetro
-   */
-  @SomenteOrgao()
-  @Put(':id/iniciar-todos-itens')
-  async iniciarDisputaTodosItens(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.iniciarDisputaTodosItens(id, atorTransicaoDe(ator));
-  }
-
-  /**
-   * Lance por LOTE: o único caminho de lance é o motor (disputa-v2). A disputa
-   * pelo valor global do lote entra no motor na etapa do lote — até lá, 501.
-   */
-  @SomenteFornecedor()
-  @Post(':id/lance-lote')
-  async registrarLanceLote() {
-    throw new NotImplementedException(
-      'Lance por lote: disponível na disputa por lote (motor de disputa, próxima etapa). Lance por item: sala de disputa.',
-    );
-  }
-
-  @SomenteOrgao()
-  @Put(':id/encerrar-item')
-  async encerrarDisputaItem(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.acesso.assertOrgaoDaSessao(ator, id);
-    return this.sessaoService.encerrarDisputaItem(id, atorTransicaoDe(ator));
-  }
+  // REMOVIDO NA E2 (item 5 — lote no motor único): POST :id/lance-lote. O lance
+  // por lote é o lance do motor com o id do lote: POST /disputa-v2/sessao/:id/lance
+  // { loteId, valor } (ou o socket /disputa-v2 `enviar_lance` com o id do lote).
 
   /**
    * Estado da habilitação: ranking completo (cnpj, valores) só para o órgão

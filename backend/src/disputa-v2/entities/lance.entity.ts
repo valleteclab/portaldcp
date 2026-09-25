@@ -19,6 +19,9 @@ import { BaseLance, OrigemLance } from '../modelo-lance';
 // (item_id, fornecedor_id) WHERE origem = 'PROPOSTA' AND cancelado = false — ver migracao-lances.ts
 @Index('UQ_lances_proposta_ativa', { synchronize: false })
 @Index('IDX_lances_item_ativo', ['item_id', 'cancelado'])
+// (lote_id, fornecedor_id) WHERE origem = 'PROPOSTA' AND cancelado = false AND item_id IS NULL — ver disputa-lote.service.ts
+@Index('UQ_lances_lote_proposta_ativa', { synchronize: false })
+@Index('IDX_lances_lote_ativo', ['lote_id', 'cancelado'])
 export class Lance {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -104,4 +107,20 @@ export class Lance {
 
   @Column({ nullable: true })
   item_id: string;
+
+  /**
+   * DISPUTA POR LOTE (base TOTAL_LOTE — `rateio-lote.ts`):
+   *  - lance DO LOTE: `lote_id` preenchido e `item_id` NULO; `valor` =
+   *    `valor_total` = valor global do lote (é o que ordena o ranking do lote);
+   *  - RATEIO por item: uma linha por item do lote com `item_id`, `lote_id` e
+   *    `lance_lote_id` = id do lance do lote; `valor` = valor global do lote
+   *    (comparável: o menor valor do item É o do vencedor do lote) e
+   *    `valor_total`/`valor_unitario` = parcela rateada do item — o que
+   *    homologação/ata/contrato leem. Cancelamento sempre em conjunto.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  lote_id: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  lance_lote_id: string | null;
 }

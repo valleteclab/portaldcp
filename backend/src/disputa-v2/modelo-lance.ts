@@ -23,7 +23,7 @@ export enum BaseLance {
   UNITARIO = 'UNITARIO',
   /** Valor total do item (padrão histórico do pregão por item). */
   TOTAL_ITEM = 'TOTAL_ITEM',
-  /** Valor global do lote — disputa por lote (motor de lote, etapa seguinte). */
+  /** Valor global do lote — disputa por lote (unidade LOTE: disputa-lote.service.ts, rateio-lote.ts). */
   TOTAL_LOTE = 'TOTAL_LOTE',
 }
 
@@ -150,6 +150,16 @@ export interface ContextoValidacaoLance {
   /** Intervalo mínimo entre lances do mesmo fornecedor (segundos; 0 = sem). */
   intervaloProprioSegundos: number;
   agora: Date;
+  /**
+   * JANELA_DISPENSA: a janela de lances da dispensa está aberta pelo relógio
+   * único (`calcularRelogioJanela`)? Ignorado pelas demais origens.
+   */
+  janelaAberta?: boolean;
+  /**
+   * Direção do critério (modos-disputa.ts `direcaoDoCriterio`): MENOR (padrão —
+   * menor preço/maior desconto) ou MAIOR (maior lance, leilão — E7c).
+   */
+  direcao?: 'MENOR' | 'MAIOR';
 }
 
 const brl = (v: number) => `R$ ${centavos(v).toFixed(2)}`;
@@ -192,9 +202,11 @@ function descreverDiferenca(dif: DiferencaMinima): string {
  * DESEMPATE_MPE (LC 123 art. 45, I): item já encerrado; valor ESTRITAMENTE
  * inferior ao melhor lance; sem diferença mínima nem intervalo.
  * NEGOCIACAO (Lei 14.133 art. 61): item encerrado; abaixo do próprio melhor.
- * LANCE_FECHADO / JANELA_DISPENSA: estratégias dos modos (ainda não ligadas).
+ * LANCE_FECHADO: etapa fechada do aberto-fechado (validarLanceFechado, E2.4).
  */
 export function validarLance(c: ContextoValidacaoLance): void {
+  // Dispensa (IN 67): regras e mensagens próprias da janela — antes das gerais
+  if (c.origem === OrigemLance.JANELA_DISPENSA) return validarJanelaDispensa(c);
   const valor = Number(c.valor);
   if (!Number.isFinite(valor) || valor <= 0) {
     throw new LanceRecusado('Valor do lance inválido', 'VALOR_INVALIDO');
@@ -205,7 +217,9 @@ export function validarLance(c: ContextoValidacaoLance): void {
 
   switch (c.origem) {
     case OrigemLance.LANCE:
-      return validarLanceAberto(c, valor);
+      return c.direcao === 'MAIOR' ? validarLanceAbertoMaior(c, valor) : validarLanceAberto(c, valor);
+    case OrigemLance.LANCE_FECHADO:
+      return validarLanceFechado(c, valor);
     case OrigemLance.DESEMPATE_MPE:
       return validarDesempateMpe(c, valor);
     case OrigemLance.NEGOCIACAO:
@@ -308,6 +322,52 @@ function validarDesempateMpe(c: ContextoValidacaoLance, valor: number): void {
   }
 }
 
+/**
+ * JANELA DE LANCES DA DISPENSA ELETRÔNICA (Lei 14.133 art. 75 §3º; IN SEGES
+ * 67/2021): o lance é SEMPRE no valor UNITÁRIO (base UNITARIO) e o fornecedor
+ * só REDUZ O PRÓPRIO valor — pode continuar acima do melhor do item (não há
+ * "cobrir a melhor oferta" nem regra de lances iguais entre licitantes).
+ *  1. janela aberta pelo relógio único (409 — estado do processo);
+ *  2. valor positivo, até 4 casas;
+ *  3. proposta válida do fornecedor no item (enviada, não desclassificada);
+ *  4. menor que o próprio valor atual (proposta ou último lance);
+ *  5. diferença mínima do aviso, se houver (em relação ao próprio valor).
+ */
+export function validarJanelaDispensa(c: ContextoValidacaoLance): void {
+  if (!c.janelaAberta) {
+    throw new LanceRecusado('A fase de lances não está aberta', 'JANELA_FECHADA', true);
+  }
+  const valor = Number(c.valor);
+  if (!Number.isFinite(valor) || valor <= 0 || Math.abs(arred(valor, 4) - valor) > 1e-9) {
+    throw new LanceRecusado('Valor de lance inválido', 'VALOR_INVALIDO');
+  }
+  if (c.propostaNaBase === null || !(c.propostaNaBase > 0)) {
+    throw new LanceRecusado('Apenas fornecedores com proposta válida para o item podem dar lances', 'SEM_PROPOSTA');
+  }
+  const atual = c.meuUltimo ? Math.min(c.meuUltimo.valor, c.propostaNaBase) : c.propostaNaBase;
+  if (valor >= atual - 0.00005) {
+    throw new LanceRecusado(
+      `O lance deve ser menor que o seu valor atual (${atual.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`,
+      'ACIMA_DO_PROPRIO',
+    );
+  }
+  if (c.diferencaMinima && c.diferencaMinima.valor > 0) {
+    const minima = reducaoMinima(c.diferencaMinima, atual);
+    if (atual - valor + 0.00005 < minima) {
+      throw new LanceRecusado(
+        `A diferença mínima entre lances é de ${descreverDiferenca(c.diferencaMinima)} (aviso de contratação direta). ` +
+          `Seu lance deve ser de no máximo ${brl(atual - minima)}.`,
+        'DIFERENCA_MINIMA',
+      );
+    }
+  }
+}
+
+/** Valor atual do fornecedor no item da dispensa: o menor entre a proposta e os próprios lances. */
+export function valorAtualNaJanela(proposta: number, lances: number[]): number {
+  return Math.min(proposta, ...lances.filter((v) => v > 0));
+}
+
 function validarNegociacao(c: ContextoValidacaoLance, valor: number): void {
   if (c.statusItem !== 'ENCERRADO' && c.statusItem !== 'NEGOCIACAO') {
     throw new LanceRecusado('A negociação só ocorre após o encerramento da disputa do item', 'ITEM_NAO_ENCERRADO', true);
@@ -316,5 +376,113 @@ function validarNegociacao(c: ContextoValidacaoLance, valor: number): void {
   const referencia = c.meuUltimo ? c.meuUltimo.valor : proposta;
   if (valor >= referencia) {
     throw new LanceRecusado(`O valor negociado deve ser menor que o seu melhor valor (${brl(referencia)})`, 'NEGOCIACAO_NAO_REDUZ');
+  }
+}
+
+// ============================================================================
+// MODOS DE DISPUTA (plano E2.4) — lance final fechado e direção MAIOR
+// ============================================================================
+
+/**
+ * LANCE_FECHADO (IN 73 art. 24 §§2º–4º — aberto-fechado): um único lance
+ * final, sigiloso, dos licitantes classificados para a etapa fechada. A
+ * elegibilidade, o "um por licitante" e o prazo são checados pela estratégia
+ * do modo (`ModoDisputaService.regraDoLance`); aqui ficam as regras de valor:
+ *  1. item na etapa fechada (o motor passa EM_DISPUTA) e sessão não suspensa;
+ *  2. proposta válida do licitante no item;
+ *  3. MELHOR que o próprio último valor (art. 24 §3º: o licitante "poderá
+ *     optar por manter o seu último lance da etapa aberta, ou por ofertar
+ *     melhor lance" — manter = não enviar);
+ *  4. diferença mínima do edital só em relação ao PRÓPRIO último valor (os
+ *     demais valores são sigilosos nesta etapa — não há "melhor oferta" a
+ *     cobrir);
+ *  5. lances iguais entre licitantes NÃO são recusados (o licitante não os
+ *     conhece); o empate é tratado no ranking final (art. 60 da Lei / art. 28
+ *     da IN — E3).
+ */
+function validarLanceFechado(c: ContextoValidacaoLance, valor: number): void {
+  if (c.statusItem !== 'EM_DISPUTA') {
+    throw new LanceRecusado('O prazo do lance final fechado não está aberto para este item', 'FECHADO_FORA_DO_PRAZO', true);
+  }
+  if (c.sessaoSuspensa) {
+    throw new LanceRecusado('Sessão está suspensa', 'SESSAO_SUSPENSA', true);
+  }
+  const proposta = exigirProposta(c);
+  const maior = c.direcao === 'MAIOR';
+  const referencia = c.meuUltimo ? c.meuUltimo.valor : proposta;
+  if (maior ? valor <= referencia : valor >= referencia) {
+    throw new LanceRecusado(
+      `O lance final fechado deve ser ${maior ? 'MAIOR' : 'MENOR'} que o seu último valor (${brl(referencia)}). ` +
+        'Para manter o último lance da etapa aberta, não envie lance (IN 73 art. 24 §3º).',
+      'FECHADO_NAO_MELHORA',
+    );
+  }
+  if (c.diferencaMinima && c.diferencaMinima.valor > 0) {
+    const minima = reducaoMinima(c.diferencaMinima, referencia);
+    if (Math.abs(referencia - valor) + 0.00005 < minima) {
+      throw new LanceRecusado(
+        `A diferença mínima entre lances é de ${descreverDiferenca(c.diferencaMinima)} (edital; IN 73 art. 22 §1º) em relação ao seu último valor.`,
+        'DIFERENCA_MINIMA',
+      );
+    }
+  }
+}
+
+/**
+ * LANCE na direção MAIOR (critério maior lance — leilão, E7c): espelho de
+ * `validarLanceAberto` — o lance precisa SUBIR em relação à própria proposta e
+ * ao próprio último lance; diferença mínima para cima; lances iguais recusados.
+ */
+function validarLanceAbertoMaior(c: ContextoValidacaoLance, valor: number): void {
+  if (c.statusItem !== 'EM_DISPUTA') {
+    throw new LanceRecusado('Item não está em disputa', 'ITEM_FORA_DE_DISPUTA', true);
+  }
+  if (c.sessaoSuspensa) {
+    throw new LanceRecusado('Sessão está suspensa', 'SESSAO_SUSPENSA', true);
+  }
+  const proposta = exigirProposta(c);
+  if (valor <= proposta) {
+    throw new LanceRecusado(`Lance deve ser maior que sua proposta inicial (${brl(proposta)})`, 'ABAIXO_DA_PROPOSTA');
+  }
+  const referenciaPropria = c.meuUltimo ? c.meuUltimo.valor : proposta;
+  if (c.meuUltimo && valor <= c.meuUltimo.valor) {
+    throw new LanceRecusado(`Lance deve ser maior que seu lance anterior (${brl(c.meuUltimo.valor)})`, 'ABAIXO_DO_PROPRIO');
+  }
+  if (c.melhor && igual(valor, c.melhor.valor)) {
+    throw new LanceRecusado(`Lance não pode ser igual ao melhor lance atual (${brl(c.melhor.valor)}).`, 'IGUAL_AO_MELHOR');
+  }
+  if (c.valoresDeOutros.some((v) => igual(v, valor))) {
+    throw new LanceRecusado(
+      `Lance igual a um lance já registrado por outro licitante (${brl(valor)}): prevalece o registrado primeiro.`,
+      'IGUAL_A_LANCE_REGISTRADO',
+    );
+  }
+  if (c.diferencaMinima && c.diferencaMinima.valor > 0) {
+    const minimaPropria = reducaoMinima(c.diferencaMinima, referenciaPropria);
+    if (valor - referenciaPropria + 0.00005 < minimaPropria) {
+      throw new LanceRecusado(
+        `A diferença mínima entre lances é de ${descreverDiferenca(c.diferencaMinima)}. Seu lance deve ser de no mínimo ${brl(referenciaPropria + minimaPropria)}.`,
+        'DIFERENCA_MINIMA',
+      );
+    }
+    if (c.melhor && valor > c.melhor.valor) {
+      const minimaMelhor = reducaoMinima(c.diferencaMinima, c.melhor.valor);
+      if (valor - c.melhor.valor + 0.00005 < minimaMelhor) {
+        throw new LanceRecusado(
+          `A diferença mínima entre lances é de ${descreverDiferenca(c.diferencaMinima)}: para cobrir o melhor lance (${brl(c.melhor.valor)}) o valor deve ser de no mínimo ${brl(c.melhor.valor + minimaMelhor)}.`,
+          'DIFERENCA_MINIMA_MELHOR',
+        );
+      }
+    }
+  }
+  if (c.intervaloProprioSegundos > 0 && c.meuUltimo && c.meuUltimo.origem === OrigemLance.LANCE) {
+    const desde = c.agora.getTime() - new Date(c.meuUltimo.criadoEm).getTime();
+    const minimo = c.intervaloProprioSegundos * 1000;
+    if (desde < minimo) {
+      throw new LanceRecusado(
+        `Intervalo mínimo entre seus lances é de ${c.intervaloProprioSegundos}s. Aguarde ${Math.ceil((minimo - desde) / 1000)}s para enviar outro lance.`,
+        'INTERVALO_PROPRIO',
+      );
+    }
   }
 }

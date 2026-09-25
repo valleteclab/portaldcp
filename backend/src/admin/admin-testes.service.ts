@@ -352,15 +352,15 @@ export class AdminTestesService implements OnModuleDestroy {
       });
 
       // ── Step 15: Avançar para disputa ────────────────────────────────────
-      await this.runStep(15, async () => {
-        await this.put(base, `/sessao/${sessaoId}/avancar-disputa`, orgaoToken, {});
-        return 'em disputa';
-      });
+      // E2 (canal único): as rotas legadas /sessao/:id/avancar-disputa e
+      // /iniciar-todos-itens foram removidas — o motor abre a etapa de lances
+      // (INICIAR_DISPUTA) ao iniciar o primeiro item (passo 16).
+      await this.runStep(15, async () => 'etapa de lances aberta pelo motor ao iniciar os itens');
 
       // ── Step 16: Iniciar todos os itens ─────────────────────────────────
       await this.runStep(16, async () => {
-        await this.put(base, `/sessao/${sessaoId}/iniciar-todos-itens`, orgaoToken, {});
-        return `${itemIds.length} itens iniciados`;
+        const r = await this.post(base, `/disputa-v2/sessao/${sessaoId}/iniciar-itens`, orgaoToken, { itensIds: itemIds });
+        return `${r?.itensIniciados ?? itemIds.length} itens iniciados`;
       });
 
       // ── Step 17: Lances sequenciais ──────────────────────────────────────

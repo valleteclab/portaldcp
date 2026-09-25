@@ -23,21 +23,25 @@ import { API_URL, authFetch } from '@/lib/api'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { useDisputaV3 } from '@/hooks/useDisputaV3'
+import { ItensDoLote, rotuloUnidade } from '@/components/disputa-v3/unidade-lote'
 import { DisputaV3Stepper } from '@/components/disputa-v3/disputa-v3-stepper'
 import { RecursosPanel } from '@/components/disputa-v3/RecursosPanel'
 import { HomologacaoPanel } from '@/components/disputa-v3/HomologacaoPanel'
 import {
+  descricaoFaseItem,
   formatarMoeda,
-  formatarTempo,
   getItemStatusClass,
   getItemStatusLabel,
   getStatusBadgeClass,
   getStatusLabel,
+  rotuloModo,
+  textoCronometro,
 } from '@/components/disputa-v3/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
@@ -78,6 +82,8 @@ export default function DisputaV3OrgaoPage() {
     suspenderSessao,
     retomarSessao,
     reiniciarSessao,
+    reiniciarDemais,
+    agendarRetomada,
     enviarMensagem,
     pregoeiroCancelarLance,
   } = useDisputaV3({
@@ -93,6 +99,10 @@ export default function DisputaV3OrgaoPage() {
   const [motivoSuspensao, setMotivoSuspensao] = useState<'ADMINISTRATIVO' | 'CAUTELAR' | 'JUDICIAL'>('ADMINISTRATIVO')
   const [justificativaSuspensao, setJustificativaSuspensao] = useState('')
   const [justificativaReinicio, setJustificativaReinicio] = useState('')
+  // Reinício para as demais colocações (Lei 14.133 art. 56 §4º) e retomada após desconexão (IN 73 art. 27)
+  const [dialogoReinicioDemais, setDialogoReinicioDemais] = useState(false)
+  const [justificativaReinicioDemais, setJustificativaReinicioDemais] = useState('')
+  const [dataRetomada, setDataRetomada] = useState('')
   const [dialogPregoeiroCancel, setDialogPregoeiroCancel] = useState<{
     itemId: string
     lanceId: string
@@ -155,11 +165,30 @@ export default function DisputaV3OrgaoPage() {
 
   const itemFoco = selectedItem || emDisputa[0] || aguardando[0] || encerrados[0] || null
 
+  // Fase do item no modo de disputa (E2.4)
+  const tempoOculto = !!itemFoco?.cronometro.oculto || itemFoco?.faseModo === 'ALEATORIO'
+  const descricaoFase = itemFoco ? descricaoFaseItem(itemFoco) : null
+  const modoAtual = itemFoco?.modoDisputa || contexto?.modo
+  const encerramentoAutomatico = modoAtual === 'ABERTO_FECHADO'
+  const podeReiniciarDemais =
+    !!itemFoco && itemFoco.status === 'ENCERRADO' && (modoAtual === 'ABERTO' || modoAtual === 'FECHADO_ABERTO')
+  const suspensaPorDesconexao = !!contexto?.operacao.motivoSuspensao?.startsWith('DESCONEXAO_AGENTE')
+  const rotuloCronometro = !itemFoco || itemFoco.status !== 'EM_DISPUTA'
+    ? 'Status'
+    : tempoOculto
+      ? 'Fechamento iminente'
+      : itemFoco.faseModo === 'FECHADA'
+        ? 'Lance final fechado'
+        : itemFoco.cronometro.fase === 'PRORROGACAO'
+          ? 'Prorrogacao'
+          : 'Etapa aberta'
   const percentualTempo = (() => {
-    if (!itemFoco || itemFoco.status !== 'EM_DISPUTA') return 0
+    if (!itemFoco || itemFoco.status !== 'EM_DISPUTA' || tempoOculto) return 0
     const totalMinutos = itemFoco.cronometro.fase === 'PRORROGACAO'
       ? contexto?.cronometria.duracaoProrrogacaoMinutos
-      : contexto?.cronometria.etapaAbertaMinutos
+      : itemFoco.cronometro.fase === 'LANCE_FECHADO'
+        ? contexto?.cronometria.lanceFinalFechadoMinutos
+        : contexto?.cronometria.etapaAbertaMinutos
     return tempoPercentual(itemFoco.cronometro.tempoRestanteSegundos, totalMinutos)
   })()
 
@@ -194,6 +223,15 @@ export default function DisputaV3OrgaoPage() {
     })
     setDialogoSuspender(false)
     setJustificativaSuspensao('')
+  }
+
+  const confirmarReinicioDemais = async () => {
+    if (!itemFoco || !justificativaReinicioDemais.trim()) return
+    const ok = await reiniciarDemais(itemFoco.id, justificativaReinicioDemais)
+    if (ok) {
+      setDialogoReinicioDemais(false)
+      setJustificativaReinicioDemais('')
+    }
   }
 
   const confirmarReinicio = () => {
@@ -428,7 +466,7 @@ export default function DisputaV3OrgaoPage() {
                   <Badge className={getStatusBadgeClass(contexto?.status || 'AGENDADA')}>
                     {getStatusLabel(contexto?.status || 'AGENDADA')}
                   </Badge>
-                  <Badge variant="outline">{contexto?.modo || 'ABERTO'}</Badge>
+                  <Badge variant="outline">Modo {rotuloModo(contexto?.modo)}</Badge>
                   <Badge variant="outline">{contexto?.disputaPorItem ? 'Por item' : 'Por lote'}</Badge>
                   <Badge variant="outline" className={wsConectado ? 'border-emerald-300 text-emerald-700' : 'border-red-300 text-red-700'}>
                     {wsConectado ? 'WS online' : 'WS offline'}
@@ -493,27 +531,63 @@ export default function DisputaV3OrgaoPage() {
             </Card>
           ) : (
             <div className="space-y-6">
-              {(actionError || contexto?.cronometria.requerFluxoEspecificoNaV3) && (
-                <Card className={actionError ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/60'}>
-                  <CardContent className="flex flex-col gap-2 py-4 text-sm text-slate-700">
-                    {actionError && (
-                      <div className="flex items-start gap-2 text-red-700">
-                        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{actionError}</span>
+              {actionError && (
+                <Card className="border-red-200 bg-red-50/60">
+                  <CardContent className="flex items-start gap-2 py-4 text-sm text-red-700">
+                    <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{actionError}</span>
+                  </CardContent>
+                </Card>
+              )}
+
+              {contexto && contexto.modo !== 'ABERTO' && (
+                <Card className="border-violet-200 bg-violet-50/60">
+                  <CardContent className="flex flex-col gap-2 py-4 text-sm text-violet-900">
+                    <div className="font-medium">
+                      Modo {rotuloModo(contexto.modo)} — {contexto.cronometria.baseLegal}
+                    </div>
+                    {contexto.cronometria.fases && (
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {contexto.cronometria.fases.map((f, i) => (
+                          <Badge key={f} variant="outline" className="border-violet-300 text-violet-800">
+                            {i + 1}. {f}
+                          </Badge>
+                        ))}
                       </div>
                     )}
-                    {contexto?.cronometria.requerFluxoEspecificoNaV3 && (
-                      <div className="flex items-start gap-2 text-amber-800">
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>
-                          {contexto.cronometria.modo === 'ABERTO_FECHADO'
-                            ? 'Modo aberto-fechado (IN SEGES/ME 73/2022, art. 24): a etapa aberta e o encerramento iminente aleatorio sao operados pela V2. Use "Abrir sala operacional V2" para controlar a fase de lance final fechado. A V3 exibe contexto e decisoes administrativas.'
-                            : contexto.cronometria.modo === 'FECHADO_ABERTO'
-                            ? 'Modo fechado-aberto (IN SEGES/ME 73/2022, art. 25): a classificacao previa e a selecao dos fornecedores na faixa de 10% sao realizadas pela V2. A etapa aberta subsequente deve ser acompanhada na V2. A V3 exibe contexto e decisoes administrativas.'
-                            : 'Modo fechado (Lei 14.133/2021, art. 56): lances sigilosos sao operados exclusivamente pela V2. Use "Abrir sala operacional V2" para toda a operacao de lances.'}
-                        </span>
-                      </div>
-                    )}
+                    <span className="text-xs text-violet-800">{contexto.cronometria.observacao}</span>
+                  </CardContent>
+                </Card>
+              )}
+
+              {suspensaPorDesconexao && contexto?.operacao.suspensa && (
+                <Card className="border-amber-300 bg-amber-50/70">
+                  <CardContent className="flex flex-col gap-3 py-4 text-sm text-amber-900">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        Sessão suspensa automaticamente: o agente de contratação ficou desconectado por mais de 10 minutos durante
+                        os lances. Ela só pode ser reiniciada decorridas 24 horas da comunicação da data aos participantes
+                        (IN SEGES 73/2022, art. 27 §1º).
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        type="datetime-local"
+                        className="max-w-xs bg-white"
+                        value={dataRetomada}
+                        onChange={(e) => setDataRetomada(e.target.value)}
+                      />
+                      <Button
+                        variant="outline"
+                        disabled={!dataRetomada}
+                        onClick={async () => {
+                          if (await agendarRetomada(dataRetomada)) setDataRetomada('')
+                        }}
+                      >
+                        Comunicar data de reinício
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               )}
@@ -627,7 +701,7 @@ export default function DisputaV3OrgaoPage() {
                                     >
                                       <div className="mb-2 flex items-start justify-between gap-2">
                                         <div>
-                                          <div className="font-medium text-slate-900">Item {item.numero}</div>
+                                          <div className="font-medium text-slate-900">{rotuloUnidade(item)}</div>
                                           <div className="line-clamp-2 text-xs text-slate-600">{item.descricao}</div>
                                         </div>
                                         {item.status === 'AGUARDANDO' && (
@@ -659,7 +733,7 @@ export default function DisputaV3OrgaoPage() {
                         <div className="space-y-1">
                           <CardDescription className="text-slate-300">Item em foco</CardDescription>
                           <CardTitle className="text-2xl">
-                            {itemFoco ? `Item ${itemFoco.numero}` : 'Selecione um item'}
+                            {itemFoco ? rotuloUnidade(itemFoco) : 'Selecione um item'}
                           </CardTitle>
                           <p className="max-w-2xl text-sm text-slate-300">
                             {itemFoco?.descricao || 'Escolha um item da fila para acompanhar os lances e as acoes da sessao.'}
@@ -667,12 +741,11 @@ export default function DisputaV3OrgaoPage() {
                         </div>
                         {itemFoco && (
                           <div className="rounded-2xl bg-white/10 px-5 py-3 text-center">
-                            <div className="mb-1 text-xs uppercase tracking-[0.2em] text-slate-300">
-                              {itemFoco.cronometro.fase === 'PRORROGACAO' ? 'Prorrogacao' : itemFoco.status === 'EM_DISPUTA' ? 'Etapa aberta' : 'Status'}
-                            </div>
-                            <div className="text-4xl font-semibold tabular-nums">
-                              {formatarTempo(itemFoco.cronometro.tempoRestanteSegundos)}
-                            </div>
+                            <div className="mb-1 text-xs uppercase tracking-[0.2em] text-slate-300">{rotuloCronometro}</div>
+                            <div className="text-4xl font-semibold tabular-nums">{textoCronometro(itemFoco)}</div>
+                            {tempoOculto && (
+                              <div className="mt-1 text-[11px] text-slate-300">tempo aleatório sigiloso (até 10 min)</div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -707,6 +780,23 @@ export default function DisputaV3OrgaoPage() {
                               <span>{percentualTempo}% do ciclo atual restante</span>
                             </div>
                             <Progress value={percentualTempo} />
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge className={getItemStatusClass(itemFoco)}>{getItemStatusLabel(itemFoco)}</Badge>
+                              {itemFoco.participacaoRestrita && itemFoco.classificadosFase != null && (
+                                <Badge variant="outline">{itemFoco.classificadosFase} classificado(s) nesta fase</Badge>
+                              )}
+                              {itemFoco.faseModo === 'FECHADA' && (
+                                <Badge variant="outline" className="border-violet-300 text-violet-800">
+                                  {itemFoco.lancesFechadosRecebidos ?? 0} lance(s) final(is) recebido(s) — valores sigilosos até o fim do prazo
+                                </Badge>
+                              )}
+                            </div>
+                            {descricaoFase && (
+                              <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+                                {descricaoFase}
+                              </div>
+                            )}
+                            <ItensDoLote item={itemFoco} visao="PREGOEIRO" />
                           </div>
 
                           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -714,7 +804,9 @@ export default function DisputaV3OrgaoPage() {
                               <div>
                                 <h3 className="font-semibold text-slate-900">Acoes principais</h3>
                                 <p className="text-sm text-slate-600">
-                                  A V3 ja centraliza as decisoes principais da sessao.
+                                  {encerramentoAutomatico
+                                    ? 'Modo aberto e fechado: as fases e o encerramento são automáticos (IN 73 art. 24).'
+                                    : 'Atos do pregoeiro sobre o item em foco.'}
                                 </p>
                               </div>
                               <Badge variant="outline">{contexto?.etapa.codigo || 'ABERTURA'}</Badge>
@@ -722,10 +814,16 @@ export default function DisputaV3OrgaoPage() {
                             <div className="flex flex-wrap gap-2">
                               <Button
                                 onClick={() => itemFoco && encerrarItem(itemFoco.id)}
-                                disabled={itemFoco.status !== 'EM_DISPUTA'}
+                                disabled={itemFoco.status !== 'EM_DISPUTA' || encerramentoAutomatico}
                               >
                                 Encerrar item
                               </Button>
+                              {podeReiniciarDemais && (
+                                <Button variant="outline" onClick={() => setDialogoReinicioDemais(true)}>
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                  Reiniciar para demais colocações
+                                </Button>
+                              )}
                               <Button variant="outline" onClick={abrirV2}>
                                 Configuracoes avancadas
                               </Button>
@@ -1195,7 +1293,8 @@ export default function DisputaV3OrgaoPage() {
                         </CardHeader>
                         <CardContent className="space-y-3 text-sm text-slate-600">
                           <p>
-                            Esta V3 ja usa o board e a semantica legal nova, mas ainda reaproveita os eventos operacionais da V2 para iniciar itens, encerrar item, suspender e retomar.
+                            Todos os modos de disputa (aberto, aberto e fechado, fechado e aberto, fechado) rodam no motor único da
+                            sala: iniciar itens, fases, lances, encerramento, suspensão e retomada.
                           </p>
                           <Button variant="outline" className="w-full" onClick={abrirV2}>
                             <ExternalLink className="mr-2 h-4 w-4" />
@@ -1239,6 +1338,33 @@ export default function DisputaV3OrgaoPage() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialogoSuspender(false)}>Cancelar</Button>
               <Button onClick={confirmarSuspensao}>Confirmar suspensao</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={dialogoReinicioDemais} onOpenChange={setDialogoReinicioDemais}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reiniciar a disputa para as demais colocações</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-slate-600">
+                Lei 14.133/2021, art. 56 §4º: definida a melhor proposta, se a diferença para a 2ª colocada for de pelo menos 5%,
+                a Administração pode admitir o reinício da disputa aberta para definir as demais colocações. A 1ª colocação é
+                mantida e nenhum lance poderá alcançá-la. O sistema confere o percentual.
+              </p>
+              <Textarea
+                value={justificativaReinicioDemais}
+                onChange={(event) => setJustificativaReinicioDemais(event.target.value)}
+                placeholder="Justificativa (obrigatória)..."
+                rows={4}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogoReinicioDemais(false)}>Cancelar</Button>
+              <Button onClick={confirmarReinicioDemais} disabled={!justificativaReinicioDemais.trim()}>
+                Reiniciar para demais colocações
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

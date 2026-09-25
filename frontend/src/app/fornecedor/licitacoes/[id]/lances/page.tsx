@@ -87,14 +87,15 @@ export default function SalaLancesDispensaPage() {
 
     // ── Tempo real: WebSocket (push instantâneo); polling fica como retaguarda ──
     const wsUrl = API_URL.replace("/api", "").replace("http", "ws")
+    // Canal ÚNICO de tempo real (/disputa-v2 — o antigo /dispensa foi absorvido).
     // Handshake autenticado (token inválido é recusado; sem token = anônimo)
     const token = hasValidSession() ? getAuthToken() : null
-    const socket = io(`${wsUrl}/dispensa`, {
+    const socket = io(`${wsUrl}/disputa-v2`, {
       transports: ["websocket", "polling"],
       auth: token ? { token } : undefined,
     })
     socketRef.current = socket
-    socket.on("connect", () => { setWsOk(true); socket.emit("entrar_sala", { licitacaoId: id }) })
+    socket.on("connect", () => { setWsOk(true); socket.emit("entrar_licitacao", { licitacaoId: id }) })
     socket.on("disconnect", () => setWsOk(false))
     socket.on("sala_ok", (d: any) => { if (d?.server_time) offsetRef.current = new Date(d.server_time).getTime() - Date.now() })
     socket.on("painel_atualizado", (d: any) => {
@@ -109,7 +110,8 @@ export default function SalaLancesDispensaPage() {
     socket.on("chat", (m: any) => setMensagens((prev) => [...prev, m]))
     socket.on("janela", (d: any) => {
       if (d?.server_time) offsetRef.current = new Date(d.server_time).getTime() - Date.now()
-      setPainel((p) => p ? { ...p, aberta: true, dispensa_lances_inicio: d.dispensa_lances_inicio, dispensa_lances_fim: d.dispensa_lances_fim } : p)
+      // janela aberta, prorrogada ou encerrada (relógio único do servidor)
+      setPainel((p) => p ? { ...p, aberta: d.aberta ?? true, dispensa_lances_inicio: d.dispensa_lances_inicio, dispensa_lances_fim: d.dispensa_lances_fim } : p)
     })
 
     // Retaguarda: se o socket cair, o polling de 10s mantém tudo atualizado

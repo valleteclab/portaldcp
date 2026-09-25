@@ -45,7 +45,10 @@ export interface DisputaV3Cronometria {
   lanceFinalFechadoMinutos?: number;
   faixaClassificacaoPercentual?: number;
   usaTempoAleatorioNoModoAberto: boolean;
+  /** Mantido por compatibilidade: todos os modos rodam no motor único (sempre false). */
   requerFluxoEspecificoNaV3: boolean;
+  /** Fases do modo, na ordem (para a tela mostrar a jornada). */
+  fases?: string[];
   observacao?: string;
 }
 
@@ -58,6 +61,8 @@ export interface DisputaV3Contexto {
     origem: EtapaSessao;
   };
   modo: DisputaV3Modo;
+  /** Critério de julgamento (menor preço, maior desconto, maior lance...). */
+  criterioJulgamento?: string | null;
   disputaPorItem: boolean;
   pregoeiro: {
     id: string | null;
@@ -91,8 +96,21 @@ export interface DisputaV3ItemBoard {
   status: ItemDisputa['status'];
   cronometro: {
     tempoRestanteSegundos: number;
-    fase: 'ETAPA_ABERTA' | 'PRORROGACAO' | 'ENCERRADO';
+    fase: 'ETAPA_ABERTA' | 'PRORROGACAO' | 'TEMPO_ALEATORIO' | 'LANCE_FECHADO' | 'ENCERRADO';
+    /** Tempo aleatório: o restante é sigiloso (IN 73 art. 24 §1º) — a tela não mostra contagem. */
+    oculto?: boolean;
   };
+  /** Modo e fase do item (motor de modos — E2.4). */
+  modoDisputa?: string;
+  /** AGUARDANDO | ABERTA | ALEATORIO | FECHADA | REINICIO_DEMAIS | ENCERRADA */
+  faseModo?: string;
+  fimFaseEm?: string | null;
+  participacaoRestrita?: boolean;
+  classificadosFase?: number | null;
+  possoDarLance?: boolean;
+  meuLanceFechado?: number | null;
+  lancesFechadosRecebidos?: number | null;
+  valorPrimeiraColocacao?: number | null;
   melhorLance?: {
     valor: number;
     fornecedorId: string;
@@ -103,11 +121,27 @@ export interface DisputaV3ItemBoard {
   meuMelhorLance?: number | null;
   minhaPosicao?: number | null;
   minhaPropostaInicial?: number | null;
+  /** Unidade de disputa: LOTE na disputa por lote (base TOTAL_LOTE); ausente = item. */
+  tipoUnidade?: ItemDisputa['tipoUnidade'];
+  /** LOTE: itens do lote (o valor global do lote vai em `valorReferencia` e nos lances). */
+  itensDoLote?: ItemDisputa['itensDoLote'];
+  /** LOTE, visão do fornecedor: cotou todos os itens (senão não disputa o lote). */
+  elegivel?: boolean;
+  itensNaoCotados?: number[];
 }
 
+const MODOS_V3: DisputaV3Modo[] = ['ABERTO', 'ABERTO_FECHADO', 'FECHADO_ABERTO', 'FECHADO'];
+
+/**
+ * Modo da disputa. Fonte: `licitacao.modo_disputa` (Lei 14.133 art. 56); os
+ * booleanos `modo_aberto`/`modo_aberto_fechado` da sessão são legado e só
+ * valem quando a licitação não vem junto.
+ */
 export function inferirModoDisputaV3(
   sessao: Pick<SessaoDisputa, 'modo_aberto' | 'modo_aberto_fechado'>,
+  modoDaLicitacao?: string | null,
 ): DisputaV3Modo {
+  if (modoDaLicitacao && (MODOS_V3 as string[]).includes(modoDaLicitacao)) return modoDaLicitacao as DisputaV3Modo;
   if (sessao.modo_aberto && sessao.modo_aberto_fechado) {
     return 'ABERTO_FECHADO';
   }
@@ -186,72 +220,76 @@ export function montarCronometriaSessaoV3(
     | 'lance_final_fechado_minutos'
   >,
   diferencaMinimaLances?: number | null,
+  modoDaLicitacao?: string | null,
 ): DisputaV3Cronometria {
-  const modo = inferirModoDisputaV3(sessao);
+  const modo = inferirModoDisputaV3(sessao, modoDaLicitacao);
   const decremento = diferencaMinimaLances && diferencaMinimaLances > 0
     ? diferencaMinimaLances
     : undefined;
+  const comum = {
+    modo,
+    intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
+    diferencaMinimaLances: decremento,
+    usaTempoAleatorioNoModoAberto: false,
+    requerFluxoEspecificoNaV3: false,
+  };
 
   if (modo === 'ABERTO') {
     return {
-      modo,
+      ...comum,
       baseLegal: 'IN SEGES/ME 73/2022, art. 23',
-      intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
-      diferencaMinimaLances: decremento,
       etapaAbertaMinutos: sessao.tempo_inatividade_minutos,
       janelaGatilhoProrrogacaoMinutos: sessao.tempo_prorrogacao_minutos,
       duracaoProrrogacaoMinutos: sessao.tempo_prorrogacao_minutos,
-      usaTempoAleatorioNoModoAberto: false,
-      requerFluxoEspecificoNaV3: false,
+      fases: ['Etapa aberta', 'Prorrogações automáticas', 'Encerramento automático'],
       observacao:
-        'Na V3, o modo aberto deve ser tratado como etapa aberta de duracao fixa com prorrogacao automatica sucessiva.',
+        `Lances abertos por ${sessao.tempo_inatividade_minutos} min; lance nos últimos ${sessao.tempo_prorrogacao_minutos} min ` +
+        `prorroga ${sessao.tempo_prorrogacao_minutos} min, sucessivamente; sem lance na prorrogação, o item encerra. ` +
+        'Com diferença de pelo menos 5% entre 1º e 2º, o pregoeiro pode reiniciar a disputa para as demais colocações (Lei 14.133, art. 56 §4º).',
     };
   }
 
   if (modo === 'ABERTO_FECHADO') {
-    // Defaults conforme IN SEGES/ME 73/2022, art. 24; sobrescritos pela sessao quando configurados
+    // Padrões da IN SEGES/ME 73/2022, art. 24 (15 min, até 10 min aleatórios, 5 min fechado)
+    const etapa = sessao.etapa_aberta_minutos_hibrido ?? 15;
+    const aleatorioMax = Math.min(10, sessao.tempo_aleatorio_max_minutos ?? 10);
+    const fechado = sessao.lance_final_fechado_minutos ?? 5;
     return {
-      modo,
+      ...comum,
       baseLegal: 'IN SEGES/ME 73/2022, art. 24',
-      intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
-      diferencaMinimaLances: decremento,
-      etapaAbertaMinutos: sessao.etapa_aberta_minutos_hibrido ?? sessao.tempo_inatividade_minutos ?? 15,
-      fechamentoIminenteAleatorioMaxMinutos: sessao.tempo_aleatorio_max_minutos ?? 10,
-      lanceFinalFechadoMinutos: sessao.lance_final_fechado_minutos ?? 5,
-      usaTempoAleatorioNoModoAberto: false,
-      requerFluxoEspecificoNaV3: true,
+      etapaAbertaMinutos: etapa,
+      fechamentoIminenteAleatorioMaxMinutos: aleatorioMax,
+      lanceFinalFechadoMinutos: fechado,
+      faixaClassificacaoPercentual: 10,
+      fases: ['Etapa aberta', 'Fechamento iminente (tempo aleatório)', 'Lance final fechado', 'Encerrado'],
       observacao:
-        'Este modo exige frontend e motor proprios na V3 para fechamento iminente e lance final fechado.',
+        `Etapa aberta de ${etapa} min (sem prorrogação) → aviso de fechamento iminente → encerramento em até ${aleatorioMax} min, ` +
+        'em momento aleatório (sigiloso) → a melhor oferta e as até 10% dela (mínimo 3; 20% com margem de preferência) enviam UM ' +
+        `lance final fechado em ${fechado} min, sigiloso até o fim do prazo → classificação final pelo melhor valor de cada licitante.`,
     };
   }
 
   if (modo === 'FECHADO_ABERTO') {
-    // Defaults conforme IN SEGES/ME 73/2022, art. 25; sobrescritos pela sessao quando configurados
     return {
-      modo,
+      ...comum,
       baseLegal: 'IN SEGES/ME 73/2022, art. 25',
-      intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
-      diferencaMinimaLances: decremento,
       faixaClassificacaoPercentual: 10,
-      etapaAbertaMinutos: sessao.etapa_aberta_minutos_hibrido ?? sessao.tempo_inatividade_minutos ?? 10,
+      etapaAbertaMinutos: sessao.tempo_inatividade_minutos,
       janelaGatilhoProrrogacaoMinutos: sessao.tempo_prorrogacao_minutos,
       duracaoProrrogacaoMinutos: sessao.tempo_prorrogacao_minutos,
-      usaTempoAleatorioNoModoAberto: false,
-      requerFluxoEspecificoNaV3: true,
+      fases: ['Propostas fechadas', 'Classificação automática (até 10%, mínimo 3)', 'Etapa aberta', 'Encerrado'],
       observacao:
-        'Este modo exige classificacao previa automatica para a etapa aberta e fluxo especifico na V3.',
+        'As propostas são a etapa fechada. O sistema classifica automaticamente a melhor e as até 10% dela (mínimo 3; 20% com ' +
+        'margem de preferência) para a etapa aberta, com as regras do art. 23; as demais permanecem na classificação pelo valor proposto.',
     };
   }
 
   return {
-    modo,
-    baseLegal: 'Lei 14.133/2021, art. 56',
-    intervaloMinimoLancesMinutos: sessao.intervalo_minimo_lances_minutos,
-    diferencaMinimaLances: decremento,
-    usaTempoAleatorioNoModoAberto: false,
-    requerFluxoEspecificoNaV3: true,
+    ...comum,
+    baseLegal: 'Lei 14.133/2021, art. 56, I',
+    fases: ['Propostas fechadas', 'Classificação pelas propostas'],
     observacao:
-      'Modo fechado nao utiliza cronometria de lances publicos; a V3 deve trata-lo com experiencia dedicada.',
+      'Modo fechado: não há lances — a classificação é feita pelas propostas. Vedado isoladamente com menor preço ou maior desconto (art. 56 §1º).',
   };
 }
 
@@ -285,6 +323,8 @@ export function montarContextoSessaoV3(
       diferenca_minima_lances?: number | null;
       tipo_diferenca_minima_lances?: 'VALOR' | 'PERCENTUAL' | null;
       base_lance?: string | null;
+      modo_disputa?: string | null;
+      criterio_julgamento?: string | null;
     } | null;
   },
 ): DisputaV3Contexto {
@@ -296,7 +336,8 @@ export function montarContextoSessaoV3(
       codigo: mapearEtapaSessaoV3(sessao.etapa),
       origem: sessao.etapa,
     },
-    modo: inferirModoDisputaV3(sessao),
+    modo: inferirModoDisputaV3(sessao, sessao.licitacao?.modo_disputa),
+    criterioJulgamento: sessao.licitacao?.criterio_julgamento ?? null,
     disputaPorItem: sessao.disputa_por_item,
     pregoeiro: {
       id: sessao.pregoeiro_id || null,
@@ -309,7 +350,7 @@ export function montarContextoSessaoV3(
       motivoSuspensao: sessao.motivo_suspensao || null,
     },
     cronometria: {
-      ...montarCronometriaSessaoV3(sessao, sessao.licitacao?.diferenca_minima_lances),
+      ...montarCronometriaSessaoV3(sessao, sessao.licitacao?.diferenca_minima_lances, sessao.licitacao?.modo_disputa),
       tipoDiferencaMinimaLances: sessao.licitacao?.tipo_diferenca_minima_lances || 'VALOR',
       baseLance: sessao.licitacao?.base_lance || 'TOTAL_ITEM',
     },
@@ -325,6 +366,12 @@ export function montarContextoSessaoV3(
 }
 
 export function mapearItemBoardV3(item: ItemDisputa): DisputaV3ItemBoard {
+  const faseCronometro = (): DisputaV3ItemBoard['cronometro']['fase'] => {
+    if (item.status !== 'EM_DISPUTA') return 'ENCERRADO';
+    if (item.faseModo === 'ALEATORIO') return 'TEMPO_ALEATORIO';
+    if (item.faseModo === 'FECHADA') return 'LANCE_FECHADO';
+    return item.emProrrogacao ? 'PRORROGACAO' : 'ETAPA_ABERTA';
+  };
   return {
     id: item.id,
     numero: item.numero,
@@ -336,14 +383,10 @@ export function mapearItemBoardV3(item: ItemDisputa): DisputaV3ItemBoard {
     baseLance: item.baseLance,
     status: item.status,
     cronometro: {
-      tempoRestanteSegundos:
-        item.status === 'EM_DISPUTA' ? item.tempoRestante : 0,
-      fase:
-        item.status !== 'EM_DISPUTA'
-          ? 'ENCERRADO'
-          : item.emProrrogacao
-            ? 'PRORROGACAO'
-            : 'ETAPA_ABERTA',
+      // Tempo aleatório: nunca há contagem (sigiloso)
+      tempoRestanteSegundos: item.status === 'EM_DISPUTA' && !item.tempoOculto ? item.tempoRestante : 0,
+      fase: faseCronometro(),
+      oculto: !!item.tempoOculto,
     },
     melhorLance: item.melhorLance,
     totalPropostas: item.totalPropostas,
@@ -351,5 +394,18 @@ export function mapearItemBoardV3(item: ItemDisputa): DisputaV3ItemBoard {
     meuMelhorLance: item.meuMelhorLance ?? null,
     minhaPosicao: item.minhaPosicao ?? null,
     minhaPropostaInicial: item.minhaPropostaInicial ?? null,
+    modoDisputa: item.modoDisputa,
+    faseModo: item.faseModo,
+    fimFaseEm: item.fimFaseEm ?? null,
+    participacaoRestrita: item.participacaoRestrita ?? false,
+    classificadosFase: item.classificadosFase ?? null,
+    possoDarLance: item.possoDarLance,
+    meuLanceFechado: item.meuLanceFechado ?? null,
+    lancesFechadosRecebidos: item.lancesFechadosRecebidos ?? null,
+    valorPrimeiraColocacao: item.valorPrimeiraColocacao ?? null,
+    // Unidade LOTE (disputa por lote)
+    ...(item.tipoUnidade ? { tipoUnidade: item.tipoUnidade } : {}),
+    ...(item.itensDoLote ? { itensDoLote: item.itensDoLote } : {}),
+    ...(item.elegivel !== undefined ? { elegivel: item.elegivel, itensNaoCotados: item.itensNaoCotados ?? [] } : {}),
   };
 }

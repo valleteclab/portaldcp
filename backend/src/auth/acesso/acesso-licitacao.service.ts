@@ -76,6 +76,27 @@ export class AcessoLicitacaoService {
     return r[0] ? { licitacaoId: r[0].licitacao_id, orgaoId: r[0].orgao_id } : null;
   }
 
+  /** Licitação e órgão de um lote de licitação (null se não existe). */
+  async donoDoLote(loteId: string): Promise<DonoLicitacao | null> {
+    if (!ehUuid(loteId)) return null;
+    const r = await this.dataSource.query(
+      `SELECT lt.licitacao_id, l.orgao_id FROM lotes_licitacao lt JOIN licitacoes l ON l.id = lt.licitacao_id WHERE lt.id = $1`,
+      [loteId],
+    );
+    return r[0] ? { licitacaoId: r[0].licitacao_id, orgaoId: r[0].orgao_id } : null;
+  }
+
+  /** Unidade de disputa (item ou lote — a sala usa o mesmo id): licitação e órgão. */
+  async donoDaUnidade(id: string): Promise<DonoLicitacao | null> {
+    return (await this.donoDoItem(id)) ?? (await this.donoDoLote(id));
+  }
+
+  async assertOrgaoDoLote(ator: Ator | null | undefined, loteId: string, modo: ModoAcesso = 'escrita'): Promise<DonoLicitacao> {
+    const dono = await this.donoDoLote(loteId);
+    this.assertMesmoOrgao(ator, dono?.orgaoId, modo, 'Lote');
+    return dono!;
+  }
+
   /** Fornecedor tem proposta válida (enviada, não desclassificada/cancelada) na licitação? */
   async fornecedorParticipa(fornecedorId: string, licitacaoId: string): Promise<boolean> {
     if (!ehUuid(fornecedorId) || !ehUuid(licitacaoId)) return false;
