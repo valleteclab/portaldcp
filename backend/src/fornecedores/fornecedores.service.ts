@@ -11,6 +11,7 @@ import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedo
 import { CnpjService, DadosCnpjFormatados } from './cnpj.service';
 import { EmailService } from '../email/email.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { isUuid } from './fornecedor-acesso.util';
 
 // Tipo para fornecedor sem senha (segurança)
 export type FornecedorSemSenha = Omit<Fornecedor, 'senha'>;
@@ -1486,6 +1487,26 @@ export class FornecedoresService {
     fornecedor.nivel_vi_completo = true;
     await this.fornecedorRepository.save(fornecedor);
     return fornecedor;
+  }
+
+  /**
+   * O órgão tem vínculo com o fornecedor? (contrato do órgão com o fornecedor
+   * OU proposta do fornecedor em licitação do órgão). Usado na autorização.
+   */
+  async orgaoTemVinculoComFornecedor(orgaoId: string, fornecedorId: string): Promise<boolean> {
+    if (!isUuid(orgaoId) || !isUuid(fornecedorId)) return false;
+    const [row] = await this.dataSource.query(
+      `SELECT (
+         EXISTS (SELECT 1 FROM contratos c WHERE c.orgao_id = $1 AND c.fornecedor_id = $2)
+         OR EXISTS (
+           SELECT 1 FROM propostas p
+           JOIN licitacoes l ON l.id = p.licitacao_id
+           WHERE l.orgao_id = $1 AND p.fornecedor_id = $2
+         )
+       ) AS vinculo`,
+      [orgaoId, fornecedorId],
+    );
+    return row?.vinculo === true || row?.vinculo === 't';
   }
 
   /**

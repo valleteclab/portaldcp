@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Req, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { FornecedoresService } from './fornecedores.service';
 import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedor.dto';
 import { Fornecedor, NivelCadastro } from './entities/fornecedor.entity';
@@ -6,6 +6,17 @@ import { FornecedorDocumento } from './entities/fornecedor-documento.entity';
 import { AuthService, JwtPayload, UserType } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
 import { AuditService, AuditAction } from '../audit/audit.service';
+import {
+  RegraAcessoFornecedor,
+  camposNaoPermitidosParaOrgao,
+  emailCorrespondeAoProprio,
+  isAdmin,
+  isOrgaoOuAdmin,
+  isProprioFornecedor,
+  orgaoIdDoUsuario,
+  podeAcessarFornecedor,
+  regraPrecisaVinculo,
+} from './fornecedor-acesso.util';
 
 @Controller('fornecedores')
 export class FornecedoresController {
@@ -27,6 +38,43 @@ export class FornecedoresController {
     }
   }
 
+  /**
+   * Aplica uma regra de acesso ao fornecedor `fornecedorId`.
+   * `ocultar = true` responde 404 (não revela a existência do registro).
+   */
+  private async autorizar(
+    req: any,
+    fornecedorId: string,
+    regra: RegraAcessoFornecedor,
+    ocultar = false,
+  ): Promise<void> {
+    const user = req?.user as JwtPayload | undefined;
+    let temVinculo = false;
+    if (regraPrecisaVinculo(user, regra)) {
+      const orgaoId = orgaoIdDoUsuario(user) as string;
+      temVinculo = await this.fornecedoresService.orgaoTemVinculoComFornecedor(orgaoId, fornecedorId);
+    }
+    if (podeAcessarFornecedor(user, fornecedorId, regra, temVinculo)) return;
+
+    if (user) this.auditService.logAccessDenied(user, 'Fornecedor', fornecedorId, req?.ip);
+    if (ocultar) throw new NotFoundException(`Fornecedor com ID ${fornecedorId} não encontrado`);
+    throw new ForbiddenException('Você não tem permissão para esta ação neste fornecedor');
+  }
+
+  private exigirOrgaoOuAdmin(req: any, mensagem: string): void {
+    const user = req?.user as JwtPayload | undefined;
+    if (isOrgaoOuAdmin(user)) return;
+    if (user) this.auditService.logAccessDenied(user, 'Fornecedor', '-', req?.ip);
+    throw new ForbiddenException(mensagem);
+  }
+
+  private exigirAdmin(req: any, mensagem: string, recursoId?: string): void {
+    const user = req?.user as JwtPayload | undefined;
+    if (isAdmin(user)) return;
+    if (user) this.auditService.logAccessDenied(user, 'Fornecedor', recursoId || '-', req?.ip);
+    throw new ForbiddenException(mensagem);
+  }
+
   // === CONSULTA CNPJ ===
   @Public()
   @Get('consultar-cnpj/:cnpj')
@@ -45,8 +93,10 @@ export class FornecedoresController {
 
   @Post('orgao/cadastro-rapido')
   async cadastroRapidoOrgao(
-    @Body() body: { cnpj: string; razao_social: string }
+    @Body() body: { cnpj: string; razao_social: string },
+    @Req() req: any,
   ): Promise<Fornecedor> {
+    this.exigirOrgaoOuAdmin(req, 'Apenas órgãos podem usar o cadastro rápido de fornecedores');
     return await this.fornecedoresService.cadastroRapidoOrgao(body.cnpj, body.razao_social);
   }
 
@@ -61,8 +111,10 @@ export class FornecedoresController {
       representante_telefone?: string;
       inscricao_estadual?: string;
       inscricao_municipal?: string;
-    }
+    },
+    @Req() req: any,
   ): Promise<Fornecedor> {
+    this.exigirOrgaoOuAdmin(req, 'Apenas órgãos ou administradores podem cadastrar fornecedores por CNPJ');
     return await this.fornecedoresService.createFromCnpj(body.dadosCnpj, {
       representante_nome: body.representante_nome,
       representante_cpf: body.representante_cpf,
@@ -75,7 +127,8 @@ export class FornecedoresController {
   }
 
   @Put(':id/atualizar-cnpj')
-  async atualizarDadosCnpj(@Param('id') id: string): Promise<Fornecedor> {
+  async atualizarDadosCnpj(@Param('id') id: string, @Req() req: any): Promise<Fornecedor> {
+    await this.autorizar(req, id, 'PROPRIO_OU_ADMIN');
     return await this.fornecedoresService.atualizarDadosCnpj(id);
   }
 
@@ -106,8 +159,23 @@ export class FornecedoresController {
     @Body(new ValidationPipe({ skipMissingProperties: true })) updateDto: UpdateFornecedorDto,
     @Req() req: any
   ) {
-    // Valida ownership: fornecedor só pode atualizar seus próprios dados
-    this.validarOwnership(req.user, id, req);
+    // Próprio fornecedor ou ADMIN: qualquer campo.
+    // Órgão (ORGAO/USUARIO): apenas razão social / nome fantasia
+    // (tela de edição de contrato do órgão). Demais perfis: 403.
+    const user = req.user as JwtPayload;
+    if (!isAdmin(user) && !isProprioFornecedor(user, id)) {
+      if (orgaoIdDoUsuario(user) === null) {
+        this.auditService.logAccessDenied(user, 'Fornecedor', id, req?.ip);
+        throw new ForbiddenException('Você não tem permissão para acessar/modificar dados de outro fornecedor');
+      }
+      const proibidos = camposNaoPermitidosParaOrgao(updateDto as any);
+      if (proibidos.length > 0) {
+        this.auditService.logAccessDenied(user, 'Fornecedor', id, req?.ip);
+        throw new ForbiddenException(
+          `O órgão só pode alterar razão social e nome fantasia do fornecedor (campos não permitidos: ${proibidos.join(', ')})`,
+        );
+      }
+    }
     return await this.fornecedoresService.update(id, updateDto);
   }
 
@@ -137,24 +205,30 @@ export class FornecedoresController {
   @Post(':id/documentos')
   async addDocumento(
     @Param('id') id: string,
-    @Body() documento: Partial<FornecedorDocumento>
+    @Body() documento: Partial<FornecedorDocumento>,
+    @Req() req: any,
   ): Promise<FornecedorDocumento> {
+    await this.autorizar(req, id, 'PROPRIO_OU_ADMIN');
     return await this.fornecedoresService.addDocumento(id, documento);
   }
 
   @Get(':id/documentos')
   async getDocumentos(
     @Param('id') id: string,
+    @Req() req: any,
     @Query('nivel') nivel?: NivelCadastro
   ): Promise<FornecedorDocumento[]> {
+    await this.autorizar(req, id, 'PROPRIO_ORGAO_VINCULADO_OU_ADMIN', true);
     return await this.fornecedoresService.getDocumentos(id, nivel);
   }
 
   @Put('documentos/:docId/analisar')
   async analisarDocumento(
     @Param('docId') docId: string,
-    @Body() body: { aprovado: boolean; observacao: string; analisadoPor: string }
+    @Body() body: { aprovado: boolean; observacao: string; analisadoPor: string },
+    @Req() req: any,
   ): Promise<FornecedorDocumento> {
+    this.exigirAdmin(req, 'Apenas administradores podem analisar documentos de fornecedores', docId);
     return await this.fornecedoresService.analisarDocumento(
       docId,
       body.aprovado,
@@ -165,25 +239,30 @@ export class FornecedoresController {
 
   // === STATUS ===
   @Put(':id/aprovar')
-  async aprovar(@Param('id') id: string): Promise<Fornecedor> {
+  async aprovar(@Param('id') id: string, @Req() req: any): Promise<Fornecedor> {
+    this.exigirAdmin(req, 'Apenas administradores podem aprovar fornecedores', id);
     return await this.fornecedoresService.aprovar(id);
   }
 
   @Put(':id/suspender')
   async suspender(
     @Param('id') id: string,
-    @Body() body: { motivo: string }
+    @Body() body: { motivo: string },
+    @Req() req: any,
   ): Promise<Fornecedor> {
+    this.exigirAdmin(req, 'Apenas administradores podem suspender fornecedores', id);
     return await this.fornecedoresService.suspender(id, body.motivo);
   }
 
   @Put(':id/reativar')
-  async reativar(@Param('id') id: string): Promise<Fornecedor> {
+  async reativar(@Param('id') id: string, @Req() req: any): Promise<Fornecedor> {
+    this.exigirAdmin(req, 'Apenas administradores podem reativar fornecedores', id);
     return await this.fornecedoresService.reativar(id);
   }
 
   @Get(':id/habilitacao')
-  async verificarHabilitacao(@Param('id') id: string) {
+  async verificarHabilitacao(@Param('id') id: string, @Req() req: any) {
+    await this.autorizar(req, id, 'PROPRIO_ORGAO_VINCULADO_OU_ADMIN');
     return await this.fornecedoresService.verificarHabilitacao(id);
   }
 
@@ -221,8 +300,10 @@ export class FornecedoresController {
   @Put(':id/definir-senha')
   async definirSenha(
     @Param('id') id: string,
-    @Body() body: { senha: string }
+    @Body() body: { senha: string },
+    @Req() req: any,
   ): Promise<{ message: string }> {
+    await this.autorizar(req, id, 'PROPRIO_OU_ADMIN');
     await this.fornecedoresService.definirSenha(id, body.senha);
     return { message: 'Senha definida com sucesso' };
   }
@@ -268,8 +349,23 @@ export class FornecedoresController {
       representante_telefone?: string;
       inscricao_estadual?: string;
       inscricao_municipal?: string;
-    }
+    },
+    @Req() req: any,
   ): Promise<Fornecedor> {
+    // O serviço localiza o fornecedor pelo e-mail do corpo: só o próprio
+    // fornecedor (e-mail do seu cadastro) ou ADMIN pode completar.
+    const user = req.user as JwtPayload;
+    if (!isAdmin(user)) {
+      let permitido = false;
+      if (user?.type === UserType.FORNECEDOR && user.sub) {
+        const proprio = await this.fornecedoresService.findOne(user.sub).catch(() => null);
+        permitido = emailCorrespondeAoProprio(proprio?.email, body?.email);
+      }
+      if (!permitido) {
+        if (user) this.auditService.logAccessDenied(user, 'Fornecedor', user.sub || '-', req?.ip);
+        throw new ForbiddenException('Você só pode completar o credenciamento do seu próprio cadastro');
+      }
+    }
     return await this.fornecedoresService.completarCredenciamento(body.email, body.dadosCnpj, {
       representante_nome: body.representante_nome,
       representante_cpf: body.representante_cpf,
@@ -357,7 +453,8 @@ export class FornecedoresController {
   }
 
   @Get(':id/completo')
-  async findOneComDocumentos(@Param('id') id: string) {
+  async findOneComDocumentos(@Param('id') id: string, @Req() req: any) {
+    await this.autorizar(req, id, 'PROPRIO_ORGAO_VINCULADO_OU_ADMIN', true);
     return await this.fornecedoresService.findOneComDocumentos(id);
   }
 
@@ -369,11 +466,7 @@ export class FornecedoresController {
    */
   @Put(':id/admin/reset-senha')
   async resetSenhaAdmin(@Param('id') id: string, @Req() req: any) {
-    const user = req.user as JwtPayload;
-    // Verifica se é admin
-    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
-      throw new ForbiddenException('Apenas administradores podem resetar senhas');
-    }
+    this.exigirAdmin(req, 'Apenas administradores podem resetar senhas', id);
     return await this.fornecedoresService.resetSenhaAdmin(id);
   }
 
@@ -408,11 +501,7 @@ export class FornecedoresController {
     },
     @Req() req: any
   ) {
-    const user = req.user as JwtPayload;
-    // Verifica se é admin
-    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
-      throw new ForbiddenException('Apenas administradores podem alterar dados de fornecedores');
-    }
+    this.exigirAdmin(req, 'Apenas administradores podem alterar dados de fornecedores', id);
     return await this.fornecedoresService.updateAdmin(id, body);
   }
 
@@ -425,11 +514,7 @@ export class FornecedoresController {
     @Body() body: { nivel: string },
     @Req() req: any
   ) {
-    const user = req.user as JwtPayload;
-    // Verifica se é admin
-    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
-      throw new ForbiddenException('Apenas administradores podem alterar níveis');
-    }
+    this.exigirAdmin(req, 'Apenas administradores podem alterar níveis', id);
     return await this.fornecedoresService.alterarNivel(id, body.nivel as any);
   }
 
@@ -446,10 +531,9 @@ export class FornecedoresController {
     @Body() body: { canal?: 'email' | 'whatsapp' | 'ambos' },
     @Req() req: any,
   ) {
+    // Somente órgão com vínculo (contrato/proposta) com o fornecedor, ou ADMIN
+    await this.autorizar(req, id, 'ORGAO_VINCULADO_OU_ADMIN');
     const user = req.user as JwtPayload;
-    if (user.type !== UserType.ORGAO && user.type !== UserType.USUARIO && user.type !== UserType.ADMIN) {
-      throw new ForbiddenException('Acesso não autorizado');
-    }
     const orgaoId = user.type === UserType.ORGAO ? user.sub : (user as any).orgaoId || (user as any).orgao_id;
     return await this.fornecedoresService.solicitarResetPorOrgao(id, orgaoId, body?.canal || 'email');
   }
@@ -472,10 +556,8 @@ export class FornecedoresController {
     },
     @Req() req: any,
   ) {
-    const user = req.user as JwtPayload;
-    if (user.type !== UserType.ORGAO && user.type !== UserType.USUARIO && user.type !== UserType.ADMIN) {
-      throw new ForbiddenException('Acesso não autorizado');
-    }
+    // Somente órgão com vínculo (contrato/proposta) com o fornecedor, ou ADMIN
+    await this.autorizar(req, id, 'ORGAO_VINCULADO_OU_ADMIN');
     return await this.fornecedoresService.atualizarContatoOrgao(id, body);
   }
 
