@@ -14,6 +14,7 @@ import { IsNumber, IsString, IsUUID, Length } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { AcessoContratoDoOrgao } from '../auth/acesso';
 import { JwtPayload } from '../auth/auth.service';
 import { ConciliacaoPagamentoService } from './conciliacao-pagamento.service';
 
@@ -32,6 +33,7 @@ class CancelarVinculoDto {
 @UseGuards(JwtAuthGuard)
 @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
 @RequireModule(ModuloSistema.CONTRATOS)
+@AcessoContratoDoOrgao()
 export class ConciliacaoPagamentoController {
   constructor(private readonly service: ConciliacaoPagamentoService) {}
   @Get()

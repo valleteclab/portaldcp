@@ -290,7 +290,9 @@ export class Licitacao {
   @Column({
     type: 'enum',
     enum: SituacaoLicitacao,
-    enumName: 'licitacoes_situacao_enum',
+    // Sem `enumName`: o nome padrão do TypeORM já é `licitacoes_situacao_enum`
+    // (<tabela>_<coluna>_enum). Declará-lo igual ao padrão fazia o synchronize
+    // ver diferença a cada boot e recriar o tipo enum.
     default: SituacaoLicitacao.ATIVA,
   })
   situacao: SituacaoLicitacao;

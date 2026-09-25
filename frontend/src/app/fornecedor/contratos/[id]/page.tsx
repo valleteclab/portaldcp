@@ -1147,8 +1147,8 @@ export default function FornecedorContratoDetalhePage() {
     setCarregandoReplicar(true);
     try {
       const [detRes, discRes] = await Promise.all([
-        authFetch(`${API_URL}/api/contratos/medicoes/${ultimaMedicao.id}`),
-        authFetch(`${API_URL}/api/contratos/medicoes/${ultimaMedicao.id}/discriminacoes`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${ultimaMedicao.id}`),
+        authFetch(`${API_URL}/api/fornecedor/contratos/medicoes/${ultimaMedicao.id}/discriminacoes`),
       ]);
       const det = detRes.ok ? await detRes.json() : null;
       const discs = discRes.ok ? await discRes.json() : [];

@@ -36,6 +36,8 @@ import { Public } from '../auth/public.decorator';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { JwtPayload, UserType } from '../auth/auth.service';
+import { AcessoContratoDoOrgao, AcessoLicitacaoService, AtorAtual, FornecedorNaRotaDoOrgao, ParametrosContrato } from '../auth/acesso';
+import type { Ator } from '../auth/acesso';
 
 const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 const ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
@@ -43,9 +45,13 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
 
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
+// Dono: :id/:contratoId/:medicaoId/:termoId/:docId/:anexoId conferidos contra o
+// órgão do token (outro órgão: 404 leitura / 403 escrita); fornecedor → 403.
+@AcessoContratoDoOrgao()
 export class ContratosController {
   constructor(
     private readonly contratosService: ContratosService,
+    private readonly acesso: AcessoLicitacaoService,
     private readonly uploadService: UploadService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
@@ -58,8 +64,10 @@ export class ContratosController {
   // ============ CRUD CONTRATOS ============
 
   @Post()
-  async criar(@Body() dados: Partial<Contrato>) {
-    return this.contratosService.criar(dados);
+  async criar(@Body() dados: Partial<Contrato>, @AtorAtual() ator: Ator) {
+    // Órgão do contrato = órgão do token (admin da plataforma escolhe)
+    const orgaoId = this.acesso.orgaoParaCriacao(ator, dados?.orgao_id);
+    return this.contratosService.criar({ ...dados, orgao_id: orgaoId });
   }
 
   @Post('importar')
@@ -83,6 +91,7 @@ export class ContratosController {
   }
 
   @Get()
+  @FornecedorNaRotaDoOrgao() // fornecedor: lista só os contratos dele (id do token)
   async findAll(
     @Req() request: { user: JwtPayload },
     @Query('orgaoId') orgaoIdParam?: string,
@@ -425,6 +434,7 @@ export class ContratosController {
   }
 
   @Get('termos/:id')
+  @ParametrosContrato({ id: 'termo' })
   async findTermoAditivo(@Param('id') id: string) {
     return this.contratosService.findTermoAditivo(id);
   }

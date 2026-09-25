@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { Ator, ehFornecedor, ehOrgao } from './ator';
 
@@ -262,6 +262,57 @@ export class AcessoLicitacaoService {
   }
 
   // ---------------------------------------------------------------------------
+  // Contratos (execução contratual): contrato e recursos filhos → órgão
+  // ---------------------------------------------------------------------------
+
+  /** orgao_id do recurso da execução contratual (null se não existe / id inválido). */
+  async orgaoDoRecursoContrato(tipo: RecursoContrato, id: string): Promise<string | null> {
+    if (!ehUuid(id)) return null;
+    const sql = SQL_ORGAO_RECURSO_CONTRATO[tipo];
+    const r = await this.dataSource.query(sql, [id]);
+    return r[0]?.orgao_id ?? null;
+  }
+
+  async assertOrgaoDoContrato(ator: Ator | null | undefined, contratoId: string, modo: ModoAcesso = 'escrita'): Promise<{ orgaoId: string }> {
+    return this.assertOrgaoDoRecursoContrato(ator, 'contrato', contratoId, modo);
+  }
+
+  async assertOrgaoDaMedicao(ator: Ator | null | undefined, medicaoId: string, modo: ModoAcesso = 'escrita'): Promise<{ orgaoId: string }> {
+    return this.assertOrgaoDoRecursoContrato(ator, 'medicao', medicaoId, modo);
+  }
+
+  /** Contrato/medição/OS/aditivo/documento... pertence ao órgão do ator (ADMIN passa). */
+  async assertOrgaoDoRecursoContrato(
+    ator: Ator | null | undefined,
+    tipo: RecursoContrato,
+    id: string,
+    modo: ModoAcesso = 'escrita',
+  ): Promise<{ orgaoId: string }> {
+    if (!ator) throw new UnauthorizedException('Autenticação necessária');
+    if (!ator.admin && !ehOrgao(ator)) throw new ForbiddenException('Ação exclusiva do órgão');
+    const orgaoId = await this.orgaoDoRecursoContrato(tipo, id);
+    this.assertMesmoOrgao(ator, orgaoId, modo, ROTULO_RECURSO_CONTRATO[tipo]);
+    return { orgaoId: orgaoId! };
+  }
+
+  /**
+   * Órgão para CRIAR um registro: sempre o do token. `orgao_id` informado
+   * diferente → 403. ADMIN da plataforma escolhe (precisa informar).
+   */
+  orgaoParaCriacao(ator: Ator | null | undefined, orgaoIdInformado?: string | null): string {
+    if (!ator) throw new UnauthorizedException('Autenticação necessária');
+    if (ator.admin) {
+      if (!orgaoIdInformado) throw new BadRequestException('Informe o órgão (orgao_id)');
+      return orgaoIdInformado;
+    }
+    if (!ehOrgao(ator)) throw new ForbiddenException('Ação exclusiva do órgão');
+    if (orgaoIdInformado && orgaoIdInformado !== ator.orgaoId) {
+      throw new ForbiddenException('O órgão informado não confere com o usuário autenticado');
+    }
+    return ator.orgaoId;
+  }
+
+  // ---------------------------------------------------------------------------
 
   private async orgaoPorTabela(tabela: 'atas_registro_preco', id: string): Promise<string | null> {
     if (!ehUuid(id)) return null;
@@ -269,6 +320,81 @@ export class AcessoLicitacaoService {
     return r[0]?.orgao_id ?? null;
   }
 }
+
+/** Recursos da execução contratual cujo dono é o órgão do contrato. */
+export type RecursoContrato =
+  | 'contrato'
+  | 'medicao'
+  | 'os'
+  | 'termo'
+  | 'documento_contrato'
+  | 'anexo_medicao'
+  | 'discriminacao'
+  | 'atestacao'
+  | 'licenca'
+  | 'banco_metricas'
+  | 'etapa'
+  | 'item_cronograma'
+  | 'pre_os'
+  | 'conciliacao_pagamento'
+  | 'licitacao'
+  | 'requisicao'
+  | 'ordem_fornecimento'
+  | 'recebimento'
+  | 'nf_fornecedor'
+  | 'item_contrato';
+
+const VIA_CONTRATO = (tabela: string) =>
+  `SELECT c.orgao_id FROM ${tabela} x JOIN contratos c ON c.id = x.contrato_id WHERE x.id = $1`;
+const VIA_MEDICAO = (tabela: string) =>
+  `SELECT c.orgao_id FROM ${tabela} x JOIN medicoes m ON m.id = x.medicao_id JOIN contratos c ON c.id = m.contrato_id WHERE x.id = $1`;
+
+/** SQL fixo por tipo (nunca interpolado com dado do cliente). */
+const SQL_ORGAO_RECURSO_CONTRATO: Record<RecursoContrato, string> = {
+  contrato: `SELECT orgao_id FROM contratos WHERE id = $1`,
+  medicao: VIA_CONTRATO('medicoes'),
+  os: VIA_CONTRATO('ordens_servico_contrato'),
+  termo: VIA_CONTRATO('termos_aditivos'),
+  documento_contrato: VIA_CONTRATO('documentos_contrato'),
+  anexo_medicao: VIA_MEDICAO('anexos_medicao'),
+  discriminacao: VIA_MEDICAO('discriminacoes_despesa_medicao'),
+  atestacao: VIA_CONTRATO('atestacoes_mensais'),
+  licenca: VIA_CONTRATO('licencas_controle'),
+  banco_metricas: VIA_CONTRATO('banco_metricas'),
+  etapa: VIA_CONTRATO('etapas_cronograma'),
+  item_cronograma: VIA_CONTRATO('itens_cronograma'),
+  pre_os: VIA_CONTRATO('pre_os_publicidade'),
+  conciliacao_pagamento: VIA_CONTRATO('conciliacoes_pagamento'),
+  licitacao: `SELECT orgao_id FROM licitacoes WHERE id = $1`,
+  requisicao: `SELECT orgao_id FROM requisicoes WHERE id = $1`,
+  ordem_fornecimento: `SELECT orgao_id FROM ordens_fornecimento WHERE id = $1`,
+  recebimento: `SELECT orgao_id FROM recebimentos WHERE id = $1`,
+  nf_fornecedor: `SELECT orgao_id FROM notas_fiscais_fornecedor WHERE id = $1`,
+  item_contrato: VIA_CONTRATO('itens_contrato'),
+};
+
+const ROTULO_RECURSO_CONTRATO: Record<RecursoContrato, string> = {
+  contrato: 'Contrato',
+  medicao: 'Medição',
+  os: 'Ordem de serviço',
+  termo: 'Termo aditivo',
+  documento_contrato: 'Documento',
+  anexo_medicao: 'Anexo',
+  discriminacao: 'Discriminação',
+  atestacao: 'Atestação',
+  licenca: 'Licença',
+  banco_metricas: 'Banco de métricas',
+  etapa: 'Etapa',
+  item_cronograma: 'Item do cronograma',
+  pre_os: 'Pré-OS',
+  conciliacao_pagamento: 'Vínculo de pagamento',
+  licitacao: 'Licitação',
+  requisicao: 'Requisição',
+  ordem_fornecimento: 'Ordem',
+  recebimento: 'Recebimento',
+  nf_fornecedor: 'Nota fiscal',
+  item_contrato: 'Item do contrato',
+};
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Evita 500 do Postgres com id malformado (vira 404). */

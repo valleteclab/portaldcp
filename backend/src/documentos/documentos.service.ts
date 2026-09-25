@@ -7,6 +7,7 @@ import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { basesDeLeitura, resolverArquivoDeUrl } from '../common/arquivos/arquivos';
 
 /**
  * DOIS CONJUNTOS DE DOCUMENTOS, DONOS DIFERENTES (E9):
@@ -59,6 +60,8 @@ export class DocumentosService {
     path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads')),
     path.resolve(process.cwd(), 'uploads'),
     path.resolve(this.uploadPath),
+    // bases reais do upload genérico (UPLOAD_DIR e diretório privado)
+    ...basesDeLeitura(),
   ];
 
   /** Resolve o caminho e devolve-o só se estiver dentro de uma pasta de uploads permitida. */
@@ -196,9 +199,11 @@ export class DocumentosService {
     // Se for uma URL de API (/api/uploads/...), converter para caminho de arquivo
     let caminhoCompleto = dados.caminho;
     if (dados.caminho.startsWith('/api/uploads/')) {
-      // Extrair o caminho relativo: /api/uploads/tipo/arquivo.pdf -> uploads/tipo/arquivo.pdf
+      // URL devolvida pelo POST /api/uploads: resolve onde o upload gravou de
+      // fato (UPLOAD_DIR / diretório privado); cai no legado <cwd>/uploads.
       const relativePath = dados.caminho.replace('/api/uploads/', 'uploads/');
-      caminhoCompleto = path.join(process.cwd(), relativePath);
+      caminhoCompleto =
+        resolverArquivoDeUrl(dados.caminho.split('?')[0]) ?? path.join(process.cwd(), relativePath);
     } else if (dados.caminho.startsWith('/uploads/')) {
       caminhoCompleto = path.join(process.cwd(), dados.caminho.substring(1));
     } else if (dados.caminho.startsWith('/')) {

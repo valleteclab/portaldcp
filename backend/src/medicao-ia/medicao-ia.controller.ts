@@ -5,11 +5,17 @@ import {
   UseInterceptors,
   Body,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { AcessoLicitacaoService, AtorAtual, SomenteFornecedor, ehUuid } from '../auth/acesso';
+import type { Ator } from '../auth/acesso';
+import { Contrato } from '../contratos/entities/contrato.entity';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { MedicaoIaService } from './medicao-ia.service';
-import { CriarRascunhoDto } from './dto/medicao-ia.dto';
+import type { CriarRascunhoDto } from './dto/medicao-ia.dto';
 
 const ALLOWED_MIMES = [
   'application/pdf',
@@ -25,10 +31,27 @@ const ALLOWED_MIMES = [
  * do boletim de medição.
  *
  * Rota base: /api/medicao-ia
+ *
+ * SEGURANÇA: só fornecedor; identidade = token (fornecedor_id do corpo só é
+ * aceito se igual ao do token) e o contrato precisa ser dele (senão 404).
  */
 @Controller('medicao-ia')
+@SomenteFornecedor()
 export class MedicaoIaController {
-  constructor(private readonly medicaoIaService: MedicaoIaService) {}
+  constructor(
+    private readonly medicaoIaService: MedicaoIaService,
+    private readonly acesso: AcessoLicitacaoService,
+    @InjectRepository(Contrato)
+    private readonly contratoRepo: Repository<Contrato>,
+  ) {}
+
+  /** Contrato do fornecedor do token (senão 404). */
+  private async assertContratoDoFornecedor(contratoId: string, fornecedorId: string) {
+    const existe = ehUuid(contratoId)
+      ? (await this.contratoRepo.count({ where: { id: contratoId, fornecedor_id: fornecedorId } })) > 0
+      : false;
+    if (!existe) throw new NotFoundException('Contrato não encontrado');
+  }
 
   /**
    * Extrai dados de uma Nota Fiscal (PDF DANFE ou XML NF-e) usando IA.
@@ -58,15 +81,18 @@ export class MedicaoIaController {
   async extrairNF(
     @UploadedFile() file: Express.Multer.File,
     @Body('contrato_id') contratoId: string,
-    @Body('fornecedor_id') _fornecedorId: string,
+    @Body('fornecedor_id') fornecedorIdInformado: string,
     @Body('fornecedor_cnpj') fornecedorCnpj: string,
+    @AtorAtual() ator: Ator,
   ) {
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, fornecedorIdInformado);
     if (!file) {
       throw new BadRequestException('Arquivo da NF é obrigatório');
     }
     if (!contratoId) {
       throw new BadRequestException('contrato_id é obrigatório');
     }
+    await this.assertContratoDoFornecedor(contratoId, fornecedorId);
 
     return this.medicaoIaService.extrairNF(file, contratoId, fornecedorCnpj || '');
   }
@@ -79,10 +105,13 @@ export class MedicaoIaController {
    * POST /api/medicao-ia/criar-rascunho
    */
   @Post('criar-rascunho')
-  async criarRascunho(@Body() dto: CriarRascunhoDto) {
-    if (!dto.contrato_id || !dto.fornecedor_id) {
-      throw new BadRequestException('contrato_id e fornecedor_id são obrigatórios');
+  async criarRascunho(@Body() dto: CriarRascunhoDto, @AtorAtual() ator: Ator) {
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, dto?.fornecedor_id);
+    if (!dto.contrato_id) {
+      throw new BadRequestException('contrato_id é obrigatório');
     }
+    await this.assertContratoDoFornecedor(dto.contrato_id, fornecedorId);
+    dto.fornecedor_id = fornecedorId;
     if (!dto.periodo_inicio || !dto.periodo_fim) {
       throw new BadRequestException('Período de início e fim são obrigatórios');
     }

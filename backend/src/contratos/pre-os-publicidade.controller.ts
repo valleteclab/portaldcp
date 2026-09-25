@@ -8,7 +8,6 @@ import {
   Body,
   Query,
   Req,
-  BadRequestException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,23 +19,20 @@ import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { Contrato } from './entities/contrato.entity';
 import { PreOsPublicidadeService } from './pre-os-publicidade.service';
 import { TabelaReferenciaService } from './tabela-referencia.service';
+import { AcessoContratoDoOrgao, AcessoLicitacaoService, AtorAtual, SomenteFornecedor, ehUuid } from '../auth/acesso';
+import type { Ator } from '../auth/acesso';
 import type { LinhaPreOs } from './entities/pre-os-publicidade.entity';
-
-/** Valida que o usuário autenticado é o fornecedor informado (padrão fornecedor-medicao) */
-function validarFornecedor(user: JwtPayload, fornecedorId: string) {
-  if (!fornecedorId) throw new BadRequestException('fornecedorId é obrigatório');
-  if (user?.type === UserType.FORNECEDOR && user.sub !== fornecedorId) {
-    throw new ForbiddenException('Sem acesso a este fornecedor');
-  }
-}
 
 // ============================================================================
 // PORTAL DO FORNECEDOR
 // ============================================================================
+// Identidade = token (fornecedorId da query só é aceito se igual ao do token).
 @Controller('fornecedor/contratos')
+@SomenteFornecedor()
 export class PreOsFornecedorController {
   constructor(
     private readonly service: PreOsPublicidadeService,
+    private readonly acesso: AcessoLicitacaoService,
     private readonly tabelaReferencia: TabelaReferenciaService,
     @InjectRepository(Contrato)
     private readonly contratoRepo: Repository<Contrato>,
@@ -46,16 +42,16 @@ export class PreOsFornecedorController {
   @Get(':contratoId/tabela-publicidade')
   async tabelaPublicidade(
     @Param('contratoId') contratoId: string,
-    @Query('fornecedorId') fornecedorId: string,
-    @Req() req: { user: JwtPayload },
+    @Query('fornecedorId') fornecedorIdInformado: string,
+    @AtorAtual() ator: Ator,
   ) {
-    validarFornecedor(req.user, fornecedorId);
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, fornecedorIdInformado);
+    if (!ehUuid(contratoId)) throw new NotFoundException('Contrato não encontrado');
     const contrato = await this.contratoRepo.findOne({
       where: { id: contratoId },
       select: ['id', 'fornecedor_id', 'numero_contrato', 'tabela_referencia_id', 'remuneracao_publicidade'],
     });
-    if (!contrato) throw new NotFoundException('Contrato não encontrado');
-    if (contrato.fornecedor_id !== fornecedorId) throw new ForbiddenException('Sem acesso a este contrato');
+    if (!contrato || contrato.fornecedor_id !== fornecedorId) throw new NotFoundException('Contrato não encontrado');
     // Só contrato de publicidade (Lei 12.232) tem pré-OS: precisa de tabela de
     // referência ou remuneração configurada — senão a seção não deve aparecer.
     if (!contrato.tabela_referencia_id && !contrato.remuneracao_publicidade) {
@@ -75,52 +71,52 @@ export class PreOsFornecedorController {
   @Get(':contratoId/pre-os')
   async listar(
     @Param('contratoId') contratoId: string,
-    @Query('fornecedorId') fornecedorId: string,
-    @Req() req: { user: JwtPayload },
+    @Query('fornecedorId') fornecedorIdInformado: string,
+    @AtorAtual() ator: Ator,
   ) {
-    validarFornecedor(req.user, fornecedorId);
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, fornecedorIdInformado);
     return this.service.listarDoFornecedor(contratoId, fornecedorId);
   }
 
   @Post(':contratoId/pre-os')
   async criar(
     @Param('contratoId') contratoId: string,
-    @Query('fornecedorId') fornecedorId: string,
-    @Req() req: { user: JwtPayload },
+    @Query('fornecedorId') fornecedorIdInformado: string,
+    @AtorAtual() ator: Ator,
     @Body() body: { titulo: string; justificativa?: string; linhas: LinhaPreOs[] },
   ) {
-    validarFornecedor(req.user, fornecedorId);
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, fornecedorIdInformado);
     return this.service.criarRascunho(contratoId, fornecedorId, body);
   }
 
   @Put('pre-os/:id')
   async atualizar(
     @Param('id') id: string,
-    @Query('fornecedorId') fornecedorId: string,
-    @Req() req: { user: JwtPayload },
+    @Query('fornecedorId') fornecedorIdInformado: string,
+    @AtorAtual() ator: Ator,
     @Body() body: { titulo?: string; justificativa?: string; linhas?: LinhaPreOs[] },
   ) {
-    validarFornecedor(req.user, fornecedorId);
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, fornecedorIdInformado);
     return this.service.atualizarRascunho(id, fornecedorId, body);
   }
 
   @Post('pre-os/:id/enviar')
   async enviar(
     @Param('id') id: string,
-    @Query('fornecedorId') fornecedorId: string,
-    @Req() req: { user: JwtPayload },
+    @Query('fornecedorId') fornecedorIdInformado: string,
+    @AtorAtual() ator: Ator,
   ) {
-    validarFornecedor(req.user, fornecedorId);
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, fornecedorIdInformado);
     return this.service.enviar(id, fornecedorId);
   }
 
   @Delete('pre-os/:id')
   async excluir(
     @Param('id') id: string,
-    @Query('fornecedorId') fornecedorId: string,
-    @Req() req: { user: JwtPayload },
+    @Query('fornecedorId') fornecedorIdInformado: string,
+    @AtorAtual() ator: Ator,
   ) {
-    validarFornecedor(req.user, fornecedorId);
+    const fornecedorId = this.acesso.fornecedorDoToken(ator, fornecedorIdInformado);
     await this.service.excluirRascunho(id, fornecedorId);
     return { ok: true };
   }
@@ -131,6 +127,7 @@ export class PreOsFornecedorController {
 // ============================================================================
 @Controller('contratos')
 @RequireModule(ModuloSistema.CONTRATOS)
+@AcessoContratoDoOrgao({ id: 'pre_os' })
 export class PreOsOrgaoController {
   constructor(private readonly service: PreOsPublicidadeService) {}
 

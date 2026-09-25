@@ -3,6 +3,7 @@ import { AuthModule } from '../auth.module';
 import { AcessoLicitacaoService } from './acesso-licitacao.service';
 import { PapelGuard } from './acesso.decorators';
 import { WsAutenticador } from './ws-autenticador';
+import { ContratoOrgaoGuard } from './contrato-orgao.guard';
 
 /**
  * Camada de autorização (E1a). Global: qualquer módulo injeta
@@ -11,7 +12,7 @@ import { WsAutenticador } from './ws-autenticador';
 @Global()
 @Module({
   imports: [AuthModule],
-  providers: [AcessoLicitacaoService, WsAutenticador, PapelGuard],
-  exports: [AcessoLicitacaoService, WsAutenticador, PapelGuard],
+  providers: [AcessoLicitacaoService, WsAutenticador, PapelGuard, ContratoOrgaoGuard],
+  exports: [AcessoLicitacaoService, WsAutenticador, PapelGuard, ContratoOrgaoGuard],
 })
 export class AcessoModule {}

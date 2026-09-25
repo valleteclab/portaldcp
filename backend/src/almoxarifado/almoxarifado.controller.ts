@@ -1,3 +1,4 @@
+import { AcessoContratoDoOrgao } from '../auth/acesso';
 import { 
   Controller, 
   Get, 
@@ -62,6 +63,18 @@ import * as fs from 'fs';
 
 @Controller('almoxarifado')
 @RequireModule(ModuloSistema.ALMOXARIFADO)
+// Dono: requisição/ordem/recebimento/NF/item de contrato e :contratoId conferidos
+// contra o órgão do token (outro órgão: 404 leitura / 403 escrita); fornecedor → 403.
+@AcessoContratoDoOrgao({
+  id: null,
+  itemId: null,
+  'requisicoes/:id': 'requisicao',
+  'ordens/:id': 'ordem_fornecimento',
+  'ordens/:ordemId': 'ordem_fornecimento',
+  'recebimentos/:id': 'recebimento',
+  'notas-fiscais-fornecedor/:id': 'nf_fornecedor',
+  'itens-contrato/:id': 'item_contrato',
+})
 export class AlmoxarifadoController {
   private readonly logger = new Logger(AlmoxarifadoController.name);
 

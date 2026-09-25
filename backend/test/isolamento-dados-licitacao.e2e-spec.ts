@@ -70,6 +70,24 @@ import {
 import { FaseLicitacao, Licitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 
+const PDF_MINIMO = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+
+/**
+ * Envia um PDF de verdade pelo upload do sistema (POST /api/uploads) e devolve
+ * a URL — o `vincular` só aceita arquivo que já existe na pasta de uploads.
+ * `documentos` = pasta privada (documento interno); `licitacao` = pública.
+ */
+async function enviarPdf(ctx: { http: () => any }, token: string, nome: string, tipo = 'licitacao'): Promise<string> {
+  const up = await ctx
+    .http()
+    .post('/api/uploads')
+    .set({ Authorization: `Bearer ${token}` })
+    .attach('file', PDF_MINIMO, { filename: nome, contentType: 'application/pdf' })
+    .field('tipo', tipo);
+  if (up.status !== 201) throw new Error(`[fixture] upload de ${nome} → ${up.status} ${JSON.stringify(up.body)}`);
+  return String(up.body.url).split('?')[0];
+}
+
 describe('Isolamento de dados da licitação (autorização)', () => {
   let ctx: AppE2E;
   let A: OrgaoFixture;
@@ -1121,7 +1139,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         .http()
         .post(`/api/documentos/licitacao/${X.lic.id}/vincular`)
         .set(bearer(pregA.token))
-        .send({ tipo: 'ETP', titulo: 'ETP interno', nome_original: 'etp.pdf', caminho: '/uploads/isolamento-inexistente.pdf', publico: false });
+        .send({ tipo: 'ETP', titulo: 'ETP interno', nome_original: 'etp.pdf', caminho: await enviarPdf(ctx, pregA.token, 'etp.pdf', 'documentos'), publico: false });
       if (doc.status !== 201) throw new Error(`[fixture] vincular documento → ${doc.status} ${JSON.stringify(doc.body)}`);
       docId = doc.body.id;
     });
@@ -1471,7 +1489,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         .http()
         .post(`/api/documentos/licitacao/${X.lic.id}/vincular`)
         .set(bearer(pregA.token))
-        .send({ tipo: 'ANEXO', titulo: 'Anexo público (isolamento)', nome_original: 'anexo.pdf', caminho: '/uploads/isolamento-inexistente-2.pdf', publico: true });
+        .send({ tipo: 'ANEXO', titulo: 'Anexo público (isolamento)', nome_original: 'anexo.pdf', caminho: await enviarPdf(ctx, pregA.token, 'anexo.pdf'), publico: true });
       expect(pub.status).toBe(201);
       const meta = await ctx.http().get(`/api/documentos/${pub.body.id}`).set(bearer(F2.token));
       const lista = await ctx.http().get(`/api/documentos/licitacao/${X.lic.id}`).set(bearer(F2.token)).expect(200);
