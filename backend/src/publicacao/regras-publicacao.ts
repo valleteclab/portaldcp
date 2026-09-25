@@ -9,7 +9,7 @@ import {
   calendarioDoOrgao,
   diaEmBrasilia,
   fimDoPrazoEmDiasUteis,
-  inicioDoDiaSeguinte,
+  inicioDoDia,
   limiteDiasUteisAntes,
 } from '../common/prazos/dias-uteis';
 
@@ -47,10 +47,16 @@ import {
  * DECISÕES (a validar):
  *  - Quando mais de uma hipótese se aplica (ex.: bens com técnica e preço → I b
  *    = 15 e IV = 35), vale o MAIOR prazo — o mais longo nunca viola a lei.
- *  - Contagem (art. 183): exclui o dia da divulgação e conta N dias úteis do
- *    CALENDÁRIO DO ÓRGÃO; o prazo "para apresentação de propostas" vence às
- *    23:59:59 do N-ésimo dia útil — logo o fim do recebimento e a abertura da
- *    sessão só podem ocorrer DEPOIS dele (a partir das 00:00 do dia seguinte).
+ *  - Contagem (art. 183, caput e III): EXCLUI o dia da divulgação e INCLUI o
+ *    do vencimento, contando só dias com expediente no CALENDÁRIO DO ÓRGÃO. O
+ *    dia do vencimento é o da abertura da sessão (ou do fim do recebimento, na
+ *    dispensa): ela pode ocorrer a partir das 00:00 (Brasília) do N-ésimo dia
+ *    útil depois da divulgação — ex.: divulgação na segunda 01, 8 dias úteis
+ *    (02, 03, 04, 05, 08, 09, 10, 11) → abertura a partir de 11. É a leitura
+ *    corrente do "excluir o dia da divulgação e incluir o da abertura".
+ *  - O art. 55 conta "a partir da data de divulgação do edital": é a
+ *    disposição especial que afasta a regra geral do art. 183 §1º, I (dia do
+ *    começo = 1º dia útil seguinte à disponibilização).
  *  - A divulgação é o próprio ato de publicar: conta-se de max(data informada,
  *    agora) — data retroativa não encurta o prazo.
  *  - Pregão só para bens e serviços COMUNS (art. 6º XLI; art. 29 parágrafo
@@ -106,6 +112,18 @@ const SERVICOS_OBRAS = [
   TipoContratacao.OBRA,
   TipoContratacao.LOCACAO,
 ] as string[];
+
+/**
+ * Valor informado para `natureza_objeto` (cadastro/retificação): COMUM,
+ * ESPECIAL ou vazio (ainda não classificado). Devolve o valor normalizado ou
+ * lança o motivo (string) — quem chama converte em 400.
+ */
+export function normalizarNaturezaObjeto(v: unknown): NaturezaObjeto | null {
+  if (v === undefined || v === null || v === '') return null;
+  const t = String(v).trim().toUpperCase();
+  if (t === 'COMUM' || t === 'ESPECIAL') return t;
+  throw 'Natureza do objeto inválida: use COMUM ou ESPECIAL (Lei 14.133/2021, art. 6º, XIII e XIV).';
+}
 
 /** Natureza efetiva: no pregão é sempre COMUM (art. 6º XLI). */
 export function naturezaEfetiva(d: DadosPrazoArt55): NaturezaObjeto | null {
@@ -238,7 +256,7 @@ export interface AvaliacaoPrazos {
   divulgacao: Date;
   /** Vencimento do prazo mínimo (23:59:59 do N-ésimo dia útil). */
   vencimento: Date | null;
-  /** Primeira data/hora admitida para o fim do recebimento e a abertura. */
+  /** Primeira data/hora admitida para o fim do recebimento e a abertura: 00:00 do N-ésimo dia útil (art. 183 — inclui o dia do vencimento). */
   minimo_abertura: Date | null;
   pendencias: string[];
 }
@@ -279,9 +297,11 @@ export function avaliarPrazosDePublicacao(
 
   let vencimento: Date | null = null;
   let minimo: Date | null = null;
-  if (prazo.dias && recebimento) {
+  if (prazo.dias) {
     vencimento = fimDoPrazoEmDiasUteis(divulgacao, prazo.dias, cal);
-    minimo = inicioDoDiaSeguinte(vencimento);
+    minimo = inicioDoDia(vencimento);
+  }
+  if (prazo.dias && recebimento && vencimento && minimo) {
     for (const [rotulo, data] of [
       [ehDispensa ? 'o fim do recebimento de propostas' : 'a abertura da sessão pública', ehDispensa ? recebimento : abertura],
       ['o fim do recebimento de propostas', ehDispensa ? null : fim],
@@ -290,7 +310,7 @@ export function avaliarPrazosDePublicacao(
         pend.push(
           `Prazo mínimo de ${prazo.dias} dias úteis entre a divulgação e ${rotulo} (${prazo.fundamento} — ${prazo.descricao}; ` +
             `contagem do art. 183 no calendário do órgão): informado ${formatarDataBrasilia(data)}, ` +
-            `mínimo ${formatarDataBrasilia(minimo, false)} (o prazo vence em ${formatarDataBrasilia(vencimento, false)}).`,
+            `mínimo ${formatarDataBrasilia(minimo, false)} (${prazo.dias}º dia útil depois da divulgação).`,
         );
       }
     }
@@ -308,13 +328,19 @@ export function avaliarPrazosDePublicacao(
   }
   if (limite) {
     const ref = ehDispensa ? recebimento : abertura ?? recebimento;
-    if (ref && limite.getTime() >= ref.getTime()) {
+    if (ehDispensa) {
+      // Contratação direta: não há "abertura do certame" (art. 164 trata do
+      // edital de licitação) — o limite acompanha o recebimento (E1).
+      if (ref && limite.getTime() > ref.getTime()) {
+        pend.push('A data-limite de impugnação/esclarecimento não pode passar do fim do recebimento de propostas.');
+      }
+    } else if (ref && limite.getTime() >= ref.getTime()) {
       pend.push('A data-limite de impugnação/esclarecimento deve ser anterior à abertura do certame (art. 164).');
     }
     if (informada && limite.getTime() < informada.getTime()) {
       pend.push('A data-limite de impugnação/esclarecimento não pode ser anterior à divulgação do edital.');
     }
-    if (ref) {
+    if (ref && !ehDispensa) {
       const legal = limiteDiasUteisAntes(ref, 3, cal);
       if (diaEmBrasilia(limite) < diaEmBrasilia(legal)) {
         pend.push(
@@ -446,6 +472,15 @@ export interface DadosRetificacao {
   cronograma?: Cronograma | null;
 }
 
+/** A retificação muda o fim do recebimento ou a abertura? */
+export function cronogramaDoCertameMudou(atual: Cronograma, novo: Cronograma | null | undefined): boolean {
+  if (!novo) return false;
+  return (['data_fim_acolhimento', 'data_abertura_sessao'] as const).some((c) => {
+    const n = dt(novo[c]);
+    return !!n && !mesmoValor(dt(atual[c]), n);
+  });
+}
+
 /**
  * Validação da retificação (art. 55 §1º):
  *  - motivo (no ato) e descrição do que mudou;
@@ -472,7 +507,11 @@ export function pendenciasDaRetificacao(
     p.push('Informe se a alteração afeta a formulação das propostas (art. 55, §1º).');
     return p;
   }
-  const novo = { ...atual, ...(r.cronograma ?? {}) };
+  const novo: Cronograma = { ...atual, ...(r.cronograma ?? {}) };
+  // Datas do certame mudaram e o limite de impugnação não foi informado: o
+  // limite antigo cai e vale o do art. 164 (3 dias úteis antes da NOVA
+  // abertura) — manter o antigo encurtaria o prazo de impugnação.
+  if (cronogramaDoCertameMudou(atual, r.cronograma) && !r.cronograma?.data_limite_impugnacao) novo.data_limite_impugnacao = null;
   if (afeta) {
     const ab = dt(r.cronograma?.data_abertura_sessao) ?? dt(r.cronograma?.data_fim_acolhimento);
     if (!ab) {

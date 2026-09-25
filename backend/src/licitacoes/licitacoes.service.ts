@@ -15,7 +15,6 @@ import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item-licitacao.entity';
 import { gerarAtaDispensaPdf, DadosAtaDispensa } from './ata-dispensa-pdf';
 import { JanelaDispensaService } from '../disputa-v2/janela-dispensa.service';
-import { PncpService } from '../pncp/pncp.service';
 import { FaseInternaService } from '../fase-interna/fase-interna.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
@@ -30,7 +29,7 @@ import { AtoLicitacao, AtorTransicao, atorSistema } from './transicoes/transicoe
 import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
 import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
 import { ehFaseInterna, ROTULO_FASE } from './transicoes/fases';
-import { camposDoEditalAlterados, mesmoValor } from '../publicacao/regras-publicacao';
+import { camposDoEditalAlterados, mesmoValor, normalizarNaturezaObjeto } from '../publicacao/regras-publicacao';
 import { motivoModoCriterioInvalido } from '../disputa-v2/modos-disputa';
 import { motivoInversaoInvalida } from '../habilitacao/regras-habilitacao';
 import { desempatarNoAto } from '../julgamento/desempate.sql';
@@ -89,7 +88,6 @@ export class LicitacoesService {
     private readonly contratosService: ContratosService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly pncpService: PncpService,
     private readonly faseInternaService: FaseInternaService,
     private readonly notificacoesService: NotificacoesService,
     private readonly transicoes: TransicoesService,
@@ -128,11 +126,24 @@ export class LicitacoesService {
     }
   }
 
+  /** `natureza_objeto` normalizada (COMUM | ESPECIAL | null) ou 400. */
+  private naturezaValida(v: unknown): 'COMUM' | 'ESPECIAL' | null {
+    try {
+      return normalizarNaturezaObjeto(v);
+    } catch (motivo) {
+      throw new BadRequestException(String(motivo));
+    }
+  }
+
   // === CRUD ===
   async create(createDto: CreateLicitacaoDto, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
     // Modo de disputa × critério de julgamento (Lei 14.133 art. 56 §§1º e 2º)
     const vedacao = motivoModoCriterioInvalido(createDto.modo_disputa, createDto.criterio_julgamento);
     if (vedacao) throw new BadRequestException(vedacao);
+    // Natureza do objeto (art. 6º XIII/XIV — prazo do art. 55, II; E7a)
+    if ((createDto as any).natureza_objeto !== undefined) {
+      (createDto as any).natureza_objeto = this.naturezaValida((createDto as any).natureza_objeto);
+    }
     // Inversão de fases (art. 17 §1º; plano E4): só concorrência
     const vedacaoInversao = motivoInversaoInvalida({
       inversaoFinal: !!(createDto as any).inversao_fases,
@@ -499,6 +510,12 @@ export class LicitacoesService {
     // situação, fase anterior) só muda por ato do TransicoesService — o corpo
     // da edição não altera (sem ValidationPipe com whitelist, filtramos aqui).
     const { itens, lotes, ...dadosLicitacao } = updateData as any;
+    // Ignorados já aqui (antes da conferência do edital publicado, que não deve
+    // acusá-los); `fase_interna_concluida` também: só o ato CONCLUIR_FASE_INTERNA
+    // (gate documental, E1.7) ou o PUBLICAR a marcam.
+    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao']) {
+      delete dadosLicitacao[campo];
+    }
 
     // EDITAL PUBLICADO (plano E7a — Lei 14.133/2021, art. 55 §1º): regra do
     // edital (cronograma, critério, objeto, itens...) só muda pela RETIFICAÇÃO
@@ -518,10 +535,10 @@ export class LicitacoesService {
         });
       }
     }
-    // `fase_interna_concluida` também: só o ato CONCLUIR_FASE_INTERNA (gate
-    // documental, E1.7) ou o PUBLICAR a marcam.
-    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao']) {
-      delete dadosLicitacao[campo];
+
+    // Natureza do objeto (art. 6º XIII/XIV — prazo do art. 55, II; E7a)
+    if (dadosLicitacao.natureza_objeto !== undefined) {
+      dadosLicitacao.natureza_objeto = this.naturezaValida(dadosLicitacao.natureza_objeto);
     }
 
     // Atualizar dados da licitação

@@ -293,10 +293,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect(publicada.fase).toBe(FaseLicitacao.PUBLICADO);
     });
 
-    // DEFEITO CONHECIDO (§1.2 "Incompleto — PNCP automático só na dispensa"): publicar
-    // pregão não envia a compra ao PNCP (art. 54 — divulgação obrigatória do edital) —
-    // backend/src/licitacoes/licitacoes.service.ts:722 (só DISPENSA_ELETRONICA) — corrigir na E7
-    test.failing(
+    // CORRIGIDO NA E7b: o ato PUBLICAR enfileira compra + itens (com o edital real)
+    // para TODAS as modalidades; o worker da fila envia (aguardarPncp roda o worker).
+    test(
       'publicar o edital envia a compra (aviso + itens) ao PNCP automaticamente (art. 54)',
       async () => {
         const envios = await aguardarPncp(
@@ -309,11 +308,11 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       },
     );
 
-    test('cockpit reenvia o aviso ao PNCP (POST /api/pncp/compras/:id/completo) — compra capturada', async () => {
-      // Caminho disponível hoje para o pregão: o botão "aviso" do cockpit.
-      // Precisa rodar enquanto a fase é PUBLICADO: enviarCompra() grava
-      // fase = PUBLICADO (pncp.service.ts:773) e regrediria uma fase posterior.
-      pncpMock.limpar();
+    test('cockpit reenvia o aviso ao PNCP (POST /api/pncp/compras/:id/completo) — idempotente: devolve a compra já publicada', async () => {
+      // E7b: a compra já saiu pela fila na publicação; o botão do cockpit não
+      // duplica (mesma operação da fila, chave de idempotência) e devolve o nº.
+      const antes = pncpMock.filtrar('POST', new RegExp(`/orgaos/${orgao.cnpj}/compras$`));
+      expect(antes).toHaveLength(1);
       const r = await http()
         .post(`/api/pncp/compras/${lic.id}/completo`)
         .set(bearer(orgao.token));
@@ -322,13 +321,9 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       expect(r.body.numeroControlePNCP).toMatch(
         new RegExp(`^${orgao.cnpj}-1-\\d{6}/\\d{4}$`),
       );
+      expect(pncpMock.filtrar('POST', new RegExp(`/orgaos/${orgao.cnpj}/compras$`))).toHaveLength(1);
 
-      const [envio] = pncpMock.filtrar(
-        'POST',
-        new RegExp(`/orgaos/${orgao.cnpj}/compras$`),
-      );
-      expect(envio).toBeDefined();
-      const compra = jsonDaParteMultipart(envio.corpo, 'compra');
+      const compra = jsonDaParteMultipart(antes[0].corpo, 'compra');
       expect(compra).toMatchObject({
         modalidadeId: 6, // pregão eletrônico
         modoDisputaId: 1, // aberto
@@ -1214,22 +1209,14 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       }
     });
 
-    test('PNCP recebe o contrato do vencedor (art. 94) vinculado à compra', async () => {
-      const [envio] = await aguardarPncp(
-        'POST',
-        new RegExp(`/orgaos/${orgao.cnpj}/contratos$`),
-        1,
-      );
-      expect(envio).toBeDefined();
-      const contrato = jsonDaParteMultipart(envio.corpo, 'contrato');
-      expect(contrato).toMatchObject({
-        niFornecedor: F.D.cnpj,
-        processo: lic.numero_processo,
-      });
-      expect(contrato.valorGlobal).toBeCloseTo(ESPERADO.valorHomologado, 2);
-      expect(contrato.numeroControlePNCPCompra).toMatch(
-        new RegExp(`^${orgao.cnpj}-1-`),
-      );
+    // E7b: o contrato vai ao PNCP SÓ depois da última assinatura (art. 94 —
+    // eficácia do contrato ASSINADO); o envio com o termo assinado está em
+    // test/pncp-fila.e2e-spec.ts (seção 3) e dispensa-eletronica (bloco 4).
+    test('contrato aguardando assinatura NÃO vai ao PNCP (art. 94)', async () => {
+      const envios = await aguardarPncp('POST', new RegExp(`/orgaos/${orgao.cnpj}/contratos$`), 1, 1500);
+      expect(envios).toHaveLength(0);
+      const fila = (await http().get('/api/pncp/fila').query({ licitacaoId: lic.id }).set(bearer(orgao.token)).expect(200)).body;
+      expect(fila.some((l: any) => l.tipo === 'CONTRATO')).toBe(false);
     });
   });
 });

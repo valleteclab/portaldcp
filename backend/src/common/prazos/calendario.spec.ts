@@ -12,6 +12,7 @@ import {
   diasUteisEntre,
   ehDiaUtil,
   fimDoPrazoEmDiasUteis,
+  inicioDoDia,
   inicioDoDiaSeguinte,
   limiteDiasUteisAntes,
   prorrogarParaDiaUtil,
@@ -102,6 +103,8 @@ describe('calendário de feriados (E7a)', () => {
 
     it('utilitários: dia seguinte (00:00 Brasília) e dias úteis entre datas', () => {
       expect(iso(inicioDoDiaSeguinte(bsb('2026-10-07', '23:00')))).toBe(iso(new Date('2026-10-08T00:00:00-03:00')));
+      expect(iso(inicioDoDia(bsb('2026-10-07', '23:30')))).toBe(iso(new Date('2026-10-07T00:00:00-03:00')));
+      expect(iso(inicioDoDia(bsb('2026-10-07', '00:10')))).toBe(iso(new Date('2026-10-07T00:00:00-03:00')));
       expect(diasUteisEntre(bsb('2026-10-09'), bsb('2026-10-16'))).toBe(4); // 13, 14, 15, 16 (12 é feriado)
     });
   });

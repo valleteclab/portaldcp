@@ -18,6 +18,7 @@ import {
   CAMPOS_EDITAL_RETIFICAVEIS,
   fimDoRecebimento,
   formatarDataBrasilia,
+  normalizarNaturezaObjeto,
 } from './regras-publicacao';
 
 export interface PedidoRetificacao {
@@ -88,6 +89,13 @@ export class RetificacaoService {
         throw new BadRequestException(`Campo "${k}" não se altera por retificação (itens/lotes: revogue e republique).`);
       }
       campos[k] = v;
+    }
+    if (campos.natureza_objeto !== undefined) {
+      try {
+        campos.natureza_objeto = normalizarNaturezaObjeto(campos.natureza_objeto);
+      } catch (motivo) {
+        throw new BadRequestException(String(motivo));
+      }
     }
     const cronograma: Record<string, string | null> = {};
     for (const [k, v] of Object.entries(pedido.cronograma ?? {})) {

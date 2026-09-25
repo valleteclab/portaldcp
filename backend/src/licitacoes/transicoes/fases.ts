@@ -79,21 +79,6 @@ export const ROTULO_SITUACAO: Record<SituacaoLicitacao, string> = {
   [SituacaoLicitacao.CONCLUIDA]: 'Concluída',
 };
 
-/**
- * Soma N dias ÚTEIS (seg–sex) a uma data. Feriados ainda não são considerados
- * (calendário de feriados é a E7).
- */
-export function adicionarDiasUteis(base: Date, dias: number): Date {
-  const d = new Date(base);
-  let somados = 0;
-  while (somados < dias) {
-    d.setDate(d.getDate() + 1);
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) somados++;
-  }
-  return d;
-}
-
 export function formatarDataHora(d: Date | string): string {
   return new Date(d).toLocaleString('pt-BR', {
     day: '2-digit',

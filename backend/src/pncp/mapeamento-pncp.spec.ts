@@ -1,6 +1,8 @@
 import {
   LicitacaoParaPncp,
+  amparoDoInciso,
   amparoLegalIdPncp,
+  criterioDoArt60,
   anoCompraPncp,
   categoriaProcessoId,
   criterioJulgamentoIdPncp,
@@ -163,6 +165,28 @@ describe('mapeamento licitação → PNCP (tabelas de domínio e conformidade)',
     const d = montarResultadoItem({ ...baseResultado, criterioDesempate: true, amparoLegalCriterioDesempateId: 146 });
     expect(d).toMatchObject({ aplicacaoCriterioDesempate: true, amparoLegalCriterioDesempateId: 146 });
     expect(() => montarResultadoItem({ ...baseResultado, criterioDesempate: true })).toThrow(/amparo legal/);
+  });
+
+  test('desempate: só critério do art. 60 marca o indicador (sorteio da IN 73 não); amparo casa o inciso EXATO', () => {
+    expect(criterioDoArt60('EMPRESA_DO_ESTADO')).toBe(true);
+    expect(criterioDoArt60('DISPUTA_FINAL')).toBe(true);
+    expect(criterioDoArt60('SORTEIO')).toBe(false);
+    expect(criterioDoArt60(null)).toBe(false);
+    const tabela = [
+      { id: 140, nome: 'Lei 14.133/2021, Art. 60, I' },
+      { id: 141, nome: 'Lei 14.133/2021, Art. 60, II' },
+      { id: 143, nome: 'Lei 14.133/2021, Art. 60, IV' },
+      { id: 146, nome: 'Lei 14.133/2021, Art. 60, § 1º, I' },
+      { id: 147, nome: 'Lei 14.133/2021, Art. 60, § 1º, II' },
+    ];
+    expect(amparoDoInciso(tabela, 'Lei 14.133/2021, art. 60, I')).toBe(140);
+    expect(amparoDoInciso(tabela, 'Lei 14.133/2021, art. 60, II')).toBe(141);
+    expect(amparoDoInciso(tabela, 'Lei 14.133/2021, art. 60, IV')).toBe(143);
+    expect(amparoDoInciso(tabela, 'Lei 14.133/2021, art. 60, §1º, I')).toBe(146);
+    expect(amparoDoInciso(tabela, 'Lei 14.133/2021, art. 60, §1º, II')).toBe(147);
+    // sem o inciso na tabela: null (nunca um amparo qualquer)
+    expect(amparoDoInciso(tabela, 'Lei 14.133/2021, art. 60, III')).toBeNull();
+    expect(amparoDoInciso(tabela, 'IN SEGES 73/2022, art. 28, §2º')).toBeNull();
   });
 
   test('percentual de desconto só no MAIOR DESCONTO', () => {

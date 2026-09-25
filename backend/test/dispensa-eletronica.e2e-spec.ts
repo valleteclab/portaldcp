@@ -45,6 +45,7 @@ import {
   criarFornecedor,
   criarLicitacao,
   criarOrgao,
+  criarUsuarioOrgao,
   enviarProposta,
   fecharSockets,
   levarAteFase,
@@ -69,6 +70,8 @@ import {
 } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { homologarResultado } from './support/resultado';
+import { assinarContrato } from './support/contratos';
+import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const MIN = 60_000;
@@ -663,10 +666,23 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       });
     });
 
-    it('PNCP: contratos gerados vão vinculados à compra publicada', async () => {
-      // Hoje o envio acontece NA homologação (antes da assinatura) — ver o
-      // DEFEITO CONHECIDO logo abaixo. Quando o E7 mover o envio para depois
-      // da assinatura, este teste passa a assinar os contratos antes de conferir.
+    // CORRIGIDO NA E7b (era DEFEITO CONHECIDO: o contrato ia ao PNCP na homologação,
+    // antes de assinado): só a última assinatura enfileira o contrato (art. 94).
+    test('contrato só é enviado ao PNCP depois de assinado', async () => {
+      await ctx.processarFilaPncp();
+      const pc = await ctx.http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(orgao.token)).expect(200);
+      // nenhum contrato teve assinaturas solicitadas/colhidas neste teste
+      expect(pc.body.contratos.every((c: any) => !c.documento_assinatura_id)).toBe(true);
+      expect(pncpMock.filtrar('POST', /\/contratos$/)).toHaveLength(0);
+    });
+
+    it('PNCP: contratos ASSINADOS vão vinculados à compra publicada, com o termo assinado', async () => {
+      const signatario = await criarUsuarioOrgao(ctx, orgao, { role: RoleUsuario.ADMIN, nome: 'Secretário de Administração (dispensa E2E)' });
+      const pc = await ctx.http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(orgao.token)).expect(200);
+      const porRazao = new Map([me, epp].map((f) => [f.razao_social, f]));
+      for (const c of pc.body.contratos) {
+        await assinarContrato(ctx, c.id, signatario, porRazao.get(c.fornecedor_razao_social)!, { esperarFilaPncp: true });
+      }
       const envios = await aguardar(
         () => {
           const l = pncpMock.filtrar('POST', /\/contratos$/);
@@ -677,6 +693,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(envios).toHaveLength(2);
       const dtos = envios.map((e) => {
         expect(e.caminho).toMatch(new RegExp(`/orgaos/${cnpjOrgao}/contratos$`));
+        expect(headerCapturado(e, 'Tipo-Documento-Id')).toBe('12');
         return jsonDaParte(e.corpo, 'contrato');
       });
       for (const d of dtos) {
@@ -684,21 +701,10 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         expect(d.numeroControlePNCPCompra).toMatch(new RegExp(`^${cnpjOrgao}-1-\\d{6}/\\d{4}$`));
         expect(d.processo).toBe(lic.numero_processo);
         expect(d.categoriaProcessoId).toBe(2); // Compras
+        expect(d.dataAssinatura).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       }
       const porNi = Object.fromEntries(dtos.map((d) => [d.niFornecedor, Number(d.valorGlobal)]));
       expect(porNi).toEqual({ [me.cnpj.replace(/\D/g, '')]: 880, [epp.cnpj.replace(/\D/g, '')]: 920 });
-    });
-
-    // DEFEITO CONHECIDO: contrato vai ao PNCP antes de assinado (art. 94 exige o
-    // contrato assinado; a versão assinada nunca é retificada) e já nasce com
-    // data_assinatura = data da homologação — plano §1.2 "Publicação/PNCP", E7.7.
-    // licitacoes.service.ts:836 (enviarContratosHomologacao na homologação);
-    // contratos.service.ts:2548 (data_assinatura: new Date()).
-    test.failing('contrato só é enviado ao PNCP depois de assinado', async () => {
-      const pc = await ctx.http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(orgao.token)).expect(200);
-      // nenhum contrato teve assinaturas solicitadas/colhidas neste teste
-      expect(pc.body.contratos.every((c: any) => !c.documento_assinatura_id)).toBe(true);
-      expect(pncpMock.filtrar('POST', /\/contratos$/)).toHaveLength(0);
     });
 
     // CORRIGIDO NA E6 (era defeito: prazo sempre 30 dias — só lia proposta ENVIADA,

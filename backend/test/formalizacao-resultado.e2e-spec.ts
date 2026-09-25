@@ -373,6 +373,8 @@ describe('E6 — formalização do resultado (operador × autoridade)', () => {
       await autoridadeAssina(f.documento_assinatura_id);
       await esperarStatus(f.id, 'EFETIVADO');
       expect(await licitacao(licId)).toMatchObject({ fase: 'HOMOLOGACAO', homologacao_autoridade_nome: 'Maria Prefeita' });
+      // o contrato é gerado DEPOIS do commit do ato (efeito da assinatura, assíncrono)
+      for (let i = 0; i < 100 && !(await contratos(licId)).length; i++) await new Promise((r) => setTimeout(r, 100));
       expect(await contratos(licId)).toEqual([expect.objectContaining({ fornecedor_id: A.id, status: 'AGUARDANDO_ASSINATURA' })]);
       const lista = (await http().get(`/api/resultado/publico/licitacao/${licId}/termos`)).body;
       expect(lista.map((t: any) => [t.tipo, t.assinado])).toEqual([

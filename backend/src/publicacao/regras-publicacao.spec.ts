@@ -59,19 +59,26 @@ describe('avaliação do cronograma de publicação (E7a)', () => {
   const pregaoBens = { modalidade: 'PREGAO_ELETRONICO', tipo_contratacao: 'COMPRA', criterio_julgamento: 'MENOR_PRECO' };
   const agora = bsb('2026-09-25', '09:00'); // sexta
 
-  it('pregão de bens publicado sex 25/09/2026: 8 dias úteis vencem qua 07/10 → abertura a partir de qui 08/10', () => {
-    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-08', '09:00') }, agora, { cal: CALENDARIO_NACIONAL });
+  it('art. 183: exclui o dia da divulgação e INCLUI o da abertura — sex 25/09/2026 + 8 dias úteis (12/10 no caminho? não) → abertura a partir de qua 07/10', () => {
+    // 28, 29, 30, 01, 02, 05, 06, 07 → o 8º dia útil é 07/10: a abertura pode ser nesse dia
+    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-07', '09:00') }, agora, { cal: CALENDARIO_NACIONAL });
     expect(iso(av.vencimento)).toBe(iso(new Date('2026-10-07T23:59:59.999-03:00')));
-    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2026-10-08T00:00:00-03:00')));
+    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2026-10-07T00:00:00-03:00')));
     expect(av.pendencias).toEqual([]);
-    const cedo = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-07', '15:00') }, agora, { cal: CALENDARIO_NACIONAL });
-    expect(cedo.pendencias.join(' ')).toMatch(/Prazo mínimo de 8 dias úteis.*art\. 55, I, a/);
+    const cedo = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-06', '15:00') }, agora, { cal: CALENDARIO_NACIONAL });
+    expect(cedo.pendencias.join(' ')).toMatch(/Prazo mínimo de 8 dias úteis.*art\. 55, I, a.*8º dia útil/);
+  });
+
+  it('exemplo clássico: divulgação na segunda 01/02/2027 → abertura a partir da quinta 11/02 (8º dia útil; Carnaval não adotado conta)', () => {
+    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2027-02-11', '09:00') }, bsb('2027-02-01', '08:00'), { cal: CALENDARIO_NACIONAL });
+    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2027-02-11T00:00:00-03:00')));
+    expect(av.pendencias).toEqual([]);
   });
 
   it('feriado municipal do órgão desloca a data mínima', () => {
     const cal = criarCalendario([{ descricao: 'Padroeira', data: '2026-10-06' }]);
-    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-08', '09:00') }, agora, { cal });
-    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2026-10-09T00:00:00-03:00')));
+    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-07', '09:00') }, agora, { cal });
+    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2026-10-08T00:00:00-03:00')));
     expect(av.pendencias.join(' ')).toMatch(/8 dias úteis/);
   });
 
@@ -102,6 +109,17 @@ describe('avaliação do cronograma de publicação (E7a)', () => {
     expect(t).toMatch(/início do recebimento de propostas deve ser anterior ao fim/);
     expect(t).toMatch(/terminar até a abertura/);
     expect(t).toMatch(/não pode encurtar o prazo de impugnação/);
+  });
+
+  it('dispensa: limite de impugnação pode coincidir com o fim do recebimento (não há "abertura do certame" — art. 164 é da licitação)', () => {
+    const fim = bsb('2026-10-01');
+    const av = avaliarPrazosDePublicacao(
+      { modalidade: 'DISPENSA_ELETRONICA' },
+      { data_publicacao_edital: agora, data_fim_acolhimento: fim, data_abertura_sessao: fim, data_limite_impugnacao: fim },
+      agora,
+      { cal: CALENDARIO_NACIONAL },
+    );
+    expect(av.pendencias).toEqual([]);
   });
 
   it('dispensa: 3 dias úteis até o fim do recebimento', () => {

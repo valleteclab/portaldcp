@@ -29,6 +29,7 @@ import { AppModule } from '../../src/app.module';
 import { UserType } from '../../src/auth/auth.service';
 import { Role } from '../../src/auth/roles.decorator';
 import { instalarRotaUploads } from '../../src/upload/servir-arquivo';
+import { PncpFilaService, ResumoFila } from '../../src/pncp/fila/pncp-fila.service';
 
 export interface AppE2E {
   app: NestExpressApplication;
@@ -42,6 +43,11 @@ export interface AppE2E {
   tokenAdmin: () => string;
   /** Religa os @Cron (desligados por padrão). */
   ligarCrons: () => void;
+  /**
+   * Roda o WORKER da fila do PNCP (E7) uma vez — o mesmo `processarFila()` do
+   * cron de 1 minuto (desligado nos testes). `agora` simula o relógio (backoff).
+   */
+  processarFilaPncp: (opts?: { agora?: Date; licitacaoId?: string }) => Promise<ResumoFila>;
   fechar: () => Promise<void>;
 }
 
@@ -128,6 +134,17 @@ function desligarThrottler(app: INestApplication): void {
 /** Apps abertos neste arquivo de teste — o setup-after-env fecha os esquecidos. */
 const appsAbertos = new Set<INestApplication>();
 
+/**
+ * Worker da fila do PNCP do último app criado — usado por `aguardarPncp`
+ * (support/pregao.ts), que não recebe o contexto: enquanto espera o mock,
+ * processa a fila (o cron fica desligado nos testes).
+ */
+let processadorFilaPncp: (() => Promise<unknown>) | null = null;
+
+export async function processarFilaPncpAtual(): Promise<void> {
+  if (processadorFilaPncp) await processadorFilaPncp();
+}
+
 export async function fecharAppsAbertos(): Promise<void> {
   for (const app of appsAbertos) {
     await app.close().catch(() => undefined);
@@ -177,6 +194,8 @@ export async function criarApp(opcoes: OpcoesCriarApp = {}): Promise<AppE2E> {
   const { port } = app.getHttpServer().address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${port}`;
   const jwt = app.get(JwtService);
+  const processarFilaPncp = (o?: { agora?: Date; licitacaoId?: string }) => app.get(PncpFilaService).processarFila(o);
+  processadorFilaPncp = () => processarFilaPncp();
 
   return {
     app,
@@ -189,8 +208,10 @@ export async function criarApp(opcoes: OpcoesCriarApp = {}): Promise<AppE2E> {
     ligarCrons: () => {
       app.get(SchedulerRegistry).getCronJobs().forEach((job) => job.start());
     },
+    processarFilaPncp,
     fechar: async () => {
       appsAbertos.delete(app);
+      processadorFilaPncp = null;
       await app.close();
     },
   };

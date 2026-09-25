@@ -107,12 +107,13 @@ describe('E1 — transições da licitação (máquina de estados)', () => {
       await http()
         .put(`/api/licitacoes/${lic.id}`)
         .set(bearer(orgao.token))
-        .send({ fase: 'HOMOLOGACAO', situacao: 'CONCLUIDA', objeto: 'Objeto editado E1' })
+        // E7a: edital publicado — campo interno (observações) segue livre; regra do edital, só por retificação
+        .send({ fase: 'HOMOLOGACAO', situacao: 'CONCLUIDA', observacoes: 'Anotação interna E1' })
         .expect(200);
       const l = await buscarLicitacao(ctx, lic);
       expect(l.fase).toBe(FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
       expect(l.situacao).toBe('ATIVA');
-      expect(l.objeto).toBe('Objeto editado E1');
+      expect(l.observacoes).toBe('Anotação interna E1');
     });
 
     it('avançar/retroceder genéricos respeitam o rito (sem "fase seguinte" livre)', async () => {

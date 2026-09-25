@@ -544,6 +544,9 @@ export class PncpService implements OnModuleInit {
       // Prévia: o envio real é montado pela fila na hora (PncpEnviosService),
       // com o benefício ME/EPP de cada unidade.
       try {
+        // Ainda na fase interna, o envio É a divulgação: a publicação é agora
+        // (mesma regra do envio — PncpEnviosService.compra).
+        if (ehFaseInterna(licitacao.fase) && !licitacao.data_publicacao_edital) licitacao.data_publicacao_edital = new Date();
         dadosEnvio = montarCompra(licitacao as LicitacaoParaPncp, licitacao.itens as ItemParaPncp[], {
           codigoUnidade: licitacao.codigo_unidade_compradora || licitacao.orgao?.pncp_codigo_unidade,
           linkSistemaOrigem: this.linkSistemaOrigem(licitacao.id),

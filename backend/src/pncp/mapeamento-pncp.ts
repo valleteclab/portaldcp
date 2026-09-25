@@ -425,6 +425,34 @@ export interface DadosResultadoItem {
   modalidade?: Texto;
 }
 
+/** O critério decisivo é um dos do art. 60 (I a IV e §1º I a IV)? Sorteio (IN 73 art. 28 §2º) não é. */
+export function criterioDoArt60(criterio: Texto): boolean {
+  const c = up(criterio);
+  return !!c && c !== 'SORTEIO';
+}
+
+/**
+ * Amparo legal do inciso do art. 60 na tabela do PNCP. `baseLegal` =
+ * "Lei 14.133/2021, art. 60, §1º, I"; casa o nome do amparo pelo inciso EXATO
+ * ("art. 60, I" não casa "art. 60, II" nem "art. 60, §1º, I").
+ */
+export function amparoDoInciso(lista: ReadonlyArray<{ id: number; nome: string }>, baseLegal: string): number | null {
+  const norm = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[º°]/g, '')
+      .replace(/inciso/g, '')
+      .replace(/\s+/g, '');
+  const alvo = norm(baseLegal).match(/art\.60,(.+)$/)?.[1];
+  if (!alvo) return null;
+  const escapado = alvo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`art\\.?60,${escapado}(?![a-z0-9])`);
+  const achado = lista.find((a) => re.test(norm(a.nome)));
+  return achado ? achado.id : null;
+}
+
 export function montarResultadoItem(d: DadosResultadoItem): ResultadoItemPncp {
   const ni = String(d.fornecedor.ni || '').replace(/\D/g, '');
   if (!ni) throw falhaDefinitiva('Fornecedor vencedor sem CPF/CNPJ no cadastro.');
@@ -432,7 +460,7 @@ export function montarResultadoItem(d: DadosResultadoItem): ResultadoItemPncp {
   const dataResultado = dataBrasilia(d.dataResultado);
   if (!dataResultado) throw falhaDefinitiva('Data da homologação não registrada na licitação.');
   if (d.criterioDesempate && !d.amparoLegalCriterioDesempateId) {
-    throw falhaDefinitiva('Critério de desempate (art. 60) aplicado, mas o amparo legal correspondente não foi localizado no PNCP — configure PNCP_AMPARO_DESEMPATE_ID.');
+    throw falhaDefinitiva('Critério de desempate (art. 60) aplicado, mas o amparo legal do inciso não foi localizado na tabela do PNCP — configure PNCP_AMPARO_DESEMPATE_<CRITERIO> (ex.: PNCP_AMPARO_DESEMPATE_EMPRESA_DO_ESTADO) e reenvie.');
   }
   const valorUnitario = num(d.valorUnitario);
   const quantidade = num(d.quantidade);

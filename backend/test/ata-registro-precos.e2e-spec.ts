@@ -214,6 +214,8 @@ describe('E6 — Ata de Registro de Preços (SRP → ARP → saldo, adesão, vig
       expect(a.ini).toBe(hoje);
       expect(a.fim).toBe(fimVigencia(hoje, 12));
       for (let i = 0; i < 100 && !a.enviado_pncp; i++) {
+        // E7b: a ata assinada entra na FILA do PNCP — o worker (cron de 1 min) envia
+        await ctx.processarFilaPncp();
         await new Promise((r) => setTimeout(r, 100));
         a = await ataDb(ataId);
       }

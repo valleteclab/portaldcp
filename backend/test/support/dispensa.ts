@@ -11,7 +11,8 @@
  * Não é exportado pelo index.ts de propósito (arquivo novo, específico da
  * dispensa): importe de './support/dispensa'.
  */
-import { AppE2E } from './app';
+import { AppE2E, processarFilaPncpAtual } from './app';
+import { calendarioDoOrgao, fimDoPrazoEmDiasUteis, inicioDoDia } from '../../src/common/prazos/dias-uteis';
 import {
   FornecedorFixture,
   LicitacaoFixture,
@@ -40,7 +41,8 @@ function exigirStatus(resp: { status: number; body: any }, esperado: number | nu
 
 /**
  * Espera até `condicao()` devolver algo "truthy" (ou estourar o tempo).
- * Usado para os efeitos fire-and-forget (PNCP) disparados depois da resposta HTTP.
+ * Usado para os efeitos disparados depois da resposta HTTP (PNCP pela fila — o
+ * laço roda o worker, cujo cron fica desligado nos testes).
  */
 export async function aguardar<T>(
   condicao: () => T | Promise<T>,
@@ -49,6 +51,8 @@ export async function aguardar<T>(
   const limite = Date.now() + (opts.timeout ?? 15_000);
   let ultimo: T | undefined;
   while (Date.now() < limite) {
+    // E7: o PNCP sai pela FILA — roda o worker (cron desligado nos testes)
+    await processarFilaPncpAtual();
     ultimo = await condicao();
     if (ultimo) return ultimo as NonNullable<T>;
     await new Promise((r) => setTimeout(r, opts.intervalo ?? 100));
@@ -87,9 +91,11 @@ export function corpoDivulgacao(fim: Date, agora = new Date()) {
 
 /** Prazo sugerido pelo cockpit: mínimo legal (3 dias úteis) + 1 h de folga. */
 export function fimPropostasSugerido(): Date {
-  const fim = somarDiasUteis(new Date(), 3);
-  fim.setHours(fim.getHours() + 1);
-  return fim;
+  // Mesma conta do backend (E7a): 3º dia útil depois da divulgação no
+  // calendário (feriados nacionais), meio-dia de Brasília — art. 183 inclui o
+  // dia do vencimento, então o recebimento pode terminar nesse dia.
+  const venc = fimDoPrazoEmDiasUteis(new Date(), 3, calendarioDoOrgao(null));
+  return new Date(inicioDoDia(venc).getTime() + 12 * 3_600_000);
 }
 
 /**

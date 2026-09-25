@@ -8,6 +8,7 @@ import FormData = require('form-data');
 import { PncpService } from '../pncp.service';
 import { PncpSync, TipoSincronizacao } from '../entities/pncp-sync.entity';
 import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
+import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { AtorTransicao, atorSistema } from '../../licitacoes/transicoes/transicoes.tipos';
 import { gerarAvisoDispensaPdf } from '../../licitacoes/aviso-dispensa-pdf';
 import { beneficioDaUnidadeSql } from '../../julgamento/me-epp/beneficio-mpe.sql';
@@ -19,7 +20,9 @@ import {
   BeneficioParaPncp,
   ItemParaPncp,
   LicitacaoParaPncp,
+  amparoDoInciso,
   categoriaProcessoId,
+  criterioDoArt60,
   dataBrasilia,
   documentoDaCompra,
   instrumentoConvocatorioId,
@@ -252,6 +255,10 @@ export class PncpEnviosService {
     const validacao = await this.pncp.validarLicitacaoParaPNCP(licitacaoId);
     if (!validacao.valido) throw falhaDefinitiva(`Licitação não pode ser enviada ao PNCP:\n${validacao.erros.join('\n')}`);
     const cnpj = this.cnpj(lic);
+    // Publicação PELO PNCP (licitação ainda na fase interna): o envio É a
+    // divulgação — a data de publicação é agora (a mesma que o ato PUBLICAR
+    // grava logo depois, em registrarPublicacaoPncp); nada é inventado.
+    if (ehFaseInterna(lic.fase) && !lic.data_publicacao_edital) lic.data_publicacao_edital = new Date();
     const compra = await this.montarCompraDaLicitacao(lic);
     const doc = await this.documentoObrigatorio(lic);
     const { form, headers } = this.multipart([
@@ -456,8 +463,11 @@ export class PncpEnviosService {
    *    de cada licitante não excluído, na direção do critério); sem lances, 1;
    *  - benefício ME/EPP: unidade exclusiva/cota (LC 123 art. 48) ou lance de
    *    DESEMPATE_MPE do vencedor (art. 45);
-   *  - desempate: critério decisivo do art. 60 num desempate resolvido que
-   *    envolveu o vencedor.
+   *  - desempate: critério DECISIVO do art. 60 num desempate resolvido que
+   *    envolveu o vencedor. O PNCP pede "aplicação de critério de desempate
+   *    conforme o art. 60" — o sorteio (IN SEGES 73/2022 art. 28 §2º) não é
+   *    critério do art. 60, então desempate decidido por sorteio não marca o
+   *    indicador (decisão E7b, a validar).
    */
   async indicadoresDoResultado(lic: Pick<Licitacao, 'criterio_julgamento' | 'modalidade'>, unidadeId: string, vencedor: string) {
     const maior = String(lic.criterio_julgamento) === 'MAIOR_LANCE' || String(lic.modalidade) === 'LEILAO';
@@ -490,40 +500,34 @@ export class PncpEnviosService {
         ORDER BY resolvido_em DESC NULLS LAST LIMIT 1`,
       [unidadeId, vencedor],
     );
+    const decisivo = des?.criterio_decisivo ? String(des.criterio_decisivo) : null;
     return {
       ordem,
       beneficioMeEpp: !!beneficio?.beneficio.somenteMpe || !!mpe,
-      desempate: des ? String(des.criterio_decisivo || 'SORTEIO') : null,
+      desempate: decisivo && criterioDoArt60(decisivo) ? decisivo : null,
     };
   }
 
   /**
-   * Amparo legal do critério de desempate (tipo 3 da tabela de amparos): env
-   * `PNCP_AMPARO_DESEMPATE_ID` ou consulta ao PNCP (`/amparos-legais?tipoAmparoLegalId=3`),
-   * casando o inciso do art. 60 do critério decisivo.
+   * Amparo legal do critério de desempate (tipo 3 da tabela "Amparo Legal"):
+   * variável `PNCP_AMPARO_DESEMPATE_<CRITERIO>` (ex.: PNCP_AMPARO_DESEMPATE_EMPRESA_DO_ESTADO)
+   * ou a consulta ao PNCP (`/amparos-legais?tipoAmparoLegalId=3`), casando
+   * EXATAMENTE o inciso do art. 60 do critério decisivo. Sem correspondência →
+   * null (o mapeamento recusa o envio com a orientação — nunca um amparo qualquer).
    */
   private async amparoDoDesempate(criterio: string): Promise<number | null> {
-    const fixo = Number(process.env.PNCP_AMPARO_DESEMPATE_ID);
+    const fixo = Number(process.env[`PNCP_AMPARO_DESEMPATE_${criterio}`]);
     if (fixo > 0) return fixo;
-    if (!this.cacheAmparoDesempate) {
-      try {
-        const r = await this.pncp.chamarApi<any>({ metodo: 'GET', caminho: '/amparos-legais?tipoAmparoLegalId=3&statusAtivo=true' });
-        const lista = Array.isArray(r.data) ? r.data : Array.isArray(r.data?.data) ? r.data.data : [];
-        this.cacheAmparoDesempate = lista.map((a: any) => ({ id: Number(a.id), nome: `${a.nome ?? ''} ${a.descricao ?? ''}` }));
-      } catch (e) {
-        this.logger.warn(`Amparos de desempate não consultados: ${(e as Error).message}`);
-        return null;
-      }
-    }
-    const lista = this.cacheAmparoDesempate ?? [];
     const base = CRITERIOS_ART60.find((c) => c.criterio === criterio)?.baseLegal ?? '';
-    const inciso = base.match(/art\. 60, (.+)$/i)?.[1]?.replace(/\s+/g, '').toLowerCase();
-    const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-    const achado =
-      (inciso && lista.find((a) => norm(a.nome).includes(`art.60,${inciso}`))) ||
-      lista.find((a) => /art\.?\s*60/i.test(a.nome)) ||
-      lista[0];
-    return achado ? achado.id : null;
+    if (!this.cacheAmparoDesempate) {
+      const r = await this.pncp.chamarApi<any>({ metodo: 'GET', caminho: '/amparos-legais?tipoAmparoLegalId=3&statusAtivo=true' });
+      const lista = Array.isArray(r.data) ? r.data : Array.isArray(r.data?.data) ? r.data.data : [];
+      this.cacheAmparoDesempate = lista.flatMap((a: any) => [
+        { id: Number(a.id), nome: String(a.nome ?? '') },
+        { id: Number(a.id), nome: String(a.descricao ?? '') },
+      ]);
+    }
+    return amparoDoInciso(this.cacheAmparoDesempate ?? [], base);
   }
 
   // ==========================================================================

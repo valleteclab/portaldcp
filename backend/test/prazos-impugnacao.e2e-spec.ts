@@ -27,6 +27,7 @@ import {
   levarAteFase,
   LicitacaoFixture,
   OrgaoFixture,
+  ajustarCronograma,
 } from './support';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { LicitacoesSchedulerService } from '../src/licitacoes/licitacoes-scheduler.service';
@@ -55,8 +56,10 @@ describe('E1 — prazo de impugnação (art. 164) e relógio do cronograma', () 
       .post('/api/esclarecimentos')
       .set(bearer(fornecedor.token))
       .send({ licitacao_id: lic.id, texto_esclarecimento: 'Dúvida sobre o item 1 (teste de prazo)' });
-  const editar = (lic: LicitacaoFixture, dados: Record<string, any>) =>
-    http().put(`/api/licitacoes/${lic.id}`).set(bearer(orgao.token)).send(dados).expect(200);
+  // RELÓGIO de teste (E7a): edital publicado só muda o cronograma por
+  // retificação (art. 55 §1º) — aqui as datas são movidas no banco para
+  // simular a passagem do tempo, não como ato do órgão.
+  const editar = (lic: LicitacaoFixture, dados: Record<string, any>) => ajustarCronograma(ctx, lic, dados);
 
   /** Pregão publicado com o acolhimento já iniciado pelo edital (ainda em PUBLICADO). */
   const pregaoPublicado = async (): Promise<LicitacaoFixture> => {

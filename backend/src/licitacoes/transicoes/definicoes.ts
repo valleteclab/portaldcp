@@ -16,6 +16,7 @@ import { pendenciasPublicacaoArt48 } from '../../julgamento/me-epp/regras-me-epp
 import {
   avaliarPrazosDePublicacao,
   CAMPOS_EDITAL_RETIFICAVEIS,
+  cronogramaDoCertameMudou,
   fimDoRecebimento,
   formatarDataBrasilia,
   MODALIDADES_COM_EDITAL,
@@ -432,6 +433,10 @@ const reabrirCronograma: Efeito = (lic, ctx) => {
 const gravarRetificacao: Efeito = (lic, ctx) => {
   const dados = ctx.dados || {};
   const cronograma = (dados.cronograma || {}) as Record<string, any>;
+  // Nova abertura sem novo limite de impugnação: vale o art. 164 contado da nova data
+  if (cronogramaDoCertameMudou(lic as any, cronograma) && !cronograma.data_limite_impugnacao) {
+    (lic as any).data_limite_impugnacao = null;
+  }
   for (const campo of CAMPOS_CRONOGRAMA) {
     if (campo === 'data_publicacao_edital') continue;
     if (cronograma[campo]) (lic as any)[campo] = new Date(cronograma[campo]);

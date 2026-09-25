@@ -104,6 +104,11 @@ export function prorrogarParaDiaUtil(vencimento: Date, cal: CalendarioDiasUteis 
   return deslocamento ? new Date(vencimento.getTime() + deslocamento) : vencimento;
 }
 
+/** Primeiro instante (00:00, Brasília) do dia de `d`. */
+export function inicioDoDia(d: Date): Date {
+  return new Date(diaEmBrasilia(d) + DESLOCAMENTO_BRASILIA_MS);
+}
+
 /** Primeiro instante (00:00, Brasília) do dia seguinte ao de `d`. */
 export function inicioDoDiaSeguinte(d: Date): Date {
   return new Date(diaEmBrasilia(d) + DIA_MS + DESLOCAMENTO_BRASILIA_MS);

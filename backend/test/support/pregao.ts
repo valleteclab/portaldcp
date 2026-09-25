@@ -9,7 +9,7 @@
 import { Socket } from 'socket.io-client';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { SchedulerRegistry } from '@nestjs/schedule';
-import { AppE2E } from './app';
+import { AppE2E, processarFilaPncpAtual } from './app';
 import { conectarSocket } from './socket';
 import { OrgaoFixture } from './fixtures';
 import { pncpMock, RequisicaoCapturada } from './pncp-mock';
@@ -272,6 +272,8 @@ export async function aguardarPncp(
 ): Promise<RequisicaoCapturada[]> {
   const inicio = Date.now();
   for (;;) {
+    // E7: o PNCP sai pela FILA — roda o worker (cron desligado nos testes)
+    await processarFilaPncpAtual();
     const achadas = pncpMock.filtrar(metodo, caminho);
     if (achadas.length >= quantidade) return achadas;
     if (Date.now() - inicio > timeout) return achadas;

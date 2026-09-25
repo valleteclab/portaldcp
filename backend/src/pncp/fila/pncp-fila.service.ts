@@ -150,13 +150,21 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
     const [l] = await this.ds.query(
       `SELECT l.id, l.orgao_id::text AS orgao_id, l.selecao_externa, l.enviado_pncp, l.codigo_unidade_compradora,
               o.pncp_vinculado, o.pncp_codigo_unidade,
-              EXISTS (SELECT 1 FROM pncp_sync s WHERE s.licitacao_id = l.id::text AND s.tipo::text = 'COMPRA' AND s.status::text <> 'EXCLUIDO') AS tem_compra
+              EXISTS (SELECT 1 FROM pncp_sync s WHERE s.licitacao_id::text = l.id::text AND s.tipo::text = 'COMPRA' AND s.status::text <> 'EXCLUIDO') AS tem_compra
          FROM licitacoes l LEFT JOIN orgaos o ON o.id = l.orgao_id WHERE l.id::text = $1`,
       [licitacaoId],
     );
     if (!l) return null;
-    const integrado = !!(l.pncp_vinculado || l.pncp_codigo_unidade || l.codigo_unidade_compradora);
-    return { orgaoId: l.orgao_id as string, integrado: integrado && !l.selecao_externa, temCompra: !!(l.tem_compra || l.enviado_pncp) };
+    const vinculado = !!(l.pncp_vinculado || l.pncp_codigo_unidade || l.codigo_unidade_compradora);
+    const temCompra = !!(l.tem_compra || l.enviado_pncp);
+    return {
+      orgaoId: l.orgao_id as string,
+      externa: !!l.selecao_externa,
+      integrado: vinculado && !l.selecao_externa,
+      temCompra,
+      /** Compra desta plataforma no PNCP: atos posteriores (ata, contrato) seguem para lá. */
+      publicaAqui: temCompra && !l.selecao_externa,
+    };
   }
 
   /** Efeito PNCP de cada ato da máquina de estados. */
@@ -238,7 +246,7 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
     );
     if (!c?.licitacao_id) return null;
     const ctx = await this.contexto(c.licitacao_id);
-    if (!ctx?.integrado || !ctx.temCompra) return null;
+    if (!ctx?.publicaAqui) return null;
     const legado = c.ja_enviado || c.enviado_pncp;
     return this.enfileirar({
       tipo: legado ? TipoSincronizacao.RETIFICACAO_CONTRATO : TipoSincronizacao.CONTRATO,
@@ -253,7 +261,9 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
   /** Ata assinada por todas as partes (ARP). */
   async aoAssinarAta(ataId: string): Promise<PncpSync | null> {
     const [a] = await this.ds.query(`SELECT id::text AS id, licitacao_id::text AS licitacao_id, orgao_id::text AS orgao_id FROM atas_registro_preco WHERE id::text = $1`, [ataId]);
-    if (!a) return null;
+    if (!a?.licitacao_id) return null;
+    const ctx = await this.contexto(a.licitacao_id);
+    if (!ctx?.publicaAqui) return null;
     return this.enfileirar({ tipo: TipoSincronizacao.ATA, licitacaoId: a.licitacao_id, orgaoId: a.orgao_id, entidadeId: a.id, chave: chaveFila.ata(a.id), referencia: { ata_id: a.id } });
   }
 
@@ -295,11 +305,11 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
               WHERE s.chave_idempotencia IS NOT NULL
                 AND s.status::text IN ('PENDENTE','ERRO_TEMPORARIO')
                 AND (s.proximo_envio IS NULL OR s.proximo_envio <= $1)
-                AND ($2::text IS NULL OR s.licitacao_id = $2)
+                AND ($2::text IS NULL OR s.licitacao_id::text = $2::text)
                 AND NOT (s.id = ANY($3::uuid[]))
                 AND NOT EXISTS (
                   SELECT 1 FROM pncp_sync p
-                   WHERE p.licitacao_id = s.licitacao_id AND p.id <> s.id AND p.chave_idempotencia IS NOT NULL
+                   WHERE p.licitacao_id::text = s.licitacao_id::text AND p.id <> s.id AND p.chave_idempotencia IS NOT NULL
                      AND p.status::text IN ('PENDENTE','ENVIANDO','ERRO_TEMPORARIO')
                      AND (p.ordem < s.ordem OR (p.ordem = s.ordem AND p.created_at < s.created_at AND s.tipo::text = ANY($4::text[]))))
               ORDER BY s.ordem, s.created_at LIMIT 1`,
@@ -386,6 +396,16 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
         res.sequencial ?? null,
       ],
     );
+    // Dependência satisfeita: as operações da licitação que esperavam por esta
+    // (ex.: itens aguardando a compra) são reavaliadas já, sem esperar o intervalo.
+    if (linha.licitacao_id) {
+      await this.ds.query(
+        `UPDATE pncp_sync SET proximo_envio = NULL, updated_at = now()
+          WHERE licitacao_id::text = $1 AND id <> $2 AND status::text = 'PENDENTE' AND chave_idempotencia IS NOT NULL
+            AND erro_mensagem LIKE 'Aguardando:%'`,
+        [linha.licitacao_id, linha.id],
+      );
+    }
   }
 
   // ==========================================================================
@@ -394,7 +414,7 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
 
   async listarFila(licitacaoId: string): Promise<LinhaFila[]> {
     const linhas: Array<LinhaFila & { ordem: number }> = await this.ds.query(
-      `SELECT ${SELECT_LINHA} FROM pncp_sync WHERE licitacao_id = $1 AND tipo::text <> 'PCA' ORDER BY ordem, created_at`,
+      `SELECT ${SELECT_LINHA} FROM pncp_sync WHERE licitacao_id::text = $1 AND tipo::text <> 'PCA' ORDER BY ordem, created_at`,
       [licitacaoId],
     );
     return linhas.map(({ ordem: _o, ...l }) => {
@@ -408,7 +428,7 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
   async orgaoDaLinha(id: string): Promise<{ licitacaoId: string | null; orgaoId: string | null } | null> {
     const [l] = await this.ds.query(
       `SELECT s.licitacao_id, COALESCE(l.orgao_id::text, s.orgao_id) AS orgao_id
-         FROM pncp_sync s LEFT JOIN licitacoes l ON l.id::text = s.licitacao_id WHERE s.id::text = $1`,
+         FROM pncp_sync s LEFT JOIN licitacoes l ON l.id::text = s.licitacao_id::text WHERE s.id::text = $1`,
       [id],
     );
     return l ? { licitacaoId: l.licitacao_id, orgaoId: l.orgao_id } : null;

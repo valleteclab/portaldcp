@@ -248,7 +248,7 @@ describe('TransicoesService — pré-condições', () => {
 
   test('pregão: publicar exige a fase interna documentada (art. 18); prazo é o do art. 55 (8 dias úteis), não o da dispensa', async () => {
     const pendente = { pode_divulgar: false, pendentes: ['Parecer jurídico (Art. 53)'] };
-    // E7a: 24/09/2026 + 8 dias úteis (12/10 feriado) → vence 06/10; abertura a partir de 07/10
+    // E7a: 24/09/2026 + 8 dias úteis (25, 28, 29, 30, 01, 02, 05, 06) → abertura a partir de 06/10 (art. 183: inclui o dia do vencimento)
     const dados = { data_fim_acolhimento: '2026-10-07T10:00:00', data_abertura_sessao: '2026-10-07T10:00:00' };
     const naoConcluida = lic({ fase: F.APROVACAO_INTERNA, fase_interna_concluida: false } as any);
     const def = definicaoDoAto(naoConcluida.modalidade, A.PUBLICAR)!;

@@ -77,6 +77,15 @@ describe('Pregão — ...', () => {
 - **PNCP**: `pncpMock.limpar()` antes da ação; depois `pncpMock.filtrar('POST', /\/compras$/)` devolve
   método, caminho, headers e corpo enviados. `pncpMock.responder('POST', /\/compras$/, { status: 500 })`
   simula falha.
+- **Fila do PNCP (E7)**: nada vai ao PNCP na hora do ato — a operação entra em `pncp_sync` e o worker
+  (cron de 1 min, desligado nos testes) envia. Rode-o com `await ctx.processarFilaPncp()` (aceita
+  `{ agora }` para simular o relógio do backoff). `aguardarPncp` (support/pregao) e `aguardar`
+  (support/dispensa) já rodam o worker enquanto esperam.
+- **Edital (E7a)**: `levarAteFase` anexa um PDF de edital (`anexarEdital`/`pdfDeTeste`) antes de publicar as
+  modalidades com edital. Depois da publicação o cronograma só muda por retificação: para "fazer o tempo
+  passar" use `ajustarCronograma(ctx, lic, { ... })` (relógio de teste; `abrirSessaoAgora` já usa).
+- **Contrato assinado**: `assinarContrato(ctx, contratoId, usuarioDoOrgao, fornecedor)` (support/contratos)
+  assina o termo pelo portal de assinaturas (órgão) e pelo link + código (fornecedor).
 - **Relógio**: os `@Cron` ficam **desligados** (determinismo). Use `criarApp({ crons: true })` ou
   `ctx.ligarCrons()` quando o teste depender deles (disputa, transição por data).
 - **Socket**: `const s = await conectarSocket(ctx, '/disputa-v2', { token })`, `aguardarEvento(s, 'evento')`,

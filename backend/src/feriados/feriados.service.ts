@@ -69,6 +69,7 @@ export class FeriadosService implements OnModuleInit, OnModuleDestroy {
   private adotadosPorOrgao = new Map<string, Set<string>>();
   private ufPorOrgao = new Map<string, string | null>();
   private recarregando: Promise<void> | null = null;
+  private proximaCarga: Promise<void> | null = null;
   private timer: NodeJS.Timeout | null = null;
 
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
@@ -107,9 +108,19 @@ export class FeriadosService implements OnModuleInit, OnModuleDestroy {
     return inseridos;
   }
 
-  /** Recarrega a tabela para a memória e registra a fonte do calendário. */
+  /**
+   * Recarrega a tabela para a memória e registra a fonte do calendário. Uma
+   * carga por vez; pedido durante uma carga em curso agenda UMA nova carga
+   * depois dela (a alteração recém-gravada nunca fica de fora).
+   */
   async recarregar(): Promise<void> {
-    if (this.recarregando) return this.recarregando;
+    if (this.recarregando) {
+      this.proximaCarga ??= this.recarregando.catch(() => undefined).then(() => {
+        this.proximaCarga = null;
+        return this.recarregar();
+      });
+      return this.proximaCarga;
+    }
     this.recarregando = (async () => {
       const linhas: LinhaFeriado[] = await this.dataSource.query(
         `SELECT id::text, descricao, to_char(data, 'YYYY-MM-DD') AS data, movel, recorrente, abrangencia, uf,

@@ -134,7 +134,8 @@ export class PublicacaoController {
       data_minima_abertura: av.minimo_abertura ? formatarRelogioBrasilia(av.minimo_abertura) : null,
       pendencias: av.pendencias,
       feriados_no_periodo: this.feriados.diasSemExpediente(lic.orgao_id, av.divulgacao, ate),
-      contagem: 'Art. 183: exclui o dia da divulgação; conta dias com expediente no órgão (feriados e pontos facultativos adotados não contam); o prazo vence às 23:59 do último dia — a abertura é a partir do dia seguinte.',
+      contagem:
+        'Art. 183: exclui o dia da divulgação e inclui o do vencimento; só contam dias com expediente no órgão (feriados e pontos facultativos adotados não contam). A abertura pode ocorrer a partir das 00:00 do último dia útil do prazo.',
       calendario_orgao: !!calendarioDoOrgao(lic.orgao_id),
     };
   }

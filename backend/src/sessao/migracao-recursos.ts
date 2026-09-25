@@ -1,5 +1,5 @@
 import type { ExecutorSql } from '../disputa-v2/migracao-lances';
-import { fimDoPrazoEmDiasUteis } from '../common/prazos/dias-uteis';
+import { calendarioDoOrgao, fimDoPrazoEmDiasUteis } from '../common/prazos/dias-uteis';
 
 /**
  * ============================================================================
@@ -180,7 +180,8 @@ export async function migrarRecursos(db: ExecutorSql): Promise<RelatorioMigracao
     await db.query(
       `SELECT r.id::text AS id, r.sessao_id::text AS sessao_id, r.licitacao_id::text AS licitacao_id, r.status::text AS status,
               r.contrarrazoes, r.prazo_razoes, r.data_razoes, r.prazo_contrarrazoes, r.prazo_reconsideracao,
-              r.data_intencao, r.updated_at, r.janela_id
+              r.data_intencao, r.updated_at, r.janela_id,
+              (SELECT l.orgao_id::text FROM licitacoes l WHERE l.id::text = r.licitacao_id::text) AS orgao_id
          FROM recursos_administrativos r WHERE r.origem IS NULL`,
     ),
   );
@@ -201,11 +202,11 @@ export async function migrarRecursos(db: ExecutorSql): Promise<RelatorioMigracao
     let prazoContrarrazoes = data(r.prazo_contrarrazoes);
     if (status === 'CONTRARRAZOES' && !prazoContrarrazoes) {
       const base = data(r.prazo_razoes) ?? data(r.data_razoes) ?? new Date(r.updated_at);
-      prazoContrarrazoes = fimDoPrazoEmDiasUteis(base, DIAS_UTEIS);
+      prazoContrarrazoes = fimDoPrazoEmDiasUteis(base, DIAS_UTEIS, calendarioDoOrgao(r.orgao_id ?? null));
     }
     let prazoReconsideracao = data(r.prazo_reconsideracao);
     if (status === 'EM_ANALISE' && !prazoReconsideracao) {
-      prazoReconsideracao = fimDoPrazoEmDiasUteis(prazoContrarrazoes ?? new Date(r.updated_at), DIAS_UTEIS);
+      prazoReconsideracao = fimDoPrazoEmDiasUteis(prazoContrarrazoes ?? new Date(r.updated_at), DIAS_UTEIS, calendarioDoOrgao(r.orgao_id ?? null));
     }
     const decidido = ['PROVIDO', 'IMPROVIDO'].includes(status);
     const [janela] = r.janela_id
