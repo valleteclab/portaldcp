@@ -32,6 +32,12 @@ const ATOS_DA_SALA = [
   "DECIDIR_RECURSOS", "ADJUDICAR", "RETORNAR_JULGAMENTO",
 ]
 
+/**
+ * Revogar/anular (art. 71 §3º) têm card próprio no cockpit (ExtincaoLicitacao):
+ * intenção → manifestação dos licitantes → ato.
+ */
+const ATOS_DE_EXTINCAO = ["REVOGAR", "ANULAR"]
+
 /** Atos de situação/encerramento: botão com cor de alerta. */
 const ATOS_CRITICOS = ["REVOGAR", "ANULAR", "DECLARAR_DESERTA", "DECLARAR_FRACASSADA"]
 
@@ -55,7 +61,9 @@ export function AtosProcesso({
   const [executando, setExecutando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  const lista = (atos || []).filter((a) => !a.requer_dados && !a.endpoint && !ATOS_DA_SALA.includes(a.ato))
+  const lista = (atos || []).filter(
+    (a) => !a.requer_dados && !a.endpoint && !ATOS_DA_SALA.includes(a.ato) && !ATOS_DE_EXTINCAO.includes(a.ato),
+  )
   if (lista.length === 0) return null
 
   const abrir = (a: AtoDisponivel) => {

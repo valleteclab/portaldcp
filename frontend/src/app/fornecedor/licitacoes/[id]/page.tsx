@@ -4,6 +4,8 @@ import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
+import { EditalRetificadoBanner } from "@/components/licitacao/EditalRetificadoBanner"
+import { ManifestacaoExtincaoCard } from "@/components/licitacao/ManifestacaoExtincaoCard"
 import { ROTULO_SITUACAO, situacaoDaLicitacao } from "@/lib/licitacao-situacao"
 import { 
   ArrowLeft,
@@ -390,6 +392,12 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
           )}
         </div>
       </div>
+
+      {/* Edital retificado: confirmação da proposta (art. 55 §1º) */}
+      <EditalRetificadoBanner licitacaoId={licitacao.id} onConfirmada={carregarDados} />
+
+      {/* Intenção de revogar/anular: manifestação do licitante (art. 71 §3º) */}
+      <ManifestacaoExtincaoCard licitacaoId={licitacao.id} />
 
       {/* Cronograma Visual em Etapas */}
       <Card className="border-2 border-slate-200">

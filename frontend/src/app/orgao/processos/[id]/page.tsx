@@ -27,6 +27,15 @@ import { AtosProcesso, type AtoDisponivel } from "./AtosProcesso"
 import { ResultadoPanel } from "@/components/resultado/ResultadoPanel"
 import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
 import { CotasMeEppCard } from '@/components/licitacao/CotasMeEppCard'
+import { PublicacaoEdital, PainelPrazos, MODALIDADES_COMPETITIVAS } from "./PublicacaoEdital"
+import { RetificarEdital, FASES_RETIFICACAO } from "./RetificarEdital"
+import { ExtincaoLicitacao } from "./ExtincaoLicitacao"
+import { FilaPncp } from "./FilaPncp"
+import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
+import {
+  consultarPrazos, inputLocalParaISO, lerErro, erroDeExcecao, sugestaoAPartirDoMinimo,
+  type ErroBackend, type PrazosPublicacao,
+} from "@/lib/publicacao"
 
 interface ProcessoCompleto {
   licitacao: {
@@ -51,6 +60,9 @@ interface ProcessoCompleto {
     criterio_julgamento?: string
     data_fim_acolhimento?: string | null
     data_abertura_sessao?: string | null
+    data_limite_impugnacao?: string | null
+    data_inicio_acolhimento?: string | null
+    natureza_objeto?: string | null
     dispensa_lances_inicio?: string | null
     dispensa_lances_fim?: string | null
     link_pncp?: string | null
@@ -108,6 +120,9 @@ interface ProcessoCompleto {
 }
 
 interface FornecedorOpt { id: string; razao_social: string; cpf_cnpj?: string; cnpj?: string }
+
+/** Fases da fase interna (antes da divulgação do edital/aviso). */
+const FASES_INTERNAS = ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS", "ANALISE_JURIDICA", "APROVACAO_INTERNA"]
 
 const fmtMoeda = (v?: number | string | null) =>
   Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -370,36 +385,58 @@ export default function CockpitProcessoPage() {
     }
   }
 
-  const addDiasUteis = (d: Date, n: number) => {
-    const r = new Date(d)
-    let add = 0
-    while (add < n) {
-      r.setDate(r.getDate() + 1)
-      const dow = r.getDay()
-      if (dow !== 0 && dow !== 6) add++
+  // Prazo mínimo da dispensa (art. 75 §3º) contado pelo backend com o
+  // calendário de feriados do órgão (E7) — antes era calculado aqui sem feriados
+  const [prazosDivulgar, setPrazosDivulgar] = useState<PrazosPublicacao | null>(null)
+  const [calculandoDivulgar, setCalculandoDivulgar] = useState(false)
+  const [erroDivulgar, setErroDivulgar] = useState<ErroBackend | null>(null)
+
+  const abrirModalDivulgar = async () => {
+    setErroDivulgar(null)
+    setPrazosDivulgar(null)
+    setFimPropostas("")
+    setModalDivulgar(true)
+    try {
+      const p = await consultarPrazos(id, { data_publicacao_edital: new Date().toISOString() })
+      // Sugere o dia mínimo legal (feriados do órgão já descontados) no horário de agora + 1 h
+      setFimPropostas(sugestaoAPartirDoMinimo(p.data_minima_abertura))
+    } catch (e) {
+      setErroDivulgar(erroDeExcecao(e))
     }
-    return r
   }
 
-  const abrirModalDivulgar = () => {
-    // Sugere o mínimo legal (3 dias úteis, art. 75 §3º) com 1h de folga
-    const min = addDiasUteis(new Date(), 3)
-    min.setHours(min.getHours() + 1)
-    const pad = (x: number) => String(x).padStart(2, "0")
-    setFimPropostas(`${min.getFullYear()}-${pad(min.getMonth() + 1)}-${pad(min.getDate())}T${pad(min.getHours())}:${pad(min.getMinutes())}`)
-    setModalDivulgar(true)
-  }
+  // Confere a data escolhida (pendências do backend se for cedo demais)
+  useEffect(() => {
+    if (!modalDivulgar || !fimPropostas) return
+    let cancelado = false
+    setCalculandoDivulgar(true)
+    const t = setTimeout(async () => {
+      try {
+        const fim = inputLocalParaISO(fimPropostas)
+        const p = await consultarPrazos(id, {
+          data_publicacao_edital: new Date().toISOString(),
+          data_fim_acolhimento: fim,
+          data_abertura_sessao: fim,
+          data_limite_impugnacao: fim,
+        })
+        if (!cancelado) setPrazosDivulgar(p)
+      } catch { if (!cancelado) setPrazosDivulgar(null) }
+      finally { if (!cancelado) setCalculandoDivulgar(false) }
+    }, 400)
+    return () => { cancelado = true; clearTimeout(t) }
+  }, [modalDivulgar, fimPropostas, id])
 
   const divulgarAviso = async () => {
     if (!dados || !fimPropostas) return
     setDivulgando(true)
+    setErroDivulgar(null)
     try {
       // Etapa única da contratação direta: conclui a instrução se ainda não concluída
       if (dados.licitacao.fase !== "APROVACAO_INTERNA") {
         const ra = await authFetch(`${API_URL}/api/fase-interna/${id}/avancar`, { method: "PUT" })
         if (!ra.ok) {
-          const e = await ra.json().catch(() => null)
-          throw new Error(e?.message || `HTTP ${ra.status}`)
+          setErroDivulgar(await lerErro(ra, "Erro ao concluir a instrução"))
+          return
         }
       }
       const agora = new Date().toISOString()
@@ -415,13 +452,15 @@ export default function CockpitProcessoPage() {
           data_abertura_sessao: fim,
         }),
       })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      if (!res.ok) {
+        setErroDivulgar(await lerErro(res, "Erro ao divulgar"))
+        return
+      }
       setModalDivulgar(false)
       alert("Aviso divulgado!\n\nO prazo de propostas está aberto para os fornecedores e o aviso está sendo publicado automaticamente no PNCP (acompanhe o status no painel da seleção).")
       await carregar()
-    } catch (e: any) {
-      alert(`Erro ao divulgar: ${e.message}`)
+    } catch (e) {
+      setErroDivulgar(erroDeExcecao(e))
     } finally {
       setDivulgando(false)
     }
@@ -737,6 +776,42 @@ export default function CockpitProcessoPage() {
 
       {/* Atos nomeados do processo (suspender, retomar, revogar, deserta...) */}
       <AtosProcesso licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
+
+      {/* Publicação do edital (art. 55) — modalidades competitivas ao fim da fase interna */}
+      {MODALIDADES_COMPETITIVAS.includes(licitacao.modalidade) && licitacao.fase === "APROVACAO_INTERNA" && ativa && (
+        <PublicacaoEdital licitacaoId={id} licitacao={licitacao} onAtualizado={carregar} />
+      )}
+
+      {/* Edital publicado: versões e retificações (art. 55 §1º) */}
+      {!FASES_INTERNAS.includes(licitacao.fase) && (
+        <RetificarEdital
+          licitacaoId={id}
+          podeRetificar={
+            FASES_RETIFICACAO.includes(licitacao.fase) &&
+            (!licitacao.situacao || licitacao.situacao === "ATIVA" || licitacao.situacao === "SUSPENSA")
+          }
+          datas={licitacao}
+          onAtualizado={carregar}
+        />
+      )}
+
+      {/* Revogação / anulação em dois tempos (art. 71 §3º) */}
+      <ExtincaoLicitacao licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
+
+      {/* Fila do PNCP (demais modalidades; a dispensa mostra no painel da seleção) */}
+      {licitacao.modalidade !== "DISPENSA_ELETRONICA" && !licitacao.selecao_externa && !FASES_INTERNAS.includes(licitacao.fase) && (
+        <Card>
+          <CardContent className="py-3 flex items-start gap-2 text-xs">
+            <span className="font-medium text-gray-600 pt-0.5">PNCP:</span>
+            <FilaPncp
+              licitacaoId={id}
+              linkPncp={licitacao.link_pncp}
+              atualizacao={dados}
+              semItens={<span className="text-gray-400 pt-0.5">nenhuma publicação na fila ainda</span>}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Resultado (art. 71): adjudicar / homologar — um só caminho (E6) */}
       {mostrarResultado && <ResultadoPanel licitacaoId={id} onAtualizado={carregar} />}
@@ -1072,29 +1147,15 @@ export default function CockpitProcessoPage() {
                       !dados.licitacao.selecao_externa &&
                       checklist.fase_interna_concluida && (
                         <div className="mt-3 border rounded-md p-2.5 bg-white">
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="flex items-center gap-2 flex-wrap text-xs">
-                              <span className="font-medium text-gray-600">PNCP:</span>
-                              {(dados.pncp || []).length === 0 && (
-                                <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">aviso ainda não publicado</span>
-                              )}
-                              {(dados.pncp || []).map((s, ix) => {
-                                const chip = (
-                                  <span
-                                    key={ix}
-                                    title={s.erro_mensagem || (s.status === "ENVIADO" && dados.licitacao.link_pncp ? "Abrir no portal PNCP" : "")}
-                                    className={`rounded px-1.5 py-0.5 border ${s.status === "ENVIADO" ? "text-green-700 bg-green-50 border-green-200" : s.status === "ERRO" ? "text-red-700 bg-red-50 border-red-200" : "text-gray-600 bg-gray-50 border-gray-200"}`}
-                                  >
-                                    {s.tipo} {s.status === "ENVIADO" ? "✓" : s.status === "ERRO" ? "✗" : "…"}
-                                    {s.numero_controle_pncp ? ` ${s.numero_controle_pncp}` : ""}
-                                  </span>
-                                )
-                                return s.status === "ENVIADO" && dados.licitacao.link_pncp ? (
-                                  <a key={ix} href={dados.licitacao.link_pncp} target="_blank" rel="noopener noreferrer" className="hover:opacity-75">
-                                    {chip}
-                                  </a>
-                                ) : chip
-                              })}
+                          <div className="flex items-start justify-between gap-2 flex-wrap">
+                            <div className="flex items-start gap-2 text-xs flex-1 min-w-0">
+                              <span className="font-medium text-gray-600 pt-0.5">PNCP:</span>
+                              <FilaPncp
+                                licitacaoId={id}
+                                linkPncp={dados.licitacao.link_pncp}
+                                atualizacao={dados}
+                                semItens={<span className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">aviso ainda não publicado</span>}
+                              />
                             </div>
                             <div className="flex gap-2">
                               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => enviarPncp("aviso")} disabled={enviandoPncp !== null}>
@@ -1249,9 +1310,11 @@ export default function CockpitProcessoPage() {
                 className="mt-1"
               />
               <p className="text-xs text-gray-400 mt-1">
-                Mínimo de 3 dias úteis a partir de agora (art. 75, §3º) — já sugerido no campo.
+                Mínimo de 3 dias úteis a partir de agora (art. 75, §3º), descontados os feriados do órgão — já sugerido no campo.
               </p>
             </div>
+            <PainelPrazos prazos={prazosDivulgar} carregando={calculandoDivulgar} />
+            <ErroPendencias erro={erroDivulgar} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalDivulgar(false)} disabled={divulgando}>Cancelar</Button>

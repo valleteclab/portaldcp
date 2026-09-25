@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -1011,53 +1012,30 @@ export default function DetalheContratoOrgaoPage() {
     }
   }
 
+  // Envio ao PNCP (E7): o backend monta o payload a partir do contrato e usa a
+  // fila de publicação — só para contrato assinado (art. 94). Ele mesmo marca o
+  // contrato como enviado e grava o número de controle.
   const handleEnviarPncp = async () => {
     if (!contrato) return
     setLoadingAction(true)
     try {
-      const tipoContratoMap: Record<string, number> = {
-        'CONTRATO': 1, 'NOTA_EMPENHO': 2, 'ORDEM_SERVICO': 3, 'ORDEM_FORNECIMENTO': 4,
-        'CARTA_CONTRATO': 5, 'TERMO_ADESAO': 6, 'ATA_REGISTRO_PRECO': 7,
-      }
-      const payload = {
-        anoContrato: contrato.ano,
-        numeroContratoEmpenho: contrato.numero_contrato,
-        tipoContratoId: tipoContratoMap[contrato.tipo] || 1,
-        objetoContrato: contrato.objeto,
-        niFornecedor: contrato.fornecedor_cnpj?.replace(/\D/g, ''),
-        nomeRazaoSocialFornecedor: contrato.fornecedor_razao_social,
-        dataAssinatura: contrato.data_assinatura,
-        dataVigenciaInicio: contrato.data_vigencia_inicio,
-        dataVigenciaFim: contrato.data_vigencia_fim,
-        valorInicial: parseFloat(String(contrato.valor_inicial)),
-        valorGlobal: parseFloat(String(contrato.valor_global)),
-        tipoPessoa: 'PJ',
-        informacaoComplementar: contrato.observacoes || undefined,
-      }
-      const res = await authFetch(`${API_URL}/api/pncp/contratos`, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
-      if (res.ok) {
-        const result = await res.json()
-        // Atualizar contrato com dados do PNCP
-        await authFetch(`${API_URL}/api/contratos/${id}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            enviado_pncp: true,
-            data_envio_pncp: new Date().toISOString(),
-            numero_controle_pncp: result.numeroControlePNCP || null,
-          }),
+      const res = await authFetch(`${API_URL}/api/pncp/contratos/${id}/enviar`, { method: 'POST' })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) {
+        const pend: string[] = Array.isArray(j?.pendencias) ? j.pendencias : []
+        const msg = Array.isArray(j?.message) ? j.message.join('; ') : j?.message
+        toast.error(msg || 'Erro ao enviar contrato ao PNCP', {
+          description: pend.length ? pend.join(' · ') : undefined,
         })
-        alert(`Contrato enviado ao PNCP com sucesso!\nNúmero de Controle: ${result.numeroControlePNCP || 'N/A'}`)
-        carregarDados()
-      } else {
-        const error = await res.json()
-        alert(error.message || 'Erro ao enviar contrato ao PNCP')
+        return
       }
+      toast.success(j?.mensagem || 'Contrato publicado no PNCP', {
+        description: j?.numeroControlePNCP ? `Número de controle: ${j.numeroControlePNCP}` : undefined,
+      })
+      carregarDados()
     } catch (error) {
       console.error('Erro ao enviar ao PNCP:', error)
-      alert('Erro ao enviar contrato ao PNCP')
+      toast.error('Erro ao enviar contrato ao PNCP')
     } finally {
       setLoadingAction(false)
     }

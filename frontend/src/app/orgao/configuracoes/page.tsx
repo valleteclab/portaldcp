@@ -21,7 +21,8 @@ import {
   GitBranch,
   Plus,
   Pencil,
-  Trash2
+  Trash2,
+  CalendarDays
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -539,6 +540,16 @@ export default function ConfiguracoesPage() {
           >
             <Settings className="h-4 w-4" />
             Parâmetros de licitação
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push('/orgao/configuracoes/feriados')}
+            title="Dias sem expediente usados na contagem dos prazos em dias úteis (art. 183, III)"
+          >
+            <CalendarDays className="h-4 w-4" />
+            Feriados
           </Button>
         </div>
       </div>
