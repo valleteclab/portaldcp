@@ -8,8 +8,10 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
+import { readFileSync } from 'fs';
 import { extname } from 'path';
 import { DataSource, EntityManager, In } from 'typeorm';
+import { caminhoLogicoDeUrl, resolverArquivo } from '../common/arquivos/arquivos';
 import { FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { FASES_INTERNAS } from '../licitacoes/transicoes/fases';
 import { EtapaSessao } from '../sessao/entities/sessao-disputa.entity';
@@ -1318,8 +1320,40 @@ export class HabilitacaoService {
       .where('d.id = :id', { id: documentoId })
       .getOne();
     if (!d) throw new NotFoundException('Documento não encontrado');
-    if (!d.arquivo_conteudo) throw new NotFoundException('Documento do registro cadastral — consulte o cadastro do fornecedor');
+    if (!d.arquivo_conteudo) return this.arquivoDoCadastro(d);
     return { nome: d.arquivo_nome || 'documento', mime: d.arquivo_mime || 'application/octet-stream', conteudo: d.arquivo_conteudo };
+  }
+
+  /**
+   * Arquivo do REGISTRO CADASTRAL citado pelo documento (origem CADASTRO): lido
+   * pelo resolvedor de arquivos privados (diretório privado → pasta antiga).
+   * A autorização é a do documento de habilitação (órgão dono da licitação ou o
+   * próprio licitante — controller). Se o arquivo tem dono registrado em
+   * `arquivos_upload` e ele NÃO é o fornecedor do documento, recusa (URL de
+   * outro fornecedor gravada no cadastro).
+   */
+  private async arquivoDoCadastro(d: DocumentoHabilitacao): Promise<{ nome: string; mime: string; conteudo: Buffer }> {
+    const semArquivo = () => new NotFoundException('Documento do registro cadastral sem arquivo anexado');
+    let url: string | null = (d.cadastro as any)?.caminhoArquivo ?? null;
+    let nome: string | null = (d.cadastro as any)?.nomeArquivo ?? null;
+    if (d.fornecedor_documento_id) {
+      // o cadastro pode ter sido atualizado depois da convocação: vale o caminho do snapshot, com fallback ao atual
+      const r = await this.dataSource.query(
+        `SELECT caminho_arquivo, nome_arquivo FROM fornecedor_documentos WHERE id = $1 AND fornecedor_id::text = $2`,
+        [d.fornecedor_documento_id, d.fornecedor_id],
+      );
+      url = url || r[0]?.caminho_arquivo || null;
+      nome = nome || r[0]?.nome_arquivo || null;
+    }
+    const c = caminhoLogicoDeUrl(url);
+    if (!c) throw semArquivo();
+    const dono = await this.dataSource.query(`SELECT fornecedor_id FROM arquivos_upload WHERE caminho = $1`, [c.rel]);
+    if (dono[0]?.fornecedor_id && String(dono[0].fornecedor_id) !== String(d.fornecedor_id)) throw semArquivo();
+    const fisico = resolverArquivo(c);
+    if (!fisico) throw semArquivo();
+    const ext = extname(fisico).toLowerCase();
+    const mime = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : ['.jpg', '.jpeg'].includes(ext) ? 'image/jpeg' : 'application/octet-stream';
+    return { nome: nome || c.nome, mime, conteudo: readFileSync(fisico) };
   }
 
   private async visaoDoAto(habilitacaoId: string, papel: Papel) {

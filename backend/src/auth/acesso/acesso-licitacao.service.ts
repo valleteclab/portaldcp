@@ -232,6 +232,24 @@ export class AcessoLicitacaoService {
     return ator.fornecedorId;
   }
 
+  /**
+   * O órgão tem VÍNCULO com o fornecedor: proposta enviada (não rascunho) numa
+   * licitação do órgão, habilitação convocada ou contrato com o órgão. Base do
+   * acesso do órgão aos documentos do registro cadastral do fornecedor.
+   */
+  async orgaoTemVinculoComFornecedor(orgaoId: string | null | undefined, fornecedorId: string | null | undefined): Promise<boolean> {
+    if (!ehUuid(orgaoId) || !ehUuid(fornecedorId)) return false;
+    const r = await this.dataSource.query(
+      `SELECT 1 FROM propostas p JOIN licitacoes l ON l.id = p.licitacao_id
+        WHERE l.orgao_id::text = $1 AND p.fornecedor_id::text = $2 AND p.status::text <> 'RASCUNHO'
+       UNION ALL
+       SELECT 1 FROM contratos c WHERE c.orgao_id::text = $1 AND c.fornecedor_id::text = $2
+       LIMIT 1`,
+      [orgaoId, fornecedorId],
+    );
+    return r.length > 0;
+  }
+
   // ---------------------------------------------------------------------------
 
   private async orgaoPorTabela(tabela: 'atas_registro_preco' | 'credenciamentos', id: string): Promise<string | null> {

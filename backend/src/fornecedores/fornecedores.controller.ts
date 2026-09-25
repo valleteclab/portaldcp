@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Req, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { FornecedoresService } from './fornecedores.service';
 import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedor.dto';
 import { Fornecedor, NivelCadastro } from './entities/fornecedor.entity';
@@ -6,6 +6,9 @@ import { FornecedorDocumento } from './entities/fornecedor-documento.entity';
 import { AuthService, JwtPayload, UserType } from '../auth/auth.service';
 import { Public } from '../auth/public.decorator';
 import { AuditService, AuditAction } from '../audit/audit.service';
+import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
+import { atorDaRequisicao, ehFornecedor, ehOrgao } from '../auth/acesso/ator';
+import { SomenteOrgao } from '../auth/acesso/acesso.decorators';
 
 @Controller('fornecedores')
 export class FornecedoresController {
@@ -13,12 +16,55 @@ export class FornecedoresController {
     private readonly fornecedoresService: FornecedoresService,
     private readonly authService: AuthService,
     private readonly auditService: AuditService,
+    private readonly acesso: AcessoLicitacaoService,
   ) {}
+
+  /**
+   * Leitura do REGISTRO CADASTRAL com documentos (dados pessoais/fiscais e
+   * caminho dos arquivos): o próprio fornecedor, ADMIN ou órgão com VÍNCULO
+   * (proposta numa licitação do órgão ou contrato). Demais → 404.
+   */
+  private async assertPodeVerCadastro(req: any, fornecedorId: string): Promise<void> {
+    const ator = atorDaRequisicao(req);
+    if (!ator) throw new UnauthorizedException('Autenticação necessária');
+    if (ator.admin) return;
+    if (ehFornecedor(ator) && ator.fornecedorId === fornecedorId) return;
+    if (ehOrgao(ator) && (await this.acesso.orgaoTemVinculoComFornecedor(ator.orgaoId, fornecedorId))) return;
+    throw new NotFoundException('Fornecedor não encontrado');
+  }
 
   /**
    * Valida se o usuário autenticado é o dono do recurso
    * Fornecedor só pode acessar/modificar seus próprios dados
    */
+  /** Só o ADMIN da plataforma (token ADMIN). Fornecedor, órgão e usuário do órgão → 403. */
+  private exigirAdmin(req: any, mensagem: string): void {
+    const ator = atorDaRequisicao(req);
+    if (!ator) throw new UnauthorizedException('Autenticação necessária');
+    if (!ator.admin) throw new ForbiddenException(mensagem);
+  }
+
+  /** Órgão (ORGAO/USUARIO) ou ADMIN — fornecedor nunca. */
+  private exigirOrgaoOuAdmin(req: any, mensagem = 'Ação exclusiva do órgão ou da administração da plataforma'): void {
+    const ator = atorDaRequisicao(req);
+    if (!ator) throw new UnauthorizedException('Autenticação necessária');
+    if (!ator.admin && !ehOrgao(ator)) throw new ForbiddenException(mensagem);
+  }
+
+  /**
+   * Ato do órgão SOBRE um fornecedor (contato, reset de senha): ADMIN ou órgão
+   * com VÍNCULO (proposta numa licitação do órgão ou contrato). Sem isso,
+   * qualquer órgão trocaria o e-mail de qualquer fornecedor e pediria o reset.
+   */
+  private async exigirOrgaoComVinculo(req: any, fornecedorId: string): Promise<void> {
+    this.exigirOrgaoOuAdmin(req, 'Acesso não autorizado');
+    const ator = atorDaRequisicao(req)!;
+    if (ator.admin) return;
+    if (!(await this.acesso.orgaoTemVinculoComFornecedor(ator.orgaoId, fornecedorId))) {
+      throw new ForbiddenException('Fornecedor sem vínculo (proposta ou contrato) com o seu órgão');
+    }
+  }
+
   private validarOwnership(user: JwtPayload, fornecedorId: string, req?: any): void {
     if (user.type === UserType.FORNECEDOR && user.sub !== fornecedorId) {
       // Registra tentativa de acesso não autorizado
@@ -44,13 +90,17 @@ export class FornecedoresController {
   }
 
   @Post('orgao/cadastro-rapido')
+  @SomenteOrgao()
   async cadastroRapidoOrgao(
-    @Body() body: { cnpj: string; razao_social: string }
+    @Body() body: { cnpj: string; razao_social: string },
+    @Req() req: any,
   ): Promise<Fornecedor> {
+    this.exigirOrgaoOuAdmin(req);
     return await this.fornecedoresService.cadastroRapidoOrgao(body.cnpj, body.razao_social);
   }
 
   @Post('cadastrar-cnpj')
+  @SomenteOrgao()
   async createFromCnpj(
     @Body() body: {
       dadosCnpj: any;
@@ -61,8 +111,11 @@ export class FornecedoresController {
       representante_telefone?: string;
       inscricao_estadual?: string;
       inscricao_municipal?: string;
-    }
+    },
+    @Req() req: any,
   ): Promise<Fornecedor> {
+    // fornecedor não cria outros fornecedores (o próprio cadastro é por /registro e /completar-credenciamento)
+    this.exigirOrgaoOuAdmin(req);
     return await this.fornecedoresService.createFromCnpj(body.dadosCnpj, {
       representante_nome: body.representante_nome,
       representante_cpf: body.representante_cpf,
@@ -75,13 +128,16 @@ export class FornecedoresController {
   }
 
   @Put(':id/atualizar-cnpj')
-  async atualizarDadosCnpj(@Param('id') id: string): Promise<Fornecedor> {
+  async atualizarDadosCnpj(@Param('id') id: string, @Req() req: any): Promise<Fornecedor> {
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.atualizarDadosCnpj(id);
   }
 
   // === CRUD ===
   @Post()
-  async create(@Body(new ValidationPipe()) createDto: CreateFornecedorDto): Promise<Fornecedor> {
+  @SomenteOrgao() // guard antes do ValidationPipe: fornecedor recebe 403, não 400
+  async create(@Body(new ValidationPipe()) createDto: CreateFornecedorDto, @Req() req: any): Promise<Fornecedor> {
+    this.exigirOrgaoOuAdmin(req);
     return await this.fornecedoresService.create(createDto);
   }
 
@@ -91,8 +147,13 @@ export class FornecedoresController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return await this.fornecedoresService.findOne(id);
+  async findOne(@Param('id') id: string, @Req() req: any) {
+    const f: any = await this.fornecedoresService.findOne(id);
+    // nunca devolve hash de senha/API key; chave da Spedy só ao próprio fornecedor ou ADMIN
+    const { senha: _s, api_key_hash: _k, ...resto } = f;
+    const ator = atorDaRequisicao(req);
+    if (!(ator?.admin || (ehFornecedor(ator) && ator.fornecedorId === id))) delete resto.spedy_api_key;
+    return resto;
   }
 
   @Get('cpf-cnpj/:cpfCnpj')
@@ -108,6 +169,14 @@ export class FornecedoresController {
   ) {
     // Valida ownership: fornecedor só pode atualizar seus próprios dados
     this.validarOwnership(req.user, id, req);
+    // Órgão (tela de contrato) só corrige o nome; contato/e-mail/credenciais
+    // pelo órgão só em /:id/orgao/contato (com vínculo) — nunca aqui.
+    const ator = atorDaRequisicao(req);
+    if (ehOrgao(ator) && !ator.admin) {
+      const permitidos = ['razao_social', 'nome_fantasia'];
+      const outros = Object.keys(updateDto || {}).filter((k) => (updateDto as any)[k] !== undefined && !permitidos.includes(k));
+      if (outros.length) throw new ForbiddenException(`O órgão não altera estes dados do fornecedor: ${outros.join(', ')}`);
+    }
     return await this.fornecedoresService.update(id, updateDto);
   }
 
@@ -137,48 +206,70 @@ export class FornecedoresController {
   @Post(':id/documentos')
   async addDocumento(
     @Param('id') id: string,
-    @Body() documento: Partial<FornecedorDocumento>
+    @Body() documento: Partial<FornecedorDocumento>,
+    @Req() req: any,
   ): Promise<FornecedorDocumento> {
+    // só o próprio fornecedor (ou órgão/admin, como antes) grava no cadastro
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.addDocumento(id, documento);
   }
 
   @Get(':id/documentos')
   async getDocumentos(
     @Param('id') id: string,
-    @Query('nivel') nivel?: NivelCadastro
+    @Req() req: any,
+    @Query('nivel') nivel?: NivelCadastro,
   ): Promise<FornecedorDocumento[]> {
+    await this.assertPodeVerCadastro(req, id);
     return await this.fornecedoresService.getDocumentos(id, nivel);
   }
 
+  /**
+   * Análise de documento do REGISTRO CADASTRAL: vale para todos os órgãos da
+   * plataforma (a habilitação usa o documento aprovado — art. 70), então é
+   * ato do ADMIN da plataforma (tela /admin). Fornecedor nunca (nem o próprio
+   * documento); órgão analisa o documento NA habilitação da sua licitação
+   * (/api/habilitacao/documentos/:id/analisar). O analista gravado vem do
+   * token; o nome informado no corpo fica só como rótulo.
+   */
   @Put('documentos/:docId/analisar')
   async analisarDocumento(
     @Param('docId') docId: string,
-    @Body() body: { aprovado: boolean; observacao: string; analisadoPor: string }
+    @Body() body: { aprovado: boolean; observacao: string; analisadoPor: string },
+    @Req() req: any,
   ): Promise<FornecedorDocumento> {
+    this.exigirAdmin(req, 'A análise do registro cadastral é exclusiva da administração da plataforma');
+    const user = req.user as JwtPayload;
+    const identidade = `ADMIN ${user.email || user.sub}`;
+    const rotulo = typeof body?.analisadoPor === 'string' ? body.analisadoPor.trim().slice(0, 120) : '';
     return await this.fornecedoresService.analisarDocumento(
       docId,
       body.aprovado,
       body.observacao,
-      body.analisadoPor
+      rotulo ? `${rotulo} [${identidade}]` : identidade,
     );
   }
 
   // === STATUS ===
   @Put(':id/aprovar')
-  async aprovar(@Param('id') id: string): Promise<Fornecedor> {
+  async aprovar(@Param('id') id: string, @Req() req: any): Promise<Fornecedor> {
+    this.exigirAdmin(req, 'Apenas administradores podem aprovar fornecedores');
     return await this.fornecedoresService.aprovar(id);
   }
 
   @Put(':id/suspender')
   async suspender(
     @Param('id') id: string,
-    @Body() body: { motivo: string }
+    @Body() body: { motivo: string },
+    @Req() req: any,
   ): Promise<Fornecedor> {
+    this.exigirAdmin(req, 'Apenas administradores podem suspender fornecedores');
     return await this.fornecedoresService.suspender(id, body.motivo);
   }
 
   @Put(':id/reativar')
-  async reativar(@Param('id') id: string): Promise<Fornecedor> {
+  async reativar(@Param('id') id: string, @Req() req: any): Promise<Fornecedor> {
+    this.exigirAdmin(req, 'Apenas administradores podem reativar fornecedores');
     return await this.fornecedoresService.reativar(id);
   }
 
@@ -221,8 +312,15 @@ export class FornecedoresController {
   @Put(':id/definir-senha')
   async definirSenha(
     @Param('id') id: string,
-    @Body() body: { senha: string }
+    @Body() body: { senha: string },
+    @Req() req: any,
   ): Promise<{ message: string }> {
+    // só o próprio fornecedor (ou ADMIN): antes qualquer login trocava a senha de qualquer fornecedor
+    const ator = atorDaRequisicao(req);
+    if (!ator) throw new UnauthorizedException('Autenticação necessária');
+    if (!ator.admin && !(ehFornecedor(ator) && ator.fornecedorId === id)) {
+      throw new ForbiddenException('Você não tem permissão para definir a senha deste fornecedor');
+    }
     await this.fornecedoresService.definirSenha(id, body.senha);
     return { message: 'Senha definida com sucesso' };
   }
@@ -268,8 +366,16 @@ export class FornecedoresController {
       representante_telefone?: string;
       inscricao_estadual?: string;
       inscricao_municipal?: string;
-    }
+    },
+    @Req() req: any,
   ): Promise<Fornecedor> {
+    // credenciamento do PRÓPRIO cadastro (e-mail do token) — ou ADMIN
+    const user = req.user as JwtPayload;
+    if (user?.type !== UserType.ADMIN) {
+      if (user?.type !== UserType.FORNECEDOR || String(user.email || '').toLowerCase() !== String(body?.email || '').toLowerCase()) {
+        throw new ForbiddenException('Você só pode completar o credenciamento do seu próprio cadastro');
+      }
+    }
     return await this.fornecedoresService.completarCredenciamento(body.email, body.dadosCnpj, {
       representante_nome: body.representante_nome,
       representante_cpf: body.representante_cpf,
@@ -288,7 +394,10 @@ export class FornecedoresController {
     if (user.type === UserType.FORNECEDOR && user.email !== email) {
       throw new ForbiddenException('Você não tem permissão para acessar dados de outro fornecedor');
     }
-    return await this.fornecedoresService.findByEmail(email);
+    const fornecedor = await this.fornecedoresService.findByEmail(email);
+    // órgão só vê o cadastro (com documentos) de fornecedor com quem tem vínculo
+    if (fornecedor && user.type !== UserType.FORNECEDOR) await this.assertPodeVerCadastro(req, fornecedor.id);
+    return fornecedor;
   }
 
   // === SALVAR DADOS DAS ABAS ===
@@ -357,7 +466,8 @@ export class FornecedoresController {
   }
 
   @Get(':id/completo')
-  async findOneComDocumentos(@Param('id') id: string) {
+  async findOneComDocumentos(@Param('id') id: string, @Req() req: any) {
+    await this.assertPodeVerCadastro(req, id);
     return await this.fornecedoresService.findOneComDocumentos(id);
   }
 
@@ -369,11 +479,8 @@ export class FornecedoresController {
    */
   @Put(':id/admin/reset-senha')
   async resetSenhaAdmin(@Param('id') id: string, @Req() req: any) {
-    const user = req.user as JwtPayload;
-    // Verifica se é admin
-    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
-      throw new ForbiddenException('Apenas administradores podem resetar senhas');
-    }
+    // só o ADMIN da plataforma (o antigo `role === 'admin'` deixava passar papel de outro contexto)
+    this.exigirAdmin(req, 'Apenas administradores podem resetar senhas');
     return await this.fornecedoresService.resetSenhaAdmin(id);
   }
 
@@ -408,11 +515,8 @@ export class FornecedoresController {
     },
     @Req() req: any
   ) {
-    const user = req.user as JwtPayload;
-    // Verifica se é admin
-    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
-      throw new ForbiddenException('Apenas administradores podem alterar dados de fornecedores');
-    }
+    // só o ADMIN da plataforma (o antigo `role === 'admin'` deixava passar papel de outro contexto)
+    this.exigirAdmin(req, 'Apenas administradores podem alterar dados de fornecedores');
     return await this.fornecedoresService.updateAdmin(id, body);
   }
 
@@ -425,11 +529,8 @@ export class FornecedoresController {
     @Body() body: { nivel: string },
     @Req() req: any
   ) {
-    const user = req.user as JwtPayload;
-    // Verifica se é admin
-    if (user.type !== UserType.ADMIN && user.role !== 'admin') {
-      throw new ForbiddenException('Apenas administradores podem alterar níveis');
-    }
+    // só o ADMIN da plataforma (o antigo `role === 'admin'` deixava passar papel de outro contexto)
+    this.exigirAdmin(req, 'Apenas administradores podem alterar níveis');
     return await this.fornecedoresService.alterarNivel(id, body.nivel as any);
   }
 
@@ -447,9 +548,7 @@ export class FornecedoresController {
     @Req() req: any,
   ) {
     const user = req.user as JwtPayload;
-    if (user.type !== UserType.ORGAO && user.type !== UserType.USUARIO && user.type !== UserType.ADMIN) {
-      throw new ForbiddenException('Acesso não autorizado');
-    }
+    await this.exigirOrgaoComVinculo(req, id);
     const orgaoId = user.type === UserType.ORGAO ? user.sub : (user as any).orgaoId || (user as any).orgao_id;
     return await this.fornecedoresService.solicitarResetPorOrgao(id, orgaoId, body?.canal || 'email');
   }
@@ -472,10 +571,7 @@ export class FornecedoresController {
     },
     @Req() req: any,
   ) {
-    const user = req.user as JwtPayload;
-    if (user.type !== UserType.ORGAO && user.type !== UserType.USUARIO && user.type !== UserType.ADMIN) {
-      throw new ForbiddenException('Acesso não autorizado');
-    }
+    await this.exigirOrgaoComVinculo(req, id);
     return await this.fornecedoresService.atualizarContatoOrgao(id, body);
   }
 

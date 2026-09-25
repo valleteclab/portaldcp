@@ -27,6 +27,7 @@ import { DataSource } from 'typeorm';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { instalarRotaUploads } from './upload/servir-arquivo';
 
 async function bootstrap() {
   // Preferir IPv4 na resolução DNS para evitar ENETUNREACH em redes sem IPv6
@@ -55,9 +56,10 @@ async function bootstrap() {
     next();
   });
 
-  app.useStaticAssets(process.env.UPLOAD_DIR || join(process.cwd(), 'uploads'), {
-    prefix: '/uploads/',
-  });
+  // /uploads/* — só as pastas PÚBLICAS saem sem login (logos, patrimônio,
+  // anexos do edital); as demais exigem URL assinada ou Bearer com checagem de
+  // dono. Substitui o antigo useStaticAssets da pasta inteira.
+  instalarRotaUploads(app);
 
   app.useStaticAssets(join(process.cwd(), 'demo-docs'), {
     prefix: '/api/demo-docs/',

@@ -30,6 +30,7 @@ logs
 
 # Uploads (serão montados como volume)
 uploads
+uploads-privado
 
 # Git
 .git

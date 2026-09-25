@@ -5,17 +5,22 @@ import { extname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { Request } from 'express';
 import { UploadController } from './upload.controller';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { UploadService } from './upload.service';
+import { AcessoArquivosService } from './acesso-arquivos.service';
+import { ArquivosUrlInterceptor } from './arquivos-url.interceptor';
+import { ArquivoUpload } from './entities/arquivo-upload.entity';
+import { MigracaoArquivosPrivadosBootService } from './migracao-arquivos-privados-boot.service';
+import { diretorioPrivado } from '../common/arquivos/arquivos';
 
-// Usa UPLOAD_DIR env var para Railway volume persistente, fallback para cwd/uploads
-const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
-// Tenta criar diretório (pode falhar no Railway se volume ainda não estiver montado)
-try {
-  if (!existsSync(uploadDir)) {
-    mkdirSync(uploadDir, { recursive: true });
-  }
-} catch (e) {
-  console.warn(`[UploadModule] Não foi possível criar ${uploadDir} na inicialização (será criado sob demanda): ${(e as any).message}`);
+// Recepção do Multer: pasta PRIVADA de trânsito (o `tipo` pode chegar depois
+// do arquivo no multipart). O controller move para a pasta final (privada se o
+// tipo é sensível — ver common/arquivos). Nunca servida (começa com ponto).
+function pastaDeRecepcao(): string {
+  const dir = join(diretorioPrivado(), '.recebendo');
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 // Extensões permitidas (validação dupla: MIME + extensão)
@@ -24,21 +29,14 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
 
 @Module({
   imports: [
+    TypeOrmModule.forFeature([ArquivoUpload]),
     MulterModule.register({
       storage: diskStorage({
-        destination: (req: Request, file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
+        destination: (_req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) => {
           try {
-            // Organiza por tipo de documento
-            const tipo = (req.body as any).tipo || 'geral';
-            // Sanitizar nome da pasta (evitar path traversal)
-            const safeTipo = tipo.replace(/[^a-zA-Z0-9_-]/g, '_');
-            const dir = join(uploadDir, safeTipo);
-            if (!existsSync(dir)) {
-              mkdirSync(dir, { recursive: true });
-            }
-            cb(null, dir);
+            cb(null, pastaDeRecepcao());
           } catch (e) {
-            cb(e as Error, uploadDir);
+            cb(e as Error, diretorioPrivado());
           }
         },
         filename: (req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) => {
@@ -71,7 +69,14 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png'];
     }),
   ],
   controllers: [UploadController],
-  providers: [UploadService],
-  exports: [UploadService],
+  providers: [
+    UploadService,
+    AcessoArquivosService,
+    MigracaoArquivosPrivadosBootService,
+    // Assina (curta duração) as URLs de arquivos sensíveis nas respostas e
+    // tira a assinatura das URLs que voltam no corpo das requisições.
+    { provide: APP_INTERCEPTOR, useClass: ArquivosUrlInterceptor },
+  ],
+  exports: [UploadService, AcessoArquivosService],
 })
 export class UploadModule {}

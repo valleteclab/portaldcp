@@ -28,6 +28,7 @@ import type { InfoPostgresE2E } from './env';
 import { AppModule } from '../../src/app.module';
 import { UserType } from '../../src/auth/auth.service';
 import { Role } from '../../src/auth/roles.decorator';
+import { instalarRotaUploads } from '../../src/upload/servir-arquivo';
 
 export interface AppE2E {
   app: NestExpressApplication;
@@ -151,9 +152,7 @@ export async function criarApp(opcoes: OpcoesCriarApp = {}): Promise<AppE2E> {
     }
     next();
   });
-  app.useStaticAssets(process.env.UPLOAD_DIR || join(process.cwd(), 'uploads'), {
-    prefix: '/uploads/',
-  });
+  instalarRotaUploads(app);
   app.useStaticAssets(join(process.cwd(), 'demo-docs'), { prefix: '/api/demo-docs/' });
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ extended: true, limit: '50mb' }));

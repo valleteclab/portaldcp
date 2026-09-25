@@ -26,7 +26,6 @@ import {
   dataHora,
   mensagemDeErro,
   porCategoria,
-  urlCadastro,
 } from '@/components/habilitacao/comum'
 import { formatarMoeda } from './utils'
 
@@ -281,7 +280,8 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                             </div>
                             {e.documentos.map((d) => {
                               const an = ROTULO_ANALISE[d.analise]
-                              const link = d.origem === 'CADASTRO' ? urlCadastro(d.cadastro?.caminhoArquivo) : null
+                              // arquivo do registro cadastral: baixado pela habilitação (autenticado), nunca por link direto
+                              const link = d.origem === 'CADASTRO' && !!d.cadastro?.caminhoArquivo
                               return (
                                 <div key={d.id} className="mt-2 rounded-md bg-slate-50 p-2">
                                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -292,9 +292,9 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                                           {d.arquivo.nome}
                                         </button>
                                       ) : link ? (
-                                        <a className="underline" href={link} target="_blank" rel="noreferrer">
+                                        <button type="button" className="underline" onClick={() => abrirDocumento(d.id).catch((x) => setErro(x.message))}>
                                           {ROTULO_TIPO_DOC[d.cadastro?.tipo ?? ''] ?? d.cadastro?.tipo} {d.cadastro?.numero ? `nº ${d.cadastro.numero}` : ''}
-                                        </a>
+                                        </button>
                                       ) : (
                                         <span>{ROTULO_TIPO_DOC[d.cadastro?.tipo ?? ''] ?? d.cadastro?.tipo ?? 'Documento'}</span>
                                       )}

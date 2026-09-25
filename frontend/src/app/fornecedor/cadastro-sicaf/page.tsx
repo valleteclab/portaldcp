@@ -129,8 +129,8 @@ export default function CadastroSicafPage() {
                 
                 // Helper para criar info do arquivo
                 const criarArquivoInfo = (doc: any) => doc?.caminho_arquivo ? {
-                  filename: doc.caminho_arquivo.split('/').pop(),
-                  originalname: doc.nome_arquivo || doc.caminho_arquivo.split('/').pop(),
+                  filename: doc.caminho_arquivo.split('?')[0].split('/').pop(),
+                  originalname: doc.nome_arquivo || doc.caminho_arquivo.split('?')[0].split('/').pop(),
                   url: doc.caminho_arquivo,
                 } : undefined
                 

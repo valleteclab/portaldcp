@@ -111,21 +111,31 @@ export function FileUpload({
     }
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     let downloadUrl: string | null = null;
     let filename: string | null = null;
-    
-    if (uploadedInfo?.url) {
-      downloadUrl = `${API_URL}${uploadedInfo.url}`;
-      filename = uploadedInfo.originalname;
-    } else if (savedUrl) {
-      downloadUrl = `${API_URL}${savedUrl}`;
-      filename = savedFilename || null;
+    // Documento do registro cadastral é PRIVADO: baixado com o token (authFetch),
+    // nunca por link direto para a pasta de uploads.
+    const urlServidor = uploadedInfo?.url || savedUrl || null
+
+    if (urlServidor) {
+      try {
+        const res = await authFetch(urlServidor.startsWith('http') ? urlServidor : `${API_URL}${urlServidor}`)
+        if (!res.ok) {
+          setError('Não foi possível baixar o arquivo.')
+          return
+        }
+        downloadUrl = URL.createObjectURL(await res.blob())
+        filename = uploadedInfo?.originalname || savedFilename || 'documento'
+      } catch {
+        setError('Não foi possível baixar o arquivo.')
+        return
+      }
     } else if (file) {
       downloadUrl = URL.createObjectURL(file);
       filename = file.name;
     }
-    
+
     if (downloadUrl && filename) {
       const link = document.createElement('a');
       link.href = downloadUrl;
@@ -133,6 +143,7 @@ export function FileUpload({
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      if (downloadUrl.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(downloadUrl!), 60_000)
     }
   }
 

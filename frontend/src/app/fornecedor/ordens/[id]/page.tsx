@@ -34,6 +34,7 @@ import {
   Download,
 } from 'lucide-react'
 import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
+import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 const getFileUrl = (caminho: string | null) => {
   if (!caminho) return null
@@ -446,13 +447,13 @@ export default function OrdemDetalheFornecedorPage() {
                     </div>
                     <div className="flex gap-2 mt-2">
                       {nf.caminho_xml && (
-                        <a href={getFileUrl(nf.caminho_xml) || '#'} target="_blank" rel="noopener noreferrer"
+                        <a href={getFileUrl(nf.caminho_xml) || '#'} onClick={(e) => { const u = getFileUrl(nf.caminho_xml); if (u) { e.preventDefault(); abrirArquivoAutenticado(u) } }} target="_blank" rel="noopener noreferrer"
                           className="flex items-center gap-1 text-blue-600 hover:underline text-xs">
                           <FileCode className="h-3 w-3" /> XML
                         </a>
                       )}
                       {nf.caminho_pdf && (
-                        <a href={getFileUrl(nf.caminho_pdf) || '#'} target="_blank" rel="noopener noreferrer"
+                        <a href={getFileUrl(nf.caminho_pdf) || '#'} onClick={(e) => { const u = getFileUrl(nf.caminho_pdf); if (u) { e.preventDefault(); abrirArquivoAutenticado(u) } }} target="_blank" rel="noopener noreferrer"
                           className="flex items-center gap-1 text-blue-600 hover:underline text-xs">
                           <FileText className="h-3 w-3" /> PDF
                         </a>

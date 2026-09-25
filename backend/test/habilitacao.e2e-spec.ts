@@ -318,6 +318,32 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect((await decidirHabilitacao(ctx, hab.id, F1.token, 'habilitar')).status).toBe(403);
     });
 
+    test('arquivo do REGISTRO CADASTRAL (origem CADASTRO): lido do diretório privado; URL de outro fornecedor recusada', async () => {
+      const enviar = (token: string) =>
+        http()
+          .post('/api/uploads')
+          .set(bearer(token))
+          .attach('file', PDF_HABILITACAO, { filename: 'cnd.pdf', contentType: 'application/pdf' })
+          .field('tipo', 'documentos');
+      const upF1 = await enviar(F1.token);
+      const upF2 = await enviar(F2.token);
+      expect([upF1.status, upF2.status]).toEqual([201, 201]);
+      const docCadastro = exFederal.documentos[0].id;
+      const url = `/api/habilitacao/documentos/${docCadastro}/arquivo`;
+      const [{ fornecedor_documento_id }] = await q(`SELECT fornecedor_documento_id FROM documentos_habilitacao WHERE id = $1`, [docCadastro]);
+
+      await q(`UPDATE fornecedor_documentos SET caminho_arquivo = $2 WHERE id = $1`, [fornecedor_documento_id, `/api/uploads/documentos/${upF1.body.filename}`]);
+      const doOrgao = await arquivo(url, orgao.token);
+      expect(doOrgao.status).toBe(200);
+      expect(Buffer.from(doOrgao.body).equals(PDF_HABILITACAO)).toBe(true);
+      expect((await http().get(url).set(bearer(F2.token))).status).toBe(404);
+
+      // cadastro de F1 apontando para o arquivo de F2 (dono registrado em arquivos_upload) → recusado
+      await q(`UPDATE fornecedor_documentos SET caminho_arquivo = $2 WHERE id = $1`, [fornecedor_documento_id, `/api/uploads/documentos/${upF2.body.filename}`]);
+      expect((await arquivo(url, orgao.token)).status).toBe(404);
+      await q(`UPDATE fornecedor_documentos SET caminho_arquivo = NULL WHERE id = $1`, [fornecedor_documento_id]);
+    });
+
     test('análise por documento persistida; NÃO ATENDE exige motivo; habilitar com pendência → 400', async () => {
       const painel = await painelHabilitacao(ctx, licId, orgao.token);
       const h = painel.habilitacoes.find((x: any) => x.id === hab.id);
