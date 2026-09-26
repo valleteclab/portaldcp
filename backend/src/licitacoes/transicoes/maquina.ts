@@ -159,4 +159,93 @@ export async function avaliarAtosDisponiveis(
   return saida;
 }
 
+// ---------------------------------------------------------------------------
+// Menu "Mais ações" do cockpit (E8 — Etapa B da tela do processo)
+// ---------------------------------------------------------------------------
+
+/**
+ * Atos oferecidos no menu "Mais ações" da tela do processo. Os demais atos
+ * têm lugar próprio (publicar e julgar na área da etapa atual; disputa,
+ * habilitação e recursos na sala; adjudicar/homologar no resultado).
+ */
+export const ATOS_DO_MENU: AtoLicitacao[] = [
+  AtoLicitacao.SUSPENDER,
+  AtoLicitacao.RETOMAR,
+  AtoLicitacao.RETIFICAR_EDITAL,
+  AtoLicitacao.CANCELAR_PUBLICACAO,
+  AtoLicitacao.REGISTRAR_RESULTADO_EXTERNO,
+  AtoLicitacao.INTENCAO_REVOGAR,
+  AtoLicitacao.REVOGAR,
+  AtoLicitacao.INTENCAO_ANULAR,
+  AtoLicitacao.ANULAR,
+  AtoLicitacao.DECLARAR_DESERTA,
+  AtoLicitacao.DECLARAR_FRACASSADA,
+];
+
+/**
+ * Atos que continuam no menu, BLOQUEADOS e com o motivo escrito, quando a
+ * fase ainda não os admite (o agente precisa saber quando liberam). Os outros
+ * atos fora da fase simplesmente não aparecem (ex.: cancelar a publicação
+ * ainda na fase interna).
+ */
+const MOSTRAR_BLOQUEADO_FORA_DA_FASE: AtoLicitacao[] = [
+  AtoLicitacao.SUSPENDER,
+  AtoLicitacao.RETIFICAR_EDITAL,
+  AtoLicitacao.DECLARAR_DESERTA,
+  AtoLicitacao.DECLARAR_FRACASSADA,
+];
+
+export interface AcaoDoMenu {
+  ato: AtoLicitacao;
+  rotulo: string;
+  disponivel: boolean;
+  /** Pendências (ato na fase certa) ou o motivo de a fase não admitir o ato. */
+  motivos: string[];
+  /** true = a fase/situação ainda não admite o ato (não é pendência de dados). */
+  fora_da_fase: boolean;
+  requer_motivo: boolean;
+  endpoint: string | null;
+}
+
+/**
+ * Ações do menu "Mais ações" com disponibilidade e motivo — a MESMA máquina
+ * de estados que executa os atos (conflito de estado + pré-condições em modo
+ * de avaliação). Processo encerrado (revogado, anulado, deserto, fracassado,
+ * concluído): nenhum ato. Inclui CANCELAR_PUBLICACAO, que é `somenteSistema`
+ * no POST genérico mas tem endpoint próprio do órgão
+ * (`POST /licitacoes/:id/cancelar-publicacao`, que passa pela máquina).
+ */
+export async function avaliarAcoesDoMenu(
+  lic: Licitacao,
+  criarContexto: (def: DefinicaoAto) => ContextoTransicao,
+  atos: AtoLicitacao[] = ATOS_DO_MENU,
+): Promise<AcaoDoMenu[]> {
+  const situacao = situacaoDe(lic);
+  if (SITUACOES_TERMINAIS.includes(situacao)) return [];
+  const saida: AcaoDoMenu[] = [];
+  for (const ato of atos) {
+    const def = definicaoDoAto(lic.modalidade, ato);
+    if (!def) continue;
+    // Retomar só com a licitação suspensa; suspender, só com ela ativa
+    if (ato === AtoLicitacao.RETOMAR && situacao !== SituacaoLicitacao.SUSPENSA) continue;
+    if (ato === AtoLicitacao.SUSPENDER && situacao === SituacaoLicitacao.SUSPENSA) continue;
+    // Seleção externa: a publicação é da plataforma de origem (nada a cancelar aqui)
+    if (ato === AtoLicitacao.CANCELAR_PUBLICACAO && (lic as any).selecao_externa) continue;
+    const base = {
+      ato,
+      rotulo: ato === AtoLicitacao.CANCELAR_PUBLICACAO ? 'Cancelar publicação' : def.rotulo,
+      requer_motivo: !!def.requerMotivo,
+      endpoint: ato === AtoLicitacao.CANCELAR_PUBLICACAO ? 'POST /licitacoes/:id/cancelar-publicacao' : def.endpoint ?? null,
+    };
+    const conflito = conflitoDeEstado(def, lic);
+    if (conflito) {
+      if (MOSTRAR_BLOQUEADO_FORA_DA_FASE.includes(ato)) saida.push({ ...base, disponivel: false, motivos: [conflito], fora_da_fase: true });
+      continue;
+    }
+    const pendencias = await pendenciasDoAto(def, { ...criarContexto(def), somenteAvaliacao: true });
+    saida.push({ ...base, disponivel: pendencias.length === 0, motivos: pendencias, fora_da_fase: false });
+  }
+  return saida;
+}
+
 export { definicaoDoAto };

@@ -8,7 +8,7 @@
  * o prazo mínimo é recontado e as propostas já enviadas aguardam confirmação).
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -51,11 +51,14 @@ export function RetificarEdital({
   podeRetificar,
   datas,
   onAtualizado,
+  abrirSinal,
 }: {
   licitacaoId: string
   podeRetificar: boolean
   datas: DatasAtuais
   onAtualizado: () => void
+  /** Muda (contador) quando o menu "Mais ações" pede a retificação. */
+  abrirSinal?: number
 }) {
   const [edital, setEdital] = useState<EditalDaLicitacao | null>(null)
   const [erroArquivo, setErroArquivo] = useState<string | null>(null)
@@ -80,6 +83,15 @@ export function RetificarEdital({
   }, [licitacaoId])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // Menu "Mais ações" → abre o formulário (a disponibilidade veio do backend)
+  const ultimoSinal = useRef(abrirSinal)
+  useEffect(() => {
+    if (!abrirSinal || abrirSinal === ultimoSinal.current) return
+    ultimoSinal.current = abrirSinal
+    if (podeRetificar) abrir()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abrirSinal])
 
   // Prazo mínimo republicado (só quando a alteração afeta as propostas)
   useEffect(() => {

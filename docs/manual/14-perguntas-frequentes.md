@@ -66,7 +66,7 @@ O órgão usa o modo **Assinatura eletrônica**: o ato só vale depois que a aut
 A conta do órgão (informando nome e cargo) ou um usuário **Administrador** — nunca quem manteve a decisão.
 
 **O contrato não aparece no PNCP.**
-O contrato só é enviado **depois de assinado por todas as partes** (art. 94). Veja as assinaturas na etapa **Homologação e contratos** do cockpit.
+O contrato só é enviado **depois de assinado por todas as partes** (art. 94). Veja as assinaturas no quadro **Contratos e atas** da tela do processo.
 
 **Apareceu "erro definitivo" no PNCP.**
 Clique na etiqueta, leia a **Mensagem do PNCP**, corrija o dado e clique em **Reenviar agora**. Erros temporários são reenviados sozinhos. Veja a parte [11](11-pncp.md).
@@ -118,7 +118,7 @@ Pelo link que chega por e-mail. **Minhas Participações** mostra "Contrato agua
 |---|---|
 | Menu "Sala de Disputa V3" | A sala abre **pelo processo** (cartão **Sessão pública** › **Abrir sala da sessão**). Links antigos redirecionam. |
 | Várias telas de detalhe da licitação | Uma casa só: o **cockpit** do processo (`/orgao/processos/<id>`). `/orgao/licitacoes/<id>` redireciona para ele. |
-| Botões soltos de "avançar fase", "retroceder", "Enviar ao PNCP" | Atos nomeados em **Atos do processo**, com pendências explicadas; PNCP automático com fila e **Reenviar agora**. |
+| Botões soltos de "avançar fase", "retroceder", "Enviar ao PNCP" | Atos nomeados no menu **Mais ações** (disponíveis e bloqueadas, com o motivo escrito); PNCP automático com fila e **Reenviar agora**. |
 | Homologação digitando valor, nome e cargo da autoridade | Botão **Homologar** no cartão **Resultado**: valor calculado; autoridade escolhida do cadastro; termo gerado. O **agente registra**, o ato é **da autoridade**, conforme o modo de formalização do órgão. |
 | Homologação só pela conta do órgão | O pregoeiro/agente pode registrar adjudicação e homologação em nome da autoridade (equipe de apoio não). |
 | Pregão homologado não gerava contrato | Homologar gera o contrato (ou a ata, no SRP) automaticamente, "Aguardando Assinatura". |

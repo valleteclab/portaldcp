@@ -291,12 +291,12 @@ Se a geração do contrato/ata falhar, o cartão mostra **Gerar contrato(s)** ou
 
 ## 9. Contrato
 
-Na **Linha do tempo da contratação** do cockpit, etapa **Homologação e contratos**, cada contrato aparece com valor e situação:
+Na tela do processo, a etapa atual mostra o quadro **Contratos e atas**, com cada contrato, valor e situação:
 
 1. Clique em **Gerar termo e colher assinaturas**. Informe/confirme o responsável do órgão. O termo em PDF é gerado; o órgão assina pelo **Portal de Assinaturas** e o fornecedor recebe o link por e-mail.
 2. Acompanhe "Assinaturas: X/Y", baixe o **termo (PDF)**, use **assinar/acompanhar** e **reenviar notificações**.
 3. Quando todos assinam: "Assinado por todas as partes em &lt;data&gt;". A data de assinatura e a vigência são contadas **desta data**, e o contrato é publicado no PNCP automaticamente (art. 94 — condição de eficácia).
-4. Na etapa **Execução**, o botão **Medições do &lt;contrato&gt;** leva à gestão do contrato.
+4. Assinado, o link **medições e execução** leva à gestão do contrato.
 
 O prazo de entrega vem da proposta do vencedor.
 

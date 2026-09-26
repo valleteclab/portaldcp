@@ -38,6 +38,9 @@ import { ResultadoService, EntradaAdjudicacao } from '../resultado/resultado.ser
 import { valorAdjudicadoDoUnitario } from '../resultado/regras-resultado';
 import type { Ator } from '../auth/acesso/ator';
 import { aplicarEstadoCompraPncp, estadoCompraPncp } from '../pncp/estado-compra-pncp';
+import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
+import { classificacaoPorItem, valoresFinaisDispensa } from './classificacao-dispensa';
+import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizacao';
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
 import { comoErro } from '../common/erros';
 
@@ -939,6 +942,51 @@ export class LicitacoesService {
     return this.transicoes.atosDisponiveis(id);
   }
 
+  /**
+   * Classificação por item da dispensa (tela do processo — julgamento): valor
+   * final de cada fornecedor = menor entre a proposta e os próprios lances
+   * (a mesma regra do julgamento). Durante o recebimento, nada (sigilo — Lei
+   * 14.133 art. 13 par. único, I; IN SEGES 67/2021 art. 13).
+   */
+  async classificacaoDispensa(id: string) {
+    const licitacao = await this.findOne(id);
+    if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+      throw new BadRequestException('Classificação por item disponível apenas para a dispensa eletrônica');
+    }
+    const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
+    if (!corte || new Date() < new Date(corte)) return { em_sigilo: true, itens: [] };
+    const linhas = await this.dataSource.query(
+      `SELECT pi.item_licitacao_id::text AS item_licitacao_id, pi.valor_unitario, p.id AS proposta_id,
+              p.fornecedor_id::text AS fornecedor_id, f.razao_social
+       FROM proposta_itens pi
+       JOIN propostas p ON p.id = pi.proposta_id
+       JOIN fornecedores f ON f.id = p.fornecedor_id
+       WHERE p.licitacao_id = $1
+         AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
+       ORDER BY pi.item_licitacao_id, pi.valor_unitario ASC, p.data_envio ASC NULLS LAST`,
+      [id],
+    );
+    const lances = await this.janelaDispensa.lancesDaJanela(id);
+    const porItem = classificacaoPorItem(valoresFinaisDispensa(linhas, lances as any));
+    const itens = await this.itemRepository.find({ where: { licitacao_id: id }, order: { numero_item: 'ASC' } });
+    return {
+      em_sigilo: false,
+      itens: itens.map((i) => ({
+        item_licitacao_id: i.id,
+        numero_item: i.numero_item,
+        descricao: (i as any).descricao_resumida || (i as any).descricao,
+        status: i.status,
+        fornecedor_vencedor_id: i.fornecedor_vencedor_id ?? null,
+        classificacao: porItem.get(String(i.id)) ?? [],
+      })),
+    };
+  }
+
+  /** Checklist de pré-publicação (Etapa B da tela do processo). */
+  async conferenciaPrePublicacao(id: string) {
+    return this.transicoes.conferenciaPrePublicacao(id);
+  }
+
   /** Histórico de transições (GET /licitacoes/:id/transicoes). */
   /** Histórico LEGÍVEL: rótulos dos atos/fases e nome de quem praticou (campos originais preservados). */
   async historicoTransicoes(id: string): Promise<Array<Record<string, any>>> {
@@ -1063,6 +1111,11 @@ export class LicitacoesService {
       [id],
     );
 
+    // Dados da contratação (cockpit — Etapa B): compra no PNCP, agente e autoridade
+    const compraPncp = (await estadoCompraPncp(this.dataSource.manager, [licitacao.id])).get(licitacao.id);
+    const agente = await nomeDoPregoeiroSql(this.dataSource.manager, licitacao.id);
+    const autoridade = await this.autoridadeDoProcesso(licitacao);
+
     // Checklist do processo (o que está feito / o que falta)
     const fasesInternas = [
       FaseLicitacao.PLANEJAMENTO,
@@ -1109,8 +1162,20 @@ export class LicitacoesService {
         meio_divulgacao_oficial: licitacao.meio_divulgacao_oficial ?? null,
         dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
         dispensa_lances_fim: licitacao.dispensa_lances_fim,
-        link_pncp: (await estadoCompraPncp(this.dataSource.manager, [licitacao.id])).get(licitacao.id)?.link_pncp ?? licitacao.link_pncp ?? null,
+        link_pncp: compraPncp?.link_pncp ?? licitacao.link_pncp ?? null,
+        numero_controle_pncp: compraPncp?.numero_controle_pncp ?? null,
         preparacao_automatica: licitacao.preparacao_automatica ?? null,
+        // Cabeçalho e "Dados da contratação" (Etapa B)
+        created_at: licitacao.created_at,
+        data_publicacao_edital: licitacao.data_publicacao_edital ?? null,
+        data_inicio_acolhimento: licitacao.data_inicio_acolhimento ?? null,
+        data_limite_impugnacao: licitacao.data_limite_impugnacao ?? null,
+        natureza_objeto: licitacao.natureza_objeto ?? null,
+        fundamento_legal: fundamentoLegalTexto(licitacao as any),
+        unidade_compradora: licitacao.nome_unidade_compradora ?? null,
+        agente_contratacao: agente,
+        autoridade,
+        sem_pca: licitacao.sem_pca ?? false,
       },
       item_pca: licitacao.item_pca
         ? {
@@ -1144,13 +1209,14 @@ export class LicitacoesService {
       contratos,
       atas,
       pncp,
-      // Sigilo: enquanto o acolhimento está aberto, o órgão vê QUEM propôs,
-      // mas não os valores (evita direcionamento antes da abertura).
+      // Sigilo (Lei 14.133 art. 13 par. único, I; IN SEGES 67/2021 art. 13):
+      // enquanto o recebimento está aberto o órgão vê só QUANTAS propostas
+      // chegaram — nem quem propôs, nem os valores (evita direcionamento).
       propostas: (() => {
         const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
         const emSigilo = corte ? new Date() < new Date(corte) : false;
         return emSigilo
-          ? propostas.map((p: any) => ({ ...p, valor_total_proposta: null, sigilo: true }))
+          ? propostas.map((p: any) => ({ id: null, status: p.status, data_envio: null, razao_social: null, valor_total_proposta: null, sigilo: true }))
           : propostas;
       })(),
       propostas_em_sigilo: (() => {
@@ -1160,7 +1226,35 @@ export class LicitacoesService {
       checklist,
       // E1: atos que o cockpit pode oferecer agora (com pendências de cada um)
       atos_disponiveis: await this.transicoes.atosDisponiveis(licitacao),
+      // Etapa B: menu "Mais ações" (disponíveis e bloqueadas, com o motivo)
+      acoes_menu: await this.transicoes.acoesDoMenu(licitacao),
     };
+  }
+
+  /**
+   * Autoridade do processo para a tela: a que homologou (gravada no ato) ou,
+   * antes disso, a autoridade padrão do órgão (cadastro de autoridades; sem
+   * cadastro, o responsável do órgão) — a mesma regra da formalização (E6).
+   */
+  private async autoridadeDoProcesso(l: Licitacao): Promise<{ nome: string; cargo: string | null; origem: 'HOMOLOGACAO' | 'CADASTRO' } | null> {
+    if (l.homologacao_autoridade_nome) {
+      return { nome: l.homologacao_autoridade_nome, cargo: l.homologacao_autoridade_cargo ?? null, origem: 'HOMOLOGACAO' };
+    }
+    try {
+      const cadastro = await this.dataSource.query(
+        `SELECT id, nome, cargo, cpf, email, ato_delegacao_numero, ato_delegacao_data, padrao, ativo
+           FROM autoridades_orgao WHERE orgao_id::text = $1 AND ativo = true`,
+        [l.orgao_id],
+      );
+      const [orgao] = await this.dataSource.query(
+        `SELECT nome, responsavel_nome, responsavel_cargo, responsavel_cpf FROM orgaos WHERE id::text = $1`,
+        [l.orgao_id],
+      );
+      const a = resolverAutoridade(cadastro, null, orgao ?? null);
+      return { nome: a.nome, cargo: a.cargo ?? null, origem: 'CADASTRO' };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1314,41 +1408,7 @@ export class LicitacoesService {
     // a proposta inicial e os seus próprios lances (modelo IN SEGES 67/2021).
     // Lances da janela: tabela única do motor (origem JANELA_DISPENSA, valor unitário)
     const lances = await this.janelaDispensa.lancesDaJanela(id);
-    const dadosFornecedor = new Map<string, { proposta_id: string; razao_social: string }>();
-    for (const l of linhas) {
-      if (!dadosFornecedor.has(l.fornecedor_id)) {
-        dadosFornecedor.set(l.fornecedor_id, {
-          proposta_id: l.proposta_id,
-          razao_social: l.razao_social,
-        });
-      }
-    }
-    // melhor valor por (item, fornecedor): começa nas propostas…
-    const melhorPorItemFornecedor = new Map<string, (typeof linhas)[number]>();
-    const chave = (item: string, forn: string) => `${item}|${forn}`;
-    for (const l of linhas) {
-      const k = chave(l.item_licitacao_id, l.fornecedor_id);
-      const atual = melhorPorItemFornecedor.get(k);
-      if (!atual || Number(l.valor_unitario) < Number(atual.valor_unitario)) {
-        melhorPorItemFornecedor.set(k, l);
-      }
-    }
-    // …e é reduzido pelos lances (só de fornecedores com proposta válida)
-    for (const lance of lances) {
-      const forn = dadosFornecedor.get(lance.fornecedor_id);
-      if (!forn) continue; // lance de quem não tem proposta válida não conta
-      const k = chave(lance.item_licitacao_id, lance.fornecedor_id);
-      const atual = melhorPorItemFornecedor.get(k);
-      if (atual && Number(lance.valor_unitario) < Number(atual.valor_unitario)) {
-        melhorPorItemFornecedor.set(k, {
-          item_licitacao_id: lance.item_licitacao_id,
-          valor_unitario: String(lance.valor_unitario),
-          proposta_id: forn.proposta_id,
-          fornecedor_id: lance.fornecedor_id,
-          razao_social: forn.razao_social,
-        });
-      }
-    }
+    const melhorPorItemFornecedor = valoresFinaisDispensa(linhas, lances);
     // vencedor do item = menor valor final entre os fornecedores
     const vencedorPorItem = new Map<string, (typeof linhas)[number]>();
     for (const cand of melhorPorItemFornecedor.values()) {

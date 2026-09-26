@@ -76,7 +76,7 @@ Cada passo é um **ato** registrado no **Histórico** do processo (quem fez, qua
 | Atas SRP | Menu **Atas de Registro de Preços** |
 | Credenciamento | Menu **Credenciamentos** |
 
-O **cockpit** é a "casa" do processo. Nele você encontra, de cima para baixo: cabeçalho (fase, situação, botões **Fase interna**, **Editar dados**, **Excluir**, **Baixar processo (PDF)**), painel da modalidade especial (leilão, concurso, diálogo), **Atos do processo**, **Publicar edital**, retificação, **Sessão pública**, **Impugnações e esclarecimentos**, revogação/anulação, **PNCP**, **Resultado**, **Linha do tempo da contratação**, documentos do processo e **Histórico**.
+O **cockpit** (tela do processo) é a "casa" do processo. De cima para baixo: o alerta do PNCP (quando a publicação não foi confirmada), o cabeçalho (fase, situação, fundamento, **Editar dados**, **Baixar processo (PDF)** e o menu **Mais ações**, com as ações disponíveis e as bloqueadas com o motivo), cinco cartões de resumo (situação, prazo, propostas, valor estimado, PNCP), a barra de etapas da modalidade, a **etapa atual** (o que fazer agora) com a próxima etapa, a coluna lateral (dados da contratação, prazos, comunicação) e as abas **Itens**, **Documentos**, **Propostas**, **PNCP** e **Histórico**. Detalhes na parte [03](03-publicacao-e-prazos.md#a-tela-do-processo).
 
 ## Fase e situação
 

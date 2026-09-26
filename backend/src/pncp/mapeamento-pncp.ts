@@ -163,6 +163,28 @@ export function amparoLegalIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 't
   throw falhaDefinitiva(`Amparo legal não definido para a modalidade ${lic.modalidade}`);
 }
 
+/**
+ * Fundamento legal em texto (tela do processo) — o MESMO enquadramento que
+ * vai ao PNCP em `amparoLegalIdPncp` (sem lançar erro: modalidade sem
+ * amparo definido devolve null).
+ */
+export function fundamentoLegalTexto(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'tipo_contratacao'>): string | null {
+  const m = up(lic.modalidade);
+  const lei = 'Lei 14.133/2021';
+  if (m.startsWith('PREGAO')) return `${lei}, art. 28, I`;
+  if (m.startsWith('CONCORRENCIA')) return `${lei}, art. 28, II`;
+  if (m === 'CONCURSO') return `${lei}, art. 28, III`;
+  if (m.startsWith('LEILAO')) return `${lei}, art. 28, IV`;
+  if (m === 'DIALOGO_COMPETITIVO') return `${lei}, art. 28, V`;
+  if (m.startsWith('DISPENSA')) {
+    const tc = up(lic.tipo_contratacao);
+    return tc.includes('OBRA') || tc.includes('ENGENHARIA') ? `${lei}, art. 75, I` : `${lei}, art. 75, II`;
+  }
+  if (m === 'INEXIGIBILIDADE') return `${lei}, art. 74, caput`;
+  if (m === 'CREDENCIAMENTO') return `${lei}, art. 78, I`;
+  return null;
+}
+
 /** Critério de julgamento do item (art. 33) — contratação direta sem disputa: "não se aplica". */
 export function criterioJulgamentoIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'criterio_julgamento' | 'natureza_trabalho_concurso'>, instrumento: number): number {
   if (instrumento === INSTRUMENTO_CONVOCATORIO.ATO_AUTORIZA_CONTRATACAO_DIRETA) return CRITERIO_JULGAMENTO.NAO_SE_APLICA;

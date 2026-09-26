@@ -76,7 +76,7 @@ export function ItensProcesso({ licitacaoId, itens, emFaseInterna }: {
                 : "Nenhum item tem quantidade e valor unitário estimado. "}
               Cadastre pelo menos um item com quantidade e valor estimado — sem isso a fase interna não conclui, o
               edital/aviso não é publicado e a compra não vai ao PNCP.
-              {!emFaseInterna && " Já publicado sem propostas? Cancele a publicação (abaixo), corrija os itens e publique de novo."}
+              {!emFaseInterna && " Já publicado sem propostas? Cancele a publicação (menu Mais ações), corrija os itens e publique de novo."}
             </span>
           </div>
         )}

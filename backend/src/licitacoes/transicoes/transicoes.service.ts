@@ -15,6 +15,8 @@ import {
   aplicarNoEstado,
   atoDeRetorno,
   atoPrincipal,
+  AcaoDoMenu,
+  avaliarAcoesDoMenu,
   avaliarAtosDisponiveis,
   conflitoDeEstado,
   jaAplicado,
@@ -22,6 +24,7 @@ import {
   situacaoDe,
 } from './maquina';
 import { avaliarRollupItens } from './rollup';
+import { ConferenciaPrePublicacao, conferirPrePublicacao, InstrucaoParaConferencia } from './pre-publicacao';
 import { TransicoesEventos } from './transicoes-eventos';
 import {
   AtoDisponivel,
@@ -299,6 +302,42 @@ export class TransicoesService {
   async atosDisponiveis(licitacaoOuId: string | Licitacao): Promise<AtoDisponivel[]> {
     const lic = typeof licitacaoOuId === 'string' ? await this.carregar(licitacaoOuId) : licitacaoOuId;
     return avaliarAtosDisponiveis(lic, (def) => this.contexto(lic, def, this.dataSource.manager, {}));
+  }
+
+  /**
+   * Menu "Mais ações" da tela do processo (Etapa B): suspender, retificar,
+   * cancelar a publicação, revogar/anular, deserta/fracassada... — cada um
+   * com a disponibilidade e o motivo decididos pela máquina.
+   */
+  async acoesDoMenu(licitacaoOuId: string | Licitacao): Promise<AcaoDoMenu[]> {
+    const lic = typeof licitacaoOuId === 'string' ? await this.carregar(licitacaoOuId) : licitacaoOuId;
+    return avaliarAcoesDoMenu(lic, (def) => this.contexto(lic, def, this.dataSource.manager, {}));
+  }
+
+  /**
+   * Checklist de pré-publicação (Etapa B): as pré-condições do PUBLICAR, uma
+   * linha por exigência, com o que falta e a ação que resolve. Somente leitura.
+   */
+  async conferenciaPrePublicacao(licitacaoId: string): Promise<ConferenciaPrePublicacao> {
+    const lic = await this.carregar(licitacaoId);
+    const publicar = definicaoDoAto(lic.modalidade, AtoLicitacao.PUBLICAR);
+    const ctx = this.contexto(lic, publicar ?? ({ ato: AtoLicitacao.PUBLICAR } as DefinicaoAto), this.dataSource.manager, {});
+    const pendenciasPublicar = publicar ? await pendenciasDoAto(publicar, { ...ctx, somenteAvaliacao: true }) : [];
+    let instrucao: InstrucaoParaConferencia | null = null;
+    try {
+      // Resolução tardia (mesmo motivo de `consultas.instrucaoProcesso`: evita ciclo de módulos)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { FaseInternaService } = require('../../fase-interna/fase-interna.service');
+      const servico: any = this.moduleRef.get(FaseInternaService, { strict: false });
+      instrucao = await servico.getInstrucao(licitacaoId);
+    } catch {
+      instrucao = null;
+    }
+    const [pca] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS total FROM itens_licitacao WHERE licitacao_id::text = $1 AND item_pca_id IS NOT NULL AND status::text <> 'CANCELADO'`,
+      [licitacaoId],
+    );
+    return conferirPrePublicacao({ ctx, instrucao, itensComPca: Number(pca?.total ?? 0), pendenciasPublicar });
   }
 
   /** Histórico de transições (mais antigo primeiro). */

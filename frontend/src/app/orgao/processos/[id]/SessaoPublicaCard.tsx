@@ -17,7 +17,7 @@ interface Props {
   fase: string
   criterioJulgamento?: string
   dataAbertura?: string | null
-  propostas: Array<{ id: string; status: string }>
+  propostas: Array<{ id: string | null; status: string }>
   propostasEmSigilo?: boolean
 }
 

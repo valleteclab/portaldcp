@@ -9,13 +9,12 @@
  * Sem propostas, o backend aceita o ato direto (ou devolve as pendências).
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog"
@@ -28,9 +27,10 @@ import {
   type ErroBackend,
   type IntencaoExtincao,
 } from "@/lib/publicacao"
-import type { AtoDisponivel } from "./AtosProcesso"
+import type { AcaoDoMenu } from "./tipos"
 
-type Tipo = "REVOGAR" | "ANULAR"
+export type TipoExtincao = "REVOGAR" | "ANULAR"
+type Tipo = TipoExtincao
 
 const ROTULO: Record<Tipo, { verbo: string; substantivo: string }> = {
   REVOGAR: { verbo: "Revogar", substantivo: "revogação" },
@@ -41,11 +41,15 @@ const MIN_MOTIVO = 10
 
 export function ExtincaoLicitacao({
   licitacaoId,
-  atos,
+  acoes,
+  pedido,
   onAtualizado,
 }: {
   licitacaoId: string
-  atos: AtoDisponivel[] | undefined
+  /** processo-completo.acoes_menu (máquina de estados) */
+  acoes: AcaoDoMenu[] | undefined
+  /** Pedido do menu "Mais ações" (nonce muda a cada clique). */
+  pedido: { tipo: TipoExtincao; nonce: number } | null
   onAtualizado: () => void
 }) {
   const [intencoes, setIntencoes] = useState<IntencaoExtincao[]>([])
@@ -73,20 +77,24 @@ export function ExtincaoLicitacao({
 
   useEffect(() => { carregar() }, [carregar])
 
-  const ato = (t: Tipo) => (atos || []).find((a) => a.ato === t)
-  const atoIntencao = (t: Tipo) => (atos || []).find((a) => a.ato === `INTENCAO_${t}`)
-  /** A intenção cabe se o ato (ou a própria intenção) está entre os atos da fase/situação. */
-  const cabe = (t: Tipo) => !!ato(t) || !!atoIntencao(t)
-  const temAtos = cabe("REVOGAR") || cabe("ANULAR")
+  const acao = (ato: string) => (acoes || []).find((a) => a.ato === ato)
   const aberta = intencoes.find((i) => i.status === "ABERTA") || null
-  const historico = intencoes.filter((i) => i.status !== "ABERTA")
-
-  if (!carregou) return null
-  if (!temAtos && intencoes.length === 0) return null
 
   const abrirIntencao = (t: Tipo) => { setMotivo(""); setPrazoDias("3"); setErro(null); setDlgIntencao(t) }
   const abrirDesistir = () => { setMotivo(""); setErro(null); setDlgDesistir(true) }
   const abrirAto = (t: Tipo) => { setMotivo(aberta?.tipo === t ? aberta.motivo : ""); setErro(null); setDlgAto(t) }
+
+  // Menu "Mais ações": ato direto quando a máquina o libera (sem interessados a
+  // ouvir); senão a intenção (art. 71, §3º); com intenção aberta, o ato dela.
+  const ultimoPedido = useRef<number | null>(null)
+  useEffect(() => {
+    if (!pedido || !carregou || ultimoPedido.current === pedido.nonce) return
+    ultimoPedido.current = pedido.nonce
+    const t = pedido.tipo
+    if (acao(t)?.disponivel || aberta?.tipo === t) abrirAto(t)
+    else if (acao(`INTENCAO_${t}`)?.disponivel) abrirIntencao(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedido, carregou])
 
   const executar = async (url: string, corpo: Record<string, unknown>, fechar: () => void, padrao: string) => {
     setEnviando(true)
@@ -157,110 +165,49 @@ export function ExtincaoLicitacao({
 
   return (
     <>
-      <Card className="border-red-100">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Ban className="w-4 h-4 text-red-600" /> Revogação / anulação
-            <span className="text-xs font-normal text-gray-400">art. 71, §3º — prévia manifestação dos licitantes</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          {aberta ? (
-            <div className="border rounded-md p-3 bg-red-50/40 space-y-2">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
-                    Intenção de {ROTULO[aberta.tipo].verbo.toLowerCase()}
-                  </Badge>
-                  {aberta.prazo_aberto ? (
-                    <span className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                      prazo de manifestação até {fmtBrasilia(aberta.prazo_fim)} ({aberta.prazo_dias_uteis} dias úteis)
-                    </span>
-                  ) : (
-                    <span className="text-xs text-green-800 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">
-                      prazo encerrado em {fmtBrasilia(aberta.prazo_fim)}
-                    </span>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={abrirDesistir}>Desistir</Button>
-                  <Button
-                    size="sm"
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                    disabled={!aberta.pode_praticar_ato}
-                    title={aberta.pode_praticar_ato ? "" : "Disponível depois do fim do prazo de manifestação"}
-                    onClick={() => abrirAto(aberta.tipo)}
-                  >
-                    {ROTULO[aberta.tipo].verbo}
-                  </Button>
-                </div>
-              </div>
-              <p><span className="text-gray-500">Motivo:</span> {aberta.motivo}</p>
-              <p className="text-xs text-gray-500">
-                Aberta em {fmtBrasilia(aberta.aberta_em)} · {aberta.licitantes_notificados ?? 0} licitante(s) notificado(s)
-              </p>
-              <ListaManifestacoes itens={aberta.manifestacoes || []} />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-xs text-gray-500">
-                Com propostas recebidas, a revogação ou anulação começa pela <b>intenção</b>: os licitantes são
-                notificados e têm prazo (dias úteis do calendário do órgão) para se manifestar. Sem propostas,
-                o ato pode ser praticado direto.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {(["REVOGAR", "ANULAR"] as Tipo[]).filter(cabe).map((t) => {
-                  const pend = atoIntencao(t)?.pendencias || []
-                  return (
-                    <Button
-                      key={`i-${t}`}
-                      size="sm"
-                      variant="outline"
-                      className="text-red-700 border-red-300"
-                      title={pend.length ? `Pendências: ${pend.join(" · ")}` : "Notifica os licitantes e abre o prazo de manifestação"}
-                      onClick={() => abrirIntencao(t)}
-                    >
-                      Intenção de {ROTULO[t].verbo.toLowerCase()}
-                    </Button>
-                  )
-                })}
-                {(["REVOGAR", "ANULAR"] as Tipo[]).filter((t) => ato(t)).map((t) => {
-                  const a = ato(t)!
-                  return (
-                    <Button
-                      key={`d-${t}`}
-                      size="sm"
-                      variant="ghost"
-                      className="text-red-700"
-                      title={a.disponivel ? "Ato direto (sem licitantes a notificar)" : `Pendências: ${a.pendencias.join(" · ")}`}
-                      onClick={() => abrirAto(t)}
-                    >
-                      {ROTULO[t].verbo} direto
-                    </Button>
-                  )
-                })}
+      {/* Intenção aberta (art. 71, §3º): o prazo de manifestação corre — o status fica visível na etapa atual */}
+      {aberta && (
+        <Card className="border-red-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Ban className="w-4 h-4 text-red-700" aria-hidden="true" /> Intenção de {ROTULO[aberta.tipo].verbo.toLowerCase()} em curso
+              <span className="text-xs font-normal text-gray-600">art. 71, §3º — prévia manifestação dos licitantes</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              {aberta.prazo_aberto ? (
+                <span className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                  prazo de manifestação até {fmtBrasilia(aberta.prazo_fim)} ({aberta.prazo_dias_uteis} dias úteis)
+                </span>
+              ) : (
+                <span className="text-xs text-green-900 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">
+                  prazo encerrado em {fmtBrasilia(aberta.prazo_fim)}
+                </span>
+              )}
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={abrirDesistir}>Desistir</Button>
+                <Button
+                  size="sm"
+                  className="bg-red-700 hover:bg-red-800 text-white"
+                  disabled={!aberta.pode_praticar_ato}
+                  onClick={() => abrirAto(aberta.tipo)}
+                >
+                  {ROTULO[aberta.tipo].verbo}
+                </Button>
               </div>
             </div>
-          )}
-
-          {historico.length > 0 && (
-            <details className="text-xs">
-              <summary className="cursor-pointer text-gray-600">Histórico ({historico.length})</summary>
-              <ul className="mt-1 space-y-1">
-                {historico.map((i) => (
-                  <li key={i.id} className="border-l-2 pl-2">
-                    <span className="font-medium">{ROTULO[i.tipo].verbo}</span> —{" "}
-                    {i.status === "CONCLUIDA" ? "ato praticado" : "intenção cancelada"}
-                    {" "}({fmtBrasilia(i.concluida_em || i.aberta_em)}) · {i.motivo}
-                    {i.motivo_cancelamento && <span className="text-gray-400"> · desistência: {i.motivo_cancelamento}</span>}
-                    {" "}· {i.total_manifestacoes ?? 0} manifestação(ões)
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </CardContent>
-      </Card>
+            {!aberta.pode_praticar_ato && (
+              <p className="text-xs text-gray-700">{ROTULO[aberta.tipo].verbo}: disponível depois do fim do prazo de manifestação.</p>
+            )}
+            <p><span className="text-gray-600">Motivo:</span> {aberta.motivo}</p>
+            <p className="text-xs text-gray-600">
+              Aberta em {fmtBrasilia(aberta.aberta_em)} · {aberta.licitantes_notificados ?? 0} licitante(s) notificado(s)
+            </p>
+            <ListaManifestacoes itens={aberta.manifestacoes || []} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* 1º tempo: intenção */}
       <Dialog open={!!dlgIntencao} onOpenChange={(v) => !v && !enviando && setDlgIntencao(null)}>

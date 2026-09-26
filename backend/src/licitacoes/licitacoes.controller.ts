@@ -216,6 +216,27 @@ export class LicitacoesController {
     return await this.licitacoesService.atosDisponiveis(id);
   }
 
+  /**
+   * Checklist de pré-publicação (tela do processo — Etapa B): as pré-condições
+   * do PUBLICAR, uma linha por exigência (documentos, autorização, aviso ou
+   * edital, itens, PCA, ME/EPP), com o que falta e a ação que resolve.
+   * Somente leitura; só o órgão dono.
+   */
+  @Get(':id/conferencia-publicacao')
+  @SomenteOrgao()
+  async conferenciaPublicacao(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
+    return await this.licitacoesService.conferenciaPrePublicacao(id);
+  }
+
+  /** Dispensa: classificação por item (valor final = proposta ou lance) — tela do processo. Só o órgão dono; vazia em sigilo. */
+  @Get(':id/dispensa/classificacao')
+  @SomenteOrgao()
+  async classificacaoDispensa(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
+    return await this.licitacoesService.classificacaoDispensa(id);
+  }
+
   /** Histórico de transições (quem fez qual ato, quando, de/para, motivo). Só o órgão dono. */
   @Get(':id/transicoes')
   @SomenteOrgao()
