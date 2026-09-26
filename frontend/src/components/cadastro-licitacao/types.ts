@@ -9,6 +9,8 @@ export interface ItemLicitacao {
   quantidade: number
   unidade: string
   valor_unitario: number
+  /** MATERIAL | SERVICO (PNCP); ausente = derivado do catálogo/natureza do objeto */
+  tipo_item?: 'MATERIAL' | 'SERVICO'
   // Dados do Catálogo de Compras (compras.gov.br)
   codigo_catalogo?: string // Código do item no catálogo
   classe_catalogo?: string // Classe/categoria do catálogo
@@ -294,19 +296,22 @@ export const MODOS_DISPUTA = [
   { value: 'FECHADO', label: 'Fechado' },
 ]
 
+/** Unidades de medida = enum `UnidadeMedida` do backend (itens_licitacao.unidade_medida). */
 export const UNIDADES = [
   { value: 'UNIDADE', label: 'Unidade' },
+  { value: 'PECA', label: 'Peça' },
   { value: 'CAIXA', label: 'Caixa' },
   { value: 'PACOTE', label: 'Pacote' },
-  { value: 'RESMA', label: 'Resma' },
   { value: 'LITRO', label: 'Litro' },
-  { value: 'KG', label: 'Quilograma' },
+  { value: 'QUILOGRAMA', label: 'Quilograma' },
+  { value: 'TONELADA', label: 'Tonelada' },
   { value: 'METRO', label: 'Metro' },
-  { value: 'M2', label: 'Metro Quadrado' },
-  { value: 'M3', label: 'Metro Cúbico' },
+  { value: 'METRO_QUADRADO', label: 'Metro Quadrado' },
+  { value: 'METRO_CUBICO', label: 'Metro Cúbico' },
   { value: 'HORA', label: 'Hora' },
-  { value: 'DIA', label: 'Dia' },
+  { value: 'DIARIA', label: 'Diária' },
   { value: 'MES', label: 'Mês' },
   { value: 'ANO', label: 'Ano' },
   { value: 'SERVICO', label: 'Serviço' },
+  { value: 'GLOBAL', label: 'Global' },
 ]

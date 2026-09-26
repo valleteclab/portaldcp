@@ -45,6 +45,8 @@ export interface ItemPesquisaPrecos {
   codigo_catmat?: string;
   codigo_catser?: string;
   tipo_catalogo?: 'MATERIAL' | 'SERVICO';
+  /** Item veio do cadastro de itens da contratação (`itens_licitacao`) — acompanha o cadastro na fase interna. */
+  vinculado_item_licitacao?: boolean;
 
   cotacoes: CotacaoPorFonte[];
 

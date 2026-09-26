@@ -606,8 +606,8 @@ export function ItensTab({
                         </div>
                       </div>
 
-                      {/* Linha 4: Códigos CATMAT/CATSER */}
-                      <div className="grid grid-cols-2 gap-3">
+                      {/* Linha 4: Códigos CATMAT/CATSER + tipo do item (PNCP) */}
+                      <div className="grid grid-cols-3 gap-3">
                         <div>
                           <Label className="text-xs text-muted-foreground">Código CATMAT</Label>
                           <Input
@@ -623,6 +623,22 @@ export function ItensTab({
                             value={item.codigo_catser || ''}
                             onChange={(e) => updateItem(index, 'codigo_catser', e.target.value)}
                           />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground">Tipo do item (PNCP)</Label>
+                          <Select
+                            value={item.tipo_item || (item.codigo_catser ? 'SERVICO' : item.codigo_catmat ? 'MATERIAL' : 'AUTO')}
+                            onValueChange={(v) => updateItem(index, 'tipo_item', v === 'AUTO' ? undefined : v)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="AUTO">Pela natureza do objeto</SelectItem>
+                              <SelectItem value="MATERIAL">Material</SelectItem>
+                              <SelectItem value="SERVICO">Serviço</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
 

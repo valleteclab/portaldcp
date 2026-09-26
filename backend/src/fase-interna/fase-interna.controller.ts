@@ -133,6 +133,14 @@ export class FaseInternaController {
         idExterno: string;
         caminhoArquivo?: string;
       }>;
+      itens?: Array<{
+        numero_item?: number;
+        descricao: string;
+        quantidade: number;
+        unidade_medida?: string;
+        valor_unitario_estimado: number;
+        tipo_item?: 'MATERIAL' | 'SERVICO';
+      }>;
     },
     @AtorAtual() ator: Ator,
   ) {
@@ -800,6 +808,9 @@ export class FaseInternaController {
       responsavel: body.responsavel,
       dataAssinatura: new Date().toISOString().split('T')[0],
     });
+    // O PDF vira o documento PP da instrução (e o mapa comparativo); na fase
+    // interna o valor referencial de cada item vira o valor estimado do item.
+    await this.faseInternaService.registrarDocumentoPPGerado(licitacaoId, path, precosData.estatisticas?.valorTotal || 0);
     return { url: `/uploads/${path}`, path };
   }
 }

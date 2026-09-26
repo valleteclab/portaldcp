@@ -360,6 +360,11 @@ export class TransicoesService {
           `SELECT status::text AS status, fornecedor_vencedor_id FROM itens_licitacao WHERE licitacao_id = $1`,
           [licitacaoId],
         ),
+      itensParaPublicacao: () =>
+        manager.query(
+          `SELECT status::text AS status, quantidade, valor_unitario_estimado FROM itens_licitacao WHERE licitacao_id = $1`,
+          [licitacaoId],
+        ),
       unidadesSemPropostaAceita: () => this.unidadesSemPropostaAceita(licitacaoId, manager),
       conferenciaArt48: () => conferenciaArt48Sql(manager, licitacaoId),
       habilitacaoPreviaPendente: () => habilitacaoPreviaPendenteSql(manager, licitacaoId),

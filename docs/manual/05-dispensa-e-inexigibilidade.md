@@ -14,7 +14,7 @@ Pela demanda aprovada (**Iniciar contratação** › **Dispensa Eletrônica**) o
 
 Na linha do tempo, etapa **Fase interna (documentos)**, bloco **Instrução do processo — contratação direta (Art. 72)**:
 
-1. Complete os obrigatórios: **Formalização da demanda (DFD)**, **Estimativa de despesa (pesquisa de preços)** e **Autorização da autoridade competente**.
+1. Complete os obrigatórios: **Formalização da demanda (DFD)**, **Estimativa de despesa (pesquisa de preços)** e **Autorização da autoridade competente** — e os **itens** (pelo menos um com quantidade e valor estimado; sem eles a instrução não conclui e o aviso não é divulgado). No assistente, ETP, riscos, TR, dotação, aviso e parecer são **facultativos** (Pular etapa ou Não se aplica — justificar).
 2. Para os demais (ETP, TR, riscos, parecer, compatibilidade orçamentária, justificativa da contratação direta), elabore ou marque **não se aplica** com justificativa.
 3. Se quiser ajuda, clique em **Preparar automaticamente** (copiloto).
 
@@ -76,6 +76,7 @@ Abaixo do painel da seleção há uma linha **PNCP** com a situação de cada en
 
 - publicação automática: aviso ao divulgar; resultado ao homologar; contrato depois de assinado (art. 94 — 10 dias úteis na contratação direta);
 - botões para reenvio em caso de falha: **Publicar aviso no PNCP** / **Reenviar aviso**, **Enviar resultado**, **Enviar contratos**.
+- aviso divulgado sem itens (processos anteriores à trava de itens): a fila não envia a compra e mostra "Compra não enviada ao PNCP: Cadastre pelo menos um item…". Use **Cancelar publicação** no cockpit, cadastre os itens e divulgue de novo.
 
 ## Inexigibilidade (art. 74)
 

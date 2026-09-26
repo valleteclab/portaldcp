@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft, ArrowRight, Loader2, Save, Upload, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,7 +42,9 @@ export default function EditarLicitacaoPage() {
   const [saving, setSaving] = useState(false)
   const { confirmar, dialogo } = useDialogoConfirmacao()
   const [erroSalvar, setErroSalvar] = useState<string | null>(null)
-  const [abaAtiva, setAbaAtiva] = useState("dados")
+  // ?aba=itens (cockpit → "Editar itens")
+  const abaInicial = useSearchParams().get("aba")
+  const [abaAtiva, setAbaAtiva] = useState(abaInicial || "dados")
   const [orgaoId, setOrgaoId] = useState<string>("")
   
   // Estado PNCP
@@ -263,6 +265,7 @@ Deseja também limpar os itens vinculados aos lotes?`,
             sem_pca: item.sem_pca || false,
             justificativa_sem_pca: item.justificativa_sem_pca,
             tipo_participacao: item.tipo_participacao || 'AMPLA',
+            tipo_item: item.tipo_item || undefined,
           }))
           setItens(itensMapeados)
         }

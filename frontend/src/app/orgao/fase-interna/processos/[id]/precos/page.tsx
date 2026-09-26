@@ -2,6 +2,7 @@
 
 import React, { useState, use, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import {
   ChevronRight,
   Home,
@@ -18,6 +19,8 @@ import {
   ChevronDown,
   ChevronUp,
   Search,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -226,6 +229,9 @@ function StatusBadge({ count }: { count: number }) {
 
 export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  // Aberto pelo assistente da fase interna (?assistente=1): volta a ele na etapa seguinte (TR)
+  const doAssistente = useSearchParams().get("assistente") === "1"
+  const urlAssistente = (etapa: string) => `/orgao/fase-interna/processos/novo?id=${id}&step=${etapa}`
 
   const [dados, setDados] = useState<DadosPrecos | null>(null)
   const [loading, setLoading] = useState(true)
@@ -670,12 +676,33 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
       </div>
 
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Pesquisa de Preços</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          Estimativa do valor da contratação · Art. 23 da Lei 14.133/2021 · IN SEGES/ME nº 65/2021
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Pesquisa de Preços</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Estimativa do valor da contratação · Art. 23 da Lei 14.133/2021 · IN SEGES/ME nº 65/2021
+          </p>
+        </div>
+        {doAssistente && (
+          <div className="flex gap-2">
+            <Link href={urlAssistente("riscos")}>
+              <Button variant="outline" size="sm"><ArrowLeft className="w-3.5 h-3.5 mr-1.5" /> Voltar ao assistente</Button>
+            </Link>
+            <Link href={urlAssistente("tr")}>
+              <Button size="sm" className="bg-[#1351b4] hover:bg-[#0c326f]" title="Continua o assistente no Termo de Referência (facultativo na contratação direta)">
+                Próxima etapa do assistente <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+              </Button>
+            </Link>
+          </div>
+        )}
       </div>
+      {doAssistente && (
+        <div className="mb-4 p-3 rounded-lg border border-[#dbe8fb] bg-[#f6f9fd] text-xs text-[#1351b4]">
+          Os itens da pesquisa são os itens da contratação cadastrados no assistente. Ao <strong>gerar o documento PP</strong>{" "}
+          (aba Documento PP), o valor referencial de cada item vira o valor unitário estimado do item e o documento
+          atende a estimativa de despesa da instrução (art. 72, II / art. 23).
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="itens">
@@ -1673,6 +1700,14 @@ export default function PesquisaPrecosPage({ params }: { params: Promise<{ id: s
                   >
                     <FileDown className="w-4 h-4" /> Baixar documento gerado
                   </a>
+                )}
+
+                {urlDocumento && doAssistente && (
+                  <Link href={urlAssistente("tr")}>
+                    <Button className="w-full bg-[#168821] hover:bg-[#0f6b19] text-white">
+                      Documento registrado — próxima etapa do assistente <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </Link>
                 )}
 
                 <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg">

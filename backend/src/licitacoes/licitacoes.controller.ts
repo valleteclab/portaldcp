@@ -1,3 +1,4 @@
+import { PncpService } from '../pncp/pncp.service';
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Res, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
 import { LicitacoesService } from './licitacoes.service';
@@ -36,6 +37,7 @@ export class LicitacoesController {
     private readonly schedulerService: LicitacoesSchedulerService,
     private readonly processoPdfService: ProcessoPdfService,
     private readonly acesso: AcessoLicitacaoService,
+    private readonly pncpService: PncpService,
   ) {}
 
   /** Ato do órgão dono sobre a licitação (403 para outro órgão). */
@@ -230,6 +232,23 @@ export class LicitacoesController {
   ): Promise<Licitacao> {
     await this.dono(ator, id);
     return await this.licitacoesService.publicarEdital(id, dados, atorTransicaoDe(ator));
+  }
+
+  /**
+   * Cancelar a publicação (ato CANCELAR_PUBLICACAO — E7): órgão dono, motivo
+   * obrigatório, só antes de propostas. Exclui a compra do PNCP quando já
+   * publicada ou tira da fila o que ainda não foi enviado; o processo volta à
+   * fase interna (APROVACAO_INTERNA) para correção e nova publicação.
+   */
+  @Post(':id/cancelar-publicacao')
+  @SomenteOrgao()
+  async cancelarPublicacao(
+    @Param('id') id: string,
+    @AtorAtual() ator: Ator,
+    @Body() body: { motivo?: string },
+  ) {
+    await this.dono(ator, id);
+    return await this.pncpService.cancelarPublicacaoDaLicitacao(id, body?.motivo ?? '', atorTransicaoDe(ator));
   }
 
   @Put(':id/iniciar-disputa')

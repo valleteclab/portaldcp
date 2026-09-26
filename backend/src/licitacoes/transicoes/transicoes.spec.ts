@@ -492,3 +492,43 @@ describe('TransicoesService — suspender / retomar e efeitos', () => {
     expect(jaAplicado(susp, lic({ fase: F.PUBLICADO, situacao: S.SUSPENSA }))).toBe(true);
   });
 });
+
+describe('Gate de itens — CONCLUIR_FASE_INTERNA e PUBLICAR em todas as modalidades', () => {
+  const comItens = (itens: any[]) => ({ ...consultas(), itensParaPublicacao: async () => itens });
+  const MODALIDADES = [
+    M.PREGAO_ELETRONICO,
+    M.CONCORRENCIA,
+    M.DISPENSA_ELETRONICA,
+    M.INEXIGIBILIDADE,
+    M.CREDENCIAMENTO,
+    M.LEILAO,
+    M.CONCURSO,
+    M.DIALOGO_COMPETITIVO,
+  ];
+
+  test.each(MODALIDADES)('%s: sem item ativo com quantidade e valor → pendência', async (modalidade) => {
+    for (const ato of [A.CONCLUIR_FASE_INTERNA, A.PUBLICAR]) {
+      const def = definicaoDoAto(modalidade, ato)!;
+      expect(def).toBeDefined();
+      const l = lic({ modalidade, fase: F.APROVACAO_INTERNA });
+      const semItens = await pendenciasDoAto(def, ctx(l, ato, { consultas: comItens([]), somenteAvaliacao: true }));
+      expect(semItens.join(' ')).toMatch(/Cadastre pelo menos um item com quantidade e valor estimado/);
+      const zerados = await pendenciasDoAto(
+        def,
+        ctx(l, ato, {
+          consultas: comItens([
+            { status: 'ATIVO', quantidade: 10, valor_unitario_estimado: 0 },
+            { status: 'CANCELADO', quantidade: 1, valor_unitario_estimado: '5.00' },
+          ]),
+          somenteAvaliacao: true,
+        }),
+      );
+      expect(zerados.join(' ')).toMatch(/Cadastre pelo menos um item/);
+      const ok = await pendenciasDoAto(
+        def,
+        ctx(l, ato, { consultas: comItens([{ status: 'ATIVO', quantidade: '2.0000', valor_unitario_estimado: '10.50' }]), somenteAvaliacao: true }),
+      );
+      expect(ok.join(' ')).not.toMatch(/Cadastre pelo menos um item/);
+    }
+  });
+});

@@ -283,6 +283,7 @@ describe('E1 — fase interna (gate único) e PNCP pelos atos', () => {
           modalidade: ModalidadeLicitacao.DISPENSA_ELETRONICA,
           orgaoId: orgao.id,
           documentos: DOCUMENTOS_ART_72.map(([tipo, titulo], i) => ({ tipo, titulo, idExterno: `DOC-${i}` })),
+          itens: [{ descricao: 'Item importado', quantidade: 2, unidade_medida: 'UNIDADE', valor_unitario_estimado: 150 }],
         });
       expect(r.status).toBe(201);
       expect(r.body.pendencias).toEqual([]);
@@ -296,6 +297,24 @@ describe('E1 — fase interna (gate único) e PNCP pelos atos', () => {
         ['CRIAR', null, 'PLANEJAMENTO'],
         ['CONCLUIR_FASE_INTERNA', 'PLANEJAMENTO', 'APROVACAO_INTERNA'],
       ]);
+    });
+
+    it('importado sem itens: documentos completos, mas para na fase interna com a pendência de itens', async () => {
+      const r = await http()
+        .post('/api/fase-interna/importar-processo')
+        .set(bearer(orgao.token))
+        .send({
+          sistemaOrigem: 'SEI',
+          idExterno: 'SEI-789',
+          numero_processo: `IMP-S-${Date.now()}`,
+          objeto: 'Dispensa importada sem itens (E2E)',
+          modalidade: ModalidadeLicitacao.DISPENSA_ELETRONICA,
+          orgaoId: orgao.id,
+          documentos: DOCUMENTOS_ART_72.map(([tipo, titulo], i) => ({ tipo, titulo, idExterno: `DOC-S-${i}` })),
+        });
+      expect(r.status).toBe(201);
+      expect(r.body.licitacao.fase_interna_concluida).toBe(false);
+      expect(r.body.pendencias.join(' | ')).toMatch(/Cadastre pelo menos um item com quantidade e valor estimado/);
     });
 
     it('pregão importado sem todos os documentos para na etapa e devolve as pendências', async () => {
