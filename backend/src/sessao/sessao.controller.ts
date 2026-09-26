@@ -185,7 +185,7 @@ export class SessaoController {
   async getEventos(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
     const licitacaoId = await this.licitacaoDaSessao(id);
     const visao = await this.sigilo.visaoDoAtor(ator, licitacaoId);
-    // Negociação (E3): mensagens/contrapropostas acompanhadas só pelo órgão dono e participantes (IN 73 art. 30 §2º)
+    // Negociação (E3): mensagens/contrapropostas acompanhadas só pelo órgão dono e participantes (IN 73 art. 30 §1º)
     const eventos = filtrarEventosVisiveis(await this.sessaoService.getEventosSessao(id), visao as VisaoEvento);
     // Depois da fase de lances (habilitação em diante) a identidade é pública
     const reveladas = await this.sigilo.identidadesReveladas(id);

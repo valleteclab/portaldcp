@@ -511,7 +511,7 @@ export class SessaoService {
         item_id: e.item_id,
         fornecedor_id: e.fornecedor_id,
         valor: e.valor,
-        // Negociação (E3): acompanhada pelos participantes durante a sessão (IN 73 art. 30 §2º); na ata, registro integral
+        // Negociação (E3): acompanhada pelos participantes durante a sessão (IN 73 art. 30 §1º); na ata, registro integral
         visibilidade: e.dados_adicionais?.visibilidade ?? 'PUBLICA',
       })),
       resumo: {

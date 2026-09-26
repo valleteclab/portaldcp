@@ -35,7 +35,7 @@ import {
   pncpMock,
 } from './support';
 import { vincularOrgaoAoPncp, jsonDaParteMultipart } from './support/pregao';
-import { corpoComoTexto, criarDispensaPublicada, headerCapturado, jsonDaParte } from './support/dispensa';
+import { corpoComoTexto, criarDispensaPublicada, encerrarEtapaDeLances, headerCapturado, jsonDaParte } from './support/dispensa';
 import { prepararPregaoEmDisputa } from './support/isolamento';
 import { convocarAceitacao, decidirAceitacao, enviarPropostaAdequada } from './support/julgamento';
 import { habilitarLicitante } from './support/habilitacao';
@@ -66,10 +66,13 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
   const linha = async (lic: { id: string }, tipo: string) => (await fila(lic)).find((l) => l.tipo === tipo);
   const compras = () => pncpMock.filtrar('POST', new RegExp(`/orgaos/${cnpjA}/compras$`));
 
-  /** Pregão de A publicado (edital real anexado pelo fixture) — a publicação ENFILEIRA, não envia. */
+  /**
+   * Pregão de A publicado (edital real anexado pelo fixture) — a publicação
+   * ENFILEIRA, não envia: fica AGUARDANDO_DIVULGACAO até o worker enviar a compra.
+   */
   async function pregaoPublicado(): Promise<LicitacaoFixture> {
     const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO);
-    await levarAteFase(ctx, lic, FaseLicitacao.PUBLICADO);
+    await levarAteFase(ctx, lic, FaseLicitacao.AGUARDANDO_DIVULGACAO);
     return lic;
   }
 
@@ -97,7 +100,9 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       // item 2 é SERVIÇO (tipo do item, não o da licitação — mapeamento materialOuServico)
       await http().put(`/api/itens/${lic.itens[1].id}`).set(bearer(A.token)).send({ tipo_item: 'SERVICO' }).expect(200);
       pncpMock.limpar();
-      await levarAteFase(ctx, lic, FaseLicitacao.PUBLICADO);
+      await levarAteFase(ctx, lic, FaseLicitacao.AGUARDANDO_DIVULGACAO);
+      // divulgação oficial = PNCP: sem a compra aceita, nada de prazo
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
       const f = await fila(lic);
       expect(f.map((l) => [l.tipo, l.status])).toEqual([
         ['COMPRA', 'PENDENTE'],
@@ -211,6 +216,9 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       expect(compra.erro_mensagem).toMatch(/indisponível|500/);
       expect(new Date(compra.proximo_envio).getTime()).toBeGreaterThanOrEqual(inicio + 55_000);
       expect(await linha(lic, 'ITEM')).toMatchObject({ status: 'PENDENTE', tentativas: 0 });
+      // falha do PNCP segura o prazo; o retorno real (código 500) fica na linha
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
+      expect(compra.erro_status_http).toBe(500);
       expect(pncpMock.filtrar('POST', /\/itens$/)).toHaveLength(0);
 
       // antes do backoff: nada
@@ -222,6 +230,8 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       expect(compra).toMatchObject({ status: 'ENVIADO', tentativas: 2, erro_mensagem: null });
       expect(await linha(lic, 'ITEM')).toMatchObject({ status: 'ENVIADO' });
       expect(compras()).toHaveLength(2);
+      // compra aceita: divulgação confirmada e recebimento aberto
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
     });
 
     let licDefinitivo: LicitacaoFixture;
@@ -406,6 +416,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       await enviarProposta(ctx, FSP, lic, [90]);
       await enviarProposta(ctx, FBA, lic, [90]);
       await abrirSessaoAgora(ctx, lic);
+      await encerrarEtapaDeLances(ctx, lic); // IN 67 arts. 11 e 15
       exigir(await http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(A.token)), 201, 'julgar dispensa');
       exigir(await homologarResultado(ctx, lic.id, A.token), 200, 'homologar');
       await ctx.processarFilaPncp({ licitacaoId: lic.id });

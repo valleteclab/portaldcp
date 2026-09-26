@@ -97,6 +97,17 @@ export class PncpSync {
   @Column({ type: 'int', default: 0 })
   tentativas: number;
 
+  /**
+   * RETORNO REAL da última falha: código HTTP devolvido pelo PNCP (null =
+   * sem resposta — rede/timeout — ou falha de regra local) e o corpo da
+   * resposta como veio da API (truncado). Limpos no sucesso.
+   */
+  @Column({ type: 'int', nullable: true })
+  erro_status_http: number | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  erro_resposta: any;
+
   @Column({ type: 'timestamp', nullable: true })
   ultima_tentativa: Date;
 

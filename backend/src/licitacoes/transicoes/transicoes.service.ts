@@ -44,6 +44,41 @@ import {
   propostasAguardandoConfirmacaoSql,
 } from '../../publicacao/publicacao.sql';
 import { estadoEditalCredenciamentoSql } from '../../credenciamento/credenciamento.sql';
+import { avisoContratacaoVigenteSql } from '../../publicacao/aviso-contratacao';
+import { PROVIDENCIAS_ART22_IN67 } from './definicoes';
+import { ROTULO_FASE, ROTULO_SITUACAO } from './fases';
+import { REGISTRO_MIGRACAO_DIVULGACAO, REGISTRO_MIGRACAO_SITUACAO } from './transicoes.tipos';
+
+/** Registros que não são atos executáveis. */
+const ROTULO_REGISTRO: Record<string, string> = {
+  [REGISTRO_CRIACAO]: 'Criação do processo',
+  [REGISTRO_MIGRACAO_SITUACAO]: 'Ajuste de dados (situação do processo)',
+  [REGISTRO_MIGRACAO_DIVULGACAO]: 'Ajuste de dados (divulgação no PNCP)',
+  ABRIR_IMPUGNACAO: 'Abertura do prazo de impugnação (legado)',
+};
+
+function rotuloDoAto(modalidade: string | undefined, ato: string): string {
+  if (ROTULO_REGISTRO[ato]) return ROTULO_REGISTRO[ato];
+  return definicaoDoAto(modalidade, ato as AtoLicitacao)?.rotulo ?? ato.replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase());
+}
+
+/** Origens do SISTEMA com nome para a tela. */
+const ORIGEM_SISTEMA: Record<string, string> = {
+  scheduler: 'Sistema (relógio)',
+  'disputa-timer': 'Sistema (relógio)',
+  pncp: 'Sistema (PNCP)',
+  'pncp-fila': 'Sistema (PNCP)',
+  migracao: 'Sistema (ajuste de dados)',
+  importacao: 'Sistema (importação)',
+};
+
+function nomeDoAtor(tipo: string, id: string | null, nomes: Map<string, string>): string {
+  if (tipo === 'SISTEMA') return ORIGEM_SISTEMA[String(id)] ?? 'Sistema';
+  if (tipo === 'ADMIN') return 'Administrador da plataforma';
+  const nome = id ? nomes.get(`${tipo}:${id}`) : undefined;
+  if (nome) return nome;
+  return tipo === 'FORNECEDOR' ? 'Fornecedor' : tipo === 'ORGAO' ? 'Órgão' : 'Usuário do órgão';
+}
 import { pendenciasModalidadeSql } from '../../modalidades-especiais/pendencias.sql';
 
 /**
@@ -81,7 +116,11 @@ export class TransicoesService {
   // Execução
   // ---------------------------------------------------------------------------
 
-  async executar(licitacaoId: string, ato: AtoLicitacao, opcoes: OpcoesExecucao): Promise<Licitacao> {
+  async executar(licitacaoId: string, ato: AtoLicitacao, opcoesRecebidas: OpcoesExecucao): Promise<Licitacao> {
+    // `dados` sempre existe: efeitos podem anotar o que fizeram (ex.: cronograma
+    // reajustado na confirmação da divulgação, manifestação prévia do art. 71
+    // §3º) e isso vai para o histórico (`licitacao_transicoes.dados`).
+    const opcoes: OpcoesExecucao = { ...opcoesRecebidas, dados: opcoesRecebidas.dados ?? {} };
     const pendentesEmitir: Array<() => void> = [];
     const rodar = async (manager: EntityManager): Promise<Licitacao> => {
       const lic = await manager
@@ -243,7 +282,7 @@ export class TransicoesService {
         ? 'Roll-up automático: todos os itens foram declarados desertos.'
         : 'Roll-up automático: nenhum item com vencedor (itens fracassados/desertos).';
     try {
-      await this.executar(licitacaoId, ato, { ator, motivo, registro: { rollup: true, itens: itens.length } });
+      await this.executar(licitacaoId, ato, { ator, motivo, dados: { rollup: true }, registro: { rollup: true, itens: itens.length } });
       return ato;
     } catch (e: any) {
       // Corrida/pendência: o roll-up é uma conveniência, nunca derruba o ato do item
@@ -267,6 +306,50 @@ export class TransicoesService {
     return this.dataSource.getRepository(LicitacaoTransicao).find({
       where: { licitacao_id: licitacaoId },
       order: { created_at: 'ASC' },
+    });
+  }
+
+  /**
+   * HISTÓRICO LEGÍVEL (cockpit): cada transição com o rótulo do ato e das
+   * fases/situações (nada de código de enum na tela), o NOME de quem praticou
+   * (usuário, órgão, fornecedor; "Sistema (PNCP)", "Sistema (relógio)"...) e
+   * um resumo do que o ato registrou (cronograma estendido, manifestação
+   * prévia, providência do art. 22 da IN 67). Campos originais preservados.
+   */
+  async historicoLegivel(licitacaoId: string): Promise<Array<Record<string, any>>> {
+    const [lic] = await this.dataSource.query(`SELECT modalidade::text AS modalidade FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    const linhas = await this.historico(licitacaoId);
+    const ids = (tipo: string) => [...new Set(linhas.filter((l) => l.ator_tipo === tipo && l.ator_id).map((l) => String(l.ator_id)))];
+    const nomes = new Map<string, string>();
+    const carregar = async (tipo: string, sql: string) => {
+      const lista = ids(tipo).filter((i) => /^[0-9a-f-]{36}$/i.test(i));
+      if (!lista.length) return;
+      const rows: Array<{ id: string; nome: string }> = await this.dataSource.query(sql, [lista]);
+      for (const r of rows) nomes.set(`${tipo}:${r.id}`, r.nome);
+    };
+    await carregar('USUARIO', `SELECT id::text AS id, nome FROM usuarios WHERE id::text = ANY($1::text[])`);
+    await carregar('ORGAO', `SELECT id::text AS id, nome FROM orgaos WHERE id::text = ANY($1::text[])`);
+    await carregar('FORNECEDOR', `SELECT id::text AS id, razao_social AS nome FROM fornecedores WHERE id::text = ANY($1::text[])`);
+    return linhas.map((l) => {
+      const dados = (l.dados ?? {}) as Record<string, any>;
+      const d = (dados.dados ?? {}) as Record<string, any>;
+      const resumo: string[] = [];
+      if (d.ajuste_descricao) resumo.push(String(d.ajuste_descricao));
+      if (d.manifestacao_previa) resumo.push(String(d.manifestacao_previa));
+      if (d.providencia_art22) resumo.push(`Providência (IN SEGES 67/2021, art. 22): ${PROVIDENCIAS_ART22_IN67[d.providencia_art22] ?? d.providencia_art22}`);
+      if (d.meio === 'DIARIO_OFICIAL' && d.referencia) resumo.push(`Publicação no diário oficial: ${d.referencia}`);
+      else if (l.ato === AtoLicitacao.CONFIRMAR_DIVULGACAO && d.referencia) resumo.push(`Número de controle PNCP: ${d.referencia}`);
+      if (dados.rollup) resumo.push('Roll-up automático dos itens');
+      return {
+        ...l,
+        rotulo_ato: rotuloDoAto(lic?.modalidade, l.ato),
+        rotulo_fase_de: l.fase_de ? ROTULO_FASE[l.fase_de] ?? l.fase_de : null,
+        rotulo_fase_para: ROTULO_FASE[l.fase_para] ?? l.fase_para,
+        rotulo_situacao_de: l.situacao_de ? ROTULO_SITUACAO[l.situacao_de as SituacaoLicitacao] ?? l.situacao_de : null,
+        rotulo_situacao_para: ROTULO_SITUACAO[l.situacao_para as SituacaoLicitacao] ?? l.situacao_para,
+        ator_nome: nomeDoAtor(l.ator_tipo, l.ator_id, nomes),
+        resumo: resumo.length ? resumo.join(' · ') : null,
+      };
     });
   }
 
@@ -340,6 +423,12 @@ export class TransicoesService {
           `SELECT COUNT(*) AS total FROM propostas
            WHERE licitacao_id = $1 AND status::text NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')`,
         ),
+      propostasEnviadas: () =>
+        contar(
+          `SELECT COUNT(*) AS total FROM propostas
+           WHERE licitacao_id = $1 AND status::text NOT IN ('RASCUNHO','CANCELADA')`,
+        ),
+      avisoContratacaoVigente: () => avisoContratacaoVigenteSql(manager, licitacaoId),
       propostasAptasDisputa: () =>
         contar(
           `SELECT COUNT(*) AS total FROM propostas

@@ -34,6 +34,7 @@ import {
   criarOrgao,
   enviarProposta,
   levarAteFase,
+  confirmarDivulgacao,
   pdfDeTeste,
   prepararDocumentosEtapa,
 } from './support';
@@ -132,7 +133,8 @@ describe('E7a — publicação, prazos (art. 55/183), retificação (art. 55 §1
 
       const ok = await publicar(lic, corpoPublicacao(new Date(minimo.getTime() + HORA)));
       expect(ok.status).toBe(200);
-      expect(ok.body.fase).toBe(FaseLicitacao.PUBLICADO);
+      // divulgação oficial = PNCP: publicado, aguardando a confirmação (arts. 54 e 174)
+      expect(ok.body.fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
     });
 
     it('pregão de serviço (comum por definição — art. 6º XLI): 10 dias úteis (art. 55, II, a)', async () => {
@@ -244,6 +246,9 @@ describe('E7a — publicação, prazos (art. 55/183), retificação (art. 55 §1
       expect((await http().get(`/api/publicacao/licitacao/${lic.id}/edital`)).status).toBe(404);
 
       await publicar(lic, corpoPublicacao(new Date(minimoAbertura(A.id, 9).getTime()))).expect(200);
+      // antes da divulgação oficial (PNCP / diário oficial) o edital ainda não é público
+      expect((await http().get(`/api/publicacao/licitacao/${lic.id}/edital`)).status).toBe(404);
+      await confirmarDivulgacao(ctx, lic);
       const pub = (await http().get(`/api/publicacao/licitacao/${lic.id}/edital`).expect(200)).body;
       expect(pub.vigente).toMatchObject({ versao: 1, status: 'PUBLICADO', hash: doc.hash });
       const arq = await http().get(`/api/publicacao/licitacao/${lic.id}/edital/${pub.vigente.documento_id}/arquivo`).expect(200);

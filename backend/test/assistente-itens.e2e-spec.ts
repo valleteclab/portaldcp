@@ -160,10 +160,11 @@ describe('Itens obrigatórios na publicação + assistente', () => {
     let lic: LicitacaoFixture;
 
     beforeAll(async () => {
-      lic = await criarDispensaPublicada(ctx, orgao);
+      // publicada e ainda AGUARDANDO a confirmação do PNCP (a fila não rodou)
+      lic = await criarDispensaPublicada(ctx, orgao, { confirmar: false });
     });
 
-    it('a fila recusa a compra sem itens com a explicação (ERRO_DEFINITIVO, nada enviado)', async () => {
+    it('a fila recusa a compra sem itens com a explicação (ERRO_DEFINITIVO, nada enviado) — a divulgação NÃO é confirmada', async () => {
       // Estado anterior ao gate (caso da homologação): publicada sem itens
       await ctx.dataSource.query(`DELETE FROM itens_licitacao WHERE licitacao_id = $1`, [lic.id]);
       pncpMock.limpar();
@@ -176,6 +177,8 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(compra.status).toBe('ERRO_DEFINITIVO');
       expect(compra.erro_mensagem).toMatch(/Compra não enviada ao PNCP/);
       expect(compra.erro_mensagem).toMatch(/Cancele a publicação/);
+      // sem compra no PNCP não houve divulgação oficial: o prazo não começou
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
     });
 
     it('cancelar: outro órgão 403, sem motivo 400', async () => {
@@ -223,6 +226,8 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       for (let i = 0; i < 4 && (await ctx.processarFilaPncp({ licitacaoId: lic.id })).processados > 0; i++);
       expect(pncpMock.filtrar('POST', /\/compras$/)).toHaveLength(1);
       expect(pncpMock.filtrar('POST', /\/itens$/).length).toBeGreaterThanOrEqual(1);
+      // compra aceita = divulgação confirmada: o recebimento abre
+      expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
     });
 
     it('publicada: itens não são mais incluídos, alterados nem excluídos (só voltando à fase interna)', async () => {

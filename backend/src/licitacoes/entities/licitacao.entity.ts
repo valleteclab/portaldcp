@@ -83,7 +83,14 @@ export enum FaseLicitacao {
   APROVACAO_INTERNA = 'APROVACAO_INTERNA', // Autorização da autoridade
 
   // FASE EXTERNA
-  PUBLICADO = 'PUBLICADO', // Edital publicado
+  /**
+   * Ato de publicação praticado, mas a divulgação OFICIAL ainda não foi
+   * confirmada (PNCP — arts. 54 e 174; art. 176 par. único para quem ainda não
+   * adotou o PNCP). Os prazos (art. 55; art. 75 §3º) só correm da divulgação
+   * confirmada: nada é recebido nesta fase e a licitação não é pública.
+   */
+  AGUARDANDO_DIVULGACAO = 'AGUARDANDO_DIVULGACAO',
+  PUBLICADO = 'PUBLICADO', // Edital publicado (divulgação oficial confirmada)
   IMPUGNACAO = 'IMPUGNACAO', // Prazo para impugnações
   ACOLHIMENTO_PROPOSTAS = 'ACOLHIMENTO_PROPOSTAS', // Recebendo propostas
   ANALISE_PROPOSTAS = 'ANALISE_PROPOSTAS', // Verificação de conformidade
@@ -328,6 +335,24 @@ export class Licitacao {
   // Usando 'timestamp without time zone' para armazenar horário de Brasília sem conversão UTC
   @Column({ type: 'timestamp without time zone', nullable: true })
   data_publicacao_edital: Date;
+
+  /**
+   * DIVULGAÇÃO OFICIAL CONFIRMADA (arts. 54, 55 e 174; art. 75 §3º): momento em
+   * que o PNCP devolveu o número de controle da compra (ou, para quem ainda não
+   * adotou o PNCP, a data da publicação no diário oficial — art. 176 par.
+   * único). É daqui que os prazos mínimos são contados; `data_publicacao_edital`
+   * guarda a data do ATO de publicação praticado na plataforma.
+   */
+  @Column({ type: 'timestamp without time zone', nullable: true })
+  data_divulgacao_oficial: Date | null;
+
+  /** Meio da divulgação oficial: PNCP (automático) | DIARIO_OFICIAL (art. 176 par. único). */
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  meio_divulgacao_oficial: string | null;
+
+  /** Número de controle PNCP ou referência da publicação (edição/página/link do diário). */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  referencia_divulgacao_oficial: string | null;
 
   @Column({ type: 'timestamp without time zone', nullable: true })
   data_limite_impugnacao: Date;

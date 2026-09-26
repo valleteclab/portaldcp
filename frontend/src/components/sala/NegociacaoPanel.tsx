@@ -17,7 +17,7 @@ import { formatarMoeda } from './utils'
  * IN SEGES 73/2022 art. 30. Por unidade (item ou lote): licitante na vez,
  * valor atual × preço máximo (alerta "acima do estimado" = negociação
  * obrigatória antes do aceite), abertura da negociação, conversa com o
- * licitante (acompanhada pelos demais — IN 73 art. 30 §2º), contraproposta, encerramento (valor mantido) ou
+ * licitante (acompanhada pelos demais — IN 73 art. 30 §1º), contraproposta, encerramento (valor mantido) ou
  * desclassificação por preço acima do máximo (art. 59 III) — o próximo do
  * ranking é chamado sozinho. Quem decide regras e ordem é o backend
  * (/api/julgamento/sessao/:id/negociacao).

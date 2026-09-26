@@ -5,6 +5,7 @@ import { API_URL, authFetch } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { History, Loader2 } from "lucide-react"
+import { rotuloFase } from "@/lib/licitacao-rotulos"
 
 interface Transicao {
   id: string
@@ -18,6 +19,14 @@ interface Transicao {
   ator_id: string | null
   created_at?: string
   dados?: Record<string, any> | null
+  // Legíveis (backend — historicoLegivel): rótulos e nome de quem praticou
+  rotulo_ato?: string
+  rotulo_fase_de?: string | null
+  rotulo_fase_para?: string
+  rotulo_situacao_de?: string | null
+  rotulo_situacao_para?: string
+  ator_nome?: string
+  resumo?: string | null
 }
 
 const ROTULO_ATOR: Record<string, string> = {
@@ -72,19 +81,27 @@ export function HistoricoProcesso({ licitacaoId, atualizacao }: { licitacaoId: s
                 <span className="w-2 h-2 mt-1.5 rounded-full bg-slate-400 shrink-0" />
                 <div className="min-w-0">
                   <p className="font-medium">
-                    {humanizar(t.ato)}
+                    {t.rotulo_ato || humanizar(t.ato)}
                     {t.fase_de !== t.fase_para && (
-                      <span className="font-normal text-gray-500"> · {t.fase_de ? `${t.fase_de} → ` : ""}{t.fase_para}</span>
+                      <span className="font-normal text-gray-500">
+                        {" · "}
+                        {t.fase_de ? `${t.rotulo_fase_de || rotuloFase(t.fase_de)} → ` : ""}
+                        {t.rotulo_fase_para || rotuloFase(t.fase_para)}
+                      </span>
                     )}
                     {t.situacao_de && t.situacao_de !== t.situacao_para && (
-                      <span className="font-normal text-gray-500"> · situação {t.situacao_de} → {t.situacao_para}</span>
+                      <span className="font-normal text-gray-500">
+                        {" · situação "}{t.rotulo_situacao_de || t.situacao_de} → {t.rotulo_situacao_para || t.situacao_para}
+                      </span>
                     )}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {t.created_at ? new Date(t.created_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : ""}
-                    {" · "}{ROTULO_ATOR[t.ator_tipo] || t.ator_tipo}
+                    {/* horário de Brasília (UTC-3) fixo */}
+                    {t.created_at ? new Date(t.created_at).toLocaleString("pt-BR", { timeZone: "America/Bahia" }) : ""}
+                    {" · "}{t.ator_nome || ROTULO_ATOR[t.ator_tipo] || t.ator_tipo}
                   </p>
                   {t.motivo && <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-line">Motivo: {t.motivo}</p>}
+                  {t.resumo && <p className="text-xs text-gray-600 mt-0.5 whitespace-pre-line">{t.resumo}</p>}
                 </div>
               </li>
             ))}

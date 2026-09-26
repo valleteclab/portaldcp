@@ -19,7 +19,7 @@ const contar = (lista: any[], pendentes: string[]): Contagem => ({
  * IMPUGNAÇÕES E ESCLARECIMENTOS (art. 164) — resumo no cockpit; a análise e a
  * resposta ficam nas sub-rotas do processo.
  */
-export function ImpugnacoesEsclarecimentos({ licitacaoId }: { licitacaoId: string }) {
+export function ImpugnacoesEsclarecimentos({ licitacaoId, dispensa = false }: { licitacaoId: string; dispensa?: boolean }) {
   const [imp, setImp] = useState<Contagem | null>(null)
   const [esc, setEsc] = useState<Contagem | null>(null)
 
@@ -61,6 +61,18 @@ export function ImpugnacoesEsclarecimentos({ licitacaoId }: { licitacaoId: strin
       </Link>
     </div>
   )
+
+  // Dispensa eletrônica: não há impugnação nem esclarecimento formal (a IN SEGES 67/2021
+  // não prevê; o art. 164 é do edital de licitação) — comunicação pelas mensagens (art. 10).
+  // Registros antigos, se houver, continuam aparecendo abaixo.
+  if (dispensa && imp?.total === 0 && esc?.total === 0) {
+    return (
+      <p className="text-xs text-gray-500 border rounded-md px-3 py-2">
+        Na dispensa eletrônica não há impugnação nem pedido de esclarecimento formal (a IN SEGES 67/2021 não prevê; o art. 164 da
+        Lei 14.133/2021 trata do edital de licitação). A comunicação com os fornecedores é pelas mensagens do sistema (IN 67, art. 10).
+      </p>
+    )
+  }
 
   return (
     <Card>

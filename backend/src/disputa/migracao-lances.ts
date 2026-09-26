@@ -214,7 +214,7 @@ export async function migrarModeloLances(db: ExecutorSql): Promise<RelatorioMigr
       `UPDATE licitacoes SET intervalo_minimo_lances = NULL
         WHERE intervalo_minimo_lances = 3
           AND fase::text IN ('PLANEJAMENTO','TERMO_REFERENCIA','PESQUISA_PRECOS','ANALISE_JURIDICA',
-                             'APROVACAO_INTERNA','PUBLICADO','IMPUGNACAO','ACOLHIMENTO_PROPOSTAS')`,
+                             'APROVACAO_INTERNA','AGUARDANDO_DIVULGACAO','PUBLICADO','IMPUGNACAO','ACOLHIMENTO_PROPOSTAS')`,
     ),
   );
 

@@ -5,9 +5,11 @@ import {
 } from '../entities/licitacao.entity';
 import {
   FASES_ANTES_DA_HOMOLOGACAO,
+  FASES_DIVULGADAS_ATE_ADJUDICACAO,
   FASES_EXTERNAS_ATE_ADJUDICACAO,
   FASES_INTERNAS,
   formatarDataHora,
+  indiceFase,
   ORDEM_FASES,
   ROTULO_FASE,
 } from './fases';
@@ -21,7 +23,9 @@ import {
   formatarDataBrasilia,
   MODALIDADES_COM_EDITAL,
   pendenciasDaRetificacao,
+  reajustarCronogramaNaDivulgacao,
 } from '../../publicacao/regras-publicacao';
+import { publicarAvisoContratacaoSql } from '../../publicacao/aviso-contratacao';
 import {
   concluirExtincaoSql,
   excluirPropostasNaoConfirmadasSql,
@@ -231,11 +235,20 @@ export const haPropostasAptas: Precondicao = async (ctx) => {
   return null;
 };
 
-/** Dispensa: a janela de lances (se aberta) precisa ter terminado. */
-export const janelaLancesDispensaEncerrada: Precondicao = (ctx) => {
+/**
+ * Dispensa (IN SEGES 67/2021): depois do fim do prazo de propostas vem a
+ * etapa de lances (art. 11 — janela de 6 a 10 horas) e só DEPOIS do seu
+ * encerramento o julgamento (art. 15). Rejulgar (ADJUDICACAO → ADJUDICACAO,
+ * depois de uma desclassificação) não reabre a etapa de lances.
+ */
+export const janelaLancesDispensaEncerrada: Precondicao = async (ctx) => {
   const fim = ctx.licitacao.dispensa_lances_fim;
   if (fim && ctx.agora < new Date(fim)) {
-    return `A fase de lances está aberta até ${new Date(fim).toLocaleString('pt-BR')} — julgue após o encerramento`;
+    return `A fase de lances está aberta até ${formatarDataBrasilia(new Date(fim))} — o julgamento só é liberado depois do encerramento da janela (IN SEGES 67/2021, art. 15).`;
+  }
+  // sem proposta válida não há lances a abrir (a pendência é a de deserta/fracassada)
+  if (!fim && ctx.licitacao.fase !== FaseLicitacao.ADJUDICACAO && (await ctx.consultas.propostasRecebidas()) > 0) {
+    return 'Abra a fase de lances depois do fim do prazo de propostas (IN SEGES 67/2021, art. 11 — janela de 6 a 10 horas); o julgamento só é liberado depois do encerramento da janela (art. 15).';
   }
   return null;
 };
@@ -277,21 +290,108 @@ export const haContratoOuAta: Precondicao = async (ctx) => {
   return null;
 };
 
-/** Deserta: nenhum interessado (sem propostas) OU todos os itens desertos. */
+/** Propostas enviadas por interessados (válidas ou desclassificadas). */
+const propostasDeInteressados = (ctx: ContextoTransicao): Promise<number> =>
+  ctx.consultas.propostasEnviadas ? ctx.consultas.propostasEnviadas() : ctx.consultas.propostasRecebidas();
+
+/**
+ * DESERTA (ausência de interessados): só depois do FIM do prazo de propostas
+ * e sem nenhuma proposta enviada — ou todos os itens desertos (roll-up).
+ * Proposta desclassificada é interessado: o caso é de FRACASSADA.
+ */
 export const desertaPossivel: Precondicao = async (ctx) => {
-  const [propostas, itens] = await Promise.all([ctx.consultas.propostasRecebidas(), ctx.consultas.itens()]);
-  if (propostas === 0) return null;
+  const itens = await ctx.consultas.itens();
   if (avaliarRollupItens(itens) === 'DESERTA') return null;
-  return `Há ${propostas} proposta(s) recebida(s) — licitação deserta exige ausência de interessados (use "declarar fracassada" se nenhuma proposta for aproveitável).`;
+  const p: string[] = [];
+  const prazo = fimAcolhimentoAlcancado(ctx);
+  if (prazo) p.push(`Só é possível declarar deserta depois do fim do prazo de propostas, sem nenhuma proposta — ${prazo}.`);
+  const enviadas = await propostasDeInteressados(ctx);
+  if (enviadas > 0) {
+    p.push(`Há ${enviadas} proposta(s) recebida(s) — licitação deserta exige ausência de interessados (use "declarar fracassada" se nenhuma proposta for aproveitável).`);
+  }
+  return p;
 };
 
-/** Fracassada: houve interessados, mas nenhum item tem vencedor. */
+/**
+ * FRACASSADA (houve interessados, nenhuma proposta aproveitável): só depois do
+ * fim do prazo e do JULGAMENTO — nenhum item com vencedor e, na falta do
+ * roll-up dos itens, ou todas as propostas desclassificadas ou a licitação já
+ * julgada (fase de julgamento em diante). Sem proposta nenhuma é DESERTA.
+ */
 export const fracassadaPossivel: Precondicao = async (ctx) => {
   const itens = await ctx.consultas.itens();
   if (itens.some((i) => !!i.fornecedor_vencedor_id || ['ADJUDICADO', 'HOMOLOGADO'].includes(String(i.status)))) {
     return 'Há item com vencedor adjudicado — a licitação não pode ser declarada fracassada.';
   }
-  return null;
+  if (avaliarRollupItens(itens) === 'FRACASSADA') return null;
+  const p: string[] = [];
+  const prazo = fimAcolhimentoAlcancado(ctx);
+  if (prazo) p.push(`Só é possível declarar fracassada depois do fim do prazo de propostas e do julgamento — ${prazo}.`);
+  const enviadas = await propostasDeInteressados(ctx);
+  if (enviadas === 0) {
+    p.push('Nenhuma proposta recebida — o caso é de licitação DESERTA (ausência de interessados), não fracassada.');
+  } else {
+    const validas = await ctx.consultas.propostasRecebidas();
+    const julgada = indiceFase(ctx.licitacao.fase) >= indiceFase(FaseLicitacao.JULGAMENTO);
+    if (validas > 0 && !julgada) {
+      p.push(
+        `Há ${validas} proposta(s) válida(s) ainda não julgada(s) — julgue as propostas; a licitação só é fracassada quando nenhuma é aceitável (desclassificadas/inabilitadas).`,
+      );
+    }
+  }
+  return p;
+};
+
+/**
+ * DISPENSA deserta/fracassada — IN SEGES 67/2021, art. 22: o órgão registra a
+ * providência que adotará: I — republicar o procedimento; II — fixar prazo
+ * para adequação da proposta ou das condições de habilitação (só fracassada);
+ * III — contratar pela proposta da pesquisa de preços (menor preço, desde
+ * que atendida a habilitação exigida). Deserta: só I ou III (parágrafo único).
+ * A providência vai para os dados da transição (histórico auditável). O
+ * roll-up automático dos itens (`dados.rollup`) não decide a providência.
+ */
+export const PROVIDENCIAS_ART22_IN67: Record<string, string> = {
+  REPUBLICAR: 'I — republicação do procedimento',
+  PRAZO_ADEQUACAO: 'II — prazo para adequação da proposta ou das condições de habilitação',
+  PROPOSTA_PESQUISA_PRECOS: 'III — contratação pela proposta da pesquisa de preços (menor preço, atendida a habilitação exigida)',
+};
+
+export function providenciasArt22Permitidas(ato: AtoLicitacao): string[] {
+  return ato === AtoLicitacao.DECLARAR_DESERTA ? ['REPUBLICAR', 'PROPOSTA_PESQUISA_PRECOS'] : Object.keys(PROVIDENCIAS_ART22_IN67);
+}
+
+export const providenciaArt22Informada: Precondicao = (ctx) => {
+  if (ctx.licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA || ctx.somenteAvaliacao || ctx.dados?.rollup) return null;
+  const permitidas = providenciasArt22Permitidas(ctx.ato);
+  if (permitidas.includes(String(ctx.dados?.providencia_art22 ?? ''))) return null;
+  return (
+    `Informe a providência do art. 22 da IN SEGES 67/2021 (dados.providencia_art22): ` +
+    permitidas.map((p) => `${p} = ${PROVIDENCIAS_ART22_IN67[p]}`).join('; ') +
+    (ctx.ato === AtoLicitacao.DECLARAR_DESERTA ? ' — na deserta, só I ou III (parágrafo único).' : '.')
+  );
+};
+
+/** Dispensa: julgar exige proposta válida (sem ela é deserta ou fracassada). */
+export const haPropostaParaJulgar: Precondicao = async (ctx) => {
+  if ((await ctx.consultas.propostasRecebidas()) > 0) return null;
+  const enviadas = await propostasDeInteressados(ctx);
+  return enviadas > 0
+    ? 'Todas as propostas foram desclassificadas — não há o que julgar: declare a dispensa fracassada.'
+    : 'Nenhuma proposta recebida — não há o que julgar: depois do fim do prazo, declare a dispensa deserta.';
+};
+
+/**
+ * DISPENSA ELETRÔNICA (art. 75 §3º; IN SEGES 67/2021): o aviso de contratação
+ * direta é GERADO pelo sistema e guardado no processo (versão, hash) antes de
+ * divulgar — é exatamente esse arquivo que vai ao PNCP.
+ */
+export const avisoContratacaoDiretaGerado: Precondicao = async (ctx) => {
+  const lic = ctx.licitacao as any;
+  if (lic.selecao_externa || lic.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) return null;
+  if (!ctx.consultas.avisoContratacaoVigente) return null;
+  if (await ctx.consultas.avisoContratacaoVigente()) return null;
+  return 'Gere o aviso de contratação direta (PDF) antes de divulgar — é o documento publicado no PNCP (art. 75, §3º, Lei 14.133/2021; IN SEGES 67/2021).';
 };
 
 /** Cancelar a publicação só antes de haver propostas (depois disso é revogar/anular). */
@@ -371,6 +471,39 @@ export const semIntencaoDeExtincaoAberta: Precondicao = async (ctx) => {
   return `Já há intenção de ${i.tipo === 'ANULAR' ? 'anular' : 'revogar'} com prazo de manifestação aberto (até ${formatarDataBrasilia(new Date(i.prazo_fim))}).`;
 };
 
+/**
+ * Art. 71 §§1º e 2º: a revogação exige a justificativa do fato superveniente
+ * (devidamente comprovado, pertinente e suficiente); a anulação, a indicação
+ * expressa dos atos com vício insanável. O motivo vazio já é cobrado pelo
+ * `requerMotivo`; aqui, o conteúdo mínimo com o fundamento certo.
+ */
+export const justificativaDaExtincao: Precondicao = (ctx) => {
+  const m = (ctx.motivo || '').trim();
+  if (ctx.somenteAvaliacao || !m || m.length >= 10) return null;
+  return ctx.ato === AtoLicitacao.ANULAR
+    ? 'A anulação exige a indicação expressa dos atos com vício insanável (art. 71, §1º, Lei 14.133/2021) — mínimo 10 caracteres.'
+    : 'A revogação exige a justificativa do fato superveniente, devidamente comprovado, pertinente e suficiente (art. 71, §2º, Lei 14.133/2021) — mínimo 10 caracteres.';
+};
+
+/**
+ * Art. 71 §3º (prévia manifestação dos interessados): a lei não traz exceção.
+ * Com interessados, o prazo de manifestação é pré-condição
+ * (`manifestacaoPreviaAssegurada`); SEM nenhum interessado no processo, o ato
+ * registra — texto automático, auditável — que não havia a quem ouvir.
+ */
+const registrarManifestacaoPrevia: EfeitoPersistido = async (lic, _m, ctx) => {
+  const n = ctx.consultas.interessadosExtincao ? await ctx.consultas.interessadosExtincao() : await ctx.consultas.propostasRecebidas();
+  const texto =
+    n === 0
+      ? `Não havia interessados a ouvir (art. 71, §3º, Lei 14.133/2021): nenhum licitante com proposta nem inscrito no processo em ${formatarDataBrasilia(ctx.agora)}.`
+      : `Prévia manifestação dos ${n} interessado(s) assegurada (art. 71, §3º, Lei 14.133/2021) — prazo de manifestação encerrado antes do ato.`;
+  if (n === 0) {
+    const linha = `[${ctx.agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}] ${texto}`;
+    lic.observacoes = lic.observacoes ? `${lic.observacoes}\n${linha}` : linha;
+  }
+  if (ctx.dados) ctx.dados.manifestacao_previa = texto;
+};
+
 const concluirIntencaoDeExtincao =
   (tipo: 'REVOGAR' | 'ANULAR'): EfeitoPersistido =>
   async (lic, manager) => {
@@ -439,6 +572,51 @@ const gravarCronogramaPublicacao: Efeito = (lic, ctx) => {
   if (!lic.data_publicacao_edital) lic.data_publicacao_edital = ctx.agora;
   if (dados.link_pncp) lic.link_pncp = dados.link_pncp;
 };
+
+/**
+ * CONFIRMAR_DIVULGACAO: grava a divulgação oficial (data, meio, referência) e
+ * reconfere o cronograma pela data CONFIRMADA (prazo mínimo é piso — as datas
+ * são estendidas quando preciso; `reajustarCronogramaNaDivulgacao`). O que
+ * mudou vai para os dados da transição (histórico) e para o aviso ao órgão.
+ */
+const gravarDivulgacaoConfirmada: Efeito = (lic, ctx) => {
+  const dados = ctx.dados || {};
+  const informada = dados.data_divulgacao ? new Date(dados.data_divulgacao) : null;
+  const quando = informada && !isNaN(informada.getTime()) ? informada : ctx.agora;
+  lic.data_divulgacao_oficial = quando;
+  lic.meio_divulgacao_oficial = String(dados.meio || 'PNCP').slice(0, 30);
+  lic.referencia_divulgacao_oficial = dados.referencia ? String(dados.referencia).slice(0, 500) : null;
+  const r = reajustarCronogramaNaDivulgacao(
+    {
+      modalidade: lic.modalidade,
+      tipo_contratacao: lic.tipo_contratacao,
+      criterio_julgamento: lic.criterio_julgamento,
+      regime_execucao: (lic as any).regime_execucao,
+      natureza_objeto: (lic as any).natureza_objeto,
+      orgao_id: lic.orgao_id,
+    },
+    lic as any,
+    quando,
+  );
+  for (const a of r.ajustes) (lic as any)[a.campo] = a.para;
+  if (ctx.dados) {
+    ctx.dados.cronograma_ajustado = r.ajustes.map((a) => ({
+      campo: a.campo,
+      de: a.de ? a.de.toISOString() : null,
+      para: a.para ? a.para.toISOString() : null,
+    }));
+    ctx.dados.ajuste_descricao = r.descricao;
+  }
+};
+
+/**
+ * O ajuste mexeu no PRAZO (fim do recebimento, abertura, limite de
+ * impugnação)? Só o início do recebimento acompanhar a divulgação não muda o
+ * que foi publicado — não gera nova versão do aviso nem retificação no PNCP.
+ */
+export function prazoEstendido(ajustes: Array<{ campo: string }> | null | undefined): boolean {
+  return (ajustes ?? []).some((a) => a.campo !== 'data_inicio_acolhimento');
+}
 
 /** RETOMAR: novas datas opcionais (reabertura de prazo após a suspensão). */
 const reabrirCronograma: Efeito = (lic, ctx) => {
@@ -542,25 +720,67 @@ const CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA: DefinicaoAto = {
   efeitos: [concluirFaseInterna],
 };
 
+/**
+ * Destino do PUBLICAR: a divulgação OFICIAL é a do PNCP (arts. 54 e 174) —
+ * o ato envia o edital/aviso e a licitação AGUARDA a confirmação (número de
+ * controle da compra) para ficar pública e abrir os prazos. Seleção externa:
+ * a divulgação é feita pela plataforma de origem (nada a aguardar aqui).
+ */
+export function faseAposPublicar(lic: { selecao_externa?: boolean | null }): FaseLicitacao {
+  return lic.selecao_externa ? FaseLicitacao.PUBLICADO : FaseLicitacao.AGUARDANDO_DIVULGACAO;
+}
+
 const PUBLICAR: DefinicaoAto = {
   ato: A.PUBLICAR,
-  rotulo: 'Publicar edital / divulgar aviso',
+  rotulo: 'Publicar edital / divulgar aviso (envio ao PNCP)',
   de: [F.APROVACAO_INTERNA],
-  para: F.PUBLICADO,
+  para: (lic) => faseAposPublicar(lic),
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, prazosDePublicacao, exclusividadeMpeArt48],
+  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48],
   efeitos: [gravarCronogramaPublicacao, gravarJustificativaArt49],
-  // o edital anexado vira o documento divulgado (E7a)
-  efeitosPersistidos: [async (lic, m) => marcarEditalPublicadoSql(m, lic.id)],
+  // o edital anexado vira o documento divulgado (E7a); na dispensa, o aviso
+  // de contratação direta é (re)gerado com o cronograma publicado e guardado
+  // como a versão PUBLICADA — é o arquivo enviado ao PNCP
+  efeitosPersistidos: [
+    async (lic, m) => marcarEditalPublicadoSql(m, lic.id),
+    async (lic, m) => {
+      if (lic.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA && !lic.selecao_externa) await publicarAvisoContratacaoSql(m, lic);
+    },
+  ],
   mensagemForaDaFase: () => 'Licitação precisa estar aprovada internamente para publicar edital',
+};
+
+/**
+ * CONFIRMAR_DIVULGACAO (arts. 54 e 174; art. 75 §3º): o PNCP devolveu o número
+ * de controle da COMPRA (fila — PncpFilaService) ou, sem PNCP, o órgão
+ * registrou a publicação no diário oficial (art. 176 par. único). A licitação
+ * fica pública, os prazos passam a correr e o cronograma é reconferido pela
+ * data confirmada. Cabe suspensa (a divulgação aconteceu do mesmo jeito).
+ */
+const CONFIRMAR_DIVULGACAO: DefinicaoAto = {
+  ato: A.CONFIRMAR_DIVULGACAO,
+  rotulo: 'Confirmar divulgação oficial (PNCP)',
+  de: [F.AGUARDANDO_DIVULGACAO],
+  para: F.PUBLICADO,
+  situacoesOrigem: [S.ATIVA, S.SUSPENSA],
+  somenteSistema: true,
+  efeitos: [gravarDivulgacaoConfirmada],
+  // Cronograma estendido na dispensa: o aviso guardado ganha nova versão
+  // PUBLICADA com as datas corretas (a fila a envia ao PNCP com a retificação).
+  efeitosPersistidos: [
+    async (lic, m, ctx) => {
+      if (lic.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA || !prazoEstendido(ctx.dados?.cronograma_ajustado)) return;
+      await publicarAvisoContratacaoSql(m, lic, 'Cronograma estendido ao mínimo legal na confirmação da divulgação no PNCP');
+    },
+  ],
 };
 
 const CANCELAR_PUBLICACAO: DefinicaoAto = {
   ato: A.CANCELAR_PUBLICACAO,
   rotulo: 'Cancelar publicação (compra excluída do PNCP)',
-  de: [F.PUBLICADO, F.IMPUGNACAO, F.ACOLHIMENTO_PROPOSTAS],
+  de: [F.AGUARDANDO_DIVULGACAO, F.PUBLICADO, F.IMPUGNACAO, F.ACOLHIMENTO_PROPOSTAS],
   para: F.APROVACAO_INTERNA,
   requerMotivo: true,
   somenteSistema: true,
@@ -792,7 +1012,8 @@ const JULGAR_DISPENSA: DefinicaoAto = {
   rotulo: 'Julgar propostas (menor preço) e adjudicar',
   // Tolerante com dispensas antigas que o "avançar" genérico levou a
   // disputa/julgamento/habilitação; ADJUDICACAO → ADJUDICACAO = rejulgar.
-  de: FASES_EXTERNAS_ATE_ADJUDICACAO,
+  // Nunca antes da divulgação confirmada no PNCP (não houve prazo).
+  de: FASES_DIVULGADAS_ATE_ADJUDICACAO,
   para: F.ADJUDICACAO,
   requerDados: false,
   endpoint: 'POST /licitacoes/:id/julgar-dispensa',
@@ -802,10 +1023,16 @@ const JULGAR_DISPENSA: DefinicaoAto = {
     janelaLancesDispensaEncerrada,
     impugnacoesAtendidasPorRetificacao,
     propostasConfirmadasAposRetificacao,
+    haPropostaParaJulgar,
   ],
   efeitos: [marcarData('data_adjudicacao')],
   efeitosPersistidos: [excluirPropostasNaoConfirmadas],
-  mensagemForaDaFase: (lic) => (lic.fase === F.HOMOLOGACAO ? 'Licitação já homologada' : null),
+  mensagemForaDaFase: (lic) =>
+    lic.fase === F.HOMOLOGACAO
+      ? 'Licitação já homologada'
+      : lic.fase === F.AGUARDANDO_DIVULGACAO
+        ? 'Aviso ainda não publicado no PNCP — o prazo de propostas não começou.'
+        : null,
 };
 
 const REGISTRAR_RESULTADO_EXTERNO: DefinicaoAto = {
@@ -865,8 +1092,8 @@ const REVOGAR: DefinicaoAto = {
   situacoesOrigem: [S.ATIVA, S.SUSPENSA],
   situacaoPara: S.REVOGADA,
   requerMotivo: true,
-  precondicoes: [semContratoAssinado, manifestacaoPreviaAssegurada],
-  efeitosPersistidos: [concluirIntencaoDeExtincao('REVOGAR')],
+  precondicoes: [semContratoAssinado, justificativaDaExtincao, manifestacaoPreviaAssegurada],
+  efeitosPersistidos: [registrarManifestacaoPrevia, concluirIntencaoDeExtincao('REVOGAR')],
 };
 
 const ANULAR: DefinicaoAto = {
@@ -876,8 +1103,8 @@ const ANULAR: DefinicaoAto = {
   situacoesOrigem: [S.ATIVA, S.SUSPENSA],
   situacaoPara: S.ANULADA,
   requerMotivo: true,
-  precondicoes: [semContratoAssinado, manifestacaoPreviaAssegurada],
-  efeitosPersistidos: [concluirIntencaoDeExtincao('ANULAR')],
+  precondicoes: [semContratoAssinado, justificativaDaExtincao, manifestacaoPreviaAssegurada],
+  efeitosPersistidos: [registrarManifestacaoPrevia, concluirIntencaoDeExtincao('ANULAR')],
 };
 
 /**
@@ -902,7 +1129,9 @@ const RETIFICAR_EDITAL: DefinicaoAto = {
   mensagemForaDaFase: (lic) =>
     FASES_INTERNAS.includes(lic.fase)
       ? 'Edital ainda não divulgado — altere o cadastro normalmente (a retificação é depois da publicação).'
-      : 'Sessão já aberta — o edital não se retifica mais (anule ou revogue, se for o caso).',
+      : lic.fase === F.AGUARDANDO_DIVULGACAO
+        ? 'Edital/aviso ainda não publicado no PNCP — nada foi divulgado: cancele a publicação, corrija e publique de novo (ou reenvie ao PNCP).'
+        : 'Sessão já aberta — o edital não se retifica mais (anule ou revogue, se for o caso).',
 };
 
 /** Intenção de revogar/anular (art. 71 §3º): abre o prazo de manifestação dos licitantes. */
@@ -926,19 +1155,19 @@ const INTENCAO_ANULAR = intencaoDeExtincao(A.INTENCAO_ANULAR);
 const DECLARAR_DESERTA: DefinicaoAto = {
   ato: A.DECLARAR_DESERTA,
   rotulo: 'Declarar deserta',
-  de: FASES_EXTERNAS_ATE_ADJUDICACAO,
+  de: FASES_DIVULGADAS_ATE_ADJUDICACAO,
   situacaoPara: S.DESERTA,
   requerMotivo: true,
-  precondicoes: [desertaPossivel],
+  precondicoes: [desertaPossivel, providenciaArt22Informada],
 };
 
 const DECLARAR_FRACASSADA: DefinicaoAto = {
   ato: A.DECLARAR_FRACASSADA,
   rotulo: 'Declarar fracassada',
-  de: FASES_EXTERNAS_ATE_ADJUDICACAO,
+  de: FASES_DIVULGADAS_ATE_ADJUDICACAO,
   situacaoPara: S.FRACASSADA,
   requerMotivo: true,
-  precondicoes: [fracassadaPossivel],
+  precondicoes: [fracassadaPossivel, providenciaArt22Informada],
 };
 
 const CONCLUIR: DefinicaoAto = {
@@ -971,6 +1200,7 @@ const FLUXO_COMPETITIVO: DefinicaoAto[] = [
   ...ATOS_ETAPAS_INTERNAS,
   CONCLUIR_FASE_INTERNA_RITO_COMPLETO,
   PUBLICAR,
+  CONFIRMAR_DIVULGACAO,
   CANCELAR_PUBLICACAO,
   RETIFICAR_EDITAL,
   INICIAR_ACOLHIMENTO,
@@ -993,6 +1223,7 @@ const FLUXO_DISPENSA: DefinicaoAto[] = [
   ...ATOS_ETAPAS_INTERNAS,
   CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA,
   PUBLICAR,
+  CONFIRMAR_DIVULGACAO,
   CANCELAR_PUBLICACAO,
   RETIFICAR_EDITAL,
   INICIAR_ACOLHIMENTO,
@@ -1008,6 +1239,7 @@ const FLUXO_INEXIGIBILIDADE: DefinicaoAto[] = [
   ...ATOS_ETAPAS_INTERNAS,
   CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA,
   PUBLICAR,
+  CONFIRMAR_DIVULGACAO,
   CANCELAR_PUBLICACAO,
   RETIFICAR_EDITAL,
   REGISTRAR_RESULTADO_EXTERNO,
@@ -1060,9 +1292,9 @@ const gravarVigenciaCredenciamento: EfeitoPersistido = async (lic, manager, ctx)
 
 const PUBLICAR_CREDENCIAMENTO: DefinicaoAto = {
   ato: A.PUBLICAR,
-  rotulo: 'Publicar edital de credenciamento (chamamento público)',
+  rotulo: 'Publicar edital de credenciamento (chamamento público — envio ao PNCP)',
   de: [F.APROVACAO_INTERNA],
-  para: F.PUBLICADO,
+  para: (lic) => faseAposPublicar(lic),
   requerDados: true,
   endpoint: 'PATCH /credenciamento/:id/publicar',
   principal: true,
@@ -1106,6 +1338,7 @@ const FLUXO_CREDENCIAMENTO: DefinicaoAto[] = [
   ...ATOS_ETAPAS_INTERNAS,
   CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA,
   PUBLICAR_CREDENCIAMENTO,
+  CONFIRMAR_DIVULGACAO,
   CANCELAR_PUBLICACAO,
   ABRIR_INSCRICOES_CREDENCIAMENTO,
   ENCERRAR_VIGENCIA_CREDENCIAMENTO,
@@ -1140,6 +1373,7 @@ const ESPECIAIS = montarFluxosEspeciais({
   etapasInternas: ATOS_ETAPAS_INTERNAS,
   concluirFaseInterna: CONCLUIR_FASE_INTERNA_RITO_COMPLETO,
   publicar: PUBLICAR,
+  confirmarDivulgacao: CONFIRMAR_DIVULGACAO,
   cancelarPublicacao: CANCELAR_PUBLICACAO,
   retificarEdital: RETIFICAR_EDITAL,
   iniciarAcolhimento: INICIAR_ACOLHIMENTO,

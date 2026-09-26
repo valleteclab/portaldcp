@@ -109,7 +109,7 @@ describe('regras da negociação (Lei 14.133 art. 61; IN 73 art. 30)', () => {
     });
   });
 
-  describe('visibilidade PARTICIPANTES (IN 73 art. 30 §2º)', () => {
+  describe('visibilidade PARTICIPANTES (IN 73 art. 30 §1º)', () => {
     const acompanhado = { dados_adicionais: { visibilidade: 'PARTICIPANTES', fornecedor_id: 'F1' } };
     it('órgão e todo licitante participante leem; público anônimo e outros órgãos (visão PUBLICO) não', () => {
       expect(eventoVisivel(acompanhado, { tipo: 'ORGAO' })).toBe(true);

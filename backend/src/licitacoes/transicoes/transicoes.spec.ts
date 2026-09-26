@@ -63,7 +63,9 @@ describe('TransicoesService — matriz de transições por modalidade', () => {
     [M.PREGAO_ELETRONICO, F.ANALISE_JURIDICA, A.CONCLUIR_ANALISE_JURIDICA, F.APROVACAO_INTERNA],
     [M.PREGAO_ELETRONICO, F.APROVACAO_INTERNA, A.CONCLUIR_FASE_INTERNA, null],
     [M.PREGAO_ELETRONICO, F.TERMO_REFERENCIA, A.DEVOLVER_FASE_INTERNA, F.PLANEJAMENTO],
-    [M.PREGAO_ELETRONICO, F.APROVACAO_INTERNA, A.PUBLICAR, F.PUBLICADO],
+    [M.PREGAO_ELETRONICO, F.APROVACAO_INTERNA, A.PUBLICAR, F.AGUARDANDO_DIVULGACAO],
+    [M.PREGAO_ELETRONICO, F.AGUARDANDO_DIVULGACAO, A.CONFIRMAR_DIVULGACAO, F.PUBLICADO],
+    [M.PREGAO_ELETRONICO, F.AGUARDANDO_DIVULGACAO, A.CANCELAR_PUBLICACAO, F.APROVACAO_INTERNA],
     [M.PREGAO_ELETRONICO, F.PUBLICADO, A.INICIAR_ACOLHIMENTO, F.ACOLHIMENTO_PROPOSTAS],
     [M.PREGAO_ELETRONICO, F.IMPUGNACAO, A.INICIAR_ACOLHIMENTO, F.ACOLHIMENTO_PROPOSTAS],
     [M.PREGAO_ELETRONICO, F.ACOLHIMENTO_PROPOSTAS, A.ENCERRAR_ACOLHIMENTO, F.ANALISE_PROPOSTAS],
@@ -100,7 +102,8 @@ describe('TransicoesService — matriz de transições por modalidade', () => {
     // Dispensa eletrônica
     [M.DISPENSA_ELETRONICA, F.PLANEJAMENTO, A.CONCLUIR_FASE_INTERNA, F.APROVACAO_INTERNA],
     [M.DISPENSA_ELETRONICA, F.PLANEJAMENTO, A.CONCLUIR_PLANEJAMENTO, F.TERMO_REFERENCIA],
-    [M.DISPENSA_ELETRONICA, F.APROVACAO_INTERNA, A.PUBLICAR, F.PUBLICADO],
+    [M.DISPENSA_ELETRONICA, F.APROVACAO_INTERNA, A.PUBLICAR, F.AGUARDANDO_DIVULGACAO],
+    [M.DISPENSA_ELETRONICA, F.AGUARDANDO_DIVULGACAO, A.CONFIRMAR_DIVULGACAO, F.PUBLICADO],
     [M.DISPENSA_ELETRONICA, F.PUBLICADO, A.JULGAR_DISPENSA, F.ADJUDICACAO],
     [M.DISPENSA_ELETRONICA, F.ANALISE_PROPOSTAS, A.JULGAR_DISPENSA, F.ADJUDICACAO],
     [M.DISPENSA_ELETRONICA, F.ADJUDICACAO, A.JULGAR_DISPENSA, null], // rejulgar até homologar
@@ -199,7 +202,8 @@ describe('TransicoesService — credenciamento (E7b: arts. 78 I, 79 e 74 IV)', (
   test('fase interna em etapa única (art. 72) → publicar → inscrições → vigência encerrada (CONCLUIDA)', () => {
     expect(permite(C, F.PLANEJAMENTO, A.CONCLUIR_FASE_INTERNA)).toBe(true);
     expect(permite(C, F.APROVACAO_INTERNA, A.PUBLICAR)).toBe(true);
-    expect(faseDestino(definicaoDoAto(C, A.PUBLICAR)!, lic({ modalidade: C, fase: F.APROVACAO_INTERNA }))).toBe(F.PUBLICADO);
+    expect(faseDestino(definicaoDoAto(C, A.PUBLICAR)!, lic({ modalidade: C, fase: F.APROVACAO_INTERNA }))).toBe(F.AGUARDANDO_DIVULGACAO);
+    expect(faseDestino(definicaoDoAto(C, A.CONFIRMAR_DIVULGACAO)!, lic({ modalidade: C, fase: F.AGUARDANDO_DIVULGACAO }))).toBe(F.PUBLICADO);
     expect(faseDestino(definicaoDoAto(C, A.INICIAR_ACOLHIMENTO)!, lic({ modalidade: C, fase: F.PUBLICADO }))).toBe(F.ACOLHIMENTO_PROPOSTAS);
     const enc = definicaoDoAto(C, A.ENCERRAR_ACOLHIMENTO)!;
     expect(enc.situacaoPara).toBe(S.CONCLUIDA);
@@ -474,7 +478,7 @@ describe('TransicoesService — suspender / retomar e efeitos', () => {
       agora,
       dados: { data_publicacao_edital: '2026-09-24T09:00:00', data_fim_acolhimento: '2026-10-01T09:00:00', link_pncp: 'https://pncp' },
     }));
-    expect(p.fase).toBe(F.PUBLICADO);
+    expect(p.fase).toBe(F.AGUARDANDO_DIVULGACAO); // divulgação oficial = PNCP (aguarda a confirmação)
     expect(p.fase_interna_concluida).toBe(true);
     expect(p.data_fim_acolhimento).toEqual(new Date('2026-10-01T09:00:00'));
     expect(p.link_pncp).toBe('https://pncp');
@@ -487,6 +491,7 @@ describe('TransicoesService — suspender / retomar e efeitos', () => {
     expect(jaAplicado(def, lic({ fase: F.EM_DISPUTA }))).toBe(true);
     const pub = definicaoDoAto(M.PREGAO_ELETRONICO, A.PUBLICAR)!;
     expect(jaAplicado(pub, lic({ fase: F.APROVACAO_INTERNA }))).toBe(false);
+    expect(jaAplicado(pub, lic({ fase: F.AGUARDANDO_DIVULGACAO }))).toBe(true);
     expect(jaAplicado(pub, lic({ fase: F.PUBLICADO }))).toBe(true);
     const susp = definicaoDoAto(M.PREGAO_ELETRONICO, A.SUSPENDER)!;
     expect(jaAplicado(susp, lic({ fase: F.PUBLICADO, situacao: S.SUSPENSA }))).toBe(true);

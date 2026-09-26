@@ -48,6 +48,7 @@ import {
   criarUsuarioOrgao,
   enviarProposta,
   fecharSockets,
+  gerarAvisoDispensa,
   levarAteFase,
   pncpMock,
 } from './support';
@@ -225,16 +226,29 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
 
     it('divulga com o prazo mínimo e publica compra + itens + aviso no PNCP do órgão da licitação', async () => {
       pncpMock.limpar();
+      // IN 67: sem o aviso de contratação direta GERADO e guardado, não divulga
+      const semAviso = await ctx
+        .http()
+        .put(`/api/licitacoes/${lic.id}/publicar-edital`)
+        .set(bearer(orgao.token))
+        .send(corpoDivulgacao(fimPropostasSugerido()));
+      expect(semAviso.status).toBe(400);
+      expect(semAviso.body.pendencias.join(' ')).toMatch(/Gere o aviso de contratação direta/);
+      const aviso = await gerarAvisoDispensa(ctx, lic);
+      expect(aviso).toMatchObject({ versao: 1, status: 'RASCUNHO' });
+
       const r = await ctx
         .http()
         .put(`/api/licitacoes/${lic.id}/publicar-edital`)
         .set(bearer(orgao.token))
         .send(corpoDivulgacao(fimPropostasSugerido()))
         .expect(200);
-      expect(r.body.fase).toBe(FaseLicitacao.PUBLICADO);
+      // Divulgação OFICIAL = PNCP (arts. 54 e 174): aguarda a confirmação da compra
+      expect(r.body.fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
       expect(r.body.fase_interna_concluida).toBe(true);
+      expect(r.body.data_divulgacao_oficial ?? null).toBeNull();
 
-      // Envio ao PNCP é fire-and-forget: espera compra e itens chegarem ao mock
+      // O PNCP sai pela fila: o worker envia compra e itens ao mock
       const [itens] = await aguardar(
         () => {
           const l = pncpMock.filtrar('POST', /\/compras\/\d+\/\d+\/itens$/);
@@ -254,7 +268,8 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(headerCapturado(compra, 'Tipo-Documento-Id')).toBe('1');
       expect(headerCapturado(compra, 'Titulo-Documento')).toBe('Aviso de Contratacao Direta');
       const texto = corpoComoTexto(compra.corpo);
-      expect(texto).toContain('filename="aviso-contratacao-direta.pdf"');
+      // o arquivo enviado é o aviso GUARDADO no processo (versão publicada)
+      expect(texto).toMatch(/filename="aviso-contratacao-direta-v2.pdf"/);
       expect(texto).toContain('%PDF');
 
       const dto = jsonDaParte(compra.corpo, 'compra');
@@ -281,6 +296,14 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(pc.body.pncp).toEqual(
         expect.arrayContaining([expect.objectContaining({ tipo: 'COMPRA', status: 'ENVIADO' })]),
       );
+      // Compra aceita = divulgação confirmada: o recebimento abre sozinho
+      const depois = await buscarLicitacao(ctx, lic);
+      expect(depois.fase).toBe(FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
+      expect(depois.data_divulgacao_oficial).toBeTruthy();
+      expect(depois.meio_divulgacao_oficial).toBe('PNCP');
+      const avisos = await ctx.http().get(`/api/publicacao/licitacao/${lic.id}/aviso`).set(bearer(orgao.token)).expect(200);
+      expect(avisos.body.vigente).toMatchObject({ versao: 2, status: 'PUBLICADO' });
+      expect(avisos.body.versoes.map((v: any) => v.status)).toEqual(['PUBLICADO', 'SUBSTITUIDO']);
     });
   });
 
@@ -337,7 +360,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(j.status).toBe(400);
       expect(j.body.message).toMatch(/prazo de recebimento de propostas ainda está aberto/);
 
-      const l = await abrirJanelaLances(ctx, lic, { duracao_minutos: 30, prorrogacao_minutos: 2 });
+      const l = await abrirJanelaLances(ctx, lic, { duracao_minutos: 360, prorrogacao_minutos: 2 });
       expect(l.status).toBe(400);
       expect(l.body.message).toMatch(/após o fim do recebimento de propostas/);
     });
@@ -385,7 +408,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
 
   // --------------------------------------------------------------------------
   describe('Bloco 3 — janela de lances (IN SEGES 67/2021)', () => {
-    it('o órgão abre a janela (30 min, prorrogação de 2 min) e a regra fica registrada no chat', async () => {
+    it('o órgão abre a janela (6 h — IN 67 art. 11 —, prorrogação de 2 min) e a regra fica registrada no chat', async () => {
       // E2 item 8: canal único — o feed da dispensa é a sala pública da licitação no /disputa
       // (antes: namespace /dispensa + 'entrar_sala'). Mesmos eventos: sala_ok, janela, painel_atualizado, chat.
       sala = await conectarSocket(ctx, '/disputa');
@@ -395,13 +418,13 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
 
       const janela = aguardarEvento(sala, 'janela');
       const antes = Date.now();
-      const r = await abrirJanelaLances(ctx, lic, { duracao_minutos: 30, prorrogacao_minutos: 2 });
+      const r = await abrirJanelaLances(ctx, lic, { duracao_minutos: 360, prorrogacao_minutos: 2 });
       expect(r.status).toBe(201);
-      expect(r.body.duracao_minutos).toBe(30);
+      expect(r.body.duracao_minutos).toBe(360);
       expect(r.body.prorrogacao_minutos).toBe(2);
       const fim = new Date(r.body.dispensa_lances_fim).getTime();
-      expect(fim).toBeGreaterThanOrEqual(antes + 30 * MIN - 2_000);
-      expect(fim).toBeLessThanOrEqual(Date.now() + 30 * MIN + 2_000);
+      expect(fim).toBeGreaterThanOrEqual(antes + 360 * MIN - 2_000);
+      expect(fim).toBeLessThanOrEqual(Date.now() + 360 * MIN + 2_000);
 
       const ev = await janela;
       expect(new Date(ev.dispensa_lances_fim).getTime()).toBe(fim);
@@ -413,7 +436,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
     });
 
     it('não abre uma segunda janela com outra aberta', async () => {
-      const r = await abrirJanelaLances(ctx, lic, { duracao_minutos: 30 });
+      const r = await abrirJanelaLances(ctx, lic, { duracao_minutos: 360 });
       expect(r.status).toBe(400);
       expect(r.body.message).toMatch(/Já existe uma fase de lances aberta/);
     });
@@ -430,7 +453,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       const r = await darLance(ctx, me, lic, item1, 91);
       expect(r.status).toBe(201);
       expect(r.body).toMatchObject({ ok: true, valor_unitario: 91, seu_valor_anterior: 95 });
-      // faltam ~30 min > 2 min: sem prorrogação
+      // faltam ~6 h > 2 min: sem prorrogação
       expect(r.body.prorrogada).toBeUndefined();
 
       // push em tempo real, anônimo: menor valor do item (90 da proposta do "demais")
@@ -736,7 +759,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(m.status).toBe(400);
       expect(m.body.message).toMatch(/chat encerrado/);
 
-      const l = await abrirJanelaLances(ctx, lic, { duracao_minutos: 30 });
+      const l = await abrirJanelaLances(ctx, lic, { duracao_minutos: 360 });
       expect(l.status).toBe(400);
       expect(l.body.message).toMatch(/já homologada/);
     });
@@ -795,7 +818,7 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
 
   it('janela SEM prorrogação: lance não prorroga (encerramento seco, padrão IN 67)', async () => {
     await abrirSessaoAgora(ctx, lic);
-    const a = await abrirJanelaLances(ctx, lic, { duracao_minutos: 30, prorrogacao_minutos: 0 });
+    const a = await abrirJanelaLances(ctx, lic, { duracao_minutos: 360, prorrogacao_minutos: 0 });
     expect(a.status).toBe(201);
     expect(a.body.prorrogacao_minutos).toBeNull();
 
@@ -805,7 +828,7 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
     expect(r.status).toBe(201);
     expect(r.body.prorrogada).toBeUndefined();
     // devolve a janela para 30 min (relógio) para os testes seguintes
-    await moverFimDaJanela(ctx, lic.id, new Date(Date.now() + 30 * MIN));
+    await moverFimDaJanela(ctx, lic.id, new Date(Date.now() + 360 * MIN));
   });
 
   // CORRIGIDO NA E1a (era defeito): o lance da dispensa confia no `fornecedor_id` do corpo — qualquer token dá lance em nome de

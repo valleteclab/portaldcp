@@ -273,7 +273,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
         await refreshBoard(sessaoId)
       })
     }
-    // Negociação (art. 61): acompanhada pelos participantes na sala da sessão (IN 73 art. 30 §2º) e resultado
+    // Negociação (art. 61): acompanhada pelos participantes na sala da sessão (IN 73 art. 30 §1º) e resultado
     for (const evento of ['negociacao_mensagem', 'negociacao_atualizada', 'negociacao_resultado']) {
       socket.on(evento, () => setNegociacaoVersao((v) => v + 1))
     }

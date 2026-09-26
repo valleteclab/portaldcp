@@ -64,9 +64,10 @@ describe('E1 — prazo de impugnação (art. 164) e relógio do cronograma', () 
   /** Pregão publicado com o acolhimento já iniciado pelo edital (ainda em PUBLICADO). */
   const pregaoPublicado = async (): Promise<LicitacaoFixture> => {
     const lic = await criarLicitacao(ctx, orgao, ModalidadeLicitacao.PREGAO_ELETRONICO);
-    await levarAteFase(ctx, lic, FaseLicitacao.PUBLICADO, {
-      datas: { data_inicio_acolhimento: emDias(-1), data_publicacao_edital: emDias(-1) },
-    });
+    // Publicado com início futuro (a confirmação do PNCP não abre o recebimento
+    // antes da data) e o RELÓGIO avança: o início passa a ser ontem, ainda em PUBLICADO.
+    await levarAteFase(ctx, lic, FaseLicitacao.PUBLICADO, { datas: { data_inicio_acolhimento: emDias(1) } });
+    await editar(lic, { data_inicio_acolhimento: emDias(-1), data_publicacao_edital: emDias(-1) });
     return lic;
   };
 

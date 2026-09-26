@@ -322,7 +322,7 @@ describe('Dispensa eletrônica no motor único (E2)', () => {
 
     it('abre a janela: sala do motor em MODO_ABERTO, itens EM_DISPUTA, base UNITARIO, regra no chat único', async () => {
       const janela = aguardarEvento(sala, 'janela');
-      const r = await abrirJanelaLances(ctx, lic, { duracao_minutos: 30, prorrogacao_minutos: 2 });
+      const r = await abrirJanelaLances(ctx, lic, { duracao_minutos: 360, prorrogacao_minutos: 2 });
       expect(r.status).toBe(201);
       const ev = await janela;
       expect(ev.aberta).toBe(true);

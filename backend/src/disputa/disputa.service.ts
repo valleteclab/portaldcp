@@ -1629,11 +1629,19 @@ export class DisputaService {
    * vale para os licitantes; o pregoeiro sempre fala). O registro guarda o nome
    * real (ata); a difusão aos não-donos usa o código anônimo.
    */
-  async enviarMensagem(sessaoId: string, remetente: RemetenteChat, conteudo: string): Promise<EventoSessao> {
+  async enviarMensagem(sessaoId: string, remetente: RemetenteChat, conteudo: string, opts: { viaDispensa?: boolean } = {}): Promise<EventoSessao> {
     const texto = typeof conteudo === 'string' ? conteudo.trim() : '';
     if (!texto) throw new BadRequestException('Mensagem vazia');
     const sessao = await this.sessaoRepo.findOneBy({ id: sessaoId });
     if (!sessao) throw new NotFoundException('Sessão não encontrada');
+    // Dispensa: as regras do chat por fase (IN SEGES 67/2021 — avisos, lances,
+    // negociação privada com o vencedor) valem só pelo caminho da dispensa.
+    if (!opts.viaDispensa) {
+      const [l] = await this.sessaoRepo.manager.query(`SELECT modalidade::text AS modalidade FROM licitacoes WHERE id = $1`, [sessao.licitacao_id]);
+      if (l?.modalidade === 'DISPENSA_ELETRONICA') {
+        throw new ForbiddenException('Chat da dispensa eletrônica: use as mensagens do processo (regras da IN SEGES 67/2021).');
+      }
+    }
     if (remetente.tipo === 'FORNECEDOR' && sessao.chat_desabilitado) {
       throw new ForbiddenException('O chat está desabilitado pelo pregoeiro.');
     }

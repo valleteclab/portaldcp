@@ -19,7 +19,20 @@ O cartão **Publicar edital** aparece no cockpit quando a fase interna está con
 4. Confira o painel de prazos: dias exigidos, fundamento legal, **data mínima**, e a lista "Sem expediente no período (não contam)" com os feriados considerados.
 5. Clique em **Publicar edital**.
 
-Ao publicar, "o aviso vai para a fila do PNCP automaticamente e o prazo de propostas é aberto". O processo passa para **Publicado** e, no início do recebimento, para **Recebendo Propostas** (automaticamente).
+Ao publicar, o edital vai para a fila do PNCP. **A divulgação oficial é a do PNCP** (arts. 54 e 174 da Lei 14.133/2021): por isso o processo passa primeiro para **Aguardando publicação no PNCP** — ainda não é público, não recebe propostas e **o prazo não começou**. Quando o PNCP devolve o número de controle da compra, o sistema:
+
+1. registra a **divulgação oficial** (data, meio e número de controle) no histórico, em nome de "Sistema (PNCP)";
+2. **reconfere o cronograma pela data confirmada**: se a confirmação atrasou e o prazo mínimo (art. 55; na dispensa, 3 dias úteis — art. 75, §3º) deixou de ser respeitado, as datas são **estendidas** até o mínimo legal (mesmo horário, no N-ésimo dia útil). O prazo mínimo é piso: estender protege a isonomia e nunca encurta o prazo de ninguém. O ajuste fica no histórico, o órgão recebe uma notificação e a compra é retificada no PNCP;
+3. passa o processo para **Publicado** e, se a data de início já chegou, para **Recebendo propostas**.
+
+### Aviso NÃO publicado no PNCP
+
+Se o PNCP recusar ou não responder, o cockpit mostra no topo o alerta **"Aviso NÃO publicado no PNCP — prazo não iniciado"** com o retorno real da API (código HTTP, mensagem, tentativas, última tentativa e a próxima tentativa automática) e uma lista "O que corrigir":
+
+- falha temporária (PNCP fora do ar, rede): o reenvio é automático; use **Reenviar agora** para não esperar;
+- recusa por dado (ex.: item, unidade, datas): nada foi divulgado — use **Cancelar publicação**, corrija na fase interna e publique de novo.
+
+> **Órgão sem integração com o PNCP** (municípios que ainda não o adotaram — art. 176, parágrafo único): o alerta traz os campos **Data da publicação no diário oficial** e **Referência (edição, página ou link)** e o botão **Registrar publicação oficial**. Os prazos correm dessa data. Órgão integrado não usa este registro: a confirmação vem do PNCP.
 
 ### Prazos mínimos de divulgação (art. 55)
 
@@ -59,14 +72,17 @@ Se algo estiver faltando, o botão mostra a mensagem "Pendências para ..." com 
 | "Cadastre pelo menos um item com quantidade e valor estimado" | Cartão **Itens da contratação** do cockpit › **Editar itens** (ou a pesquisa de preços, que preenche o valor). Vale para todas as modalidades — também para concluir a fase interna |
 | Item exclusivo ME/EPP acima de R$ 80.000 | Retire a exclusividade ou ajuste (LC 123, art. 48, I) |
 | Item até R$ 80.000 sem exclusividade e sem justificativa | Registre a justificativa do art. 49 |
+| "Gere o aviso de contratação direta (PDF)" (dispensa) | No **Divulgar aviso da dispensa**, clique em **Gerar aviso (PDF)** e confira — parte [05](05-dispensa-e-inexigibilidade.md) |
 
 ### Cancelar a publicação (antes de propostas)
 
-Publicou com erro (ex.: sem itens) e ainda não há propostas? No cockpit aparece o cartão **Cancelar publicação** (só o órgão dono; motivo obrigatório, fica no histórico). A compra sai do PNCP — ou da fila, se ainda não tinha sido enviada — e o processo volta à fase interna (aprovação interna): corrija (itens, documentos) e publique de novo. Com proposta recebida, o caminho é revogar ou anular (abaixo).
+Publicou com erro (ex.: sem itens), o PNCP recusou, ou ainda não há propostas? No cockpit aparece o cartão **Cancelar publicação** (também na fase **Aguardando publicação no PNCP**) (só o órgão dono; motivo obrigatório, fica no histórico). A compra sai do PNCP — ou da fila, se ainda não tinha sido enviada — e o processo volta à fase interna (aprovação interna): corrija (itens, documentos) e publique de novo. Com proposta recebida, o caminho é revogar ou anular (abaixo).
 
 ## Impugnações e esclarecimentos
 
 Depois da publicação, o cartão **Impugnações e esclarecimentos** do cockpit mostra quantos pedidos existem e quantos estão pendentes, com links para as telas de resposta.
+
+> **Dispensa eletrônica:** não há impugnação nem pedido de esclarecimento formal — a IN SEGES 67/2021 não os prevê e o art. 164 da Lei trata do edital de licitação. A comunicação é pelas mensagens do sistema (IN 67, art. 10) — veja a parte [05](05-dispensa-e-inexigibilidade.md). O sistema recusa o pedido formal na dispensa.
 
 **Prazo (art. 164):** qualquer pessoa pode impugnar ou pedir esclarecimento até **3 dias úteis antes da abertura** da sessão (ou até a data-limite do edital, se informada). Depois disso, os botões somem para o fornecedor. O prazo corre junto com o recebimento de propostas.
 
@@ -132,16 +148,20 @@ Durante o prazo, o cartão mostra as **Manifestações dos licitantes**. Se desi
 5. Depois do fim do prazo, o botão **Revogar** / **Anular** fica disponível ("Disponível depois do fim do prazo de manifestação").
 6. Fundamente o ato e, se houver, responda às manifestações. Confirme.
 
-Sem licitantes (nenhuma proposta ou inscrição), não há a quem ouvir: aparece **Revogar direto** / **Anular direto** ("Ato direto (sem licitantes a notificar)").
+Sem licitantes (nenhuma proposta ou inscrição), não há a quem ouvir: aparece **Revogar direto** / **Anular direto** ("Ato direto (sem licitantes a notificar)"). O art. 71, §3º não tem exceção — por isso o próprio ato registra, com texto automático e auditável, que "não havia interessados a ouvir".
+
+**Fundamentação obrigatória** (mínimo 10 caracteres): na **revogação**, o fato superveniente, devidamente comprovado, pertinente e suficiente (art. 71, §2º); na **anulação**, a indicação expressa dos atos com vício insanável (art. 71, §1º).
 
 A situação passa a **Revogada** ou **Anulada** e o PNCP é atualizado automaticamente.
 
 ## Deserta e fracassada
 
-- Se não houve nenhuma proposta, use **Declarar deserta** no cartão **Atos do processo**.
-- Se houve propostas mas nenhuma pôde ser aceita/habilitada, use **Declarar fracassada**.
+- **Declarar deserta** só depois do fim do prazo de propostas e sem nenhuma proposta.
+- **Declarar fracassada** só quando houve propostas mas nenhuma é aproveitável — todas desclassificadas, ou julgamento feito sem vencedor. Sem proposta nenhuma, o caso é de deserta.
 - Quando todos os itens ficam desertos ou fracassados durante a sessão, o sistema faz isso sozinho.
+- Os botões ficam desabilitados com o motivo escrito logo abaixo (a regra é do servidor — a tela só mostra).
+- Na **dispensa**, escolha também a providência do art. 22 da IN SEGES 67/2021 — veja a parte [05](05-dispensa-e-inexigibilidade.md).
 
 ## Histórico do processo
 
-O cartão **Histórico** do cockpit lista cada ato praticado: quem, quando, de qual fase para qual e o motivo. É o registro oficial da tramitação.
+O cartão **Histórico** do cockpit lista cada ato praticado: quem (o nome do servidor, do órgão ou do fornecedor; atos automáticos aparecem como "Sistema (PNCP)", "Sistema (relógio)" ou "Sistema (ajuste de dados)"), quando (horário de Brasília), de qual fase para qual (com os nomes das fases, não os códigos) e o motivo — além de um resumo do que o ato registrou (cronograma estendido, manifestação prévia, providência do art. 22 da IN 67). É o registro oficial da tramitação.

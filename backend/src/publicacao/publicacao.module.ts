@@ -5,6 +5,7 @@ import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { EditalService } from './edital.service';
+import { DivulgacaoService } from './divulgacao.service';
 import { ExtincaoService } from './extincao.service';
 import { PublicacaoController } from './publicacao.controller';
 import { PublicacaoEventos } from './publicacao-eventos';
@@ -24,7 +25,7 @@ import { RetificacaoService } from './retificacao.service';
     NotificacoesModule,
   ],
   controllers: [PublicacaoController],
-  providers: [EditalService, RetificacaoService, ExtincaoService, PublicacaoEventos],
-  exports: [EditalService, PublicacaoEventos, RetificacaoService, ExtincaoService],
+  providers: [EditalService, RetificacaoService, ExtincaoService, PublicacaoEventos, DivulgacaoService],
+  exports: [EditalService, PublicacaoEventos, RetificacaoService, ExtincaoService, DivulgacaoService],
 })
 export class PublicacaoModule {}

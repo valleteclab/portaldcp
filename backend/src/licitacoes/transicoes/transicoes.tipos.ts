@@ -24,7 +24,14 @@ export enum AtoLicitacao {
   DEVOLVER_FASE_INTERNA = 'DEVOLVER_FASE_INTERNA', // volta uma etapa interna (motivo)
 
   // --- Fase externa ---
-  PUBLICAR = 'PUBLICAR', // edital/aviso divulgado (art. 54)
+  PUBLICAR = 'PUBLICAR', // ato de publicação: envia o edital/aviso ao PNCP (art. 54) — aguarda a confirmação
+  /**
+   * Divulgação OFICIAL confirmada (arts. 54 e 174): o PNCP devolveu o número
+   * de controle da compra (ou, sem PNCP, o órgão registrou a publicação no
+   * diário oficial — art. 176 par. único). Só daqui os prazos correm; o
+   * cronograma é reconferido pela data confirmada. Só o sistema pratica.
+   */
+  CONFIRMAR_DIVULGACAO = 'CONFIRMAR_DIVULGACAO',
   CANCELAR_PUBLICACAO = 'CANCELAR_PUBLICACAO', // retirada do PNCP antes de propostas (uso do sistema)
   /** @deprecated fora dos fluxos (E1 item 6): prazo de impugnação é por data. Mantido para o histórico. */
   ABRIR_IMPUGNACAO = 'ABRIR_IMPUGNACAO',
@@ -75,6 +82,7 @@ export enum AtoLicitacao {
 /** Registros do histórico que não são atos executáveis. */
 export const REGISTRO_CRIACAO = 'CRIAR';
 export const REGISTRO_MIGRACAO_SITUACAO = 'MIGRACAO_SITUACAO';
+export const REGISTRO_MIGRACAO_DIVULGACAO = 'MIGRACAO_DIVULGACAO';
 
 /** Quem pediu a transição (gravado no histórico). */
 export interface AtorTransicao {
@@ -104,6 +112,19 @@ export interface ConsultasTransicao {
   propostasRecebidas(): Promise<number>;
   /** Propostas aptas à disputa (ENVIADA/VALIDA/CLASSIFICADA) — regra antiga do avançar. */
   propostasAptasDisputa(): Promise<number>;
+  /**
+   * Propostas ENVIADAS por interessados, válidas ou não (≠ RASCUNHO/CANCELADA)
+   * — distingue a licitação DESERTA (ninguém apareceu) da FRACASSADA (houve
+   * interessados, nenhuma proposta aproveitável). Opcional: ausente = usa
+   * `propostasRecebidas`.
+   */
+  propostasEnviadas?(): Promise<number>;
+  /**
+   * Aviso de contratação direta GERADO e guardado no processo (documento
+   * AVISO_LICITACAO não substituído) — é o arquivo publicado no PNCP.
+   * Opcional: ausente = sem checagem.
+   */
+  avisoContratacaoVigente?(): Promise<{ documento_id: string; versao: number } | null>;
   /** Contratos da licitação já assinados (e não cancelados). */
   contratosAssinados(): Promise<number>;
   /** Contratos + atas de registro de preço gerados a partir da licitação. */

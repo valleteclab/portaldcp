@@ -550,6 +550,7 @@ export class CredenciamentoService {
     if (lic.situacao === 'ANULADA') return 'ANULADO';
     if (lic.fase === 'ACOLHIMENTO_PROPOSTAS') return 'EM_ANDAMENTO';
     if (lic.fase === 'PUBLICADO') return 'PUBLICADO';
+    if (lic.fase === 'AGUARDANDO_DIVULGACAO') return 'AGUARDANDO_PNCP';
     return 'RASCUNHO';
   }
 
@@ -704,7 +705,9 @@ export class CredenciamentoService {
     }
     await this.transicoes.executar(id, AtoLicitacao.PUBLICAR, { ator, dados: {}, registro: { origem: 'credenciamento' } });
     lic = await this.processo(this.ds.manager, id);
-    if (lic.data_inicio_acolhimento && new Date(lic.data_inicio_acolhimento).getTime() <= Date.now()) {
+    // Divulgação oficial pelo PNCP (arts. 54 e 174): as inscrições só abrem
+    // depois da confirmação (a fila inicia o recebimento ao confirmar).
+    if (lic.fase === FaseLicitacao.PUBLICADO && lic.data_inicio_acolhimento && new Date(lic.data_inicio_acolhimento).getTime() <= Date.now()) {
       await this.transicoes.executar(id, AtoLicitacao.INICIAR_ACOLHIMENTO, { ator, ignorarSeJaAplicado: true, registro: { origem: 'credenciamento' } });
     }
     return this.visaoOrgao(id);

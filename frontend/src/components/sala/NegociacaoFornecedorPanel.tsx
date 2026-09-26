@@ -103,7 +103,7 @@ export function NegociacaoFornecedorPanel({ sessaoId, versao = 0 }: { sessaoId: 
           Negociação (art. 61)
         </CardTitle>
         <CardDescription>
-          Lei 14.133/2021, art. 61; IN SEGES 73/2022, art. 30 §2º — a negociação é acompanhada por todos os licitantes. Só o licitante com quem ela foi
+          Lei 14.133/2021, art. 61; IN SEGES 73/2022, art. 30 §1º — a negociação é acompanhada por todos os licitantes. Só o licitante com quem ela foi
           aberta responde; as demais aparecem em modo leitura.
         </CardDescription>
       </CardHeader>

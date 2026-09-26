@@ -27,7 +27,7 @@
  *  - contraproposta do agente sempre MENOR que o valor atual do licitante (o
  *    motor recusa lance NEGOCIACAO que não reduz — modelo-lance.ts);
  *  - a negociação é feita no sistema e ACOMPANHADA pelos demais licitantes
- *    (IN 73 art. 30 §2º): mensagens, contrapropostas e respostas são eventos
+ *    (IN 73 art. 30 §1º): mensagens, contrapropostas e respostas são eventos
  *    com `visibilidade: PARTICIPANTES` — leitura do órgão dono e de todo
  *    licitante com proposta válida na licitação; escrita só do agente e do
  *    licitante na vez. O público anônimo e outros órgãos veem só a abertura e
@@ -63,7 +63,7 @@ export enum ResultadoNegociacao {
 
 /** Visibilidade gravada em `dados_adicionais.visibilidade` do evento da sessão. */
 export const VISIBILIDADE_PRIVADA = 'PRIVADA';
-/** Negociação acompanhada pelos licitantes (IN 73 art. 30 §2º): órgão dono + participantes. */
+/** Negociação acompanhada pelos licitantes (IN 73 art. 30 §1º): órgão dono + participantes. */
 export const VISIBILIDADE_PARTICIPANTES = 'PARTICIPANTES';
 
 const TOLERANCIA = 0.005;
@@ -223,7 +223,7 @@ export type VisaoEvento = { tipo: 'ORGAO' } | { tipo: 'FORNECEDOR'; fornecedorId
 
 /**
  * Visibilidade dos eventos da sessão:
- *  - PARTICIPANTES (negociação — IN 73 art. 30 §2º): órgão dono e licitantes
+ *  - PARTICIPANTES (negociação — IN 73 art. 30 §1º): órgão dono e licitantes
  *    participantes (a visão FORNECEDOR só existe para quem tem proposta
  *    válida); público anônimo e outros órgãos (visão PUBLICO) não;
  *  - PRIVADA: só o órgão dono e o licitante do evento.

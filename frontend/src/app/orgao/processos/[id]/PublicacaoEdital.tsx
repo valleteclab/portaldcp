@@ -378,7 +378,7 @@ export function PublicacaoEdital({
         <ErroPendencias erro={erroPublicar} />
         <div className="flex items-center justify-end gap-2">
           <span className="text-[11px] text-gray-400">
-            Ao publicar, o aviso vai para a fila do PNCP automaticamente e o prazo de propostas é aberto.
+            Ao publicar, o edital vai ao PNCP pela fila; o prazo de propostas só começa quando o PNCP confirmar a publicação (arts. 54 e 55).
           </span>
           <Button onClick={publicar} disabled={publicando} className="bg-[#1351b4] hover:bg-[#0c326f] text-white">
             {publicando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Megaphone className="w-4 h-4 mr-2" />}

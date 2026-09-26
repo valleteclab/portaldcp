@@ -311,9 +311,14 @@ describe('E7c — Concurso (art. 30)', () => {
 
     test('H. PNCP: concurso, conteúdo artístico, modo fechado; resultado do vencedor pessoa física', async () => {
       await ctx.processarFilaPncp({ licitacaoId: lic.id });
-      const [compra] = pncpMock.filtrar('POST', /\/compras$/).filter((c) => JSON.stringify(c.corpo).includes(lic.numero_processo));
-      expect(compra).toBeDefined();
-      const dto = jsonDaParteMultipart(compra.corpo, 'compra');
+      // A compra vai ao PNCP já na publicação (a divulgação oficial é confirmada
+      // por ela — arts. 54 e 174); o payload enviado fica na linha da fila.
+      const [linha] = await q(
+        `SELECT payload_enviado FROM pncp_sync WHERE licitacao_id = $1 AND tipo::text = 'COMPRA' AND status::text = 'ENVIADO'`,
+        [lic.id],
+      );
+      expect(linha?.payload_enviado).toBeDefined();
+      const dto = linha.payload_enviado;
       expect(dto).toMatchObject({ amparoLegalId: 3, modoDisputaId: 2, tipoInstrumentoConvocatorioId: 1 });
       expect(dto.itensCompra.map((i: any) => [i.criterioJulgamentoId, i.materialOuServico])).toEqual([[9, 'S']]);
       const res = pncpMock.filtrar('POST', /\/itens\/1\/resultados$/).map((r) => r.corpo).find((c: any) => c.niFornecedor === P1.cnpj);

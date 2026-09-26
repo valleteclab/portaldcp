@@ -74,9 +74,9 @@ const TAMANHO_MAXIMO_MENSAGEM = 2000;
  *    RECUSA com motivo;
  *  - o agente ENCERRA (valor mantido) ou, se o valor permanecer acima do preço
  *    máximo, DESCLASSIFICA (art. 59 III) — o próximo do ranking é chamado à
- *    negociação automaticamente (IN 73 art. 30 §1º); sem próximo, a unidade
+ *    negociação automaticamente (IN 73 art. 30 §2º); sem próximo, a unidade
  *    fracassa.
- * Negociação ACOMPANHADA pelos demais licitantes (IN 73 art. 30 §2º):
+ * Negociação ACOMPANHADA pelos demais licitantes (IN 73 art. 30 §1º):
  * mensagens/contrapropostas/respostas são eventos `visibilidade: PARTICIPANTES`
  * — leitura do órgão dono e de todo licitante com proposta válida (REST
  * `/eventos`, painel de leitura e socket na sala da sessão, onde só entram o
@@ -160,7 +160,7 @@ export class NegociacaoService implements OnModuleInit {
     const n = await this.negociacaoDaSessao(m, sessaoId, negociacaoId, travar);
     // A negociação é acompanhada por todos os participantes, mas só o licitante na vez escreve/responde
     if (n.fornecedor_id !== fornecedorId) {
-      throw new ForbiddenException('Somente o licitante com quem a negociação foi aberta pode escrever ou responder; os demais apenas a acompanham (IN 73 art. 30 §2º).');
+      throw new ForbiddenException('Somente o licitante com quem a negociação foi aberta pode escrever ou responder; os demais apenas a acompanham (IN 73 art. 30 §1º).');
     }
     return n;
   }
@@ -203,7 +203,7 @@ export class NegociacaoService implements OnModuleInit {
     throw new ConflictException('O licitante desta negociação não está mais na vez da unidade — a negociação foi cancelada');
   }
 
-  /** Evento da negociação ACOMPANHADO pelos participantes (IN 73 art. 30 §2º) — não público. */
+  /** Evento da negociação ACOMPANHADO pelos participantes (IN 73 art. 30 §1º) — não público. */
   private async eventoAcompanhado(
     m: EntityManager,
     n: NegociacaoUnidade,
@@ -271,7 +271,7 @@ export class NegociacaoService implements OnModuleInit {
   }
 
   /**
-   * Participantes (IN 73 art. 30 §2º): a sala da sessão — só entram o órgão
+   * Participantes (IN 73 art. 30 §1º): a sala da sessão — só entram o órgão
    * dono/admin e os licitantes com proposta válida (anônimo e sem relação são
    * recusados no `entrar_sala`); o feed público da licitação não recebe.
    */
@@ -430,7 +430,7 @@ export class NegociacaoService implements OnModuleInit {
 
   /**
    * Visão do LICITANTE participante: TODAS as negociações da sessão (IN 73
-   * art. 30 §2º — acompanhadas pelos demais), só leitura nas alheias
+   * art. 30 §1º — acompanhadas pelos demais), só leitura nas alheias
    * (sem identificar o negociante: posição no ranking); escrita/resposta só
    * na própria. Preço máximo só se o orçamento não for sigiloso (art. 24).
    */
@@ -555,7 +555,7 @@ export class NegociacaoService implements OnModuleInit {
       tipo: TipoEvento.NEGOCIACAO_MENSAGEM,
       descricao:
         `${this.rotulo(u)}: o agente de contratação abriu negociação com você sobre o seu valor atual de ${brl(atual!.melhorValor)}. ` +
-        'A negociação é acompanhada pelos demais licitantes (IN SEGES 73/2022, art. 30 §2º).',
+        'A negociação é acompanhada pelos demais licitantes (IN SEGES 73/2022, art. 30 §1º).',
       autor: 'SISTEMA',
     });
     return n;
@@ -729,7 +729,7 @@ export class NegociacaoService implements OnModuleInit {
         }),
       );
 
-      // IN 73 art. 30 §1º: a negociação segue com o próximo, na ordem de classificação
+      // IN 73 art. 30 §2º: a negociação segue com o próximo, na ordem de classificação
       const proximo = atualDaUnidade(await this.ranking.ranking(u, m));
       let nova: NegociacaoUnidade | null = null;
       if (proximo) {

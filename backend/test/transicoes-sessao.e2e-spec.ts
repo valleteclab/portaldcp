@@ -275,6 +275,7 @@ describe('E1 — atos da sala pela máquina de estados', () => {
       const externos = h.map((t) => t.ato).slice(h.findIndex((t) => t.ato === 'PUBLICAR'));
       expect(externos).toEqual([
         'PUBLICAR',
+        'CONFIRMAR_DIVULGACAO', // divulgação oficial (PNCP / diário oficial — arts. 54, 174 e 176)
         'INICIAR_ACOLHIMENTO',
         'ENCERRAR_ACOLHIMENTO',
         'INICIAR_DISPUTA',
