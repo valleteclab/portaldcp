@@ -15,6 +15,25 @@ import { DEFINICAO_PASSO, PapelFaseInterna, PassoCalculado, PassoFaseInterna } f
 /** Chave de idempotência da tarefa de um passo. */
 export const chaveDoPasso = (passo: PassoFaseInterna | string) => `etapa:${passo}`;
 
+/** Telas por etapa (Entrega 3A): `/orgao/processos/:id/fase-interna/<tela>`. */
+export const TELA_DO_PASSO: Partial<Record<string, string>> = {
+  DFD: 'dfd',
+  ETP: 'etp',
+  TR: 'tr',
+  PESQUISA: 'pesquisa',
+  RESERVA: 'reserva',
+};
+
+/**
+ * Para onde a tarefa leva: a tela da etapa (DFD, ETP, TR, pesquisa, reserva);
+ * nas demais, a linha da peça no quadro do processo.
+ */
+export function destinoDaTarefa(t: { licitacao_id: string; passo?: string | null; tipo_peca?: string | null }): string {
+  const tela = t.passo ? TELA_DO_PASSO[t.passo] : undefined;
+  if (tela) return `/orgao/processos/${t.licitacao_id}/fase-interna/${tela}`;
+  return `/orgao/processos/${t.licitacao_id}${t.tipo_peca ? `#peca-${t.tipo_peca}` : '#fluxo-fase-interna'}`;
+}
+
 /**
  * Vencimento da tarefa: N dias úteis contados do dia seguinte ao da criação
  * (art. 183 — exclui o dia do começo, inclui o do vencimento; 23:59:59 de

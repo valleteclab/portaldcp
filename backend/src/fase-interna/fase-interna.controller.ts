@@ -37,6 +37,10 @@ import { DonoFaseInternaGuard, DonoPor } from './dono-fase-interna.guard';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { licitacaoEhPublica } from '../licitacoes/licitacao-visao.util';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
+import { TarefasService } from './tarefas/tarefas.service';
+import { AuditLogService } from './audit-log.service';
+import { OrcamentoService } from './orcamento/orcamento.service';
+import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 
 /**
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
@@ -57,6 +61,9 @@ export class FaseInternaController {
     private readonly dataSource: DataSource,
     private readonly pecas: PecasFaseInternaService,
     private readonly consumoLimite: ConsumoLimiteService,
+    private readonly tarefas: TarefasService,
+    private readonly auditLog: AuditLogService,
+    private readonly orcamento: OrcamentoService,
   ) {}
 
   private enviarPdf(res: Response, arq: { caminho: string; nome: string }) {
@@ -85,7 +92,12 @@ export class FaseInternaController {
     @Body() body: { numero_peca?: string; data_documento?: string; signatarios?: string; observacao?: string; titulo?: string },
     @AtorAtual() ator: Ator,
   ) {
-    return this.pecas.anexarPeca(licitacaoId, tipo, arquivo, body ?? {}, ator);
+    const doc = await this.pecas.anexarPeca(licitacaoId, tipo, arquivo, body ?? {}, ator);
+    // Informação orçamentária feita fora: conclui a renovação de dotação pendente (Entrega 3A)
+    if (doc.tipo === TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA) {
+      await this.orcamento.aoAnexarInformacaoOrcamentaria(licitacaoId, doc.id, await this.tarefas.autor(ator)).catch(() => undefined);
+    }
+    return doc;
   }
 
   /** Arquivo da peça (anexo, PDF gerado ou assinado) — só o órgão dono. */
@@ -271,14 +283,28 @@ export class FaseInternaController {
     @Param('licitacaoId') licitacaoId: string,
     @Param('tipo') tipo: TipoDocumentoFaseInterna,
     @Param('secaoId') secaoId: string,
-    @Body() body: { html: string },
+    @Body() body: { html: string; origem?: 'USUARIO' | 'IA_ACEITA' },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.faseInternaService.atualizarSecao(
-      licitacaoId,
-      tipo,
-      secaoId,
-      body.html || '',
-    );
+    // Autor do JWT (Entrega 3A): cada seção guarda quem a editou; a sugestão do
+    // assistente só entra com o clique do usuário (origem IA_ACEITA) e fica
+    // registrada como texto dele.
+    const autor = await this.tarefas.autor(ator);
+    const origem = body?.origem === 'IA_ACEITA' ? 'IA_ACEITA' : 'USUARIO';
+    const r = await this.faseInternaService.atualizarSecao(licitacaoId, tipo, secaoId, body?.html || '', { autor, origem });
+    if (origem === 'IA_ACEITA') {
+      await this.auditLog
+        .log({
+          licitacao_id: licitacaoId,
+          documento_id: r.documento_id,
+          acao: AcaoLogFaseInterna.DOCUMENTO_EDITADO,
+          descricao: `Sugestão do assistente aceita na seção "${secaoId}" do ${tipo} por ${autor.nome ?? 'usuário'} (texto registrado como editado pelo usuário)`,
+          dados_depois: { secao: secaoId, origem, tamanho: String(body?.html || '').length },
+          contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
+        })
+        .catch(() => undefined);
+    }
+    return r;
   }
 
   @Get(':licitacaoId/documentos/:tipo/seed')

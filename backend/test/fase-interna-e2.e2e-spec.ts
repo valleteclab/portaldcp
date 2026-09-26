@@ -104,7 +104,7 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
       expect(ts[0]).toMatchObject({ responsavel_usuario_id: agente.id, origem: 'ETAPA', tipo: 'PECA', tipo_peca: 'DFD', orgao_id: A.id });
       const cx = await caixa(agente.token);
       const t = cx.tarefas.find((x: any) => x.processo.id === lic.id);
-      expect(t).toMatchObject({ titulo: 'Formalizar a demanda (DFD)', destino: `/orgao/processos/${lic.id}#peca-DFD`, atrasada: false });
+      expect(t).toMatchObject({ titulo: 'Formalizar a demanda (DFD)', destino: `/orgao/processos/${lic.id}/fase-interna/dfd`, atrasada: false });
       expect(t.responsavel.nome).toBe('Joel Agente');
       // o login do órgão vê a tarefa em "Aguardando outros" (está com uma pessoa)
       expect((await caixa(A.token, 'aguardando')).tarefas.some((x: any) => x.processo.id === lic.id)).toBe(true);

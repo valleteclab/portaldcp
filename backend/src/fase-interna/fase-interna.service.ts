@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import axios from 'axios';
+import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import {
@@ -44,6 +45,9 @@ import {
   PesquisaPrecosDados,
   calcularEstatisticasItem,
 } from './types/pesquisa-precos.type';
+
+/** Id do risco da matriz (riscos antigos, sem id, usam "R-<número>"). */
+const idDoRisco = (r: { id?: string; numero?: number }) => r.id || `R-${r.numero}`;
 
 /** Ato que conclui cada etapa interna do rito completo (máquina de estados E1). */
 const ATO_DA_ETAPA: Record<string, AtoLicitacao> = {
@@ -906,7 +910,7 @@ export class FaseInternaService {
    * uma VERSÃO NOVA em elaboração (a anterior vira SUBSTITUIDO). Devolve o
    * rascunho a editar (ou o próprio documento, se ainda é rascunho).
    */
-  private async novaVersaoSeFinalizada(documento: DocumentoFaseInterna | null): Promise<DocumentoFaseInterna | null> {
+  async novaVersaoSeFinalizada(documento: DocumentoFaseInterna | null): Promise<DocumentoFaseInterna | null> {
     if (!documento) return null;
     const finalizada =
       documento.origem !== OrigemDocumento.INTERNO ||
@@ -977,7 +981,10 @@ export class FaseInternaService {
     tipo: TipoDocumentoFaseInterna,
     secaoId: string,
     html: string,
-  ): Promise<{ ok: boolean; secaoId: string }> {
+    edicao?: { autor?: { id: string | null; nome: string | null }; origem?: 'USUARIO' | 'IA_ACEITA' },
+  ): Promise<{ ok: boolean; secaoId: string; documento_id?: string }> {
+    // Chaves internas (_edicoes, _dfd, _marca...) não são seções do editor
+    if (!secaoId || secaoId.startsWith('_')) throw new BadRequestException('Seção inválida');
     let documento = await this.documentoRepository.findOne({
       where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
     });
@@ -988,7 +995,7 @@ export class FaseInternaService {
       documento = this.documentoRepository.create({
         licitacao_id: licitacaoId,
         tipo,
-        titulo: tipo,
+        titulo: TITULO_DOCUMENTO[tipo] ?? tipo,
         status: StatusDocumento.EM_ELABORACAO,
         origem: OrigemDocumento.INTERNO,
         versao: 1,
@@ -999,17 +1006,31 @@ export class FaseInternaService {
     }
 
     // Atualiza a seção no JSONB
-    const dados = (documento.dados_estruturados as Record<string, string>) || {};
+    const dados = (documento.dados_estruturados as Record<string, any>) || {};
     dados[secaoId] = html;
+    // Quem editou cada seção (Entrega 3A): a sugestão do assistente só entra
+    // com o clique do usuário e fica registrada como texto DELE (IA_ACEITA).
+    if (edicao?.autor || edicao?.origem) {
+      dados._edicoes = {
+        ...(dados._edicoes && typeof dados._edicoes === 'object' ? dados._edicoes : {}),
+        [secaoId]: {
+          por_id: edicao.autor?.id ?? null,
+          por_nome: edicao.autor?.nome ?? null,
+          origem: edicao.origem === 'IA_ACEITA' ? 'IA_ACEITA' : 'USUARIO',
+          em: new Date().toISOString(),
+        },
+      };
+    }
     documento.dados_estruturados = dados;
 
-    // Regenera cache HTML (descricao) a partir de todos os valores
-    documento.descricao = Object.values(dados)
-      .filter((v) => typeof v === 'string' && v.trim())
+    // Regenera cache HTML (descricao) a partir das seções (texto)
+    documento.descricao = Object.entries(dados)
+      .filter(([k, v]) => !k.startsWith('_') && typeof v === 'string' && v.trim())
+      .map(([, v]) => v)
       .join('\n');
 
-    await this.documentoRepository.save(documento);
-    return { ok: true, secaoId };
+    const salvo = await this.documentoRepository.save(documento);
+    return { ok: true, secaoId, documento_id: salvo.id };
   }
 
   // ========================================
@@ -1123,7 +1144,8 @@ export class FaseInternaService {
   ): Promise<{ documento: DocumentoFaseInterna; riscos: RiscoIdentificado[] }> {
     const doc = await this.getOuCriarDocMR(licitacaoId);
     const dados: MatrizRiscosDados = doc.dados_estruturados || { riscos: [] };
-    return { documento: doc, riscos: dados.riscos || [] };
+    // Riscos antigos foram gravados sem id: a tela usa o "R-<número>" como id
+    return { documento: doc, riscos: (dados.riscos || []).map((r) => ({ ...r, id: idDoRisco(r) })) };
   }
 
   async adicionarRisco(
@@ -1133,14 +1155,16 @@ export class FaseInternaService {
     const doc = await this.getOuCriarDocMR(licitacaoId);
     const dados: MatrizRiscosDados = doc.dados_estruturados || { riscos: [] };
 
-    const grau = calcularGrauRisco(risco.probabilidade, risco.impacto);
-    const nivel: RiscoIdentificado['nivel'] =
-      grau >= 15 ? 'ALTO' : grau >= 7 ? 'MEDIO' : 'BAIXO';
+    // calcularGrauRisco devolve { grau, nivel } (antes o objeto ia inteiro
+    // para `grau` e o nível saía sempre BAIXO) — Entrega 3A, tela do ETP
+    const { grau, nivel } = calcularGrauRisco(risco.probabilidade, risco.impacto);
+    const numero = Math.max(0, ...(dados.riscos || []).map((r) => Number(r.numero) || 0)) + 1;
     const novoRisco: RiscoIdentificado = {
       ...risco,
+      id: randomUUID(),
       grau,
       nivel,
-      numero: (dados.riscos?.length || 0) + 1,
+      numero,
     };
 
     dados.riscos = [...(dados.riscos || []), novoRisco];
@@ -1159,11 +1183,11 @@ export class FaseInternaService {
     const dados: MatrizRiscosDados = doc.dados_estruturados || { riscos: [] };
 
     dados.riscos = (dados.riscos || []).map((r) => {
-      if (r.id !== riscoId) return r;
-      const merged = { ...r, ...updates };
-      merged.grau = calcularGrauRisco(merged.probabilidade, merged.impacto);
-      merged.nivel =
-        merged.grau >= 15 ? 'ALTO' : merged.grau >= 7 ? 'MEDIO' : 'BAIXO';
+      if (idDoRisco(r) !== riscoId) return r;
+      const merged = { ...r, ...updates, id: idDoRisco(r) };
+      const { grau, nivel } = calcularGrauRisco(merged.probabilidade, merged.impacto);
+      merged.grau = grau;
+      merged.nivel = nivel;
       return merged;
     });
 
@@ -1179,7 +1203,7 @@ export class FaseInternaService {
     const doc = await this.getOuCriarDocMR(licitacaoId);
     const dados: MatrizRiscosDados = doc.dados_estruturados || { riscos: [] };
 
-    dados.riscos = (dados.riscos || []).filter((r) => r.id !== riscoId);
+    dados.riscos = (dados.riscos || []).filter((r) => idDoRisco(r) !== riscoId);
     doc.dados_estruturados = dados;
     await this.documentoRepository.save(doc);
     return dados.riscos;
@@ -1685,6 +1709,9 @@ export class FaseInternaService {
       observacao: cotacao.observacao,
       documento_comprobatorio_path: cotacao.documento_comprobatorio_path,
       documento_hash: cotacao.documento_hash,
+      ...(cotacao.grupo_id ? { grupo_id: String(cotacao.grupo_id) } : {}),
+      ...(cotacao.data_emissao ? { data_emissao: String(cotacao.data_emissao).slice(0, 10) } : {}),
+      ...(cotacao.validade_ate ? { validade_ate: String(cotacao.validade_ate).slice(0, 10) } : {}),
     };
   }
 

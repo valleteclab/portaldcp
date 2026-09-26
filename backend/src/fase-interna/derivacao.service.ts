@@ -9,6 +9,7 @@ import {
 } from './entities/documento-fase-interna.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { Demanda } from '../demandas/entities/demanda.entity';
+import { fundamentoEfetivo, textoDoFundamento } from '../licitacoes/fundamento-legal';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -104,7 +105,9 @@ export class DerivacaoService {
           itensLic
             .map(
               (i) =>
-                `<li>${i.descricao_resumida} — ${i.quantidade} ${i.unidade_medida}</li>`,
+                `<li>${i.descricao_resumida} — ${i.quantidade} ${i.unidade_medida}${
+                  i.codigo_catser ? ` (CATSER ${i.codigo_catser})` : i.codigo_catmat ? ` (CATMAT ${i.codigo_catmat})` : ''
+                }</li>`,
             )
             .join('') +
           '</ul>';
@@ -121,13 +124,25 @@ export class DerivacaoService {
       }
       add('quantidade', quantidadeHtml, 'Itens');
 
-      // previsao — vínculo com PCA
+      // previsao — vínculo com PCA (o do processo — tela do DFD — ou o dos itens)
       const itensParaPca = itensLic.length > 0 ? itensLic : demanda?.itens || [];
-      const temPca = itensParaPca.some((i: any) => !!i.item_pca_id);
+      const temPca = !!licitacao.item_pca_id || itensParaPca.some((i: any) => !!i.item_pca_id);
       const previsaoHtml = temPca
         ? '<p>Os itens desta contratação constam do Plano de Contratações Anual (PCA) do exercício vigente.</p>'
-        : '<p>A presente contratação não consta no PCA; justificativa a ser detalhada.</p>';
+        : licitacao.sem_pca && licitacao.justificativa_sem_pca
+          ? `<p>A contratação não consta do Plano de Contratações Anual. Justificativa (art. 12, §1º): ${licitacao.justificativa_sem_pca}</p>`
+          : '<p>A presente contratação não consta no PCA; justificativa a ser detalhada.</p>';
       add('previsao', previsaoHtml, 'PCA');
+
+      // Unidade requisitante e responsável (campos da tela do DFD)
+      const dfdAtual = docs.find((d) => d.tipo === TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA);
+      const campos = dfdAtual?.dados_estruturados?._dfd;
+      if (campos?.unidade_requisitante_nome && !demanda) {
+        secoes.demanda = {
+          html: `${secoes.demanda?.html ?? ''}<p>Unidade requisitante: ${campos.unidade_requisitante_nome}${campos.responsavel_nome ? ` — responsável: ${campos.responsavel_nome}` : ''}.</p>`,
+          origem: 'DFD',
+        };
+      }
     } else if (tipoUpper === TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR) {
       // ETP — derivado do DFD + Processo
       const DFD = TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA;
@@ -154,22 +169,61 @@ export class DerivacaoService {
         add('objeto', `<p>${licitacao.objeto}</p>`, 'Processo');
       }
 
-      add('fundamentacao', necessidade, 'ETP');
+      // Fundamento legal: fonte única do processo (licitacoes.fundamento_legal)
+      const fundamento = textoDoFundamento(fundamentoEfetivo(licitacao as any));
+      add(
+        'fundamentacao',
+        `${fundamento ? `<p>Fundamento legal: ${fundamento}.</p>` : ''}${necessidade || ''}`,
+        necessidade ? 'ETP + fundamento legal do processo' : 'Fundamento legal do processo',
+      );
       add('descricao', this.secaoDe(docs, ETP, 'solucao'), 'ETP');
       add('requisitos', this.secaoDe(docs, ETP, 'requisitos'), 'ETP');
 
+      // Estimativa: respeita o orçamento sigiloso (art. 24) — o TR vai para os
+      // anexos do aviso, então no sigilo o valor não aparece no texto
+      const sigiloso = (licitacao as any).sigilo_orcamento === 'SIGILOSO';
       const estimativaValor = this.secaoDe(docs, ETP, 'estimativa_valor');
-      if (estimativaValor && estimativaValor.trim()) {
+      const valor = Number(licitacao.valor_total_estimado) || 0;
+      if (sigiloso) {
+        add(
+          'estimativa_valor_tr',
+          `<p>O orçamento estimado da contratação é SIGILOSO, nos termos do art. 24 da Lei nº 14.133/2021, e será tornado público apenas após o julgamento das propostas. O valor consta dos autos, com acesso restrito aos órgãos de controle.</p>`,
+          'Processo (sigilo — art. 24)',
+        );
+      } else if (estimativaValor && estimativaValor.trim()) {
         add('estimativa_valor_tr', estimativaValor, 'ETP');
-      } else {
-        const valor = Number(licitacao.valor_total_estimado) || 0;
-        if (valor > 0) {
-          add(
-            'estimativa_valor_tr',
-            `<p>Valor total estimado da contratação: ${BRL.format(valor)}.</p>`,
-            'Processo',
-          );
-        }
+      } else if (valor > 0) {
+        add('estimativa_valor_tr', `<p>Valor total estimado da contratação: ${BRL.format(valor)}, apurado na pesquisa de preços (art. 23).</p>`, 'Processo');
+      }
+
+      // Adequação orçamentária: da RESERVA do processo (tabela de dotações)
+      const [reserva] = await this.documentoRepository.manager
+        .query(
+          `SELECT id::text AS id, status, unidade_orcamentaria, programa, projeto_atividade, elemento_despesa, fonte_recurso
+             FROM reservas_orcamentarias WHERE licitacao_id::text = $1 AND versao_atual = true`,
+          [licitacaoId],
+        )
+        .catch(() => []);
+      if (reserva?.projeto_atividade) {
+        const linhas: Array<{ exercicio: number; valor: string; situacao: string }> = await this.documentoRepository.manager
+          .query(`SELECT exercicio, valor, situacao FROM reservas_orcamentarias_linhas WHERE reserva_id::text = $1 ORDER BY exercicio`, [reserva.id])
+          .catch(() => []);
+        add(
+          'dotacao_orcamentaria_tr',
+          '<p>As despesas decorrentes desta contratação correrão à conta da seguinte dotação orçamentária:</p><ul>' +
+            `<li>Unidade orçamentária: ${reserva.unidade_orcamentaria ?? '—'}</li>` +
+            (reserva.programa ? `<li>Programa: ${reserva.programa}</li>` : '') +
+            `<li>Projeto/atividade: ${reserva.projeto_atividade}</li>` +
+            `<li>Elemento de despesa: ${reserva.elemento_despesa ?? '—'}</li>` +
+            `<li>Fonte de recurso: ${reserva.fonte_recurso ?? '—'}</li>` +
+            '</ul>' +
+            (linhas.length && !sigiloso
+              ? '<p>Distribuição por exercício:</p><ul>' +
+                linhas.map((l) => `<li>${l.exercicio}: ${BRL.format(Number(l.valor))} (${l.situacao === 'RESERVADO' ? 'reservado' : 'previsão'})</li>`).join('') +
+                '</ul>'
+              : ''),
+          `Reserva orçamentária (${reserva.status === 'EMITIDA' ? 'emitida' : 'em preparação'})`,
+        );
       }
     }
 

@@ -116,7 +116,9 @@ export class GeradorDocumentoService {
     await fs.promises.mkdir(dir, { recursive: true });
     const caminho = path.join(dir, `${documento.id}.pdf`);
 
-    const html = this.renderPorTipo(documento, licitacaoNumero);
+    // Peça feita pelo EDITOR DE SEÇÕES (modelo do órgão/sistema): renderiza as
+    // seções do modelo, com os títulos (Entrega 3A). Senão, o renderizador do tipo.
+    const html = (await this.renderPorSecoesDoModelo(documento)) ?? this.renderPorTipo(documento, licitacaoNumero);
     const estilo = await this.resolverEstiloDocumento(documento);
     await this.escreverPdf(caminho, documento, licitacaoNumero, html, estilo);
 
@@ -537,6 +539,39 @@ export class GeradorDocumentoService {
   // ============================================================================
   // RENDERIZADORES (HTML lógico) — cada tipo de documento
   // ============================================================================
+
+  /**
+   * Peça elaborada pelo editor de seções (dados_estruturados = { secaoId: html }):
+   * cada seção do MODELO efetivo (órgão → sistema) vira título + conteúdo, na
+   * ordem do modelo. null quando o documento não tem seções do modelo (usa o
+   * renderizador do tipo). Chaves internas (_edicoes, _dfd…) ficam de fora.
+   */
+  private async renderPorSecoesDoModelo(documento: DocumentoFaseInterna): Promise<string | null> {
+    const dados = documento.dados_estruturados;
+    if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return null;
+    const lic: any = (documento as any).licitacao || {};
+    let secoes: Array<{ id: string; titulo: string }> = [];
+    try {
+      const modelo = await this.modeloDocumentoService.resolverModelo(lic.orgao_id || null, documento.tipo);
+      secoes = (modelo?.secoes || []).map((s) => ({ id: s.id, titulo: s.titulo }));
+    } catch {
+      secoes = [];
+    }
+    const comTexto = (v: unknown) => typeof v === 'string' && v.replace(/<[^>]+>/g, '').trim().length > 0;
+    if (!secoes.some((s) => comTexto(dados[s.id]))) return null;
+    const blocos = (html: string) => {
+      // O parser do PDF lê blocos de topo (p, ul, table, h1-3, div): texto solto vira parágrafo
+      const t = html.trim();
+      return /^<(p|ul|ol|table|h[1-3]|div)[\s>]/i.test(t) ? t.replace(/<ol([^>]*)>/gi, '<ul$1>').replace(/<\/ol>/gi, '</ul>') : `<p>${this.escapeHtml(t.replace(/<[^>]+>/g, ' '))}</p>`;
+    };
+    let html = '';
+    for (const s of secoes) {
+      const v = dados[s.id];
+      html += `<h2>${this.escapeHtml(String(s.titulo || s.id).replace(/\s*\*$/, ''))}</h2>`;
+      html += comTexto(v) ? blocos(String(v)) : '<p>—</p>';
+    }
+    return html;
+  }
 
   private renderPorTipo(documento: DocumentoFaseInterna, licitacaoNumero: string): string {
     const dados = documento.dados_estruturados || {};
