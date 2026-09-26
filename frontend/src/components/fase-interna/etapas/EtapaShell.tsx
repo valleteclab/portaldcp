@@ -3,7 +3,8 @@
 /**
  * MOLDURA DAS TELAS POR ETAPA (Entrega 3A — mockups DFD/ETP/Pesquisa/Reserva):
  * "← Voltar ao processo", identificação do processo e a barra das 8 etapas
- * (1 Demanda › 2 ETP › … › 8 Publicação) com a situação vinda de
+ * (1 Demanda › 2 ETP › … › 8 Publicação; o controle interno só quando o
+ * órgão o ativou) com a situação vinda de
  * GET /api/fase-interna/:id/etapas. As etapas com tela própria viram link;
  * as demais levam ao quadro "Fluxo da fase interna" do processo.
  */
@@ -103,7 +104,7 @@ export function EtapaShell({
 
       <nav aria-label="Etapas da fase interna" className="overflow-x-auto -mx-1 px-1">
         <ol className="flex items-center gap-1 min-w-max text-xs">
-          {ETAPAS_DA_BARRA.map((e, i) => {
+          {ETAPAS_DA_BARRA.filter((e) => !e.opcional || situacoes[e.passo] !== undefined || e.tela === tela).map((e, i, lista) => {
             const sit = situacoes[e.passo] ?? null
             const atual = e.tela === tela
             const conteudo = (
@@ -127,7 +128,7 @@ export function EtapaShell({
                 ) : (
                   <Link href={`/orgao/processos/${licitacaoId}#fluxo-fase-interna`}>{conteudo}</Link>
                 )}
-                {i < ETAPAS_DA_BARRA.length - 1 && <ChevronRight className="w-3 h-3 text-slate-400" aria-hidden="true" />}
+                {i < lista.length - 1 && <ChevronRight className="w-3 h-3 text-slate-400" aria-hidden="true" />}
               </li>
             )
           })}

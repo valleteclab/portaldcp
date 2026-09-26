@@ -65,7 +65,11 @@ export default function EditorDocumentoPage({
   const router = useRouter()
   // Entrega 3A: DFD, ETP, riscos, TR, pesquisa e dotação têm tela própria dentro
   // do processo — o editor avulso só continua para as demais peças
-  const telaPropria = telaDoTipo(tipo)
+  // Entrega 3B: `?texto=1` abre o texto de uma peça que tem tela própria (ex.:
+  // ajustar o despacho, uma minuta) — sem redirecionar; volta para a tela dela
+  const soTexto = searchParams.get("texto") === "1"
+  const telaDaPeca = telaDoTipo(tipo)
+  const telaPropria = soTexto ? null : telaDaPeca
   useEffect(() => {
     if (telaPropria) router.replace(rotaDaTela(id, telaPropria))
   }, [telaPropria, id, router])
@@ -138,8 +142,8 @@ export default function EditorDocumentoPage({
           <ChevronRight className="w-3 h-3" />
           <span className="text-[#1351b4] font-medium">{tituloDocumento}</span>
         </div>
-        <Link href={`/orgao/processos/${id}`} className="text-xs text-blue-800 hover:underline shrink-0">
-          ← Voltar ao processo
+        <Link href={soTexto && telaDaPeca ? rotaDaTela(id, telaDaPeca) : `/orgao/processos/${id}`} className="text-xs text-blue-800 hover:underline shrink-0">
+          {soTexto && telaDaPeca ? "← Voltar à etapa" : "← Voltar ao processo"}
         </Link>
       </div>
 

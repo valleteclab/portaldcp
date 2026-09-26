@@ -5,6 +5,7 @@
  *  - Modo: SIMPLES (padrão — uma pessoa pode fazer tudo; as tarefas vão para
  *    o agente do processo) ou POR SETOR (cada etapa vai para o papel/setor).
  *  - Controle interno: etapa opcional entre o parecer e a publicação.
+ *  - Autorização (Entrega 3B): quem assina (autoridade colegiada) e o nome da autoridade.
  *  - Responsável e prazo (dias úteis) por etapa — modelo Portaria 089/2024.
  *  - Papéis funcionais e setor de cada usuário (não mudam as permissões de
  *    sistema — Administrador/Pregoeiro/Equipe de apoio continuam iguais).
@@ -17,6 +18,7 @@ import { ArrowLeft, Loader2, RotateCcw, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { API_URL, authFetch } from "@/lib/api"
 import { ROTULO_PAPEL } from "@/lib/tarefas"
 
@@ -34,6 +36,9 @@ interface Configuracao {
   controle_interno_ativo: boolean
   responsaveis: Record<string, { papel: string | null; setor_id: string | null }>
   prazos: Record<string, number | null>
+  /** Entrega 3B: quem assina a autorização (autoridade colegiada) e o nome da autoridade. */
+  signatarios_autorizacao: Array<{ usuario_id: string; papel: string }>
+  autoridade_rotulo: string
   padrao: boolean
   setores: Array<{ id: string; nome: string; codigo: string }>
   papeis: Array<{ codigo: string; rotulo: string }>
@@ -124,7 +129,14 @@ export default function ConfiguracaoFaseInternaPage() {
       const r = await authFetch(`${API_URL}/api/fase-interna/configuracao`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ modo: cfg.modo, controle_interno_ativo: cfg.controle_interno_ativo, responsaveis: cfg.responsaveis, prazos: cfg.prazos }),
+        body: JSON.stringify({
+          modo: cfg.modo,
+          controle_interno_ativo: cfg.controle_interno_ativo,
+          responsaveis: cfg.responsaveis,
+          prazos: cfg.prazos,
+          signatarios_autorizacao: cfg.signatarios_autorizacao.filter((s) => s.usuario_id),
+          autoridade_rotulo: cfg.autoridade_rotulo,
+        }),
       })
       if (!r.ok) throw new Error(await lerErro(r))
       setCfg(await r.json())
@@ -203,6 +215,72 @@ export default function ConfiguracaoFaseInternaPage() {
               aviso: não impede a publicação. Ao desativar, as tarefas abertas dessa etapa são canceladas.
             </span>
           </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Autorização (etapa 6) — quem assina</CardTitle>
+          <CardDescription>
+            A autoridade pode ser colegiada (ex.: Mesa Diretora com Presidente, Vice, 1º e 2º Secretários): a autorização só vale quando todos assinam.
+            Sem ninguém aqui, recebem o despacho os usuários com o papel &quot;Autoridade&quot;.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <fieldset className="space-y-3" disabled={!admin}>
+            <div className="space-y-1 max-w-sm">
+              <Label htmlFor="autoridade-rotulo">Nome da autoridade nos despachos</Label>
+              <Input id="autoridade-rotulo" value={cfg.autoridade_rotulo} onChange={(e) => setCfg({ ...cfg, autoridade_rotulo: e.target.value })} placeholder="Ex.: Mesa Diretora" />
+            </div>
+            <ul className="space-y-2">
+              {cfg.signatarios_autorizacao.map((s, i) => (
+                <li key={i} className="flex items-center gap-2 flex-wrap">
+                  <select
+                    aria-label={`Signatário ${i + 1}`}
+                    className="h-9 border rounded-md px-2 text-sm min-w-[14rem]"
+                    value={s.usuario_id}
+                    onChange={(e) => setCfg({ ...cfg, signatarios_autorizacao: cfg.signatarios_autorizacao.map((x, j) => (j === i ? { ...x, usuario_id: e.target.value } : x)) })}
+                  >
+                    <option value="">— escolha —</option>
+                    {usuarios.filter((u) => u.ativo).map((u) => (
+                      <option key={u.id} value={u.id}>{u.nome}</option>
+                    ))}
+                  </select>
+                  <Input
+                    aria-label={`Papel do signatário ${i + 1}`}
+                    className="h-9 max-w-[14rem]"
+                    value={s.papel}
+                    placeholder="Papel (ex.: Presidente)"
+                    onChange={(e) => setCfg({ ...cfg, signatarios_autorizacao: cfg.signatarios_autorizacao.map((x, j) => (j === i ? { ...x, papel: e.target.value } : x)) })}
+                  />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setCfg({ ...cfg, signatarios_autorizacao: cfg.signatarios_autorizacao.filter((_, j) => j !== i) })}>
+                    Remover
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2 flex-wrap">
+              <Button type="button" variant="outline" size="sm" onClick={() => setCfg({ ...cfg, signatarios_autorizacao: [...cfg.signatarios_autorizacao, { usuario_id: "", papel: "" }] })}>
+                Adicionar signatário
+              </Button>
+              {!cfg.signatarios_autorizacao.length && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setCfg({
+                      ...cfg,
+                      autoridade_rotulo: cfg.autoridade_rotulo === "Autoridade competente" ? "Mesa Diretora" : cfg.autoridade_rotulo,
+                      signatarios_autorizacao: ["Presidente", "Vice-Presidente", "1º Secretário", "2º Secretário"].map((papel) => ({ usuario_id: "", papel })),
+                    })
+                  }
+                >
+                  Modelo Mesa Diretora (4)
+                </Button>
+              )}
+            </div>
+          </fieldset>
         </CardContent>
       </Card>
 
