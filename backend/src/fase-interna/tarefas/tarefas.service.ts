@@ -983,6 +983,28 @@ export class TarefasService {
   // ETAPAS DO PROCESSO (tela do processo)
   // ==========================================================================
 
+  /**
+   * ETAPAS CALCULADAS do processo, SEM sincronizar tarefas nem montar a tela —
+   * leitura para painéis (Painel para TV). Mesma regra de `sincronizar` e
+   * `etapasDoProcesso`: `etapasDaFaseInterna` sobre a instrução, a
+   * configuração do órgão e o portão A. `config` evita reler a configuração
+   * quando o chamador já a tem (vários processos do mesmo órgão).
+   */
+  async etapasCalculadas(
+    licitacaoId: string,
+    lic: { orgao_id: string; fase: string; situacao: string | null },
+    config?: ConfigFaseInternaEfetiva,
+  ): Promise<EtapaCalculada[]> {
+    const cfg = config ?? (await this.configuracao(lic.orgao_id));
+    const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
+    return etapasDaFaseInterna(
+      { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao },
+      instrucao.itens,
+      cfg,
+      await this.bloqueiosDePortao(licitacaoId),
+    );
+  }
+
   async etapasDoProcesso(licitacaoId: string) {
     // Sincroniza (pela fila do processo — nada em paralelo) e recalcula para a tela
     await this.agendar(licitacaoId);
@@ -992,13 +1014,7 @@ export class TarefasService {
     );
     if (!lic) throw new NotFoundException('Licitação não encontrada');
     const config = await this.configuracao(lic.orgao_id);
-    const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
-    const etapas = etapasDaFaseInterna(
-      { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao },
-      instrucao.itens,
-      config,
-      await this.bloqueiosDePortao(licitacaoId),
-    );
+    const etapas = await this.etapasCalculadas(licitacaoId, lic, config);
 
     const tarefas: any[] = await this.ds.query(`${this.SELECT_TAREFA} WHERE t.licitacao_id::text = $1 ORDER BY t.created_at`, [licitacaoId]);
     const perfilNeutro: Perfil = { orgaoId: lic.orgao_id, usuarioId: null, papeis: [], setorId: null, orgao: true, adminOrgao: true };
