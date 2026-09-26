@@ -1,7 +1,7 @@
 # Plano — Fase interna simples, guiada e "feita aqui ou anexada"
 
 > 26/09/2026 · Referência real: Câmara Municipal de Luís Eduardo Magalhães — autos da Dispensa 003/2025 (PA 005/2025) e das Inexigibilidades 004/2025 (PA 033/2025) e 008/2025 (PA 043/2025), e o regulamento próprio da Lei 14.133 (**Portaria 089/2024**).
-> Status: **Entrega 1 (Base) concluída** na branch `claude/fase-interna-e1` (ver §7). Entregas 2 a 7 pendentes.
+> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** na branch `claude/fase-interna-e2` (ver §8). Entregas 3 a 7 pendentes.
 
 ## 1. O problema
 
@@ -359,9 +359,182 @@ Mais: `synchronize` cria `documentos_orgao`, as colunas novas e recria os enums 
 - "Mudar o fundamento atualiza todas as minutas geradas por modelo" (critério de aceite da SPEC): as peças já geradas guardam o texto resolvido; resolver as variáveis na renderização (ou regenerar) fica para a Entrega 3/4, junto com a regra `ENQ-01`.
 - Portão A (bloqueio por limite/fracionamento — `LIM-01`/`LIM-02`) usa `consumoDoLimite` na Entrega 4; nesta só leitura/aviso.
 - Numeração de folhas nos autos em PDF (`processo-pdf` com índice e folhas carimbadas) — Entrega 6; aqui as folhas já são atribuídas e gravadas.
-- Etapa da fase interna (máquina de 8 etapas da SPEC) e tarefas — Entregas 2 e 3.
+- Etapa da fase interna (máquina de 8 etapas da SPEC) e tarefas — feito na Entrega 2 (§8).
 - Conferir o valor de 2022 (Dec. 10.922/2021) na fonte oficial.
 - O `marcarNaoSeAplica` ainda recebe o nome do autor do corpo (legado); o ator do JWT já é exigido pelo guard.
+
+## 8. Entrega 2 — CONCLUÍDA (26/09/2026)
+
+Branch `claude/fase-interna-e2` (a partir do main com a Entrega 1). Sem push/PR nesta etapa. Commits: `32332e7a` (backend), `6c240c67` (WIP do frontend), `aea63515` (frontend) e o desta atualização de documentação.
+
+### 8.1 O que foi feito
+
+**1. Configuração da fase interna por órgão** — entidade nova `configuracoes_fase_interna`. Há uma linha por órgão; sem linha, vale o padrão.
+- `modo` varchar: `SIMPLES` (padrão, tudo para o responsável do processo) ou `POR_SETOR`.
+- `controle_interno_ativo` boolean (padrão false).
+- `responsaveis` jsonb: passo → `{ papel, setor_id }`.
+- `prazos` jsonb: passo → dias úteis (null = sem prazo).
+- `atualizado_por_*`.
+- O padrão é o modelo da Portaria 089/2024: Compras 30, Contabilidade 3, Autorização 3, Minutas (agente) 5, Jurídico 5, Controle interno 3, Publicação 5 dias úteis. DFD, ETP e TR ficam sem prazo.
+- **Decisão:** a configuração é por **passo**, e não por etapa, porque a etapa 7 da SPEC tem dois responsáveis: as minutas são do agente e o parecer é da procuradoria. Os passos são DFD, ETP, TR, PESQUISA, RESERVA, AUTORIZACAO, MINUTAS, PARECER, CONTROLE_INTERNO e PUBLICACAO.
+- As regras puras ficam em `backend/src/fase-interna/tarefas/configuracao-fase-interna.ts`: `configEfetiva` e `validarConfiguracao` (setor de outro órgão é recusado).
+- Tela: **Configurações › Fase interna e tarefas** (`/orgao/configuracoes/fase-interna`).
+  - Alteram: o login do órgão, o usuário ADMIN e o admin da plataforma (com `?orgao_id=`).
+  - Os demais só leem.
+
+**2. Papéis funcionais e setor do usuário** — colunas novas `usuarios.papeis_fase_interna` (jsonb, lista) e `usuarios.setor_id` (uuid).
+- As duas são nullable e sem default. Array com default faz o synchronize recriar a coluna.
+- Papéis (`PapelFaseInterna`): REQUISITANTE, COMPRAS, CONTABILIDADE, JURIDICO, CONTROLE_INTERNO, AUTORIDADE, AGENTE_CONTRATACAO.
+- Não substitui o `RoleUsuario`.
+- A atribuição é feita na mesma tela de configuração: um checkbox por papel e o setor.
+
+**3. Etapas da fase interna** — função pura `etapasDaFaseInterna(processo, pecas, config)` em `tarefas/etapas-fase-interna.ts`.
+- Entrada: a instrução do processo (`getInstrucao().itens`) e a configuração.
+- **Não há coluna de status por etapa.** A `etapa_atual` é derivada (`etapaAtual`).
+- Peça pronta = status OK (anexada, assinada, aprovada ou com conteúdo) ou NAO_SE_APLICA.
+- Situações do passo:
+  - AGUARDANDO;
+  - DISPONIVEL;
+  - EM_ANDAMENTO;
+  - CONCLUIDO;
+  - NAO_REALIZADO: o processo foi divulgado sem a peça;
+  - CANCELADO: revogado ou anulado na fase interna.
+- A situação da etapa é a agregação da situação dos passos.
+- As dependências definem **quando a tarefa nasce**. A peça pode ser feita antes e conta na hora.
+  - **Contratação direta:** DFD → ETP, TR e pesquisa → reserva (precisa do valor) → autorização (portão B: art. 72, I, II e IV) → minutas → parecer → controle interno → publicação.
+  - **Rito completo:** igual até a reserva. Depois: parecer (após ETP, TR e pesquisa) → autorização (após o parecer e a reserva) → controle interno → publicação.
+- Os portões ficam marcados como gancho da Entrega 4 no campo `portao`: `B_ART72`, `MINUTAS_ANTES_DO_PARECER` e `C_CONFORMIDADE`. **Nada trava ato nesta entrega.**
+- Integração com a máquina: não há máquina paralela.
+  - Cada etapa informa a sua `fase_maquina` (PLANEJAMENTO … APROVACAO_INTERNA).
+  - Os atos CONCLUIR_* e PUBLICAR não mudaram.
+  - A mudança de fase ou de situação dispara a sincronização das tarefas.
+- Peça nova no catálogo: `MANIFESTACAO_CONTROLE_INTERNO` ('MCI', `CATALOGO_PECAS.CONTROLE_INTERNO`).
+  - Entra na instrução **só com o controle interno ativo**.
+  - Não é obrigatória: é aviso, não bloqueio.
+  - Não admite "não se aplica".
+- **Histórico:** cada mudança de situação de etapa grava `ETAPA_ALTERADA` em `logs_fase_interna`, com de/para, comparando com o último registro. O log é histórico, não fonte.
+- Também são gravados TAREFA_CRIADA, TAREFA_CONCLUIDA, TAREFA_CANCELADA e TAREFA_REATRIBUIDA.
+- **Decisão:** usar o log da fase interna, e não `licitacao_transicoes`. Esta última é o histórico dos atos de fase e de situação, e é lida pelos e2e e pelos relatórios.
+
+**4. Tarefas** — entidade nova `tarefas`.
+- Colunas de identificação:
+  - `orgao_id` e `licitacao_id` (FK, cascade);
+  - `documento_id` e `tipo_peca`;
+  - `etapa`, `passo` e `chave`;
+  - `tipo`: PECA, PUBLICACAO, DILIGENCIA, ACHADO ou OUTRO;
+  - `origem`: ETAPA, DILIGENCIA, ACHADO ou SISTEMA; `origem_id`;
+  - `titulo` e `descricao`.
+- Responsável: `responsavel_usuario_id` **ou** `responsavel_papel`/`responsavel_setor_id`, mais `atribuicao_manual`.
+- Prazo: `prazo_dias_uteis` e `prazo`.
+- Ciclo de vida: `status` (ABERTA, CONCLUIDA ou CANCELADA), `criada_por_*`, `concluida_por_*`, `concluida_em`, `cancelada_em`, `motivo_cancelamento` e timestamps.
+- Toda coluna de tipo união tem `type:` explícito.
+- **Idempotência no banco:** índice único parcial `(licitacao_id, chave) WHERE status='ABERTA'`, com insert `ON CONFLICT DO NOTHING`.
+- `TarefasService.sincronizar(processo)` é a única rotina que cria, conclui, cancela e reatribui. Ela aplica o plano da função pura `planejarSincronizacao` (`tarefa-regras.ts`):
+  - **cria** a tarefa do passo disponível;
+  - **conclui** quando o passo conclui e registra quem cumpriu: o último signatário, quem marcou "não se aplica", quem anexou ou elaborou, ou quem publicou;
+  - **cancela** quando a etapa deixa de se aplicar (ex.: controle interno desativado), quando a fase interna acaba sem a peça ou quando o processo é revogado ou anulado. Neste último caso cancela todas, inclusive diligências e achados;
+  - **reatribui** quando o responsável calculado muda (modo ou agente), exceto se a tarefa foi reatribuída à mão.
+- O prazo usa `fimDoPrazoEmDiasUteis`, a mesma função única de prazos da publicação, com o calendário do órgão.
+- Responsável (`responsavelDoPasso`):
+  - **SIMPLES:** o agente do processo (`pregoeiro_id`, se for usuário ativo do órgão). Sem agente, quem criou o processo (registro CRIAR). Sem nenhum dos dois, a caixa do papel AGENTE_CONTRATACAO.
+  - **POR_SETOR:** o papel ou setor da configuração. O passo do agente vai direto para o agente do processo.
+- **Gatilho:** `TarefasSubscriber` (TypeORM).
+  - Toda gravação em `documentos_fase_interna`, e toda mudança de fase, situação, agente ou modalidade da licitação, agenda a sincronização **depois do commit**.
+  - A agenda é coalescida por processo: nada roda em paralelo para o mesmo processo, e as leituras da caixa esperam as pendentes.
+  - Os updates por QueryBuilder sem o id da licitação chamam `agendar` direto: envio para assinatura e conclusão da assinatura.
+  - O espelho da aba Documentos (SQL cru) avisa via `aviso-tarefas.ts`.
+  - A tela do processo também sincroniza (GET das etapas), e a troca de configuração re-sincroniza o órgão.
+  - Chave geral: `FASE_INTERNA_TAREFAS=false` desliga tudo.
+- **Reatribuir:** só para usuário ativo do mesmo órgão (outro órgão → 403). Podem reatribuir o responsável, quem é do papel ou setor, o agente do processo e o administrador do órgão.
+- **Assumir:** vale para tarefa do meu papel ou setor, ou para o admin.
+- Reatribuir e assumir vão para o histórico.
+- Ganchos para as próximas entregas: origem DILIGENCIA (Entrega 3, parecer) e ACHADO (Entrega 4, conformidade), com `chave`/`origem_id` próprias. O cancelamento por revogação já cobre as duas.
+- **Relação com a tramitação:**
+  - A tramitação (`tramitacoes_processo`) continua sendo o despacho formal entre setores (estilo SEI), que vai para os autos.
+  - A tarefa é o "o que eu tenho que fazer". Uma não cria a outra.
+  - A caixa nova mostra só tarefas. A caixa de tramitação por setor continua como estava.
+- "Não se aplica" passou a registrar o autor pelo JWT. Antes vinha do corpo (pendência da §7.5).
+
+**5. Caixa de tarefas (frontend)**
+- `/orgao/fase-interna` passou a ser a **caixa de tarefas**, a tela inicial da área. O painel antigo foi para `/orgao/fase-interna/painel`.
+- Abas **Para mim**, **Aguardando outros** e **Concluídas**, ordenadas por prazo, com as atrasadas em destaque.
+- Coluna **Prazos da semana**: tarefas e sessões públicas.
+- Botões:
+  - **Abrir peça**: leva a `processos/[id]#peca-TIPO` e destaca a linha da peça;
+  - **Assumir**;
+  - **Reatribuir**: diálogo com as pessoas do órgão.
+- Menu principal: "Fase Interna IA" virou **Minhas tarefas**, com badge (laranja se há tarefa atrasada). O menu da fase interna ganhou o mesmo item com badge.
+- Tela do processo: novo quadro **Fluxo da fase interna** (`FluxoFaseInterna.tsx`), na área da etapa atual (Etapa B). Mostra situação, responsável, prazo, passos e peças, dependências, quem concluiu e o histórico.
+
+**6. Notificação** — reaproveita o `NotificacoesService`.
+- Quando uma tarefa é criada ou reatribuída, o sistema:
+  - cria uma notificação no sistema;
+  - envia e-mail pelo SMTP do órgão;
+  - envia WhatsApp com botão, se o órgão tiver WhatsApp configurado e o usuário tiver telefone.
+- Tarefa de papel ou setor: avisa quem tem o papel ou está no setor (até 30 pessoas).
+- Tipo `SISTEMA`, com `entidade_tipo='TAREFA'`.
+- **Decisão:** não criar valor novo no enum de notificações, para o synchronize não reescrever a tabela `notificacoes`.
+- A migração de boot não notifica.
+- Desligar: `FASE_INTERNA_TAREFAS_NOTIFICAR=false`.
+
+### 8.2 Endpoints novos
+
+| Método e rota | Quem | Isolamento (e2e) |
+|---|---|---|
+| `GET /tarefas?aba=para-mim\|aguardando\|concluidas` | usuário/órgão (sempre o do token) | só as tarefas do usuário e do papel/setor dele; outro órgão não aparece; sem o papel não vê; fornecedor 403; anônimo 401 |
+| `GET /tarefas/contagem` | idem (badge) | fornecedor 403; anônimo 401 |
+| `POST /tarefas/:id/assumir` | quem tem o papel/setor | outro papel 403; outro órgão 403; fornecedor 403; anônimo 401 |
+| `POST /tarefas/:id/reatribuir` `{ usuario_id, motivo? }` | responsável, agente do processo, admin do órgão | usuário de outro órgão 403; sem permissão 403; outro órgão 403; fornecedor 403; anônimo 401 |
+| `GET /fase-interna/configuracao` | usuário do órgão | só o próprio órgão |
+| `PUT /fase-interna/configuracao` | admin do órgão | não-admin 403; fornecedor 403; anônimo 401; admin de B só altera B |
+| `GET /fase-interna/configuracao/usuarios` | usuário do órgão | só os usuários do órgão |
+| `PUT /fase-interna/configuracao/usuarios/:usuarioId` `{ papeis, setor_id }` | admin do órgão | usuário de outro órgão 403; admin de B 403; não-admin 403; fornecedor 403 |
+| `GET /fase-interna/:licitacaoId/etapas` | órgão dono | outro órgão 404; fornecedor 403; anônimo 401 |
+
+### 8.3 Migração de boot
+
+| Serviço | Desligar | O que faz |
+|---|---|---|
+| `MigracaoTarefasBootService` | `FASE_INTERNA_TAREFAS_NO_BOOT=false` (ou `FASE_INTERNA_TAREFAS=false`) | sincroniza os processos em fase interna (ativos/suspensos) e os que têm tarefa aberta: cria as tarefas abertas que faltam, sem notificar. Idempotente (e2e rodado 2x). |
+
+O `synchronize` também:
+- cria `tarefas` (com o índice único parcial) e `configuracoes_fase_interna`;
+- cria as colunas novas de `usuarios`;
+- recria os enums de `documentos_fase_interna.tipo` (+MCI, também em `modelos_documento` e `fluxos_aprovacao_documento`) e de `logs_fase_interna.acao` (+5 valores). Só foram acrescentados valores.
+
+### 8.4 Testes
+
+- **Unitários novos:**
+  - `etapas-fase-interna.spec.ts`: dependências, ordem sugestão, "não se aplica", anexo e em assinatura, controle interno ativo/inativo, divulgado e revogado, rito completo × direta, fase da máquina.
+  - `tarefa-regras.spec.ts`: prazo em dias úteis com feriado do órgão, tarefa atrasada, configuração padrão e validação, responsável SIMPLES × POR_SETOR, plano de sincronização idempotente, cancelamentos, reatribuição, quem cumpriu.
+- **Suíte unitária completa:** 90 suítes / 1086 testes, todas passando.
+- **E2E novo** `test/fase-interna-e2.e2e-spec.ts` (19 testes):
+  - a tarefa nasce ao abrir o processo;
+  - anexar, marcar "não se aplica" e concluir a assinatura concluem a tarefa, registrando quem cumpriu;
+  - a peça reenviada para assinatura reabre a tarefa;
+  - modo SIMPLES e modo POR_SETOR (tarefa no papel certo);
+  - assumir e reatribuir;
+  - controle interno ativo cria a etapa e a tarefa; desativado, cancela;
+  - revogar cancela as tarefas;
+  - caixa: ordem por prazo, atrasada, contagem e prazos da semana;
+  - migração rodada 2x;
+  - isolamento em todos os endpoints novos.
+- **E2E afetados**, rodados arquivo a arquivo, todos passando: fase-interna-e1, dispensa-eletronica, transicoes-fase-interna-pncp, isolamento-dados-licitacao, limpeza-e9, cockpit-processo, assistente-itens, divulgacao-pncp, arquivos-privados, pncp-fila, publicacao-prazos, me-epp, credenciamento, formalizacao-resultado, ata-registro-precos, resultado-contrato, transicoes-licitacao, dispensa-motor-unico, infra, orgaos-pca-acesso.
+- **Frontend:** `npx tsc --noEmit` limpo; `next build` concluído sem erro.
+
+### 8.5 Fica para as próximas entregas
+
+- **Portões que travam atos** — Entrega 4. Nesta entrega estão só marcados no campo `portao`:
+  - B (art. 72) na autorização;
+  - minutas antes do parecer;
+  - C (conformidade) antes de publicar.
+- **Diligência** do parecer, que cria tarefa para o responsável da peça-alvo (origem DILIGENCIA) — Entrega 3.
+- **Achado** da conformidade (origem ACHADO) — Entrega 4.
+- **Telas por etapa** — Entrega 3. Hoje o botão da tarefa leva à linha da peça no quadro do processo.
+- **Atos CONCLUIR_* automáticos** quando terminam as etapas de uma fase da máquina: não foi feito, porque mudaria o comportamento atual. O agente continua avançando pelo checklist, como antes.
+- **Controle interno como bloqueio** (hoje é só aviso) e "não se aplica" para ele, quando o regulamento permitir — decisão do órgão, Entregas 4/5.
+- **Requisitante como responsável direto** das etapas 1 a 3 no modo por setor (quem pediu, pela demanda): hoje a tarefa vai para a caixa do papel.
+- **Lembrete de prazo vencendo** (cron): não existe. A tarefa atrasada aparece destacada na caixa e no badge.
 
 ## 6. Riscos e cuidados
 

@@ -329,15 +329,23 @@ export class FaseInternaController {
     body: {
       justificativa?: string;
       desfazer?: boolean;
-      usuarioId?: string;
-      usuarioNome?: string;
     },
+    @AtorAtual() ator: Ator,
   ) {
+    // Autor sempre do JWT (Entrega 2 — antes vinha do corpo): é quem "cumpriu"
+    // a peça na conclusão automática da tarefa.
+    const id = ator.usuarioId ?? ator.orgaoId ?? ator.id;
+    const [u] = id && ehUuid(id)
+      ? await this.dataSource.query(
+          `SELECT nome FROM usuarios WHERE id::text = $1 UNION ALL SELECT nome FROM orgaos WHERE id::text = $1 LIMIT 1`,
+          [id],
+        )
+      : [];
     return this.faseInternaService.marcarNaoSeAplica(
       licitacaoId,
       tipo,
       body?.justificativa || '',
-      { id: body?.usuarioId, nome: body?.usuarioNome },
+      { id: ator.admin ? undefined : id, nome: ator.admin ? 'Administrador da plataforma' : u?.nome },
       body?.desfazer,
     );
   }

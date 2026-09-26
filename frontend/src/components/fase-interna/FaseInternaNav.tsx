@@ -15,9 +15,11 @@ import {
   BookOpen,
   Settings2,
   ChevronRight,
+  Inbox,
   type LucideIcon,
 } from "lucide-react";
 import { API_URL, authFetch } from "@/lib/api";
+import { carregarContagemTarefas } from "@/lib/tarefas";
 
 type NavItem = {
   href: string;
@@ -98,6 +100,7 @@ export function FaseInternaNav() {
   const searchParams = useSearchParams();
   const [procCount, setProcCount] = useState<number | undefined>(undefined);
   const [aprovCount, setAprovCount] = useState<number | undefined>(undefined);
+  const [tarefasCount, setTarefasCount] = useState<{ para_mim: number; atrasadas: number } | null>(null);
   const processoPathId = pathname.match(
     /\/orgao\/fase-interna\/processos\/([^/]+)/,
   )?.[1];
@@ -144,12 +147,19 @@ export function FaseInternaNav() {
         }
       }
     };
+    const carregarTarefas = async () => {
+      const c = await carregarContagemTarefas();
+      if (isMounted) setTarefasCount(c);
+    };
     carregar();
+    carregarTarefas();
     // Recarrega badge quando um processo é criado ou excluído na mesma aba
     window.addEventListener('processos-updated', carregar);
+    window.addEventListener('tarefas-atualizadas', carregarTarefas);
     return () => {
       isMounted = false;
       window.removeEventListener('processos-updated', carregar);
+      window.removeEventListener('tarefas-atualizadas', carregarTarefas);
     };
   }, []);
 
@@ -185,6 +195,13 @@ export function FaseInternaNav() {
   const WORK_NAV: NavItem[] = [
     {
       href: "/orgao/fase-interna",
+      label: "Minhas tarefas",
+      icon: Inbox,
+      exact: true,
+      badge: tarefasCount ? tarefasCount.para_mim : undefined,
+    },
+    {
+      href: "/orgao/fase-interna/painel",
       label: "Painel",
       icon: LayoutDashboard,
       exact: true,

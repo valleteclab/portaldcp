@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -33,6 +34,7 @@ import {
 } from './peca-regras';
 import { TITULO_DOCUMENTO } from './documentos-obrigatorios';
 import { atribuirFolhas, contarPaginasPdf } from './folhas-autos';
+import { TarefasService } from './tarefas/tarefas.service';
 
 /** Limite do PDF anexado (MB) — FASE_INTERNA_ANEXO_MAX_MB. */
 export const ANEXO_MAX_BYTES = Math.max(1, Number(process.env.FASE_INTERNA_ANEXO_MAX_MB) || 25) * 1024 * 1024;
@@ -87,6 +89,7 @@ export class PecasFaseInternaService implements OnModuleInit {
     @InjectRepository(DocumentoOrgao) private readonly docOrgaoRepo: Repository<DocumentoOrgao>,
     private readonly assinaturas: PortalAssinaturasService,
     private readonly gerador: GeradorDocumentoService,
+    @Optional() private readonly tarefas?: TarefasService,
   ) {}
 
   onModuleInit() {
@@ -497,6 +500,8 @@ export class PecasFaseInternaService implements OnModuleInit {
       hash_arquivo: hash,
       total_paginas: paginas,
     });
+    // Update sem o id da licitação não passa pelo gatilho: a peça saiu de "pronta" (tarefa reabre)
+    this.tarefas?.agendar(doc.licitacao_id);
     await this.assinaturas.dispararNotificacoesAssinatura(docAss.id).catch((e: any) =>
       this.logger.warn(`Notificação de assinatura da peça ${tipo} não enviada: ${e?.message ?? e}`),
     );
@@ -578,5 +583,7 @@ export class PecasFaseInternaService implements OnModuleInit {
       await atribuirFolhas(m, doc.licitacao_id, doc.id, paginas);
     });
     this.logger.log(`Peça ${doc.tipo} v${doc.versao} do processo ${doc.licitacao_id} ASSINADA por ${sigs.length} signatário(s)`);
+    // Update por QueryBuilder não passa pelo gatilho das tarefas: conclui a tarefa da etapa aqui
+    this.tarefas?.agendar(doc.licitacao_id);
   }
 }

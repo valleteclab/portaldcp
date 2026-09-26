@@ -80,6 +80,22 @@ export class Usuario {
   @JoinColumn({ name: 'orgao_id' })
   orgao: Orgao;
 
+  /**
+   * Setor do órgão em que o usuário está lotado (fase interna — Entrega 2:
+   * caixa de tarefas do setor). Setor de `setores` do mesmo órgão.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  setor_id: string | null;
+
+  /**
+   * Papéis FUNCIONAIS na fase interna (Requisitante, Compras, Contabilidade,
+   * Jurídico, Controle interno, Autoridade, Agente de contratação — ver
+   * PapelFaseInterna). Um usuário pode ter vários. NÃO substitui `role`
+   * (permissão de sistema). null = nenhum.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  papeis_fase_interna: string[] | null;
+
   @Column({ default: true })
   ativo: boolean;
 

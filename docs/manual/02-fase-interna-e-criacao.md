@@ -45,6 +45,46 @@ Para leilão, concurso e diálogo competitivo, o assistente mostra também os ca
 
 > **Atenção — IA.** "Texto gerado por IA deve ser revisado pelo servidor responsável." A responsabilidade pelo conteúdo é sempre do servidor. Nada é publicado sem a sua validação.
 
+## Minhas tarefas (caixa de entrada)
+
+Ao entrar em **Minhas tarefas** (menu principal, ou o início da área de fase interna), você vê as suas tarefas abertas, das mais urgentes para as menos urgentes. O número ao lado do menu mostra quantas estão abertas. Ele fica laranja quando alguma está atrasada.
+
+- **Para mim**: as tarefas atribuídas a você e as do seu papel ou setor.
+- **Aguardando outros**: tarefas dos processos em que você é o agente e que estão com outras pessoas. Para o administrador do órgão, todas as do órgão.
+- **Concluídas**: as que você cumpriu ou que eram suas.
+- **Prazos da semana**: tarefas que vencem nos próximos 7 dias e sessões públicas marcadas.
+
+Cada tarefa tem o botão **Abrir peça**, que leva direto à peça dentro da tela do processo. A peça fica destacada. Tarefa atrasada aparece em laranja.
+
+**As tarefas nascem e terminam sozinhas.**
+- Quando uma etapa fica disponível, o sistema cria a tarefa para o responsável. Ao abrir um processo, nasce a tarefa da **demanda (DFD)**.
+- Quando a peça fica pronta (feita aqui, anexada em PDF, assinada por todos ou marcada "não se aplica"), a tarefa é concluída e o sistema registra quem cumpriu.
+- Se o processo for revogado ou anulado, ou se a etapa deixar de valer (ex.: controle interno desligado), a tarefa é cancelada.
+
+**Assumir e reatribuir.** Uma tarefa do seu papel ou setor pode ser **assumida**: ela passa a ser só sua. **Reatribuir** passa a tarefa para outra pessoa do órgão, com motivo opcional. Podem reatribuir o responsável, o agente do processo e o administrador do órgão. Tudo fica no histórico.
+
+> **Tramitação × tarefa.** A tramitação continua sendo o despacho formal entre setores, que vai para os autos. A tarefa é o "o que eu tenho que fazer". Uma não cria a outra.
+
+## Etapas da fase interna
+
+Na tela do processo, o quadro **Fluxo da fase interna** mostra as etapas com a situação, o responsável e o prazo:
+
+1. Demanda (DFD)
+2. ETP e análise de riscos
+3. Termo de referência
+4. Pesquisa de preços
+5. Reserva orçamentária
+6. Autorização
+7. Minutas e parecer jurídico
+8. Controle interno (só se o órgão ligou)
+9. Conformidade e publicação
+
+Na licitação (rito completo), o parecer vem antes da autorização.
+
+- A **ordem é sugestão**: qualquer peça pode ser feita ou anexada antes, e conta na hora.
+- As tarefas seguem as dependências. Depois da demanda, ficam disponíveis o estudo técnico, o TR e a pesquisa. A reserva orçamentária espera a pesquisa, porque precisa do valor. A autorização espera as etapas 1 a 5. As minutas vêm depois da autorização, e o parecer vem depois das minutas.
+- Clique numa etapa para ver as peças, o que falta, o prazo padrão e quem concluiu. **Ver histórico** mostra cada mudança de etapa e de tarefa, com quem e quando.
+
 ## O dossiê da fase interna
 
 No cockpit, clique em **Fase interna** (o botão aparece enquanto o processo está na fase interna). O dossiê tem as abas **Visão geral**, **Documentos**, **Tramitação**, **Comentários** e **Permissões**, e mostra cada peça: DFD, ETP, Mapa de Riscos, Pesquisa de Preços, Termo de Referência, Parecer Jurídico, Elaboração do Edital, Autorização para abertura.

@@ -29,6 +29,12 @@ export enum AcaoLogFaseInterna {
   // Fluxo de aprovação multi-etapa
   ETAPA_APROVACAO_APROVADA = 'ETAPA_APROVACAO_APROVADA',
   ETAPA_APROVACAO_REPROVADA = 'ETAPA_APROVACAO_REPROVADA',
+  // Etapas da fase interna e tarefas (Entrega 2) — histórico de quem, quando, de/para
+  ETAPA_ALTERADA = 'ETAPA_ALTERADA',
+  TAREFA_CRIADA = 'TAREFA_CRIADA',
+  TAREFA_CONCLUIDA = 'TAREFA_CONCLUIDA',
+  TAREFA_CANCELADA = 'TAREFA_CANCELADA',
+  TAREFA_REATRIBUIDA = 'TAREFA_REATRIBUIDA',
 }
 
 @Entity('logs_fase_interna')

@@ -35,6 +35,7 @@ import {
   Wrench,
   BookMarked,
   Users,
+  Inbox,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,6 +43,7 @@ import { Badge } from "@/components/ui/badge"
 import { useModulosOrgao, ModuloSistema } from "@/hooks/useModulosOrgao"
 import { NotificacoesBadge } from "@/components/NotificacoesBadge"
 import { API_URL, getAssetUrl } from "@/lib/api"
+import { carregarContagemTarefas } from "@/lib/tarefas"
 
 interface SidebarProps {
   userType: 'fornecedor' | 'orgao'
@@ -68,6 +70,23 @@ export function Sidebar({ userType }: SidebarProps) {
   const [permissoesUsuario, setPermissoesUsuario] = useState<Record<string, boolean>>({})
   const [roleUsuario, setRoleUsuario] = useState<string | null>(null)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
+  const [tarefas, setTarefas] = useState<{ para_mim: number; atrasadas: number } | null>(null)
+
+  // Badge de "Minhas tarefas" (fase interna): abertas para mim e atrasadas
+  useEffect(() => {
+    if (userType !== 'orgao') return
+    let vivo = true
+    const carregar = async () => {
+      const c = await carregarContagemTarefas()
+      if (vivo) setTarefas(c)
+    }
+    carregar()
+    window.addEventListener('tarefas-atualizadas', carregar)
+    return () => {
+      vivo = false
+      window.removeEventListener('tarefas-atualizadas', carregar)
+    }
+  }, [userType, pathname])
 
   useEffect(() => {
     if (userType === 'orgao') {
@@ -145,7 +164,8 @@ export function Sidebar({ userType }: SidebarProps) {
     // Licitação (E8): um caminho por ato — a sala da sessão abre do processo
     { href: "/orgao/licitacoes", label: "Processos", icon: FileText, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/fase-interna/processos/novo", label: "Novo processo", icon: Gavel, modulo: ModuloSistema.LICITACOES },
-    { href: "/orgao/fase-interna", label: "Fase Interna IA", icon: ClipboardList, modulo: ModuloSistema.LICITACOES },
+    // Fase interna (Entrega 2): a entrada da área é a caixa de tarefas do usuário
+    { href: "/orgao/fase-interna", label: "Minhas tarefas", icon: Inbox, modulo: ModuloSistema.LICITACOES },
     // Aprovações: documentos da fase interna (fluxo por etapa) para todos; demais abas conforme a permissão
     { href: "/orgao/aprovacoes", label: "Aprovações", icon: CheckCircle },
     { href: "/orgao/atas", label: "Atas de Registro de Preços", icon: BookMarked, modulo: ModuloSistema.ATAS },
@@ -289,7 +309,15 @@ export function Sidebar({ userType }: SidebarProps) {
                     }`}
                 >
                   <Icon className="h-5 w-5" />
-                  {link.label}
+                  <span className="flex-1">{link.label}</span>
+                  {link.href === '/orgao/fase-interna' && tarefas && tarefas.para_mim > 0 && (
+                    <span
+                      className={`min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center ${tarefas.atrasadas > 0 ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'}`}
+                      aria-label={`${tarefas.para_mim} tarefa(s) aberta(s)${tarefas.atrasadas ? `, ${tarefas.atrasadas} atrasada(s)` : ''}`}
+                    >
+                      {tarefas.para_mim}
+                    </span>
+                  )}
                 </Link>
               </li>
             )
