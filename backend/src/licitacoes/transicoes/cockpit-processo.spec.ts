@@ -159,3 +159,20 @@ describe('Fundamento legal em texto (mesmo enquadramento do PNCP)', () => {
     expect(fundamentoLegalTexto({ modalidade: 'TOMADA_PRECOS' } as any)).toBeNull();
   });
 });
+
+describe('Classificação da dispensa (valor final = menor entre proposta e próprios lances)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { valoresFinaisDispensa, classificacaoPorItem } = require('../classificacao-dispensa');
+  const linhas = [
+    { item_licitacao_id: 'i1', valor_unitario: '100', proposta_id: 'p1', fornecedor_id: 'f1', razao_social: 'A' },
+    { item_licitacao_id: 'i1', valor_unitario: '95', proposta_id: 'p2', fornecedor_id: 'f2', razao_social: 'B' },
+  ];
+  test('lance do próprio fornecedor reduz o valor; lance de quem não tem proposta não conta', () => {
+    const v = valoresFinaisDispensa(linhas, [
+      { item_licitacao_id: 'i1', fornecedor_id: 'f1', valor_unitario: '90' },
+      { item_licitacao_id: 'i1', fornecedor_id: 'f9', valor_unitario: '10' },
+    ]);
+    const c = classificacaoPorItem(v).get('i1');
+    expect(c.map((x: any) => [x.posicao, x.razao_social, x.valor_unitario])).toEqual([[1, 'A', 90], [2, 'B', 95]]);
+  });
+});

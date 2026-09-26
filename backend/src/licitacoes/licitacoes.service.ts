@@ -39,6 +39,7 @@ import { valorAdjudicadoDoUnitario } from '../resultado/regras-resultado';
 import type { Ator } from '../auth/acesso/ator';
 import { aplicarEstadoCompraPncp, estadoCompraPncp } from '../pncp/estado-compra-pncp';
 import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
+import { classificacaoPorItem, valoresFinaisDispensa } from './classificacao-dispensa';
 import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizacao';
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
 import { comoErro } from '../common/erros';
@@ -941,6 +942,46 @@ export class LicitacoesService {
     return this.transicoes.atosDisponiveis(id);
   }
 
+  /**
+   * Classificação por item da dispensa (tela do processo — julgamento): valor
+   * final de cada fornecedor = menor entre a proposta e os próprios lances
+   * (a mesma regra do julgamento). Durante o recebimento, nada (sigilo — Lei
+   * 14.133 art. 13 par. único, I; IN SEGES 67/2021 art. 13).
+   */
+  async classificacaoDispensa(id: string) {
+    const licitacao = await this.findOne(id);
+    if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+      throw new BadRequestException('Classificação por item disponível apenas para a dispensa eletrônica');
+    }
+    const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
+    if (!corte || new Date() < new Date(corte)) return { em_sigilo: true, itens: [] };
+    const linhas = await this.dataSource.query(
+      `SELECT pi.item_licitacao_id::text AS item_licitacao_id, pi.valor_unitario, p.id AS proposta_id,
+              p.fornecedor_id::text AS fornecedor_id, f.razao_social
+       FROM proposta_itens pi
+       JOIN propostas p ON p.id = pi.proposta_id
+       JOIN fornecedores f ON f.id = p.fornecedor_id
+       WHERE p.licitacao_id = $1
+         AND p.status NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')
+       ORDER BY pi.item_licitacao_id, pi.valor_unitario ASC, p.data_envio ASC NULLS LAST`,
+      [id],
+    );
+    const lances = await this.janelaDispensa.lancesDaJanela(id);
+    const porItem = classificacaoPorItem(valoresFinaisDispensa(linhas, lances as any));
+    const itens = await this.itemRepository.find({ where: { licitacao_id: id }, order: { numero_item: 'ASC' } });
+    return {
+      em_sigilo: false,
+      itens: itens.map((i) => ({
+        item_licitacao_id: i.id,
+        numero_item: i.numero_item,
+        descricao: (i as any).descricao_resumida || (i as any).descricao,
+        status: i.status,
+        fornecedor_vencedor_id: i.fornecedor_vencedor_id ?? null,
+        classificacao: porItem.get(String(i.id)) ?? [],
+      })),
+    };
+  }
+
   /** Checklist de pré-publicação (Etapa B da tela do processo). */
   async conferenciaPrePublicacao(id: string) {
     return this.transicoes.conferenciaPrePublicacao(id);
@@ -1367,41 +1408,7 @@ export class LicitacoesService {
     // a proposta inicial e os seus próprios lances (modelo IN SEGES 67/2021).
     // Lances da janela: tabela única do motor (origem JANELA_DISPENSA, valor unitário)
     const lances = await this.janelaDispensa.lancesDaJanela(id);
-    const dadosFornecedor = new Map<string, { proposta_id: string; razao_social: string }>();
-    for (const l of linhas) {
-      if (!dadosFornecedor.has(l.fornecedor_id)) {
-        dadosFornecedor.set(l.fornecedor_id, {
-          proposta_id: l.proposta_id,
-          razao_social: l.razao_social,
-        });
-      }
-    }
-    // melhor valor por (item, fornecedor): começa nas propostas…
-    const melhorPorItemFornecedor = new Map<string, (typeof linhas)[number]>();
-    const chave = (item: string, forn: string) => `${item}|${forn}`;
-    for (const l of linhas) {
-      const k = chave(l.item_licitacao_id, l.fornecedor_id);
-      const atual = melhorPorItemFornecedor.get(k);
-      if (!atual || Number(l.valor_unitario) < Number(atual.valor_unitario)) {
-        melhorPorItemFornecedor.set(k, l);
-      }
-    }
-    // …e é reduzido pelos lances (só de fornecedores com proposta válida)
-    for (const lance of lances) {
-      const forn = dadosFornecedor.get(lance.fornecedor_id);
-      if (!forn) continue; // lance de quem não tem proposta válida não conta
-      const k = chave(lance.item_licitacao_id, lance.fornecedor_id);
-      const atual = melhorPorItemFornecedor.get(k);
-      if (atual && Number(lance.valor_unitario) < Number(atual.valor_unitario)) {
-        melhorPorItemFornecedor.set(k, {
-          item_licitacao_id: lance.item_licitacao_id,
-          valor_unitario: String(lance.valor_unitario),
-          proposta_id: forn.proposta_id,
-          fornecedor_id: lance.fornecedor_id,
-          razao_social: forn.razao_social,
-        });
-      }
-    }
+    const melhorPorItemFornecedor = valoresFinaisDispensa(linhas, lances);
     // vencedor do item = menor valor final entre os fornecedores
     const vencedorPorItem = new Map<string, (typeof linhas)[number]>();
     for (const cand of melhorPorItemFornecedor.values()) {

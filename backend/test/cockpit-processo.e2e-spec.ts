@@ -10,7 +10,7 @@
  *  3. isolamento: só o órgão dono lê (outro órgão, fornecedor e anônimo não).
  */
 import { AppE2E, OrgaoFixture, criarApp, criarFornecedor, criarLicitacao, criarOrgao } from './support';
-import { criarDispensaPublicada } from './support/dispensa';
+import { criarDispensaComPropostas, criarDispensaPublicada } from './support/dispensa';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -104,12 +104,42 @@ describe('Tela do processo — Etapa B (conferência de pré-publicação e menu
       expect(por.OUTRAS).toBeUndefined();
     });
 
+    it('classificação por item: vazia em sigilo; outro órgão e fornecedor não leem', async () => {
+      const r = (await http().get(`/api/licitacoes/${licId}/dispensa/classificacao`).set(bearer(A.token)).expect(200)).body;
+      expect(r).toEqual({ em_sigilo: true, itens: [] });
+      const outro = await http().get(`/api/licitacoes/${licId}/dispensa/classificacao`).set(bearer(B.token));
+      expect([403, 404]).toContain(outro.status);
+      const f = await criarFornecedor(ctx);
+      expect((await http().get(`/api/licitacoes/${licId}/dispensa/classificacao`).set(bearer(f.token))).status).toBe(403);
+    });
+
     it('isolamento: outro órgão não lê o menu nem a conferência deste processo', async () => {
       const pc = await http().get(`/api/licitacoes/${licId}/processo-completo`).set(bearer(B.token));
       expect([403, 404]).toContain(pc.status);
       expect(pc.body?.acoes_menu).toBeUndefined();
       const c = await http().get(`/api/licitacoes/${licId}/conferencia-publicacao`).set(bearer(B.token));
       expect([403, 404]).toContain(c.status);
+    });
+  });
+
+  describe('3. dispensa com o recebimento encerrado', () => {
+    it('classificação por item com o valor final de cada fornecedor (menor primeiro)', async () => {
+      const f1 = await criarFornecedor(ctx);
+      const f2 = await criarFornecedor(ctx);
+      const lic = await criarDispensaComPropostas(ctx, A, [
+        { fornecedor: f1, valores: [90, 40] },
+        { fornecedor: f2, valores: [95, 45] },
+      ]);
+      const r = (await http().get(`/api/licitacoes/${lic.id}/dispensa/classificacao`).set(bearer(A.token)).expect(200)).body;
+      expect(r.em_sigilo).toBe(false);
+      expect(r.itens).toHaveLength(2);
+      for (const it of r.itens) {
+        expect(it.classificacao.map((c: any) => c.posicao)).toEqual([1, 2]);
+        expect(it.classificacao[0].fornecedor_id).toBe(f1.id);
+      }
+      const pc = (await http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(A.token)).expect(200)).body;
+      expect(pc.propostas_em_sigilo).toBe(false);
+      expect(pc.propostas.every((p: any) => !!p.razao_social)).toBe(true);
     });
   });
 });

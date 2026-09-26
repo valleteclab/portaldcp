@@ -229,6 +229,14 @@ export class LicitacoesController {
     return await this.licitacoesService.conferenciaPrePublicacao(id);
   }
 
+  /** Dispensa: classificação por item (valor final = proposta ou lance) — tela do processo. Só o órgão dono; vazia em sigilo. */
+  @Get(':id/dispensa/classificacao')
+  @SomenteOrgao()
+  async classificacaoDispensa(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
+    return await this.licitacoesService.classificacaoDispensa(id);
+  }
+
   /** Histórico de transições (quem fez qual ato, quando, de/para, motivo). Só o órgão dono. */
   @Get(':id/transicoes')
   @SomenteOrgao()
