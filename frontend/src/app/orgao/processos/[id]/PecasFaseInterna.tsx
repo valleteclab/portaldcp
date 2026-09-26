@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, Circle, FileText, Loader2, PenLine, Upload } from "lucide-react"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
-import { AnexarPecaDialog } from "./AnexarPecaDialog"
+import { AnexarPecaDialog } from "@/components/fase-interna/etapas/AnexarPecaDialog"
 
 interface ItemInstrucao {
   tipo: string
