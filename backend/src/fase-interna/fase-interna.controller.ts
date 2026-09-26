@@ -13,18 +13,20 @@ import {
   BadRequestException,
   UseGuards,
   NotFoundException,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import * as fs from 'fs';
 import { DataSource } from 'typeorm';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { diskStorage, memoryStorage } from 'multer';
 import { extname, join } from 'path';
 import { FaseInternaService } from './fase-interna.service';
 import { PreparacaoAutomaticaService } from './preparacao-automatica.service';
 import { DerivacaoService } from './derivacao.service';
-import {
-  TipoDocumentoFaseInterna,
-  OrigemDocumento,
-} from './entities/documento-fase-interna.entity';
+import { TipoDocumentoFaseInterna } from './entities/documento-fase-interna.entity';
+import { ANEXO_MAX_BYTES, PecasFaseInternaService } from './pecas-fase-interna.service';
+import { ConsumoLimiteService } from '../parametros-licitacao/consumo-limite.service';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
 import { GeradorPpService } from './gerador-pp.service';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
@@ -53,7 +55,116 @@ export class FaseInternaController {
     private readonly pesquisaPrecosAgentService: PesquisaPrecosAgentService,
     private readonly geradorPpService: GeradorPpService,
     private readonly dataSource: DataSource,
+    private readonly pecas: PecasFaseInternaService,
+    private readonly consumoLimite: ConsumoLimiteService,
   ) {}
+
+  private enviarPdf(res: Response, arq: { caminho: string; nome: string }) {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${arq.nome}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    // Pasta privada tem ponto no nome (`.privado`) — sendFile recusaria; envia o conteúdo
+    res.send(fs.readFileSync(arq.caminho));
+  }
+
+  // === PEÇA: FAZER AQUI OU ANEXAR (Entrega 1) ===
+
+  /**
+   * "Anexar PDF": peça feita fora do sistema. Multipart: `arquivo` (só PDF,
+   * limite FASE_INTERNA_ANEXO_MAX_MB), `data_documento` (AAAA-MM-DD,
+   * obrigatória, não futura), `numero_peca`, `signatarios` (JSON [{nome,cargo}]),
+   * `observacao`. Grava SHA-256, nova versão (a anterior vira SUBSTITUIDO) e as
+   * folhas dos autos; conta como peça pronta no checklist.
+   */
+  @Post(':licitacaoId/documentos/:tipo/anexo')
+  @UseInterceptors(FileInterceptor('arquivo', { storage: memoryStorage(), limits: { fileSize: ANEXO_MAX_BYTES, files: 1 } }))
+  async anexarPeca(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('tipo') tipo: string,
+    @UploadedFile() arquivo: Express.Multer.File,
+    @Body() body: { numero_peca?: string; data_documento?: string; signatarios?: string; observacao?: string; titulo?: string },
+    @AtorAtual() ator: Ator,
+  ) {
+    return this.pecas.anexarPeca(licitacaoId, tipo, arquivo, body ?? {}, ator);
+  }
+
+  /** Arquivo da peça (anexo, PDF gerado ou assinado) — só o órgão dono. */
+  @Get('documento/:id/arquivo')
+  @DonoPor('documento', 'id')
+  async arquivoDaPeca(@Param('id') id: string, @Res() res: Response) {
+    this.enviarPdf(res, await this.pecas.arquivoDaPeca(id));
+  }
+
+  /**
+   * Envia a peça feita no sistema para assinatura com VÁRIOS signatários
+   * (ex.: Mesa Diretora). Corpo: { signatarios: [{ usuario_id, papel }] }.
+   */
+  @Post(':licitacaoId/documentos/:tipo/assinatura')
+  async enviarParaAssinatura(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('tipo') tipo: string,
+    @Body() body: { signatarios?: Array<{ usuario_id?: string; papel?: string }> },
+    @AtorAtual() ator: Ator,
+  ) {
+    return this.pecas.enviarParaAssinatura(licitacaoId, tipo, body ?? {}, ator);
+  }
+
+  @Get(':licitacaoId/documentos/:tipo/assinatura')
+  async situacaoAssinatura(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string) {
+    return this.pecas.situacaoAssinatura(licitacaoId, tipo);
+  }
+
+  /** Consumo do limite da dispensa no exercício (art. 75, §1º) — leitura para o painel. */
+  @Get(':licitacaoId/consumo-limite')
+  async consumoDoLimite(@Param('licitacaoId') licitacaoId: string) {
+    return this.consumoLimite.consumoDoProcesso(licitacaoId);
+  }
+
+  // === PORTARIA DE DESIGNAÇÃO (documento do ÓRGÃO, vigência anual) ===
+
+  private orgaoDoAtor(ator: Ator, orgaoIdAdmin?: string): string {
+    if (ator.admin) {
+      if (!orgaoIdAdmin) throw new BadRequestException('Informe ?orgao_id= (administrador da plataforma)');
+      return orgaoIdAdmin;
+    }
+    return ator.orgaoId!;
+  }
+
+  /** Portarias do órgão do token (?todas=true inclui versões substituídas). */
+  @Get('orgao/portarias')
+  async listarPortarias(@AtorAtual() ator: Ator, @Query('orgao_id') orgaoId?: string, @Query('todas') todas?: string) {
+    return this.pecas.listarPortarias(this.orgaoDoAtor(ator, orgaoId), todas === 'true');
+  }
+
+  /** Anexa a portaria do exercício (substitui a vigente do mesmo exercício — nova versão). */
+  @Post('orgao/portarias')
+  @UseInterceptors(FileInterceptor('arquivo', { storage: memoryStorage(), limits: { fileSize: ANEXO_MAX_BYTES, files: 1 } }))
+  async anexarPortaria(
+    @UploadedFile() arquivo: Express.Multer.File,
+    @Body() body: Record<string, any>,
+    @AtorAtual() ator: Ator,
+    @Query('orgao_id') orgaoId?: string,
+  ) {
+    return this.pecas.anexarPortaria(this.orgaoDoAtor(ator, orgaoId), arquivo, body ?? {}, ator);
+  }
+
+  @Get('orgao/portarias/:id/arquivo')
+  async arquivoDaPortaria(@Param('id') id: string, @AtorAtual() ator: Ator, @Res() res: Response) {
+    if (!ehUuid(id)) throw new NotFoundException('Portaria não encontrada');
+    this.enviarPdf(res, await this.pecas.arquivoDaPortaria(id, ator.orgaoId, ator.admin));
+  }
+
+  /** Junta ao processo a portaria vigente do órgão (peça DP). Corpo opcional: { portaria_id }. */
+  @Post(':licitacaoId/portaria-designacao')
+  async vincularPortaria(
+    @Param('licitacaoId') licitacaoId: string,
+    @Body() body: { portaria_id?: string },
+    @AtorAtual() ator: Ator,
+  ) {
+    const id = body?.portaria_id;
+    if (id && !ehUuid(id)) throw new NotFoundException('Portaria não encontrada');
+    return this.pecas.vincularPortaria(licitacaoId, id, ator);
+  }
 
   /**
    * MODO CO-WORK: prepara o processo inteiro em background (pesquisa de
@@ -86,34 +197,6 @@ export class FaseInternaController {
       body.descricao,
       body.criadorId,
       body.criadorNome,
-    );
-  }
-
-  @Post(':licitacaoId/importar-documento')
-  async importarDocumento(
-    @Param('licitacaoId') licitacaoId: string,
-    @Body()
-    body: {
-      tipo: TipoDocumentoFaseInterna;
-      titulo: string;
-      origem: OrigemDocumento;
-      sistemaOrigem: string;
-      idExterno: string;
-      nomeArquivo?: string;
-      caminhoArquivo?: string;
-      hashArquivo?: string;
-    },
-  ) {
-    return this.faseInternaService.importarDocumento(
-      licitacaoId,
-      body.tipo,
-      body.titulo,
-      body.origem,
-      body.sistemaOrigem,
-      body.idExterno,
-      body.nomeArquivo,
-      body.caminhoArquivo,
-      body.hashArquivo,
     );
   }
 

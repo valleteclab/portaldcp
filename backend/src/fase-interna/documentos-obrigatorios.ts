@@ -53,6 +53,44 @@ export const TITULO_DOCUMENTO: Partial<Record<TipoDocumentoFaseInterna, string>>
   [TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA]: 'Autorização de abertura',
   [TipoDocumentoFaseInterna.DESIGNACAO_PREGOEIRO]: 'Designação do agente de contratação/pregoeiro',
   [TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA]: 'Dotação orçamentária',
+  [TipoDocumentoFaseInterna.ANALISE_RISCOS]: 'Análise de riscos',
+  [TipoDocumentoFaseInterna.PROJETO_BASICO]: 'Projeto básico',
+  [TipoDocumentoFaseInterna.PROJETO_EXECUTIVO]: 'Projeto executivo',
+  [TipoDocumentoFaseInterna.PARECER_TECNICO]: 'Parecer técnico',
+  [TipoDocumentoFaseInterna.DESIGNACAO_EQUIPE_APOIO]: 'Designação da equipe de apoio',
+  [TipoDocumentoFaseInterna.MINUTA_EDITAL]: 'Minuta do edital / aviso de contratação direta',
+  [TipoDocumentoFaseInterna.EDITAL_APROVADO]: 'Edital aprovado',
+  [TipoDocumentoFaseInterna.ANEXOS_EDITAL]: 'Anexos do edital',
+  [TipoDocumentoFaseInterna.OUTROS]: 'Outro documento',
+  [TipoDocumentoFaseInterna.RELATORIO_AGENTE]: 'Relatório do agente de contratação',
+  [TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA]: 'Parecer jurídico da fase externa',
+  [TipoDocumentoFaseInterna.MINUTA_CONTRATO]: 'Minuta do contrato',
+};
+
+/**
+ * CATÁLOGO DE PEÇAS (nome da SPEC → código do sistema). Onde já havia tipo
+ * equivalente, ele é reaproveitado — nada de duplicata:
+ *  - DESPACHO_AUTORIZACAO → AA (autorização da autoridade competente)
+ *  - INFO_ORCAMENTARIA → DO (dotação/informação orçamentária)
+ *  - PARECER_JURIDICO → PJ
+ *  - PORTARIA_DESIGNACAO → DP (a portaria é documento do ÓRGÃO com vigência —
+ *    `documentos_orgao` — e o processo a referencia na peça DP)
+ *  - MINUTA_AVISO → ME (minuta do edital/aviso)
+ * Novos: RELATORIO_AGENTE (RAG), PARECER_FASE_EXTERNA (PJE), MINUTA_CONTRATO (MC).
+ */
+export const CATALOGO_PECAS: Record<string, TipoDocumentoFaseInterna> = {
+  DFD: TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA,
+  ETP: TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR,
+  TR: TipoDocumentoFaseInterna.TERMO_REFERENCIA,
+  PESQUISA_PRECOS: TipoDocumentoFaseInterna.PESQUISA_PRECOS,
+  INFO_ORCAMENTARIA: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
+  DESPACHO_AUTORIZACAO: TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA,
+  PORTARIA_DESIGNACAO: TipoDocumentoFaseInterna.DESIGNACAO_PREGOEIRO,
+  RELATORIO_AGENTE: TipoDocumentoFaseInterna.RELATORIO_AGENTE,
+  MINUTA_AVISO: TipoDocumentoFaseInterna.MINUTA_EDITAL,
+  MINUTA_CONTRATO: TipoDocumentoFaseInterna.MINUTA_CONTRATO,
+  PARECER_JURIDICO: TipoDocumentoFaseInterna.PARECER_JURIDICO,
+  PARECER_FASE_EXTERNA: TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA,
 };
 
 /** Fundamento exibido no checklist de cada etapa. */

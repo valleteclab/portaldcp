@@ -9,6 +9,7 @@ import { GeradorDocumentoService } from '../fase-interna/gerador-documento.servi
 import { LicitacoesService } from './licitacoes.service';
 import { gerarAvisoDispensaPdf } from './aviso-dispensa-pdf';
 import { estadoCompraPncp } from '../pncp/estado-compra-pncp';
+import { resolverArquivoDeUrl } from '../common/arquivos/arquivos';
 
 /**
  * AUTOS DO PROCESSO — compila o processo administrativo INTEIRO num único
@@ -29,7 +30,10 @@ const ORDEM_PECAS: Array<{ tipo: string; titulo: string }> = [
   { tipo: 'DO', titulo: 'Dotação Orçamentária' },
   { tipo: 'JC', titulo: 'Justificativa da Contratação' },
   { tipo: 'AA', titulo: 'Autorização para Abertura' },
-  { tipo: 'ME', titulo: 'Minuta do Edital' },
+  { tipo: 'DP', titulo: 'Portaria de designação do agente de contratação' },
+  { tipo: 'RAG', titulo: 'Relatório do agente de contratação' },
+  { tipo: 'ME', titulo: 'Minuta do Edital / Aviso' },
+  { tipo: 'MC', titulo: 'Minuta do Contrato' },
 ];
 
 interface Peca {
@@ -66,7 +70,7 @@ export class ProcessoPdfService {
 
     // ── 1. Documentos da fase interna (gera o PDF de cada peça presente) ────
     const docs = await this.dataSource.query(
-      `SELECT id, tipo, titulo, status, arquivo_pdf_path,
+      `SELECT id, tipo, titulo, status, arquivo_pdf_path, caminho_arquivo, origem::text AS origem,
               LENGTH(COALESCE(descricao,'')) AS len,
               (dados_estruturados IS NOT NULL) AS tem_dados
        FROM documentos_fase_interna
@@ -75,6 +79,12 @@ export class ProcessoPdfService {
     );
     for (const ordem of ORDEM_PECAS) {
       const doc = docs.find((d: any) => d.tipo === ordem.tipo);
+      // Peça ANEXADA (feita fora) ou já ASSINADA: vai o PDF dela, não um gerado
+      const arquivoProprio = doc && (doc.origem !== 'INTERNO' || doc.status === 'ASSINADO') ? resolverArquivoDeUrl(doc.caminho_arquivo) : null;
+      if (arquivoProprio) {
+        pecas.push({ titulo: ordem.titulo, origem: doc.origem !== 'INTERNO' ? 'Fase interna (anexada)' : 'Fase interna (assinada)', buffer: fs.readFileSync(arquivoProprio) });
+        continue;
+      }
       if (!doc || (Number(doc.len) < 20 && !doc.tem_dados)) {
         continue; // peça não elaborada — não entra nos autos
       }

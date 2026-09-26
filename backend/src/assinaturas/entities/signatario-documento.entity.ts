@@ -53,7 +53,15 @@ export class SignatarioDocumento {
   pos_y: number; // Posição Y relativa (0-1) na página
 
   @Column({ type: 'boolean', default: false })
-  is_orgao_user: boolean; // true = signatário é usuário interno do órgão
+  is_orgao_user: boolean;
+
+  /**
+   * Papel do signatário no ato (ex.: "Presidente", "1º Secretário") — autoridade
+   * colegiada (Mesa Diretora) assina com vários papéis. Vai como cargo na
+   * assinatura digital registrada. Opcional (documentos avulsos não usam).
+   */
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  papel: string | null; // true = signatário é usuário interno do órgão
 
   @Column({ type: 'varchar', length: 45, nullable: true })
   ip_address: string;

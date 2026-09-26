@@ -32,6 +32,7 @@ import {
   FUNDAMENTO_ETAPA,
   TITULO_DOCUMENTO,
 } from './documentos-obrigatorios';
+import { pecaContaComoPronta } from './peca-regras';
 import {
   RiscoIdentificado,
   MatrizRiscosDados,
@@ -222,6 +223,26 @@ export class FaseInternaService {
         obrigatorio: false,
         fundamento: 'Art. 72, VI e VII',
       },
+      // Peças dos autos reais (PA 139/2025) — "se for o caso"; a obrigatoriedade
+      // por regulamento do órgão vem na Entrega 4 (checklist por modalidade).
+      {
+        tipo: TipoDocumentoFaseInterna.DESIGNACAO_PREGOEIRO,
+        titulo: 'Designação do agente de contratação (portaria do exercício)',
+        obrigatorio: false,
+        fundamento: 'Art. 8º',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.RELATORIO_AGENTE,
+        titulo: 'Relatório do agente de contratação',
+        obrigatorio: false,
+        fundamento: 'Art. 72, VI e VII',
+      },
+      {
+        tipo: TipoDocumentoFaseInterna.MINUTA_CONTRATO,
+        titulo: 'Minuta do contrato',
+        obrigatorio: false,
+        fundamento: 'Art. 72 c/c art. 92',
+      },
     ];
   }
 
@@ -231,27 +252,7 @@ export class FaseInternaService {
    * basta ter conteúdo ou arquivo e não estar reprovado.
    */
   private documentoPresente(doc: DocumentoFaseInterna): boolean {
-    if (
-      doc.status === StatusDocumento.REPROVADO ||
-      doc.status === StatusDocumento.PENDENTE
-    ) {
-      return false;
-    }
-    if (
-      doc.status === StatusDocumento.APROVADO ||
-      doc.status === StatusDocumento.IMPORTADO
-    ) {
-      return true;
-    }
-    const dados = doc.dados_estruturados;
-    if (doc.caminho_arquivo || doc.arquivo_pdf_path || (doc.descricao && doc.descricao.trim())) return true;
-    // Pesquisa de preços: o módulo cria o documento (itens sem cotação) só de
-    // abrir a tela — conta quando há ao menos uma cotação registrada (o PDF
-    // gerado grava arquivo e resumo, acima).
-    if (doc.tipo === TipoDocumentoFaseInterna.PESQUISA_PRECOS && dados && Array.isArray((dados as any).itens)) {
-      return (dados as any).itens.some((i: any) => (i?.cotacoes?.length ?? 0) > 0);
-    }
-    return Boolean(dados && typeof dados === 'object' && Object.keys(dados).length > 0);
+    return pecaContaComoPronta(doc as any);
   }
 
   /**
@@ -271,11 +272,27 @@ export class FaseInternaService {
       obrigatorio: boolean;
       fundamento: string;
       etapa?: FaseLicitacao;
-      status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO';
+      status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO' | 'EM_ASSINATURA';
       documento_id?: string;
       justificativa?: string;
       exige_aprovacao?: boolean;
       aprovacao?: { etapa: number; total: number; etapa_nome: string; responsavel: string | null };
+      /** "Não se aplica" permitido (só peça facultativa da contratação direta). */
+      pode_nao_se_aplicar: boolean;
+      /** Resumo da versão atual: origem (feita aqui × anexada), nº, data da peça, folhas. */
+      peca?: {
+        versao: number;
+        origem: string;
+        anexada: boolean;
+        status: string;
+        numero_peca: string | null;
+        data_documento: Date | null;
+        data_envio: Date | null;
+        folha_inicial: number | null;
+        folha_final: number | null;
+        tem_arquivo: boolean;
+        documento_orgao_id: string | null;
+      };
     }>;
     pode_divulgar: boolean;
     pendentes: string[];
@@ -347,7 +364,7 @@ export class FaseInternaService {
       const doc = docs.find((d) => d.tipo === item.tipo);
       const naoSeAplica = Boolean(doc?.dados_estruturados?.nao_se_aplica);
       const exigeAprovacao = temFluxoGenerico || tiposComFluxo.has(item.tipo as string);
-      let status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO';
+      let status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO' | 'EM_ASSINATURA';
       let aprovacao:
         | { etapa: number; total: number; etapa_nome: string; responsavel: string | null }
         | undefined;
@@ -356,9 +373,17 @@ export class FaseInternaService {
         status = 'NAO_SE_APLICA';
       } else if (!doc) {
         status = 'PENDENTE';
+      } else if (doc.status === StatusDocumento.AGUARDANDO_ASSINATURA) {
+        // Enviada aos signatários: só conta quando TODOS assinarem
+        status = 'EM_ASSINATURA';
       } else if (exigeAprovacao) {
         // Com fluxo configurado, o rito manda: pronto = APROVADO/IMPORTADO
-        if (doc.status === StatusDocumento.APROVADO || doc.status === StatusDocumento.IMPORTADO) {
+        // (anexada feita fora) ou ASSINADO (todos os signatários)
+        if (
+          doc.status === StatusDocumento.APROVADO ||
+          doc.status === StatusDocumento.IMPORTADO ||
+          doc.status === StatusDocumento.ASSINADO
+        ) {
           status = 'OK';
         } else if (doc.status === StatusDocumento.AGUARDANDO_APROVACAO) {
           status = 'EM_APROVACAO';
@@ -385,6 +410,22 @@ export class FaseInternaService {
         justificativa: doc?.dados_estruturados?.justificativa_nao_se_aplica,
         exige_aprovacao: exigeAprovacao,
         aprovacao,
+        pode_nao_se_aplicar: contratacaoDireta && !item.obrigatorio,
+        peca: doc
+          ? {
+              versao: doc.versao,
+              origem: doc.origem,
+              anexada: doc.origem !== OrigemDocumento.INTERNO,
+              status: doc.status,
+              numero_peca: doc.numero_peca ?? null,
+              data_documento: doc.data_documento ?? null,
+              data_envio: doc.data_importacao ?? null,
+              folha_inicial: doc.folha_inicial ?? null,
+              folha_final: doc.folha_final ?? null,
+              tem_arquivo: Boolean(doc.caminho_arquivo || doc.arquivo_pdf_path),
+              documento_orgao_id: doc.documento_orgao_id ?? null,
+            }
+          : undefined,
       };
     });
 
@@ -399,7 +440,8 @@ export class FaseInternaService {
       itens,
       pode_divulgar: pendentes.length === 0,
       pendentes: pendentes.map(
-        (p) => `${p.titulo} (${p.fundamento})${p.status === 'EM_APROVACAO' ? ' — em aprovação' : ''}`,
+        (p) =>
+          `${p.titulo} (${p.fundamento})${p.status === 'EM_APROVACAO' ? ' — em aprovação' : p.status === 'EM_ASSINATURA' ? ' — aguardando assinaturas' : ''}`,
       ),
     };
   }
@@ -515,8 +557,9 @@ export class FaseInternaService {
     });
 
     if (existente) {
-      // Marca versao anterior como nao atual
+      // Versão anterior: nunca some — fica SUBSTITUIDO (histórico dos autos)
       existente.versao_atual = false;
+      existente.status = StatusDocumento.SUBSTITUIDO;
       await this.documentoRepository.save(existente);
     }
 
@@ -841,6 +884,36 @@ export class FaseInternaService {
   }
 
   /**
+   * "Fazer aqui" sobre peça FINALIZADA (anexada feita fora, assinada ou
+   * aguardando assinaturas): editar não altera o que já está nos autos — abre
+   * uma VERSÃO NOVA em elaboração (a anterior vira SUBSTITUIDO). Devolve o
+   * rascunho a editar (ou o próprio documento, se ainda é rascunho).
+   */
+  private async novaVersaoSeFinalizada(documento: DocumentoFaseInterna | null): Promise<DocumentoFaseInterna | null> {
+    if (!documento) return null;
+    const finalizada =
+      documento.origem !== OrigemDocumento.INTERNO ||
+      documento.status === StatusDocumento.ASSINADO ||
+      documento.status === StatusDocumento.AGUARDANDO_ASSINATURA;
+    if (!finalizada || documento.dados_estruturados?.nao_se_aplica) return documento;
+    documento.versao_atual = false;
+    documento.status = StatusDocumento.SUBSTITUIDO;
+    await this.documentoRepository.save(documento);
+    return this.documentoRepository.create({
+      licitacao_id: documento.licitacao_id,
+      tipo: documento.tipo,
+      titulo: documento.titulo,
+      status: StatusDocumento.EM_ELABORACAO,
+      origem: OrigemDocumento.INTERNO,
+      versao: (documento.versao || 1) + 1,
+      versao_atual: true,
+      versao_anterior_id: documento.id,
+      obrigatorio: documento.obrigatorio,
+      dados_estruturados: {},
+    });
+  }
+
+  /**
    * Auto-save do editor colaborativo Tiptap.
    * Atualiza apenas descricao (HTML) sem alterar outros campos.
    * Retorna { ok: true } para performance (sem recarregar o objeto).
@@ -855,6 +928,7 @@ export class FaseInternaService {
       where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
     });
 
+    documento = await this.novaVersaoSeFinalizada(documento);
     if (!documento) {
       // Cria documento rascunho (o editor foi aberto antes do wizard)
       documento = this.documentoRepository.create({
@@ -891,6 +965,7 @@ export class FaseInternaService {
       where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
     });
 
+    documento = await this.novaVersaoSeFinalizada(documento);
     if (!documento) {
       // Cria rascunho automaticamente se ainda não existir
       documento = this.documentoRepository.create({
