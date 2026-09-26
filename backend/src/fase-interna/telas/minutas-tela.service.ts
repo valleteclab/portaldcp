@@ -182,7 +182,8 @@ export class MinutasTelaService {
           tipo,
           titulo: titulo || TITULO_DOCUMENTO[tipo] || tipo,
           descricao,
-          dados_estruturados: { ...secoes, ...extras },
+          // o histórico das devoluções da autoridade acompanha as versões
+          dados_estruturados: { ...(atual?.dados_estruturados?._devolucoes ? { _devolucoes: atual.dados_estruturados._devolucoes } : {}), ...secoes, ...extras },
           status: StatusDocumento.EM_ELABORACAO,
           origem: OrigemDocumento.INTERNO,
           versao: (atual?.versao ?? 0) + 1,
