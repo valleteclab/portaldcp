@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, use } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import dynamic from "next/dynamic"
 import {
@@ -14,6 +14,7 @@ import {
 import { API_URL, authFetch } from "@/lib/api"
 import { TITULOS_TIPO } from "@/lib/fase-interna/secoes-template"
 import { AprovacaoEtapasPanel } from "@/components/fase-interna/AprovacaoEtapasPanel"
+import { rotaDaTela, telaDoTipo } from "@/lib/fase-interna/telas"
 
 // Importação dinâmica — DocumentoSeccionado usa Tiptap (browser-only)
 const DocumentoSeccionado = dynamic(
@@ -61,6 +62,13 @@ export default function EditorDocumentoPage({
   const { id } = use(params)
   const searchParams = useSearchParams()
   const tipo = (searchParams.get("tipo") || "TR").toUpperCase()
+  const router = useRouter()
+  // Entrega 3A: DFD, ETP, riscos, TR, pesquisa e dotação têm tela própria dentro
+  // do processo — o editor avulso só continua para as demais peças
+  const telaPropria = telaDoTipo(tipo)
+  useEffect(() => {
+    if (telaPropria) router.replace(rotaDaTela(id, telaPropria))
+  }, [telaPropria, id, router])
 
   const [documento, setDocumento] = useState<DocumentoFaseInterna | null>(null)
   const [licitacao, setLicitacao] = useState<LicitacaoMini | null>(null)
@@ -102,7 +110,7 @@ export default function EditorDocumentoPage({
     }
   }
 
-  if (loading) {
+  if (loading || telaPropria) {
     return (
       <div className="flex items-center justify-center h-screen">
         <Loader2 className="w-6 h-6 animate-spin text-[#1351b4]" />
@@ -113,7 +121,7 @@ export default function EditorDocumentoPage({
   return (
     <div className="flex flex-col" style={{ height: "100vh" }}>
       {/* ── Top bar: breadcrumb ── */}
-      <div className="flex items-center justify-between px-5 py-2 bg-white border-b border-gray-200 shrink-0 z-10">
+      <div className="flex items-center justify-between gap-3 px-5 py-2 bg-white border-b border-gray-200 shrink-0 z-10">
         <div className="flex items-center gap-1.5 text-xs text-gray-500">
           <Home className="w-3.5 h-3.5" />
           <ChevronRight className="w-3 h-3" />
@@ -122,7 +130,7 @@ export default function EditorDocumentoPage({
           </Link>
           <ChevronRight className="w-3 h-3" />
           <Link
-            href={`/orgao/fase-interna/processos/${id}`}
+            href={`/orgao/processos/${id}`}
             className="hover:text-[#1351b4]"
           >
             {licitacao?.numero_processo || "Processo"}
@@ -130,6 +138,9 @@ export default function EditorDocumentoPage({
           <ChevronRight className="w-3 h-3" />
           <span className="text-[#1351b4] font-medium">{tituloDocumento}</span>
         </div>
+        <Link href={`/orgao/processos/${id}`} className="text-xs text-blue-800 hover:underline shrink-0">
+          ← Voltar ao processo
+        </Link>
       </div>
 
       {/* ── Barra azul: identificação do documento ── */}

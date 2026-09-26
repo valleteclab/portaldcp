@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Download, FileText, Loader2, Trash2, Upload } from "lucide-react"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
+import { rotaDaTela, telaDoTipo } from "@/lib/fase-interna/telas"
 
 interface Documento {
   id: string
@@ -250,7 +251,7 @@ export function DocumentosProcesso({
                       {d.created_at ? ` · ${new Date(d.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Bahia" })}` : ""}
                     </p>
                   </div>
-                  <Link href={`/orgao/fase-interna/processos/${licitacaoId}`} className="text-xs text-blue-800 hover:underline shrink-0">
+                  <Link href={telaDoTipo(d.tipo) ? rotaDaTela(licitacaoId, telaDoTipo(d.tipo)!) : `/orgao/processos/${licitacaoId}#peca-${d.tipo}`} className="text-xs text-blue-800 hover:underline shrink-0">
                     abrir na fase interna
                   </Link>
                 </div>
@@ -260,7 +261,7 @@ export function DocumentosProcesso({
           <p className="text-[11px] text-gray-600">
             O PDF do edital é anexado em &quot;Publicação do edital&quot; (e depois só por retificação). As peças da fase interna são
             editadas e aprovadas no{" "}
-            <Link href={`/orgao/fase-interna/processos/${licitacaoId}`} className="text-blue-800 hover:underline">processo eletrônico da fase interna</Link>.
+            <Link href={`/orgao/processos/${licitacaoId}#fluxo-fase-interna`} className="text-blue-800 hover:underline">fluxo da fase interna</Link> (cada etapa tem a sua tela).
           </p>
         </CardContent>
       </Card>

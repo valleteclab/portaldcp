@@ -140,7 +140,8 @@ export default function CriarProcessoDeDemandaDialog({
       if (res.ok) {
         const created = await res.json();
         onOpenChange(false);
-        router.push(`/orgao/fase-interna/processos/${created.id}`);
+        // Entrega 3A: o processo criado da demanda abre na tela do DFD (dentro do processo)
+        router.push(`/orgao/processos/${created.id}/fase-interna/dfd`);
         return;
       }
       const data = await res.json().catch(() => null);

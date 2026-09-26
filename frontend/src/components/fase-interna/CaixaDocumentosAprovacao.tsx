@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao';
+import { rotaFazerAqui } from "@/lib/fase-interna/telas"
 
 // ─── Caixa de DOCUMENTOS em tramitação (fluxos de aprovação da fase interna) ──
 // O aprovador vê aqui os documentos parados na SUA etapa (por usuário, setor
@@ -132,7 +133,7 @@ export function CaixaDocumentosAprovacao() {
               </div>
               <div className="flex gap-2 shrink-0 flex-wrap">
                 <Button size="sm" variant="ghost" asChild>
-                  <Link href={`/orgao/fase-interna/processos/${etapa.licitacao_id}/editor?tipo=${etapa.documento?.tipo}`}>
+                  <Link href={rotaFazerAqui(etapa.licitacao_id, etapa.documento?.tipo ?? "")}>
                     <Eye className="h-4 w-4 mr-1" /> Ver documento
                   </Link>
                 </Button>
