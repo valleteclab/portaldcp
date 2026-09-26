@@ -665,7 +665,7 @@ export function DocumentoSeccionado({
       {painelLateral ? (
         <div className="hidden lg:flex lg:flex-col w-80 shrink-0 border-l border-gray-200 overflow-y-auto bg-white">{painelLateral}</div>
       ) : (
-      <div className="w-80 shrink-0 border-l border-gray-200 overflow-hidden">
+      <div className="hidden lg:block w-80 shrink-0 border-l border-gray-200 overflow-hidden">
         <PainelIA
           tipoDocumento={tipo}
           licitacaoId={licitacaoId}
