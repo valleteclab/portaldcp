@@ -40,7 +40,9 @@ Na dispensa **não há impugnação nem pedido de esclarecimento formal** (a IN 
 
 ### 5. Etapa de lances (IN SEGES 67/2021, art. 11)
 
-Depois do fim do prazo de propostas vem a etapa de lances — **obrigatória antes do julgamento** (art. 15):
+> **Dispensa com ou sem etapa de lances.** O órgão escolhe em **Configurações › Fase interna e tarefas** (parte [01](01-configuracao-do-orgao.md#8-fase-interna-e-tarefas)). O padrão é **com etapa de lances** (IN 67). Se o regulamento do órgão não adota a IN 67, a dispensa é **sem disputa de lances**: só vale o cadastro de propostas até o fim do prazo, o botão **Abrir etapa de lances** não aparece (a rota recusa) e o julgamento é liberado logo depois do prazo, pelo **menor preço das propostas**; **no empate, prevalece a proposta registrada primeiro**. O modo é gravado no processo na publicação e aparece na etapa atual e no aviso ("com etapa de lances de 6 a 10 horas" ou "sem disputa de lances, apenas cadastro de propostas"). A negociação com o vencedor (art. 16) vale nos dois modos.
+
+Com etapa de lances, depois do fim do prazo de propostas vem a etapa de lances — **obrigatória antes do julgamento** (art. 15):
 
 1. Na etapa atual, clique em **Abrir etapa de lances**.
 2. Informe a **Duração (minutos)** — de 360 a 600 (6 a 10 horas); padrão 360.
@@ -67,7 +69,7 @@ Se o vencedor for desclassificado, use **desclassificar** + **Rejulgar**: a nego
 ### 7. Julgar
 
 1. Depois do fim do prazo de propostas e do encerramento da etapa de lances, clique em **Julgar propostas (menor preço)** na etapa atual. Enquanto não puder, o botão fica desabilitado e o motivo aparece escrito logo abaixo (vem do servidor).
-2. O sistema adjudica, por item, o menor valor final (proposta ou lance). Havendo empate, aplica os critérios do art. 60 e, persistindo, **sorteio auditável** no próprio ato.
+2. O sistema adjudica, por item, o menor valor final (proposta ou lance). Havendo empate, aplica os critérios do art. 60 e, persistindo, **sorteio auditável** no próprio ato. **Sem etapa de lances** (regulamento do órgão), vale só a proposta e, no empate, a registrada primeiro.
 3. Se precisar tirar uma proposta, use **desclassificar** na linha dela (motivo obrigatório) e depois **Rejulgar (menor preço)**.
 
 Depois do prazo, a tabela **Classificação por item** mostra, por item, cada fornecedor na ordem do valor final (proposta ou lance — a mesma regra do julgamento) e, depois de julgar, marca o vencedor. Julgado, a etapa atual vira **Julgamento e negociação com o vencedor** (a negociação é pelo quadro de mensagens, privada — art. 16) e aparece o link **Ata da sessão (PDF)**, gerada automaticamente dos registros (propostas, lances, mensagens e resultado).

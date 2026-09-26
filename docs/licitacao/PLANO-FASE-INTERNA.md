@@ -1,7 +1,7 @@
 # Plano — Fase interna simples, guiada e "feita aqui ou anexada"
 
 > 26/09/2026 · Referência real: Câmara Municipal de Luís Eduardo Magalhães — autos da Dispensa 003/2025 (PA 005/2025) e das Inexigibilidades 004/2025 (PA 033/2025) e 008/2025 (PA 043/2025), e o regulamento próprio da Lei 14.133 (**Portaria 089/2024**).
-> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** (PR #509, ver §9). **Entrega 3B (autorização no celular, minutas e relatório do agente, parecer com diligências, controle interno opcional) concluída** (PR #510, ver §10). **Entrega 4 (motor de conformidade e portões A, B e C) concluída** na branch `claude/fase-interna-e4` (ver §11). Entregas 5 a 7 pendentes.
+> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** (PR #509, ver §9). **Entrega 3B (autorização no celular, minutas e relatório do agente, parecer com diligências, controle interno opcional) concluída** (PR #510, ver §10). **Entrega 4 (motor de conformidade e portões A, B e C) concluída** (PR #511, ver §11). **Entrega 5 (publicação e dispensa com/sem lances) concluída** e **Entrega 6 (autos em PDF com folhas numeradas) concluída** na branch `claude/fase-interna-e5` (ver §12 e §13). Entrega 7 pendente.
 
 ## 1. O problema
 
@@ -84,7 +84,7 @@ Fluxo dos autos e da Portaria 089/2024 (arts. 40–43, 47–48, 52, 56, 79–87)
    - O art. 75 da própria Portaria 089, porém, manda seguir a IN 67, que tem etapa de lances.
    - A Etapa A tornou a janela de lances de 6 a 10 h obrigatória.
 
-   **Decisão pendente:** ter a configuração "dispensa sem etapa de lances", só para órgãos cujo regulamento local não adote a IN 67.
+   **Decidido (decisão 5 do dono) e feito na Entrega 5 (§12):** configuração por órgão "dispensa com etapa de lances" (IN 67, padrão) ou "sem etapa de lances" (só propostas), gravada no processo na publicação.
 9. **O PNCP foi alimentado pela BLL** ("Fonte: BLL Compras"). O Portal DCP faz isso direto e ainda gera sozinho os relatórios que a BLL gera: ata, lances, classificação e vencedores.
 
 ## 3. Princípios do novo desenho
@@ -187,7 +187,7 @@ Cada entrega é uma PR separada, com testes e2e de isolamento (upload só pelo �
 - **F7:**
   - **conferência de consistência**: número do processo, inciso, valores e datas iguais em todas as peças, geradas ou anexadas (nas anexadas, com leitura por IA);
   - **alertas de risco**: marca no ETP, cotações do mesmo produto, segregação de funções, vencedor igual ao estimado sigiloso.
-- **Etapa A (decisão pendente):** configuração por órgão "dispensa sem etapa de lances" (só propostas), para regulamentos locais que não adotem a IN 67.
+- **Etapa A:** configuração por órgão "dispensa sem etapa de lances" (só propostas), para regulamentos locais que não adotem a IN 67 — feita na Entrega 5 (§12).
 
 **Ordem sugerida:** F1 → F2 → F3 → F4 → F5. F6 e F7 quando houver demanda.
 
@@ -358,7 +358,7 @@ Mais: `synchronize` cria `documentos_orgao`, as colunas novas e recria os enums 
 - **Tela de assinatura da peça** (escolher signatários e papéis, acompanhar) — nesta entrega só a API e o e2e; as telas por etapa vêm na Entrega 3. Cadastro/listagem de portarias na tela de configuração do órgão (hoje: API + botão "Usar portaria do órgão").
 - "Mudar o fundamento atualiza todas as minutas geradas por modelo" (critério de aceite da SPEC): as peças já geradas guardam o texto resolvido; resolver as variáveis na renderização (ou regenerar) fica para a Entrega 3/4, junto com a regra `ENQ-01`.
 - ~~Portão A (bloqueio por limite/fracionamento — `LIM-01`/`LIM-02`) usa `consumoDoLimite` na Entrega 4~~ — feito (§11).
-- Numeração de folhas nos autos em PDF (`processo-pdf` com índice e folhas carimbadas) — Entrega 6; aqui as folhas já são atribuídas e gravadas.
+- ~~Numeração de folhas nos autos em PDF (`processo-pdf` com índice e folhas carimbadas) — Entrega 6~~ — feito (§13); a folha da juntada passou a ser provisória (o PDF é a fonte).
 - Etapa da fase interna (máquina de 8 etapas da SPEC) e tarefas — feito na Entrega 2 (§8).
 - Conferir o valor de 2022 (Dec. 10.922/2021) na fonte oficial.
 - O `marcarNaoSeAplica` ainda recebe o nome do autor do corpo (legado); o ator do JWT já é exigido pelo guard.
@@ -822,12 +822,122 @@ Alterados: `GET /fase-interna/:id/autorizacao` devolve `portao_b_bloqueios`; `GE
 ### 11.9 Fica para depois
 
 - **IA lendo os PDFs** (Entrega 7): peças digitalizadas (sem texto) ficam fora das regras de texto — o motor as marca "sem texto".
-- **Autos em PDF com as justificativas** (Entrega 6): `justificativasParaAutos` já entrega a lista.
+- ~~**Autos em PDF com as justificativas** (Entrega 6)~~ — feito (§13, termo de justificativas).
 - **Cadastro de marcas do órgão** para a MARCA-01 procurar por nome (a detecção segue pelo padrão do texto).
-- Exigir o **parecer da fase externa** antes da adjudicação e o **controle interno como bloqueio** (decisões do órgão — Entrega 5).
+- Exigir o **parecer da fase externa** antes da adjudicação e o **controle interno como bloqueio** (decisões do órgão). A Entrega 5 manteve o controle interno como **aviso** (decisão 3) — ver §12.6.
 - Regra para a **cotação do mesmo produto por fabricante e revenda** e para a **segregação de funções** (alertas de risco do §2.1) — não estavam no escopo desta entrega.
 - "Parecer só depois das minutas" (gancho `MINUTAS_ANTES_DO_PARECER` da E2) e o **parecer desfavorável como bloqueio**: continuam como aviso (decisão do órgão).
 - A assinatura pelo portal genérico de assinaturas (menu "Assinaturas pendentes") de um despacho já enviado não reconfere o portão B (o envio já passou por ele); a tela da autorização confere.
+
+## 12. Entrega 5 — CONCLUÍDA (26/09/2026)
+
+Branch `claude/fase-interna-e5` (a partir do main com as Entregas 1 a 4). Sem push/PR nesta etapa. Commits: `42bf517f` (Entrega 5), `aa245eae` (Entrega 6) e o desta documentação.
+
+**Publicação (etapa 8) ligada à divulgação que já existia (Etapa A) e dispensa com ou sem etapa de lances (decisão 5 do dono).** Sem máquina paralela: o ato é o PUBLICAR de sempre (portão C incluso) e o motor da janela/julgamento é o da Etapa A.
+
+### 12.1 Dispensa com ou sem etapa de lances
+
+- **Configuração por órgão** — `configuracoes_fase_interna.dispensa_com_lances` (boolean, `default: true` = IN 67). `PUT /fase-interna/configuracao` aceita o campo (booleano, senão 400; só muda quando enviado — o "Salvar" da tela o envia). Tela **Configurações › Fase interna e tarefas**, bloco "Dispensa eletrônica — disputa".
+- **Gravado no processo no PUBLICAR e congelado** — coluna nova `licitacoes.dispensa_com_lances` (boolean, nullable, `type:` explícito). Efeito persistido do PUBLICAR (`congelarModoDisputaDispensaSql`, em `publicacao/publicacao.sql.ts`), o PRIMEIRO da transação — antes do aviso, que o imprime — e anotado nos dados do ato (`licitacao_transicoes.dados.dados.dispensa_com_lances`). Mudar a configuração depois não altera o processo publicado. CANCELAR_PUBLICACAO devolve à fase interna: o próximo PUBLICAR grava de novo (o do dia).
+- **Regra pura única** — `licitacoes/modo-disputa-dispensa.ts`: `modoDisputaDaDispensa(processo, configuração)` (fase interna → a configuração; publicado → o gravado; **NULL = publicado antes desta entrega → com lances**, a regra que valia; a configuração nunca muda o passado), `dispensaSemLances`, `textoFormaDisputa` (aviso e minuta) e `vencedoresSemLances` (menor preço; **empate → a proposta registrada primeiro** — `COALESCE(data_envio, created_at)` —, como o aviso real da Câmara).
+- **O motor existente respeita o modo:**
+  - `janelaLancesDispensaEncerrada` (pré-condição do JULGAR_DISPENSA): sem lances, não exige a janela;
+  - `abrirLancesDispensa`: sem lances → 409 ("publicada SEM etapa de lances…");
+  - `julgarDispensa`: sem lances, ignora lances e usa `vencedoresSemLances` (sem sorteio — o regulamento decide pelo registro); com lances, igual a antes (menor entre proposta e lances; art. 60 + sorteio). O modo vai para o registro do ato e para a resposta (`com_lances`);
+  - classificação por item (`GET …/dispensa/classificacao`) e regras do chat (texto) acompanham;
+  - **negociação com o vencedor (IN 67, art. 16) nos dois modos** (o chat NEGOCIACAO não depende da janela).
+- **Aviso e telas refletem o modo:** o aviso de contratação direta (`aviso-dispensa-pdf.ts`) ganhou a linha **Disputa** ("Com etapa de lances de 6 a 10 horas… (IN SEGES 67/2021, arts. 11 e 15)" ou "Sem disputa de lances, apenas cadastro de propostas (regulamento do órgão)"), o critério com o desempate e o parágrafo final pela `textoFormaDisputa`; a prévia usa a configuração, a versão publicada o valor gravado. A **minuta do aviso** (ME) ganhou `{{licitacao.forma_disputa}}` na seção "Critério de julgamento" (modelo do sistema atualizado pelo seed, só onde o texto estava vazio). `processo-completo.licitacao.modo_disputa_dispensa` alimenta a etapa atual da dispensa (sem o botão "Abrir etapa de lances" no modo sem lances; "com etapa de lances de X a Y" com as datas da janela, ou a descrição do modo, e a **referência legal**: IN 67 ou "regulamento do órgão").
+
+### 12.2 Etapa 8 ligada à divulgação existente
+
+- **Publicar na tela da conformidade** (dispensa): quadro do aviso com o **fim do recebimento** (data mínima sugerida no calendário do órgão, painel de dias úteis e feriados — art. 75, §3º, mínimo de 3), **Gerar aviso (PDF)**/**Conferir**, o modo da disputa, os **canais** e **Publicar** — que pratica o PUBLICAR existente (`PUT /licitacoes/:id/publicar-edital`) pelo **mesmo hook** do diálogo "Divulgar aviso" do processo (`useDivulgacaoAviso.ts`, extraído — sem duplicar). Nas modalidades com edital o botão continua levando ao cartão "Publicar edital" do processo.
+- **Todos os caminhos do PUBLICAR passam pelo portão C** (conferido): `PUBLICAR` (FLUXO_COMPETITIVO, FLUXO_DISPENSA, FLUXO_INEXIGIBILIDADE e os especiais — leilão/concurso/diálogo herdam a definição por `comPendencia`), `PUBLICAR_CREDENCIAMENTO`, `publicarEdital`, `PncpService` e `PncpFilaService` (verificar/executar o mesmo ato); `POST atos/PUBLICAR` é recusado (exige o cronograma). Não há caminho que grave a fase PUBLICADO/AGUARDANDO fora da máquina (fora scripts de semente e a migração da Etapa A).
+- **Canais com a situação real** (`PublicacaoTelaService.quadro`, `GET /fase-interna/:id/publicacao` e dentro da tela da conformidade): **PNCP** (aguardando a conformidade / envio automático ao publicar / na fila / recusado com o HTTP e a mensagem / publicado com o número de controle / "sem PNCP — Diário Oficial"), **sítio oficial** (portal público, após a confirmação), **Diário Oficial do órgão** (pendente / nº, data e página) e **plataforma** (propostas até…, com ou sem lances).
+- **A confirmação do PNCP conclui a etapa 8 e fecha a tarefa** — gatilho conferido: em `etapasDaFaseInterna` o passo PUBLICACAO fica **EM_ANDAMENTO em AGUARDANDO_DIVULGACAO** (antes, concluía já no PUBLICAR) e CONCLUIDO só com a divulgação confirmada; a mudança de fase do CONFIRMAR_DIVULGACAO dispara a sincronização (subscriber da E2), que conclui a tarefa em nome de quem publicou. Revogado/anulado enquanto aguarda: cancelada. No órgão sem PNCP, o registro do Diário Oficial confirma (abaixo) e fecha do mesmo jeito.
+- **Registro no Diário Oficial do órgão = peça da publicação** — tipo novo `PUBLICACAO_DIARIO_OFICIAL` ('PDO', só acrescentado ao enum). `POST /fase-interna/:id/publicacao/diario-oficial` (multipart: `numero_edicao` obrigatório, `data_publicacao` não futura e não anterior ao ato de publicação, `pagina`, `link`, `observacao`, `arquivo` PDF opcional — com folhas nos autos). Versões como qualquer peça; só depois de publicar (409 antes; também pelo anexo genérico). **Reaproveita o registro da Etapa A:** no órgão SEM integração ao PNCP e aguardando a divulgação, o registro chama `confirmarDivulgacaoOficial` (meio DIARIO_OFICIAL, referência "Diário Oficial nº X, p. Y") — é a divulgação oficial (art. 176, par. único); no órgão integrado, só a peça.
+
+### 12.3 Controle interno (decisão 3)
+
+Conferido: com a etapa ativa, a manifestação aparece **antes da publicação como aviso**, sem bloquear — linha nova **CONTROLE_INTERNO** (ALERTA, `bloqueia: false`, ação `ABRIR_CONTROLE_INTERNO`) na conferência de pré-publicação e o aviso no quadro da conformidade. (Com o controle interno ativo e sem manifestação, a tarefa da publicação só nasce depois de publicar — a dependência da E2 continua; o ato não depende dela.)
+
+### 12.4 Entidades, colunas e endpoints
+
+- Colunas novas: `licitacoes.dispensa_com_lances` (boolean, nullable), `configuracoes_fase_interna.dispensa_com_lances` (boolean, default true). Valor novo no enum `documentos_fase_interna.tipo` (e nos das tabelas que o reusam): `PDO`.
+- **Nenhuma migração de boot**: não há dado a converter (NULL no processo = regra da época, com lances; a configuração nasce true).
+
+| Método e rota | Quem | Isolamento (e2e) |
+|---|---|---|
+| `GET /fase-interna/:id/publicacao` | órgão dono | outro órgão 404; fornecedor 403; anônimo 401 |
+| `POST /fase-interna/:id/publicacao/diario-oficial` | órgão dono | outro órgão 403; fornecedor 403; anônimo 401 (nada gravado) |
+
+Alterados: `PUT /fase-interna/configuracao` (+`dispensa_com_lances`; B não muda A), `GET /fase-interna/:id/conformidade` (+`publicacao`, `aviso.modo_disputa`, canais com `chave`/`ok`), `GET /licitacoes/:id/processo-completo` (+`modo_disputa_dispensa`), `GET /licitacoes/:id/conferencia-publicacao` (+CONTROLE_INTERNO), `POST /licitacoes/:id/julgar-dispensa` (+`com_lances`), `POST …/dispensa/abrir-lances` (409 sem lances), `GET /fase-interna/:id/etapas` (publicação EM_ANDAMENTO aguardando o PNCP).
+
+### 12.5 Testes
+
+- Unitários: `modo-disputa-dispensa.spec.ts` (padrão da configuração, fase interna × congelado, legado NULL, textos, julgamento sem lances com empate pela ordem de registro — em qualquer ordem da lista —, lances ignorados); `etapas-fase-interna.spec.ts` (publicação EM_ANDAMENTO aguardando o PNCP; revogado aguardando = cancelada).
+- E2E novo `test/fase-interna-e5.e2e-spec.ts` (16): configuração (padrão, 400, só o órgão do token); fase interna mostra o modo da configuração e a minuta do aviso o reflete; **publicar grava e congela** (processo, histórico, aviso "sem disputa de lances"); **mudar a configuração depois não altera** os dois processos; **sem lances**: janela 409, julgar sem janela, empate → a registrada primeiro, negociação; **com lances continua exigindo a janela**; **publicar pela conformidade com o portão C** (quadro, canais, recusa com VINC-01, corrigido publica); **etapa 8 EM ANDAMENTO → confirmação do PNCP conclui a etapa e a tarefa** (quem cumpriu = quem publicou); Diário Oficial no órgão integrado (peça com folhas, sem mudar a divulgação; data futura e sem número 400) e no **órgão sem PNCP** (confirma a divulgação, etapa e tarefa concluídas); **controle interno ativo = aviso**; isolamento.
+
+### 12.6 Decisões e o que ficou de fora
+
+- **NULL = com lances** para processo publicado antes: nenhuma migração e nenhum processo muda de regra.
+- **Empate sem lances sem sorteio**: o regulamento local (Câmara de LEM) decide pela ordem de registro; com lances, os critérios do art. 60 e o sorteio de antes.
+- **Controle interno continua aviso** (decisão 3); "bloqueio" fica como opção futura do órgão.
+- **Sítio oficial** = o portal público do próprio Portal DCP (não há integração com o site do órgão).
+- A publicação pelo quadro da conformidade é da **dispensa** (aviso gerado pelo sistema); nas licitações o edital continua sendo anexado no cartão "Publicar edital" do processo.
+
+## 13. Entrega 6 — CONCLUÍDA (26/09/2026)
+
+Mesma branch (`claude/fase-interna-e5`), commit `aa245eae`.
+
+**Autos em PDF com folhas numeradas** — evolução do `processo-pdf` que existia (`ProcessoPdfService`, mesma rota), sem criar outro.
+
+### 13.1 O que sai no PDF
+
+- **Capa** (órgão, PA, modalidade e número da dispensa/licitação, objeto, **interessado** — unidade requisitante do DFD, senão a da demanda, senão a unidade compradora —, autuação e o total de folhas), **termo de abertura** e **índice** (peça, folhas, data do documento, origem — gerada, assinada, anexada, documento do processo, termo —, signatários — assinaturas do portal ou os informados no anexo — e "substitui a versão X"); **termo de encerramento** (total de folhas, de 000001 a N, peças fora da montagem e a impressão SHA-256).
+- **Peças na ORDEM LÓGICA dos autos** (`licitacoes/autos/autos-regras.ts`, `ORDEM_LOGICA_AUTOS`), nunca pela data: DFD; ETP, riscos; TR (PB/PE); pesquisa (mapa **e a certidão**); informação orçamentária; despacho de autorização; portaria de designação; relatório do agente; justificativa; minuta do aviso e anexos; minuta do contrato; parecer técnico e jurídico; controle interno; **termo de justificativas**; aviso publicado; **registro das publicações**; Diário Oficial; na fase externa: respostas a impugnações/esclarecimentos, ata (a da dispensa é gerada dos registros, depois do julgamento), relatório de julgamento, habilitação, recursos e decisões, parecer da fase externa, adjudicação, homologação, ata de registro de preços e contratos (extrato: não há gerador no sistema — entra quando anexado como documento).
+- **Peça anexada** entra com o PDF original (páginas reais); **gerada**, com o PDF gerado (reaproveitado se o conteúdo não mudou) ou o **assinado**. **Só a versão ativa** — as substituídas ficam fora e o índice cita "substitui a versão X". Peça que ainda não é ato (em elaboração, aguardando assinatura) não entra; "não se aplica" vai para o termo de justificativas.
+- **Justificativas dos achados** (E4 — `justificativasParaAutos`) e as peças "não se aplica" (com a justificativa e quem registrou) formam o **termo de justificativas**.
+- **Carimbo "Fl. 000123"** no canto superior direito **visível** de todas as folhas (respeita `/Rotate` e a CropBox), numeração **contínua** da capa ao encerramento. O antigo rodapé "fl. i/total" saiu.
+
+### 13.2 Folhas: o PDF é a fonte (regra)
+
+As folhas da E1 são dadas na **juntada** (sequência de finalização — assinatura ou anexo), por isso não coincidem com a ordem lógica dos autos, que é montada no fim (como no PA 139/2025). **Decisão:** a folha da juntada é **provisória**; a montagem dos autos é a **fonte**: a cada montagem, as peças ATIVAS recebem as folhas do PDF (`folha_inicial`, `folha_final`, `total_paginas`) — SQL direto, só o que mudou (idempotente), sem mexer em `updated_at` nem disparar as rotinas de gravação de peça. Versões substituídas guardam as folhas da juntada. Peça nova depois da montagem recebe folha provisória (depois da última) até a próxima montagem. **Sem migração de boot**: numerar exige as páginas das peças geradas (que só existem gerando o PDF) — fazê-lo no boot para todos os processos seria caro; a regra acima cobre os antigos na primeira montagem. Evidência antiga de achado/diligência pode citar a folha provisória (registro histórico).
+
+### 13.3 Desempenho, cache e segundo plano
+
+- **Montagem peça a peça** numa **fila única** (um processo por vez): passo 1 materializa cada peça em arquivo (gerada → PDF; termos → arquivo temporário) e conta as páginas; passo 2 copia uma peça por vez para o documento final e carimba. O arquivo final vai para o disco (`licitacoes/<id>/autos/`, pasta privada) e é **servido por stream** (`createReadStream`). Processo de 204 folhas montado em ~3 s no e2e.
+- **Cache pela impressão** (SHA-256 do leiaute, dos dados da capa e, por peça, id, versão, status e o hash do arquivo — ou o `md5` do conteúdo da peça gerada): nada mudou → o PDF guardado é entregue na hora; mudou → `DESATUALIZADO` e nova montagem (a antiga é apagada). Gravar as folhas não muda a impressão.
+- **Segundo plano:** `POST /licitacoes/:id/processo-pdf/gerar` põe na fila e responde já (`GERANDO`/`PRONTO`); `GET …/processo-pdf/situacao` acompanha; ao terminar, **notificação** do sistema para quem pediu ("Autos em PDF prontos — N folhas", link do processo) — o mecanismo de notificações que já existia. O `GET …/processo-pdf` continua funcionando (serve do cache ou monta pela fila e espera) — é o link do celular da autorização.
+- **Botão "Gerar autos (PDF)"** (`BotaoGerarAutos.tsx`) no cabeçalho do processo (painel — mockup Main; substitui o "Baixar processo (PDF)") e na tela da conformidade: pede, acompanha e baixa; se a montagem demorar, avisa que a notificação chegará.
+
+### 13.4 Endpoints
+
+| Método e rota | Quem | Isolamento (e2e) |
+|---|---|---|
+| `GET /licitacoes/:id/processo-pdf` (alterado: cache + stream; cabeçalhos `X-Autos-Folhas`, `X-Autos-Impressao`) | órgão dono | outro órgão 404; fornecedor 403; anônimo 401 |
+| `GET /licitacoes/:id/processo-pdf/situacao` | órgão dono | 404 / 403 / 401 |
+| `POST /licitacoes/:id/processo-pdf/gerar` | órgão dono | outro órgão 403; fornecedor 403; anônimo 401 |
+
+Os autos completos são do órgão dono; **não existe versão pública dos autos** (nada foi exposto — sigilo do orçamento e propostas continuam só nas telas próprias). Nenhuma entidade ou coluna nova; nenhuma migração de boot.
+
+### 13.5 Testes
+
+- Unitários: `autos-regras.spec.ts` — ordem lógica (caso PA 139/2025: ETP de 14/11 depois do DFD de 10/12), desconhecido antes do encerramento, ordem dentro da mesma chave; **numeração contínua com anexadas de várias páginas**; páginas do índice; carimbo de 6 dígitos; posição com rotação 0/90/180/270 e CropBox deslocada; impressão estável/alterada; texto seguro para as fontes padrão; data por extenso em Brasília.
+- E2E novo `test/fase-interna-e6.e2e-spec.ts` (9): gerar em segundo plano (NAO_GERADO → GERANDO → PRONTO + notificação); **capa, termo de abertura, índice, encerramento e carimbo contínuo em todas as folhas** (texto de cada página extraído); **ordem lógica** com o ETP mais antigo depois do DFD; **anexada com as páginas reais** (inclusive página girada); peça **gerada** presente; **versão substituída fora** e "substitui a versão 1" no índice; termo de justificativas (MARCA-01 justificado + "não se aplica"); folhas gravadas nas peças (a substituída guarda as suas); **cache** (mesma impressão; peça nova → DESATUALIZADO e nova montagem); depois de publicar: aviso, registro das publicações e a página do Diário Oficial; **204 folhas**; isolamento.
+- E2E afetados (arquivo a arquivo): ver §13.6.
+- Frontend: `npx tsc --noEmit` limpo; `next build` concluído sem erro.
+
+### 13.6 E2E afetados (Entregas 5 e 6)
+
+fase-interna-e1 (26), fase-interna-e2 (19), fase-interna-e3a (14), fase-interna-e3b (26), fase-interna-e4 (17), dispensa-eletronica (45), dispensa-motor-unico (15), divulgacao-pncp (11), cockpit-processo (8), isolamento-dados-licitacao (115), publicacao-prazos (36), pncp-fila (15), transicoes-fase-interna-pncp (12), credenciamento (30), transicoes-licitacao (22), resultado-contrato (17), além das novas fase-interna-e5 (16) e fase-interna-e6 (9) — todos passando. Suíte unitária completa: **101 suítes / 1229 testes**.
+
+### 13.7 Fica para depois
+
+- **Entrega 7**: IA lendo os PDFs anexados (reconhecer a peça, conferir a consistência).
+- **Assinatura dos termos** (abertura/encerramento) pelo agente no portal de assinaturas — hoje são termos do sistema, sem assinatura.
+- **Volumes** (autos acima de ~200 folhas divididos em volumes com termos próprios) — o PDF é único.
+- **Extrato do contrato** gerado pelo sistema (não existe gerador; entra quando anexado).
+- Fila **persistente** (a montagem em segundo plano vive na memória do processo Node; se o servidor reiniciar no meio, a próxima solicitação monta de novo — o cache em disco sobrevive).
 
 ## 6. Riscos e cuidados
 

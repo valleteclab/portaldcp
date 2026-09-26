@@ -135,7 +135,13 @@ Em **Configurações** › **Fase interna e tarefas** o administrador do órgão
 - **Simples** (padrão): uma pessoa pode conduzir o processo inteiro. Todas as tarefas vão para o agente de contratação do processo. Se o processo não tiver agente, vão para quem o criou. Se não houver nenhum dos dois, vão para a caixa de quem tem o papel "Agente de contratação".
 - **Por setor**: cada etapa vai para o papel ou setor escolhido na tabela. Quem tem o papel (ou está no setor) vê a tarefa e pode **assumi-la**. A etapa do agente vai direto para o agente do processo.
 
-**Manifestação do controle interno.** Liga ou desliga a etapa de controle interno, que fica entre o parecer e a publicação. Por enquanto ela é só um **aviso**: não impede a publicação. Ao desligar, as tarefas abertas dessa etapa são canceladas.
+**Manifestação do controle interno.** Liga ou desliga a etapa de controle interno, que fica entre o parecer e a publicação. Por enquanto ela é só um **aviso**: não impede a publicação (aparece como alerta amarelo no checklist antes de publicar e na tela da conformidade). Ao desligar, as tarefas abertas dessa etapa são canceladas.
+
+**Dispensa eletrônica — disputa.** O órgão escolhe:
+- **Com etapa de lances** (padrão — IN SEGES nº 67/2021, arts. 11 e 15): encerrado o prazo de propostas, a janela de lances de 6 a 10 horas é obrigatória antes do julgamento;
+- **Sem etapa de lances** (regulamento do órgão que não adota a IN 67 — ex.: "nos termos da Portaria 089 não há previsão de disputa de lances"): só o cadastro de propostas até o fim do prazo; vence o menor preço e, no empate, a proposta **registrada primeiro**. A negociação com o vencedor continua (IN 67, art. 16).
+
+O modo é **gravado no processo quando ele é publicado**: mudar esta opção depois não altera os processos já publicados (cada um segue o modo do dia em que foi publicado).
 
 **Autorização — quem assina.** Escolha os usuários que assinam o despacho de autorização e o papel de cada um no ato, além do **nome da autoridade** usado nos despachos (ex.: "Mesa Diretora"). O botão **Modelo Mesa Diretora (4)** cria as linhas Presidente, Vice-Presidente, 1º Secretário e 2º Secretário, para você escolher as pessoas. A autorização só vale quando **todos** assinam. Sem ninguém na lista, o despacho vai para os usuários com o papel **Autoridade**.
 

@@ -209,7 +209,7 @@ A conferência automática é a do **motor de conformidade** (a mesma da tela da
 
 ### Controle interno (quando o órgão ativou)
 
-A tela aparece entre o parecer e a publicação. Nela, a manifestação é **Favorável** ou **Com apontamentos** (os apontamentos são obrigatórios). **Assinar manifestação** gera a peça e a assina com o usuário de quem tem o papel **Controle interno**. A manifestação feita fora também pode ser anexada. Por enquanto a etapa é **aviso**: não impede a publicação. Com o controle interno desativado, a tela informa que a etapa não se aplica.
+A tela aparece entre o parecer e a publicação. Nela, a manifestação é **Favorável** ou **Com apontamentos** (os apontamentos são obrigatórios). **Assinar manifestação** gera a peça e a assina com o usuário de quem tem o papel **Controle interno**. A manifestação feita fora também pode ser anexada. Por enquanto a etapa é **aviso**: não impede a publicação — sem a manifestação, o checklist antes de publicar mostra a linha amarela **Manifestação do controle interno** (com o link **Abrir o controle interno**) e a tela da conformidade repete o aviso. Com o controle interno desativado, a tela informa que a etapa não se aplica.
 
 ### 8. Conformidade e publicação (portão C)
 
@@ -217,7 +217,7 @@ Antes de publicar, o **motor de conformidade** cruza todas as peças dos autos e
 
 - no alto, a contagem: **bloqueios**, **atenções** e **regras aprovadas**; **Revisar agora** roda a conferência na hora (ela também roda sozinha a cada peça salva e antes dos atos protegidos);
 - cada **achado**, com a descrição, as **evidências** (peça e folha — clique para abrir a peça na folha, com o trecho em destaque) e a ação: **Corrigir peça** (leva à tela da peça), **Justificar** (atenção) ou **Abrir**;
-- ao lado, o quadro do **aviso**: publicação prevista, início e fim do recebimento de propostas, os dias úteis de divulgação (contados no calendário do órgão) e os canais; o botão **Publicar — resolva N bloqueios** fica desabilitado até não sobrar nenhum. Liberado, ele leva ao checklist de publicação do processo;
+- ao lado, o quadro do **aviso** (veja "Publicar pela tela da conformidade", abaixo); o botão **Publicar — resolva N bloqueios** fica desabilitado até não sobrar nenhum;
 - o quadro das **assinaturas** de cada peça (assinada, anexada, sem data, faltam assinaturas) e as **justificativas** registradas.
 
 | Regra | O que confere | Efeito |
@@ -242,6 +242,38 @@ Antes de publicar, o **motor de conformidade** cruza todas as peças dos autos e
 - **Atenção** pode ser **justificada** (texto obrigatório; a justificativa vai para os autos). As que exigem justificativa (marca "ou similar", estimativa por uma única cotação) impedem a publicação até serem justificadas.
 - **Não é possível publicar com bloqueio aberto.** O checklist de publicação da tela do processo ganhou a linha **Conformidade das peças (portão C)**, e o **Publicar** recusa com o que falta e onde (peça e folha). O quadro **Fluxo da fase interna** do processo mostra o resumo dos achados.
 - **Processo já publicado:** a conferência fica como estava na publicação — nada do que já foi feito é travado.
+
+#### Publicar pela tela da conformidade (etapa 8)
+
+Na **dispensa eletrônica** a publicação é feita na própria tela da conformidade — é o mesmo ato **Publicar** do processo (com o portão C, os itens, o aviso e o prazo conferidos de novo):
+
+1. **Fim do recebimento de propostas** — já vem com a data mínima (3 dias úteis — art. 75, §3º —, contados no calendário do órgão); o painel mostra os dias úteis e os feriados que não contam. O início é a confirmação da publicação pelo PNCP.
+2. **Gerar aviso (PDF)** e **Conferir aviso vN** — o aviso de contratação direta diz se a dispensa tem **etapa de lances de 6 a 10 horas (IN 67)** ou é **sem disputa de lances, apenas cadastro de propostas (regulamento do órgão)**, conforme a configuração do órgão (parte [01](01-configuracao-do-orgao.md#8-fase-interna-e-tarefas)).
+3. **Publicar**. O modo da disputa fica gravado no processo nesse momento.
+
+O quadro mostra ainda:
+- **Disputa**: o modo (com ou sem etapa de lances) e a referência legal (IN 67 ou regulamento do órgão);
+- **Canais**, cada um com a situação real: **PNCP** (envio automático ao publicar → na fila → publicado com o número de controle, ou o erro devolvido pelo PNCP), **sítio oficial** (o portal público, depois da confirmação), **Diário Oficial do órgão** (pendente até ser registrado) e **plataforma** (recebimento de propostas e, se houver, lances);
+- o **aviso do controle interno**, quando a etapa está ativa e sem manifestação (não impede publicar).
+
+Depois de publicar, a etapa 8 fica **em andamento** ("Aviso enviado — a etapa conclui quando o PNCP confirmar a publicação"); a tarefa da publicação continua aberta. Quando o PNCP confirma (ou, no órgão sem PNCP, quando o Diário Oficial é registrado), a etapa 8 fica **concluída** e a tarefa se fecha, em nome de quem publicou.
+
+**Diário Oficial.** O quadro **Diário Oficial** registra a publicação no diário do órgão: **número/edição**, **data**, **página**, link (opcional) e a **página do diário em PDF** (opcional — entra nos autos, com folhas). O registro vira a peça **Publicação no Diário Oficial** dos autos; registrar de novo cria versão nova. No **órgão sem integração com o PNCP**, esse registro **é a divulgação oficial** (art. 176, parágrafo único): o prazo corre da data informada e a etapa 8 conclui. Antes de publicar, o registro é recusado.
+
+Nas demais modalidades (edital), o botão leva ao cartão **Publicar edital** da tela do processo (parte [03](03-publicacao-e-prazos.md#publicar-o-edital)).
+
+#### Autos do processo em PDF
+
+O botão **Gerar autos (PDF)** (no cabeçalho do processo e na tela da conformidade) monta os autos como os do papel:
+
+- **capa** (órgão, processo administrativo, número da dispensa ou licitação, objeto, interessado — a unidade requisitante do DFD — e a data de autuação), **termo de abertura** e **índice** (peça, folhas, data do documento, origem — gerada, assinada, anexada —, signatários e "substitui a versão X");
+- as peças na **ordem lógica dos autos**, não na ordem das datas: DFD, ETP e riscos, TR, pesquisa (mapa e certidão), informação orçamentária, despacho de autorização, portaria de designação, relatório do agente, minuta do aviso, minuta do contrato, parecer, controle interno, **termo de justificativas** (os achados de atenção justificados na conformidade e as peças "não se aplica"), aviso publicado, **registro das publicações** (PNCP, Diário Oficial, sítio) e a página do Diário Oficial; depois da sessão, a ata, os documentos da fase externa (resultado, parecer nº 2, adjudicação, homologação) e os contratos; por fim o **termo de encerramento**;
+- peça **anexada** entra com as páginas reais do PDF; peça feita aqui, com o PDF gerado ou assinado; **versões substituídas não entram**;
+- **carimbo "Fl. 000123"** no canto superior direito de todas as folhas, em numeração contínua.
+
+A montagem roda **em segundo plano** (um processo por vez): o botão acompanha e baixa o PDF quando fica pronto; se você sair da tela, chega a notificação "Autos em PDF prontos". Se nada mudou nas peças, o mesmo PDF é entregue na hora (sem montar de novo).
+
+> **Folhas.** A folha dada na juntada da peça é provisória; ao montar os autos, **o PDF é a fonte**: cada peça passa a mostrar as folhas que tem nos autos (tela do parecer, conformidade, índice). Por isso as folhas citadas numa evidência antiga podem mudar depois da montagem — confira a peça pelo índice.
 
 > **Tramitação.** O despacho formal entre setores (estilo SEI) fica na aba **Tramitação** da tela do processo. O antigo "dossiê da fase interna" (`/orgao/fase-interna/processos/<id>`) e as telas avulsas do editor (DFD, ETP, TR) e de preços agora redirecionam para as telas acima.
 
