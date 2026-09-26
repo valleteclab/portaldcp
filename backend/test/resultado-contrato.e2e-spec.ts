@@ -37,7 +37,7 @@ import { prepararPregaoEmDisputa } from './support/isolamento';
 import { convocarAceitacao, decidirAceitacao, enviarPropostaAdequada } from './support/julgamento';
 import { habilitarLicitante } from './support/habilitacao';
 import { abrirJanelaIntencao, encerrarJanelaNoRelogio, manifestarIntencao } from './support/recursos';
-import { criarDispensaComPropostas } from './support/dispensa';
+import { criarDispensaComPropostas, encerrarEtapaDeLances } from './support/dispensa';
 import { adjudicarResultado, gerarInstrumentos, homologarResultado, painelResultado } from './support/resultado';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
@@ -259,6 +259,7 @@ describe('E6 — resultado único (adjudicação, homologação) e contrato', ()
     });
 
     test('julgar: vencedor VENCEDOR em cada item (unidade ITEM) e itens ADJUDICADO com a melhor oferta final', async () => {
+      await encerrarEtapaDeLances(ctx, lic); // IN 67 arts. 11 e 15: julgamento depois da etapa de lances
       await http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(orgao.token)).expect(201);
       const its = await itensDb(lic.id);
       expect(its.map((i) => [i.status, i.fornecedor_vencedor_id, Number(i.valor_total_homologado)])).toEqual([

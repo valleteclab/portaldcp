@@ -184,7 +184,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       { fornecedor: F1, valores: [99, 49] },
       { fornecedor: F2, valores: [97, 48] },
     ]);
-    const jan = await abrirJanelaLances(ctx, Y, { duracao_minutos: 60, prorrogacao_minutos: 2 });
+    const jan = await abrirJanelaLances(ctx, Y, { duracao_minutos: 360, prorrogacao_minutos: 2 });
     if (jan.status !== 201) throw new Error(`[fixture] abrir janela da dispensa → ${jan.status} ${JSON.stringify(jan.body)}`);
   });
 

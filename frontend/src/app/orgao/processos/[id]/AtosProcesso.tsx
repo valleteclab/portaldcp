@@ -38,6 +38,19 @@ const ATOS_DA_SALA = [
  */
 const ATOS_DE_EXTINCAO = ["REVOGAR", "ANULAR"]
 
+/**
+ * Dispensa deserta/fracassada — IN SEGES 67/2021, art. 22: providência que o
+ * órgão adotará (fracassada: I, II ou III; deserta: só I ou III). O backend
+ * exige e registra no histórico.
+ */
+const PROVIDENCIAS_ART22: Record<string, string> = {
+  REPUBLICAR: "I — republicar o procedimento",
+  PRAZO_ADEQUACAO: "II — prazo para adequação da proposta ou da habilitação",
+  PROPOSTA_PESQUISA_PRECOS: "III — contratar pela proposta da pesquisa de preços (menor preço, com a habilitação exigida)",
+}
+const providenciasDoAto = (ato: string) =>
+  ato === "DECLARAR_DESERTA" ? ["REPUBLICAR", "PROPOSTA_PESQUISA_PRECOS"] : Object.keys(PROVIDENCIAS_ART22)
+
 /** Atos de situação/encerramento: botão com cor de alerta. */
 const ATOS_CRITICOS = ["REVOGAR", "ANULAR", "DECLARAR_DESERTA", "DECLARAR_FRACASSADA"]
 
@@ -51,13 +64,16 @@ export function AtosProcesso({
   licitacaoId,
   atos,
   onAtualizado,
+  modalidade,
 }: {
   licitacaoId: string
   atos: AtoDisponivel[] | undefined
   onAtualizado: () => void
+  modalidade?: string
 }) {
   const [ato, setAto] = useState<AtoDisponivel | null>(null)
   const [motivo, setMotivo] = useState("")
+  const [providencia, setProvidencia] = useState("")
   const [executando, setExecutando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -69,11 +85,19 @@ export function AtosProcesso({
   const abrir = (a: AtoDisponivel) => {
     setAto(a)
     setMotivo("")
+    setProvidencia("")
     setErro(null)
   }
 
+  const pedeProvidencia =
+    modalidade === "DISPENSA_ELETRONICA" && !!ato && ["DECLARAR_DESERTA", "DECLARAR_FRACASSADA"].includes(ato.ato)
+
   const executar = async () => {
     if (!ato) return
+    if (pedeProvidencia && !providencia) {
+      setErro("Escolha a providência do art. 22 da IN SEGES 67/2021 — ela fica registrada no histórico.")
+      return
+    }
     if (ato.requer_motivo && !motivo.trim()) {
       setErro("Informe o motivo — ele fica registrado no histórico do processo.")
       return
@@ -84,11 +108,15 @@ export function AtosProcesso({
       const res = await authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/atos/${ato.ato}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(motivo.trim() ? { motivo: motivo.trim() } : {}),
+        body: JSON.stringify({
+          ...(motivo.trim() ? { motivo: motivo.trim() } : {}),
+          ...(pedeProvidencia ? { dados: { providencia_art22: providencia } } : {}),
+        }),
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j?.message || `HTTP ${res.status}`)
+        const pend: string[] = Array.isArray(j?.pendencias) ? j.pendencias : []
+        throw new Error(pend.length > 1 ? pend.join(" · ") : j?.message || `HTTP ${res.status}`)
       }
       setAto(null)
       onAtualizado()
@@ -121,10 +149,18 @@ export function AtosProcesso({
               {a.rotulo}
             </Button>
           ))}
+          {/* Botão desabilitado não dispara eventos de mouse (o title não aparece):
+              o motivo vem do backend e fica visível aqui, sempre. */}
           {lista.some((a) => !a.disponivel) && (
-            <p className="w-full text-xs text-gray-500">
-              Botões desabilitados têm pendências — passe o mouse para ver o que falta.
-            </p>
+            <ul className="w-full text-xs text-gray-600 space-y-1 mt-1">
+              {lista
+                .filter((a) => !a.disponivel)
+                .map((a) => (
+                  <li key={a.ato}>
+                    <span className="font-medium">{a.rotulo}:</span> {a.pendencias.join(" · ")}
+                  </li>
+                ))}
+            </ul>
           )}
         </CardContent>
       </Card>
@@ -144,6 +180,21 @@ export function AtosProcesso({
               onChange={(e) => setMotivo(e.target.value)}
               rows={4}
             />
+          )}
+          {pedeProvidencia && ato && (
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Providência (IN SEGES 67/2021, art. 22)</label>
+              <select
+                className="w-full border rounded px-2 py-1.5 text-sm"
+                value={providencia}
+                onChange={(e) => setProvidencia(e.target.value)}
+              >
+                <option value="">Selecione…</option>
+                {providenciasDoAto(ato.ato).map((p) => (
+                  <option key={p} value={p}>{PROVIDENCIAS_ART22[p]}</option>
+                ))}
+              </select>
+            </div>
           )}
           {erro && <p className="text-sm text-red-600">{erro}</p>}
           <DialogFooter>

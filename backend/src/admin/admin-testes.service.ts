@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Orgao, TipoOrgao, EsferaAdministrativa } from '../orgaos/entities/orgao.entity';
 import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
 import { AtoLicitacao, atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
+import { confirmarDivulgacaoOficial } from '../licitacoes/transicoes/divulgacao';
 import { DOCUMENTOS_OBRIGATORIOS_POR_ETAPA } from '../fase-interna/documentos-obrigatorios';
 import { FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 
@@ -241,9 +242,18 @@ export class AdminTestesService implements OnModuleDestroy {
         return 'fim acolhimento: +2d · abertura sessão: +3d (futuro, bloqueia scheduler)';
       });
 
-      // ── Step 8: PUBLICADO → ACOLHIMENTO_PROPOSTAS (ato INICIAR_ACOLHIMENTO) ──
+      // ── Step 8: divulgação confirmada → ACOLHIMENTO_PROPOSTAS ──
+      // O PUBLICAR leva a AGUARDANDO_DIVULGACAO até o PNCP confirmar a compra.
+      // Este roteiro de teste da homologação não publica no PNCP real: SIMULA a
+      // confirmação (ator SISTEMA/admin-testes, registrada no histórico) e o
+      // relógio segue normalmente.
       await this.runStep(8, async () => {
-        const r = await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
+        const antes = await this.get(base, `/licitacoes/${licitacaoId}`, orgaoToken);
+        if (antes.fase === 'AGUARDANDO_DIVULGACAO') {
+          await confirmarDivulgacaoOficial(this.transicoes, this.dataSource, licitacaoId, { meio: 'PNCP', referencia: 'SIMULACAO-ADMIN-TESTES' }, atorSistema('admin-testes'));
+        }
+        const atual = await this.get(base, `/licitacoes/${licitacaoId}`, orgaoToken);
+        const r = atual.fase === 'ACOLHIMENTO_PROPOSTAS' ? atual : await this.put(base, `/licitacoes/${licitacaoId}/avancar-fase`, orgaoToken, {});
         if (r.fase !== 'ACOLHIMENTO_PROPOSTAS') {
           throw new Error(`Fase esperada ACOLHIMENTO_PROPOSTAS, obteve ${r.fase}`);
         }

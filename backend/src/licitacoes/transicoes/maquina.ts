@@ -101,7 +101,14 @@ export function aplicarNoEstado(def: DefinicaoAto, lic: Licitacao, ctx: Contexto
  */
 export function jaAplicado(def: DefinicaoAto, lic: EstadoLicitacao): boolean {
   if (def.situacaoPara) return situacaoDe(lic) === def.situacaoPara;
-  if (!def.para || typeof def.para === 'function') return false;
+  if (!def.para) return false;
+  if (typeof def.para === 'function') {
+    // Destino calculado (ex.: PUBLICAR → AGUARDANDO_DIVULGACAO | PUBLICADO): fora
+    // da fase de origem e já no destino (ou além) = aplicado.
+    if (def.de.includes(lic.fase)) return false;
+    const destino = def.para(lic as Licitacao);
+    return indiceFase(destino) >= 0 && indiceFase(lic.fase) >= indiceFase(destino);
+  }
   if (def.de.includes(lic.fase) && def.para !== lic.fase) return false;
   return indiceFase(lic.fase) >= indiceFase(def.para);
 }

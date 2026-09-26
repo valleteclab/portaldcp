@@ -207,7 +207,8 @@ describe('E9 — limpeza (PNCP com escopo do órgão, estado da compra, document
   describe('3. estado da compra no PNCP: fonte pncp_sync', () => {
     it('vínculo manual vira linha ENVIADA da fila; a licitação não guarda cópia; a tela recebe os campos', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO);
-      await levarAteFase(ctx, lic, FaseLicitacao.PUBLICADO);
+      // publicada e aguardando o PNCP; a compra já existe lá (publicada por outro meio): vínculo manual
+      await levarAteFase(ctx, lic, FaseLicitacao.AGUARDANDO_DIVULGACAO);
       await http()
         .post(`/api/pncp/compras/${lic.id}/vincular`)
         .set(bearer(A.token))
@@ -220,6 +221,8 @@ describe('E9 — limpeza (PNCP com escopo do órgão, estado da compra, document
         [lic.id],
       );
       expect(linhas).toEqual([{ status: 'ENVIADO', ano_compra: 2026, sequencial_compra: 555 }]);
+      // o vínculo confirma a divulgação oficial (arts. 54 e 174)
+      expect((await buscarLicitacao(ctx, lic)).meio_divulgacao_oficial).toBe('PNCP');
       const [col] = await sql(`SELECT enviado_pncp, numero_controle_pncp FROM licitacoes WHERE id = $1`, [lic.id]);
       expect(col).toEqual({ enviado_pncp: false, numero_controle_pncp: null });
 

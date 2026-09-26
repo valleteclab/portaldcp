@@ -145,6 +145,18 @@ export function avaliarPrazoManifestacao(
   const limite = prazoLimiteManifestacao(lic);
   const nome = tipo === 'IMPUGNACAO' ? 'impugnação' : 'pedido de esclarecimento';
 
+  // DISPENSA ELETRÔNICA: não há impugnação nem pedido de esclarecimento formal
+  // — a IN SEGES 67/2021 não os prevê e o art. 164 da Lei trata do edital de
+  // LICITAÇÃO. A comunicação é pelas mensagens do sistema (IN 67, art. 10).
+  if (lic.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA) {
+    return {
+      aberto: false,
+      limite: null,
+      motivo:
+        `Na dispensa eletrônica não há ${nome} formal (a IN SEGES 67/2021 não prevê; o art. 164 da Lei 14.133/2021 trata do edital de licitação) — ` +
+        'use as mensagens do sistema no processo (IN SEGES 67/2021, art. 10).',
+    };
+  }
   if (lic.situacao && SITUACOES_ENCERRADAS.includes(lic.situacao as string)) {
     return { aberto: false, limite, motivo: `Licitação encerrada (${String(lic.situacao).toLowerCase()}): não cabe ${nome}.` };
   }

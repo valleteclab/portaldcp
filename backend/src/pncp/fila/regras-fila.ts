@@ -105,6 +105,8 @@ export class ErroPncp extends Error {
     mensagem: string,
     readonly natureza: NaturezaFalha,
     readonly statusHttp?: number,
+    /** Corpo da resposta de erro do PNCP (como veio da API) — guardado na linha da fila. */
+    readonly corpo?: unknown,
   ) {
     super(mensagem);
     this.name = 'ErroPncp';

@@ -379,7 +379,7 @@ export class ConcursoService implements OnModuleInit {
       .getOne();
     if (!t) throw new NotFoundException('Trabalho não encontrado');
     const dono = visao.tipo === 'FORNECEDOR' && visao.fornecedorId === t.fornecedor_id;
-    const orgao = visao.tipo === 'ORGAO' && ![...FASES_INTERNAS, FaseLicitacao.PUBLICADO, FaseLicitacao.ACOLHIMENTO_PROPOSTAS].includes(lic.fase);
+    const orgao = visao.tipo === 'ORGAO' && ![...FASES_INTERNAS, FaseLicitacao.AGUARDANDO_DIVULGACAO, FaseLicitacao.PUBLICADO, FaseLicitacao.ACOLHIMENTO_PROPOSTAS].includes(lic.fase);
     if (!dono && !orgao) throw new NotFoundException('Trabalho não encontrado');
     const ext = t.arquivo_mime === 'application/pdf' ? 'pdf' : t.arquivo_mime.includes('zip') ? 'zip' : t.arquivo_mime.split('/')[1] || 'bin';
     return { nome: `${t.codigo}.${ext}`, mime: t.arquivo_mime, conteudo: t.arquivo };

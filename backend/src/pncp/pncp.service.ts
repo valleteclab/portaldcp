@@ -8,6 +8,7 @@ import { Licitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.e
 import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
 import { AtoLicitacao, AtorTransicao, atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
 import { ehFaseInterna } from '../licitacoes/transicoes/fases';
+import { confirmarDivulgacaoOficial } from '../licitacoes/transicoes/divulgacao';
 import { PlanoContratacaoAnual } from '../pca/entities/pca.entity';
 import { SystemConfigService } from '../system-config/system-config.service';
 import { Orgao } from '../orgaos/entities/orgao.entity';
@@ -646,6 +647,8 @@ export class PncpService implements OnModuleInit {
       { numeroControle: numeroControlePNCP, ano: Number(anoCompra), sequencial: Number(sequencialCompra) },
       ator,
     );
+    // A compra já está no PNCP: divulgação oficial confirmada (prazos correm dela)
+    await confirmarDivulgacaoOficial(this.transicoes, this.dataSource, licitacaoId, { meio: 'PNCP', referencia: numeroControlePNCP }, atorSistema('pncp'));
 
     this.logger.log(`Licitação ${licitacao.numero_processo} vinculada ao PNCP: ${numeroControlePNCP}`);
 
@@ -794,7 +797,7 @@ export class PncpService implements OnModuleInit {
         this.tokenExpiration = null;
       }
       const mensagem = this.extrairMensagemErro(error);
-      throw new ErroPncp(status ? `HTTP ${status}: ${mensagem}` : mensagem, naturezaDaFalhaHttp(status, error?.code), status);
+      throw new ErroPncp(status ? `HTTP ${status}: ${mensagem}` : mensagem, naturezaDaFalhaHttp(status, error?.code), status, error?.response?.data);
     }
   }
 

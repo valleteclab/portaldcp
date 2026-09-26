@@ -12,7 +12,13 @@ O prazo é em **dias úteis** no calendário do seu órgão: o dia da divulgaç�
 **Configurações** › **Feriados** › **Novo feriado do órgão**. Ele passa a valer em todos os prazos imediatamente. Veja a parte [01](01-configuracao-do-orgao.md#4-feriados-municipais).
 
 **Até quando o fornecedor pode impugnar?**
-Até **3 dias úteis antes da abertura** da sessão (art. 164), ou até a data-limite do edital, se ela foi informada. Na dispensa, até o fim do recebimento de propostas.
+Até **3 dias úteis antes da abertura** da sessão (art. 164), ou até a data-limite do edital, se ela foi informada. Na **dispensa eletrônica** não há impugnação nem pedido de esclarecimento formal (a IN SEGES 67/2021 não prevê): a comunicação é pelas mensagens do sistema (IN 67, art. 10).
+
+**Publiquei e o processo está "Aguardando publicação no PNCP". O prazo já está correndo?**
+Não. A divulgação oficial é a do PNCP (arts. 54 e 174): o prazo começa quando o PNCP confirma a compra. Se o PNCP recusou, o topo do cockpit mostra "Aviso NÃO publicado no PNCP — prazo não iniciado" com o código e a mensagem do PNCP e o que corrigir. Se a confirmação vier depois da data planejada, o sistema estende o fim do recebimento até o mínimo legal e registra no histórico. Veja a parte [11](11-pncp.md#divulgação-oficial-o-prazo-só-começa-com-o-pncp).
+
+**Por que o botão "Julgar propostas" está desabilitado na dispensa?**
+O motivo aparece escrito abaixo do botão. Na dispensa (IN SEGES 67/2021) o julgamento só é liberado depois do fim do prazo de propostas **e** do encerramento da etapa de lances (arts. 11 e 15 — janela de 6 a 10 horas).
 
 **Acolhi uma impugnação e agora não consigo iniciar a disputa.**
 Impugnação acolhida marcada como **Altera o Edital** exige a **retificação** do edital antes da disputa. Faça a retificação no cockpit (parte [03](03-publicacao-e-prazos.md#retificar-o-edital-art-55-1º)).
@@ -127,3 +133,10 @@ Pelo link que chega por e-mail. **Minhas Participações** mostra "Contrato agua
 | Pregoeiro digitado como texto | Pregoeiro escolhido entre os usuários ativos do órgão. |
 | Revogar/anular direto | Com licitantes, passa pela **intenção** + prazo de manifestação (art. 71, §3º). |
 | Credenciamento em cadastro à parte | Credenciamento é um processo completo, com edital no PNCP, inscrição pública e contratação por regra. |
+| Publicar = "Publicado" e prazo aberto na hora, mesmo com o PNCP recusando | Publicar leva a **Aguardando publicação no PNCP**; o prazo só corre da confirmação do PNCP (com as datas estendidas ao mínimo legal, se ela atrasar). Processos antigos sem compra no PNCP voltaram a aguardar. |
+| Aviso da dispensa gerado só no envio | O aviso é **gerado e guardado** no processo (versões, hash) antes de divulgar; é esse arquivo que vai ao PNCP. |
+| Erro do PNCP escondido | Alerta no topo do cockpit com o código HTTP, a mensagem, as tentativas e o que corrigir. |
+| Fase de lances da dispensa opcional, qualquer duração | Etapa de lances de **6 a 10 horas** (IN 67, art. 11), obrigatória antes do julgamento (art. 15). |
+| Chat da dispensa aberto a todos em qualquer fase | Regras por fase (IN 67): fechado antes do PNCP; avisos formais do órgão no prazo; lances sem identificação; **negociação privada com o vencedor** (art. 16). |
+| Histórico com códigos ("APROVACAO_INTERNA → PUBLICADO", "Servidor") | Nomes dos atos e das fases e o **nome de quem praticou**; atos automáticos como "Sistema (PNCP)" / "Sistema (relógio)". |
+| Deserta/fracassada a qualquer momento | Deserta só depois do prazo e sem proposta; fracassada só com propostas e nenhuma aproveitável; na dispensa, com a providência do art. 22 da IN 67. |

@@ -22,7 +22,7 @@ import {
   OrgaoFixture,
 } from './support';
 import { homologarResultado } from './support/resultado';
-import { criarDispensaComPropostas, criarDispensaPublicada } from './support/dispensa';
+import { criarDispensaComPropostas, criarDispensaPublicada, encerrarEtapaDeLances } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao, SituacaoLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { TransicoesService } from '../src/licitacoes/transicoes/transicoes.service';
 import { AtoLicitacao, atorSistema } from '../src/licitacoes/transicoes/transicoes.tipos';
@@ -67,15 +67,25 @@ describe('E1 — transições da licitação (máquina de estados)', () => {
         ['CONCLUIR_TERMO_REFERENCIA', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS'],
         ['CONCLUIR_PESQUISA_PRECOS', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA'],
         ['CONCLUIR_ANALISE_JURIDICA', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA'],
-        ['PUBLICAR', 'APROVACAO_INTERNA', 'PUBLICADO'],
+        // divulgação oficial (arts. 54 e 174): o PUBLICAR aguarda a confirmação;
+        // órgão sem PNCP registra a publicação no diário oficial (art. 176)
+        ['PUBLICAR', 'APROVACAO_INTERNA', 'AGUARDANDO_DIVULGACAO'],
+        ['CONFIRMAR_DIVULGACAO', 'AGUARDANDO_DIVULGACAO', 'PUBLICADO'],
         ['INICIAR_ACOLHIMENTO', 'PUBLICADO', 'ACOLHIMENTO_PROPOSTAS'],
       ]);
       for (const t of h) {
         expect(t.situacao_para).toBe('ATIVA');
-        expect(t.ator_tipo).toBe('ORGAO');
-        expect(t.ator_id).toBe(orgao.id);
         expect(t.created_at).toBeTruthy();
+        if (t.ato === 'INICIAR_ACOLHIMENTO') {
+          // aberto pelo relógio logo depois da confirmação (data de início já alcançada)
+          expect([t.ator_tipo, t.ator_id, t.ator_nome]).toEqual(['SISTEMA', 'scheduler', 'Sistema (relógio)']);
+        } else {
+          expect(t.ator_tipo).toBe('ORGAO');
+          expect(t.ator_id).toBe(orgao.id);
+        }
       }
+      expect(h[6].dados?.dados).toMatchObject({ meio: 'DIARIO_OFICIAL' });
+      expect(h[5].rotulo_fase_para).toBe('Aguardando publicação no PNCP');
       // o PUBLICAR guarda o cronograma pedido
       expect(h[5].dados?.dados?.data_fim_acolhimento).toBeTruthy();
       const l = await buscarLicitacao(ctx, lic);
@@ -174,7 +184,8 @@ describe('E1 — transições da licitação (máquina de estados)', () => {
         ator: atorSistema('pncp'),
         ignorarSeJaAplicado: true,
       });
-      expect(r.fase).toBe(FaseLicitacao.PUBLICADO);
+      // ignorarSeJaAplicado: destino calculado (AGUARDANDO_DIVULGACAO) já superado
+      expect([FaseLicitacao.PUBLICADO, FaseLicitacao.ACOLHIMENTO_PROPOSTAS]).toContain(r.fase);
       expect((await historico(lic)).filter((t) => t.ato === 'PUBLICAR')).toHaveLength(1);
     });
   });
@@ -244,6 +255,7 @@ describe('E1 — transições da licitação (máquina de estados)', () => {
     beforeAll(async () => {
       const f = await criarFornecedor(ctx, { porte: 'ME' });
       lic = await criarDispensaComPropostas(ctx, orgao, [{ fornecedor: f, valores: [90, 45] }]);
+      await encerrarEtapaDeLances(ctx, lic); // IN 67 arts. 11 e 15
       await http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(orgao.token)).expect(201);
       await homologarResultado(ctx, lic.id, orgao.token).expect(200);
     });
@@ -343,7 +355,7 @@ describe('E1 — transições da licitação (máquina de estados)', () => {
       const r = await http()
         .post(`/api/licitacoes/${lic.id}/atos/DECLARAR_DESERTA`)
         .set(bearer(orgao.token))
-        .send({ motivo: 'Nenhum fornecedor apresentou proposta no prazo' })
+        .send({ motivo: 'Nenhum fornecedor apresentou proposta no prazo', dados: { providencia_art22: 'REPUBLICAR' } }) // IN 67 art. 22
         .expect(201);
       expect(r.body.licitacao.situacao).toBe('DESERTA');
     });

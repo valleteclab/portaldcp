@@ -14,6 +14,7 @@ import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service'
 import { AtorAtual, AutenticacaoOpcional, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import { ehFornecedor, ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
+import type { LeitorChat } from '../disputa/janela-dispensa.service';
 import { licitacaoEhPublica, licitacaoParaOrgao, licitacaoParaPublico } from './licitacao-visao.util';
 import { AtoLicitacao, atorTransicaoDe } from './transicoes/transicoes.tipos';
 import { atoExiste } from './transicoes/definicoes';
@@ -355,10 +356,12 @@ export class LicitacoesController {
   }
 
   /** Dispensa: ATA DA SESSÃO em PDF (gerada dos registros; disponível após o julgamento) */
-  @Public()
+  @AutenticacaoOpcional()
   @Get(':id/dispensa/ata')
-  async ataDispensa(@Param('id') id: string, @Res() res: Response): Promise<void> {
-    const pdf = await this.licitacoesService.gerarAtaDispensa(id);
+  async ataDispensa(@Param('id') id: string, @AtorAtual() ator: Ator | null, @Res() res: Response): Promise<void> {
+    // Negociação (IN 67 art. 16) só aparece para o órgão dono antes da homologação
+    const relacao = await this.acesso.relacaoComLicitacao(ator, id);
+    const pdf = await this.licitacoesService.gerarAtaDispensa(id, relacao === 'ORGAO_DONO' || relacao === 'ADMIN');
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="ata-dispensa-${id}.pdf"`,
@@ -367,11 +370,28 @@ export class LicitacoesController {
     res.send(pdf);
   }
 
-  /** Dispensa: chat registrado nos autos (autoria anônima durante os lances) */
-  @Public()
+  /**
+   * Dispensa: chat registrado nos autos (autoria anônima no prazo e nos
+   * lances). A NEGOCIAÇÃO com o vencedor (IN 67 art. 16) só sai para o órgão
+   * dono e para o fornecedor negociado — identidade sempre do TOKEN.
+   */
+  @AutenticacaoOpcional()
   @Get(':id/dispensa/mensagens')
-  async listarMensagensDispensa(@Param('id') id: string): Promise<any[]> {
-    return await this.licitacoesService.listarMensagensDispensa(id);
+  async listarMensagensDispensa(@Param('id') id: string, @AtorAtual() ator: Ator | null): Promise<any[]> {
+    return await this.licitacoesService.listarMensagensDispensa(id, await this.leitorDoChat(ator, id));
+  }
+
+  /** Dispensa: regras do chat na fase atual (quem pode enviar, avisos formais, negociação) — decididas no backend. */
+  @AutenticacaoOpcional()
+  @Get(':id/dispensa/mensagens/regras')
+  async regrasChatDispensa(@Param('id') id: string, @AtorAtual() ator: Ator | null): Promise<any> {
+    return await this.licitacoesService.regrasChatDispensa(id, await this.leitorDoChat(ator, id));
+  }
+
+  private async leitorDoChat(ator: Ator | null, id: string): Promise<LeitorChat> {
+    if (ehFornecedor(ator)) return { tipo: 'FORNECEDOR', id: String(ator.fornecedorId) };
+    const relacao = await this.acesso.relacaoComLicitacao(ator, id);
+    return relacao === 'ORGAO_DONO' || relacao === 'ADMIN' ? { tipo: 'ORGAO' } : null;
   }
 
   /**
@@ -389,6 +409,10 @@ export class LicitacoesController {
       fornecedor_id?: string;
       autor_nome?: string;
       mensagem: string;
+      /** Aviso formal do órgão no prazo de propostas. */
+      assunto?: string;
+      /** Negociação: vencedor com quem o órgão fala (IN 67 art. 16). */
+      fornecedor_destino_id?: string;
     },
     @AtorAtual() ator: Ator,
   ): Promise<any> {
@@ -408,6 +432,8 @@ export class LicitacoesController {
       autor_tipo: 'ORGAO',
       autor_nome: body?.autor_nome,
       mensagem: body?.mensagem,
+      assunto: body?.assunto,
+      fornecedor_destino_id: body?.fornecedor_destino_id,
     });
   }
 

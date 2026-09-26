@@ -11,6 +11,7 @@ export const FASES_INTERNAS: FaseLicitacao[] = [
 
 /** Fases externas (após a divulgação), na ordem do rito completo. */
 export const FASES_EXTERNAS: FaseLicitacao[] = [
+  FaseLicitacao.AGUARDANDO_DIVULGACAO,
   FaseLicitacao.PUBLICADO,
   FaseLicitacao.IMPUGNACAO,
   FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
@@ -29,6 +30,15 @@ export const ORDEM_FASES: FaseLicitacao[] = [...FASES_INTERNAS, ...FASES_EXTERNA
 /** Fases externas antes da homologação (onde cabe suspender, deserta, fracassada...). */
 export const FASES_EXTERNAS_ATE_ADJUDICACAO: FaseLicitacao[] = FASES_EXTERNAS.filter(
   (f) => f !== FaseLicitacao.HOMOLOGACAO,
+);
+
+/**
+ * Fases externas com a divulgação oficial CONFIRMADA (PNCP) e antes da
+ * homologação: julgar, declarar deserta/fracassada só depois que o prazo
+ * existiu — o aviso não publicado no PNCP não abriu prazo nenhum.
+ */
+export const FASES_DIVULGADAS_ATE_ADJUDICACAO: FaseLicitacao[] = FASES_EXTERNAS_ATE_ADJUDICACAO.filter(
+  (f) => f !== FaseLicitacao.AGUARDANDO_DIVULGACAO,
 );
 
 /** Todas as fases do processo antes da homologação. */
@@ -50,6 +60,7 @@ export const ROTULO_FASE: Record<string, string> = {
   PESQUISA_PRECOS: 'Pesquisa de Preços',
   ANALISE_JURIDICA: 'Análise Jurídica',
   APROVACAO_INTERNA: 'Aprovação Interna',
+  AGUARDANDO_DIVULGACAO: 'Aguardando publicação no PNCP',
   PUBLICADO: 'Publicado',
   IMPUGNACAO: 'Impugnação',
   ACOLHIMENTO_PROPOSTAS: 'Acolhimento de Propostas',

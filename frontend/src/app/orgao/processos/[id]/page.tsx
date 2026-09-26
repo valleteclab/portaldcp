@@ -42,6 +42,7 @@ import { DocumentosProcesso } from "./DocumentosProcesso"
 import { ImpugnacoesEsclarecimentos } from "./ImpugnacoesEsclarecimentos"
 import { SessaoPublicaCard, FASES_SALA } from "./SessaoPublicaCard"
 import { HistoricoProcesso } from "./HistoricoProcesso"
+import { DivulgacaoBanner } from "./DivulgacaoBanner"
 import { ItensProcesso } from "./ItensProcesso"
 import { CancelarPublicacao, FASES_CANCELAR_PUBLICACAO } from "./CancelarPublicacao"
 import {
@@ -451,6 +452,44 @@ export default function CockpitProcessoPage() {
     return () => { cancelado = true; clearTimeout(t) }
   }, [modalDivulgar, fimPropostas, id])
 
+  // Aviso de contratação direta (IN SEGES 67/2021): PDF gerado pelo sistema e
+  // guardado no processo ANTES de divulgar — é o arquivo que vai ao PNCP.
+  const [avisoGerado, setAvisoGerado] = useState<{ documento_id: string; versao: number } | null>(null)
+  const [gerandoAviso, setGerandoAviso] = useState(false)
+  const cronogramaDoAviso = () => {
+    const agora = new Date().toISOString()
+    const fim = new Date(fimPropostas).toISOString()
+    return { data_publicacao_edital: agora, data_limite_impugnacao: fim, data_inicio_acolhimento: agora, data_fim_acolhimento: fim, data_abertura_sessao: fim }
+  }
+  const gerarAviso = async () => {
+    if (!fimPropostas) return
+    setGerandoAviso(true)
+    setErroDivulgar(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/publicacao/licitacao/${id}/aviso`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cronogramaDoAviso()),
+      })
+      if (!res.ok) {
+        setErroDivulgar(await lerErro(res, "Erro ao gerar o aviso"))
+        return
+      }
+      const a = await res.json()
+      setAvisoGerado({ documento_id: a.documento_id, versao: a.versao })
+    } catch (e) {
+      setErroDivulgar(erroDeExcecao(e))
+    } finally {
+      setGerandoAviso(false)
+    }
+  }
+  const abrirAviso = async () => {
+    if (!avisoGerado) return
+    const res = await authFetch(`${API_URL}/api/publicacao/licitacao/${id}/aviso/${avisoGerado.documento_id}/arquivo`)
+    if (!res.ok) return toast.error("Não foi possível abrir o aviso")
+    window.open(URL.createObjectURL(await res.blob()), "_blank")
+  }
+
   const divulgarAviso = async () => {
     if (!dados || !fimPropostas) return
     setDivulgando(true)
@@ -482,7 +521,8 @@ export default function CockpitProcessoPage() {
         return
       }
       setModalDivulgar(false)
-      toast.success("Aviso divulgado: o prazo de propostas está aberto e o aviso vai ao PNCP automaticamente (acompanhe o status no painel da seleção).")
+      setAvisoGerado(null)
+      toast.success("Aviso enviado ao PNCP. O prazo de propostas só começa quando o PNCP confirmar a publicação (arts. 54 e 55) — acompanhe no alerta do processo.")
       await carregar()
     } catch (e) {
       setErroDivulgar(erroDeExcecao(e))
@@ -548,11 +588,19 @@ export default function CockpitProcessoPage() {
   const [painelLances, setPainelLances] = useState<any>(null)
   const [mensagensDispensa, setMensagensDispensa] = useState<any[]>([])
   const [novaMensagemOrgao, setNovaMensagemOrgao] = useState("")
+  // Regras do chat na fase atual (IN SEGES 67/2021) — decididas no backend
+  const [regrasChat, setRegrasChat] = useState<any>(null)
+  const [assuntoAviso, setAssuntoAviso] = useState("")
+  const [destinoNegociacao, setDestinoNegociacao] = useState("")
 
   const carregarMensagensDispensa = useCallback(async () => {
     try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`)
+      const [res, rr] = await Promise.all([
+        authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`),
+        authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens/regras`),
+      ])
       if (res.ok) setMensagensDispensa(await res.json())
+      if (rr.ok) setRegrasChat(await rr.json())
     } catch { /* mantém */ }
   }, [id])
 
@@ -584,11 +632,17 @@ export default function CockpitProcessoPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Autoria (órgão) vem do token; autor_nome é só o rótulo exibido
-        body: JSON.stringify({ autor_nome: autor, mensagem: texto }),
+        body: JSON.stringify({
+          autor_nome: autor,
+          mensagem: texto,
+          ...(regrasChat?.exige_assunto ? { assunto: assuntoAviso } : {}),
+          ...(regrasChat?.modo === "NEGOCIACAO" && destinoNegociacao ? { fornecedor_destino_id: destinoNegociacao } : {}),
+        }),
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
       setNovaMensagemOrgao("")
+      setAssuntoAviso("")
       await carregarMensagensDispensa()
     } catch (e: any) {
       toast.error(`Mensagem não enviada: ${e.message}`)
@@ -870,6 +924,11 @@ export default function CockpitProcessoPage() {
         </div>
       </div>
 
+      {/* Divulgação oficial (PNCP — arts. 54 e 174): aviso ainda não publicado = prazo não iniciado */}
+      {licitacao.fase === "AGUARDANDO_DIVULGACAO" && (
+        <DivulgacaoBanner licitacaoId={id} fase={licitacao.fase} onAtualizado={carregar} />
+      )}
+
       {/* Credenciamento (E7b): inscrições, análise e contratações ficam no painel próprio */}
       {licitacao.modalidade === "CREDENCIAMENTO" && (
         <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm flex items-center justify-between gap-2 flex-wrap">
@@ -889,7 +948,7 @@ export default function CockpitProcessoPage() {
       {licitacao.modalidade === "DIALOGO_COMPETITIVO" && <DialogoPainel licitacaoId={id} onAtualizado={carregar} />}
 
       {/* Atos nomeados do processo (suspender, retomar, revogar, deserta...) */}
-      <AtosProcesso licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
+      <AtosProcesso licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} modalidade={licitacao.modalidade} />
 
       {/* Itens da contratação — obrigatórios para concluir a fase interna, publicar e ir ao PNCP */}
       {licitacao.modalidade !== "CREDENCIAMENTO" && (
@@ -945,7 +1004,7 @@ export default function CockpitProcessoPage() {
       )}
 
       {/* Impugnações e esclarecimentos (art. 164) — depois da divulgação */}
-      {!emFaseInterna && !licitacao.selecao_externa && <ImpugnacoesEsclarecimentos licitacaoId={id} />}
+      {!emFaseInterna && !licitacao.selecao_externa && <ImpugnacoesEsclarecimentos licitacaoId={id} dispensa={licitacao.modalidade === "DISPENSA_ELETRONICA"} />}
 
       {/* Revogação / anulação em dois tempos (art. 71 §3º) */}
       <ExtincaoLicitacao licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
@@ -1143,7 +1202,7 @@ export default function CockpitProcessoPage() {
                           <p className="text-[11px] text-gray-400">
                             Mínimo para divulgar: <b>DFD, estimativa de despesa e autorização</b>. Os demais são &quot;se for o caso&quot; — marque
                             &quot;não se aplica&quot; com justificativa (fica registrada nos autos). Ao divulgar, o aviso é publicado
-                            automaticamente no PNCP e abre o prazo de propostas (mínimo 3 dias úteis — art. 75, §3º).
+                            no PNCP; o prazo de propostas (mínimo 3 dias úteis — art. 75, §3º) começa quando o PNCP confirmar a publicação.
                           </p>
                         </div>
                       )}
@@ -1154,7 +1213,10 @@ export default function CockpitProcessoPage() {
                       !dados.licitacao.selecao_externa &&
                       !checklist.homologado && (() => {
                         const prazoFim = dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao
-                        const aberto = prazoFim ? new Date() < new Date(prazoFim) : false
+                        const aguardandoPncp = dados.licitacao.fase === "AGUARDANDO_DIVULGACAO"
+                        const aberto = !aguardandoPncp && (prazoFim ? new Date() < new Date(prazoFim) : false)
+                        // Disponibilidade e motivo vêm do backend (atos_disponiveis — fonte única)
+                        const atoJulgar = (dados.atos_disponiveis || []).find((a: any) => a.ato === "JULGAR_DISPENSA")
                         const lancesFim = dados.licitacao.dispensa_lances_fim ? new Date(dados.licitacao.dispensa_lances_fim) : null
                         const lancesAberta = lancesFim ? new Date() < lancesFim : false
                         const totalEstimado = Number(dados.licitacao.valor_total_estimado || 0)
@@ -1164,32 +1226,37 @@ export default function CockpitProcessoPage() {
                             <div className="flex items-center justify-between flex-wrap gap-2">
                               <div className="text-sm">
                                 <span className={`font-medium ${aberto ? "text-blue-700" : "text-gray-700"}`}>
-                                  {aberto ? "⏳ Recebendo propostas" : lancesAberta ? "⚡ Fase de lances aberta" : "Prazo de propostas encerrado"}
+                                  {aguardandoPncp
+                                    ? "⏸ Aguardando publicação no PNCP — prazo não iniciado"
+                                    : aberto ? "⏳ Recebendo propostas" : lancesAberta ? "⚡ Fase de lances aberta" : "Prazo de propostas encerrado"}
                                 </span>
                                 <span className="text-gray-500"> · {dados.propostas.length} proposta(s) recebida(s)</span>
                                 {lancesAberta && lancesFim && (
-                                  <span className="ml-2 text-xs text-green-800 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">lances até {lancesFim.toLocaleString("pt-BR")}</span>
+                                  <span className="ml-2 text-xs text-green-800 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">lances até {lancesFim.toLocaleString("pt-BR", { timeZone: "America/Bahia" })}</span>
                                 )}
                                 {dados.propostas_em_sigilo && (
                                   <span className="ml-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">🔒 valores sigilosos até o fim do prazo</span>
                                 )}
                               </div>
                               <div className="flex items-center gap-2">
-                                {!aberto && !lancesFim && !checklist.resultado_registrado && dados.propostas.length > 0 && (
-                                  <Button size="sm" variant="outline" onClick={() => setModalLances(true)} title="Opcional (modelo IN SEGES 67/2021): janela para os fornecedores reduzirem os próprios valores">
+                                {!aguardandoPncp && !aberto && !lancesFim && !checklist.resultado_registrado && dados.propostas.length > 0 && (
+                                  <Button size="sm" variant="outline" onClick={() => setModalLances(true)} title="Etapa de lances (IN SEGES 67/2021, art. 11 — 6 a 10 horas): obrigatória antes do julgamento (art. 15)">
                                     ⚡ Abrir fase de lances
                                   </Button>
                                 )}
                                 {lancesAberta && (
                                   <Button size="sm" variant="outline" onClick={atualizarPainelLances}>Atualizar painel</Button>
                                 )}
-                                <Button size="sm" onClick={julgarDispensa} disabled={julgando || aberto || lancesAberta || dados.propostas.length === 0}
-                                  title={aberto ? "Disponível após o fim do prazo de propostas" : lancesAberta ? "Disponível após o fim da fase de lances" : dados.propostas.length === 0 ? "Sem propostas recebidas" : ""}>
+                                <Button size="sm" onClick={julgarDispensa} disabled={julgando || (!!atoJulgar && !atoJulgar.disponivel) || (!atoJulgar && !checklist.resultado_registrado)}>
                                   {julgando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Gavel className="w-4 h-4 mr-1" />}
                                   {checklist.resultado_registrado ? "Rejulgar (menor preço)" : "Julgar propostas (menor preço)"}
                                 </Button>
                               </div>
                             </div>
+                            {/* botão desabilitado não mostra title: o motivo (backend) fica visível */}
+                            {atoJulgar && !atoJulgar.disponivel && atoJulgar.pendencias?.length > 0 && (
+                              <p className="text-xs text-gray-600">Julgar: {atoJulgar.pendencias.join(" · ")}</p>
+                            )}
                             {lancesAberta && painelLances?.itens?.length > 0 && (
                               <div className="border rounded bg-white overflow-x-auto">
                                 <table className="w-full text-xs">
@@ -1260,20 +1327,43 @@ export default function CockpitProcessoPage() {
                             )}
                             {/* Chat da sessão (registrado nos autos; negociação pós-lances) */}
                             <div className="border rounded bg-white">
-                              <div className="px-3 py-1.5 border-b text-xs font-medium text-gray-600">💬 Chat da sessão <span className="font-normal text-gray-400">— registrado no processo; use para avisos e para negociar com o melhor classificado após os lances</span></div>
+                              <div className="px-3 py-1.5 border-b text-xs font-medium text-gray-600">
+                                💬 {regrasChat?.rotulo || "Mensagens do processo"}{" "}
+                                <span className="font-normal text-gray-400">— registradas no processo{regrasChat?.explicacao ? `. ${regrasChat.explicacao}` : ""}</span>
+                              </div>
                               <div className="p-2 max-h-40 overflow-y-auto space-y-1.5">
                                 {mensagensDispensa.length === 0 && <p className="text-[11px] text-gray-400">Nenhuma mensagem.</p>}
                                 {mensagensDispensa.map((m: any) => (
                                   <div key={m.id} className="text-xs">
                                     <span className={`font-medium ${m.autor_tipo === "ORGAO" ? "text-blue-700" : "text-gray-700"}`}>{m.autor_tipo === "ORGAO" ? "🏛️ " : ""}{m.autor_nome}</span>
-                                    <span className="text-gray-400"> {m.created_at ? new Date(m.created_at).toLocaleTimeString("pt-BR") : ""}: </span>
+                                    <span className="text-gray-400"> {m.created_at ? new Date(m.created_at).toLocaleString("pt-BR", { timeZone: "America/Bahia", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}: </span>
                                     <span>{m.mensagem}</span>
                                   </div>
                                 ))}
                               </div>
-                              <div className="flex items-center gap-2 p-2 border-t">
+                              {regrasChat && !regrasChat.orgao_pode_enviar ? (
+                                <p className="p-2 border-t text-[11px] text-gray-500">{regrasChat.explicacao}</p>
+                              ) : (
+                              <div className="flex items-center gap-2 p-2 border-t flex-wrap">
+                                {regrasChat?.exige_assunto && (
+                                  <Input
+                                    placeholder="Assunto do aviso"
+                                    value={assuntoAviso}
+                                    onChange={(e) => setAssuntoAviso(e.target.value)}
+                                    className="h-8 text-sm w-48"
+                                    maxLength={120}
+                                  />
+                                )}
+                                {regrasChat?.modo === "NEGOCIACAO" && regrasChat.interlocutores?.length > 1 && (
+                                  <select className="h-8 border rounded text-sm px-1" value={destinoNegociacao} onChange={(e) => setDestinoNegociacao(e.target.value)}>
+                                    <option value="">Negociar com…</option>
+                                    {regrasChat.interlocutores.map((v: any) => (
+                                      <option key={v.fornecedor_id} value={v.fornecedor_id}>{v.razao_social}</option>
+                                    ))}
+                                  </select>
+                                )}
                                 <Input
-                                  placeholder="Mensagem aos fornecedores (fica registrada)…"
+                                  placeholder={regrasChat?.exige_assunto ? "Texto do aviso (mínimo 20 caracteres)…" : "Mensagem (fica registrada)…"}
                                   value={novaMensagemOrgao}
                                   onChange={(e) => setNovaMensagemOrgao(e.target.value)}
                                   onKeyDown={(e) => { if (e.key === "Enter") enviarMensagemOrgao() }}
@@ -1282,6 +1372,7 @@ export default function CockpitProcessoPage() {
                                 />
                                 <Button size="sm" className="h-8" onClick={enviarMensagemOrgao} disabled={!novaMensagemOrgao.trim()}>Enviar</Button>
                               </div>
+                              )}
                             </div>
 
                             <p className="text-[11px] text-gray-400">
@@ -1460,8 +1551,8 @@ export default function CockpitProcessoPage() {
             </p>
             <div>
               <label className="text-sm font-medium">Duração (minutos)</label>
-              <Input type="number" min={1} className="mt-1" value={duracaoLances} onChange={(e) => setDuracaoLances(e.target.value)} />
-              <p className="text-xs text-gray-400 mt-1">Padrão 360 = 6 horas.</p>
+              <Input type="number" min={360} max={600} className="mt-1" value={duracaoLances} onChange={(e) => setDuracaoLances(e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1">De 360 a 600 minutos (6 a 10 horas — IN SEGES 67/2021, art. 11). Padrão 360.</p>
             </div>
             <div>
               <label className="text-sm font-medium">Prorrogação automática (minutos)</label>
@@ -1489,8 +1580,9 @@ export default function CockpitProcessoPage() {
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-gray-600">
-              A divulgação conclui a instrução, abre o prazo de propostas no Portal do Fornecedor
-              e publica o aviso de contratação direta <b>automaticamente no PNCP</b>.
+              A divulgação conclui a instrução e envia o aviso de contratação direta ao <b>PNCP</b>. O prazo de
+              propostas começa quando o PNCP confirmar a publicação (se a confirmação atrasar, as datas são
+              estendidas até o mínimo legal).
             </p>
             <div>
               <label className="text-sm font-medium">Receber propostas até</label>
@@ -1505,11 +1597,24 @@ export default function CockpitProcessoPage() {
               </p>
             </div>
             <PainelPrazos prazos={prazosDivulgar} carregando={calculandoDivulgar} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button type="button" size="sm" variant="outline" onClick={gerarAviso} disabled={gerandoAviso || !fimPropostas}>
+                {gerandoAviso ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                {avisoGerado ? "Gerar de novo" : "Gerar aviso (PDF)"}
+              </Button>
+              {avisoGerado ? (
+                <button type="button" className="text-sm text-blue-700 hover:underline" onClick={abrirAviso}>
+                  Conferir aviso v{avisoGerado.versao}
+                </button>
+              ) : (
+                <span className="text-xs text-gray-500">Gere e confira o aviso antes de divulgar (é o documento publicado no PNCP).</span>
+              )}
+            </div>
             <ErroPendencias erro={erroDivulgar} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalDivulgar(false)} disabled={divulgando}>Cancelar</Button>
-            <Button onClick={divulgarAviso} disabled={divulgando || !fimPropostas}>
+            <Button onClick={divulgarAviso} disabled={divulgando || !fimPropostas || !avisoGerado}>
               {divulgando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Divulgar agora
             </Button>

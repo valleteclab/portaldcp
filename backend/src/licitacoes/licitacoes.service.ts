@@ -14,7 +14,7 @@ import { CreateLicitacaoDto, PublicarEditalDto } from './dto/create-licitacao.dt
 import { CreateFromDemandaDto } from './dto/create-from-demanda.dto';
 import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item-licitacao.entity';
 import { gerarAtaDispensaPdf, DadosAtaDispensa } from './ata-dispensa-pdf';
-import { JanelaDispensaService } from '../disputa/janela-dispensa.service';
+import { JanelaDispensaService, LeitorChat } from '../disputa/janela-dispensa.service';
 import { FaseInternaService } from '../fase-interna/fase-interna.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
@@ -879,6 +879,10 @@ export class LicitacoesService {
         );
       case AtoLicitacao.CANCELAR_PUBLICACAO:
         throw new BadRequestException('A publicação é cancelada pela exclusão da compra no PNCP.');
+      case AtoLicitacao.CONFIRMAR_DIVULGACAO:
+        throw new BadRequestException(
+          'A divulgação oficial é confirmada pelo PNCP (número de controle da compra devolvido pela fila) — ou, para órgão sem PNCP, pelo registro da publicação no diário oficial: POST /publicacao/licitacao/:id/divulgacao-oficial.',
+        );
       // Publicação (E7a): atos com arquivo/prazo próprios
       case AtoLicitacao.RETIFICAR_EDITAL:
         throw new BadRequestException('Retificar o edital exige a nova versão do arquivo — use POST /publicacao/licitacao/:id/retificar.');
@@ -936,8 +940,9 @@ export class LicitacoesService {
   }
 
   /** Histórico de transições (GET /licitacoes/:id/transicoes). */
-  async historicoTransicoes(id: string): Promise<LicitacaoTransicao[]> {
-    return this.transicoes.historico(id);
+  /** Histórico LEGÍVEL: rótulos dos atos/fases e nome de quem praticou (campos originais preservados). */
+  async historicoTransicoes(id: string): Promise<Array<Record<string, any>>> {
+    return this.transicoes.historicoLegivel(id);
   }
 
   /** Suspensa/encerrada (E1): nenhum ato de disputa acontece. */
@@ -1099,6 +1104,9 @@ export class LicitacoesService {
         tipo_contratacao: licitacao.tipo_contratacao,
         data_fim_acolhimento: licitacao.data_fim_acolhimento,
         data_abertura_sessao: licitacao.data_abertura_sessao,
+        // Divulgação oficial (PNCP — arts. 54 e 174): o prazo corre desta data
+        data_divulgacao_oficial: licitacao.data_divulgacao_oficial ?? null,
+        meio_divulgacao_oficial: licitacao.meio_divulgacao_oficial ?? null,
         dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
         dispensa_lances_fim: licitacao.dispensa_lances_fim,
         link_pncp: (await estadoCompraPncp(this.dataSource.manager, [licitacao.id])).get(licitacao.id)?.link_pncp ?? licitacao.link_pncp ?? null,
@@ -1464,11 +1472,27 @@ export class LicitacoesService {
     if (licitacao.data_homologacao) {
       throw new BadRequestException('Licitação já homologada');
     }
+    // IN SEGES 67/2021: aviso divulgado no PNCP (arts. 6º e 7º) → prazo de
+    // propostas → etapa de lances (art. 11) → julgamento (art. 15). Não há
+    // lances antes da divulgação confirmada nem depois do julgamento.
+    if (ehFaseInterna(licitacao.fase) || licitacao.fase === FaseLicitacao.AGUARDANDO_DIVULGACAO) {
+      throw new ConflictException('Aviso ainda não publicado no PNCP — não há prazo de propostas nem etapa de lances.');
+    }
+    if ([FaseLicitacao.ADJUDICACAO, FaseLicitacao.HOMOLOGACAO].includes(licitacao.fase)) {
+      throw new ConflictException('Julgamento já realizado — a etapa de lances (IN SEGES 67/2021, art. 11) precede o julgamento (art. 15).');
+    }
     const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
     if (corte && new Date() < new Date(corte)) {
       throw new BadRequestException(
         'A fase de lances só pode ser aberta após o fim do recebimento de propostas',
       );
+    }
+    const [{ n }] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS n FROM propostas WHERE licitacao_id = $1 AND status::text NOT IN ('RASCUNHO','DESCLASSIFICADA','CANCELADA')`,
+      [id],
+    );
+    if (!n) {
+      throw new BadRequestException('Nenhuma proposta válida — não há lances a abrir (declare a dispensa deserta ou fracassada).');
     }
     return this.janelaDispensa.abrir(id, duracaoMinutos, prorrogacaoMinutos);
   }
@@ -1501,12 +1525,17 @@ export class LicitacoesService {
    * julgamento (antes disso os dados são sigilosos/incompletos). Lances e chat
    * vêm do armazenamento único do motor (tabela `lances`, eventos da sala).
    */
-  async gerarAtaDispensa(id: string): Promise<Buffer> {
-    return gerarAtaDispensaPdf(await this.dadosAtaDispensa(id));
+  /**
+   * Ata da dispensa. A negociação com o vencedor (IN SEGES 67/2021, art. 16)
+   * não é acompanhada pelos demais: antes da homologação, só o órgão dono vê a
+   * ata com ela (a ata é anexada aos autos — art. 16 §2º); depois, é pública.
+   */
+  async gerarAtaDispensa(id: string, orgaoDono = false): Promise<Buffer> {
+    return gerarAtaDispensaPdf(await this.dadosAtaDispensa(id, orgaoDono));
   }
 
   /** Dados da ata da dispensa (o PDF é função pura deles). */
-  async dadosAtaDispensa(id: string): Promise<DadosAtaDispensa> {
+  async dadosAtaDispensa(id: string, orgaoDono = true): Promise<DadosAtaDispensa> {
     const licitacao = await this.findOne(id);
     if (licitacao.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) {
       throw new BadRequestException('Ata de dispensa disponível apenas para Dispensa Eletrônica');
@@ -1531,7 +1560,7 @@ export class LicitacoesService {
          ORDER BY p.valor_total_proposta ASC NULLS LAST`,
         [id],
       ),
-      this.janelaDispensa.dadosAta(id),
+      this.janelaDispensa.dadosAta(id, orgaoDono || !!licitacao.data_homologacao),
     ]);
 
     return {
@@ -1545,9 +1574,16 @@ export class LicitacoesService {
   }
 
   /** Chat da dispensa — lista pública (autoria do fornecedor anônima durante os lances). */
-  async listarMensagensDispensa(id: string): Promise<any[]> {
+  async listarMensagensDispensa(id: string, leitor: LeitorChat = null): Promise<any[]> {
     await this.findOne(id);
-    return this.janelaDispensa.listarMensagens(id);
+    return this.janelaDispensa.listarMensagens(id, leitor);
+  }
+
+  /** Regras do chat da dispensa na fase atual (IN SEGES 67/2021). */
+  async regrasChatDispensa(id: string, leitor: LeitorChat = null): Promise<any> {
+    const lic = await this.findOne(id);
+    if (lic.modalidade !== ModalidadeLicitacao.DISPENSA_ELETRONICA) throw new BadRequestException('Chat disponível apenas para Dispensa Eletrônica');
+    return this.janelaDispensa.regrasChat(id, leitor);
   }
 
   /** Chat da dispensa — envio (órgão ou fornecedor com proposta válida). Registrado nos autos (chat único da sala). */
@@ -1558,6 +1594,8 @@ export class LicitacoesService {
       fornecedor_id?: string;
       autor_nome?: string;
       mensagem: string;
+      assunto?: string;
+      fornecedor_destino_id?: string;
     },
   ): Promise<any> {
     await this.findOne(id);

@@ -10,6 +10,7 @@ export const ROTULO_FASE: Record<string, string> = {
   PESQUISA_PRECOS: 'Pesquisa de Preços',
   ANALISE_JURIDICA: 'Análise Jurídica',
   APROVACAO_INTERNA: 'Aprovação Interna',
+  AGUARDANDO_DIVULGACAO: 'Aguardando publicação no PNCP',
   PUBLICADO: 'Publicado',
   IMPUGNACAO: 'Impugnação',
   ACOLHIMENTO_PROPOSTAS: 'Recebendo propostas',
@@ -33,6 +34,7 @@ export const ROTULO_FASE: Record<string, string> = {
 export const FASES_INTERNAS = ['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA']
 
 export const COR_FASE: Record<string, string> = {
+  AGUARDANDO_DIVULGACAO: 'bg-amber-100 text-amber-800',
   PUBLICADO: 'bg-blue-100 text-blue-800',
   IMPUGNACAO: 'bg-yellow-100 text-yellow-800',
   ACOLHIMENTO_PROPOSTAS: 'bg-green-100 text-green-800',

@@ -14,6 +14,9 @@ import { AtoLicitacao, AtorTransicao, EventoTransicao, atorSistema } from '../..
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
 import { editalVigenteSql } from '../../publicacao/publicacao.sql';
+import { avisoContratacaoVigenteSql } from '../../publicacao/aviso-contratacao';
+import { confirmarDivulgacaoOficial } from '../../licitacoes/transicoes/divulgacao';
+import { prazoEstendido } from '../../licitacoes/transicoes/definicoes';
 import { diretorioDeGravacao } from '../../common/arquivos/arquivos';
 import { TIPO_DOCUMENTO } from '../dto/pncp.dto';
 import { ATOS_DE_SITUACAO } from '../mapeamento-pncp';
@@ -58,6 +61,11 @@ export interface LinhaFila {
   max_tentativas: number;
   proximo_envio: Date | null;
   erro_mensagem: string | null;
+  /** Código HTTP devolvido pelo PNCP na última falha (null = sem resposta ou regra local). */
+  erro_status_http: number | null;
+  /** Corpo da resposta de erro do PNCP, como veio da API. */
+  erro_resposta: unknown;
+  ultima_tentativa: Date | null;
   numero_controle_pncp: string | null;
   enviado_em: Date | null;
   entidade_id: string | null;
@@ -68,6 +76,7 @@ export interface LinhaFila {
 
 const TRAVA_FILA = 'pncp-fila';
 const SELECT_LINHA = `id, tipo::text AS tipo, status::text AS status, tentativas, max_tentativas, proximo_envio, erro_mensagem,
+  erro_status_http, erro_resposta, ultima_tentativa,
   numero_controle_pncp, enviado_em, entidade_id, referencia, created_at, updated_at, licitacao_id, ordem`;
 
 /**
@@ -216,6 +225,30 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
         tipo: TipoSincronizacao.RETIFICACAO_COMPRA,
         chave: chaveFila.retificacaoCompra(e.licitacao_id, e.transicao_id),
         referencia: { justificativa: 'Diálogo competitivo: abertura da fase competitiva (art. 32, §1º, VIII)', transicao_id: e.transicao_id },
+      });
+      return;
+    }
+    // Divulgação confirmada com o cronograma estendido ao mínimo legal: a
+    // compra no PNCP é retificada (novas datas) e, na dispensa, a nova versão
+    // do aviso guardado vai como documento da compra.
+    if (ato === AtoLicitacao.CONFIRMAR_DIVULGACAO) {
+      const [t] = await this.ds.query(`SELECT dados FROM licitacao_transicoes WHERE id::text = $1`, [e.transicao_id]);
+      if (!prazoEstendido(t?.dados?.dados?.cronograma_ajustado)) return;
+      const aviso = await avisoContratacaoVigenteSql(this.ds.manager, e.licitacao_id);
+      if (aviso && e.modalidade === 'DISPENSA_ELETRONICA') {
+        await this.enfileirar({
+          ...base,
+          tipo: TipoSincronizacao.DOCUMENTO,
+          chave: chaveFila.documento(e.licitacao_id, `DL:${aviso.documento_id}`),
+          entidadeId: aviso.documento_id,
+          referencia: { origem: 'DOCUMENTO_LICITACAO', documento_id: aviso.documento_id, tipo_documento_id: TIPO_DOCUMENTO.AVISO_CONTRATACAO_DIRETA, titulo: `Aviso de contratacao direta (versao ${aviso.versao})` },
+        });
+      }
+      await this.enfileirar({
+        ...base,
+        tipo: TipoSincronizacao.RETIFICACAO_COMPRA,
+        chave: chaveFila.retificacaoCompra(e.licitacao_id, e.transicao_id),
+        referencia: { justificativa: 'Prazo estendido ao minimo legal contado da divulgacao no PNCP (art. 55; art. 75, par. 3)', transicao_id: e.transicao_id },
       });
       return;
     }
@@ -388,9 +421,14 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
         await this.gravarSucesso(linha, { observacao: `PNCP informou que já existe: ${erro.message}` });
       } else {
         const d = decidirAposFalha(linha, { natureza: erro.natureza, mensagem: erro.message }, agora);
+        // Retorno REAL do PNCP guardado na linha: código HTTP e corpo da resposta
+        // (a dependência não satisfeita não é resposta do PNCP — não sobrescreve)
+        const corpo = erro.corpo === undefined ? null : JSON.stringify(erro.corpo).slice(0, 20_000);
         await this.ds.query(
-          `UPDATE pncp_sync SET status = $2, tentativas = $3, proximo_envio = $4, erro_mensagem = $5, updated_at = now() WHERE id = $1`,
-          [linha.id, d.status, d.tentativas, d.proximo_envio, d.erro_mensagem],
+          `UPDATE pncp_sync SET status = $2, tentativas = $3, proximo_envio = $4, erro_mensagem = $5,
+                  erro_status_http = CASE WHEN $8 THEN erro_status_http ELSE $6 END,
+                  erro_resposta = CASE WHEN $8 THEN erro_resposta ELSE $7::jsonb END, updated_at = now() WHERE id = $1`,
+          [linha.id, d.status, d.tentativas, d.proximo_envio, d.erro_mensagem, erro.statusHttp ?? null, corpo, erro.natureza === 'DEPENDENCIA'],
         );
         const nivel = d.status === StatusSincronizacao.PENDENTE ? 'debug' : 'warn';
         this.logger[nivel](`[PNCP] ${linha.tipo} ${linha.licitacao_id ?? ''}: ${d.status} — ${d.erro_mensagem}`);
@@ -402,6 +440,7 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
   private async gravarSucesso(linha: PncpSync, res: ResultadoEnvio) {
     await this.ds.query(
       `UPDATE pncp_sync SET status = 'ENVIADO', tentativas = tentativas + 1, proximo_envio = NULL, erro_mensagem = NULL, enviado_em = now(),
+              erro_status_http = NULL, erro_resposta = NULL,
               resposta_pncp = $2::jsonb, payload_enviado = COALESCE($3::jsonb, payload_enviado),
               numero_controle_pncp = COALESCE($4, numero_controle_pncp), ano_compra = COALESCE($5, ano_compra),
               sequencial_compra = COALESCE($6, sequencial_compra), updated_at = now()
@@ -424,6 +463,22 @@ export class PncpFilaService implements OnModuleInit, OnApplicationBootstrap {
             AND erro_mensagem LIKE 'Aguardando:%'`,
         [linha.licitacao_id, linha.id],
       );
+    }
+    // COMPRA aceita pelo PNCP = divulgação OFICIAL (arts. 54 e 174): a licitação
+    // sai de AGUARDANDO_DIVULGACAO, o prazo passa a correr (cronograma
+    // reconferido pela data confirmada) e o recebimento começa, se for a hora.
+    if (linha.tipo === TipoSincronizacao.COMPRA && linha.licitacao_id) {
+      try {
+        await confirmarDivulgacaoOficial(
+          this.transicoes,
+          this.ds,
+          linha.licitacao_id,
+          { meio: 'PNCP', referencia: res.numeroControle ?? linha.numero_controle_pncp ?? null },
+          atorSistema('pncp'),
+        );
+      } catch (e) {
+        this.logger.error(`[PNCP] compra ${linha.licitacao_id} enviada, mas a confirmação da divulgação falhou: ${(e as Error).message}`);
+      }
     }
   }
 

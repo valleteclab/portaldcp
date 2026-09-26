@@ -41,6 +41,40 @@ const STATUS_PROPOSTA_INVALIDA = ['RASCUNHO', 'DESCLASSIFICADA', 'CANCELADA'];
 
 const fmtBrasilia = (d: Date) => d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
+/** IN SEGES 67/2021, art. 11: etapa de lances de 6 a 10 horas. */
+export const DURACAO_MINIMA_JANELA_MIN = 360;
+export const DURACAO_MAXIMA_JANELA_MIN = 600;
+
+/** Fases sem divulgação oficial confirmada (sem chat, sem prazo). */
+const FASES_SEM_DIVULGACAO = ['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA', 'AGUARDANDO_DIVULGACAO'];
+
+/** Quem lê/escreve o chat (resolvido do TOKEN no controller). null = público. */
+export type LeitorChat = { tipo: 'ORGAO' } | { tipo: 'FORNECEDOR'; id: string } | null;
+
+export type ModoChatDispensa = 'FECHADO' | 'AVISOS' | 'LANCES' | 'NEGOCIACAO' | 'ENCERRADO';
+
+export interface RegrasChatDispensa {
+  modo: ModoChatDispensa;
+  rotulo: string;
+  explicacao: string;
+  orgao_pode_enviar: boolean;
+  fornecedor_pode_enviar: boolean;
+  /** Órgão no prazo de propostas: aviso formal (assunto + texto). */
+  exige_assunto: boolean;
+  /** Mensagens deste modo são privadas (negociação: órgão × vencedor). */
+  privado: boolean;
+  /** Negociação: vencedores com quem o órgão pode falar (só para o órgão). */
+  interlocutores: Array<{ fornecedor_id: string; razao_social: string }>;
+}
+
+/** Mensagem da negociação (canal privado) só para o órgão e o fornecedor negociado. */
+function podeLer(ev: EventoSessao, leitor: LeitorChat): boolean {
+  const d = (ev.dados_adicionais ?? {}) as Record<string, any>;
+  if (d.canal !== 'NEGOCIACAO') return true;
+  if (leitor?.tipo === 'ORGAO') return true;
+  return leitor?.tipo === 'FORNECEDOR' && String(d.fornecedor_id) === leitor.id;
+}
+
 export interface EstadoJanela {
   licitacaoId: string;
   modalidade: string;
@@ -131,11 +165,19 @@ export class JanelaDispensaService {
 
   /**
    * Abre a janela (a camada de processo — modalidade, ATIVA, homologação, fim
-   * do acolhimento — já foi validada por LicitacoesService). Duração em
-   * [5, 1440] min; prorrogação opcional em [0, 60] min (0 = encerramento seco).
+   * do acolhimento — já foi validada por LicitacoesService). Duração de 6 a
+   * 10 horas (IN SEGES 67/2021, art. 11; padrão 6 h); prorrogação opcional em
+   * [0, 60] min (0 = encerramento seco).
    */
   async abrir(licitacaoId: string, duracaoMinutos: number, prorrogacaoMinutos?: number) {
-    const duracao = Math.max(5, Math.min(24 * 60, Number(duracaoMinutos) || 360));
+    // IN SEGES 67/2021, art. 11: a etapa de lances dura de 6 a 10 horas
+    const informada = duracaoMinutos === undefined || duracaoMinutos === null || (duracaoMinutos as any) === '' ? null : Number(duracaoMinutos);
+    if (informada !== null && !(informada >= DURACAO_MINIMA_JANELA_MIN && informada <= DURACAO_MAXIMA_JANELA_MIN)) {
+      throw new BadRequestException(
+        `A etapa de lances da dispensa eletrônica dura de 6 a 10 horas (IN SEGES 67/2021, art. 11) — informe entre ${DURACAO_MINIMA_JANELA_MIN} e ${DURACAO_MAXIMA_JANELA_MIN} minutos.`,
+      );
+    }
+    const duracao = informada ?? DURACAO_MINIMA_JANELA_MIN;
     const prorrogacao = Math.max(0, Math.min(60, Number(prorrogacaoMinutos ?? 0)));
 
     const r = await this.dataSource.transaction(async (m) => {
@@ -355,7 +397,7 @@ export class JanelaDispensaService {
   }
 
   /** Linhas da ata: lances com autoria e chat completo (identidades reais — a ata é posterior ao julgamento). */
-  async dadosAta(licitacaoId: string): Promise<{ lances: any[]; mensagens: any[] }> {
+  async dadosAta(licitacaoId: string, incluirNegociacao = true): Promise<{ lances: any[]; mensagens: any[] }> {
     const lances = await this.dataSource.query(
       `SELECT l.created_at, il.numero_item, f.razao_social, l.valor_unitario
          FROM lances l
@@ -371,8 +413,9 @@ export class JanelaDispensaService {
               e.usuario_nome AS autor_nome, e.descricao AS mensagem
          FROM eventos_sessao e JOIN sessoes_disputa s ON s.id = e.sessao_id
         WHERE s.licitacao_id::text = $1::text AND e.tipo::text = ANY($2::text[])
+          AND ($3::boolean OR COALESCE(e.dados_adicionais->>'canal', '') <> 'NEGOCIACAO')
         ORDER BY e.created_at ASC`,
-      [licitacaoId, TIPOS_CHAT],
+      [licitacaoId, TIPOS_CHAT, incluirNegociacao],
     );
     return { lances, mensagens };
   }
@@ -395,13 +438,91 @@ export class JanelaDispensaService {
   }
 
   /**
-   * Chat (lista pública): enquanto a janela está aberta, a autoria do
-   * fornecedor sai com o código anônimo da sessão ("Fornecedor A") e sem id;
-   * fora da janela, com o nome registrado.
+   * REGRAS DO CHAT DA DISPENSA POR FASE (IN SEGES 67/2021) — decididas aqui,
+   * no backend; a tela só mostra:
+   *  - antes da divulgação confirmada no PNCP: FECHADO (não há procedimento
+   *    público ainda);
+   *  - prazo de propostas: AVISOS — a comunicação é por mensagens do sistema
+   *    (art. 10; na dispensa NÃO há impugnação/esclarecimento formal — o art.
+   *    164 da Lei é do edital de licitação). O órgão publica avisos formais
+   *    (assunto + texto); o fornecedor que já enviou proposta pode perguntar,
+   *    sem identificação para os demais (sigilo até a abertura — Lei art. 13
+   *    par. único I);
+   *  - etapa de lances (art. 11): LANCES — órgão e fornecedores com proposta
+   *    válida, fornecedores sem identificação (art. 13);
+   *  - entre o fim do prazo e o julgamento, fora da janela: só o órgão;
+   *  - julgado (art. 15): NEGOCIACAO (art. 16) — órgão × VENCEDOR, pelo
+   *    sistema, SEM acompanhamento dos demais (canal privado: só o órgão e o
+   *    vencedor leem); desclassificado o vencedor, o rejulgamento chama o
+   *    próximo classificado, na ordem (art. 16 §1º). O registro vai para a ata
+   *    anexada aos autos (art. 16 §2º — ata da sessão);
+   *  - homologada: ENCERRADO.
    */
-  async listarMensagens(licitacaoId: string): Promise<any[]> {
+  async regrasChat(licitacaoId: string, leitor: LeitorChat = null): Promise<RegrasChatDispensa> {
+    const [l] = await this.dataSource.query(
+      `SELECT fase::text AS fase, data_homologacao, COALESCE(data_fim_acolhimento, data_abertura_sessao) AS fim,
+              dispensa_lances_inicio, dispensa_lances_fim
+         FROM licitacoes WHERE id::text = $1`,
+      [licitacaoId],
+    );
+    if (!l) throw new NotFoundException('Licitação não encontrada');
+    const agora = new Date();
+    const aberta = this.janelaAberta({ inicio: l.dispensa_lances_inicio ? new Date(l.dispensa_lances_inicio) : null, fim: l.dispensa_lances_fim ? new Date(l.dispensa_lances_fim) : null });
+    const vencedores: Array<{ fornecedor_id: string; razao_social: string }> = await this.dataSource.query(
+      `SELECT DISTINCT i.fornecedor_vencedor_id::text AS fornecedor_id, f.razao_social
+         FROM itens_licitacao i JOIN fornecedores f ON f.id::text = i.fornecedor_vencedor_id::text
+        WHERE i.licitacao_id::text = $1 AND i.fornecedor_vencedor_id IS NOT NULL`,
+      [licitacaoId],
+    );
+    const base = { exige_assunto: false, privado: false, interlocutores: [] as Array<{ fornecedor_id: string; razao_social: string }> };
+    const eh = (modo: ModoChatDispensa, rotulo: string, explicacao: string, orgao: boolean, fornecedor: boolean, extra: Partial<RegrasChatDispensa> = {}): RegrasChatDispensa => ({
+      ...base,
+      modo,
+      rotulo,
+      explicacao,
+      orgao_pode_enviar: orgao,
+      fornecedor_pode_enviar: fornecedor,
+      ...extra,
+    });
+    if (l.data_homologacao) return eh('ENCERRADO', 'Chat encerrado', 'Contratação homologada — o chat está encerrado.', false, false);
+    if (FASES_SEM_DIVULGACAO.includes(l.fase)) {
+      return eh('FECHADO', 'Chat indisponível', 'Aviso ainda não publicado no PNCP — o chat abre com a divulgação oficial (IN SEGES 67/2021, art. 7º).', false, false);
+    }
+    if (l.fase === 'ADJUDICACAO') {
+      const souVencedor = leitor?.tipo === 'FORNECEDOR' && vencedores.some((v) => v.fornecedor_id === leitor.id);
+      return eh(
+        'NEGOCIACAO',
+        'Negociação com o vencedor',
+        'Negociação pelo sistema com o fornecedor vencedor (IN SEGES 67/2021, art. 16), sem acompanhamento dos demais fornecedores; o registro integra a ata anexada aos autos (art. 16, §2º).',
+        true,
+        souVencedor,
+        { privado: true, interlocutores: leitor?.tipo === 'ORGAO' ? vencedores : [] },
+      );
+    }
+    if (aberta) {
+      return eh('LANCES', 'Mensagens da etapa de lances', 'Etapa de lances (IN SEGES 67/2021, art. 11): os fornecedores não são identificados (art. 13).', true, true);
+    }
+    if (l.fim && agora < new Date(l.fim)) {
+      return eh(
+        'AVISOS',
+        'Avisos e mensagens do prazo de propostas',
+        'Na dispensa eletrônica não há impugnação nem pedido de esclarecimento formal: a comunicação é pelas mensagens do sistema (IN SEGES 67/2021, art. 10). O órgão publica avisos formais (assunto e texto); o fornecedor que já enviou proposta pode enviar mensagem, sem identificação para os demais.',
+        true,
+        true,
+        { exige_assunto: true },
+      );
+    }
+    return eh('AVISOS', 'Avisos do órgão', 'Prazo de propostas encerrado: até o julgamento, só o órgão envia mensagens (a etapa de lances reabre a participação dos fornecedores).', true, false);
+  }
+
+  /**
+   * Chat (lista): autoria do fornecedor anônima no prazo de propostas e na
+   * etapa de lances (código "Fornecedor A" ou "Fornecedor"); mensagens da
+   * NEGOCIAÇÃO só para o órgão e o fornecedor negociado.
+   */
+  async listarMensagens(licitacaoId: string, leitor: LeitorChat = null): Promise<any[]> {
     const e = await this.estado(licitacaoId);
-    const aberta = this.janelaAberta(e);
+    const anonimo = this.janelaAberta(e) || (!!e.corteSigilo && new Date() < e.corteSigilo);
     const eventos: EventoSessao[] = await this.dataSource.manager
       .createQueryBuilder(EventoSessao, 'e')
       .innerJoin(SessaoDisputa, 's', 's.id = e.sessao_id')
@@ -410,28 +531,41 @@ export class JanelaDispensaService {
       .orderBy('e.created_at', 'ASC')
       .take(500)
       .getMany();
+    const visiveis = eventos.filter((ev) => podeLer(ev, leitor));
     const codigos = new Map<string, string>();
-    if (aberta) {
-      for (const ev of eventos) {
+    if (anonimo) {
+      for (const ev of visiveis) {
         if (ev.tipo !== TipoEvento.MENSAGEM_FORNECEDOR || !ev.fornecedor_id || codigos.has(`${ev.sessao_id}|${ev.fornecedor_id}`)) continue;
         codigos.set(`${ev.sessao_id}|${ev.fornecedor_id}`, await this.disputa.codigoAnonimoSeguro(ev.sessao_id, ev.fornecedor_id));
       }
     }
-    return eventos.map((ev) => this.mensagemParaTela(ev, codigos.get(`${ev.sessao_id}|${ev.fornecedor_id}`) ?? null, !aberta));
+    return visiveis.map((ev) => this.mensagemParaTela(ev, codigos.get(`${ev.sessao_id}|${ev.fornecedor_id}`) ?? null, !anonimo));
   }
 
-  /** Envio (órgão dono ou fornecedor com proposta válida — o controller garante a identidade pelo token). */
+  /** Envio (órgão dono ou fornecedor — o controller garante a identidade pelo token); regras por fase em `regrasChat`. */
   async enviarMensagem(
     licitacaoId: string,
-    dto: { autor_tipo: 'ORGAO' | 'FORNECEDOR'; fornecedor_id?: string; autor_nome?: string; mensagem: string },
+    dto: { autor_tipo: 'ORGAO' | 'FORNECEDOR'; fornecedor_id?: string; autor_nome?: string; mensagem: string; assunto?: string; fornecedor_destino_id?: string },
   ) {
     const e = await this.estado(licitacaoId);
-    const texto = (dto.mensagem || '').trim();
+    let texto = (dto.mensagem || '').trim();
     if (!texto) throw new BadRequestException('Mensagem vazia');
     if (texto.length > 1000) throw new BadRequestException('Mensagem muito longa (máx. 1000 caracteres)');
     if (e.dataHomologacao) throw new BadRequestException('Licitação já homologada — chat encerrado');
 
+    const leitor: LeitorChat = dto.autor_tipo === 'FORNECEDOR' ? { tipo: 'FORNECEDOR', id: String(dto.fornecedor_id || '') } : { tipo: 'ORGAO' };
+    const regras = await this.regrasChat(licitacaoId, leitor);
+    const pode = dto.autor_tipo === 'FORNECEDOR' ? regras.fornecedor_pode_enviar : regras.orgao_pode_enviar;
+    if (!pode) {
+      throw new ConflictException(
+        regras.modo === 'NEGOCIACAO'
+          ? 'Negociação da dispensa: só o fornecedor vencedor conversa com o órgão (IN SEGES 67/2021, art. 16).'
+          : `${regras.rotulo}: ${regras.explicacao}`,
+      );
+    }
+
     let nome = (dto.autor_nome || '').trim().slice(0, 200);
+    let canal: Record<string, unknown> | null = null;
     if (dto.autor_tipo === 'FORNECEDOR') {
       if (!dto.fornecedor_id) throw new BadRequestException('fornecedor_id obrigatório');
       const prop = await this.dataSource.query(
@@ -441,8 +575,33 @@ export class JanelaDispensaService {
       );
       if (!prop.length) throw new BadRequestException('Apenas fornecedores com proposta válida podem enviar mensagens');
       nome = prop[0].razao_social;
-    } else if (!nome) {
-      nome = 'Órgão';
+      if (regras.modo === 'NEGOCIACAO') canal = { canal: 'NEGOCIACAO', fornecedor_id: dto.fornecedor_id };
+    } else {
+      if (!nome) nome = 'Órgão';
+      if (regras.exige_assunto) {
+        const assunto = (dto.assunto || '').trim();
+        if (assunto.length < 5 || texto.length < 20) {
+          throw new BadRequestException(
+            'No prazo de propostas o órgão publica AVISOS formais: informe o assunto (mínimo 5 caracteres) e o texto do aviso (mínimo 20 caracteres) — IN SEGES 67/2021, art. 10.',
+          );
+        }
+        texto = `AVISO — ${assunto.slice(0, 120)}: ${texto}`;
+      }
+      if (regras.modo === 'NEGOCIACAO') {
+        const destino = dto.fornecedor_destino_id
+          ? regras.interlocutores.find((v) => v.fornecedor_id === dto.fornecedor_destino_id)
+          : regras.interlocutores.length === 1
+            ? regras.interlocutores[0]
+            : null;
+        if (!destino) {
+          throw new BadRequestException(
+            regras.interlocutores.length
+              ? 'Indique o fornecedor vencedor com quem negociar (fornecedor_destino_id) — a negociação é com o vencedor (IN SEGES 67/2021, art. 16).'
+              : 'Nenhum vencedor para negociar — julgue as propostas antes.',
+          );
+        }
+        canal = { canal: 'NEGOCIACAO', fornecedor_id: destino.fornecedor_id };
+      }
     }
 
     const sessao = await this.sessaoDaDispensa(licitacaoId);
@@ -452,16 +611,24 @@ export class JanelaDispensaService {
         ? { tipo: 'FORNECEDOR', nome, fornecedorId: dto.fornecedor_id }
         : { tipo: 'PREGOEIRO', nome },
       texto,
+      { viaDispensa: true },
     );
+    if (canal) {
+      await this.dataSource.query(`UPDATE eventos_sessao SET dados_adicionais = $2::jsonb WHERE id = $1`, [evento.id, JSON.stringify(canal)]);
+      evento.dados_adicionais = canal as any;
+    }
 
-    // Push com a mesma regra de anonimato da lista
-    const aberta = this.janelaAberta(e);
-    const codigo =
-      dto.autor_tipo === 'FORNECEDOR' && aberta ? await this.disputa.codigoAnonimoSeguro(sessao.id, dto.fornecedor_id!) : null;
-    const publico = this.mensagemParaTela(evento, codigo, !aberta);
-    delete (publico as any).fornecedor_id;
-    this.gateway.emitirChatDispensa(licitacaoId, publico);
-    return { ok: true, id: evento.id };
+    // Negociação é privada (sem acompanhamento dos demais — IN 67 art. 16):
+    // não vai para a sala pública; órgão e vencedor leem pela lista.
+    if (!canal) {
+      const anonimo = this.janelaAberta(e) || (!!e.corteSigilo && new Date() < e.corteSigilo);
+      const codigo =
+        dto.autor_tipo === 'FORNECEDOR' && anonimo ? await this.disputa.codigoAnonimoSeguro(sessao.id, dto.fornecedor_id!) : null;
+      const publico = this.mensagemParaTela(evento, codigo, !anonimo);
+      delete (publico as any).fornecedor_id;
+      this.gateway.emitirChatDispensa(licitacaoId, publico);
+    }
+    return { ok: true, id: evento.id, modo: regras.modo };
   }
 
   // ==========================================================================

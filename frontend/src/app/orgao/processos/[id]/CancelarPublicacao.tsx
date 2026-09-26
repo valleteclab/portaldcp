@@ -15,7 +15,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { API_URL, authFetch } from "@/lib/api"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 
-export const FASES_CANCELAR_PUBLICACAO = ["PUBLICADO", "IMPUGNACAO", "ACOLHIMENTO_PROPOSTAS"]
+export const FASES_CANCELAR_PUBLICACAO = ["AGUARDANDO_DIVULGACAO", "PUBLICADO", "IMPUGNACAO", "ACOLHIMENTO_PROPOSTAS"]
 
 export function CancelarPublicacao({ licitacaoId, semItens, onAtualizado }: {
   licitacaoId: string

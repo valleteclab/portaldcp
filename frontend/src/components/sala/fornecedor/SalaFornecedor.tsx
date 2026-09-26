@@ -23,7 +23,7 @@ import { PainelLancesFornecedor } from './PainelLancesFornecedor'
  * homologação: lances (motor único — socket /disputa) e os painéis pós-disputa,
  * cada um aparecendo só quando o licitante é convocado ou tem algo a ver:
  * desempate ME/EPP, proposta adequada, disputa final/sorteio, habilitação,
- * negociação (a própria responde; as dos demais só leitura — IN 73 art. 30 §2º)
+ * negociação (a própria responde; as dos demais só leitura — IN 73 art. 30 §1º)
  * e recursos (intenção, razões, contrarrazões). A sessão chega resolvida pela
  * página a partir da licitação.
  */

@@ -280,7 +280,7 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
       pncpMock.limpar();
       const agora = Date.now();
       const dia = 24 * 60 * MIN;
-      const publicada = await levarAteFase(ctx, lic, FaseLicitacao.PUBLICADO, {
+      const publicada = await levarAteFase(ctx, lic, FaseLicitacao.AGUARDANDO_DIVULGACAO, {
         datas: {
           data_publicacao_edital: new Date(agora - MIN).toISOString(),
           // E7a: o limite de impugnação não pode ser anterior aos 3 dias úteis antes da abertura (art. 164)
@@ -290,7 +290,8 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
           data_abertura_sessao: new Date(agora + 14 * dia).toISOString(),
         },
       });
-      expect(publicada.fase).toBe(FaseLicitacao.PUBLICADO);
+      // divulgação oficial = PNCP (arts. 54 e 174): o prazo só corre da confirmação da compra
+      expect(publicada.fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
     });
 
     // CORRIGIDO NA E7b: o ato PUBLICAR enfileira compra + itens (com o edital real)
@@ -330,8 +331,10 @@ describe('Pregão eletrônico completo — menor preço, modo aberto (referênci
         tipoInstrumentoConvocatorioId: 1, // edital
         numeroProcesso: lic.numero_processo,
       });
+      // compra aceita pelo PNCP = divulgação confirmada; início já alcançado → recebimento aberto
       const l = await buscarLicitacao(ctx, lic);
-      expect(l.fase).toBe(FaseLicitacao.PUBLICADO);
+      expect(l.fase).toBe(FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
+      expect(l.meio_divulgacao_oficial).toBe('PNCP');
     });
 
     // CORRIGIDO NA E7a: pré-condição `prazosDePublicacao` do PUBLICAR (art. 55, I, a —

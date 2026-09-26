@@ -10,7 +10,7 @@ import { PncpSync, TipoSincronizacao } from '../entities/pncp-sync.entity';
 import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { AtorTransicao, atorSistema } from '../../licitacoes/transicoes/transicoes.tipos';
-import { gerarAvisoDispensaPdf } from '../../licitacoes/aviso-dispensa-pdf';
+import { avisoContratacaoVigenteSql, gerarAvisoContratacaoSql } from '../../publicacao/aviso-contratacao';
 import { beneficioDaUnidadeSql } from '../../julgamento/me-epp/beneficio-mpe.sql';
 import { editalVigenteSql } from '../../publicacao/publicacao.sql';
 import { CRITERIOS_ART60 } from '../../julgamento/desempate-regras';
@@ -234,15 +234,17 @@ export class PncpEnviosService {
         return { arquivo: { buffer, nome, contentType: tipoMime(nome) }, tipoDocumentoId: doc.tipoDocumentoId, titulo: doc.titulo };
       }
     }
-    // Aviso de contratação direta gerado dos dados (identificação, objeto, itens, prazos)
-    const buffer = gerarAvisoDispensaPdf({
-      orgao_nome: lic.orgao?.nome || 'Órgão',
-      orgao_cnpj: this.pncp.cnpjDoOrgao(lic.orgao),
-      licitacao: lic,
-      itens: lic.itens || [],
-      url_sistema: process.env.FRONTEND_URL || undefined,
-    });
-    return { arquivo: { buffer, nome: 'aviso-contratacao-direta.pdf', contentType: pdf }, tipoDocumentoId: doc.tipoDocumentoId, titulo: doc.titulo };
+    // Aviso de contratação direta: o DOCUMENTO GUARDADO no processo (versão
+    // publicada pelo PUBLICAR — `publicacao/aviso-contratacao.ts`). Processo
+    // antigo sem aviso guardado: gera agora e guarda (vira documento do processo).
+    let aviso = await avisoContratacaoVigenteSql(this.ds.manager, lic.id);
+    let buffer = lerArquivoGravado(aviso?.caminho);
+    if (!aviso || !buffer) {
+      aviso = await this.ds.transaction((m) => gerarAvisoContratacaoSql(m, lic.id, { publicar: true, motivo: 'Gerado no envio ao PNCP (processo anterior ao aviso guardado)' }));
+      buffer = lerArquivoGravado(aviso.caminho);
+    }
+    if (!buffer) throw falhaDefinitiva('Aviso de contratação direta não encontrado no servidor — gere o aviso no processo e reenvie.');
+    return { arquivo: { buffer, nome: aviso.nome_original || 'aviso-contratacao-direta.pdf', contentType: pdf }, tipoDocumentoId: doc.tipoDocumentoId, titulo: doc.titulo };
   }
 
   async montarCompraDaLicitacao(lic: Licitacao) {

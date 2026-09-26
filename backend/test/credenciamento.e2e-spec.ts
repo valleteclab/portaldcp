@@ -25,6 +25,7 @@ import {
   criarUsuarioOrgao,
   pncpMock,
   prepararInstrucaoContratacaoDireta,
+  confirmarDivulgacao,
 } from './support';
 import { vincularOrgaoAoPncp, jsonDaParteMultipart } from './support/pregao';
 import { analisarDocumentoHabilitacao, enviarDocumentosFaltantes, entregarHabilitacao } from './support/habilitacao';
@@ -90,12 +91,20 @@ describe('E7b — credenciamento como processo', () => {
   });
 
   /** Instrução do art. 72 + edital + PATCH publicar. */
-  async function publicar(c: any, orgao: OrgaoFixture) {
+  /**
+   * Publica o edital de chamamento. A divulgação oficial é a do PNCP (arts. 54
+   * e 174): o PUBLICAR deixa o credenciamento AGUARDANDO_DIVULGACAO e as
+   * inscrições só abrem quando a compra é confirmada (`confirmar: false` para
+   * olhar o estado intermediário).
+   */
+  async function publicar(c: any, orgao: OrgaoFixture, opts: { confirmar?: boolean } = {}) {
     await prepararInstrucaoContratacaoDireta(ctx, fixture(c, orgao));
     await anexarEdital(ctx, fixture(c, orgao), 'Edital de chamamento publico E2E');
     const r = await http().patch(`/api/credenciamento/${c.id}/publicar`).set(bearer(orgao.token)).send({});
     exigir(r, 200, 'publicar credenciamento');
-    return r.body;
+    if (opts.confirmar === false) return r.body;
+    await confirmarDivulgacao(ctx, fixture(c, orgao));
+    return (await http().get(`/api/credenciamento/${c.id}`).set(bearer(orgao.token)).expect(200)).body;
   }
 
   async function inscrever(c: { id: string }, f: FornecedorFixture): Promise<string> {
@@ -174,8 +183,12 @@ describe('E7b — credenciamento como processo', () => {
       expect(JSON.stringify(r.body)).toMatch(/Art\. 72|instrução/i);
     });
 
-    it('publicar com instrução + edital: PUBLICAR → inscrições abertas (vigência iniciada), histórico pela máquina', async () => {
-      cred = await publicar(cred, A);
+    it('publicar com instrução + edital: PUBLICAR → aguarda o PNCP → inscrições abertas (vigência iniciada), histórico pela máquina', async () => {
+      const aguardando = await publicar(cred, A, { confirmar: false });
+      expect(aguardando.fase).toBe('AGUARDANDO_DIVULGACAO');
+      expect(aguardando.inscricoes_abertas).toBeFalsy();
+      await confirmarDivulgacao(ctx, fixture(cred, A));
+      cred = (await http().get(`/api/credenciamento/${cred.id}`).set(bearer(A.token)).expect(200)).body;
       expect(cred.fase).toBe('ACOLHIMENTO_PROPOSTAS');
       expect(cred.inscricoes_abertas).toBe(true);
       const t = await http().get(`/api/licitacoes/${cred.id}/transicoes`).set(bearer(A.token)).expect(200);

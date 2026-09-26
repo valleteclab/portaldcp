@@ -5,7 +5,7 @@ import { Proposta, StatusProposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { ItensService } from '../itens/itens.service';
-import { Licitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.entity';
+import { FaseLicitacao, Licitacao, SituacaoLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { licitacaoParaOrgao, licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { beneficioDaUnidadeSql } from '../julgamento/me-epp/beneficio-mpe.sql';
@@ -47,6 +47,9 @@ function formatarDataLocal(date: Date | null | undefined): string | null {
   const seg = String(date.getSeconds()).padStart(2, '0');
   return `${ano}-${mes}-${dia}T${hora}:${min}:${seg}`;
 }
+
+/** Fases em que a licitação recebe proposta: divulgação oficial confirmada e antes da análise. */
+const FASES_RECEBIMENTO_PROPOSTA: string[] = [FaseLicitacao.PUBLICADO, FaseLicitacao.IMPUGNACAO, FaseLicitacao.ACOLHIMENTO_PROPOSTAS];
 
 @Injectable()
 export class PropostasService {
@@ -91,6 +94,27 @@ export class PropostasService {
       throw new ConflictException(
         `Licitação ${licitacao.situacao.toLowerCase()} — não é possível enviar/alterar proposta`,
       );
+    }
+
+    // Divulgação OFICIAL (arts. 54 e 55; art. 75 §3º; IN SEGES 67/2021 art.
+    // 6º par. único): proposta só no prazo, e o prazo só existe depois que o
+    // PNCP confirmou a publicação — antes disso nada é recebido.
+    if (licitacao) {
+      const fase = String(licitacao.fase);
+      if (fase === FaseLicitacao.AGUARDANDO_DIVULGACAO) {
+        throw new ConflictException(
+          'Aviso/edital ainda não publicado no PNCP — o prazo de propostas não começou (a divulgação oficial é a do PNCP, arts. 54 e 55 da Lei 14.133/2021).',
+        );
+      }
+      if (!FASES_RECEBIMENTO_PROPOSTA.includes(fase)) {
+        throw new ConflictException('Esta licitação não está recebendo propostas nesta fase.');
+      }
+      const inicio = licitacao.data_inicio_acolhimento ? new Date(licitacao.data_inicio_acolhimento) : null;
+      if (inicio && !isNaN(inicio.getTime()) && new Date() < inicio) {
+        throw new BadRequestException(
+          `O recebimento de propostas começa em ${inicio.toLocaleString('pt-BR', { timeZone: 'America/Bahia' })} (horário de Brasília).`,
+        );
+      }
     }
 
     const abertura = licitacao?.data_abertura_sessao;

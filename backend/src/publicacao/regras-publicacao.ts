@@ -549,3 +549,127 @@ export function pendenciasDaRetificacao(
   }
   return p;
 }
+
+// ---------------------------------------------------------------------------
+// Divulgação OFICIAL confirmada depois do ato de publicação (PNCP)
+// ---------------------------------------------------------------------------
+
+/** Campo do cronograma alterado na confirmação da divulgação. */
+export interface AjusteCronograma {
+  campo: keyof Cronograma;
+  de: Date | null;
+  para: Date | null;
+}
+
+export interface ReajusteDivulgacao {
+  /** Alterações feitas (vazio = o cronograma planejado continua válido). */
+  ajustes: AjusteCronograma[];
+  /** Cronograma resultante (datas). */
+  cronograma: Cronograma;
+  /** 00:00 (Brasília) do N-ésimo dia útil depois da divulgação confirmada — null sem prazo mínimo. */
+  minimo: Date | null;
+  prazo: PrazoMinimo;
+  /** Texto para o histórico/aviso (null sem ajuste). */
+  descricao: string | null;
+}
+
+const ROTULO_CAMPO_CRONOGRAMA: Record<string, string> = {
+  data_limite_impugnacao: 'limite de impugnação/esclarecimento',
+  data_inicio_acolhimento: 'início do recebimento de propostas',
+  data_fim_acolhimento: 'fim do recebimento de propostas',
+  data_abertura_sessao: 'abertura da sessão',
+};
+
+/**
+ * RECONFERÊNCIA DO CRONOGRAMA PELA DIVULGAÇÃO CONFIRMADA (arts. 54, 55 e
+ * 75 §3º — os prazos são contados "a partir da data de divulgação do edital";
+ * a divulgação oficial é a do PNCP). O PUBLICAR confere o cronograma contra o
+ * momento do ato; se o PNCP só confirma depois (falha, fila, correção), o
+ * prazo mínimo pode ter deixado de ser respeitado. Como o prazo legal é um
+ * PISO, a Administração garante o mínimo estendendo as datas (nunca
+ * encurtando): isonomia preservada — ninguém teve menos prazo que a lei dá.
+ *
+ *  - início do recebimento: mantido (nada é recebido antes da confirmação; o
+ *    início efetivo é a própria `data_divulgacao_oficial`);
+ *  - fim do recebimento (dispensa) / abertura e fim do recebimento (demais)
+ *    antes do mínimo → mesmo horário no N-ésimo dia útil depois da divulgação
+ *    (art. 183, calendário do órgão);
+ *  - abertura da dispensa acompanha o fim do recebimento; nas demais o fim do
+ *    recebimento nunca passa da abertura;
+ *  - limite de impugnação: na dispensa acompanha o fim do recebimento quando
+ *    coincidia com ele (ou estava antes da divulgação); nas demais, com a
+ *    abertura adiada (ou limite anterior à divulgação), o limite do edital cai
+ *    e vale o do art. 164 contado da nova abertura (mesma regra da retificação).
+ * Sem prazo mínimo (credenciamento, inexigibilidade): nada é ajustado.
+ */
+export function reajustarCronogramaNaDivulgacao(
+  d: DadosPrazoArt55 & { orgao_id?: string | null },
+  c: Cronograma,
+  divulgacao: Date,
+  opcoes: { cal?: CalendarioDiasUteis } = {},
+): ReajusteDivulgacao {
+  const cal = opcoes.cal ?? calendarioDoOrgao(d.orgao_id ?? null);
+  const prazo = prazoMinimoDeDivulgacao(d);
+  const novo: Cronograma = {};
+  for (const campo of Object.keys(ROTULO_CAMPO_CRONOGRAMA) as Array<keyof Cronograma>) novo[campo] = dt(c[campo]);
+  novo.data_publicacao_edital = dt(c.data_publicacao_edital);
+  const ajustes: AjusteCronograma[] = [];
+  const definir = (campo: keyof Cronograma, valor: Date | null) => {
+    const atual = dt(novo[campo]);
+    if ((atual?.getTime() ?? null) === (valor?.getTime() ?? null)) return;
+    const existente = ajustes.find((a) => a.campo === campo);
+    if (existente) existente.para = valor;
+    else ajustes.push({ campo, de: dt(c[campo]), para: valor });
+    novo[campo] = valor;
+  };
+
+  // O início do recebimento NÃO é reescrito: nada é recebido antes da
+  // confirmação (a fase AGUARDANDO_DIVULGACAO barra propostas) e o início
+  // efetivo fica registrado em `data_divulgacao_oficial` — mexer nele só criaria
+  // divergência com a compra já publicada no PNCP.
+
+  let minimo: Date | null = null;
+  if (prazo.dias) {
+    minimo = inicioDoDia(fimDoPrazoEmDiasUteis(divulgacao, prazo.dias, cal));
+    const noMinimo = (data: Date) => new Date(minimo!.getTime() + (data.getTime() - inicioDoDia(data).getTime()));
+    const ehDispensa = d.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA;
+    const fimAntigo = dt(c.data_fim_acolhimento);
+    const abAntiga = dt(c.data_abertura_sessao);
+    if (ehDispensa) {
+      const ref = fimAntigo ?? abAntiga;
+      if (ref && ref.getTime() < minimo.getTime()) {
+        const n = noMinimo(ref);
+        if (fimAntigo) definir('data_fim_acolhimento', n);
+        if (abAntiga && abAntiga.getTime() < n.getTime()) definir('data_abertura_sessao', n);
+      }
+    } else {
+      if (abAntiga && abAntiga.getTime() < minimo.getTime()) definir('data_abertura_sessao', noMinimo(abAntiga));
+      if (fimAntigo && fimAntigo.getTime() < minimo.getTime()) definir('data_fim_acolhimento', noMinimo(fimAntigo));
+      const ab = dt(novo.data_abertura_sessao);
+      const fim = dt(novo.data_fim_acolhimento);
+      if (ab && fim && fim.getTime() > ab.getTime()) definir('data_fim_acolhimento', ab);
+    }
+    const limite = dt(c.data_limite_impugnacao);
+    const moveu = ajustes.some((a) => a.campo === 'data_fim_acolhimento' || a.campo === 'data_abertura_sessao');
+    if (limite && (moveu || limite.getTime() < divulgacao.getTime())) {
+      if (ehDispensa) {
+        const ref = fimAntigo ?? abAntiga;
+        const novoFim = dt(novo.data_fim_acolhimento) ?? dt(novo.data_abertura_sessao);
+        if ((ref && limite.getTime() === ref.getTime()) || limite.getTime() < divulgacao.getTime()) definir('data_limite_impugnacao', novoFim);
+      } else {
+        definir('data_limite_impugnacao', null);
+      }
+    }
+  }
+
+  const descricao = ajustes.length
+    ? `Divulgação oficial confirmada em ${formatarDataBrasilia(divulgacao)}` +
+      (prazo.dias ? ` — prazo mínimo de ${prazo.dias} dias úteis (${prazo.fundamento}) recontado da divulgação` : '') +
+      ': ' +
+      ajustes
+        .map((a) => `${ROTULO_CAMPO_CRONOGRAMA[a.campo] ?? a.campo} ${a.de ? formatarDataBrasilia(a.de) : '—'} → ${a.para ? formatarDataBrasilia(a.para) : 'art. 164 (3 dias úteis antes da abertura)'}`)
+        .join('; ') +
+      '.'
+    : null;
+  return { ajustes, cronograma: novo, minimo, prazo, descricao };
+}

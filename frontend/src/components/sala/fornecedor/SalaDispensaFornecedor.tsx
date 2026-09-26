@@ -132,10 +132,13 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
 
     // Retaguarda: se o socket cair, o polling de 10s mantém tudo atualizado
     const poll = setInterval(carregarPainel, 10000)
+    // mensagens da negociação (privadas, fora do socket público) chegam pelo polling
+    const pollMsg = setInterval(carregarMensagens, 15000)
     const tick = setInterval(() => setAgora(Date.now()), 1000)
     return () => {
       socket.disconnect()
       clearInterval(poll)
+      clearInterval(pollMsg)
       clearInterval(tick)
     }
   }, [licitacaoId, carregarPainel, carregarMensagens])
@@ -159,7 +162,8 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
       setNovaMensagem('')
-      if (!wsOk) await carregarMensagens()
+      // negociação (IN 67 art. 16) é privada e não passa pelo socket público: sempre relê
+      await carregarMensagens()
     } catch (e) {
       setErroMsg(`Mensagem não enviada: ${e instanceof Error ? e.message : 'erro'}`)
     } finally {
@@ -312,7 +316,7 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
                   <span className="block text-[10px] uppercase tracking-wide text-gray-400">
                     {m.autor_tipo === 'ORGAO' ? `Órgão · ${m.autor_nome}` : m.autor_nome}
                     {' · '}
-                    {m.created_at ? new Date(m.created_at).toLocaleTimeString('pt-BR') : ''}
+                    {m.created_at ? new Date(m.created_at).toLocaleString('pt-BR', { timeZone: 'America/Bahia', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                   </span>
                   {m.mensagem}
                 </div>

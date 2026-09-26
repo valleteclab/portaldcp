@@ -28,6 +28,7 @@ import { EditalService, TAMANHO_MAXIMO_EDITAL } from './edital.service';
 import { ExtincaoService } from './extincao.service';
 import { avaliarPrazosDePublicacao, exigeNaturezaDoObjeto, naturezaEfetiva } from './regras-publicacao';
 import { RetificacaoService } from './retificacao.service';
+import { DivulgacaoService } from './divulgacao.service';
 
 const UPLOAD_EDITAL = FileInterceptor('arquivo', {
   storage: memoryStorage(),
@@ -63,6 +64,7 @@ export class PublicacaoController {
     private readonly retificacao: RetificacaoService,
     private readonly extincao: ExtincaoService,
     private readonly feriados: FeriadosService,
+    private readonly divulgacao: DivulgacaoService,
     @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
@@ -183,6 +185,56 @@ export class PublicacaoController {
     await this.acesso.assertOrgaoDaLicitacao(ator, id);
     const doc = await this.edital.anexar(id, arquivo as any, { id: ator.usuarioId ?? ator.id, nome: null });
     return { id: doc.id, versao: doc.versao, hash: doc.hash_arquivo, status: doc.status };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Divulgação oficial (PNCP — arts. 54 e 174; diário oficial — art. 176)
+  // ---------------------------------------------------------------------------
+
+  /** Situação da divulgação: aguardando PNCP, retorno real da API (código, mensagem, tentativas) e o que corrigir. Só o órgão dono. */
+  @Get('licitacao/:id/divulgacao')
+  @SomenteOrgao()
+  async situacaoDivulgacao(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    this.validarId(id);
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
+    return this.divulgacao.situacao(id);
+  }
+
+  /** Órgão SEM PNCP (art. 176 par. único): registra a publicação no diário oficial — os prazos correm dela. */
+  @Post('licitacao/:id/divulgacao-oficial')
+  @SomenteOrgao()
+  async registrarDivulgacaoOficial(@Param('id') id: string, @AtorAtual() ator: Ator, @Body() body: { data_divulgacao?: string; referencia?: string }) {
+    this.validarId(id);
+    await this.acesso.assertOrgaoDaLicitacao(ator, id);
+    return this.divulgacao.registrarDiarioOficial(id, body || {}, atorTransicaoDe(ator));
+  }
+
+  /** Aviso de contratação direta (dispensa): gera a PRÉVIA guardada no processo — exigida antes de divulgar. */
+  @Post('licitacao/:id/aviso')
+  @SomenteOrgao()
+  async gerarAviso(@Param('id') id: string, @AtorAtual() ator: Ator, @Body() body: Record<string, any>) {
+    this.validarId(id);
+    await this.acesso.assertOrgaoDaLicitacao(ator, id);
+    return this.divulgacao.gerarAviso(id, body || {}, { id: ator.usuarioId ?? ator.id, nome: null });
+  }
+
+  /** Versões do aviso (órgão dono: todas; demais: só as divulgadas, depois da divulgação). */
+  @Get('licitacao/:id/aviso')
+  @AutenticacaoOpcional()
+  async avisos(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
+    this.validarId(id);
+    const { dono } = await this.podeLer(ator, id);
+    return this.divulgacao.avisos(id, dono);
+  }
+
+  @Get('licitacao/:id/aviso/:documentoId/arquivo')
+  @AutenticacaoOpcional()
+  async arquivoAviso(@Param('id') id: string, @Param('documentoId') documentoId: string, @AtorAtual() ator: Ator | null) {
+    this.validarId(id);
+    if (!ehUuid(documentoId)) throw new NotFoundException('Versão do aviso não encontrada');
+    const { dono } = await this.podeLer(ator, id);
+    const a = await this.divulgacao.arquivoAviso(id, documentoId, dono);
+    return new StreamableFile(a.bytes, { type: 'application/pdf', disposition: `inline; filename="${encodeURIComponent(a.nome)}"` });
   }
 
   // ---------------------------------------------------------------------------

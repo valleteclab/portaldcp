@@ -17,7 +17,8 @@ A situação aparece em **Configurações** › aba **PNCP** (**Conectado** / **
 
 | Quando acontece no sistema | O que vai ao PNCP |
 |---|---|
-| **Publicar edital** / **Divulgar aviso da dispensa** / publicar credenciamento | A compra (com o edital real em PDF, o aviso e o ato de autorização) e os itens |
+| **Publicar edital** / **Divulgar aviso da dispensa** / publicar credenciamento | A compra (com o edital real em PDF; na dispensa, o **aviso de contratação direta guardado no processo**) e os itens. **A compra aceita confirma a divulgação oficial** — só então o prazo começa (veja abaixo) |
+| Divulgação confirmada tarde, com o prazo estendido ao mínimo legal | A retificação da compra (novas datas) e, na dispensa, a nova versão do aviso |
 | **Retificar edital** | O arquivo do edital retificado e a retificação da compra/itens |
 | **Suspender** / **Retomar** / **Revogar** / **Anular** | A situação da compra (suspensa, divulgada, revogada, anulada) |
 | Item/licitação **deserta** ou **fracassada** | A situação dos itens |
@@ -29,6 +30,16 @@ A situação aparece em **Configurações** › aba **PNCP** (**Conectado** / **
 > **Atenção.** O contrato **não** vai ao PNCP antes de assinado. Contratos antigos enviados antes da assinatura são corrigidos por retificação.
 
 > **Atenção.** Ata e contrato só vão à fila quando a compra foi publicada no PNCP por esta plataforma.
+
+## Divulgação oficial: o prazo só começa com o PNCP
+
+A publicação oficial do edital/aviso é a do PNCP (arts. 54 e 174). Por isso:
+
+- ao publicar, o processo fica em **Aguardando publicação no PNCP** — não é público, não recebe propostas, não há prazo correndo, julgar/deserta/fracassada não aparecem e o chat da dispensa fica fechado;
+- quando o PNCP devolve o número de controle da **compra**, a divulgação é confirmada ("Sistema (PNCP)" no histórico), o cronograma é reconferido pela data confirmada (estendido ao mínimo legal, se preciso) e o recebimento de propostas abre;
+- enquanto isso, o topo do cockpit mostra o alerta com o **retorno real da API** do PNCP: código HTTP, mensagem, tentativas, última e próxima tentativa, e "O que corrigir".
+
+> Órgão que ainda não adotou o PNCP (art. 176, parágrafo único): registre no alerta a publicação no diário oficial (data e referência). Os prazos correm dela.
 
 ## A fila de envio
 
@@ -49,7 +60,7 @@ Cada operação aparece como uma etiqueta. Clique nela para ver o detalhe (mensa
 | **enviando…** | Em envio | Nada |
 | **enviado** (com data) | Publicado no PNCP. Mostra o **Nº de controle PNCP** | Nada |
 | **nova tentativa às HH:MM (n)** | Erro temporário (PNCP fora do ar, lentidão). O sistema tenta de novo sozinho, com intervalos crescentes (1, 2, 4… minutos, até 6 h; no máximo 8 tentativas) | Aguarde; se quiser, **Reenviar agora** |
-| **erro definitivo — corrija e reenvie** | O PNCP recusou por regra (dado inválido) ou as tentativas acabaram. Mostra a **Mensagem do PNCP** | Corrija o dado indicado e clique em **Reenviar agora** |
+| **erro definitivo — corrija e reenvie** | O PNCP recusou por regra (dado inválido) ou as tentativas acabaram. Mostra a **Mensagem do PNCP** e o **código HTTP** devolvido | Corrija o dado indicado e clique em **Reenviar agora** (compra ainda não publicada: cancele a publicação, corrija e publique de novo) |
 | **excluído** | A compra foi excluída no PNCP | — |
 
 > Um retorno do PNCP do tipo "já existe" ou "número já utilizado" é tratado como sucesso: o sistema apenas vincula o registro.
@@ -71,6 +82,7 @@ Na dispensa, os botões **Publicar aviso no PNCP** / **Reenviar aviso**, **Envia
 | Recusa por falta de data | Cronograma sem data de recebimento/abertura | Não há data "inventada": complete o cronograma (via retificação, se já publicado) e reenvie |
 | Recusa de autorização / credencial | Plataforma não autorizada pelo órgão no PNCP, ou CNPJ não vinculado | Autorize a plataforma no PNCP e peça à administração da plataforma para conferir o vínculo |
 | Contrato não aparece no PNCP | Ainda falta assinatura | Conclua as assinaturas; o envio é automático |
+| "Aviso NÃO publicado no PNCP — prazo não iniciado" | A compra foi recusada ou não chegou ao PNCP | Leia o código e a mensagem no alerta; falha temporária → **Reenviar agora**; dado errado → **Cancelar publicação**, corrigir e publicar de novo |
 
 ## Não disponível
 

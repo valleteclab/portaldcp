@@ -19,6 +19,7 @@ import {
   criarLicitacao,
   criarOrgao,
   enviarProposta,
+  gerarAvisoDispensa,
   levarAteFase,
   LicitacaoFixture,
   OrgaoFixture,
@@ -164,11 +165,14 @@ describe('E1 — fase interna (gate único) e PNCP pelos atos', () => {
       await levarAteFase(ctx, lic, FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
       const antes = await historico(lic);
 
+      // a compra já foi ao PNCP na divulgação (é ela que confirma a publicação
+      // oficial): o botão manual só atualiza (retificação), não publica de novo
       pncpMock.limpar();
       const r = await http().post(`/api/pncp/compras/${lic.id}`).set(bearer(orgao.token)).send({});
       expect(r.status).toBe(201);
       expect(r.body.sucesso).toBe(true);
-      expect(pncpMock.filtrar('POST', /\/compras$/)).toHaveLength(1);
+      expect(pncpMock.filtrar('POST', /\/compras$/)).toHaveLength(0);
+      expect(pncpMock.filtrar('PATCH', /\/compras\/\d+\/\d+$/)).toHaveLength(1);
 
       const l = await buscarLicitacao(ctx, lic);
       expect(l.fase).toBe(FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
@@ -202,10 +206,17 @@ describe('E1 — fase interna (gate único) e PNCP pelos atos', () => {
         .set(bearer(orgao.token))
         .send({ data_fim_acolhimento: longo, data_abertura_sessao: longo })
         .expect(200);
+      // IN SEGES 67/2021: sem o aviso guardado, também não publica pelo PNCP
+      const semAviso = await http().post(`/api/pncp/compras/${lic.id}`).set(bearer(orgao.token)).send({});
+      expect(semAviso.status).toBe(400);
+      expect(semAviso.body.message).toMatch(/aviso de contratação direta/);
+      await gerarAvisoDispensa(ctx, lic);
       const ok = await http().post(`/api/pncp/compras/${lic.id}`).set(bearer(orgao.token)).send({});
       expect(ok.status).toBe(201);
+      // o próprio envio aceito confirma a divulgação oficial (PUBLICAR → AGUARDANDO → CONFIRMAR)
       const l = await buscarLicitacao(ctx, lic);
       expect(l.fase).toBe(FaseLicitacao.PUBLICADO);
+      expect(l.meio_divulgacao_oficial).toBe('PNCP');
       const publicar = (await historico(lic)).filter((t) => t.ato === 'PUBLICAR');
       expect(publicar).toHaveLength(1);
       expect(publicar[0].dados?.origem).toBe('PNCP');

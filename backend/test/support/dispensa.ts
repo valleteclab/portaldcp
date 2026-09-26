@@ -18,7 +18,9 @@ import {
   LicitacaoFixture,
   OrgaoFixture,
   abrirSessaoAgora,
+  confirmarDivulgacao,
   criarLicitacao,
+  gerarAvisoDispensa,
   enviarProposta,
   ItemEntrada,
 } from './fixtures';
@@ -166,7 +168,7 @@ export async function criarDocumentoInstrucao(
 export async function criarDispensaPublicada(
   ctx: AppE2E,
   orgao: OrgaoFixture,
-  opts: { itens?: ItemEntrada[]; extras?: Record<string, any> } = {},
+  opts: { itens?: ItemEntrada[]; extras?: Record<string, any>; confirmar?: boolean } = {},
 ): Promise<LicitacaoFixture> {
   const lic = await criarLicitacao(ctx, orgao, ModalidadeLicitacao.DISPENSA_ELETRONICA, opts);
   for (const [tipo, titulo] of DOCUMENTOS_ART_72) {
@@ -174,12 +176,16 @@ export async function criarDispensaPublicada(
   }
   const av = await ctx.http().put(`/api/fase-interna/${lic.id}/avancar`).set(bearer(orgao.token));
   exigirStatus(av, 200, 'concluir instrução (fase interna)');
+  // IN SEGES 67/2021: o aviso de contratação direta é gerado e guardado antes de divulgar
+  await gerarAvisoDispensa(ctx, lic);
   const pub = await ctx
     .http()
     .put(`/api/licitacoes/${lic.id}/publicar-edital`)
     .set(bearer(orgao.token))
     .send(corpoDivulgacao(fimPropostasSugerido()));
   exigirStatus(pub, 200, 'divulgar aviso da dispensa');
+  // Divulgação oficial = PNCP: a fila (mock) confirma; sem PNCP, diário oficial (art. 176)
+  if (opts.confirmar !== false) await confirmarDivulgacao(ctx, lic);
   return lic;
 }
 
@@ -283,4 +289,15 @@ export function jsonDaParte(corpo: any, nome: string): any {
   const parte = parteMultipart(corpo, nome);
   if (parte === null) throw new Error(`[dispensa] parte multipart "${nome}" não encontrada`);
   return JSON.parse(parte);
+}
+
+/**
+ * IN SEGES 67/2021: depois do fim do prazo de propostas vem a etapa de lances
+ * (art. 11 — 6 a 10 h) e só depois do encerramento o julgamento (art. 15).
+ * Abre a janela pela rota do órgão e SIMULA o relógio até o fim dela.
+ */
+export async function encerrarEtapaDeLances(ctx: AppE2E, lic: LicitacaoFixture): Promise<void> {
+  const r = await abrirJanelaLances(ctx, lic, { duracao_minutos: 360 });
+  exigirStatus(r, 201, 'abrir a etapa de lances');
+  await moverFimDaJanela(ctx, lic.id, new Date(Date.now() - 1_000));
 }

@@ -358,6 +358,7 @@ const ORDEM_FASES: FaseLicitacao[] = [
   FaseLicitacao.PESQUISA_PRECOS,
   FaseLicitacao.ANALISE_JURIDICA,
   FaseLicitacao.APROVACAO_INTERNA,
+  FaseLicitacao.AGUARDANDO_DIVULGACAO,
   FaseLicitacao.PUBLICADO,
   FaseLicitacao.IMPUGNACAO,
   FaseLicitacao.ACOLHIMENTO_PROPOSTAS,
@@ -547,6 +548,7 @@ export async function levarAteFase(
     if (atual.fase === FaseLicitacao.APROVACAO_INTERNA) {
       if (direta) {
         await prepararInstrucaoContratacaoDireta(ctx, lic);
+        if (lic.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA) await gerarAvisoDispensa(ctx, lic);
       } else {
         await anexarEdital(ctx, lic); // E7a: edital real exigido para publicar
       }
@@ -556,7 +558,8 @@ export async function levarAteFase(
         .set(bearer(lic.orgao.token))
         .send({ ...datasEditalPadrao(), ...(opts.datas ?? {}) });
       esperarStatus(r, 200, 'publicar edital');
-      atual = r.body;
+      // Divulgação oficial = PNCP (arts. 54 e 174): o PUBLICAR aguarda a confirmação
+      atual = alvo === FaseLicitacao.AGUARDANDO_DIVULGACAO ? r.body : await confirmarDivulgacao(ctx, lic);
       continue;
     }
 
@@ -579,6 +582,44 @@ export async function levarAteFase(
     await anexarEdital(ctx, lic); // E7a: pronto para publicar
   }
   return atual;
+}
+
+/**
+ * Aviso de contratação direta da dispensa (IN SEGES 67/2021): a PRÉVIA gerada
+ * e guardada no processo é pré-condição do PUBLICAR — POST /publicacao/licitacao/:id/aviso.
+ */
+export async function gerarAvisoDispensa(ctx: AppE2E, lic: LicitacaoFixture, cronograma: Record<string, any> = {}): Promise<any> {
+  const r = await ctx.http().post(`/api/publicacao/licitacao/${lic.id}/aviso`).set(bearer(lic.orgao.token)).send(cronograma);
+  esperarStatus(r, 201, 'gerar aviso de contratação direta');
+  return r.body;
+}
+
+/**
+ * DIVULGAÇÃO OFICIAL (Lei 14.133 arts. 54 e 174): depois do PUBLICAR a
+ * licitação AGUARDA a confirmação. Órgão integrado ao PNCP → roda o worker da
+ * fila (mock HTTP do PNCP devolve o número de controle); órgão sem PNCP →
+ * registra a publicação no diário oficial (art. 176 par. único) pela rota do
+ * órgão. Devolve a licitação já com a divulgação confirmada.
+ */
+export async function confirmarDivulgacao(
+  ctx: AppE2E,
+  lic: { id: string; orgao: { token: string } },
+  opts: { dataDivulgacao?: Date } = {},
+): Promise<any> {
+  let atual = await ctx.http().get(`/api/licitacoes/${lic.id}`).set(bearer(lic.orgao.token));
+  esperarStatus(atual, 200, 'buscar licitação');
+  if (atual.body.fase !== FaseLicitacao.AGUARDANDO_DIVULGACAO) return atual.body;
+  for (let i = 0; i < 3; i++) await ctx.processarFilaPncp({ licitacaoId: lic.id });
+  atual = await ctx.http().get(`/api/licitacoes/${lic.id}`).set(bearer(lic.orgao.token));
+  if (atual.body.fase !== FaseLicitacao.AGUARDANDO_DIVULGACAO) return atual.body;
+  const r = await ctx
+    .http()
+    .post(`/api/publicacao/licitacao/${lic.id}/divulgacao-oficial`)
+    .set(bearer(lic.orgao.token))
+    .send({ data_divulgacao: (opts.dataDivulgacao ?? new Date()).toISOString(), referencia: 'Diário Oficial — edição E2E, p. 1' });
+  esperarStatus(r, 201, 'registrar divulgação oficial');
+  atual = await ctx.http().get(`/api/licitacoes/${lic.id}`).set(bearer(lic.orgao.token));
+  return atual.body;
 }
 
 /**

@@ -86,6 +86,8 @@ export interface AtosBase {
   etapasInternas: DefinicaoAto[];
   concluirFaseInterna: DefinicaoAto;
   publicar: DefinicaoAto;
+  /** Divulgação oficial confirmada pelo PNCP (AGUARDANDO_DIVULGACAO → PUBLICADO). */
+  confirmarDivulgacao: DefinicaoAto;
   cancelarPublicacao: DefinicaoAto;
   retificarEdital: DefinicaoAto;
   iniciarAcolhimento: DefinicaoAto;
@@ -136,6 +138,7 @@ export function montarFluxosEspeciais(b: AtosBase): { leilao: DefinicaoAto[]; co
     ...b.etapasInternas,
     b.concluirFaseInterna,
     comPendencia(b.publicar, 'LEILAO_EDITAL'),
+    b.confirmarDivulgacao,
     b.cancelarPublicacao,
     b.retificarEdital,
     b.iniciarAcolhimento,
@@ -166,6 +169,7 @@ export function montarFluxosEspeciais(b: AtosBase): { leilao: DefinicaoAto[]; co
     ...b.etapasInternas,
     b.concluirFaseInterna,
     comPendencia(b.publicar, 'CONCURSO_EDITAL'),
+    b.confirmarDivulgacao,
     b.cancelarPublicacao,
     b.retificarEdital,
     b.iniciarAcolhimento,
@@ -204,6 +208,7 @@ export function montarFluxosEspeciais(b: AtosBase): { leilao: DefinicaoAto[]; co
     ...b.etapasInternas,
     b.concluirFaseInterna,
     comPendencia(b.publicar, 'DIALOGO_EDITAL'),
+    b.confirmarDivulgacao,
     b.cancelarPublicacao,
     b.retificarEdital,
     b.iniciarAcolhimento,
