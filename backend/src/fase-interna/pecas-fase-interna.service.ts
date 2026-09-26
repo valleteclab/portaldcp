@@ -42,7 +42,11 @@ import { pendenciasDoPortaoDoProcesso } from './conformidade/portoes';
 export const ANEXO_MAX_BYTES = Math.max(1, Number(process.env.FASE_INTERNA_ANEXO_MAX_MB) || 25) * 1024 * 1024;
 
 /** Peças da FASE EXTERNA que também entram por aqui (depois da divulgação). */
-export const TIPOS_PECA_FASE_EXTERNA: TipoDocumentoFaseInterna[] = [TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA];
+export const TIPOS_PECA_FASE_EXTERNA: TipoDocumentoFaseInterna[] = [
+  TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA,
+  // Entrega 5: a publicação no Diário Oficial do órgão (só depois de publicar)
+  TipoDocumentoFaseInterna.PUBLICACAO_DIARIO_OFICIAL,
+];
 
 /** Pasta (sensível) dos anexos da peça: `licitacoes/<licitacaoId>/…` — dono = órgão da licitação. */
 const PASTA_PECAS = 'licitacoes';
@@ -184,6 +188,9 @@ export class PecasFaseInternaService implements OnModuleInit {
     if (SITUACOES_TERMINAIS.includes(lic.situacao)) {
       throw new ConflictException(`Processo encerrado (situação ${lic.situacao}) — as peças não mudam mais.`);
     }
+    if (tipo === TipoDocumentoFaseInterna.PUBLICACAO_DIARIO_OFICIAL && ehFaseInterna(lic.fase)) {
+      throw new ConflictException('A publicação no Diário Oficial se registra depois de publicar o processo (etapa 8).');
+    }
     if (!TIPOS_PECA_FASE_EXTERNA.includes(tipo) && !ehFaseInterna(lic.fase)) {
       // Renovação da dotação na virada do exercício (Entrega 3A): a nova
       // informação orçamentária feita fora entra mesmo depois da divulgação
@@ -288,6 +295,67 @@ export class PecasFaseInternaService implements OnModuleInit {
         pdf.paginas,
       );
       await this.cancelarAssinaturaPendente(anterior, lic.orgao_id);
+      return doc;
+    } catch (e) {
+      this.apagar(rel);
+      throw e;
+    }
+  }
+
+  /**
+   * PUBLICAÇÃO NO DIÁRIO OFICIAL do órgão (etapa 8 — Entrega 5): peça PDO da
+   * publicação, com número/edição, data e página — e, se houver, a página do
+   * diário anexada (PDF, com folhas nos autos). Registrar de novo cria versão
+   * nova (a anterior fica no histórico). Só depois de publicar (409 antes).
+   */
+  async registrarPublicacaoDiarioOficial(
+    licitacaoId: string,
+    arquivo: ArquivoRecebido | null | undefined,
+    meta: { numero_edicao?: string; data_publicacao?: string; pagina?: string; link?: string; observacao?: string },
+    ator: Ator,
+  ): Promise<DocumentoFaseInterna> {
+    const tipo = TipoDocumentoFaseInterna.PUBLICACAO_DIARIO_OFICIAL;
+    await this.licitacaoParaPeca(licitacaoId, tipo);
+    const edicao = String(meta?.numero_edicao ?? '').trim().slice(0, 120);
+    if (edicao.length < 1) throw new BadRequestException('Informe o número (edição) do Diário Oficial.');
+    const data = validarDataDocumentoAnexo(meta?.data_publicacao);
+    if (!data.ok) throw new BadRequestException(data.erro.replace('do documento', 'da publicação'));
+    const pagina = String(meta?.pagina ?? '').trim().slice(0, 40) || null;
+    const link = String(meta?.link ?? '').trim().slice(0, 500) || null;
+    if (link && !/^https?:\/\//i.test(link)) throw new BadRequestException('O link da publicação deve começar com http:// ou https://');
+    const observacao = String(meta?.observacao ?? '').trim().slice(0, 2000) || null;
+    const temArquivo = !!arquivo?.buffer?.length;
+    const pdf = temArquivo ? await this.validarPdf(arquivo) : null;
+    const numero = `Diário Oficial ${edicao}${pagina ? `, p. ${pagina}` : ''}`.slice(0, 120);
+    const rel = pdf ? this.gravar(PASTA_PECAS, licitacaoId, 'peca-pdo', pdf.buffer) : null;
+    try {
+      const { doc } = await this.gravarNovaVersao(
+        licitacaoId,
+        tipo,
+        {
+          titulo: tituloDaPeca(tipo),
+          descricao: `${numero} — publicado em ${data.dia.split('-').reverse().join('/')}${link ? ` (${link})` : ''}`,
+          origem: OrigemDocumento.IMPORTADO_ARQUIVO,
+          status: StatusDocumento.IMPORTADO,
+          sistema_origem: 'diario-oficial',
+          data_importacao: new Date(),
+          data_documento: data.data,
+          numero_peca: numero,
+          observacao_anexo: observacao,
+          dados_estruturados: { _diario_oficial: { numero_edicao: edicao, pagina, data_publicacao: data.dia, link, anexada: !!pdf } },
+          ...(pdf
+            ? {
+                nome_arquivo: String(arquivo?.originalname || 'diario-oficial.pdf').slice(0, 250),
+                caminho_arquivo: rel as string,
+                tipo_mime: 'application/pdf',
+                tamanho_bytes: pdf.buffer.length,
+                hash_arquivo: pdf.hash,
+              }
+            : {}),
+          criado_por_id: idDoAtor(ator) as any,
+        },
+        pdf ? pdf.paginas : null,
+      );
       return doc;
     } catch (e) {
       this.apagar(rel);

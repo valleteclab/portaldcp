@@ -39,6 +39,8 @@ interface Configuracao {
   /** Entrega 3B: quem assina a autorização (autoridade colegiada) e o nome da autoridade. */
   signatarios_autorizacao: Array<{ usuario_id: string; papel: string }>
   autoridade_rotulo: string
+  /** Entrega 5: dispensa com etapa de lances (IN 67 — padrão) ou só propostas (regulamento do órgão). */
+  dispensa_com_lances: boolean
   padrao: boolean
   setores: Array<{ id: string; nome: string; codigo: string }>
   papeis: Array<{ codigo: string; rotulo: string }>
@@ -136,6 +138,7 @@ export default function ConfiguracaoFaseInternaPage() {
           prazos: cfg.prazos,
           signatarios_autorizacao: cfg.signatarios_autorizacao.filter((s) => s.usuario_id),
           autoridade_rotulo: cfg.autoridade_rotulo,
+          dispensa_com_lances: cfg.dispensa_com_lances !== false,
         }),
       })
       if (!r.ok) throw new Error(await lerErro(r))
@@ -215,6 +218,38 @@ export default function ConfiguracaoFaseInternaPage() {
               aviso: não impede a publicação. Ao desativar, as tarefas abertas dessa etapa são canceladas.
             </span>
           </label>
+          <fieldset className="space-y-2 pt-2 border-t" disabled={!admin}>
+            <legend className="text-sm font-semibold">Dispensa eletrônica — disputa</legend>
+            <label className="flex gap-2 items-start text-sm">
+              <input
+                type="radio"
+                name="dispensa-lances"
+                className="mt-1"
+                checked={cfg.dispensa_com_lances !== false}
+                onChange={() => setCfg({ ...cfg, dispensa_com_lances: true })}
+              />
+              <span>
+                <b>Com etapa de lances</b> (padrão — IN SEGES nº 67/2021, arts. 11 e 15): encerrado o prazo de propostas, a janela de lances de 6 a 10 horas é
+                obrigatória antes do julgamento.
+              </span>
+            </label>
+            <label className="flex gap-2 items-start text-sm">
+              <input
+                type="radio"
+                name="dispensa-lances"
+                className="mt-1"
+                checked={cfg.dispensa_com_lances === false}
+                onChange={() => setCfg({ ...cfg, dispensa_com_lances: false })}
+              />
+              <span>
+                <b>Sem etapa de lances</b> (regulamento do órgão que não adota a IN 67): só o cadastro de propostas até o fim do prazo; vence o menor preço e,
+                no empate, a proposta registrada primeiro. A negociação com o vencedor continua (IN 67, art. 16).
+              </span>
+            </label>
+            <p className="text-xs text-gray-600">
+              O modo é gravado no processo quando ele é publicado: mudar aqui não altera os processos já publicados.
+            </p>
+          </fieldset>
         </CardContent>
       </Card>
 

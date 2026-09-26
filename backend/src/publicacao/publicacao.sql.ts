@@ -147,6 +147,26 @@ export async function marcarEditalPublicadoSql(m: EntityManager, licitacaoId: st
 }
 
 /**
+ * PUBLICAR da DISPENSA ELETRÔNICA (fase interna, Entrega 5 — decisão 5 do
+ * dono): grava no processo o modo da configuração do órgão NESTE momento —
+ * com etapa de lances (IN SEGES 67/2021, padrão) ou só propostas
+ * (regulamento do órgão). Fica congelado: mudar a configuração depois não
+ * altera o processo publicado. Anota o modo nos dados do ato (histórico).
+ */
+export async function congelarModoDisputaDispensaSql(
+  m: EntityManager,
+  lic: { orgao_id?: string | null; modalidade?: string | null; dispensa_com_lances?: boolean | null },
+  dados?: Record<string, any>,
+): Promise<void> {
+  if (lic.modalidade !== 'DISPENSA_ELETRONICA') return;
+  const [cfg] = lic.orgao_id
+    ? await m.query(`SELECT dispensa_com_lances FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [String(lic.orgao_id)]).catch(() => [])
+    : [];
+  lic.dispensa_com_lances = cfg?.dispensa_com_lances !== false;
+  if (dados) dados.dispensa_com_lances = lic.dispensa_com_lances;
+}
+
+/**
  * INTERESSADOS a ouvir antes de revogar/anular (art. 71 §3º): licitantes com
  * proposta enviada e, no CREDENCIAMENTO (plano E7b), os inscritos ainda com
  * interesse — inscrição em análise, credenciados e indeferidos (que podem

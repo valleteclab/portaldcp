@@ -461,7 +461,7 @@ export class JanelaDispensaService {
   async regrasChat(licitacaoId: string, leitor: LeitorChat = null): Promise<RegrasChatDispensa> {
     const [l] = await this.dataSource.query(
       `SELECT fase::text AS fase, data_homologacao, COALESCE(data_fim_acolhimento, data_abertura_sessao) AS fim,
-              dispensa_lances_inicio, dispensa_lances_fim
+              dispensa_lances_inicio, dispensa_lances_fim, dispensa_com_lances
          FROM licitacoes WHERE id::text = $1`,
       [licitacaoId],
     );
@@ -512,7 +512,15 @@ export class JanelaDispensaService {
         { exige_assunto: true },
       );
     }
-    return eh('AVISOS', 'Avisos do órgão', 'Prazo de propostas encerrado: até o julgamento, só o órgão envia mensagens (a etapa de lances reabre a participação dos fornecedores).', true, false);
+    return eh(
+      'AVISOS',
+      'Avisos do órgão',
+      l.dispensa_com_lances === false
+        ? 'Prazo de propostas encerrado: até o julgamento, só o órgão envia mensagens (dispensa sem etapa de lances — regulamento do órgão).'
+        : 'Prazo de propostas encerrado: até o julgamento, só o órgão envia mensagens (a etapa de lances reabre a participação dos fornecedores).',
+      true,
+      false,
+    );
   }
 
   /**

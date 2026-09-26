@@ -26,6 +26,7 @@ import { AutorizacaoTelaService } from './telas/autorizacao-tela.service';
 import { ParecerTelaService } from './telas/parecer-tela.service';
 import { ControleInternoTelaService } from './telas/controle-interno-tela.service';
 import { TelasAnaliseDecisaoController } from './telas/telas-3b.controller';
+import { PublicacaoTelaService } from './telas/publicacao-tela.service';
 import { AchadoConformidade, RevisaoConformidade } from './conformidade/achado.entity';
 import { ConformidadeService } from './conformidade/conformidade.service';
 import { ConformidadeController } from './conformidade/conformidade.controller';
@@ -137,6 +138,7 @@ import {
     ParecerTelaService,
     ControleInternoTelaService,
     ConformidadeService,
+    PublicacaoTelaService,
     PreparacaoAutomaticaService,
     ModeloDocumentoService,
     TramitacaoService,

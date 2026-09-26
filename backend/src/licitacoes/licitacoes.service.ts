@@ -41,6 +41,7 @@ import { aplicarEstadoCompraPncp, estadoCompraPncp } from '../pncp/estado-compra
 import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
 import { fundamentoEfetivo, fundamentoPadrao, motivoFundamentoInvalido } from './fundamento-legal';
 import { classificacaoPorItem, valoresFinaisDispensa } from './classificacao-dispensa';
+import { dispensaSemLances, modoDisputaDaDispensa, vencedoresSemLances } from './modo-disputa-dispensa';
 import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizacao';
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
 import { comoErro } from '../common/erros';
@@ -998,7 +999,8 @@ export class LicitacoesService {
        ORDER BY pi.item_licitacao_id, pi.valor_unitario ASC, p.data_envio ASC NULLS LAST`,
       [id],
     );
-    const lances = await this.janelaDispensa.lancesDaJanela(id);
+    // Sem etapa de lances (Entrega 5): só as propostas; empate → a registrada primeiro (ordem da consulta)
+    const lances = dispensaSemLances(licitacao) ? [] : await this.janelaDispensa.lancesDaJanela(id);
     const porItem = classificacaoPorItem(valoresFinaisDispensa(linhas, lances as any));
     const itens = await this.itemRepository.find({ where: { licitacao_id: id }, order: { numero_item: 'ASC' } });
     return {
@@ -1147,6 +1149,12 @@ export class LicitacoesService {
     const compraPncp = (await estadoCompraPncp(this.dataSource.manager, [licitacao.id])).get(licitacao.id);
     const agente = await nomeDoPregoeiroSql(this.dataSource.manager, licitacao.id);
     const autoridade = await this.autoridadeDoProcesso(licitacao);
+    // Modo da dispensa (fase interna, Entrega 5): configuração do órgão até
+    // publicar; depois, o valor congelado no processo
+    const [cfgModo] = licitacao.orgao_id
+      ? await this.dataSource.query(`SELECT dispensa_com_lances FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [licitacao.orgao_id]).catch(() => [])
+      : [];
+    const modoDisputa = modoDisputaDaDispensa(licitacao as any, cfgModo?.dispensa_com_lances);
 
     // Checklist do processo (o que está feito / o que falta)
     const fasesInternas = [
@@ -1194,6 +1202,8 @@ export class LicitacoesService {
         meio_divulgacao_oficial: licitacao.meio_divulgacao_oficial ?? null,
         dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
         dispensa_lances_fim: licitacao.dispensa_lances_fim,
+        // Dispensa com/sem etapa de lances (Entrega 5 — decisão 5 do dono)
+        modo_disputa_dispensa: modoDisputa.aplica ? modoDisputa : null,
         link_pncp: compraPncp?.link_pncp ?? licitacao.link_pncp ?? null,
         numero_controle_pncp: compraPncp?.numero_controle_pncp ?? null,
         preparacao_automatica: licitacao.preparacao_automatica ?? null,
@@ -1418,9 +1428,10 @@ export class LicitacoesService {
       proposta_id: string;
       fornecedor_id: string;
       razao_social: string;
+      registrada_em: Date | null;
     }> = await this.dataSource.query(
       `SELECT pi.item_licitacao_id, pi.valor_unitario, p.id AS proposta_id,
-              p.fornecedor_id, f.razao_social
+              p.fornecedor_id, f.razao_social, COALESCE(p.data_envio, p.created_at) AS registrada_em
        FROM proposta_itens pi
        JOIN propostas p ON p.id = pi.proposta_id
        JOIN fornecedores f ON f.id = p.fornecedor_id
@@ -1437,14 +1448,21 @@ export class LicitacoesService {
 
     const itens = await this.itemRepository.find({ where: { licitacao_id: id } });
 
+    // Modo congelado na publicação (fase interna, Entrega 5 — decisão 5):
+    // SEM etapa de lances (regulamento do órgão) → menor preço das PROPOSTAS;
+    // empate → a registrada primeiro (como o aviso real da Câmara de LEM).
+    const semLances = dispensaSemLances(licitacao);
     // Fase de lances: o valor final de cada fornecedor no item é o MENOR entre
     // a proposta inicial e os seus próprios lances (modelo IN SEGES 67/2021).
     // Lances da janela: tabela única do motor (origem JANELA_DISPENSA, valor unitário)
-    const lances = await this.janelaDispensa.lancesDaJanela(id);
+    const lances = semLances ? [] : await this.janelaDispensa.lancesDaJanela(id);
     const melhorPorItemFornecedor = valoresFinaisDispensa(linhas, lances);
     // vencedor do item = menor valor final entre os fornecedores
-    const vencedorPorItem = new Map<string, (typeof linhas)[number]>();
-    for (const cand of melhorPorItemFornecedor.values()) {
+    const vencedorPorItem = new Map<string, Omit<(typeof linhas)[number], 'registrada_em'>>();
+    if (semLances) {
+      for (const [itemId, v] of vencedoresSemLances(linhas)) vencedorPorItem.set(itemId, v);
+    }
+    for (const cand of semLances ? [] : melhorPorItemFornecedor.values()) {
       const atual = vencedorPorItem.get(cand.item_licitacao_id);
       if (!atual || Number(cand.valor_unitario) < Number(atual.valor_unitario)) {
         vencedorPorItem.set(cand.item_licitacao_id, cand);
@@ -1454,7 +1472,8 @@ export class LicitacoesService {
     // e, persistindo, sorteio auditável no próprio ato do julgamento. A disputa final
     // (art. 60 I) não se aplica ao julgamento automático da dispensa (IN 67/2021 não a
     // prevê; a janela de lances já é a oportunidade de nova oferta) — decisão documentada.
-    for (const [itemId, venc] of [...vencedorPorItem.entries()]) {
+    // Sem etapa de lances o empate já foi decidido pela ordem de registro (regulamento).
+    for (const [itemId, venc] of semLances ? [] : [...vencedorPorItem.entries()]) {
       const empatados = [...melhorPorItemFornecedor.values()].filter(
         (c) =>
           c.item_licitacao_id === itemId &&
@@ -1516,7 +1535,11 @@ export class LicitacoesService {
     // e propostas na MESMA transação (com lock) da mudança de fase.
     const salva = await this.transicoes.executar(id, AtoLicitacao.JULGAR_DISPENSA, {
       ator,
-      registro: { itens_adjudicados: adjudicados.length, itens_sem_proposta: semProposta },
+      registro: {
+        itens_adjudicados: adjudicados.length,
+        itens_sem_proposta: semProposta,
+        modo: semLances ? 'SEM_LANCES (regulamento do órgão — empate: proposta registrada primeiro)' : 'COM_LANCES (IN SEGES 67/2021)',
+      },
       aplicar: async (_lic, manager) => {
         await this.resultado.gravarAdjudicacao(manager, id, entradas, ator, 'DISPENSA');
         // Marca propostas vencedoras (ao menos 1 item) e classifica as demais válidas
@@ -1543,6 +1566,7 @@ export class LicitacoesService {
       fase: salva.fase,
       adjudicados,
       itens_sem_proposta: semProposta,
+      com_lances: !semLances,
     };
   }
 
@@ -1562,6 +1586,12 @@ export class LicitacoesService {
       throw new BadRequestException('Fase de lances disponível apenas para Dispensa Eletrônica');
     }
     this.exigirAtiva(licitacao, 'abrir a fase de lances');
+    // Modo congelado na publicação (fase interna, Entrega 5): sem etapa de lances
+    if (dispensaSemLances(licitacao)) {
+      throw new ConflictException(
+        'Esta dispensa foi publicada SEM etapa de lances (regulamento do órgão): só as propostas cadastradas até o fim do prazo — julgue pelo menor preço.',
+      );
+    }
     if (licitacao.data_homologacao) {
       throw new BadRequestException('Licitação já homologada');
     }

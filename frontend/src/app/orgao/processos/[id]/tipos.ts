@@ -101,6 +101,8 @@ export interface LicitacaoProcesso {
   natureza_objeto?: string | null
   dispensa_lances_inicio?: string | null
   dispensa_lances_fim?: string | null
+  /** Entrega 5: dispensa com/sem etapa de lances (configuração do órgão até publicar; depois, congelado no processo). */
+  modo_disputa_dispensa?: ModoDisputaDispensa | null
   link_pncp?: string | null
   numero_controle_pncp?: string | null
   created_at?: string
@@ -161,6 +163,7 @@ export interface ItemConferencia {
     | "VINCULAR_PCA"
     | "CONFIGURAR_ME_EPP"
     | "ABRIR_CONFORMIDADE"
+    | "ABRIR_CONTROLE_INTERNO"
     | null
 }
 
@@ -225,3 +228,14 @@ export const fmtMoeda = (v?: number | string | null) =>
 
 /** Situação do processo diferente de ATIVA/SUSPENSA = encerrado. */
 export const SITUACOES_ENCERRADAS = ["REVOGADA", "ANULADA", "DESERTA", "FRACASSADA", "CONCLUIDA"]
+
+/** Modo da dispensa eletrônica (fase interna — Entrega 5; decisão 5 do dono). */
+export interface ModoDisputaDispensa {
+  aplica: boolean
+  com_lances: boolean
+  congelado: boolean
+  fonte: "PROCESSO" | "CONFIGURACAO" | "LEGADO" | "NAO_SE_APLICA"
+  referencia: string
+  rotulo: string
+  descricao: string
+}

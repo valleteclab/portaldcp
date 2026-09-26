@@ -66,6 +66,7 @@ export const TITULO_DOCUMENTO: Partial<Record<TipoDocumentoFaseInterna, string>>
   [TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA]: 'Parecer jurídico da fase externa',
   [TipoDocumentoFaseInterna.MINUTA_CONTRATO]: 'Minuta do contrato',
   [TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO]: 'Manifestação do controle interno',
+  [TipoDocumentoFaseInterna.PUBLICACAO_DIARIO_OFICIAL]: 'Publicação no Diário Oficial',
 };
 
 /**
@@ -93,6 +94,7 @@ export const CATALOGO_PECAS: Record<string, TipoDocumentoFaseInterna> = {
   PARECER_JURIDICO: TipoDocumentoFaseInterna.PARECER_JURIDICO,
   PARECER_FASE_EXTERNA: TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA,
   CONTROLE_INTERNO: TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO,
+  PUBLICACAO_DIARIO_OFICIAL: TipoDocumentoFaseInterna.PUBLICACAO_DIARIO_OFICIAL,
 };
 
 /** Fundamento exibido no checklist de cada etapa. */

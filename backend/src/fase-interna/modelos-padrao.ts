@@ -113,7 +113,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
       { id: 'objeto_edital', titulo: '2. Do objeto', placeholder: 'Objeto da licitação…', obrigatorio: true, fundamento_legal: 'Art. 25', texto_padrao: '<p>{{licitacao.objeto}}</p>' },
       { id: 'participacao', titulo: '3. Da participação', placeholder: 'Quem pode participar e vedações…', obrigatorio: true, fundamento_legal: 'Art. 14' },
       { id: 'habilitacao', titulo: '4. Da habilitação', placeholder: 'Documentação necessária para habilitação…', obrigatorio: true, fundamento_legal: 'Art. 62–70' },
-      { id: 'julgamento', titulo: '5. Critério de julgamento', placeholder: 'Critério aplicado e justificativa…', obrigatorio: true, fundamento_legal: 'Art. 33' },
+      { id: 'julgamento', titulo: '5. Critério de julgamento', placeholder: 'Critério aplicado e justificativa…', obrigatorio: true, fundamento_legal: 'Art. 33', texto_padrao: '<p>{{licitacao.forma_disputa}}</p>' },
       { id: 'recursos', titulo: '6. Dos recursos', placeholder: 'Prazos e procedimentos recursais…', obrigatorio: true, fundamento_legal: 'Art. 165' },
       { id: 'contratacao', titulo: '7. Da contratação', placeholder: 'Condições e prazos de contratação…', obrigatorio: true, fundamento_legal: 'Art. 90' },
     ],

@@ -30,10 +30,11 @@ export type AcaoConferencia =
   | 'CANCELAR_PUBLICACAO'
   | 'VINCULAR_PCA'
   | 'CONFIGURAR_ME_EPP'
-  | 'ABRIR_CONFORMIDADE';
+  | 'ABRIR_CONFORMIDADE'
+  | 'ABRIR_CONTROLE_INTERNO';
 
 export interface ItemConferencia {
-  chave: 'DOCUMENTOS' | 'AUTORIZACAO' | 'AVISO' | 'EDITAL' | 'ITENS' | 'PCA' | 'ME_EPP' | 'CONFORMIDADE' | 'OUTRAS';
+  chave: 'DOCUMENTOS' | 'AUTORIZACAO' | 'CONTROLE_INTERNO' | 'AVISO' | 'EDITAL' | 'ITENS' | 'PCA' | 'ME_EPP' | 'CONFORMIDADE' | 'OUTRAS';
   rotulo: string;
   fundamento: string;
   estado: EstadoConferencia;
@@ -85,6 +86,8 @@ const PREFIXO_PORTAO_C = 'Portão C';
 
 /** Tipo da autorização da autoridade competente na instrução (art. 72, VIII). */
 const TIPO_AUTORIZACAO = 'AA';
+/** Manifestação do controle interno (etapa opcional por órgão — Entrega 2). */
+const TIPO_CONTROLE_INTERNO = 'MCI';
 
 const lista = (r: string | string[] | null | undefined): string[] => (r ? (Array.isArray(r) ? r : [r]).filter(Boolean) : []);
 
@@ -100,7 +103,7 @@ export async function conferirPrePublicacao(e: EntradaConferencia): Promise<Conf
   // 1. Documentos da fase interna (art. 72 na contratação direta; art. 18 no rito completo)
   const fundamentoDocs = direta ? 'Lei 14.133/2021, art. 72' : 'Lei 14.133/2021, art. 18';
   if (e.instrucao) {
-    const docs = e.instrucao.itens.filter((i) => i.tipo !== TIPO_AUTORIZACAO);
+    const docs = e.instrucao.itens.filter((i) => i.tipo !== TIPO_AUTORIZACAO && i.tipo !== TIPO_CONTROLE_INTERNO);
     const pend = concluidaRitoCompleto ? [] : docs.filter((i) => i.obrigatorio && i.status !== 'OK');
     const prontos = docs.filter((i) => i.status === 'OK').length;
     itens.push({
@@ -133,6 +136,23 @@ export async function conferirPrePublicacao(e: EntradaConferencia): Promise<Conf
             : 'Ainda não emitida',
         pendencias: ok ? [] : [`${aut.titulo} (${aut.fundamento})`],
         acao: ok ? null : 'ABRIR_FASE_INTERNA',
+      });
+    }
+    // Controle interno (decisão 3 do dono; Entrega 5): com a etapa ATIVA no
+    // órgão, a manifestação aparece ANTES de publicar — como AVISO, nunca
+    // bloqueio (a peça MCI só entra na instrução quando o órgão a ativou)
+    const mci = e.instrucao.itens.find((i) => i.tipo === TIPO_CONTROLE_INTERNO);
+    if (mci && !concluidaRitoCompleto) {
+      const ok = mci.status === 'OK';
+      itens.push({
+        chave: 'CONTROLE_INTERNO',
+        rotulo: 'Manifestação do controle interno',
+        fundamento: mci.fundamento || 'Art. 169, II — regulamento do órgão',
+        estado: ok ? 'OK' : 'ALERTA',
+        bloqueia: false,
+        detalhe: ok ? 'Manifestação nos autos' : 'Controle interno ativo no órgão e ainda sem manifestação — não impede a publicação (aviso)',
+        pendencias: [],
+        acao: ok ? null : 'ABRIR_CONTROLE_INTERNO',
       });
     }
   } else {

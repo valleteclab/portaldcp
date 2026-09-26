@@ -47,6 +47,15 @@ export class ConfiguracaoFaseInterna {
   @Column({ type: 'varchar', length: 120, nullable: true })
   autoridade_rotulo: string | null;
 
+  /**
+   * Dispensa eletrônica COM etapa de lances (padrão — IN SEGES 67/2021, arts.
+   * 11 e 15: janela de 6 a 10 h antes do julgamento) ou SEM (regulamento local
+   * que não adota a IN 67: só o cadastro de propostas). Entrega 5, decisão 5
+   * do dono. Gravado no processo no ato PUBLICAR (congelado).
+   */
+  @Column({ type: 'boolean', default: true })
+  dispensa_com_lances: boolean;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   atualizado_por_id: string | null;
 

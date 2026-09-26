@@ -211,6 +211,14 @@ export class TarefasService {
     if (corpo?.autoridade_rotulo !== undefined) {
       extras.autoridade_rotulo = String(corpo.autoridade_rotulo ?? '').trim().slice(0, 120) || null;
     }
+    // Dispensa com/sem etapa de lances (Entrega 5, decisão 5) — só muda quando enviado.
+    // Processo já publicado guarda o valor do dia da publicação (congelado).
+    if (corpo?.dispensa_com_lances !== undefined) {
+      if (typeof corpo.dispensa_com_lances !== 'boolean') {
+        throw new BadRequestException('dispensa_com_lances deve ser true (com etapa de lances — IN 67) ou false (só propostas — regulamento do órgão).');
+      }
+      extras.dispensa_com_lances = corpo.dispensa_com_lances;
+    }
     const existente = await this.configRepo.findOne({ where: { orgao_id: orgaoId } });
     await this.configRepo.save(
       this.configRepo.merge(existente ?? this.configRepo.create({ orgao_id: orgaoId }), {
