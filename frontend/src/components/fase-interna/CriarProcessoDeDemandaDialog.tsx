@@ -14,6 +14,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { API_URL, authFetch } from "@/lib/api";
+import {
+  type ModoFaseInterna,
+  lembrarEscolhaModo,
+  rotaFaseInternaFeitaFora,
+  ultimaEscolhaModo,
+} from "@/lib/fase-interna/criacao";
+import { OpcoesModoFaseInterna } from "@/components/fase-interna/externa/EscolhaModoFaseInterna";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -88,11 +95,14 @@ export default function CriarProcessoDeDemandaDialog({
   const [selecionada, setSelecionada] = useState<string | null>(null);
   const [criando, setCriando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // Pergunta da criação: guiado aqui ou fase interna já feita fora (sugestão = última escolha)
+  const [modo, setModo] = useState<ModoFaseInterna | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setSelecionada(null);
     setErro(null);
+    setModo(ultimaEscolhaModo());
     carregarDemandas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -126,7 +136,14 @@ export default function CriarProcessoDeDemandaDialog({
   };
 
   const criarProcesso = async () => {
-    if (!selecionada) return;
+    if (!selecionada || !modo) return;
+    lembrarEscolhaModo(modo);
+    // Fase interna já feita fora: o fluxo curto (dados, itens e PDFs) com a demanda pré-carregada
+    if (modo === "FORA") {
+      onOpenChange(false);
+      router.push(rotaFaseInternaFeitaFora({ demandaId: selecionada }));
+      return;
+    }
     setCriando(true);
     setErro(null);
     try {
@@ -226,6 +243,8 @@ export default function CriarProcessoDeDemandaDialog({
           )}
         </div>
 
+        <OpcoesModoFaseInterna valor={modo} onChange={setModo} compacto />
+
         {erro && (
           <div className="flex items-start gap-2 text-sm text-red-600">
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -244,12 +263,14 @@ export default function CriarProcessoDeDemandaDialog({
           <Button
             className="bg-[#1351b4] hover:bg-[#0c326f] text-white gap-1.5"
             onClick={criarProcesso}
-            disabled={!selecionada || criando}
+            disabled={!selecionada || !modo || criando}
           >
             {criando ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" /> Criando…
               </>
+            ) : modo === "FORA" ? (
+              "Continuar: dados, itens e PDFs"
             ) : (
               "Criar processo"
             )}

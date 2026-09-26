@@ -27,6 +27,8 @@ import { BuscaItemCatalogoProprio } from '@/components/catalogo'
 import { API_URL, authFetch } from '@/lib/api'
 import { toast } from "sonner"
 import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
+import { type ModoFaseInterna, lembrarEscolhaModo, rotaFaseInternaFeitaFora, ultimaEscolhaModo } from '@/lib/fase-interna/criacao'
+import { OpcoesModoFaseInterna } from '@/components/fase-interna/externa/EscolhaModoFaseInterna'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -1227,6 +1229,8 @@ export default function DetalheDemandaPage() {
   const [limiteDispensa, setLimiteDispensa] = useState<number | null>(null)
   const [iniciando, setIniciando] = useState(false)
   const [prepararAutomatico, setPrepararAutomatico] = useState(true)
+  // Pergunta da criação: fase interna guiada aqui ou já feita fora (sugestão = última escolha)
+  const [modoFaseInterna, setModoFaseInterna] = useState<ModoFaseInterna | null>(null)
 
   useEffect(() => {
     if (!demanda?.id) return
@@ -1250,11 +1254,18 @@ export default function DetalheDemandaPage() {
     const total = (demanda?.itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
     // Sugestão: dentro do limite do art. 75 → dispensa; acima → pregão
     setModalidadeEscolhida(limiteDispensa != null && total > limiteDispensa ? 'PREGAO_ELETRONICO' : 'DISPENSA_ELETRONICA')
+    setModoFaseInterna(ultimaEscolhaModo())
     setModalIniciar(true)
   }
 
   const iniciarContratacao = async () => {
-    if (!demanda || !modalidadeEscolhida) return
+    if (!demanda || !modalidadeEscolhida || !modoFaseInterna) return
+    lembrarEscolhaModo(modoFaseInterna)
+    // Fase interna já feita fora: o fluxo curto (dados, itens e PDFs) com a demanda pré-carregada
+    if (modoFaseInterna === 'FORA') {
+      router.push(rotaFaseInternaFeitaFora({ modalidade: modalidadeEscolhida, demandaId: demanda.id }))
+      return
+    }
     setIniciando(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes/a-partir-de-demanda`, {
@@ -2023,7 +2034,10 @@ export default function DetalheDemandaPage() {
             )}
           </div>
 
+          <OpcoesModoFaseInterna valor={modoFaseInterna} onChange={setModoFaseInterna} modalidade={modalidadeEscolhida} compacto />
+
           {/* Modo co-work: o copiloto prepara o processo inteiro */}
+          {modoFaseInterna !== 'FORA' && (
           <label className="flex items-start gap-2.5 rounded-lg border border-[#c5d4eb] bg-[#f6f9fd] p-3 cursor-pointer">
             <input
               type="checkbox"
@@ -2040,11 +2054,12 @@ export default function DetalheDemandaPage() {
               </span>
             </span>
           </label>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setModalIniciar(false)} disabled={iniciando}>Cancelar</Button>
-            <Button onClick={iniciarContratacao} disabled={iniciando || !modalidadeEscolhida} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={iniciarContratacao} disabled={iniciando || !modalidadeEscolhida || !modoFaseInterna} className="bg-green-600 hover:bg-green-700">
               {iniciando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
-              Criar processo e abrir cockpit
+              {modoFaseInterna === 'FORA' ? 'Continuar: dados, itens e PDFs →' : 'Criar processo e abrir cockpit'}
             </Button>
           </div>
         </DialogContent>

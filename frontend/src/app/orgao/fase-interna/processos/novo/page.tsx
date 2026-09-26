@@ -13,7 +13,16 @@ import { API_URL, authFetch } from "@/lib/api"
 import { toast } from "sonner"
 import { CamposModalidadeEspecial, MODALIDADES_ESPECIAIS_WIZARD, salvarCamposModalidadeEspecial } from "@/components/modalidades/CamposModalidadeEspecial"
 import { ItensTab } from "@/components/cadastro-licitacao/ItensTab"
-import { UNIDADES, type ItemLicitacao } from "@/components/cadastro-licitacao/types"
+import { type ItemLicitacao } from "@/components/cadastro-licitacao/types"
+import {
+  CRITERIOS_POR_MODALIDADE as CRITERIOS_POR_MODALIDADE_CODIGO,
+  itemPreenchido,
+  lembrarEscolhaModo,
+  normalizarUnidade,
+  rotaFaseInternaFeitaFora,
+  valorDosItens,
+} from "@/lib/fase-interna/criacao"
+import { EscolhaModoFaseInterna } from "@/components/fase-interna/externa/EscolhaModoFaseInterna"
 
 function getOrgaoId(): string {
   if (typeof window === "undefined") return ""
@@ -155,22 +164,8 @@ const TIPO_DOCUMENTO_DA_ETAPA: Record<string, { tipo: string; titulo: string }> 
   juridico: { tipo: "PJ",  titulo: "Parecer jurídico" },
 }
 
-/** Unidade do item no enum do backend (catálogo/CSV podem trazer "UN", "KG"...). */
-function normalizarUnidade(u?: string): string {
-  const v = String(u || "").trim().toUpperCase()
-  if (UNIDADES.some((x) => x.value === v)) return v
-  const mapa: Record<string, string> = {
-    UN: "UNIDADE", UND: "UNIDADE", UNID: "UNIDADE", PC: "PECA", PCT: "PACOTE", CX: "CAIXA",
-    KG: "QUILOGRAMA", T: "TONELADA", L: "LITRO", LT: "LITRO", M: "METRO", M2: "METRO_QUADRADO",
-    M3: "METRO_CUBICO", H: "HORA", DIA: "DIARIA", RESMA: "PACOTE", SV: "SERVICO",
-  }
-  return mapa[v] || "UNIDADE"
-}
-
-/** Item do assistente pronto para gravar (tem descrição e quantidade). */
-const itemPreenchido = (i: ItemLicitacao) => (i.descricao || "").trim().length > 0 && Number(i.quantidade) > 0
-const valorDosItens = (itens: ItemLicitacao[]) =>
-  itens.reduce((s, i) => s + (Number(i.quantidade) || 0) * (Number(i.valor_unitario) || 0), 0)
+// normalizarUnidade, itemPreenchido e valorDosItens: @/lib/fase-interna/criacao
+// (os mesmos da entrada "fase interna feita fora")
 
 // ─── Etapas do wizard ──────────────────────────────────────────────
 const WIZARD_ETAPAS = [
@@ -440,14 +435,11 @@ function WizardSidebar({ etapas, current, completed, onJump, opcionais = [] }: {
 
 // Modalidades com licitação formal (critério + modo de disputa obrigatórios)
 const MODALIDADES_LICITACAO = ["Pregão Eletrônico", "Concorrência", "Concurso", "Leilão", "Diálogo Competitivo"]
-// Critérios compatíveis por modalidade
-const CRITERIOS_POR_MODALIDADE: Record<string, string[]> = {
-  "Pregão Eletrônico":   ["Menor preço", "Maior desconto"],
-  "Concorrência":        ["Menor preço", "Maior desconto", "Melhor técnica", "Técnica e preço", "Maior retorno econômico"],
-  "Concurso":            ["Melhor técnica"],
-  "Leilão":              ["Maior lance"],
-  "Diálogo Competitivo": ["Menor preço", "Maior desconto", "Melhor técnica", "Técnica e preço"],
-}
+// Critérios compatíveis por modalidade (tabela única em códigos — @/lib/fase-interna/criacao —
+// com os rótulos do assistente)
+const CRITERIOS_POR_MODALIDADE: Record<string, string[]> = Object.fromEntries(
+  Object.entries(CRITERIOS_POR_MODALIDADE_CODIGO).map(([m, cs]) => [desmapearModalidade(m), cs.map(desmapearCriterio)]),
+)
 
 // ─── Step: Dados básicos ───────────────────────────────────────────
 function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: string, v: string) => void; onNext: () => void }) {
@@ -1564,6 +1556,8 @@ export default function NovoProcessoPage() {
   const searchParams = useSearchParams()
   const processoId = searchParams.get("id")
   const stepParam = searchParams.get("step")
+  // Pergunta inicial (processo novo): guiado aqui ou fase interna já feita fora
+  const [modoGuiado, setModoGuiado] = useState(searchParams.get("modo") === "guiado")
   const [step, setStep] = useState(stepParam || "dados")
   const [completed, setCompleted] = useState<string[]>([])
   const [criando, setCriando] = useState(false)
@@ -2051,6 +2045,22 @@ export default function NovoProcessoPage() {
       ...(isContratacaoDireta && semTexto(docs.aviso) ? ["Aviso de Contratação Direta"] : []),
       ...(naoSeAplica.juridico || (isContratacaoDireta && !parecer.trim()) ? ["Parecer Jurídico"] : []),
     ]} />
+
+  // Antes do passo 1: "Como a fase interna deste processo foi feita?" (toda
+  // modalidade; destaque na dispensa). Guiado → este assistente; feita fora →
+  // o fluxo curto de 3 passos (dados, itens, documentos).
+  if (!processoId && !modoGuiado) {
+    return (
+      <EscolhaModoFaseInterna
+        modalidade={modalidadeParam}
+        onEscolher={(modo) => {
+          lembrarEscolhaModo(modo)
+          if (modo === "FORA") router.push(rotaFaseInternaFeitaFora({ modalidade: modalidadeParam }))
+          else setModoGuiado(true)
+        }}
+      />
+    )
+  }
 
   return (
     <div className="h-full flex flex-col">
