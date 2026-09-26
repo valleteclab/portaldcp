@@ -35,6 +35,14 @@ export class CreateLicitacaoDto {
   @IsNotEmpty()
   tipo_contratacao: TipoContratacao;
 
+  /**
+   * Fundamento legal (código `FundamentoLegal` — art. 28/74/75/78). Opcional:
+   * sem ele vale o padrão da modalidade. Conferido contra a modalidade no serviço.
+   */
+  @IsString()
+  @IsOptional()
+  fundamento_legal?: string | null;
+
   @IsEnum(CriterioJulgamento)
   @IsNotEmpty()
   criterio_julgamento: CriterioJulgamento;

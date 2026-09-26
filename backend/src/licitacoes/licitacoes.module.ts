@@ -24,6 +24,7 @@ import { ResultadoModule } from '../resultado/resultado.module';
 import { PortalFornecedorController } from './portal-fornecedor.controller';
 import { PortalFornecedorService } from './portal-fornecedor.service';
 import { MigracaoLegadoE9BootService } from './migracao-legado-e9-boot.service';
+import { MigracaoFundamentoLegalBootService } from './migracao-fundamento-legal-boot.service';
 
 @Module({
   imports: [
@@ -41,7 +42,7 @@ import { MigracaoLegadoE9BootService } from './migracao-legado-e9-boot.service';
     ResultadoModule,
   ],
   controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService],
+  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}

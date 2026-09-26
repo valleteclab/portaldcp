@@ -14,6 +14,7 @@ import {
   TIPO_DOCUMENTO,
 } from './dto/pncp.dto';
 import { falhaDefinitiva } from './fila/regras-fila';
+import { amparoPncpDoFundamento, fundamentoEfetivo, textoDoFundamento } from '../licitacoes/fundamento-legal';
 
 /**
  * ============================================================================
@@ -52,6 +53,8 @@ export interface LicitacaoParaPncp {
   data_abertura_sessao?: DataLike;
   /** Concurso (E7c): TECNICO | CIENTIFICO | ARTISTICO — ARTISTICO → critério "conteúdo artístico". */
   natureza_trabalho_concurso?: Texto;
+  /** Fundamento legal do processo (fonte única — licitacoes/fundamento-legal.ts). */
+  fundamento_legal?: Texto;
 }
 
 export interface ItemParaPncp {
@@ -140,49 +143,26 @@ export function modoDisputaIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'm
 }
 
 /**
- * Amparo legal (tabela "Amparo Legal"): art. 28 I–V por modalidade
- * licitatória; dispensa pelo art. 75 I (obras e serviços de engenharia) ou II
- * (demais compras e serviços) — os valores da dispensa eletrônica; outras
- * hipóteses do art. 75 exigem o inciso próprio (o sistema ainda não o grava);
- * inexigibilidade pelo art. 74 caput (a hipótese concreta vem do processo);
- * credenciamento (procedimento auxiliar) pelo art. 78 I.
+ * Amparo legal (tabela "Amparo Legal" do PNCP) — sai do FUNDAMENTO LEGAL do
+ * processo (`fundamento_legal`, fonte única — licitacoes/fundamento-legal.ts).
+ * Processo sem o campo (ou com código incompatível com a modalidade) usa o
+ * padrão de sempre: art. 28 I–V por modalidade; dispensa pelo art. 75 I (obra
+ * e engenharia) ou II; inexigibilidade pelo art. 74 caput; credenciamento pelo
+ * art. 78 I.
  */
-export function amparoLegalIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'tipo_contratacao'>): number {
-  const m = up(lic.modalidade);
-  if (m.startsWith('PREGAO')) return 1; // art. 28, I
-  if (m.startsWith('CONCORRENCIA')) return 2; // art. 28, II
-  if (m === 'CONCURSO') return 3; // art. 28, III
-  if (m.startsWith('LEILAO')) return 4; // art. 28, IV
-  if (m === 'DIALOGO_COMPETITIVO') return 5; // art. 28, V
-  if (m.startsWith('DISPENSA')) {
-    const tc = up(lic.tipo_contratacao);
-    return tc.includes('OBRA') || tc.includes('ENGENHARIA') ? 18 : 19; // art. 75, I | II
-  }
-  if (m === 'INEXIGIBILIDADE') return 50; // art. 74, caput
-  if (m === 'CREDENCIAMENTO') return 47; // art. 78, I
-  throw falhaDefinitiva(`Amparo legal não definido para a modalidade ${lic.modalidade}`);
+export function amparoLegalIdPncp(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'tipo_contratacao' | 'fundamento_legal'>): number {
+  const id = amparoPncpDoFundamento(fundamentoEfetivo(lic));
+  if (id === null) throw falhaDefinitiva(`Amparo legal não definido para a modalidade ${lic.modalidade}`);
+  return id;
 }
 
 /**
- * Fundamento legal em texto (tela do processo) — o MESMO enquadramento que
- * vai ao PNCP em `amparoLegalIdPncp` (sem lançar erro: modalidade sem
- * amparo definido devolve null).
+ * Fundamento legal em texto (tela do processo, peças, aviso) — o MESMO
+ * enquadramento que vai ao PNCP em `amparoLegalIdPncp` (sem lançar erro:
+ * modalidade sem amparo definido devolve null).
  */
-export function fundamentoLegalTexto(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'tipo_contratacao'>): string | null {
-  const m = up(lic.modalidade);
-  const lei = 'Lei 14.133/2021';
-  if (m.startsWith('PREGAO')) return `${lei}, art. 28, I`;
-  if (m.startsWith('CONCORRENCIA')) return `${lei}, art. 28, II`;
-  if (m === 'CONCURSO') return `${lei}, art. 28, III`;
-  if (m.startsWith('LEILAO')) return `${lei}, art. 28, IV`;
-  if (m === 'DIALOGO_COMPETITIVO') return `${lei}, art. 28, V`;
-  if (m.startsWith('DISPENSA')) {
-    const tc = up(lic.tipo_contratacao);
-    return tc.includes('OBRA') || tc.includes('ENGENHARIA') ? `${lei}, art. 75, I` : `${lei}, art. 75, II`;
-  }
-  if (m === 'INEXIGIBILIDADE') return `${lei}, art. 74, caput`;
-  if (m === 'CREDENCIAMENTO') return `${lei}, art. 78, I`;
-  return null;
+export function fundamentoLegalTexto(lic: Pick<LicitacaoParaPncp, 'modalidade' | 'tipo_contratacao' | 'fundamento_legal'>): string | null {
+  return textoDoFundamento(fundamentoEfetivo(lic));
 }
 
 /** Critério de julgamento do item (art. 33) — contratação direta sem disputa: "não se aplica". */

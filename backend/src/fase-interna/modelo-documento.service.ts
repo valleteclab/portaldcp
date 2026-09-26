@@ -1,3 +1,4 @@
+import { definicaoDoFundamento, fundamentoEfetivo, textoDoFundamento } from '../licitacoes/fundamento-legal';
 import {
   Injectable,
   Logger,
@@ -28,6 +29,14 @@ import {
  * Resolução: modelo ativo do órgão para o tipo → modelo padrão do sistema.
  * O seed dos modelos padrão roda no bootstrap (idempotente).
  */
+/**
+ * Textos padrão ANTIGOS de seções de modelos do sistema (substituídos pela
+ * versão que lê o fundamento legal do processo — Entrega 1 da fase interna).
+ */
+const TEXTOS_PADRAO_LEGADOS: string[] = [
+  '<p>Considerando a instrução do Processo Administrativo nº {{licitacao.numero_processo}}, AUTORIZO a abertura do procedimento licitatório destinado a {{licitacao.objeto}}, nos termos do Art. 18, II, da Lei nº 14.133/2021.</p><p>{{orgao.cidade}}, {{data_atual}}.</p>',
+];
+
 @Injectable()
 export class ModeloDocumentoService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ModeloDocumentoService.name);
@@ -59,7 +68,21 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
       const existente = await this.modeloRepo.findOne({
         where: { orgao_id: IsNull(), tipo: def.tipo, padrao_sistema: true },
       });
-      if (existente) continue;
+      if (existente) {
+        // Modelo do SISTEMA já semeado: o texto padrão de uma seção acompanha o
+        // código quando ainda é o texto antigo do sistema (ou vazio) — o órgão
+        // que personalizou tem modelo próprio (orgao_id) e não é tocado.
+        let mudou = false;
+        const secoes = (existente.secoes || []).map((sec) => {
+          const def_sec = def.secoes.find((d) => d.id === sec.id);
+          if (!def_sec?.texto_padrao || sec.texto_padrao === def_sec.texto_padrao) return sec;
+          if (sec.texto_padrao && !TEXTOS_PADRAO_LEGADOS.includes(sec.texto_padrao)) return sec;
+          mudou = true;
+          return { ...sec, texto_padrao: def_sec.texto_padrao };
+        });
+        if (mudou) await this.modeloRepo.update(existente.id, { secoes });
+        continue;
+      }
       await this.modeloRepo.save(
         this.modeloRepo.create({
           orgao_id: null as any,
@@ -227,6 +250,9 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
       'licitacao.numero_edital': licitacao.numero_edital || '',
       'licitacao.objeto': licitacao.objeto || '',
       'licitacao.modalidade': String(licitacao.modalidade || ''),
+      // Fundamento legal: fonte única do processo (nunca texto livre da peça)
+      'licitacao.fundamento_legal': textoDoFundamento(fundamentoEfetivo(licitacao)) || '',
+      'licitacao.fundamento_referencia': definicaoDoFundamento(fundamentoEfetivo(licitacao))?.referencia || '',
       'licitacao.valor_estimado': valor
         ? valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
         : '',

@@ -111,7 +111,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
     fundamento_legal: 'Art. 18, II · Lei 14.133/2021',
     intro: 'Ato formal da autoridade competente autorizando o início da fase externa da licitação.',
     secoes: [
-      { id: 'autorizacao', titulo: 'Autorização da Autoridade Competente', placeholder: 'Autorização formal da autoridade competente para abertura da licitação…', obrigatorio: true, fundamento_legal: 'Art. 18, II', rows: 6, texto_padrao: '<p>Considerando a instrução do Processo Administrativo nº {{licitacao.numero_processo}}, AUTORIZO a abertura do procedimento licitatório destinado a {{licitacao.objeto}}, nos termos do Art. 18, II, da Lei nº 14.133/2021.</p><p>{{orgao.cidade}}, {{data_atual}}.</p>' },
+      { id: 'autorizacao', titulo: 'Autorização da Autoridade Competente', placeholder: 'Autorização formal da autoridade competente para abertura da licitação…', obrigatorio: true, fundamento_legal: 'Art. 18, II', rows: 6, texto_padrao: '<p>Considerando a instrução do Processo Administrativo nº {{licitacao.numero_processo}}, AUTORIZO a abertura do procedimento destinado a {{licitacao.objeto}}, com fundamento na {{licitacao.fundamento_legal}}.</p><p>{{orgao.cidade}}, {{data_atual}}.</p>' },
     ],
   },
   {
@@ -130,7 +130,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
     intro:
       'Publicação obrigatória no PNCP e no Diário Oficial para contratações por dispensa eletrônica ou inexigibilidade. Substitui a minuta do edital nestes casos.',
     secoes: [
-      { id: 'amparo_legal', titulo: '1. Amparo legal', placeholder: 'Fundamento legal da contratação direta. Ex: Art. 75, I – valor abaixo do limite…', obrigatorio: true, fundamento_legal: 'Art. 74–75' },
+      { id: 'amparo_legal', titulo: '1. Amparo legal', placeholder: 'Fundamento legal da contratação direta — vem do campo "Fundamento legal" do processo…', obrigatorio: true, fundamento_legal: 'Art. 74–75', texto_padrao: '<p>Contratação direta com fundamento na {{licitacao.fundamento_legal}}.</p>' },
       { id: 'objeto_contratacao', titulo: '2. Objeto da contratação', placeholder: 'Descrição objetiva do bem, serviço ou obra…', obrigatorio: true, fundamento_legal: 'Art. 75' },
       { id: 'justificativa', titulo: '3. Justificativa da contratação direta', placeholder: 'Razões fáticas e jurídicas que enquadram a contratação na hipótese de dispensa ou inexigibilidade…', obrigatorio: true, fundamento_legal: 'Art. 72, VII', rows: 4 },
       { id: 'caracterizacao', titulo: '4. Caracterização da situação e escolha do fornecedor', placeholder: 'Demonstração objetiva do enquadramento legal, cotações realizadas e escolha do fornecedor…', obrigatorio: true, fundamento_legal: 'Art. 72, VII' },
