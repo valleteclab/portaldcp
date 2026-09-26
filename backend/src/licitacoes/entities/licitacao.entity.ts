@@ -652,6 +652,17 @@ export class Licitacao {
   preparacao_automatica: any;
 
   /**
+   * FASE INTERNA FEITA FORA DO SISTEMA (entrada "já tenho os documentos"):
+   * { modo: 'EXTERNA' (criado pelo fluxo curto) | 'MISTA' (começou guiado e
+   * juntou documentos feitos fora), por_id, por_nome, em, area_demandante,
+   * juntadas: [{ tipo, em, por_nome }], pendencias: [{ tipo, titulo, arquivo,
+   * erro, em }] }. NULL = fase interna feita no sistema (guiada). jsonb SEM
+   * default (o synchronize recriaria a coluna).
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  fase_interna_externa: Record<string, any> | null;
+
+  /**
    * Prorrogação automática da janela de lances (minutos). Lance recebido nos
    * últimos N minutos empurra o fim para +N minutos, sucessivamente (modelo do
    * modo de disputa aberto, art. 56 §1º da Lei 14.133 — a IN 67/2021 federal

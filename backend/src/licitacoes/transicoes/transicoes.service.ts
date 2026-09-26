@@ -380,6 +380,8 @@ export class TransicoesService {
       if (d.meio === 'DIARIO_OFICIAL' && d.referencia) resumo.push(`Publicação no diário oficial: ${d.referencia}`);
       else if (l.ato === AtoLicitacao.CONFIRMAR_DIVULGACAO && d.referencia) resumo.push(`Número de controle PNCP: ${d.referencia}`);
       if (dados.rollup) resumo.push('Roll-up automático dos itens');
+      // Entrada "fase interna feita fora": a escolha fica no ato de criação
+      if (dados.fase_interna === 'EXTERNA') resumo.push('Fase interna feita fora do sistema — documentos anexados');
       return {
         ...l,
         rotulo_ato: rotuloDoAto(lic?.modalidade, l.ato),

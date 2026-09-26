@@ -1,7 +1,7 @@
 # Plano — Fase interna simples, guiada e "feita aqui ou anexada"
 
 > 26/09/2026 · Referência real: Câmara Municipal de Luís Eduardo Magalhães — autos da Dispensa 003/2025 (PA 005/2025) e das Inexigibilidades 004/2025 (PA 033/2025) e 008/2025 (PA 043/2025), e o regulamento próprio da Lei 14.133 (**Portaria 089/2024**).
-> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** (PR #509, ver §9). **Entrega 3B (autorização no celular, minutas e relatório do agente, parecer com diligências, controle interno opcional) concluída** (PR #510, ver §10). **Entrega 4 (motor de conformidade e portões A, B e C) concluída** (PR #511, ver §11). **Entrega 5 (publicação e dispensa com/sem lances) concluída** e **Entrega 6 (autos em PDF com folhas numeradas) concluída** na branch `claude/fase-interna-e5` (ver §12 e §13). Entrega 7 pendente.
+> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** (PR #509, ver §9). **Entrega 3B (autorização no celular, minutas e relatório do agente, parecer com diligências, controle interno opcional) concluída** (PR #510, ver §10). **Entrega 4 (motor de conformidade e portões A, B e C) concluída** (PR #511, ver §11). **Entrega 5 (publicação e dispensa com/sem lances) concluída** e **Entrega 6 (autos em PDF com folhas numeradas) concluída** na branch `claude/fase-interna-e5` (ver §12 e §13). **Entrada "fase interna feita fora" (F3) concluída** na branch `claude/fase-interna-feita-fora` (ver §14). Entrega 7 pendente.
 
 ## 1. O problema
 
@@ -955,6 +955,80 @@ fase-interna-e1 (26), fase-interna-e2 (19), fase-interna-e3a (14), fase-interna-
 - **Volumes** (autos acima de ~200 folhas divididos em volumes com termos próprios) — o PDF é único.
 - **Extrato do contrato** gerado pelo sistema (não existe gerador; entra quando anexado).
 - Fila **persistente** (a montagem em segundo plano vive na memória do processo Node; se o servidor reiniciar no meio, a próxima solicitação monta de novo — o cache em disco sobrevive).
+
+## 14. Entrada: fase interna feita fora — CONCLUÍDA (26/09/2026)
+
+Branch `claude/fase-interna-feita-fora` (a partir do main com as Entregas 1 a 6). Sem push/PR nesta etapa. Commits: `cea9a486` (backend), `bbe70992` (frontend) e o desta documentação.
+
+**O problema (relato do dono, no Railway):** "Novo processo" › "Nova dispensa" caía direto no assistente de 11 passos, sem onde dizer que a fase interna já tinha sido feita fora. Era a F3 do plano original ("Já tenho a fase interna pronta"), que tinha ficado de fora da nova ordem de entregas. O anexo por peça existia (E1), mas só atravessando o assistente.
+
+### 14.1 O que foi feito
+
+**1. Pergunta inicial em toda criação** — "Como a fase interna deste processo foi feita?":
+- **"Vou fazer aqui no Portal DCP (guiado)"** → o assistente atual, sem mudança;
+- **"Já foi feita fora — tenho os documentos (PDF)"** → o fluxo curto.
+- Aparece antes do passo 1 do assistente (`/orgao/fase-interna/processos/novo`, toda modalidade; na dispensa, aviso e etiqueta "comum na dispensa") e nas duas criações a partir de demanda (diálogo da lista de processos e "Iniciar contratação" da demanda). A última escolha fica marcada como sugestão (`localStorage` do navegador), sem pular a pergunta. `?modo=guiado` abre o assistente direto (link "Prefiro fazer aqui" do fluxo curto).
+
+**2. Fluxo curto "feita fora"** — `/orgao/fase-interna/processos/novo/externa` (`?modalidade=`, `?demanda_id=`), uma tela com 3 passos (modelo BLL/BBMNET/Licitanet):
+1. **Dados:** modalidade, natureza, `fundamento_legal` (as opções da modalidade — mesmo endpoint de "Editar processo"), critério e modo de disputa (licitação), objeto, nº do processo administrativo (obrigatório) e da dispensa/licitação (`numero_edital`), área demandante, **disputa da dispensa** (as mesmas opções/rótulos de `OPCOES_MODO_DISPUTA`, marcado o padrão sugerido do órgão) e **sigilo** (art. 24, justificativa ≥ 20 — `motivoSigiloInvalido`, regra única com a tela das minutas). Leilão/concurso/diálogo: os campos da modalidade (`CamposModalidadeEspecial`), gravados logo depois da criação como no assistente.
+2. **Itens:** o mesmo `ItensTab` (catálogo, planilha, digitação), com **unidade e valor unitário obrigatórios** (decisão 2).
+3. **Documentos:** vários PDFs (arrastar e soltar); por arquivo, **qual peça é** (18 opções — `OPCOES_PECA_EXTERNA`) e **número, data do documento (obrigatória, não futura) e signatários** — os campos do "Anexar PDF" da E1, extraídos para `CamposMetadadosPeca` e usados pelos dois. "Não se aplica" com justificativa onde a lei permite, "usar a portaria do órgão" na DP e, ao lado, o **checklist do art. 72 / art. 18 incremental** (calculado no backend).
+- Demanda de origem: objeto, área e itens pré-carregados; a criação confere a demanda de novo (`demandaParaProcesso`, extraída de `criarAPartirDeDemanda`) e a passa a "Em contratação".
+
+**3. Uma operação só, sem processo pela metade sem aviso** (`FaseInternaExternaService`):
+- **Tudo conferido antes de gravar**: dados (e as mesmas regras da criação — fundamento × modalidade, critério × modalidade, modo × critério; nº do processo repetido), itens (unidade, valor, item do PCA só do órgão), cada PDF (a mesma `validarPdf` do anexo), a classificação (arquivo sem peça, duas vezes, dois arquivos para a mesma peça, data, "não se aplica" onde a lei não permite ou sem justificativa, PDF da portaria + "usar a do órgão") e o **art. 72 antes do despacho** (`portaoBArt72`: despacho classificado sem DFD, ETP, riscos, TR, pesquisa e informação orçamentária prontos ou "não se aplica"). Erro → 400 com `erros` e `passo`; **nada é gravado**; a tela volta ao passo.
+- Processo + itens + disputa + sigilo: falha inesperada **desfaz a criação** (apaga o processo, histórico e itens; a demanda volta à situação anterior). Se o desfazer falhar, o erro diz qual processo sobrou.
+- Peças juntadas uma a uma, na **ordem lógica** (o despacho depois do que o portão B exige). A que falhar no meio (ex.: despacho barrado pelo **LIM-01** — limite da dispensa no portão B) vira **pendência**: devolvida na resposta (tela de resultado com "Tentar de novo as pendências", mesmos arquivos) e registrada no processo (`fase_interna_externa.pendencias`); o quadro "Fluxo da fase interna" as mostra com "Juntar de novo". A pendência some quando a peça fica pronta por qualquer caminho.
+- Tudo pelos caminhos que já existiam: anexo da E1 (`JuntadaPecasService.anexar` — **extraído do controller** para ser um caminho só, com os efeitos da E3A/E3B: renovação de dotação, devolução da autorização, retorno à Procuradoria), `marcarNaoSeAplica`, `vincularPortaria`, `definirModoDisputa`, `salvarSigilo`, `LicitacoesService.create`.
+
+**4. Tarefas da E2 nascem concluídas** — gatilho conferido: sem mudança, a sincronização criava a tarefa do DFD aberta (e notificava), e os passos cumpridos sem tarefa aberta nunca ganhavam tarefa. Agora a agenda das tarefas do processo fica **suspensa** durante a juntada (`TarefasService.suspender/retomar`; o id do processo novo é gerado antes da criação para suspender já no insert), roda uma vez no fim e `registrarPassosCumpridosFora` grava as tarefas dos passos CONCLUÍDOS que nunca tiveram tarefa **já concluídas** (quem cumpriu = quem juntou/marcou "não se aplica"; log `TAREFA_CONCLUIDA` "peça feita fora do sistema, juntada ao processo"; sem notificação). Regra pura `passosCumpridosSemTarefa` (nunca a publicação; idempotente). Os passos que faltam ficam com tarefa aberta, como sempre.
+
+**5. Processo já criado pelo assistente** — no quadro "Fluxo da fase interna", **"Juntar documentos feitos fora (vários PDFs)"** abre o mesmo passo 3 (`JuntarDocumentosDialog`), com o checklist considerando o que o processo já tem (peça pronta ganha versão nova; "não se aplica" de peça pronta é recusado).
+
+**6. Histórico e etiqueta** — coluna `licitacoes.fase_interna_externa` (jsonb, nullable, sem default): `{ modo: EXTERNA | MISTA, por_id, por_nome, em, area_demandante, juntadas, pendencias }` (o `PUT /licitacoes/:id` genérico e o corpo do `POST /licitacoes` não a alteram). O ato **CRIAR** grava `{ fase_interna: 'EXTERNA' }` e o histórico do processo mostra "Fase interna feita fora do sistema — documentos anexados" com quem e quando; cada juntada grava `DOCUMENTO_IMPORTADO` no log da fase interna (peças, "não se aplica", pendências). Etiqueta discreta no cabeçalho do processo: **"Fase interna externa (documentos anexados)"** ou **"Fase interna mista (parte anexada)"** (`processo-completo.licitacao.fase_interna_externa`). A área demandante vai para `_dfd.unidade_requisitante_nome` do DFD juntado (capa dos autos e cartão da autorização).
+
+**7. Refatoração sem mudança de regra** — o checklist da instrução saiu de dentro do `FaseInternaService` para `documentos-obrigatorios.ts` (`CHECKLIST_CONTRATACAO_DIRETA`, `MODALIDADES_CONTRATACAO_DIRETA`, `linhasDoChecklist` — fonte única do `getInstrucao` e da entrada "feita fora", antes de o processo existir). No frontend, `normalizarUnidade`, `itemPreenchido`, `valorDosItens` e a tabela critério × modalidade foram para `lib/fase-interna/criacao.ts` (o assistente usa a mesma).
+
+**Gancho da Entrega 7** — `sugerirPecaDoArquivo(arquivo)` em `lib/fase-interna/criacao.ts` (hoje devolve `null`); a tela já mostra "Sugestão automática: … — confira" ao lado do select quando houver.
+
+### 14.2 Endpoints
+
+| Método e rota | Quem | Isolamento (e2e) |
+|---|---|---|
+| `POST /fase-interna/externa/checklist` `{ modalidade, classificadas, nao_se_aplica, usar_portaria_orgao }` | órgão (do token) | fornecedor 403; anônimo 401 |
+| `POST /fase-interna/externa/processo` (multipart: `dados` JSON com itens e `classificacao`; `arquivos`) | órgão — o processo é SEMPRE do órgão do token (admin da plataforma informa `orgao_id`) | fornecedor 403 e anônimo 401 (nada gravado); órgão B criando com `orgao_id` de A → nasce em B; demanda de outro órgão 400 |
+| `GET /fase-interna/:id/externa` | órgão dono | outro órgão 404; fornecedor 403; anônimo 401 |
+| `POST /fase-interna/:id/externa/checklist` | órgão dono | 403 / 403 / 401 |
+| `POST /fase-interna/:id/externa/documentos` (multipart: `classificacao`, `arquivos`) | órgão dono; só na fase interna (409 depois) | outro órgão 403 (nada gravado); fornecedor 403; anônimo 401 |
+
+Reaproveitados (sem mudança de contrato): `POST /fase-interna/:id/documentos/:tipo/anexo` (agora pelo `JuntadaPecasService`), `POST …/instrucao/:tipo/nao-se-aplica`, `POST …/portaria-designacao`, `PUT …/modo-disputa`, `PUT …/minutas/sigilo`, `GET /parametros-licitacao/fundamentos-legais`. Alterado: `GET /licitacoes/:id/processo-completo` (+`fase_interna_externa`), `GET /licitacoes/:id/transicoes` (resumo do CRIAR). Limites: `FASE_INTERNA_EXTERNA_MAX_ARQUIVOS` (30 por envio), `FASE_INTERNA_EXTERNA_MAX_TOTAL_MB` (200) e o `FASE_INTERNA_ANEXO_MAX_MB` por arquivo.
+
+### 14.3 Entidades e migração
+
+Coluna nova `licitacoes.fase_interna_externa` (jsonb, nullable, `type:` explícito, sem default). Nenhum valor novo em enum (log reaproveita `DOCUMENTO_IMPORTADO` e `TAREFA_CONCLUIDA`). **Nenhuma migração de boot**: processo antigo = NULL = fase interna feita no sistema.
+
+### 14.4 Decisões
+
+- **Pendência em vez de transação única:** o anexo da E1 grava arquivo, versão, folhas e aciona portões e efeitos em transações próprias; amarrar tudo numa transação só exigiria reescrever o anexo. O que é previsível é conferido antes (nada gravado); o que só se sabe na hora (portão B pelo limite, que depende da soma do órgão no exercício) vira pendência registrada e retomável. Processo e itens, esses sim, são desfeitos se falharem.
+- **Portão B conferido duas vezes:** o art. 72 (I, II, IV) no plano, antes de gravar (a tela também avisa); o motor completo (inclui o limite) na juntada do despacho, como em qualquer anexo.
+- **"Outro documento" (OUT) uma vez por envio:** a peça tem uma versão atual por tipo — dois arquivos para a mesma peça são recusados ("junte num PDF só").
+- **ETP e riscos são o mesmo passo** (E2): na dispensa, com o ETP "não se aplica", a análise de riscos também precisa estar pronta ou "não se aplica" para o despacho (portão B). O e2e do cenário do dono (6 PDFs + ETP "não se aplica") marca os dois.
+- **Etiqueta MISTA** para o processo guiado que juntou documentos feitos fora (não se perde a informação de que começou no sistema).
+- **Área demandante como texto** (vai para o `_dfd` do DFD juntado; casa com o setor do órgão pelo nome quando existe).
+
+### 14.5 Testes
+
+- **Unitários novos:** `externa/externa-regras.spec.ts` (15 — mapeamento arquivo → peça: ordem lógica, arquivo sem peça/duplicado/desconhecido, dois arquivos para a mesma peça, data ausente/futura, "não se aplica" permitido/obrigatória/sem justificativa/junto com PDF, rito completo, art. 72 antes do despacho, processo existente, portaria do órgão; checklist incremental; dados e itens) e `tarefa-regras.spec.ts` (`passosCumpridosSemTarefa`). Suíte da fase interna: 14 suítes / 185 testes, passando.
+- **E2E novo** `test/fase-interna-externa.e2e-spec.ts` (18): criar com 2 itens e 6 PDFs (DFD, TR, mapa, informação orçamentária, despacho, parecer) + ETP e riscos "não se aplica" → processo, itens, peças no checklist (anexadas com nº/data/signatários/folhas; área no DFD), **tarefas nascidas concluídas** (nenhuma criada aberta para os passos cumpridos), histórico (CRIAR e log), etiqueta, **conformidade roda**; recusas sem gravar (data futura, não-PDF por conteúdo e por extensão, despacho sem o art. 72, item sem unidade/valor, nº repetido); **falha no meio**: despacho barrado pelo LIM-01 → pendência registrada, retomada resolve; falha inesperada nos itens → nada sobra e a demanda volta; **juntar num processo do assistente** (tarefa aberta conclui, demais nascem concluídas, MISTA; divulgado 409); demanda de origem; **isolamento** de todos os endpoints novos.
+- **E2E afetados** (arquivo a arquivo, todos passando): fase-interna-e1 (26), fase-interna-e2 (19), fase-interna-e4 (17), fase-interna-e5 (19), dispensa-eletronica (45), assistente-itens (12).
+- **Frontend:** `npx tsc --noEmit` limpo; eslint limpo nos arquivos novos; `next build` concluído sem erro (rota nova `/orgao/fase-interna/processos/novo/externa` compilada).
+
+### 14.6 Fica para depois
+
+- **Entrega 7:** a IA sugerindo a peça de cada PDF (o gancho está pronto) e conferindo a consistência entre as peças anexadas.
+- Mais de um "outro documento" por envio (hoje: juntar num PDF só).
+- Cadastro/listagem de portarias na tela de configuração do órgão (continua pela API + "usar a portaria do órgão").
+- Retomada das pendências guardando os PDFs no servidor (hoje a retomada reenvia os arquivos — na mesma tela, ou de novo pelo "Juntar documentos").
 
 ## 6. Riscos e cuidados
 

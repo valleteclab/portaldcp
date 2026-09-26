@@ -146,7 +146,17 @@ export class LicitacoesService {
   }
 
   // === CRUD ===
-  async create(createDto: CreateLicitacaoDto, ator: AtorTransicao = atorSistema('api')): Promise<Licitacao> {
+  /**
+   * `opcoes` (entrada "fase interna feita fora"): `id` pré-gerado (a agenda
+   * das tarefas do processo é suspensa antes de o processo existir), a demanda
+   * de origem (já conferida por `demandaParaProcesso`) e o registro do ato
+   * CRIAR (histórico: "fase interna feita fora do sistema").
+   */
+  async create(
+    createDto: CreateLicitacaoDto,
+    ator: AtorTransicao = atorSistema('api'),
+    opcoes: { id?: string; demanda_id?: string | null; registro?: Record<string, any>; fase_interna_externa?: Record<string, any> | null } = {},
+  ): Promise<Licitacao> {
     // Modo de disputa × critério de julgamento (Lei 14.133 art. 56 §§1º e 2º)
     const vedacao = motivoModoCriterioInvalido(createDto.modo_disputa, createDto.criterio_julgamento);
     if (vedacao) throw new BadRequestException(vedacao);
@@ -195,6 +205,10 @@ export class LicitacoesService {
     if (vedacaoFundamento) throw new BadRequestException(vedacaoFundamento);
     const licitacao = this.licitacaoRepository.create({
       ...createDto,
+      ...(opcoes.id ? { id: opcoes.id } : {}),
+      ...(opcoes.demanda_id ? { demanda_id: opcoes.demanda_id } : {}),
+      // só pela entrada "fase interna feita fora" (nunca pelo corpo do POST)
+      fase_interna_externa: opcoes.fase_interna_externa ?? null,
       fundamento_legal: createDto.fundamento_legal || fundamentoPadrao(createDto.modalidade, createDto.tipo_contratacao),
       ano,
       sequencial: count + 1,
@@ -208,13 +222,51 @@ export class LicitacoesService {
     Object.assign(licitacao, beneficioMpe);
 
     const salva = await this.licitacaoRepository.save(licitacao);
-    await this.transicoes.registrarCriacao(salva, ator);
+    await this.transicoes.registrarCriacao(salva, ator, undefined, opcoes.registro);
     // E6.5: vinculada ao item do PCA → item LICITACAO_INICIADA
     if (salva.item_pca_id || salva.demanda_id) await this.resultado.aoCriarProcesso(salva.id);
     return salva;
   }
 
   // === CRIAÇÃO A PARTIR DE DEMANDA APROVADA ===
+  /**
+   * Demanda que pode originar um processo: do órgão do ator (outro órgão → 404,
+   * sem confirmar que existe), APROVADA ou CONSOLIDADA e que ainda não originou
+   * processo (409). Usada pela criação a partir da demanda (guiada) e pela
+   * entrada "fase interna feita fora".
+   */
+  async demandaParaProcesso(demandaId: string, orgaoIdDoAtor?: string | null): Promise<Demanda> {
+    const demanda = await this.demandaRepository.findOne({
+      where: { id: demandaId },
+      relations: ['itens'],
+    });
+
+    if (!demanda || (orgaoIdDoAtor && demanda.orgao_id !== orgaoIdDoAtor)) {
+      throw new NotFoundException('Demanda não encontrada');
+    }
+
+    // Exige status APROVADA ou CONSOLIDADA
+    if (
+      demanda.status !== StatusDemanda.APROVADA &&
+      demanda.status !== StatusDemanda.CONSOLIDADA
+    ) {
+      throw new BadRequestException(
+        'Apenas demandas aprovadas podem originar um processo',
+      );
+    }
+
+    // Uma demanda origina UM processo — evita duplicar por clique repetido
+    const jaExiste = await this.licitacaoRepository.findOne({
+      where: { demanda_id: demandaId },
+    });
+    if (jaExiste) {
+      throw new ConflictException(
+        `Esta demanda já originou o processo ${jaExiste.numero_processo}`,
+      );
+    }
+    return demanda;
+  }
+
   /**
    * Mapeia a string livre de unidade de medida usada nas demandas
    * para o enum UnidadeMedida usado nos itens da licitação.
@@ -279,35 +331,8 @@ export class LicitacoesService {
     orgaoIdDoAtor?: string | null,
     ator: AtorTransicao = atorSistema('api'),
   ): Promise<Licitacao> {
-    // 1. Carrega a demanda com itens
-    const demanda = await this.demandaRepository.findOne({
-      where: { id: dto.demanda_id },
-      relations: ['itens'],
-    });
-
-    if (!demanda || (orgaoIdDoAtor && demanda.orgao_id !== orgaoIdDoAtor)) {
-      throw new NotFoundException('Demanda não encontrada');
-    }
-
-    // 2. Exige status APROVADA ou CONSOLIDADA
-    if (
-      demanda.status !== StatusDemanda.APROVADA &&
-      demanda.status !== StatusDemanda.CONSOLIDADA
-    ) {
-      throw new BadRequestException(
-        'Apenas demandas aprovadas podem originar um processo',
-      );
-    }
-
-    // Uma demanda origina UM processo — evita duplicar por clique repetido
-    const jaExiste = await this.licitacaoRepository.findOne({
-      where: { demanda_id: dto.demanda_id },
-    });
-    if (jaExiste) {
-      throw new ConflictException(
-        `Esta demanda já originou o processo ${jaExiste.numero_processo}`,
-      );
-    }
+    // 1–2. Demanda do órgão, aprovada e ainda sem processo
+    const demanda = await this.demandaParaProcesso(dto.demanda_id, orgaoIdDoAtor);
 
     const itens = demanda.itens || [];
 
@@ -551,7 +576,8 @@ export class LicitacoesService {
     // (gate documental, E1.7) ou o PUBLICAR a marcam.
     // `dispensa_com_lances`: só pela escolha própria (PUT /fase-interna/:id/modo-disputa),
     // que confere a fase, registra quem escolheu e não deixa mudar depois de publicar.
-    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao', 'dispensa_com_lances']) {
+    // `fase_interna_externa`: só pela entrada/juntada da fase interna feita fora.
+    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao', 'dispensa_com_lances', 'fase_interna_externa']) {
       delete dadosLicitacao[campo];
     }
 
@@ -1209,6 +1235,10 @@ export class LicitacoesService {
         link_pncp: compraPncp?.link_pncp ?? licitacao.link_pncp ?? null,
         numero_controle_pncp: compraPncp?.numero_controle_pncp ?? null,
         preparacao_automatica: licitacao.preparacao_automatica ?? null,
+        // Fase interna feita fora do sistema (etiqueta no cabeçalho do processo)
+        fase_interna_externa: licitacao.fase_interna_externa
+          ? { modo: licitacao.fase_interna_externa.modo ?? 'EXTERNA', por_nome: licitacao.fase_interna_externa.por_nome ?? null, em: licitacao.fase_interna_externa.em ?? null }
+          : null,
         // Cabeçalho e "Dados da contratação" (Etapa B)
         created_at: licitacao.created_at,
         data_publicacao_edital: licitacao.data_publicacao_edital ?? null,

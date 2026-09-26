@@ -10,7 +10,9 @@
  * Fonte: GET /api/fase-interna/:id/etapas.
  */
 import { useCallback, useEffect, useState } from "react"
-import { CheckCircle2, ChevronDown, ChevronUp, Circle, CircleDashed, Clock, MinusCircle, XCircle } from "lucide-react"
+import { CheckCircle2, ChevronDown, ChevronUp, Circle, CircleDashed, Clock, FileStack, MinusCircle, XCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { JuntarDocumentosDialog } from "@/components/fase-interna/externa/JuntarDocumentosDialog"
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas, fmtDia, rotuloPrazo, type TarefaTela } from "@/lib/tarefas"
 import Link from "next/link"
@@ -92,8 +94,18 @@ function IconeSituacao({ s }: { s: EtapaTela["situacao"] }) {
   return <CircleDashed className={`${cls} text-slate-400`} aria-hidden="true" />
 }
 
-export function FluxoFaseInterna({ licitacaoId, atualizacao }: { licitacaoId: string; atualizacao?: unknown }) {
+/** Fase interna feita fora (GET /api/fase-interna/:id/externa): pendências da juntada ainda abertas. */
+interface SituacaoExterna {
+  externa: boolean
+  modo: "EXTERNA" | "MISTA" | null
+  pendencias: Array<{ tipo: string; titulo: string; arquivo: string | null; erro: string }>
+  pode_juntar: boolean
+}
+
+export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { licitacaoId: string; atualizacao?: unknown; onAtualizado?: () => void }) {
   const [dados, setDados] = useState<EtapasResposta | null>(null)
+  const [externa, setExterna] = useState<SituacaoExterna | null>(null)
+  const [juntando, setJuntando] = useState(false)
   const [aberto, setAberto] = useState<string | null>(null)
   const [historico, setHistorico] = useState(false)
   const [conformidade, setConformidade] = useState<ResumoConformidade | null>(null)
@@ -107,6 +119,8 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao }: { licitacaoId: st
       }
       const c = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/conformidade/resumo`)
       if (c.ok) setConformidade(await c.json())
+      const x = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/externa`)
+      if (x.ok) setExterna(await x.json())
     } catch {
       /* quadro fica oculto */
     }
@@ -128,12 +142,36 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao }: { licitacaoId: st
 
   return (
     <section id="fluxo-fase-interna" aria-label="Fluxo da fase interna" className="border rounded-md p-3 bg-white space-y-2 scroll-mt-4">
+      <JuntarDocumentosDialog
+        licitacaoId={licitacaoId}
+        aberto={juntando}
+        onFechar={() => setJuntando(false)}
+        onJuntado={() => { carregar(); onAtualizado?.() }}
+      />
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-semibold text-gray-800">Fluxo da fase interna</h3>
-        <span className="text-xs text-gray-600">
-          {dados.concluidas} de {dados.total} etapas concluídas · {dados.modo === "SIMPLES" ? "modo simples (tudo com o agente)" : "por setor"}
-        </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-600">
+            {dados.concluidas} de {dados.total} etapas concluídas · {dados.modo === "SIMPLES" ? "modo simples (tudo com o agente)" : "por setor"}
+          </span>
+          {externa?.pode_juntar !== false && (
+            <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setJuntando(true)}>
+              <FileStack className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> Juntar documentos feitos fora (vários PDFs)
+            </Button>
+          )}
+        </div>
       </div>
+      {externa && externa.pendencias.length > 0 && (
+        <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-950" role="status">
+          <b>Pendências da juntada dos documentos feitos fora:</b>
+          <ul className="mt-1 space-y-0.5">
+            {externa.pendencias.map((p, i) => (
+              <li key={`${p.tipo}-${i}`}>{p.titulo}{p.arquivo ? ` ("${p.arquivo}")` : ""} — {p.erro}</li>
+            ))}
+          </ul>
+          <button type="button" className="mt-1 text-blue-800 hover:underline" onClick={() => setJuntando(true)}>Juntar de novo →</button>
+        </div>
+      )}
       <p className="text-xs text-gray-600">
         A ordem é sugestão: qualquer peça pode ser feita ou anexada antes. A etapa conta quando a peça está pronta (feita aqui, anexada, assinada ou &quot;não se aplica&quot;).
       </p>

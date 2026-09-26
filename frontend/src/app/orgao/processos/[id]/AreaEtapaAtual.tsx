@@ -114,7 +114,7 @@ export function AreaEtapaAtual({
             onAtualizado={onAtualizado}
           />
           {dispensa && <ConsumoLimiteDispensa licitacaoId={id} atualizacao={dados} />}
-          {interna && <FluxoFaseInterna licitacaoId={id} atualizacao={dados} />}
+          {interna && <FluxoFaseInterna licitacaoId={id} atualizacao={dados} onAtualizado={onAtualizado} />}
           {interna && (
             <PecasFaseInterna licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} />
           )}

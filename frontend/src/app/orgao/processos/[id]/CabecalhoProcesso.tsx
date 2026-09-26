@@ -50,6 +50,15 @@ export function CabecalhoProcesso({
             <SituacaoBadge licitacao={l} />
             {l.srp && <Badge variant="outline">SRP</Badge>}
             {l.selecao_externa && <Badge className="bg-indigo-100 text-indigo-900 hover:bg-indigo-100">Seleção externa</Badge>}
+            {l.fase_interna_externa && (
+              <Badge
+                variant="outline"
+                className="text-gray-700 border-gray-300 font-normal"
+                title={`${l.fase_interna_externa.por_nome ? `Por ${l.fase_interna_externa.por_nome}` : ""}${l.fase_interna_externa.em ? ` em ${fmtBrasilia(l.fase_interna_externa.em)}` : ""}`}
+              >
+                {l.fase_interna_externa.modo === "MISTA" ? "Fase interna mista (parte anexada)" : "Fase interna externa (documentos anexados)"}
+              </Badge>
+            )}
           </div>
           <p className="text-gray-800 mt-1 max-w-3xl">{l.objeto}</p>
           {meta.length > 0 && (

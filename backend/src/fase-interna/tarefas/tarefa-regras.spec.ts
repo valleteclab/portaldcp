@@ -1,7 +1,7 @@
 import { criarCalendario } from '../../common/prazos/calendario';
 import { configEfetiva, validarConfiguracao } from './configuracao-fase-interna';
 import { etapasDaFaseInterna, PapelFaseInterna, PassoFaseInterna as P, passosDasEtapas } from './etapas-fase-interna';
-import { chaveDoPasso, destinoDaTarefa, planejarSincronizacao, prazoDaTarefa, quemCumpriu, responsavelDoPasso, TarefaAberta, tarefaAtrasada } from './tarefa-regras';
+import { chaveDoPasso, destinoDaTarefa, passosCumpridosSemTarefa, planejarSincronizacao, prazoDaTarefa, quemCumpriu, responsavelDoPasso, TarefaAberta, tarefaAtrasada } from './tarefa-regras';
 
 describe('prazo da tarefa em dias úteis (calendário do órgão)', () => {
   const semFeriado = criarCalendario([]);
@@ -155,5 +155,16 @@ describe('destino da tarefa (Entregas 3 e 4)', () => {
     expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'PESQUISA' })).toBe('/orgao/processos/L/fase-interna/pesquisa');
     expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'PUBLICACAO' })).toBe('/orgao/processos/L/fase-interna/conformidade');
     expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'MINUTAS', origem: 'ACHADO', origem_id: 'a1' })).toBe('/orgao/processos/L/fase-interna/conformidade#achado-a1');
+  });
+});
+
+describe('passosCumpridosSemTarefa (fase interna feita fora — tarefas nascem concluídas)', () => {
+  const p = (passo: string, situacao: string) => ({ passo, situacao }) as any;
+  it('só passos CONCLUÍDOS sem tarefa de qualquer situação; nunca a publicação', () => {
+    const passos = [p('DFD', 'CONCLUIDO'), p('ETP', 'CONCLUIDO'), p('TR', 'DISPONIVEL'), p('PESQUISA', 'CONCLUIDO'), p('PUBLICACAO', 'CONCLUIDO')];
+    const r = passosCumpridosSemTarefa(passos, ['etapa:ETP']);
+    expect(r.map((x) => x.passo)).toEqual(['DFD', 'PESQUISA']);
+    // idempotente: com as tarefas criadas, nada mais nasce
+    expect(passosCumpridosSemTarefa(passos, ['etapa:DFD', 'etapa:ETP', 'etapa:PESQUISA'])).toEqual([]);
   });
 });

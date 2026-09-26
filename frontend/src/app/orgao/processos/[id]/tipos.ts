@@ -86,6 +86,8 @@ export interface LicitacaoProcesso {
   valor_homologado?: number
   data_homologacao?: string
   selecao_externa: boolean
+  /** Fase interna feita fora do sistema (entrada "já tenho os documentos") — etiqueta no cabeçalho. */
+  fase_interna_externa?: { modo: "EXTERNA" | "MISTA"; por_nome: string | null; em: string | null } | null
   plataforma_externa?: string | null
   numero_processo_externo?: string | null
   url_externa?: string | null

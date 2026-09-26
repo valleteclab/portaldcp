@@ -2,13 +2,21 @@
 
 A fase interna é a preparação da contratação (art. 18): descrever a necessidade, estudar a solução, pesquisar preços, fazer o termo de referência, obter o parecer jurídico e a autorização. O sistema guarda tudo no **dossiê do processo** e só deixa publicar quando os documentos obrigatórios estão prontos.
 
-## Duas formas de criar um processo
+## Três formas de criar um processo
+
+**Primeira pergunta, em toda criação** (menu **Novo processo**, **Nova dispensa**, lista de processos ou a partir de uma demanda): **"Como a fase interna deste processo foi feita?"**
+
+- **Vou fazer aqui no Portal DCP (guiado)** — segue para o assistente (formas A e B abaixo).
+- **Já foi feita fora — tenho os documentos (PDF)** — segue para o fluxo curto de 3 passos (forma C, abaixo).
+
+A última escolha fica marcada como sugestão (etiqueta "sua última escolha"), mas a pergunta sempre aparece. Na dispensa, a opção "feita fora" traz a etiqueta **comum na dispensa**.
 
 ### A. A partir de uma demanda aprovada (recomendado)
 
 1. Menu **Demandas** › abra a demanda (ela precisa estar **Aprovada** ou **Consolidada**).
 2. Clique em **Iniciar contratação**.
 3. Na janela, escolha a **Modalidade da contratação**: Dispensa Eletrônica, Pregão Eletrônico, Inexigibilidade ou Concorrência. O sistema sugere a dispensa quando o valor cabe no limite vigente do art. 75, II — mas a escolha é sua.
+   - Responda também **"Como a fase interna deste processo foi feita?"**. Com **"Já foi feita fora"**, o botão vira **Continuar: dados, itens e PDFs** e abre o fluxo curto (forma C) com o objeto, a área e os itens da demanda já preenchidos.
 4. Se quiser, marque a opção do **copiloto**: "O sistema pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do ETP, TR e autorização — você só revisa e aprova."
 5. Clique em **Criar processo**. O processo abre direto na **tela do DFD** (veja "Telas por etapa", abaixo).
 
@@ -44,6 +52,33 @@ Se a demanda já tiver processo, o botão vira **Ver processo &lt;número&gt;**.
 Para leilão, concurso e diálogo competitivo, o assistente mostra também os campos próprios da modalidade (veja as partes [07](07-leilao.md), [08](08-concurso.md) e [09](09-dialogo-competitivo.md)). O credenciamento tem cadastro próprio no menu **Credenciamentos** (parte [06](06-credenciamento.md)).
 
 > **Atenção — IA.** "Texto gerado por IA deve ser revisado pelo servidor responsável." A responsabilidade pelo conteúdo é sempre do servidor. Nada é publicado sem a sua validação.
+
+### C. Fase interna feita fora do sistema ("já tenho os documentos")
+
+Para quando o DFD, o estudo, o TR, a pesquisa, a informação orçamentária, o despacho e o parecer já foram feitos em Word, em outro sistema ou no papel. Endereço: `/orgao/fase-interna/processos/novo/externa`. Uma tela com 3 passos:
+
+| Passo | O que se preenche |
+|---|---|
+| **1. Dados** | Modalidade, natureza do objeto, **fundamento legal** (as opções da modalidade), critério e modo de disputa (licitação), objeto, **nº do processo administrativo** (obrigatório — o dos autos feitos fora), nº da dispensa/licitação, área demandante, **disputa da dispensa** (com ou sem lances — vem marcado o padrão sugerido do órgão) e **orçamento sigiloso** (art. 24, com justificativa de no mínimo 20 caracteres). Leilão, concurso e diálogo mostram também os campos próprios da modalidade |
+| **2. Itens** | O mesmo editor de itens (catálogo, planilha, digitação). **Unidade e valor unitário são obrigatórios**: a pesquisa de preços foi feita fora, o mapa vai em Documentos e o valor vai para o item (o PNCP exige o valor por item) |
+| **3. Documentos** | **Vários PDFs de uma vez** (arraste e solte ou clique). Para cada arquivo, escolha **qual peça é** — DFD, estudo técnico, análise de riscos, TR, projeto básico, pesquisa de preços (mapa/certidão), mapa comparativo, informação orçamentária, justificativa, despacho de autorização, portaria de designação, relatório do agente, minuta do aviso/edital, minuta do contrato, parecer técnico, parecer jurídico, controle interno ou outro documento — e informe **número, data do documento (obrigatória, não pode ser futura) e quem assinou**. O botão **Data e signatários para os demais** copia a data e os signatários de um arquivo para os que ainda não têm |
+
+Ao lado dos arquivos, o **checklist do art. 72** (contratação direta) ou **do art. 18** (licitação) vai se atualizando conforme os arquivos são classificados. Nele:
+
+- peça "se for o caso" (estudo técnico e riscos na contratação direta, TR, parecer...) pode ser marcada **Não se aplica**, com a justificativa ali mesmo;
+- na portaria de designação, **Usar a portaria do órgão** junta a portaria vigente cadastrada (sem enviar o PDF de novo);
+- se você classificou o **despacho de autorização**, o quadro avisa o que o art. 72 exige antes dele (I, II e IV: DFD, estudo, riscos, TR, pesquisa e informação orçamentária — anexados ou "não se aplica").
+
+Clique em **Criar o processo e juntar os documentos**. O sistema cria o processo, grava os itens e junta as peças **numa operação só**:
+
+- **Tudo é conferido antes de gravar** (dados, itens, cada PDF, a classificação e o art. 72 antes do despacho). Havendo erro, **nada é gravado** e a tela volta para o passo a corrigir, com a mensagem ao lado do arquivo ou do campo (ex.: "A data do documento não pode ser futura", "Só é aceito arquivo PDF", "Dois arquivos para a mesma peça").
+- Se uma peça for recusada no meio (ex.: o despacho de autorização barrado pelo **limite da dispensa** — portão B), o processo é criado com o resto e a peça vira **pendência**: aparece na tela de resultado com o motivo e **Tentar de novo as pendências** (mesmos arquivos), e fica registrada no processo — o quadro **Fluxo da fase interna** mostra "Pendências da juntada dos documentos feitos fora" com **Juntar de novo**. A pendência some sozinha quando a peça entra por qualquer caminho.
+
+Depois de criado, o processo abre na **tela do processo** com o Fluxo da fase interna já refletindo as peças: as **tarefas** dos passos cumpridos nascem **concluídas** (em nome de quem juntou — ninguém recebe aviso de tarefa que já está feita) e as dos passos que faltam ficam abertas. No cabeçalho aparece a etiqueta **Fase interna externa (documentos anexados)**; no histórico do processo, o ato de criação registra "Fase interna feita fora do sistema — documentos anexados", com quem e quando. Siga para **Conferir a conformidade** e publique (a conformidade vale igual: só publica sem bloqueio).
+
+**Juntar documentos feitos fora num processo já criado** (quem começou guiado e decidiu anexar o resto): na tela do processo, quadro **Fluxo da fase interna**, botão **Juntar documentos feitos fora (vários PDFs)**. Abre o mesmo passo "Documentos", considerando o que o processo já tem (peça já pronta ganha versão nova; a anterior fica no histórico). A etiqueta passa a **Fase interna mista (parte anexada)**. Só na fase interna (depois de publicar, não).
+
+> A identificação automática de qual peça é cada PDF (leitura por IA) é a próxima etapa — por enquanto você escolhe a peça de cada arquivo.
 
 ## Minhas tarefas (caixa de entrada)
 

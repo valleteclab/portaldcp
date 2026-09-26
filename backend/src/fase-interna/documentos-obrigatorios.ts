@@ -105,3 +105,94 @@ export const FUNDAMENTO_ETAPA: Partial<Record<FaseLicitacao, string>> = {
   [FaseLicitacao.ANALISE_JURIDICA]: 'Art. 53',
   [FaseLicitacao.APROVACAO_INTERNA]: 'Art. 18 (autorização, agente e dotação)',
 };
+
+/** Modalidades com instrução do art. 72 (contratação direta) em vez do art. 18. */
+export const MODALIDADES_CONTRATACAO_DIRETA: string[] = [
+  'DISPENSA_ELETRONICA',
+  'INEXIGIBILIDADE',
+  // Credenciamento (E7b): as contratações são inexigibilidade (art. 74 IV) —
+  // instrução do art. 72 + edital de chamamento (gate do PUBLICAR).
+  'CREDENCIAMENTO',
+];
+
+export interface LinhaChecklistInstrucao {
+  tipo: TipoDocumentoFaseInterna;
+  titulo: string;
+  obrigatorio: boolean;
+  fundamento: string;
+  etapa?: FaseLicitacao;
+}
+
+/**
+ * INSTRUÇÃO DA CONTRATAÇÃO DIRETA (art. 72) — fonte única (antes dentro do
+ * FaseInternaService): obrigatórios DFD, estimativa de despesa e autorização;
+ * os demais "se for o caso" (admitem "não se aplica" com justificativa).
+ */
+export const CHECKLIST_CONTRATACAO_DIRETA: ReadonlyArray<LinhaChecklistInstrucao> = [
+  { tipo: TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, titulo: 'Formalização da demanda (DFD)', obrigatorio: true, fundamento: 'Art. 72, I' },
+  { tipo: TipoDocumentoFaseInterna.PESQUISA_PRECOS, titulo: 'Estimativa de despesa (pesquisa de preços)', obrigatorio: true, fundamento: 'Art. 72, II c/c Art. 23' },
+  { tipo: TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, titulo: 'Autorização da autoridade competente', obrigatorio: true, fundamento: 'Art. 72, VIII' },
+  { tipo: TipoDocumentoFaseInterna.ESTUDO_TECNICO_PRELIMINAR, titulo: 'Estudo Técnico Preliminar (ETP)', obrigatorio: false, fundamento: 'Art. 72, I — "se for o caso"' },
+  { tipo: TipoDocumentoFaseInterna.TERMO_REFERENCIA, titulo: 'Termo de Referência (TR)', obrigatorio: false, fundamento: 'Art. 72, I — "se for o caso"' },
+  { tipo: TipoDocumentoFaseInterna.ANALISE_RISCOS, titulo: 'Análise de riscos', obrigatorio: false, fundamento: 'Art. 72, I — "se for o caso"' },
+  { tipo: TipoDocumentoFaseInterna.PARECER_JURIDICO, titulo: 'Parecer jurídico', obrigatorio: false, fundamento: 'Art. 72, III c/c Art. 53, §5º' },
+  { tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA, titulo: 'Compatibilidade orçamentária', obrigatorio: false, fundamento: 'Art. 72, IV' },
+  {
+    tipo: TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO,
+    titulo: 'Justificativa da contratação direta (razão da escolha e do preço)',
+    obrigatorio: false,
+    fundamento: 'Art. 72, VI e VII',
+  },
+  // Peças dos autos reais (PA 139/2025) — "se for o caso"; a obrigatoriedade
+  // por regulamento do órgão vem na Entrega 4 (checklist por modalidade).
+  { tipo: TipoDocumentoFaseInterna.DESIGNACAO_PREGOEIRO, titulo: 'Designação do agente de contratação (portaria do exercício)', obrigatorio: false, fundamento: 'Art. 8º' },
+  { tipo: TipoDocumentoFaseInterna.RELATORIO_AGENTE, titulo: 'Relatório do agente de contratação', obrigatorio: false, fundamento: 'Art. 72, VI e VII' },
+  { tipo: TipoDocumentoFaseInterna.MINUTA_CONTRATO, titulo: 'Minuta do contrato', obrigatorio: false, fundamento: 'Art. 72 c/c art. 92' },
+  // Entrega 3B — a minuta do aviso (com anexos) é peça dos autos analisada
+  // pela Procuradoria antes da divulgação (art. 75, §3º); na inexigibilidade
+  // sem aviso, "não se aplica".
+  { tipo: TipoDocumentoFaseInterna.MINUTA_EDITAL, titulo: 'Minuta do aviso de contratação direta', obrigatorio: false, fundamento: 'Art. 72 c/c art. 75, §3º' },
+];
+
+/**
+ * LINHAS DA INSTRUÇÃO do processo (fonte única do checklist — `getInstrucao`
+ * e a entrada "fase interna feita fora", antes de o processo existir):
+ *  - contratação direta: o art. 72 (acima);
+ *  - rito completo: os obrigatórios de todas as etapas internas do art. 18 (ou
+ *    só os da `etapa` pedida — gate da etapa);
+ *  - controle interno ativado pelo órgão (Entrega 2): a manifestação, como
+ *    aviso (não obrigatória).
+ * "Não se aplica" só na contratação direta, nas peças "se for o caso" (o
+ * controle interno, exigido pelo regulamento, não admite).
+ */
+export function linhasDoChecklist(opcoes: {
+  contratacao_direta: boolean;
+  controle_interno_ativo?: boolean;
+  etapa?: FaseLicitacao;
+}): Array<LinhaChecklistInstrucao & { pode_nao_se_aplicar: boolean }> {
+  const { contratacao_direta: direta, etapa } = opcoes;
+  const linhas: LinhaChecklistInstrucao[] = direta
+    ? CHECKLIST_CONTRATACAO_DIRETA.map((l) => ({ ...l }))
+    : ETAPAS_FASE_INTERNA.filter((f) => !etapa || f === etapa).flatMap((f) =>
+        (DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[f] || []).map((tipo) => ({
+          tipo,
+          titulo: TITULO_DOCUMENTO[tipo] ?? (tipo as string),
+          obrigatorio: true,
+          fundamento: FUNDAMENTO_ETAPA[f] ?? 'Art. 18',
+          etapa: f,
+        })),
+      );
+  if (opcoes.controle_interno_ativo && (direta || !etapa || etapa === FaseLicitacao.ANALISE_JURIDICA)) {
+    linhas.push({
+      tipo: TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO,
+      titulo: 'Manifestação do controle interno',
+      obrigatorio: false,
+      fundamento: 'Art. 169, II — regulamento do órgão',
+      ...(direta ? {} : { etapa: FaseLicitacao.ANALISE_JURIDICA }),
+    });
+  }
+  return linhas.map((l) => ({
+    ...l,
+    pode_nao_se_aplicar: direta && !l.obrigatorio && l.tipo !== TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO,
+  }));
+}

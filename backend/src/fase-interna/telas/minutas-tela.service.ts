@@ -12,7 +12,7 @@ import { ModeloDocumentoService } from '../modelo-documento.service';
 import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
 import { OrcamentoService } from '../orcamento/orcamento.service';
 import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
-import { TIPOS_REGERAVEIS, decidirRegeracao, hashSecoes, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
+import { TIPOS_REGERAVEIS, decidirRegeracao, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 export type Autor = { id: string | null; nome: string | null };
 
@@ -352,7 +352,8 @@ export class MinutasTelaService {
     if (!ehFaseInterna(lic.fase)) throw new ConflictException('O sigilo do orçamento só se decide na fase interna.');
     const sigiloso = body?.sigiloso === true || body?.sigiloso === 'true';
     const justificativa = String(body?.justificativa ?? '').trim().slice(0, 4000);
-    if (sigiloso && justificativa.length < 20) throw new BadRequestException('Justifique o sigilo do orçamento (art. 24 da Lei 14.133/2021).');
+    const motivo = motivoSigiloInvalido(sigiloso, justificativa);
+    if (motivo) throw new BadRequestException(motivo);
     const novo = sigiloso ? 'SIGILOSO' : 'PUBLICO';
     const mudou = novo !== lic.sigilo_orcamento || (sigiloso && justificativa !== (lic.justificativa_sigilo ?? ''));
     await this.ds.query(`UPDATE licitacoes SET sigilo_orcamento = $2, justificativa_sigilo = $3, updated_at = now() WHERE id::text = $1`, [

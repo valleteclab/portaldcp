@@ -85,3 +85,13 @@ export function decidirRegeracao(doc: PecaParaRegerar): DecisaoRegeracao {
 // ---------------------------------------------------------------------------
 
 export { textoPuro, normalizarNumero, referenciasDivergentes, incisosDoArt75Citados } from '../conformidade/texto';
+
+/**
+ * Sigilo do orçamento (art. 24): sigiloso exige justificativa (mínimo 20
+ * caracteres). Regra única — tela das minutas (`salvarSigilo`) e a entrada
+ * "fase interna feita fora".
+ */
+export function motivoSigiloInvalido(sigiloso: boolean, justificativa: string | null | undefined): string | null {
+  if (sigiloso && String(justificativa ?? '').trim().length < 20) return 'Justifique o sigilo do orçamento (art. 24 da Lei 14.133/2021).';
+  return null;
+}

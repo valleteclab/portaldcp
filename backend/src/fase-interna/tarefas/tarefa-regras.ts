@@ -204,3 +204,15 @@ export function quemCumpriu(doc: {
   }
   return { id: doc.criado_por_id || null, nome: doc.criado_por_nome || null };
 }
+
+/**
+ * PEÇAS JUNTADAS DE FORA (entrada "fase interna feita fora"): passos que já
+ * nascem CONCLUÍDOS e nunca tiveram tarefa (de qualquer situação) — a tarefa
+ * nasce concluída, com quem cumpriu, em vez de nascer aberta e ser concluída
+ * em seguida (sem notificar ninguém de uma tarefa que já está feita). A
+ * publicação nunca entra (ela conclui só com a divulgação confirmada).
+ */
+export function passosCumpridosSemTarefa(passos: PassoCalculado[], chavesComTarefa: Iterable<string>): PassoCalculado[] {
+  const existentes = new Set(chavesComTarefa);
+  return passos.filter((p) => p.situacao === 'CONCLUIDO' && p.passo !== PassoFaseInterna.PUBLICACAO && !existentes.has(chaveDoPasso(p.passo)));
+}
