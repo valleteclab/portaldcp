@@ -66,6 +66,7 @@ import {
   moverFimDaJanela,
   painelPublico,
   somarDiasUteis,
+  doisDiasUteisAoMeioDia,
   vincularOrgaoPncp,
 } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
@@ -75,6 +76,7 @@ import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const MIN = 60_000;
+
 
 /** supertest: corpo binário (PDF) como Buffer. */
 function lerBinario(res: any, cb: (err: Error | null, body: Buffer) => void) {
@@ -206,7 +208,8 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       const agora = new Date();
       const curtos = [
         new Date(agora.getTime() + 24 * 60 * MIN), // 1 dia corrido
-        new Date(somarDiasUteis(agora, 2).getTime() + 60 * MIN), // 2 dias úteis + 1 h
+        // Meio-dia do 2º dia útil (conta do backend): abaixo de 3 dias úteis em qualquer horário
+        doisDiasUteisAoMeioDia(agora),
       ];
       for (const fim of curtos) {
         const r = await ctx

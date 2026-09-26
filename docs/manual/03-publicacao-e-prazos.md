@@ -56,8 +56,13 @@ Se algo estiver faltando, o botão mostra a mensagem "Pendências para ..." com 
 | Data de abertura antes da data mínima | Use **Usar data mínima** ou escolha uma data posterior |
 | Datas fora de ordem | Início < fim do recebimento ≤ abertura; limite de impugnação antes da abertura e depois da divulgação |
 | Documentos da fase interna | Conclua a fase interna (parte [02](02-fase-interna-e-criacao.md)) |
+| "Cadastre pelo menos um item com quantidade e valor estimado" | Cartão **Itens da contratação** do cockpit › **Editar itens** (ou a pesquisa de preços, que preenche o valor). Vale para todas as modalidades — também para concluir a fase interna |
 | Item exclusivo ME/EPP acima de R$ 80.000 | Retire a exclusividade ou ajuste (LC 123, art. 48, I) |
 | Item até R$ 80.000 sem exclusividade e sem justificativa | Registre a justificativa do art. 49 |
+
+### Cancelar a publicação (antes de propostas)
+
+Publicou com erro (ex.: sem itens) e ainda não há propostas? No cockpit aparece o cartão **Cancelar publicação** (só o órgão dono; motivo obrigatório, fica no histórico). A compra sai do PNCP — ou da fila, se ainda não tinha sido enviada — e o processo volta à fase interna (aprovação interna): corrija (itens, documentos) e publique de novo. Com proposta recebida, o caminho é revogar ou anular (abaixo).
 
 ## Impugnações e esclarecimentos
 

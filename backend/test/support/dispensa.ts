@@ -89,6 +89,18 @@ export function corpoDivulgacao(fim: Date, agora = new Date()) {
   };
 }
 
+/**
+ * Prazo CURTO para o teste de recusa: meio-dia (Brasília) do 2º dia útil depois
+ * da divulgação, pela mesma conta do backend (art. 183, calendário com
+ * feriados). Fica abaixo do mínimo de 3 dias úteis em qualquer horário e fuso
+ * de execução — contar dias pelo fuso do processo de teste errava perto da
+ * meia-noite e caía no 3º dia útil.
+ */
+export function doisDiasUteisAoMeioDia(base: Date = new Date()): Date {
+  const venc = fimDoPrazoEmDiasUteis(base, 2, calendarioDoOrgao(null));
+  return new Date(inicioDoDia(venc).getTime() + 12 * 3_600_000);
+}
+
 /** Prazo sugerido pelo cockpit: mínimo legal (3 dias úteis) + 1 h de folga. */
 export function fimPropostasSugerido(): Date {
   // Mesma conta do backend (E7a): 3º dia útil depois da divulgação no

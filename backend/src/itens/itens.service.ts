@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ItemLicitacao, StatusItem, UnidadeMedida } from './entities/item-licitacao.entity';
@@ -7,6 +7,7 @@ import { ItemPCA } from '../pca/entities/pca.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { ehFaseInterna } from '../licitacoes/transicoes/fases';
 import { AtorTransicao, atorSistema } from '../licitacoes/transicoes/transicoes.tipos';
 
 /**
@@ -46,7 +47,26 @@ export class ItensService {
     private readonly transicoes: TransicoesService,
   ) {}
 
+  /**
+   * Itens só mudam enquanto a licitação está na fase interna. Depois de
+   * publicado, o objeto integra o edital: itens não se retificam — mudar o
+   * objeto exige revogar e republicar (decisão E7; art. 55, §1º).
+   */
+  private async exigirItensEditaveis(licitacaoId: string | null | undefined): Promise<void> {
+    if (!licitacaoId) return;
+    const lic = await this.itemRepository.manager.findOne(Licitacao, {
+      where: { id: licitacaoId },
+      select: ['id', 'fase'],
+    });
+    if (lic && !ehFaseInterna(lic.fase)) {
+      throw new ConflictException(
+        'Itens não podem ser alterados depois da publicação: o objeto integra o edital. Para mudar o objeto, cancele a publicação (sem propostas) ou revogue e republique.',
+      );
+    }
+  }
+
   async create(createDto: CreateItemDto): Promise<ItemLicitacao> {
+    await this.exigirItensEditaveis(createDto.licitacao_id);
     // Log para debug dos campos do catálogo
     this.logger.log(`[create] Campos do catálogo recebidos:`, {
       codigo_catalogo: createDto.codigo_catalogo,
@@ -111,6 +131,7 @@ export class ItensService {
 
   async update(id: string, updateDto: UpdateItemDto): Promise<ItemLicitacao> {
     const item = await this.findOne(id);
+    await this.exigirItensEditaveis(item.licitacao_id);
 
     if (item.status !== StatusItem.ATIVO) {
       throw new BadRequestException('Não é possível alterar item que não está ativo');
@@ -156,6 +177,7 @@ export class ItensService {
 
   async delete(id: string): Promise<void> {
     const item = await this.findOne(id);
+    await this.exigirItensEditaveis(item.licitacao_id);
     
     // Só permite excluir itens ativos
     if (item.status !== StatusItem.ATIVO) {
@@ -363,6 +385,7 @@ export class ItensService {
 
   // Criar item sem vinculação ao PCA (com justificativa obrigatória)
   async createSemPca(dto: CreateItemDto): Promise<ItemLicitacao> {
+    await this.exigirItensEditaveis(dto.licitacao_id);
     if (!dto.justificativa_sem_pca || dto.justificativa_sem_pca.length < 50) {
       throw new BadRequestException(
         'Justificativa obrigatória para itens sem PCA (mínimo 50 caracteres)'

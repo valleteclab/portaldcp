@@ -24,10 +24,11 @@ Se a demanda já tiver processo, o botão vira **Ver processo &lt;número&gt;**.
 | Passo | O que se preenche | Base |
 |---|---|---|
 | **Dados básicos** | Objeto, área demandante, modalidade, critério de julgamento, modo de disputa, SRP, tipo de contratação, vínculo com o PCA (ou justificativa da ausência — art. 12, §1º) | Configuração inicial |
+| **Itens da contratação** | Descrição, quantidade, unidade, valor unitário estimado, tipo (material/serviço), código do catálogo (CATMAT/CATSER) e vínculo com o PCA. **Salvar e continuar** grava o rascunho do processo com os itens. O valor unitário pode ficar para a pesquisa de preços. Item do PCA escolhido no DFD/ETP entra aqui automaticamente | Art. 18, IV · art. 40 |
 | **Formalização da Demanda** (DFD) | Necessidade, quantidade, previsão no PCA, data prevista | Art. 18, I |
 | **Estudo Técnico Preliminar** (ETP) | 13 incisos do art. 18, §1º (necessidade, requisitos, quantidades, mercado, valor, posicionamento conclusivo...) | Art. 18, §1º |
 | **Análise de Riscos** | Riscos com probabilidade e impacto (Baixo, Médio, Alto, Crítico) | Art. 18, X |
-| **Pesquisa de Preços** | Pelo menos 3 fontes válidas (PNCP, Painel de Preços, cotações diretas) | Art. 23 |
+| **Pesquisa de Preços** | Abre o **módulo de pesquisa de preços** do processo (por item: busca automática PNCP/Painel/contratos, curadoria, estatísticas, metodologia, comprovantes). **Gerar Documento PP** registra a pesquisa nos autos (vale como estimativa de despesa do art. 72 e como pesquisa + mapa comparativo do rito completo) e grava o valor referencial de cada item como valor unitário estimado. **Próxima etapa do assistente** volta ao assistente no TR | Art. 23 · IN SEGES 65/2021 |
 | **Termo de Referência** | Alíneas "a" a "j" do art. 6º, XXIII | Art. 6º, XXIII |
 | **Dotação Orçamentária** | Exercício, fonte de recurso, elemento de despesa, valor disponível | Art. 167 CF, LRF |
 | **Autorização** | Autorização da autoridade competente para iniciar | Art. 18, II |
@@ -35,7 +36,10 @@ Se a demanda já tiver processo, o botão vira **Ver processo &lt;número&gt;**.
 | **Parecer Jurídico** | Parecer da procuradoria | Art. 53 |
 
 3. Em cada passo você pode usar **Gerar com IA**, **Sugerir com IA** ou **Gerar rascunho** e depois editar. Use **Salvar rascunho** para continuar depois e **Próxima etapa** / **Anterior** para navegar.
+   - **Dispensa e inexigibilidade (art. 72):** obrigatórios só Dados básicos, Itens, DFD, Pesquisa de Preços (estimativa de despesa) e Autorização. ETP, Análise de Riscos, TR, Dotação, Aviso e Parecer aparecem como **facultativa**: preencha se o caso exigir, clique **Pular etapa**, ou **Não se aplica — justificar** (a justificativa fica nos autos; **Desfazer** reverte).
 4. No fim, clique em **Concluir fase interna** (ou vá ao cockpit para concluir mais tarde).
+
+> **Atenção — itens.** Sem pelo menos um item com quantidade e valor unitário estimado o processo **não conclui a fase interna nem publica** (todas as modalidades), e a compra não vai ao PNCP. No cockpit, o cartão **Itens da contratação** mostra os itens e, na fase interna, **Editar itens** (aba Itens da edição) e **Pesquisa de preços**.
 
 Para leilão, concurso e diálogo competitivo, o assistente mostra também os campos próprios da modalidade (veja as partes [07](07-leilao.md), [08](08-concurso.md) e [09](09-dialogo-competitivo.md)). O credenciamento tem cadastro próprio no menu **Credenciamentos** (parte [06](06-credenciamento.md)).
 

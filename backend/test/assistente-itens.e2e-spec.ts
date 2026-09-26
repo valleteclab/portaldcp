@@ -224,6 +224,26 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(pncpMock.filtrar('POST', /\/compras$/)).toHaveLength(1);
       expect(pncpMock.filtrar('POST', /\/itens$/).length).toBeGreaterThanOrEqual(1);
     });
+
+    it('publicada: itens não são mais incluídos, alterados nem excluídos (só voltando à fase interna)', async () => {
+      const itens = await http().get(`/api/itens/licitacao/${lic.id}`).set(bearer(orgao.token)).expect(200);
+      const item = itens.body[0];
+      expect(item).toBeDefined();
+
+      const incluir = await http().post(`/api/itens/licitacao/${lic.id}/batch`).set(bearer(orgao.token)).send([itemLote(2)]);
+      expect(incluir.status).toBe(409);
+      expect(incluir.body.message).toMatch(/depois da publicação/);
+
+      const alterar = await http().put(`/api/itens/${item.id}`).set(bearer(orgao.token)).send({ quantidade: 999 });
+      expect(alterar.status).toBe(409);
+
+      const excluir = await http().delete(`/api/itens/${item.id}`).set(bearer(orgao.token));
+      expect(excluir.status).toBe(409);
+
+      const depois = await http().get(`/api/itens/licitacao/${lic.id}`).set(bearer(orgao.token)).expect(200);
+      expect(depois.body).toHaveLength(itens.body.length);
+      expect(Number(depois.body[0].quantidade)).toBe(Number(item.quantidade));
+    });
   });
 
   // --------------------------------------------------------------------------
