@@ -145,7 +145,10 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
     return null;
   }
 
-  async entrada(licitacaoId: string, opcoes: { ato?: AtoProtegido | null; cronograma?: Record<string, unknown> | null; valores_itens?: Record<number, number> | null } = {}): Promise<{ entrada: EntradaContexto; arquivos: Map<string, boolean> }> {
+  async entrada(
+    licitacaoId: string,
+    opcoes: { ato?: AtoProtegido | null; cronograma?: Record<string, unknown> | null; valores_itens?: Record<number, number> | null; sem_texto_pdf?: boolean } = {},
+  ): Promise<{ entrada: EntradaContexto; arquivos: Map<string, boolean> }> {
     const lic = await this.licitacao(licitacaoId);
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
     const docs: any[] = await this.ds.query(
@@ -162,7 +165,7 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
     for (const d of docs) {
       const caminho = this.caminhoFisico(d.caminho_arquivo) ?? this.caminhoFisico(d.arquivo_pdf_path);
       arquivos.set(d.id, !!caminho);
-      if (d.origem === 'INTERNO' || d.dados_estruturados?.nao_se_aplica || !caminho) continue;
+      if (opcoes.sem_texto_pdf || d.origem === 'INTERNO' || d.dados_estruturados?.nao_se_aplica || !caminho) continue;
       textos[d.id] = await paginasDoArquivo(caminho, d.hash_arquivo ?? null);
     }
     // Documentos da aba Documentos de um tipo de peça que NÃO viraram a peça (juntados de novo)
@@ -243,7 +246,7 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
   /** Contexto + avaliação de todas as regras (em memória, sem gravar nada). */
   async avaliacao(
     licitacaoId: string,
-    opcoes: { ato?: AtoProtegido | null; cronograma?: Record<string, unknown> | null; valores_itens?: Record<number, number> | null } = {},
+    opcoes: { ato?: AtoProtegido | null; cronograma?: Record<string, unknown> | null; valores_itens?: Record<number, number> | null; sem_texto_pdf?: boolean } = {},
   ): Promise<{ ctx: ContextoConformidade; avaliacoes: AvaliacaoRegra[]; arquivos: Map<string, boolean> }> {
     const { entrada, arquivos } = await this.entrada(licitacaoId, opcoes);
     const ctx = montarContexto(entrada);
@@ -266,7 +269,8 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
     const [lic] = await this.ds.query(`SELECT fase::text AS fase FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
     if (!lic || !ehFaseInterna(lic.fase)) return [];
     const ato: AtoProtegido = opcoes.ato ?? (portao === 'A' ? 'CONCLUIR_PESQUISA' : portao === 'B' ? 'AUTORIZAR' : 'PUBLICAR');
-    const { avaliacoes } = await this.avaliacao(licitacaoId, { ato, cronograma: opcoes.cronograma ?? null, valores_itens: opcoes.valores_itens ?? null });
+    // Portões A e B não leem texto de peça (limite e art. 72): o PDF não precisa ser lido
+    const { avaliacoes } = await this.avaliacao(licitacaoId, { ato, cronograma: opcoes.cronograma ?? null, valores_itens: opcoes.valores_itens ?? null, sem_texto_pdf: portao !== 'C' });
     const justificados: Array<{ regra: string; chave: string }> = await this.ds.query(
       `SELECT regra, chave FROM achados_conformidade WHERE licitacao_id::text = $1 AND status = 'JUSTIFICADO'`,
       [licitacaoId],
