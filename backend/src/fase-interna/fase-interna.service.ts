@@ -247,6 +247,15 @@ export class FaseInternaService {
         obrigatorio: false,
         fundamento: 'Art. 72 c/c art. 92',
       },
+      // Entrega 3B — a minuta do aviso (com anexos) é peça dos autos analisada
+      // pela Procuradoria antes da divulgação (art. 75, §3º); na inexigibilidade
+      // sem aviso, "não se aplica".
+      {
+        tipo: TipoDocumentoFaseInterna.MINUTA_EDITAL,
+        titulo: 'Minuta do aviso de contratação direta',
+        obrigatorio: false,
+        fundamento: 'Art. 72 c/c art. 75, §3º',
+      },
     ];
   }
 

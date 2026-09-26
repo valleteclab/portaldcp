@@ -34,6 +34,19 @@ export class ConfiguracaoFaseInterna {
   @Column({ type: 'jsonb', nullable: true })
   prazos: Record<string, number | null> | null;
 
+  /**
+   * Quem assina a AUTORIZAÇÃO (etapa 6 — Entrega 3B). A autoridade pode ser
+   * COLEGIADA (ex.: Mesa Diretora com 4 signatários: Presidente, Vice, 1º e 2º
+   * Secretários): a autorização só fica pronta quando TODOS assinam. Vazio =
+   * os usuários com o papel AUTORIDADE (ou os escolhidos no envio).
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  signatarios_autorizacao: Array<{ usuario_id: string; papel: string }> | null;
+
+  /** Nome da autoridade nos despachos (ex.: "Mesa Diretora", "Prefeito Municipal"). */
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  autoridade_rotulo: string | null;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   atualizado_por_id: string | null;
 

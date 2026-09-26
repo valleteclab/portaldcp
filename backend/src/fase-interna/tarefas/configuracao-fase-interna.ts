@@ -19,12 +19,24 @@ export interface ResponsavelDoPassoConfig {
   setor_id: string | null;
 }
 
+export interface SignatarioAutorizacao {
+  usuario_id: string;
+  /** Papel no ato (Presidente, 1º Secretário…). */
+  papel: string;
+}
+
+export const AUTORIDADE_ROTULO_PADRAO = 'Autoridade competente';
+
 export interface ConfigFaseInternaEfetiva {
   orgao_id: string;
   modo: ModoFaseInterna;
   controle_interno_ativo: boolean;
   responsaveis: Record<PassoFaseInterna, ResponsavelDoPassoConfig>;
   prazos: Record<PassoFaseInterna, number | null>;
+  /** Signatários da autorização (autoridade colegiada — Entrega 3B); [] = papel AUTORIDADE. */
+  signatarios_autorizacao: SignatarioAutorizacao[];
+  /** Nome da autoridade nos despachos (padrão: "Autoridade competente"). */
+  autoridade_rotulo: string;
   /** true = ainda não gravada (valores padrão). */
   padrao: boolean;
 }
@@ -57,6 +69,8 @@ export function configEfetiva(
     controle_interno_ativo?: boolean | null;
     responsaveis?: Record<string, any> | null;
     prazos?: Record<string, any> | null;
+    signatarios_autorizacao?: unknown;
+    autoridade_rotulo?: string | null;
   } | null,
 ): ConfigFaseInternaEfetiva {
   const responsaveis = responsaveisPadrao();
@@ -77,8 +91,51 @@ export function configEfetiva(
     controle_interno_ativo: !!linha?.controle_interno_ativo,
     responsaveis,
     prazos,
+    signatarios_autorizacao: normalizarSignatariosAutorizacao(linha?.signatarios_autorizacao),
+    autoridade_rotulo: String(linha?.autoridade_rotulo ?? '').trim() || AUTORIDADE_ROTULO_PADRAO,
     padrao: !linha,
   };
+}
+
+/** Lista gravada → lista limpa (usuário e papel obrigatórios, sem repetição, até 15). */
+export function normalizarSignatariosAutorizacao(v: unknown): SignatarioAutorizacao[] {
+  if (!Array.isArray(v)) return [];
+  const vistos = new Set<string>();
+  const r: SignatarioAutorizacao[] = [];
+  for (const x of v as any[]) {
+    const usuario_id = String(x?.usuario_id ?? '').trim();
+    const papel = String(x?.papel ?? '').trim().slice(0, 120);
+    if (!usuario_id || !papel || vistos.has(usuario_id)) continue;
+    vistos.add(usuario_id);
+    r.push({ usuario_id, papel });
+  }
+  return r.slice(0, 15);
+}
+
+/**
+ * Valida os signatários da autorização informados na configuração: cada um
+ * com usuário ATIVO do órgão e papel no ato; sem repetição; no máximo 15.
+ * `usuariosDoOrgao`: ids dos usuários ativos do órgão (outro órgão recusado).
+ */
+export function validarSignatariosAutorizacao(
+  corpo: unknown,
+  usuariosDoOrgao: string[],
+): { ok: true; valores: SignatarioAutorizacao[] } | { ok: false; erros: string[] } {
+  if (corpo === null) return { ok: true, valores: [] };
+  if (!Array.isArray(corpo)) return { ok: false, erros: ['Signatários da autorização: envie uma lista de { usuario_id, papel }.'] };
+  const erros: string[] = [];
+  const vistos = new Set<string>();
+  for (const x of corpo as any[]) {
+    const id = String(x?.usuario_id ?? '').trim();
+    const papel = String(x?.papel ?? '').trim();
+    if (!id || !papel) erros.push('Cada signatário da autorização precisa de usuário e papel (ex.: "Presidente").');
+    else if (!usuariosDoOrgao.includes(id)) erros.push('Signatário da autorização deve ser usuário ativo do órgão.');
+    else if (vistos.has(id)) erros.push('Signatário da autorização repetido.');
+    vistos.add(id);
+  }
+  if ((corpo as any[]).length > 15) erros.push('No máximo 15 signatários na autorização.');
+  if (erros.length) return { ok: false, erros: [...new Set(erros)] };
+  return { ok: true, valores: normalizarSignatariosAutorizacao(corpo) };
 }
 
 function normalizarPrazo(v: unknown): number | null {

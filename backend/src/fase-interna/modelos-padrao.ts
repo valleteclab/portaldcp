@@ -26,6 +26,28 @@ export const RODAPE_PADRAO_HTML = `
   Documento produzido eletronicamente no Portal DCP em {{data_atual}} — Lei nº 14.133/2021
 </div>`.trim();
 
+/**
+ * Entrega 3B — textos que leem SEMPRE os dados do processo (fonte única):
+ * número do PA e da dispensa, fundamento legal, teto, sigilo, dotação e leis
+ * da reserva, autoridade da configuração e portaria de designação. Mudar o
+ * fundamento regera as peças geradas por modelo que não foram editadas à mão.
+ */
+export const AUTORIZACAO_TEXTO_PADRAO =
+  '<p>Considerando a instrução do Processo Administrativo nº {{licitacao.numero_processo}}, cujo objeto é {{licitacao.objeto}}, AUTORIZO o prosseguimento da contratação, com fundamento na {{licitacao.fundamento_legal}}, até o valor máximo (teto) de {{licitacao.teto}}.</p>' +
+  '<p>A despesa correrá à conta da dotação: {{reserva.dotacao}}, em conformidade com {{reserva.leis}}.</p>' +
+  '<p>{{orgao.cidade}}, {{data_atual}}.</p><p>{{autoridade.nome}}</p>';
+
+/** Texto ANTIGO (Entrega 1) do despacho — o seed troca pelo novo nos modelos do sistema. */
+export const AUTORIZACAO_TEXTO_E1 =
+  '<p>Considerando a instrução do Processo Administrativo nº {{licitacao.numero_processo}}, AUTORIZO a abertura do procedimento destinado a {{licitacao.objeto}}, com fundamento na {{licitacao.fundamento_legal}}.</p><p>{{orgao.cidade}}, {{data_atual}}.</p>';
+
+export const MINUTA_AVISO_PREAMBULO =
+  '<p>{{orgao.nome}}, inscrito no CNPJ sob nº {{orgao.cnpj}}, torna público o procedimento referente ao Processo Administrativo nº {{licitacao.numero_processo}} ({{licitacao.modalidade}} nº {{licitacao.numero_dispensa}}), com fundamento na {{licitacao.fundamento_legal}}, cujo objeto é {{licitacao.objeto}}. Valor estimado: {{licitacao.valor_publico}}.</p>';
+
+/** Texto ANTIGO do preâmbulo da minuta (só "licitação") — o seed troca pelo novo. */
+export const MINUTA_AVISO_PREAMBULO_ANTIGO =
+  '<p>{{orgao.nome}}, inscrito no CNPJ sob nº {{orgao.cnpj}}, torna público que realizará licitação na modalidade {{licitacao.modalidade}}, referente ao Processo Administrativo nº {{licitacao.numero_processo}}, cujo objeto é {{licitacao.objeto}}.</p>';
+
 export const MODELOS_PADRAO: ModeloPadraoDef[] = [
   {
     tipo: TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA,
@@ -87,7 +109,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
     fundamento_legal: 'Art. 25 · Lei 14.133/2021',
     intro: 'A minuta consolida as regras da licitação, vinculada ao TR e aos demais documentos da fase interna.',
     secoes: [
-      { id: 'preambulo', titulo: '1. Preâmbulo', placeholder: 'Identificação do órgão, objeto, modalidade…', obrigatorio: true, fundamento_legal: 'Art. 25', texto_padrao: '<p>{{orgao.nome}}, inscrito no CNPJ sob nº {{orgao.cnpj}}, torna público que realizará licitação na modalidade {{licitacao.modalidade}}, referente ao Processo Administrativo nº {{licitacao.numero_processo}}, cujo objeto é {{licitacao.objeto}}.</p>' },
+      { id: 'preambulo', titulo: '1. Preâmbulo', placeholder: 'Identificação do órgão, objeto, modalidade…', obrigatorio: true, fundamento_legal: 'Art. 25', texto_padrao: MINUTA_AVISO_PREAMBULO },
       { id: 'objeto_edital', titulo: '2. Do objeto', placeholder: 'Objeto da licitação…', obrigatorio: true, fundamento_legal: 'Art. 25', texto_padrao: '<p>{{licitacao.objeto}}</p>' },
       { id: 'participacao', titulo: '3. Da participação', placeholder: 'Quem pode participar e vedações…', obrigatorio: true, fundamento_legal: 'Art. 14' },
       { id: 'habilitacao', titulo: '4. Da habilitação', placeholder: 'Documentação necessária para habilitação…', obrigatorio: true, fundamento_legal: 'Art. 62–70' },
@@ -111,7 +133,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
     fundamento_legal: 'Art. 18, II · Lei 14.133/2021',
     intro: 'Ato formal da autoridade competente autorizando o início da fase externa da licitação.',
     secoes: [
-      { id: 'autorizacao', titulo: 'Autorização da Autoridade Competente', placeholder: 'Autorização formal da autoridade competente para abertura da licitação…', obrigatorio: true, fundamento_legal: 'Art. 18, II', rows: 6, texto_padrao: '<p>Considerando a instrução do Processo Administrativo nº {{licitacao.numero_processo}}, AUTORIZO a abertura do procedimento destinado a {{licitacao.objeto}}, com fundamento na {{licitacao.fundamento_legal}}.</p><p>{{orgao.cidade}}, {{data_atual}}.</p>' },
+      { id: 'autorizacao', titulo: 'Autorização da Autoridade Competente', placeholder: 'Autorização formal da autoridade competente para abertura da licitação…', obrigatorio: true, fundamento_legal: 'Art. 18, II', rows: 6, texto_padrao: AUTORIZACAO_TEXTO_PADRAO },
     ],
   },
   {
@@ -177,5 +199,111 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
           '<p>Declaramos que a despesa tem adequação orçamentária e financeira com a Lei Orçamentária Anual ({{reserva.lei_loa}}) e compatibilidade com a Lei de Diretrizes Orçamentárias ({{reserva.lei_ldo}}) e com o Plano Plurianual ({{reserva.lei_ppa}}), nos termos dos arts. 15, 16 e 17 da Lei Complementar nº 101/2000.</p>',
       },
     ],
+  },
+  {
+    // Entrega 3B — relatório do agente de contratação (razão da escolha,
+    // justificativa do preço e enquadramento), lido do processo.
+    tipo: TipoDocumentoFaseInterna.RELATORIO_AGENTE,
+    nome: 'Relatório do agente de contratação',
+    fundamento_legal: 'Art. 72, VI e VII · Lei 14.133/2021',
+    intro: 'Relata a instrução, o enquadramento legal, a razão da escolha e a justificativa do preço, a partir dos dados do processo.',
+    secoes: [
+      {
+        id: 'identificacao',
+        titulo: '1. Identificação',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 72',
+        texto_padrao:
+          '<p>Processo Administrativo nº {{licitacao.numero_processo}} — {{licitacao.modalidade}} nº {{licitacao.numero_dispensa}}. Objeto: {{licitacao.objeto}}.</p><p>Agente de contratação: {{agente.nome}}, {{portaria.designacao}}.</p>',
+      },
+      {
+        id: 'enquadramento',
+        titulo: '2. Enquadramento legal',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 72, VIII · Art. 75',
+        texto_padrao:
+          '<p>A contratação enquadra-se na {{licitacao.fundamento_legal}}. Limite aplicável no exercício: {{licitacao.limite_dispensa}}.</p>',
+      },
+      {
+        id: 'preco',
+        titulo: '3. Justificativa do preço',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 72, VII · Art. 23',
+        texto_padrao:
+          '<p>O valor estimado da contratação é de {{licitacao.teto}}, apurado na pesquisa de preços constante dos autos, nos termos do art. 23 da Lei nº 14.133/2021. {{licitacao.sigilo}}</p>',
+      },
+      {
+        id: 'escolha',
+        titulo: '4. Razão da escolha do contratado',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 72, VI',
+        placeholder: 'Critério de seleção (menor preço na disputa/propostas, fornecedor exclusivo…) e razão da escolha…',
+      },
+      {
+        id: 'orcamento',
+        titulo: '5. Disponibilidade orçamentária',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 72, IV',
+        texto_padrao: '<p>Dotação: {{reserva.dotacao}} (situação: {{reserva.situacao}}; exercícios: {{reserva.exercicios}}).</p>',
+      },
+      {
+        id: 'conclusao',
+        titulo: '6. Conclusão',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 72',
+        texto_padrao:
+          '<p>Instruído o processo, encaminho os autos para análise jurídica (art. 53 c/c art. 72, III), acompanhados da minuta do aviso e da minuta do contrato.</p><p>{{orgao.cidade}}, {{data_atual}}.</p><p>{{agente.nome}} — {{agente.cargo}}</p>',
+      },
+    ],
+  },
+  {
+    // Entrega 3B — minuta do contrato com as cláusulas do art. 92 (o roteiro
+    // do parecer confere as obrigatórias). A vinculação cita SEMPRE o número
+    // do processo e da dispensa lidos do processo (PA 139/2025: o contrato
+    // citava o "PA 115/2025" de outro processo).
+    tipo: TipoDocumentoFaseInterna.MINUTA_CONTRATO,
+    nome: 'Minuta do contrato',
+    fundamento_legal: 'Art. 92 · Lei 14.133/2021',
+    intro: 'Minuta do termo de contrato com as cláusulas necessárias do art. 92 da Lei 14.133/2021.',
+    secoes: [
+      { id: 'objeto', titulo: 'Cláusula primeira — Do objeto (art. 92, I)', obrigatorio: true, fundamento_legal: 'Art. 92, I', texto_padrao: '<p>O objeto deste contrato é {{licitacao.objeto}}, conforme especificações do termo de referência.</p>' },
+      {
+        id: 'vinculacao',
+        titulo: 'Cláusula segunda — Da vinculação (art. 92, II)',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 92, II',
+        texto_padrao:
+          '<p>Integram este contrato, independentemente de transcrição, o termo de referência, a proposta da contratada e o Processo Administrativo nº {{licitacao.numero_processo}} ({{licitacao.modalidade}} nº {{licitacao.numero_dispensa}}), com fundamento na {{licitacao.fundamento_legal}}, e seus anexos.</p>',
+      },
+      { id: 'legislacao', titulo: 'Cláusula terceira — Da legislação aplicável (art. 92, III)', obrigatorio: true, fundamento_legal: 'Art. 92, III', texto_padrao: '<p>Este contrato rege-se pela Lei nº 14.133/2021 e pelas demais normas aplicáveis, inclusive nos casos omissos.</p>' },
+      { id: 'regime_execucao', titulo: 'Cláusula quarta — Do regime de execução (art. 92, IV)', obrigatorio: true, fundamento_legal: 'Art. 92, IV', placeholder: 'Regime de execução ou forma de fornecimento…' },
+      { id: 'preco', titulo: 'Cláusula quinta — Do preço e do reajuste (art. 92, V)', obrigatorio: true, fundamento_legal: 'Art. 92, V', placeholder: 'Preço, condições de pagamento, data-base e critério de reajuste…' },
+      { id: 'pagamento', titulo: 'Cláusula sexta — Da medição e do pagamento (art. 92, VI)', obrigatorio: true, fundamento_legal: 'Art. 92, VI', placeholder: 'Critérios e periodicidade da medição, prazo de liquidação e de pagamento…' },
+      { id: 'prazos', titulo: 'Cláusula sétima — Dos prazos (art. 92, VII)', obrigatorio: true, fundamento_legal: 'Art. 92, VII', placeholder: 'Prazos de início, execução, conclusão, entrega e recebimento…' },
+      { id: 'dotacao', titulo: 'Cláusula oitava — Da dotação orçamentária (art. 92, VIII)', obrigatorio: true, fundamento_legal: 'Art. 92, VIII', texto_padrao: '<p>A despesa correrá à conta da dotação: {{reserva.dotacao}}.</p>' },
+      { id: 'garantia', titulo: 'Cláusula nona — Das garantias (art. 92, XII e XIII)', obrigatorio: false, fundamento_legal: 'Art. 92, XII e XIII', placeholder: 'Garantia de execução, se exigida, e prazo de garantia do objeto…' },
+      { id: 'obrigacoes', titulo: 'Cláusula décima — Das obrigações e responsabilidades (art. 92, XIV)', obrigatorio: true, fundamento_legal: 'Art. 92, XIV', placeholder: 'Direitos, obrigações e responsabilidades das partes…' },
+      { id: 'penalidades', titulo: 'Cláusula décima primeira — Das penalidades (art. 92, XIV)', obrigatorio: true, fundamento_legal: 'Art. 92, XIV · Art. 156', placeholder: 'Infrações, sanções e valores das multas…' },
+      { id: 'habilitacao', titulo: 'Cláusula décima segunda — Da manutenção das condições de habilitação (art. 92, XVI)', obrigatorio: true, fundamento_legal: 'Art. 92, XVI', texto_padrao: '<p>A contratada obriga-se a manter, durante toda a execução do contrato, as condições de habilitação e qualificação exigidas.</p>' },
+      { id: 'gestao', titulo: 'Cláusula décima terceira — Da gestão e fiscalização (art. 92, XVIII)', obrigatorio: true, fundamento_legal: 'Art. 92, XVIII · Art. 117', placeholder: 'Modelo de gestão, gestor e fiscal do contrato…' },
+      { id: 'extincao', titulo: 'Cláusula décima quarta — Da extinção (art. 92, XIX)', obrigatorio: true, fundamento_legal: 'Art. 92, XIX · Art. 137', placeholder: 'Hipóteses de extinção do contrato…' },
+      { id: 'foro', titulo: 'Cláusula décima quinta — Do foro (art. 92, §1º)', obrigatorio: true, fundamento_legal: 'Art. 92, §1º', texto_padrao: '<p>Fica eleito o foro da sede da Administração ({{orgao.cidade}}) para dirimir as questões decorrentes deste contrato.</p>' },
+    ],
+  },
+  {
+    // Entrega 3B — parecer nº 2, da fase externa (depois da sessão, antes da adjudicação).
+    tipo: TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA,
+    nome: 'Parecer jurídico da fase externa',
+    fundamento_legal: 'Art. 53 · Art. 71 · Lei 14.133/2021',
+    intro: 'Análise jurídica da fase externa (julgamento, habilitação e recursos) antes da adjudicação e homologação.',
+    secoes: [{ id: 'parecer', titulo: 'Parecer jurídico — fase externa', placeholder: 'Análise da sessão, do julgamento, da habilitação e dos recursos…', obrigatorio: true, fundamento_legal: 'Art. 71', rows: 8 }],
+  },
+  {
+    // Entrega 3B — manifestação do controle interno (opcional por órgão).
+    tipo: TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO,
+    nome: 'Manifestação do controle interno',
+    fundamento_legal: 'Art. 169, II · Lei 14.133/2021 — regulamento do órgão',
+    intro: 'Manifestação da unidade de controle interno sobre a regularidade do processo.',
+    secoes: [{ id: 'manifestacao', titulo: 'Manifestação do controle interno', placeholder: 'Análise de regularidade e apontamentos…', obrigatorio: true, fundamento_legal: 'Art. 169, II', rows: 8 }],
   },
 ];

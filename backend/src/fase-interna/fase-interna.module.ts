@@ -19,6 +19,13 @@ import { OrcamentoService } from './orcamento/orcamento.service';
 import { DocumentosTelaService } from './telas/documentos-tela.service';
 import { PesquisaTelaService } from './telas/pesquisa-tela.service';
 import { OrcamentoController, TelasFaseInternaController } from './telas/telas-fase-interna.controller';
+import { AnaliseJuridica, Diligencia } from './telas/parecer.entities';
+import { MinutasTelaService } from './telas/minutas-tela.service';
+import { MinutasSubscriber } from './telas/minutas.subscriber';
+import { AutorizacaoTelaService } from './telas/autorizacao-tela.service';
+import { ParecerTelaService } from './telas/parecer-tela.service';
+import { ControleInternoTelaService } from './telas/controle-interno-tela.service';
+import { TelasAnaliseDecisaoController } from './telas/telas-3b.controller';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
@@ -93,6 +100,8 @@ import {
       LeiOrcamentaria,
       ReservaOrcamentaria,
       ReservaOrcamentariaLinha,
+      AnaliseJuridica,
+      Diligencia,
     ]),
   ],
   controllers: [
@@ -104,6 +113,7 @@ import {
     EtapasFaseInternaController,
     TelasFaseInternaController,
     OrcamentoController,
+    TelasAnaliseDecisaoController,
   ],
   providers: [
     FaseInternaService,
@@ -115,6 +125,11 @@ import {
     OrcamentoService,
     DocumentosTelaService,
     PesquisaTelaService,
+    MinutasTelaService,
+    MinutasSubscriber,
+    AutorizacaoTelaService,
+    ParecerTelaService,
+    ControleInternoTelaService,
     PreparacaoAutomaticaService,
     ModeloDocumentoService,
     TramitacaoService,

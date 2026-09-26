@@ -137,9 +137,11 @@ Em **Configurações** › **Fase interna e tarefas** o administrador do órgão
 
 **Manifestação do controle interno.** Liga ou desliga a etapa de controle interno, que fica entre o parecer e a publicação. Por enquanto ela é só um **aviso**: não impede a publicação. Ao desligar, as tarefas abertas dessa etapa são canceladas.
 
+**Autorização — quem assina.** Escolha os usuários que assinam o despacho de autorização e o papel de cada um no ato, além do **nome da autoridade** usado nos despachos (ex.: "Mesa Diretora"). O botão **Modelo Mesa Diretora (4)** cria as linhas Presidente, Vice-Presidente, 1º Secretário e 2º Secretário, para você escolher as pessoas. A autorização só vale quando **todos** assinam. Sem ninguém na lista, o despacho vai para os usuários com o papel **Autoridade**.
+
 **Responsável e prazo por etapa.** Para cada etapa, escolha o papel e, se quiser, o setor, e o prazo em **dias úteis** (vazio = sem prazo). Os dias úteis seguem o calendário do órgão (parte 4, Feriados). O botão **Modelo Portaria 089** preenche os valores da Câmara de LEM: Compras 30, Contabilidade 3, Autorização 3, Minutas 5, Jurídico 5, Controle interno 3 e Publicação 5 dias úteis.
 
-**Papéis dos usuários.** Na mesma tela, marque os papéis de cada usuário (Requisitante, Compras, Contabilidade, Jurídico, Controle interno, Autoridade, Agente de contratação) e o setor em que ele está lotado. Um usuário pode ter vários papéis. Os papéis **não mudam as permissões de sistema** (Administrador, Pregoeiro, Equipe de apoio). Os setores são cadastrados na aba **Setores**.
+**Papéis dos usuários.** Na mesma tela, marque os papéis de cada usuário (Requisitante, Compras, Contabilidade, Jurídico, Controle interno, Autoridade, Agente de contratação) e o setor em que ele está lotado. Um usuário pode ter vários papéis. Os papéis **não mudam as permissões de sistema** (Administrador, Pregoeiro, Equipe de apoio). Mas alguns atos da fase interna exigem o papel: só o **Jurídico** abre diligência e assina o parecer, e só o **Controle interno** assina a manifestação do controle interno. Os setores são cadastrados na aba **Setores**.
 
 > **Atenção.** Ao salvar, as tarefas abertas são ajustadas na hora: a troca de modo muda o responsável das tarefas que ninguém reatribuiu à mão.
 

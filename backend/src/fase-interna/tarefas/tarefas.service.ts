@@ -19,7 +19,7 @@ import { AcaoLogFaseInterna } from '../entities/log-fase-interna.entity';
 import { AuditLogService, ContextoUsuario } from '../audit-log.service';
 import { FaseInternaService } from '../fase-interna.service';
 import { ConfiguracaoFaseInterna } from './configuracao-fase-interna.entity';
-import { ConfigFaseInternaEfetiva, configEfetiva, papelValido, validarConfiguracao } from './configuracao-fase-interna';
+import { ConfigFaseInternaEfetiva, configEfetiva, papelValido, validarConfiguracao, validarSignatariosAutorizacao } from './configuracao-fase-interna';
 import {
   DEFINICAO_PASSO,
   EtapaCalculada,
@@ -181,10 +181,22 @@ export class TarefasService {
     const setores: Array<{ id: string }> = await this.ds.query(`SELECT id::text AS id FROM setores WHERE orgao_id::text = $1`, [orgaoId]);
     const r = validarConfiguracao(corpo, setores.map((s) => s.id));
     if (!r.ok) throw new BadRequestException({ message: r.erros.join(' '), pendencias: r.erros });
+    // Autorização (Entrega 3B): signatários e nome da autoridade — só mudam quando enviados
+    const extras: Partial<ConfiguracaoFaseInterna> = {};
+    if (corpo?.signatarios_autorizacao !== undefined) {
+      const usuarios: Array<{ id: string }> = await this.ds.query(`SELECT id::text AS id FROM usuarios WHERE orgao_id::text = $1 AND ativo = true`, [orgaoId]);
+      const sa = validarSignatariosAutorizacao(corpo.signatarios_autorizacao, usuarios.map((u) => u.id));
+      if (!sa.ok) throw new BadRequestException({ message: sa.erros.join(' '), pendencias: sa.erros });
+      extras.signatarios_autorizacao = sa.valores.length ? sa.valores : null;
+    }
+    if (corpo?.autoridade_rotulo !== undefined) {
+      extras.autoridade_rotulo = String(corpo.autoridade_rotulo ?? '').trim().slice(0, 120) || null;
+    }
     const existente = await this.configRepo.findOne({ where: { orgao_id: orgaoId } });
     await this.configRepo.save(
       this.configRepo.merge(existente ?? this.configRepo.create({ orgao_id: orgaoId }), {
         ...r.valores,
+        ...extras,
         atualizado_por_id: autor.id,
         atualizado_por_nome: autor.nome,
       }),
@@ -381,7 +393,20 @@ export class TarefasService {
    */
   async criarTarefaDoSistema(
     licitacaoId: string,
-    t: { chave: string; passo: PassoFaseInterna; titulo: string; descricao: string; tipo_peca?: string | null; documento_id?: string | null },
+    t: {
+      chave: string;
+      passo: PassoFaseInterna;
+      titulo: string;
+      descricao: string;
+      tipo_peca?: string | null;
+      documento_id?: string | null;
+      /** Entrega 3B: diligência do parecer (origem DILIGENCIA) e devolução da autorização. */
+      origem?: 'SISTEMA' | 'DILIGENCIA';
+      origem_id?: string | null;
+      tipo?: 'PECA' | 'DILIGENCIA' | 'OUTRO';
+      /** Responsável explícito (ex.: o agente do processo); sem ele, o do passo. */
+      responsavel?: Responsavel | null;
+    },
   ): Promise<string | null> {
     if (!this.ativo()) return null;
     const [lic] = await this.ds.query(
@@ -390,9 +415,7 @@ export class TarefasService {
     );
     if (!lic?.orgao_id) return null;
     const config = await this.configuracao(lic.orgao_id);
-    const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
-    const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
-    const responsavel = responsavelDoPasso(t.passo, config, { agente_id: agente, criador_usuario_id: criador });
+    const responsavel = t.responsavel ?? (await this.responsavelDoPassoNoProcesso(licitacaoId, t.passo));
     const dias = config.prazos[t.passo] ?? null;
     const valores: Partial<Tarefa> = {
       orgao_id: lic.orgao_id,
@@ -402,8 +425,9 @@ export class TarefasService {
       etapa: DEFINICAO_PASSO[t.passo].etapa,
       passo: t.passo,
       chave: t.chave,
-      tipo: 'PECA',
-      origem: 'SISTEMA',
+      tipo: t.tipo ?? 'PECA',
+      origem: t.origem ?? 'SISTEMA',
+      origem_id: t.origem_id ?? null,
       titulo: t.titulo,
       descricao: t.descricao,
       responsavel_usuario_id: responsavel.usuario_id,
@@ -425,6 +449,43 @@ export class TarefasService {
     await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CRIADA, `Tarefa criada: ${t.titulo}`, null, { tarefa_id: id, passo: t.passo, chave: t.chave, responsavel, prazo: valores.prazo });
     await this.notificar(lic, { ...valores, id } as Tarefa, 'nova');
     return id;
+  }
+
+  /**
+   * Responsável calculado para um passo DESTE processo (modo SIMPLES: o agente,
+   * ou quem criou, ou a caixa do agente; POR_SETOR: o papel/setor configurado).
+   */
+  async responsavelDoPassoNoProcesso(licitacaoId: string, passo: PassoFaseInterna): Promise<Responsavel> {
+    const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, pregoeiro_id::text AS pregoeiro_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!lic?.orgao_id) return { usuario_id: null, papel: null, setor_id: null };
+    const config = await this.configuracao(lic.orgao_id);
+    const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
+    const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
+    return responsavelDoPasso(passo, config, { agente_id: agente, criador_usuario_id: criador });
+  }
+
+  /**
+   * O agente do processo (a devolução da autorização vai para ele): o agente
+   * designado (usuário ativo do órgão), senão quem criou, senão a caixa do
+   * papel AGENTE_CONTRATACAO — em qualquer modo.
+   */
+  async agenteDoProcesso(licitacaoId: string): Promise<Responsavel> {
+    const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, pregoeiro_id::text AS pregoeiro_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!lic?.orgao_id) return { usuario_id: null, papel: null, setor_id: null };
+    const agente = (await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id)) ?? (await this.criadorDoProcesso(licitacaoId, lic.orgao_id));
+    return agente ? { usuario_id: agente, papel: null, setor_id: null } : { usuario_id: null, papel: 'AGENTE_CONTRATACAO', setor_id: null };
+  }
+
+  /** Cancela a tarefa ABERTA da chave (ex.: diligência cancelada pela Procuradoria). */
+  async cancelarTarefaPorChave(licitacaoId: string, chave: string, motivo: string): Promise<boolean> {
+    const r = await this.ds.query(
+      `UPDATE tarefas SET status = 'CANCELADA', cancelada_em = now(), motivo_cancelamento = $3, updated_at = now()
+        WHERE licitacao_id::text = $1 AND chave = $2 AND status = 'ABERTA' RETURNING id::text AS id`,
+      [licitacaoId, chave, motivo],
+    );
+    const linhas: Array<{ id: string }> = Array.isArray(r?.[0]) ? r[0] : [];
+    for (const t of linhas) await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CANCELADA, `Tarefa cancelada: ${motivo}`, null, { tarefa_id: t.id, chave, motivo });
+    return linhas.length > 0;
   }
 
   /** Conclui a tarefa ABERTA da chave (tarefa do sistema cumprida), registrando quem cumpriu. */

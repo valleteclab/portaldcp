@@ -489,6 +489,74 @@ Responda APENAS com JSON válido:
 {"autorizacao":"..."}`,
 }
 
+// ─── Entrega 3B: relatório do agente, minuta do contrato, parecer da fase externa, controle interno ──
+// Espelham os modelos padrão do backend (backend/src/fase-interna/modelos-padrao.ts): as seções são
+// geradas pelo modelo com os dados do processo e podem ser editadas aqui.
+
+const sec = (id: string, titulo: string, fundamentoLegal: string, placeholder = '', obrigatorio = true, rows?: number): SecaoTemplate => ({
+  id,
+  titulo,
+  placeholder,
+  obrigatorio,
+  fundamentoLegal,
+  rows,
+})
+
+const relatorioAgente: TemplateDocumento = {
+  titulo: 'Relatório do agente de contratação',
+  intro: 'Relata a instrução, o enquadramento legal, a razão da escolha e a justificativa do preço, a partir dos dados do processo.',
+  artigo: 'Art. 72, VI e VII · Lei 14.133/2021',
+  secoes: [
+    sec('identificacao', '1. Identificação', 'Art. 72'),
+    sec('enquadramento', '2. Enquadramento legal', 'Art. 72, VIII · Art. 75'),
+    sec('preco', '3. Justificativa do preço', 'Art. 72, VII · Art. 23'),
+    sec('escolha', '4. Razão da escolha do contratado', 'Art. 72, VI', 'Critério de seleção e razão da escolha…'),
+    sec('orcamento', '5. Disponibilidade orçamentária', 'Art. 72, IV'),
+    sec('conclusao', '6. Conclusão', 'Art. 72'),
+  ],
+  buildPrompt: (ctx) => `Relatório do agente de contratação para: ${ctx.objeto}. Responda APENAS com JSON.`,
+}
+
+const minutaContrato: TemplateDocumento = {
+  titulo: 'Minuta do contrato',
+  intro: 'Minuta do termo de contrato com as cláusulas necessárias do art. 92 da Lei 14.133/2021.',
+  artigo: 'Art. 92 · Lei 14.133/2021',
+  secoes: [
+    sec('objeto', 'Cláusula primeira — Do objeto (art. 92, I)', 'Art. 92, I'),
+    sec('vinculacao', 'Cláusula segunda — Da vinculação (art. 92, II)', 'Art. 92, II'),
+    sec('legislacao', 'Cláusula terceira — Da legislação aplicável (art. 92, III)', 'Art. 92, III'),
+    sec('regime_execucao', 'Cláusula quarta — Do regime de execução (art. 92, IV)', 'Art. 92, IV', 'Regime de execução ou forma de fornecimento…'),
+    sec('preco', 'Cláusula quinta — Do preço e do reajuste (art. 92, V)', 'Art. 92, V', 'Preço, condições de pagamento, data-base e critério de reajuste…'),
+    sec('pagamento', 'Cláusula sexta — Da medição e do pagamento (art. 92, VI)', 'Art. 92, VI', 'Critérios e periodicidade da medição, prazo de liquidação e de pagamento…'),
+    sec('prazos', 'Cláusula sétima — Dos prazos (art. 92, VII)', 'Art. 92, VII', 'Prazos de início, execução, conclusão, entrega e recebimento…'),
+    sec('dotacao', 'Cláusula oitava — Da dotação orçamentária (art. 92, VIII)', 'Art. 92, VIII'),
+    sec('garantia', 'Cláusula nona — Das garantias (art. 92, XII e XIII)', 'Art. 92, XII e XIII', 'Garantia de execução, se exigida, e prazo de garantia do objeto…', false),
+    sec('obrigacoes', 'Cláusula décima — Das obrigações e responsabilidades (art. 92, XIV)', 'Art. 92, XIV', 'Direitos, obrigações e responsabilidades das partes…'),
+    sec('penalidades', 'Cláusula décima primeira — Das penalidades (art. 92, XIV)', 'Art. 92, XIV · Art. 156', 'Infrações, sanções e valores das multas…'),
+    sec('habilitacao', 'Cláusula décima segunda — Da manutenção das condições de habilitação (art. 92, XVI)', 'Art. 92, XVI'),
+    sec('gestao', 'Cláusula décima terceira — Da gestão e fiscalização (art. 92, XVIII)', 'Art. 92, XVIII · Art. 117', 'Modelo de gestão, gestor e fiscal do contrato…'),
+    sec('extincao', 'Cláusula décima quarta — Da extinção (art. 92, XIX)', 'Art. 92, XIX · Art. 137', 'Hipóteses de extinção do contrato…'),
+    sec('foro', 'Cláusula décima quinta — Do foro (art. 92, §1º)', 'Art. 92, §1º'),
+  ],
+  buildPrompt: (ctx) => `Minuta de contrato (art. 92 da Lei 14.133/2021) para: ${ctx.objeto}. Responda APENAS com JSON.`,
+}
+
+const parecerFaseExterna: TemplateDocumento = {
+  titulo: 'Parecer jurídico da fase externa',
+  intro: 'Análise jurídica da fase externa antes da adjudicação e homologação.',
+  artigo: 'Art. 53 · Art. 71 · Lei 14.133/2021',
+  secoes: [sec('parecer', 'Parecer jurídico — fase externa', 'Art. 71', 'Análise da sessão, do julgamento, da habilitação e dos recursos…', true, 8)],
+  buildPrompt: (ctx) => `Parecer jurídico da fase externa para: ${ctx.objeto}. Responda APENAS com JSON.`,
+}
+
+const controleInterno: TemplateDocumento = {
+  titulo: 'Manifestação do controle interno',
+  intro: 'Manifestação da unidade de controle interno sobre a regularidade do processo.',
+  artigo: 'Art. 169, II · Lei 14.133/2021',
+  secoes: [sec('manifestacao', 'Manifestação do controle interno', 'Art. 169, II', 'Análise de regularidade e apontamentos…', true, 8)],
+  buildPrompt: (ctx) => `Manifestação do controle interno para: ${ctx.objeto}. Responda APENAS com JSON.`,
+}
+
 // ─── Exportações ──────────────────────────────────────────────────────────────
 
 export const TEMPLATES_DOCUMENTOS: Record<string, TemplateDocumento> = {
@@ -499,6 +567,10 @@ export const TEMPLATES_DOCUMENTOS: Record<string, TemplateDocumento> = {
   ME: edital,
   PJ: parecerJuridico,
   AA: autorizacao,
+  RAG: relatorioAgente,
+  MC: minutaContrato,
+  PJE: parecerFaseExterna,
+  MCI: controleInterno,
   // Aliases para compatibilidade com tipos legados e aviso
   AVISO: aviso,
   AVISO_CONTRATACAO: aviso,
@@ -522,8 +594,12 @@ export const TITULOS_TIPO: Record<string, string> = {
   PJ: 'Parecer Jurídico',
   PT: 'Parecer Técnico',
   AA: 'Autorização para Abertura',
-  ME: 'Minuta do Edital',
+  ME: 'Minuta do Edital / Aviso',
   DO: 'Dotação Orçamentária',
+  RAG: 'Relatório do Agente de Contratação',
+  MC: 'Minuta do Contrato',
+  PJE: 'Parecer Jurídico da Fase Externa',
+  MCI: 'Manifestação do Controle Interno',
   AVISO: 'Aviso de Contratação Direta',
   AVISO_CONTRATACAO: 'Aviso de Contratação Direta',
   // Long names

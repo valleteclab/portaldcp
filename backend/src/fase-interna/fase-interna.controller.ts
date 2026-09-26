@@ -40,6 +40,8 @@ import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { TarefasService } from './tarefas/tarefas.service';
 import { AuditLogService } from './audit-log.service';
 import { OrcamentoService } from './orcamento/orcamento.service';
+import { AutorizacaoTelaService } from './telas/autorizacao-tela.service';
+import { ParecerTelaService } from './telas/parecer-tela.service';
 import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 
 /**
@@ -64,6 +66,8 @@ export class FaseInternaController {
     private readonly tarefas: TarefasService,
     private readonly auditLog: AuditLogService,
     private readonly orcamento: OrcamentoService,
+    private readonly autorizacao: AutorizacaoTelaService,
+    private readonly parecer: ParecerTelaService,
   ) {}
 
   private enviarPdf(res: Response, arq: { caminho: string; nome: string }) {
@@ -96,6 +100,13 @@ export class FaseInternaController {
     // Informação orçamentária feita fora: conclui a renovação de dotação pendente (Entrega 3A)
     if (doc.tipo === TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA) {
       await this.orcamento.aoAnexarInformacaoOrcamentaria(licitacaoId, doc.id, await this.tarefas.autor(ator)).catch(() => undefined);
+    }
+    // Entrega 3B: despacho assinado fora conclui a devolução pendente; parecer feito fora, o retorno à Procuradoria
+    if (doc.tipo === TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA) {
+      await this.autorizacao.aoAnexarDespacho(licitacaoId, await this.tarefas.autor(ator)).catch(() => undefined);
+    }
+    if (doc.tipo === TipoDocumentoFaseInterna.PARECER_JURIDICO || doc.tipo === TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA) {
+      await this.parecer.aoAnexarParecer(licitacaoId, doc.tipo, await this.tarefas.autor(ator)).catch(() => undefined);
     }
     return doc;
   }

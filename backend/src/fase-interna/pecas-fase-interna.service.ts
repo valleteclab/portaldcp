@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -514,6 +515,66 @@ export class PecasFaseInternaService implements OnModuleInit {
       this.logger.warn(`Notificação de assinatura da peça ${tipo} não enviada: ${e?.message ?? e}`),
     );
     return this.docRepo.findOneOrFail({ where: { id: doc.id } });
+  }
+
+  /**
+   * ASSINAR COMO O SIGNATÁRIO DESIGNADO (Entrega 3B — autorização no celular,
+   * parecer e controle interno): só o usuário do token que está entre os
+   * `signatarios_exigidos` da peça assina (senão 403), com o próprio login
+   * (o portal dispensa o código quando o signatário é o usuário logado). Quando
+   * é a última assinatura, espera a peça ficar ASSINADA (ouvinte do portal).
+   */
+  async assinarComoSignatario(
+    licitacaoId: string,
+    tipoParam: string,
+    ator: Ator,
+    rede: { ip?: string; userAgent?: string } = {},
+  ): Promise<{ documento: DocumentoFaseInterna; concluida: boolean }> {
+    const tipo = this.tipoValido(tipoParam);
+    const doc = await this.docRepo.findOne({ where: { licitacao_id: licitacaoId, tipo, versao_atual: true } });
+    if (!doc) throw new NotFoundException('Peça não encontrada');
+    if (!ator.usuarioId) throw new ForbiddenException('Só o signatário designado assina, com o próprio usuário.');
+    const exigido = (doc.signatarios_exigidos ?? []).find((s) => s.usuario_id === ator.usuarioId);
+    if (!exigido) throw new ForbiddenException('Você não é signatário desta peça.');
+    if (doc.status !== StatusDocumento.AGUARDANDO_ASSINATURA || !doc.documento_assinatura_id) {
+      throw new ConflictException(doc.status === StatusDocumento.ASSINADO ? 'A peça já está assinada.' : 'A peça não está aguardando assinaturas.');
+    }
+    const [u] = await this.ds.query(`SELECT email, cpf FROM usuarios WHERE id::text = $1 AND ativo = true`, [ator.usuarioId]);
+    if (!u?.email) throw new ForbiddenException('Usuário inativo ou sem e-mail — não pode assinar.');
+    const [sig] = await this.ds.query(
+      `SELECT id::text AS id, status::text AS status FROM signatarios_documento WHERE documento_id::text = $1 AND lower(email) = lower($2) LIMIT 1`,
+      [doc.documento_assinatura_id, exigido.email ?? u.email],
+    );
+    if (!sig) throw new ConflictException('Signatário não encontrado no pedido de assinatura.');
+    if (sig.status === 'ASSINADO') throw new ConflictException('Você já assinou esta peça.');
+    const r = await this.assinaturas.assinarComoOrgaoUser(doc.documento_assinatura_id, sig.id, { email: u.email, cpf: u.cpf }, rede.ip || '', rede.userAgent || '');
+    const concluida = !!r?.pdf_url;
+    if (concluida) {
+      // O portal avisa o ouvinte (aoConcluirAssinatura) sem esperar: aguarda a peça ficar ASSINADA
+      for (let i = 0; i < 100; i++) {
+        const atual = await this.docRepo.findOne({ where: { id: doc.id } });
+        if (atual?.status === StatusDocumento.ASSINADO) break;
+        await new Promise((res) => setTimeout(res, 100));
+      }
+    }
+    return { documento: await this.docRepo.findOneOrFail({ where: { id: doc.id } }), concluida };
+  }
+
+  /**
+   * Peça emitida por quem tem o papel (parecer, controle interno): envia para
+   * assinatura com o PRÓPRIO emissor como signatário e assina na hora.
+   */
+  async enviarEAssinarComoEmissor(
+    licitacaoId: string,
+    tipo: TipoDocumentoFaseInterna,
+    ator: Ator,
+    papel: string,
+    rede: { ip?: string; userAgent?: string } = {},
+  ): Promise<DocumentoFaseInterna> {
+    if (!ator.usuarioId) throw new ForbiddenException('Entre com o seu usuário para assinar.');
+    await this.enviarParaAssinatura(licitacaoId, tipo, { signatarios: [{ usuario_id: ator.usuarioId, papel }] }, ator);
+    const r = await this.assinarComoSignatario(licitacaoId, tipo, ator, rede);
+    return r.documento;
   }
 
   /** Situação da assinatura da peça (quem já assinou, quem falta). */

@@ -1,11 +1,12 @@
 /**
- * TELAS POR ETAPA DA FASE INTERNA (Entrega 3A) — rotas e utilidades comuns.
+ * TELAS POR ETAPA DA FASE INTERNA (Entregas 3A e 3B) — rotas e utilidades comuns.
  * Cada etapa tem UMA tela, dentro do processo:
- *   /orgao/processos/[id]/fase-interna/{dfd,etp,tr,pesquisa,reserva}
+ *   /orgao/processos/[id]/fase-interna/{dfd,etp,tr,pesquisa,reserva,
+ *     autorizacao,minutas,parecer,controle-interno}
  * e abre pelo quadro "Fluxo da fase interna" ou pela tarefa da caixa.
  */
 
-export type TelaEtapa = "dfd" | "etp" | "tr" | "pesquisa" | "reserva"
+export type TelaEtapa = "dfd" | "etp" | "tr" | "pesquisa" | "reserva" | "autorizacao" | "minutas" | "parecer" | "controle-interno"
 
 export interface EtapaDaBarra {
   numero: number
@@ -14,6 +15,8 @@ export interface EtapaDaBarra {
   tela: TelaEtapa | null
   /** Tipos de peça da etapa (códigos do sistema). */
   tipos: string[]
+  /** Só aparece quando o órgão ativou (controle interno). */
+  opcional?: boolean
 }
 
 /** As 8 etapas da SPEC, na ordem sugerida (a ordem não trava: valem as dependências). */
@@ -23,8 +26,10 @@ export const ETAPAS_DA_BARRA: EtapaDaBarra[] = [
   { numero: 3, titulo: "TR", passo: "TR", tela: "tr", tipos: ["TR", "PB", "PE"] },
   { numero: 4, titulo: "Pesquisa", passo: "PESQUISA", tela: "pesquisa", tipos: ["PP", "MCP"] },
   { numero: 5, titulo: "Reserva", passo: "RESERVA", tela: "reserva", tipos: ["DO"] },
-  { numero: 6, titulo: "Autorização", passo: "AUTORIZACAO", tela: null, tipos: ["AA", "DP"] },
-  { numero: 7, titulo: "Parecer", passo: "PARECER", tela: null, tipos: ["PJ", "RAG", "ME", "MC"] },
+  { numero: 6, titulo: "Autorização", passo: "AUTORIZACAO", tela: "autorizacao", tipos: ["AA", "DP"] },
+  { numero: 7, titulo: "Minutas", passo: "MINUTAS", tela: "minutas", tipos: ["RAG", "ME", "MC"] },
+  { numero: 7, titulo: "Parecer", passo: "PARECER", tela: "parecer", tipos: ["PJ"] },
+  { numero: 7, titulo: "Controle interno", passo: "CONTROLE_INTERNO", tela: "controle-interno", tipos: ["MCI"], opcional: true },
   { numero: 8, titulo: "Publicação", passo: "PUBLICACAO", tela: null, tipos: [] },
 ]
 
@@ -47,12 +52,24 @@ export function telaDoTipo(tipo: string | null | undefined): TelaEtapa | null {
       return "pesquisa"
     case "DO":
       return "reserva"
+    case "AA":
+    case "DP":
+      return "autorizacao"
+    case "RAG":
+    case "ME":
+    case "MC":
+      return "minutas"
+    case "PJ":
+    case "PJE":
+      return "parecer"
+    case "MCI":
+      return "controle-interno"
     default:
       return null
   }
 }
 
-/** Tela da etapa de um passo da Entrega 2 (DFD, ETP, TR, PESQUISA, RESERVA). */
+/** Tela da etapa de um passo da Entrega 2 (DFD … RESERVA, AUTORIZACAO, MINUTAS, PARECER, CONTROLE_INTERNO). */
 export function telaDoPasso(passo: string | null | undefined): TelaEtapa | null {
   return ETAPAS_DA_BARRA.find((e) => e.passo === passo)?.tela ?? null
 }
