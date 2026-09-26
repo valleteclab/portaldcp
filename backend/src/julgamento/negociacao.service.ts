@@ -670,7 +670,7 @@ export class NegociacaoService implements OnModuleInit {
 
   /**
    * Desclassifica o licitante que permaneceu acima do preço máximo depois da
-   * negociação (Lei 14.133 art. 59 III; IN 73 art. 30 §1º): situação
+   * negociação (Lei 14.133 art. 59 III; IN 73 art. 30 §2º): situação
    * DESCLASSIFICADO (sai do ranking), convocação de aceitação dele cancelada e
    * o PRÓXIMO do ranking é chamado à negociação automaticamente. Sem próximo,
    * a unidade fracassa.
@@ -693,7 +693,7 @@ export class NegociacaoService implements OnModuleInit {
 
       const textoMotivo =
         `Proposta de ${brl(valorTotal)} permaneceu acima do preço máximo da contratação após a negociação ` +
-        `(Lei 14.133/2021, art. 59, III; IN SEGES 73/2022, art. 30 §1º)` + (complemento ? `. ${complemento}` : '');
+        `(Lei 14.133/2021, art. 59, III; IN SEGES 73/2022, art. 30 §2º)` + (complemento ? `. ${complemento}` : '');
       n.status = StatusNegociacao.CONCLUIDA;
       n.resultado = ResultadoNegociacao.DESCLASSIFICADO;
       n.valor_final = valorAtualNaBase;

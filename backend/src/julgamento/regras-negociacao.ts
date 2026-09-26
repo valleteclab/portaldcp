@@ -170,7 +170,7 @@ export function motivoNaoEncerra(neg: EstadoNegociacao): string | null {
 }
 
 /**
- * Desclassificar por preço acima do máximo (art. 59 III; IN 73 art. 30 §1º):
+ * Desclassificar por preço acima do máximo (art. 59 III; IN 73 art. 30 §2º):
  * só depois de negociar (ao menos uma contraproposta respondida), sem
  * pendência, e com o valor atual de fato acima do preço máximo.
  */
@@ -178,7 +178,7 @@ export function motivoNaoDesclassifica(neg: EstadoNegociacao, valorAtualTotal: n
   const erro = motivoNaoEncerra(neg);
   if (erro) return erro;
   if (!(neg.rodadas ?? []).some((r) => r.status === StatusContraproposta.RECUSADA || r.status === StatusContraproposta.ACEITA)) {
-    return 'Negocie antes de desclassificar: envie ao menos uma contraproposta ao licitante (IN 73 art. 30 §1º)';
+    return 'Negocie antes de desclassificar: envie ao menos uma contraproposta ao licitante (IN 73 art. 30 §2º)';
   }
   if (!acimaDoPrecoMaximo(valorAtualTotal, precoMaximo)) {
     return 'O valor atual do licitante não está acima do preço máximo — a desclassificação por preço não se aplica (art. 59 III)';
