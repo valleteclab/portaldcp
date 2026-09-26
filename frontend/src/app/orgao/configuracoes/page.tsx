@@ -23,7 +23,7 @@ import {
   Pencil,
   Trash2,
   CalendarDays,
-  ListChecks, Landmark } from "lucide-react"
+  ListChecks, Landmark, Tv } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -49,6 +49,7 @@ import {
 
 import { API_URL, authFetch, getAssetUrl } from '@/lib/api'
 import { confirmarAcao } from "@/components/DialogoGlobal"
+import { PainelTvConfig } from "@/components/painel-tv/PainelTvConfig"
 
 interface Setor {
   id: string
@@ -60,7 +61,7 @@ export default function ConfiguracoesPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
-  const validTabs = ["orgao", "setores", "usuarios", "notificacoes", "pncp", "transparencia", "seguranca"]
+  const validTabs = ["orgao", "setores", "usuarios", "notificacoes", "pncp", "transparencia", "painel-tv", "seguranca"]
   const [activeTab, setActiveTab] = useState(validTabs.includes(tabParam || "") ? tabParam! : "orgao")
 
   // Restringe acesso a usuários com role ADMIN.
@@ -558,6 +559,9 @@ export default function ConfiguracoesPage() {
           </TabsTrigger>
           <TabsTrigger value="transparencia">
             <Globe className="h-4 w-4 mr-2" /> Transparência
+          </TabsTrigger>
+          <TabsTrigger value="painel-tv">
+            <Tv className="h-4 w-4 mr-2" /> Painel para TV
           </TabsTrigger>
           <TabsTrigger value="seguranca">
             <Shield className="h-4 w-4 mr-2" /> Seguranca
@@ -1057,6 +1061,10 @@ export default function ConfiguracoesPage() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="painel-tv" className="space-y-4">
+          {activeTab === "painel-tv" && <PainelTvConfig />}
         </TabsContent>
 
         <TabsContent value="seguranca" className="space-y-4">
