@@ -22,7 +22,8 @@ import {
   Plus,
   Pencil,
   Trash2,
-  CalendarDays
+  CalendarDays,
+  ListChecks
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -505,6 +506,16 @@ export default function ConfiguracoesPage() {
           >
             <Settings className="h-4 w-4" />
             Parâmetros de licitação
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push('/orgao/configuracoes/fase-interna')}
+            title="Modo simples ou por setor, controle interno, prazos por etapa e papéis dos usuários"
+          >
+            <ListChecks className="h-4 w-4" />
+            Fase interna e tarefas
           </Button>
           <Button
             variant="outline"
