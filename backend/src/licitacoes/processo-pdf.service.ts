@@ -285,7 +285,10 @@ export class ProcessoPdfService {
         if (pronta) return pronta;
         const meta = await this.montar(lic, plano);
         this.ultimoErro.delete(lic.id);
+        // A montagem só fica PRONTA (o .json da impressão) DEPOIS das folhas
+        // gravadas nas peças e do aviso a quem pediu: quem vê "PRONTO" vê tudo.
         if (solicitante) await this.avisarPronto(lic, meta, solicitante);
+        await fs.promises.writeFile(this.caminhoMeta(lic.id, plano.hash), JSON.stringify(meta));
         return meta;
       })
       .catch((e: any) => {
@@ -662,7 +665,7 @@ export class ProcessoPdfService {
       await fs.promises.writeFile(`${destino}.parcial`, bytes);
       await fs.promises.rename(`${destino}.parcial`, destino);
       const meta: MetaAutos = { hash: plano.hash, folhas: total, gerado_em: new Date().toISOString(), duracao_ms: Date.now() - t0, indice, ausentes };
-      await fs.promises.writeFile(this.caminhoMeta(lic.id, plano.hash), JSON.stringify(meta));
+      // o .json (que marca PRONTO) é gravado por quem agendou, depois do aviso
       await this.limparAntigos(lic.id, plano.hash);
       await this.gravarFolhasNasPecas(indice);
       this.logger.log(`[autos] Processo ${lic.numero_processo}: ${prontas.length} peça(s), ${total} folha(s), ${ausentes.length} ausente(s), ${meta.duracao_ms} ms`);
