@@ -342,17 +342,15 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       }
     });
 
-    it('sigilo: o cockpit do órgão vê quem propôs, mas não os valores', async () => {
+    it('sigilo: o cockpit do órgão vê só QUANTAS propostas chegaram — nem quem propôs, nem os valores (art. 13 par. único, I; IN 67 art. 13)', async () => {
       const pc = await ctx.http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(orgao.token)).expect(200);
       expect(pc.body.propostas_em_sigilo).toBe(true);
       expect(pc.body.propostas).toHaveLength(3);
       for (const p of pc.body.propostas) {
-        expect(p.valor_total_proposta).toBeNull();
-        expect(p.sigilo).toBe(true);
+        expect(p).toMatchObject({ id: null, razao_social: null, valor_total_proposta: null, sigilo: true });
       }
-      expect(pc.body.propostas.map((p: any) => p.razao_social).sort()).toEqual(
-        [me.razao_social, epp.razao_social, demais.razao_social].sort(),
-      );
+      const json = JSON.stringify(pc.body);
+      for (const f of [me, epp, demais]) expect(json).not.toContain(f.razao_social);
     });
 
     it('com o acolhimento aberto, julgamento e fase de lances são recusados', async () => {

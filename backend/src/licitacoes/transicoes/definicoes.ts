@@ -1152,6 +1152,22 @@ const INTENCAO_REVOGAR = intencaoDeExtincao(A.INTENCAO_REVOGAR);
 const INTENCAO_ANULAR = intencaoDeExtincao(A.INTENCAO_ANULAR);
 
 
+/**
+ * Por que deserta/fracassada ainda não cabem (menu "Mais ações" do cockpit):
+ * só depois que o prazo de propostas existiu — divulgação confirmada no PNCP
+ * (arts. 54 e 174) — e antes da homologação.
+ */
+function mensagemDesertaFracassadaForaDaFase(lic: { fase: FaseLicitacao }, qual: 'deserta' | 'fracassada'): string | null {
+  const quando =
+    qual === 'deserta'
+      ? 'só depois do fim do prazo de propostas, sem nenhuma proposta'
+      : 'só depois do julgamento (houve propostas e nenhuma aproveitável)';
+  if (FASES_INTERNAS.includes(lic.fase)) return `Processo ainda não divulgado — ${quando}.`;
+  if (lic.fase === F.AGUARDANDO_DIVULGACAO) return `Aviso/edital ainda não publicado no PNCP — o prazo de propostas não começou; ${quando}.`;
+  if (lic.fase === F.HOMOLOGACAO) return 'Processo já homologado.';
+  return null;
+}
+
 const DECLARAR_DESERTA: DefinicaoAto = {
   ato: A.DECLARAR_DESERTA,
   rotulo: 'Declarar deserta',
@@ -1159,6 +1175,7 @@ const DECLARAR_DESERTA: DefinicaoAto = {
   situacaoPara: S.DESERTA,
   requerMotivo: true,
   precondicoes: [desertaPossivel, providenciaArt22Informada],
+  mensagemForaDaFase: (lic) => mensagemDesertaFracassadaForaDaFase(lic, 'deserta'),
 };
 
 const DECLARAR_FRACASSADA: DefinicaoAto = {
@@ -1168,6 +1185,7 @@ const DECLARAR_FRACASSADA: DefinicaoAto = {
   situacaoPara: S.FRACASSADA,
   requerMotivo: true,
   precondicoes: [fracassadaPossivel, providenciaArt22Informada],
+  mensagemForaDaFase: (lic) => mensagemDesertaFracassadaForaDaFase(lic, 'fracassada'),
 };
 
 const CONCLUIR: DefinicaoAto = {

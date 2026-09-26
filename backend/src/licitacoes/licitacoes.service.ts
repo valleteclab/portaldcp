@@ -38,6 +38,8 @@ import { ResultadoService, EntradaAdjudicacao } from '../resultado/resultado.ser
 import { valorAdjudicadoDoUnitario } from '../resultado/regras-resultado';
 import type { Ator } from '../auth/acesso/ator';
 import { aplicarEstadoCompraPncp, estadoCompraPncp } from '../pncp/estado-compra-pncp';
+import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
+import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizacao';
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
 import { comoErro } from '../common/erros';
 
@@ -939,6 +941,11 @@ export class LicitacoesService {
     return this.transicoes.atosDisponiveis(id);
   }
 
+  /** Checklist de pré-publicação (Etapa B da tela do processo). */
+  async conferenciaPrePublicacao(id: string) {
+    return this.transicoes.conferenciaPrePublicacao(id);
+  }
+
   /** Histórico de transições (GET /licitacoes/:id/transicoes). */
   /** Histórico LEGÍVEL: rótulos dos atos/fases e nome de quem praticou (campos originais preservados). */
   async historicoTransicoes(id: string): Promise<Array<Record<string, any>>> {
@@ -1063,6 +1070,11 @@ export class LicitacoesService {
       [id],
     );
 
+    // Dados da contratação (cockpit — Etapa B): compra no PNCP, agente e autoridade
+    const compraPncp = (await estadoCompraPncp(this.dataSource.manager, [licitacao.id])).get(licitacao.id);
+    const agente = await nomeDoPregoeiroSql(this.dataSource.manager, licitacao.id);
+    const autoridade = await this.autoridadeDoProcesso(licitacao);
+
     // Checklist do processo (o que está feito / o que falta)
     const fasesInternas = [
       FaseLicitacao.PLANEJAMENTO,
@@ -1109,8 +1121,20 @@ export class LicitacoesService {
         meio_divulgacao_oficial: licitacao.meio_divulgacao_oficial ?? null,
         dispensa_lances_inicio: licitacao.dispensa_lances_inicio,
         dispensa_lances_fim: licitacao.dispensa_lances_fim,
-        link_pncp: (await estadoCompraPncp(this.dataSource.manager, [licitacao.id])).get(licitacao.id)?.link_pncp ?? licitacao.link_pncp ?? null,
+        link_pncp: compraPncp?.link_pncp ?? licitacao.link_pncp ?? null,
+        numero_controle_pncp: compraPncp?.numero_controle_pncp ?? null,
         preparacao_automatica: licitacao.preparacao_automatica ?? null,
+        // Cabeçalho e "Dados da contratação" (Etapa B)
+        created_at: licitacao.created_at,
+        data_publicacao_edital: licitacao.data_publicacao_edital ?? null,
+        data_inicio_acolhimento: licitacao.data_inicio_acolhimento ?? null,
+        data_limite_impugnacao: licitacao.data_limite_impugnacao ?? null,
+        natureza_objeto: licitacao.natureza_objeto ?? null,
+        fundamento_legal: fundamentoLegalTexto(licitacao as any),
+        unidade_compradora: licitacao.nome_unidade_compradora ?? null,
+        agente_contratacao: agente,
+        autoridade,
+        sem_pca: licitacao.sem_pca ?? false,
       },
       item_pca: licitacao.item_pca
         ? {
@@ -1144,13 +1168,14 @@ export class LicitacoesService {
       contratos,
       atas,
       pncp,
-      // Sigilo: enquanto o acolhimento está aberto, o órgão vê QUEM propôs,
-      // mas não os valores (evita direcionamento antes da abertura).
+      // Sigilo (Lei 14.133 art. 13 par. único, I; IN SEGES 67/2021 art. 13):
+      // enquanto o recebimento está aberto o órgão vê só QUANTAS propostas
+      // chegaram — nem quem propôs, nem os valores (evita direcionamento).
       propostas: (() => {
         const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
         const emSigilo = corte ? new Date() < new Date(corte) : false;
         return emSigilo
-          ? propostas.map((p: any) => ({ ...p, valor_total_proposta: null, sigilo: true }))
+          ? propostas.map((p: any) => ({ id: null, status: p.status, data_envio: null, razao_social: null, valor_total_proposta: null, sigilo: true }))
           : propostas;
       })(),
       propostas_em_sigilo: (() => {
@@ -1160,7 +1185,35 @@ export class LicitacoesService {
       checklist,
       // E1: atos que o cockpit pode oferecer agora (com pendências de cada um)
       atos_disponiveis: await this.transicoes.atosDisponiveis(licitacao),
+      // Etapa B: menu "Mais ações" (disponíveis e bloqueadas, com o motivo)
+      acoes_menu: await this.transicoes.acoesDoMenu(licitacao),
     };
+  }
+
+  /**
+   * Autoridade do processo para a tela: a que homologou (gravada no ato) ou,
+   * antes disso, a autoridade padrão do órgão (cadastro de autoridades; sem
+   * cadastro, o responsável do órgão) — a mesma regra da formalização (E6).
+   */
+  private async autoridadeDoProcesso(l: Licitacao): Promise<{ nome: string; cargo: string | null; origem: 'HOMOLOGACAO' | 'CADASTRO' } | null> {
+    if (l.homologacao_autoridade_nome) {
+      return { nome: l.homologacao_autoridade_nome, cargo: l.homologacao_autoridade_cargo ?? null, origem: 'HOMOLOGACAO' };
+    }
+    try {
+      const cadastro = await this.dataSource.query(
+        `SELECT id, nome, cargo, cpf, email, ato_delegacao_numero, ato_delegacao_data, padrao, ativo
+           FROM autoridades_orgao WHERE orgao_id::text = $1 AND ativo = true`,
+        [l.orgao_id],
+      );
+      const [orgao] = await this.dataSource.query(
+        `SELECT nome, responsavel_nome, responsavel_cargo, responsavel_cpf FROM orgaos WHERE id::text = $1`,
+        [l.orgao_id],
+      );
+      const a = resolverAutoridade(cadastro, null, orgao ?? null);
+      return { nome: a.nome, cargo: a.cargo ?? null, origem: 'CADASTRO' };
+    } catch {
+      return null;
+    }
   }
 
   /**
