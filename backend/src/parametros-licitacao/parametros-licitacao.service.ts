@@ -1,34 +1,34 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
   OnApplicationBootstrap,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, LessThanOrEqual, Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
+import { executarMigracaoDeBoot } from '../common/migracao-boot';
+import {
+  CHAVE_LIMITE_DO_INCISO,
+  DESCRICAO_INCISO,
+  INCISO_DA_CHAVE,
+  IncisoLimiteDispensa,
+  LIMITES_DISPENSA_OFICIAIS,
+  LimiteDispensaExercicio,
+  ResultadoLimite,
+  limiteDispensa,
+} from './limites-dispensa';
+import { migrarLimitesDispensaPorExercicio } from './migracao-limites-dispensa';
 
 import { ParametroLicitacao } from './entities/parametro-licitacao.entity';
 import { LimiteLegal } from './entities/limite-legal.entity';
 
 /**
- * Limites legais nacionais padrão (art. 75, I e II da Lei 14.133/2021).
- * Valores de 2025 (Decreto 12.343/2024). Editáveis por decreto sem deploy.
+ * Limites legais nacionais sem exercício. Os limites da DISPENSA por valor
+ * (art. 75, I/II) são POR EXERCÍCIO — tabela oficial em limites-dispensa.ts,
+ * gravada em `limites_legais` pela migração de boot (migracao-limites-dispensa.ts).
  */
 const LIMITES_PADRAO: Array<Partial<LimiteLegal>> = [
-  {
-    chave: 'DISPENSA_OBRAS_ENGENHARIA',
-    descricao: 'Dispensa por valor — obras e serviços de engenharia (art. 75, I)',
-    valor: 119812.02,
-    vigencia_inicio: '2025-01-01',
-    fonte: 'Decreto 12.343/2024',
-  },
-  {
-    chave: 'DISPENSA_COMPRAS_SERVICOS',
-    descricao: 'Dispensa por valor — compras e serviços em geral (art. 75, II)',
-    valor: 59906.02,
-    vigencia_inicio: '2025-01-01',
-    fonte: 'Decreto 12.343/2024',
-  },
   {
     // Não é atualizado pelo Decreto 12.343/2024 (que atualiza os valores da Lei 14.133)
     chave: 'MPE_EXCLUSIVO_ITEM',
@@ -48,6 +48,8 @@ export class ParametrosLicitacaoService implements OnApplicationBootstrap {
     private readonly paramRepo: Repository<ParametroLicitacao>,
     @InjectRepository(LimiteLegal)
     private readonly limiteRepo: Repository<LimiteLegal>,
+    @InjectDataSource()
+    private readonly dataSource?: DataSource,
   ) {}
 
   async onApplicationBootstrap() {
@@ -55,6 +57,30 @@ export class ParametrosLicitacaoService implements OnApplicationBootstrap {
       await this.seedDefaults();
     } catch (e) {
       this.logger.error(`Falha ao semear parâmetros/limites: ${e.message}`);
+    }
+    // Limites da dispensa por exercício (fila única das migrações de boot)
+    if (this.dataSource) {
+      const ds = this.dataSource;
+      await executarMigracaoDeBoot(ds, () => this.migrarLimitesDispensa(ds));
+    }
+  }
+
+  /**
+   * Migração de boot dos limites da dispensa por exercício (idempotente).
+   * Desligar: LIMITES_DISPENSA_MIGRAR_NO_BOOT=false (sem ela, vale a tabela
+   * oficial do código — limites-dispensa.ts).
+   */
+  async migrarLimitesDispensa(ds: DataSource): Promise<{ corrigidas: number; criadas: number } | null> {
+    if (process.env.LIMITES_DISPENSA_MIGRAR_NO_BOOT === 'false') return null;
+    try {
+      const r = await ds.transaction((m) => migrarLimitesDispensaPorExercicio(m));
+      if (r.corrigidas || r.criadas) {
+        this.logger.log(`Limites da dispensa por exercício: ${r.corrigidas} linha(s) antiga(s) corrigida(s), ${r.criadas} criada(s)`);
+      }
+      return r;
+    } catch (e: any) {
+      this.logger.error(`Migração dos limites da dispensa por exercício não executada: ${e?.message ?? e}`);
+      return null;
     }
   }
 
@@ -157,6 +183,83 @@ export class ParametrosLicitacaoService implements OnApplicationBootstrap {
       if (limite) return Number(limite.valor);
     }
     return null;
+  }
+
+  // ==========================================================================
+  // LIMITES DA DISPENSA POR EXERCÍCIO (art. 75, I/II)
+  // ==========================================================================
+
+  /**
+   * Tabela vigente: linhas NACIONAIS com exercício em `limites_legais` (o que o
+   * admin cadastrou) sobre a tabela oficial do código (fallback).
+   */
+  async tabelaLimitesDispensa(): Promise<LimiteDispensaExercicio[]> {
+    const mapa = new Map<string, LimiteDispensaExercicio>();
+    for (const l of LIMITES_DISPENSA_OFICIAIS) mapa.set(`${l.exercicio}:${l.inciso}`, { ...l });
+    const linhas = await this.limiteRepo.find({
+      where: { orgao_id: IsNull(), chave: In(Object.values(CHAVE_LIMITE_DO_INCISO)), exercicio: Not(IsNull()) },
+    });
+    for (const r of linhas) {
+      const inciso = INCISO_DA_CHAVE[r.chave];
+      if (!inciso || r.exercicio == null) continue;
+      mapa.set(`${r.exercicio}:${inciso}`, {
+        exercicio: Number(r.exercicio),
+        inciso,
+        valor: Number(r.valor),
+        ato_normativo: r.fonte || mapa.get(`${r.exercicio}:${inciso}`)?.ato_normativo || '',
+      });
+    }
+    return [...mapa.values()].sort((a, b) => a.exercicio - b.exercicio || a.inciso.localeCompare(b.inciso));
+  }
+
+  /** `limiteDispensa(exercicio, inciso)` sobre a tabela vigente (banco + oficial). */
+  async limiteDispensa(exercicio: number, inciso: IncisoLimiteDispensa): Promise<ResultadoLimite | null> {
+    return limiteDispensa(exercicio, inciso, await this.tabelaLimitesDispensa());
+  }
+
+  /**
+   * Cadastro (ou correção) dos limites de um exercício pelo ADMIN da
+   * plataforma — o decreto do ano seguinte sai em dezembro. Grava o par I/II
+   * nacional com o ato normativo.
+   */
+  async cadastrarLimitesDoExercicio(dados: {
+    exercicio: unknown;
+    valor_inciso_i: unknown;
+    valor_inciso_ii: unknown;
+    ato_normativo: unknown;
+  }): Promise<LimiteDispensaExercicio[]> {
+    const exercicio = Number(dados?.exercicio);
+    const anoAtual = new Date().getFullYear();
+    if (!Number.isInteger(exercicio) || exercicio < 2021 || exercicio > anoAtual + 1) {
+      throw new BadRequestException(`Exercício inválido — informe um ano entre 2021 e ${anoAtual + 1}`);
+    }
+    const ato = String(dados?.ato_normativo ?? '').trim();
+    if (!ato) throw new BadRequestException('Informe o ato normativo (ex.: "Dec. 12.807/2025")');
+    const valores: Record<IncisoLimiteDispensa, number> = {
+      I: Number(dados?.valor_inciso_i),
+      II: Number(dados?.valor_inciso_ii),
+    };
+    for (const inciso of ['I', 'II'] as IncisoLimiteDispensa[]) {
+      const v = valores[inciso];
+      if (!Number.isFinite(v) || v <= 0) throw new BadRequestException(`Valor do inciso ${inciso} inválido`);
+    }
+    for (const inciso of ['I', 'II'] as IncisoLimiteDispensa[]) {
+      const chave = CHAVE_LIMITE_DO_INCISO[inciso];
+      const existente = await this.limiteRepo.findOne({ where: { orgao_id: IsNull(), chave, exercicio } });
+      const dadosLinha = {
+        orgao_id: null,
+        chave,
+        descricao: DESCRICAO_INCISO[inciso],
+        valor: Math.round(valores[inciso] * 100) / 100,
+        vigencia_inicio: `${exercicio}-01-01`,
+        vigencia_fim: null,
+        exercicio,
+        fonte: ato,
+      };
+      if (existente) await this.limiteRepo.save(Object.assign(existente, dadosLinha));
+      else await this.limiteRepo.save(this.limiteRepo.create(dadosLinha));
+    }
+    return (await this.tabelaLimitesDispensa()).filter((l) => l.exercicio === exercicio);
   }
 
   async buscarLimite(id: string): Promise<LimiteLegal | null> {

@@ -71,8 +71,15 @@ const ROTULO_TIPO_FASE_INTERNA: Record<string, string> = {
   PP: "Pesquisa de preços",
   AA: "Autorização da autoridade",
   PJ: "Parecer jurídico",
-  ME: "Minuta do edital",
+  ME: "Minuta do edital / aviso",
   MR: "Matriz de riscos",
+  AR: "Análise de riscos",
+  DO: "Dotação / informação orçamentária",
+  DP: "Portaria de designação",
+  JC: "Justificativa da contratação direta",
+  RAG: "Relatório do agente de contratação",
+  MC: "Minuta do contrato",
+  PJE: "Parecer jurídico da fase externa",
 }
 
 const normalizar = (t?: string) => String(t || "").trim().toLowerCase().replace(/\s+/g, " ")

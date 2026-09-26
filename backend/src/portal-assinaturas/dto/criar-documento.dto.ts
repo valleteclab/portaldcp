@@ -33,6 +33,11 @@ export class SignatarioDto {
   @IsBoolean()
   @IsOptional()
   is_orgao_user?: boolean;
+
+  /** Papel no ato (Presidente, 1º Secretário...) — autoridade colegiada. */
+  @IsString()
+  @IsOptional()
+  papel?: string;
 }
 
 export class CriarDocumentoDto {

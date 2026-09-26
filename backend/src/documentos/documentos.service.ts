@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { basesDeLeitura, resolverArquivoDeUrl } from '../common/arquivos/arquivos';
+import { espelharDocumentoLicitacao } from '../fase-interna/espelho-documentos-licitacao';
 
 /**
  * DOIS CONJUNTOS DE DOCUMENTOS, DONOS DIFERENTES (E9):
@@ -157,7 +158,23 @@ export class DocumentosService {
       usuario_upload_nome: dados.usuario_nome
     });
 
-    return this.documentoRepository.save(documento);
+    const salvo = await this.documentoRepository.save(documento);
+    await this.espelharNaFaseInterna(salvo.id);
+    return salvo;
+  }
+
+  /**
+   * Arquivo de peça da FASE INTERNA (ETP, TR, pesquisa, parecer...) anexado
+   * aqui passa a contar como a peça no checklist — espelho em
+   * documentos_fase_interna (fase-interna/espelho-documentos-licitacao.ts).
+   * Falha no espelho não desfaz o upload (fica para a migração de boot).
+   */
+  private async espelharNaFaseInterna(documentoId: string): Promise<void> {
+    try {
+      await this.documentoRepository.manager.transaction((m) => espelharDocumentoLicitacao(m, documentoId));
+    } catch (e: any) {
+      this.logger.warn(`Anexo ${documentoId} não espelhado como peça da fase interna: ${e?.message ?? e}`);
+    }
   }
 
   // Vincular documento já existente (arquivo já foi enviado via /uploads)
@@ -244,7 +261,9 @@ export class DocumentosService {
       data_publicacao: new Date()
     });
 
-    return this.documentoRepository.save(documento);
+    const salvo = await this.documentoRepository.save(documento);
+    await this.espelharNaFaseInterna(salvo.id);
+    return salvo;
   }
 
   /**

@@ -7,6 +7,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
 
 const fmtMoeda = (v: any) =>
   Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -50,6 +51,8 @@ export function gerarAvisoDispensaPdf(dados: DadosAvisoDispensa): Buffer {
   const lic = dados.licitacao;
   const linhas: Array<[string, string]> = [
     ['Processo', String(lic.numero_processo || '—')],
+    // Fundamento: campo único do processo (fundamento-legal.ts) — o mesmo do PNCP
+    ['Fundamento legal', fundamentoLegalTexto(lic) || '—'],
     ['Objeto', String(lic.objeto || '—')],
     ['Critério de julgamento', 'Menor preço unitário por item'],
     ['Valor total estimado', fmtMoeda(lic.valor_total_estimado)],

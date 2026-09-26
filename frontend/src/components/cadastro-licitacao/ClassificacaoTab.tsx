@@ -77,15 +77,14 @@ interface ClassificacaoTabProps {
   orgaoId?: string
 }
 
-// Limites de valor para Dispensa Eletrônica (Art. 75, Lei 14.133/2021)
-const LIMITES_DISPENSA: Record<string, { limite: number; artigo: string; descricao: string }> = {
-  OBRA: { limite: 100000, artigo: 'Art. 75, I', descricao: 'obras e serviços de engenharia' },
-  SERVICO_ENGENHARIA: { limite: 100000, artigo: 'Art. 75, I', descricao: 'obras e serviços de engenharia' },
-  COMPRA: { limite: 50000, artigo: 'Art. 75, II', descricao: 'compras e outros serviços' },
-  SERVICO: { limite: 50000, artigo: 'Art. 75, II', descricao: 'compras e outros serviços' },
-  LOCACAO: { limite: 50000, artigo: 'Art. 75, II', descricao: 'compras e outros serviços' },
-  ALIENACAO: { limite: 50000, artigo: 'Art. 75, II', descricao: 'compras e outros serviços' },
-}
+/** Limite da dispensa por valor no exercício (GET /parametros-licitacao/limites-dispensa). */
+interface LimiteExercicio { exercicio: number; valor: number; ato_normativo: string; provisorio: boolean }
+interface FundamentoOpcao { codigo: string; referencia: string; texto: string; descricao: string; inciso_limite: 'I' | 'II' | null }
+
+const INCISO_DO_TIPO = (tipo: string): 'I' | 'II' =>
+  ["OBRA", "SERVICO_ENGENHARIA"].includes(tipo) ? 'I' : 'II'
+
+const moeda = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
 export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabProps) {
   const [itensPca, setItensPca] = useState<ItemPCA[]>([])
@@ -99,17 +98,49 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
 
   const isDispensaEletronica = dados.modalidade === 'DISPENSA_ELETRONICA'
 
+  // Limites da dispensa do exercício corrente (tabela por exercício no backend — nada fixo aqui)
+  const [limites, setLimites] = useState<{ I: LimiteExercicio | null; II: LimiteExercicio | null } | null>(null)
+  useEffect(() => {
+    authFetch(`${API_URL}/api/parametros-licitacao/limites-dispensa`)
+      .then(async (r) => (r.ok ? setLimites(await r.json()) : null))
+      .catch(() => null)
+  }, [])
+
+  // Fundamento legal: opções da modalidade (fonte única do enquadramento — backend)
+  const [fundamentos, setFundamentos] = useState<FundamentoOpcao[]>([])
+  const [fundamentoPadrao, setFundamentoPadrao] = useState<string | null>(null)
+  useEffect(() => {
+    if (!dados.modalidade) return
+    const q = new URLSearchParams({ modalidade: dados.modalidade, tipo_contratacao: dados.tipo_contratacao || '' })
+    authFetch(`${API_URL}/api/parametros-licitacao/fundamentos-legais?${q}`)
+      .then(async (r) => {
+        if (!r.ok) return
+        const j = await r.json()
+        setFundamentos(j.fundamentos || [])
+        setFundamentoPadrao(j.padrao || null)
+      })
+      .catch(() => null)
+  }, [dados.modalidade, dados.tipo_contratacao])
+  const fundamentoAtual = dados.fundamento_legal || fundamentoPadrao || ''
+  const incisoAtual = fundamentos.find((f) => f.codigo === fundamentoAtual)?.inciso_limite ?? null
+
   const updateField = (field: keyof Classificacao, value: any) => {
+    // Tipo trocado na dispensa por valor (art. 75, I/II): o inciso acompanha o padrão do tipo
+    if (field === 'tipo_contratacao' && ['ART75_I', 'ART75_II'].includes(String(dados.fundamento_legal))) {
+      onChange({ ...dados, tipo_contratacao: value, fundamento_legal: null })
+      return
+    }
     onChange({ ...dados, [field]: value })
   }
 
-  // Ao selecionar DISPENSA_ELETRONICA, forçar modo ABERTO e critério MENOR_PRECO
+  // Ao selecionar DISPENSA_ELETRONICA, forçar modo ABERTO e critério MENOR_PRECO.
+  // Modalidade trocada: o fundamento volta ao padrão da nova modalidade.
   const handleModalidadeChange = (v: string) => {
     if (v === 'DISPENSA_ELETRONICA') {
-      onChange({ ...dados, modalidade: v, modo_disputa: 'ABERTO', criterio_julgamento: 'MENOR_PRECO', inversao_fases: false })
+      onChange({ ...dados, modalidade: v, fundamento_legal: null, modo_disputa: 'ABERTO', criterio_julgamento: 'MENOR_PRECO', inversao_fases: false })
     } else {
       // Inversão de fases só na concorrência (Lei 14.133 art. 17 §1º)
-      onChange({ ...dados, modalidade: v, ...(v !== 'CONCORRENCIA' ? { inversao_fases: false } : {}) })
+      onChange({ ...dados, modalidade: v, fundamento_legal: null, ...(v !== 'CONCORRENCIA' ? { inversao_fases: false } : {}) })
     }
   }
 
@@ -202,22 +233,29 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
               <div className="text-sm text-amber-800 space-y-1">
                 <p className="font-semibold">Dispensa Eletrônica — Art. 75, §3º da Lei 14.133/2021</p>
                 <ul className="list-disc list-inside space-y-1 text-amber-700">
-                  <li>Obras e serviços de engenharia: valor estimado até <strong>R$ 100.000,00</strong> (Art. 75, I)</li>
-                  <li>Compras e outros serviços: valor estimado até <strong>R$ 50.000,00</strong> (Art. 75, II)</li>
+                  {limites?.I && (
+                    <li>Obras, serviços de engenharia e manutenção de veículos: até <strong>{moeda(limites.I.valor)}</strong> (Art. 75, I — {limites.I.ato_normativo}, exercício {limites.I.exercicio})</li>
+                  )}
+                  {limites?.II && (
+                    <li>Compras e outros serviços: até <strong>{moeda(limites.II.valor)}</strong> (Art. 75, II — {limites.II.ato_normativo}, exercício {limites.II.exercicio})</li>
+                  )}
                   <li>Prazo mínimo para propostas: <strong>3 dias úteis</strong> (IN SEGES/ME 67/2021, Art. 4º)</li>
                   <li>Modo de disputa: <strong>Aberto</strong> (cotação eletrônica pública)</li>
                   <li>Critério de julgamento: <strong>Menor Preço</strong></li>
                 </ul>
               </div>
             </div>
-            {dados.tipo_contratacao && LIMITES_DISPENSA[dados.tipo_contratacao] && (
-              <div className="flex items-center gap-2 mt-2 p-2 bg-amber-100 rounded text-xs text-amber-900 font-medium">
-                <AlertCircle className="h-3 w-3 shrink-0" />
-                Limite legal para {LIMITES_DISPENSA[dados.tipo_contratacao].descricao}:{' '}
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(LIMITES_DISPENSA[dados.tipo_contratacao].limite)}{' '}
-                ({LIMITES_DISPENSA[dados.tipo_contratacao].artigo})
-              </div>
-            )}
+            {limites && (incisoAtual || INCISO_DO_TIPO(dados.tipo_contratacao)) && limites[(incisoAtual || INCISO_DO_TIPO(dados.tipo_contratacao)) as 'I' | 'II'] && (() => {
+              const inc = (incisoAtual || INCISO_DO_TIPO(dados.tipo_contratacao)) as 'I' | 'II'
+              const lim = limites[inc]!
+              return (
+                <div className="flex items-center gap-2 mt-2 p-2 bg-amber-100 rounded text-xs text-amber-900 font-medium">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  Limite legal deste enquadramento: {moeda(lim.valor)} (Art. 75, {inc} — {lim.ato_normativo}
+                  {lim.provisorio ? `; decreto de ${new Date().getFullYear()} ainda não cadastrado` : ''})
+                </div>
+              )
+            })()}
           </div>
         )}
 
@@ -254,6 +292,29 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2 col-span-2">
+            <Label>Fundamento legal *</Label>
+            <Select
+              value={fundamentoAtual}
+              onValueChange={(v) => onChange({ ...dados, fundamento_legal: v })}
+              disabled={fundamentos.length <= 1}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione o fundamento legal" />
+              </SelectTrigger>
+              <SelectContent>
+                {fundamentos.map((f) => (
+                  <SelectItem key={f.codigo} value={f.codigo}>
+                    {f.referencia} — {f.descricao}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Fonte única do enquadramento: vai para o PNCP (amparo legal), para as peças geradas e para o aviso.
+            </p>
           </div>
 
           <div className="space-y-2">

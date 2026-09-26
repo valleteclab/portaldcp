@@ -39,6 +39,7 @@ import { valorAdjudicadoDoUnitario } from '../resultado/regras-resultado';
 import type { Ator } from '../auth/acesso/ator';
 import { aplicarEstadoCompraPncp, estadoCompraPncp } from '../pncp/estado-compra-pncp';
 import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
+import { fundamentoEfetivo, fundamentoPadrao, motivoFundamentoInvalido } from './fundamento-legal';
 import { classificacaoPorItem, valoresFinaisDispensa } from './classificacao-dispensa';
 import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizacao';
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
@@ -187,8 +188,13 @@ export class LicitacoesService {
       throw new BadRequestException(e?.message ?? 'Benefício ME/EPP inválido');
     }
 
+    // Fundamento legal (fonte única — fundamento-legal.ts): informado e
+    // compatível com a modalidade, ou o padrão da modalidade.
+    const vedacaoFundamento = motivoFundamentoInvalido(createDto.modalidade, createDto.fundamento_legal);
+    if (vedacaoFundamento) throw new BadRequestException(vedacaoFundamento);
     const licitacao = this.licitacaoRepository.create({
       ...createDto,
+      fundamento_legal: createDto.fundamento_legal || fundamentoPadrao(createDto.modalidade, createDto.tipo_contratacao),
       ano,
       sequencial: count + 1,
       // Estado inicial é sempre este — fase/situação nunca vêm do corpo
@@ -565,6 +571,11 @@ export class LicitacoesService {
     // (nova versão do edital, reabertura de prazos quando afeta as propostas).
     // Campos internos (equipe, observações, PNCP) continuam livres; o
     // formulário inteiro reenviado sem mudança passa.
+    // Processo antigo sem o campo gravado: o formulário devolve o fundamento
+    // EFETIVO (padrão) — não é alteração do enquadramento.
+    if (!licitacao.fundamento_legal && dadosLicitacao.fundamento_legal && dadosLicitacao.fundamento_legal === fundamentoEfetivo(licitacao as any)) {
+      licitacao.fundamento_legal = dadosLicitacao.fundamento_legal;
+    }
     if (!ehFaseInterna(licitacao.fase)) {
       const alterados = camposDoEditalAlterados(licitacao, dadosLicitacao);
       if (itens !== undefined && itensAlterados(licitacao.itens ?? [], itens)) alterados.push('itens');
@@ -576,6 +587,27 @@ export class LicitacoesService {
             `use "Retificar edital" (POST /publicacao/licitacao/:id/retificar).`,
           campos: alterados,
         });
+      }
+    }
+
+    // Fundamento legal (fonte única): informado → tem de caber na modalidade
+    // final; modalidade/tipo trocados sem informar → volta ao padrão se o
+    // gravado deixou de caber.
+    {
+      const modalidadeFinal = dadosLicitacao.modalidade ?? licitacao.modalidade;
+      const tipoFinal = dadosLicitacao.tipo_contratacao ?? licitacao.tipo_contratacao;
+      if (dadosLicitacao.fundamento_legal !== undefined) {
+        const vedacao = motivoFundamentoInvalido(modalidadeFinal, dadosLicitacao.fundamento_legal);
+        if (vedacao) throw new BadRequestException(vedacao);
+        dadosLicitacao.fundamento_legal = dadosLicitacao.fundamento_legal || fundamentoPadrao(modalidadeFinal, tipoFinal);
+      } else if (motivoFundamentoInvalido(modalidadeFinal, licitacao.fundamento_legal) || !licitacao.fundamento_legal) {
+        dadosLicitacao.fundamento_legal = fundamentoPadrao(modalidadeFinal, tipoFinal);
+      } else if (
+        dadosLicitacao.tipo_contratacao !== undefined &&
+        licitacao.fundamento_legal === fundamentoPadrao(licitacao.modalidade, licitacao.tipo_contratacao)
+      ) {
+        // estava no padrão (ex.: 75, II) e o tipo mudou (obra) → acompanha o padrão (75, I)
+        dadosLicitacao.fundamento_legal = fundamentoPadrao(modalidadeFinal, tipoFinal);
       }
     }
 
@@ -1172,6 +1204,7 @@ export class LicitacoesService {
         data_limite_impugnacao: licitacao.data_limite_impugnacao ?? null,
         natureza_objeto: licitacao.natureza_objeto ?? null,
         fundamento_legal: fundamentoLegalTexto(licitacao as any),
+        fundamento_legal_codigo: fundamentoEfetivo(licitacao as any),
         unidade_compradora: licitacao.nome_unidade_compradora ?? null,
         agente_contratacao: agente,
         autoridade,

@@ -8,7 +8,10 @@ import {
   Query,
   Body,
   ForbiddenException,
+  UseGuards,
 } from '@nestjs/common';
+import { AdminGuard } from '../auth/admin.guard';
+import { FUNDAMENTOS_LEGAIS, fundamentoPadrao, fundamentosDaModalidade } from '../licitacoes/fundamento-legal';
 import { ParametrosLicitacaoService } from './parametros-licitacao.service';
 import { ParametroLicitacao } from './entities/parametro-licitacao.entity';
 import { LimiteLegal } from './entities/limite-legal.entity';
@@ -54,6 +57,59 @@ export class ParametrosLicitacaoController {
   restaurar(@Param('orgaoId') orgaoId: string, @AtorAtual() ator: Ator) {
     this.acesso.assertProprioOrgao(ator, orgaoId);
     return this.service.restaurarPadrao(orgaoId);
+  }
+
+  // === FUNDAMENTO LEGAL (catálogo do select "Fundamento legal") ===
+
+  /**
+   * Fundamentos admitidos para a modalidade (ou todos), com o padrão. Leitura
+   * de quem está logado (tabela da lei, sem dado de órgão).
+   */
+  @Get('fundamentos-legais')
+  fundamentosLegais(@Query('modalidade') modalidade?: string, @Query('tipo_contratacao') tipoContratacao?: string) {
+    const lista = modalidade ? fundamentosDaModalidade(modalidade) : [...FUNDAMENTOS_LEGAIS];
+    return {
+      padrao: modalidade ? fundamentoPadrao(modalidade, tipoContratacao) : null,
+      fundamentos: lista.map((d) => ({
+        codigo: d.codigo,
+        referencia: d.referencia,
+        texto: `Lei 14.133/2021, ${d.referencia}`,
+        descricao: d.descricao,
+        inciso_limite: d.incisoLimite ?? null,
+        amparo_pncp: d.amparoPncp,
+      })),
+    };
+  }
+
+  // === LIMITES DA DISPENSA POR EXERCÍCIO (art. 75, I e II) ===
+
+  /** Limites dos incisos I e II no exercício (padrão: o ano corrente), com o ato normativo. */
+  @Get('limites-dispensa')
+  async limitesDispensa(@Query('exercicio') exercicio?: string) {
+    const ano = Number(exercicio) || new Date().getFullYear();
+    return {
+      exercicio: ano,
+      I: await this.service.limiteDispensa(ano, 'I'),
+      II: await this.service.limiteDispensa(ano, 'II'),
+    };
+  }
+
+  /** Tabela inteira (todos os exercícios cadastrados). */
+  @Get('limites-dispensa/tabela')
+  tabelaLimitesDispensa() {
+    return this.service.tabelaLimitesDispensa();
+  }
+
+  /**
+   * Cadastra (ou corrige) os limites de um exercício — só o ADMIN da
+   * plataforma (o valor é nacional, por decreto). Órgão/fornecedor → 403.
+   */
+  @Post('limites-dispensa')
+  @UseGuards(AdminGuard)
+  cadastrarLimitesDispensa(
+    @Body() dados: { exercicio: number; valor_inciso_i: number; valor_inciso_ii: number; ato_normativo: string },
+  ) {
+    return this.service.cadastrarLimitesDoExercicio(dados);
   }
 
   // === LIMITES LEGAIS ===

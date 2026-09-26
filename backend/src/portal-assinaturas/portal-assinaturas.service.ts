@@ -143,6 +143,7 @@ export class PortalAssinaturasService {
           entity.pos_x = sig.pos_x as number;
           entity.pos_y = sig.pos_y as number;
           entity.is_orgao_user = sig.is_orgao_user ?? false;
+          entity.papel = sig.papel ? String(sig.papel).slice(0, 120) : null;
           return entity;
         });
 
@@ -332,6 +333,7 @@ export class PortalAssinaturasService {
         usuario_nome: signatario.nome,
         usuario_cpf_cnpj: signatario.cpf_cnpj,
         usuario_telefone: signatario.telefone || undefined,
+        usuario_cargo: signatario.papel || undefined,
         papel_assinante: PapelAssinante.SIGNATARIO,
         ip_address: ip,
         user_agent: userAgent,
@@ -474,6 +476,7 @@ export class PortalAssinaturasService {
         usuario_nome: signatario.nome,
         usuario_cpf_cnpj: signatario.cpf_cnpj,
         usuario_telefone: signatario.telefone || undefined,
+        usuario_cargo: signatario.papel || undefined,
         papel_assinante: PapelAssinante.SIGNATARIO,
         ip_address: ip,
         user_agent: userAgent,

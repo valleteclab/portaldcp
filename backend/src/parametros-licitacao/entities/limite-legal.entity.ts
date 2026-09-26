@@ -41,7 +41,15 @@ export class LimiteLegal {
   @Column({ type: 'date', nullable: true })
   vigencia_fim: string | null;
 
-  /** Fonte normativa (ex.: "Decreto 12.343/2024") */
+  /**
+   * Exercício financeiro a que o valor se refere (limites da dispensa por
+   * valor — art. 75, I/II: um par de linhas por exercício, com o decreto em
+   * `fonte`). NULL nas chaves sem exercício (ex.: MPE_EXCLUSIVO_ITEM).
+   */
+  @Column({ type: 'int', nullable: true })
+  exercicio: number | null;
+
+  /** Fonte normativa (ex.: "Decreto 12.343/2024") — ato normativo do exercício */
   @Column({ nullable: true })
   fonte: string;
 

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Pesquisa de preços — art. 23</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F4F1EA;color:#18202B}
+a{color:#1F4E79}a:hover{color:#123654}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1000px; box-sizing: border-box; padding: 36px 44px; display: flex; flex-direction: column; gap: 22px; background: #F4F1EA; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #18202B">
+
+<div style="display: flex; justify-content: space-between; align-items: flex-end">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<a href="Main.dc.html" style="font-size: 13px; text-decoration: none">‹ PA 139/2025 · Dispensa 029/2025</a>
+<h1 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 32px; font-weight: 600">Pesquisa de preços</h1>
+<p style="margin: 0; font-size: 14px; color: #4A5361">Etapa 04 · Responsável: Gerência de Compras, Patrimônio e Almoxarifado</p>
+</div>
+<div style="display: flex; gap: 10px">
+<button type="button" style="height: 44px; padding: 0 18px; border: 1px solid #C9C1B1; background: #FFFFFF; border-radius: 8px; font: 500 14px 'IBM Plex Sans', sans-serif; color: #18202B">Consultar PNCP de novo</button>
+<button type="button" style="height: 44px; padding: 0 18px; border: 0; background: #1F4E79; color: #FFFFFF; border-radius: 8px; font: 500 14px 'IBM Plex Sans', sans-serif">Emitir mapa e certidão</button>
+</div>
+</div>
+
+<div style="display: flex; gap: 22px">
+<section aria-label="Parâmetros do art. 23" style="width: 430px; flex-shrink: 0; background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 4px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600">Parâmetros (art. 23, §1º)</h2>
+<p style="margin: 4px 0 10px; font-size: 13px; color: #4A5361; line-height: 1.45">O sistema registra cada fonte consultada, com data e evidência, mesmo quando não retorna resultado.</p>
+<sc-for list="{{params}}" as="p" hint-placeholder-count="5">
+<div style="display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid #EFEBE2">
+<div style="width: 28px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #4A5361">{{p.inc}}</div>
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><div style="font-size: 14px; font-weight: 500">{{p.t}}</div><div style="font-size: 12px; color: #4A5361">{{p.ev}}</div></div>
+<div style="font-size: 12px; font-weight: 600; color: {{p.fg}}; white-space: nowrap">{{p.st}}</div>
+</div>
+</sc-for>
+</section>
+
+<section aria-label="Cotações" style="flex-grow: 1; background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; min-width: 0">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600">Cotações diretas</h2><span style="font-size: 13px; color: #4A5361">Solicitação enviada em 20/11/2025 · prazo de resposta registrado</span></div>
+<table style="width: 100%; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; color: #4A5361; font-size: 12px">
+<th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500">Fornecedor</th>
+<th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500; text-align: right">Mensal × 12</th>
+<th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500; text-align: right">Implantação</th>
+<th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500; text-align: right">Total</th>
+<th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500">Validade</th>
+<th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500">Situação</th>
+</tr></thead>
+<tbody>
+<sc-for list="{{quotes}}" as="q" hint-placeholder-count="3">
+<tr>
+<td style="padding: 14px 10px; border-bottom: 1px solid #EFEBE2"><div style="font-weight: 500">{{q.n}}</div><div style="font-size: 12px; color: #4A5361; font-family: 'IBM Plex Mono', monospace">{{q.doc}}</div></td>
+<td style="padding: 14px 10px; border-bottom: 1px solid #EFEBE2; text-align: right; font-family: 'IBM Plex Mono', monospace">{{q.m}}</td>
+<td style="padding: 14px 10px; border-bottom: 1px solid #EFEBE2; text-align: right; font-family: 'IBM Plex Mono', monospace">{{q.i}}</td>
+<td style="padding: 14px 10px; border-bottom: 1px solid #EFEBE2; text-align: right; font-family: 'IBM Plex Mono', monospace; font-weight: 600">{{q.t}}</td>
+<td style="padding: 14px 10px; border-bottom: 1px solid #EFEBE2; font-size: 13px">{{q.v}}</td>
+<td style="padding: 14px 10px; border-bottom: 1px solid #EFEBE2"><span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: {{q.bg}}; color: {{q.fg}}">{{q.st}}</span></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<div style="border: 2px solid #1F4E79; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px"><div style="font-size: 12px; color: #1F4E79; font-weight: 600">Menor preço · adotado</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 500">R$ 61.753,44</div></div>
+<div style="border: 1px solid #DDD6C8; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px"><div style="font-size: 12px; color: #4A5361">Mediana</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 500">R$ 62.400,00</div></div>
+<div style="border: 1px solid #DDD6C8; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px"><div style="font-size: 12px; color: #4A5361">Média</div><div style="font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 500">R$ 63.817,81</div></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="just" style="font-size: 13px; font-weight: 600">Justificativa do método adotado (obrigatória)</label>
+<textarea id="just" rows="3" style="border: 1px solid #C9C1B1; border-radius: 8px; padding: 10px 12px; font: 400 14px 'IBM Plex Sans', sans-serif; color: #18202B; resize: none">[Fundamento na Portaria 089/2024 para usar o menor valor em vez de média ou mediana]</textarea>
+</div>
+</section>
+</div>
+
+<div style="display: flex; gap: 22px">
+<section aria-label="Limite e fracionamento" style="flex: 1 1 0; background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600">Limite e fracionamento (art. 75, §1º)</h2>
+<p style="margin: 0; font-size: 13px; color: #4A5361; line-height: 1.45">Soma automática das dispensas do exercício no mesmo ramo de atividade (classe CATSER + unidade gestora), antes de liberar a etapa.</p>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>Já contratado no ramo em 2025</span><span style="font-family: 'IBM Plex Mono', monospace">R$ 0,00</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>Esta dispensa</span><span style="font-family: 'IBM Plex Mono', monospace">R$ 61.753,44</span></div>
+<div style="height: 10px; background: #EAE5DA; border-radius: 5px"><div style="width: 49%; height: 10px; background: #1F4E79; border-radius: 5px"></div></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #4A5361"><span>49,2% utilizado</span><span>Limite inciso II: R$ 125.451,15 (Dec. 12.343/2024)</span></div>
+</div>
+</section>
+<section aria-label="Avisos da etapa" style="flex: 1 1 0; background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600">Avisos desta etapa</h2>
+<div style="padding: 12px 14px; border-radius: 8px; background: #FBEBDD; font-size: 13px; line-height: 1.45"><strong style="color: #9A4308">Validade.</strong> A cotação da Legado vence em 20/12/2025; a publicação está prevista para janeiro. Renovar ou registrar a ressalva.</div>
+<div style="padding: 12px 14px; border-radius: 8px; background: #F4F1EA; font-size: 13px; line-height: 1.45"><strong>Escolha dos fornecedores.</strong> O inciso IV exige justificar por que estas três empresas foram consultadas.</div>
+<div style="padding: 12px 14px; border-radius: 8px; background: #F4F1EA; font-size: 13px; line-height: 1.45"><strong>Sigilo.</strong> Com orçamento sigiloso (art. 24), o valor fica oculto no aviso e só é divulgado após o julgamento.</div>
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const params = [
+      { inc: 'I', t: 'Painel de preços / PNCP', ev: 'Consultado 10/12/2025 · 0 resultados equivalentes', st: 'Sem retorno', fg: '#4A5361' },
+      { inc: 'II', t: 'Contratações similares (1 ano)', ev: 'Consultado 10/12/2025 · 0 resultados', st: 'Sem retorno', fg: '#4A5361' },
+      { inc: 'III', t: 'Mídia especializada / sítios', ev: 'Não consultado', st: 'Pendente', fg: '#9A4308' },
+      { inc: 'IV', t: 'Cotação direta (mín. 3)', ev: '3 propostas · emitidas há menos de 6 meses', st: 'Atendido', fg: '#1F4E79' },
+      { inc: 'V', t: 'Notas fiscais de outros entes', ev: 'Não consultado', st: 'Pendente', fg: '#9A4308' }
+    ];
+    const ok = { st: 'Válida', bg: '#E3ECF5', fg: '#1F4E79' };
+    const quotes = [
+      { n: 'DMNEWS Com. e Serv. de Informática', doc: '13.772.522/0001-53', m: '54.253,44', i: '7.500,00', t: '61.753,44', v: '60 dias', ...ok },
+      { n: 'Legado Tecnologia', doc: 'Quote AXLG-201125-001', m: '—', i: '—', t: '62.400,00', v: '20/12/2025', st: 'Vence antes', bg: '#FBEBDD', fg: '#9A4308' },
+      { n: 'EiTV', doc: 'Proposta comercial', m: '58.800,00', i: '8.500,00', t: '67.300,00', v: '60 dias', ...ok }
+    ];
+    return { params, quotes };
+  }
+}
+</script>
+</body>
+</html>

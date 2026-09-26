@@ -241,6 +241,14 @@ export class GeradorDocumentoService {
             : ['Documento da Fase Interna', `Licitação nº ${licitacaoNumero}`];
         const desenharCabecalhoRodape = () => {
           const original = (pdf as any).page;
+          // Cabeçalho e rodapé ficam FORA da área de texto: sem zerar a margem
+          // inferior, o rodapé (abaixo dela) fazia o pdfkit abrir página nova,
+          // que redesenhava o rodapé... até estourar a pilha (derrubava o
+          // processo). O cursor volta para o topo da área de texto no fim.
+          const x0 = pdf.x;
+          const y0 = pdf.y;
+          const margemInferior = original.margins.bottom;
+          original.margins.bottom = 0;
           // Cabeçalho
           pdf.save();
           pdf
@@ -274,15 +282,19 @@ export class GeradorDocumentoService {
                 `Gerado em ${new Date().toLocaleString('pt-BR')} — Fundamento: Lei nº 14.133/2021`,
               60,
               rodapeY,
-              { align: 'left', width: original.width - 120 },
+              { align: 'left', width: original.width - 120, lineBreak: false },
             );
           pdf
             .font('Times-Roman')
             .text(`Página ${(pdf as any).bufferedPageRange().count}`, 60, rodapeY, {
               align: 'right',
               width: original.width - 120,
+              lineBreak: false,
             });
           pdf.restore();
+          original.margins.bottom = margemInferior;
+          pdf.x = x0;
+          pdf.y = y0;
         };
 
         pdf.on('pageAdded', desenharCabecalhoRodape);

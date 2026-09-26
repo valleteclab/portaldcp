@@ -73,7 +73,7 @@ Os atos aparecem no menu **Mais ações** da tela do processo: **Concluir planej
 
 ### Dispensa, inexigibilidade e credenciamento (contratação direta — art. 72)
 
-A fase interna é uma **etapa única** chamada **instrução do processo**. Na tela do processo, a **Etapa atual** mostra o checklist antes de publicar e o quadro **Peças da instrução (art. 72)**, que lista:
+A fase interna é uma **etapa única** chamada **instrução do processo**. Na tela do processo, a **Etapa atual** mostra o checklist antes de publicar e o quadro **Peças da instrução (art. 72)** (nas demais modalidades, **Peças da fase interna (art. 18)**), que lista:
 
 | Documento | Obrigatório? | Base |
 |---|---|---|
@@ -84,13 +84,43 @@ A fase interna é uma **etapa única** chamada **instrução do processo**. Na t
 | Parecer jurídico | Conforme o caso | Art. 72, III c/c art. 53, §5º |
 | Compatibilidade orçamentária | Conforme o caso | Art. 72, IV |
 | Justificativa da contratação direta (razão da escolha e do preço) | Conforme o caso | Art. 72, VI e VII |
+| Designação do agente de contratação (portaria do exercício) | Conforme o caso | Art. 8º |
+| Relatório do agente de contratação | Conforme o caso | Art. 72, VI e VII |
+| Minuta do contrato | Conforme o caso | Art. 72 c/c art. 92 |
 
-- O que não for obrigatório e não se aplicar pode ser marcado como **não se aplica**, com justificativa (fica nos autos). Para voltar atrás, **desfazer**.
-- O link **abrir** leva ao documento no dossiê.
+- O que não for obrigatório e não se aplicar pode ser marcado como **não se aplica**, com justificativa (fica nos autos). Para voltar atrás, **desfazer**. O botão só aparece nas peças em que a lei permite dispensar.
 - O botão **Preparar automaticamente (copiloto)** chama o copiloto (pesquisa de preços em fontes reais e rascunhos dos documentos).
 - Os sinais ao lado de cada item mostram: concluído, **não se aplica**, **em aprovação** (com a etapa e o responsável) ou **aguarda envio p/ aprovação**.
 
 > **Atenção.** "Mínimo para divulgar: DFD, estimativa de despesa e autorização." Sem eles, o botão de divulgação fica desabilitado e, ao passar o mouse, mostra as pendências.
+
+## Cada peça: fazer aqui, anexar PDF ou não se aplica
+
+Toda peça da lista tem três caminhos, e os três contam igual no checklist:
+
+| Botão | Quando usar | O que acontece |
+|---|---|---|
+| **Fazer aqui** | A peça será escrita no sistema | Abre o editor da peça (modelo + IA). A data da peça feita e assinada no sistema é a da **última assinatura** — nunca é digitada. |
+| **Anexar PDF** | A peça foi feita fora (Word, outro setor, procuradoria, Mesa Diretora) | Janela com **Arquivo (PDF)**, **Número da peça** (ex.: "Parecer 167/2025"), **Data do documento** (a data que está escrita na peça — obrigatória e não pode ser futura), **Quem assinou** (nome e cargo) e **Observação**. O sistema guarda também a data do envio e o código SHA-256 do arquivo. |
+| **Não se aplica** | Só nas peças "se for o caso" da contratação direta | Pede a justificativa, que vai para os autos. |
+
+- **Só PDF.** Outro formato (ou arquivo que não abre como PDF) é recusado. O tamanho máximo é 25 MB.
+- **Substituir.** Anexar de novo, ou editar no **Fazer aqui** uma peça anexada ou assinada, cria uma **nova versão**. A anterior fica no histórico como **substituída** — nunca some.
+- **Folhas dos autos.** Quando a peça é anexada ou termina de ser assinada, ela recebe as folhas seguintes do processo (ex.: "fls. 12–16"). A linha da peça mostra se foi feita no sistema ou anexada, o número, a data, as folhas, a versão e o link **ver PDF**.
+- **Portaria de designação.** A portaria do agente de contratação e da equipe vale para o **ano inteiro**. Ela é anexada uma vez pelo órgão e, em cada processo, o botão **Usar portaria do órgão** (na linha "Designação do agente de contratação") junta a portaria vigente do exercício, sem copiar o arquivo. Se o órgão anexar outra portaria para o mesmo ano, ela vira a versão 2 e a anterior fica no histórico.
+- **Anexo pela aba Documentos.** O PDF de ETP, TR, pesquisa de preços, parecer, autorização, dotação, riscos ou minuta do contrato anexado na aba **Documentos** do processo também conta como a peça (antes o checklist dizia que faltava).
+
+> **Atenção.** Depois que o processo é divulgado, as peças da fase interna não mudam mais. O parecer jurídico da fase externa (antes da adjudicação) continua podendo ser anexado.
+
+### Peça com vários signatários (autoridade colegiada)
+
+Quando a autoridade é colegiada (ex.: Mesa Diretora com 4 assinaturas), a peça feita no sistema é enviada para assinatura de **vários usuários do órgão, cada um com o seu papel** (Presidente, Vice-Presidente, 1º Secretário...). A peça aparece como **aguardando assinaturas** e **só conta como pronta quando todos assinarem**; nesse momento o sistema grava a data (a da última assinatura), o código do arquivo assinado e as folhas. Cada signatário assina pelo **Portal de assinaturas** (menu Assinaturas pendentes). Nesta etapa o envio é feito pela API (`POST /api/fase-interna/:id/documentos/:tipo/assinatura`); o botão na tela vem com as telas por etapa.
+
+## Fundamento legal e limite da dispensa
+
+- O **fundamento legal** do processo (ex.: "art. 75, II — dispensa por valor; art. 74, III, 'c'; art. 75, VIII — emergência") é escolhido em **Editar dados › Classificação › Fundamento legal**. As opções dependem da modalidade. Esse campo é a **fonte única**: vai para o PNCP (amparo legal), para as peças geradas por modelo e para o aviso de contratação direta. Trocar a modalidade devolve o fundamento ao padrão dela.
+- **Limites da dispensa por valor** (art. 75, I e II) são **por exercício**, com o decreto de cada ano: 2023 — Dec. 11.317/2022 (R$ 114.416,65 / R$ 57.208,33); 2024 — Dec. 11.871/2023 (R$ 119.812,02 / R$ 59.906,02); 2025 — Dec. 12.343/2024 (R$ 125.451,15 / R$ 62.725,59); 2026 — Dec. 12.807/2025 (R$ 130.984,20 / R$ 65.492,11). O administrador da plataforma cadastra o exercício seguinte quando sai o decreto; enquanto não cadastra, vale o do último ano, marcado como provisório.
+- Na dispensa por valor, a etapa atual mostra o **consumo do limite**: quanto o órgão já contratou no exercício, no mesmo ramo (classe do código CATMAT/CATSER) e na mesma unidade gestora — por exemplo, "98,4% de R$ 62.725,59 — Dec. 12.343/2024". Acima de 80% o quadro fica amarelo; acima de 100%, vermelho (art. 75, §1º — fracionamento). Nesta etapa é só um aviso; o bloqueio automático vem depois.
 
 ## O copiloto (preparação automática)
 
@@ -115,7 +145,7 @@ O andamento aparece na aba **Tramitação** do dossiê e no checklist do cockpit
 
 No cockpit, **Editar dados** abre as abas **Dados Básicos**, **Classificação**, **Itens**, **Lotes** (se usar lotes), **Cronograma**, **Habilitação** e **Configurações**.
 
-- **Classificação**: modalidade, critério de julgamento, modo de disputa, tipo de contratação, vínculo com o PCA, disputa **Por item** ou **Por lote**, **Inversão de fases** (só concorrência), tratamento ME/EPP (**Sem Benefício**, **Exclusivo para ME/EPP**, **Cota Reservada** até 25%) e o modo de aplicação (toda a licitação, por lote ou por item).
+- **Classificação**: modalidade, **fundamento legal** (select com as hipóteses da modalidade — veja acima), critério de julgamento, modo de disputa, tipo de contratação, vínculo com o PCA, disputa **Por item** ou **Por lote**, **Inversão de fases** (só concorrência), tratamento ME/EPP (**Sem Benefício**, **Exclusivo para ME/EPP**, **Cota Reservada** até 25%) e o modo de aplicação (toda a licitação, por lote ou por item).
 - **Itens** e **Lotes**: cada item pode estar em no máximo um lote; cada lote pode ter seu próprio benefício ME/EPP.
 - **Habilitação**: exigências de habilitação do edital (veja abaixo).
 - **Configurações**: **Pregoeiro / Agente de Contratação** (escolhido entre os usuários ativos do órgão), diferença mínima entre lances, intervalo mínimo, tempo de prorrogação, lances intermediários e sigilo do orçamento (com **Justificativa do Sigilo** obrigatória — art. 24).

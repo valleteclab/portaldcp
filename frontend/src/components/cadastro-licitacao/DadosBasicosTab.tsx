@@ -5,9 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { FileText, Import, AlertCircle, Building2, Loader2 } from "lucide-react"
+import { FileText, AlertCircle, Building2, Loader2 } from "lucide-react"
 import { DadosBasicos } from "./types"
 
 import { API_URL, authFetch } from '@/lib/api'
@@ -21,11 +20,9 @@ interface UnidadeOrgao {
 interface DadosBasicosTabProps {
   dados: DadosBasicos
   onChange: (dados: DadosBasicos) => void
-  modoImportacao: boolean
-  onToggleModo: () => void
 }
 
-export function DadosBasicosTab({ dados, onChange, modoImportacao, onToggleModo }: DadosBasicosTabProps) {
+export function DadosBasicosTab({ dados, onChange }: DadosBasicosTabProps) {
   const [unidades, setUnidades] = useState<UnidadeOrgao[]>([])
   const [carregandoUnidades, setCarregandoUnidades] = useState(false)
 
@@ -71,71 +68,7 @@ export function DadosBasicosTab({ dados, onChange, modoImportacao, onToggleModo 
 
   return (
     <div className="space-y-6">
-      {/* Opção de Importação */}
-      <Card className="border-dashed">
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Import className="h-5 w-5 text-blue-600" />
-              <div>
-                <p className="font-medium">Importar de outro sistema</p>
-                <p className="text-sm text-muted-foreground">
-                  Importe dados da fase interna de sistemas como Compras.gov, BLL, etc.
-                </p>
-              </div>
-            </div>
-            <Button 
-              variant={modoImportacao ? "default" : "outline"}
-              onClick={onToggleModo}
-            >
-              {modoImportacao ? "Cadastro Manual" : "Importar Dados"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {modoImportacao ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Import className="h-5 w-5" />
-              Importar Fase Interna
-            </CardTitle>
-            <CardDescription>
-              Cole os dados exportados do sistema de origem ou informe o código do processo
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Sistema de Origem</Label>
-                <Input placeholder="Ex: Compras.gov, BLL, Licitanet..." />
-              </div>
-              <div className="space-y-2">
-                <Label>Código/UASG do Processo</Label>
-                <Input placeholder="Ex: 123456" />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Dados JSON (opcional)</Label>
-              <Textarea 
-                placeholder='Cole aqui os dados exportados no formato JSON...'
-                rows={6}
-                className="font-mono text-sm"
-              />
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3">
-              <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-amber-800">
-                <p className="font-medium">Funcionalidade em desenvolvimento</p>
-                <p>A importação automática estará disponível em breve. Por enquanto, cadastre manualmente.</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
+      {/* Peças feitas fora do sistema: "Anexar PDF" em cada peça da fase interna (tela do processo) */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -235,7 +168,6 @@ export function DadosBasicosTab({ dados, onChange, modoImportacao, onToggleModo 
             </div>
           </CardContent>
         </Card>
-      )}
     </div>
   )
 }

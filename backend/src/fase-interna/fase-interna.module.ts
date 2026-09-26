@@ -5,6 +5,11 @@ import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { IaModule } from '../ia/ia.module';
 import { PreparacaoAutomaticaService } from './preparacao-automatica.service';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
+import { DocumentoOrgao } from './entities/documento-orgao.entity';
+import { PecasFaseInternaService } from './pecas-fase-interna.service';
+import { MigracaoEspelhoDocumentosBootService } from './migracao-espelho-documentos-boot.service';
+import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
+import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
 import { ModeloDocumento } from './entities/modelo-documento.entity';
 import { TramitacaoProcesso } from './entities/tramitacao-processo.entity';
@@ -53,8 +58,11 @@ import {
     NotificacoesModule,
     IaModule,
     TransicoesModule,
+    PortalAssinaturasModule,
+    ParametrosLicitacaoModule,
     TypeOrmModule.forFeature([
       DocumentoFaseInterna,
+      DocumentoOrgao,
       LogFaseInterna,
       ModeloDocumento,
       TramitacaoProcesso,
@@ -77,6 +85,8 @@ import {
   ],
   providers: [
     FaseInternaService,
+    PecasFaseInternaService,
+    MigracaoEspelhoDocumentosBootService,
     PreparacaoAutomaticaService,
     ModeloDocumentoService,
     TramitacaoService,
@@ -100,6 +110,7 @@ import {
   ],
   exports: [
     FaseInternaService,
+    PecasFaseInternaService,
     PreparacaoAutomaticaService,
     DerivacaoService,
     AuditLogService,

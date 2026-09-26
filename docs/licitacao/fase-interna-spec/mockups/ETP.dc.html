@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Editor do Estudo Técnico Preliminar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F4F1EA;color:#18202B}
+a{color:#1F4E79}a:hover{color:#123654}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1100px; display: flex; flex-direction: column; background: #F4F1EA; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #18202B">
+
+<header style="height: 64px; background: #18202B; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; flex-shrink: 0">
+<div style="display: flex; align-items: center; gap: 20px"><div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600; color: #FFFFFF">PortalDCP</div><span style="font-size: 13px; color: #CFC9BC">PA 139/2025 › ETP · versão 3 · salvo há 20 s</span></div>
+<div style="display: flex; gap: 10px">
+<button type="button" style="height: 40px; padding: 0 14px; border: 1px solid #3A4656; background: transparent; border-radius: 8px; font: 500 13px 'IBM Plex Sans', sans-serif; color: #E9E5DB">Histórico de versões</button>
+<button type="button" style="height: 40px; padding: 0 16px; border: 0; background: #FFFFFF; border-radius: 8px; font: 600 13px 'IBM Plex Sans', sans-serif; color: #18202B">Concluir ETP</button>
+</div>
+</header>
+
+<div style="flex-grow: 1; display: flex; min-height: 0">
+<nav aria-label="Seções do ETP" style="width: 300px; flex-shrink: 0; background: #FFFFFF; border-right: 1px solid #DDD6C8; padding: 22px 16px; display: flex; flex-direction: column; gap: 2px; box-sizing: border-box">
+<div style="font-size: 12px; color: #4A5361; padding: 0 10px 10px; line-height: 1.4">Art. 18, §1º · <strong style="color: #18202B">obrigatórios</strong> pelo §2º: I, IV, VI, VIII e XIII</div>
+<sc-for list="{{secs}}" as="s" hint-placeholder-count="13">
+<a href="#" style="display: flex; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: #18202B; font-size: 13px; background: {{s.bg}}">
+<span style="width: 34px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5361">{{s.n}}</span>
+<span style="flex-grow: 1; font-weight: {{s.w}}">{{s.t}}</span>
+<span style="width: 10px; height: 10px; border-radius: 5px; background: {{s.dot}}"></span>
+</a>
+</sc-for>
+</nav>
+
+<main style="flex-grow: 1; padding: 32px 48px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box; min-width: 0">
+<div style="font-size: 12px; font-family: 'IBM Plex Mono', monospace; color: #4A5361">SEÇÃO VII · art. 18, §1º, VII</div>
+<h1 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 30px; font-weight: 600">Descrição da solução como um todo</h1>
+<div style="display: flex; gap: 6px; padding: 6px; border: 1px solid #DDD6C8; border-radius: 8px; background: #FFFFFF; align-self: flex-start">
+<button type="button" style="height: 36px; min-width: 36px; border: 0; background: transparent; font: 700 14px 'IBM Plex Sans', sans-serif; color: #18202B">N</button>
+<button type="button" style="height: 36px; min-width: 36px; border: 0; background: transparent; font: italic 500 14px 'IBM Plex Sans', sans-serif; color: #18202B">I</button>
+<button type="button" style="height: 36px; padding: 0 10px; border: 0; background: transparent; font: 500 13px 'IBM Plex Sans', sans-serif; color: #18202B">Lista</button>
+<button type="button" style="height: 36px; padding: 0 10px; border: 0; background: transparent; font: 500 13px 'IBM Plex Sans', sans-serif; color: #18202B">Tabela</button>
+<button type="button" style="height: 36px; padding: 0 10px; border: 0; background: transparent; font: 500 13px 'IBM Plex Sans', sans-serif; color: #18202B">Citar norma</button>
+</div>
+<article style="background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 32px 40px; font-family: 'Source Serif 4', Georgia, serif; font-size: 17px; line-height: 1.7; display: flex; flex-direction: column; gap: 14px; flex-grow: 1">
+<p style="margin: 0"><strong>8.1.</strong> A solução consiste na contratação de software integrado de gestão, edição, automação e controle de conteúdo, voltado à profissionalização da comunicação institucional da Rádio e TV Câmara.</p>
+<p style="margin: 0"><strong>8.3.</strong> O sistema deverá contemplar, no mínimo: gestão de pautas e produção de conteúdo; ferramentas de IA para revisão e adaptação de textos; teleprompter integrado com atualização em tempo real; integração com redes sociais e portais; e suporte técnico remoto contínuo.</p>
+<p style="margin: 0; background: #FBEBDD; padding: 6px 8px; border-radius: 4px"><strong>8.5.</strong> A solução tecnológica deverá ser similar ou superior ao software ARION (SNEWS), atendendo a padrões equivalentes de desempenho, estabilidade, funcionalidades e integração com o ambiente de broadcast.</p>
+<p style="margin: 0; color: #4A5361">Continue escrevendo ou peça ao assistente…</p>
+</article>
+</main>
+
+<aside aria-label="Assistente" style="width: 360px; flex-shrink: 0; background: #FFFFFF; border-left: 1px solid #DDD6C8; padding: 22px 20px; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 19px; font-weight: 600">Assistente do ETP</h2>
+<div style="border: 1px solid #E8C9AC; background: #FBEBDD; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; font-weight: 600; color: #9A4308; text-transform: uppercase; letter-spacing: 0.04em">Indicação de marca · item 8.5</div>
+<div style="font-size: 13px; line-height: 1.5">O art. 41, I só admite indicar marca com justificativa formal (padronização, compatibilidade ou ser a única que atende). Sem isso, o trecho restringe a competição.</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button type="button" style="height: 40px; padding: 0 12px; border: 0; background: #1F4E79; color: #FFFFFF; border-radius: 6px; font: 500 13px 'IBM Plex Sans', sans-serif">Reescrever por função</button>
+<button type="button" style="height: 40px; padding: 0 12px; border: 1px solid #C9C1B1; background: #FFFFFF; border-radius: 6px; font: 500 13px 'IBM Plex Sans', sans-serif; color: #18202B">Inserir justificativa</button>
+</div>
+</div>
+<div style="border: 1px solid #DDD6C8; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+<div style="font-size: 12px; font-weight: 600; color: #4A5361; text-transform: uppercase; letter-spacing: 0.04em">Coerência entre seções</div>
+<div style="font-size: 13px; line-height: 1.5">A seção I cita Closed Caption e NDI (item 2.2). Cada requisito da necessidade precisa aparecer na solução e no TR — conferir antes de concluir.</div>
+</div>
+<div style="border: 1px solid #DDD6C8; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+<div style="font-size: 12px; font-weight: 600; color: #4A5361; text-transform: uppercase; letter-spacing: 0.04em">Seção XIII pendente</div>
+<div style="font-size: 13px; line-height: 1.5">A declaração de viabilidade é obrigatória e ainda está vazia.</div>
+</div>
+<div style="margin-top: auto; display: flex; flex-direction: column; gap: 6px">
+<label for="ask" style="font-size: 13px; font-weight: 600">Pedir ao assistente</label>
+<textarea id="ask" rows="3" placeholder="Ex.: redija a análise de riscos a partir do TR" style="border: 1px solid #C9C1B1; border-radius: 8px; padding: 10px 12px; font: 400 14px 'IBM Plex Sans', sans-serif; resize: none; color: #18202B"></textarea>
+</div>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ok = '#1F4E79', warn = '#C2651A', no = '#C9C1B1';
+    const S = (n, t, dot, cur) => ({ n, t, dot, bg: cur ? '#E3ECF5' : 'transparent', w: cur ? 600 : 400 });
+    const secs = [
+      S('I*', 'Descrição da necessidade', ok), S('II', 'Previsão no PCA', ok), S('III', 'Requisitos da contratação', ok),
+      S('IV*', 'Estimativa das quantidades', ok), S('V', 'Levantamento de mercado', ok), S('VI*', 'Estimativa do valor', ok),
+      S('VII', 'Descrição da solução', warn, true), S('VIII*', 'Justificativa do parcelamento', ok), S('IX', 'Resultados pretendidos', ok),
+      S('X', 'Providências prévias', no), S('XI', 'Contratações correlatas', ok), S('XII', 'Impactos ambientais', no),
+      S('XIII*', 'Declaração de viabilidade', no), S('—', 'Análise de riscos', ok)
+    ];
+    return { secs };
+  }
+}
+</script>
+</body>
+</html>

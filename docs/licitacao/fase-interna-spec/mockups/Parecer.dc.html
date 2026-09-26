@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Parecer jurídico — Procuradoria</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F4F1EA;color:#18202B}
+a{color:#1F4E79}a:hover{color:#123654}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1000px; display: flex; flex-direction: column; background: #F4F1EA; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #18202B">
+<header style="height: 64px; background: #18202B; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; flex-shrink: 0">
+<div style="display: flex; align-items: center; gap: 20px"><div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600; color: #FFFFFF">PortalDCP</div><span style="font-size: 13px; color: #CFC9BC">Procuradoria › Parecer 167/2025 · PA 139/2025</span></div>
+<div style="display: flex; gap: 10px">
+<button type="button" style="height: 40px; padding: 0 14px; border: 1px solid #3A4656; background: transparent; border-radius: 8px; font: 500 13px 'IBM Plex Sans', sans-serif; color: #E9E5DB">Devolver com diligência</button>
+<button type="button" style="height: 40px; padding: 0 16px; border: 0; background: #FFFFFF; border-radius: 8px; font: 600 13px 'IBM Plex Sans', sans-serif; color: #18202B">Assinar parecer</button>
+</div>
+</header>
+
+<div style="flex-grow: 1; display: flex; min-height: 0">
+<section aria-label="Autos" style="width: 640px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid #DDD6C8; background: #EAE6DC">
+<div role="tablist" aria-label="Documento" style="display: flex; gap: 4px; padding: 12px 16px 0; background: #FFFFFF; border-bottom: 1px solid #DDD6C8">
+<button type="button" role="tab" aria-selected="false" style="height: 40px; padding: 0 12px; border: 0; background: transparent; font: 500 13px 'IBM Plex Sans', sans-serif; color: #4A5361">ETP</button>
+<button type="button" role="tab" aria-selected="false" style="height: 40px; padding: 0 12px; border: 0; background: transparent; font: 500 13px 'IBM Plex Sans', sans-serif; color: #4A5361">TR</button>
+<button type="button" role="tab" aria-selected="false" style="height: 40px; padding: 0 12px; border: 0; background: transparent; font: 500 13px 'IBM Plex Sans', sans-serif; color: #4A5361">Aviso</button>
+<button type="button" role="tab" aria-selected="true" style="height: 40px; padding: 0 12px; border: 0; border-bottom: 3px solid #1F4E79; background: transparent; font: 600 13px 'IBM Plex Sans', sans-serif; color: #18202B">Minuta do contrato</button>
+</div>
+<div style="padding: 24px 28px; flex-grow: 1">
+<div style="background: #FFFFFF; box-shadow: 0 1px 3px rgba(24,32,43,0.12); padding: 40px 44px; font-family: 'Source Serif 4', Georgia, serif; font-size: 15px; line-height: 1.7; display: flex; flex-direction: column; gap: 12px; height: 100%; box-sizing: border-box">
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #4A5361; align-self: flex-end">fl. 63</div>
+<p style="margin: 0; font-weight: 600">CLÁUSULA SEGUNDA — DA VINCULAÇÃO</p>
+<p style="margin: 0">2.1. Integram este contrato, independentemente de transcrição:</p>
+<p style="margin: 0">2.1.1. O Termo de Referência e a proposta da contratada;</p>
+<p style="margin: 0; background: #FBEBDD; outline: 2px solid #C2651A; padding: 4px 6px; border-radius: 3px">2.1.2. O Processo Administrativo nº 115/2025, a Dispensa de Licitação nº 025/2025 e seus anexos;</p>
+<div style="font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; background: #18202B; color: #FFFFFF; padding: 8px 10px; border-radius: 6px; align-self: flex-start">Comentário da Procuradoria: deve referenciar PA 139/2025 e Dispensa 029/2025</div>
+<p style="margin: 0; color: #4A5361">CLÁUSULA TERCEIRA — DA EXECUÇÃO…</p>
+</div>
+</div>
+</section>
+
+<main style="flex-grow: 1; padding: 28px 36px; display: flex; flex-direction: column; gap: 18px; box-sizing: border-box; min-width: 0">
+<h1 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 26px; font-weight: 600">Roteiro de análise</h1>
+<div style="display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px">
+<sc-for list="{{checks}}" as="c" hint-placeholder-count="8">
+<div style="display: flex; gap: 14px; padding: 12px 18px; border-bottom: 1px solid #EFEBE2; align-items: center">
+<span style="width: 92px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5361">{{c.ref}}</span>
+<span style="flex-grow: 1; font-size: 14px">{{c.t}}</span>
+<span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: {{c.bg}}; color: {{c.fg}}">{{c.st}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="concl" style="font-size: 13px; font-weight: 600">Conclusão</label>
+<select id="concl" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Sans', sans-serif; background: #FFFFFF; color: #18202B"><option>Favorável, condicionado ao saneamento das diligências</option></select>
+</div>
+<p style="margin: 0; font-size: 13px; color: #4A5361; line-height: 1.5">O texto do parecer é montado a partir deste roteiro. Cada diligência vira tarefa para o responsável pelo documento e o processo volta automaticamente à Procuradoria quando sanada.</p>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ok = { st: 'Conforme', bg: '#E3ECF5', fg: '#1F4E79' };
+    const dil = { st: 'Diligência', bg: '#FBEBDD', fg: '#9A4308' };
+    const checks = [
+      { ref: 'Art. 72, I', t: 'DFD, ETP, riscos e TR juntados', ...ok },
+      { ref: 'Art. 72, II', t: 'Estimativa conforme art. 23', ...ok },
+      { ref: 'Art. 72, IV', t: 'Compatibilidade orçamentária', ...ok },
+      { ref: 'Art. 72, VIII', t: 'Autorização da autoridade', ...ok },
+      { ref: 'Art. 75', t: 'Enquadramento no mesmo inciso em todas as peças', ...dil },
+      { ref: 'Art. 41, I', t: 'Indicação de marca justificada', ...dil },
+      { ref: 'Art. 24', t: 'Sigilo do orçamento justificado', ...ok },
+      { ref: 'Art. 92', t: 'Cláusulas obrigatórias da minuta', ...ok },
+      { ref: 'Cl. 2.1.2', t: 'Vinculação ao processo correto', ...dil }
+    ];
+    return { checks };
+  }
+}
+</script>
+</body>
+</html>

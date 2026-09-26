@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Documento de Formalização de Demanda</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F4F1EA;color:#18202B}
+a{color:#1F4E79}a:hover{color:#123654}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1100px; display: flex; flex-direction: column; background: #F4F1EA; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #18202B">
+
+<header style="height: 64px; background: #18202B; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; flex-shrink: 0">
+<div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600; color: #FFFFFF">PortalDCP</div>
+<div style="font-size: 13px; color: #E9E5DB; text-align: right; line-height: 1.3">Ednardo Silva de Souza<br><span style="color: #B9B3A6; font-size: 12px">Diretoria Administrativa e Financeira</span></div>
+</header>
+
+<div style="padding: 20px 40px 0; display: flex; gap: 8px; font-size: 13px; color: #4A5361; align-items: center">
+<span style="font-weight: 600; color: #1F4E79">1 Demanda</span><span>›</span><span>2 ETP</span><span>›</span><span>3 TR</span><span>›</span><span>4 Pesquisa</span><span>›</span><span>5 Reserva</span><span>›</span><span>6 Autorização</span><span>›</span><span>7 Parecer</span><span>›</span><span>8 Publicação</span>
+</div>
+
+<main style="flex-grow: 1; padding: 20px 40px 32px; display: flex; gap: 28px; box-sizing: border-box; min-height: 0">
+<form style="flex-grow: 1; background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 28px 32px; display: flex; flex-direction: column; gap: 20px; min-width: 0">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 28px; font-weight: 600">Documento de Formalização de Demanda</h1>
+<p style="margin: 0; font-size: 14px; color: #4A5361">Rascunho salvo automaticamente · Ao enviar, vira fl. 01 dos autos e abre o processo.</p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="un" style="font-size: 13px; font-weight: 600">Unidade requisitante</label><select id="un" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Sans', sans-serif; background: #FFFFFF; color: #18202B"><option>Diretoria Administrativa</option></select></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="pca" style="font-size: 13px; font-weight: 600">Item do Plano Anual de Contratações</label><select id="pca" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Sans', sans-serif; background: #FFFFFF; color: #18202B"><option>[Item do PCA 2025 — Rádio e TV Câmara]</option></select></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="obj" style="font-size: 13px; font-weight: 600">Objeto</label><input id="obj" value="Locação e implantação de software de gestão, edição, automação e controle de conteúdo (TPNews, MOS/API e IA) para a Rádio e TV Câmara" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Sans', sans-serif; color: #18202B"></div>
+
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="nec" style="font-size: 13px; font-weight: 600">Por que a Câmara precisa disso?</label><textarea id="nec" rows="4" style="border: 1px solid #C9C1B1; border-radius: 8px; padding: 10px 12px; font: 400 14px/1.5 'IBM Plex Sans', sans-serif; color: #18202B; resize: none">As rotinas editoriais usam ferramentas fragmentadas, sem padronização do fluxo de produção e com baixa rastreabilidade das etapas. Um sistema único integraria redação, produção, repórteres e estúdios.</textarea></div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 13px; font-weight: 600">Itens e quantidades</div>
+<table style="width: 100%; border-collapse: collapse; font-size: 14px">
+<thead><tr style="text-align: left; font-size: 12px; color: #4A5361"><th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500; width: 50px">Item</th><th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500">Descrição</th><th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500; width: 110px">Unidade</th><th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500; width: 80px">Qtde</th><th style="padding: 8px 10px; border-bottom: 1px solid #DDD6C8; font-weight: 500; width: 150px">CATSER</th></tr></thead>
+<tbody>
+<tr><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2; font-family: 'IBM Plex Mono', monospace">01</td><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2">Implantação do software e treinamento presencial</td><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2">Serviço</td><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2; font-family: 'IBM Plex Mono', monospace">1</td><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2; color: #4A5361">[código]</td></tr>
+<tr><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2; font-family: 'IBM Plex Mono', monospace">02</td><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2">Locação mensal de licença, suporte remoto e manutenção</td><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2">Mês</td><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2; font-family: 'IBM Plex Mono', monospace">12</td><td style="padding: 12px 10px; border-bottom: 1px solid #EFEBE2; color: #4A5361">[código]</td></tr>
+</tbody>
+</table>
+<button type="button" style="align-self: flex-start; height: 44px; padding: 0 14px; border: 1px dashed #8C8472; background: transparent; border-radius: 8px; font: 500 14px 'IBM Plex Sans', sans-serif; color: #18202B">+ Adicionar item</button>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="dt" style="font-size: 13px; font-weight: 600">Data pretendida</label><input id="dt" value="01/2026" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Mono', monospace; color: #18202B"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="pr" style="font-size: 13px; font-weight: 600">Prioridade</label><select id="pr" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Sans', sans-serif; background: #FFFFFF; color: #18202B"><option>Média</option></select></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="fisc" style="font-size: 13px; font-weight: 600">Fiscal sugerido</label><input id="fisc" value="[Diretor da TV e Rádio Câmara]" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Sans', sans-serif; color: #18202B"></div>
+</div>
+</form>
+
+<aside style="width: 340px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px">
+<section style="background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 19px; font-weight: 600">Antes de enviar</h2>
+<div style="font-size: 13px; line-height: 1.45; display: flex; gap: 10px"><span style="color: #1F4E79; font-weight: 600">✓</span>Vinculado ao PCA</div>
+<div style="font-size: 13px; line-height: 1.45; display: flex; gap: 10px"><span style="color: #1F4E79; font-weight: 600">✓</span>Necessidade descrita</div>
+<div style="font-size: 13px; line-height: 1.45; display: flex; gap: 10px"><span style="color: #9A4308; font-weight: 600">!</span>2 itens sem código CATSER — necessário para somar o limite de dispensa</div>
+<div style="font-size: 13px; line-height: 1.45; display: flex; gap: 10px"><span style="color: #9A4308; font-weight: 600">!</span>Evite nomes de produto no objeto; descreva a função</div>
+</section>
+<section style="background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 19px; font-weight: 600">Encaminhamento</h2>
+<p style="margin: 0; font-size: 13px; color: #3A4250; line-height: 1.45">Vai para o Gabinete da Presidência. Quando aprovado, o sistema cria o PA e as tarefas de ETP e TR para sua unidade.</p>
+<button type="button" style="height: 48px; border: 0; background: #1F4E79; color: #FFFFFF; border-radius: 8px; font: 600 15px 'IBM Plex Sans', sans-serif">Assinar e enviar</button>
+<button type="button" style="height: 44px; border: 1px solid #C9C1B1; background: #FFFFFF; color: #18202B; border-radius: 8px; font: 500 14px 'IBM Plex Sans', sans-serif">Gerar ETP com IA a partir deste DFD</button>
+</section>
+</aside>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

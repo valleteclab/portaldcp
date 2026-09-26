@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Minhas tarefas — Agente de Contratação</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F4F1EA;color:#18202B}
+a{color:#1F4E79}a:hover{color:#123654}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; background: #F4F1EA; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #18202B">
+
+<header style="height: 64px; background: #18202B; color: #E9E5DB; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; flex-shrink: 0">
+<div style="display: flex; align-items: center; gap: 36px">
+<div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600; color: #FFFFFF">PortalDCP</div>
+<nav aria-label="Principal" style="display: flex; gap: 6px">
+<a href="Tarefas.dc.html" style="color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 500; padding: 10px 14px; border-radius: 6px; background: #2C3747">Minhas tarefas</a>
+<a href="Main.dc.html" style="color: #E9E5DB; text-decoration: none; font-size: 14px; padding: 10px 14px">Processos</a>
+<a href="#" style="color: #E9E5DB; text-decoration: none; font-size: 14px; padding: 10px 14px">Modelos</a>
+<a href="#" style="color: #E9E5DB; text-decoration: none; font-size: 14px; padding: 10px 14px">Fornecedores</a>
+</nav>
+</div>
+<div style="display: flex; align-items: center; gap: 16px">
+<label for="busca" style="position: absolute; left: -9999px">Buscar processo</label>
+<input id="busca" placeholder="Buscar nº, objeto ou fornecedor" style="width: 300px; height: 40px; border-radius: 8px; border: 1px solid #3A4656; background: #222C3A; color: #FFFFFF; padding: 0 12px; font: 400 14px 'IBM Plex Sans', sans-serif">
+<div style="font-size: 13px; text-align: right; line-height: 1.3">Joel B. Gama Neto<br><span style="color: #B9B3A6; font-size: 12px">Agente de Contratação</span></div>
+</div>
+</header>
+
+<main style="flex-grow: 1; padding: 32px 40px; display: flex; gap: 28px; box-sizing: border-box; min-height: 0">
+<section aria-label="Tarefas" style="flex-grow: 1; display: flex; flex-direction: column; gap: 16px; min-width: 0">
+<div style="display: flex; justify-content: space-between; align-items: flex-end">
+<h1 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 30px; font-weight: 600">Minhas tarefas</h1>
+<button type="button" style="height: 44px; padding: 0 18px; border: 0; background: #1F4E79; color: #FFFFFF; border-radius: 8px; font: 500 14px 'IBM Plex Sans', sans-serif">Novo processo a partir de DFD</button>
+</div>
+<div role="tablist" aria-label="Filtro" style="display: flex; gap: 4px; border-bottom: 1px solid #DDD6C8">
+<button type="button" role="tab" aria-selected="true" style="height: 44px; padding: 0 16px; border: 0; background: transparent; border-bottom: 3px solid #1F4E79; font: 600 14px 'IBM Plex Sans', sans-serif; color: #18202B">Para mim (5)</button>
+<button type="button" role="tab" aria-selected="false" style="height: 44px; padding: 0 16px; border: 0; background: transparent; font: 500 14px 'IBM Plex Sans', sans-serif; color: #4A5361">Aguardando outros (3)</button>
+<button type="button" role="tab" aria-selected="false" style="height: 44px; padding: 0 16px; border: 0; background: transparent; font: 500 14px 'IBM Plex Sans', sans-serif; color: #4A5361">Concluídas</button>
+</div>
+<div style="background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; overflow: hidden">
+<sc-for list="{{tasks}}" as="t" hint-placeholder-count="5">
+<div style="display: flex; align-items: center; gap: 18px; padding: 18px 22px; border-bottom: 1px solid #EFEBE2">
+<div style="width: 6px; align-self: stretch; border-radius: 3px; background: {{t.bar}}"></div>
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 10px; align-items: baseline"><span style="font-size: 16px; font-weight: 600">{{t.t}}</span><span style="font-size: 12px; font-family: 'IBM Plex Mono', monospace; color: #4A5361">{{t.p}}</span></div>
+<div style="font-size: 13px; color: #3A4250">{{t.d}}</div>
+</div>
+<div style="width: 150px; font-size: 13px; color: {{t.dueFg}}; font-weight: 500">{{t.due}}</div>
+<a href="{{t.href}}" style="height: 44px; padding: 0 16px; border: 1px solid #C9C1B1; border-radius: 8px; display: flex; align-items: center; font-size: 14px; font-weight: 500; text-decoration: none; color: #18202B; white-space: nowrap">{{t.act}}</a>
+</div>
+</sc-for>
+</div>
+</section>
+
+<aside style="width: 340px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px">
+<section style="background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 19px; font-weight: 600">Prazos da semana</h2>
+<div style="display: flex; gap: 12px; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace; color: #4A5361; width: 50px">13/01</span><span>Publicar aviso — Disp. 029/2025</span></div>
+<div style="display: flex; gap: 12px; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace; color: #4A5361; width: 50px">20/01</span><span>Fim das propostas · 08:00</span></div>
+<div style="display: flex; gap: 12px; font-size: 13px"><span style="font-family: 'IBM Plex Mono', monospace; color: #4A5361; width: 50px">20/01</span><span>Sessão de análise · 09:00</span></div>
+</section>
+<section style="background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 19px; font-weight: 600">Aguardando outros</h2>
+<div style="font-size: 13px; line-height: 1.45"><strong>Contabilidade</strong> — renovar dotação para 2026</div>
+<div style="font-size: 13px; line-height: 1.45"><strong>Procuradoria</strong> — parecer da fase externa</div>
+<div style="font-size: 13px; line-height: 1.45"><strong>Mesa Diretora</strong> — assinatura com data no despacho</div>
+</section>
+</aside>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const late = { bar: '#C2651A', dueFg: '#9A4308' };
+    const norm = { bar: '#1F4E79', dueFg: '#4A5361' };
+    const tasks = [
+      { t: 'Resolver bloqueios antes de publicar', p: 'PA 139/2025', d: 'Enquadramento divergente, minuta com dados de outro processo, indicação de marca.', due: 'Vence hoje', act: 'Abrir revisão', href: 'Conformidade.dc.html', ...late },
+      { t: 'Responder diligência da Procuradoria', p: 'PA 139/2025', d: 'Parecer pede correção da cláusula 2.1.2 da minuta do contrato.', due: 'Em 1 dia útil', act: 'Ver parecer', href: 'Parecer.dc.html', ...late },
+      { t: 'Revisar pesquisa de preços', p: 'PA 139/2025', d: 'Cotação da Legado vence em 20/12/2025; método do valor estimado sem justificativa.', due: 'Em 2 dias úteis', act: 'Abrir pesquisa', href: 'Pesquisa.dc.html', ...norm },
+      { t: 'Agendar sessão pública', p: 'Dispensa 029/2025', d: 'Janela sugerida: 14/01 a 20/01/2026, sessão em 20/01 às 09:00.', due: 'Após publicação', act: 'Agendar', href: '#', ...norm },
+      { t: 'Pedir renovação de dotação', p: 'PA 139/2025', d: 'Reserva é do exercício 2025; contrato será assinado em 2026.', due: 'Antes do contrato', act: 'Enviar CI', href: 'Reserva.dc.html', ...norm }
+    ];
+    return { tasks };
+  }
+}
+</script>
+</body>
+</html>

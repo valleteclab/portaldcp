@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, BeforeInsert } from 'typeorm';
+import { fundamentoPadrao } from '../fundamento-legal';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { ItemLicitacao } from '../../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../../lotes/entities/lote-licitacao.entity';
@@ -242,6 +243,23 @@ export class Licitacao {
     default: TipoContratacao.COMPRA
   })
   tipo_contratacao: TipoContratacao;
+
+  /**
+   * FUNDAMENTO LEGAL — fonte única do enquadramento (art. 28/74/75/78), em
+   * código (`FundamentoLegal`, licitacoes/fundamento-legal.ts). PNCP (amparo
+   * legal), modelos de documento, aviso e limite de dispensa derivam dele.
+   * NULL = processo antigo ainda não migrado → vale o padrão da modalidade
+   * (`fundamentoEfetivo`). varchar (não enum) para a tabela crescer sem
+   * recriar tipo no Postgres; `type` explícito (synchronize em produção).
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  fundamento_legal: string | null;
+
+  /** Todo processo novo nasce com o fundamento gravado (padrão da modalidade quando não informado). */
+  @BeforeInsert()
+  preencherFundamentoLegal() {
+    if (!this.fundamento_legal) this.fundamento_legal = fundamentoPadrao(this.modalidade, this.tipo_contratacao);
+  }
 
   @Column({
     type: 'enum',

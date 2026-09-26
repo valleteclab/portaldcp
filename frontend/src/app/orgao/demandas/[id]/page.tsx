@@ -1240,9 +1240,9 @@ export default function DetalheDemandaPage() {
         }
       })
       .catch(() => { /* segue sem vínculo */ })
-    // Limite vigente da dispensa (para sugerir a modalidade)
-    authFetch(`${API_URL}/api/parametros-licitacao/limites/vigente?chave=DISPENSA_COMPRAS_SERVICOS${orgaoId ? `&orgaoId=${orgaoId}` : ''}`)
-      .then(async (r) => { if (r.ok) { const l = await r.json(); if (l?.valor != null) setLimiteDispensa(Number(l.valor)) } })
+    // Limite da dispensa do exercício (art. 75, II — tabela por exercício) para sugerir a modalidade
+    authFetch(`${API_URL}/api/parametros-licitacao/limites-dispensa`)
+      .then(async (r) => { if (r.ok) { const l = await r.json(); if (l?.II?.valor != null) setLimiteDispensa(Number(l.II.valor)) } })
       .catch(() => { /* sugestão fica sem limite */ })
   }, [demanda?.id, orgaoId])
 
