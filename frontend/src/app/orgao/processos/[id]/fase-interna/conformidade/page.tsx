@@ -13,6 +13,7 @@
  * Entrega 5 (etapa 8): "Publicar" pratica o PUBLICAR aqui mesmo (aviso,
  * prazo no calendário do órgão, portão C), o quadro mostra o modo da dispensa
  * e a situação de cada canal, e o Diário Oficial vira peça da publicação.
+ * Entrega 6: "Gerar autos (PDF)" (capa, índice, folhas numeradas).
 
  */
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -27,6 +28,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
 import { PainelPrazos } from "../../PublicacaoEdital"
 import { useDivulgacaoAviso } from "../../useDivulgacaoAviso"
+import { BotaoGerarAutos } from "../../BotaoGerarAutos"
 import type { ModoDisputaDispensa } from "../../tipos"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { VisorDosAutos, type PecaAberta, type PecaDosAutos } from "@/components/fase-interna/etapas/VisorDosAutos"
@@ -251,11 +253,14 @@ export default function ConformidadePage() {
       }
       atualizacao={atualizacao}
       acoes={
-        d.aplicavel ? (
-          <Button variant="outline" disabled={ocupado} onClick={() => chamar("conformidade/revisar", {}, "Revisão concluída.")}>
-            {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1" aria-hidden="true" />} Revisar agora
-          </Button>
-        ) : null
+        <div className="flex gap-2 flex-wrap">
+          <BotaoGerarAutos licitacaoId={id} numeroProcesso={d.licitacao.numero_processo} />
+          {d.aplicavel ? (
+            <Button variant="outline" disabled={ocupado} onClick={() => chamar("conformidade/revisar", {}, "Revisão concluída.")}>
+              {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1" aria-hidden="true" />} Revisar agora
+            </Button>
+          ) : null}
+        </div>
       }
     >
       {dialogo}

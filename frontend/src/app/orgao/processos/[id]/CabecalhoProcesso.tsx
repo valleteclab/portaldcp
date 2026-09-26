@@ -1,23 +1,21 @@
 "use client"
 
-import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { toast } from "sonner"
-import { API_URL, authFetch } from "@/lib/api"
 import { fmtBrasilia } from "@/lib/publicacao"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, ClipboardList, FileText, Loader2, Pencil } from "lucide-react"
+import { ArrowLeft, ClipboardList, Pencil } from "lucide-react"
 import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
 import { FASES_INTERNAS, ROTULO_CRITERIO, corFase, rotuloFase, rotuloModalidade } from "@/lib/licitacao-rotulos"
 import { MenuAcoes, type EntradaMenu } from "./MenuAcoes"
+import { BotaoGerarAutos } from "./BotaoGerarAutos"
 import type { LicitacaoProcesso } from "./tipos"
 
 /**
  * CABEÇALHO: título, fase/situação reais, objeto, linha com fundamento legal /
- * critério / unidade / criação e, à direita, editar dados, baixar os autos em
- * PDF (GET /licitacoes/:id/processo-pdf) e o menu "Mais ações".
+ * critério / unidade / criação e, à direita, editar dados, "Gerar autos (PDF)"
+ * (Entrega 6 — montagem em segundo plano, folhas numeradas) e o menu "Mais ações".
  */
 export function CabecalhoProcesso({
   licitacao: l,
@@ -30,28 +28,6 @@ export function CabecalhoProcesso({
 }) {
   const router = useRouter()
   const interna = FASES_INTERNAS.includes(l.fase)
-  const [baixando, setBaixando] = useState(false)
-
-  const baixarPdf = async () => {
-    setBaixando(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${l.id}/processo-pdf`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const url = URL.createObjectURL(await res.blob())
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `processo-${l.numero_processo?.replace(/\W+/g, "-") || l.id}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (e: any) {
-      toast.error(`Não foi possível gerar os autos agora: ${e.message}`)
-    } finally {
-      setBaixando(false)
-    }
-  }
-
   const meta = [
     l.fundamento_legal,
     l.criterio_julgamento ? ROTULO_CRITERIO[l.criterio_julgamento] || l.criterio_julgamento : null,
@@ -101,10 +77,7 @@ export function CabecalhoProcesso({
             <Pencil className="w-4 h-4 mr-2" aria-hidden="true" /> Editar dados
           </Link>
         </Button>
-        <Button variant="outline" onClick={baixarPdf} disabled={baixando}>
-          {baixando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" aria-hidden="true" />}
-          Baixar processo (PDF)
-        </Button>
+        <BotaoGerarAutos licitacaoId={l.id} numeroProcesso={l.numero_processo} />
         <MenuAcoes entradas={entradasMenu} onEscolher={onAcao} />
       </div>
     </header>

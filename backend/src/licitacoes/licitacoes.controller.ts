@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { PncpService } from '../pncp/pncp.service';
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Res, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
@@ -362,18 +363,43 @@ export class LicitacoesController {
     return await this.licitacoesService.painelLancesDispensa(id, proprio);
   }
 
-  /** AUTOS DO PROCESSO: compilação completa em PDF único (capa + sumário + peças) */
+  /**
+   * AUTOS DO PROCESSO (fase interna, Entrega 6): capa, termo de abertura,
+   * índice, peças na ordem lógica com carimbo de folha contínuo, termos e
+   * encerramento. Do cache (impressão das peças) ou montado agora pela fila;
+   * servido por stream. Só o órgão dono (outro órgão 404).
+   */
   @Get(':id/processo-pdf')
   @SomenteOrgao()
   async processoPdf(@Param('id') id: string, @AtorAtual() ator: Ator, @Res() res: Response): Promise<void> {
     await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
-    const pdf = await this.processoPdfService.gerarProcessoCompleto(id);
+    const { caminho, meta, nome } = await this.processoPdfService.obterArquivo(id);
+    const tamanho = fs.statSync(caminho).size;
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="processo-${id}.pdf"`,
-      'Content-Length': String(pdf.length),
+      'Content-Disposition': `attachment; filename="${nome}"`,
+      'Content-Length': String(tamanho),
+      'X-Autos-Folhas': String(meta.folhas),
+      'X-Autos-Impressao': meta.hash.slice(0, 32),
+      'Cache-Control': 'private, no-store',
     });
-    res.send(pdf);
+    fs.createReadStream(caminho).pipe(res);
+  }
+
+  /** Situação dos autos: PRONTO (cache vale para as peças atuais), GERANDO, DESATUALIZADO ou NAO_GERADO. */
+  @Get(':id/processo-pdf/situacao')
+  @SomenteOrgao()
+  async situacaoProcessoPdf(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
+    return this.processoPdfService.situacao(id);
+  }
+
+  /** "Gerar autos (PDF)": monta em segundo plano (fila única) e avisa quem pediu quando ficar pronto. */
+  @Post(':id/processo-pdf/gerar')
+  @SomenteOrgao()
+  async gerarProcessoPdf(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'escrita');
+    return this.processoPdfService.solicitar(id, { usuario_id: ator.usuarioId ?? null, orgao_id: ator.orgaoId ?? null });
   }
 
   /** Dispensa: ATA DA SESSÃO em PDF (gerada dos registros; disponível após o julgamento) */
