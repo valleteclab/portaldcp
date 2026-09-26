@@ -150,7 +150,8 @@ export class PecasFaseInternaService implements OnModuleInit {
     return null;
   }
 
-  private async validarPdf(arquivo: ArquivoRecebido | null | undefined): Promise<{ buffer: Buffer; paginas: number; hash: string }> {
+  /** Confere o PDF (mimetype, extensão, assinatura %PDF-, páginas, limite) — também a juntada em lote, antes de gravar. */
+  async validarPdf(arquivo: ArquivoRecebido | null | undefined): Promise<{ buffer: Buffer; paginas: number; hash: string }> {
     if (!arquivo?.buffer?.length) throw new BadRequestException('Envie o arquivo PDF da peça (campo "arquivo").');
     const nome = String(arquivo.originalname || '').toLowerCase();
     if ((arquivo.mimetype && arquivo.mimetype !== 'application/pdf') || (nome && !nome.endsWith('.pdf')) || !pareceSerPdf(arquivo.buffer)) {

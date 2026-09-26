@@ -39,6 +39,7 @@ import {
   Responsavel,
   chaveDoPasso,
   destinoDaTarefa,
+  passosCumpridosSemTarefa,
   planejarSincronizacao,
   prazoDaTarefa,
   quemCumpriu,
@@ -95,6 +96,29 @@ export class TarefasService {
     this.antesDeSincronizar.push(fn);
   }
 
+  /**
+   * Processos com a agenda SUSPENSA (juntada em lote da fase interna feita
+   * fora): os pedidos de sincronização ficam guardados e rodam UMA vez em
+   * `retomar` — assim as tarefas das peças juntadas nascem concluídas, sem
+   * notificar ninguém de tarefa aberta que se concluiria no segundo seguinte.
+   */
+  private readonly suspensos = new Map<string, number>();
+
+  suspender(licitacaoId: string): void {
+    this.suspensos.set(licitacaoId, (this.suspensos.get(licitacaoId) ?? 0) + 1);
+  }
+
+  /** Libera a agenda suspensa (sempre num `finally`) e sincroniza uma vez. */
+  async retomar(licitacaoId: string): Promise<void> {
+    const n = (this.suspensos.get(licitacaoId) ?? 1) - 1;
+    if (n > 0) {
+      this.suspensos.set(licitacaoId, n);
+      return;
+    }
+    this.suspensos.delete(licitacaoId);
+    await this.agendar(licitacaoId);
+  }
+
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
     @InjectRepository(Tarefa) private readonly tarefaRepo: Repository<Tarefa>,
@@ -123,6 +147,8 @@ export class TarefasService {
    */
   agendar(licitacaoId: string, atrasoMs = 0): Promise<void> {
     if (!this.ativo()) return Promise.resolve();
+    // Juntada em lote em curso: roda uma vez no `retomar`
+    if (this.suspensos.has(licitacaoId)) return Promise.resolve();
     const atual = this.filas.get(licitacaoId);
     if (atual) {
       atual.repetir = true;
@@ -338,30 +364,7 @@ export class TarefasService {
     let criadas = 0;
 
     for (const { passo, responsavel } of plano.criar) {
-      const dias = config.prazos[passo.passo] ?? null;
-      const tipoPeca = passo.peca_pendente ?? passo.pecas[0]?.tipo ?? null;
-      const valores: Partial<Tarefa> = {
-        orgao_id: lic.orgao_id,
-        licitacao_id: licitacaoId,
-        documento_id: passo.pecas.find((p) => p.tipo === tipoPeca)?.documento_id ?? null,
-        tipo_peca: tipoPeca,
-        etapa: passo.etapa,
-        passo: passo.passo,
-        chave: chaveDoPasso(passo.passo),
-        tipo: passo.passo === PassoFaseInterna.PUBLICACAO ? 'PUBLICACAO' : 'PECA',
-        origem: 'ETAPA',
-        titulo: passo.titulo,
-        descricao: this.descricaoDaTarefa(lic, passo),
-        responsavel_usuario_id: responsavel.usuario_id,
-        responsavel_papel: responsavel.papel,
-        responsavel_setor_id: responsavel.setor_id,
-        atribuicao_manual: false,
-        prazo_dias_uteis: dias,
-        prazo: prazoDaTarefa(agora, dias, cal),
-        status: 'ABERTA',
-        criada_por_id: 'sistema',
-        criada_por_nome: 'Sistema',
-      };
+      const valores = this.valoresDaTarefaDoPasso(lic, passo, responsavel, config, agora, cal);
       const r = await this.tarefaRepo.createQueryBuilder().insert().into(Tarefa).values(valores).orIgnore().returning(['id']).execute();
       const id = r.raw?.[0]?.id;
       if (!id) continue; // já existia uma aberta (outra instância) — idempotente
@@ -536,6 +539,98 @@ export class TarefasService {
       });
     }
     return linhas.length > 0;
+  }
+
+  /** Tarefa ABERTA de etapa para o passo (sincronização; a juntada em lote a grava já concluída). */
+  private valoresDaTarefaDoPasso(
+    lic: { id: string; orgao_id: string; numero_processo: string; objeto: string | null },
+    passo: PassoCalculado,
+    responsavel: Responsavel,
+    config: ConfigFaseInternaEfetiva,
+    agora: Date,
+    cal: ReturnType<typeof calendarioDoOrgao>,
+  ): Partial<Tarefa> {
+    const dias = config.prazos[passo.passo] ?? null;
+    const tipoPeca = passo.peca_pendente ?? passo.pecas[0]?.tipo ?? null;
+    return {
+      orgao_id: lic.orgao_id,
+      licitacao_id: lic.id,
+      documento_id: passo.pecas.find((p) => p.tipo === tipoPeca)?.documento_id ?? null,
+      tipo_peca: tipoPeca,
+      etapa: passo.etapa,
+      passo: passo.passo,
+      chave: chaveDoPasso(passo.passo),
+      tipo: passo.passo === PassoFaseInterna.PUBLICACAO ? 'PUBLICACAO' : 'PECA',
+      origem: 'ETAPA',
+      titulo: passo.titulo,
+      descricao: this.descricaoDaTarefa(lic, passo),
+      responsavel_usuario_id: responsavel.usuario_id,
+      responsavel_papel: responsavel.papel,
+      responsavel_setor_id: responsavel.setor_id,
+      atribuicao_manual: false,
+      prazo_dias_uteis: dias,
+      prazo: prazoDaTarefa(agora, dias, cal),
+      status: 'ABERTA',
+      criada_por_id: 'sistema',
+      criada_por_nome: 'Sistema',
+    };
+  }
+
+  /**
+   * FASE INTERNA FEITA FORA (juntada em lote): as tarefas dos passos que as
+   * peças juntadas cumpriram NASCEM CONCLUÍDAS (quem cumpriu = quem juntou ou
+   * marcou "não se aplica"), com o registro no histórico — sem notificação.
+   * Chamado depois de `retomar` (a sincronização já concluiu as abertas e
+   * criou as dos passos que continuam disponíveis). Idempotente: passo que já
+   * teve tarefa (de qualquer situação) não ganha outra. Devolve quantas nasceram.
+   */
+  async registrarPassosCumpridosFora(licitacaoId: string): Promise<number> {
+    if (!this.ativo()) return 0;
+    const [lic] = await this.ds.query(
+      `SELECT id::text AS id, orgao_id::text AS orgao_id, numero_processo, objeto, fase::text AS fase,
+              situacao::text AS situacao, pregoeiro_id::text AS pregoeiro_id
+         FROM licitacoes WHERE id::text = $1`,
+      [licitacaoId],
+    );
+    if (!lic?.orgao_id) return 0;
+    const config = await this.configuracao(lic.orgao_id);
+    const passos = passosDasEtapas(await this.etapasCalculadas(licitacaoId, lic, config));
+    const chaves: Array<{ chave: string }> = await this.ds.query(
+      `SELECT DISTINCT chave FROM tarefas WHERE licitacao_id::text = $1 AND chave IS NOT NULL`,
+      [licitacaoId],
+    );
+    const nascer = passosCumpridosSemTarefa(passos, chaves.map((c) => c.chave));
+    if (!nascer.length) return 0;
+    const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
+    const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
+    const agora = new Date();
+    const cal = calendarioDoOrgao(lic.orgao_id);
+    let n = 0;
+    for (const passo of nascer) {
+      const autor = await this.quemCumpriuPasso(licitacaoId, passo);
+      const responsavel = responsavelDoPasso(passo.passo, config, { agente_id: agente, criador_usuario_id: criador });
+      const valores: Partial<Tarefa> = {
+        ...this.valoresDaTarefaDoPasso(lic, passo, responsavel, config, agora, cal),
+        prazo: null,
+        status: 'CONCLUIDA',
+        concluida_em: agora,
+        concluida_por_id: autor.id,
+        concluida_por_nome: autor.nome,
+      };
+      const [existe] = await this.ds.query(`SELECT 1 FROM tarefas WHERE licitacao_id::text = $1 AND chave = $2 LIMIT 1`, [licitacaoId, valores.chave]);
+      if (existe) continue;
+      const r = await this.tarefaRepo.createQueryBuilder().insert().into(Tarefa).values(valores).returning(['id']).execute();
+      const id = r.raw?.[0]?.id;
+      if (!id) continue;
+      n++;
+      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CONCLUIDA, `Tarefa concluída (peça feita fora do sistema, juntada ao processo): ${passo.titulo}`, null, {
+        tarefa_id: id,
+        passo: passo.passo,
+        concluida_por: autor,
+        juntada_externa: true,
+      }, { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined });
+    }
+    return n;
   }
 
   private descricaoDaTarefa(lic: { numero_processo: string; objeto: string | null }, passo: PassoCalculado): string {

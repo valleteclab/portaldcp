@@ -7,6 +7,7 @@ import { PreparacaoAutomaticaService } from './preparacao-automatica.service';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { DocumentoOrgao } from './entities/documento-orgao.entity';
 import { PecasFaseInternaService } from './pecas-fase-interna.service';
+import { JuntadaPecasService } from './juntada-pecas.service';
 import { MigracaoEspelhoDocumentosBootService } from './migracao-espelho-documentos-boot.service';
 import { Tarefa } from './tarefas/tarefa.entity';
 import { ConfiguracaoFaseInterna } from './tarefas/configuracao-fase-interna.entity';
@@ -125,6 +126,7 @@ import {
   providers: [
     FaseInternaService,
     PecasFaseInternaService,
+    JuntadaPecasService,
     MigracaoEspelhoDocumentosBootService,
     TarefasService,
     TarefasSubscriber,
@@ -163,6 +165,10 @@ import {
   exports: [
     FaseInternaService,
     PecasFaseInternaService,
+    // Entrada "fase interna feita fora" (LicitacoesModule — cria o processo)
+    JuntadaPecasService,
+    PublicacaoTelaService,
+    MinutasTelaService,
     PreparacaoAutomaticaService,
     DerivacaoService,
     AuditLogService,

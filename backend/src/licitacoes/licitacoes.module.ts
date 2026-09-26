@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Licitacao } from './entities/licitacao.entity';
 import { LicitacoesService } from './licitacoes.service';
 import { LicitacoesController } from './licitacoes.controller';
+import { FaseInternaExternaController } from '../fase-interna/externa/fase-interna-externa.controller';
+import { FaseInternaExternaService } from '../fase-interna/externa/fase-interna-externa.service';
 import { LicitacoesSchedulerService } from './licitacoes-scheduler.service';
 import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
@@ -41,8 +43,9 @@ import { MigracaoFundamentoLegalBootService } from './migracao-fundamento-legal-
     // Resultado único (E6): julgamento da dispensa e resultado externo gravam por ele
     ResultadoModule,
   ],
-  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService],
+  // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
+  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController],
+  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}
