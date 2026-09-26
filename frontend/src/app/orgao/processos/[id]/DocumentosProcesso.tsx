@@ -55,12 +55,45 @@ const ROTULO_TIPO: Record<string, string> = {
   CONTRATO: "Contrato",
 }
 
+/** Peça da fase interna (processo-completo.documentos — documentos_fase_interna). */
+export interface DocumentoFaseInterna {
+  id: string
+  tipo: string
+  titulo?: string
+  status?: string
+  created_at?: string
+}
+
+const ROTULO_TIPO_FASE_INTERNA: Record<string, string> = {
+  DFD: "Formalização da demanda (DFD)",
+  ETP: "Estudo Técnico Preliminar",
+  TR: "Termo de Referência",
+  PP: "Pesquisa de preços",
+  AA: "Autorização da autoridade",
+  PJ: "Parecer jurídico",
+  ME: "Minuta do edital",
+  MR: "Matriz de riscos",
+}
+
+const normalizar = (t?: string) => String(t || "").trim().toLowerCase().replace(/\s+/g, " ")
+
 /**
- * DOCUMENTOS DO PROCESSO (peças publicadas/anexadas da licitação — módulo
- * `documentos`). As peças elaboradas na fase interna (DFD, ETP, TR, pareceres)
- * ficam no dossiê da fase interna.
+ * DOCUMENTOS DO PROCESSO — lista ÚNICA: as peças anexadas/publicadas da
+ * licitação (módulo `documentos`) e as peças elaboradas na fase interna
+ * (DFD, ETP, TR, pesquisa de preços, autorização, pareceres), vindas de fontes
+ * diferentes no backend e juntadas aqui, sem repetir (mesmo id ou mesmo
+ * título), com a ORIGEM indicada.
  */
-export function DocumentosProcesso({ licitacaoId }: { licitacaoId: string }) {
+export function DocumentosProcesso({
+  licitacaoId,
+  faseInterna = [],
+  onTotal,
+}: {
+  licitacaoId: string
+  faseInterna?: DocumentoFaseInterna[]
+  /** Informa o total da lista unificada (badge da aba). */
+  onTotal?: (n: number) => void
+}) {
   const { confirmar, dialogo } = useDialogoConfirmacao()
   const [docs, setDocs] = useState<Documento[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -86,6 +119,12 @@ export function DocumentosProcesso({ licitacaoId }: { licitacaoId: string }) {
   }, [licitacaoId])
 
   useEffect(() => { carregar() }, [carregar])
+
+  const titulosProcesso = new Set(docs.map((d) => normalizar(d.titulo || d.nome_original)))
+  const idsProcesso = new Set(docs.map((d) => d.id))
+  const internas = faseInterna.filter((d) => !idsProcesso.has(d.id) && !titulosProcesso.has(normalizar(d.titulo)))
+  const total = docs.length + internas.length
+  useEffect(() => { onTotal?.(total) }, [total, onTotal])
 
   const abrir = () => {
     setTipo("ANEXO"); setTitulo(""); setDescricao(""); setPublico(true); setArquivo(null); setErro(null)
@@ -149,7 +188,7 @@ export function DocumentosProcesso({ licitacaoId }: { licitacaoId: string }) {
         <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-base flex items-center gap-2">
             <FileText className="w-4 h-4" /> Documentos do processo
-            {docs.length > 0 && <Badge variant="secondary">{docs.length}</Badge>}
+            {total > 0 && <Badge variant="secondary">{total}</Badge>}
           </CardTitle>
           <Button size="sm" variant="outline" onClick={abrir}>
             <Upload className="w-4 h-4 mr-1" /> Anexar documento
@@ -158,8 +197,8 @@ export function DocumentosProcesso({ licitacaoId }: { licitacaoId: string }) {
         <CardContent className="space-y-2">
           {carregando ? (
             <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-          ) : docs.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum documento anexado ao processo.</p>
+          ) : total === 0 ? (
+            <p className="text-sm text-gray-700">Nenhum documento no processo ainda.</p>
           ) : (
             <div className="divide-y border rounded-md">
               {docs.map((d) => (
@@ -167,35 +206,54 @@ export function DocumentosProcesso({ licitacaoId }: { licitacaoId: string }) {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium truncate">{d.titulo || d.nome_original}</span>
+                      <Badge variant="outline" className="text-[10px]">processo</Badge>
                       {d.publico && <Badge variant="outline" className="text-[10px]">público</Badge>}
                       {d.status && d.status !== "PUBLICADO" && (
                         <Badge variant="outline" className="text-[10px]">{d.status.toLowerCase()}</Badge>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-700">
                       {ROTULO_TIPO[d.tipo] || d.tipo}
                       {d.versao ? ` · v${d.versao}` : ""}
                       {d.tamanho ? ` · ${(d.tamanho / 1024).toFixed(0)} KB` : ""}
-                      {d.created_at ? ` · ${new Date(d.created_at).toLocaleDateString("pt-BR")}` : ""}
+                      {d.created_at ? ` · ${new Date(d.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Bahia" })}` : ""}
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <Button size="icon" variant="ghost" title="Baixar"
+                    <Button size="icon" variant="ghost" aria-label={`Baixar ${d.titulo || d.nome_original}`}
                       onClick={() => abrirArquivoAutenticado(`${API_URL}/api/documentos/${d.id}/download`)}>
                       <Download className="w-4 h-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" title="Excluir" className="text-red-600" onClick={() => excluir(d)}>
+                    <Button size="icon" variant="ghost" aria-label={`Excluir ${d.titulo || d.nome_original}`} className="text-red-700" onClick={() => excluir(d)}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
               ))}
+              {internas.map((d) => (
+                <div key={`fi-${d.id}`} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium truncate">{d.titulo || ROTULO_TIPO_FASE_INTERNA[d.tipo] || d.tipo}</span>
+                      <Badge variant="outline" className="text-[10px] border-slate-400">fase interna</Badge>
+                      {d.status && <Badge variant="outline" className="text-[10px]">{d.status.toLowerCase().replace(/_/g, " ")}</Badge>}
+                    </div>
+                    <p className="text-xs text-gray-700">
+                      {ROTULO_TIPO_FASE_INTERNA[d.tipo] || d.tipo}
+                      {d.created_at ? ` · ${new Date(d.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Bahia" })}` : ""}
+                    </p>
+                  </div>
+                  <Link href={`/orgao/fase-interna/processos/${licitacaoId}`} className="text-xs text-blue-800 hover:underline shrink-0">
+                    abrir na fase interna
+                  </Link>
+                </div>
+              ))}
             </div>
           )}
-          <p className="text-[11px] text-gray-400">
-            O PDF do edital é anexado em &quot;Publicação do edital&quot; (e depois só por retificação). As peças elaboradas na fase
-            interna (DFD, ETP, TR, pareceres) ficam no{" "}
-            <Link href={`/orgao/fase-interna/processos/${licitacaoId}`} className="text-blue-600 hover:underline">dossiê da fase interna</Link>.
+          <p className="text-[11px] text-gray-600">
+            O PDF do edital é anexado em &quot;Publicação do edital&quot; (e depois só por retificação). As peças da fase interna são
+            editadas e aprovadas no{" "}
+            <Link href={`/orgao/fase-interna/processos/${licitacaoId}`} className="text-blue-800 hover:underline">processo eletrônico da fase interna</Link>.
           </p>
         </CardContent>
       </Card>

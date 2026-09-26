@@ -47,8 +47,7 @@ Cada envio vira uma linha de uma **fila**. Um robô processa a fila a cada minut
 
 ### Onde acompanhar
 
-- **Pregão, concorrência e demais**: no cockpit, cartão **PNCP**.
-- **Dispensa**: na linha do tempo, abaixo do painel da seleção.
+- **Todas as modalidades**: na tela do processo, aba **PNCP** (tabela **Envios ao PNCP**: registro, situação, retorno da API, tentativas e **Reenviar agora**) e o cartão de resumo **PNCP**; enquanto a compra aguarda o PNCP, a mesma tabela aparece no checklist da etapa atual. As falhas também entram na aba **Histórico**.
 - **Credenciamento**: no painel do credenciamento.
 - Visão geral do órgão: menu **Integração PNCP** (abas PCA, Compras, Enviadas, Resultados, Atas, Contratos, Erros, Config).
 

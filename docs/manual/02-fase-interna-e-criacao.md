@@ -39,7 +39,7 @@ Se a demanda já tiver processo, o botão vira **Ver processo &lt;número&gt;**.
    - **Dispensa e inexigibilidade (art. 72):** obrigatórios só Dados básicos, Itens, DFD, Pesquisa de Preços (estimativa de despesa) e Autorização. ETP, Análise de Riscos, TR, Dotação, Aviso e Parecer aparecem como **facultativa**: preencha se o caso exigir, clique **Pular etapa**, ou **Não se aplica — justificar** (a justificativa fica nos autos; **Desfazer** reverte).
 4. No fim, clique em **Concluir fase interna** (ou vá ao cockpit para concluir mais tarde).
 
-> **Atenção — itens.** Sem pelo menos um item com quantidade e valor unitário estimado o processo **não conclui a fase interna nem publica** (todas as modalidades), e a compra não vai ao PNCP. No cockpit, o cartão **Itens da contratação** mostra os itens e, na fase interna, **Editar itens** (aba Itens da edição) e **Pesquisa de preços**.
+> **Atenção — itens.** Sem pelo menos um item com quantidade e valor unitário estimado o processo **não conclui a fase interna nem publica** (todas as modalidades), e a compra não vai ao PNCP. Na tela do processo, a aba **Itens** (contador em vermelho quando não há item) mostra os itens e, na fase interna, **Editar itens** (aba Itens da edição) e **Pesquisa de preços**; o checklist da etapa atual também aponta a pendência com **Cadastrar itens**.
 
 Para leilão, concurso e diálogo competitivo, o assistente mostra também os campos próprios da modalidade (veja as partes [07](07-leilao.md), [08](08-concurso.md) e [09](09-dialogo-competitivo.md)). O credenciamento tem cadastro próprio no menu **Credenciamentos** (parte [06](06-credenciamento.md)).
 
@@ -69,11 +69,11 @@ O processo percorre as etapas internas, cada uma com seus documentos obrigatóri
 | Análise Jurídica | Parecer jurídico | Art. 53 |
 | Aprovação Interna | Autorização de abertura, designação do agente/pregoeiro e dotação orçamentária | Art. 18 |
 
-Os atos aparecem no cartão **Atos do processo** do cockpit: **Concluir planejamento (ETP)**, **Aprovar termo de referência**, **Concluir pesquisa de preços**, **Registrar parecer jurídico**, **Concluir fase interna (autorização)**. Se precisar voltar, use **Devolver à etapa interna anterior**.
+Os atos aparecem no menu **Mais ações** da tela do processo: **Concluir planejamento (ETP)**, **Aprovar termo de referência**, **Concluir pesquisa de preços**, **Registrar parecer jurídico**, **Concluir fase interna (autorização)**. Se precisar voltar, use **Devolver à etapa interna anterior**.
 
 ### Dispensa, inexigibilidade e credenciamento (contratação direta — art. 72)
 
-A fase interna é uma **etapa única** chamada **instrução do processo**. No cockpit, na **Linha do tempo da contratação**, o bloco **Instrução do processo — contratação direta (Art. 72)** lista:
+A fase interna é uma **etapa única** chamada **instrução do processo**. Na tela do processo, a **Etapa atual** mostra o checklist antes de publicar e o quadro **Peças da instrução (art. 72)**, que lista:
 
 | Documento | Obrigatório? | Base |
 |---|---|---|
@@ -87,7 +87,7 @@ A fase interna é uma **etapa única** chamada **instrução do processo**. No c
 
 - O que não for obrigatório e não se aplicar pode ser marcado como **não se aplica**, com justificativa (fica nos autos). Para voltar atrás, **desfazer**.
 - O link **abrir** leva ao documento no dossiê.
-- O botão **Preparar automaticamente** chama o copiloto (pesquisa de preços em fontes reais e rascunhos dos documentos).
+- O botão **Preparar automaticamente (copiloto)** chama o copiloto (pesquisa de preços em fontes reais e rascunhos dos documentos).
 - Os sinais ao lado de cada item mostram: concluído, **não se aplica**, **em aprovação** (com a etapa e o responsável) ou **aguarda envio p/ aprovação**.
 
 > **Atenção.** "Mínimo para divulgar: DFD, estimativa de despesa e autorização." Sem eles, o botão de divulgação fica desabilitado e, ao passar o mouse, mostra as pendências.
@@ -136,7 +136,7 @@ Se nada for configurado, o processo recebe o modelo padrão automaticamente — 
 
 ### ME/EPP: cotas e justificativa
 
-Quando há pendência de ME/EPP, o cockpit mostra, na **Linha do tempo da contratação**, um quadro de cotas e justificativa (o quadro some quando não há pendência):
+Quando há pendência de ME/EPP, a etapa atual da tela do processo (fase interna) mostra a linha **Tratamento ME/EPP** no checklist e um quadro de cotas e justificativa (o quadro some quando não há pendência):
 
 - **Gerar cotas reservadas**: separa a cota (até 25%) de cada item/lote marcado como cota reservada. Só é possível antes de haver propostas.
 - Itens de até R$ 80.000 **sem** exclusividade exigem a justificativa do art. 49 (mínimo 20 caracteres).

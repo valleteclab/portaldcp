@@ -1,193 +1,65 @@
 "use client"
 
 /**
- * COCKPIT DO PROCESSO (Degrau 1) — o fio condutor da contratação.
- * Linha do tempo única: Planejamento (PCA/Demanda) → Fase interna (documentos)
- * → Seleção (interna ou EXTERNA) → Contratos → Execução.
- * Fonte: GET /api/licitacoes/:id/processo-completo
+ * TELA DO PROCESSO (órgão) — /orgao/processos/[id]. Layout único para todas
+ * as modalidades (Etapa B do redesenho — docs/tela dispensa/):
+ *  1. banner de falha/aguardo do PNCP;  2. cabeçalho + menu "Mais ações";
+ *  3. cinco cartões de resumo;  4. barra de etapas (por modalidade);
+ *  5. área da etapa atual + próxima etapa;  6. coluna lateral;  7. abas.
+ * Regras e disponibilidade de atos vêm do backend (processo-completo,
+ * conferencia-publicacao, divulgacao) — a tela só mostra.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import Link from "next/link"
 import { toast } from "sonner"
 import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog"
-import {
-  ArrowLeft, ClipboardList, FileText, Gavel, FileSignature, Activity,
-  CheckCircle2, Circle, ExternalLink, Loader2, AlertTriangle, Pencil, Trash2,
-} from "lucide-react"
-import { BllIntegracao } from "./BllIntegracao"
-import { AtosProcesso, type AtoDisponivel } from "./AtosProcesso"
-import { ResultadoPanel } from "@/components/resultado/ResultadoPanel"
-import { SituacaoBadge } from "@/components/licitacao/SituacaoBadge"
-import { FASES_INTERNAS, rotuloFase, rotuloModalidade } from "@/lib/licitacao-rotulos"
-import { CotasMeEppCard } from '@/components/licitacao/CotasMeEppCard'
-import { PublicacaoEdital, PainelPrazos, MODALIDADES_COMPETITIVAS } from "./PublicacaoEdital"
-import { RetificarEdital, FASES_RETIFICACAO } from "./RetificarEdital"
-import { ExtincaoLicitacao } from "./ExtincaoLicitacao"
-import { FilaPncp } from "./FilaPncp"
-import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
-import { LeilaoPainel } from "@/components/modalidades/LeilaoPainel"
-import { ConcursoPainel } from "@/components/modalidades/ConcursoPainel"
-import { DialogoPainel } from "@/components/modalidades/DialogoPainel"
+import { AlertTriangle, Loader2 } from "lucide-react"
+import { FASES_INTERNAS } from "@/lib/licitacao-rotulos"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
-import { DocumentosProcesso } from "./DocumentosProcesso"
-import { ImpugnacoesEsclarecimentos } from "./ImpugnacoesEsclarecimentos"
-import { SessaoPublicaCard, FASES_SALA } from "./SessaoPublicaCard"
-import { HistoricoProcesso } from "./HistoricoProcesso"
-import { DivulgacaoBanner } from "./DivulgacaoBanner"
-import { ItensProcesso } from "./ItensProcesso"
-import { CancelarPublicacao, FASES_CANCELAR_PUBLICACAO } from "./CancelarPublicacao"
-import {
-  consultarPrazos, inputLocalParaISO, lerErro, erroDeExcecao, sugestaoAPartirDoMinimo,
-  type ErroBackend, type PrazosPublicacao,
-} from "@/lib/publicacao"
+import { AbasProcesso, type AbaProcesso } from "./AbasProcesso"
+import { AreaEtapaAtual } from "./AreaEtapaAtual"
+import { BarraEtapas } from "./BarraEtapas"
+import { CabecalhoProcesso } from "./CabecalhoProcesso"
+import { useCancelarPublicacao } from "./CancelarPublicacao"
+import { CartoesResumo } from "./CartoesResumo"
+import { ColunaLateral } from "./ColunaLateral"
+import { DialogoAto } from "./DialogoAto"
+import { DivulgacaoBanner, useDivulgacao } from "./DivulgacaoBanner"
+import { DivulgarAvisoDialog } from "./DivulgarAvisoDialog"
+import { etapaAtualESeguinte, etapasDoProcesso } from "./etapas"
+import { ExtincaoLicitacao, type TipoExtincao } from "./ExtincaoLicitacao"
+import { useMensagensDispensa } from "./MensagensDispensa"
+import { entradasDoMenu } from "./MenuAcoes"
+import { ProximaEtapaCard } from "./ProximaEtapaCard"
+import { ResultadoExternoDialog } from "./ResultadoExternoDialog"
+import type { ConferenciaPrePublicacao, ProcessoCompleto } from "./tipos"
 
-interface ProcessoCompleto {
-  licitacao: {
-    id: string
-    numero_processo: string
-    numero_edital?: string
-    objeto: string
-    modalidade: string
-    fase: string
-    /** Situação (E1): ATIVA, SUSPENSA, REVOGADA, ANULADA, DESERTA, FRACASSADA, CONCLUIDA */
-    situacao?: string
-    fase_anterior?: string | null
-    srp: boolean
-    valor_total_estimado?: number
-    valor_homologado?: number
-    data_homologacao?: string
-    selecao_externa: boolean
-    plataforma_externa?: string | null
-    numero_processo_externo?: string | null
-    url_externa?: string | null
-    tipo_contratacao?: string
-    criterio_julgamento?: string
-    data_fim_acolhimento?: string | null
-    data_abertura_sessao?: string | null
-    data_limite_impugnacao?: string | null
-    data_inicio_acolhimento?: string | null
-    natureza_objeto?: string | null
-    dispensa_lances_inicio?: string | null
-    dispensa_lances_fim?: string | null
-    link_pncp?: string | null
-    preparacao_automatica?: {
-      status: 'EXECUTANDO' | 'CONCLUIDA' | 'ERRO'
-      etapa?: string
-      log?: string[]
-      erro?: string
-      concluida_em?: string
-    } | null
-  }
-  item_pca?: { id: string; numero_item: number; descricao_objeto: string; valor_estimado: number } | null
-  demanda?: { id: string; titulo?: string; status: string } | null
-  itens: Array<{
-    id: string
-    numero_item: number
-    descricao: string
-    quantidade: number
-    unidade_medida?: string
-    valor_unitario_estimado?: number
-    valor_unitario_homologado?: number
-    valor_total_homologado?: number
-    fornecedor_vencedor_id?: string
-    fornecedor_vencedor_nome?: string
-    status: string
-  }>
-  documentos: Array<{ id: string; tipo: string; titulo?: string; status?: string }>
-  contratos: Array<{
-    id: string; numero_contrato: string; fornecedor_razao_social?: string
-    valor_global?: number; status?: string
-    data_assinatura?: string | null
-    arquivo_contrato?: string | null
-    documento_assinatura_id?: string | null
-    assinatura_status?: string | null
-    arquivo_assinado_url?: string | null
-    assinados?: number | string | null
-    total_signatarios?: number | string | null
-    signatarios_resumo?: string | null
-  }>
-  atas: Array<{ id: string; numero_ata: string; fornecedor_razao_social?: string; valor_total?: number; status?: string }>
-  propostas: Array<{ id: string; status: string; valor_total_proposta?: number | null; data_envio?: string; razao_social: string; sigilo?: boolean }>
-  propostas_em_sigilo?: boolean
-  pncp?: Array<{ tipo: string; status: string; numero_controle_pncp?: string | null; erro_mensagem?: string | null; tentativas?: number; updated_at?: string }>
-  checklist: {
-    vinculado_pca: boolean
-    possui_itens: boolean
-    possui_documentos: boolean
-    fase_interna_concluida: boolean
-    resultado_registrado: boolean
-    homologado: boolean
-    contrato_gerado: boolean
-  }
-  /** Atos que cabem agora, com as pendências de cada um (E1) */
-  atos_disponiveis?: AtoDisponivel[]
-}
-
-interface FornecedorOpt { id: string; razao_social: string; cpf_cnpj?: string; cnpj?: string }
-
-/** Fases da fase interna (antes da divulgação do edital/aviso). */
-
-const fmtMoeda = (v?: number | string | null) =>
-  Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
-
-export default function CockpitProcessoPage() {
+export default function ProcessoPage() {
   const params = useParams()
   const router = useRouter()
   const id = params?.id as string
-  const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao()
+  const { confirmar, dialogo } = useDialogoConfirmacao()
 
   const [dados, setDados] = useState<ProcessoCompleto | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
-
-  // Modal de resultado externo
-  const [modalResultado, setModalResultado] = useState(false)
-  const [fornecedores, setFornecedores] = useState<FornecedorOpt[]>([])
-  const [plataforma, setPlataforma] = useState("")
-  const [numeroExterno, setNumeroExterno] = useState("")
-  const [urlExterna, setUrlExterna] = useState("")
-  const [linhas, setLinhas] = useState<Record<string, { fornecedor_id: string; valor_unitario: string }>>({})
-  const [salvando, setSalvando] = useState(false)
-  const [julgando, setJulgando] = useState(false)
   const [limiteDispensa, setLimiteDispensa] = useState<{ chave: string; valor: number } | null>(null)
 
-  const carregar = useCallback(async () => {
-    setLoading(true)
+  const carregar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true)
     setErro(null)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/processo-completo`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const j = (await res.json()) as ProcessoCompleto
       setDados(j)
-      // Pré-carrega o form do resultado com o que já está registrado
-      const iniciais: Record<string, { fornecedor_id: string; valor_unitario: string }> = {}
-      for (const it of j.itens) {
-        iniciais[it.id] = {
-          fornecedor_id: it.fornecedor_vencedor_id || "",
-          valor_unitario: it.valor_unitario_homologado != null ? String(it.valor_unitario_homologado) : "",
-        }
-      }
-      setLinhas(iniciais)
-      setPlataforma(j.licitacao.plataforma_externa || "")
-      setNumeroExterno(j.licitacao.numero_processo_externo || "")
-      setUrlExterna(j.licitacao.url_externa || "")
-
       // Limite legal do art. 75 (aviso de conformidade da dispensa)
       if (j.licitacao.modalidade === "DISPENSA_ELETRONICA") {
         try {
           const tc = (j.licitacao.tipo_contratacao || "").toUpperCase()
-          const chave = tc.includes("OBRA") || tc.includes("ENGENHARIA")
-            ? "DISPENSA_OBRAS_ENGENHARIA"
-            : "DISPENSA_COMPRAS_SERVICOS"
+          const chave = tc.includes("OBRA") || tc.includes("ENGENHARIA") ? "DISPENSA_OBRAS_ENGENHARIA" : "DISPENSA_COMPRAS_SERVICOS"
           const orgao = JSON.parse(localStorage.getItem("orgao") || "{}")
           const rl = await authFetch(`${API_URL}/api/parametros-licitacao/limites/vigente?chave=${chave}${orgao?.id ? `&orgaoId=${orgao.id}` : ""}`)
           if (rl.ok) {
@@ -199,551 +71,62 @@ export default function CockpitProcessoPage() {
     } catch (e: any) {
       setErro(e.message || "Erro ao carregar o processo")
     } finally {
-      setLoading(false)
+      if (!silencioso) setLoading(false)
     }
   }, [id])
 
   useEffect(() => { if (id) carregar() }, [id, carregar])
 
-  // === Autos do processo: download do PDF compilado (autenticado) ===
-  const [baixandoProcesso, setBaixandoProcesso] = useState(false)
-  const baixarProcessoPdf = async () => {
-    setBaixandoProcesso(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/processo-pdf`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `processo-${dados?.licitacao.numero_processo?.replace(/\W+/g, "-") || id}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (e: any) {
-      toast.error(`Não foi possível gerar os autos agora: ${e.message}`)
-    } finally {
-      setBaixandoProcesso(false)
-    }
-  }
+  const fase = dados?.licitacao.fase
+  const { divulgacao, recarregarDivulgacao } = useDivulgacao(id, fase)
+  const atualizar = useCallback(() => {
+    carregar(true)
+    recarregarDivulgacao()
+  }, [carregar, recarregarDivulgacao])
 
-  // === Copiloto (preparação automática): poll silencioso enquanto executa ===
-  const [disparandoCopiloto, setDisparandoCopiloto] = useState(false)
-
+  // Copiloto (preparação automática): atualiza sozinho enquanto executa
   useEffect(() => {
     if (dados?.licitacao.preparacao_automatica?.status !== "EXECUTANDO") return
-    const t = setInterval(async () => {
-      try {
-        const res = await authFetch(`${API_URL}/api/licitacoes/${id}/processo-completo`)
-        if (res.ok) setDados((await res.json()) as ProcessoCompleto)
-      } catch { /* mantém o estado atual */ }
-    }, 5000)
+    const t = setInterval(() => carregar(true), 5000)
     return () => clearInterval(t)
-  }, [dados?.licitacao.preparacao_automatica?.status, id])
+  }, [dados?.licitacao.preparacao_automatica?.status, carregar])
 
-  const dispararCopiloto = async () => {
-    if (!(await confirmar({
-      titulo: "Preparar o processo automaticamente?",
-      mensagem:
-        "O copiloto pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do ETP, TR e autorização. " +
-        "Tudo fica marcado como SUGERIDO para você revisar — nada é publicado sem a sua validação.",
-      confirmarRotulo: "Preparar",
-    }))) return
-    setDisparandoCopiloto(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/preparar-automatico`, { method: "POST" })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      await carregar()
-    } catch (e: any) {
-      toast.error(`Erro ao iniciar o copiloto: ${e.message}`)
-    } finally {
-      setDisparandoCopiloto(false)
-    }
-  }
-
-  const abrirModalResultado = async () => {
-    setModalResultado(true)
-    if (fornecedores.length === 0) {
-      try {
-        const res = await authFetch(`${API_URL}/api/fornecedores?status=APROVADO`)
-        if (res.ok) {
-          const lista = await res.json()
-          setFornecedores(Array.isArray(lista) ? lista : lista?.data || [])
-        }
-      } catch { /* dropdown fica vazio; usuário ainda pode cadastrar fornecedor */ }
-    }
-  }
-
-  const salvarResultado = async () => {
-    if (!dados) return
-    const itensPreenchidos = dados.itens
-      .map((it) => ({ item_id: it.id, ...linhas[it.id] }))
-      .filter((l) => l.fornecedor_id && Number(String(l.valor_unitario).replace(",", ".")) > 0)
-      .map((l) => ({
-        item_id: l.item_id,
-        fornecedor_id: l.fornecedor_id,
-        valor_unitario: Number(String(l.valor_unitario).replace(",", ".")),
-      }))
-    if (itensPreenchidos.length === 0) {
-      toast.error("Preencha vencedor e valor de pelo menos um item.")
+  // Checklist de pré-publicação (backend) — na fase interna e enquanto aguarda o PNCP
+  const [conferencia, setConferencia] = useState<ConferenciaPrePublicacao | null>(null)
+  const precisaConferencia = !!fase && (FASES_INTERNAS.includes(fase) || fase === "AGUARDANDO_DIVULGACAO")
+  useEffect(() => {
+    if (!precisaConferencia) {
+      setConferencia(null)
       return
     }
-    setSalvando(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/resultado-externo`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plataforma_externa: plataforma || undefined,
-          numero_processo_externo: numeroExterno || undefined,
-          url_externa: urlExterna || undefined,
-          itens: itensPreenchidos,
-        }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        throw new Error(err?.message || `HTTP ${res.status}`)
-      }
-      setModalResultado(false)
-      await carregar()
-    } catch (e: any) {
-      toast.error(`Erro ao registrar resultado: ${e.message}`)
-    } finally {
-      setSalvando(false)
-    }
-  }
+    authFetch(`${API_URL}/api/licitacoes/${id}/conferencia-publicacao`)
+      .then(async (r) => (r.ok ? setConferencia(await r.json()) : null))
+      .catch(() => null)
+  }, [id, precisaConferencia, dados])
 
-  const julgarDispensa = async () => {
-    if (!dados) return
-    if (!(await confirmar({
-      titulo: "Julgar as propostas",
-      mensagem: "Julgar por MENOR PREÇO unitário por item? O vencedor de cada item será adjudicado automaticamente. Você poderá revisar antes de homologar.",
-      confirmarRotulo: "Julgar",
-    }))) return
-    setJulgando(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/julgar-dispensa`, { method: "POST" })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      const semProposta = j?.itens_sem_proposta?.length
-        ? `\n\nItens SEM proposta (ficaram de fora): ${j.itens_sem_proposta.join(", ")}`
-        : ""
-      toast.success(`Julgamento concluído: ${j?.adjudicados?.length || 0} item(ns) adjudicado(s).${semProposta}`)
-      await carregar()
-    } catch (e: any) {
-      toast.error(`Erro no julgamento: ${e.message}`)
-    } finally {
-      setJulgando(false)
-    }
-  }
+  // Mensagens da dispensa (regras por fase — IN 67); atualização automática durante os lances
+  const dispensa = dados?.licitacao.modalidade === "DISPENSA_ELETRONICA"
+  const lancesFim = dados?.licitacao.dispensa_lances_fim ? new Date(dados.licitacao.dispensa_lances_fim) : null
+  const lancesAberta = !!lancesFim && new Date() < lancesFim
+  const { mensagens, regras, recarregar: recarregarMensagens } = useMensagensDispensa(id, !!dispensa, lancesAberta ? 5000 : undefined, fase)
 
-  // === Instrução do processo (Art. 72 — contratação direta) ===
-  const [instrucao, setInstrucao] = useState<{
-    contratacao_direta: boolean
-    itens: Array<{
-      tipo: string; titulo: string; obrigatorio: boolean; fundamento: string; status: string; justificativa?: string
-      exige_aprovacao?: boolean
-      aprovacao?: { etapa: number; total: number; etapa_nome: string; responsavel: string | null }
-    }>
-    pode_divulgar: boolean
-    pendentes: string[]
-  } | null>(null)
-  const [naoSeAplicaLoading, setNaoSeAplicaLoading] = useState<string | null>(null)
+  // Diálogos e sinais do menu "Mais ações"
+  const [aba, setAba] = useState<AbaProcesso>("historico")
+  const [retificarSinal, setRetificarSinal] = useState(0)
+  const [pedidoExtincao, setPedidoExtincao] = useState<{ tipo: TipoExtincao; nonce: number } | null>(null)
+  const [atoDialogo, setAtoDialogo] = useState<{ ato: string; rotulo: string; requer_motivo: boolean } | null>(null)
   const [modalDivulgar, setModalDivulgar] = useState(false)
-  const [fimPropostas, setFimPropostas] = useState("")
-  const [divulgando, setDivulgando] = useState(false)
+  const [modalResultado, setModalResultado] = useState(false)
+  const cancelamento = useCancelarPublicacao(id, atualizar)
 
-  useEffect(() => {
-    if (!dados) return
-    const m = dados.licitacao.modalidade
-    // Credenciamento (E7b): instrução do art. 72 + edital de chamamento
-    if (m !== "DISPENSA_ELETRONICA" && m !== "INEXIGIBILIDADE" && m !== "CREDENCIAMENTO") return
-    authFetch(`${API_URL}/api/fase-interna/${id}/instrucao`)
-      .then(async (r) => { if (r.ok) setInstrucao(await r.json()) })
-      .catch(() => { /* card da instrução fica oculto */ })
-  }, [dados, id])
-
-  const marcarNaoSeAplica = async (tipo: string, titulo: string) => {
-    const j = await pedirTexto({
-      titulo: `"${titulo}" não se aplica`,
-      mensagem: "Marcar esta peça como NÃO SE APLICA a esta contratação? A justificativa fica registrada nos autos (art. 72).",
-      rotulo: "Justificativa",
-      obrigatorio: true,
-      confirmarRotulo: "Marcar não se aplica",
-    })
-    if (!j) return
-    setNaoSeAplicaLoading(tipo)
-    try {
-      let usuario: any = {}
-      try { usuario = JSON.parse(localStorage.getItem("usuario") || "{}") } catch { /* segue sem autor */ }
-      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/instrucao/${tipo}/nao-se-aplica`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ justificativa: j.trim(), usuarioId: usuario?.id, usuarioNome: usuario?.nome }),
-      })
-      const jj = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(jj?.message || `HTTP ${res.status}`)
-      setInstrucao(jj)
-    } catch (e: any) {
-      toast.error(`Erro: ${e.message}`)
-    } finally {
-      setNaoSeAplicaLoading(null)
-    }
-  }
-
-  const desfazerNaoSeAplica = async (tipo: string) => {
-    setNaoSeAplicaLoading(tipo)
-    try {
-      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/instrucao/${tipo}/nao-se-aplica`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ desfazer: true }),
-      })
-      const jj = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(jj?.message || `HTTP ${res.status}`)
-      setInstrucao(jj)
-    } catch (e: any) {
-      toast.error(`Erro: ${e.message}`)
-    } finally {
-      setNaoSeAplicaLoading(null)
-    }
-  }
-
-  // Prazo mínimo da dispensa (art. 75 §3º) contado pelo backend com o
-  // calendário de feriados do órgão (E7) — antes era calculado aqui sem feriados
-  const [prazosDivulgar, setPrazosDivulgar] = useState<PrazosPublicacao | null>(null)
-  const [calculandoDivulgar, setCalculandoDivulgar] = useState(false)
-  const [erroDivulgar, setErroDivulgar] = useState<ErroBackend | null>(null)
-
-  const abrirModalDivulgar = async () => {
-    setErroDivulgar(null)
-    setPrazosDivulgar(null)
-    setFimPropostas("")
-    setModalDivulgar(true)
-    try {
-      const p = await consultarPrazos(id, { data_publicacao_edital: new Date().toISOString() })
-      // Sugere o dia mínimo legal (feriados do órgão já descontados) no horário de agora + 1 h
-      setFimPropostas(sugestaoAPartirDoMinimo(p.data_minima_abertura))
-    } catch (e) {
-      setErroDivulgar(erroDeExcecao(e))
-    }
-  }
-
-  // Confere a data escolhida (pendências do backend se for cedo demais)
-  useEffect(() => {
-    if (!modalDivulgar || !fimPropostas) return
-    let cancelado = false
-    setCalculandoDivulgar(true)
-    const t = setTimeout(async () => {
-      try {
-        const fim = inputLocalParaISO(fimPropostas)
-        const p = await consultarPrazos(id, {
-          data_publicacao_edital: new Date().toISOString(),
-          data_fim_acolhimento: fim,
-          data_abertura_sessao: fim,
-          data_limite_impugnacao: fim,
-        })
-        if (!cancelado) setPrazosDivulgar(p)
-      } catch { if (!cancelado) setPrazosDivulgar(null) }
-      finally { if (!cancelado) setCalculandoDivulgar(false) }
-    }, 400)
-    return () => { cancelado = true; clearTimeout(t) }
-  }, [modalDivulgar, fimPropostas, id])
-
-  // Aviso de contratação direta (IN SEGES 67/2021): PDF gerado pelo sistema e
-  // guardado no processo ANTES de divulgar — é o arquivo que vai ao PNCP.
-  const [avisoGerado, setAvisoGerado] = useState<{ documento_id: string; versao: number } | null>(null)
-  const [gerandoAviso, setGerandoAviso] = useState(false)
-  const cronogramaDoAviso = () => {
-    const agora = new Date().toISOString()
-    const fim = new Date(fimPropostas).toISOString()
-    return { data_publicacao_edital: agora, data_limite_impugnacao: fim, data_inicio_acolhimento: agora, data_fim_acolhimento: fim, data_abertura_sessao: fim }
-  }
-  const gerarAviso = async () => {
-    if (!fimPropostas) return
-    setGerandoAviso(true)
-    setErroDivulgar(null)
-    try {
-      const res = await authFetch(`${API_URL}/api/publicacao/licitacao/${id}/aviso`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cronogramaDoAviso()),
-      })
-      if (!res.ok) {
-        setErroDivulgar(await lerErro(res, "Erro ao gerar o aviso"))
-        return
-      }
-      const a = await res.json()
-      setAvisoGerado({ documento_id: a.documento_id, versao: a.versao })
-    } catch (e) {
-      setErroDivulgar(erroDeExcecao(e))
-    } finally {
-      setGerandoAviso(false)
-    }
-  }
-  const abrirAviso = async () => {
-    if (!avisoGerado) return
-    const res = await authFetch(`${API_URL}/api/publicacao/licitacao/${id}/aviso/${avisoGerado.documento_id}/arquivo`)
-    if (!res.ok) return toast.error("Não foi possível abrir o aviso")
-    window.open(URL.createObjectURL(await res.blob()), "_blank")
-  }
-
-  const divulgarAviso = async () => {
-    if (!dados || !fimPropostas) return
-    setDivulgando(true)
-    setErroDivulgar(null)
-    try {
-      // Etapa única da contratação direta: conclui a instrução se ainda não concluída
-      if (dados.licitacao.fase !== "APROVACAO_INTERNA") {
-        const ra = await authFetch(`${API_URL}/api/fase-interna/${id}/avancar`, { method: "PUT" })
-        if (!ra.ok) {
-          setErroDivulgar(await lerErro(ra, "Erro ao concluir a instrução"))
-          return
-        }
-      }
-      const agora = new Date().toISOString()
-      const fim = new Date(fimPropostas).toISOString()
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/publicar-edital`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          data_publicacao_edital: agora,
-          data_limite_impugnacao: fim,
-          data_inicio_acolhimento: agora,
-          data_fim_acolhimento: fim,
-          data_abertura_sessao: fim,
-        }),
-      })
-      if (!res.ok) {
-        setErroDivulgar(await lerErro(res, "Erro ao divulgar"))
-        return
-      }
-      setModalDivulgar(false)
-      setAvisoGerado(null)
-      toast.success("Aviso enviado ao PNCP. O prazo de propostas só começa quando o PNCP confirmar a publicação (arts. 54 e 55) — acompanhe no alerta do processo.")
-      await carregar()
-    } catch (e) {
-      setErroDivulgar(erroDeExcecao(e))
-    } finally {
-      setDivulgando(false)
-    }
-  }
-
-  // === Assinatura eletrônica do termo de contrato ===
-  const [assinandoContrato, setAssinandoContrato] = useState<string | null>(null)
-
-  const solicitarAssinaturasContrato = async (ct: { id: string; numero_contrato: string; fornecedor_razao_social?: string }) => {
-    let usuario: any = {}
-    try { usuario = JSON.parse(localStorage.getItem("usuario") || "{}") } catch { /* segue */ }
-    const nome = usuario?.nome || await pedirTexto({
-      titulo: "Responsável pela assinatura",
-      rotulo: "Nome do responsável do órgão que assinará o contrato",
-      obrigatorio: true,
-      linhaUnica: true,
-    })
-    if (!nome) return
-    if (!(await confirmar({
-      titulo: `Termo de contrato ${ct.numero_contrato}`,
-      mensagem:
-        `Gerar o termo em PDF e solicitar as assinaturas eletrônicas?\n\n` +
-        `Signatários:\n• ${nome} (órgão — assina pelo Portal de Assinaturas)\n• ${ct.fornecedor_razao_social || "Fornecedor"} (recebe o link por e-mail)\n\n` +
-        `Quando todos assinarem, a data de assinatura é registrada e o contrato é publicado automaticamente no PNCP (art. 94 — condição de eficácia).`,
-      confirmarRotulo: "Gerar e solicitar",
-    }))) return
-    setAssinandoContrato(ct.id)
-    try {
-      const res = await authFetch(`${API_URL}/api/contratos/${ct.id}/solicitar-assinaturas`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ usuario: { nome, cpf: usuario?.cpf, email: usuario?.email, telefone: usuario?.telefone } }),
-      })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      if (j?.ja_existente) {
-        toast.info("Já existe uma solicitação de assinatura ativa para este contrato — acompanhe o progresso aqui no processo.")
-      } else {
-        toast.success(`Termo gerado e assinaturas solicitadas (${(j?.signatarios || []).map((s: any) => s.nome).join(", ")}). O fornecedor recebe o link por e-mail; você assina pelo Portal de Assinaturas.`)
-      }
-      await carregar()
-    } catch (e: any) {
-      toast.error(`Erro ao solicitar assinaturas: ${e.message}`)
-    } finally {
-      setAssinandoContrato(null)
-    }
-  }
-
-  const reenviarNotificacoesAssinatura = async (documentoId: string) => {
-    try {
-      const res = await authFetch(`${API_URL}/api/portal-assinaturas/${documentoId}/reenviar`, { method: "POST" })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      toast.success(`Notificações reenviadas (${j?.enviados ?? "ok"}).`)
-    } catch (e: any) {
-      toast.error(`Erro ao reenviar: ${e.message}`)
-    }
-  }
-
-  const [painelLances, setPainelLances] = useState<any>(null)
-  const [mensagensDispensa, setMensagensDispensa] = useState<any[]>([])
-  const [novaMensagemOrgao, setNovaMensagemOrgao] = useState("")
-  // Regras do chat na fase atual (IN SEGES 67/2021) — decididas no backend
-  const [regrasChat, setRegrasChat] = useState<any>(null)
-  const [assuntoAviso, setAssuntoAviso] = useState("")
-  const [destinoNegociacao, setDestinoNegociacao] = useState("")
-
-  const carregarMensagensDispensa = useCallback(async () => {
-    try {
-      const [res, rr] = await Promise.all([
-        authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`),
-        authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens/regras`),
-      ])
-      if (res.ok) setMensagensDispensa(await res.json())
-      if (rr.ok) setRegrasChat(await rr.json())
-    } catch { /* mantém */ }
-  }, [id])
-
-  // Durante a fase de lances: painel e chat se atualizam sozinhos (sem clique)
-  useEffect(() => {
-    if (!dados || dados.licitacao.modalidade !== "DISPENSA_ELETRONICA") return
-    carregarMensagensDispensa()
-    const fim = dados.licitacao.dispensa_lances_fim ? new Date(dados.licitacao.dispensa_lances_fim) : null
-    const lancesAberta = fim ? new Date() < fim : false
-    if (!lancesAberta) return
-    atualizarPainelLances()
-    const p1 = setInterval(atualizarPainelLances, 3000)
-    const p2 = setInterval(carregarMensagensDispensa, 5000)
-    return () => { clearInterval(p1); clearInterval(p2) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dados, carregarMensagensDispensa])
-
-  const enviarMensagemOrgao = async () => {
-    const texto = novaMensagemOrgao.trim()
-    if (!texto) return
-    try {
-      let autor = "Órgão"
-      try {
-        const u = JSON.parse(localStorage.getItem("usuario") || "{}")
-        const o = JSON.parse(localStorage.getItem("orgao") || "{}")
-        autor = u?.nome || o?.nome || "Órgão"
-      } catch { /* usa default */ }
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/mensagens`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // Autoria (órgão) vem do token; autor_nome é só o rótulo exibido
-        body: JSON.stringify({
-          autor_nome: autor,
-          mensagem: texto,
-          ...(regrasChat?.exige_assunto ? { assunto: assuntoAviso } : {}),
-          ...(regrasChat?.modo === "NEGOCIACAO" && destinoNegociacao ? { fornecedor_destino_id: destinoNegociacao } : {}),
-        }),
-      })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      setNovaMensagemOrgao("")
-      setAssuntoAviso("")
-      await carregarMensagensDispensa()
-    } catch (e: any) {
-      toast.error(`Mensagem não enviada: ${e.message}`)
-    }
-  }
-
-  // Fase de lances da dispensa (opcional — IN SEGES 67/2021): duração e prorrogação
-  const [modalLances, setModalLances] = useState(false)
-  const [duracaoLances, setDuracaoLances] = useState("360")
-  const [prorrogacaoLances, setProrrogacaoLances] = useState("2")
-  const [abrindoLances, setAbrindoLances] = useState(false)
-
-  const abrirLances = async () => {
-    setAbrindoLances(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/abrir-lances`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duracao_minutos: Number(duracaoLances) || 360, prorrogacao_minutos: Number(prorrogacaoLances) || 0 }),
-      })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      setModalLances(false)
-      toast.success(`Fase de lances aberta até ${new Date(j.dispensa_lances_fim).toLocaleString("pt-BR")}.${j.prorrogacao_minutos ? ` Prorrogação automática de ${j.prorrogacao_minutos} min (regra registrada no chat da sessão).` : " Sem prorrogação automática."}`)
-      await carregar()
-    } catch (e: any) {
-      toast.error(`Erro ao abrir lances: ${e.message}`)
-    } finally {
-      setAbrindoLances(false)
-    }
-  }
-
-  const atualizarPainelLances = async () => {
-    try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/${id}/dispensa/lances/painel`)
-      if (res.ok) setPainelLances(await res.json())
-    } catch { /* mantém painel anterior */ }
-  }
-
-  const [enviandoPncp, setEnviandoPncp] = useState<string | null>(null)
-
-  const enviarPncp = async (acao: "aviso" | "resultado" | "contratos") => {
-    const rota = acao === "aviso" ? "completo" : acao === "resultado" ? "resultados-homologacao" : "contratos"
-    setEnviandoPncp(acao)
-    try {
-      const res = await authFetch(`${API_URL}/api/pncp/compras/${id}/${rota}`, { method: "POST" })
-      const j = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
-      toast.success(acao === "aviso"
-        ? `Aviso enviado ao PNCP${j?.numeroControlePNCP ? ` — nº de controle ${j.numeroControlePNCP}` : ""}.`
-        : acao === "resultado"
-          ? `Resultado: ${j?.enviados}/${j?.total} item(ns) enviados ao PNCP.`
-          : `Contratos: ${j?.enviados}/${j?.total} publicado(s) no PNCP (art. 94 — condição de eficácia).`)
-      await carregar()
-    } catch (e: any) {
-      toast.error(`PNCP: ${e.message}. Verifique as credenciais em Configurações → PNCP e tente novamente.`)
-    } finally {
-      setEnviandoPncp(null)
-    }
-  }
-
-  const desclassificarProposta = async (propostaId: string, fornecedor: string) => {
-    const motivo = await pedirTexto({
-      titulo: "Desclassificar proposta",
-      mensagem: `Desclassificar a proposta de ${fornecedor}? O motivo fica registrado no processo.`,
-      rotulo: "Motivo",
-      obrigatorio: true,
-      confirmarRotulo: "Desclassificar",
-      destrutivo: true,
-    })
-    if (!motivo) return
-    try {
-      const fd = new FormData()
-      fd.append("motivo", motivo.trim())
-      const res = await authFetch(`${API_URL}/api/propostas/${propostaId}/desclassificar`, {
-        method: "PUT",
-        body: fd,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => null)
-        throw new Error(err?.message || `HTTP ${res.status}`)
-      }
-      toast.success("Proposta desclassificada. Se já houve julgamento, use 'Rejulgar' para recalcular os vencedores.")
-      await carregar()
-    } catch (e: any) {
-      toast.error(`Erro ao desclassificar: ${e.message}`)
-    }
-  }
-
-  const [excluindo, setExcluindo] = useState(false)
   const excluirProcesso = async () => {
     const ok = await confirmar({
       titulo: "Excluir processo",
-      mensagem:
-        "O processo e os documentos da fase interna serão excluídos definitivamente. " +
-        "Só é possível antes da publicação — depois, use Revogar ou Anular.",
+      mensagem: "O processo e os documentos da fase interna serão excluídos definitivamente. Só é possível antes da publicação — depois, use Revogar ou Anular.",
       confirmarRotulo: "Excluir definitivamente",
       destrutivo: true,
     })
     if (!ok) return
-    setExcluindo(true)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}`, { method: "DELETE" })
       const j = await res.json().catch(() => null)
@@ -752,960 +135,177 @@ export default function CockpitProcessoPage() {
       router.push("/orgao/licitacoes")
     } catch (e: any) {
       toast.error(`Não foi possível excluir: ${e.message}`)
-    } finally {
-      setExcluindo(false)
+    }
+  }
+
+  const irPara = (ancora: string) => document.getElementById(ancora)?.scrollIntoView({ behavior: "smooth", block: "start" })
+
+  const entradas = useMemo(() => {
+    if (!dados) return []
+    const e = entradasDoMenu(dados.acoes_menu, {
+      resultadoRegistrado: dados.checklist.resultado_registrado,
+      atosDisponiveis: dados.atos_disponiveis,
+    })
+    // Excluir: só na fase interna (o backend recusa depois da publicação)
+    if (FASES_INTERNAS.includes(dados.licitacao.fase)) e.push({ chave: "EXCLUIR", rotulo: "Excluir processo…", disponivel: true, destrutiva: true })
+    return e
+  }, [dados])
+
+  const aoEscolherAcao = (chave: string) => {
+    const acao =
+      dados?.acoes_menu?.find((a) => a.ato === chave) ??
+      dados?.atos_disponiveis?.find((a) => a.ato === chave)
+    switch (chave) {
+      case "REVOGAR":
+      case "ANULAR":
+        setPedidoExtincao({ tipo: chave, nonce: Date.now() })
+        break
+      case "RETIFICAR_EDITAL":
+        setAba("documentos")
+        setRetificarSinal((n) => n + 1)
+        break
+      case "CANCELAR_PUBLICACAO":
+        cancelamento.cancelar()
+        break
+      case "REGISTRAR_RESULTADO_EXTERNO":
+        setModalResultado(true)
+        break
+      case "EXCLUIR":
+        excluirProcesso()
+        break
+      default:
+        if (acao) setAtoDialogo(acao)
     }
   }
 
   const etapas = useMemo(() => {
     if (!dados) return []
-    const c = dados.checklist
-    return [
-      {
-        icone: ClipboardList,
-        titulo: "Planejamento",
-        feito: c.vinculado_pca && c.possui_itens,
-        resumo: dados.item_pca
-          ? `Item ${dados.item_pca.numero_item} do PCA — ${dados.item_pca.descricao_objeto}`
-          : "Sem vínculo com o PCA (verifique a justificativa do Art. 12 §1º)",
-        extra: `${dados.itens.length} item(ns) na contratação`,
-        link: { href: "/orgao/pca", texto: "Abrir PCA" },
-      },
-      {
-        icone: FileText,
-        titulo: "Fase interna (documentos)",
-        feito: c.possui_documentos && c.fase_interna_concluida,
-        resumo: dados.documentos.length > 0
-          ? `${dados.documentos.length} documento(s) no processo eletrônico`
-          : "Nenhum documento anexado ainda (DFD, ETP, TR, pareceres…)",
-        extra: c.fase_interna_concluida ? "Fase interna concluída" : `Fase atual: ${rotuloFase(dados.licitacao.fase)}`,
-        link: { href: `/orgao/fase-interna/processos/${id}`, texto: "Abrir processo eletrônico" },
-      },
-      {
-        icone: Gavel,
-        titulo: dados.licitacao.selecao_externa
-          ? "Seleção (externa)"
-          : dados.licitacao.modalidade === "DISPENSA_ELETRONICA"
-            ? "Seleção (dispensa eletrônica)"
-            : "Seleção do fornecedor",
-        feito: c.resultado_registrado,
-        resumo: dados.licitacao.selecao_externa
-          ? `Disputa realizada em ${dados.licitacao.plataforma_externa || "plataforma externa"}${dados.licitacao.numero_processo_externo ? ` — nº ${dados.licitacao.numero_processo_externo}` : ""}`
-          : dados.licitacao.modalidade === "DISPENSA_ELETRONICA"
-            ? `Art. 75 §3º — cotação eletrônica pelo portal do fornecedor${(dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao) ? ` · propostas até ${new Date((dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao)!).toLocaleString("pt-BR")}` : ""}`
-            : `${rotuloModalidade(dados.licitacao.modalidade)} conduzida no sistema — fase ${rotuloFase(dados.licitacao.fase)}`,
-        extra: c.resultado_registrado
-          ? `${dados.itens.filter(i => i.fornecedor_vencedor_id).length} item(ns) com vencedor definido`
-          : "Resultado ainda não registrado",
-        link: dados.licitacao.selecao_externa
-          ? (dados.licitacao.url_externa ? { href: dados.licitacao.url_externa, texto: "Ver na plataforma", externo: true } : undefined)
-          : ["MELHOR_TECNICA", "TECNICA_E_PRECO"].includes(dados.licitacao.criterio_julgamento ?? "")
-            // Critério técnico (Lei 14.133 arts. 35–37): quesitos, banca e notas antes da etapa de preços
-            ? { href: `/orgao/processos/${id}/julgamento-tecnico`, texto: "Julgamento técnico" }
-            : MODALIDADES_COMPETITIVAS.includes(dados.licitacao.modalidade) && FASES_SALA.includes(dados.licitacao.fase)
-              ? { href: `/orgao/processos/${id}/sessao`, texto: "Abrir sala da sessão" }
-              : undefined,
-      },
-      {
-        icone: FileSignature,
-        titulo: "Homologação e contratos",
-        feito: c.homologado && c.contrato_gerado,
-        resumo: c.homologado
-          ? `Homologado em ${dados.licitacao.data_homologacao ? new Date(dados.licitacao.data_homologacao).toLocaleDateString("pt-BR") : "—"} — ${fmtMoeda(dados.licitacao.valor_homologado)}`
-          : "Aguardando homologação da autoridade competente",
-        extra: dados.contratos.length > 0
-          ? `${dados.contratos.length} contrato(s) gerado(s)`
-          : "Contrato é gerado automaticamente na homologação",
-      },
-      {
-        icone: Activity,
-        titulo: "Execução",
-        feito: dados.contratos.length > 0,
-        resumo: dados.contratos.length > 0
-          ? "Acompanhe requisições, ordens e medições em cada contrato"
-          : "Disponível após a geração do contrato",
-      },
-    ]
-  }, [dados, id])
+    const l = dados.licitacao
+    return etapasDoProcesso({
+      modalidade: l.modalidade,
+      fase: l.fase,
+      situacao: l.situacao,
+      selecao_externa: l.selecao_externa,
+      vinculado_pca: dados.checklist.vinculado_pca,
+      documentos_fase_interna: dados.documentos.length,
+      propostas: dados.propostas.filter((p) => !["RASCUNHO", "CANCELADA"].includes(p.status)).length,
+      resultado_registrado: dados.checklist.resultado_registrado,
+      homologado: dados.checklist.homologado,
+      contratos: dados.contratos.length + dados.atas.length,
+      dispensa_lances_fim: l.dispensa_lances_fim,
+      divulgacao_com_erro: divulgacao?.banner?.tipo === "ERRO",
+    })
+  }, [dados, divulgacao])
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+        <Loader2 className="w-8 h-8 animate-spin text-gray-500" aria-label="Carregando o processo" />
       </div>
     )
   }
   if (erro || !dados) {
     return (
       <div className="max-w-3xl mx-auto p-8 text-center">
-        <AlertTriangle className="w-10 h-10 mx-auto text-amber-500 mb-3" />
-        <p className="text-gray-600">{erro || "Processo não encontrado"}</p>
+        <AlertTriangle className="w-10 h-10 mx-auto text-amber-600 mb-3" aria-hidden="true" />
+        <p className="text-gray-800">{erro || "Processo não encontrado"}</p>
         <Button variant="outline" className="mt-4" onClick={() => router.back()}>Voltar</Button>
       </div>
     )
   }
 
-  const { licitacao, checklist } = dados
-  // Suspensa/encerrada (E1): nenhum ato de resultado até retomar
-  const ativa = !licitacao.situacao || licitacao.situacao === "ATIVA"
-  const podeRegistrarResultado = ativa && !checklist.homologado
-  // Resultado único (E6): adjudicação/homologação no ResultadoPanel (valor calculado, autoridade do login)
-  const mostrarResultado =
-    checklist.resultado_registrado ||
-    ["HABILITACAO", "RECURSO", "ADJUDICACAO", "HOMOLOGACAO"].includes(licitacao.fase) ||
-    // Leilão e concurso (E7c): o resultado é declarado no JULGAMENTO (sem habilitação)
-    (["LEILAO", "CONCURSO"].includes(licitacao.modalidade) && licitacao.fase === "JULGAMENTO")
-
-  const emFaseInterna = FASES_INTERNAS.includes(licitacao.fase)
+  const l = dados.licitacao
+  // Na fase interna a área já mostra o checklist de publicação: a "próxima" é a etapa depois dela
+  const { seguinte: s1 } = etapaAtualESeguinte(etapas)
+  const seguinte = s1?.chave === "publicacao" ? etapas[etapas.indexOf(s1) + 1] ?? null : s1
+  const pendenciasChecklist = (conferencia?.itens || []).filter((i) => i.bloqueia && i.estado === "PENDENTE")
+  const acaoResultado = dados.acoes_menu?.find((a) => a.ato === "REGISTRAR_RESULTADO_EXTERNO")
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 space-y-5">
       {dialogo}
-      {/* Cabeçalho */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-start gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold">Processo {licitacao.numero_processo}</h1>
-              <Badge variant="outline">{rotuloModalidade(licitacao.modalidade)}</Badge>
-              {licitacao.srp && <Badge variant="outline">SRP</Badge>}
-              {licitacao.selecao_externa && (
-                <Badge className="bg-indigo-100 text-indigo-800 hover:bg-indigo-100">Seleção externa</Badge>
-              )}
-              <Badge className={checklist.homologado ? "bg-green-100 text-green-800 hover:bg-green-100" : "bg-blue-100 text-blue-800 hover:bg-blue-100"}>
-                {rotuloFase(licitacao.fase)}
-              </Badge>
-              <SituacaoBadge licitacao={licitacao} />
-            </div>
-            <p className="text-gray-500 mt-1 max-w-3xl">{licitacao.objeto}</p>
-          </div>
+      {cancelamento.dialogo}
+
+      {/* 1. Divulgação oficial (PNCP — arts. 54 e 174): aviso não publicado = prazo não iniciado */}
+      {l.fase === "AGUARDANDO_DIVULGACAO" && (
+        <DivulgacaoBanner
+          licitacaoId={id}
+          situacao={divulgacao}
+          pendenciasChecklist={pendenciasChecklist}
+          onVerDetalhes={() => {
+            setAba("pncp")
+            irPara("abas-processo")
+          }}
+          onCorrigir={() => irPara("area-etapa-atual")}
+          onAtualizado={atualizar}
+        />
+      )}
+
+      {/* 2. Cabeçalho + "Mais ações" */}
+      <CabecalhoProcesso licitacao={l} entradasMenu={entradas} onAcao={aoEscolherAcao} />
+
+      {/* 3. Resumo */}
+      <CartoesResumo dados={dados} divulgacao={divulgacao} />
+
+      {/* 4. Etapas (por modalidade) */}
+      <BarraEtapas etapas={etapas} />
+
+      {/* 5 e 6. Etapa atual + coluna lateral (empilha no celular) */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div id="area-etapa-atual" className="space-y-5 min-w-0 scroll-mt-4">
+          {l.preparacao_automatica && <CopilotoStatus p={l.preparacao_automatica} />}
+          <ExtincaoLicitacao licitacaoId={id} acoes={dados.acoes_menu} pedido={pedidoExtincao} onAtualizado={atualizar} />
+          <AreaEtapaAtual
+            dados={dados}
+            conferencia={conferencia}
+            divulgacao={divulgacao}
+            mensagens={mensagens}
+            regras={regras}
+            limiteDispensa={limiteDispensa}
+            onMensagem={recarregarMensagens}
+            onDivulgarAviso={() => setModalDivulgar(true)}
+            onCancelarPublicacao={cancelamento.cancelar}
+            onRegistrarResultadoExterno={acaoResultado?.disponivel ? () => setModalResultado(true) : null}
+            onAtualizado={atualizar}
+          />
+          <ProximaEtapaCard etapa={seguinte} dispensa={l.modalidade === "DISPENSA_ELETRONICA"} />
         </div>
-        <div className="flex gap-2 flex-wrap justify-end">
-          {emFaseInterna && (
-            <Link href={`/orgao/fase-interna/processos/${id}`}>
-              <Button variant="outline" title="Documentos da fase interna (DFD, ETP, TR, pesquisa de preços, pareceres) e aprovações">
-                <ClipboardList className="w-4 h-4 mr-2" /> Fase interna
-              </Button>
-            </Link>
-          )}
-          <Link href={`/orgao/processos/${id}/editar`}>
-            <Button variant="outline" title={emFaseInterna ? "Dados, itens, cronograma, habilitação e configurações" : "Depois da publicação só dados internos — regras do edital pela retificação"}>
-              <Pencil className="w-4 h-4 mr-2" /> Editar dados
-            </Button>
-          </Link>
-          {emFaseInterna && (
-            <Button variant="outline" className="text-red-700 border-red-300" onClick={excluirProcesso} disabled={excluindo}>
-              {excluindo ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
-              Excluir
-            </Button>
-          )}
-          <Button variant="outline" onClick={baixarProcessoPdf} disabled={baixandoProcesso}
-            title="Autos do processo em PDF único: capa, sumário e todas as peças (DFD, ETP, TR, pesquisa de preços, autorização, aviso, ata, contratos e publicações no PNCP)">
-            {baixandoProcesso ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
-            Baixar processo (PDF)
-          </Button>
-          {licitacao.modalidade === "DISPENSA_ELETRONICA" && checklist.resultado_registrado && (
-            <a href={`${API_URL}/api/licitacoes/${id}/dispensa/ata`} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" title="Ata da sessão gerada automaticamente dos registros (propostas, lances, chat e resultado)">
-                <FileText className="w-4 h-4 mr-2" />
-                Ata da sessão (PDF)
-              </Button>
-            </a>
-          )}
-          {podeRegistrarResultado && (
-            <Button variant="outline" onClick={abrirModalResultado}>
-              <Gavel className="w-4 h-4 mr-2" />
-              {checklist.resultado_registrado ? "Editar resultado externo" : "Registrar resultado externo"}
-            </Button>
-          )}
-        </div>
+        <aside aria-label="Dados, prazos e comunicação">
+          <ColunaLateral dados={dados} mensagens={mensagens} regras={regras} />
+        </aside>
       </div>
 
-      {/* Divulgação oficial (PNCP — arts. 54 e 174): aviso ainda não publicado = prazo não iniciado */}
-      {licitacao.fase === "AGUARDANDO_DIVULGACAO" && (
-        <DivulgacaoBanner licitacaoId={id} fase={licitacao.fase} onAtualizado={carregar} />
+      {/* 7. Abas */}
+      <AbasProcesso dados={dados} aba={aba} onAba={setAba} retificarSinal={retificarSinal} onAtualizado={atualizar} />
+
+      <DialogoAto licitacaoId={id} ato={atoDialogo} modalidade={l.modalidade} onFechar={() => setAtoDialogo(null)} onAtualizado={atualizar} />
+      <DivulgarAvisoDialog licitacaoId={id} fase={l.fase} aberto={modalDivulgar} onFechar={() => setModalDivulgar(false)} onAtualizado={atualizar} />
+      <ResultadoExternoDialog licitacaoId={id} dados={dados} aberto={modalResultado} onFechar={() => setModalResultado(false)} onAtualizado={atualizar} />
+    </div>
+  )
+}
+
+function CopilotoStatus({ p }: { p: NonNullable<ProcessoCompleto["licitacao"]["preparacao_automatica"]> }) {
+  const cor =
+    p.status === "EXECUTANDO" ? "border-blue-200 bg-blue-50 text-blue-950" : p.status === "CONCLUIDA" ? "border-green-200 bg-green-50 text-green-950" : "border-red-200 bg-red-50 text-red-950"
+  return (
+    <div className={`rounded-md border p-3 text-sm ${cor}`} role="status">
+      {p.status === "EXECUTANDO" && (
+        <p className="flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> Copiloto preparando o processo… {p.etapa || ""}
+        </p>
       )}
-
-      {/* Credenciamento (E7b): inscrições, análise e contratações ficam no painel próprio */}
-      {licitacao.modalidade === "CREDENCIAMENTO" && (
-        <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm flex items-center justify-between gap-2 flex-wrap">
-          <span>
-            Credenciamento (Lei 14.133/2021, arts. 78, I, e 79): edital, inscrições, análise dos documentos, contratações pela regra do edital
-            e descredenciamento ficam no painel do credenciamento.
-          </span>
-          <Link href={`/orgao/credenciamentos/${id}`} className="text-blue-700 font-medium hover:underline">
-            Abrir painel do credenciamento →
-          </Link>
-        </div>
+      {p.status === "CONCLUIDA" && (
+        <>
+          <p className="font-medium">Processo preparado pelo copiloto — revise os itens sugeridos antes de aprovar.</p>
+          {(p.log || []).length > 0 && (
+            <ul className="mt-1 list-disc ml-5 text-xs">
+              {(p.log || []).map((x, i) => <li key={i}>{x}</li>)}
+            </ul>
+          )}
+        </>
       )}
-
-      {/* Leilão, concurso e diálogo competitivo (E7c): dados próprios de cada modalidade e as fases específicas */}
-      {licitacao.modalidade === "LEILAO" && <LeilaoPainel licitacaoId={id} onAtualizado={carregar} />}
-      {licitacao.modalidade === "CONCURSO" && <ConcursoPainel licitacaoId={id} onAtualizado={carregar} />}
-      {licitacao.modalidade === "DIALOGO_COMPETITIVO" && <DialogoPainel licitacaoId={id} onAtualizado={carregar} />}
-
-      {/* Atos nomeados do processo (suspender, retomar, revogar, deserta...) */}
-      <AtosProcesso licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} modalidade={licitacao.modalidade} />
-
-      {/* Itens da contratação — obrigatórios para concluir a fase interna, publicar e ir ao PNCP */}
-      {licitacao.modalidade !== "CREDENCIAMENTO" && (
-        <ItensProcesso
-          licitacaoId={id}
-          itens={dados.itens}
-          // Leilão: bens (e o item) no painel do leilão
-          emFaseInterna={emFaseInterna && licitacao.modalidade !== "LEILAO"}
-        />
-      )}
-
-      {/* Cancelar a publicação (antes de propostas) — volta à fase interna para correção */}
-      {FASES_CANCELAR_PUBLICACAO.includes(licitacao.fase) &&
-        (licitacao.situacao ?? "ATIVA") === "ATIVA" &&
-        !licitacao.selecao_externa &&
-        licitacao.modalidade !== "CREDENCIAMENTO" &&
-        !dados.propostas.some((p) => !["RASCUNHO", "DESCLASSIFICADA", "CANCELADA"].includes(p.status)) && (
-          <CancelarPublicacao
-            licitacaoId={id}
-            semItens={!dados.itens.some((i) => i.status !== "CANCELADO" && Number(i.quantidade) > 0 && Number(i.valor_unitario_estimado) > 0)}
-            onAtualizado={carregar}
-          />
-        )}
-
-      {/* Publicação do edital (art. 55) — modalidades competitivas ao fim da fase interna */}
-      {MODALIDADES_COMPETITIVAS.includes(licitacao.modalidade) && licitacao.fase === "APROVACAO_INTERNA" && ativa && (
-        <PublicacaoEdital licitacaoId={id} licitacao={licitacao} onAtualizado={carregar} />
-      )}
-
-      {/* Edital publicado: versões e retificações (art. 55 §1º) */}
-      {!FASES_INTERNAS.includes(licitacao.fase) && (
-        <RetificarEdital
-          licitacaoId={id}
-          podeRetificar={
-            FASES_RETIFICACAO.includes(licitacao.fase) &&
-            (!licitacao.situacao || licitacao.situacao === "ATIVA" || licitacao.situacao === "SUSPENSA")
-          }
-          datas={licitacao}
-          onAtualizado={carregar}
-        />
-      )}
-
-      {/* Sessão pública: propostas e a sala do agente/pregoeiro (/orgao/processos/[id]/sessao) */}
-      {MODALIDADES_COMPETITIVAS.includes(licitacao.modalidade) && !licitacao.selecao_externa && (
-        <SessaoPublicaCard
-          licitacaoId={id}
-          fase={licitacao.fase}
-          criterioJulgamento={licitacao.criterio_julgamento}
-          dataAbertura={licitacao.data_abertura_sessao}
-          propostas={dados.propostas}
-          propostasEmSigilo={dados.propostas_em_sigilo}
-        />
-      )}
-
-      {/* Impugnações e esclarecimentos (art. 164) — depois da divulgação */}
-      {!emFaseInterna && !licitacao.selecao_externa && <ImpugnacoesEsclarecimentos licitacaoId={id} dispensa={licitacao.modalidade === "DISPENSA_ELETRONICA"} />}
-
-      {/* Revogação / anulação em dois tempos (art. 71 §3º) */}
-      <ExtincaoLicitacao licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
-
-      {/* Fila do PNCP (demais modalidades; a dispensa mostra no painel da seleção) */}
-      {licitacao.modalidade !== "DISPENSA_ELETRONICA" && !licitacao.selecao_externa && !FASES_INTERNAS.includes(licitacao.fase) && (
-        <Card>
-          <CardContent className="py-3 flex items-start gap-2 text-xs">
-            <span className="font-medium text-gray-600 pt-0.5">PNCP:</span>
-            <FilaPncp
-              licitacaoId={id}
-              linkPncp={licitacao.link_pncp}
-              atualizacao={dados}
-              semItens={<span className="text-gray-400 pt-0.5">nenhuma publicação na fila ainda</span>}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Resultado (art. 71): adjudicar / homologar — um só caminho (E6) */}
-      {mostrarResultado && <ResultadoPanel licitacaoId={id} onAtualizado={carregar} />}
-
-      {/* Disputa em plataforma externa: troca de arquivos com a BLL Compras */}
-      {licitacao.modalidade !== "DISPENSA_ELETRONICA" && checklist.possui_itens && (
-        <BllIntegracao licitacaoId={id} homologado={!!checklist.homologado} onAtualizado={carregar} />
-      )}
-
-      {/* Copiloto: status da preparação automática */}
-      {licitacao.preparacao_automatica && (
-        <Card className={
-          licitacao.preparacao_automatica.status === "EXECUTANDO"
-            ? "border-blue-200 bg-blue-50/50"
-            : licitacao.preparacao_automatica.status === "CONCLUIDA"
-              ? "border-green-200 bg-green-50/40"
-              : "border-red-200 bg-red-50/40"
-        }>
-          <CardContent className="py-3">
-            {licitacao.preparacao_automatica.status === "EXECUTANDO" && (
-              <div className="flex items-center gap-3">
-                <Loader2 className="w-5 h-5 animate-spin text-blue-600 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-blue-900">🤖 Copiloto preparando o processo…</p>
-                  <p className="text-xs text-blue-700">{licitacao.preparacao_automatica.etapa || "Trabalhando…"}</p>
-                </div>
-              </div>
-            )}
-            {licitacao.preparacao_automatica.status === "CONCLUIDA" && (
-              <div>
-                <p className="text-sm font-medium text-green-800">
-                  🤖 Processo preparado pelo copiloto — <b>revise os itens sugeridos antes de aprovar</b>
-                </p>
-                {(licitacao.preparacao_automatica.log || []).length > 0 && (
-                  <ul className="mt-1.5 space-y-0.5">
-                    {(licitacao.preparacao_automatica.log || []).map((l, i) => (
-                      <li key={i} className="text-xs text-green-700">• {l}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-            {licitacao.preparacao_automatica.status === "ERRO" && (
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <p className="text-sm text-red-700">
-                  🤖 A preparação automática falhou: {licitacao.preparacao_automatica.erro || "erro desconhecido"}
-                </p>
-                <Button size="sm" variant="outline" onClick={dispararCopiloto} disabled={disparandoCopiloto}>
-                  Tentar de novo
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Linha do tempo */}
-      <Card>
-        <CardHeader><CardTitle className="text-base">Linha do tempo da contratação</CardTitle></CardHeader>
-        <CardContent>
-          <ol className="relative">
-            {etapas.map((et, idx) => {
-              const Icone = et.icone
-              return (
-                <li key={et.titulo} className="flex gap-4 pb-6 last:pb-0">
-                  <div className="flex flex-col items-center">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 shrink-0 ${et.feito ? "bg-green-50 border-green-500 text-green-600" : "bg-gray-50 border-gray-300 text-gray-400"}`}>
-                      <Icone className="w-4 h-4" />
-                    </div>
-                    {idx < etapas.length - 1 && (
-                      <div className={`w-0.5 flex-1 mt-1 ${et.feito ? "bg-green-300" : "bg-gray-200"}`} />
-                    )}
-                  </div>
-                  <div className="pt-1 flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold">{et.titulo}</span>
-                      {et.feito
-                        ? <CheckCircle2 className="w-4 h-4 text-green-600" />
-                        : <Circle className="w-4 h-4 text-gray-300" />}
-                      {et.link && (
-                        et.link.externo ? (
-                          <a href={et.link.href} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1">
-                            {et.link.texto} <ExternalLink className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          <Link href={et.link.href} className="text-sm text-blue-600 hover:underline">{et.link.texto}</Link>
-                        )
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-600 mt-0.5">{et.resumo}</p>
-                    <p className="text-xs text-gray-400">{et.extra}</p>
-
-                    {/* Instrução do processo (Art. 72) — contratação direta em etapa única */}
-                    {et.titulo === "Fase interna (documentos)" &&
-                      instrucao?.contratacao_direta &&
-                      ["PLANEJAMENTO", "TERMO_REFERENCIA", "PESQUISA_PRECOS", "ANALISE_JURIDICA", "APROVACAO_INTERNA"].includes(dados.licitacao.fase) && (
-                        <div className="mt-3 border rounded-md p-3 bg-slate-50 space-y-2">
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <span className="text-sm font-medium text-gray-700">
-                              📋 Instrução do processo — contratação direta (Art. 72)
-                            </span>
-                            {!instrucao.pode_divulgar && !dados.licitacao.preparacao_automatica && (
-                              <Button size="sm" variant="outline" onClick={dispararCopiloto} disabled={disparandoCopiloto}
-                                title="O copiloto pesquisa preços em fontes reais e redige os rascunhos dos documentos — você só revisa">
-                                {disparandoCopiloto ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : "🤖 "}
-                                Preparar automaticamente
-                              </Button>
-                            )}
-                            {dados.licitacao.modalidade === "DISPENSA_ELETRONICA" && (
-                              <Button
-                                size="sm"
-                                onClick={abrirModalDivulgar}
-                                disabled={!instrucao.pode_divulgar}
-                                title={instrucao.pode_divulgar ? "Abre o prazo de propostas e publica o aviso no PNCP" : `Pendências: ${instrucao.pendentes.join("; ")}`}
-                              >
-                                📢 Divulgar aviso da dispensa
-                              </Button>
-                            )}
-                          </div>
-                          <div className="space-y-1">
-                            {instrucao.itens.map((it) => (
-                              <div key={it.tipo} className="flex items-center justify-between gap-2 text-xs bg-white border rounded px-2 py-1.5">
-                                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                                  {it.status === "OK"
-                                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                                    : it.status === "NAO_SE_APLICA"
-                                      ? <span className="text-gray-400 shrink-0" title="Não se aplica">∅</span>
-                                      : it.status === "EM_APROVACAO"
-                                        ? <span className="text-amber-600 shrink-0" title="Em tramitação de aprovação">✍️</span>
-                                        : <Circle className={`w-3.5 h-3.5 shrink-0 ${it.obrigatorio ? "text-amber-500" : "text-gray-300"}`} />}
-                                  <span className={it.status === "NAO_SE_APLICA" ? "line-through text-gray-400" : ""}>{it.titulo}</span>
-                                  <span className="text-gray-400">({it.fundamento})</span>
-                                  {it.status === "EM_APROVACAO" && (
-                                    <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                                      em aprovação{it.aprovacao ? ` — ${it.aprovacao.etapa_nome} (${it.aprovacao.etapa}/${it.aprovacao.total})${it.aprovacao.responsavel ? ` · ${it.aprovacao.responsavel}` : ""}` : ""}
-                                    </span>
-                                  )}
-                                  {it.status === "EM_ELABORACAO" && it.exige_aprovacao && (
-                                    <span className="text-[10px] text-gray-500 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5"
-                                      title="Este tipo de documento tem fluxo de aprovação configurado — abra e envie para aprovação">
-                                      aguarda envio p/ aprovação
-                                    </span>
-                                  )}
-                                  {it.obrigatorio && (
-                                    <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-300 text-amber-700">obrigatório</Badge>
-                                  )}
-                                  {it.status === "NAO_SE_APLICA" && it.justificativa && (
-                                    <span className="text-gray-400 truncate max-w-[220px]" title={it.justificativa}>— {it.justificativa}</span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  {it.status !== "NAO_SE_APLICA" && it.status !== "OK" && !it.obrigatorio && (
-                                    <button
-                                      type="button"
-                                      className="text-[11px] text-gray-500 hover:underline disabled:opacity-50"
-                                      disabled={naoSeAplicaLoading === it.tipo}
-                                      onClick={() => marcarNaoSeAplica(it.tipo, it.titulo)}
-                                    >
-                                      não se aplica
-                                    </button>
-                                  )}
-                                  {it.status === "NAO_SE_APLICA" && (
-                                    <button
-                                      type="button"
-                                      className="text-[11px] text-gray-500 hover:underline disabled:opacity-50"
-                                      disabled={naoSeAplicaLoading === it.tipo}
-                                      onClick={() => desfazerNaoSeAplica(it.tipo)}
-                                    >
-                                      desfazer
-                                    </button>
-                                  )}
-                                  <Link href={`/orgao/fase-interna/processos/${id}`} className="text-[11px] text-blue-600 hover:underline">abrir</Link>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                          <p className="text-[11px] text-gray-400">
-                            Mínimo para divulgar: <b>DFD, estimativa de despesa e autorização</b>. Os demais são &quot;se for o caso&quot; — marque
-                            &quot;não se aplica&quot; com justificativa (fica registrada nos autos). Ao divulgar, o aviso é publicado
-                            no PNCP; o prazo de propostas (mínimo 3 dias úteis — art. 75, §3º) começa quando o PNCP confirmar a publicação.
-                          </p>
-                        </div>
-                      )}
-
-                    {/* Painel da DISPENSA ELETRÔNICA: prazo, propostas e julgamento */}
-                    {et.titulo.startsWith("Seleção") &&
-                      dados.licitacao.modalidade === "DISPENSA_ELETRONICA" &&
-                      !dados.licitacao.selecao_externa &&
-                      !checklist.homologado && (() => {
-                        const prazoFim = dados.licitacao.data_fim_acolhimento || dados.licitacao.data_abertura_sessao
-                        const aguardandoPncp = dados.licitacao.fase === "AGUARDANDO_DIVULGACAO"
-                        const aberto = !aguardandoPncp && (prazoFim ? new Date() < new Date(prazoFim) : false)
-                        // Disponibilidade e motivo vêm do backend (atos_disponiveis — fonte única)
-                        const atoJulgar = (dados.atos_disponiveis || []).find((a: any) => a.ato === "JULGAR_DISPENSA")
-                        const lancesFim = dados.licitacao.dispensa_lances_fim ? new Date(dados.licitacao.dispensa_lances_fim) : null
-                        const lancesAberta = lancesFim ? new Date() < lancesFim : false
-                        const totalEstimado = Number(dados.licitacao.valor_total_estimado || 0)
-                        const excedeLimite = limiteDispensa != null && totalEstimado > limiteDispensa.valor
-                        return (
-                          <div className="mt-3 border rounded-md p-3 bg-slate-50 space-y-3">
-                            <div className="flex items-center justify-between flex-wrap gap-2">
-                              <div className="text-sm">
-                                <span className={`font-medium ${aberto ? "text-blue-700" : "text-gray-700"}`}>
-                                  {aguardandoPncp
-                                    ? "⏸ Aguardando publicação no PNCP — prazo não iniciado"
-                                    : aberto ? "⏳ Recebendo propostas" : lancesAberta ? "⚡ Fase de lances aberta" : "Prazo de propostas encerrado"}
-                                </span>
-                                <span className="text-gray-500"> · {dados.propostas.length} proposta(s) recebida(s)</span>
-                                {lancesAberta && lancesFim && (
-                                  <span className="ml-2 text-xs text-green-800 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">lances até {lancesFim.toLocaleString("pt-BR", { timeZone: "America/Bahia" })}</span>
-                                )}
-                                {dados.propostas_em_sigilo && (
-                                  <span className="ml-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">🔒 valores sigilosos até o fim do prazo</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {!aguardandoPncp && !aberto && !lancesFim && !checklist.resultado_registrado && dados.propostas.length > 0 && (
-                                  <Button size="sm" variant="outline" onClick={() => setModalLances(true)} title="Etapa de lances (IN SEGES 67/2021, art. 11 — 6 a 10 horas): obrigatória antes do julgamento (art. 15)">
-                                    ⚡ Abrir fase de lances
-                                  </Button>
-                                )}
-                                {lancesAberta && (
-                                  <Button size="sm" variant="outline" onClick={atualizarPainelLances}>Atualizar painel</Button>
-                                )}
-                                <Button size="sm" onClick={julgarDispensa} disabled={julgando || (!!atoJulgar && !atoJulgar.disponivel) || (!atoJulgar && !checklist.resultado_registrado)}>
-                                  {julgando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Gavel className="w-4 h-4 mr-1" />}
-                                  {checklist.resultado_registrado ? "Rejulgar (menor preço)" : "Julgar propostas (menor preço)"}
-                                </Button>
-                              </div>
-                            </div>
-                            {/* botão desabilitado não mostra title: o motivo (backend) fica visível */}
-                            {atoJulgar && !atoJulgar.disponivel && atoJulgar.pendencias?.length > 0 && (
-                              <p className="text-xs text-gray-600">Julgar: {atoJulgar.pendencias.join(" · ")}</p>
-                            )}
-                            {lancesAberta && painelLances?.itens?.length > 0 && (
-                              <div className="border rounded bg-white overflow-x-auto">
-                                <table className="w-full text-xs">
-                                  <thead className="bg-gray-50 text-gray-500">
-                                    <tr>
-                                      <th className="text-left px-3 py-1.5">Item</th>
-                                      <th className="text-right px-3 py-1.5">Menor valor atual</th>
-                                      <th className="text-right px-3 py-1.5">Lances</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {painelLances.itens.map((it: any) => (
-                                      <tr key={it.item_licitacao_id} className="border-t">
-                                        <td className="px-3 py-1.5">{it.numero_item} — {String(it.descricao || "").slice(0, 60)}</td>
-                                        <td className="px-3 py-1.5 text-right whitespace-nowrap font-medium text-green-700">{it.menor_valor != null ? fmtMoeda(it.menor_valor) : "—"}</td>
-                                        <td className="px-3 py-1.5 text-right">{it.total_lances}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-                            {excedeLimite && (
-                              <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded p-2">
-                                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                                <span>
-                                  Valor estimado ({fmtMoeda(totalEstimado)}) <b>excede o limite vigente de dispensa</b> ({fmtMoeda(limiteDispensa!.valor)} — {limiteDispensa!.chave === "DISPENSA_OBRAS_ENGENHARIA" ? "art. 75, I" : "art. 75, II"}). Verifique o enquadramento legal antes de prosseguir.
-                                </span>
-                              </div>
-                            )}
-                            {dados.propostas.length > 0 && (
-                              <div className="border rounded bg-white overflow-x-auto">
-                                <table className="w-full text-xs">
-                                  <thead className="bg-gray-50 text-gray-500">
-                                    <tr>
-                                      <th className="text-left px-3 py-1.5">Fornecedor</th>
-                                      <th className="text-right px-3 py-1.5">Valor global</th>
-                                      <th className="text-left px-3 py-1.5">Enviada em</th>
-                                      <th className="text-left px-3 py-1.5">Situação</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {dados.propostas.map((p) => (
-                                      <tr key={p.id} className="border-t">
-                                        <td className="px-3 py-1.5">{p.razao_social}</td>
-                                        <td className="px-3 py-1.5 text-right whitespace-nowrap">{p.valor_total_proposta != null ? fmtMoeda(p.valor_total_proposta) : "—"}</td>
-                                        <td className="px-3 py-1.5 whitespace-nowrap">{p.data_envio ? new Date(p.data_envio).toLocaleString("pt-BR") : "—"}</td>
-                                        <td className="px-3 py-1.5">
-                                          <div className="flex items-center gap-2">
-                                            <Badge variant="outline" className={p.status === "VENCEDORA" ? "border-green-400 text-green-700" : p.status === "DESCLASSIFICADA" ? "border-red-300 text-red-600" : ""}>{p.status}</Badge>
-                                            {!aberto && p.id && p.status !== "DESCLASSIFICADA" && p.status !== "CANCELADA" && (
-                                              <button
-                                                type="button"
-                                                onClick={() => desclassificarProposta(p.id, p.razao_social)}
-                                                className="text-[11px] text-red-600 hover:underline"
-                                                title="Desclassificar com motivo registrado"
-                                              >
-                                                desclassificar
-                                              </button>
-                                            )}
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-                            {/* Chat da sessão (registrado nos autos; negociação pós-lances) */}
-                            <div className="border rounded bg-white">
-                              <div className="px-3 py-1.5 border-b text-xs font-medium text-gray-600">
-                                💬 {regrasChat?.rotulo || "Mensagens do processo"}{" "}
-                                <span className="font-normal text-gray-400">— registradas no processo{regrasChat?.explicacao ? `. ${regrasChat.explicacao}` : ""}</span>
-                              </div>
-                              <div className="p-2 max-h-40 overflow-y-auto space-y-1.5">
-                                {mensagensDispensa.length === 0 && <p className="text-[11px] text-gray-400">Nenhuma mensagem.</p>}
-                                {mensagensDispensa.map((m: any) => (
-                                  <div key={m.id} className="text-xs">
-                                    <span className={`font-medium ${m.autor_tipo === "ORGAO" ? "text-blue-700" : "text-gray-700"}`}>{m.autor_tipo === "ORGAO" ? "🏛️ " : ""}{m.autor_nome}</span>
-                                    <span className="text-gray-400"> {m.created_at ? new Date(m.created_at).toLocaleString("pt-BR", { timeZone: "America/Bahia", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}: </span>
-                                    <span>{m.mensagem}</span>
-                                  </div>
-                                ))}
-                              </div>
-                              {regrasChat && !regrasChat.orgao_pode_enviar ? (
-                                <p className="p-2 border-t text-[11px] text-gray-500">{regrasChat.explicacao}</p>
-                              ) : (
-                              <div className="flex items-center gap-2 p-2 border-t flex-wrap">
-                                {regrasChat?.exige_assunto && (
-                                  <Input
-                                    placeholder="Assunto do aviso"
-                                    value={assuntoAviso}
-                                    onChange={(e) => setAssuntoAviso(e.target.value)}
-                                    className="h-8 text-sm w-48"
-                                    maxLength={120}
-                                  />
-                                )}
-                                {regrasChat?.modo === "NEGOCIACAO" && regrasChat.interlocutores?.length > 1 && (
-                                  <select className="h-8 border rounded text-sm px-1" value={destinoNegociacao} onChange={(e) => setDestinoNegociacao(e.target.value)}>
-                                    <option value="">Negociar com…</option>
-                                    {regrasChat.interlocutores.map((v: any) => (
-                                      <option key={v.fornecedor_id} value={v.fornecedor_id}>{v.razao_social}</option>
-                                    ))}
-                                  </select>
-                                )}
-                                <Input
-                                  placeholder={regrasChat?.exige_assunto ? "Texto do aviso (mínimo 20 caracteres)…" : "Mensagem (fica registrada)…"}
-                                  value={novaMensagemOrgao}
-                                  onChange={(e) => setNovaMensagemOrgao(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === "Enter") enviarMensagemOrgao() }}
-                                  className="h-8 text-sm"
-                                  maxLength={1000}
-                                />
-                                <Button size="sm" className="h-8" onClick={enviarMensagemOrgao} disabled={!novaMensagemOrgao.trim()}>Enviar</Button>
-                              </div>
-                              )}
-                            </div>
-
-                            <p className="text-[11px] text-gray-400">
-                              O fornecedor envia a proposta pelo Portal do Fornecedor (Licitações → esta dispensa). Após o prazo, você pode (opcionalmente) abrir a <b>fase de lances</b> — cada fornecedor reduz o próprio valor, com o menor valor público e anônimo, em tempo real. O julgamento adjudica o menor valor final por item; a homologação gera o contrato automaticamente.
-                            </p>
-                          </div>
-                        )
-                      })()}
-
-                    {/* ME/EPP (LC 123 arts. 48-49): bloqueio/justificativa exigidos para publicar (some sem pendência) */}
-                    {id && <CotasMeEppCard licitacaoId={String(id)} onGerado={carregar} />}
-                    {/* PNCP (D5): status das publicações + reenvio */}
-                    {et.titulo.startsWith("Seleção") &&
-                      dados.licitacao.modalidade === "DISPENSA_ELETRONICA" &&
-                      !dados.licitacao.selecao_externa &&
-                      checklist.fase_interna_concluida && (
-                        <div className="mt-3 border rounded-md p-2.5 bg-white">
-                          <div className="flex items-start justify-between gap-2 flex-wrap">
-                            <div className="flex items-start gap-2 text-xs flex-1 min-w-0">
-                              <span className="font-medium text-gray-600 pt-0.5">PNCP:</span>
-                              <FilaPncp
-                                licitacaoId={id}
-                                linkPncp={dados.licitacao.link_pncp}
-                                atualizacao={dados}
-                                semItens={<span className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">aviso ainda não publicado</span>}
-                              />
-                            </div>
-                            <div className="flex gap-2">
-                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => enviarPncp("aviso")} disabled={enviandoPncp !== null}>
-                                {enviandoPncp === "aviso" ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
-                                {(dados.pncp || []).some((s) => s.tipo === "COMPRA" && s.status === "ENVIADO") ? "Reenviar aviso" : "Publicar aviso no PNCP"}
-                              </Button>
-                              {checklist.homologado && (
-                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => enviarPncp("resultado")} disabled={enviandoPncp !== null}>
-                                  {enviandoPncp === "resultado" ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
-                                  Enviar resultado
-                                </Button>
-                              )}
-                              {checklist.contrato_gerado && (
-                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => enviarPncp("contratos")} disabled={enviandoPncp !== null}
-                                  title="Art. 94 da Lei 14.133: a divulgação no PNCP é condição de eficácia do contrato (10 dias úteis na contratação direta)">
-                                  {enviandoPncp === "contratos" ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
-                                  Enviar contratos
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-[10px] text-gray-400 mt-1">Publicação automática: aviso ao divulgar; resultado e contratos ao homologar (art. 94 — a divulgação do contrato no PNCP é condição de eficácia). Os botões servem para reenvio em caso de falha.</p>
-                        </div>
-                      )}
-
-                    {/* Conteúdo específico por etapa */}
-                    {et.titulo.startsWith("Seleção") && dados.itens.length > 0 && (
-                      <div className="mt-3 border rounded-md overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50 text-gray-500 text-xs">
-                            <tr>
-                              <th className="text-left px-3 py-2">Item</th>
-                              <th className="text-left px-3 py-2">Vencedor</th>
-                              <th className="text-right px-3 py-2">Vl. unit.</th>
-                              <th className="text-right px-3 py-2">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {dados.itens.map((it) => (
-                              <tr key={it.id} className="border-t">
-                                <td className="px-3 py-2">{it.numero_item} — {it.descricao?.slice(0, 60)}</td>
-                                <td className="px-3 py-2">{it.fornecedor_vencedor_nome || <span className="text-gray-400">—</span>}</td>
-                                <td className="px-3 py-2 text-right whitespace-nowrap">{it.valor_unitario_homologado != null ? fmtMoeda(it.valor_unitario_homologado) : "—"}</td>
-                                <td className="px-3 py-2 text-right whitespace-nowrap font-medium">{it.valor_total_homologado != null ? fmtMoeda(it.valor_total_homologado) : "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-
-                    {et.titulo === "Homologação e contratos" && dados.contratos.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {dados.contratos.map((ct) => {
-                          const concluido = ct.assinatura_status === "CONCLUIDO"
-                          const emAssinatura = !!ct.documento_assinatura_id && !concluido
-                          return (
-                            <div key={ct.id} className="border rounded-md px-3 py-2 space-y-1.5">
-                              <div className="flex items-center justify-between gap-2 flex-wrap">
-                                <Link href={`/orgao/contratos/${ct.id}`} className="text-sm font-medium hover:underline">
-                                  Contrato {ct.numero_contrato} — {ct.fornecedor_razao_social}
-                                </Link>
-                                <span className="text-sm text-gray-500">{fmtMoeda(ct.valor_global)} · {ct.status}</span>
-                              </div>
-                              {/* Fluxo do termo: gerar → assinar (todas as partes) → PNCP */}
-                              <div className="flex items-center gap-2 flex-wrap text-xs">
-                                {!ct.documento_assinatura_id && (
-                                  <Button size="sm" variant="outline" className="h-7 text-xs"
-                                    disabled={assinandoContrato === ct.id}
-                                    onClick={() => solicitarAssinaturasContrato(ct)}
-                                    title="Gera o termo de contrato em PDF e envia para assinatura eletrônica do órgão e do fornecedor">
-                                    {assinandoContrato === ct.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : "📝 "}
-                                    Gerar termo e colher assinaturas
-                                  </Button>
-                                )}
-                                {emAssinatura && (
-                                  <>
-                                    <span className="text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                                      ✍️ Assinaturas: {ct.assinados ?? 0}/{ct.total_signatarios ?? 0}
-                                    </span>
-                                    {ct.signatarios_resumo && <span className="text-gray-500">{ct.signatarios_resumo}</span>}
-                                    {ct.arquivo_contrato && (
-                                      <a href={`${API_URL}/uploads/${ct.arquivo_contrato}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">termo (PDF)</a>
-                                    )}
-                                    <Link href="/assinador/painel" className="text-blue-600 hover:underline">assinar/acompanhar</Link>
-                                    <button type="button" className="text-gray-500 hover:underline"
-                                      onClick={() => reenviarNotificacoesAssinatura(ct.documento_assinatura_id!)}>
-                                      reenviar notificações
-                                    </button>
-                                  </>
-                                )}
-                                {concluido && (
-                                  <>
-                                    <span className="text-green-700 bg-green-50 border border-green-200 rounded px-1.5 py-0.5">
-                                      ✅ Assinado por todas as partes{ct.data_assinatura ? ` em ${new Date(ct.data_assinatura).toLocaleDateString("pt-BR")}` : ""}
-                                    </span>
-                                    {(ct.arquivo_assinado_url || ct.arquivo_contrato) && (
-                                      <a href={`${API_URL}/uploads/${ct.arquivo_assinado_url || ct.arquivo_contrato}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                                        termo assinado (PDF)
-                                      </a>
-                                    )}
-                                    <span className="text-gray-400">publicação no PNCP disparada automaticamente (art. 94)</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })}
-                        {dados.atas.map((ata) => (
-                          <div key={ata.id} className="flex items-center justify-between border rounded-md px-3 py-2 bg-amber-50/50">
-                            <span className="text-sm font-medium">Ata {ata.numero_ata} — {ata.fornecedor_razao_social}</span>
-                            <span className="text-sm text-gray-500">{fmtMoeda(ata.valor_total)} · {ata.status}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {et.titulo === "Execução" && dados.contratos.length > 0 && (
-                      <div className="mt-2 flex gap-2 flex-wrap">
-                        {dados.contratos.map((ct) => (
-                          <Link key={ct.id} href={`/orgao/contratos/${ct.id}`}>
-                            <Button variant="outline" size="sm">Medições do {ct.numero_contrato}</Button>
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </li>
-              )
-            })}
-          </ol>
-        </CardContent>
-      </Card>
-
-      {/* Peças anexadas ao processo (módulo documentos) */}
-      <DocumentosProcesso licitacaoId={id} />
-
-      {/* Atos praticados (máquina de estados — E1) */}
-      <HistoricoProcesso licitacaoId={id} atualizacao={dados} />
-
-      {/* Modal: fase de lances da dispensa */}
-      <Dialog open={modalLances} onOpenChange={setModalLances}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Abrir fase de lances da dispensa</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-gray-600">
-              Opcional (modelo IN SEGES 67/2021): os fornecedores com proposta válida reduzem os próprios valores na sala de lances.
-            </p>
-            <div>
-              <label className="text-sm font-medium">Duração (minutos)</label>
-              <Input type="number" min={360} max={600} className="mt-1" value={duracaoLances} onChange={(e) => setDuracaoLances(e.target.value)} />
-              <p className="text-xs text-gray-400 mt-1">De 360 a 600 minutos (6 a 10 horas — IN SEGES 67/2021, art. 11). Padrão 360.</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Prorrogação automática (minutos)</label>
-              <Input type="number" min={0} className="mt-1" value={prorrogacaoLances} onChange={(e) => setProrrogacaoLances(e.target.value)} />
-              <p className="text-xs text-gray-400 mt-1">
-                Lance nos últimos N minutos prorroga a janela por mais N, sucessivamente. 0 = encerra no horário (padrão IN 67).
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalLances(false)} disabled={abrindoLances}>Cancelar</Button>
-            <Button onClick={abrirLances} disabled={abrindoLances}>
-              {abrindoLances && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Abrir lances
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal: divulgar aviso da dispensa */}
-      <Dialog open={modalDivulgar} onOpenChange={setModalDivulgar}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Divulgar aviso da dispensa</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-gray-600">
-              A divulgação conclui a instrução e envia o aviso de contratação direta ao <b>PNCP</b>. O prazo de
-              propostas começa quando o PNCP confirmar a publicação (se a confirmação atrasar, as datas são
-              estendidas até o mínimo legal).
-            </p>
-            <div>
-              <label className="text-sm font-medium">Receber propostas até</label>
-              <Input
-                type="datetime-local"
-                value={fimPropostas}
-                onChange={(e) => setFimPropostas(e.target.value)}
-                className="mt-1"
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Mínimo de 3 dias úteis a partir de agora (art. 75, §3º), descontados os feriados do órgão — já sugerido no campo.
-              </p>
-            </div>
-            <PainelPrazos prazos={prazosDivulgar} carregando={calculandoDivulgar} />
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button type="button" size="sm" variant="outline" onClick={gerarAviso} disabled={gerandoAviso || !fimPropostas}>
-                {gerandoAviso ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                {avisoGerado ? "Gerar de novo" : "Gerar aviso (PDF)"}
-              </Button>
-              {avisoGerado ? (
-                <button type="button" className="text-sm text-blue-700 hover:underline" onClick={abrirAviso}>
-                  Conferir aviso v{avisoGerado.versao}
-                </button>
-              ) : (
-                <span className="text-xs text-gray-500">Gere e confira o aviso antes de divulgar (é o documento publicado no PNCP).</span>
-              )}
-            </div>
-            <ErroPendencias erro={erroDivulgar} />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalDivulgar(false)} disabled={divulgando}>Cancelar</Button>
-            <Button onClick={divulgarAviso} disabled={divulgando || !fimPropostas || !avisoGerado}>
-              {divulgando ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Divulgar agora
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal: registrar resultado externo */}
-      <Dialog open={modalResultado} onOpenChange={setModalResultado}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Registrar resultado da seleção externa</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-500 -mt-2">
-            A disputa aconteceu fora do sistema? Informe onde e o vencedor de cada item.
-            Ao homologar, o contrato é gerado automaticamente e cai na execução (medições).
-          </p>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="text-xs text-gray-500">Plataforma</label>
-              <Input placeholder="ex.: BLL, BNC, Compras.gov" value={plataforma} onChange={(e) => setPlataforma(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500">Nº na plataforma</label>
-              <Input placeholder="ex.: PE 012/2026" value={numeroExterno} onChange={(e) => setNumeroExterno(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500">Link (opcional)</label>
-              <Input placeholder="https://…" value={urlExterna} onChange={(e) => setUrlExterna(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="border rounded-md overflow-x-auto mt-2">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500 text-xs">
-                <tr>
-                  <th className="text-left px-3 py-2">Item</th>
-                  <th className="text-left px-3 py-2 w-[280px]">Fornecedor vencedor</th>
-                  <th className="text-right px-3 py-2 w-[140px]">Vl. unitário (R$)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dados.itens.map((it) => (
-                  <tr key={it.id} className="border-t align-top">
-                    <td className="px-3 py-2">
-                      <div className="font-medium">{it.numero_item} — {it.descricao?.slice(0, 70)}</div>
-                      <div className="text-xs text-gray-400">
-                        Qtd: {Number(it.quantidade).toLocaleString("pt-BR")} {it.unidade_medida || ""}
-                        {it.valor_unitario_estimado ? ` · Estimado: ${fmtMoeda(it.valor_unitario_estimado)}` : ""}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <select
-                        className="w-full border rounded-md h-9 px-2 text-sm bg-white"
-                        value={linhas[it.id]?.fornecedor_id || ""}
-                        onChange={(e) => setLinhas((p) => ({ ...p, [it.id]: { ...p[it.id], fornecedor_id: e.target.value } }))}
-                      >
-                        <option value="">— selecionar —</option>
-                        {fornecedores.map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.razao_social} {(f.cpf_cnpj || f.cnpj) ? `(${f.cpf_cnpj || f.cnpj})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Input
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        value={linhas[it.id]?.valor_unitario || ""}
-                        onChange={(e) => setLinhas((p) => ({ ...p, [it.id]: { ...p[it.id], valor_unitario: e.target.value } }))}
-                        className="text-right"
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs text-gray-400">
-            Fornecedor não aparece na lista? <Link href="/orgao/fornecedores" className="text-blue-600 hover:underline">Cadastre-o primeiro</Link> (dá para consultar pelo CNPJ) e reabra este formulário.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setModalResultado(false)}>Cancelar</Button>
-            <Button onClick={salvarResultado} disabled={salvando}>
-              {salvando && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Salvar resultado
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {p.status === "ERRO" && <p>A preparação automática falhou: {p.erro || "erro desconhecido"}. Tente de novo pelo quadro da instrução.</p>}
     </div>
   )
 }

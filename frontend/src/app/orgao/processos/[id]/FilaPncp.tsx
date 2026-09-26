@@ -1,10 +1,10 @@
 "use client"
 
 /**
- * FILA DO PNCP (E7) — cada operação da licitação no PNCP (aviso, itens,
- * documentos, resultado, ata, contrato...) com status, tentativas, próximo
- * envio e a mensagem devolvida pelo PNCP; "Reenviar agora" para erros e
- * pendentes. Fonte: GET /api/pncp/fila?licitacaoId=:id
+ * ENVIOS AO PNCP (fila — E7): cada operação da licitação no PNCP (compra,
+ * itens, documentos, resultado, ata, contrato...) com a situação, o retorno
+ * REAL da API (código HTTP + mensagem), as tentativas, a última tentativa e o
+ * "Reenviar agora" para erros e pendentes. Fonte: GET /api/pncp/fila?licitacaoId=:id
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from "react"
@@ -17,11 +17,13 @@ export interface LinhaFilaPncp {
   id: string
   tipo: string
   rotulo?: string
-  status: "PENDENTE" | "ENVIANDO" | "ENVIADO" | "ERRO_TEMPORARIO" | "ERRO_DEFINITIVO" | "ERRO" | "EXCLUIDO" | string
+  status: string
   tentativas?: number
   max_tentativas?: number
   proximo_envio?: string | null
   erro_mensagem?: string | null
+  erro_status_http?: number | null
+  ultima_tentativa?: string | null
   numero_controle_pncp?: string | null
   enviado_em?: string | null
   updated_at?: string | null
@@ -29,32 +31,23 @@ export interface LinhaFilaPncp {
 
 const REENVIAVEIS = ["ERRO_TEMPORARIO", "ERRO_DEFINITIVO", "ERRO", "PENDENTE"]
 
-function estilo(l: LinhaFilaPncp): { cls: string; icone: string; texto: string } {
-  const n = `${l.tentativas ?? 0}/${l.max_tentativas ?? "?"}`
+function situacao(l: LinhaFilaPncp): { cls: string; texto: string } {
   switch (l.status) {
     case "ENVIADO":
-      return { cls: "text-green-700 bg-green-50 border-green-200", icone: "✓", texto: l.enviado_em ? `enviado ${fmtBrasilia(l.enviado_em)}` : "enviado" }
+      return { cls: "text-green-800", texto: "✓ Publicado" }
     case "ENVIANDO":
-      return { cls: "text-blue-700 bg-blue-50 border-blue-200", icone: "↻", texto: "enviando…" }
+      return { cls: "text-blue-800", texto: "↻ Enviando" }
     case "PENDENTE":
-      return {
-        cls: "text-gray-600 bg-gray-50 border-gray-200",
-        icone: "…",
-        texto: l.proximo_envio ? `na fila — envio às ${fmtHoraBrasilia(l.proximo_envio)}` : "na fila",
-      }
+      return { cls: "text-gray-700", texto: l.proximo_envio ? `Na fila (envio às ${fmtHoraBrasilia(l.proximo_envio)})` : "Na fila" }
     case "ERRO_TEMPORARIO":
-      return {
-        cls: "text-amber-800 bg-amber-50 border-amber-300",
-        icone: "⚠",
-        texto: l.proximo_envio ? `nova tentativa às ${fmtHoraBrasilia(l.proximo_envio)} (${n})` : `erro temporário (${n})`,
-      }
+      return { cls: "text-amber-800", texto: l.proximo_envio ? `⚠ Nova tentativa às ${fmtHoraBrasilia(l.proximo_envio)}` : "⚠ Erro temporário" }
     case "ERRO_DEFINITIVO":
     case "ERRO":
-      return { cls: "text-red-700 bg-red-50 border-red-200", icone: "✗", texto: l.status === "ERRO" ? "erro" : "erro definitivo — corrija e reenvie" }
+      return { cls: "text-red-700", texto: "✗ Rejeitado" }
     case "EXCLUIDO":
-      return { cls: "text-gray-400 bg-gray-50 border-gray-200 line-through", icone: "–", texto: "excluído" }
+      return { cls: "text-gray-600 line-through", texto: "Excluído" }
     default:
-      return { cls: "text-gray-600 bg-gray-50 border-gray-200", icone: "?", texto: l.status }
+      return { cls: "text-gray-700", texto: l.status }
   }
 }
 
@@ -66,25 +59,20 @@ export function FilaPncp({
 }: {
   licitacaoId: string
   linkPncp?: string | null
-  /** Muda quando o cockpit recarrega — força nova leitura da fila. */
+  /** Muda quando a tela recarrega — força nova leitura da fila. */
   atualizacao?: unknown
-  /** O que mostrar quando a fila está vazia (null = nada). */
+  /** O que mostrar quando a fila está vazia. */
   semItens?: ReactNode
 }) {
   const [linhas, setLinhas] = useState<LinhaFilaPncp[] | null>(null)
-  const [aberta, setAberta] = useState<string | null>(null)
   const [reenviando, setReenviando] = useState<string | null>(null)
   const [erros, setErros] = useState<Record<string, string>>({})
 
   const carregar = useCallback(async () => {
     try {
       const res = await authFetch(`${API_URL}/api/pncp/fila?licitacaoId=${licitacaoId}`)
-      if (res.ok) {
-        const j = await res.json()
-        setLinhas(Array.isArray(j) ? j : [])
-      } else {
-        setLinhas([])
-      }
+      const j = res.ok ? await res.json() : []
+      setLinhas(Array.isArray(j) ? j : [])
     } catch {
       setLinhas([])
     }
@@ -117,65 +105,72 @@ export function FilaPncp({
     }
   }
 
-  if (linhas === null) return <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
-  if (linhas.length === 0) return <>{semItens ?? null}</>
-
-  const detalhe = linhas.find((l) => l.id === aberta)
+  if (linhas === null) return <Loader2 className="w-4 h-4 animate-spin text-gray-500" aria-label="Carregando envios ao PNCP" />
+  if (linhas.length === 0) return <>{semItens ?? <p className="text-sm text-gray-600">Nenhum envio ao PNCP ainda.</p>}</>
 
   return (
-    <div className="space-y-1.5 w-full">
-      <div className="flex items-center gap-1.5 flex-wrap text-xs">
-        {linhas.map((l) => {
-          const e = estilo(l)
-          return (
-            <button
-              key={l.id}
-              type="button"
-              onClick={() => setAberta(aberta === l.id ? null : l.id)}
-              title={l.erro_mensagem || e.texto}
-              className={`rounded px-1.5 py-0.5 border ${e.cls} ${aberta === l.id ? "ring-1 ring-offset-1 ring-gray-300" : ""}`}
-            >
-              {l.rotulo || l.tipo} {e.icone}
-              {l.status === "ERRO_TEMPORARIO" && l.proximo_envio ? ` ${fmtHoraBrasilia(l.proximo_envio)}` : ""}
-            </button>
-          )
-        })}
-        <button type="button" className="text-gray-400 hover:text-gray-600" title="Atualizar" onClick={carregar}>
-          <RefreshCw className="w-3 h-3" />
-        </button>
+    <div className="space-y-2">
+      <div className="overflow-x-auto border rounded-md">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 text-gray-700 text-xs">
+            <tr>
+              <th scope="col" className="text-left px-3 py-2">Registro</th>
+              <th scope="col" className="text-left px-3 py-2">Situação</th>
+              <th scope="col" className="text-left px-3 py-2">Retorno</th>
+              <th scope="col" className="text-right px-3 py-2">Tentativas</th>
+              <th scope="col" className="px-3 py-2"><span className="sr-only">Ações</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((l) => {
+              const s = situacao(l)
+              return (
+                <tr key={l.id} className="border-t align-top">
+                  <td className="px-3 py-2">{l.rotulo || l.tipo}</td>
+                  <td className={`px-3 py-2 whitespace-nowrap font-medium ${s.cls}`}>{s.texto}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {l.status === "ENVIADO" ? (
+                      <span className="text-gray-700">
+                        {l.numero_controle_pncp ? <>Nº <span className="font-mono">{l.numero_controle_pncp}</span></> : "Aceito"}
+                        {l.enviado_em ? ` · ${fmtBrasilia(l.enviado_em)}` : ""}
+                      </span>
+                    ) : l.erro_mensagem ? (
+                      <span className="font-mono whitespace-pre-line text-red-800">
+                        {l.erro_status_http ? `HTTP ${l.erro_status_http} — ` : ""}{l.erro_mensagem}
+                      </span>
+                    ) : (
+                      <span className="text-gray-600">—</span>
+                    )}
+                    {(l.ultima_tentativa || l.updated_at) && l.status !== "ENVIADO" && (
+                      <span className="block text-gray-600">última tentativa {fmtBrasilia(l.ultima_tentativa || l.updated_at)}</span>
+                    )}
+                    {erros[l.id] && <span className="block text-red-700">{erros[l.id]}</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">{l.tentativas ?? 0}/{l.max_tentativas ?? "?"}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {REENVIAVEIS.includes(l.status) && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs" disabled={reenviando === l.id} onClick={() => reenviar(l)}>
+                        {reenviando === l.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
+                        Reenviar agora
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
-      {detalhe && (() => {
-        const e = estilo(detalhe)
-        return (
-          <div className={`text-xs border rounded p-2 space-y-1 ${e.cls.replace("line-through", "")}`}>
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="font-medium">{detalhe.rotulo || detalhe.tipo} — {e.texto}</span>
-              <div className="flex items-center gap-2">
-                {detalhe.status === "ENVIADO" && linkPncp && (
-                  <a href={linkPncp} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline">
-                    abrir no PNCP <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-                {REENVIAVEIS.includes(detalhe.status) && (
-                  <Button size="sm" variant="outline" className="h-6 text-[11px] bg-white" disabled={reenviando === detalhe.id} onClick={() => reenviar(detalhe)}>
-                    {reenviando === detalhe.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : null}
-                    Reenviar agora
-                  </Button>
-                )}
-              </div>
-            </div>
-            {detalhe.numero_controle_pncp && <p>Nº de controle PNCP: <span className="font-mono">{detalhe.numero_controle_pncp}</span></p>}
-            {detalhe.erro_mensagem && (
-              <p className="whitespace-pre-line"><span className="font-medium">Mensagem do PNCP:</span> {detalhe.erro_mensagem}</p>
-            )}
-            <p className="text-[10px] opacity-75">
-              Tentativas: {detalhe.tentativas ?? 0}/{detalhe.max_tentativas ?? "?"}
-              {detalhe.updated_at ? ` · atualizado ${fmtBrasilia(detalhe.updated_at)}` : ""}
-            </p>
-            {erros[detalhe.id] && <p className="text-red-700">{erros[detalhe.id]}</p>}
-          </div>
-        )
-      })()}
+      <div className="flex items-center gap-3 text-xs">
+        <button type="button" className="inline-flex items-center gap-1 text-gray-700 hover:underline" onClick={carregar}>
+          <RefreshCw className="w-3 h-3" aria-hidden="true" /> Atualizar
+        </button>
+        {linkPncp && (
+          <a href={linkPncp} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-700 hover:underline">
+            Abrir no PNCP <ExternalLink className="w-3 h-3" aria-hidden="true" />
+          </a>
+        )}
+      </div>
     </div>
   )
 }
