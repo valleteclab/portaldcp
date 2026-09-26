@@ -87,7 +87,7 @@ Na licitação (rito completo), o parecer vem antes da autorização.
 
 ## Telas por etapa
 
-**Um processo, uma tela.** Tudo parte da tela do processo (`/orgao/processos/<id>`). No quadro **Fluxo da fase interna**, **Abrir a etapa →** (ou **fazer ou anexar**, dentro da etapa) abre a tela da etapa; a tarefa da caixa leva ao mesmo lugar. Toda tela tem **← Voltar ao processo** e, no alto, a barra das 8 etapas (1 Demanda › 2 ETP › 3 TR › 4 Pesquisa › 5 Reserva › 6 Autorização › 7 Parecer › 8 Publicação) com a situação de cada uma.
+**Um processo, uma tela.** Tudo parte da tela do processo (`/orgao/processos/<id>`). No quadro **Fluxo da fase interna**, **Abrir a etapa →** (ou **fazer ou anexar**, dentro da etapa) abre a tela da etapa; a tarefa da caixa leva ao mesmo lugar. Toda tela tem **← Voltar ao processo** e, no alto, a barra das 8 etapas (1 Demanda › 2 ETP › 3 TR › 4 Pesquisa › 5 Reserva › 6 Autorização › 7 Minutas › 7 Parecer › [Controle interno] › 8 Publicação) com a situação de cada uma. O controle interno só aparece quando o órgão o ativou.
 
 Em todas as telas há o quadro da peça com **os dois caminhos, que contam igual**:
 - **fazer aqui**, na própria tela, gerando a peça pelo modelo; ou
@@ -151,6 +151,60 @@ No painel ao lado: **Limite e fracionamento (art. 75, §1º)** (dispensa) — po
 - Emitida, a informação não se edita: **Retificar** cria uma versão nova (com motivo) para corrigir a classificação; a anterior fica em **Versões anteriores**.
 - **Renovar dotação (virada do exercício):** se o contrato não foi assinado até 31/12, informe o novo exercício e o motivo. O sistema cria a **versão nova** — o valor do exercício encerrado passa para o novo, tudo volta a previsão e a dotação/LDO do novo ano são sugeridas quando existem — e a **tarefa "Renovar a informação orçamentária"** para a Contabilidade (no modo simples, para o agente). A tarefa conclui quando a nova versão é emitida, ou quando a informação feita fora é anexada (o anexo é aceito mesmo depois da divulgação enquanto a renovação estiver pendente).
 
+### 6. Autorização da autoridade
+
+A tela tem duas visões:
+
+- **Para quem assina** (a autoridade, ou cada membro da Mesa Diretora): um cartão no formato do celular, com o objeto, o **teto autorizado** (o valor estimado da pesquisa), a modalidade e o fundamento, a dotação, o requisitante e as peças do art. 72 conferidas pelo sistema ("DFD, TR, PP, DO — completos"). **Ler os documentos (N folhas)** abre os autos em PDF. Os botões:
+  - **Autorizar e assinar** — assina com o seu usuário. A data e a hora entram no despacho;
+  - **Devolver com observação** — o despacho volta ao agente com o motivo (obrigatório). O pedido de assinatura é cancelado e o agente recebe a tarefa "Autorização devolvida — corrigir e reenviar", com o motivo.
+- **Para o agente:**
+  - **Gerar despacho** monta o texto pelo modelo, lendo o processo: número, objeto, fundamento legal, teto, dotação e leis da reserva, e o nome da autoridade;
+  - **Enviar à autoridade** manda o despacho para os signatários da configuração do órgão (Configurações › Fase interna › Autorização). A autoridade pode ser **colegiada** (ex.: Mesa Diretora com 4 signatários): a autorização **só vale quando todos assinarem**. Antes disso, o despacho aparece como "aguardando as assinaturas" e **não conta** como peça pronta.
+
+O quadro **Instrução do art. 72 (portão B)** mostra se as peças exigidas para autorizar estão prontas: I (DFD e, se for o caso, ETP, riscos e TR), II (pesquisa) e IV (dotação). III (parecer), VI e VII (razão da escolha e preço) vêm depois. Por enquanto o quadro **só avisa**: a autorização não é bloqueada.
+
+O despacho assinado fora (Mesa em papel) entra por **Anexar feito fora** e conta como autorizado. Na mesma tela fica a **designação do agente** (portaria do órgão).
+
+> **Só o signatário designado assina.** Quem não está na lista recebe "Você não é signatário desta peça".
+
+### 7. Relatório do agente e minutas
+
+Três abas: **Relatório do agente** (enquadramento, justificativa do preço, razão da escolha), **Minuta do aviso** e **Minuta do contrato** (cláusulas do art. 92).
+
+- **Gerar as três pelo modelo**: as peças leem **sempre os dados do processo**: número do PA e da dispensa, fundamento legal, limite do inciso no exercício, valores, dotação, sigilo e a portaria de designação do órgão. Uma minuta nunca herda o número de outro processo (no PA 139/2025, o contrato citava o "PA 115/2025").
+- Se a peça cita o número de outro processo, a tela mostra um aviso vermelho.
+- **Mudar o fundamento** (Editar processo › Classificação), o número do processo, o sigilo ou o objeto **regera sozinho** as peças geradas pelo modelo que ninguém editou. A peça editada à mão, assinada ou em assinatura **não é reescrita**: ela ganha o aviso "O processo mudou… Regerar?". O botão **Regerar** atualiza o texto.
+- **Sigilo do orçamento (art. 24)**: escolha "Público" ou "Sigiloso até o julgamento". O sigilo exige justificativa. Com o sigilo, a minuta do aviso diz "Valor estimado: sigiloso (art. 24)".
+- Cada peça tem o editor por seções, **Anexar feito fora**, **Não se aplica** (contratação direta) e **Versões**.
+
+### 7. Parecer jurídico com diligências
+
+À esquerda ficam **os autos**: as peças na ordem das folhas, cada uma abrindo no texto ou no PDF. À direita fica o **roteiro de análise**:
+
+| Item | O que o sistema confere sozinho |
+|---|---|
+| Art. 72, I, II, IV, VI e VII, VIII | As peças da instrução estão prontas |
+| Art. 75 | O mesmo inciso em todas as peças feitas no sistema (ex.: "art. 75, I" no aviso e "II" no processo = atenção) |
+| Art. 41, I | Marca citada no ETP ou no TR, e a justificativa |
+| Art. 24 | Sigilo do orçamento com justificativa |
+| Art. 92 | Cláusulas obrigatórias preenchidas na minuta do contrato |
+| Vinculação | As minutas citam o número deste processo |
+
+- A Procuradoria pode marcar cada item (**Conforme**, **Ressalva**, **Não se aplica**, **Pendente**) e escrever uma observação. A marcação vale sobre a conferência automática.
+- Clicar num item ou numa diligência **abre a peça na folha** (e destaca o trecho, quando informado).
+- **Devolver com diligência**: escolha a peça, descreva o que corrigir e, se quiser, o item do roteiro e o trecho. O sistema:
+  - cria a **tarefa** do responsável pela peça (no modo por setor, o setor dela; no simples, o agente);
+  - o processo "volta" para aquela peça **sem desfazer nada**: a autorização e as demais peças assinadas depois continuam assinadas.
+- **Sanar**: quem responde pela peça a corrige (versão nova, feita aqui ou anexada) e clica em **Sanar**, com a resposta. Se não houver o que mudar, marque "Não há o que alterar" e explique. O processo **volta para a Procuradoria** (tarefa "Diligência sanada — retomar a análise"). A Procuradoria pode **reabrir** a diligência sanada ou **cancelar** a aberta.
+- **Conclusão**: **Favorável** (não sai com diligência aberta), **Favorável, condicionado ao saneamento das ressalvas** ou **Desfavorável** (exige a fundamentação). **Assinar parecer** monta o texto a partir do roteiro, das diligências e da conclusão, e o assina com o usuário do procurador. A tarefa do parecer conclui.
+- **Só quem tem o papel Jurídico** (Configurações › Fase interna › Papéis) abre diligência e assina o parecer. Os demais acompanham, e o parecer feito fora pode ser anexado.
+- **Parecer da fase externa** (parecer nº 2): no link "parecer da fase externa" da tela. Ele fica disponível depois da sessão (julgamento, habilitação ou recurso) e antes da adjudicação. **Pedir o parecer** cria a tarefa da Procuradoria. O roteiro confere o parecer prévio, o julgamento, o preço vencedor, a habilitação e os recursos.
+
+### Controle interno (quando o órgão ativou)
+
+A tela aparece entre o parecer e a publicação. Nela, a manifestação é **Favorável** ou **Com apontamentos** (os apontamentos são obrigatórios). **Assinar manifestação** gera a peça e a assina com o usuário de quem tem o papel **Controle interno**. A manifestação feita fora também pode ser anexada. Por enquanto a etapa é **aviso**: não impede a publicação. Com o controle interno desativado, a tela informa que a etapa não se aplica.
+
 > **Tramitação.** O despacho formal entre setores (estilo SEI) fica na aba **Tramitação** da tela do processo. O antigo "dossiê da fase interna" (`/orgao/fase-interna/processos/<id>`) e as telas avulsas do editor (DFD, ETP, TR) e de preços agora redirecionam para as telas acima.
 
 ## Documentos obrigatórios por modalidade
@@ -185,6 +239,7 @@ A fase interna é uma **etapa única** chamada **instrução do processo**. Na t
 | Designação do agente de contratação (portaria do exercício) | Conforme o caso | Art. 8º |
 | Relatório do agente de contratação | Conforme o caso | Art. 72, VI e VII |
 | Minuta do contrato | Conforme o caso | Art. 72 c/c art. 92 |
+| Minuta do aviso de contratação direta | Conforme o caso | Art. 72 c/c art. 75, §3º |
 
 - O que não for obrigatório e não se aplicar pode ser marcado como **não se aplica**, com justificativa (fica nos autos). Para voltar atrás, **desfazer**. O botão só aparece nas peças em que a lei permite dispensar.
 - O botão **Preparar automaticamente (copiloto)** chama o copiloto (pesquisa de preços em fontes reais e rascunhos dos documentos).
@@ -212,7 +267,7 @@ Toda peça da lista tem três caminhos, e os três contam igual no checklist:
 
 ### Peça com vários signatários (autoridade colegiada)
 
-Quando a autoridade é colegiada (ex.: Mesa Diretora com 4 assinaturas), a peça feita no sistema é enviada para assinatura de **vários usuários do órgão, cada um com o seu papel** (Presidente, Vice-Presidente, 1º Secretário...). A peça aparece como **aguardando assinaturas** e **só conta como pronta quando todos assinarem**; nesse momento o sistema grava a data (a da última assinatura), o código do arquivo assinado e as folhas. Cada signatário assina pelo **Portal de assinaturas** (menu Assinaturas pendentes). Para enviar, use **Enviar para assinatura** no quadro da peça, na tela da etapa: marque os usuários e escreva o papel de cada um.
+Quando a autoridade é colegiada (ex.: Mesa Diretora com 4 assinaturas), a peça feita no sistema é enviada para assinatura de **vários usuários do órgão, cada um com o seu papel** (Presidente, Vice-Presidente, 1º Secretário...). A peça aparece como **aguardando assinaturas** e **só conta como pronta quando todos assinarem**; nesse momento o sistema grava a data (a da última assinatura), o código do arquivo assinado e as folhas. Cada signatário assina pelo **Portal de assinaturas** (menu Assinaturas pendentes). Para enviar, use **Enviar para assinatura** no quadro da peça, na tela da etapa: marque os usuários e escreva o papel de cada um. Na **autorização**, os signatários vêm da configuração do órgão e cada um assina na própria tela da etapa (**Autorizar e assinar**, pensada para o celular).
 
 ## Fundamento legal e limite da dispensa
 

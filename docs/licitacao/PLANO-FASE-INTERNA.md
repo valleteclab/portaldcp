@@ -1,7 +1,7 @@
 # Plano — Fase interna simples, guiada e "feita aqui ou anexada"
 
 > 26/09/2026 · Referência real: Câmara Municipal de Luís Eduardo Magalhães — autos da Dispensa 003/2025 (PA 005/2025) e das Inexigibilidades 004/2025 (PA 033/2025) e 008/2025 (PA 043/2025), e o regulamento próprio da Lei 14.133 (**Portaria 089/2024**).
-> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** na branch `claude/fase-interna-e3` (ver §9). Entrega 3B (autorização no celular, parecer com diligências, relatório do agente e minutas) e Entregas 4 a 7 pendentes.
+> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** (PR #509, ver §9). **Entrega 3B (autorização no celular, minutas e relatório do agente, parecer com diligências, controle interno opcional) concluída** na branch `claude/fase-interna-e3b` (ver §10). Entregas 4 a 7 pendentes.
 
 ## 1. O problema
 
@@ -624,11 +624,100 @@ Novas: `dotacoes_orcamentarias`, `leis_orcamentarias`, `reservas_orcamentarias`,
 
 ### 9.6 Fica para depois
 
-- **Entrega 3B**: autorização no celular, parecer com diligências (origem DILIGENCIA), relatório do agente e minutas.
+- ~~**Entrega 3B**: autorização no celular, parecer com diligências (origem DILIGENCIA), relatório do agente e minutas~~ — feita (§10).
 - **Portões** (Entrega 4): travar o avanço com inciso obrigatório vazio, marca sem justificativa (`MARCA-01`), limite (`LIM-01/02`), `PRECO-01..03`, `LEI-01`, `EXERC-01` (a renovação já cria a tarefa manualmente; a regra automática "reserva de N e contrato em N+1" é da Entrega 4).
 - **Cadastro de marcas** do órgão para a detecção por nome (a função já aceita a lista; hoje a detecção é pelo padrão do texto).
 - Saldo da dotação integrado ao sistema contábil (hoje informado na tabela).
 - Tela de assinatura com acompanhamento de quem falta (o envio já existe no quadro da peça; a situação continua em `GET …/assinatura`).
+
+## 10. Entrega 3B — CONCLUÍDA (26/09/2026)
+
+Branch `claude/fase-interna-e3b` (a partir do main com as Entregas 1, 2 e 3A). Sem push/PR nesta etapa. Commits: `8d903e41` (backend), `bb4a363c` (frontend), `8d91dbd6` (ajuste do histórico de devoluções) e o desta documentação.
+
+Telas novas, no mesmo padrão da 3A (dentro do processo, com a barra das etapas, "← Voltar ao processo" e o quadro comum da peça — fazer aqui, anexar, "não se aplica", versões):
+`/orgao/processos/[id]/fase-interna/{autorizacao,minutas,parecer,controle-interno}`. O `destino` das tarefas dos passos AUTORIZACAO, MINUTAS, PARECER e CONTROLE_INTERNO passou a ser a tela (o do parecer da fase externa: `parecer?fase=EXTERNA`).
+
+### 10.1 O que mudou por item
+
+**1. Autorização da autoridade (etapa 6; mockup Autorizacao, 390 px)**
+- **Despacho (AA) gerado pelo modelo**, lendo o processo: objeto, `fundamento_legal`, **teto** (soma dos itens = valor estimado da pesquisa), dotação e leis da reserva (tabela única) e o nome da autoridade. O modelo do sistema foi atualizado pelo seed (o texto da Entrega 1 entrou em `TEXTOS_PADRAO_LEGADOS`; modelo próprio do órgão não é tocado).
+- **Autoridade colegiada**: a configuração da E2 ganhou `signatarios_autorizacao` (usuário + papel; ex.: Presidente, Vice, 1º e 2º Secretários) e `autoridade_rotulo` ("Mesa Diretora"). Sem lista, recebem os usuários com o papel AUTORIDADE; o agente também pode escolher no envio. **Só fica AUTORIZADA quando todos assinam** (portal de assinaturas — Entrega 1).
+- **Celular**: para o signatário, o cartão do mockup (objeto, teto, modalidade · fundamento, dotação, requisitante, peças do art. 72 conferidas, "Ler os documentos (N folhas)" → autos em PDF) com **Autorizar e assinar** (só o signatário designado, com o próprio login — o portal dispensa o código quando o signatário é o usuário logado) e **Devolver com observação**.
+- **Devolver**: motivo obrigatório; o pedido de assinatura é cancelado no portal; o despacho fica **DEVOLVIDO** (status `REPROVADO`, já existente — não conta como pronto) com o histórico `_devolucoes`; nasce a **tarefa do agente** (origem SISTEMA, chave `sistema:autorizacao-devolvida`, com o motivo). Reenviar (versão nova do despacho) ou anexar o despacho assinado fora conclui a tarefa.
+- **Portão B** (art. 72): quadro só de leitura — exigidos I, II e IV; III, VI e VII depois; VIII é a etapa. O bloqueio fica para a Entrega 4.
+- A designação do agente (DP) aparece na mesma tela (a etapa 6 conclui com AA e DP prontos/"não se aplica").
+
+**2. Minutas e relatório do agente (etapa 7, parte do agente)**
+- Relatório do agente (**RAG**), minuta do aviso (**ME**) e minuta do contrato (**MC**) gerados pelo modelo. Modelos novos no seed: RAG (identificação, enquadramento com o **limite do inciso certo no exercício**, preço, escolha, orçamento, conclusão) e MC (cláusulas do art. 92, com a **vinculação** citando o número do PA e da dispensa lidos do processo). O preâmbulo da ME deixou de dizer só "licitação".
+- Variáveis novas dos modelos (`ModeloDocumentoService.montarContextoVariaveis`, valem para todos os modelos): `licitacao.numero_dispensa`, `licitacao.teto`, `licitacao.valor_publico` (respeita o sigilo), `licitacao.sigilo`, `licitacao.limite_dispensa`, `reserva.dotacao`, `reserva.situacao`, `reserva.exercicios`, `reserva.leis`, `autoridade.nome`, `agente.nome`, `agente.cargo`, `portaria.designacao` (a peça DP do processo ou a portaria ativa do órgão no exercício).
+- **Critério de aceite da SPEC — mudar o fundamento regera as minutas**: a peça gerada guarda a impressão do texto (`_gerado.hash`). O `MinutasSubscriber` (TypeORM, depois do commit) observa `fundamento_legal`, `numero_processo`, `numero_edital`, `sigilo_orcamento` e `objeto` da licitação: a peça **gerada e intocada é regerada** (sem versão nova se o texto não muda — idempotente); a **editada à mão, assinada, em assinatura ou aprovada** ganha `_desatualizada` ("O processo mudou… Regerar?"). Vale para RAG, ME, MC e o despacho AA. Desligar: `FASE_INTERNA_REGERAR_MINUTAS=false`.
+- Conferência de **vinculação** (VINC-01 em leitura): número de PA/dispensa citado que não é o do processo aparece em vermelho na tela.
+- **Sigilo do orçamento** (art. 24): decisão com justificativa (mínimo 20 caracteres) na própria tela; regera as minutas.
+- A **minuta do aviso (ME)** entrou na instrução da contratação direta como "se for o caso" (art. 72 c/c art. 75, §3º).
+
+**3. Parecer jurídico com diligências (etapa 7, Procuradoria; mockup Parecer)**
+- À esquerda os **autos** (peças atuais na ordem das folhas; texto das feitas no sistema ou o PDF, que abre na folha); à direita o **roteiro**: art. 72 (I, II, IV, VI/VII, VIII), art. 75 (o mesmo inciso em todas as peças feitas no sistema), art. 41, I (marca), art. 24 (sigilo), art. 92 (cláusulas obrigatórias vazias na MC) e vinculação ao processo. Cada item tem a conferência automática; a marcação da Procuradoria prevalece; diligência aberta deixa o item em "Diligência".
+- **Diligência** (entidade nova): ligada à análise (e à peça do parecer quando emitido), ao **documento-alvo** (a versão no momento), à descrição, ao item do roteiro, à folha e ao trecho. Cria a **tarefa** (origem `DILIGENCIA`, tipo `DILIGENCIA`, chave `diligencia:<id>`) para o **responsável pelo passo da peça-alvo** (modo por setor: o papel/setor; simples: o agente). O processo "volta" para a peça **sem desfazer nada**: nenhuma assinatura posterior é tocada; a peça ganha versão nova quando corrigida.
+- **Sanar**: exige versão nova pronta da peça-alvo (ou "não há o que alterar" com o esclarecimento); quem pode: o responsável pela tarefa (usuário, papel ou setor), o agente do processo, o administrador do órgão ou o login do órgão. Sanada, a tarefa da diligência conclui e nasce a tarefa de **retorno à Procuradoria** (chave `parecer-retorno:<análise>`, passo PARECER). A Procuradoria pode **reabrir** (nova tarefa; a próxima correção precisa ser posterior à versão atual) ou **cancelar**.
+- **Emissão**: favorável (bloqueada com diligência aberta), favorável com ressalvas (condicionado; exige ressalvas ou diligência aberta) ou desfavorável (exige fundamentação). O texto é montado do roteiro, das diligências e da conclusão (PJ; PJE na fase externa) e **assinado pelo próprio jurista** no portal (só quem tem o papel **JURÍDICO** — os demais 403). A tarefa da etapa conclui sozinha quando o parecer fica assinado; a de retorno e a da fase externa concluem na emissão (ou no anexo do parecer feito fora).
+- **Parecer da fase externa (PJE)**: a mesma tela com `?fase=EXTERNA`, disponível nas fases JULGAMENTO, HABILITACAO e RECURSO (depois da sessão, antes da adjudicação). **Decisão**: não há gatilho automático no fluxo da fase externa (nem todo órgão exige o parecer nº 2, e criar a tarefa para todo pregão/dispensa seria ruído) — o agente **pede o parecer** (`POST …/parecer/fase-externa/solicitar`), que cria a tarefa da Procuradoria (chave `sistema:parecer-fase-externa`, tipo de peça PJE). Ligar a adjudicação ao PJE (exigência por órgão) fica para a Entrega 4/5.
+
+**4. Controle interno (opcional por órgão)**
+- Com `controle_interno_ativo`, a tela mostra a manifestação **favorável** ou **com apontamentos** (apontamentos obrigatórios), gerada e **assinada por quem tem o papel CONTROLE_INTERNO** (peça MCI, modelo novo), ou anexada. Desativado: a leitura responde `ativo: false` (a etapa não aparece) e a escrita 409. **Aviso, não bloqueio** (a MCI continua não obrigatória para publicar).
+
+**Regra nova de "peça pronta"** (`pecaContaComoPronta`): peça gerada que **só vale assinada** (`dados_estruturados._exige_assinatura` — despacho AA, parecer PJ/PJE, manifestação MCI geradas pelas telas da 3B) não conta como pronta enquanto não é assinada (ou anexada). Peças antigas, sem a marca, seguem a regra de antes (texto basta) — nenhum fluxo existente muda.
+
+**Gatilhos das tarefas conferidos nos e2e**: assinatura concluída (autorização na 4ª assinatura; parecer; controle interno), anexo (despacho, parecer, minuta), "não se aplica" (DP), diligência sanada (conclui a da diligência e cria a de retorno), emissão do parecer (conclui a da etapa, a de retorno e a da fase externa), reenvio da autorização (conclui a de devolução).
+
+### 10.2 Endpoints novos
+
+| Método e rota | Quem | Isolamento (e2e) |
+|---|---|---|
+| `GET /fase-interna/:id/autorizacao` | órgão dono | outro órgão 404; fornecedor 403; anônimo 401 |
+| `POST /autorizacao/gerar`, `POST /autorizacao/enviar` `{ signatarios? }` | órgão dono | 403 / 403 / 401 |
+| `POST /autorizacao/assinar` | **só o signatário designado** (403 aos demais, inclusive o login do órgão) | 403 / 403 / 401 |
+| `POST /autorizacao/devolver` `{ motivo }` | signatário designado ou papel AUTORIDADE | 403 / 403 / 401 |
+| `GET /fase-interna/:id/minutas` | órgão dono | 404 / 403 / 401 |
+| `POST /minutas/:tipo/gerar` (RAG, ME, MC, TODAS), `PUT /minutas/sigilo` | órgão dono | 403 / 403 / 401 |
+| `GET /fase-interna/:id/parecer?fase=PREVIA\|EXTERNA` | órgão dono | 404 / 403 / 401 |
+| `PUT /parecer`, `POST /parecer/diligencias`, `…/diligencias/:id/reabrir`, `…/cancelar`, `POST /parecer/emitir` | **só o papel JURÍDICO** (403 aos demais) | 403 / 403 / 401; diligência de outro processo 404 |
+| `POST /parecer/diligencias/:id/sanar` | responsável pela tarefa, agente, admin do órgão | 403 / 403 / 401; sem papel 403 |
+| `POST /parecer/fase-externa/solicitar` | órgão dono | 403 / 403 / 401 |
+| `GET /fase-interna/:id/controle-interno` | órgão dono | 404 / 403 / 401 |
+| `POST /controle-interno/manifestar` | **só o papel CONTROLE_INTERNO** | 403 / 403 / 401 |
+
+Alterados: `PUT /fase-interna/configuracao` aceita `signatarios_autorizacao` (usuário ativo do órgão + papel; outro órgão 400; só mudam quando enviados) e `autoridade_rotulo`; `POST …/documentos/AA/anexo` conclui a devolução pendente e `…/PJ|PJE/anexo`, o retorno à Procuradoria.
+
+### 10.3 Entidades e colunas
+
+- Novas: `analises_juridicas` (parecer em preparação: processo, fase PREVIA/EXTERNA — único por processo e fase —, marcações do roteiro, conclusão, fundamentação, ressalvas, peça emitida, quem/quando) e `diligencias` (análise, peça do parecer, tipo e versão da peça-alvo, folha, trecho, descrição, item do roteiro, status ABERTA/SANADA/CANCELADA, resposta, versão corrigida, quem abriu/sanou, histórico). Toda coluna de união com `type:` explícito.
+- Colunas novas: `configuracoes_fase_interna.signatarios_autorizacao` (jsonb, nullable) e `autoridade_rotulo` (varchar, nullable).
+- Nenhum valor novo em enum (logs reaproveitam `DOCUMENTO_CRIADO/VERSIONADO/REPROVADO/EDITADO`, `TRAMITACAO_DEVOLVIDA`, `PROCESSO_TRAMITADO`; devolução usa o status `REPROVADO`). Chaves internas novas no jsonb da peça: `_gerado`, `_desatualizada`, `_exige_assinatura`, `_devolucoes`, `_parecer`, `_manifestacao`.
+- **Nenhuma migração de boot**: não há dado a converter (as colunas novas são nullable e as tabelas nascem vazias pelo `synchronize`; os modelos novos e o texto novo do despacho entram pelo seed idempotente que já existia).
+
+### 10.4 Decisões
+
+- **Rascunho do parecer fora da peça**: as marcações do roteiro ficam em `analises_juridicas`; a peça PJ só nasce na emissão (qualquer conteúdo na peça a faria contar como pronta).
+- **Responsável da diligência** = o do passo da peça-alvo (mesma regra das tarefas da E2), e não o autor da peça.
+- **Um retorno à Procuradoria por análise** (idempotente): várias diligências sanadas não multiplicam tarefas.
+- **Parecer desfavorável** também é peça pronta (assinada) — o parecer é opinativo; a conclusão aparece na tela e no texto. Tratar o desfavorável como bloqueio é decisão do órgão (Entrega 4).
+- **PJE por pedido** (ver item 3).
+- A assinatura do parecer e do controle interno é feita pelo emissor no mesmo clique (enviar + assinar com o próprio usuário).
+
+### 10.5 Testes
+
+- **Unitários novos** (`src/fase-interna/telas/`): `minutas-regras.spec.ts` (regerar × desatualizada × ignorar; hash; VINC-01 com o "PA 115/2025"; incisos do art. 75 citados), `parecer-regras.spec.ts` (roteiro do art. 72/75/41/24/92/vinculação; marcações; diligência abre/sana/reabre/cancela; emissão; texto do parecer), `autorizacao-regras.spec.ts` (situação, portão B, colegiada "posso assinar", resumo do celular, validação dos signatários da configuração); `peca-regras.spec.ts` (peça que só vale assinada). Suíte unitária completa: **96 suítes / 1144 testes**, todas passando.
+- **E2E novo** `test/fase-interna-e3b.e2e-spec.ts` (26 testes): configuração dos signatários (outro órgão 400, não-admin 403); despacho gerado (processo, fundamento, teto, autoridade) que não conta antes de assinado; **Mesa com 4 signatários — só AUTORIZADA na 4ª** e a tarefa da etapa conclui; quem não é signatário 403; **devolver com motivo cria a tarefa do agente** (e reenviar a conclui); despacho anexado autoriza; **minutas com o número e o fundamento do processo** (o outro processo continua com o dele); sigilo; **mudar o fundamento regera** (editada à mão fica desatualizada; idempotente); **diligência** (tarefa do responsável, favorável bloqueado, sanar 403/400, TR v2, **volta para o Jurídico sem perder a autorização assinada depois**, reabrir/cancelar); **parecer favorável conclui as tarefas**; PJE no julgamento; **controle interno ativo/inativo**; **isolamento de todos os endpoints novos**. Sem migração de boot a rodar 2x.
+- **E2E afetados** (arquivo a arquivo, todos passando): fase-interna-e1 (26), fase-interna-e2 (19), fase-interna-e3a (14), dispensa-eletronica (45), cockpit-processo (8), isolamento-dados-licitacao (115), transicoes-fase-interna-pncp (12).
+- **Frontend**: `npx tsc --noEmit` limpo; `next build` concluído sem erro (as 4 rotas novas compiladas).
+
+### 10.6 Fica para depois
+
+- **Portões que travam** (Entrega 4): autorização sem o portão B, parecer sem as minutas, publicação sem o portão C; `ENQ-01`/`VINC-01` como bloqueio (aqui são leitura no roteiro e na tela das minutas).
+- **PJE ligado à adjudicação** (exigir o parecer da fase externa por órgão) e gatilho automático da tarefa.
+- **Destaque do trecho dentro do PDF anexado** (hoje o PDF abre na folha; o trecho é destacado só no texto das peças feitas no sistema).
+- Edição do texto do parecer antes de assinar (hoje: roteiro + fundamentação + ressalvas; o texto completo pode ser anexado feito fora).
+- Controle interno como bloqueio e "não se aplica" para ele (decisão do órgão).
 
 ## 6. Riscos e cuidados
 
