@@ -21,7 +21,7 @@ describe('reserva orçamentária — linhas por exercício', () => {
   it('recusa exercício repetido, valor zero, situação inválida e não-lista', () => {
     expect(validarLinhas([PA139[0], PA139[0]])).toMatchObject({ ok: false });
     expect(validarLinhas([{ exercicio: 2025, valor: 0, situacao: 'PREVISAO' }])).toMatchObject({ ok: false });
-    expect(validarLinhas([{ exercicio: 2025, valor: 10, situacao: 'EMPENHADO' }])).toMatchObject({ ok: false });
+    expect(validarLinhas([{ exercicio: 2025, valor: 10, situacao: 'LIQUIDADO' }])).toMatchObject({ ok: false });
     expect(validarLinhas('x')).toMatchObject({ ok: false });
     expect(validarLinhas([{ exercicio: 1990, valor: 10 }])).toMatchObject({ ok: false });
   });
