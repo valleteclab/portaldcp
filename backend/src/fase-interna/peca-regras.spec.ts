@@ -3,6 +3,7 @@ import {
   hojeEmBrasilia,
   normalizarSignatariosInformados,
   pareceSerPdf,
+  pecaContaComoPronta,
   planoNovaVersao,
   proximaFaixaDeFolhas,
   validarDataDocumentoAnexo,
@@ -74,5 +75,18 @@ describe('peça anexada — metadados', () => {
     expect(pareceSerPdf(Buffer.from('%PDF-1.4\n...'))).toBe(true);
     expect(pareceSerPdf(Buffer.from('GIF89a...'))).toBe(false);
     expect(pareceSerPdf(null)).toBe(false);
+  });
+});
+
+describe('peça que só vale assinada (Entrega 3B — despacho, parecer, controle interno)', () => {
+  const gerada = { tipo: 'AA', descricao: '<p>AUTORIZO</p>', arquivo_pdf_path: 'x.pdf', dados_estruturados: { autorizacao: '<p>AUTORIZO</p>', _exige_assinatura: true } };
+  it('gerada com texto e PDF, mas sem assinatura, não conta; assinada ou anexada conta; devolvida não', () => {
+    expect(pecaContaComoPronta({ ...gerada, status: 'EM_ELABORACAO' })).toBe(false);
+    expect(pecaContaComoPronta({ ...gerada, status: 'AGUARDANDO_ASSINATURA' })).toBe(false);
+    expect(pecaContaComoPronta({ ...gerada, status: 'ASSINADO' })).toBe(true);
+    expect(pecaContaComoPronta({ ...gerada, status: 'REPROVADO' })).toBe(false);
+    expect(pecaContaComoPronta({ tipo: 'AA', status: 'IMPORTADO', caminho_arquivo: 'a.pdf' })).toBe(true);
+    // sem a marca (fluxos antigos): o texto basta, como antes
+    expect(pecaContaComoPronta({ tipo: 'AA', status: 'EM_ELABORACAO', descricao: '<p>AUTORIZO</p>' })).toBe(true);
   });
 });

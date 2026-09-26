@@ -106,6 +106,9 @@ export function pecaContaComoPronta(doc: {
   if (['REPROVADO', 'PENDENTE', 'AGUARDANDO_ASSINATURA', 'SUBSTITUIDO'].includes(doc.status)) return false;
   if (['APROVADO', 'IMPORTADO', 'ASSINADO'].includes(doc.status)) return true;
   const dados = doc.dados_estruturados;
+  // Entrega 3B: peça gerada que SÓ vale assinada (despacho de autorização,
+  // parecer, controle interno) — o texto pronto ainda não é o ato.
+  if (dados?._exige_assinatura) return false;
   if (doc.caminho_arquivo || doc.arquivo_pdf_path || (doc.descricao && doc.descricao.trim())) return true;
   // Pesquisa de preços: o módulo cria o documento (itens sem cotação) só de
   // abrir a tela — conta quando há ao menos uma cotação registrada.

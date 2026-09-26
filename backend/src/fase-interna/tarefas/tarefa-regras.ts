@@ -22,13 +22,21 @@ export const TELA_DO_PASSO: Partial<Record<string, string>> = {
   TR: 'tr',
   PESQUISA: 'pesquisa',
   RESERVA: 'reserva',
+  // Entrega 3B
+  AUTORIZACAO: 'autorizacao',
+  MINUTAS: 'minutas',
+  PARECER: 'parecer',
+  CONTROLE_INTERNO: 'controle-interno',
 };
 
 /**
- * Para onde a tarefa leva: a tela da etapa (DFD, ETP, TR, pesquisa, reserva);
- * nas demais, a linha da peça no quadro do processo.
+ * Para onde a tarefa leva: a tela da etapa (DFD, ETP, TR, pesquisa, reserva,
+ * autorização, minutas, parecer, controle interno); nas demais, a linha da
+ * peça no quadro do processo. Parecer da fase externa: a tela do parecer com
+ * `?fase=EXTERNA`.
  */
 export function destinoDaTarefa(t: { licitacao_id: string; passo?: string | null; tipo_peca?: string | null }): string {
+  if (t.tipo_peca === 'PJE') return `/orgao/processos/${t.licitacao_id}/fase-interna/parecer?fase=EXTERNA`;
   const tela = t.passo ? TELA_DO_PASSO[t.passo] : undefined;
   if (tela) return `/orgao/processos/${t.licitacao_id}/fase-interna/${tela}`;
   return `/orgao/processos/${t.licitacao_id}${t.tipo_peca ? `#peca-${t.tipo_peca}` : '#fluxo-fase-interna'}`;
