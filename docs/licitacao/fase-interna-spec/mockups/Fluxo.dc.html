@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Fluxo da fase interna — raias</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F4F1EA;color:#18202B}
+</style>
+</helmet>
+<div style="width: 1680px; height: 940px; box-sizing: border-box; padding: 36px 44px; display: flex; flex-direction: column; gap: 20px; background: #F4F1EA; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #18202B">
+<div style="display: flex; justify-content: space-between; align-items: flex-end">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 32px; font-weight: 600">Fase interna da dispensa — quem faz o quê</h1>
+<p style="margin: 0; font-size: 14px; color: #4A5361">Cada etapa só avança quando o documento anterior está assinado. A raia "Sistema" mostra o que o PortalDCP faz sozinho.</p>
+</div>
+<div style="display: flex; gap: 18px; font-size: 13px; color: #4A5361">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 3px; background: #FFFFFF; border: 1px solid #8C8472"></span>Ato humano</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 3px; background: #E3ECF5; border: 1px solid #1F4E79"></span>Automação</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 3px; background: #FBEBDD; border: 1px solid #9A4308"></span>Portão (bloqueia)</span>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: 170px repeat(8, minmax(0, 1fr)); gap: 0; border: 1px solid #DDD6C8; border-radius: 10px; overflow: hidden; background: #FFFFFF">
+<div style="padding: 12px 14px; background: #18202B; color: #E9E5DB; font-size: 12px; font-weight: 600">Raia</div>
+<sc-for list="{{heads}}" as="h" hint-placeholder-count="8">
+<div style="padding: 12px 10px; background: #18202B; color: #FFFFFF; font-size: 12px; font-weight: 600; border-left: 1px solid #2C3747">{{h}}</div>
+</sc-for>
+<sc-for list="{{lanes}}" as="l" hint-placeholder-count="7">
+<div style="padding: 14px; font-size: 13px; font-weight: 600; border-top: 1px solid #DDD6C8; background: #F9F7F2; display: flex; align-items: center">{{l.name}}</div>
+<sc-for list="{{l.cells}}" as="c" hint-placeholder-count="8">
+<div style="padding: 8px; border-top: 1px solid #DDD6C8; border-left: 1px solid #EFEBE2; min-height: 92px; display: flex; flex-direction: column; justify-content: center">
+<sc-if value="{{c.has}}" hint-placeholder-val="{{ true }}">
+<div style="border: 1px solid {{c.bd}}; background: {{c.bg}}; border-radius: 7px; padding: 9px 10px; display: flex; flex-direction: column; gap: 3px">
+<div style="font-size: 13px; font-weight: 600; line-height: 1.25">{{c.t}}</div>
+<div style="font-size: 11px; color: #3A4250; line-height: 1.35">{{c.d}}</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":940}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const E = { has: false };
+    const H = (t, d) => ({ has: true, t, d, bg: '#FFFFFF', bd: '#8C8472' });
+    const A = (t, d) => ({ has: true, t, d, bg: '#E3ECF5', bd: '#1F4E79' });
+    const G = (t, d) => ({ has: true, t, d, bg: '#FBEBDD', bd: '#9A4308' });
+    const heads = ['1 · Demanda', '2 · ETP e riscos', '3 · Termo de Referência', '4 · Pesquisa de preços', '5 · Reserva orçamentária', '6 · Autorização', '7 · Minutas e parecer', '8 · Publicação'];
+    const lanes = [
+      { name: 'Requisitante (Dir. Adm. / TV Câmara)', cells: [H('Preenche o DFD', 'Necessidade, quantidade, prazo, responsável'), H('Elabora o ETP', 'Alternativas, parcelamento, riscos'), H('Elabora o TR', 'Especificação, obrigações, pagamento'), E, E, E, H('Responde diligências', 'Saneia pontos do parecer'), E] },
+      { name: 'Compras', cells: [E, E, E, H('Cota fornecedores', 'Registra fontes, prazos e justificativa'), E, E, E, E] },
+      { name: 'Contabilidade', cells: [E, E, E, E, H('Informa a dotação', 'Programa, elemento, fonte, saldo'), E, E, E] },
+      { name: 'Mesa Diretora', cells: [E, E, E, E, E, H('Autoriza a abertura', 'Despacho com teto de valor e data'), E, E] },
+      { name: 'Agente de Contratação', cells: [E, E, E, E, E, E, H('Relatório e minutas', 'Aviso, contrato, decisão de sigilo'), H('Revisa e publica', 'Define janela de propostas')] },
+      { name: 'Procuradoria', cells: [E, E, E, E, E, E, H('Parecer jurídico', 'Aprova ou devolve com diligência'), E] },
+      { name: 'Sistema PortalDCP', cells: [A('Vincula ao PCA', 'Número do processo e protocolo'), A('Modelos e IA', 'Rascunho a partir do DFD'), A('Coerência DFD↔TR', 'Objeto, quantidades, unidades'), G('Limite e fracionamento', 'Soma o ramo no exercício'), A('Pré-empenho', 'Bloqueia saldo; avisa virada de ano'), G('Autos completos?', 'Checklist do art. 72'), A('Gera minutas', 'Dados preenchidos dos autos'), G('Motor de conformidade', 'Cruza peças; envia ao PNCP')] }
+    ];
+    return { heads, lanes };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Conformidade antes da publicação</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;font-family:'IBM Plex Sans',system-ui,sans-serif;background:#F4F1EA;color:#18202B}
+a{color:#1F4E79}a:hover{color:#123654}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1060px; box-sizing: border-box; padding: 36px 44px; display: flex; flex-direction: column; gap: 22px; background: #F4F1EA; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #18202B">
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<a href="Main.dc.html" style="font-size: 13px; text-decoration: none">‹ PA 139/2025 · Dispensa 029/2025</a>
+<h1 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 32px; font-weight: 600">Conformidade antes da publicação</h1>
+<p style="margin: 0; font-size: 14px; color: #4A5361">Etapa 08 · O sistema cruza todos os documentos dos autos entre si e só libera a publicação sem bloqueios abertos.</p>
+</div>
+
+<div style="display: flex; gap: 22px; flex-grow: 1; min-height: 0">
+<section aria-label="Verificações" style="flex-grow: 1; background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<div style="display: flex; gap: 10px; margin-bottom: 12px">
+<span style="font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 20px; background: #FBEBDD; color: #9A4308">3 bloqueios</span>
+<span style="font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 20px; background: #EFEBE2; color: #4A5361">5 atenções</span>
+<span style="font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 20px; background: #E3ECF5; color: #1F4E79">41 regras aprovadas</span>
+</div>
+<sc-for list="{{rules}}" as="r" hint-placeholder-count="8">
+<div style="display: flex; gap: 16px; padding: 14px 0; border-top: 1px solid #EFEBE2; align-items: flex-start">
+<div style="width: 78px; flex-shrink: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: {{r.fg}}; padding-top: 3px">{{r.lvl}}</div>
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 15px; font-weight: 600">{{r.t}}</div>
+<div style="font-size: 13px; color: #3A4250; line-height: 1.45">{{r.d}}</div>
+<div style="font-size: 12px; color: #4A5361; font-family: 'IBM Plex Mono', monospace">{{r.ev}}</div>
+</div>
+<button type="button" style="flex-shrink: 0; height: 44px; padding: 0 14px; border: 1px solid #C9C1B1; background: #FFFFFF; border-radius: 8px; font: 500 13px 'IBM Plex Sans', sans-serif; color: #18202B">{{r.act}}</button>
+</div>
+</sc-for>
+</section>
+
+<aside aria-label="Publicação" style="width: 400px; flex-shrink: 0; display: flex; flex-direction: column; gap: 22px">
+<section style="background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600">Aviso de contratação direta</h2>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="ini" style="font-size: 13px; font-weight: 500">Início do recebimento de propostas</label><input id="ini" value="14/01/2026 00:00" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Mono', monospace; color: #18202B"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="fim" style="font-size: 13px; font-weight: 500">Fim do recebimento</label><input id="fim" value="20/01/2026 08:00" style="height: 44px; border: 1px solid #C9C1B1; border-radius: 8px; padding: 0 12px; font: 400 14px 'IBM Plex Mono', monospace; color: #18202B"></div>
+<div style="font-size: 13px; color: #1F4E79; font-weight: 500">4 dias úteis de divulgação — mínimo de 3 atendido (art. 75, §3º)</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 6px; border-top: 1px solid #EFEBE2">
+<div style="font-size: 13px; font-weight: 600">Canais</div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>PNCP (API — aviso + anexos)</span><span style="color: #1F4E79; font-weight: 500">Pronto</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>Sítio oficial da Câmara</span><span style="color: #1F4E79; font-weight: 500">Pronto</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>Diário Oficial do Legislativo</span><span style="color: #1F4E79; font-weight: 500">Pronto</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span>Plataforma de disputa</span><span style="color: #1F4E79; font-weight: 500">Pronto</span></div>
+</div>
+<button type="button" disabled style="height: 48px; border: 0; background: #B8C4D1; color: #18202B; border-radius: 8px; font: 600 15px 'IBM Plex Sans', sans-serif">Publicar — resolva 3 bloqueios</button>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DDD6C8; border-radius: 10px; padding: 20px 22px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600">Assinaturas</h2>
+<sc-for list="{{signs}}" as="s" hint-placeholder-count="4">
+<div style="display: flex; justify-content: space-between; gap: 10px; font-size: 13px"><span>{{s.doc}}</span><span style="color: {{s.fg}}; font-weight: 500; white-space: nowrap">{{s.st}}</span></div>
+</sc-for>
+</section>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const blk = { lvl: 'Bloqueio', fg: '#9A4308' };
+    const att = { lvl: 'Atenção', fg: '#4A5361' };
+    const rules = [
+      { t: 'Enquadramento divergente entre documentos', d: 'O objeto é serviço comum de TI (inciso II). Três peças citam o inciso I, que trata de obras e serviços de engenharia.', ev: 'Relatório fl. 39 · Minuta do aviso fl. 41 (inciso I) × Parecer fl. 75, Despacho fl. 35 (inciso II)', act: 'Corrigir peças', ...blk },
+      { t: 'Minuta do contrato herdou dados de outro processo', d: 'A cláusula de vinculação aponta PA 115/2025 e Dispensa 025/2025.', ev: 'Minuta do contrato, cláusula 2.1.2 · fl. 63', act: 'Abrir minuta', ...blk },
+      { t: 'Indicação de marca sem justificativa técnica', d: 'ETP e TR pedem solução "similar ou superior ao ARION (SNEWS)". Exige justificativa formal ou remoção.', ev: 'ETP itens 2.3 e 8.5 · fls. 05 e 10', act: 'Justificar', ...blk },
+      { t: 'Estimativa adotou o menor valor', d: 'O valor estimado coincide com a proposta de um dos fornecedores consultados; registre o método.', ev: 'Certidão de pesquisa fl. 19 · Proposta DMNEWS fl. 21', act: 'Registrar método', ...att },
+      { t: 'Cronologia da informação orçamentária', d: 'O parecer data a informação orçamentária em 04/12/2025, antes da CI que a solicita (10/12/2025).', ev: 'CI fl. 25 · Parecer fl. 81', act: 'Conferir datas', ...att },
+      { t: 'Lei do orçamento citada com números diferentes', d: 'Despacho cita Lei 1.141/2024; parecer cita Lei 1.151/2024.', ev: 'Despacho fl. 35 · Parecer fl. 81', act: 'Conferir', ...att },
+      { t: 'Virada de exercício', d: 'A reserva é de 2025 e a contratação ocorrerá em 2026: prever nova dotação antes do contrato.', ev: 'Informação orçamentária fl. 27 · publicação prevista 13/01/2026', act: 'Agendar', ...att },
+      { t: 'Relatório do agente juntado duas vezes', d: 'Versões com texto divergente sobre o inciso. Manter apenas a válida e anular a outra por despacho.', ev: 'fls. 14–16 e 38–40', act: 'Resolver', ...att }
+    ];
+    const signs = [
+      { doc: 'DFD — Diretor Administrativo', st: 'Assinado', fg: '#1F4E79' },
+      { doc: 'Pesquisa — Gerente de Compras', st: 'Assinado', fg: '#1F4E79' },
+      { doc: 'Autorização — Mesa Diretora', st: 'Sem data', fg: '#9A4308' },
+      { doc: 'Parecer — Procuradoria', st: 'Assinado', fg: '#1F4E79' }
+    ];
+    return { rules, signs };
+  }
+}
+</script>
+</body>
+</html>
