@@ -14,6 +14,7 @@ Antes de publicar a primeira licitação, o órgão precisa deixar algumas coisa
 | Feriados municipais e pontos facultativos | Conta do órgão ou Administrador do órgão | **Configurações** › **Feriados** |
 | Fluxos de aprovação dos documentos | Conta do órgão ou Administrador do órgão | **Configurações** › **Fluxos de aprovação** |
 | Modelos de documento | Conta do órgão ou Administrador do órgão | **Configurações** › **Modelos de documento** |
+| Painel para TV (links da TV e prazo dos contratos vencendo) | **Somente** conta do órgão ou Administrador do órgão | **Configurações** › aba **Painel para TV** |
 | Pregoeiro de cada processo | Agente/equipe que edita o processo | Cockpit › **Editar dados** › aba **Configurações** |
 
 > O menu **Configurações** só aparece para a conta do órgão e para usuários com papel **Administrador**.
@@ -160,3 +161,82 @@ Em **Configurações** › **Orçamento** o órgão mantém as tabelas que a **r
 
 **Nova dotação**, **Nova lei**, editar (lápis) e **Desativar**/**Reativar** (a desativada some das listas, mas continua nas reservas já feitas). Qualquer servidor do órgão pode cadastrar; a Contabilidade também cadastra pelo **cadastro rápido** da tela da reserva.
 
+## 10. Painel para TV
+
+O **Painel para TV** é um quadro do setor de licitação para ficar ligado numa TV da sala. Ele mostra os processos em andamento por etapa, com quem cada um está e há quantos dias, o que está atrasado, as próximas sessões e os contratos que vão vencer. É **só leitura**, não pede login e se atualiza sozinho a cada minuto.
+
+Quem configura: **somente** a conta do órgão ou um usuário **Administrador** do órgão, em **Configurações** › aba **Painel para TV**.
+
+### O que aparece na TV
+
+- **Números do topo:**
+  - processos em andamento;
+  - **atrasados** — tarefa com prazo vencido, ou etapa parada além do prazo configurado em **Fase interna e tarefas**;
+  - publicados nos últimos 7 dias;
+  - sessões e fins de prazo de propostas, hoje e nos próximos 7 dias;
+  - contratos que vencem em até 30, 60 e 90 dias.
+- **Quadro por etapa:** Demanda (DFD) · Planejamento (ETP/TR) · Pesquisa de preços · Reserva orçamentária · Autorização · Minutas e parecer · Publicação (inclusive "aguardando PNCP") · Recebendo propostas · Julgamento e habilitação · Recurso · Homologação · Contrato (formalização).
+  - Na fase interna, a etapa é a mesma do quadro "Fluxo da fase interna" do processo. Depois da publicação, é a fase do processo.
+  - Processos suspensos aparecem com a etiqueta **Suspenso**.
+  - Processos concluídos, revogados, anulados, desertos e fracassados não aparecem.
+- **Cartão do processo:**
+  - PA e número da modalidade, objeto resumido e modalidade;
+  - **com quem está**: a pessoa da tarefa aberta, ou o papel/setor; sem tarefa, o agente do processo;
+  - **dias na etapa**;
+  - **cor do prazo**: verde no prazo, amarelo vencendo em até 2 dias úteis, vermelho atrasado. Os dias úteis seguem o calendário de feriados do órgão (parte 4);
+  - ícone vermelho com um número: quantidade de **achados de bloqueio abertos** na conformidade (o texto do achado não aparece);
+  - na fase externa, a data e a hora da sessão ou do fim do prazo de propostas.
+- **Contratos vencendo:** contratos **vigentes** com o fim da vigência dentro do prazo escolhido (padrão: 90 dias). Cada cartão mostra:
+  - o contratado, o objeto e o fim da vigência;
+  - os **dias restantes** (vermelho até 30, amarelo até 60);
+  - o gestor do contrato (ou o fiscal, se não houver gestor);
+  - quando o contrato informa: "Serviço contínuo — pode prorrogar (art. 107)", ou "Não prorrogável" (serviço contínuo que já chegou a 10 anos);
+  - "Aditivo de prazo em andamento", quando há termo aditivo de prazo registrado cuja vigência ainda vai começar.
+- **Rodapé:** próximas sessões e fins de prazo de propostas, publicações confirmadas no PNCP nas últimas 24 horas e contratos que vencem nos próximos 7 dias.
+
+Quando não cabe tudo, a TV **troca de página sozinha a cada 25 segundos**. A coluna com muitos processos continua na página seguinte, e a última página é a dos contratos.
+
+O canto superior direito mostra o relógio, a data, "atualizado às HH:MM" e a página atual. Se a internet cair, a TV continua com os últimos dados e mostra **"sem conexão desde HH:MM"** em vermelho até a conexão voltar.
+
+> **O que a TV nunca mostra.** A tela fica à vista de quem passa, por isso ela não mostra, mesmo sendo de uso interno:
+> - valor estimado de processo (nem o de orçamento sigiloso, art. 24);
+> - fornecedores, quantidade ou valores de propostas;
+> - texto de pareceres, diligências ou achados;
+> - CPF, e-mail e telefone.
+>
+> Aparecem o valor e o contratado dos contratos vigentes (informação pública) e o nome dos servidores responsáveis.
+
+### Gerar o link da TV
+
+1. Em **Configurações** › **Painel para TV**, digite o **nome da TV** (ex.: "TV da sala de licitações") e clique em **Gerar link**.
+2. **Copie o link na hora** (botão **Copiar**). Por segurança, o sistema guarda só uma "impressão" do link, e ele **não é mostrado de novo**. Se perder, revogue e gere outro.
+3. Pode haver vários links ativos (uma TV por setor). A lista mostra o nome, quem criou e o **último acesso** de cada um. O último acesso ajuda a saber se a TV está ligada. O lápis renomeia o link.
+4. **Revogar** desliga o link. Na próxima atualização (em até 1 minuto), a TV passa a mostrar "Painel indisponível". Para voltar, gere um link novo e troque na TV.
+5. Em **Contratos vencendo**, escolha 30, 60, 90 ou 120 dias.
+6. **Abrir pré-visualização** abre o painel numa aba do navegador, com o seu login, para conferir antes de levar à TV.
+
+> **Atenção.** Trate o link como uma chave: quem o tiver vê o painel do órgão. Não publique o link em grupos abertos nem em sites. Se ele vazar, revogue.
+
+### Ligar numa TV (passo a passo)
+
+O painel funciona em qualquer navegador atual. Depois de aberto, não precisa de mouse nem de teclado. Escolha uma das formas:
+
+- **Smart TV com navegador** (Samsung, LG, Android TV/Google TV):
+  1. Abra o navegador da TV.
+  2. Digite ou cole o link. Um jeito prático é salvar o link como favorito na TV.
+  3. Ative a **tela cheia** do navegador.
+- **Chromecast / Google TV com controle:**
+  1. Instale um navegador na TV (ex.: Chrome ou "TV Bro").
+  2. Abra o link e deixe em tela cheia.
+
+  Também dá para **transmitir uma aba do Chrome** de um computador, mas o computador precisa ficar ligado com a aba aberta.
+- **Mini-PC ou notebook ligado na TV (HDMI):** abra o Chrome ou o Edge em **modo quiosque**, que já abre em tela cheia e sem barras:
+  - Chrome: `chrome --kiosk --noerrdialogs --disable-session-crashed-bubble "https://www.portaldcp.com.br/painel-tv/SEU-LINK"`
+  - Edge: `msedge --kiosk "https://www.portaldcp.com.br/painel-tv/SEU-LINK" --edge-kiosk-type=fullscreen`
+
+  Coloque o comando na inicialização do Windows para a TV voltar sozinha depois de uma queda de energia. Sem modo quiosque, aperte **F11** (ou dê **dois cliques** na tela) para a tela cheia.
+
+Dicas:
+- Desligue a **economia de energia** e o **descanso de tela** da TV ou do mini-PC, senão a tela apaga.
+- O painel se ajusta sozinho a TVs **Full HD (1920×1080)** e **4K**. Em 4K, tudo fica proporcionalmente maior. Se o navegador estiver com zoom, volte para 100%.
+- Não precisa recarregar a página: ela se atualiza a cada minuto. Depois de muitas horas ligada, ela se recarrega sozinha de madrugada.
