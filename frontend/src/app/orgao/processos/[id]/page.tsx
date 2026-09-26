@@ -42,6 +42,8 @@ import { DocumentosProcesso } from "./DocumentosProcesso"
 import { ImpugnacoesEsclarecimentos } from "./ImpugnacoesEsclarecimentos"
 import { SessaoPublicaCard, FASES_SALA } from "./SessaoPublicaCard"
 import { HistoricoProcesso } from "./HistoricoProcesso"
+import { ItensProcesso } from "./ItensProcesso"
+import { CancelarPublicacao, FASES_CANCELAR_PUBLICACAO } from "./CancelarPublicacao"
 import {
   consultarPrazos, inputLocalParaISO, lerErro, erroDeExcecao, sugestaoAPartirDoMinimo,
   type ErroBackend, type PrazosPublicacao,
@@ -888,6 +890,29 @@ export default function CockpitProcessoPage() {
 
       {/* Atos nomeados do processo (suspender, retomar, revogar, deserta...) */}
       <AtosProcesso licitacaoId={id} atos={dados.atos_disponiveis} onAtualizado={carregar} />
+
+      {/* Itens da contratação — obrigatórios para concluir a fase interna, publicar e ir ao PNCP */}
+      {licitacao.modalidade !== "CREDENCIAMENTO" && (
+        <ItensProcesso
+          licitacaoId={id}
+          itens={dados.itens}
+          // Leilão: bens (e o item) no painel do leilão
+          emFaseInterna={emFaseInterna && licitacao.modalidade !== "LEILAO"}
+        />
+      )}
+
+      {/* Cancelar a publicação (antes de propostas) — volta à fase interna para correção */}
+      {FASES_CANCELAR_PUBLICACAO.includes(licitacao.fase) &&
+        (licitacao.situacao ?? "ATIVA") === "ATIVA" &&
+        !licitacao.selecao_externa &&
+        licitacao.modalidade !== "CREDENCIAMENTO" &&
+        !dados.propostas.some((p) => !["RASCUNHO", "DESCLASSIFICADA", "CANCELADA"].includes(p.status)) && (
+          <CancelarPublicacao
+            licitacaoId={id}
+            semItens={!dados.itens.some((i) => i.status !== "CANCELADO" && Number(i.quantidade) > 0 && Number(i.valor_unitario_estimado) > 0)}
+            onAtualizado={carregar}
+          />
+        )}
 
       {/* Publicação do edital (art. 55) — modalidades competitivas ao fim da fase interna */}
       {MODALIDADES_COMPETITIVAS.includes(licitacao.modalidade) && licitacao.fase === "APROVACAO_INTERNA" && ativa && (

@@ -1596,6 +1596,59 @@ export class PncpService implements OnModuleInit {
     }
   }
 
+  /**
+   * CANCELAR A PUBLICAÇÃO pelo cockpit (órgão dono; motivo obrigatório) —
+   * volta a licitação à fase interna (APROVACAO_INTERNA) para corrigir o
+   * processo (ex.: publicado sem itens) e publicar de novo. Só antes de haver
+   * propostas (pré-condição do ato; depois disso é revogar/anular).
+   *  - compra já no PNCP → exclui a compra lá (mesmo caminho da tela do PNCP);
+   *  - compra ainda não enviada (na fila ou com erro) → tira as operações da
+   *    fila e pratica o ato — nada é enviado depois.
+   */
+  async cancelarPublicacaoDaLicitacao(
+    licitacaoId: string,
+    motivo: string,
+    ator: AtorTransicao,
+  ): Promise<{ sucesso: true; mensagem: string; compra_excluida_pncp: boolean }> {
+    const justificativa = String(motivo ?? '').trim();
+    if (justificativa.length < 10) {
+      throw new HttpException('Informe o motivo do cancelamento da publicação (mínimo 10 caracteres) — ele fica nos autos.', HttpStatus.BAD_REQUEST);
+    }
+    const licitacao = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
+    if (!licitacao) throw new HttpException('Licitação não encontrada', HttpStatus.NOT_FOUND);
+
+    const [compra] = await this.dataSource.query(
+      `SELECT ano_compra, sequencial_compra FROM pncp_sync
+        WHERE licitacao_id = $1 AND tipo::text = 'COMPRA' AND status::text IN ('ENVIADO','ATUALIZADO')
+          AND ano_compra IS NOT NULL AND sequencial_compra IS NOT NULL
+        ORDER BY created_at DESC LIMIT 1`,
+      [licitacaoId],
+    );
+    const ano = compra?.ano_compra ?? (licitacao as any).ano_compra_pncp ?? null;
+    const sequencial = compra?.sequencial_compra ?? (licitacao as any).sequencial_compra_pncp ?? null;
+    if (ano && sequencial) {
+      await this.excluirCompra(String(ano), String(sequencial), { justificativa, licitacaoId }, ator, this.obterCnpjPncpDoOrgao(licitacao.orgao) || undefined);
+      return { sucesso: true, mensagem: 'Compra excluída do PNCP e publicação cancelada — o processo voltou à fase interna.', compra_excluida_pncp: true };
+    }
+
+    // Nada publicado no PNCP: confere o ato ANTES de mexer na fila
+    await this.transicoes.verificar(licitacaoId, AtoLicitacao.CANCELAR_PUBLICACAO, { ator, motivo: justificativa });
+    await this.dataSource.query(
+      `UPDATE pncp_sync
+          SET status = 'EXCLUIDO', chave_idempotencia = NULL, proximo_envio = NULL,
+              erro_mensagem = $2, updated_at = now()
+        WHERE licitacao_id = $1 AND status::text <> 'EXCLUIDO'
+          AND tipo::text IN ('COMPRA','ITEM','DOCUMENTO','RETIFICACAO_COMPRA','SITUACAO_COMPRA','RESULTADO')`,
+      [licitacaoId, `Publicação cancelada pelo órgão antes do envio ao PNCP: ${justificativa}`.slice(0, 2000)],
+    );
+    await this.transicoes.executar(licitacaoId, AtoLicitacao.CANCELAR_PUBLICACAO, {
+      ator,
+      motivo: justificativa,
+      registro: { origem: 'ORGAO', compra_no_pncp: false },
+    });
+    return { sucesso: true, mensagem: 'Publicação cancelada — o processo voltou à fase interna (nada havia sido publicado no PNCP).', compra_excluida_pncp: false };
+  }
+
   async excluirCompra(
     anoCompra: string,
     sequencialCompra: string,

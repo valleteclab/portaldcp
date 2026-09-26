@@ -111,6 +111,12 @@ export interface ConsultasTransicao {
   /** Status e vencedor de cada item. */
   itens(): Promise<Array<{ status: string; fornecedor_vencedor_id: string | null }>>;
   /**
+   * Itens com quantidade e valor unitário estimado (gate de itens do
+   * CONCLUIR_FASE_INTERNA/PUBLICAR — `itens/regras-itens-publicacao.ts`).
+   * Opcional: ausente = sem checagem (testes unitários antigos).
+   */
+  itensParaPublicacao?(): Promise<Array<{ status: string | null; quantidade: number | string | null; valor_unitario_estimado: number | string | null }>>;
+  /**
    * Instrução documental da fase interna (gate único, E1.7): contratação
    * direta → checklist do art. 72 (etapa ignorada); rito completo → documentos
    * obrigatórios da `etapa` informada ou, sem etapa, de todas as etapas

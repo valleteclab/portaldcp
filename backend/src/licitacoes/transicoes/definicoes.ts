@@ -30,6 +30,7 @@ import {
 import { montarFluxosEspeciais } from './definicoes-especiais';
 import { pendenciasEditalCredenciamento } from '../../credenciamento/regras-credenciamento';
 import { arquivarInscricoesPendentesSql } from '../../credenciamento/credenciamento.sql';
+import { pendenciaItensParaPublicacao } from '../../itens/regras-itens-publicacao';
 import {
   AtoLicitacao,
   ContextoTransicao,
@@ -91,6 +92,19 @@ export const instrucaoCompleta: Precondicao = async (ctx) => {
     return `Instrução do processo incompleta (Art. 72 da Lei 14.133/2021). Pendências: ${instrucao.pendentes.join('; ')}`;
   }
   return instrucao.pendentes.map((p) => `Documento obrigatório da fase interna pendente: ${p}`);
+};
+
+/**
+ * ITENS (todas as modalidades): concluir a fase interna e publicar exigem
+ * pelo menos um item ativo com quantidade e valor unitário estimado > 0 —
+ * sem item a compra não vai ao PNCP ("licitação deve ter pelo menos um item")
+ * e não há o que disputar/contratar. Leilão: valor = preço mínimo do bem;
+ * concurso: valor = prêmio (ambos gravados no item). Seleção externa: os
+ * itens vêm da plataforma de origem — a regra vale do mesmo jeito.
+ */
+export const haItensComValorEstimado: Precondicao = async (ctx) => {
+  if (!ctx.consultas.itensParaPublicacao) return null;
+  return pendenciaItensParaPublicacao(await ctx.consultas.itensParaPublicacao());
 };
 
 /** @deprecated nome antigo (só contratação direta) — use `instrucaoCompleta`. */
@@ -514,7 +528,7 @@ const CONCLUIR_FASE_INTERNA_RITO_COMPLETO: DefinicaoAto = {
   rotulo: 'Concluir fase interna (autorização)',
   de: [F.APROVACAO_INTERNA],
   para: F.APROVACAO_INTERNA,
-  precondicoes: [instrucaoCompleta],
+  precondicoes: [instrucaoCompleta, haItensComValorEstimado],
   efeitos: [concluirFaseInterna],
 };
 
@@ -524,7 +538,7 @@ const CONCLUIR_FASE_INTERNA_CONTRATACAO_DIRETA: DefinicaoAto = {
   rotulo: 'Concluir instrução (art. 72)',
   de: FASES_INTERNAS,
   para: F.APROVACAO_INTERNA,
-  precondicoes: [instrucaoCompleta],
+  precondicoes: [instrucaoCompleta, haItensComValorEstimado],
   efeitos: [concluirFaseInterna],
 };
 
@@ -536,7 +550,7 @@ const PUBLICAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoCompleta, editalAnexado, prazosDePublicacao, exclusividadeMpeArt48],
+  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, prazosDePublicacao, exclusividadeMpeArt48],
   efeitos: [gravarCronogramaPublicacao, gravarJustificativaArt49],
   // o edital anexado vira o documento divulgado (E7a)
   efeitosPersistidos: [async (lic, m) => marcarEditalPublicadoSql(m, lic.id)],
@@ -1054,7 +1068,7 @@ const PUBLICAR_CREDENCIAMENTO: DefinicaoAto = {
   principal: true,
   // Sem prazo mínimo do art. 55 (não é modalidade de licitação); inscrições
   // abertas durante toda a vigência (art. 79 par. único I).
-  precondicoes: [instrucaoCompleta, editalAnexado, editalCredenciamentoConfigurado],
+  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, editalCredenciamentoConfigurado],
   efeitosPersistidos: [gravarVigenciaCredenciamento, async (lic, m) => marcarEditalPublicadoSql(m, lic.id)],
   mensagemForaDaFase: () => 'Conclua a instrução (fase interna) antes de publicar o edital de credenciamento',
 };

@@ -34,6 +34,7 @@ import {
   tipoPessoaDoNi,
 } from '../mapeamento-pncp';
 import { ErroPncp, RE_COMPRA_JA_EXISTE, aguardandoDependencia, falhaDefinitiva } from './regras-fila';
+import { pendenciaItensParaPublicacao } from '../../itens/regras-itens-publicacao';
 
 /** O que uma operação devolve para a linha da fila. */
 export interface ResultadoEnvio {
@@ -259,6 +260,13 @@ export class PncpEnviosService {
     const ja = await this.compraPublicada(licitacaoId);
     if (ja) {
       return { observacao: 'Compra já publicada no PNCP', numeroControle: ja.numeroControle, ano: ja.ano, sequencial: ja.sequencial, link: this.pncp.linkCompra(ja.cnpj, ja.ano, ja.sequencial) };
+    }
+    // Defesa (o gate do PUBLICAR já exige): nunca enviar compra sem item válido
+    const semItens = pendenciaItensParaPublicacao(lic.itens || []);
+    if (semItens) {
+      throw falhaDefinitiva(
+        `Compra não enviada ao PNCP: ${semItens.replace(/\.$/, '')}. Cancele a publicação no cockpit, cadastre os itens na fase interna e publique de novo.`,
+      );
     }
     const validacao = await this.pncp.validarLicitacaoParaPNCP(licitacaoId);
     if (!validacao.valido) throw falhaDefinitiva(`Licitação não pode ser enviada ao PNCP:\n${validacao.erros.join('\n')}`);

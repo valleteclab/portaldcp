@@ -117,6 +117,15 @@ export class UpdateItemDto {
   @IsOptional()
   descricao_resumida?: string;
 
+  /** Número do item (reordenação na fase interna — assistente/edição). */
+  @IsNumber()
+  @IsOptional()
+  numero_item?: number;
+
+  @IsEnum(UnidadeMedida)
+  @IsOptional()
+  unidade_medida?: UnidadeMedida;
+
   @IsString()
   @IsOptional()
   descricao_detalhada?: string;

@@ -18,8 +18,9 @@ import {
   FaseLicitacao,
   ModalidadeLicitacao,
 } from '../licitacoes/entities/licitacao.entity';
-import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
+import { ItemLicitacao, UnidadeMedida } from '../itens/entities/item-licitacao.entity';
 import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
+import { ehFaseInterna } from '../licitacoes/transicoes/fases';
 import {
   AtoLicitacao,
   AtorTransicao,
@@ -243,12 +244,14 @@ export class FaseInternaService {
       return true;
     }
     const dados = doc.dados_estruturados;
-    return Boolean(
-      (doc.descricao && doc.descricao.trim()) ||
-        doc.caminho_arquivo ||
-        doc.arquivo_pdf_path ||
-        (dados && typeof dados === 'object' && Object.keys(dados).length > 0),
-    );
+    if (doc.caminho_arquivo || doc.arquivo_pdf_path || (doc.descricao && doc.descricao.trim())) return true;
+    // Pesquisa de preços: o módulo cria o documento (itens sem cotação) só de
+    // abrir a tela — conta quando há ao menos uma cotação registrada (o PDF
+    // gerado grava arquivo e resumo, acima).
+    if (doc.tipo === TipoDocumentoFaseInterna.PESQUISA_PRECOS && dados && Array.isArray((dados as any).itens)) {
+      return (dados as any).itens.some((i: any) => (i?.cotacoes?.length ?? 0) > 0);
+    }
+    return Boolean(dados && typeof dados === 'object' && Object.keys(dados).length > 0);
   }
 
   /**
@@ -608,6 +611,15 @@ export class FaseInternaService {
       idExterno: string;
       caminhoArquivo?: string;
     }>;
+    /** Itens da contratação (sem item com quantidade e valor a fase interna não conclui). */
+    itens?: Array<{
+      numero_item?: number;
+      descricao: string;
+      quantidade: number;
+      unidade_medida?: string;
+      valor_unitario_estimado: number;
+      tipo_item?: 'MATERIAL' | 'SERVICO';
+    }>;
   }, ator: AtorTransicao = atorSistema('importacao')): Promise<{
     licitacao: Licitacao;
     documentos: DocumentoFaseInterna[];
@@ -649,6 +661,28 @@ export class FaseInternaService {
         doc.caminhoArquivo,
       );
       documentosImportados.push(documento);
+    }
+
+    // Itens do processo importado
+    const unidades = Object.values(UnidadeMedida) as string[];
+    for (const [i, item] of (dados.itens ?? []).entries()) {
+      const quantidade = Number(item.quantidade) || 0;
+      const valor = Number(item.valor_unitario_estimado) || 0;
+      const unidade = String(item.unidade_medida || '').toUpperCase();
+      await this.itemRepository.save(
+        this.itemRepository.create({
+          licitacao_id: licitacao.id,
+          numero_item: Number(item.numero_item) || i + 1,
+          descricao_resumida: String(item.descricao || '').trim() || dados.objeto,
+          quantidade,
+          unidade_medida: (unidades.includes(unidade) ? unidade : UnidadeMedida.UNIDADE) as UnidadeMedida,
+          valor_unitario_estimado: valor,
+          valor_total_estimado: Math.round(quantidade * valor * 100) / 100,
+          ...(item.tipo_item === 'MATERIAL' || item.tipo_item === 'SERVICO' ? { tipo_item: item.tipo_item } : {}),
+          sem_pca: true,
+          justificativa_sem_pca: `Processo importado de ${dados.sistemaOrigem}`,
+        }),
+      );
     }
 
     const pendencias = await this.concluirFaseInternaPorAtos(licitacao.id, ator);
@@ -1091,6 +1125,7 @@ export class FaseInternaService {
               licitacao.objeto,
             quantidade: Number(item.quantidade) || 1,
             unidade: String(item.unidade_medida || 'UN'),
+            vinculado_item_licitacao: true,
             cotacoes: [],
             metodologia: 'MEDIANA' as const,
             valor_referencial: Number(item.valor_unitario_estimado) || 0,
@@ -1118,9 +1153,151 @@ export class FaseInternaService {
         dados_estruturados: { itens: itensPesquisa } as PesquisaPrecosDados,
       });
       doc = await this.documentoRepository.save(doc);
+    } else if (ehFaseInterna(licitacao.fase)) {
+      doc = await this.sincronizarItensDaPesquisa(licitacao, doc);
     }
 
     return doc;
+  }
+
+  /**
+   * Itens da pesquisa = itens da contratação (`itens_licitacao`), pelo número
+   * do item. O documento PP é criado com os itens que existirem na hora; o
+   * assistente/cockpit pode cadastrar ou alterar itens depois — a pesquisa
+   * acompanha (fase interna): item novo entra, descrição/quantidade/unidade
+   * seguem o cadastro, e item sem cotação que não existe mais na contratação
+   * (inclusive o provisório "item 1 = objeto") sai. Item com cotações nunca é
+   * apagado aqui (a curadoria é do servidor).
+   */
+  private async sincronizarItensDaPesquisa(
+    licitacao: Licitacao,
+    doc: DocumentoFaseInterna,
+  ): Promise<DocumentoFaseInterna> {
+    const itensLic = await this.itemRepository.find({
+      where: { licitacao_id: licitacao.id },
+      order: { numero_item: 'ASC' },
+    });
+    const ativos = itensLic.filter((i) => String(i.status ?? 'ATIVO') !== 'CANCELADO');
+    if (!ativos.length) return doc;
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+    const atuais: ItemPesquisaPrecos[] = Array.isArray(dados.itens) ? dados.itens : [];
+    const numeros = new Set(ativos.map((i) => Number(i.numero_item)));
+    let mudou = false;
+
+    // Sai só o que o próprio cadastro criou (ou o provisório "item 1 = objeto"),
+    // sem cotação; item acrescentado à mão na pesquisa fica.
+    const provisorio = (p: ItemPesquisaPrecos) =>
+      p.vinculado_item_licitacao || (Number(p.item_numero) === 1 && (p.descricao || '') === (licitacao.objeto || '') && Number(p.quantidade) === 1);
+    const mantidos = atuais.filter((p) => {
+      const fica = numeros.has(Number(p.item_numero)) || (p.cotacoes?.length ?? 0) > 0 || !provisorio(p);
+      if (!fica) mudou = true;
+      return fica;
+    });
+    for (const item of ativos) {
+      const descricao = item.descricao_resumida || item.descricao_detalhada || licitacao.objeto || '';
+      const quantidade = Number(item.quantidade) || 1;
+      const unidade = String(item.unidade_medida || 'UN');
+      const existente = mantidos.find((p) => Number(p.item_numero) === Number(item.numero_item));
+      if (!existente) {
+        mantidos.push({
+          item_numero: Number(item.numero_item),
+          descricao,
+          quantidade,
+          unidade,
+          codigo_catalogo: item.codigo_catalogo || undefined,
+          codigo_catmat: item.codigo_catmat || undefined,
+          codigo_catser: item.codigo_catser || undefined,
+          vinculado_item_licitacao: true,
+          cotacoes: [],
+          metodologia: 'MEDIANA',
+          valor_referencial: 0,
+        });
+        mudou = true;
+      } else if (
+        !existente.vinculado_item_licitacao ||
+        existente.descricao !== descricao ||
+        Number(existente.quantidade) !== quantidade ||
+        existente.unidade !== unidade
+      ) {
+        existente.vinculado_item_licitacao = true;
+        existente.descricao = descricao;
+        existente.quantidade = quantidade;
+        existente.unidade = unidade;
+        mudou = true;
+      }
+    }
+    if (!mudou) return doc;
+    mantidos.sort((a, b) => Number(a.item_numero) - Number(b.item_numero));
+    doc.dados_estruturados = { ...dados, itens: mantidos };
+    return this.documentoRepository.save(doc);
+  }
+
+  /**
+   * Documento PP gerado pelo módulo de pesquisa (POST precos/gerar-documento):
+   *  - o PDF vira o arquivo do documento PP (instrução do art. 72 — "estimativa
+   *    de despesa" — e etapa PESQUISA_PRECOS do rito completo);
+   *  - o relatório traz o mapa comparativo por item (cotações, média, mediana,
+   *    desvio), então também atende o "Mapa comparativo de preços" (MCP) exigido
+   *    na etapa de pesquisa do rito completo;
+   *  - na fase interna, o valor referencial de cada item vira o valor unitário
+   *    estimado do item da contratação (e o total estimado da licitação).
+   */
+  async registrarDocumentoPPGerado(
+    licitacaoId: string,
+    caminhoRelativo: string,
+    valorTotal: number,
+  ): Promise<void> {
+    const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
+    if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const nome = caminhoRelativo.split('/').pop() || 'pesquisa-precos.pdf';
+    const resumo = `Pesquisa de preços (art. 23 da Lei 14.133/2021) — valor total estimado ${Number(valorTotal || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`;
+    doc.arquivo_pdf_path = caminhoRelativo;
+    doc.data_geracao_arquivo = new Date();
+    doc.nome_arquivo = nome;
+    doc.descricao = resumo;
+    await this.documentoRepository.save(doc);
+
+    let mapa = await this.documentoRepository.findOne({
+      where: { licitacao_id: licitacaoId, tipo: TipoDocumentoFaseInterna.MAPA_COMPARATIVO_PRECOS, versao_atual: true },
+    });
+    if (!mapa) {
+      mapa = this.documentoRepository.create({
+        licitacao_id: licitacaoId,
+        tipo: TipoDocumentoFaseInterna.MAPA_COMPARATIVO_PRECOS,
+        titulo: 'Mapa comparativo de preços',
+        status: StatusDocumento.EM_ELABORACAO,
+        origem: OrigemDocumento.INTERNO,
+        versao: 1,
+        versao_atual: true,
+      });
+    }
+    // Sem sobrescrever um mapa próprio já enviado/aprovado
+    if (!mapa.caminho_arquivo && ![StatusDocumento.APROVADO, StatusDocumento.AGUARDANDO_APROVACAO].includes(mapa.status)) {
+      mapa.arquivo_pdf_path = caminhoRelativo;
+      mapa.data_geracao_arquivo = new Date();
+      mapa.nome_arquivo = nome;
+      mapa.descricao = 'Mapa comparativo por item integrante do relatório da pesquisa de preços (cotações, média, mediana e desvio padrão).';
+      await this.documentoRepository.save(mapa);
+    }
+
+    if (!ehFaseInterna(licitacao.fase)) return;
+    const itensPesquisa: ItemPesquisaPrecos[] = (doc.dados_estruturados as PesquisaPrecosDados)?.itens || [];
+    const itensLic = await this.itemRepository.find({ where: { licitacao_id: licitacaoId } });
+    let total = 0;
+    for (const item of itensLic) {
+      const p = itensPesquisa.find((x) => Number(x.item_numero) === Number(item.numero_item));
+      const ref = Number(p?.valor_referencial ?? 0);
+      if (p && ref > 0 && item.status === 'ATIVO') {
+        item.valor_unitario_estimado = Math.round(ref * 100) / 100;
+        item.valor_total_estimado = Math.round(Number(item.quantidade) * item.valor_unitario_estimado * 100) / 100;
+        await this.itemRepository.save(item);
+      }
+      if (String(item.status) !== 'CANCELADO') total += Number(item.valor_total_estimado) || 0;
+    }
+    if (total > 0) {
+      await this.licitacaoRepository.update({ id: licitacaoId }, { valor_total_estimado: Math.round(total * 100) / 100 } as any);
+    }
   }
 
   async getPrecos(
@@ -1824,6 +2001,8 @@ export class FaseInternaService {
       edital_notas?: string;
       parecerJuridico?: string;
       juridico_obs?: string;
+      /** Dotação do assistente (JSON ou objeto): elemento, fonte, dotação, exercício ou SRP/exercício seguinte. */
+      dotacao?: string | Record<string, any>;
     },
   ): Promise<DocumentoFaseInterna[]> {
     const licitacao = await this.licitacaoRepository.findOneBy({
@@ -1924,6 +2103,31 @@ export class FaseInternaService {
       'Parecer Jurídico',
       dados.juridico_obs || dados.parecerJuridico,
     );
+
+    // Dotação orçamentária do assistente (antes era descartada)
+    let dotacao: Record<string, any> | null = null;
+    try {
+      dotacao = typeof dados.dotacao === 'string' ? JSON.parse(dados.dotacao || 'null') : dados.dotacao ?? null;
+    } catch {
+      dotacao = null;
+    }
+    if (dotacao && typeof dotacao === 'object') {
+      const srp = String(dotacao.srp) === 'true';
+      const seguinte = String(dotacao.exercicio_seguinte) === 'true';
+      const linhas = [
+        srp ? 'Sistema de Registro de Preços — dotação indicada na formalização de cada contratação (art. 82, §1º, I).' : '',
+        seguinte ? 'Contrato para exercício subsequente — dotação indicada no exercício da despesa (art. 105).' : '',
+        dotacao.elemento_despesa ? `Elemento de despesa: ${dotacao.elemento_despesa}` : '',
+        dotacao.fonte_recurso ? `Fonte de recurso: ${dotacao.fonte_recurso}` : '',
+        dotacao.dotacao ? `Dotação: ${dotacao.dotacao}` : '',
+        dotacao.exercicio ? `Exercício: ${dotacao.exercicio}` : '',
+        dotacao.valor_dotacao ? `Valor disponível: R$ ${dotacao.valor_dotacao}` : '',
+        dotacao.observacoes ? `Observações: ${dotacao.observacoes}` : '',
+      ].filter(Boolean);
+      if (linhas.length) {
+        await salvarDoc(TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA, 'Dotação Orçamentária', linhas.join(String.fromCharCode(10)), dotacao);
+      }
+    }
 
     return salvos;
   }

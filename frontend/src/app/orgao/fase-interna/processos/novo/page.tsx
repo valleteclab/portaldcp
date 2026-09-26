@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { API_URL, authFetch } from "@/lib/api"
 import { toast } from "sonner"
 import { CamposModalidadeEspecial, MODALIDADES_ESPECIAIS_WIZARD, salvarCamposModalidadeEspecial } from "@/components/modalidades/CamposModalidadeEspecial"
+import { ItensTab } from "@/components/cadastro-licitacao/ItensTab"
+import { UNIDADES, type ItemLicitacao } from "@/components/cadastro-licitacao/types"
 
 function getOrgaoId(): string {
   if (typeof window === "undefined") return ""
@@ -136,9 +138,44 @@ function desmapearModoDisputa(backend: string): string {
 // Modalidades de contratação direta (sem licitação formal — sem minuta de edital)
 const MODALIDADES_CONTRATACAO_DIRETA = ["Dispensa Eletrônica", "Inexigibilidade"]
 
+/**
+ * Contratação direta (art. 72): obrigatórios só DFD, estimativa de despesa
+ * (pesquisa de preços) e autorização — além dos dados e dos itens. ETP,
+ * riscos, TR, dotação, aviso e parecer são "se for o caso": a etapa pode ser
+ * pulada, e os documentos da instrução podem ser marcados "não se aplica" com
+ * justificativa (POST /fase-interna/:id/instrucao/:tipo/nao-se-aplica).
+ */
+const ETAPAS_OBRIGATORIAS_CONTRATACAO_DIRETA = ["dados", "itens", "dfd", "pesquisa", "autorizacao"]
+/** Documento da instrução do art. 72 que cada etapa facultativa produz (marcação "não se aplica"). */
+const TIPO_DOCUMENTO_DA_ETAPA: Record<string, { tipo: string; titulo: string }> = {
+  etp:      { tipo: "ETP", titulo: "Estudo Técnico Preliminar (ETP)" },
+  riscos:   { tipo: "AR",  titulo: "Análise de riscos" },
+  tr:       { tipo: "TR",  titulo: "Termo de Referência (TR)" },
+  dotacao:  { tipo: "DO",  titulo: "Compatibilidade orçamentária" },
+  juridico: { tipo: "PJ",  titulo: "Parecer jurídico" },
+}
+
+/** Unidade do item no enum do backend (catálogo/CSV podem trazer "UN", "KG"...). */
+function normalizarUnidade(u?: string): string {
+  const v = String(u || "").trim().toUpperCase()
+  if (UNIDADES.some((x) => x.value === v)) return v
+  const mapa: Record<string, string> = {
+    UN: "UNIDADE", UND: "UNIDADE", UNID: "UNIDADE", PC: "PECA", PCT: "PACOTE", CX: "CAIXA",
+    KG: "QUILOGRAMA", T: "TONELADA", L: "LITRO", LT: "LITRO", M: "METRO", M2: "METRO_QUADRADO",
+    M3: "METRO_CUBICO", H: "HORA", DIA: "DIARIA", RESMA: "PACOTE", SV: "SERVICO",
+  }
+  return mapa[v] || "UNIDADE"
+}
+
+/** Item do assistente pronto para gravar (tem descrição e quantidade). */
+const itemPreenchido = (i: ItemLicitacao) => (i.descricao || "").trim().length > 0 && Number(i.quantidade) > 0
+const valorDosItens = (itens: ItemLicitacao[]) =>
+  itens.reduce((s, i) => s + (Number(i.quantidade) || 0) * (Number(i.valor_unitario) || 0), 0)
+
 // ─── Etapas do wizard ──────────────────────────────────────────────
 const WIZARD_ETAPAS = [
   { id: "dados",      sigla: "INI", nome: "Dados básicos",           art: "Configuração inicial" },
+  { id: "itens",      sigla: "IT",  nome: "Itens da contratação",    art: "Art. 18, IV · Art. 40" },
   { id: "dfd",        sigla: "DFD", nome: "Formalização da Demanda", art: "Art. 18, I" },
   { id: "etp",        sigla: "ETP", nome: "Estudo Técnico Preliminar",art: "Art. 18, §1º" },
   { id: "riscos",     sigla: "MR",  nome: "Análise de Riscos",       art: "Art. 18, X" },
@@ -253,7 +290,7 @@ Contexto:
 - Quantidade: ${ctx.quantidade || "a definir"}
 - Modalidade: ${ctx.modalidade || "não informada"}
 - Critério de julgamento: ${ctx.criterio || "Menor preço"}
-- Valor estimado mediano da pesquisa de preços: R$ ${(ctx.valorMediano || 0).toLocaleString("pt-BR")}
+- Valor total estimado (itens / pesquisa de preços): R$ ${(ctx.valorItens || 0).toLocaleString("pt-BR")}
 - ETP concluído: SIM
 
 Gere as 10 seções do TR em JSON. 3-4 frases formais, técnicas, com citações legais. A seção 8 deve mencionar a modalidade e critério de julgamento. A seção 9 deve referenciar a pesquisa de preços realizada. A seção 10 deve indicar que a dotação orçamentária será indicada conforme disponibilidade no exercício financeiro vigente.
@@ -346,11 +383,13 @@ async function typewriterFill(
 }
 
 // ─── Sidebar ───────────────────────────────────────────────────────
-function WizardSidebar({ etapas, current, completed, onJump }: {
+function WizardSidebar({ etapas, current, completed, onJump, opcionais = [] }: {
   etapas: typeof WIZARD_ETAPAS
   current: string
   completed: string[]
   onJump: (id: string) => void
+  /** Etapas facultativas (contratação direta — art. 72, "se for o caso") */
+  opcionais?: string[]
 }) {
   const visivel = etapas.slice(0, -1)
   const progresso = (completed.length / visivel.length) * 100
@@ -386,7 +425,10 @@ function WizardSidebar({ etapas, current, completed, onJump }: {
                 <div className={`text-xs font-semibold leading-tight truncate ${isActive ? "text-[#1351b4]" : isDone ? "text-gray-700" : "text-gray-400"}`}>
                   {e.nome}
                 </div>
-                <div className="text-[10px] text-gray-400 mt-0.5">{e.art}</div>
+                <div className="text-[10px] text-gray-400 mt-0.5">
+                  {e.art}
+                  {opcionais.includes(e.id) && <span className="ml-1 text-amber-600">· facultativa</span>}
+                </div>
               </div>
             </button>
           )
@@ -654,7 +696,7 @@ Formato de resposta:
               onChange={(e) => onChange("valor", e.target.value)}
               placeholder="Ex: 150000.00"
             />
-            <p className="mt-1 text-[10px] text-gray-400">Influencia modalidade (Art. 6º, XXXVIII)</p>
+            <p className="mt-1 text-[10px] text-gray-400">Referência inicial — o valor do processo passa a ser o dos itens (e da pesquisa de preços)</p>
           </div>
         </div>
       </div>
@@ -669,7 +711,12 @@ Formato de resposta:
 }
 
 // ─── PCA Selector Field ────────────────────────────────────────────
-function PcaSelectorField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function PcaSelectorField({ value, onChange, onItemPca }: {
+  value: string
+  onChange: (v: string) => void
+  /** Item do PCA escolhido — o assistente o inclui nos itens da contratação */
+  onItemPca?: (item: any) => void
+}) {
   // "selecionar" = vincular a item do PCA | "justificar" = não consta / justificar
   const [modo, setModo] = useState<"selecionar" | "justificar">(
     value && !value.startsWith("PCA") ? "justificar" : "selecionar"
@@ -736,6 +783,7 @@ function PcaSelectorField({ value, onChange }: { value: string; onChange: (v: st
     if (item.modalidade_prevista)
       partes.push(`Modalidade prevista: ${item.modalidade_prevista.replace(/_/g, " ")}`)
     onChange(partes.join(". ") + ".")
+    onItemPca?.(item)
   }
 
   const pcaAtual = pcas.find((p) => p.id === pcaSelecionado)
@@ -851,7 +899,7 @@ function PcaSelectorField({ value, onChange }: { value: string; onChange: (v: st
 }
 
 // ─── Step: Documento genérico (DFD / ETP / TR / Edital) ──────────
-function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx, customRenderers }: {
+function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx, customRenderers, opcional = false, rodape }: {
   stepKey: string
   secoes: Record<string, string>
   onChangeSec: (id: string, val: string) => void
@@ -859,6 +907,10 @@ function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx, cust
   onBack: () => void
   ctx: any
   customRenderers?: Record<string, (val: string, onChange: (v: string) => void, isAnimando: boolean) => React.ReactNode>
+  /** Etapa facultativa (contratação direta): avança sem exigir todas as seções */
+  opcional?: boolean
+  /** Painel "não se aplica" (contratação direta) — acima da navegação */
+  rodape?: React.ReactNode
 }) {
   const tpl = TEMPLATES[stepKey]
   const [busy, setBusy] = useState(false)
@@ -978,13 +1030,15 @@ function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx, cust
         </div>
       </div>
 
+      {rodape}
+
       {/* Navegação */}
       <div className="mt-6 flex items-center justify-between">
         <Button variant="ghost" onClick={onBack} className="text-gray-600">
           <ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior
         </Button>
-        <Button onClick={onNext} disabled={!todasPreenchidas} className="bg-[#1351b4] hover:bg-[#0c326f]">
-          Próxima etapa <ArrowRight className="w-4 h-4 ml-2" />
+        <Button onClick={onNext} disabled={!todasPreenchidas && !opcional} className="bg-[#1351b4] hover:bg-[#0c326f]">
+          {opcional && !todasPreenchidas ? "Pular etapa" : "Próxima etapa"} <ArrowRight className="w-4 h-4 ml-2" />
         </Button>
       </div>
     </div>
@@ -992,7 +1046,7 @@ function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx, cust
 }
 
 // ─── Step: Riscos ──────────────────────────────────────────────────
-function StepRiscos({ riscos, setRiscos, onNext, onBack, ctx }: any) {
+function StepRiscos({ riscos, setRiscos, onNext, onBack, ctx, opcional = false, rodape }: any) {
   const [busy, setBusy] = useState(false)
 
   const NIVEL = (p: number, i: number) => {
@@ -1069,68 +1123,164 @@ Retorne APENAS JSON: [{"descricao":"...","categoria":"...","probabilidade":1-5,"
         <Plus className="w-4 h-4 mr-2" /> Adicionar risco manualmente
       </Button>
 
+      {rodape}
+
       <div className="mt-6 flex items-center justify-between">
         <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
-        <Button onClick={onNext} disabled={riscos.length === 0} className="bg-[#1351b4] hover:bg-[#0c326f]">Próxima etapa <ArrowRight className="w-4 h-4 ml-2" /></Button>
+        <Button onClick={onNext} disabled={riscos.length === 0 && !opcional} className="bg-[#1351b4] hover:bg-[#0c326f]">{opcional && riscos.length === 0 ? "Pular etapa" : "Próxima etapa"} <ArrowRight className="w-4 h-4 ml-2" /></Button>
       </div>
     </div>
   )
 }
 
-// ─── Step: Pesquisa de Preços ──────────────────────────────────────
-function StepPesquisa({ fontes, setFontes, onNext, onBack }: any) {
-  const validas = fontes.filter((f: any) => f.valor > 0)
-  const media = validas.length ? validas.reduce((a: number, b: any) => a + b.valor, 0) / validas.length : 0
-
+// ─── Step: Itens da contratação ────────────────────────────────────
+/**
+ * Itens da contratação (itens_licitacao) — sem eles a compra não vai ao PNCP
+ * e o processo não conclui a fase interna nem publica. Reusa o editor de
+ * itens do cadastro (catálogo CATMAT/CATSER, vínculo com o PCA, CSV). O valor
+ * unitário pode ficar para a pesquisa de preços (etapa PP), que o preenche.
+ * "Salvar e continuar" grava o rascunho — a pesquisa de preços trabalha sobre
+ * os itens gravados.
+ */
+function StepItens({ itens, setItens, modalidade, onNext, onBack, salvando }: {
+  itens: ItemLicitacao[]
+  setItens: (i: ItemLicitacao[]) => void
+  modalidade: string
+  onNext: () => void
+  onBack: () => void
+  salvando: boolean
+}) {
+  const preenchidos = itens.filter(itemPreenchido)
+  const incompletos = itens.length - preenchidos.length
+  const semValor = preenchidos.filter((i) => !(Number(i.valor_unitario) > 0)).length
+  const total = valorDosItens(preenchidos)
+  const dica =
+    modalidade === "Leilão"
+      ? "No leilão cada item é um bem (ou conjunto de bens): o valor unitário é o preço mínimo de arrematação — avaliação e dados do bem ficam no painel do leilão."
+      : modalidade === "Concurso"
+        ? "No concurso o item é o prêmio (ou a remuneração) — o valor unitário é o valor do prêmio."
+        : "Descreva cada item com quantidade e unidade. O valor unitário estimado pode vir da pesquisa de preços (etapa PP), que o preenche ao gerar o documento."
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
-      <div className="mb-6">
-        <h2 className="text-lg font-bold text-gray-900">Pesquisa de Preços</h2>
-        <p className="text-sm text-gray-500 mt-1">Inclua pelo menos 3 fontes válidas (PNCP, Pesquisa de Precos Compras.gov.br ou cotações diretas).</p>
-        <span className="text-xs text-[#1351b4] font-medium">Art. 23 · IN SEGES/ME 65/2021</span>
+    <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full">
+      <div className="mb-4">
+        <h2 className="text-lg font-bold text-gray-900">Itens da contratação</h2>
+        <p className="text-sm text-gray-500 mt-1">{dica}</p>
+        <span className="text-xs text-[#1351b4] font-medium">Art. 18, IV (quantidades) · Art. 40 · Art. 23 (valor estimado)</span>
       </div>
 
-      {validas.length >= 3 && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700 flex items-center gap-2">
-          <Check className="w-4 h-4 shrink-0" />
-          <span><strong>{validas.length} fontes válidas</strong> — Conformidade com Art. 23, §1º</span>
-        </div>
-      )}
+      <ItensTab itens={itens} onChange={setItens} orgaoId={getOrgaoId()} modoVinculacaoPca="POR_ITEM" />
 
-      {media > 0 && (
-        <div className="mb-4 p-3 bg-[#ecf3fc] border border-[#c5d4eb] rounded-xl text-xs text-[#1351b4] font-semibold">
-          Valor médio das fontes: {media.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-        </div>
-      )}
-
-      <div className="space-y-3 mb-4">
-        {fontes.map((f: any, idx: number) => (
-          <div key={idx} className="border border-gray-100 rounded-xl p-3 bg-white flex items-center gap-3">
-            <div className="flex-1 grid grid-cols-2 gap-2">
-              <Input value={f.fonte} onChange={(e) => setFontes((p: any[]) => p.map((x, i) => i === idx ? { ...x, fonte: e.target.value } : x))} placeholder="Descrição da fonte…" className="text-xs h-8" />
-              <Input value={f.valor || ""} onChange={(e) => setFontes((p: any[]) => p.map((x, i) => i === idx ? { ...x, valor: parseFloat(e.target.value) || 0 } : x))} placeholder="Valor unitário (R$)" type="number" className="text-xs h-8" />
-            </div>
-            <button onClick={() => setFontes((p: any[]) => p.filter((_: any, i: number) => i !== idx))} className="text-gray-300 hover:text-red-400">
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
+      <div className={`mt-4 p-3 rounded-xl border text-xs flex items-start gap-2 ${
+        preenchidos.length > 0 && incompletos === 0 ? "bg-green-50 border-green-200 text-green-800" : "bg-[#f6f9fd] border-[#dbe8fb] text-[#1351b4]"
+      }`}>
+        {preenchidos.length > 0 && incompletos === 0 ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+        <span>
+          {preenchidos.length} item(ns) pronto(s)
+          {incompletos > 0 && ` · ${incompletos} sem descrição ou quantidade (não serão gravados)`}
+          {semValor > 0 && ` · ${semValor} sem valor unitário — defina na pesquisa de preços antes de concluir a fase interna`}
+          {total > 0 && ` · total estimado ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`}
+          . Lotes: em Editar dados → Lotes, no processo.
+        </span>
       </div>
-
-      <Button variant="outline" size="sm" onClick={() => setFontes((p: any[]) => [...p, { fonte: "", valor: 0 }])} className="w-full border-dashed border-gray-300 text-gray-500 h-9">
-        <Plus className="w-4 h-4 mr-2" /> Adicionar fonte de preço
-      </Button>
 
       <div className="mt-6 flex items-center justify-between">
         <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
-        <Button onClick={onNext} disabled={validas.length < 3} className="bg-[#1351b4] hover:bg-[#0c326f]">Próxima etapa <ArrowRight className="w-4 h-4 ml-2" /></Button>
+        <Button onClick={onNext} disabled={preenchidos.length === 0 || salvando} className="bg-[#1351b4] hover:bg-[#0c326f]">
+          {salvando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando…</> : <>Salvar e continuar <ArrowRight className="w-4 h-4 ml-2" /></>}
+        </Button>
       </div>
+    </div>
+  )
+}
+
+// ─── Painel "não se aplica" (contratação direta — art. 72) ─────────
+/**
+ * Etapa facultativa da contratação direta: registra nos autos que o documento
+ * "não se aplica", com justificativa (a instrução do art. 72 aceita), e segue.
+ * Sem processo gravado ainda, só pula (o assistente grava nos Itens).
+ */
+function PainelNaoSeAplica({ processoId, etapa, marcado, onMarcado, onPular }: {
+  processoId: string | null
+  etapa: string
+  marcado?: string
+  onMarcado: (justificativa: string | null) => void
+  onPular: () => void
+}) {
+  const doc = TIPO_DOCUMENTO_DA_ETAPA[etapa]
+  const [aberto, setAberto] = useState(false)
+  const [texto, setTexto] = useState("")
+  const [enviando, setEnviando] = useState(false)
+
+  const registrar = async (desfazer = false) => {
+    if (!doc || !processoId) return
+    if (!desfazer && texto.trim().length < 10) {
+      toast.error("Justifique em pelo menos 10 caracteres — a justificativa fica nos autos")
+      return
+    }
+    setEnviando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${processoId}/instrucao/${doc.tipo}/nao-se-aplica`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(desfazer ? { desfazer: true } : { justificativa: texto.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || `HTTP ${res.status}`)
+      }
+      if (desfazer) {
+        onMarcado(null)
+        toast.success("Marcação desfeita — preencha o documento")
+      } else {
+        onMarcado(texto.trim())
+        toast.success(`${doc.titulo}: "não se aplica" registrado`)
+        onPular()
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Não foi possível registrar")
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="mt-5 p-3 rounded-xl border border-amber-200 bg-amber-50/60 text-xs space-y-2">
+      <div className="flex items-start gap-2 text-amber-800">
+        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+        <span>
+          <strong>Etapa facultativa na contratação direta</strong> (art. 72, I — &quot;se for o caso&quot;). Preencha se o caso exigir,
+          pule, ou registre que <strong>não se aplica</strong> com a justificativa.
+        </span>
+      </div>
+      {marcado ? (
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-gray-700"><strong>Não se aplica:</strong> {marcado}</span>
+          <Button variant="ghost" size="sm" onClick={() => registrar(true)} disabled={enviando} className="h-7 text-amber-800">Desfazer</Button>
+        </div>
+      ) : doc && processoId ? (
+        aberto ? (
+          <div className="space-y-2">
+            <Textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2} className="resize-none bg-white text-sm"
+              placeholder={`Por que ${doc.titulo} não se aplica a esta contratação…`} />
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setAberto(false)} className="h-7">Cancelar</Button>
+              <Button size="sm" onClick={() => registrar(false)} disabled={enviando} className="h-7 bg-amber-600 hover:bg-amber-700">
+                {enviando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Registrar e seguir"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setAberto(true)} className="h-7 border-amber-300 text-amber-800 bg-white">
+            Não se aplica — justificar
+          </Button>
+        )
+      ) : null}
     </div>
   )
 }
 
 // ─── Step: Dotação Orçamentária ───────────────────────────────────
-function StepDotacao({ dotacao, setDotacao, onNext, onBack }: any) {
+function StepDotacao({ dotacao, setDotacao, onNext, onBack, opcional = false, rodape }: any) {
   const isSRP = dotacao.srp === "true"
   const isExercicioSeguinte = dotacao.exercicio_seguinte === "true"
   const dispensada = isSRP || isExercicioSeguinte
@@ -1253,9 +1403,11 @@ function StepDotacao({ dotacao, setDotacao, onNext, onBack }: any) {
         />
       </div>
 
+      {rodape}
+
       <div className="mt-6 flex items-center justify-between">
         <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
-        <Button onClick={onNext} disabled={!valido} className="bg-[#1351b4] hover:bg-[#0c326f]">Próxima etapa <ArrowRight className="w-4 h-4 ml-2" /></Button>
+        <Button onClick={onNext} disabled={!valido && !opcional} className="bg-[#1351b4] hover:bg-[#0c326f]">{opcional && !valido ? "Pular etapa" : "Próxima etapa"} <ArrowRight className="w-4 h-4 ml-2" /></Button>
       </div>
     </div>
   )
@@ -1299,7 +1451,7 @@ function StepAutorizacao({ autorizacao, setAutorizacao, onNext, onBack, ctx }: a
 }
 
 // ─── Step: Parecer Jurídico ────────────────────────────────────────
-function StepJuridico({ parecer, setParecer, onNext, onBack, ctx }: any) {
+function StepJuridico({ parecer, setParecer, onNext, onBack, ctx, opcional = false, rodape }: any) {
   const [busy, setBusy] = useState(false)
 
   const gerarComIA = async () => {
@@ -1327,18 +1479,20 @@ function StepJuridico({ parecer, setParecer, onNext, onBack, ctx }: any) {
         </Button>
       </div>
       <Textarea value={parecer} onChange={(e) => setParecer(e.target.value)} placeholder="Minuta do parecer jurídico…" rows={10} className="resize-none" />
+      {rodape}
       <div className="mt-6 flex items-center justify-between">
         <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
-        <Button onClick={onNext} disabled={!parecer} className="bg-[#1351b4] hover:bg-[#0c326f]">Concluir fase interna <ArrowRight className="w-4 h-4 ml-2" /></Button>
+        <Button onClick={onNext} disabled={!parecer && !opcional} className="bg-[#1351b4] hover:bg-[#0c326f]">Concluir fase interna <ArrowRight className="w-4 h-4 ml-2" /></Button>
       </div>
     </div>
   )
 }
 
 // ─── Step: Conclusão ───────────────────────────────────────────────
-function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => void; criando: boolean }) {
+function StepConcluido({ ctx, onCriar, criando, dispensados = [] }: { ctx: any; onCriar: () => void; criando: boolean; dispensados?: string[] }) {
   const isContratacaoDireta = MODALIDADES_CONTRATACAO_DIRETA.includes(ctx.modalidade)
   const docs = [
+    "Itens da contratação",
     "DFD",
     "ETP",
     "Mapa de Riscos",
@@ -1356,22 +1510,52 @@ function StepConcluido({ ctx, onCriar, criando }: { ctx: any; onCriar: () => voi
       </div>
       <h2 className="text-xl font-bold text-gray-900 mb-2">Rascunhos da fase interna prontos</h2>
       <p className="text-sm text-gray-500 mb-6 max-w-md">
-        As peças abaixo foram redigidas (Lei 14.133/2021, art. 18). No dossiê do processo você revisa, envia para aprovação
-        e, com tudo aprovado, segue para o processo: itens, cronograma e publicação.
-        {isContratacaoDireta && " Fluxo de contratação direta (sem minuta de edital)."}
+        No dossiê do processo você revisa as peças (Lei 14.133/2021, art. 18), envia para aprovação e, com tudo
+        aprovado, segue para o processo: cronograma e publicação.
+        {isContratacaoDireta && " Contratação direta (art. 72): obrigatórios DFD, estimativa de despesa e autorização; os demais, se for o caso."}
       </p>
       <div className="grid grid-cols-2 gap-3 text-xs mb-8 text-left w-full max-w-sm">
-        {docs.map((doc) => (
-          <div key={doc} className="flex items-center gap-2 text-green-700">
-            <Check className="w-3.5 h-3.5 text-green-500 shrink-0" /> {doc}
-          </div>
-        ))}
+        {docs.map((doc) => {
+          const dispensado = dispensados.includes(doc)
+          return (
+            <div key={doc} className={`flex items-center gap-2 ${dispensado ? "text-gray-400" : "text-green-700"}`}>
+              {dispensado ? <span className="w-3.5 text-center">–</span> : <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />} {doc}
+              {dispensado && <span className="text-[10px]">(não se aplica / pulado)</span>}
+            </div>
+          )
+        })}
       </div>
       <Button onClick={onCriar} disabled={criando} className="bg-[#1351b4] hover:bg-[#0c326f] px-8">
         {criando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando…</> : "Salvar e abrir o dossiê →"}
       </Button>
     </div>
   )
+}
+
+/** Itens gravados (GET /api/itens/licitacao/:id) → formato do editor de itens. */
+function itensDoBackend(lista: any[]): ItemLicitacao[] {
+  return (lista || [])
+    .filter((i) => String(i.status ?? "ATIVO") !== "CANCELADO")
+    .sort((a, b) => Number(a.numero_item) - Number(b.numero_item))
+    .map((item) => ({
+      id: item.id,
+      numero: Number(item.numero_item),
+      descricao: item.descricao_resumida || "",
+      quantidade: parseFloat(item.quantidade) || 1,
+      unidade: item.unidade_medida || "UNIDADE",
+      valor_unitario: parseFloat(item.valor_unitario_estimado) || 0,
+      tipo_item: item.tipo_item || undefined,
+      codigo_catalogo: item.codigo_catalogo || undefined,
+      classe_catalogo: item.classe_catalogo || undefined,
+      codigo_catmat: item.codigo_catmat || undefined,
+      codigo_catser: item.codigo_catser || undefined,
+      lote_id: item.lote_id || undefined,
+      lote_numero: item.numero_lote || undefined,
+      item_pca_id: item.item_pca_id || undefined,
+      sem_pca: item.sem_pca || false,
+      justificativa_sem_pca: item.justificativa_sem_pca || undefined,
+      tipo_participacao: item.tipo_participacao || "AMPLA",
+    }))
 }
 
 // ─── Página principal ──────────────────────────────────────────────
@@ -1384,16 +1568,19 @@ export default function NovoProcessoPage() {
   const [completed, setCompleted] = useState<string[]>([])
   const [criando, setCriando] = useState(false)
   const [salvandoRascunho, setSalvandoRascunho] = useState(false)
+  const [salvandoItens, setSalvandoItens] = useState(false)
 
   const [dados, setDados] = useState<Record<string, string>>({})
+  const [itens, setItens] = useState<ItemLicitacao[]>([])
   const [docs, setDocs] = useState<Record<string, Record<string, string>>>({
     dfd: {}, etp: {}, tr: {}, edital: {}, aviso: {}
   })
   const [dotacao, setDotacao] = useState<Record<string, string>>({})
   const [riscos, setRiscos] = useState<any[]>([])
-  const [fontes, setFontes] = useState<any[]>([{ fonte: "", valor: 0 }, { fonte: "", valor: 0 }, { fonte: "", valor: 0 }])
   const [autorizacao, setAutorizacao] = useState("")
   const [parecer, setParecer] = useState("")
+  /** Etapas marcadas "não se aplica" (contratação direta): etapa → justificativa */
+  const [naoSeAplica, setNaoSeAplica] = useState<Record<string, string>>({})
 
   // Pré-seleção da modalidade pela URL (?modalidade=DISPENSA_ELETRONICA, LEILAO...).
   // Credenciamento tem cadastro próprio (hipótese, regra, vigência) — E7b.
@@ -1416,6 +1603,14 @@ export default function NovoProcessoPage() {
     }))
   }, [processoId, modalidadeParam, router])
 
+  const carregarItens = useCallback(async (id: string) => {
+    const res = await authFetch(`${API_URL}/api/itens/licitacao/${id}`)
+    if (!res.ok) return null
+    const lista = itensDoBackend(await res.json())
+    setItens(lista)
+    return lista
+  }, [])
+
   useEffect(() => {
     if (!processoId) return
 
@@ -1427,6 +1622,8 @@ export default function NovoProcessoPage() {
     }
 
     const aplicarDocumentoNasSecoes = (stepKey: string, documento?: any) => {
+      // Documento marcado "não se aplica": nada a preencher nas seções
+      if (documento?.dados_estruturados?.nao_se_aplica) return {}
       const estruturado = documento?.dados_estruturados
       const secoes = TEMPLATES[stepKey]?.secoes || []
       const temChavesDoFormulario = estruturado && secoes.some((secao) => typeof estruturado[secao.id] === "string")
@@ -1442,15 +1639,17 @@ export default function NovoProcessoPage() {
 
         if (licitacaoRes.ok) {
           const licitacao = await licitacaoRes.json()
-          setDados({
+          setDados((p) => ({
+            ...p,
             objeto: licitacao.objeto || "",
             modalidade: desmapearModalidade(licitacao.modalidade),
             categoria: desmapearCategoria(licitacao.tipo_contratacao),
             criterio: desmapearCriterio(licitacao.criterio_julgamento),
             modoDisputa: desmapearModoDisputa(licitacao.modo_disputa),
             valor: licitacao.valor_total_estimado ? String(licitacao.valor_total_estimado) : "",
-          })
+          }))
         }
+        await carregarItens(processoId)
 
         if (documentosRes.ok) {
           const documentos = await documentosRes.json()
@@ -1464,78 +1663,141 @@ export default function NovoProcessoPage() {
             edital: aplicarDocumentoNasSecoes("edital", porTipo.ME),
             aviso: aplicarDocumentoNasSecoes("aviso", porTipo.AVISO),
           }))
+          const naoAplica = (d: any): string | null =>
+            d?.dados_estruturados?.nao_se_aplica ? d.dados_estruturados.justificativa_nao_se_aplica || d.descricao || "" : null
           setAutorizacao(porTipo.AA?.descricao || "")
-          setParecer(porTipo.PJ?.descricao || "")
+          setParecer(naoAplica(porTipo.PJ) !== null ? "" : porTipo.PJ?.descricao || "")
+          try {
+            const r = porTipo.AR && naoAplica(porTipo.AR) === null ? JSON.parse(porTipo.AR.descricao || "[]") : []
+            if (Array.isArray(r)) setRiscos(r)
+          } catch { /* texto livre antigo */ }
+          if (porTipo.DO?.dados_estruturados && naoAplica(porTipo.DO) === null) setDotacao(porTipo.DO.dados_estruturados)
+          const marcados: Record<string, string> = {}
+          for (const [etapa, { tipo }] of Object.entries(TIPO_DOCUMENTO_DA_ETAPA)) {
+            const j = naoAplica(porTipo[tipo])
+            if (j !== null) marcados[etapa] = j
+          }
+          setNaoSeAplica(marcados)
         }
       } catch (e) {
         console.error("Erro ao carregar rascunho:", e)
       }
     }
 
-    setStep(stepParam || "dfd")
+    // Só ao abrir o rascunho (troca de etapa não recarrega — não perde o que foi digitado)
     carregarRascunho()
-  }, [processoId, stepParam])
-
-  const ctx = {
-    ...dados,
-    valorMediano: fontes.filter((f) => f.valor > 0).length
-      ? [...fontes.filter((f) => f.valor > 0)].sort((a, b) => a.valor - b.valor)[Math.floor(fontes.filter((f) => f.valor > 0).length / 2)]?.valor
-      : 0,
-  }
-
-  const goToStep = useCallback((nextStep: string) => {
-    if (nextStep === "pesquisa" && processoId) {
-      router.push(`/orgao/fase-interna/processos/${processoId}/precos`)
-      return
-    }
-    setStep(nextStep)
-    if (processoId) {
-      router.replace(`/orgao/fase-interna/processos/novo?id=${processoId}&step=${nextStep}`, { scroll: false })
-    }
-  }, [processoId, router])
+  }, [processoId, carregarItens])
 
   useEffect(() => {
-    if (stepParam === "pesquisa" && processoId) {
-      router.replace(`/orgao/fase-interna/processos/${processoId}/precos`)
-    }
-  }, [processoId, router, stepParam])
+    if (!processoId) return
+    const alvo = stepParam || "dfd"
+    setStep(alvo)
+    // Voltando ao assistente (ex.: da pesquisa de preços): etapas anteriores contam como vistas
+    const idx = WIZARD_ETAPAS.findIndex((e) => e.id === alvo)
+    if (idx > 0) setCompleted((prev) => Array.from(new Set([...prev, ...WIZARD_ETAPAS.slice(0, idx).map((e) => e.id)])))
+  }, [processoId, stepParam])
 
-  const advance = useCallback(() => {
-    setCompleted((prev) => prev.includes(step) ? prev : [...prev, step])
-    const idx = WIZARD_ETAPAS.findIndex((e) => e.id === step)
-    if (idx < WIZARD_ETAPAS.length - 1) goToStep(WIZARD_ETAPAS[idx + 1].id)
-  }, [goToStep, step])
-
-  const back = useCallback(() => {
-    const idx = WIZARD_ETAPAS.findIndex((e) => e.id === step)
-    if (idx > 0) goToStep(WIZARD_ETAPAS[idx - 1].id)
-  }, [goToStep, step])
-
-  const jump = useCallback((id: string) => goToStep(id), [goToStep])
-
-  const updateDoc = (docKey: string, secId: string, val: string) => {
-    setDocs((prev) => ({ ...prev, [docKey]: { ...prev[docKey], [secId]: val } }))
+  const itensProntos = itens.filter(itemPreenchido)
+  const ctx = {
+    ...dados,
+    // Quantidades e valor vêm dos itens (e da pesquisa de preços, que preenche o valor)
+    quantidade: itensProntos.length
+      ? itensProntos.map((i) => `${i.quantidade} ${i.unidade} — ${i.descricao}`).join("; ")
+      : dados.quantidade,
+    valorItens: valorDosItens(itensProntos),
   }
 
-  const buildWizardPayload = () => ({
-    dfd: Object.values(docs.dfd).join("\n\n"),
-    etp: docs.etp,
-    etp_necessidade: Object.values(docs.etp).join("\n\n"),
-    riscos: JSON.stringify(riscos),
-    precos_fontes: JSON.stringify(fontes.filter((f) => f.valor > 0)),
-    tr: docs.tr,
-    tr_requisitos: Object.values(docs.tr).join("\n\n"),
-    dotacao: JSON.stringify(dotacao),
-    autorizacao_autoridade: autorizacao,
-    edital_notas: Object.values(docs.edital || {}).join("\n\n"),
-    aviso_notas: Object.values(docs.aviso || {}).join("\n\n"),
-    juridico_obs: parecer,
-  })
+  const isContratacaoDireta = MODALIDADES_CONTRATACAO_DIRETA.includes(dados.modalidade)
+  const etapasOpcionais = isContratacaoDireta
+    ? WIZARD_ETAPAS.map((e) => e.id).filter((id) => id !== "concluido" && !ETAPAS_OBRIGATORIAS_CONTRATACAO_DIRETA.includes(id))
+    : []
+
+  const buildWizardPayload = () => {
+    const temTexto = (o: Record<string, string>) => Object.values(o || {}).some((v) => (v || "").trim())
+    const juntar = (o: Record<string, string>) => Object.values(o || {}).filter((v) => (v || "").trim()).join("\n\n")
+    const dotacaoPreenchida = Object.values(dotacao).some((v) => v && v !== "false")
+    // Só vai o que tem conteúdo e não foi marcado "não se aplica" (não cria documento vazio)
+    return {
+      ...(temTexto(docs.dfd) ? { dfd: juntar(docs.dfd) } : {}),
+      ...(temTexto(docs.etp) && !naoSeAplica.etp ? { etp: docs.etp, etp_necessidade: juntar(docs.etp) } : {}),
+      ...(riscos.length && !naoSeAplica.riscos ? { riscos: JSON.stringify(riscos) } : {}),
+      ...(temTexto(docs.tr) && !naoSeAplica.tr ? { tr: docs.tr, tr_requisitos: juntar(docs.tr) } : {}),
+      ...(dotacaoPreenchida && !naoSeAplica.dotacao ? { dotacao: JSON.stringify(dotacao) } : {}),
+      ...(autorizacao.trim() ? { autorizacao_autoridade: autorizacao } : {}),
+      ...(temTexto(docs.edital) ? { edital_notas: juntar(docs.edital) } : {}),
+      ...(temTexto(docs.aviso) ? { aviso_notas: juntar(docs.aviso) } : {}),
+      ...(parecer.trim() && !naoSeAplica.juridico ? { juridico_obs: parecer } : {}),
+    }
+  }
+
+  /**
+   * Grava os itens do assistente pela API de itens (órgão dono — E1a):
+   * existentes → PUT /itens/:id; novos → POST /itens/licitacao/:id/batch;
+   * removidos no editor → DELETE /itens/:id. Recarrega do servidor (ids) para
+   * a próxima gravação não duplicar.
+   */
+  const sincronizarItens = async (licitacaoId: string) => {
+    const tipoPadrao = mapearCategoria(dados.categoria) === "COMPRA" || dados.modalidade === "Leilão" ? "MATERIAL" : "SERVICO"
+    const prontos = itens.filter(itemPreenchido).map((i, idx) => ({ ...i, numero: idx + 1 }))
+    const resAtuais = await authFetch(`${API_URL}/api/itens/licitacao/${licitacaoId}`)
+    const atuais: any[] = resAtuais.ok ? await resAtuais.json() : []
+    const ativo = (a: any) => String(a.status ?? "ATIVO") === "ATIVO"
+    const idsMantidos = new Set(prontos.map((i) => i.id).filter(Boolean))
+    const tipoDo = (i: ItemLicitacao) => i.tipo_item || (i.codigo_catser ? "SERVICO" : i.codigo_catmat ? "MATERIAL" : tipoPadrao)
+    const corpo = (i: ItemLicitacao) => ({
+      numero_item: i.numero,
+      descricao_resumida: i.descricao.trim(),
+      quantidade: Number(i.quantidade),
+      unidade_medida: normalizarUnidade(i.unidade),
+      valor_unitario_estimado: Number(i.valor_unitario) || 0,
+      tipo_item: tipoDo(i),
+      codigo_catalogo: i.codigo_catalogo || i.codigo_catmat || i.codigo_catser || undefined,
+      classe_catalogo: i.classe_catalogo || undefined,
+      codigo_catmat: i.codigo_catmat || undefined,
+      codigo_catser: i.codigo_catser || undefined,
+    })
+
+    for (const a of atuais) {
+      if (!idsMantidos.has(a.id) && ativo(a)) {
+        const r = await authFetch(`${API_URL}/api/itens/${a.id}`, { method: "DELETE" })
+        if (!r.ok) throw new Error(`Não foi possível remover o item ${a.numero_item}`)
+      }
+    }
+    for (const i of prontos.filter((x) => x.id && atuais.some((a) => a.id === x.id && ativo(a)))) {
+      const r = await authFetch(`${API_URL}/api/itens/${i.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo(i)),
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}))
+        throw new Error(err.message || `Erro ao atualizar o item ${i.numero}`)
+      }
+    }
+    const novos = prontos.filter((x) => !x.id || !atuais.some((a) => a.id === x.id))
+    if (novos.length) {
+      const r = await authFetch(`${API_URL}/api/itens/licitacao/${licitacaoId}/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(novos.map((i) => ({
+          ...corpo(i),
+          licitacao_id: licitacaoId,
+          ...(i.item_pca_id ? { item_pca_id: i.item_pca_id } : { sem_pca: true, justificativa_sem_pca: i.justificativa_sem_pca || undefined }),
+          tipo_participacao: i.tipo_participacao || undefined,
+        }))),
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}))
+        throw new Error(err.message || "Erro ao gravar os itens")
+      }
+    }
+    return (await carregarItens(licitacaoId)) ?? []
+  }
 
   /**
    * Grava o processo (cria na primeira vez; depois atualiza) + campos da
-   * modalidade especial + peças do wizard. Um caminho só para "Salvar
-   * rascunho" e para a conclusão do assistente. Devolve o id do processo.
+   * modalidade especial + itens + peças do wizard. Um caminho só para "Salvar
+   * rascunho", para os Itens e para a conclusão do assistente. Devolve o id.
    */
   const persistirProcesso = async (): Promise<string> => {
     if (!dados.objeto || !dados.modalidade || !dados.categoria) {
@@ -1544,8 +1806,8 @@ export default function NovoProcessoPage() {
     const orgaoId = getOrgaoId()
     if (!orgaoId) throw new Error("Órgão não identificado. Faça login novamente.")
 
-    let valorEstimado = 0
-    if (dados.valor) {
+    let valorEstimado = valorDosItens(itens.filter(itemPreenchido))
+    if (!(valorEstimado > 0) && dados.valor) {
       // "R$ 1.500,50" (digitado) ou "1500.5" (vindo do backend)
       const bruto = dados.valor.replace(/[R$\s]/g, "")
       const valorLimpo = bruto.includes(",") ? bruto.replace(/\./g, "").replace(",", ".") : bruto
@@ -1560,7 +1822,7 @@ export default function NovoProcessoPage() {
       tipo_contratacao: mapearCategoria(dados.categoria),
       criterio_julgamento: mapearCriterio(dados.criterio || "Menor preço"),
       modo_disputa: mapearModoDisputa(dados.modoDisputa || "Aberto"),
-      valor_total_estimado: valorEstimado > 0 ? valorEstimado : undefined,
+      valor_total_estimado: valorEstimado > 0 ? Math.round(valorEstimado * 100) / 100 : undefined,
     }
     const res = await authFetch(
       processoId ? `${API_URL}/api/licitacoes/${processoId}` : `${API_URL}/api/licitacoes`,
@@ -1579,16 +1841,88 @@ export default function NovoProcessoPage() {
     // Leilão/concurso/diálogo (E7c): campos próprios — o que faltar vira pendência no cockpit
     const erroEspeciais = await salvarCamposModalidadeEspecial(licitacaoId, dados.modalidade, (dados as any).especiais)
     if (erroEspeciais) toast.warning(`Dados da modalidade pendentes: ${erroEspeciais}`)
-    const wizardRes = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildWizardPayload()),
-    })
-    if (!wizardRes.ok) {
-      const err = await wizardRes.json().catch(() => ({}))
-      throw new Error(err.message || "Erro ao salvar os documentos do processo")
+    // Itens da contratação (sem eles não há publicação nem PNCP)
+    if (itens.length > 0) await sincronizarItens(licitacaoId)
+    const payloadDocs = buildWizardPayload()
+    if (Object.keys(payloadDocs).length) {
+      const wizardRes = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/wizard`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloadDocs),
+      })
+      if (!wizardRes.ok) {
+        const err = await wizardRes.json().catch(() => ({}))
+        throw new Error(err.message || "Erro ao salvar os documentos do processo")
+      }
     }
     return licitacaoId
+  }
+
+  const urlDoAssistente = (id: string, etapa: string) => `/orgao/fase-interna/processos/novo?id=${id}&step=${etapa}`
+  /** Pesquisa de preços = módulo real (por item, agente, curadoria, documento PP). */
+  const urlDaPesquisa = (id: string) => `/orgao/fase-interna/processos/${id}/precos?assistente=1`
+
+  const goToStep = async (nextStep: string) => {
+    if (nextStep === "pesquisa") {
+      // A pesquisa é outra tela: grava o rascunho (itens e peças já redigidas) antes de sair
+      try {
+        const id = await persistirProcesso()
+        if (!processoId) window.dispatchEvent(new Event("processos-updated"))
+        router.push(urlDaPesquisa(id))
+      } catch (e: any) {
+        toast.error(e.message || "Grave o processo antes da pesquisa de preços")
+      }
+      return
+    }
+    setStep(nextStep)
+    if (processoId) {
+      router.replace(urlDoAssistente(processoId, nextStep), { scroll: false })
+    }
+  }
+
+  useEffect(() => {
+    if (stepParam === "pesquisa" && processoId) {
+      router.replace(`/orgao/fase-interna/processos/${processoId}/precos?assistente=1`)
+    }
+  }, [processoId, router, stepParam])
+
+  const advance = () => {
+    setCompleted((prev) => prev.includes(step) ? prev : [...prev, step])
+    const idx = WIZARD_ETAPAS.findIndex((e) => e.id === step)
+    if (idx < WIZARD_ETAPAS.length - 1) goToStep(WIZARD_ETAPAS[idx + 1].id)
+  }
+
+  const back = () => {
+    const idx = WIZARD_ETAPAS.findIndex((e) => e.id === step)
+    if (idx > 0) goToStep(WIZARD_ETAPAS[idx - 1].id)
+  }
+
+  const jump = (id: string) => goToStep(id)
+
+  /** Itens: grava o rascunho (processo + itens) e segue para o DFD com o id na URL. */
+  const salvarItensEContinuar = async () => {
+    setSalvandoItens(true)
+    try {
+      const id = await persistirProcesso()
+      setCompleted((prev) => Array.from(new Set([...prev, "dados", "itens"])))
+      if (!processoId) {
+        window.dispatchEvent(new Event("processos-updated"))
+        toast.success("Rascunho do processo criado com os itens")
+        router.push(urlDoAssistente(id, "dfd"))
+      } else {
+        toast.success("Itens salvos")
+        goToStep("dfd")
+      }
+    } catch (e: any) {
+      console.error(e)
+      toast.error(e.message || "Erro ao salvar os itens")
+    } finally {
+      setSalvandoItens(false)
+    }
+  }
+
+  const updateDoc = (docKey: string, secId: string, val: string) => {
+    setDocs((prev) => ({ ...prev, [docKey]: { ...prev[docKey], [secId]: val } }))
   }
 
   const criarProcesso = async () => {
@@ -1611,7 +1945,7 @@ export default function NovoProcessoPage() {
       const licitacaoId = await persistirProcesso()
       if (!processoId) window.dispatchEvent(new Event("processos-updated"))
       toast.success("Rascunho salvo")
-      router.push(`/orgao/fase-interna/processos/novo?id=${licitacaoId}&step=${step}`)
+      router.push(urlDoAssistente(licitacaoId, step))
     } catch (e: any) {
       console.error(e)
       toast.error(e.message || "Erro ao salvar rascunho")
@@ -1620,13 +1954,56 @@ export default function NovoProcessoPage() {
     }
   }
 
+  /** Item do PCA escolhido no DFD/ETP entra nos itens da contratação (se ainda não estiver). */
+  const adicionarItemDoPca = (itemPca: any) => {
+    if (!itemPca?.id || itens.some((i) => i.item_pca_id === itemPca.id)) return
+    const qtd = Number(itemPca.quantidade_estimada) || 1
+    const valorUnit = Number(itemPca.valor_unitario_estimado) || (Number(itemPca.valor_estimado) ? Number(itemPca.valor_estimado) / qtd : 0)
+    const classificacao = itemPca.classificacao_catalogo
+    setItens((prev) => [
+      ...prev,
+      {
+        numero: prev.length + 1,
+        descricao: itemPca.descricao_item_catalogo || itemPca.descricao_objeto || "",
+        quantidade: qtd,
+        unidade: normalizarUnidade(itemPca.unidade_medida),
+        valor_unitario: Math.round(valorUnit * 100) / 100,
+        tipo_item: classificacao === "SERVICO" ? "SERVICO" : classificacao === "MATERIAL" ? "MATERIAL" : undefined,
+        codigo_catalogo: itemPca.codigo_item_catalogo || undefined,
+        codigo_catmat: classificacao === "MATERIAL" ? itemPca.codigo_item_catalogo || undefined : undefined,
+        codigo_catser: classificacao === "SERVICO" ? itemPca.codigo_item_catalogo || undefined : undefined,
+        item_pca_id: itemPca.id,
+        item_pca_descricao: itemPca.descricao_objeto,
+      },
+    ])
+    toast.success("Item do PCA incluído nos itens da contratação — revise na etapa Itens e salve o rascunho")
+  }
+
   const etapaAtual = WIZARD_ETAPAS.find((e) => e.id === step)
   const idxAtual = WIZARD_ETAPAS.findIndex((e) => e.id === step)
 
-  const isContratacaoDireta = MODALIDADES_CONTRATACAO_DIRETA.includes(dados.modalidade)
+  /** Painel "não se aplica" das etapas facultativas (só na contratação direta). */
+  const rodapeOpcional = (etapa: string) =>
+    isContratacaoDireta ? (
+      <PainelNaoSeAplica
+        processoId={processoId}
+        etapa={etapa}
+        marcado={naoSeAplica[etapa]}
+        onMarcado={(j) => setNaoSeAplica((p) => {
+          const n = { ...p }
+          if (j === null) delete n[etapa]
+          else n[etapa] = j
+          return n
+        })}
+        onPular={advance}
+      />
+    ) : undefined
+  const opcional = (etapa: string) => etapasOpcionais.includes(etapa)
+  const semTexto = (o: Record<string, string>) => !Object.values(o || {}).some((v) => (v || "").trim())
 
   let content: React.ReactNode
   if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} />
+  else if (step === "itens")  content = <StepItens itens={itens} setItens={setItens} modalidade={dados.modalidade} onNext={salvarItensEContinuar} onBack={back} salvando={salvandoItens} />
   else if (step === "dfd")    content = <StepDocumento
     stepKey="dfd"
     secoes={docs.dfd}
@@ -1635,7 +2012,7 @@ export default function NovoProcessoPage() {
     onBack={back}
     ctx={ctx}
     customRenderers={{
-      previsao: (val, onChange) => <PcaSelectorField value={val} onChange={onChange} />,
+      previsao: (val, onChange) => <PcaSelectorField value={val} onChange={onChange} onItemPca={adicionarItemDoPca} />,
     }}
   />
   else if (step === "etp")    content = <StepDocumento
@@ -1645,20 +2022,35 @@ export default function NovoProcessoPage() {
     onNext={advance}
     onBack={back}
     ctx={ctx}
+    opcional={opcional("etp")}
+    rodape={rodapeOpcional("etp")}
     customRenderers={{
-      previsao_pca: (val, onChange) => <PcaSelectorField value={val} onChange={onChange} />,
+      previsao_pca: (val, onChange) => <PcaSelectorField value={val} onChange={onChange} onItemPca={adicionarItemDoPca} />,
     }}
   />
-  else if (step === "riscos") content = <StepRiscos riscos={riscos} setRiscos={setRiscos} onNext={advance} onBack={back} ctx={ctx} />
-  else if (step === "pesquisa") content = <StepPesquisa fontes={fontes} setFontes={setFontes} onNext={advance} onBack={back} />
-  else if (step === "tr")     content = <StepDocumento stepKey="tr" secoes={docs.tr} onChangeSec={(s, v) => updateDoc("tr", s, v)} onNext={advance} onBack={back} ctx={ctx} />
-  else if (step === "dotacao") content = <StepDotacao dotacao={dotacao} setDotacao={setDotacao} onNext={advance} onBack={back} />
+  else if (step === "riscos") content = <StepRiscos riscos={riscos} setRiscos={setRiscos} onNext={advance} onBack={back} ctx={ctx} opcional={opcional("riscos")} rodape={rodapeOpcional("riscos")} />
+  else if (step === "pesquisa") content = (
+    <div className="flex-1 flex items-center justify-center p-8 text-sm text-gray-500">
+      <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Abrindo a pesquisa de preços…
+    </div>
+  )
+  else if (step === "tr")     content = <StepDocumento stepKey="tr" secoes={docs.tr} onChangeSec={(s, v) => updateDoc("tr", s, v)} onNext={advance} onBack={back} ctx={ctx} opcional={opcional("tr")} rodape={rodapeOpcional("tr")} />
+  else if (step === "dotacao") content = <StepDotacao dotacao={dotacao} setDotacao={setDotacao} onNext={advance} onBack={back} opcional={opcional("dotacao")} rodape={rodapeOpcional("dotacao")} />
   else if (step === "autorizacao") content = <StepAutorizacao autorizacao={autorizacao} setAutorizacao={setAutorizacao} onNext={advance} onBack={back} ctx={ctx} />
   else if (step === "edital") content = isContratacaoDireta
-    ? <StepDocumento stepKey="aviso" secoes={docs.aviso} onChangeSec={(s, v) => updateDoc("aviso", s, v)} onNext={advance} onBack={back} ctx={ctx} />
+    ? <StepDocumento stepKey="aviso" secoes={docs.aviso} onChangeSec={(s, v) => updateDoc("aviso", s, v)} onNext={advance} onBack={back} ctx={ctx} opcional
+        rodape={<p className="mt-4 text-[11px] text-gray-500">Facultativo: sem este texto, o aviso de contratação direta é gerado dos dados do processo (objeto, itens e prazos) na divulgação.</p>} />
     : <StepDocumento stepKey="edital" secoes={docs.edital} onChangeSec={(s, v) => updateDoc("edital", s, v)} onNext={advance} onBack={back} ctx={ctx} />
-  else if (step === "juridico") content = <StepJuridico parecer={parecer} setParecer={setParecer} onNext={advance} onBack={back} ctx={ctx} />
-  else content = <StepConcluido ctx={ctx} onCriar={criarProcesso} criando={criando} />
+  else if (step === "juridico") content = <StepJuridico parecer={parecer} setParecer={setParecer} onNext={advance} onBack={back} ctx={ctx} opcional={opcional("juridico")} rodape={rodapeOpcional("juridico")} />
+  else content = <StepConcluido ctx={ctx} onCriar={criarProcesso} criando={criando}
+    dispensados={[
+      ...(naoSeAplica.etp || (isContratacaoDireta && semTexto(docs.etp)) ? ["ETP"] : []),
+      ...(naoSeAplica.riscos || (isContratacaoDireta && riscos.length === 0) ? ["Mapa de Riscos"] : []),
+      ...(naoSeAplica.tr || (isContratacaoDireta && semTexto(docs.tr)) ? ["Termo de Referência"] : []),
+      ...(naoSeAplica.dotacao ? ["Dotação Orçamentária"] : []),
+      ...(isContratacaoDireta && semTexto(docs.aviso) ? ["Aviso de Contratação Direta"] : []),
+      ...(naoSeAplica.juridico || (isContratacaoDireta && !parecer.trim()) ? ["Parecer Jurídico"] : []),
+    ]} />
 
   return (
     <div className="h-full flex flex-col">
@@ -1682,6 +2074,7 @@ export default function NovoProcessoPage() {
             </span>
             <span className="text-xs font-bold text-gray-800">{etapaAtual?.nome}</span>
             {etapaAtual?.art && <span className="text-xs text-gray-400">{etapaAtual.art}</span>}
+            {opcional(step) && <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">facultativa (art. 72)</span>}
           </div>
           <Button
             variant="outline"
@@ -1702,7 +2095,7 @@ export default function NovoProcessoPage() {
       {/* Corpo: sidebar + conteúdo */}
       <div className="flex flex-1 min-h-0">
         {step !== "concluido" && (
-          <WizardSidebar etapas={WIZARD_ETAPAS} current={step} completed={completed} onJump={jump} />
+          <WizardSidebar etapas={WIZARD_ETAPAS} current={step} completed={completed} onJump={jump} opcionais={etapasOpcionais} />
         )}
         {content}
       </div>
