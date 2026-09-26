@@ -126,3 +126,20 @@ O envio ao PNCP é automático (veja [PNCP](11-pncp.md)). Para funcionar:
 A aba **PNCP** em **Configurações** mostra a situação: **Conectado** ou **Não Configurado**, ambiente, login configurado e CNPJ do órgão. Não há campos para o órgão preencher ali: "A credencial da plataforma no PNCP e o CNPJ do órgão no PNCP são definidos pelo administrador da plataforma."
 
 > **Atenção.** O órgão só publica sob o **próprio CNPJ** no PNCP. Tentativas de publicar sob outro CNPJ são recusadas.
+
+## 8. Fase interna e tarefas
+
+Em **Configurações** › **Fase interna e tarefas** o administrador do órgão define como as tarefas da fase interna são distribuídas. Os outros usuários só consultam.
+
+**Modo de trabalho**
+- **Simples** (padrão): uma pessoa pode conduzir o processo inteiro. Todas as tarefas vão para o agente de contratação do processo. Se o processo não tiver agente, vão para quem o criou. Se não houver nenhum dos dois, vão para a caixa de quem tem o papel "Agente de contratação".
+- **Por setor**: cada etapa vai para o papel ou setor escolhido na tabela. Quem tem o papel (ou está no setor) vê a tarefa e pode **assumi-la**. A etapa do agente vai direto para o agente do processo.
+
+**Manifestação do controle interno.** Liga ou desliga a etapa de controle interno, que fica entre o parecer e a publicação. Por enquanto ela é só um **aviso**: não impede a publicação. Ao desligar, as tarefas abertas dessa etapa são canceladas.
+
+**Responsável e prazo por etapa.** Para cada etapa, escolha o papel e, se quiser, o setor, e o prazo em **dias úteis** (vazio = sem prazo). Os dias úteis seguem o calendário do órgão (parte 4, Feriados). O botão **Modelo Portaria 089** preenche os valores da Câmara de LEM: Compras 30, Contabilidade 3, Autorização 3, Minutas 5, Jurídico 5, Controle interno 3 e Publicação 5 dias úteis.
+
+**Papéis dos usuários.** Na mesma tela, marque os papéis de cada usuário (Requisitante, Compras, Contabilidade, Jurídico, Controle interno, Autoridade, Agente de contratação) e o setor em que ele está lotado. Um usuário pode ter vários papéis. Os papéis **não mudam as permissões de sistema** (Administrador, Pregoeiro, Equipe de apoio). Os setores são cadastrados na aba **Setores**.
+
+> **Atenção.** Ao salvar, as tarefas abertas são ajustadas na hora: a troca de modo muda o responsável das tarefas que ninguém reatribuiu à mão.
+
