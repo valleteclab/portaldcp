@@ -115,6 +115,34 @@ export const haItensComValorEstimado: Precondicao = async (ctx) => {
 export const instrucaoArt72Completa = instrucaoCompleta;
 
 /**
+ * PORTÃO A (Entrega 4 — motor de conformidade): concluir a etapa de pesquisa
+ * com o limite da dispensa estourado no ramo (LIM-01: soma das dispensas do
+ * órgão no exercício, mesma classe CATMAT/CATSER e unidade gestora — art. 75,
+ * §1º) é recusado. Só a dispensa por valor (art. 75, I/II) tem o limite.
+ */
+export const portaoALimite: Precondicao = async (ctx) => {
+  if (!ctx.consultas.conformidade) return null;
+  return ctx.consultas.conformidade('A', { somenteAvaliacao: ctx.somenteAvaliacao });
+};
+
+/**
+ * PORTÃO C (Entrega 4 — motor de conformidade): não se publica com achado
+ * BLOQUEIO aberto (ENQ-01, VINC-01, MARCA-01, ASS-01, LIM-01…) nem com
+ * achado de ATENÇÃO que exige justificativa sem ela. As mensagens dizem o que
+ * falta e onde (peça e folha). O prazo mínimo (PRAZO-01) e a autorização
+ * (A72-VIII) já são as pré-condições `prazosDePublicacao` e
+ * `instrucaoCompleta` do mesmo ato — não se repetem. Vale para o ato que
+ * ainda vai ser praticado: processo já divulgado não passa por aqui.
+ */
+export const portaoCConformidade: Precondicao = async (ctx) => {
+  if (!ctx.consultas.conformidade) return null;
+  const dados = ctx.dados || {};
+  const cronograma: Record<string, any> = {};
+  for (const campo of CAMPOS_CRONOGRAMA) if (dados[campo]) cronograma[campo] = dados[campo];
+  return ctx.consultas.conformidade('C', { cronograma: Object.keys(cronograma).length ? cronograma : null, somenteAvaliacao: ctx.somenteAvaliacao });
+};
+
+/**
  * Etapa interna do rito completo: os documentos obrigatórios DA ETAPA atual
  * precisam estar prontos para concluí-la. Contratação direta não tem rito por
  * etapas (instrução única do art. 72, cobrada em CONCLUIR_FASE_INTERNA/PUBLICAR).
@@ -685,7 +713,7 @@ const S = SituacaoLicitacao;
 const ATOS_ETAPAS_INTERNAS: DefinicaoAto[] = [
   { ato: A.CONCLUIR_PLANEJAMENTO, rotulo: 'Concluir planejamento (ETP)', de: [F.PLANEJAMENTO], para: F.TERMO_REFERENCIA, principal: true, precondicoes: [documentosDaEtapaProntos] },
   { ato: A.CONCLUIR_TERMO_REFERENCIA, rotulo: 'Aprovar termo de referência', de: [F.TERMO_REFERENCIA], para: F.PESQUISA_PRECOS, principal: true, precondicoes: [documentosDaEtapaProntos], efeitos: [marcarData('data_aprovacao_tr')] },
-  { ato: A.CONCLUIR_PESQUISA_PRECOS, rotulo: 'Concluir pesquisa de preços', de: [F.PESQUISA_PRECOS], para: F.ANALISE_JURIDICA, principal: true, precondicoes: [documentosDaEtapaProntos] },
+  { ato: A.CONCLUIR_PESQUISA_PRECOS, rotulo: 'Concluir pesquisa de preços', de: [F.PESQUISA_PRECOS], para: F.ANALISE_JURIDICA, principal: true, precondicoes: [documentosDaEtapaProntos, portaoALimite] },
   { ato: A.CONCLUIR_ANALISE_JURIDICA, rotulo: 'Registrar parecer jurídico', de: [F.ANALISE_JURIDICA], para: F.APROVACAO_INTERNA, principal: true, precondicoes: [documentosDaEtapaProntos], efeitos: [marcarData('data_parecer_juridico')] },
   {
     ato: A.DEVOLVER_FASE_INTERNA,
@@ -738,7 +766,7 @@ const PUBLICAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48],
+  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48, portaoCConformidade],
   efeitos: [gravarCronogramaPublicacao, gravarJustificativaArt49],
   // o edital anexado vira o documento divulgado (E7a); na dispensa, o aviso
   // de contratação direta é (re)gerado com o cronograma publicado e guardado
@@ -1318,7 +1346,7 @@ const PUBLICAR_CREDENCIAMENTO: DefinicaoAto = {
   principal: true,
   // Sem prazo mínimo do art. 55 (não é modalidade de licitação); inscrições
   // abertas durante toda a vigência (art. 79 par. único I).
-  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, editalCredenciamentoConfigurado],
+  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, editalCredenciamentoConfigurado, portaoCConformidade],
   efeitosPersistidos: [gravarVigenciaCredenciamento, async (lic, m) => marcarEditalPublicadoSql(m, lic.id)],
   mensagemForaDaFase: () => 'Conclua a instrução (fase interna) antes de publicar o edital de credenciamento',
 };

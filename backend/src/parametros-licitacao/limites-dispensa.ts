@@ -122,6 +122,8 @@ export interface RegistroConsumo {
   inciso: IncisoLimiteDispensa;
   ramo: Ramo;
   valor: number;
+  /** Nº do item (para simular o valor da pesquisa antes de emiti-la — portão A). */
+  numero_item?: number;
 }
 
 export interface ConsumoDoLimite {

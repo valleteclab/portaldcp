@@ -8,10 +8,9 @@
  *    SPEC: "mudar `fundamento_legal` atualiza as minutas geradas por modelo".
  *  - Editada à mão, assinada ou em assinatura: não se mexe no texto; a peça
  *    ganha o aviso "desatualizada — regerar?".
- *  - Conferência de vinculação (VINC-01 da SPEC, só leitura aqui): número de
- *    PA/dispensa citado na minuta diferente do processo (o erro real do PA
- *    139/2025, cujo contrato citava o "PA 115/2025").
- *  - Enquadramento citado nas peças (ENQ-01, leitura): "art. 75, inciso II".
+ *  - Conferência de vinculação (VINC-01) e enquadramento citado (ENQ-01):
+ *    implementadas no motor de conformidade (`conformidade/texto.ts`, Entrega
+ *    4) e reexportadas aqui — uma implementação só.
  */
 import { createHash } from 'crypto';
 
@@ -81,53 +80,8 @@ export function decidirRegeracao(doc: PecaParaRegerar): DecisaoRegeracao {
 }
 
 // ---------------------------------------------------------------------------
-// Conferências de texto (leitura — as regras que BLOQUEIAM vêm na Entrega 4)
+// Conferências de texto — a implementação é a do motor de conformidade
+// (Entrega 4: `conformidade/texto.ts`); reexportadas aqui para quem já usava.
 // ---------------------------------------------------------------------------
 
-export const textoPuro = (html: unknown) =>
-  String(html ?? '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&[a-z]+;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-/** Normaliza "139/2025", "0139/2025", "139 / 2025" → "139/2025". */
-export function normalizarNumero(n: string | null | undefined): string | null {
-  const m = String(n ?? '').match(/(\d{1,6})\s*\/\s*(\d{4})/);
-  if (!m) return null;
-  return `${Number(m[1])}/${m[2]}`;
-}
-
-/**
- * Números de PROCESSO ou de DISPENSA citados no texto que NÃO são os do
- * processo (VINC-01): procura "nº 115/2025" perto de "Processo
- * Administrativo", "PA", "Dispensa" ou "Inexigibilidade".
- */
-export function referenciasDivergentes(
-  texto: string,
-  proprios: { numero_processo?: string | null; numero_dispensa?: string | null },
-): string[] {
-  const puro = textoPuro(texto);
-  const validos = new Set([normalizarNumero(proprios.numero_processo), normalizarNumero(proprios.numero_dispensa)].filter(Boolean) as string[]);
-  const re = /(processo administrativo|\bPA\b|dispensa(?: de licita[çc][ãa]o)?(?: eletr[ôo]nica)?|inexigibilidade)\s*(?:n[º°o.]*\s*)?(\d{1,6}\s*\/\s*\d{4})/gi;
-  const achados = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(puro))) {
-    const num = normalizarNumero(m[2]);
-    if (num && !validos.has(num)) achados.add(`${m[1].trim()} nº ${num}`);
-  }
-  return [...achados];
-}
-
-const ROMANOS = 'XVI|XV|XIV|XIII|XII|XI|X|IX|VIII|VII|VI|V|IV|III|II|I';
-
-/** Incisos do art. 75 citados no texto ("art. 75, II", "art. 75, inciso I"). */
-export function incisosDoArt75Citados(texto: string): string[] {
-  const puro = textoPuro(texto);
-  const re = new RegExp(`art(?:igo)?\\.?\\s*75\\s*,?\\s*(?:inciso\\s*)?(${ROMANOS})\\b`, 'gi');
-  const r = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(puro))) r.add(m[1].toUpperCase());
-  return [...r];
-}
+export { textoPuro, normalizarNumero, referenciasDivergentes, incisosDoArt75Citados } from '../conformidade/texto';

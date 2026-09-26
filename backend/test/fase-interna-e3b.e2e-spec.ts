@@ -86,6 +86,11 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
     http().post(`/api/fase-interna/${lic.id}/instrucao/${tipo}/nao-se-aplica`).set(bearer(token)).send({ justificativa: 'Não se aplica a esta contratação direta (art. 72).' });
   const papeis = (orgao: OrgaoFixture, u: UsuarioOrgaoFixture, lista: string[]) =>
     http().put(`/api/fase-interna/configuracao/usuarios/${u.id}`).set(bearer(orgao.token)).send({ papeis: lista, setor_id: null }).expect(200);
+  /** Portão B (Entrega 4): o art. 72, I, II e IV completos antes de autorizar. */
+  const instruirParaAutorizar = async (lic: { id: string }, token: string) => {
+    for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, token)).status).toBe(201);
+    for (const t of ['ETP', 'AR', 'TR', 'DO']) expect((await naoSeAplica(lic, t, token)).status).toBe(201);
+  };
 
   beforeAll(async () => {
     ctx = await criarApp();
@@ -135,12 +140,13 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       expect(outro.body.signatarios_autorizacao).toHaveLength(4);
     });
 
-    it('tela: resumo do celular (título, teto, fundamento) e o portão B do art. 72 só MOSTRADO', async () => {
+    it('tela: resumo do celular (título, teto, fundamento) e o portão B do art. 72 (o que impede autorizar)', async () => {
       const r = (await http().get(`/api/fase-interna/${lic.id}/autorizacao`).set(bearer(agente.token)).expect(200)).body;
       expect(r.situacao).toBe('SEM_DESPACHO');
       expect(r.autoridade).toBe('Mesa Diretora');
       expect(r.resumo).toMatchObject({ titulo: `Autorizar a abertura do PA ${lic.numero_processo}`, teto: 2000, modalidade: 'Dispensa · art. 75, II', dotacao: 'Sem reserva', documentos_ok: false });
       expect(r.resumo.portao_b.linhas.map((l: any) => l.inciso)).toEqual(['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII']);
+      expect(r.portao_b_bloqueios.join(' ')).toMatch(/A72-I:.*A72-II:/);
       expect(r.signatarios_configurados.map((s: any) => s.papel)).toEqual(PAPEIS_MESA);
     });
 
@@ -158,6 +164,12 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
     });
 
     it('enviar à Mesa; quem não é signatário não assina; só fica AUTORIZADA na 4ª assinatura; a tarefa da etapa conclui', async () => {
+      // Portão B (Entrega 4): sem o art. 72, I, II e IV completos o despacho não vai para a Mesa
+      const barrado = await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({});
+      expect(barrado.status).toBe(400);
+      expect(barrado.body.portao).toBe('B');
+      expect(barrado.body.pendencias.join(' ')).toMatch(/Art\. 72, I .*falta/);
+      await instruirParaAutorizar(lic, agente.token);
       const env = (await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({}).expect(201)).body;
       expect(env.situacao).toBe('AGUARDANDO_ASSINATURAS');
       expect(env.signatarios.map((s: any) => s.papel)).toEqual(PAPEIS_MESA);
@@ -203,6 +215,7 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
 
     beforeAll(async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
+      await instruirParaAutorizar(lic, agente.token);
       await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({}).expect(201);
     });
 
@@ -242,6 +255,8 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
 
     it('despacho assinado FORA (anexo) também autoriza', async () => {
       const outro = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
+      expect((await anexar(outro, 'AA', agente.token)).status).toBe(400); // portão B (Entrega 4)
+      await instruirParaAutorizar(outro, agente.token);
       expect((await anexar(outro, 'AA', agente.token)).status).toBe(201);
       const r = (await http().get(`/api/fase-interna/${outro.id}/autorizacao`).set(bearer(agente.token)).expect(200)).body;
       expect(r.situacao).toBe('AUTORIZADA');

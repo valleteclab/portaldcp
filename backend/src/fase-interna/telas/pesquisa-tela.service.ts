@@ -18,6 +18,8 @@ import { FaseInternaService } from '../fase-interna.service';
 import { GeradorPpService } from '../gerador-pp.service';
 import { ConsumoLimiteService } from '../../parametros-licitacao/consumo-limite.service';
 import { hojeEmBrasilia, pareceSerPdf } from '../peca-regras';
+import { pendenciasDoPortaoDoProcesso } from '../conformidade/portoes';
+import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
 import { calcularEstatisticasItem, CotacaoPorFonte, ItemPesquisaPrecos, PesquisaPrecosDados } from '../types/pesquisa-precos.type';
 import {
   IncisoArt23,
@@ -467,6 +469,13 @@ export class PesquisaTelaService {
     });
     if (pend.bloqueios.length) throw new BadRequestException({ message: `Não é possível emitir: ${pend.bloqueios.join(' ')}`, pendencias: pend.bloqueios });
 
+    // PORTÃO A (Entrega 4): concluir a pesquisa com o valor adotado não pode passar do limite
+    // da dispensa no ramo (LIM-01 — soma das dispensas do órgão no exercício; art. 75, §1º)
+    const valoresPrevistos: Record<number, number> = {};
+    for (const r of resumo.itens) if (r.valor_total_adotado !== null) valoresPrevistos[Number(r.item_numero)] = r.valor_total_adotado;
+    const portaoA = await pendenciasDoPortaoDoProcesso(licitacaoId, 'A', { ato: 'CONCLUIR_PESQUISA', valores_itens: valoresPrevistos });
+    if (portaoA.length) throw new BadRequestException({ message: `Não é possível emitir: ${portaoA.join(' ')}`, pendencias: portaoA, portao: 'A' });
+
     // Valor de referência de cada item = o do método (sobre os preços válidos)
     dados.itens = itens.map((i) => {
       const r = resumo.itens.find((x) => x.item_numero === i.item_numero);
@@ -549,6 +558,8 @@ export class PesquisaTelaService {
       );
     });
     await this.log(licitacaoId, undefined, `Valores unitários informados nos itens (pesquisa feita fora) por ${autor.nome ?? 'usuário'}`, autor);
+    // SQL cru não passa pelo gatilho: a conformidade (portão A — limite) e as tarefas revisam
+    avisarPecaAlterada(licitacaoId);
     return this.obter(licitacaoId);
   }
 

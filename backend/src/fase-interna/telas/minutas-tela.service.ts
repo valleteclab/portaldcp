@@ -11,6 +11,7 @@ import { GeradorDocumentoService } from '../gerador-documento.service';
 import { ModeloDocumentoService } from '../modelo-documento.service';
 import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
 import { OrcamentoService } from '../orcamento/orcamento.service';
+import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
 import { TIPOS_REGERAVEIS, decidirRegeracao, hashSecoes, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 export type Autor = { id: string | null; nome: string | null };
@@ -371,6 +372,8 @@ export class MinutasTelaService {
         })
         .catch(() => undefined);
       await this.regerarPorMudanca(licitacaoId, ['sigilo do orçamento']);
+      // SQL cru não passa pelo gatilho: a conformidade (SIGILO-01) e as tarefas revisam
+      avisarPecaAlterada(licitacaoId);
     }
     return this.obter(licitacaoId);
   }

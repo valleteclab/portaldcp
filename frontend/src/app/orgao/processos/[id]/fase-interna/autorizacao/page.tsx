@@ -54,6 +54,8 @@ interface AutorizacaoTela {
     folhas: number | null
     portao_b: { linhas: LinhaPortao[]; ok: boolean; pendentes: string[] }
   }
+  /** Entrega 4: o que impede autorizar agora (art. 72, I, II e IV; limite da dispensa). */
+  portao_b_bloqueios?: string[]
   fundamento_legal: { texto: string | null }
   peca: { documento_id: string; versao: number; status: string; anexada: boolean; tem_arquivo: boolean; gerada_pelo_modelo: boolean; desatualizada: { texto: string } | null } | null
   secoes: Record<string, string>
@@ -313,7 +315,19 @@ export default function AutorizacaoPage() {
                 {d.resumo.portao_b.ok ? "Peças exigidas para autorizar: completas" : `${d.resumo.portao_b.pendentes.length} pendência(s)`}
               </span>
             </div>
-            <p className="text-xs text-gray-600">Nesta etapa o portão só é mostrado — o bloqueio da autorização por pendência vem na próxima entrega.</p>
+            {d.portao_b_bloqueios?.length ? (
+              <div className="rounded border border-[#E8B48C] bg-[#FBEBDD] px-3 py-2 text-xs text-[#6B2F05] space-y-1" role="alert">
+                <p className="font-semibold">A autorização está bloqueada: o despacho não vai para a autoridade, não é assinado nem anexado enquanto houver:</p>
+                <ul className="list-disc pl-4">
+                  {d.portao_b_bloqueios.map((b, i) => (
+                    <li key={i}>{b.replace(/^Portão B \(art\. 72\) — /, "")}</li>
+                  ))}
+                </ul>
+                <Link className="text-blue-800 hover:underline" href={`/orgao/processos/${id}/fase-interna/conformidade`}>Ver na conformidade</Link>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-600">O portão B bloqueia a autorização (envio, assinatura e anexo do despacho) enquanto faltar peça dos incisos I, II ou IV.</p>
+            )}
             <ul className="divide-y">
               {d.resumo.portao_b.linhas.map((l) => (
                 <li key={l.inciso} className="flex items-start gap-3 py-2 text-sm">

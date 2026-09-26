@@ -54,7 +54,7 @@ Ao entrar em **Minhas tarefas** (menu principal, ou o início da área de fase i
 - **Concluídas**: as que você cumpriu ou que eram suas.
 - **Prazos da semana**: tarefas que vencem nos próximos 7 dias e sessões públicas marcadas.
 
-Cada tarefa tem o botão **Abrir peça**. Nas etapas com tela própria (DFD, ETP, TR, pesquisa de preços e reserva orçamentária) ele abre **a tela da etapa**; nas demais, leva à peça dentro da tela do processo, destacada. Tarefa atrasada aparece em laranja.
+Cada tarefa tem o botão **Abrir peça**. Nas etapas com tela própria (DFD, ETP, TR, pesquisa de preços e reserva orçamentária) ele abre **a tela da etapa**; nas demais, leva à peça dentro da tela do processo, destacada. Tarefa atrasada aparece em laranja. As tarefas da **conformidade** (achado de bloqueio — ex.: minuta citando outro processo) e de **diligência** do parecer aparecem com etiqueta; **Abrir achado** leva à tela da conformidade, no achado, e a tarefa conclui sozinha quando a peça é corrigida.
 
 **As tarefas nascem e terminam sozinhas.**
 - Quando uma etapa fica disponível, o sistema cria a tarefa para o responsável. Ao abrir um processo, nasce a tarefa da **demanda (DFD)**.
@@ -87,7 +87,7 @@ Na licitação (rito completo), o parecer vem antes da autorização.
 
 ## Telas por etapa
 
-**Um processo, uma tela.** Tudo parte da tela do processo (`/orgao/processos/<id>`). No quadro **Fluxo da fase interna**, **Abrir a etapa →** (ou **fazer ou anexar**, dentro da etapa) abre a tela da etapa; a tarefa da caixa leva ao mesmo lugar. Toda tela tem **← Voltar ao processo** e, no alto, a barra das 8 etapas (1 Demanda › 2 ETP › 3 TR › 4 Pesquisa › 5 Reserva › 6 Autorização › 7 Minutas › 7 Parecer › [Controle interno] › 8 Publicação) com a situação de cada uma. O controle interno só aparece quando o órgão o ativou.
+**Um processo, uma tela.** Tudo parte da tela do processo (`/orgao/processos/<id>`). No quadro **Fluxo da fase interna**, **Abrir a etapa →** (ou **fazer ou anexar**, dentro da etapa) abre a tela da etapa; a tarefa da caixa leva ao mesmo lugar. Toda tela tem **← Voltar ao processo** e, no alto, a barra das 8 etapas (1 Demanda › 2 ETP › 3 TR › 4 Pesquisa › 5 Reserva › 6 Autorização › 7 Minutas › 7 Parecer › [Controle interno] › 8 Conformidade e publicação) com a situação de cada uma. O controle interno só aparece quando o órgão o ativou.
 
 Em todas as telas há o quadro da peça com **os dois caminhos, que contam igual**:
 - **fazer aqui**, na própria tela, gerando a peça pelo modelo; ou
@@ -142,6 +142,8 @@ No alto, escolha **Pesquisa feita aqui** ou **Pesquisa feita fora (anexar o mapa
 
 No painel ao lado: **Limite e fracionamento (art. 75, §1º)** (dispensa) — por exemplo, "98,4% de R$ 62.725,59 — Dec. 12.343/2024", amarelo acima de 80% e vermelho acima de 100% —, e os **Avisos desta etapa** (validade, escolha dos fornecedores, sigilo, parâmetro não registrado).
 
+> **Portão A — limite e fracionamento.** Se a soma das dispensas do órgão no exercício, no mesmo ramo (classe CATMAT/CATSER e unidade gestora), com o valor desta pesquisa passar do limite do inciso, o sistema **recusa emitir o mapa e a certidão** (e o ato "Concluir pesquisa de preços"), mostrando a soma e o limite. Na pesquisa feita fora, o valor digitado nos itens é gravado, mas a etapa da pesquisa **não conclui** (a reserva e a autorização não abrem) e nasce a tarefa "Conformidade (LIM-01)" para quem cuida da pesquisa. Acima de 80% do limite, só atenção (LIM-02). Reveja o objeto e as quantidades ou adote a licitação.
+
 ### 5. Reserva orçamentária
 
 - **Dotação orçamentária:** escolha na tabela do órgão; aparecem unidade orçamentária, programa, projeto/atividade, elemento de despesa e fonte. Sem dotação cadastrada, **Cadastrar dotação** abre o cadastro rápido.
@@ -162,7 +164,9 @@ A tela tem duas visões:
   - **Gerar despacho** monta o texto pelo modelo, lendo o processo: número, objeto, fundamento legal, teto, dotação e leis da reserva, e o nome da autoridade;
   - **Enviar à autoridade** manda o despacho para os signatários da configuração do órgão (Configurações › Fase interna › Autorização). A autoridade pode ser **colegiada** (ex.: Mesa Diretora com 4 signatários): a autorização **só vale quando todos assinarem**. Antes disso, o despacho aparece como "aguardando as assinaturas" e **não conta** como peça pronta.
 
-O quadro **Instrução do art. 72 (portão B)** mostra se as peças exigidas para autorizar estão prontas: I (DFD e, se for o caso, ETP, riscos e TR), II (pesquisa) e IV (dotação). III (parecer), VI e VII (razão da escolha e preço) vêm depois. Por enquanto o quadro **só avisa**: a autorização não é bloqueada.
+O quadro **Instrução do art. 72 (portão B)** mostra se as peças exigidas para autorizar estão prontas: I (DFD e, se for o caso, ETP, riscos e TR), II (pesquisa) e IV (dotação). III (parecer), VI e VII (razão da escolha e preço) vêm depois.
+
+> **Portão B — bloqueia.** Enquanto faltar peça dos incisos I, II ou IV (feita, anexada ou "não se aplica"), ou o limite da dispensa estourar no ramo, o despacho **não vai para a autoridade**, **não é assinado** e o despacho assinado fora **não é anexado**. A tela mostra em vermelho o que falta.
 
 O despacho assinado fora (Mesa em papel) entra por **Anexar feito fora** e conta como autorizado. Na mesma tela fica a **designação do agente** (portaria do órgão).
 
@@ -185,11 +189,13 @@ Três abas: **Relatório do agente** (enquadramento, justificativa do preço, ra
 | Item | O que o sistema confere sozinho |
 |---|---|
 | Art. 72, I, II, IV, VI e VII, VIII | As peças da instrução estão prontas |
-| Art. 75 | O mesmo inciso em todas as peças feitas no sistema (ex.: "art. 75, I" no aviso e "II" no processo = atenção) |
+| Art. 75 | O mesmo inciso em todas as peças — as feitas no sistema e o texto dos PDFs anexados (ex.: "art. 75, I" no aviso e "II" no processo = atenção) |
 | Art. 41, I | Marca citada no ETP ou no TR, e a justificativa |
 | Art. 24 | Sigilo do orçamento com justificativa |
 | Art. 92 | Cláusulas obrigatórias preenchidas na minuta do contrato |
-| Vinculação | As minutas citam o número deste processo |
+| Vinculação | As peças citam o número deste processo (nunca o de outro, como o "PA 115/2025") |
+
+A conferência automática é a do **motor de conformidade** (a mesma da tela da etapa 8): o roteiro mostra o que ele encontrou.
 
 - A Procuradoria pode marcar cada item (**Conforme**, **Ressalva**, **Não se aplica**, **Pendente**) e escrever uma observação. A marcação vale sobre a conferência automática.
 - Clicar num item ou numa diligência **abre a peça na folha** (e destaca o trecho, quando informado).
@@ -204,6 +210,38 @@ Três abas: **Relatório do agente** (enquadramento, justificativa do preço, ra
 ### Controle interno (quando o órgão ativou)
 
 A tela aparece entre o parecer e a publicação. Nela, a manifestação é **Favorável** ou **Com apontamentos** (os apontamentos são obrigatórios). **Assinar manifestação** gera a peça e a assina com o usuário de quem tem o papel **Controle interno**. A manifestação feita fora também pode ser anexada. Por enquanto a etapa é **aviso**: não impede a publicação. Com o controle interno desativado, a tela informa que a etapa não se aplica.
+
+### 8. Conformidade e publicação (portão C)
+
+Antes de publicar, o **motor de conformidade** cruza todas as peças dos autos entre si — as feitas no sistema e o texto dos PDFs anexados (o PDF digitalizado, sem texto, não é lido: confira no papel). A tela (`/orgao/processos/<id>/fase-interna/conformidade`) mostra:
+
+- no alto, a contagem: **bloqueios**, **atenções** e **regras aprovadas**; **Revisar agora** roda a conferência na hora (ela também roda sozinha a cada peça salva e antes dos atos protegidos);
+- cada **achado**, com a descrição, as **evidências** (peça e folha — clique para abrir a peça na folha, com o trecho em destaque) e a ação: **Corrigir peça** (leva à tela da peça), **Justificar** (atenção) ou **Abrir**;
+- ao lado, o quadro do **aviso**: publicação prevista, início e fim do recebimento de propostas, os dias úteis de divulgação (contados no calendário do órgão) e os canais; o botão **Publicar — resolva N bloqueios** fica desabilitado até não sobrar nenhum. Liberado, ele leva ao checklist de publicação do processo;
+- o quadro das **assinaturas** de cada peça (assinada, anexada, sem data, faltam assinaturas) e as **justificativas** registradas.
+
+| Regra | O que confere | Efeito |
+|---|---|---|
+| LIM-01 / LIM-02 | Soma das dispensas do órgão no exercício, no mesmo ramo, dentro do limite do inciso / acima de 80% | Bloqueio (portão A) / atenção |
+| A72-I, II, IV | Peças do art. 72 antes de autorizar | Bloqueio (portão B) |
+| A72-III, VII, VIII | Parecer, justificativa de preço e autorização antes de publicar | Atenção / atenção / bloqueio |
+| ENQ-01 | O mesmo inciso do art. 75 em todas as peças e no fundamento legal | Bloqueio |
+| VINC-01 | Peça (despacho, informação orçamentária, relatório, minutas, parecer) que cita o número de outro processo | Bloqueio |
+| MARCA-01 | Marca sem "apenas como referência/ou similar" e sem justificativa / marca "ou similar" | Bloqueio / atenção que exige justificativa |
+| PRECO-01 | Valor estimado igual a uma única cotação, sem média/mediana e sem justificativa do método | Atenção que exige justificativa |
+| PRECO-02 / PRECO-03 | Cotação que vence antes da publicação / emitida há mais de 6 meses | Atenção |
+| CRONO-01 | Peça datada antes da peça que a pediu (ex.: informação orçamentária antes da pesquisa) | Atenção |
+| LEI-01 | LDO, LOA e PPA com números diferentes no despacho, na informação orçamentária e no parecer | Atenção |
+| EXERC-01 | Reserva de um exercício com a publicação ou o contrato no seguinte | Atenção + tarefa "renovar a dotação" para a Contabilidade |
+| DUP-01 | A mesma peça juntada duas vezes com textos diferentes | Atenção |
+| ASS-01 | Peça sem data ou com assinaturas faltantes | Bloqueio |
+| PRAZO-01 | Janela de propostas abaixo do mínimo de dias úteis (3 na dispensa) | Bloqueio (conferido de novo com as datas ao publicar) |
+| MINUTA-DESAT, SIGILO-01, ART92-01 | Minuta desatualizada, sigilo sem justificativa, cláusula do art. 92 vazia | Atenção |
+
+- **Bloqueio** não se justifica: corrija a peça (versão nova, feita aqui ou anexada) — o achado se resolve sozinho na revisão seguinte. Cada bloqueio aberto vira uma **tarefa** ("Conformidade") para quem responde pela peça, que conclui quando o achado se resolve.
+- **Atenção** pode ser **justificada** (texto obrigatório; a justificativa vai para os autos). As que exigem justificativa (marca "ou similar", estimativa por uma única cotação) impedem a publicação até serem justificadas.
+- **Não é possível publicar com bloqueio aberto.** O checklist de publicação da tela do processo ganhou a linha **Conformidade das peças (portão C)**, e o **Publicar** recusa com o que falta e onde (peça e folha). O quadro **Fluxo da fase interna** do processo mostra o resumo dos achados.
+- **Processo já publicado:** a conferência fica como estava na publicação — nada do que já foi feito é travado.
 
 > **Tramitação.** O despacho formal entre setores (estilo SEI) fica na aba **Tramitação** da tela do processo. O antigo "dossiê da fase interna" (`/orgao/fase-interna/processos/<id>`) e as telas avulsas do editor (DFD, ETP, TR) e de preços agora redirecionam para as telas acima.
 
@@ -273,7 +311,7 @@ Quando a autoridade é colegiada (ex.: Mesa Diretora com 4 assinaturas), a peça
 
 - O **fundamento legal** do processo (ex.: "art. 75, II — dispensa por valor; art. 74, III, 'c'; art. 75, VIII — emergência") é escolhido em **Editar dados › Classificação › Fundamento legal**. As opções dependem da modalidade. Esse campo é a **fonte única**: vai para o PNCP (amparo legal), para as peças geradas por modelo e para o aviso de contratação direta. Trocar a modalidade devolve o fundamento ao padrão dela.
 - **Limites da dispensa por valor** (art. 75, I e II) são **por exercício**, com o decreto de cada ano: 2023 — Dec. 11.317/2022 (R$ 114.416,65 / R$ 57.208,33); 2024 — Dec. 11.871/2023 (R$ 119.812,02 / R$ 59.906,02); 2025 — Dec. 12.343/2024 (R$ 125.451,15 / R$ 62.725,59); 2026 — Dec. 12.807/2025 (R$ 130.984,20 / R$ 65.492,11). O administrador da plataforma cadastra o exercício seguinte quando sai o decreto; enquanto não cadastra, vale o do último ano, marcado como provisório.
-- Na dispensa por valor, a etapa atual mostra o **consumo do limite**: quanto o órgão já contratou no exercício, no mesmo ramo (classe do código CATMAT/CATSER) e na mesma unidade gestora — por exemplo, "98,4% de R$ 62.725,59 — Dec. 12.343/2024". Acima de 80% o quadro fica amarelo; acima de 100%, vermelho (art. 75, §1º — fracionamento). Nesta etapa é só um aviso; o bloqueio automático vem depois.
+- Na dispensa por valor, a etapa atual mostra o **consumo do limite**: quanto o órgão já contratou no exercício, no mesmo ramo (classe do código CATMAT/CATSER) e na mesma unidade gestora — por exemplo, "98,4% de R$ 62.725,59 — Dec. 12.343/2024". Acima de 80% o quadro fica amarelo; acima de 100%, vermelho (art. 75, §1º — fracionamento). Acima de 100% é **bloqueio** (portão A): a pesquisa não conclui, a autorização não sai e o processo não é publicado.
 
 ## O copiloto (preparação automática)
 

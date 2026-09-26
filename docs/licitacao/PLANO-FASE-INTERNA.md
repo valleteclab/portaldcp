@@ -1,7 +1,7 @@
 # Plano — Fase interna simples, guiada e "feita aqui ou anexada"
 
 > 26/09/2026 · Referência real: Câmara Municipal de Luís Eduardo Magalhães — autos da Dispensa 003/2025 (PA 005/2025) e das Inexigibilidades 004/2025 (PA 033/2025) e 008/2025 (PA 043/2025), e o regulamento próprio da Lei 14.133 (**Portaria 089/2024**).
-> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** (PR #509, ver §9). **Entrega 3B (autorização no celular, minutas e relatório do agente, parecer com diligências, controle interno opcional) concluída** na branch `claude/fase-interna-e3b` (ver §10). Entregas 4 a 7 pendentes.
+> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** (PR #509, ver §9). **Entrega 3B (autorização no celular, minutas e relatório do agente, parecer com diligências, controle interno opcional) concluída** (PR #510, ver §10). **Entrega 4 (motor de conformidade e portões A, B e C) concluída** na branch `claude/fase-interna-e4` (ver §11). Entregas 5 a 7 pendentes.
 
 ## 1. O problema
 
@@ -357,7 +357,7 @@ Mais: `synchronize` cria `documentos_orgao`, as colunas novas e recria os enums 
 
 - **Tela de assinatura da peça** (escolher signatários e papéis, acompanhar) — nesta entrega só a API e o e2e; as telas por etapa vêm na Entrega 3. Cadastro/listagem de portarias na tela de configuração do órgão (hoje: API + botão "Usar portaria do órgão").
 - "Mudar o fundamento atualiza todas as minutas geradas por modelo" (critério de aceite da SPEC): as peças já geradas guardam o texto resolvido; resolver as variáveis na renderização (ou regenerar) fica para a Entrega 3/4, junto com a regra `ENQ-01`.
-- Portão A (bloqueio por limite/fracionamento — `LIM-01`/`LIM-02`) usa `consumoDoLimite` na Entrega 4; nesta só leitura/aviso.
+- ~~Portão A (bloqueio por limite/fracionamento — `LIM-01`/`LIM-02`) usa `consumoDoLimite` na Entrega 4~~ — feito (§11).
 - Numeração de folhas nos autos em PDF (`processo-pdf` com índice e folhas carimbadas) — Entrega 6; aqui as folhas já são atribuídas e gravadas.
 - Etapa da fase interna (máquina de 8 etapas da SPEC) e tarefas — feito na Entrega 2 (§8).
 - Conferir o valor de 2022 (Dec. 10.922/2021) na fonte oficial.
@@ -524,12 +524,12 @@ O `synchronize` também:
 
 ### 8.5 Fica para as próximas entregas
 
-- **Portões que travam atos** — Entrega 4. Nesta entrega estão só marcados no campo `portao`:
+- ~~**Portões que travam atos** — Entrega 4~~ (feito, §11). Nesta entrega estavam só marcados no campo `portao`:
   - B (art. 72) na autorização;
   - minutas antes do parecer;
   - C (conformidade) antes de publicar.
 - **Diligência** do parecer, que cria tarefa para o responsável da peça-alvo (origem DILIGENCIA) — Entrega 3.
-- **Achado** da conformidade (origem ACHADO) — Entrega 4.
+- ~~**Achado** da conformidade (origem ACHADO) — Entrega 4~~ — feito (§11).
 - **Telas por etapa** — Entrega 3. Hoje o botão da tarefa leva à linha da peça no quadro do processo.
 - **Atos CONCLUIR_* automáticos** quando terminam as etapas de uma fase da máquina: não foi feito, porque mudaria o comportamento atual. O agente continua avançando pelo checklist, como antes.
 - **Controle interno como bloqueio** (hoje é só aviso) e "não se aplica" para ele, quando o regulamento permitir — decisão do órgão, Entregas 4/5.
@@ -625,7 +625,7 @@ Novas: `dotacoes_orcamentarias`, `leis_orcamentarias`, `reservas_orcamentarias`,
 ### 9.6 Fica para depois
 
 - ~~**Entrega 3B**: autorização no celular, parecer com diligências (origem DILIGENCIA), relatório do agente e minutas~~ — feita (§10).
-- **Portões** (Entrega 4): travar o avanço com inciso obrigatório vazio, marca sem justificativa (`MARCA-01`), limite (`LIM-01/02`), `PRECO-01..03`, `LEI-01`, `EXERC-01` (a renovação já cria a tarefa manualmente; a regra automática "reserva de N e contrato em N+1" é da Entrega 4).
+- ~~**Portões** (Entrega 4): marca sem justificativa (`MARCA-01`), limite (`LIM-01/02`), `PRECO-01..03`, `LEI-01`, `EXERC-01`~~ — feito (§11). Os incisos obrigatórios do ETP continuam como aviso na tela do ETP.
 - **Cadastro de marcas** do órgão para a detecção por nome (a função já aceita a lista; hoje a detecção é pelo padrão do texto).
 - Saldo da dotação integrado ao sistema contábil (hoje informado na tabela).
 - Tela de assinatura com acompanhamento de quem falta (o envio já existe no quadro da peça; a situação continua em `GET …/assinatura`).
@@ -713,11 +713,121 @@ Alterados: `PUT /fase-interna/configuracao` aceita `signatarios_autorizacao` (us
 
 ### 10.6 Fica para depois
 
-- **Portões que travam** (Entrega 4): autorização sem o portão B, parecer sem as minutas, publicação sem o portão C; `ENQ-01`/`VINC-01` como bloqueio (aqui são leitura no roteiro e na tela das minutas).
+- ~~**Portões que travam** (Entrega 4): autorização sem o portão B, publicação sem o portão C; `ENQ-01`/`VINC-01` como bloqueio~~ — feito (§11). "Parecer sem as minutas" continua como aviso na tela do parecer.
 - **PJE ligado à adjudicação** (exigir o parecer da fase externa por órgão) e gatilho automático da tarefa.
 - **Destaque do trecho dentro do PDF anexado** (hoje o PDF abre na folha; o trecho é destacado só no texto das peças feitas no sistema).
 - Edição do texto do parecer antes de assinar (hoje: roteiro + fundamentação + ressalvas; o texto completo pode ser anexado feito fora).
 - Controle interno como bloqueio e "não se aplica" para ele (decisão do órgão).
+
+## 11. Entrega 4 — CONCLUÍDA (26/09/2026)
+
+Branch `claude/fase-interna-e4` (a partir do main com as Entregas 1 a 3B). Sem push/PR nesta etapa. Commits: `85b0a57f` (backend), `3467c024` (portões A e B sem ler o texto dos PDFs), `586f8f52` (frontend) e o desta documentação.
+
+**Motor de conformidade e portões A, B e C.** O motor cruza as peças dos autos entre si e liga os três portões da SPEC aos atos que já existiam — **sem máquina paralela**: as pré-condições do `TransicoesService` (`definicoes.ts`), a pré-publicação (`pre-publicacao.ts`) e os serviços das peças perguntam ao motor.
+
+### 11.1 O motor (`backend/src/fase-interna/conformidade/`)
+
+- **Regras = funções puras** `(contexto) => AchadoCalculado[]`, registradas na lista `REGRAS` (`regras.ts`) com código, descrição, severidade (BLOQUEIO | ATENCAO), a **etapa em que roda** (PESQUISA | AUTORIZACAO | PUBLICACAO) e o **portão** (A | B | C). Cada regra pode dizer por que **não se aplica** agora (`aplicavel`), e o motor isola a regra que falha (as outras rodam; os achados dela não mudam).
+- **Contexto montado uma vez** (`contexto.ts`, função pura sobre as linhas do banco — testável à mão): processo (fundamento legal efetivo da E1 e o inciso do art. 75, número do PA e da dispensa, sigilo, cronograma, exercício, data pretendida do DFD), instrução (`getInstrucao`), **peças ativas com o texto** (feita aqui: uma "página" por seção, na folha inicial; **anexada: o texto do PDF página a página, na folha certa** — folha inicial + página − 1), documentos da aba Documentos que não viraram a peça, pesquisa (itens, cotações, método, publicação prevista), reserva (exercício, linhas e as leis da tabela única), consumo do limite (`ConsumoLimiteService`, E1) e o calendário do órgão.
+- **Texto dos PDFs** (`texto-pdf.ts`): com o `pdf-parse`, a biblioteca que o projeto já usa, **sem OCR** (PDF digitalizado fica "sem texto" — a IA sobre os PDFs é a Entrega 7). Cache em memória pela impressão (SHA-256) do arquivo. O `pdf-parse` 2.x carrega o worker do pdf.js por `import()` dinâmico; onde isso não existe (Jest), a mesma biblioteca roda num processo Node filho.
+- **Conferências de texto numa implementação só** (`texto.ts`, `art72.ts`): número de outro processo (VINC-01), inciso do art. 75 nas três formas ("art. 75, inciso II", "art. 75, II", "inciso II do art. 75"), leis LDO/LOA/PPA classificadas pelo contexto, e o checklist do art. 72. **Movidas** de `minutas-regras.ts` e `autorizacao-regras.ts` (que as reexportam); as cláusulas do art. 92 saíram de `parecer-regras.ts` para a regra ART92-01.
+- **Revisão idempotente** (`motor.ts` — `planejarRevisao`, pura): a ocorrência que continua (mesma regra + `chave`) não gera linha nova nem escrita; a que **deixa de ocorrer vira RESOLVIDO** (quem, quando e o motivo — "deixou de ocorrer" ou "a regra deixou de se aplicar"); a que reaparece é **REABERTA**; o **JUSTIFICADO persiste** enquanto a mesma ocorrência persistir e volta a ABERTO se virar bloqueio. Cada mudança vai para o `historico` do achado.
+- **Quando roda:**
+  - **sob demanda** — "Revisar agora" (`POST …/conformidade/revisar`) e na primeira abertura da tela (ou quando a última revisão ficou para trás de uma peça, item, reserva ou do processo);
+  - **ao mudar uma peça** — na MESMA fila por processo das tarefas (gatilho pós-commit da E2): `TarefasService.registrarAntesDeSincronizar` roda a revisão e, em seguida, a sincronização das tarefas (que já lê o portão A). Os caminhos por SQL cru avisam (`avisarPecaAlterada`: valores dos itens da pesquisa feita fora, sigilo);
+  - **antes dos atos protegidos** — em memória, com o ato que vai ser praticado (`ato_pretendido`), sem gravar nada dentro da transação do ato.
+- Só roda na **fase interna**: processo divulgado fica com a conferência congelada (ver 11.6). Desligar tudo: `FASE_INTERNA_CONFORMIDADE=false` (nenhum portão bloqueia).
+
+### 11.2 As regras
+
+| Código | Sev. | Etapa · portão | O que confere | Caso real (PA 139/2025) |
+|---|---|---|---|---|
+| LIM-01 | BLOQUEIO | Pesquisa · A | Soma das dispensas do órgão no exercício, no mesmo ramo (classe CATMAT/CATSER + unidade gestora) + esta, dentro do limite do inciso (`limiteDispensa`/`consumoDoLimite`, E1) | variante: + R$ 1.500 no ramo → R$ 63.253,44 |
+| LIM-02 | ATENÇÃO | Pesquisa · A | Acima de 80% do limite | **98,4% de R$ 62.725,59 — Dec. 12.343/2024** |
+| A72-I, A72-II, A72-IV | BLOQUEIO | Autorização · B | Toda peça do inciso presente na instrução pronta ou "não se aplica" (DFD/ETP/AR/TR; PP; DO) — conferido **até a autorização** (e no ato de autorizar) | variante antes da autorização |
+| A72-III, A72-VII | ATENÇÃO | Publicação · C | Parecer (III) e justificativa de preço — relatório/justificativa (VII), depois da autorização | variante |
+| A72-V, A72-VI | — | fase externa | Habilitação e razão da escolha: **não bloqueiam** (não se aplicam à fase interna) | — |
+| A72-VIII | BLOQUEIO | Publicação · C | Autorização pronta (garantida pela instrução obrigatória do PUBLICAR) | — |
+| ENQ-01 | BLOQUEIO | Publicação · C | O inciso do art. 75 citado em cada peça (feitas aqui e **PDFs anexados**) é o de `fundamento_legal` | relatório (1ª via, fl. 14) e minuta do aviso (fl. 41) no inciso I × processo no II |
+| VINC-01 | BLOQUEIO | Publicação · C | Despacho, informação orçamentária, relatório, minutas, parecer, controle interno e justificativa citam o número deste PA/dispensa | contrato com o "PA 115/2025 / Dispensa 025/2025" (fl. 63) |
+| MARCA-01 | BLOQUEIO / ATENÇÃO | Publicação · C | Correção do plano §5.1: marca sem "apenas como referência/ou similar" e sem justificativa = BLOQUEIO; com "similar/equivalente" = ATENÇÃO **com justificativa obrigatória** (a do art. 41, I no ETP ou a do achado) — `detectarIndicacaoMarca` (E3A) | "similar ou superior ao ARION (SNEWS)" no ETP (fls. 5 e 10) e no TR |
+| PRECO-01 | ATENÇÃO (exige justificativa) | Publicação · C | Valor estimado igual a uma única cotação, método ≠ média/mediana e sem justificativa do método | igual à proposta da DMNEWS |
+| PRECO-02 | ATENÇÃO | Publicação · C | Cotação com validade anterior à publicação prevista (`alertasDaCotacao`, E3A) | Legado válida até 31/12/2025; publicação 13/01/2026 |
+| PRECO-03 | ATENÇÃO | Publicação · C | Cotação emitida há mais de 6 meses | variante |
+| CRONO-01 | ATENÇÃO | Publicação · C | Peça datada (`data_documento`, E1) antes da peça que a solicitou — pelas dependências das etapas (E2); a portaria anual fica fora | informação orçamentária (04/12) antes da pesquisa (10/12); ETP (14/11) antes do DFD (10/12) |
+| LEI-01 | ATENÇÃO | Publicação · C | LDO/LOA/PPA com o mesmo número no despacho, na informação orçamentária e no parecer (e na tabela única da reserva) | LOA 1.141/2024 × 1.151/2024 |
+| EXERC-01 | ATENÇÃO | Publicação · C | Reserva do exercício N com a publicação/o contrato previstos para N+1 → **tarefa da Contabilidade** (a mesma "Renovar dotação" da 3A) | reserva de 2025, publicação em 2026 |
+| DUP-01 | ATENÇÃO | Publicação · C | Duas peças ativas do mesmo tipo com textos diferentes (inclusive o PDF da aba Documentos que não virou a peça) | relatório nas fls. 14–16 e 38–40 |
+| ASS-01 | BLOQUEIO | Publicação · C | Peça nos autos sem data ou com assinaturas faltantes | despacho da Mesa sem data |
+| PRAZO-01 | BLOQUEIO | Publicação · C | Janela de propostas com o mínimo de dias úteis (3 na dispensa; art. 55 nas demais), **no calendário do órgão** — a mesma `avaliarPrazosDePublicacao` da pré-condição do PUBLICAR | variante (fim 15/01) |
+| MINUTA-DESAT | ATENÇÃO | Publicação · C | Minuta marcada "desatualizada" (E3B) | variante |
+| SIGILO-01 | ATENÇÃO | Publicação · C | Orçamento sigiloso com a justificativa do art. 24 | variante |
+| ART92-01 | ATENÇÃO | Publicação · C | Cláusulas do art. 92 preenchidas na minuta do contrato feita no sistema | variante |
+
+**Fixtures** (`conformidade/fixtures/pa-139-2025.ts`): o processo real (folhas, datas, textos, cotações, reserva, consumo) e o mesmo processo **corrigido**. Cada regra dispara com o dado real (ou com a variante, quando o erro não estava nos autos) e não dispara com o corrigido — com o real, disparam LIM-02, ENQ-01, VINC-01, MARCA-01, PRECO-01, PRECO-02, CRONO-01, LEI-01, EXERC-01, DUP-01 e ASS-01; com o corrigido, nenhuma.
+
+### 11.3 Achados e tarefas
+
+- **Entidade `achados_conformidade`**: processo, regra, `chave` (a ocorrência — única por processo e regra), severidade, etapa, portão, título, mensagem, **evidências** (lista de {peça, tipo, título, folha, trecho}), `exige_justificativa`, tipo da peça responsável, ação, status **ABERTO | RESOLVIDO | JUSTIFICADO**, justificativa (quem/quando), resolução (quem/quando/motivo), primeira e última detecção, histórico. **`revisoes_conformidade`**: a última revisão do processo (quando, quem/gatilho, a situação de cada regra — o "N regras aprovadas").
+- **Achado BLOQUEIO aberto → tarefa** (origem **ACHADO**, tipo ACHADO, chave `achado:<id>`) para o **responsável pela peça** (o do passo da peça — mesma regra das tarefas da E2), com o que falta e onde. **Conclui sozinha** quando o achado se resolve (registrando quem). Exceções: A72-* e PRAZO-01 não geram tarefa (a peça pendente já é a tarefa da etapa; o prazo é do publicar), nem "assinaturas faltantes" (o portal já avisa os signatários).
+- **EXERC-01 → tarefa da Contabilidade** "Prever a renovação da dotação" com a **mesma chave** da 3A (`sistema:renovar-dotacao`, origem ACHADO): a emissão da nova versão/o anexo da DO a concluem (3A), e o motor a conclui se o achado se resolver.
+- **Justificar** (só ATENÇÃO; texto ≥ 20 caracteres): o achado fica JUSTIFICADO, a justificativa vai para o log da fase interna (`DOCUMENTO_EDITADO`, `dados_depois.conformidade = true`) e para `ConformidadeService.justificativasParaAutos` — **disponível para o PDF dos autos (Entrega 6)**. BLOQUEIO não se justifica (409).
+- Processo revogado/anulado: as tarefas dos achados são canceladas pela sincronização da E2; divulgado: canceladas pelo motor ("fase interna encerrada").
+
+### 11.4 Portões ligados aos atos
+
+- Ponte sem injeção de dependência (`conformidade/portoes.ts`, mesmo padrão do `aviso-tarefas.ts`): o `ConformidadeService` se registra ao subir; quem pratica o ato pergunta as pendências. Na máquina: nova consulta opcional `conformidade(portao)` em `ConsultasTransicao` (os testes unitários antigos seguem sem ela).
+- **Portão A** (LIM-01): pré-condição `portaoALimite` no **CONCLUIR_PESQUISA_PRECOS**; **emitir o mapa e a certidão** (`POST …/pesquisa/emitir`) confere o limite **com o valor que a pesquisa vai adotar** (consumo simulado por item — `ConsumoLimiteService.consumoDoProcesso(…, { valores_itens })`); e o LIM-01 aberto **segura a conclusão do passo da pesquisa** nas etapas da E2 (`etapasDaFaseInterna(…, bloqueios)`: a pesquisa fica EM_ANDAMENTO com `bloqueio_portao`, a reserva e a autorização não abrem). Na pesquisa feita fora os valores são gravados (é o fato), mas a etapa não conclui.
+- **Portão B** (art. 72, I, II e IV + o limite): **anexar o despacho** (AA) assinado fora, **enviar o despacho** para assinatura (tela da autorização e o envio genérico da E1) e **assinar** pela tela da autorização. A tela da autorização mostra o que impede (`portao_b_bloqueios`).
+- **Portão C** (conformidade): pré-condição `portaoCConformidade` no **PUBLICAR** (e no PUBLICAR do credenciamento): recusa com achado **BLOQUEIO** aberto e com **ATENÇÃO que exige justificativa** sem ela (MARCA-01 "ou similar", PRECO-01). As mensagens dizem o que falta e **onde** (peça e folha): "Portão C (conformidade) — VINC-01: Minuta do contrato cita PA nº 115/2025… [Minuta do contrato, fl. 5]". O cronograma do pedido de publicação entra no contexto. A pré-publicação ganhou a linha **CONFORMIDADE** (ação `ABRIR_CONFORMIDADE`).
+- Critério de aceite da SPEC — **"não é possível publicar com achado BLOQUEIO aberto"**: PRAZO-01 e A72-VIII são garantidos pelas pré-condições que o PUBLICAR já tinha (`prazosDePublicacao` com as datas do pedido e `instrucaoCompleta`), por isso o portão não os repete (uma mensagem só).
+
+### 11.5 Tela e integrações
+
+- **Conformidade** (`/orgao/processos/[id]/fase-interna/conformidade`, mockup Conformidade; a etapa 8 da barra): contagem de bloqueios, atenções e regras aprovadas; cada achado com a descrição, as **evidências clicáveis** (abrem a peça **na folha**, com o trecho — o **visor dos autos do parecer**, extraído para `VisorDosAutos`) e a ação (**Corrigir peça** → a tela da peça; **Justificar**; **Abrir**); resolvidos e a lista de regras por portão; quadro do **aviso** (publicação prevista, início/fim do recebimento, dias úteis de divulgação no calendário do órgão, canais); **"Publicar — resolva N bloqueios"** desabilitado com a contagem (liberado, leva ao checklist de publicação do processo); assinaturas das peças; justificativas nos autos; "Revisar agora".
+- **Painel do processo**: o quadro "Fluxo da fase interna" mostra o resumo da conformidade (`GET …/conformidade/resumo`) e, no passo da pesquisa, o bloqueio do portão A. **Caixa de tarefas**: etiqueta "Conformidade" e "Abrir achado" (destino `…/conformidade#achado-<id>`); a tarefa da publicação leva à tela da conformidade.
+- **Roteiro do parecer (E3B) lê o motor**: art. 75 ← ENQ-01, art. 41 ← MARCA-01, art. 24 ← SIGILO-01, art. 92 ← ART92-01, vinculação ← VINC-01, art. 72 ← a mesma função das regras A72 — agora também sobre o texto dos PDFs anexados. O detalhe do roteiro não cita mais "art. 75, I" (o parecer montado do roteiro não pode virar ele mesmo uma peça divergente).
+
+### 11.6 Decisões
+
+- **Processos em andamento — o portão vale para o ato que ainda vai ser praticado.**
+  - Processo **já divulgado** (fora da fase interna): nenhum portão se aplica, o motor não reavalia (a conferência fica como estava na publicação; as tarefas dos achados são canceladas) e os atos seguintes seguem normalmente.
+  - Portão B **superado**: com a autorização já dada (assinada ou anexada), A72-I/II/IV deixam de se aplicar ("a autorização já foi dada") — um processo autorizado antes desta entrega com ETP pendente não fica travado; a instrução obrigatória continua cobrada pelo PUBLICAR, como antes. Uma nova autorização (nova versão do despacho) passa pelo portão de novo.
+  - Processo na fase interna que ainda vai **publicar** passa pelo portão C, inclusive os criados antes desta entrega (é o ato que falta). Achado de dado legado (ex.: anexo sem data vindo da aba Documentos) se resolve anexando de novo com a data.
+- **Legado "só texto"**: o despacho criado pelo editor antigo (texto, sem assinatura) continua contando como antes (compatibilidade dos fluxos existentes); ASS-01 não o acusa. As vias de autorização da 3B (anexo, envio para assinatura, "Autorizar e assinar") passam pelo portão B; a assinatura pelo portal genérico, depois de um envio que já passou pelo portão, não é conferida de novo.
+- **VINC-01** só nas peças que vinculam o ato ao processo (despacho, informação orçamentária, relatório, minutas, parecer, controle interno, justificativa): DFD/ETP/TR podem citar contratações anteriores legitimamente.
+- **CRONO-01** usa as dependências das etapas (E2) como "quem solicitou quem"; a portaria de designação (anual) não entra.
+- **SIGILO-01 e ART92-01 como ATENÇÃO** (como no roteiro da 3B): o sigilo já exige justificativa na tela das minutas; a minuta anexada não é lida por cláusula.
+- **ATENÇÃO que exige justificativa** (MARCA-01 "ou similar", PRECO-01) segura a publicação até ser justificada — é o "com justificativa obrigatória" do plano §5.1; as demais atenções nunca bloqueiam.
+- **Sem migração de boot**: não há dado a converter (as tabelas nascem vazias pelo `synchronize`); a primeira revisão de cada processo acontece na primeira gravação de peça, na abertura da tela ou no ato protegido. Nenhum valor novo em enum (log reaproveita `DOCUMENTO_EDITADO`; tarefa reaproveita a origem/tipo ACHADO da E2). jsonb sem default (o synchronize recriaria a coluna).
+
+### 11.7 Endpoints novos
+
+| Método e rota | Quem | Isolamento (e2e) |
+|---|---|---|
+| `GET /fase-interna/:id/conformidade` | órgão dono | outro órgão 404; fornecedor 403; anônimo 401 |
+| `GET /fase-interna/:id/conformidade/resumo` | órgão dono | 404 / 403 / 401 |
+| `POST /fase-interna/:id/conformidade/revisar` | órgão dono | outro órgão 403; fornecedor 403; anônimo 401 |
+| `POST /fase-interna/:id/conformidade/achados/:achadoId/justificar` `{ justificativa }` | órgão dono (só ATENÇÃO; BLOQUEIO 409) | 403 / 403 / 401; achado de outro processo 404 |
+
+Alterados: `GET /fase-interna/:id/autorizacao` devolve `portao_b_bloqueios`; `GET /fase-interna/:id/etapas` devolve `bloqueio_portao` e `portao: 'A_LIMITE'` na pesquisa; `GET /licitacoes/:id/conferencia-publicacao` ganhou a linha CONFORMIDADE; `POST …/pesquisa/emitir`, `POST …/documentos/AA/anexo`, `POST …/documentos/AA/assinatura`, `POST …/autorizacao/{enviar,assinar}` e os atos CONCLUIR_PESQUISA_PRECOS e PUBLICAR recusam (400, `pendencias`, `portao`) quando o portão não passa.
+
+### 11.8 Testes
+
+- **Unitários novos** (`src/fase-interna/conformidade/`): `regras.spec.ts` (**uma suíte por regra**, com o PA 139/2025 real, a variante e o corrigido), `motor.spec.ts` (idempotência: segunda revisão sem mudança; resolvido some e reabre; justificado persiste na mesma ocorrência e não cobre ocorrência nova; justificado que vira bloqueio reabre; regra que falha não resolve os achados dela; portões A/B/C e o que é garantido pelo ato; o botão "resolva N"; **montagem do contexto**), `texto.spec.ts` (incisos nas três formas, número de outro processo com a folha, leis classificadas, **texto de PDF página a página**). Ajustados: `parecer-regras.spec.ts` (roteiro sobre a avaliação do motor), `etapas-fase-interna.spec.ts` (portão A segura a pesquisa; divulgado não muda o passado), `tarefa-regras.spec.ts` (destino do achado e da publicação). Suíte unitária completa: **99 suítes / 1208 testes**, todas passando.
+- **E2E novo** `test/fase-interna-e4.e2e-spec.ts` (17 testes): **publicar recusado com BLOQUEIO aberto** (VINC-01 lido do PDF anexado, com peça, folha e trecho) e **liberado depois de corrigir** (versão nova → achado resolvido sozinho, tarefa concluída, revisão idempotente); **ATENÇÃO justificado libera** (MARCA-01 "similar ou superior ao ARION", justificativa nos autos e no log; bloqueio não se justifica 409); **portão A com LIM-01** (CONCLUIR_PESQUISA_PRECOS e a emissão do mapa recusados; a etapa da pesquisa não conclui; reduzido o valor, LIM-02 e o ato passa); **portão B** sem o art. 72 completo (anexo, envio à autoridade e envio genérico recusados; completo, autorizado); **achado cria e conclui a tarefa**; **EXERC-01 cria e conclui a tarefa da Contabilidade**; **processo já publicado não é travado**; **isolamento** de todos os endpoints novos. Sem migração de boot a rodar 2x.
+- **E2E afetados** (arquivo a arquivo): fase-interna-e1 (26), fase-interna-e2 (19), fase-interna-e3a (14), fase-interna-e3b (26), dispensa-eletronica (45), cockpit-processo (8), isolamento-dados-licitacao (115), divulgacao-pncp (11), transicoes-fase-interna-pncp (12), publicacao-prazos (36), credenciamento (30), transicoes-licitacao (22), dispensa-motor-unico (15) — todos passando. Ajustados para o portão B (o comportamento novo): `fase-interna-e3b` (enviar à Mesa sem o art. 72 é recusado; com a instrução, segue igual; despacho anexado idem), `fase-interna-e1` (assinatura da Mesa com a instrução pronta) e `fase-interna-e2` (despacho anexado depois do art. 72).
+- **Frontend**: `npx tsc --noEmit` limpo; `next build` concluído sem erro (a rota nova `/orgao/processos/[id]/fase-interna/conformidade` compilada).
+
+### 11.9 Fica para depois
+
+- **IA lendo os PDFs** (Entrega 7): peças digitalizadas (sem texto) ficam fora das regras de texto — o motor as marca "sem texto".
+- **Autos em PDF com as justificativas** (Entrega 6): `justificativasParaAutos` já entrega a lista.
+- **Cadastro de marcas do órgão** para a MARCA-01 procurar por nome (a detecção segue pelo padrão do texto).
+- Exigir o **parecer da fase externa** antes da adjudicação e o **controle interno como bloqueio** (decisões do órgão — Entrega 5).
+- Regra para a **cotação do mesmo produto por fabricante e revenda** e para a **segregação de funções** (alertas de risco do §2.1) — não estavam no escopo desta entrega.
+- "Parecer só depois das minutas" (gancho `MINUTAS_ANTES_DO_PARECER` da E2) e o **parecer desfavorável como bloqueio**: continuam como aviso (decisão do órgão).
+- A assinatura pelo portal genérico de assinaturas (menu "Assinaturas pendentes") de um despacho já enviado não reconfere o portão B (o envio já passou por ele); a tela da autorização confere.
 
 ## 6. Riscos e cuidados
 

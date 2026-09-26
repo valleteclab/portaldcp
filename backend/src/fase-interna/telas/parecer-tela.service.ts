@@ -14,8 +14,8 @@ import { PecasFaseInternaService } from '../pecas-fase-interna.service';
 import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { PapelFaseInterna, PassoFaseInterna, passoDaPeca } from '../tarefas/etapas-fase-interna';
-import { detectarIndicacaoMarca } from './etp-analise';
 import { Autor, MinutasTelaService } from './minutas-tela.service';
+import { ConformidadeService } from '../conformidade/conformidade.service';
 import { secoesDaPeca } from './minutas-regras';
 import { AnaliseJuridica, Diligencia, FaseAnaliseJuridica } from './parecer.entities';
 import {
@@ -75,6 +75,7 @@ export class ParecerTelaService {
     private readonly pecas: PecasFaseInternaService,
     private readonly tarefas: TarefasService,
     private readonly auditLog: AuditLogService,
+    private readonly conformidade: ConformidadeService,
   ) {}
 
   // ==========================================================================
@@ -179,33 +180,14 @@ export class ParecerTelaService {
 
     let base;
     if (fase === 'PREVIA') {
-      const textoDe = (tipo: string) => autos.find((a) => a.tipo === tipo);
-      const etp = textoDe('ETP');
-      const tr = textoDe('TR');
-      const [etpDoc] = await this.ds.query(
-        `SELECT dados_estruturados->'_marca'->>'justificativa' AS j FROM documentos_fase_interna WHERE licitacao_id::text = $1 AND tipo::text = 'ETP' AND versao_atual = true LIMIT 1`,
-        [licitacaoId],
-      );
-      const marca = detectarIndicacaoMarca({ ...(etp?.secoes ?? {}), ...Object.fromEntries(Object.entries(tr?.secoes ?? {}).map(([k, v]) => [`tr_${k}`, v])) }, { justificativa: etpDoc?.j ?? null });
-      const mc = textoDe('MC');
+      // O roteiro LÊ O MOTOR DE CONFORMIDADE (Entrega 4): mesma avaliação da tela da conformidade
+      const { avaliacoes } = await this.conformidade.avaliacao(licitacaoId);
       base = roteiroPrevio({
         contratacao_direta: instrucao.contratacao_direta,
-        pecas: instrucao.itens.map((i) => {
-          const a = textoDe(i.tipo);
-          return { tipo: i.tipo, status: i.status, texto: a ? [a.texto, ...Object.values(a.secoes)].join(' ') : '', anexada: !!a?.anexada };
-        }),
-        inciso_fundamento: String(fundamento ?? '').startsWith('ART75_') ? String(fundamento).replace('ART75_', '').split('_')[0] : null,
+        instrucao: instrucao.itens,
         fundamento_referencia: definicaoDoFundamento(fundamento)?.referencia ?? null,
         numero_processo: lic.numero_processo,
-        numero_dispensa: lic.numero_edital ?? null,
-        sigiloso: lic.sigilo_orcamento === 'SIGILOSO',
-        justificativa_sigilo: lic.justificativa_sigilo ?? null,
-        marca: {
-          bloqueios: marca.filter((m: any) => m.severidade === 'BLOQUEIO').length,
-          atencoes: marca.filter((m: any) => m.severidade === 'ATENCAO').length,
-          justificada: marca.length > 0 && marca.every((m: any) => m.severidade === 'JUSTIFICADO'),
-        },
-        secoes_mc: mc && !mc.anexada ? mc.secoes : null,
+        avaliacoes,
       });
     } else {
       const pj = instrucao.itens.find((i) => i.tipo === 'PJ');

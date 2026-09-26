@@ -27,16 +27,21 @@ export const TELA_DO_PASSO: Partial<Record<string, string>> = {
   MINUTAS: 'minutas',
   PARECER: 'parecer',
   CONTROLE_INTERNO: 'controle-interno',
+  // Entrega 4: a etapa 8 (conformidade e publicação)
+  PUBLICACAO: 'conformidade',
 };
 
 /**
  * Para onde a tarefa leva: a tela da etapa (DFD, ETP, TR, pesquisa, reserva,
- * autorização, minutas, parecer, controle interno); nas demais, a linha da
+ * autorização, minutas, parecer, controle interno, conformidade); achado da
+ * conformidade (Entrega 4): a tela da conformidade; nas demais, a linha da
  * peça no quadro do processo. Parecer da fase externa: a tela do parecer com
  * `?fase=EXTERNA`.
  */
-export function destinoDaTarefa(t: { licitacao_id: string; passo?: string | null; tipo_peca?: string | null }): string {
+export function destinoDaTarefa(t: { licitacao_id: string; passo?: string | null; tipo_peca?: string | null; origem?: string | null; origem_id?: string | null }): string {
   if (t.tipo_peca === 'PJE') return `/orgao/processos/${t.licitacao_id}/fase-interna/parecer?fase=EXTERNA`;
+  // Entrega 4: tarefa de achado da conformidade → a tela da conformidade, no achado
+  if (t.origem === 'ACHADO') return `/orgao/processos/${t.licitacao_id}/fase-interna/conformidade${t.origem_id ? `#achado-${t.origem_id}` : ''}`;
   const tela = t.passo ? TELA_DO_PASSO[t.passo] : undefined;
   if (tela) return `/orgao/processos/${t.licitacao_id}/fase-interna/${tela}`;
   return `/orgao/processos/${t.licitacao_id}${t.tipo_peca ? `#peca-${t.tipo_peca}` : '#fluxo-fase-interna'}`;

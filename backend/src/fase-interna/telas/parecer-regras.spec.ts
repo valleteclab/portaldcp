@@ -11,58 +11,70 @@ import {
   validarNovaDiligencia,
 } from './parecer-regras';
 
-const base = {
-  contratacao_direta: true,
-  inciso_fundamento: 'II',
-  fundamento_referencia: 'art. 75, II',
-  numero_processo: '139/2025',
-  numero_dispensa: '029/2025',
-  sigiloso: true,
-  justificativa_sigilo: 'Evitar ancoragem dos preços na disputa (art. 24).',
-  marca: { bloqueios: 0, atencoes: 0, justificada: false },
-  secoes_mc: null as Record<string, string> | null,
-};
-const peca = (tipo: string, status = 'OK', texto = '', anexada = false) => ({ tipo, status, texto, anexada });
+import { montarContexto } from '../conformidade/contexto';
+import { pa139Corrigido, pa139Real } from '../conformidade/fixtures/pa-139-2025';
+import { avaliarRegras } from '../conformidade/motor';
+import type { EntradaContexto } from '../conformidade/contexto';
 
-describe('Roteiro do parecer (Entrega 3B)', () => {
+const linha = (tipo: string, status = 'OK') => ({ tipo, titulo: tipo, status, obrigatorio: false });
+/** Roteiro sobre a avaliação do MOTOR (Entrega 4) — o roteiro não tem regra própria. */
+const roteiro = (e: EntradaContexto, instrucao = e.instrucao.itens) =>
+  roteiroPrevio({ contratacao_direta: true, instrucao, fundamento_referencia: 'art. 75, II', numero_processo: '139/2025', avaliacoes: avaliarRegras(montarContexto(e)) });
+const com = (base: () => EntradaContexto, f: (e: EntradaContexto) => void) => {
+  const e = base();
+  f(e);
+  return e;
+};
+
+describe('Roteiro do parecer (Entrega 3B) — lê o motor de conformidade (Entrega 4)', () => {
   it('art. 72: I, II, IV, VI/VII e VIII a partir da instrução; pendência aparece', () => {
-    const r = roteiroPrevio({ ...base, pecas: [peca('DFD'), peca('ETP', 'NAO_SE_APLICA'), peca('TR'), peca('PP'), peca('DO', 'PENDENTE'), peca('AA'), peca('RAG')] });
+    const r = roteiro(pa139Corrigido(), [linha('DFD'), linha('ETP', 'NAO_SE_APLICA'), linha('TR'), linha('PP'), linha('DO', 'PENDENTE'), linha('AA'), linha('RAG')]);
     const s = Object.fromEntries(r.map((i) => [i.id, i.automatico.situacao]));
     expect(s).toMatchObject({ A72_I: 'CONFORME', A72_II: 'CONFORME', A72_IV: 'PENDENTE', A72_VI_VII: 'CONFORME', A72_VIII: 'CONFORME' });
   });
 
-  it('PA 139/2025: o inciso I citado no aviso quando o processo é do inciso II → atenção no art. 75', () => {
-    const r = roteiroPrevio({ ...base, pecas: [peca('ME', 'OK', '<p>com fundamento no art. 75, I</p>'), peca('MC', 'OK', 'art. 75, inciso II')] });
-    const enq = r.find((i) => i.id === 'ART75')!;
+  it('PA 139/2025: o inciso I citado no relatório e na minuta do aviso quando o processo é do inciso II → atenção no art. 75 (ENQ-01)', () => {
+    const enq = roteiro(pa139Real()).find((i) => i.id === 'ART75')!;
     expect(enq.automatico.situacao).toBe('ATENCAO');
-    expect(enq.automatico.detalhe).toMatch(/ME \(art\. 75, I\)/);
-    expect(enq.tipos).toEqual(['ME']);
+    expect(enq.automatico.detalhe).toMatch(/ME \(inciso I\)/);
+    // o texto do detalhe não cita "art. 75, I" (o parecer não pode virar ele mesmo uma peça divergente)
+    expect(enq.automatico.detalhe).not.toMatch(/art\. 75/);
+    expect(enq.tipos).toEqual(['RAG', 'ME']);
+    expect(roteiro(pa139Corrigido()).find((i) => i.id === 'ART75')!.automatico.situacao).toBe('CONFORME');
   });
 
-  it('PA 139/2025: minuta do contrato vinculada ao "PA 115/2025" → atenção na vinculação', () => {
-    const r = roteiroPrevio({ ...base, pecas: [peca('MC', 'OK', 'O Processo Administrativo nº 115/2025 e seus anexos')] });
-    const v = r.find((i) => i.id === 'VINC')!;
+  it('PA 139/2025: minuta do contrato vinculada ao "PA 115/2025" → atenção na vinculação (VINC-01)', () => {
+    const v = roteiro(pa139Real()).find((i) => i.id === 'VINC')!;
     expect(v.automatico).toMatchObject({ situacao: 'ATENCAO' });
+    expect(v.automatico.detalhe).toMatch(/PA nº 115\/2025/);
     expect(v.tipos).toEqual(['MC']);
-    const ok = roteiroPrevio({ ...base, pecas: [peca('MC', 'OK', 'O Processo Administrativo nº 139/2025')] });
-    expect(ok.find((i) => i.id === 'VINC')!.automatico.situacao).toBe('CONFORME');
+    expect(roteiro(pa139Corrigido()).find((i) => i.id === 'VINC')!.automatico.situacao).toBe('CONFORME');
   });
 
-  it('sigilo sem justificativa → atenção; público → não se aplica', () => {
-    expect(roteiroPrevio({ ...base, justificativa_sigilo: '', pecas: [] }).find((i) => i.id === 'ART24')!.automatico.situacao).toBe('ATENCAO');
-    expect(roteiroPrevio({ ...base, sigiloso: false, pecas: [] }).find((i) => i.id === 'ART24')!.automatico.situacao).toBe('NAO_SE_APLICA');
+  it('marca "similar ou superior ao ARION" → atenção no art. 41 (MARCA-01)', () => {
+    expect(roteiro(pa139Real()).find((i) => i.id === 'ART41')!.automatico).toMatchObject({ situacao: 'ATENCAO', detalhe: expect.stringMatching(/falta a justificativa/) });
+    expect(roteiro(pa139Corrigido()).find((i) => i.id === 'ART41')!.automatico.situacao).toBe('CONFORME');
   });
 
-  it('art. 92: cláusula obrigatória vazia na minuta feita no sistema é apontada', () => {
+  it('sigilo sem justificativa → atenção; público → não se aplica (SIGILO-01)', () => {
+    expect(roteiro(com(pa139Corrigido, (e) => (e.licitacao.justificativa_sigilo = ''))).find((i) => i.id === 'ART24')!.automatico.situacao).toBe('ATENCAO');
+    expect(roteiro(com(pa139Corrigido, (e) => (e.licitacao.sigilo_orcamento = 'PUBLICO'))).find((i) => i.id === 'ART24')!.automatico.situacao).toBe('NAO_SE_APLICA');
+  });
+
+  it('art. 92: cláusula obrigatória vazia na minuta feita no sistema é apontada (ART92-01)', () => {
     const secoes = Object.fromEntries(['objeto', 'vinculacao', 'legislacao', 'regime_execucao', 'preco', 'pagamento', 'prazos', 'dotacao', 'obrigacoes', 'penalidades', 'habilitacao', 'gestao', 'extincao', 'foro'].map((k) => [k, '<p>Texto da cláusula</p>']));
     expect(clausulasArt92Faltantes(secoes)).toEqual([]);
     expect(clausulasArt92Faltantes({ ...secoes, penalidades: '' })).toEqual(['art. 92, XIV (penalidades)']);
-    const r = roteiroPrevio({ ...base, secoes_mc: { ...secoes, foro: '' }, pecas: [peca('MC')] });
-    expect(r.find((i) => i.id === 'ART92')!.automatico).toMatchObject({ situacao: 'ATENCAO' });
+    const e = com(pa139Corrigido, (x) => {
+      x.documentos = x.documentos.filter((d) => d.tipo !== 'MC');
+      x.documentos.push({ id: 'mc', tipo: 'MC', status: 'EM_ELABORACAO', origem: 'INTERNO', dados_estruturados: { ...secoes, foro: '' } });
+    });
+    expect(roteiro(e).find((i) => i.id === 'ART92')!.automatico).toMatchObject({ situacao: 'ATENCAO' });
+    expect(roteiro(pa139Corrigido()).find((i) => i.id === 'ART92')!.automatico.detalhe).toMatch(/anexada/);
   });
 
   it('marcação da Procuradoria prevalece; diligência aberta sobre o item → "Diligência"', () => {
-    const r = roteiroPrevio({ ...base, pecas: [peca('DFD')] });
+    const r = roteiro(pa139Corrigido());
     const f = aplicarMarcacoes(r, { A72_I: { situacao: 'RESSALVA', observacao: 'DFD sem data' } }, [{ item_roteiro: 'VINC', status: 'ABERTA' }, { item_roteiro: 'ART24', status: 'SANADA' }]);
     expect(f.find((i) => i.id === 'A72_I')).toMatchObject({ situacao: 'RESSALVA', observacao: 'DFD sem data', marcado_pela_procuradoria: true });
     expect(f.find((i) => i.id === 'VINC')).toMatchObject({ situacao: 'DILIGENCIA', diligencias_abertas: 1 });
@@ -119,7 +131,7 @@ describe('Emissão do parecer', () => {
   });
 
   it('texto montado do roteiro com o número do PROCESSO e a conclusão', () => {
-    const itens = aplicarMarcacoes(roteiroPrevio({ ...base, pecas: [peca('DFD')] }), null, []);
+    const itens = aplicarMarcacoes(roteiro(pa139Corrigido()), null, []);
     const html = textoDoParecer({
       fase: 'PREVIA',
       numero_processo: '139/2025',

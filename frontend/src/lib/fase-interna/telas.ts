@@ -2,11 +2,11 @@
  * TELAS POR ETAPA DA FASE INTERNA (Entregas 3A e 3B) — rotas e utilidades comuns.
  * Cada etapa tem UMA tela, dentro do processo:
  *   /orgao/processos/[id]/fase-interna/{dfd,etp,tr,pesquisa,reserva,
- *     autorizacao,minutas,parecer,controle-interno}
+ *     autorizacao,minutas,parecer,controle-interno,conformidade}
  * e abre pelo quadro "Fluxo da fase interna" ou pela tarefa da caixa.
  */
 
-export type TelaEtapa = "dfd" | "etp" | "tr" | "pesquisa" | "reserva" | "autorizacao" | "minutas" | "parecer" | "controle-interno"
+export type TelaEtapa = "dfd" | "etp" | "tr" | "pesquisa" | "reserva" | "autorizacao" | "minutas" | "parecer" | "controle-interno" | "conformidade"
 
 export interface EtapaDaBarra {
   numero: number
@@ -30,7 +30,7 @@ export const ETAPAS_DA_BARRA: EtapaDaBarra[] = [
   { numero: 7, titulo: "Minutas", passo: "MINUTAS", tela: "minutas", tipos: ["RAG", "ME", "MC"] },
   { numero: 7, titulo: "Parecer", passo: "PARECER", tela: "parecer", tipos: ["PJ"] },
   { numero: 7, titulo: "Controle interno", passo: "CONTROLE_INTERNO", tela: "controle-interno", tipos: ["MCI"], opcional: true },
-  { numero: 8, titulo: "Publicação", passo: "PUBLICACAO", tela: null, tipos: [] },
+  { numero: 8, titulo: "Conformidade e publicação", passo: "PUBLICACAO", tela: "conformidade", tipos: [] },
 ]
 
 export const rotaDaTela = (licitacaoId: string, tela: TelaEtapa) => `/orgao/processos/${licitacaoId}/fase-interna/${tela}`
