@@ -1,7 +1,7 @@
 # Plano — Fase interna simples, guiada e "feita aqui ou anexada"
 
 > 26/09/2026 · Referência real: Câmara Municipal de Luís Eduardo Magalhães — autos da Dispensa 003/2025 (PA 005/2025) e das Inexigibilidades 004/2025 (PA 033/2025) e 008/2025 (PA 043/2025), e o regulamento próprio da Lei 14.133 (**Portaria 089/2024**).
-> Status: **proposta — aguardando aprovação**. Nada foi implementado.
+> Status: **Entrega 1 (Base) concluída** na branch `claude/fase-interna-e1` (ver §7). Entregas 2 a 7 pendentes.
 
 ## 1. O problema
 
@@ -273,6 +273,95 @@ O dono trouxe uma SPEC com 10 telas. Ela é a **referência principal**, e este 
 5. **Publicação:** ligar ao AGUARDANDO_DIVULGACAO; opção por órgão de dispensa com ou sem lances; opção de controle interno.
 6. **Autos em PDF** com folhas numeradas.
 7. **Segunda etapa:** IA lendo os PDFs anexados (reconhecer a peça e conferir a consistência).
+
+## 7. Entrega 1 — CONCLUÍDA (26/09/2026)
+
+Branch `claude/fase-interna-e1`. Sem push/PR nesta etapa.
+
+### 7.1 O que foi feito
+
+**1. Fundamento legal único (fonte da verdade)**
+- `licitacoes.fundamento_legal` (varchar 20, `type` explícito). Códigos em `backend/src/licitacoes/fundamento-legal.ts` (`FundamentoLegal`): `ART28_I…V`, `ART74_CAPUT`, `ART74_I…V` (com alíneas do III), `ART75_I…XVI` (com alíneas do III e IV), `ART78_I…III` — **um para um com a tabela "Amparo Legal" do PNCP** (ids 1 a 50).
+- Funções puras: `fundamentoPadrao` (o mesmo que o sistema sempre deduzia), `fundamentosDaModalidade`, `motivoFundamentoInvalido`, `fundamentoEfetivo` (gravado se válido, senão o padrão), `textoDoFundamento`, `amparoPncpDoFundamento`, `incisoLimiteDoFundamento`, `fundamentoDoTexto` (lê "art. 75, inciso II" de texto livre).
+- Quem lê o campo: `amparoLegalIdPncp` e `fundamentoLegalTexto` (PNCP e tela do processo), variáveis `{{licitacao.fundamento_legal}}` e `{{licitacao.fundamento_referencia}}` dos modelos (autorização e amparo da justificativa passaram a usá-las; modelos do sistema com o texto antigo são atualizados no boot), aviso de contratação direta (linha "Fundamento legal") e o consumo do limite.
+- Criação grava o padrão (`@BeforeInsert` na entidade, cobre todos os caminhos de criação); edição valida contra a modalidade (400), volta ao padrão se a modalidade trocar e acompanha o tipo (75, I ↔ II) quando estava no padrão. Depois da publicação o campo é regra do edital (só por retificação), sem acusar processo antigo que devolve o próprio padrão.
+- Migração de boot `MigracaoFundamentoLegalBootService` (fila única, `FUNDAMENTO_LEGAL_MIGRAR_NO_BOOT=false` desliga): só linhas com o campo NULL; lê o amparo da peça JC (seção `amparo_legal`) ou do contrato do processo; senão, o padrão.
+
+**2. Limites da dispensa por exercício + consumo**
+- Tabela oficial em `backend/src/parametros-licitacao/limites-dispensa.ts` com o ato normativo: 2021 (Lei 14.133: 100.000,00 / 50.000,00), 2022 (Dec. 10.922/2021: 108.040,82 / 54.020,41), 2023 (Dec. 11.317/2022: 114.416,65 / 57.208,33), 2024 (Dec. 11.871/2023: 119.812,02 / 59.906,02), 2025 (Dec. 12.343/2024: 125.451,15 / 62.725,59), 2026 (Dec. 12.807/2025: 130.984,20 / 65.492,11). 2023 e 2024 conferidos nas fontes oficiais (Planalto/Câmara); 2022 é de memória — conferir.
+- `limiteDispensa(exercicio, inciso)` pura; sem o decreto do ano, devolve o do último exercício com `provisorio: true`.
+- `limites_legais` ganhou `exercicio` (int). A semente antiga gravava os valores de **2024** rotulados como "2025, Dec. 12.343/2024" — a migração de boot (`LIMITES_DISPENSA_MIGRAR_NO_BOOT=false` desliga) reconhece o valor oficial, corrige o exercício/ato (ou apaga a cópia redundante) e cria os exercícios que faltam. Linhas de órgão não são tocadas.
+- `consumoDoLimite(registros, orgao, exercicio, ramo, inciso)` pura; **ramo = classe CATMAT/CATSER + unidade gestora** (`ramoDoItem`: classe do catálogo `itens_catalogo.codigo_classe`, depois `itens_licitacao.classe_catalogo`; sem classe → o próprio código; sem código → "SEM_CODIGO" do tipo). Somam só dispensas do art. 75, I/II do mesmo órgão/exercício, fora as revogadas/anuladas/desertas/fracassadas e itens cancelados/desertos/fracassados; valor homologado quando houver, senão o estimado. `percentualDoLimite` trunca (98,45% → 98,4%).
+- Todos os usos dos valores fixos trocados: frontend (`ClassificacaoTab` tinha 100 mil / 50 mil; processo e demandas usavam `limites/vigente`).
+
+**3. Peça com versão, data e folhas + "fazer aqui ou anexar"**
+- `documentos_fase_interna`: `data_documento`, `total_paginas`, `folha_inicial`, `folha_final`, `numero_peca`, `signatarios_informados` (jsonb nome/cargo), `observacao_anexo`, `documento_orgao_id`, `documento_assinatura_id`, `signatarios_exigidos`. Status novos: `AGUARDANDO_ASSINATURA`, `ASSINADO`, `SUBSTITUIDO`. **Decisão:** a "versão que esta substitui" (o `substitui_documento_id` da SPEC) reaproveita a coluna que já existia, `versao_anterior_id` — sem duplicar; a data do envio do anexo reaproveita `data_importacao`; a origem reaproveita `origem` (INTERNO × ARQUIVO).
+- Regras puras em `backend/src/fase-interna/peca-regras.ts`: data da peça anexada obrigatória, não futura (hoje de Brasília), gravada ao meio-dia de Brasília; data da peça assinada = última assinatura; `planoNovaVersao`; `proximaFaixaDeFolhas`; `pecaContaComoPronta`. Folhas atribuídas em `folhas-autos.ts` com a linha da licitação travada (`FOR UPDATE`), em sequência por processo, quando a peça é anexada ou termina de ser assinada; versões substituídas guardam as suas.
+- `POST /fase-interna/:licitacaoId/documentos/:tipo/anexo` (multipart `arquivo`; só PDF — mimetype, extensão, assinatura `%PDF-` e leitura das páginas com pdf-lib; limite `FASE_INTERNA_ANEXO_MAX_MB`, padrão 25; SHA-256; pasta privada `licitacoes/<licitacaoId>/`, cujo dono o `AcessoArquivosService` já resolve). Grava IMPORTADO/ARQUIVO como nova versão (a anterior vira SUBSTITUIDO; assinatura pendente da anterior é cancelada). Conta como pronta em `getInstrucao`, no gate dos atos e na pré-publicação. Recusa: tipo desconhecido, processo encerrado, e peça de fase interna depois da divulgação (409; o parecer da fase externa continua aceito).
+- `GET /fase-interna/documento/:id/arquivo` (só o órgão dono). "Fazer aqui" sobre peça anexada/assinada/aguardando assinatura abre versão nova em elaboração.
+- `getInstrucao` devolve por linha `pode_nao_se_aplicar` e o resumo `peca` (origem, nº, data, folhas, versão). Contratação direta ganhou as linhas "se for o caso": designação do agente (DP), relatório do agente (RAG) e minuta do contrato (MC).
+- Catálogo (`CATALOGO_PECAS` em `documentos-obrigatorios.ts`): novos `RELATORIO_AGENTE` (RAG), `PARECER_FASE_EXTERNA` (PJE), `MINUTA_CONTRATO` (MC); equivalentes reaproveitados: DESPACHO_AUTORIZACAO = AA, INFO_ORCAMENTARIA = DO, PARECER_JURIDICO = PJ, PORTARIA_DESIGNACAO = DP, MINUTA_AVISO = ME.
+- **Portaria de designação** como documento do órgão com vigência: entidade `documentos_orgao` (`DocumentoOrgao`: número, exercício, data, vigência, arquivo, hash, páginas, signatários, versão, `substitui_documento_id`, `ativo`). Endpoints `GET/POST /fase-interna/orgao/portarias` (órgão do token; admin com `?orgao_id=`), `GET /fase-interna/orgao/portarias/:id/arquivo`, `POST /fase-interna/:licitacaoId/portaria-designacao` (junta a portaria ativa do exercício, ou `portaria_id`, como peça DP que REFERENCIA o arquivo, com folhas).
+- **Unificação "anexei e diz que falta" — decisão:** fonte única `documentos_fase_interna`. O anexo de fase interna feito pela aba Documentos (`documentos_licitacao`: ETP, TR, PB, pesquisa, parecer, riscos, autorização, dotação, minuta do contrato) é **espelhado** como peça anexada que aponta para o MESMO arquivo (`sistema_origem='documentos_licitacao'`, `id_externo` = id — chave de idempotência), no upload/vincular e em migração de boot (`FASE_INTERNA_ESPELHO_DOCUMENTOS_NO_BOOT=false` desliga). Só na fase interna e só se a peça ainda não conta como pronta (não sobrescreve trabalho feito). Preferido a "o checklist ler as duas tabelas" porque mantém um lugar só para versão, data, folhas e assinatura.
+- Autos em PDF (`processo-pdf`) usam o arquivo da peça anexada/assinada em vez de gerar um PDF do texto.
+
+**4. Assinatura com vários signatários**
+- Reaproveita o `portal-assinaturas` (documento + signatários, "todos assinaram" → CONCLUIDO, ouvintes `registrarAoConcluir`). Extensão mínima: `signatarios_documento.papel` (varchar, opcional) — vai como cargo na assinatura digital registrada.
+- `POST /fase-interna/:licitacaoId/documentos/:tipo/assinatura` `{ signatarios: [{ usuario_id, papel }] }`: só peça feita no sistema, não vazia; signatários = usuários ATIVOS do órgão do processo, com e-mail (senão 400). Gera o PDF da peça, abre o documento no portal e deixa a peça AGUARDANDO_ASSINATURA (no checklist: "aguardando assinaturas", não conta). `GET …/assinatura` mostra quem assinou.
+- Quando o último assina: peça ASSINADA, `totalmente_assinado`, `data_documento` = última assinatura, arquivo e SHA-256 do PDF assinado, `assinaturas` (nome, cargo/papel, data, hash) e folhas.
+- Bug corrigido no caminho: o gerador de PDF da fase interna (`GeradorDocumentoService.gerarPdf`) desenhava o rodapé abaixo da margem, o pdfkit abria página nova, que redesenhava o rodapé… até estourar a pilha e **derrubar o processo Node**. Agora cabeçalho/rodapé saem com a margem inferior zerada e o cursor volta para a área de texto.
+
+**5. Removidos:** o botão falso "Importar Fase Interna" de Dados Básicos (e as props `modoImportacao`/`onToggleModo`) e o `POST /fase-interna/:id/importar-documento` (JSON, sem uso — o método do serviço continua, usado pelo `importar-processo`).
+
+**6. Frontend mínimo**
+- `processos/[id]`: `PecasFaseInterna` (substitui `InstrucaoArt72`, vale para todas as modalidades) com **Fazer aqui · Anexar PDF · Não se aplica** por linha (o último só com `pode_nao_se_aplicar`), diálogo `AnexarPecaDialog` (arquivo, número, data do documento — `max` = hoje, signatários nome/cargo, observação), metadados da peça e "ver PDF"; na DP, "Usar portaria do órgão".
+- `ConsumoLimiteDispensa`: "98,4% de R$ 62.725,59 — Dec. 12.343/2024", barra, amarelo acima de 80%, vermelho acima de 100%.
+- "Editar processo › Classificação": select **Fundamento legal** (opções da modalidade pela API) e limites do exercício pela API.
+
+### 7.2 Endpoints novos
+
+| Método e rota | Quem | Isolamento (e2e) |
+|---|---|---|
+| `POST /fase-interna/:licitacaoId/documentos/:tipo/anexo` | órgão dono | outro órgão 403, fornecedor 403, anônimo 401 |
+| `GET /fase-interna/documento/:id/arquivo` | órgão dono | 404 / 403 / 401 |
+| `POST /fase-interna/:licitacaoId/documentos/:tipo/assinatura` | órgão dono | 403 / 403 / 401 |
+| `GET /fase-interna/:licitacaoId/documentos/:tipo/assinatura` | órgão dono | 404 / 403 / 401 |
+| `GET /fase-interna/:licitacaoId/consumo-limite` | órgão dono | 404 / 403 / 401 |
+| `GET /fase-interna/orgao/portarias`, `POST` idem | órgão do token | lista só do próprio órgão; fornecedor 403; anônimo 401 |
+| `GET /fase-interna/orgao/portarias/:id/arquivo` | órgão do token | outro órgão 404, fornecedor 403 |
+| `POST /fase-interna/:licitacaoId/portaria-designacao` | órgão dono | portaria de outro órgão 404; processo de outro órgão 403; fornecedor 403; anônimo 401 |
+| `GET /parametros-licitacao/limites-dispensa[?exercicio=]`, `/tabela` | logado | anônimo 401 |
+| `POST /parametros-licitacao/limites-dispensa` | admin da plataforma | órgão 403, fornecedor 403, anônimo 401 |
+| `GET /parametros-licitacao/fundamentos-legais[?modalidade=&tipo_contratacao=]` | logado | anônimo 401 |
+
+Removido: `POST /fase-interna/:licitacaoId/importar-documento`.
+
+### 7.3 Migrações de boot (fila única `executarMigracaoDeBoot`, idempotentes)
+
+| Serviço | Desligar | O que faz |
+|---|---|---|
+| `MigracaoFundamentoLegalBootService` | `FUNDAMENTO_LEGAL_MIGRAR_NO_BOOT=false` | preenche `fundamento_legal` NULL (texto da peça/contrato ou padrão) |
+| `ParametrosLicitacaoService.migrarLimitesDispensa` | `LIMITES_DISPENSA_MIGRAR_NO_BOOT=false` | limites por exercício; corrige a semente antiga |
+| `MigracaoEspelhoDocumentosBootService` | `FASE_INTERNA_ESPELHO_DOCUMENTOS_NO_BOOT=false` | espelha anexos de fase interna da aba Documentos |
+
+Mais: `synchronize` cria `documentos_orgao`, as colunas novas e recria os enums de status/tipo de `documentos_fase_interna` (valores só acrescentados).
+
+### 7.4 Testes
+
+- Unitários novos: `fundamento-legal.spec.ts` (fundamento → PNCP, padrão, validação, leitura de texto), `limites-dispensa.spec.ts` (`limiteDispensa`, `consumoDoLimite` com ramo = classe + unidade, 98,4%), `peca-regras.spec.ts` (datas gerada × anexada, versões, folhas, signatários, PDF). Suíte unitária completa: 88 suítes / 1056 testes, todas passando.
+- E2E novo `test/fase-interna-e1.e2e-spec.ts` (26 testes): anexar PDF libera a publicação quando é a única pendência; substituir cria versão; data futura, sem data, não-PDF e PDF falso recusados; folhas em sequência; consumo do limite (órgão, exercício, ramo, unidade, outra hipótese do art. 75); limites e cadastro pelo admin; migrações 2x; portaria; 4 signatários (só ASSINADA na 4ª); isolamento em todos os endpoints novos.
+- E2E afetados rodados arquivo a arquivo, todos passando: dispensa-eletronica, transicoes-fase-interna-pncp, isolamento-dados-licitacao, limpeza-e9, cockpit-processo, assistente-itens, divulgacao-pncp, arquivos-privados, pncp-fila, publicacao-prazos, me-epp, credenciamento, formalizacao-resultado, ata-registro-precos, resultado-contrato, transicoes-licitacao, dispensa-motor-unico.
+- Frontend: `npx tsc --noEmit` limpo e `next build` concluído sem erro.
+
+### 7.5 Fica para as próximas entregas
+
+- **Tela de assinatura da peça** (escolher signatários e papéis, acompanhar) — nesta entrega só a API e o e2e; as telas por etapa vêm na Entrega 3. Cadastro/listagem de portarias na tela de configuração do órgão (hoje: API + botão "Usar portaria do órgão").
+- "Mudar o fundamento atualiza todas as minutas geradas por modelo" (critério de aceite da SPEC): as peças já geradas guardam o texto resolvido; resolver as variáveis na renderização (ou regenerar) fica para a Entrega 3/4, junto com a regra `ENQ-01`.
+- Portão A (bloqueio por limite/fracionamento — `LIM-01`/`LIM-02`) usa `consumoDoLimite` na Entrega 4; nesta só leitura/aviso.
+- Numeração de folhas nos autos em PDF (`processo-pdf` com índice e folhas carimbadas) — Entrega 6; aqui as folhas já são atribuídas e gravadas.
+- Etapa da fase interna (máquina de 8 etapas da SPEC) e tarefas — Entregas 2 e 3.
+- Conferir o valor de 2022 (Dec. 10.922/2021) na fonte oficial.
+- O `marcarNaoSeAplica` ainda recebe o nome do autor do corpo (legado); o ator do JWT já é exigido pelo guard.
 
 ## 6. Riscos e cuidados
 
