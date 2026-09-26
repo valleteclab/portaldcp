@@ -36,6 +36,7 @@ import { definirAgendadorDeTarefas } from './aviso-tarefas';
 import {
   Responsavel,
   chaveDoPasso,
+  destinoDaTarefa,
   planejarSincronizacao,
   prazoDaTarefa,
   quemCumpriu,
@@ -370,6 +371,79 @@ export class TarefasService {
     return { etapas, config, criadas };
   }
 
+  /**
+   * TAREFA DO SISTEMA (origem SISTEMA — ex.: "Renovar dotação" na virada do
+   * exercício, Entrega 3A). Não é derivada das etapas: a sincronização não a
+   * conclui nem a cancela (só a revogação/anulação cancela todas). Responsável:
+   * o do passo informado (modo SIMPLES: o agente; POR_SETOR: o papel/setor da
+   * configuração — na reserva, a Contabilidade). Idempotente pela chave
+   * (uma ABERTA por processo e chave). Devolve o id da tarefa aberta.
+   */
+  async criarTarefaDoSistema(
+    licitacaoId: string,
+    t: { chave: string; passo: PassoFaseInterna; titulo: string; descricao: string; tipo_peca?: string | null; documento_id?: string | null },
+  ): Promise<string | null> {
+    if (!this.ativo()) return null;
+    const [lic] = await this.ds.query(
+      `SELECT id::text AS id, orgao_id::text AS orgao_id, numero_processo, pregoeiro_id::text AS pregoeiro_id FROM licitacoes WHERE id::text = $1`,
+      [licitacaoId],
+    );
+    if (!lic?.orgao_id) return null;
+    const config = await this.configuracao(lic.orgao_id);
+    const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
+    const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
+    const responsavel = responsavelDoPasso(t.passo, config, { agente_id: agente, criador_usuario_id: criador });
+    const dias = config.prazos[t.passo] ?? null;
+    const valores: Partial<Tarefa> = {
+      orgao_id: lic.orgao_id,
+      licitacao_id: licitacaoId,
+      documento_id: t.documento_id ?? null,
+      tipo_peca: t.tipo_peca ?? null,
+      etapa: DEFINICAO_PASSO[t.passo].etapa,
+      passo: t.passo,
+      chave: t.chave,
+      tipo: 'PECA',
+      origem: 'SISTEMA',
+      titulo: t.titulo,
+      descricao: t.descricao,
+      responsavel_usuario_id: responsavel.usuario_id,
+      responsavel_papel: responsavel.papel,
+      responsavel_setor_id: responsavel.setor_id,
+      atribuicao_manual: false,
+      prazo_dias_uteis: dias,
+      prazo: prazoDaTarefa(new Date(), dias, calendarioDoOrgao(lic.orgao_id)),
+      status: 'ABERTA',
+      criada_por_id: 'sistema',
+      criada_por_nome: 'Sistema',
+    };
+    const r = await this.tarefaRepo.createQueryBuilder().insert().into(Tarefa).values(valores).orIgnore().returning(['id']).execute();
+    const id: string | undefined = r.raw?.[0]?.id;
+    if (!id) {
+      const [aberta] = await this.ds.query(`SELECT id::text AS id FROM tarefas WHERE licitacao_id::text = $1 AND chave = $2 AND status = 'ABERTA'`, [licitacaoId, t.chave]);
+      return aberta?.id ?? null;
+    }
+    await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CRIADA, `Tarefa criada: ${t.titulo}`, null, { tarefa_id: id, passo: t.passo, chave: t.chave, responsavel, prazo: valores.prazo });
+    await this.notificar(lic, { ...valores, id } as Tarefa, 'nova');
+    return id;
+  }
+
+  /** Conclui a tarefa ABERTA da chave (tarefa do sistema cumprida), registrando quem cumpriu. */
+  async concluirTarefaPorChave(licitacaoId: string, chave: string, autor: { id: string | null; nome: string | null }): Promise<boolean> {
+    const r = await this.ds.query(
+      `UPDATE tarefas SET status = 'CONCLUIDA', concluida_em = now(), concluida_por_id = $3, concluida_por_nome = $4, updated_at = now()
+        WHERE licitacao_id::text = $1 AND chave = $2 AND status = 'ABERTA' RETURNING id::text AS id, titulo`,
+      [licitacaoId, chave, autor.id, autor.nome],
+    );
+    const linhas: Array<{ id: string; titulo: string }> = Array.isArray(r?.[0]) ? r[0] : [];
+    for (const t of linhas) {
+      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CONCLUIDA, `Tarefa concluída: ${t.titulo}`, null, { tarefa_id: t.id, chave, concluida_por: autor }, {
+        usuario_id: autor.id ?? undefined,
+        usuario_nome: autor.nome ?? undefined,
+      });
+    }
+    return linhas.length > 0;
+  }
+
   private descricaoDaTarefa(lic: { numero_processo: string; objeto: string | null }, passo: PassoCalculado): string {
     const objeto = String(lic.objeto ?? '').trim();
     const cabeca = `Processo ${lic.numero_processo}${objeto ? ` — ${objeto.length > 140 ? `${objeto.slice(0, 137)}…` : objeto}` : ''}.`;
@@ -491,7 +565,7 @@ export class TarefasService {
     try {
       const para: Array<{ id: string; email?: string; telefone?: string }> = await this.destinatarios(t);
       if (!para.length) return;
-      const link = `/orgao/processos/${lic.id}${t.tipo_peca ? `#peca-${t.tipo_peca}` : '#fluxo-fase-interna'}`;
+      const link = destinoDaTarefa({ licitacao_id: lic.id, passo: t.passo, tipo_peca: t.tipo_peca });
       const prazo = t.prazo ? ` Prazo: ${new Date(t.prazo).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.` : '';
       await this.notificacoes.criarParaMultiplos(para, {
         orgao_id: t.orgao_id,
@@ -696,7 +770,7 @@ export class TarefasService {
         setor_nome: t.responsavel_setor_nome ?? null,
         rotulo: this.rotuloResponsavel(t),
       },
-      destino: `/orgao/processos/${t.licitacao_id}${t.tipo_peca ? `#peca-${t.tipo_peca}` : '#fluxo-fase-interna'}`,
+      destino: destinoDaTarefa(t),
       pode_assumir: aberta && !p.orgao && this.ehDoMeuPool(t, p),
       pode_reatribuir: aberta && (p.orgao || p.adminOrgao || minha || this.ehDoMeuPool(t, p)),
       concluida_por_nome: t.concluida_por_nome,

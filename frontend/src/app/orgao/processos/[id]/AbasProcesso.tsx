@@ -14,10 +14,11 @@ import { DocumentosProcesso } from "./DocumentosProcesso"
 import { RetificarEdital } from "./RetificarEdital"
 import { FilaPncp } from "./FilaPncp"
 import { HistoricoProcesso } from "./HistoricoProcesso"
+import { TramitacaoProcessoCard } from "@/components/fase-interna/TramitacaoProcessoCard"
 import { FASES_SALA } from "./SessaoPublicaCard"
 import { fmtMoeda, type ProcessoCompleto } from "./tipos"
 
-export type AbaProcesso = "itens" | "documentos" | "propostas" | "pncp" | "historico"
+export type AbaProcesso = "itens" | "documentos" | "propostas" | "pncp" | "tramitacao" | "historico"
 
 function Contador({ n, alerta }: { n: number; alerta?: boolean }) {
   return (
@@ -158,6 +159,7 @@ export function AbasProcesso({
               ["documentos", "Documentos", totalDocs != null ? <Contador key="c" n={totalDocs} /> : null],
               ["propostas", "Propostas", <Contador key="c" n={propostas} />],
               ["pncp", "PNCP", null],
+              ["tramitacao", "Tramitação", null],
               ["historico", "Histórico", null],
             ] as const
           ).map(([v, rotulo, extra]) => (
@@ -199,6 +201,10 @@ export function AbasProcesso({
           </TabsContent>
           <TabsContent value="pncp" forceMount className={conteudo}>
             <PncpAba dados={dados} onAtualizado={onAtualizado} />
+          </TabsContent>
+          {/* Tramitação entre setores (despacho formal, estilo SEI) — veio do antigo cockpit da fase interna (Entrega 3A) */}
+          <TabsContent value="tramitacao" className={conteudo}>
+            <TramitacaoProcessoCard licitacaoId={l.id} />
           </TabsContent>
           <TabsContent value="historico" forceMount className={conteudo}>
             <HistoricoProcesso licitacaoId={l.id} atualizacao={dados} />

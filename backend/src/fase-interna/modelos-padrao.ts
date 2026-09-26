@@ -136,4 +136,46 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
       { id: 'caracterizacao', titulo: '4. Caracterização da situação e escolha do fornecedor', placeholder: 'Demonstração objetiva do enquadramento legal, cotações realizadas e escolha do fornecedor…', obrigatorio: true, fundamento_legal: 'Art. 72, VII' },
     ],
   },
+  {
+    // Entrega 3A — informação orçamentária gerada da RESERVA estruturada
+    // (tabelas de dotações e de leis do órgão; linhas por exercício). As
+    // variáveis {{reserva.*}} vêm da reserva atual do processo.
+    tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
+    nome: 'Informação orçamentária (reserva de dotação)',
+    fundamento_legal: 'Art. 72, IV · Art. 150 · Lei 14.133/2021; LC 101/2000, arts. 15 a 17',
+    intro: 'Informa a existência de dotação para a despesa, a classificação orçamentária e a distribuição do valor por exercício.',
+    secoes: [
+      {
+        id: 'solicitacao',
+        titulo: '1. Objeto',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 72, IV',
+        texto_padrao:
+          '<p>Em atenção ao Processo Administrativo nº {{licitacao.numero_processo}}, cujo objeto é {{licitacao.objeto}}, informamos a existência de dotação orçamentária para a despesa estimada em {{reserva.total}}.</p>',
+      },
+      {
+        id: 'classificacao',
+        titulo: '2. Classificação da despesa',
+        obrigatorio: true,
+        fundamento_legal: 'Lei 4.320/1964',
+        texto_padrao:
+          '<ul><li>Unidade orçamentária: {{reserva.unidade_orcamentaria}}</li><li>Programa: {{reserva.programa}}</li><li>Projeto/atividade: {{reserva.projeto_atividade}}</li><li>Elemento de despesa: {{reserva.elemento_despesa}}</li><li>Fonte de recurso: {{reserva.fonte_recurso}}</li></ul>',
+      },
+      {
+        id: 'distribuicao',
+        titulo: '3. Distribuição por exercício',
+        obrigatorio: true,
+        fundamento_legal: 'Art. 150',
+        texto_padrao: '{{reserva.distribuicao}}',
+      },
+      {
+        id: 'declaracoes',
+        titulo: '4. Declarações',
+        obrigatorio: true,
+        fundamento_legal: 'LC 101/2000, arts. 15, 16 e 17',
+        texto_padrao:
+          '<p>Declaramos que a despesa tem adequação orçamentária e financeira com a Lei Orçamentária Anual ({{reserva.lei_loa}}) e compatibilidade com a Lei de Diretrizes Orçamentárias ({{reserva.lei_ldo}}) e com o Plano Plurianual ({{reserva.lei_ppa}}), nos termos dos arts. 15, 16 e 17 da Lei Complementar nº 101/2000.</p>',
+      },
+    ],
+  },
 ];

@@ -170,7 +170,15 @@ export class PecasFaseInternaService implements OnModuleInit {
       throw new ConflictException(`Processo encerrado (situação ${lic.situacao}) — as peças não mudam mais.`);
     }
     if (!TIPOS_PECA_FASE_EXTERNA.includes(tipo) && !ehFaseInterna(lic.fase)) {
-      throw new ConflictException('A fase interna deste processo já foi encerrada (processo divulgado) — a peça não pode mais ser trocada.');
+      // Renovação da dotação na virada do exercício (Entrega 3A): a nova
+      // informação orçamentária feita fora entra mesmo depois da divulgação
+      const renovacao =
+        tipo === TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA &&
+        (await this.ds.query(`SELECT 1 FROM tarefas WHERE licitacao_id::text = $1 AND chave = 'sistema:renovar-dotacao' AND status = 'ABERTA'`, [licitacaoId]))
+          .length > 0;
+      if (!renovacao) {
+        throw new ConflictException('A fase interna deste processo já foi encerrada (processo divulgado) — a peça não pode mais ser trocada.');
+      }
     }
     return lic as { id: string; orgao_id: string; fase: string; situacao: string; exercicio: number };
   }

@@ -14,6 +14,11 @@ import { TarefasService } from './tarefas/tarefas.service';
 import { TarefasSubscriber } from './tarefas/tarefas.subscriber';
 import { MigracaoTarefasBootService } from './tarefas/migracao-tarefas-boot.service';
 import { ConfiguracaoFaseInternaController, EtapasFaseInternaController, TarefasController } from './tarefas/tarefas.controller';
+import { DotacaoOrcamentaria, LeiOrcamentaria, ReservaOrcamentaria, ReservaOrcamentariaLinha } from './orcamento/orcamento.entities';
+import { OrcamentoService } from './orcamento/orcamento.service';
+import { DocumentosTelaService } from './telas/documentos-tela.service';
+import { PesquisaTelaService } from './telas/pesquisa-tela.service';
+import { OrcamentoController, TelasFaseInternaController } from './telas/telas-fase-interna.controller';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
@@ -84,6 +89,10 @@ import {
       PesquisaPrecoCandidato,
       Tarefa,
       ConfiguracaoFaseInterna,
+      DotacaoOrcamentaria,
+      LeiOrcamentaria,
+      ReservaOrcamentaria,
+      ReservaOrcamentariaLinha,
     ]),
   ],
   controllers: [
@@ -93,6 +102,8 @@ import {
     TarefasController,
     ConfiguracaoFaseInternaController,
     EtapasFaseInternaController,
+    TelasFaseInternaController,
+    OrcamentoController,
   ],
   providers: [
     FaseInternaService,
@@ -101,6 +112,9 @@ import {
     TarefasService,
     TarefasSubscriber,
     MigracaoTarefasBootService,
+    OrcamentoService,
+    DocumentosTelaService,
+    PesquisaTelaService,
     PreparacaoAutomaticaService,
     ModeloDocumentoService,
     TramitacaoService,
@@ -135,6 +149,7 @@ import {
     TramitacaoService,
     AprovacaoService,
     TarefasService,
+    OrcamentoService,
   ],
 })
 export class FaseInternaModule {}

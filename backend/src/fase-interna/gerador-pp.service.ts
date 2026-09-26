@@ -824,6 +824,99 @@ export class GeradorPpService {
     });
   }
 
+  /**
+   * CERTIDÃO DA PESQUISA DE PREÇOS (Entrega 3A — autos do PA 139/2025): os 5
+   * parâmetros do art. 23, §1º com a data da consulta e o resultado —
+   * inclusive "consultado sem retorno" —, as cotações diretas, o método e as
+   * justificativas, e o valor estimado. Devolve o caminho relativo do PDF.
+   */
+  async gerarCertidao(
+    licitacaoId: string,
+    dados: {
+      parametros: Array<{ inciso: string; titulo: string; situacao_tela: string; evidencia_resumo: string; evidencia_nome?: string | null }>;
+      propostas: Array<{ fornecedor: string; cnpj: string | null; data_emissao: string | null; validade_ate: string | null; total: number; valida: boolean }>;
+      metodo: string;
+      justificativa_metodo: string;
+      justificativa_fornecedores?: string | null;
+      justificativa_menos_de_tres?: string | null;
+      total_adotado: number | null;
+      sigiloso: boolean;
+      responsavel: { nome: string; cargo?: string | null };
+    },
+  ): Promise<string> {
+    const licitacao = await this.licitacaoRepository.findOne({ where: { id: licitacaoId }, relations: ['orgao'] });
+    const orgao = (licitacao as any)?.orgao;
+    const dirPath = join(this.uploadDir, 'pesquisa-precos', licitacaoId);
+    if (!existsSync(dirPath)) mkdirSync(dirPath, { recursive: true });
+    const filename = `CERTIDAO_PP_${Date.now()}.pdf`;
+    const relativePath = `pesquisa-precos/${licitacaoId}/${filename}`;
+    const moeda = (v: number | null) => (v === null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+    const dia = (v?: string | null) => {
+      const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : '—';
+    };
+    const ROTULO: Record<string, string> = { MENOR: 'menor preço', MEDIA: 'média aritmética', MEDIANA: 'mediana' };
+    const SITUACAO: Record<string, string> = { ATENDIDO: 'Consultado — com preços', SEM_RETORNO: 'Consultado — sem retorno', PENDENTE: 'Não consultado' };
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 56, size: 'A4' });
+        const ws = createWriteStream(join(dirPath, filename));
+        doc.pipe(ws);
+        doc.font('Helvetica-Bold').fontSize(11).text(orgao?.nome || '', { align: 'center' });
+        doc.font('Helvetica').fontSize(9).text(`Processo Administrativo nº ${licitacao?.numero_processo || ''}`, { align: 'center' });
+        doc.moveDown(1.2);
+        doc.font('Helvetica-Bold').fontSize(13).text('CERTIDÃO DE PESQUISA DE PREÇOS', { align: 'center' });
+        doc.font('Helvetica').fontSize(9).fillColor('#555').text('Lei nº 14.133/2021, art. 23, §1º', { align: 'center' }).fillColor('#000');
+        doc.moveDown(1);
+        doc.fontSize(10.5).text(
+          `Certifico que, para o objeto "${licitacao?.objeto || ''}", foram consultados os parâmetros do art. 23, §1º, da Lei nº 14.133/2021, com os resultados abaixo:`,
+          { align: 'justify' },
+        );
+        doc.moveDown(0.6);
+        for (const p of dados.parametros) {
+          doc.font('Helvetica-Bold').fontSize(10).text(`Inciso ${p.inciso} — ${p.titulo}`);
+          doc.font('Helvetica').fontSize(10).text(`${SITUACAO[p.situacao_tela] ?? p.situacao_tela}: ${p.evidencia_resumo}${p.evidencia_nome ? ` (evidência: ${p.evidencia_nome})` : ''}`, { indent: 12 });
+          doc.moveDown(0.3);
+        }
+        if (dados.propostas.length) {
+          doc.moveDown(0.4);
+          doc.font('Helvetica-Bold').fontSize(10.5).text('Cotações diretas');
+          doc.font('Helvetica').fontSize(10);
+          for (const q of dados.propostas) {
+            doc.text(
+              `• ${q.fornecedor}${q.cnpj ? ` (CNPJ ${q.cnpj})` : ''} — ${moeda(q.total)}; emitida em ${dia(q.data_emissao)}${q.validade_ate ? `, válida até ${dia(q.validade_ate)}` : ''}${q.valida ? '' : ' — desconsiderada (vencida ou com mais de 6 meses)'}.`,
+              { indent: 12 },
+            );
+          }
+          if (dados.justificativa_fornecedores) {
+            doc.moveDown(0.3).text(`Justificativa da escolha dos fornecedores: ${dados.justificativa_fornecedores}`, { align: 'justify' });
+          }
+        }
+        doc.moveDown(0.6);
+        doc.font('Helvetica-Bold').fontSize(10.5).text('Método e valor estimado');
+        doc.font('Helvetica').fontSize(10).text(`Método adotado: ${ROTULO[dados.metodo] ?? dados.metodo}. Justificativa: ${dados.justificativa_metodo}`, { align: 'justify' });
+        if (dados.justificativa_menos_de_tres) doc.text(`Menos de 3 preços válidos — justificativa: ${dados.justificativa_menos_de_tres}`, { align: 'justify' });
+        doc.text(
+          dados.sigiloso
+            ? `Valor estimado: ${moeda(dados.total_adotado)} — orçamento SIGILOSO (art. 24): divulgado apenas após o julgamento.`
+            : `Valor estimado da contratação: ${moeda(dados.total_adotado)}.`,
+        );
+        doc.moveDown(2);
+        const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: 'long', year: 'numeric' });
+        doc.text(`${orgao?.cidade ? `${orgao.cidade}, ` : ''}${hoje}.`, { align: 'right' });
+        doc.moveDown(2.5);
+        doc.text('_______________________________________', { align: 'center' });
+        doc.text(dados.responsavel.nome, { align: 'center' });
+        if (dados.responsavel.cargo) doc.fontSize(9).text(dados.responsavel.cargo, { align: 'center' });
+        doc.end();
+        ws.on('finish', () => resolve(relativePath));
+        ws.on('error', reject);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
   private resolverLogoPath(logoUrl?: string | null): string | null {
     if (!logoUrl || /^https?:\/\//i.test(logoUrl)) {
       return null;

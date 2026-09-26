@@ -91,7 +91,7 @@ export function CabecalhoProcesso({
       <div className="flex gap-2 flex-wrap justify-end">
         {interna && (
           <Button variant="outline" asChild>
-            <Link href={`/orgao/fase-interna/processos/${l.id}`}>
+            <Link href={`/orgao/processos/${l.id}#fluxo-fase-interna`}>
               <ClipboardList className="w-4 h-4 mr-2" aria-hidden="true" /> Fase interna
             </Link>
           </Button>

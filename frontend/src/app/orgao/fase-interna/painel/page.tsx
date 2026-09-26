@@ -425,7 +425,7 @@ export default function FaseInternaDashboard() {
                     return (
                       <Link
                         key={l.id}
-                        href={`/orgao/fase-interna/processos/${l.id}`}
+                        href={`/orgao/processos/${l.id}`}
                         className="grid grid-cols-[2fr_1.4fr_1fr_1fr_auto] gap-3 items-center px-4 py-3 hover:bg-gray-50 transition-colors"
                       >
                         {/* Processo */}

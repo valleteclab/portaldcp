@@ -5,13 +5,16 @@
  * atual da tela do processo: as etapas (8 da SPEC + controle interno, quando o
  * órgão o ativou) com situação, responsável e prazo. A situação vem das peças
  * (feita aqui, anexada, assinada ou "não se aplica") e das dependências — a
- * ordem é sugestão. Cada passo leva à peça no quadro logo abaixo.
+ * ordem é sugestão. Cada passo abre a TELA DA ETAPA (Entrega 3A: DFD, ETP, TR,
+ * pesquisa e reserva) ou, nas demais, leva à peça no quadro logo abaixo.
  * Fonte: GET /api/fase-interna/:id/etapas.
  */
 import { useCallback, useEffect, useState } from "react"
 import { CheckCircle2, ChevronDown, ChevronUp, Circle, CircleDashed, Clock, MinusCircle, XCircle } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas, fmtDia, rotuloPrazo, type TarefaTela } from "@/lib/tarefas"
+import Link from "next/link"
+import { rotaDaTela, telaDoPasso } from "@/lib/fase-interna/telas"
 
 interface PassoEtapa {
   passo: string
@@ -151,16 +154,30 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao }: { licitacaoId: st
                   <div className="pl-5 text-gray-600">Responsável: {responsavel}</div>
                 )}
               </button>
+              {e.passos.some((p) => telaDoPasso(p.passo)) && (
+                <div className="pl-5 mt-0.5">
+                  <Link className="text-blue-800 hover:underline" href={rotaDaTela(licitacaoId, telaDoPasso(e.passos.find((p) => telaDoPasso(p.passo))!.passo)!)}>
+                    Abrir a etapa →
+                  </Link>
+                </div>
+              )}
               {expandido && (
                 <ul className="mt-1.5 pl-5 space-y-1 border-t pt-1.5">
                   {e.passos.map((p) => (
                     <li key={p.passo}>
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">{TITULO_PASSO[p.passo] ?? p.titulo}</span>
-                        {p.situacao !== "CONCLUIDO" && p.passo !== "PUBLICACAO" && (
-                          <button type="button" className="text-blue-800 hover:underline" onClick={() => irParaPeca(p.peca_pendente)}>
-                            ir para a peça
-                          </button>
+                        {telaDoPasso(p.passo) ? (
+                          <Link className="text-blue-800 hover:underline" href={rotaDaTela(licitacaoId, telaDoPasso(p.passo)!)}>
+                            {p.situacao === "CONCLUIDO" ? "abrir a tela" : "fazer ou anexar"}
+                          </Link>
+                        ) : (
+                          p.situacao !== "CONCLUIDO" &&
+                          p.passo !== "PUBLICACAO" && (
+                            <button type="button" className="text-blue-800 hover:underline" onClick={() => irParaPeca(p.peca_pendente)}>
+                              ir para a peça
+                            </button>
+                          )
                         )}
                       </div>
                       <div className="text-gray-600">

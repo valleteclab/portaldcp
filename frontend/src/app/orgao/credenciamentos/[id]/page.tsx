@@ -213,7 +213,7 @@ export default function CredenciamentoOrgaoPage() {
                   ) : (
                     <span className="text-amber-700">pendente — {(instrucao?.pendentes ?? []).join('; ') || 'carregando'}</span>
                   )}{' '}
-                  <Link className="text-blue-600" href={`/orgao/fase-interna/processos/${id}`}>
+                  <Link className="text-blue-600" href={`/orgao/processos/${id}#fluxo-fase-interna`}>
                     abrir documentos
                   </Link>
                 </div>

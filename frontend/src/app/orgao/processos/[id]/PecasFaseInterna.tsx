@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, Circle, FileText, Loader2, PenLine, Upload } from "lucide-react"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
-import { AnexarPecaDialog } from "./AnexarPecaDialog"
+import { AnexarPecaDialog } from "@/components/fase-interna/etapas/AnexarPecaDialog"
+import { rotaFazerAqui } from "@/lib/fase-interna/telas"
 
 interface ItemInstrucao {
   tipo: string
@@ -234,7 +235,7 @@ export function PecasFaseInterna({
                   {it.status !== "NAO_SE_APLICA" && (
                     <>
                       <Button asChild size="sm" variant="ghost" className="h-7 px-2 text-[11px]">
-                        <Link href={`/orgao/fase-interna/processos/${licitacaoId}/editor?tipo=${it.tipo}`}>
+                        <Link href={rotaFazerAqui(licitacaoId, it.tipo)}>
                           <PenLine className="w-3 h-3 mr-1" /> Fazer aqui
                         </Link>
                       </Button>

@@ -1860,7 +1860,7 @@ export default function NovoProcessoPage() {
 
   const urlDoAssistente = (id: string, etapa: string) => `/orgao/fase-interna/processos/novo?id=${id}&step=${etapa}`
   /** Pesquisa de preços = módulo real (por item, agente, curadoria, documento PP). */
-  const urlDaPesquisa = (id: string) => `/orgao/fase-interna/processos/${id}/precos?assistente=1`
+  const urlDaPesquisa = (id: string) => `/orgao/processos/${id}/fase-interna/pesquisa?assistente=1`
 
   const goToStep = async (nextStep: string) => {
     if (nextStep === "pesquisa") {
@@ -1882,7 +1882,7 @@ export default function NovoProcessoPage() {
 
   useEffect(() => {
     if (stepParam === "pesquisa" && processoId) {
-      router.replace(`/orgao/fase-interna/processos/${processoId}/precos?assistente=1`)
+      router.replace(`/orgao/processos/${processoId}/fase-interna/pesquisa?assistente=1`)
     }
   }, [processoId, router, stepParam])
 
@@ -1930,7 +1930,7 @@ export default function NovoProcessoPage() {
     try {
       const licitacaoId = await persistirProcesso()
       window.dispatchEvent(new Event("processos-updated"))
-      router.push(`/orgao/fase-interna/processos/${licitacaoId}`)
+      router.push(`/orgao/processos/${licitacaoId}`)
     } catch (e: any) {
       console.error(e)
       toast.error(e.message || "Erro ao gravar o processo")

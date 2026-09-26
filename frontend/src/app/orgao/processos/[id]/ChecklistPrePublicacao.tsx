@@ -62,7 +62,7 @@ export function ChecklistPrePublicacao({
     const botao = "inline-flex items-center rounded-md border border-blue-600 px-3 py-1 text-sm font-medium text-blue-800 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
     switch (i.acao) {
       case "ABRIR_FASE_INTERNA":
-        return <Link href={`/orgao/fase-interna/processos/${licitacaoId}`} className={botao}>Abrir fase interna</Link>
+        return <Link href={`/orgao/processos/${licitacaoId}#fluxo-fase-interna`} className={botao}>Abrir fase interna</Link>
       case "CADASTRAR_ITENS":
         return <Link href={`/orgao/processos/${licitacaoId}/editar?aba=itens`} className={botao}>Cadastrar itens</Link>
       case "VINCULAR_PCA":

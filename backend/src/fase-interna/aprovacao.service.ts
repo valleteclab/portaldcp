@@ -382,7 +382,7 @@ export class AprovacaoService {
         mensagem: `Etapa "${etapa.nome}" do processo ${licitacao.numero_processo}`,
         entidade_tipo: 'DOCUMENTO_FASE_INTERNA',
         entidade_id: documento.id,
-        link: `/orgao/fase-interna/processos/${licitacao.id}`,
+        link: `/orgao/processos/${licitacao.id}`,
       });
     } catch (e) {
       this.logger.warn(`Falha ao notificar responsável pela etapa: ${e.message}`);

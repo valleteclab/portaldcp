@@ -174,7 +174,7 @@ export function FaseInternaNav() {
       icon: TriangleAlert,
     },
     {
-      href: processoId ? `${processoBase}/precos` : processoBase,
+      href: processoId && !isWizardFlow ? `/orgao/processos/${processoId}/fase-interna/pesquisa` : processoId ? `${processoBase}/precos` : processoBase,
       label: "Pesquisa de Preços",
       icon: DollarSign,
     },
@@ -214,8 +214,7 @@ export function FaseInternaNav() {
     },
     ...(processoId
       ? [
-          { href: processoBase, label: "Dossiê do processo", icon: FileText, exact: true },
-          { href: `/orgao/processos/${processoId}`, label: "Processo (publicar)", icon: Gavel },
+          { href: `/orgao/processos/${processoId}`, label: "Voltar ao processo", icon: Gavel },
         ]
       : []),
     {

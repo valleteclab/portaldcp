@@ -225,10 +225,15 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
         <ChevronRight className="w-3 h-3" />
         <Link href="/orgao/fase-interna" className="hover:text-[#1351b4]">Fase Interna</Link>
         <ChevronRight className="w-3 h-3" />
-        <Link href={`/orgao/fase-interna/processos/${id}`} className="hover:text-[#1351b4]">Processo</Link>
+        <Link href={`/orgao/processos/${id}`} className="hover:text-[#1351b4]">Processo</Link>
+        <ChevronRight className="w-3 h-3" />
+        <Link href={`/orgao/processos/${id}/fase-interna/etp`} className="hover:text-[#1351b4]">ETP e riscos</Link>
         <ChevronRight className="w-3 h-3" />
         <span className="text-[#1351b4] font-medium">Mapa de Riscos</span>
       </div>
+      <Link href={`/orgao/processos/${id}/fase-interna/etp`} className="inline-flex items-center gap-1 text-sm text-blue-800 hover:underline mb-3">
+        ← Voltar ao ETP
+      </Link>
 
       {/* Header */}
       <div className="flex items-start justify-between mb-6">

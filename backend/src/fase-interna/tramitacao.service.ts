@@ -249,7 +249,7 @@ export class TramitacaoService {
         mensagem: tramitacao.despacho,
         entidade_tipo: 'LICITACAO',
         entidade_id: licitacao.id,
-        link: `/orgao/fase-interna/processos/${licitacao.id}`,
+        link: `/orgao/processos/${licitacao.id}`,
       });
     } catch (e) {
       this.logger.warn(`Falha ao notificar destino da tramitação: ${e.message}`);

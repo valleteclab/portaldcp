@@ -501,7 +501,7 @@ export default function ProcessosPage() {
                               <Trash2 className="w-4 h-4" />
                             )}
                           </Button>
-                          <Link href={`/orgao/fase-interna/processos/${p.id}`}>
+                          <Link href={`/orgao/processos/${p.id}`}>
                             <Button
                               variant="ghost"
                               size="icon"

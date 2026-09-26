@@ -34,6 +34,12 @@ export interface CotacaoPorFonte {
   // Documento comprobatório (PDF da cotação, screenshot, contrato, etc.)
   documento_comprobatorio_path?: string;
   documento_hash?: string;
+
+  // Cotação direta lançada como PROPOSTA pela tela da etapa (Entrega 3A):
+  // a mesma proposta cobre vários itens (grupo), com data de emissão e validade.
+  grupo_id?: string;
+  data_emissao?: string; // AAAA-MM-DD (a que consta na proposta)
+  validade_ate?: string; // AAAA-MM-DD
 }
 
 export interface ItemPesquisaPrecos {
@@ -85,6 +91,24 @@ export interface PesquisaPrecosDados {
     cargo: string;
     matricula?: string;
   };
+
+  // === Tela da etapa (Entrega 3A — art. 23, §1º; SPEC "PesquisaPrecos") ===
+  /** Os 5 parâmetros do art. 23, §1º — inclusive "consultado sem retorno". */
+  parametros_art23?: Array<import('../telas/pesquisa-regras').ParametroArt23>;
+  /** MENOR | MEDIA | MEDIANA (espelha `metodologia_geral`). */
+  metodo?: 'MENOR' | 'MEDIA' | 'MEDIANA';
+  justificativa_metodo?: string;
+  /** Obrigatória quando há cotação direta (art. 23, §1º, IV). */
+  justificativa_fornecedores?: string;
+  /** Quando há menos de 3 preços válidos (IN SEGES/ME 65/2021, art. 6º, §5º). */
+  justificativa_menos_de_tres?: string;
+  /** Data (AAAA-MM-DD) em que a solicitação de cotação foi enviada. */
+  solicitacao_enviada_em?: string;
+  /** Publicação prevista (AAAA-MM-DD) — base do alerta de validade. */
+  publicacao_prevista?: string;
+  /** Certidão da pesquisa (PDF gerado na emissão). */
+  certidao?: { path: string; gerada_em: string; hash?: string };
+  mapa_gerado_em?: string;
 }
 
 /**

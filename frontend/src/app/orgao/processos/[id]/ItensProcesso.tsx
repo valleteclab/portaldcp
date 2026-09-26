@@ -53,7 +53,7 @@ export function ItensProcesso({ licitacaoId, itens, emFaseInterna }: {
         </CardTitle>
         {emFaseInterna && (
           <div className="flex gap-2">
-            <Link href={`/orgao/fase-interna/processos/${licitacaoId}/precos`}>
+            <Link href={`/orgao/processos/${licitacaoId}/fase-interna/pesquisa`}>
               <Button variant="outline" size="sm" title="Pesquisa de preços por item (art. 23) — o documento gerado preenche o valor estimado dos itens">
                 <Search className="w-3.5 h-3.5 mr-1.5" /> Pesquisa de preços
               </Button>

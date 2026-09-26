@@ -27,6 +27,7 @@ import {
 } from '@/lib/fase-interna/secoes-template'
 import { toast } from "sonner"
 import { confirmarAcao } from "@/components/DialogoGlobal"
+import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,21 @@ interface DocumentoSeccionadoProps {
   tipo: string
   documento: DocumentoFaseInterna | null
   licitacao?: LicitacaoMini | null
+  /**
+   * Telas por etapa (Entrega 3A): painel lateral próprio (ex.: assistente do
+   * ETP) no lugar do chat genérico; no celular a tela o mostra abaixo do editor.
+   */
+  painelLateral?: React.ReactNode
+  /** A IA só SUGERE (pelo painel): esconde os botões que aplicam texto da IA direto. */
+  iaSoPorSugestao?: boolean
+  /** Sugestão aceita pelo usuário (clique) — entra na seção e é gravada como texto dele (IA_ACEITA). */
+  sugestaoAceita?: { secaoId: string; html: string; nonce: number } | null
+  /** Conteúdo atual das seções (para análises ao vivo da tela). */
+  onConteudoChange?: (conteudo: Record<string, string>) => void
+  /** Esconde o botão de PDF do cabeçalho (a tela da etapa gera a peça pelo modelo). */
+  ocultarPdf?: boolean
+  /** Somente leitura (fase interna encerrada ou peça "não se aplica"). */
+  somenteLeitura?: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -142,6 +158,12 @@ export function DocumentoSeccionado({
   tipo,
   documento,
   licitacao,
+  painelLateral,
+  iaSoPorSugestao = false,
+  sugestaoAceita,
+  onConteudoChange,
+  ocultarPdf = false,
+  somenteLeitura = false,
 }: DocumentoSeccionadoProps) {
   const secoes = getSecoes(tipo)
   const template = getTemplate(tipo)
@@ -168,7 +190,7 @@ export function DocumentoSeccionado({
   // ─── Auto-save por seção ───────────────────────────────────────────────────
 
   const salvarSecao = useCallback(
-    async (secaoId: string, html: string) => {
+    async (secaoId: string, html: string, origem: 'USUARIO' | 'IA_ACEITA' = 'USUARIO') => {
       setSaveStatus((prev) => ({ ...prev, [secaoId]: 'saving' }))
       try {
         const res = await authFetch(
@@ -176,7 +198,7 @@ export function DocumentoSeccionado({
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ html }),
+            body: JSON.stringify({ html, origem }),
           },
         )
         setSaveStatus((prev) => ({
@@ -214,8 +236,35 @@ export function DocumentoSeccionado({
 
   // ─── Inserir de IA ─────────────────────────────────────────────────────────
 
-  // Ref map para forçar conteúdo nas seções via chave (re-render trick)
+  // Conteúdo inserido de fora (IA, herança): o editor Tiptap só lê o valor na
+  // montagem — a chave com o contador remonta a seção com o texto novo
   const [inserirConteudo, setInserirConteudo] = useState<Record<string, string>>({})
+  const [remontar, setRemontar] = useState<Record<string, number>>({})
+  const remontarSecoes = useCallback((ids: string[]) => {
+    setRemontar((prev) => {
+      const n = { ...prev }
+      for (const id of ids) n[id] = (n[id] ?? 0) + 1
+      return n
+    })
+  }, [])
+
+  // Conteúdo para a tela (análises ao vivo)
+  useEffect(() => {
+    onConteudoChange?.(conteudo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conteudo])
+
+  // Sugestão aceita pelo usuário no painel da tela (clique = aceitar)
+  const ultimaSugestao = useRef<number | null>(null)
+  useEffect(() => {
+    if (!sugestaoAceita || ultimaSugestao.current === sugestaoAceita.nonce) return
+    ultimaSugestao.current = sugestaoAceita.nonce
+    const { secaoId, html } = sugestaoAceita
+    setConteudo((prev) => ({ ...prev, [secaoId]: html }))
+    setInserirConteudo((prev) => ({ ...prev, [secaoId]: html }))
+    remontarSecoes([secaoId])
+    salvarSecao(secaoId, html, 'IA_ACEITA')
+  }, [sugestaoAceita, salvarSecao, remontarSecoes])
 
   const handleInserirNaSecao = useCallback(
     (secaoId: string, html: string) => {
@@ -223,10 +272,11 @@ export function DocumentoSeccionado({
       const novo = atual ? atual + '\n' + html : html
       setConteudo((prev) => ({ ...prev, [secaoId]: novo }))
       setInserirConteudo((prev) => ({ ...prev, [secaoId]: novo }))
+      remontarSecoes([secaoId])
       // Agenda save imediato
       salvarSecao(secaoId, novo)
     },
-    [conteudo, salvarSecao],
+    [conteudo, salvarSecao, remontarSecoes],
   )
 
   // ─── Herdar de documentos anteriores (seed) ───────────────────────────────
@@ -314,13 +364,14 @@ export function DocumentoSeccionado({
 
       setConteudo((prev) => ({ ...prev, ...atualizacao }))
       setInserirConteudo((prev) => ({ ...prev, ...atualizacao }))
+      remontarSecoes(Object.keys(atualizacao))
       setSeedModalAberto(false)
     } catch {
       setSeedErro('Não foi possível aplicar o conteúdo selecionado.')
     } finally {
       setSeedAplicando(false)
     }
-  }, [idsSelecionados, licitacaoId, tipo])
+  }, [idsSelecionados, licitacaoId, tipo, remontarSecoes])
 
   // ─── Gerar documento completo com IA ──────────────────────────────────────
   // Um clique redige TODAS as seções vazias a partir dos dados do processo —
@@ -432,6 +483,7 @@ export function DocumentoSeccionado({
         // Substitui o conteúdo da seção (o usuário segue editando; auto-save)
         setConteudo((prev) => ({ ...prev, [secaoId]: html }))
         setInserirConteudo((prev) => ({ ...prev, [secaoId]: html }))
+        remontarSecoes([secaoId])
         salvarSecao(secaoId, html)
       } catch {
         toast.error('Não foi possível melhorar o texto agora — tente novamente ou use o painel Procura+ AI ao lado.')
@@ -439,7 +491,7 @@ export function DocumentoSeccionado({
         setMelhorandoSecao(null)
       }
     },
-    [secoes, conteudo, melhorandoSecao, tituloDocumento, licitacao, tipo, salvarSecao],
+    [secoes, conteudo, melhorandoSecao, tituloDocumento, licitacao, tipo, salvarSecao, remontarSecoes],
   )
 
   // ─── Cálculo de progresso ──────────────────────────────────────────────────
@@ -502,6 +554,7 @@ export function DocumentoSeccionado({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              {!iaSoPorSugestao && !somenteLeitura && (
               <Button
                 size="sm"
                 className="h-7 text-xs gap-1.5 bg-[#1351b4] hover:bg-[#0c326f]"
@@ -516,12 +569,13 @@ export function DocumentoSeccionado({
                 )}
                 Gerar documento com IA
               </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
                 className="h-7 text-xs gap-1.5"
                 onClick={buscarSeed}
-                disabled={seedLoading || gerando}
+                disabled={seedLoading || gerando || somenteLeitura}
                 title="Preencher as seções a partir dos documentos e da demanda já cadastrados"
               >
                 {seedLoading ? (
@@ -531,19 +585,17 @@ export function DocumentoSeccionado({
                 )}
                 Herdar dos anteriores
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs gap-1.5"
-                onClick={() => {
-                  window.open(
-                    `${API_URL}/api/fase-interna/${licitacaoId}/documentos/${tipo}/pdf`,
-                    '_blank',
-                  )
-                }}
-              >
-                <Eye className="w-3.5 h-3.5" /> PDF
-              </Button>
+              {!ocultarPdf && documento?.id && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5"
+                  onClick={() => abrirArquivoAutenticado(`${API_URL}/api/fase-interna/documento/${documento.id}/arquivo`)}
+                  title="PDF gerado da peça"
+                >
+                  <Eye className="w-3.5 h-3.5" /> PDF
+                </Button>
+              )}
             </div>
           </div>
 
@@ -586,8 +638,10 @@ export function DocumentoSeccionado({
 
           {secoes.map((secao) => (
             <SecaoCard
-              key={secao.id}
+              key={`${secao.id}:${remontar[secao.id] ?? 0}`}
               secao={secao}
+              iaDireta={!iaSoPorSugestao}
+              somenteLeitura={somenteLeitura}
               value={inserirConteudo[secao.id] ?? conteudo[secao.id] ?? ''}
               saveStatus={saveStatus[secao.id] || 'idle'}
               onChange={(html) => handleSecaoChange(secao.id, html)}
@@ -607,8 +661,11 @@ export function DocumentoSeccionado({
         </div>
       </div>
 
-      {/* ── Painel IA fixo à direita ── */}
-      <div className="w-80 shrink-0 border-l border-gray-200 overflow-hidden">
+      {/* ── Painel lateral: o da tela (ex.: assistente do ETP) ou o chat Procura+ AI ── */}
+      {painelLateral ? (
+        <div className="hidden lg:flex lg:flex-col w-80 shrink-0 border-l border-gray-200 overflow-y-auto bg-white">{painelLateral}</div>
+      ) : (
+      <div className="hidden lg:block w-80 shrink-0 border-l border-gray-200 overflow-hidden">
         <PainelIA
           tipoDocumento={tipo}
           licitacaoId={licitacaoId}
@@ -629,6 +686,7 @@ export function DocumentoSeccionado({
           onInserirNaSecao={handleInserirNaSecao}
         />
       </div>
+      )}
 
       {/* ── Modal: preencher dos documentos anteriores ── */}
       <Dialog
@@ -744,8 +802,12 @@ function SecaoCard({
   melhorando,
   melhorarDesabilitado,
   onMelhorar,
+  iaDireta = true,
+  somenteLeitura = false,
 }: {
   secao: SecaoTemplate
+  iaDireta?: boolean
+  somenteLeitura?: boolean
   value: string
   saveStatus: SaveStatus
   onChange: (html: string) => void
@@ -758,7 +820,7 @@ function SecaoCard({
   const [mostrarOrientacao, setMostrarOrientacao] = useState(false)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+    <div id={`secao-${secao.id}`} className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm scroll-mt-20">
       {/* Cabeçalho da seção */}
       <div
         className={`px-4 py-3 border-b flex items-start justify-between gap-2 ${
@@ -815,9 +877,11 @@ function SecaoCard({
           value={value}
           onChange={onChange}
           placeholder={secao.placeholder}
+          readOnly={somenteLeitura}
         />
         {/* Melhorar com IA: escreva 1 linha (ou nada) e a IA expande em texto
             formal usando os dados do processo — padrão ContratAI */}
+        {iaDireta && !somenteLeitura && (
         <div className="flex justify-end mt-2">
           <button
             type="button"
@@ -834,6 +898,7 @@ function SecaoCard({
             {melhorando ? 'Melhorando…' : temConteudo ? 'Melhorar com IA' : 'Redigir com IA'}
           </button>
         </div>
+        )}
       </div>
     </div>
   )
