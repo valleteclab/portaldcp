@@ -26,6 +26,19 @@ interface PassoEtapa {
   tarefa: TarefaTela | null
   responsavel_previsto: { rotulo: string }
   prazo_dias_uteis: number | null
+  /** Entrega 4 — portão A: LIM-01 aberto segura a conclusão da pesquisa. */
+  bloqueio_portao?: string[]
+}
+
+/** Entrega 4 — resumo do motor de conformidade (GET /fase-interna/:id/conformidade/resumo). */
+interface ResumoConformidade {
+  aplicavel: boolean
+  revisado_em: string | null
+  bloqueios: number
+  atencoes: number
+  impedem_publicar: number
+  achados: Array<{ id: string; regra: string; titulo: string; severidade: string; exige_justificativa: boolean }>
+  destino: string
 }
 
 interface EtapaTela {
@@ -83,6 +96,7 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao }: { licitacaoId: st
   const [dados, setDados] = useState<EtapasResposta | null>(null)
   const [aberto, setAberto] = useState<string | null>(null)
   const [historico, setHistorico] = useState(false)
+  const [conformidade, setConformidade] = useState<ResumoConformidade | null>(null)
 
   const carregar = useCallback(async () => {
     try {
@@ -91,6 +105,8 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao }: { licitacaoId: st
         setDados(await r.json())
         avisarTarefasAtualizadas() // a tela sincroniza as tarefas: atualiza o badge do menu
       }
+      const c = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/conformidade/resumo`)
+      if (c.ok) setConformidade(await c.json())
     } catch {
       /* quadro fica oculto */
     }
@@ -121,6 +137,33 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao }: { licitacaoId: st
       <p className="text-xs text-gray-600">
         A ordem é sugestão: qualquer peça pode ser feita ou anexada antes. A etapa conta quando a peça está pronta (feita aqui, anexada, assinada ou &quot;não se aplica&quot;).
       </p>
+
+      {conformidade?.aplicavel && (
+        <div
+          className={`rounded border px-2.5 py-2 text-xs flex items-start justify-between gap-2 flex-wrap ${conformidade.impedem_publicar ? "border-[#E8B48C] bg-[#FBEBDD]" : "bg-[#E3ECF5] border-[#C5D6E8]"}`}
+          role="status"
+        >
+          <div className="min-w-0">
+            <span className="font-semibold text-gray-900">Conformidade das peças: </span>
+            {conformidade.bloqueios} bloqueio(s) · {conformidade.atencoes} atenção(ões)
+            {conformidade.impedem_publicar ? ` — ${conformidade.impedem_publicar} impede(m) publicar` : " — nada impede publicar"}
+            {conformidade.achados.length > 0 && (
+              <ul className="mt-1 space-y-0.5">
+                {conformidade.achados.map((a) => (
+                  <li key={a.id}>
+                    <span className="font-mono text-[10px] text-gray-600 mr-1">{a.regra}</span>
+                    {a.titulo}
+                    {a.severidade === "BLOQUEIO" ? " (bloqueio)" : a.exige_justificativa ? " (justificar)" : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <Link className="text-blue-800 hover:underline shrink-0" href={conformidade.destino}>
+            Abrir a conformidade →
+          </Link>
+        </div>
+      )}
 
       <ol className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
         {dados.etapas.map((e) => {
@@ -186,6 +229,9 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao }: { licitacaoId: st
                       {p.pendencias.length > 0 && p.situacao === "AGUARDANDO" && (
                         <div className="text-gray-600">Depois de: {p.pendencias.map((d) => TITULO_PASSO[d] ?? d).join(", ")}</div>
                       )}
+                      {p.bloqueio_portao?.length ? (
+                        <div className="text-[#9A4308]">Portão A — não conclui enquanto: {p.bloqueio_portao.join(" · ")}</div>
+                      ) : null}
                       {p.prazo_dias_uteis ? <div className="text-gray-600">Prazo padrão: {p.prazo_dias_uteis} dias úteis</div> : null}
                       {p.tarefa?.status === "CONCLUIDA" && (
                         <div className="text-green-800">

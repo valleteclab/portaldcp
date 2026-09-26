@@ -63,6 +63,8 @@ export function ChecklistPrePublicacao({
     switch (i.acao) {
       case "ABRIR_FASE_INTERNA":
         return <Link href={`/orgao/processos/${licitacaoId}#fluxo-fase-interna`} className={botao}>Abrir fase interna</Link>
+      case "ABRIR_CONFORMIDADE":
+        return <Link href={`/orgao/processos/${licitacaoId}/fase-interna/conformidade`} className={botao}>Abrir a conformidade</Link>
       case "CADASTRAR_ITENS":
         return <Link href={`/orgao/processos/${licitacaoId}/editar?aba=itens`} className={botao}>Cadastrar itens</Link>
       case "VINCULAR_PCA":

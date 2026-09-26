@@ -145,7 +145,7 @@ export interface ProcessoCompleto {
 
 /** GET /licitacoes/:id/conferencia-publicacao */
 export interface ItemConferencia {
-  chave: "DOCUMENTOS" | "AUTORIZACAO" | "AVISO" | "EDITAL" | "ITENS" | "PCA" | "ME_EPP" | "OUTRAS"
+  chave: "DOCUMENTOS" | "AUTORIZACAO" | "AVISO" | "EDITAL" | "ITENS" | "PCA" | "ME_EPP" | "CONFORMIDADE" | "OUTRAS"
   rotulo: string
   fundamento: string
   estado: "OK" | "PENDENTE" | "ALERTA"
@@ -160,6 +160,7 @@ export interface ItemConferencia {
     | "CANCELAR_PUBLICACAO"
     | "VINCULAR_PCA"
     | "CONFIGURAR_ME_EPP"
+    | "ABRIR_CONFORMIDADE"
     | null
 }
 

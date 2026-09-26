@@ -15,7 +15,7 @@
  * API: GET/PUT /api/fase-interna/:id/parecer, POST /parecer/diligencias[/:id/{sanar,reabrir,cancelar}],
  *      POST /parecer/emitir, POST /parecer/fase-externa/solicitar.
  */
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { toast } from "sonner"
@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
+import { VisorDosAutos, type PecaAberta } from "@/components/fase-interna/etapas/VisorDosAutos"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
 
@@ -102,29 +103,6 @@ const COR: Record<string, { texto: string; cls: string }> = {
   NAO_SE_APLICA: { texto: "Não se aplica", cls: "bg-slate-50 text-slate-600" },
 }
 
-/** PDF autenticado em blob para o visor dos autos (abre na folha). */
-function useBlobPdf(documentoId: string | null) {
-  const [url, setUrl] = useState<string | null>(null)
-  useEffect(() => {
-    let vivo = true
-    let criado: string | null = null
-    setUrl(null)
-    if (!documentoId) return
-    authFetch(`${API_URL}/api/fase-interna/documento/${documentoId}/arquivo`)
-      .then(async (r) => {
-        if (!r.ok || !vivo) return
-        criado = URL.createObjectURL(await r.blob())
-        setUrl(criado)
-      })
-      .catch(() => null)
-    return () => {
-      vivo = false
-      if (criado) URL.revokeObjectURL(criado)
-    }
-  }, [documentoId])
-  return url
-}
-
 export default function ParecerPage() {
   const { id } = useParams() as { id: string }
   const busca = useSearchParams()
@@ -134,7 +112,7 @@ export default function ParecerPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
   const [atualizacao, setAtualizacao] = useState(0)
-  const [aberta, setAberta] = useState<{ tipo: string; folha: number | null; trecho: string | null } | null>(null)
+  const [aberta, setAberta] = useState<PecaAberta | null>(null)
   const [conclusao, setConclusao] = useState("FAVORAVEL")
   const [fundamentacao, setFundamentacao] = useState("")
   const [ressalvas, setRessalvas] = useState("")
@@ -161,9 +139,6 @@ export default function ParecerPage() {
     carregar()
   }, [carregar])
 
-  const pecaAberta = useMemo(() => d?.autos.find((p) => p.tipo === aberta?.tipo) ?? null, [d, aberta])
-  const pdf = useBlobPdf(pecaAberta && (pecaAberta.anexada || !Object.keys(pecaAberta.secoes).length) && pecaAberta.tem_arquivo ? pecaAberta.documento_id : null)
-  const pagina = pecaAberta && aberta?.folha && pecaAberta.folha_inicial ? Math.max(1, aberta.folha - pecaAberta.folha_inicial + 1) : 1
 
   const chamar = async (metodo: string, rota: string, corpo: unknown, sucesso: string) => {
     setOcupado(true)
@@ -278,51 +253,8 @@ export default function ParecerPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,44rem)_1fr]">
-        {/* AUTOS */}
-        <section aria-label="Autos" className="rounded-lg border bg-[#EAE6DC] overflow-hidden flex flex-col min-h-[560px]">
-          <div role="tablist" aria-label="Peça dos autos" className="flex gap-1 overflow-x-auto bg-white border-b px-2 pt-2">
-            {d.autos.map((p) => (
-              <button
-                key={p.documento_id}
-                type="button"
-                role="tab"
-                aria-selected={aberta?.tipo === p.tipo}
-                onClick={() => setAberta({ tipo: p.tipo, folha: p.folha_inicial, trecho: null })}
-                className={`h-10 px-3 text-xs whitespace-nowrap -mb-px border-b-[3px] ${aberta?.tipo === p.tipo ? "border-[#1F4E79] font-semibold text-gray-900" : "border-transparent text-gray-600"}`}
-                title={p.titulo}
-              >
-                {p.tipo}
-                {p.folha_inicial != null && <span className="ml-1 font-mono text-[10px] text-gray-500">fl. {p.folha_inicial}</span>}
-              </button>
-            ))}
-            {!d.autos.length && <span className="text-sm text-gray-600 p-2">Nenhuma peça nos autos ainda.</span>}
-          </div>
-          <div className="p-4 flex-1 min-h-0">
-            {pecaAberta ? (
-              pdf ? (
-                <iframe key={`${pdf}-${pagina}`} title={`${pecaAberta.titulo} (fl. ${aberta?.folha ?? pecaAberta.folha_inicial ?? "—"})`} src={`${pdf}#page=${pagina}`} className="w-full h-full min-h-[520px] bg-white rounded" />
-              ) : (
-                <article className="bg-white shadow-sm px-8 py-8 font-serif text-[15px] leading-relaxed space-y-3 h-full overflow-y-auto">
-                  <div className="font-mono text-[11px] text-gray-600 text-right">
-                    {pecaAberta.titulo} · v{pecaAberta.versao}
-                    {pecaAberta.folha_inicial != null && ` · fl. ${pecaAberta.folha_inicial}${pecaAberta.folha_final && pecaAberta.folha_final !== pecaAberta.folha_inicial ? `–${pecaAberta.folha_final}` : ""}`}
-                  </div>
-                  {Object.entries(pecaAberta.secoes).map(([k, html]) => {
-                    const destacar = !!aberta?.trecho && html.toLowerCase().includes(aberta.trecho.toLowerCase())
-                    return (
-                      <div
-                        key={k}
-                        className={destacar ? "bg-[#FBEBDD] outline outline-2 outline-[#C2651A] rounded px-1.5" : ""}
-                        dangerouslySetInnerHTML={{ __html: html }}
-                      />
-                    )
-                  })}
-                  {!Object.keys(pecaAberta.secoes).length && <p className="text-sm text-gray-600 font-sans">{pecaAberta.tem_arquivo ? "Carregando o PDF…" : "Peça sem texto nem arquivo."}</p>}
-                </article>
-              )
-            ) : null}
-          </div>
-        </section>
+        {/* AUTOS (visor comum — Entrega 4 o reaproveita na conformidade) */}
+        <VisorDosAutos autos={d.autos} aberta={aberta} onAbrir={setAberta} />
 
         {/* ROTEIRO */}
         <main className="space-y-4 min-w-0">

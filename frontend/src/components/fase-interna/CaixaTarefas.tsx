@@ -199,6 +199,14 @@ function ItemTarefa({ t, ocupada, onAssumir, onReatribuir }: { t: TarefaTela; oc
       <div className={`w-1 rounded-full shrink-0 ${t.atrasada ? "bg-orange-600" : aberta ? "bg-blue-700" : "bg-slate-300"}`} aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 flex-wrap">
+          {t.origem === "ACHADO" && (
+            <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-[#FBEBDD] text-[#9A4308]" title="Achado da conformidade: corrija a peça — o achado se resolve na próxima revisão">
+              Conformidade
+            </span>
+          )}
+          {t.origem === "DILIGENCIA" && (
+            <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-amber-50 text-amber-900">Diligência</span>
+          )}
           <span className="font-medium text-slate-900">{t.titulo}</span>
           <span className="text-xs text-slate-600">Processo {t.processo.numero_processo}</span>
           {t.etapa_titulo && <span className="text-xs text-slate-500">· {t.etapa_titulo}</span>}
@@ -230,7 +238,7 @@ function ItemTarefa({ t, ocupada, onAssumir, onReatribuir }: { t: TarefaTela; oc
           )}
           <Button asChild size="sm" variant={aberta ? "default" : "outline"}>
             <Link href={t.destino}>
-              {aberta ? (t.tipo === "PUBLICACAO" ? "Abrir publicação" : "Abrir peça") : "Ver processo"} <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
+              {aberta ? (t.tipo === "PUBLICACAO" ? "Abrir publicação" : t.origem === "ACHADO" ? "Abrir achado" : "Abrir peça") : "Ver processo"} <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
             </Link>
           </Button>
         </div>
