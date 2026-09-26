@@ -201,6 +201,11 @@ export interface DadosBasicos {
 export interface Classificacao {
   modalidade: string
   tipo_contratacao: string
+  /**
+   * Fundamento legal (código — art. 28/74/75/78): fonte única do enquadramento.
+   * null = padrão da modalidade (o backend grava). Lista: GET /parametros-licitacao/fundamentos-legais.
+   */
+  fundamento_legal?: string | null
   criterio_julgamento: string
   modo_disputa: string
   // Benefício ME/EPP (LC 123/2006)

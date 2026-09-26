@@ -45,7 +45,6 @@ export default function ProcessoPage() {
   const [dados, setDados] = useState<ProcessoCompleto | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
-  const [limiteDispensa, setLimiteDispensa] = useState<{ chave: string; valor: number } | null>(null)
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true)
@@ -55,19 +54,6 @@ export default function ProcessoPage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const j = (await res.json()) as ProcessoCompleto
       setDados(j)
-      // Limite legal do art. 75 (aviso de conformidade da dispensa)
-      if (j.licitacao.modalidade === "DISPENSA_ELETRONICA") {
-        try {
-          const tc = (j.licitacao.tipo_contratacao || "").toUpperCase()
-          const chave = tc.includes("OBRA") || tc.includes("ENGENHARIA") ? "DISPENSA_OBRAS_ENGENHARIA" : "DISPENSA_COMPRAS_SERVICOS"
-          const orgao = JSON.parse(localStorage.getItem("orgao") || "{}")
-          const rl = await authFetch(`${API_URL}/api/parametros-licitacao/limites/vigente?chave=${chave}${orgao?.id ? `&orgaoId=${orgao.id}` : ""}`)
-          if (rl.ok) {
-            const lim = await rl.json()
-            if (lim?.valor != null) setLimiteDispensa({ chave, valor: Number(lim.valor) })
-          }
-        } catch { /* aviso de limite é opcional */ }
-      }
     } catch (e: any) {
       setErro(e.message || "Erro ao carregar o processo")
     } finally {
@@ -261,7 +247,6 @@ export default function ProcessoPage() {
             divulgacao={divulgacao}
             mensagens={mensagens}
             regras={regras}
-            limiteDispensa={limiteDispensa}
             onMensagem={recarregarMensagens}
             onDivulgarAviso={() => setModalDivulgar(true)}
             onCancelarPublicacao={cancelamento.cancelar}

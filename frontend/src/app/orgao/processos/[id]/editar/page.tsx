@@ -95,7 +95,6 @@ export default function EditarLicitacaoPage() {
   const [itens, setItens] = useState<ItemLicitacao[]>([])
   const [lotes, setLotes] = useState<LoteLicitacao[]>([])
   const [itensPca, setItensPca] = useState<ItemPCA[]>([])
-  const [modoImportacao, setModoImportacao] = useState(false)
 
   // Handler para mudanças na classificação que limpa itens/lotes quando necessário
   const handleClassificacaoChange = async (novaClassificacao: Classificacao) => {
@@ -189,6 +188,7 @@ Deseja também limpar os itens vinculados aos lotes?`,
         setClassificacao({
           modalidade: data.modalidade || 'PREGAO_ELETRONICO',
           tipo_contratacao: data.tipo_contratacao || 'BENS',
+          fundamento_legal: data.fundamento_legal ?? null,
           criterio_julgamento: data.criterio_julgamento || 'MENOR_PRECO',
           modo_disputa: data.modo_disputa || 'ABERTO',
           tratamento_diferenciado_mpe: data.tratamento_diferenciado_mpe ?? true,
@@ -414,8 +414,6 @@ Deseja também limpar os itens vinculados aos lotes?`,
           <DadosBasicosTab 
             dados={dadosBasicos} 
             onChange={setDadosBasicos}
-            modoImportacao={modoImportacao}
-            onToggleModo={() => setModoImportacao(!modoImportacao)}
           />
         </TabsContent>
 

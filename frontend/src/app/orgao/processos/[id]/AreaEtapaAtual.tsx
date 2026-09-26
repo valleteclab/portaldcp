@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { AlertTriangle } from "lucide-react"
 import { ResultadoPanel } from "@/components/resultado/ResultadoPanel"
 import { CotasMeEppCard } from "@/components/licitacao/CotasMeEppCard"
 import { LeilaoPainel } from "@/components/modalidades/LeilaoPainel"
@@ -14,19 +13,21 @@ import { BllIntegracao } from "./BllIntegracao"
 import { ChecklistPrePublicacao } from "./ChecklistPrePublicacao"
 import { ContratosProcesso } from "./ContratosProcesso"
 import { EtapaDispensa } from "./EtapaDispensa"
-import { InstrucaoArt72 } from "./InstrucaoArt72"
+import { ConsumoLimiteDispensa } from "./ConsumoLimiteDispensa"
+import { PecasFaseInterna } from "./PecasFaseInterna"
 import { PublicacaoEdital, MODALIDADES_COMPETITIVAS } from "./PublicacaoEdital"
 import { SessaoPublicaCard } from "./SessaoPublicaCard"
 import {
-  fmtMoeda, SITUACOES_ENCERRADAS,
+  SITUACOES_ENCERRADAS,
   type ConferenciaPrePublicacao, type MensagemDispensa, type ProcessoCompleto, type RegrasChat, type SituacaoDivulgacao,
 } from "./tipos"
 
 /**
  * ÁREA DA ETAPA ATUAL (coluna principal) — muda com a fase; o layout é o
  * mesmo para todas as modalidades:
- *  - fase interna / aguardando o PNCP: checklist de pré-publicação (+ peças
- *    do art. 72 na contratação direta, publicação do edital nas licitações);
+ *  - fase interna / aguardando o PNCP: checklist de pré-publicação + peças da
+ *    fase interna ("fazer aqui · anexar PDF · não se aplica"), consumo do
+ *    limite da dispensa e publicação do edital nas licitações;
  *  - dispensa publicada: recebimento (quantidade sigilosa + avisos), lances,
  *    julgamento e negociação com o vencedor;
  *  - licitações: sessão pública (sala), resultado, contratos;
@@ -38,7 +39,6 @@ export function AreaEtapaAtual({
   divulgacao,
   mensagens,
   regras,
-  limiteDispensa,
   onMensagem,
   onDivulgarAviso,
   onCancelarPublicacao,
@@ -50,7 +50,6 @@ export function AreaEtapaAtual({
   divulgacao: SituacaoDivulgacao | null
   mensagens: MensagemDispensa[]
   regras: RegrasChat | null
-  limiteDispensa: { chave: string; valor: number } | null
   onMensagem: () => void
   onDivulgarAviso: () => void
   onCancelarPublicacao: () => void
@@ -63,7 +62,6 @@ export function AreaEtapaAtual({
   const interna = FASES_INTERNAS.includes(l.fase)
   const aguardando = l.fase === "AGUARDANDO_DIVULGACAO"
   const dispensa = l.modalidade === "DISPENSA_ELETRONICA"
-  const direta = ["DISPENSA_ELETRONICA", "INEXIGIBILIDADE", "CREDENCIAMENTO"].includes(l.modalidade)
   const situacao = situacaoDaLicitacao(l)
   const encerrada = SITUACOES_ENCERRADAS.includes(situacao) && situacao !== "CONCLUIDA"
   const ativa = situacao === "ATIVA"
@@ -73,8 +71,6 @@ export function AreaEtapaAtual({
     ["HABILITACAO", "RECURSO", "ADJUDICACAO", "HOMOLOGACAO"].includes(l.fase) ||
     (["LEILAO", "CONCURSO"].includes(l.modalidade) && l.fase === "JULGAMENTO")
 
-  const total = Number(l.valor_total_estimado || 0)
-  const excedeLimite = dispensa && limiteDispensa != null && total > limiteDispensa.valor
 
   return (
     <div className="space-y-5">
@@ -115,17 +111,9 @@ export function AreaEtapaAtual({
             onCancelarPublicacao={onCancelarPublicacao}
             onAtualizado={onAtualizado}
           />
-          {excedeLimite && (
-            <div className="flex items-start gap-2 text-xs text-amber-950 bg-amber-50 border border-amber-200 rounded p-2">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
-              <span>
-                Valor estimado ({fmtMoeda(total)}) <b>excede o limite vigente de dispensa</b> ({fmtMoeda(limiteDispensa!.valor)} —{" "}
-                {limiteDispensa!.chave === "DISPENSA_OBRAS_ENGENHARIA" ? "art. 75, I" : "art. 75, II"}). Verifique o enquadramento legal.
-              </span>
-            </div>
-          )}
-          {interna && direta && (
-            <InstrucaoArt72 licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} />
+          {dispensa && <ConsumoLimiteDispensa licitacaoId={id} atualizacao={dados} />}
+          {interna && (
+            <PecasFaseInterna licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} />
           )}
           {interna && (
             <div id="cotas-me-epp">
