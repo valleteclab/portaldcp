@@ -143,3 +143,12 @@ Em **Configurações** › **Fase interna e tarefas** o administrador do órgão
 
 > **Atenção.** Ao salvar, as tarefas abertas são ajustadas na hora: a troca de modo muda o responsável das tarefas que ninguém reatribuiu à mão.
 
+## 9. Orçamento (dotações e leis)
+
+Em **Configurações** › **Orçamento** o órgão mantém as tabelas que a **reserva orçamentária** dos processos usa — sem digitação livre na reserva:
+
+- **Dotações orçamentárias**, por exercício: unidade orçamentária, programa (opcional), projeto/atividade, elemento de despesa, fonte de recurso e, se quiser, o saldo disponível (QDD). Em cada campo, código e nome (ex.: "3.3.90.40 — Serviços de TIC — PJ").
+- **Leis orçamentárias** — tabela única de **LDO**, **LOA** e **PPA** (número, exercício ou quadriênio, publicação e ementa). Despacho, informação orçamentária e parecer citam sempre o mesmo número.
+
+**Nova dotação**, **Nova lei**, editar (lápis) e **Desativar**/**Reativar** (a desativada some das listas, mas continua nas reservas já feitas). Qualquer servidor do órgão pode cadastrar; a Contabilidade também cadastra pelo **cadastro rápido** da tela da reserva.
+

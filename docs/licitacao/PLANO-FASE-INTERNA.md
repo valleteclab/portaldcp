@@ -1,7 +1,7 @@
 # Plano — Fase interna simples, guiada e "feita aqui ou anexada"
 
 > 26/09/2026 · Referência real: Câmara Municipal de Luís Eduardo Magalhães — autos da Dispensa 003/2025 (PA 005/2025) e das Inexigibilidades 004/2025 (PA 033/2025) e 008/2025 (PA 043/2025), e o regulamento próprio da Lei 14.133 (**Portaria 089/2024**).
-> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** na branch `claude/fase-interna-e2` (ver §8). Entregas 3 a 7 pendentes.
+> Status: **Entrega 1 (Base) concluída** (PR #507, ver §7). **Entrega 2 (Tarefas e caixa de entrada) concluída** (PR #508, ver §8). **Entrega 3A (telas por etapa: DFD, ETP, TR, pesquisa e reserva) concluída** na branch `claude/fase-interna-e3` (ver §9). Entrega 3B (autorização no celular, parecer com diligências, relatório do agente e minutas) e Entregas 4 a 7 pendentes.
 
 ## 1. O problema
 
@@ -535,6 +535,100 @@ O `synchronize` também:
 - **Controle interno como bloqueio** (hoje é só aviso) e "não se aplica" para ele, quando o regulamento permitir — decisão do órgão, Entregas 4/5.
 - **Requisitante como responsável direto** das etapas 1 a 3 no modo por setor (quem pediu, pela demanda): hoje a tarefa vai para a caixa do papel.
 - **Lembrete de prazo vencendo** (cron): não existe. A tarefa atrasada aparece destacada na caixa e no badge.
+
+## 9. Entrega 3A — CONCLUÍDA (26/09/2026)
+
+Branch `claude/fase-interna-e3` (a partir do main com as Entregas 1 e 2). Sem push/PR nesta etapa. Commits: `f54b6329` (backend), `0af9125f` (DFD), `dde0b2e1` (ETP), `f94cc1f3` (TR), `b7fc9929` (pesquisa), `2321f1cc` (reserva), `db096b7b` (redirecionamentos e navegação) e o desta documentação.
+
+**Um processo, uma tela por etapa.** Cada etapa com tela abre DENTRO do processo, pelo quadro "Fluxo da fase interna" ("Abrir a etapa →") ou pela tarefa da caixa (o `destino` da tarefa passou a ser a tela), sempre com "← Voltar ao processo" e a barra das 8 etapas:
+`/orgao/processos/[id]/fase-interna/{dfd,etp,tr,pesquisa,reserva}`.
+Em todas: o quadro comum da peça (`CaminhosDaPeca`) com **fazer aqui** (a própria tela, gerando pelo modelo) **ou anexar o PDF feito fora**, "não se aplica" onde a lei permite, **enviar para assinatura** (a tela que faltava da Entrega 1: vários signatários com papel), "ver PDF" e **versões** (histórico). A tarefa da Entrega 2 conclui sozinha quando a peça fica pronta (gerada, assinada, anexada ou "não se aplica") — conferido nos e2e.
+
+### 9.1 O que mudou por tela
+
+**1. DFD** (mockup DFD)
+- Unidade requisitante (tabela `setores`), responsável e fiscal sugerido (usuários ativos do órgão), data pretendida, prioridade e **vínculo ao item do PCA** (`licitacoes.item_pca_id`) ou **justificativa de ausência** (`sem_pca`/`justificativa_sem_pca`, art. 12, §1º, mínimo 10 caracteres). Ids de outro órgão → 400.
+- Necessidade (seção `demanda`, autosave), objeto (só na fase interna) e **itens com CATMAT/CATSER** pelo editor de itens existente (`ItensTab`, num diálogo; grava pelo mesmo `PUT /licitacoes/:id`).
+- Checklist "antes de gerar" (PCA, necessidade, itens com código — "N itens sem código CATMAT/CATSER — necessário para somar o limite de dispensa" —, unidade e responsável, data, marca no objeto).
+- **Gerar DFD**: completa só as seções vazias pela derivação (quantidades pelos itens com o código, previsão no PCA, data) e gera o PDF.
+- Campos estruturados na própria peça: `documentos_fase_interna.dados_estruturados._dfd` (sem entidade nova); as seções `previsao` e `data` são derivadas deles.
+- Criar o processo a partir de uma demanda continua igual e agora abre direto a tela do DFD.
+
+**2. ETP** (mockup ETP)
+- O editor por seções existente (`DocumentoSeccionado`), com o painel **Assistente do ETP** no lugar do chat: incisos do art. 18, §1º com ponto de situação (obrigatórios do §2º: I, IV, VI, VIII e XIII), marca, coerência, pendentes e "Pedir ao assistente".
+- **Assistente** (`POST /etp/assistente`, IA existente — `IaService.chat`): `RASCUNHO` da seção a partir do DFD e dos itens (instrução de descrever pela função, sem marca), `REESCREVER_MARCA` do trecho, `ANALISAR` (sem IA). **Só sugere**: nada é gravado; "Aplicar na seção"/"Substituir o trecho" grava com `origem: IA_ACEITA` → `dados_estruturados._edicoes[secao] = { por_id, por_nome, origem, em }` + log `DOCUMENTO_EDITADO` ("sugestão aceita … texto registrado como editado pelo usuário"). Toda edição de seção passou a registrar o autor do JWT. A sugestão é mostrada como texto (nunca HTML cru da IA). IA indisponível → `disponivel: false` com a análise (sem erro).
+- **Marca (art. 41, I)** — função pura `detectarIndicacaoMarca`: marca citada sem "apenas como referência/ou similar/equivalente" e sem justificativa = **BLOQUEIO**; com "similar/equivalente/superior" = **ATENÇÃO** (justificativa obrigatória); com a justificativa registrada (`PUT /etp/marca`, `_marca`) = **JUSTIFICADO**. Caso ARION (SNEWS) do PA 139/2025 é fixture.
+- **Coerência** (`coerenciaEntreSecoes`): siglas técnicas e expressões em maiúsculas da necessidade que não aparecem na solução (VII) e no TR.
+- Na contratação direta: "Não se aplica" com justificativa para ETP e riscos (art. 72, I). Riscos: a tela existente, com "← Voltar ao ETP".
+- **Gerar ETP (PDF)** pelo modelo.
+
+**3. TR**
+- Editor por seções derivado do ETP (`derivacao.service`, estendido): `fundamentacao` começa com o **fundamento legal lido de `processo.fundamento_legal`**; `estimativa_valor_tr` respeita o **orçamento sigiloso** (art. 24 — texto sem o valor); `dotacao_orcamentaria_tr` vem da **reserva** (classificação + distribuição por exercício, sem valores no sigilo).
+- Quadros: fundamento legal, dotação da reserva, situação do ETP, itens e valores (com aviso do sigilo). "Gerar TR (PDF)" não apaga o que foi escrito.
+
+**4. Pesquisa de preços** (mockup Pesquisa)
+- Dados no **documento PP** (mesmo lugar do módulo de pesquisa, do agente e do gerador do mapa — sem entidades novas; a SPEC `Cotacao`/`ParametroPesquisa`/`PesquisaPrecos` virou campos de `PesquisaPrecosDados`): `parametros_art23` (inciso, situação CONSULTADO/SEM_RETORNO/NAO_CONSULTADO, data, resultado, evidência com SHA-256), `metodo` (MENOR/MEDIA/MEDIANA ↔ `metodologia_geral`), `justificativa_metodo`, `justificativa_fornecedores`, `justificativa_menos_de_tres`, `solicitacao_enviada_em`, `publicacao_prevista`, `certidao`; cotação com `grupo_id`, `data_emissao`, `validade_ate`.
+- **5 parâmetros do art. 23, §1º** com "consultado em [data]", resultado e evidência — **"consultado sem retorno" registrado** (e na certidão). Sem registro manual, o parâmetro conta como consultado quando há cotação de fonte daquele inciso (PAINEL→I, PNCP/contratos→II, mídia→III, fornecedor→IV, NF-e→V).
+- **Cotações diretas como propostas**: fornecedor, CNPJ (dígitos conferidos), emissão (não futura), validade, valor por item e comprovante (PDF/PNG/JPG, pasta privada `licitacoes/<id>/`).
+- Cálculo automático de **menor, média e mediana** (totais por método), **regra dos 3 preços** (ou justificativa), alertas **VENCE_ANTES_DA_PUBLICACAO**, **VENCIDA** e **EMITIDA_HA_MAIS_DE_6_MESES** (PRECO-02 e PRECO-03 da SPEC); cotação vencida ou com mais de 6 meses não entra no cálculo.
+- **Consumo do limite** do art. 75 (componente da Entrega 1: "98,4% de R$ 62.725,59 — Dec. 12.343/2024").
+- **Emitir mapa e certidão**: exige método, justificativa do método, justificativa dos fornecedores (com cotação direta) e 3 preços; aplica o método nos itens, gera o mapa (gerador-pp existente) e a **certidão** (novo `GeradorPpService.gerarCertidao`) e registra a peça (o valor de referência vira o valor dos itens).
+- **Pesquisa feita fora** (decisão 2): anexo da peça PP + `PUT /pesquisa/valores-itens` (valor unitário de cada item; recalcula o total do processo). O anexo continua sendo a peça (sem versão nova só por ler/digitar valores); fazer aqui sobre peça anexada abre versão nova copiando os dados da última versão com a pesquisa.
+- O módulo detalhado antigo (`[id]/precos`: itens, agentes PNCP/Painel/Fonte de Preços, CSV, estatística, outliers) virou o componente `PesquisaPrecosDetalhe`, embutido na tela ("Pesquisa detalhada por item"); "Consultar PNCP de novo" roda os agentes existentes.
+
+**5. Reserva orçamentária** (mockup Reserva) — estrutura nova
+- Entidades: `reservas_orcamentarias` (versão, `versao_atual`, `substitui_reserva_id`, status RASCUNHO/EMITIDA/DEVOLVIDA/SUBSTITUIDA, `exercicio_base`, `dotacao_id` + cópia da classificação, `lei_ldo_id`/`lei_loa_id`/`lei_ppa_id`, declarações LOA/LDO/PPA e LRF, motivos, `documento_id` da peça DO, emissão) e `reservas_orcamentarias_linhas` (exercício, valor, situação RESERVADO/PREVISAO, nº da reserva). Tabelas do órgão: `dotacoes_orcamentarias` (exercício, UO, programa, projeto/atividade, elemento, fonte, saldo, ativo) e `leis_orcamentarias` (tabela única LDO/LOA/PPA: número, exercício, fim do PPA, publicação, ementa, ativo). Toda coluna de união com `type:` explícito.
+- **Linhas por exercício**: na emissão, a do exercício corrente vira RESERVADO e as futuras ficam PREVISAO; linha de exercício encerrado bloqueia (use "Renovar"); total ≠ valor estimado = aviso.
+- **Emitir** gera a peça **DO (INFO_ORCAMENTARIA)** pelo **modelo** (modelo padrão novo "Informação orçamentária", variáveis `{{reserva.*}}` com a tabela por exercício e as leis da tabela única), nova versão da peça + PDF; a tarefa da etapa conclui.
+- **Retificar** e **Renovar dotação** criam **versão nova** (a anterior vira SUBSTITUIDA, nunca some). A renovação (novo exercício > o da emissão) soma no novo exercício o valor do encerrado, volta tudo a PREVISAO, sugere a dotação equivalente (mesmo projeto/elemento/fonte) e a LDO do novo ano e **cria a tarefa do sistema "Renovar a informação orçamentária"** (origem SISTEMA, chave `sistema:renovar-dotacao`, passo RESERVA → Contabilidade no modo por setor; agente no simples). A emissão da nova versão, ou o anexo da DO feita fora, conclui a tarefa; o anexo da DO é aceito depois da divulgação só enquanto a renovação está pendente.
+- **Devolver sem saldo** (motivo, volta a rascunho ao editar).
+- Tela **Configurações › Orçamento** (dotações e leis, ativar/desativar) e **cadastro rápido** na própria tela da reserva.
+
+### 9.2 Endpoints novos
+
+| Método e rota | Quem | Isolamento (e2e) |
+|---|---|---|
+| `GET` / `PUT /fase-interna/:id/dfd` | órgão dono | outro órgão 404/403; fornecedor 403; anônimo 401 |
+| `POST /fase-interna/:id/documentos/:tipo/gerar` (DFD, ETP, TR) | órgão dono | 403 / 403 / 401 |
+| `GET /fase-interna/:id/etp`, `POST /etp/assistente`, `PUT /etp/marca` | órgão dono | 404 ou 403 / 403 / 401 |
+| `GET /fase-interna/:id/tr` | órgão dono | 404 / 403 / 401 |
+| `GET /fase-interna/:id/pesquisa` | órgão dono | 404 / 403 / 401 |
+| `PUT /pesquisa/parametros/:inciso`, `POST /pesquisa/parametros/:inciso/evidencia` | órgão dono | 403 / 403 / 401 |
+| `POST /pesquisa/propostas`, `DELETE /pesquisa/propostas/:grupo`, `POST /pesquisa/propostas/:grupo/comprovante` | órgão dono | 403 / 403 / 401 |
+| `PUT /pesquisa/metodo`, `POST /pesquisa/emitir`, `PUT /pesquisa/valores-itens` | órgão dono | 403 / 403 / 401 |
+| `GET /pesquisa/arquivos/:tipo/:chave` (evidência, comprovante, certidão) | órgão dono | 404 / 403 / 401 |
+| `GET` / `PUT /fase-interna/:id/reserva`; `POST /reserva/{emitir,retificar,renovar,devolver}` | órgão dono | 404 ou 403 / 403 / 401 |
+| `GET` / `POST /orcamento/dotacoes`, `PUT /orcamento/dotacoes/:id`; idem `/orcamento/leis` | órgão do token (admin: `?orgao_id=`) | lista só do próprio órgão; alterar a de outro órgão 403; dotação de outro órgão na reserva 400; fornecedor 403; anônimo 401 |
+
+Alterados: `PATCH /fase-interna/:id/documentos/:tipo/secao/:secaoId` aceita `origem: USUARIO | IA_ACEITA` e registra o autor do JWT (chave interna `_…` → 400); `POST …/documentos/DO/anexo` conclui a renovação pendente; o `destino` da tarefa (caixa e notificação) leva à tela da etapa.
+
+### 9.3 Entidades e colunas
+
+Novas: `dotacoes_orcamentarias`, `leis_orcamentarias`, `reservas_orcamentarias`, `reservas_orcamentarias_linhas` (criadas pelo `synchronize`). **Nenhuma coluna nova em tabela existente** e **nenhuma migração de boot** (não há dado a converter: a reserva nasce na tela; os campos novos da pesquisa, do DFD e do ETP ficam no `jsonb` da peça). Modelo padrão novo de DO semeado no boot (idempotente, já existente). Nenhum valor novo em enum (os logs usam `DOCUMENTO_EDITADO`, `DOCUMENTO_VERSIONADO`, `DOCUMENTO_CRIADO`, `IA_INVOCADA`).
+
+### 9.4 Decisões
+
+- **Sem entidades duplicadas**: DFD, ETP e TR continuam em `documentos_fase_interna`; a pesquisa (parâmetros, propostas, método) no documento PP — onde o mapa, o agente e o relatório público já leem. Só a reserva e as tabelas orçamentárias são estruturas novas (não existiam).
+- **"Pronta" continua a regra da Entrega 1/2** (anexada, assinada, aprovada ou com conteúdo). A tela gera a peça pelo modelo e oferece a assinatura; bloquear o avanço por incisos obrigatórios/marca é o **portão da Entrega 4** — aqui é aviso (vermelho para marca sem justificativa).
+- **PDF por seções**: `GeradorDocumentoService` renderiza as seções do modelo com título (antes o DFD saía com o JSON bruto e o ETP do editor saía em branco).
+- **Uma tela só por coisa**: o cockpit antigo, a rota `licitacoes/[id]/fase-interna`, `editor?tipo=DFD/ETP/AR/TR/PP/MCP/DO` e `…/precos` redirecionam; a tramitação virou aba da tela do processo; o editor avulso fica só para as peças sem tela (AA, PJ, ME, JC…), com "← Voltar ao processo".
+- **Renovação no modo simples** vai para o agente do processo (como toda tarefa do modo simples); no modo por setor, para o papel/setor configurado para a RESERVA (Contabilidade).
+- **Correções no caminho**: matriz de riscos gravava `{grau, nivel}` inteiro em `grau` (nível saía sempre BAIXO) e sem `id` (editar/remover não achavam o risco) — corrigido, com id "R-<n>" para os antigos; o editor por seções não mostrava o texto inserido pela IA/herança (a seção agora remonta); o botão "PDF" do editor apontava para rota inexistente.
+
+### 9.5 Testes
+
+- **Unitários novos** (`src/fase-interna/telas/`): `pesquisa-regras.spec.ts` (menor/média/mediana, método, regra dos 3 preços, vencida, vence antes da publicação, mais de 6 meses, parâmetros com "sem retorno", propostas agrupadas, pendências), `etp-analise.spec.ts` (incisos obrigatórios, marca ARION/SNEWS = atenção, "marca Dell modelo X" = bloqueio, justificado, coerência "Closed Caption/NDI"), `reserva-regras.spec.ts` (linhas, emissão, conferência, renovação preservando o total). Suíte unitária completa: 93 suítes / 1117 testes passando.
+- **E2E novo** `test/fase-interna-e3a.e2e-spec.ts` (14 testes): DFD → gerar (tarefa conclui, caixa leva à tela) → ETP "não se aplica" na dispensa → TR gerado do processo (fundamento, sem apagar seção escrita) → pesquisa (sem retorno, evidência, 3 propostas, CNPJ/emissão recusados, alertas, método e justificativas obrigatórios, mapa + certidão, valores nos itens) → tabelas orçamentárias → reserva com 2 exercícios (emitida, peça DO com a LDO da tabela, sem "empenho") → renovar (versão, histórico, tarefa SISTEMA que a sincronização não mexe, emissão conclui); pesquisa feita fora (anexo + valores); assistente do ETP (marca, IA_ACEITA com autor e log, IA indisponível sem gravar nada); isolamento de todos os endpoints novos. Sem migração de boot nesta entrega.
+- **E2E afetados** (arquivo a arquivo, todos passando): fase-interna-e2 (destino da tarefa atualizado para a tela), fase-interna-e1, dispensa-eletronica, cockpit-processo, assistente-itens, transicoes-fase-interna-pncp, isolamento-dados-licitacao, dispensa-motor-unico, divulgacao-pncp, arquivos-privados.
+- **Frontend**: `npx tsc --noEmit` limpo; `next build` concluído sem erro (as 5 rotas novas e a de Configurações › Orçamento compiladas).
+
+### 9.6 Fica para depois
+
+- **Entrega 3B**: autorização no celular, parecer com diligências (origem DILIGENCIA), relatório do agente e minutas.
+- **Portões** (Entrega 4): travar o avanço com inciso obrigatório vazio, marca sem justificativa (`MARCA-01`), limite (`LIM-01/02`), `PRECO-01..03`, `LEI-01`, `EXERC-01` (a renovação já cria a tarefa manualmente; a regra automática "reserva de N e contrato em N+1" é da Entrega 4).
+- **Cadastro de marcas** do órgão para a detecção por nome (a função já aceita a lista; hoje a detecção é pelo padrão do texto).
+- Saldo da dotação integrado ao sistema contábil (hoje informado na tabela).
+- Tela de assinatura com acompanhamento de quem falta (o envio já existe no quadro da peça; a situação continua em `GET …/assinatura`).
 
 ## 6. Riscos e cuidados
 

@@ -10,7 +10,7 @@ A fase interna é a preparação da contratação (art. 18): descrever a necessi
 2. Clique em **Iniciar contratação**.
 3. Na janela, escolha a **Modalidade da contratação**: Dispensa Eletrônica, Pregão Eletrônico, Inexigibilidade ou Concorrência. O sistema sugere a dispensa quando o valor cabe no limite vigente do art. 75, II — mas a escolha é sua.
 4. Se quiser, marque a opção do **copiloto**: "O sistema pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do ETP, TR e autorização — você só revisa e aprova."
-5. Clique em **Criar processo e abrir cockpit**.
+5. Clique em **Criar processo**. O processo abre direto na **tela do DFD** (veja "Telas por etapa", abaixo).
 
 O processo nasce **vinculado à demanda** e já com itens, quantidades, valores estimados e o DFD. A demanda passa a **Em contratação** e o item do PCA a **Licitação iniciada**. Quando o contrato for assinado por todos, a demanda vira **Contratada** e o item do PCA **Contratado**.
 
@@ -37,7 +37,7 @@ Se a demanda já tiver processo, o botão vira **Ver processo &lt;número&gt;**.
 
 3. Em cada passo você pode usar **Gerar com IA**, **Sugerir com IA** ou **Gerar rascunho** e depois editar. Use **Salvar rascunho** para continuar depois e **Próxima etapa** / **Anterior** para navegar.
    - **Dispensa e inexigibilidade (art. 72):** obrigatórios só Dados básicos, Itens, DFD, Pesquisa de Preços (estimativa de despesa) e Autorização. ETP, Análise de Riscos, TR, Dotação, Aviso e Parecer aparecem como **facultativa**: preencha se o caso exigir, clique **Pular etapa**, ou **Não se aplica — justificar** (a justificativa fica nos autos; **Desfazer** reverte).
-4. No fim, clique em **Concluir fase interna** (ou vá ao cockpit para concluir mais tarde).
+4. No fim, clique em **Concluir fase interna** (ou vá à tela do processo para concluir mais tarde). O assistente serve só para **criar**: depois, cada etapa tem a sua tela dentro do processo.
 
 > **Atenção — itens.** Sem pelo menos um item com quantidade e valor unitário estimado o processo **não conclui a fase interna nem publica** (todas as modalidades), e a compra não vai ao PNCP. Na tela do processo, a aba **Itens** (contador em vermelho quando não há item) mostra os itens e, na fase interna, **Editar itens** (aba Itens da edição) e **Pesquisa de preços**; o checklist da etapa atual também aponta a pendência com **Cadastrar itens**.
 
@@ -54,7 +54,7 @@ Ao entrar em **Minhas tarefas** (menu principal, ou o início da área de fase i
 - **Concluídas**: as que você cumpriu ou que eram suas.
 - **Prazos da semana**: tarefas que vencem nos próximos 7 dias e sessões públicas marcadas.
 
-Cada tarefa tem o botão **Abrir peça**, que leva direto à peça dentro da tela do processo. A peça fica destacada. Tarefa atrasada aparece em laranja.
+Cada tarefa tem o botão **Abrir peça**. Nas etapas com tela própria (DFD, ETP, TR, pesquisa de preços e reserva orçamentária) ele abre **a tela da etapa**; nas demais, leva à peça dentro da tela do processo, destacada. Tarefa atrasada aparece em laranja.
 
 **As tarefas nascem e terminam sozinhas.**
 - Quando uma etapa fica disponível, o sistema cria a tarefa para o responsável. Ao abrir um processo, nasce a tarefa da **demanda (DFD)**.
@@ -85,15 +85,73 @@ Na licitação (rito completo), o parecer vem antes da autorização.
 - As tarefas seguem as dependências. Depois da demanda, ficam disponíveis o estudo técnico, o TR e a pesquisa. A reserva orçamentária espera a pesquisa, porque precisa do valor. A autorização espera as etapas 1 a 5. As minutas vêm depois da autorização, e o parecer vem depois das minutas.
 - Clique numa etapa para ver as peças, o que falta, o prazo padrão e quem concluiu. **Ver histórico** mostra cada mudança de etapa e de tarefa, com quem e quando.
 
-## O dossiê da fase interna
+## Telas por etapa
 
-No cockpit, clique em **Fase interna** (o botão aparece enquanto o processo está na fase interna). O dossiê tem as abas **Visão geral**, **Documentos**, **Tramitação**, **Comentários** e **Permissões**, e mostra cada peça: DFD, ETP, Mapa de Riscos, Pesquisa de Preços, Termo de Referência, Parecer Jurídico, Elaboração do Edital, Autorização para abertura.
+**Um processo, uma tela.** Tudo parte da tela do processo (`/orgao/processos/<id>`). No quadro **Fluxo da fase interna**, **Abrir a etapa →** (ou **fazer ou anexar**, dentro da etapa) abre a tela da etapa; a tarefa da caixa leva ao mesmo lugar. Toda tela tem **← Voltar ao processo** e, no alto, a barra das 8 etapas (1 Demanda › 2 ETP › 3 TR › 4 Pesquisa › 5 Reserva › 6 Autorização › 7 Parecer › 8 Publicação) com a situação de cada uma.
 
-- Clique numa peça para abrir o **editor por seções**. Os botões **Redigir com IA** e **Melhorar com IA** ajudam a escrever; o painel lateral de IA também pode ser usado.
-- **Exportar dossiê** baixa os autos em PDF. **Comentar** abre a aba de comentários.
-- **Ir para o processo / publicar** leva de volta ao cockpit.
+Em todas as telas há o quadro da peça com **os dois caminhos, que contam igual**:
+- **fazer aqui**, na própria tela, gerando a peça pelo modelo; ou
+- **Anexar feito fora**: o PDF com o número, a data que consta na peça e quem assinou (setores que continuam no papel).
 
-Para a pesquisa de preços, há telas próprias de preços e de riscos dentro do processo da fase interna.
+O mesmo quadro mostra a situação da peça, **Não se aplica** (quando a lei permite), **Enviar para assinatura** (vários signatários, cada um com o seu papel), **Ver PDF** e **Versões** (o histórico: cada versão, se foi feita aqui ou anexada, a data e o PDF). Quando a peça fica pronta (gerada, assinada, anexada ou "não se aplica"), a tarefa da etapa conclui sozinha.
+
+> **Rascunho salvo automaticamente.** Nas telas, cada campo é gravado quando você sai dele (ou alguns segundos depois de parar de digitar). Não há botão "salvar".
+
+### 1. Demanda (DFD)
+
+- **Unidade requisitante** (setores do órgão), **Responsável pela demanda** e **Fiscal sugerido** (usuários do órgão), **Data pretendida** e **Prioridade**: listas, sem digitação livre. Sem setores cadastrados, a tela avisa para cadastrá-los em Configurações › Setores.
+- **Item do Plano de Contratações Anual**: escolha o item do PCA do órgão. Se a contratação não consta do PCA, marque **A contratação não consta do PCA** e escreva a **justificativa** (art. 12, §1º).
+- **Objeto** e **Por que o órgão precisa disso? (necessidade)**. Descreva a função, não o produto: a tela avisa quando o objeto cita marca ou modelo.
+- **Itens e quantidades**: a tabela mostra cada item com o código **CATMAT** (bens) ou **CATSER** (serviços). **Editar itens (catálogo)** abre o mesmo editor de itens de "Editar processo" (busca no catálogo, planilha, digitação). Item sem código aparece como "sem código": o código é necessário para somar o limite da dispensa no ramo (art. 75, §1º).
+- **Antes de gerar**: checklist (PCA ou justificativa, necessidade, itens com código, unidade e responsável, data, marca no objeto).
+- **Gerar DFD** monta a peça pelo modelo, com as seções completadas pelos dados da tela (quantidades pelos itens, previsão no PCA, data), e gera o PDF.
+- **Ir ao ETP (rascunho com IA)** abre a tela do ETP.
+
+### 2. ETP e análise de riscos
+
+- Editor por seções do **art. 18, §1º** (incisos I a XIII). O painel **Assistente do ETP** mostra os incisos com um ponto: azul = preenchido; laranja = **obrigatório vazio** (§2º: I, IV, VI, VIII e XIII); cinza = facultativo vazio. Clique no inciso para ir à seção.
+- **Indicação de marca (art. 41, I).** O assistente detecta marca citada no texto:
+  - citada **sem** a forma "apenas como referência, ou similar/equivalente" e sem justificativa → **bloqueio** (aviso vermelho no alto da tela);
+  - citada **com** "similar/equivalente/superior" → **atenção**: a justificativa passa a ser obrigatória;
+  - **Reescrever por função** pede à IA o trecho reescrito sem a marca; **Inserir justificativa** registra a justificativa formal (padronização, compatibilidade, única que atende ou referência). Com ela, a marca fica "justificada".
+- **Coerência entre seções**: cada requisito citado na necessidade (ex.: "Closed Caption", "NDI") precisa aparecer na solução e no TR.
+- **Pedir ao assistente**: escolha a seção e peça o rascunho, feito a partir do DFD e dos itens.
+- **A sugestão nunca entra sozinha.** Ela aparece no painel; nada muda até você clicar em **Aplicar na seção** (ou **Substituir o trecho**). O texto aplicado fica registrado **como editado por você**, com o seu nome, no histórico. Sem IA configurada, o assistente avisa e as análises (incisos, marca, coerência) continuam funcionando.
+- **Análise de riscos (N)** abre a matriz de riscos (a tela existente), com **← Voltar ao ETP**.
+- **Gerar ETP (PDF)** completa as seções vazias com o que já existe (DFD, valor do processo) — nunca apaga o que você escreveu — e gera o PDF pelo modelo.
+- **Contratação direta:** o ETP e os riscos são "se for o caso" (art. 72, I). Use **Não se aplica** com a justificativa; a etapa conclui.
+
+### 3. Termo de referência
+
+- Editor por seções (art. 6º, XXIII, alíneas a–j). **Gerar TR (PDF)** completa as seções vazias **a partir do ETP**, do **fundamento legal do processo** (o mesmo campo de "Editar processo" › Classificação, que vale para todas as peças) e da **dotação da reserva orçamentária**.
+- Quadros: fundamento legal, dotação (da reserva; sem reserva, o link para abri-la), situação do ETP e a tabela de **itens e valores**.
+- **Orçamento sigiloso (art. 24):** a tela avisa e o texto do TR diz que o valor é sigiloso, sem mostrá-lo (o valor fica só nos autos).
+
+### 4. Pesquisa de preços
+
+No alto, escolha **Pesquisa feita aqui** ou **Pesquisa feita fora (anexar o mapa)**.
+
+**Feita aqui:**
+- **Parâmetros (art. 23, §1º):** os 5 incisos (I painel de preços; II contratações similares do último ano; III mídia especializada e sítios; IV pesquisa direta com fornecedores; V notas fiscais). Em cada um, **Registrar consulta**: situação (**Consultado, com preços**, **Consultado, sem retorno** ou **Não consultado**), a data da consulta e o resultado (ex.: "0 resultados equivalentes"); **Evidência** anexa o print ou relatório (PDF, PNG ou JPG). O "consultado sem retorno" vale e vai para a certidão.
+- **Cotações diretas (inciso IV):** **Nova cotação** com fornecedor, **CNPJ** (conferido), **data de emissão** (a da proposta; não pode ser futura), **validade** e o **valor unitário de cada item**. Depois, **anexar comprovante**. A situação mostra **Válida**, **Vence antes** (vence antes da publicação prevista), **Vencida** ou **Mais de 6 meses** (emitida mais de 6 meses antes da publicação prevista — art. 23, §1º, IV). Cotação vencida ou com mais de 6 meses **não entra no cálculo**. Registre também a data em que a solicitação de cotação foi enviada.
+- **Método de cálculo:** os três totais — **Menor preço**, **Mediana** e **Média** — são calculados sozinhos; clique no método adotado. A **justificativa do método é obrigatória**; com cotação direta, também a **justificativa da escolha dos fornecedores**. Com menos de 3 preços válidos num item, a tela pede a justificativa (IN SEGES 65/2021). **Publicação prevista** é a base do alerta de validade.
+- **Emitir mapa e certidão** (só com tudo pronto): aplica o método em cada item, gera o **mapa** (o documento da pesquisa já existente) e a **certidão de pesquisa** (parâmetros consultados, inclusive sem retorno, cotações, método, justificativas e valor). O valor de referência passa para os itens do processo.
+- **Consultar PNCP de novo** roda os agentes de pesquisa (PNCP e Painel de Preços). O detalhamento por item (agentes, CSV da Fonte de Preços, cotações por fonte, estatística, outliers) fica em **Pesquisa detalhada por item**, na mesma tela.
+
+**Feita fora (decisão do órgão: basta anexar o mapa e digitar o valor):** anexe o PDF do mapa em **Anexar feito fora** e digite o **valor unitário de cada item** — o PNCP exige o valor por item. **Gravar valores nos itens** atualiza o valor do processo.
+
+No painel ao lado: **Limite e fracionamento (art. 75, §1º)** (dispensa) — por exemplo, "98,4% de R$ 62.725,59 — Dec. 12.343/2024", amarelo acima de 80% e vermelho acima de 100% —, e os **Avisos desta etapa** (validade, escolha dos fornecedores, sigilo, parâmetro não registrado).
+
+### 5. Reserva orçamentária
+
+- **Dotação orçamentária:** escolha na tabela do órgão; aparecem unidade orçamentária, programa, projeto/atividade, elemento de despesa e fonte. Sem dotação cadastrada, **Cadastrar dotação** abre o cadastro rápido.
+- **Distribuição por exercício:** uma linha por exercício, com o valor, o saldo na dotação e a situação — **Reservar agora** (exercício corrente) ou **Previsão — confirmar na LOA** (exercícios seguintes). Um contrato de 12 meses cruza o ano (ex.: 2025 R$ 6.021,12 + 2026 R$ 55.732,32). O total é comparado com o valor estimado da pesquisa.
+- **Declarações:** adequação à LOA, LDO e PPA; compatibilidade com os arts. 15, 16 e 17 da LRF. **Leis** (LDO obrigatória, LOA e PPA) escolhidas da **tabela única** de leis — despacho, informação orçamentária e parecer citam sempre o mesmo número. **+ cadastrar LDO/LOA/PPA** abre o cadastro rápido.
+- **Emitir e reservar saldo** (com dotação, LDO e declarações) gera a **informação orçamentária** (peça DO) pelo modelo, com a tabela por exercício, e o PDF. A etapa conclui. **Devolver sem saldo** registra que não há dotação suficiente, com o motivo.
+- Emitida, a informação não se edita: **Retificar** cria uma versão nova (com motivo) para corrigir a classificação; a anterior fica em **Versões anteriores**.
+- **Renovar dotação (virada do exercício):** se o contrato não foi assinado até 31/12, informe o novo exercício e o motivo. O sistema cria a **versão nova** — o valor do exercício encerrado passa para o novo, tudo volta a previsão e a dotação/LDO do novo ano são sugeridas quando existem — e a **tarefa "Renovar a informação orçamentária"** para a Contabilidade (no modo simples, para o agente). A tarefa conclui quando a nova versão é emitida, ou quando a informação feita fora é anexada (o anexo é aceito mesmo depois da divulgação enquanto a renovação estiver pendente).
+
+> **Tramitação.** O despacho formal entre setores (estilo SEI) fica na aba **Tramitação** da tela do processo. O antigo "dossiê da fase interna" (`/orgao/fase-interna/processos/<id>`) e as telas avulsas do editor (DFD, ETP, TR) e de preços agora redirecionam para as telas acima.
 
 ## Documentos obrigatórios por modalidade
 
@@ -154,7 +212,7 @@ Toda peça da lista tem três caminhos, e os três contam igual no checklist:
 
 ### Peça com vários signatários (autoridade colegiada)
 
-Quando a autoridade é colegiada (ex.: Mesa Diretora com 4 assinaturas), a peça feita no sistema é enviada para assinatura de **vários usuários do órgão, cada um com o seu papel** (Presidente, Vice-Presidente, 1º Secretário...). A peça aparece como **aguardando assinaturas** e **só conta como pronta quando todos assinarem**; nesse momento o sistema grava a data (a da última assinatura), o código do arquivo assinado e as folhas. Cada signatário assina pelo **Portal de assinaturas** (menu Assinaturas pendentes). Nesta etapa o envio é feito pela API (`POST /api/fase-interna/:id/documentos/:tipo/assinatura`); o botão na tela vem com as telas por etapa.
+Quando a autoridade é colegiada (ex.: Mesa Diretora com 4 assinaturas), a peça feita no sistema é enviada para assinatura de **vários usuários do órgão, cada um com o seu papel** (Presidente, Vice-Presidente, 1º Secretário...). A peça aparece como **aguardando assinaturas** e **só conta como pronta quando todos assinarem**; nesse momento o sistema grava a data (a da última assinatura), o código do arquivo assinado e as folhas. Cada signatário assina pelo **Portal de assinaturas** (menu Assinaturas pendentes). Para enviar, use **Enviar para assinatura** no quadro da peça, na tela da etapa: marque os usuários e escreva o papel de cada um.
 
 ## Fundamento legal e limite da dispensa
 
