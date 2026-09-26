@@ -1,13 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import type { Ator } from '../../auth/acesso/ator';
-import { FaseLicitacao } from '../../licitacoes/entities/licitacao.entity';
+import { FaseLicitacao, Licitacao, SITUACOES_TERMINAIS } from '../../licitacoes/entities/licitacao.entity';
 import { confirmarDivulgacaoOficial } from '../../licitacoes/transicoes/divulgacao';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { TransicoesService } from '../../licitacoes/transicoes/transicoes.service';
 import type { AtorTransicao } from '../../licitacoes/transicoes/transicoes.tipos';
-import { modoDisputaDaDispensa } from '../../licitacoes/modo-disputa-dispensa';
+import { OPCOES_MODO_DISPUTA, modoDisputaDaDispensa } from '../../licitacoes/modo-disputa-dispensa';
+import { AuditLogService } from '../audit-log.service';
+import { AcaoLogFaseInterna } from '../entities/log-fase-interna.entity';
 import { pecaContaComoPronta } from '../peca-regras';
 import { PecasFaseInternaService, type ArquivoRecebido } from '../pecas-fase-interna.service';
 import { TarefasService } from '../tarefas/tarefas.service';
@@ -46,6 +48,7 @@ export class PublicacaoTelaService {
     private readonly transicoes: TransicoesService,
     private readonly pecas: PecasFaseInternaService,
     private readonly tarefas: TarefasService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   private async lic(id: string) {
@@ -72,6 +75,7 @@ export class PublicacaoTelaService {
       ? await this.ds.query(`SELECT dispensa_com_lances, controle_interno_ativo FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [l.orgao_id])
       : [];
     const modo = modoDisputaDaDispensa(l, cfg?.dispensa_com_lances);
+    const [escolha] = modo.aplica ? await this.ultimaEscolhaDoModo(licitacaoId) : [];
     const [compra] = await this.ds.query(
       `SELECT status::text AS status, numero_controle_pncp, erro_mensagem, erro_status_http, enviado_em
          FROM pncp_sync WHERE licitacao_id::text = $1 AND tipo::text = 'COMPRA' AND status::text <> 'EXCLUIDO'
@@ -171,7 +175,14 @@ export class PublicacaoTelaService {
       data_divulgacao_oficial: l.data_divulgacao_oficial,
       meio_divulgacao_oficial: l.meio_divulgacao_oficial,
       referencia_divulgacao_oficial: l.referencia_divulgacao_oficial,
-      modo_disputa: modo.aplica ? modo : null,
+      modo_disputa: modo.aplica
+        ? {
+            ...modo,
+            opcoes: OPCOES_MODO_DISPUTA,
+            padrao_do_orgao: cfg?.dispensa_com_lances !== false,
+            escolhido_por: escolha ? { nome: escolha.usuario_nome, em: escolha.created_at } : null,
+          }
+        : null,
       canais,
       diario_oficial: {
         pode_registrar: !interna && !['REVOGADA', 'ANULADA'].includes(String(l.situacao ?? '')),
@@ -197,6 +208,65 @@ export class PublicacaoTelaService {
             : null,
       },
     };
+  }
+
+  /** Última escolha da disputa registrada no histórico da fase interna (quem e quando). */
+  private ultimaEscolhaDoModo(licitacaoId: string): Promise<Array<{ usuario_nome: string | null; created_at: Date }>> {
+    return this.ds.query(
+      `SELECT usuario_nome, created_at FROM logs_fase_interna
+        WHERE licitacao_id::text = $1 AND acao::text = 'DOCUMENTO_EDITADO' AND dados_depois ? 'dispensa_com_lances'
+        ORDER BY created_at DESC LIMIT 1`,
+      [licitacaoId],
+    );
+  }
+
+  /**
+   * ESCOLHA DA DISPUTA DA DISPENSA pelo agente, no processo (Entrega 5 —
+   * pedido do dono): com disputa de lances (sessão em tempo real — IN SEGES
+   * 67/2021, quando adotada) ou sem (Lei 14.133, art. 75, §3º — só propostas
+   * no prazo do aviso). Só na fase interna (antes de publicar); depois, 409 —
+   * a escolha foi congelada na publicação. Grava pela entidade (as minutas
+   * geradas se atualizam, as tarefas e a conformidade revisam) e registra no
+   * histórico da fase interna quem escolheu.
+   */
+  async definirModoDisputa(licitacaoId: string, corpo: { com_lances?: unknown }, autor: { id: string | null; nome: string | null }) {
+    const valor = corpo?.com_lances;
+    if (typeof valor !== 'boolean') {
+      throw new BadRequestException('Informe com_lances: true (com disputa de lances) ou false (sem disputa de lances — só propostas no prazo do aviso).');
+    }
+    const antes = await this.ds.transaction(async (m) => {
+      const lic = await m.getRepository(Licitacao).createQueryBuilder('l').setLock('pessimistic_write').where('l.id = :id', { id: licitacaoId }).getOne();
+      if (!lic) throw new NotFoundException('Licitação não encontrada');
+      if (String(lic.modalidade) !== 'DISPENSA_ELETRONICA') {
+        throw new BadRequestException('A escolha da disputa (com ou sem lances) é da dispensa eletrônica.');
+      }
+      if (SITUACOES_TERMINAIS.includes(lic.situacao)) {
+        throw new ConflictException(`Processo encerrado (situação ${lic.situacao}) — a disputa não muda mais.`);
+      }
+      if (!ehFaseInterna(lic.fase)) {
+        throw new ConflictException(
+          `A disputa da dispensa foi congelada na publicação (${lic.dispensa_com_lances === false ? 'sem' : 'com'} disputa de lances) e não muda depois de publicar. Para mudar, cancele a publicação antes de haver propostas.`,
+        );
+      }
+      const anterior = lic.dispensa_com_lances ?? null;
+      if (anterior !== valor) {
+        lic.dispensa_com_lances = valor;
+        await m.getRepository(Licitacao).save(lic);
+      }
+      return anterior;
+    });
+    if (antes !== valor) {
+      await this.auditLog.log({
+        licitacao_id: licitacaoId,
+        acao: AcaoLogFaseInterna.DOCUMENTO_EDITADO,
+        descricao: `Disputa da dispensa: ${valor ? 'COM disputa de lances (sessão de lances em tempo real)' : 'SEM disputa de lances (só recebimento de propostas no prazo do aviso)'} — escolhida por ${autor.nome ?? 'usuário do órgão'}`,
+        dados_antes: { dispensa_com_lances: antes },
+        dados_depois: { dispensa_com_lances: valor },
+        contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
+      });
+      await this.tarefas.agendar(licitacaoId);
+    }
+    return this.quadro(licitacaoId);
   }
 
   /**

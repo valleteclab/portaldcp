@@ -131,6 +131,10 @@ export interface ContextoConformidade {
     cronograma: Cronograma;
     /** Data pretendida da contratação (DFD), se informada. */
     data_pretendida: string | null;
+    /** Dispensa: com (true) ou sem (false) disputa de lances — escolha do processo (Entrega 5); null fora da dispensa. */
+    dispensa_com_lances?: boolean | null;
+    /** O regulamento local do órgão adota a IN SEGES 67/2021? */
+    regulamento_adota_in67?: boolean;
   };
   /** Instrução do processo (`getInstrucao().itens`). */
   instrucao: LinhaInstrucaoPortao[];

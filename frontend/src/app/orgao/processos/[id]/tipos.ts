@@ -234,7 +234,8 @@ export interface ModoDisputaDispensa {
   aplica: boolean
   com_lances: boolean
   congelado: boolean
-  fonte: "PROCESSO" | "CONFIGURACAO" | "LEGADO" | "NAO_SE_APLICA"
+  fonte: "ESCOLHA" | "SUGERIDO" | "PROCESSO" | "LEGADO" | "NAO_SE_APLICA"
+  editavel?: boolean
   referencia: string
   rotulo: string
   descricao: string

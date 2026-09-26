@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AtorAtual } from '../../auth/acesso/acesso.decorators';
@@ -74,6 +74,15 @@ export class ConformidadeController {
   async quadro(@Param('licitacaoId') id: string) {
     await this.tarefas.aguardarPendentes();
     return this.publicacao.quadro(id);
+  }
+
+  /**
+   * Escolha da disputa da dispensa no processo: { com_lances: boolean }. Só na
+   * fase interna (depois de publicar, 409); registra quem escolheu.
+   */
+  @Put(':licitacaoId/modo-disputa')
+  async definirModoDisputa(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    return this.publicacao.definirModoDisputa(id, body ?? {}, await this.tarefas.autor(ator));
   }
 
   /**

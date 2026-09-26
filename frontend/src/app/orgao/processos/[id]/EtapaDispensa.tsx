@@ -173,7 +173,7 @@ export function EtapaDispensa({
           <p className="text-sm text-gray-700">Propostas até {fmtBrasilia(fimPrazo)} (horário de Brasília).</p>
           {modo?.aplica && (
             <p className="text-xs text-gray-600">
-              {modo.descricao} — {modo.com_lances ? modo.referencia : "regulamento do órgão"}.
+              {modo.descricao} — {modo.referencia}.
             </p>
           )}
         </div>
@@ -216,7 +216,7 @@ export function EtapaDispensa({
                   ? `Com etapa de lances de ${fmtBrasilia(l.dispensa_lances_inicio)} a ${fmtBrasilia(lancesFim)}`
                   : modo.descricao
                 : modo.descricao}{" "}
-              ({modo.com_lances ? modo.referencia : "regulamento do órgão"})
+({modo.referencia})
             </p>
           )}
         </div>

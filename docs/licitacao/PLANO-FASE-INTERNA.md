@@ -831,9 +831,11 @@ Alterados: `GET /fase-interna/:id/autorizacao` devolve `portao_b_bloqueios`; `GE
 
 ## 12. Entrega 5 — CONCLUÍDA (26/09/2026)
 
-Branch `claude/fase-interna-e5` (a partir do main com as Entregas 1 a 4). Sem push/PR nesta etapa. Commits: `42bf517f` (Entrega 5), `aa245eae` (Entrega 6) e o desta documentação.
+Branch `claude/fase-interna-e5` (a partir do main com as Entregas 1 a 4). Sem push/PR nesta etapa. Commits: `42bf517f` (Entrega 5), `aa245eae` (Entrega 6), `a0ed33b2` (documentação), `2684120d` (correção da corrida dos autos) e o do ajuste "escolha por processo" (§12.7).
 
 **Publicação (etapa 8) ligada à divulgação que já existia (Etapa A) e dispensa com ou sem etapa de lances (decisão 5 do dono).** Sem máquina paralela: o ato é o PUBLICAR de sempre (portão C incluso) e o motor da janela/julgamento é o da Etapa A.
+
+> **Ajuste do dono (26/09/2026, §12.7):** com ou sem lances passou a ser **escolha do agente no processo**; a configuração do órgão virou só o **padrão sugerido**. O texto abaixo descreve a primeira versão; onde divergir, vale o §12.7.
 
 ### 12.1 Dispensa com ou sem etapa de lances
 
@@ -884,6 +886,21 @@ Alterados: `PUT /fase-interna/configuracao` (+`dispensa_com_lances`; B não muda
 - **Controle interno continua aviso** (decisão 3); "bloqueio" fica como opção futura do órgão.
 - **Sítio oficial** = o portal público do próprio Portal DCP (não há integração com o site do órgão).
 - A publicação pelo quadro da conformidade é da **dispensa** (aviso gerado pelo sistema); nas licitações o edital continua sendo anexado no cartão "Publicar edital" do processo.
+
+### 12.7 Ajuste — a disputa é escolha do agente no processo (pedido do dono)
+
+A Lei 14.133 (art. 75, §3º) admite a dispensa sem disputa de lances (aviso por no mínimo 3 dias úteis para propostas adicionais, escolhida a mais vantajosa). Por isso:
+
+- **Escolha no processo:** `licitacoes.dispensa_com_lances` é definida pelo agente, na fase interna, em **Editar processo › Classificação** (e no quadro do aviso da conformidade), com duas opções: **"Com disputa de lances (sessão de lances em tempo real)"** e **"Sem disputa de lances (só recebimento de propostas no prazo do aviso)"**, cada uma com a linha de explicação e a base. Rota própria `PUT /fase-interna/:id/modo-disputa` `{ com_lances }` (DonoFaseInternaGuard): não booleano 400; outra modalidade 400; processo encerrado 409; **depois de publicar 409** ("congelada na publicação…"). Grava pela entidade (as minutas geradas se atualizam — `dispensa_com_lances` entrou nas colunas do `MinutasSubscriber`; tarefas e conformidade revisam) e registra **quem escolheu** no histórico da fase interna (`logs_fase_interna`, `DOCUMENTO_EDITADO`, `dados_antes/dados_depois.dispensa_com_lances`, autor do JWT). O `PUT /licitacoes/:id` genérico ignora o campo (não há atalho que pule a fase).
+- **Padrão sugerido:** `configuracoes_fase_interna.dispensa_com_lances` só vale enquanto o agente não escolheu (NULL na fase interna — nenhum caminho de criação precisou mudar). Rótulo na tela: **"Padrão sugerido para novas dispensas"**.
+- **Congelamento:** o PUBLICAR grava o efetivo (`modoParaCongelar`: a escolha; sem escolha, o padrão; sem configuração, com lances) e anota a origem (`dispensa_modo_origem`: ESCOLHA_DO_PROCESSO | PADRAO_SUGERIDO_DO_ORGAO). Processo publicado antes (NULL) = com lances.
+- **Base legal na tela e no aviso:** "com lances — IN SEGES nº 67/2021, quando adotada pelo órgão"; "sem lances — Lei nº 14.133/2021, art. 75, §3º (aviso de 3 dias úteis para propostas adicionais)". Textos do aviso, da minuta (`{{licitacao.forma_disputa}}`), da etapa atual e das mensagens ajustados.
+- **Conformidade — DISP-01 (ATENÇÃO, não bloqueia, não exige justificativa):** processo sem lances num órgão cujo regulamento local **adota a IN 67**. Campo novo na configuração: `configuracoes_fase_interna.regulamento_adota_in67` (boolean, default false — sem aviso). A quantidade de regras passou a 26.
+- **Quadro:** `modo_disputa` ganhou `fonte` (ESCOLHA | SUGERIDO | PROCESSO | LEGADO), `editavel`, `opcoes`, `padrao_do_orgao` e `escolhido_por` (nome e quando).
+- **Testes:** `modo-disputa-dispensa.spec.ts` (escolha sobrepõe o padrão; sem escolha, o sugerido; congelamento), `regras.spec.ts` (DISP-01 com o PA 139/2025) e o e2e `fase-interna-e5` (19): escolha sobrepõe o padrão do órgão e vai para o histórico com o nome; PUT genérico não muda; publicar congela a escolha (origem no ato); depois de publicar 409; outra modalidade 400; DISP-01 aparece como atenção sem bloquear; isolamento do `PUT …/modo-disputa` (outro órgão 403, fornecedor 403, anônimo 401, nada gravado).
+- **Colunas novas deste ajuste:** `configuracoes_fase_interna.regulamento_adota_in67`. Nenhuma migração de boot.
+
+**Correção (CI):** a situação PRONTO dos autos vinha do arquivo `.json` gravado antes da notificação "Autos em PDF prontos" — corrida no e2e. Agora a montagem grava o PDF e as folhas nas peças, quem agendou grava a notificação e só então o `.json` que marca PRONTO (`fase-interna-e6` rodado 5 vezes seguidas, todas verdes).
 
 ## 13. Entrega 6 — CONCLUÍDA (26/09/2026)
 

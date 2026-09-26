@@ -549,7 +549,9 @@ export class LicitacoesService {
     // Ignorados já aqui (antes da conferência do edital publicado, que não deve
     // acusá-los); `fase_interna_concluida` também: só o ato CONCLUIR_FASE_INTERNA
     // (gate documental, E1.7) ou o PUBLICAR a marcam.
-    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao']) {
+    // `dispensa_com_lances`: só pela escolha própria (PUT /fase-interna/:id/modo-disputa),
+    // que confere a fase, registra quem escolheu e não deixa mudar depois de publicar.
+    for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao', 'dispensa_com_lances']) {
       delete dadosLicitacao[campo];
     }
 
@@ -1589,7 +1591,7 @@ export class LicitacoesService {
     // Modo congelado na publicação (fase interna, Entrega 5): sem etapa de lances
     if (dispensaSemLances(licitacao)) {
       throw new ConflictException(
-        'Esta dispensa foi publicada SEM etapa de lances (regulamento do órgão): só as propostas cadastradas até o fim do prazo — julgue pelo menor preço.',
+        'Esta dispensa foi publicada SEM disputa de lances (Lei 14.133, art. 75, §3º): só as propostas recebidas no prazo do aviso — julgue pelo menor preço.',
       );
     }
     if (licitacao.data_homologacao) {

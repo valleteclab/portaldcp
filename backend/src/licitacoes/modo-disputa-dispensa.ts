@@ -1,25 +1,27 @@
 /**
  * ============================================================================
- * MODO DA DISPENSA ELETRÔNICA — com ou sem etapa de lances
- * (fase interna, Entrega 5 — decisão 5 do dono, 26/09/2026)
+ * MODO DA DISPENSA ELETRÔNICA — com ou sem disputa de lances
+ * (fase interna, Entrega 5 — decisão 5 do dono; ajuste de 26/09/2026)
  * ============================================================================
  *
- * O órgão escolhe (Configurações › Fase interna e tarefas):
- *  - COM etapa de lances (padrão — IN SEGES 67/2021): encerrado o prazo de
- *    propostas, a janela de lances de 6 a 10 horas é OBRIGATÓRIA antes do
- *    julgamento (arts. 11 e 15); o valor final de cada fornecedor é o menor
- *    entre a proposta e os próprios lances; empate → critérios do art. 60 e
- *    sorteio no ato (julgarDispensa);
- *  - SEM etapa de lances (regulamento do órgão que não adota a IN 67 — ex.:
- *    o aviso da Câmara de LEM, "nos termos da Portaria 089 não há previsão de
- *    disputa de lances"): só o cadastro de propostas até o fim do prazo;
- *    julgamento pelo MENOR PREÇO das propostas; EMPATE → prevalece a proposta
- *    registrada PRIMEIRO no sistema (como no aviso real da Câmara).
- * Nos dois modos vale a negociação com o vencedor (IN 67, art. 16).
+ * É ESCOLHA DO AGENTE NO PROCESSO (`licitacoes.dispensa_com_lances`), feita na
+ * fase interna, onde se define a forma de contratação:
+ *  - COM disputa de lances (sessão de lances em tempo real — IN SEGES 67/2021,
+ *    quando adotada pelo órgão): encerrado o prazo de propostas, a janela de
+ *    lances de 6 a 10 horas é OBRIGATÓRIA antes do julgamento (arts. 11 e 15);
+ *    o valor final é o menor entre a proposta e os próprios lances; empate →
+ *    art. 60 e sorteio no ato (julgarDispensa);
+ *  - SEM disputa de lances (Lei 14.133, art. 75, §3º — aviso por no mínimo 3
+ *    dias úteis para propostas adicionais, escolhida a mais vantajosa): só o
+ *    recebimento de propostas no prazo do aviso; vence o MENOR PREÇO; EMPATE →
+ *    a proposta registrada PRIMEIRO (como no aviso real da Câmara de LEM).
+ * Nos dois modos cabe a negociação com o vencedor.
  *
- * O valor é GRAVADO no processo no ato PUBLICAR (`licitacoes.dispensa_com_lances`)
- * e fica congelado: mudar a configuração depois não altera processo já
- * publicado. Funções puras (testadas em `modo-disputa-dispensa.spec.ts`).
+ * A configuração do órgão (`configuracoes_fase_interna.dispensa_com_lances`)
+ * é só o PADRÃO SUGERIDO: vale enquanto o agente não escolheu (NULL na fase
+ * interna). A escolha é CONGELADA no ato PUBLICAR (o PUBLICAR grava o efetivo)
+ * e não muda depois. Processo publicado antes (NULL) = com lances.
+ * Funções puras (testadas em `modo-disputa-dispensa.spec.ts`).
  */
 
 export interface ProcessoParaModo {
@@ -32,45 +34,66 @@ export interface ModoDisputaDispensa {
   /** O modo só existe na dispensa eletrônica. */
   aplica: boolean;
   com_lances: boolean;
-  /** true = gravado no processo na publicação (a configuração não o altera mais). */
+  /** true = gravado no processo na publicação (não muda mais). */
   congelado: boolean;
-  /** De onde veio: PROCESSO (gravado no PUBLICAR), CONFIGURACAO (fase interna) ou LEGADO (publicado antes da Entrega 5). */
-  fonte: 'PROCESSO' | 'CONFIGURACAO' | 'LEGADO' | 'NAO_SE_APLICA';
-  /** Referência legal mostrada na tela. */
+  /**
+   * De onde veio: ESCOLHA (o agente escolheu no processo), SUGERIDO (padrão do
+   * órgão, ainda sem escolha), PROCESSO (congelado na publicação) ou LEGADO
+   * (publicado antes da escolha por processo existir — com lances).
+   */
+  fonte: 'ESCOLHA' | 'SUGERIDO' | 'PROCESSO' | 'LEGADO' | 'NAO_SE_APLICA';
+  /** Base legal mostrada na tela e no aviso. */
   referencia: string;
-  /** Rótulo curto ("Com etapa de lances" / "Sem disputa de lances"). */
+  /** Rótulo curto ("Com disputa de lances" / "Sem disputa de lances"). */
   rotulo: string;
   /** Frase para a tela e o aviso. */
   descricao: string;
+  /** Ainda pode mudar (fase interna)? */
+  editavel: boolean;
 }
 
-/** Fases anteriores ao PUBLICAR (enquanto nelas, o modo segue a configuração do órgão). */
+/** Fases anteriores ao PUBLICAR (enquanto nelas, a escolha pode mudar). */
 const FASES_INTERNAS = new Set(['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA']);
 
-export const REFERENCIA_COM_LANCES = 'IN SEGES nº 67/2021, arts. 11 a 16';
-export const REFERENCIA_SEM_LANCES = 'regulamento do órgão (sem etapa de lances; IN SEGES nº 67/2021, art. 16, para a negociação)';
+export const REFERENCIA_COM_LANCES = 'IN SEGES nº 67/2021, quando adotada pelo órgão';
+export const REFERENCIA_SEM_LANCES = 'Lei nº 14.133/2021, art. 75, §3º (aviso de 3 dias úteis para propostas adicionais)';
 
 /** Duração da janela da IN 67, art. 11 (em horas) — para os textos. */
 export const JANELA_HORAS = { minima: 6, maxima: 10 };
 
+/** As duas opções, como a tela mostra (uma linha de explicação cada). */
+export const OPCOES_MODO_DISPUTA = [
+  {
+    com_lances: true,
+    rotulo: 'Com disputa de lances (sessão de lances em tempo real)',
+    explicacao: `Depois do prazo de propostas, os fornecedores reduzem os próprios valores numa sessão de lances de ${JANELA_HORAS.minima} a ${JANELA_HORAS.maxima} horas; vence o menor valor final. Base: ${REFERENCIA_COM_LANCES}.`,
+  },
+  {
+    com_lances: false,
+    rotulo: 'Sem disputa de lances (só recebimento de propostas no prazo do aviso)',
+    explicacao: `O aviso fica divulgado por no mínimo 3 dias úteis para propostas adicionais; vence a de menor preço (no empate, a registrada primeiro). Base: ${REFERENCIA_SEM_LANCES}.`,
+  },
+];
+
 /**
- * Modo efetivo do processo: na fase interna, o da configuração do órgão;
- * publicado, o GRAVADO no PUBLICAR (NULL = publicado antes desta entrega →
- * com lances, a regra que valia; a configuração nunca muda o passado).
+ * Modo efetivo do processo: na fase interna, a ESCOLHA do agente (ou, sem
+ * escolha, o padrão sugerido do órgão); publicado, o GRAVADO no PUBLICAR
+ * (NULL = publicado antes → com lances; a configuração nunca muda o passado).
  */
-export function modoDisputaDaDispensa(p: ProcessoParaModo, configComLances: boolean | null | undefined): ModoDisputaDispensa {
+export function modoDisputaDaDispensa(p: ProcessoParaModo, padraoDoOrgao: boolean | null | undefined): ModoDisputaDispensa {
   if (p.modalidade !== 'DISPENSA_ELETRONICA') {
-    return { aplica: false, com_lances: false, congelado: false, fonte: 'NAO_SE_APLICA', referencia: '', rotulo: '', descricao: '' };
+    return { aplica: false, com_lances: false, congelado: false, fonte: 'NAO_SE_APLICA', referencia: '', rotulo: '', descricao: '', editavel: false };
   }
   const interna = FASES_INTERNAS.has(String(p.fase ?? ''));
+  const escolhido = p.dispensa_com_lances === true || p.dispensa_com_lances === false;
   let com: boolean;
   let fonte: ModoDisputaDispensa['fonte'];
-  if (interna) {
-    com = configComLances !== false;
-    fonte = 'CONFIGURACAO';
-  } else if (p.dispensa_com_lances === true || p.dispensa_com_lances === false) {
-    com = p.dispensa_com_lances;
-    fonte = 'PROCESSO';
+  if (escolhido) {
+    com = p.dispensa_com_lances as boolean;
+    fonte = interna ? 'ESCOLHA' : 'PROCESSO';
+  } else if (interna) {
+    com = padraoDoOrgao !== false;
+    fonte = 'SUGERIDO';
   } else {
     com = true;
     fonte = 'LEGADO';
@@ -81,14 +104,21 @@ export function modoDisputaDaDispensa(p: ProcessoParaModo, configComLances: bool
     congelado: !interna,
     fonte,
     referencia: com ? REFERENCIA_COM_LANCES : REFERENCIA_SEM_LANCES,
-    rotulo: com ? 'Com etapa de lances' : 'Sem disputa de lances',
+    rotulo: com ? 'Com disputa de lances' : 'Sem disputa de lances',
     descricao: com
-      ? `Com etapa de lances de ${JANELA_HORAS.minima} a ${JANELA_HORAS.maxima} horas depois do prazo de propostas (IN SEGES nº 67/2021, arts. 11 e 15)`
-      : 'Sem disputa de lances, apenas cadastro de propostas (regulamento do órgão) — vence o menor preço; no empate, a proposta registrada primeiro',
+      ? `Com disputa de lances — sessão de lances em tempo real de ${JANELA_HORAS.minima} a ${JANELA_HORAS.maxima} horas depois do prazo de propostas`
+      : 'Sem disputa de lances — só o recebimento de propostas no prazo do aviso; vence o menor preço (no empate, a proposta registrada primeiro)',
+    editavel: interna,
   };
 }
 
-/** O processo publicado está SEM etapa de lances? (NULL/legado = com lances) */
+/** Valor a CONGELAR no PUBLICAR: a escolha do processo; sem escolha, o padrão do órgão (padrão: com lances). */
+export function modoParaCongelar(escolha: boolean | null | undefined, padraoDoOrgao: boolean | null | undefined): boolean {
+  if (escolha === true || escolha === false) return escolha;
+  return padraoDoOrgao !== false;
+}
+
+/** O processo publicado está SEM disputa de lances? (NULL/legado = com lances) */
 export function dispensaSemLances(p: ProcessoParaModo): boolean {
   return p.modalidade === 'DISPENSA_ELETRONICA' && p.dispensa_com_lances === false;
 }
@@ -99,8 +129,8 @@ export function dispensaSemLances(p: ProcessoParaModo): boolean {
  */
 export function textoFormaDisputa(comLances: boolean): string {
   return comLances
-    ? `Encerrado o prazo de recebimento de propostas, haverá etapa de lances com duração de ${JANELA_HORAS.minima} (seis) a ${JANELA_HORAS.maxima} (dez) horas, sem identificação dos fornecedores (IN SEGES nº 67/2021, arts. 11 e 13), e o julgamento pelo menor preço (art. 15); o órgão poderá negociar condições mais vantajosas com o vencedor (art. 16).`
-    : 'Não haverá disputa de lances: apenas o cadastro de propostas até o fim do prazo, nos termos do regulamento do órgão. Será vencedora a proposta de menor preço e, em caso de empate, prevalecerá a proposta registrada primeiro no sistema; o órgão poderá negociar condições mais vantajosas com o vencedor (IN SEGES nº 67/2021, art. 16).';
+    ? `Encerrado o prazo de recebimento de propostas, haverá sessão de disputa de lances em tempo real, com duração de ${JANELA_HORAS.minima} (seis) a ${JANELA_HORAS.maxima} (dez) horas, sem identificação dos fornecedores (IN SEGES nº 67/2021, arts. 11 e 13, adotada pelo órgão), e o julgamento pelo menor preço (art. 15); o órgão poderá negociar condições mais vantajosas com o vencedor (art. 16).`
+    : 'Não haverá disputa de lances: o aviso permanece divulgado por no mínimo 3 (três) dias úteis para o recebimento de propostas adicionais (Lei nº 14.133/2021, art. 75, §3º), e será escolhida a mais vantajosa — a de menor preço; em caso de empate, prevalecerá a proposta registrada primeiro no sistema. O órgão poderá negociar condições mais vantajosas com o vencedor.';
 }
 
 // ---------------------------------------------------------------------------

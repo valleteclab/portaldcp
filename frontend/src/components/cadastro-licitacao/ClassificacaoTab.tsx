@@ -1,5 +1,6 @@
 "use client"
 
+import { EscolhaDisputaDispensa } from "@/components/licitacao/EscolhaDisputaDispensa"
 import { useState, useEffect, useRef, useCallback, memo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -75,6 +76,8 @@ interface ClassificacaoTabProps {
   dados: Classificacao
   onChange: (dados: Classificacao) => void
   orgaoId?: string
+  /** Processo já criado (Editar processo): permite escolher a disputa da dispensa (Entrega 5). */
+  licitacaoId?: string
 }
 
 /** Limite da dispensa por valor no exercício (GET /parametros-licitacao/limites-dispensa). */
@@ -86,7 +89,7 @@ const INCISO_DO_TIPO = (tipo: string): 'I' | 'II' =>
 
 const moeda = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
-export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabProps) {
+export function ClassificacaoTab({ dados, onChange, orgaoId, licitacaoId }: ClassificacaoTabProps) {
   const [itensPca, setItensPca] = useState<ItemPCA[]>([])
   const [loadingPca, setLoadingPca] = useState(false)
   const [showPcaSelector, setShowPcaSelector] = useState(false)
@@ -240,7 +243,6 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                     <li>Compras e outros serviços: até <strong>{moeda(limites.II.valor)}</strong> (Art. 75, II — {limites.II.ato_normativo}, exercício {limites.II.exercicio})</li>
                   )}
                   <li>Prazo mínimo para propostas: <strong>3 dias úteis</strong> (IN SEGES/ME 67/2021, Art. 4º)</li>
-                  <li>Modo de disputa: <strong>Aberto</strong> (cotação eletrônica pública)</li>
                   <li>Critério de julgamento: <strong>Menor Preço</strong></li>
                 </ul>
               </div>
@@ -256,6 +258,12 @@ export function ClassificacaoTab({ dados, onChange, orgaoId }: ClassificacaoTabP
                 </div>
               )
             })()}
+          </div>
+        )}
+        {/* Disputa da dispensa: escolha do agente no processo (com ou sem lances) — Entrega 5 */}
+        {isDispensaEletronica && licitacaoId && (
+          <div className="rounded-lg border p-4">
+            <EscolhaDisputaDispensa licitacaoId={licitacaoId} />
           </div>
         )}
 

@@ -19,6 +19,7 @@ import {
   ART92_01,
   ASS_01,
   CRONO_01,
+  DISP_01,
   DUP_01,
   ENQ_01,
   EXERC_01,
@@ -56,7 +57,7 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
     expect(real.filter((a) => a.erro)).toEqual([]);
     const corrigido = avaliarRegras(ctxCorrigido());
     expect(corrigido.filter((a) => a.achados.length).map((a) => `${a.regra.codigo}: ${a.achados[0].mensagem}`)).toEqual([]);
-    expect(REGRAS).toHaveLength(25);
+    expect(REGRAS).toHaveLength(26);
   });
 
   describe('LIM-01 — limite do inciso no exercício, no ramo (portão A)', () => {
@@ -333,6 +334,22 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
       expect(rodar(SIGILO_01, com(pa139Real, (e) => (e.licitacao.justificativa_sigilo = null))).achados[0].severidade).toBe('ATENCAO');
       expect(rodar(SIGILO_01).achados).toEqual([]);
       expect(rodar(SIGILO_01, com(pa139Real, (e) => (e.licitacao.sigilo_orcamento = 'PUBLICO')))).toMatchObject({ aplicavel: false });
+    });
+  });
+
+  describe('DISP-01 — dispensa sem disputa de lances em órgão que adota a IN 67 (Entrega 5)', () => {
+    it('sem lances + regulamento adota a IN 67 → ATENÇÃO; com lances não; regulamento sem a IN 67: não se aplica', () => {
+      const semLancesIn67 = com(pa139Real, (e) => {
+        e.licitacao.dispensa_com_lances = false;
+        e.licitacao.regulamento_adota_in67 = true;
+      });
+      const [a] = rodar(DISP_01, semLancesIn67).achados;
+      expect(a).toMatchObject({ severidade: 'ATENCAO', chave: 'sem-lances' });
+      expect(a.exige_justificativa).toBeFalsy();
+      expect(rodar(DISP_01, com(pa139Real, (e) => { e.licitacao.dispensa_com_lances = true; e.licitacao.regulamento_adota_in67 = true; })).achados).toEqual([]);
+      expect(rodar(DISP_01, com(pa139Real, (e) => { e.licitacao.dispensa_com_lances = false; e.licitacao.regulamento_adota_in67 = false; }))).toMatchObject({ aplicavel: false });
+      // sem escolha no processo: vale o padrão sugerido do órgão
+      expect(rodar(DISP_01, com(pa139Real, (e) => { e.licitacao.padrao_dispensa_com_lances = false; e.licitacao.regulamento_adota_in67 = true; })).achados).toHaveLength(1);
     });
   });
 

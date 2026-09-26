@@ -1,3 +1,4 @@
+import { modoParaCongelar } from '../licitacoes/modo-disputa-dispensa';
 import type { EntityManager } from 'typeorm';
 
 /**
@@ -147,11 +148,10 @@ export async function marcarEditalPublicadoSql(m: EntityManager, licitacaoId: st
 }
 
 /**
- * PUBLICAR da DISPENSA ELETRÔNICA (fase interna, Entrega 5 — decisão 5 do
- * dono): grava no processo o modo da configuração do órgão NESTE momento —
- * com etapa de lances (IN SEGES 67/2021, padrão) ou só propostas
- * (regulamento do órgão). Fica congelado: mudar a configuração depois não
- * altera o processo publicado. Anota o modo nos dados do ato (histórico).
+ * PUBLICAR da DISPENSA ELETRÔNICA (fase interna, Entrega 5): CONGELA a
+ * disputa do processo — a ESCOLHA do agente (com ou sem disputa de lances)
+ * ou, se ele não escolheu, o padrão sugerido do órgão. Depois de publicar não
+ * muda. Anota o modo nos dados do ato (histórico).
  */
 export async function congelarModoDisputaDispensaSql(
   m: EntityManager,
@@ -162,8 +162,12 @@ export async function congelarModoDisputaDispensaSql(
   const [cfg] = lic.orgao_id
     ? await m.query(`SELECT dispensa_com_lances FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [String(lic.orgao_id)]).catch(() => [])
     : [];
-  lic.dispensa_com_lances = cfg?.dispensa_com_lances !== false;
-  if (dados) dados.dispensa_com_lances = lic.dispensa_com_lances;
+  const escolhido = lic.dispensa_com_lances === true || lic.dispensa_com_lances === false;
+  lic.dispensa_com_lances = modoParaCongelar(lic.dispensa_com_lances, cfg?.dispensa_com_lances);
+  if (dados) {
+    dados.dispensa_com_lances = lic.dispensa_com_lances;
+    dados.dispensa_modo_origem = escolhido ? 'ESCOLHA_DO_PROCESSO' : 'PADRAO_SUGERIDO_DO_ORGAO';
+  }
 }
 
 /**

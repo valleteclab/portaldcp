@@ -516,7 +516,7 @@ export class JanelaDispensaService {
       'AVISOS',
       'Avisos do órgão',
       l.dispensa_com_lances === false
-        ? 'Prazo de propostas encerrado: até o julgamento, só o órgão envia mensagens (dispensa sem etapa de lances — regulamento do órgão).'
+        ? 'Prazo de propostas encerrado: até o julgamento, só o órgão envia mensagens (dispensa sem disputa de lances — Lei 14.133, art. 75, §3º).'
         : 'Prazo de propostas encerrado: até o julgamento, só o órgão envia mensagens (a etapa de lances reabre a participação dos fornecedores).',
       true,
       false,

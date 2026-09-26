@@ -2,13 +2,17 @@
  * FASE INTERNA — ENTREGA 5 (publicação e dispensa com/sem etapa de lances).
  * docs/licitacao/PLANO-FASE-INTERNA.md §12.
  *
- *  A. Configuração por órgão `dispensa_com_lances` (padrão true — IN 67).
- *  B. Dispensa SEM etapa de lances: publica (o modo é gravado no processo e o
- *     aviso diz "sem disputa de lances"), recebe propostas, a janela não abre
- *     (409) e o julgamento é pelo menor preço sem janela; empate → a proposta
- *     registrada primeiro.
- *  C. Dispensa COM etapa de lances continua exigindo a janela; mudar a
- *     configuração DEPOIS de publicar não afeta nenhum dos dois processos.
+ *  A. Padrão SUGERIDO do órgão `dispensa_com_lances` (true — com lances) e
+ *     "regulamento local adota a IN 67" (false).
+ *  A2. ESCOLHA no processo (PUT /fase-interna/:id/modo-disputa): sobrepõe o
+ *     padrão sugerido; quem escolheu vai para o histórico; congelada no
+ *     PUBLICAR; depois de publicar, 409; o PUT genérico do processo não a muda.
+ *  B. Dispensa SEM disputa de lances: publica (gravado no processo; o aviso diz
+ *     "sem disputa de lances — Lei 14.133, art. 75, §3º"), recebe propostas, a
+ *     janela não abre (409) e o julgamento é pelo menor preço sem janela;
+ *     empate → a proposta registrada primeiro.
+ *  C. Dispensa COM disputa de lances continua exigindo a janela; mudar o padrão
+ *     do órgão DEPOIS de publicar não afeta nenhum dos dois processos.
  *  D. Publicar pela tela da conformidade: o portão C segura (BLOQUEIO), a tela
  *     mostra o quadro (modo, canais, controle interno); corrigido, publica; a
  *     etapa 8 fica EM ANDAMENTO até a confirmação do PNCP, que conclui a etapa
@@ -16,7 +20,8 @@
  *  E. Diário Oficial como peça da publicação: órgão sem PNCP — o registro é a
  *     divulgação oficial (confirma, conclui a etapa 8 e a tarefa); antes de
  *     publicar 409.
- *  F. Controle interno ativo: aviso antes de publicar, não bloqueia.
+ *  F. Controle interno ativo: aviso antes de publicar, não bloqueia. DISP-01:
+ *     sem lances num órgão que adota a IN 67 → ATENÇÃO (não bloqueia).
  *  G. Isolamento dos endpoints novos.
  *  Sem migração de boot (colunas novas nullable/default; NULL = regra da época).
  */
@@ -124,7 +129,7 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
 
   // ==========================================================================
   describe('A. configuração por órgão (decisão 5 do dono)', () => {
-    it('padrão = com etapa de lances (IN 67); o órgão escolhe "sem lances"; valor não booleano 400', async () => {
+    it('padrão SUGERIDO = com lances; o órgão sugere "sem lances"; valor não booleano 400', async () => {
       const antes = (await http().get('/api/fase-interna/configuracao').set(bearer(A.token)).expect(200)).body;
       expect(antes.dispensa_com_lances).toBe(true);
       expect((await configurar(A, { dispensa_com_lances: 'nao' })).status).toBe(400);
@@ -140,15 +145,67 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
   });
 
   // ==========================================================================
+  describe('A2. escolha da disputa no processo (sobrepõe o padrão do órgão; congelada na publicação)', () => {
+    let lic: LicitacaoFixture;
+
+    it('o agente escolhe "com lances" num órgão cujo padrão é "sem lances": vale a escolha; quem escolheu vai para o histórico', async () => {
+      lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      expect((await processo(lic, A.token)).licitacao.modo_disputa_dispensa).toMatchObject({ com_lances: false, fonte: 'SUGERIDO' });
+      expect((await http().put(`/api/fase-interna/${lic.id}/modo-disputa`).set(bearer(agenteA.token)).send({ com_lances: 'sim' })).status).toBe(400);
+      const r = await http().put(`/api/fase-interna/${lic.id}/modo-disputa`).set(bearer(agenteA.token)).send({ com_lances: true });
+      expect(r.status).toBe(200);
+      expect(r.body.modo_disputa).toMatchObject({ com_lances: true, fonte: 'ESCOLHA', editavel: true, padrao_do_orgao: false });
+      expect(r.body.modo_disputa.escolhido_por.nome).toBe('Ana Agente E5');
+      expect(r.body.modo_disputa.opcoes.map((o: any) => o.rotulo)).toEqual([
+        'Com disputa de lances (sessão de lances em tempo real)',
+        'Sem disputa de lances (só recebimento de propostas no prazo do aviso)',
+      ]);
+      const [log] = await sql(
+        `SELECT usuario_nome, descricao, dados_antes, dados_depois FROM logs_fase_interna WHERE licitacao_id = $1 AND dados_depois ? 'dispensa_com_lances' ORDER BY created_at DESC LIMIT 1`,
+        [lic.id],
+      );
+      expect(log).toMatchObject({ usuario_nome: 'Ana Agente E5', dados_antes: { dispensa_com_lances: null }, dados_depois: { dispensa_com_lances: true } });
+      expect(log.descricao).toMatch(/COM disputa de lances/);
+      // o PUT genérico do processo não muda a escolha (só a rota própria, que confere a fase)
+      await http().put(`/api/licitacoes/${lic.id}`).set(bearer(A.token)).send({ dispensa_com_lances: false }).expect(200);
+      expect((await processo(lic, A.token)).licitacao.modo_disputa_dispensa).toMatchObject({ com_lances: true, fonte: 'ESCOLHA' });
+    });
+
+    it('publicar congela a ESCOLHA (não o padrão); depois de publicar a escolha não muda (409)', async () => {
+      const DOCS = ['DFD', 'PP', 'AA'];
+      for (const t of DOCS) {
+        await http().post(`/api/fase-interna/${lic.id}/documento`).set(bearer(A.token)).send({ tipo: t, titulo: t, descricao: `${t} — documento de teste E2E` }).expect(201);
+      }
+      await http().put(`/api/fase-interna/${lic.id}/avancar`).set(bearer(A.token)).expect(200);
+      await gerarAvisoDispensa(ctx, lic);
+      const pub = await http().put(`/api/licitacoes/${lic.id}/publicar-edital`).set(bearer(agenteA.token)).send(corpoDivulgacao(fimPropostasSugerido()));
+      expect(pub.status).toBe(200);
+      const [l] = await sql(`SELECT dispensa_com_lances FROM licitacoes WHERE id = $1`, [lic.id]);
+      expect(l.dispensa_com_lances).toBe(true);
+      const [t] = await sql(`SELECT dados FROM licitacao_transicoes WHERE licitacao_id = $1 AND ato = 'PUBLICAR'`, [lic.id]);
+      expect(t.dados.dados).toMatchObject({ dispensa_com_lances: true, dispensa_modo_origem: 'ESCOLHA_DO_PROCESSO' });
+      expect(await textoDoAviso(lic, A.token)).toMatch(/disputa de lances em tempo real/);
+      const r = await http().put(`/api/fase-interna/${lic.id}/modo-disputa`).set(bearer(agenteA.token)).send({ com_lances: false });
+      expect(r.status).toBe(409);
+      expect(r.body.message).toMatch(/congelada na publicação/);
+      expect((await processo(lic, A.token)).licitacao.modo_disputa_dispensa).toMatchObject({ com_lances: true, congelado: true, editavel: false });
+      // outra modalidade: 400
+      const pregao = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO);
+      expect((await http().put(`/api/fase-interna/${pregao.id}/modo-disputa`).set(bearer(agenteA.token)).send({ com_lances: false })).status).toBe(400);
+    });
+  });
+
+  // ==========================================================================
   describe('B/C. dispensa sem lances × com lances; congelamento na publicação', () => {
     let semLances: LicitacaoFixture;
     let comLances: LicitacaoFixture;
 
-    it('na fase interna o processo mostra o modo da configuração (ainda não congelado); a minuta do aviso o reflete', async () => {
+    it('na fase interna, sem escolha, vale o padrão sugerido (ainda não congelado); a minuta do aviso o reflete', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
       const p = await processo(lic, A.token);
-      expect(p.licitacao.modo_disputa_dispensa).toMatchObject({ aplica: true, com_lances: false, congelado: false, fonte: 'CONFIGURACAO' });
-      expect(p.licitacao.modo_disputa_dispensa.descricao).toMatch(/Sem disputa de lances, apenas cadastro de propostas/);
+      expect(p.licitacao.modo_disputa_dispensa).toMatchObject({ aplica: true, com_lances: false, congelado: false, fonte: 'SUGERIDO', editavel: true });
+      expect(p.licitacao.modo_disputa_dispensa.descricao).toMatch(/Sem disputa de lances — só o recebimento de propostas no prazo do aviso/);
+      expect(p.licitacao.modo_disputa_dispensa.referencia).toBe('Lei nº 14.133/2021, art. 75, §3º (aviso de 3 dias úteis para propostas adicionais)');
       await http().post(`/api/fase-interna/${lic.id}/minutas/ME/gerar`).set(bearer(A.token)).expect(201);
       const [me] = await sql(`SELECT dados_estruturados FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo = 'ME' AND versao_atual = true`, [lic.id]);
       expect(JSON.stringify(me.dados_estruturados)).toMatch(/Não haverá disputa de lances/);
@@ -159,18 +216,21 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       const [l] = await sql(`SELECT dispensa_com_lances, fase::text AS fase FROM licitacoes WHERE id = $1`, [semLances.id]);
       expect(l.dispensa_com_lances).toBe(false);
       const [t] = await sql(`SELECT dados FROM licitacao_transicoes WHERE licitacao_id = $1 AND ato = 'PUBLICAR'`, [semLances.id]);
-      expect(t.dados.dados.dispensa_com_lances).toBe(false); // anotado nos dados do ato (histórico)
+      expect(t.dados.dados).toMatchObject({ dispensa_com_lances: false, dispensa_modo_origem: 'PADRAO_SUGERIDO_DO_ORGAO' }); // anotado nos dados do ato (histórico)
       const texto = await textoDoAviso(semLances, A.token);
-      expect(texto).toMatch(/Sem disputa de lances, apenas cadastro de propostas/);
+      expect(texto).toMatch(/Sem disputa de lances \(só recebimento de propostas no prazo do aviso\)/);
+      expect(texto).toMatch(/art\. 75, §3º/);
       expect(texto).toMatch(/registrada primeiro/);
-      expect(texto).not.toMatch(/Encerrado o prazo de propostas, haverá etapa de lances/);
+      expect(texto).not.toMatch(/haverá sessão de disputa de lances/);
       const p = await processo(semLances, A.token);
       expect(p.licitacao.modo_disputa_dispensa).toMatchObject({ com_lances: false, congelado: true, fonte: 'PROCESSO' });
 
       comLances = await criarDispensaPublicada(ctx, B);
       const [l2] = await sql(`SELECT dispensa_com_lances FROM licitacoes WHERE id = $1`, [comLances.id]);
       expect(l2.dispensa_com_lances).toBe(true);
-      expect(await textoDoAviso(comLances, B.token)).toMatch(/etapa de lances/);
+      const textoCom = await textoDoAviso(comLances, B.token);
+      expect(textoCom).toMatch(/disputa de lances em tempo real/);
+      expect(textoCom).toMatch(/IN SEGES nº 67\/2021, quando adotada pelo órgão/);
     });
 
     it('mudar a configuração DEPOIS de publicar não altera nenhum dos dois processos', async () => {
@@ -193,7 +253,7 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
 
       const jan = await abrirJanelaLances(ctx, semLances, { duracao_minutos: 360 });
       expect(jan.status).toBe(409);
-      expect(jan.body.message).toMatch(/SEM etapa de lances/);
+      expect(jan.body.message).toMatch(/SEM disputa de lances/);
 
       const atos = (await http().get(`/api/licitacoes/${semLances.id}/atos`).set(bearer(A.token)).expect(200)).body;
       expect(atos.find((x: any) => x.ato === 'JULGAR_DISPENSA')).toMatchObject({ disponivel: true });
@@ -322,7 +382,7 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
     let lic: LicitacaoFixture;
 
     beforeAll(async () => {
-      expect((await configurar(A, { dispensa_com_lances: false, controle_interno_ativo: true })).status).toBe(200);
+      expect((await configurar(A, { dispensa_com_lances: false, controle_interno_ativo: true, regulamento_adota_in67: true })).status).toBe(200);
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agenteA.id } });
       await instruir(lic, agenteA.token);
       await http().put(`/api/fase-interna/${lic.id}/avancar`).set(bearer(A.token)).expect(200);
@@ -336,6 +396,9 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       const t = await conformidade(lic, agenteA.token);
       expect(t.publicacao.controle_interno).toMatchObject({ ativo: true, manifestado: false });
       expect(t.publicacao.controle_interno.aviso).toMatch(/Não impede a publicação/);
+      // DISP-01: sem lances num órgão cujo regulamento adota a IN 67 → ATENÇÃO, não bloqueia
+      const disp = t.achados.find((a: any) => a.regra === 'DISP-01');
+      expect(disp).toMatchObject({ severidade: 'ATENCAO', exige_justificativa: false });
       expect(t.publicar.pode).toBe(true);
     });
 
@@ -389,6 +452,15 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       expect((await corpo(http().post(`/api/fase-interna/${lic.id}/publicacao/diario-oficial`))).status).toBe(401);
       const [{ n }] = await sql(`SELECT COUNT(*)::int AS n FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo = 'PDO'`, [lic.id]);
       expect(n).toBe(0);
+    });
+
+    it('PUT /fase-interna/:id/modo-disputa — outro órgão 403, fornecedor 403, anônimo 401 (nada gravado)', async () => {
+      const outra = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      expect((await http().put(`/api/fase-interna/${outra.id}/modo-disputa`).set(bearer(B.token)).send({ com_lances: false })).status).toBe(403);
+      expect((await http().put(`/api/fase-interna/${outra.id}/modo-disputa`).set(bearer(F1.token)).send({ com_lances: false })).status).toBe(403);
+      expect((await http().put(`/api/fase-interna/${outra.id}/modo-disputa`).send({ com_lances: false })).status).toBe(401);
+      const [l] = await sql(`SELECT dispensa_com_lances FROM licitacoes WHERE id = $1`, [outra.id]);
+      expect(l.dispensa_com_lances).toBeNull();
     });
 
     it('a configuração do modo é do órgão do token (B não muda a de A)', async () => {

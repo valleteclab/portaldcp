@@ -29,6 +29,7 @@ import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
 import { PainelPrazos } from "../../PublicacaoEdital"
 import { useDivulgacaoAviso } from "../../useDivulgacaoAviso"
 import { BotaoGerarAutos } from "../../BotaoGerarAutos"
+import { EscolhaDisputaDispensa } from "@/components/licitacao/EscolhaDisputaDispensa"
 import type { ModoDisputaDispensa } from "../../tipos"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { VisorDosAutos, type PecaAberta, type PecaDosAutos } from "@/components/fase-interna/etapas/VisorDosAutos"
@@ -422,16 +423,16 @@ export default function ConformidadePage() {
             >
               {d.publicacao.etapa8.texto}
             </p>
-            {av.modo_disputa?.aplica && (
-              <p className="text-sm">
-                <span className="font-medium text-gray-800">Disputa: </span>
-                {av.modo_disputa.descricao}
-                <span className="block text-xs text-gray-600">
-                  {av.modo_disputa.com_lances ? av.modo_disputa.referencia : "Regulamento do órgão"}
-                  {av.modo_disputa.congelado ? " · gravado no processo na publicação" : " · da configuração do órgão (gravado ao publicar)"}
-                </span>
-              </p>
-            )}
+            {av.modo_disputa?.aplica &&
+              (d.aplicavel ? (
+                <EscolhaDisputaDispensa licitacaoId={id} compacto onAlterado={carregar} />
+              ) : (
+                <p className="text-sm">
+                  <span className="font-medium text-gray-800">Disputa: </span>
+                  {av.modo_disputa.descricao}
+                  <span className="block text-xs text-gray-600">{av.modo_disputa.referencia} · escolha congelada na publicação</span>
+                </p>
+              ))}
             {publicarAqui ? (
               <div className="space-y-2">
                 <div>

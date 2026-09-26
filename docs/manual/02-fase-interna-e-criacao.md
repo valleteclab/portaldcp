@@ -248,11 +248,12 @@ Antes de publicar, o **motor de conformidade** cruza todas as peças dos autos e
 Na **dispensa eletrônica** a publicação é feita na própria tela da conformidade — é o mesmo ato **Publicar** do processo (com o portão C, os itens, o aviso e o prazo conferidos de novo):
 
 1. **Fim do recebimento de propostas** — já vem com a data mínima (3 dias úteis — art. 75, §3º —, contados no calendário do órgão); o painel mostra os dias úteis e os feriados que não contam. O início é a confirmação da publicação pelo PNCP.
-2. **Gerar aviso (PDF)** e **Conferir aviso vN** — o aviso de contratação direta diz se a dispensa tem **etapa de lances de 6 a 10 horas (IN 67)** ou é **sem disputa de lances, apenas cadastro de propostas (regulamento do órgão)**, conforme a configuração do órgão (parte [01](01-configuracao-do-orgao.md#8-fase-interna-e-tarefas)).
-3. **Publicar**. O modo da disputa fica gravado no processo nesse momento.
+2. **Disputa da dispensa** — escolha **Com disputa de lances (sessão de lances em tempo real)** ou **Sem disputa de lances (só recebimento de propostas no prazo do aviso)**. A mesma escolha está em **Editar processo › Classificação**. Vem marcado o padrão sugerido pelo órgão (parte [01](01-configuracao-do-orgao.md#8-fase-interna-e-tarefas)); a escolha fica no histórico com o nome de quem escolheu e pode mudar até a publicação.
+3. **Gerar aviso (PDF)** e **Conferir aviso vN** — o aviso diz a escolha e a base: "com lances — IN SEGES nº 67/2021, quando adotada pelo órgão" ou "sem lances — Lei nº 14.133/2021, art. 75, §3º (aviso de 3 dias úteis para propostas adicionais)".
+4. **Publicar**. A escolha fica **congelada** no processo nesse momento: depois de publicar ela não muda (para mudar, cancele a publicação antes de haver propostas).
 
 O quadro mostra ainda:
-- **Disputa**: o modo (com ou sem etapa de lances) e a referência legal (IN 67 ou regulamento do órgão);
+- **Disputa**: a escolha (com ou sem disputa de lances), a base legal e quem escolheu; se o regulamento do órgão adota a IN 67 e a dispensa foi definida sem lances, a conformidade mostra a atenção **DISP-01** (não bloqueia);
 - **Canais**, cada um com a situação real: **PNCP** (envio automático ao publicar → na fila → publicado com o número de controle, ou o erro devolvido pelo PNCP), **sítio oficial** (o portal público, depois da confirmação), **Diário Oficial do órgão** (pendente até ser registrado) e **plataforma** (recebimento de propostas e, se houver, lances);
 - o **aviso do controle interno**, quando a etapa está ativa e sem manifestação (não impede publicar).
 
