@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { basesDeLeitura, resolverArquivoDeUrl } from '../common/arquivos/arquivos';
 import { espelharDocumentoLicitacao } from '../fase-interna/espelho-documentos-licitacao';
+import { avisarPecaAlterada } from '../fase-interna/tarefas/aviso-tarefas';
 
 /**
  * DOIS CONJUNTOS DE DOCUMENTOS, DONOS DIFERENTES (E9):
@@ -159,7 +160,7 @@ export class DocumentosService {
     });
 
     const salvo = await this.documentoRepository.save(documento);
-    await this.espelharNaFaseInterna(salvo.id);
+    await this.espelharNaFaseInterna(salvo.id, salvo.licitacao_id);
     return salvo;
   }
 
@@ -169,9 +170,11 @@ export class DocumentosService {
    * documentos_fase_interna (fase-interna/espelho-documentos-licitacao.ts).
    * Falha no espelho não desfaz o upload (fica para a migração de boot).
    */
-  private async espelharNaFaseInterna(documentoId: string): Promise<void> {
+  private async espelharNaFaseInterna(documentoId: string, licitacaoId?: string | null): Promise<void> {
     try {
-      await this.documentoRepository.manager.transaction((m) => espelharDocumentoLicitacao(m, documentoId));
+      const r = await this.documentoRepository.manager.transaction((m) => espelharDocumentoLicitacao(m, documentoId));
+      // Peça espelhada por SQL: avisa as tarefas da fase interna (Entrega 2)
+      if (r === 'ESPELHADO') avisarPecaAlterada(licitacaoId);
     } catch (e: any) {
       this.logger.warn(`Anexo ${documentoId} não espelhado como peça da fase interna: ${e?.message ?? e}`);
     }
@@ -262,7 +265,7 @@ export class DocumentosService {
     });
 
     const salvo = await this.documentoRepository.save(documento);
-    await this.espelharNaFaseInterna(salvo.id);
+    await this.espelharNaFaseInterna(salvo.id, salvo.licitacao_id);
     return salvo;
   }
 

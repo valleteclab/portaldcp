@@ -44,6 +44,10 @@ export enum TipoDocumentoFaseInterna {
   RELATORIO_AGENTE = 'RAG', // relatório do agente de contratação (razão da escolha, preço, enquadramento)
   PARECER_FASE_EXTERNA = 'PJE', // parecer jurídico nº 2 — depois da sessão, antes da adjudicação
   MINUTA_CONTRATO = 'MC', // minuta do contrato (art. 92)
+
+  // Entrega 2 — etapa opcional entre o parecer e a publicação (desativável
+  // por órgão; na Câmara de LEM, Portaria 089/2024, art. 85).
+  MANIFESTACAO_CONTROLE_INTERNO = 'MCI',
 }
 
 export enum StatusDocumento {

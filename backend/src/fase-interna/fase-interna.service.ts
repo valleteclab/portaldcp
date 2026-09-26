@@ -323,6 +323,22 @@ export class FaseInternaService {
           })),
         );
 
+    // Controle interno (Entrega 2): peça da etapa opcional, só quando o órgão
+    // a ativou (Configurações → Fase interna). Começa como AVISO — não é
+    // obrigatória para publicar (o portão vem na Entrega 4/5).
+    const [cfgFaseInterna] = await this.documentoRepository.manager
+      .query(`SELECT controle_interno_ativo FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [licitacao.orgao_id])
+      .catch(() => []);
+    if (cfgFaseInterna?.controle_interno_ativo && (contratacaoDireta || !etapa || etapa === FaseLicitacao.ANALISE_JURIDICA)) {
+      checklist.push({
+        tipo: TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO,
+        titulo: 'Manifestação do controle interno',
+        obrigatorio: false,
+        fundamento: 'Art. 169, II — regulamento do órgão',
+        ...(contratacaoDireta ? {} : { etapa: FaseLicitacao.ANALISE_JURIDICA }),
+      });
+    }
+
     const docs = await this.documentoRepository.find({
       where: { licitacao_id: licitacaoId, versao_atual: true },
     });
@@ -410,7 +426,8 @@ export class FaseInternaService {
         justificativa: doc?.dados_estruturados?.justificativa_nao_se_aplica,
         exige_aprovacao: exigeAprovacao,
         aprovacao,
-        pode_nao_se_aplicar: contratacaoDireta && !item.obrigatorio,
+        // Controle interno ativado pelo órgão: a manifestação é exigida pelo regulamento
+        pode_nao_se_aplicar: contratacaoDireta && !item.obrigatorio && item.tipo !== TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO,
         peca: doc
           ? {
               versao: doc.versao,

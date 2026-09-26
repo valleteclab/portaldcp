@@ -65,6 +65,7 @@ export const TITULO_DOCUMENTO: Partial<Record<TipoDocumentoFaseInterna, string>>
   [TipoDocumentoFaseInterna.RELATORIO_AGENTE]: 'Relatório do agente de contratação',
   [TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA]: 'Parecer jurídico da fase externa',
   [TipoDocumentoFaseInterna.MINUTA_CONTRATO]: 'Minuta do contrato',
+  [TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO]: 'Manifestação do controle interno',
 };
 
 /**
@@ -91,6 +92,7 @@ export const CATALOGO_PECAS: Record<string, TipoDocumentoFaseInterna> = {
   MINUTA_CONTRATO: TipoDocumentoFaseInterna.MINUTA_CONTRATO,
   PARECER_JURIDICO: TipoDocumentoFaseInterna.PARECER_JURIDICO,
   PARECER_FASE_EXTERNA: TipoDocumentoFaseInterna.PARECER_FASE_EXTERNA,
+  CONTROLE_INTERNO: TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO,
 };
 
 /** Fundamento exibido no checklist de cada etapa. */

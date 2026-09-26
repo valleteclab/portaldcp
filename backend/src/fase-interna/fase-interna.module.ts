@@ -8,6 +8,12 @@ import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { DocumentoOrgao } from './entities/documento-orgao.entity';
 import { PecasFaseInternaService } from './pecas-fase-interna.service';
 import { MigracaoEspelhoDocumentosBootService } from './migracao-espelho-documentos-boot.service';
+import { Tarefa } from './tarefas/tarefa.entity';
+import { ConfiguracaoFaseInterna } from './tarefas/configuracao-fase-interna.entity';
+import { TarefasService } from './tarefas/tarefas.service';
+import { TarefasSubscriber } from './tarefas/tarefas.subscriber';
+import { MigracaoTarefasBootService } from './tarefas/migracao-tarefas-boot.service';
+import { ConfiguracaoFaseInternaController, EtapasFaseInternaController, TarefasController } from './tarefas/tarefas.controller';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
@@ -76,17 +82,25 @@ import {
       Demanda,
       PesquisaPrecoExecucao,
       PesquisaPrecoCandidato,
+      Tarefa,
+      ConfiguracaoFaseInterna,
     ]),
   ],
   controllers: [
     FaseInternaController,
     DocumentoEstruturadoController,
     ProcessoEletronicoController,
+    TarefasController,
+    ConfiguracaoFaseInternaController,
+    EtapasFaseInternaController,
   ],
   providers: [
     FaseInternaService,
     PecasFaseInternaService,
     MigracaoEspelhoDocumentosBootService,
+    TarefasService,
+    TarefasSubscriber,
+    MigracaoTarefasBootService,
     PreparacaoAutomaticaService,
     ModeloDocumentoService,
     TramitacaoService,
@@ -120,6 +134,7 @@ import {
     ModeloDocumentoService,
     TramitacaoService,
     AprovacaoService,
+    TarefasService,
   ],
 })
 export class FaseInternaModule {}
