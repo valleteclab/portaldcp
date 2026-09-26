@@ -15,6 +15,7 @@ import { ContratosProcesso } from "./ContratosProcesso"
 import { EtapaDispensa } from "./EtapaDispensa"
 import { ConsumoLimiteDispensa } from "./ConsumoLimiteDispensa"
 import { PecasFaseInterna } from "./PecasFaseInterna"
+import { FluxoFaseInterna } from "./FluxoFaseInterna"
 import { PublicacaoEdital, MODALIDADES_COMPETITIVAS } from "./PublicacaoEdital"
 import { SessaoPublicaCard } from "./SessaoPublicaCard"
 import {
@@ -25,7 +26,8 @@ import {
 /**
  * ÁREA DA ETAPA ATUAL (coluna principal) — muda com a fase; o layout é o
  * mesmo para todas as modalidades:
- *  - fase interna / aguardando o PNCP: checklist de pré-publicação + peças da
+ *  - fase interna / aguardando o PNCP: checklist de pré-publicação, fluxo das
+ *    etapas da fase interna (responsável, prazo, situação — Entrega 2), peças da
  *    fase interna ("fazer aqui · anexar PDF · não se aplica"), consumo do
  *    limite da dispensa e publicação do edital nas licitações;
  *  - dispensa publicada: recebimento (quantidade sigilosa + avisos), lances,
@@ -112,6 +114,7 @@ export function AreaEtapaAtual({
             onAtualizado={onAtualizado}
           />
           {dispensa && <ConsumoLimiteDispensa licitacaoId={id} atualizacao={dados} />}
+          {interna && <FluxoFaseInterna licitacaoId={id} atualizacao={dados} />}
           {interna && (
             <PecasFaseInterna licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} />
           )}

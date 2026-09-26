@@ -80,6 +80,25 @@ export function PecasFaseInterna({
   }, [licitacaoId])
   useEffect(() => { carregar() }, [carregar, atualizacao])
 
+  // Vindo da caixa de tarefas (#peca-DFD): rola até a peça e destaca
+  const [destaque, setDestaque] = useState<string | null>(null)
+  const temItens = !!instrucao?.itens?.length
+  useEffect(() => {
+    if (!temItens || typeof window === "undefined") return
+    const irParaHash = () => {
+      const m = window.location.hash.match(/^#peca-([A-Z]+)$/)
+      if (!m) return
+      const el = document.getElementById(`peca-${m[1]}`)
+      if (!el) return
+      el.scrollIntoView({ behavior: "smooth", block: "center" })
+      setDestaque(m[1])
+      window.setTimeout(() => setDestaque(null), 4000)
+    }
+    irParaHash()
+    window.addEventListener("hashchange", irParaHash)
+    return () => window.removeEventListener("hashchange", irParaHash)
+  }, [temItens])
+
   const naoSeAplica = async (tipo: string, titulo: string, desfazer: boolean) => {
     let corpo: Record<string, unknown> = { desfazer: true }
     if (!desfazer) {
@@ -182,7 +201,11 @@ export function PecasFaseInterna({
           const p = it.peca
           const ocupado = carregandoTipo === it.tipo
           return (
-            <li key={it.tipo} className="text-xs bg-white border rounded px-2 py-1.5 space-y-1">
+            <li
+              key={it.tipo}
+              id={`peca-${it.tipo}`}
+              className={`text-xs bg-white border rounded px-2 py-1.5 space-y-1 scroll-mt-4 ${destaque === it.tipo ? "ring-2 ring-blue-600" : ""}`}
+            >
               <div className="flex items-start justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2 min-w-0 flex-wrap">
                   {it.status === "OK" ? (
