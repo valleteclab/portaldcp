@@ -23,8 +23,7 @@ import {
   Pencil,
   Trash2,
   CalendarDays,
-  ListChecks
-} from "lucide-react"
+  ListChecks, Landmark } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -516,6 +515,16 @@ export default function ConfiguracoesPage() {
           >
             <ListChecks className="h-4 w-4" />
             Fase interna e tarefas
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => router.push('/orgao/configuracoes/orcamento')}
+            title="Dotações orçamentárias por exercício e leis (LDO, LOA, PPA) — listas usadas na reserva orçamentária"
+          >
+            <Landmark className="h-4 w-4" />
+            Orçamento
           </Button>
           <Button
             variant="outline"
