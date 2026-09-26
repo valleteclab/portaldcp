@@ -1,0 +1,153 @@
+/**
+ * MOTOR DE CONFORMIDADE — execução e idempotência (Entrega 4). Funções puras.
+ *
+ *  - `avaliarRegras(ctx)`: roda cada regra da lista (uma que falhe não derruba
+ *    as outras — o erro fica registrado e os achados dela não mudam).
+ *  - `planejarRevisao(existentes, avaliacoes)`: o que criar, atualizar,
+ *    reabrir e resolver. REEXECUÇÃO IDEMPOTENTE: com as mesmas entradas, a
+ *    segunda revisão não muda nada; o achado que deixa de ocorrer vira
+ *    RESOLVIDO (com o motivo); o JUSTIFICADO continua justificado enquanto a
+ *    mesma ocorrência persistir (mesma chave) e volta a ABERTO se virar
+ *    bloqueio; o RESOLVIDO que reaparece é REABERTO.
+ *  - `pendenciasDoPortao(portao, ...)`: o que o ato protegido recusa, com o
+ *    que falta e onde (peça e folha).
+ */
+import { REGRAS } from './regras';
+import type { AchadoCalculado, AvaliacaoRegra, ContextoConformidade, Evidencia, Portao, Regra, Severidade } from './tipos';
+
+export type StatusAchado = 'ABERTO' | 'RESOLVIDO' | 'JUSTIFICADO';
+
+export function avaliarRegras(ctx: ContextoConformidade, regras: Regra[] = REGRAS): AvaliacaoRegra[] {
+  return regras.map((regra) => {
+    try {
+      const motivo = regra.aplicavel ? regra.aplicavel(ctx) : null;
+      if (motivo) return { regra, aplicavel: false, motivo, achados: [] };
+      const achados = regra.avaliar(ctx).map((a) => ({ ...a, regra: regra.codigo }));
+      // Mesma ocorrência duas vezes (mesma chave): fica a primeira
+      const unicos = achados.filter((a, i) => achados.findIndex((b) => b.chave === a.chave) === i);
+      return { regra, aplicavel: true, motivo: null, achados: unicos };
+    } catch (e: any) {
+      return { regra, aplicavel: true, motivo: null, achados: [], erro: String(e?.message ?? e) };
+    }
+  });
+}
+
+export const todosOsAchados = (avaliacoes: AvaliacaoRegra[]): AchadoCalculado[] => avaliacoes.flatMap((a) => a.achados);
+
+/** Achado gravado (o que o planejamento precisa). */
+export interface AchadoExistente {
+  id: string;
+  regra: string;
+  chave: string;
+  status: StatusAchado;
+  severidade: Severidade;
+  titulo: string;
+  mensagem: string;
+  evidencias: Evidencia[];
+  exige_justificativa: boolean;
+}
+
+export interface PlanoRevisao {
+  criar: AchadoCalculado[];
+  /** Mesma ocorrência com texto/evidências/severidade novos (status mantido). */
+  atualizar: Array<{ id: string; achado: AchadoCalculado }>;
+  /** Voltou a ocorrer (estava resolvido) ou virou bloqueio (estava justificado). */
+  reabrir: Array<{ id: string; achado: AchadoCalculado; motivo: string }>;
+  resolver: Array<{ id: string; motivo: string }>;
+}
+
+const mesmoConteudo = (e: AchadoExistente, a: AchadoCalculado) =>
+  e.severidade === a.severidade &&
+  e.titulo === a.titulo &&
+  e.mensagem === a.mensagem &&
+  !!e.exige_justificativa === !!a.exige_justificativa &&
+  JSON.stringify(e.evidencias ?? []) === JSON.stringify(a.evidencias ?? []);
+
+export function planejarRevisao(existentes: AchadoExistente[], avaliacoes: AvaliacaoRegra[]): PlanoRevisao {
+  const plano: PlanoRevisao = { criar: [], atualizar: [], reabrir: [], resolver: [] };
+  const porChave = new Map(existentes.map((e) => [`${e.regra}|${e.chave}`, e]));
+  const vistos = new Set<string>();
+
+  for (const av of avaliacoes) {
+    if (av.erro) {
+      // Regra que falhou: os achados dela ficam como estão (nada some por erro)
+      for (const e of existentes) if (e.regra === av.regra.codigo) vistos.add(`${e.regra}|${e.chave}`);
+      continue;
+    }
+    for (const a of av.achados) {
+      const k = `${a.regra}|${a.chave}`;
+      vistos.add(k);
+      const e = porChave.get(k);
+      if (!e) {
+        plano.criar.push(a);
+      } else if (e.status === 'RESOLVIDO') {
+        plano.reabrir.push({ id: e.id, achado: a, motivo: 'Voltou a ocorrer na revisão.' });
+      } else if (e.status === 'JUSTIFICADO' && a.severidade === 'BLOQUEIO') {
+        plano.reabrir.push({ id: e.id, achado: a, motivo: 'Passou a bloqueio — bloqueio não se justifica: corrija a peça.' });
+      } else if (!mesmoConteudo(e, a)) {
+        plano.atualizar.push({ id: e.id, achado: a });
+      }
+    }
+  }
+  const motivoDaRegra = new Map(avaliacoes.filter((a) => !a.aplicavel).map((a) => [a.regra.codigo, a.motivo]));
+  for (const e of existentes) {
+    if (e.status === 'RESOLVIDO' || vistos.has(`${e.regra}|${e.chave}`)) continue;
+    const naoSeAplica = motivoDaRegra.get(e.regra);
+    plano.resolver.push({ id: e.id, motivo: naoSeAplica ? `A regra deixou de se aplicar: ${naoSeAplica}` : 'Deixou de ocorrer na revisão (peça corrigida).' });
+  }
+  return plano;
+}
+
+export const planoVazio = (p: PlanoRevisao) => !p.criar.length && !p.atualizar.length && !p.reabrir.length && !p.resolver.length;
+
+// ---------------------------------------------------------------------------
+// Portões
+// ---------------------------------------------------------------------------
+
+/** Regras que cada portão aplica. A: limite; B: limite + art. 72 (I, II, IV); C: tudo o que não é do portão B. */
+export function regrasDoPortao(portao: Portao, regras: Regra[] = REGRAS): Regra[] {
+  if (portao === 'A') return regras.filter((r) => r.etapa === 'PESQUISA');
+  if (portao === 'B') return regras.filter((r) => r.etapa === 'PESQUISA' || r.etapa === 'AUTORIZACAO');
+  return regras.filter((r) => r.portao !== 'B');
+}
+
+const onde = (a: AchadoCalculado) => {
+  const lugares = a.evidencias
+    .filter((e) => e.titulo)
+    .slice(0, 4)
+    .map((e) => `${e.titulo}${e.folha != null ? `, fl. ${e.folha}` : ''}`);
+  return lugares.length ? ` [${[...new Set(lugares)].join('; ')}]` : '';
+};
+
+const ROTULO_PORTAO: Record<Portao, string> = {
+  A: 'Portão A (limite e fracionamento)',
+  B: 'Portão B (art. 72)',
+  C: 'Portão C (conformidade)',
+};
+
+/**
+ * PENDÊNCIAS DO PORTÃO — o que impede o ato protegido: achado BLOQUEIO aberto
+ * das regras do portão e achado ATENÇÃO que exige justificativa e não foi
+ * justificado. As regras garantidas pela pré-condição do próprio ato não se
+ * repetem (mesma regra, uma mensagem só). `justificados`: "REGRA|chave" dos
+ * achados JUSTIFICADOS gravados.
+ */
+export function pendenciasDoPortao(portao: Portao, avaliacoes: AvaliacaoRegra[], justificados: Set<string>): string[] {
+  const doPortao = new Set(regrasDoPortao(portao).filter((r) => !r.garantida_no_ato).map((r) => r.codigo));
+  const r: string[] = [];
+  for (const av of avaliacoes) {
+    if (!doPortao.has(av.regra.codigo)) continue;
+    for (const a of av.achados) {
+      if (a.severidade === 'BLOQUEIO') r.push(`${ROTULO_PORTAO[portao]} — ${a.regra}: ${a.mensagem}${onde(a)}`);
+      else if (a.exige_justificativa && !justificados.has(`${a.regra}|${a.chave}`)) {
+        r.push(`${ROTULO_PORTAO[portao]} — ${a.regra} (justificativa obrigatória): ${a.mensagem}${onde(a)}`);
+      }
+    }
+  }
+  return r;
+}
+
+/** Achados que contam no botão "Publicar — resolva N bloqueios" (todas as regras). */
+export function impedemPublicar(achados: Array<Pick<AchadoCalculado, 'severidade' | 'exige_justificativa'> & { status?: string }>): number {
+  return achados.filter((a) => (a.status ?? 'ABERTO') === 'ABERTO' && (a.severidade === 'BLOQUEIO' || a.exige_justificativa)).length;
+}

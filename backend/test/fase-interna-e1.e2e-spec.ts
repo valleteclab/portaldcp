@@ -413,6 +413,12 @@ describe('Fase interna — Entrega 1 (base)', () => {
       mesa = [];
       for (const p of papeis) mesa.push(await criarUsuarioOrgao(ctx, A, { role: RoleUsuario.ADMIN, nome: `Vereador ${p}` }));
       await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Despacho da Mesa Diretora');
+      // Portão B (Entrega 4): o despacho só vai para assinatura com o art. 72, I, II e IV completos
+      await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'DFD');
+      await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.PESQUISA_PRECOS, 'Estimativa de despesa');
+      for (const t of ['ETP', 'AR', 'TR', 'DO']) {
+        await http().post(`/api/fase-interna/${lic.id}/instrucao/${t}/nao-se-aplica`).set(bearer(A.token)).send({ justificativa: 'Não se aplica a esta contratação direta (art. 72).' }).expect(201);
+      }
     });
 
     it('signatário de outro órgão é recusado; isolamento do envio (403/403/401) e da consulta (404/403/401)', async () => {

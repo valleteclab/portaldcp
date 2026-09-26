@@ -206,6 +206,14 @@ export interface ConsultasTransicao {
    * Opcional: ausente = sem checagem (testes unitários antigos).
    */
   pendenciasModalidade?(chave: string, contexto?: { dados?: Record<string, any>; agora?: Date; somenteAvaliacao?: boolean }): Promise<string[]>;
+  /**
+   * PORTÕES DA FASE INTERNA (Entrega 4 — motor de conformidade): pendências
+   * do portão A (limite e fracionamento, ao concluir a pesquisa) ou C
+   * (conformidade, ao publicar) — achado BLOQUEIO aberto e ATENÇÃO que exige
+   * justificativa sem justificativa, com o que falta e onde. Opcional:
+   * ausente = sem checagem (testes unitários).
+   */
+  conformidade?(portao: 'A' | 'C', contexto?: { cronograma?: Record<string, any> | null; somenteAvaliacao?: boolean }): Promise<string[]>;
 }
 
 /** Retrato do estado recursal da licitação (consulta das pré-condições — E5). */

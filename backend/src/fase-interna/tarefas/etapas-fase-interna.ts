@@ -91,8 +91,13 @@ export type SituacaoEtapa =
   | 'NAO_REALIZADA'
   | 'CANCELADA';
 
-/** Portão (Entrega 4) que vai travar o ato ligado ao passo — gancho. */
-export type Portao = 'B_ART72' | 'MINUTAS_ANTES_DO_PARECER' | 'C_CONFORMIDADE';
+/**
+ * Portão (Entrega 4) que trava o ato ligado ao passo: A (limite e
+ * fracionamento) na pesquisa; B (art. 72) na autorização; C (conformidade) na
+ * publicação. O portão A também segura a CONCLUSÃO do passo da pesquisa
+ * (LIM-01 aberto: a etapa não conclui e as seguintes não abrem).
+ */
+export type Portao = 'A_LIMITE' | 'B_ART72' | 'MINUTAS_ANTES_DO_PARECER' | 'C_CONFORMIDADE';
 
 export interface DefinicaoPasso {
   passo: PassoFaseInterna;
@@ -109,7 +114,7 @@ export const DEFINICAO_PASSO: Record<PassoFaseInterna, DefinicaoPasso> = {
   DFD: { passo: PassoFaseInterna.DFD, etapa: EtapaFaseInterna.DEMANDA, titulo: 'Formalizar a demanda (DFD)', papel_padrao: PapelFaseInterna.REQUISITANTE, prazo_padrao: null },
   ETP: { passo: PassoFaseInterna.ETP, etapa: EtapaFaseInterna.ETP_RISCOS, titulo: 'Estudo técnico preliminar e análise de riscos', papel_padrao: PapelFaseInterna.REQUISITANTE, prazo_padrao: null },
   TR: { passo: PassoFaseInterna.TR, etapa: EtapaFaseInterna.TERMO_REFERENCIA, titulo: 'Termo de referência', papel_padrao: PapelFaseInterna.REQUISITANTE, prazo_padrao: null },
-  PESQUISA: { passo: PassoFaseInterna.PESQUISA, etapa: EtapaFaseInterna.PESQUISA_PRECOS, titulo: 'Pesquisa de preços e mapa', papel_padrao: PapelFaseInterna.COMPRAS, prazo_padrao: 30 },
+  PESQUISA: { passo: PassoFaseInterna.PESQUISA, etapa: EtapaFaseInterna.PESQUISA_PRECOS, titulo: 'Pesquisa de preços e mapa', papel_padrao: PapelFaseInterna.COMPRAS, prazo_padrao: 30, portao: 'A_LIMITE' },
   RESERVA: { passo: PassoFaseInterna.RESERVA, etapa: EtapaFaseInterna.RESERVA_ORCAMENTARIA, titulo: 'Informação orçamentária e reserva', papel_padrao: PapelFaseInterna.CONTABILIDADE, prazo_padrao: 3 },
   AUTORIZACAO: { passo: PassoFaseInterna.AUTORIZACAO, etapa: EtapaFaseInterna.AUTORIZACAO, titulo: 'Autorização da autoridade competente', papel_padrao: PapelFaseInterna.AUTORIDADE, prazo_padrao: 3, portao: 'B_ART72' },
   MINUTAS: { passo: PassoFaseInterna.MINUTAS, etapa: EtapaFaseInterna.MINUTAS_PARECER, titulo: 'Relatório do agente e minutas', papel_padrao: PapelFaseInterna.AGENTE_CONTRATACAO, prazo_padrao: 5 },
@@ -264,6 +269,9 @@ export interface ConfigParaEtapas {
   controle_interno_ativo: boolean;
 }
 
+/** Pendências de portão por passo (Entrega 4): ex.: { PESQUISA: ['LIM-01 …'] }. */
+export type BloqueiosDePortao = Partial<Record<PassoFaseInterna, string[]>>;
+
 export interface PecaDoPasso {
   tipo: string;
   titulo: string;
@@ -285,6 +293,8 @@ export interface PassoCalculado {
   /** Primeira peça ainda não pronta (destino do botão da tarefa). */
   peca_pendente: string | null;
   portao: Portao | null;
+  /** Pendências do portão que seguram a conclusão do passo (Entrega 4 — portão A). */
+  bloqueio_portao: string[];
 }
 
 export interface EtapaCalculada {
@@ -331,6 +341,7 @@ export function etapasDaFaseInterna(
   processo: ProcessoParaEtapas,
   pecas: PecaParaEtapas[],
   config: ConfigParaEtapas,
+  bloqueios: BloqueiosDePortao = {},
 ): EtapaCalculada[] {
   const direta = !!processo.contratacao_direta;
   const faseInterna = FASES_INTERNAS.has(processo.fase);
@@ -376,7 +387,9 @@ export function etapasDaFaseInterna(
     if (passo === P.PUBLICACAO) {
       situacao = divulgado ? 'CONCLUIDO' : cancelado ? 'CANCELADO' : pendencias.length ? 'AGUARDANDO' : 'DISPONIVEL';
     } else {
-      const todas = lista.every((x) => x.pronta);
+      // Portão A (Entrega 4): com LIM-01 aberto a pesquisa não conclui, mesmo com a peça pronta
+      const barrado = (bloqueios[passo] ?? []).length > 0 && !divulgado && !cancelado;
+      const todas = lista.every((x) => x.pronta) && !barrado;
       const comecou = lista.some((x) => x.pronta || STATUS_EM_ANDAMENTO.has(x.status));
       if (todas) situacao = 'CONCLUIDO';
       else if (cancelado) situacao = 'CANCELADO';
@@ -395,6 +408,7 @@ export function etapasDaFaseInterna(
       pendencias,
       peca_pendente: lista.find((x) => !x.pronta)?.tipo ?? null,
       portao: def.portao ?? null,
+      bloqueio_portao: bloqueios[passo] ?? [],
     });
   }
 

@@ -15,7 +15,11 @@
  *    (condicionado ao saneamento — exige as ressalvas) ou desfavorável
  *    (exige a fundamentação).
  */
-import { incisosDoArt75Citados, referenciasDivergentes, textoPuro } from './minutas-regras';
+import { situacaoDasPecasDoArt72, type LinhaInstrucaoPortao } from '../conformidade/art72';
+import type { AchadoCalculado, AvaliacaoRegra } from '../conformidade/tipos';
+
+// Cláusulas do art. 92: a implementação é a do motor (regra ART92-01), reexportada aqui.
+export { CLAUSULAS_ART92, clausulasArt92Faltantes } from '../conformidade/regras';
 
 export type FaseParecer = 'PREVIA' | 'EXTERNA';
 export type ConclusaoParecer = 'FAVORAVEL' | 'FAVORAVEL_COM_RESSALVAS' | 'DESFAVORAVEL';
@@ -45,112 +49,82 @@ export interface ItemRoteiroFinal extends ItemRoteiro {
   diligencias_abertas: number;
 }
 
-export interface PecaParaRoteiro {
-  tipo: string;
-  status: string; // da instrução
-  texto: string; // HTML/texto das seções (vazio se anexada)
-  anexada: boolean;
-}
-
 const PRONTA = new Set(['OK', 'NAO_SE_APLICA']);
-const st = (pecas: PecaParaRoteiro[], tipo: string) => pecas.find((p) => p.tipo === tipo)?.status ?? null;
 
-function situacaoDasPecas(pecas: PecaParaRoteiro[], tipos: string[], rotulo: string): { situacao: SituacaoItem; detalhe: string } {
-  const presentes = tipos.map((t) => ({ t, s: st(pecas, t) })).filter((x) => x.s !== null);
-  if (!presentes.length) return { situacao: 'NAO_SE_APLICA', detalhe: `${rotulo}: fora da instrução deste processo` };
-  const faltam = presentes.filter((x) => !PRONTA.has(x.s!)).map((x) => x.t);
-  if (!faltam.length) return { situacao: 'CONFORME', detalhe: `${rotulo}: juntadas` };
-  return { situacao: 'PENDENTE', detalhe: `Falta(m): ${faltam.join(', ')}` };
-}
+/** Situação das peças do inciso — a mesma função das regras A72-* do motor. */
+const pecas = (itens: LinhaInstrucaoPortao[], tipos: string[], rotulo: string) => {
+  const r = situacaoDasPecasDoArt72(itens, tipos, rotulo);
+  return { situacao: r.situacao as SituacaoItem, detalhe: r.detalhe };
+};
 
-/** Cláusulas obrigatórias (art. 92) — ids das seções do modelo da minuta do contrato. */
-export const CLAUSULAS_ART92: Array<{ id: string; ref: string }> = [
-  { id: 'objeto', ref: 'I' },
-  { id: 'vinculacao', ref: 'II' },
-  { id: 'legislacao', ref: 'III' },
-  { id: 'regime_execucao', ref: 'IV' },
-  { id: 'preco', ref: 'V' },
-  { id: 'pagamento', ref: 'VI' },
-  { id: 'prazos', ref: 'VII' },
-  { id: 'dotacao', ref: 'VIII' },
-  { id: 'obrigacoes', ref: 'XIV' },
-  { id: 'penalidades', ref: 'XIV' },
-  { id: 'habilitacao', ref: 'XVI' },
-  { id: 'gestao', ref: 'XVIII' },
-  { id: 'extincao', ref: 'XIX' },
-  { id: 'foro', ref: '§1º' },
-];
-
-/** Cláusulas do art. 92 vazias na minuta do contrato feita no sistema. */
-export function clausulasArt92Faltantes(secoesMc: Record<string, string> | null): string[] {
-  if (!secoesMc) return [];
-  return CLAUSULAS_ART92.filter((c) => textoPuro(secoesMc[c.id]).length < 5).map((c) => `art. 92, ${c.ref} (${c.id})`);
-}
+const doMotor = (avaliacoes: AvaliacaoRegra[], codigo: string) => avaliacoes.find((a) => a.regra.codigo === codigo) ?? null;
+const tiposDos = (achados: AchadoCalculado[]) => [...new Set(achados.flatMap((a) => a.evidencias.map((e) => e.tipo).filter((t): t is string => !!t)))];
 
 /**
- * ROTEIRO DO PARECER PRÉVIO (art. 53 c/c art. 72, III). Conferências
- * automáticas sobre as peças da instrução — são sugestões para a Procuradoria.
+ * ROTEIRO DO PARECER PRÉVIO (art. 53 c/c art. 72, III). A conferência
+ * automática de cada item LÊ O MOTOR DE CONFORMIDADE (Entrega 4): art. 72
+ * pelas peças da instrução (mesma função das regras A72-*); art. 75 pela
+ * ENQ-01; art. 41, I pela MARCA-01; art. 24 pela SIGILO-01; art. 92 pela
+ * ART92-01; vinculação pela VINC-01. São sugestões — a marcação da
+ * Procuradoria prevalece.
  */
 export function roteiroPrevio(e: {
   contratacao_direta: boolean;
-  pecas: PecaParaRoteiro[];
-  inciso_fundamento: string | null; // ex.: 'II' (art. 75) ou null
+  instrucao: LinhaInstrucaoPortao[];
   fundamento_referencia: string | null;
   numero_processo: string | null;
-  numero_dispensa: string | null;
-  sigiloso: boolean;
-  justificativa_sigilo: string | null;
-  marca: { bloqueios: number; atencoes: number; justificada: boolean };
-  secoes_mc: Record<string, string> | null;
+  avaliacoes: AvaliacaoRegra[];
 }): ItemRoteiro[] {
   const itens: ItemRoteiro[] = [];
-  const P = e.pecas;
-  itens.push({ id: 'A72_I', ref: 'Art. 72, I', texto: 'DFD e, se for o caso, ETP, riscos e TR juntados', tipos: ['DFD', 'ETP', 'AR', 'TR'], automatico: situacaoDasPecas(P, ['DFD', 'ETP', 'AR', 'TR'], 'Planejamento') });
-  itens.push({ id: 'A72_II', ref: 'Art. 72, II', texto: 'Estimativa de despesa conforme o art. 23', tipos: ['PP', 'MCP'], automatico: situacaoDasPecas(P, ['PP'], 'Pesquisa de preços') });
-  itens.push({ id: 'A72_IV', ref: 'Art. 72, IV', texto: 'Compatibilidade orçamentária', tipos: ['DO'], automatico: situacaoDasPecas(P, ['DO'], 'Informação orçamentária') });
-  itens.push({ id: 'A72_VI_VII', ref: 'Art. 72, VI e VII', texto: 'Razão da escolha e justificativa do preço (relatório do agente)', tipos: ['RAG', 'JC'], automatico: situacaoDasPecas(P, ['RAG'], 'Relatório do agente') });
-  itens.push({ id: 'A72_VIII', ref: 'Art. 72, VIII', texto: 'Autorização da autoridade competente', tipos: ['AA'], automatico: situacaoDasPecas(P, ['AA'], 'Autorização') });
+  const I = e.instrucao;
+  itens.push({ id: 'A72_I', ref: 'Art. 72, I', texto: 'DFD e, se for o caso, ETP, riscos e TR juntados', tipos: ['DFD', 'ETP', 'AR', 'TR'], automatico: pecas(I, ['DFD', 'ETP', 'AR', 'TR'], 'Planejamento') });
+  itens.push({ id: 'A72_II', ref: 'Art. 72, II', texto: 'Estimativa de despesa conforme o art. 23', tipos: ['PP', 'MCP'], automatico: pecas(I, ['PP'], 'Pesquisa de preços') });
+  itens.push({ id: 'A72_IV', ref: 'Art. 72, IV', texto: 'Compatibilidade orçamentária', tipos: ['DO'], automatico: pecas(I, ['DO'], 'Informação orçamentária') });
+  itens.push({ id: 'A72_VI_VII', ref: 'Art. 72, VI e VII', texto: 'Razão da escolha e justificativa do preço (relatório do agente)', tipos: ['RAG', 'JC'], automatico: pecas(I, ['RAG'], 'Relatório do agente') });
+  itens.push({ id: 'A72_VIII', ref: 'Art. 72, VIII', texto: 'Autorização da autoridade competente', tipos: ['AA'], automatico: pecas(I, ['AA'], 'Autorização') });
 
-  // Enquadramento: o inciso citado nas peças feitas no sistema é o do processo?
-  if (e.inciso_fundamento) {
-    const divergentes = P.filter((p) => !p.anexada && p.texto)
-      .map((p) => ({ tipo: p.tipo, incisos: incisosDoArt75Citados(p.texto).filter((i) => i !== e.inciso_fundamento) }))
-      .filter((x) => x.incisos.length);
+  // Enquadramento (ENQ-01): o inciso citado nas peças é o do processo?
+  const enq = doMotor(e.avaliacoes, 'ENQ-01');
+  if (enq?.aplicavel) {
+    const incisos = enq.achados.flatMap((a) => a.evidencias.map((ev) => `${ev.tipo} (inciso ${a.chave.replace('inciso:', '')})`));
     itens.push({
       id: 'ART75',
       ref: 'Art. 75',
       texto: `Enquadramento no mesmo inciso em todas as peças (${e.fundamento_referencia ?? 'fundamento do processo'})`,
-      tipos: divergentes.map((d) => d.tipo),
-      automatico: divergentes.length
-        ? { situacao: 'ATENCAO', detalhe: `Inciso diferente citado em: ${divergentes.map((d) => `${d.tipo} (art. 75, ${d.incisos.join('/')})`).join('; ')}` }
-        : { situacao: 'CONFORME', detalhe: 'As peças feitas no sistema citam o fundamento do processo (anexadas: conferir no PDF)' },
+      tipos: tiposDos(enq.achados),
+      automatico: enq.achados.length
+        ? { situacao: 'ATENCAO', detalhe: `Inciso diferente do processo em: ${[...new Set(incisos)].join('; ')}` }
+        : { situacao: 'CONFORME', detalhe: 'As peças citam o inciso do processo (as anexadas sem texto: conferir no PDF)' },
     });
   }
+  const marca = doMotor(e.avaliacoes, 'MARCA-01');
+  const bloqueioMarca = !!marca?.achados.some((a) => a.severidade === 'BLOQUEIO');
+  const atencaoMarca = !!marca?.achados.some((a) => a.severidade === 'ATENCAO');
   itens.push({
     id: 'ART41',
     ref: 'Art. 41, I',
     texto: 'Indicação de marca justificada',
     tipos: ['ETP', 'TR'],
-    automatico:
-      e.marca.bloqueios > 0
-        ? { situacao: 'ATENCAO', detalhe: 'Marca citada sem "apenas como referência" e sem justificativa' }
-        : e.marca.atencoes > 0 && !e.marca.justificada
-          ? { situacao: 'ATENCAO', detalhe: 'Marca citada como referência — falta a justificativa do art. 41, I' }
-          : { situacao: 'CONFORME', detalhe: e.marca.atencoes ? 'Marca citada como referência, com justificativa' : 'Sem indicação de marca nas peças' },
+    automatico: bloqueioMarca
+      ? { situacao: 'ATENCAO', detalhe: 'Marca citada sem "apenas como referência" e sem justificativa' }
+      : atencaoMarca
+        ? { situacao: 'ATENCAO', detalhe: 'Marca citada como referência — falta a justificativa do art. 41, I' }
+        : { situacao: 'CONFORME', detalhe: 'Sem marca sem justificativa nas peças' },
   });
+  const sigilo = doMotor(e.avaliacoes, 'SIGILO-01');
   itens.push({
     id: 'ART24',
     ref: 'Art. 24',
     texto: 'Sigilo do orçamento justificado',
     tipos: ['TR', 'ME'],
-    automatico: !e.sigiloso
+    automatico: !sigilo?.aplicavel
       ? { situacao: 'NAO_SE_APLICA', detalhe: 'Orçamento público' }
-      : String(e.justificativa_sigilo ?? '').trim().length >= 20
-        ? { situacao: 'CONFORME', detalhe: 'Sigilo decidido com justificativa' }
-        : { situacao: 'ATENCAO', detalhe: 'Orçamento sigiloso sem justificativa' },
+      : sigilo.achados.length
+        ? { situacao: 'ATENCAO', detalhe: 'Orçamento sigiloso sem justificativa' }
+        : { situacao: 'CONFORME', detalhe: 'Sigilo decidido com justificativa' },
   });
-  const mc = st(P, 'MC');
-  const faltantes = clausulasArt92Faltantes(e.secoes_mc);
+  const mc = I.find((x) => x.tipo === 'MC')?.status ?? null;
+  const art92 = doMotor(e.avaliacoes, 'ART92-01');
   itens.push({
     id: 'ART92',
     ref: 'Art. 92',
@@ -163,28 +137,26 @@ export function roteiroPrevio(e: {
           ? { situacao: 'NAO_SE_APLICA', detalhe: 'Minuta do contrato: não se aplica (instrumento substituído — art. 95)' }
           : !PRONTA.has(mc)
             ? { situacao: 'PENDENTE', detalhe: 'Minuta do contrato não elaborada' }
-            : e.secoes_mc === null
+            : !art92?.aplicavel
               ? { situacao: 'ATENCAO', detalhe: 'Minuta anexada — conferir as cláusulas no PDF' }
-              : faltantes.length
-                ? { situacao: 'ATENCAO', detalhe: `Cláusulas vazias: ${faltantes.join('; ')}` }
+              : art92.achados.length
+                ? { situacao: 'ATENCAO', detalhe: art92.achados[0].mensagem }
                 : { situacao: 'CONFORME', detalhe: 'Cláusulas necessárias presentes' },
   });
-  const minutas = P.filter((p) => ['ME', 'MC', 'RAG', 'AA'].includes(p.tipo) && !p.anexada && p.texto);
-  const vinculos = minutas
-    .map((p) => ({ tipo: p.tipo, refs: referenciasDivergentes(p.texto, { numero_processo: e.numero_processo, numero_dispensa: e.numero_dispensa }) }))
-    .filter((x) => x.refs.length);
+  const vinc = doMotor(e.avaliacoes, 'VINC-01');
+  const vincAchados = vinc?.achados ?? [];
   itens.push({
     id: 'VINC',
     ref: 'Vinculação',
     texto: `Vinculação ao processo correto (PA ${e.numero_processo ?? '—'})`,
-    tipos: vinculos.length ? vinculos.map((v) => v.tipo) : ['ME', 'MC'],
-    automatico: vinculos.length
-      ? { situacao: 'ATENCAO', detalhe: `Outro processo citado: ${vinculos.map((v) => `${v.tipo}: ${v.refs.join(', ')}`).join('; ')}` }
-      : { situacao: 'CONFORME', detalhe: 'As minutas feitas no sistema citam o número deste processo' },
+    tipos: vincAchados.length ? tiposDos(vincAchados) : ['ME', 'MC'],
+    automatico: vincAchados.length
+      ? { situacao: 'ATENCAO', detalhe: `Outro processo citado: ${vincAchados.map((a) => a.mensagem.split(', que não é')[0]).join('; ')}` }
+      : { situacao: 'CONFORME', detalhe: 'As peças citam o número deste processo' },
   });
   if (!e.contratacao_direta) {
     // Rito completo: o parecer do art. 53 analisa a minuta do edital
-    itens.push({ id: 'ART53', ref: 'Art. 53', texto: 'Minuta do edital e anexos', tipos: ['ME'], automatico: situacaoDasPecas(P, ['ME'], 'Minuta do edital') });
+    itens.push({ id: 'ART53', ref: 'Art. 53', texto: 'Minuta do edital e anexos', tipos: ['ME'], automatico: pecas(I, ['ME'], 'Minuta do edital') });
   }
   return itens;
 }

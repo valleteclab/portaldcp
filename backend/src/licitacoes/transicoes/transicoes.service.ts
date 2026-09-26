@@ -83,6 +83,7 @@ function nomeDoAtor(tipo: string, id: string | null, nomes: Map<string, string>)
   return tipo === 'FORNECEDOR' ? 'Fornecedor' : tipo === 'ORGAO' ? 'Órgão' : 'Usuário do órgão';
 }
 import { pendenciasModalidadeSql } from '../../modalidades-especiais/pendencias.sql';
+import { pendenciasDoPortaoDoProcesso } from '../../fase-interna/conformidade/portoes';
 
 /**
  * ============================================================================
@@ -508,6 +509,15 @@ export class TransicoesService {
       credenciamento: () => estadoEditalCredenciamentoSql(manager, licitacaoId),
       // Leilão, concurso e diálogo competitivo (E7c)
       pendenciasModalidade: (chave, contexto) => pendenciasModalidadeSql(manager, licitacaoId, chave, contexto ?? {}),
+      // Portões A e C da fase interna (Entrega 4): o motor de conformidade se
+      // registra em `portoes.ts` (sem dependência de módulo — a fase interna
+      // importa este módulo)
+      conformidade: (portao, contexto) =>
+        pendenciasDoPortaoDoProcesso(licitacaoId, portao, {
+          ato: portao === 'A' ? 'CONCLUIR_PESQUISA' : 'PUBLICAR',
+          cronograma: contexto?.cronograma ?? null,
+          somenteAvaliacao: !!contexto?.somenteAvaliacao,
+        }),
       instrucaoProcesso: async (etapa) => {
         // Resolução tardia: evita ciclo de módulos (a fase-interna depende
         // deste serviço para as próprias transições).

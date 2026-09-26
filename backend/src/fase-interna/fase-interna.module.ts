@@ -26,6 +26,9 @@ import { AutorizacaoTelaService } from './telas/autorizacao-tela.service';
 import { ParecerTelaService } from './telas/parecer-tela.service';
 import { ControleInternoTelaService } from './telas/controle-interno-tela.service';
 import { TelasAnaliseDecisaoController } from './telas/telas-3b.controller';
+import { AchadoConformidade, RevisaoConformidade } from './conformidade/achado.entity';
+import { ConformidadeService } from './conformidade/conformidade.service';
+import { ConformidadeController } from './conformidade/conformidade.controller';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
@@ -102,6 +105,8 @@ import {
       ReservaOrcamentariaLinha,
       AnaliseJuridica,
       Diligencia,
+      AchadoConformidade,
+      RevisaoConformidade,
     ]),
   ],
   controllers: [
@@ -114,6 +119,7 @@ import {
     TelasFaseInternaController,
     OrcamentoController,
     TelasAnaliseDecisaoController,
+    ConformidadeController,
   ],
   providers: [
     FaseInternaService,
@@ -130,6 +136,7 @@ import {
     AutorizacaoTelaService,
     ParecerTelaService,
     ControleInternoTelaService,
+    ConformidadeService,
     PreparacaoAutomaticaService,
     ModeloDocumentoService,
     TramitacaoService,
@@ -165,6 +172,7 @@ import {
     AprovacaoService,
     TarefasService,
     OrcamentoService,
+    ConformidadeService,
   ],
 })
 export class FaseInternaModule {}

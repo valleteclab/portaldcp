@@ -15,6 +15,7 @@ import { TarefasService } from '../tarefas/tarefas.service';
 import { PassoFaseInterna, PapelFaseInterna } from '../tarefas/etapas-fase-interna';
 import { Autor, MinutasTelaService } from './minutas-tela.service';
 import { portaoBArt72, resumoDaAutorizacao, situacaoDaAutorizacao, situacaoDasAssinaturas, SignatarioSituacao } from './autorizacao-regras';
+import { pendenciasDoPortaoDoProcesso } from '../conformidade/portoes';
 
 const AA = TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA;
 /** Tarefa do agente quando a autoridade devolve (uma aberta por processo). */
@@ -41,7 +42,8 @@ const ROTULO_MODALIDADE: Record<string, string> = {
  *    assinam (portal de assinaturas; a data do despacho é a da última).
  *  - No celular: resumo + "Autorizar e assinar" (só o signatário designado,
  *    com o próprio login) e "Devolver com observação" (motivo → tarefa do agente).
- *  - Portão B (art. 72) só é MOSTRADO; o bloqueio vem na Entrega 4.
+ *  - Portão B (art. 72): desde a Entrega 4 BLOQUEIA o envio, a assinatura e o
+ *    anexo do despacho sem o art. 72 completo (motor de conformidade).
  * Decisão (memória do projeto): o agente opera, a autoridade assina — o
  * despacho sai em nome da autoridade.
  */
@@ -138,6 +140,8 @@ export class AutorizacaoTelaService {
     });
     const minhas = situacaoDasAssinaturas(signatarios, ator.usuarioId);
     const podeDevolver = await this.podeDecidir(lic.orgao_id, doc, ator);
+    // Portão B (Entrega 4): o que impede autorizar agora (art. 72 e limite da dispensa)
+    const bloqueiosPortaoB = situacao === 'AUTORIZADA' || !ehFaseInterna(lic.fase) ? [] : await pendenciasDoPortaoDoProcesso(licitacaoId, 'B', { ato: 'AUTORIZAR', somenteAvaliacao: true });
     return {
       licitacao: {
         id: lic.id,
@@ -151,6 +155,7 @@ export class AutorizacaoTelaService {
       situacao,
       autoridade: config.autoridade_rotulo,
       resumo,
+      portao_b_bloqueios: bloqueiosPortaoB,
       fundamento_legal: { codigo: fundamento, texto: textoDoFundamento(fundamento) },
       dotacao: reserva,
       peca: this.minutas.resumoPeca(doc),
@@ -205,6 +210,9 @@ export class AutorizacaoTelaService {
     if (doc?.status === StatusDocumento.AGUARDANDO_ASSINATURA) throw new ConflictException('O despacho já está aguardando as assinaturas.');
     if (doc?.status === StatusDocumento.ASSINADO) throw new ConflictException('A autorização já está assinada.');
     if (doc && doc.origem !== 'INTERNO') throw new ConflictException('A autorização foi anexada (assinada fora). Para refazer aqui, gere um novo despacho.');
+    // Portão B (Entrega 4): sem o art. 72 completo, o despacho não vai para a autoridade
+    const pend = await pendenciasDoPortaoDoProcesso(licitacaoId, 'B', { ato: 'AUTORIZAR' });
+    if (pend.length) throw new BadRequestException({ message: pend.length === 1 ? pend[0] : `Pendências do portão B (art. 72): ${pend.join(' | ')}`, pendencias: pend, portao: 'B' });
     if (!doc || doc.status === StatusDocumento.REPROVADO || doc.dados_estruturados?.nao_se_aplica) {
       doc = await this.minutas.gerarPorModelo(licitacaoId, AA, autor, { extras: doc?.dados_estruturados?._devolucoes ? { _devolucoes: doc.dados_estruturados._devolucoes } : {} });
     }

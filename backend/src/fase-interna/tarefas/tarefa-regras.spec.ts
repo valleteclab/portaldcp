@@ -1,7 +1,7 @@
 import { criarCalendario } from '../../common/prazos/calendario';
 import { configEfetiva, validarConfiguracao } from './configuracao-fase-interna';
 import { etapasDaFaseInterna, PapelFaseInterna, PassoFaseInterna as P, passosDasEtapas } from './etapas-fase-interna';
-import { chaveDoPasso, planejarSincronizacao, prazoDaTarefa, quemCumpriu, responsavelDoPasso, TarefaAberta, tarefaAtrasada } from './tarefa-regras';
+import { chaveDoPasso, destinoDaTarefa, planejarSincronizacao, prazoDaTarefa, quemCumpriu, responsavelDoPasso, TarefaAberta, tarefaAtrasada } from './tarefa-regras';
 
 describe('prazo da tarefa em dias úteis (calendário do órgão)', () => {
   const semFeriado = criarCalendario([]);
@@ -147,5 +147,13 @@ describe('quem cumpriu a peça', () => {
     ).toEqual({ id: 'b', nome: '1º Secretário' });
     expect(quemCumpriu({ status: 'APROVADO', aprovador_id: 'x', aprovador_nome: 'Agente' })).toEqual({ id: 'x', nome: 'Agente' });
     expect(quemCumpriu({ status: 'IMPORTADO', criado_por_id: 'u9' })).toEqual({ id: 'u9', nome: null });
+  });
+});
+
+describe('destino da tarefa (Entregas 3 e 4)', () => {
+  it('tela da etapa; publicação → conformidade; achado → a tela da conformidade, no achado', () => {
+    expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'PESQUISA' })).toBe('/orgao/processos/L/fase-interna/pesquisa');
+    expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'PUBLICACAO' })).toBe('/orgao/processos/L/fase-interna/conformidade');
+    expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'MINUTAS', origem: 'ACHADO', origem_id: 'a1' })).toBe('/orgao/processos/L/fase-interna/conformidade#achado-a1');
   });
 });

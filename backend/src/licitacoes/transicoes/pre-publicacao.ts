@@ -29,10 +29,11 @@ export type AcaoConferencia =
   | 'CADASTRAR_ITENS'
   | 'CANCELAR_PUBLICACAO'
   | 'VINCULAR_PCA'
-  | 'CONFIGURAR_ME_EPP';
+  | 'CONFIGURAR_ME_EPP'
+  | 'ABRIR_CONFORMIDADE';
 
 export interface ItemConferencia {
-  chave: 'DOCUMENTOS' | 'AUTORIZACAO' | 'AVISO' | 'EDITAL' | 'ITENS' | 'PCA' | 'ME_EPP' | 'OUTRAS';
+  chave: 'DOCUMENTOS' | 'AUTORIZACAO' | 'AVISO' | 'EDITAL' | 'ITENS' | 'PCA' | 'ME_EPP' | 'CONFORMIDADE' | 'OUTRAS';
   rotulo: string;
   fundamento: string;
   estado: EstadoConferencia;
@@ -78,6 +79,9 @@ export interface EntradaConferencia {
   /** Pendências do PUBLICAR avaliadas pela máquina (as linhas que sobram viram "Outras"). */
   pendenciasPublicar: string[];
 }
+
+/** Pendências do portão C (motor de conformidade — Entrega 4) começam assim. */
+const PREFIXO_PORTAO_C = 'Portão C';
 
 /** Tipo da autorização da autoridade competente na instrução (art. 72, VIII). */
 const TIPO_AUTORIZACAO = 'AA';
@@ -230,7 +234,22 @@ export async function conferirPrePublicacao(e: EntradaConferencia): Promise<Conf
     });
   }
 
-  // 6. O que mais o PUBLICAR recusaria (paridade com a máquina) — só antes do envio
+  // 6. Portão C — conformidade (Entrega 4): o motor cruza as peças entre si
+  if (interna) {
+    const conformidade = e.pendenciasPublicar.filter((p) => p.startsWith(PREFIXO_PORTAO_C));
+    itens.push({
+      chave: 'CONFORMIDADE',
+      rotulo: 'Conformidade das peças (portão C)',
+      fundamento: 'Lei 14.133/2021, arts. 41, 72, 75 e 92',
+      estado: conformidade.length ? 'PENDENTE' : 'OK',
+      bloqueia: conformidade.length > 0,
+      detalhe: conformidade.length ? `${conformidade.length} pendência(s) — enquadramento, vinculação, marca, assinaturas…` : 'Nenhum bloqueio aberto',
+      pendencias: conformidade,
+      acao: conformidade.length ? 'ABRIR_CONFORMIDADE' : null,
+    });
+  }
+
+  // 7. O que mais o PUBLICAR recusaria (paridade com a máquina) — só antes do envio
   if (interna) {
     const cobertas = new Set(itens.flatMap((i) => i.pendencias));
     const outras = e.pendenciasPublicar.filter((p) => !cobertas.has(p) && !itens.some((i) => i.detalhe === p));

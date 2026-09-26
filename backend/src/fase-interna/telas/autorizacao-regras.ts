@@ -5,11 +5,19 @@
  *    em elaboração, aguardando as assinaturas (autoridade COLEGIADA — só fica
  *    autorizada quando TODOS assinam), autorizada (assinada no sistema ou
  *    anexada assinada fora) ou devolvida com motivo.
- *  - Portão B (checklist do art. 72): nesta entrega só é MOSTRADO (o bloqueio
- *    vem na Entrega 4). Exigidos para autorizar: incisos I, II e IV; III, V,
- *    VI e VII vêm depois (parecer e fase externa); VIII é esta etapa.
+ *  - Portão B (checklist do art. 72): exigidos para autorizar os incisos I,
+ *    II e IV; III, V, VI e VII vêm depois (parecer e fase externa); VIII é
+ *    esta etapa. Desde a Entrega 4 BLOQUEIA o envio do despacho para
+ *    assinatura, a assinatura e o anexo do despacho (motor de conformidade).
  *  - Resumo para a tela do celular (mockup Autorizacao).
  */
+
+// Portão B (art. 72): a implementação é a do motor de conformidade
+// (Entrega 4: `conformidade/art72.ts`), reexportada aqui.
+import { portaoBArt72, LinhaInstrucaoPortao } from '../conformidade/art72';
+export { INCISOS_ART72, portaoBArt72 } from '../conformidade/art72';
+export type { LinhaInstrucaoPortao, LinhaPortaoB, MomentoInciso } from '../conformidade/art72';
+
 
 export type SituacaoAutorizacao = 'SEM_DESPACHO' | 'EM_ELABORACAO' | 'AGUARDANDO_ASSINATURAS' | 'AUTORIZADA' | 'DEVOLVIDA';
 
@@ -26,62 +34,6 @@ export function situacaoDaAutorizacao(doc: DespachoParaSituacao | null | undefin
   if (doc.status === 'ASSINADO' || doc.status === 'APROVADO') return 'AUTORIZADA';
   if (doc.origem !== 'INTERNO' && doc.status === 'IMPORTADO') return 'AUTORIZADA';
   return 'EM_ELABORACAO';
-}
-
-export interface LinhaInstrucaoPortao {
-  tipo: string;
-  titulo: string;
-  status: string; // OK | NAO_SE_APLICA | PENDENTE | EM_ELABORACAO | EM_APROVACAO | EM_ASSINATURA
-  obrigatorio?: boolean;
-}
-
-export type MomentoInciso = 'ANTES' | 'ESTA_ETAPA' | 'DEPOIS' | 'FASE_EXTERNA';
-
-export const INCISOS_ART72: Array<{ inciso: string; texto: string; tipos: string[]; momento: MomentoInciso }> = [
-  { inciso: 'I', texto: 'Formalização da demanda e, se for o caso, estudo técnico, análise de riscos e termo de referência', tipos: ['DFD', 'ETP', 'AR', 'TR'], momento: 'ANTES' },
-  { inciso: 'II', texto: 'Estimativa de despesa (art. 23)', tipos: ['PP'], momento: 'ANTES' },
-  { inciso: 'III', texto: 'Parecer jurídico e pareceres técnicos, se for o caso', tipos: ['PJ'], momento: 'DEPOIS' },
-  { inciso: 'IV', texto: 'Compatibilidade da previsão de recursos orçamentários', tipos: ['DO'], momento: 'ANTES' },
-  { inciso: 'V', texto: 'Habilitação e qualificação mínima do contratado', tipos: [], momento: 'FASE_EXTERNA' },
-  { inciso: 'VI', texto: 'Razão da escolha do contratado', tipos: ['RAG', 'JC'], momento: 'FASE_EXTERNA' },
-  { inciso: 'VII', texto: 'Justificativa de preço', tipos: ['RAG', 'JC'], momento: 'FASE_EXTERNA' },
-  { inciso: 'VIII', texto: 'Autorização da autoridade competente', tipos: ['AA'], momento: 'ESTA_ETAPA' },
-];
-
-export interface LinhaPortaoB {
-  inciso: string;
-  referencia: string;
-  texto: string;
-  momento: MomentoInciso;
-  /** Exigido para autorizar (I, II e IV). */
-  exigido: boolean;
-  situacao: 'OK' | 'PENDENTE' | 'EM_ANDAMENTO' | 'DEPOIS';
-  pecas: Array<{ tipo: string; titulo: string; status: string }>;
-}
-
-const PRONTA = new Set(['OK', 'NAO_SE_APLICA']);
-
-/**
- * PORTÃO B — checklist do art. 72 (só leitura nesta entrega). Uma peça do
- * inciso fora da instrução do processo (ex.: rito completo) não conta.
- */
-export function portaoBArt72(itens: LinhaInstrucaoPortao[]): { linhas: LinhaPortaoB[]; ok: boolean; pendentes: string[] } {
-  const linhas: LinhaPortaoB[] = INCISOS_ART72.map((i) => {
-    const pecas = i.tipos
-      .map((t) => itens.find((x) => x.tipo === t))
-      .filter((x): x is LinhaInstrucaoPortao => !!x)
-      .map((x) => ({ tipo: x.tipo, titulo: x.titulo, status: x.status }));
-    const exigido = i.momento === 'ANTES';
-    let situacao: LinhaPortaoB['situacao'];
-    if (i.momento !== 'ANTES' && i.momento !== 'ESTA_ETAPA') situacao = pecas.length && pecas.every((p) => PRONTA.has(p.status)) ? 'OK' : 'DEPOIS';
-    else if (!pecas.length) situacao = 'OK';
-    else if (pecas.every((p) => PRONTA.has(p.status))) situacao = 'OK';
-    else if (pecas.some((p) => p.status !== 'PENDENTE')) situacao = 'EM_ANDAMENTO';
-    else situacao = 'PENDENTE';
-    return { inciso: i.inciso, referencia: `Art. 72, ${i.inciso}`, texto: i.texto, momento: i.momento, exigido, situacao, pecas };
-  });
-  const pendentes = linhas.filter((l) => l.exigido && l.situacao !== 'OK').map((l) => `${l.referencia} — ${l.texto}`);
-  return { linhas, ok: pendentes.length === 0, pendentes };
 }
 
 export interface SignatarioSituacao {

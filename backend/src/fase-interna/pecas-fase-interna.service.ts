@@ -36,6 +36,7 @@ import {
 import { TITULO_DOCUMENTO } from './documentos-obrigatorios';
 import { atribuirFolhas, contarPaginasPdf } from './folhas-autos';
 import { TarefasService } from './tarefas/tarefas.service';
+import { pendenciasDoPortaoDoProcesso } from './conformidade/portoes';
 
 /** Limite do PDF anexado (MB) — FASE_INTERNA_ANEXO_MAX_MB. */
 export const ANEXO_MAX_BYTES = Math.max(1, Number(process.env.FASE_INTERNA_ANEXO_MAX_MB) || 25) * 1024 * 1024;
@@ -80,6 +81,19 @@ export function tituloDaPeca(tipo: TipoDocumentoFaseInterna): string {
  *    ASSINADA quando todos assinam; data e hash registrados).
  * Autorização: DonoFaseInternaGuard no controller (órgão dono; ator do JWT).
  */
+/**
+ * PORTÃO B (Entrega 4): autorizar — anexar o despacho assinado fora, enviar o
+ * despacho para assinatura ou assiná-lo — exige o art. 72 completo (I, II e
+ * IV) e o limite da dispensa (motor de conformidade). 400 com o que falta e onde.
+ */
+async function exigirPortaoB(licitacaoId: string, tipo: string) {
+  if (tipo !== TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA) return;
+  const pend = await pendenciasDoPortaoDoProcesso(licitacaoId, 'B', { ato: 'AUTORIZAR' });
+  if (pend.length) {
+    throw new BadRequestException({ message: pend.length === 1 ? pend[0] : `Pendências do portão B (art. 72): ${pend.join(' | ')}`, pendencias: pend, portao: 'B' });
+  }
+}
+
 @Injectable()
 export class PecasFaseInternaService implements OnModuleInit {
   private readonly logger = new Logger(PecasFaseInternaService.name);
@@ -241,6 +255,7 @@ export class PecasFaseInternaService implements OnModuleInit {
     const tipo = this.tipoValido(tipoParam);
     const lic = await this.licitacaoParaPeca(licitacaoId, tipo);
     const data = validarDataDocumentoAnexo(meta?.data_documento);
+    await exigirPortaoB(licitacaoId, tipo);
     if (!data.ok) throw new BadRequestException(data.erro);
     const pdf = await this.validarPdf(arquivo);
     const numero = String(meta?.numero_peca ?? '').trim().slice(0, 120) || null;
@@ -454,6 +469,7 @@ export class PecasFaseInternaService implements OnModuleInit {
     if (!String(doc.descricao ?? '').trim() && !(doc.dados_estruturados && Object.keys(doc.dados_estruturados).length)) {
       throw new BadRequestException('A peça está vazia.');
     }
+    await exigirPortaoB(licitacaoId, tipo);
 
     const pedidos = Array.isArray(corpo?.signatarios) ? corpo.signatarios : [];
     if (!pedidos.length) throw new BadRequestException('Informe quem assina (usuário e papel).');
@@ -547,6 +563,7 @@ export class PecasFaseInternaService implements OnModuleInit {
     );
     if (!sig) throw new ConflictException('Signatário não encontrado no pedido de assinatura.');
     if (sig.status === 'ASSINADO') throw new ConflictException('Você já assinou esta peça.');
+    await exigirPortaoB(licitacaoId, tipo);
     const r = await this.assinaturas.assinarComoOrgaoUser(doc.documento_assinatura_id, sig.id, { email: u.email, cpf: u.cpf }, rede.ip || '', rede.userAgent || '');
     const concluida = !!r?.pdf_url;
     if (concluida) {

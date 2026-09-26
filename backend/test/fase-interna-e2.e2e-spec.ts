@@ -304,8 +304,10 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
     });
 
     it('com parecer pronto nasce a tarefa do controle interno (caixa do papel, sem agente); desativar cancela', async () => {
-      for (const t of ['DFD', 'PP', 'AA']) expect((await anexar(lic, t, C.token)).status).toBe(201);
+      for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, C.token)).status).toBe(201);
       for (const t of ['ETP', 'AR', 'TR', 'DO', 'DP', 'RAG', 'MC', 'JC', 'PJ']) expect((await naoSeAplica(lic, t, C.token)).status).toBe(201);
+      // Portão B (Entrega 4): o despacho entra depois do art. 72, I, II e IV
+      expect((await anexar(lic, 'AA', C.token)).status).toBe(201);
       const ci = await abertaDe(lic, 'CONTROLE_INTERNO');
       // processo criado pelo login do órgão, sem agente: a caixa do papel "Agente de contratação"
       expect(ci).toMatchObject({ responsavel_papel: 'AGENTE_CONTRATACAO', prazo_dias_uteis: 3, tipo_peca: 'MCI' });

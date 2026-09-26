@@ -185,3 +185,20 @@ describe('situacaoDaEtapa', () => {
     expect(situacaoDaEtapa(['CANCELADO', 'CONCLUIDO'])).toBe('CANCELADA');
   });
 });
+
+describe('etapasDaFaseInterna — portão A (Entrega 4)', () => {
+  it('LIM-01 aberto segura a conclusão da pesquisa: a reserva e a autorização não abrem', () => {
+    const inst = instrucaoDireta(ok('DFD', 'PP'));
+    const livre = etapasDaFaseInterna(direta, inst, semCI);
+    expect(passo(livre, P.PESQUISA)).toMatchObject({ situacao: 'CONCLUIDO', portao: 'A_LIMITE', bloqueio_portao: [] });
+    expect(passo(livre, P.RESERVA).situacao).toBe('DISPONIVEL');
+    const barrada = etapasDaFaseInterna(direta, inst, semCI, { [P.PESQUISA]: ['LIM-01: soma acima do limite'] });
+    expect(passo(barrada, P.PESQUISA)).toMatchObject({ situacao: 'EM_ANDAMENTO', bloqueio_portao: ['LIM-01: soma acima do limite'] });
+    expect(passo(barrada, P.RESERVA).situacao).toBe('AGUARDANDO');
+  });
+
+  it('processo divulgado: o portão não muda o passado', () => {
+    const etapas = etapasDaFaseInterna({ ...direta, fase: 'PUBLICADO' }, instrucaoDireta(ok('DFD', 'PP')), semCI, { [P.PESQUISA]: ['LIM-01'] });
+    expect(passo(etapas, P.PESQUISA).situacao).toBe('CONCLUIDO');
+  });
+});

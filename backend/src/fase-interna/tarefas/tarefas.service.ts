@@ -20,7 +20,9 @@ import { AuditLogService, ContextoUsuario } from '../audit-log.service';
 import { FaseInternaService } from '../fase-interna.service';
 import { ConfiguracaoFaseInterna } from './configuracao-fase-interna.entity';
 import { ConfigFaseInternaEfetiva, configEfetiva, papelValido, validarConfiguracao, validarSignatariosAutorizacao } from './configuracao-fase-interna';
+import { regrasDoPortao } from '../conformidade/motor';
 import {
+  BloqueiosDePortao,
   DEFINICAO_PASSO,
   EtapaCalculada,
   PassoCalculado,
@@ -82,6 +84,16 @@ export class TarefasService {
   private readonly logger = new Logger(TarefasService.name);
   /** Sincronizações em curso/agendadas por processo (coalescidas). */
   private readonly filas = new Map<string, { promessa: Promise<void>; repetir: boolean }>();
+  /**
+   * Rotinas que rodam na MESMA fila do processo, antes da sincronização
+   * (Entrega 4: a revisão do motor de conformidade — o portão A da pesquisa
+   * entra no cálculo das etapas logo em seguida).
+   */
+  private readonly antesDeSincronizar: Array<(licitacaoId: string) => Promise<unknown>> = [];
+
+  registrarAntesDeSincronizar(fn: (licitacaoId: string) => Promise<unknown>) {
+    this.antesDeSincronizar.push(fn);
+  }
 
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
@@ -122,6 +134,13 @@ export class TarefasService {
         if (atrasoMs > 0) await new Promise((r) => setTimeout(r, atrasoMs));
         do {
           estado.repetir = false;
+          for (const fn of this.antesDeSincronizar) {
+            try {
+              await fn(licitacaoId);
+            } catch (e: any) {
+              this.logger.warn(`Rotina antes das tarefas do processo ${licitacaoId} falhou: ${e?.message ?? e}`);
+            }
+          }
           try {
             await this.sincronizar(licitacaoId);
           } catch (e: any) {
@@ -288,6 +307,7 @@ export class TarefasService {
       { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao },
       instrucao.itens,
       config,
+      await this.bloqueiosDePortao(licitacaoId),
     );
     const passos = passosDasEtapas(etapas);
     const abertas = await this.tarefaRepo.find({ where: { licitacao_id: licitacaoId, status: 'ABERTA' } });
@@ -400,10 +420,10 @@ export class TarefasService {
       descricao: string;
       tipo_peca?: string | null;
       documento_id?: string | null;
-      /** Entrega 3B: diligência do parecer (origem DILIGENCIA) e devolução da autorização. */
-      origem?: 'SISTEMA' | 'DILIGENCIA';
+      /** Entrega 3B: diligência do parecer (origem DILIGENCIA) e devolução da autorização; Entrega 4: achado da conformidade. */
+      origem?: 'SISTEMA' | 'DILIGENCIA' | 'ACHADO';
       origem_id?: string | null;
-      tipo?: 'PECA' | 'DILIGENCIA' | 'OUTRO';
+      tipo?: 'PECA' | 'DILIGENCIA' | 'ACHADO' | 'OUTRO';
       /** Responsável explícito (ex.: o agente do processo); sem ele, o do passo. */
       responsavel?: Responsavel | null;
     },
@@ -513,6 +533,24 @@ export class TarefasService {
     }
     const pecas = passo.pecas.map((p) => p.titulo).join('; ');
     return `${cabeca} Peças: ${pecas}. Faça aqui, anexe o PDF feito fora ou marque "não se aplica" quando a lei permitir.`;
+  }
+
+  /**
+   * PORTÃO A (Entrega 4): achados BLOQUEIO abertos das regras da pesquisa
+   * (LIM-01 — limite/fracionamento) seguram a conclusão do passo da pesquisa.
+   * Lidos do motor de conformidade, que roda na mesma fila, logo antes.
+   */
+  private async bloqueiosDePortao(licitacaoId: string): Promise<BloqueiosDePortao> {
+    const codigos = regrasDoPortao('A')
+      .filter((r) => r.severidade === 'BLOQUEIO')
+      .map((r) => r.codigo);
+    const linhas: Array<{ regra: string; mensagem: string }> = await this.ds
+      .query(`SELECT regra, mensagem FROM achados_conformidade WHERE licitacao_id::text = $1 AND status = 'ABERTO' AND severidade = 'BLOQUEIO' AND regra = ANY($2::text[])`, [
+        licitacaoId,
+        codigos,
+      ])
+      .catch(() => []);
+    return linhas.length ? { [PassoFaseInterna.PESQUISA]: linhas.map((l) => `${l.regra}: ${l.mensagem}`) } : {};
   }
 
   /** Usuário ATIVO do órgão (o agente do processo tem de ser do próprio órgão). */
@@ -626,7 +664,7 @@ export class TarefasService {
     try {
       const para: Array<{ id: string; email?: string; telefone?: string }> = await this.destinatarios(t);
       if (!para.length) return;
-      const link = destinoDaTarefa({ licitacao_id: lic.id, passo: t.passo, tipo_peca: t.tipo_peca });
+      const link = destinoDaTarefa({ licitacao_id: lic.id, passo: t.passo, tipo_peca: t.tipo_peca, origem: t.origem, origem_id: t.origem_id });
       const prazo = t.prazo ? ` Prazo: ${new Date(t.prazo).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.` : '';
       await this.notificacoes.criarParaMultiplos(para, {
         orgao_id: t.orgao_id,
@@ -946,6 +984,7 @@ export class TarefasService {
       { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao },
       instrucao.itens,
       config,
+      await this.bloqueiosDePortao(licitacaoId),
     );
 
     const tarefas: any[] = await this.ds.query(`${this.SELECT_TAREFA} WHERE t.licitacao_id::text = $1 ORDER BY t.created_at`, [licitacaoId]);

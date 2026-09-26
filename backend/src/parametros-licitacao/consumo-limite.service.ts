@@ -62,7 +62,7 @@ export class ConsumoLimiteService {
       `SELECT l.id::text AS licitacao_id, l.orgao_id::text AS orgao_id, l.modalidade::text AS modalidade,
               l.tipo_contratacao::text AS tipo_contratacao, l.fundamento_legal, l.codigo_unidade_compradora,
               COALESCE(l.ano, EXTRACT(YEAR FROM l.created_at))::int AS exercicio,
-              i.tipo_item::text AS tipo_item, i.codigo_catmat, i.codigo_catser, i.codigo_catalogo,
+              i.tipo_item::text AS tipo_item, i.codigo_catmat, i.codigo_catser, i.codigo_catalogo, i.numero_item,
               COALESCE(cat.codigo_classe, NULLIF(TRIM(i.classe_catalogo), '')) AS classe,
               COALESCE(i.valor_total_homologado, i.valor_total_estimado, 0)::float AS valor
          FROM licitacoes l
@@ -91,12 +91,18 @@ export class ConsumoLimiteService {
         inciso,
         ramo: ramoDoItem(r, r.codigo_unidade_compradora),
         valor: Number(r.valor) || 0,
+        numero_item: Number(r.numero_item) || undefined,
       });
     }
     return registros;
   }
 
-  async consumoDoProcesso(licitacaoId: string): Promise<ConsumoDoLimiteProcesso> {
+  /**
+   * Consumo do limite pelo processo. `valores_itens` (nº do item → valor total)
+   * simula os valores que a pesquisa vai gravar ao ser emitida — o portão A
+   * confere ANTES de concluir a pesquisa (Entrega 4).
+   */
+  async consumoDoProcesso(licitacaoId: string, opcoes: { valores_itens?: Record<number, number> | null } = {}): Promise<ConsumoDoLimiteProcesso> {
     const [lic] = await this.ds.query(
       `SELECT id::text AS id, orgao_id::text AS orgao_id, modalidade::text AS modalidade, tipo_contratacao::text AS tipo_contratacao,
               fundamento_legal, codigo_unidade_compradora, COALESCE(ano, EXTRACT(YEAR FROM created_at))::int AS exercicio
@@ -119,7 +125,12 @@ export class ConsumoLimiteService {
       };
     }
     const limite = await this.parametros.limiteDispensa(exercicio, inciso);
-    const registros = await this.registros(lic.orgao_id, exercicio);
+    const simulados = opcoes.valores_itens ?? null;
+    const registros = (await this.registros(lic.orgao_id, exercicio)).map((r) =>
+      simulados && r.licitacao_id === licitacaoId && r.numero_item !== undefined && simulados[r.numero_item] !== undefined
+        ? { ...r, valor: Number(simulados[r.numero_item]) || 0 }
+        : r,
+    );
     const doProcesso = registros.filter((r) => r.licitacao_id === licitacaoId);
     const ramos: Ramo[] = [];
     for (const r of doProcesso) if (!ramos.some((x) => x.classe === r.ramo.classe && x.unidade_gestora === r.ramo.unidade_gestora)) ramos.push(r.ramo);
