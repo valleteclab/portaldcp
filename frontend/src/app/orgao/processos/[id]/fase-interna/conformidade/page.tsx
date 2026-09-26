@@ -10,15 +10,27 @@
  * justificar (atenção; a justificativa vai para os autos) ou abrir.
  * API: GET /api/fase-interna/:id/conformidade, POST …/conformidade/revisar,
  *      POST …/conformidade/achados/:achadoId/justificar.
+ * Entrega 5 (etapa 8): "Publicar" pratica o PUBLICAR aqui mesmo (aviso,
+ * prazo no calendário do órgão, portão C), o quadro mostra o modo da dispensa
+ * e a situação de cada canal, e o Diário Oficial vira peça da publicação.
+ * Entrega 6: "Gerar autos (PDF)" (capa, índice, folhas numeradas).
+
  */
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { toast } from "sonner"
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, RefreshCw, Send, ShieldAlert, ShieldCheck } from "lucide-react"
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, Newspaper, RefreshCw, Send, ShieldAlert, ShieldCheck } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ErroPendencias } from "@/components/licitacao/ErroPendencias"
+import { PainelPrazos } from "../../PublicacaoEdital"
+import { useDivulgacaoAviso } from "../../useDivulgacaoAviso"
+import { BotaoGerarAutos } from "../../BotaoGerarAutos"
+import { EscolhaDisputaDispensa } from "@/components/licitacao/EscolhaDisputaDispensa"
+import type { ModoDisputaDispensa } from "../../tipos"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { VisorDosAutos, type PecaAberta, type PecaDosAutos } from "@/components/fase-interna/etapas/VisorDosAutos"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
@@ -83,12 +95,29 @@ interface ConformidadeTela {
     fundamento: string | null
     atende: boolean | null
     minimo_fim: string | null
-    canais: Array<{ nome: string; situacao: string }>
+    canais: Array<{ chave?: string; nome: string; situacao: string; ok?: boolean; detalhe?: string | null }>
+    modo_disputa?: ModoDisputaDispensa | null
   }
+  /** Entrega 5 — etapa 8 ligada à divulgação (PNCP / Diário Oficial). */
+  publicacao: QuadroPublicacao
   assinaturas: Array<{ documento_id: string; tipo: string; titulo: string; folhas: string | null; situacao: string; ok: boolean }>
   publicar: { pode: boolean; pendencias: number; rotulo: string }
   autos: PecaDosAutos[]
   justificativas: Array<{ regra: string; titulo: string; justificativa: string; justificado_por_nome: string | null; justificado_em: string | null }>
+}
+
+interface QuadroPublicacao {
+  estado: "NAO_PUBLICADO" | "AGUARDANDO" | "CONFIRMADA" | "EXTERNA"
+  etapa8: { situacao: "PENDENTE" | "AGUARDANDO_CONFIRMACAO" | "CONCLUIDA"; texto: string }
+  integrado_pncp: boolean
+  data_divulgacao_oficial: string | null
+  modo_disputa: ModoDisputaDispensa | null
+  diario_oficial: {
+    pode_registrar: boolean
+    confirma_divulgacao: boolean
+    registros: Array<{ id: string; versao: number; vigente: boolean; numero: string | null; data_publicacao: string | null; pagina: string | null; link: string | null; anexada: boolean; folhas: string | null }>
+  }
+  controle_interno: { ativo: boolean; manifestado: boolean; aviso: string | null }
 }
 
 const fmtDataHora = (v?: string | null) =>
@@ -113,6 +142,10 @@ export default function ConformidadePage() {
   const [visor, setVisor] = useState<PecaAberta | null>(null)
   const [verRegras, setVerRegras] = useState(false)
   const [verResolvidos, setVerResolvidos] = useState(false)
+  const [dialogoDo, setDialogoDo] = useState(false)
+  // Publicar pela etapa 8 (Entrega 5): o mesmo PUBLICAR do processo (portão C incluso)
+  const publicarAqui = !!d && d.aplicavel && d.aviso.dispensa
+  const divulgacao = useDivulgacaoAviso(id, d?.licitacao.fase ?? "", publicarAqui)
 
   const carregar = useCallback(async () => {
     try {
@@ -166,6 +199,14 @@ export default function ConformidadePage() {
     if (texto) await chamar(`conformidade/achados/${a.id}/justificar`, { justificativa: texto }, "Justificativa registrada nos autos.")
   }
 
+  const publicar = async () => {
+    if (await divulgacao.divulgar()) {
+      avisarTarefasAtualizadas()
+      setAtualizacao((n) => n + 1)
+      await carregar()
+    }
+  }
+
   const abrirEvidencia = (e: Evidencia) => {
     if (!e.tipo) return
     setVisor({ documento_id: e.documento_id, tipo: e.tipo, folha: e.folha, trecho: e.trecho })
@@ -213,11 +254,14 @@ export default function ConformidadePage() {
       }
       atualizacao={atualizacao}
       acoes={
-        d.aplicavel ? (
-          <Button variant="outline" disabled={ocupado} onClick={() => chamar("conformidade/revisar", {}, "Revisão concluída.")}>
-            {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1" aria-hidden="true" />} Revisar agora
-          </Button>
-        ) : null
+        <div className="flex gap-2 flex-wrap">
+          <BotaoGerarAutos licitacaoId={id} numeroProcesso={d.licitacao.numero_processo} />
+          {d.aplicavel ? (
+            <Button variant="outline" disabled={ocupado} onClick={() => chamar("conformidade/revisar", {}, "Revisão concluída.")}>
+              {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1" aria-hidden="true" />} Revisar agora
+            </Button>
+          ) : null}
+        </div>
       }
     >
       {dialogo}
@@ -363,31 +407,91 @@ export default function ConformidadePage() {
           </div>
         </section>
 
-        {/* PUBLICAÇÃO */}
+        {/* PUBLICAÇÃO (etapa 8 — Entrega 5) */}
         <aside aria-label="Publicação" className="space-y-5">
           <section className="rounded-lg border bg-white p-5 space-y-3">
             <h2 className="font-serif text-xl font-semibold text-gray-900">{av.dispensa ? "Aviso de contratação direta" : "Aviso / edital"}</h2>
-            <dl className="text-sm space-y-2">
-              <div>
-                <dt className="font-medium text-gray-800">Publicação prevista</dt>
-                <dd className="font-mono text-gray-900">{av.publicacao_prevista ? fmtDia(av.publicacao_prevista) : "ao publicar"}</dd>
+            <p
+              role="status"
+              className={`text-sm rounded px-2 py-1.5 ${
+                d.publicacao.etapa8.situacao === "CONCLUIDA"
+                  ? "bg-green-50 text-green-900"
+                  : d.publicacao.etapa8.situacao === "AGUARDANDO_CONFIRMACAO"
+                    ? "bg-amber-50 text-amber-900"
+                    : "bg-slate-50 text-gray-800"
+              }`}
+            >
+              {d.publicacao.etapa8.texto}
+            </p>
+            {av.modo_disputa?.aplica &&
+              (d.aplicavel ? (
+                <EscolhaDisputaDispensa licitacaoId={id} compacto onAlterado={carregar} />
+              ) : (
+                <p className="text-sm">
+                  <span className="font-medium text-gray-800">Disputa: </span>
+                  {av.modo_disputa.descricao}
+                  <span className="block text-xs text-gray-600">{av.modo_disputa.referencia} · escolha congelada na publicação</span>
+                </p>
+              ))}
+            {publicarAqui ? (
+              <div className="space-y-2">
+                <div>
+                  <label htmlFor="fim-propostas-conf" className="text-sm font-medium text-gray-800">
+                    Fim do recebimento de propostas
+                  </label>
+                  <Input
+                    id="fim-propostas-conf"
+                    type="datetime-local"
+                    value={divulgacao.fimPropostas}
+                    onChange={(e) => divulgacao.setFimPropostas(e.target.value)}
+                    className="mt-1 font-mono"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">
+                    Início: na confirmação da publicação pelo PNCP. Mínimo de {av.minimo ?? 3} dias úteis ({av.fundamento ?? "art. 75, §3º"}), no calendário do
+                    órgão — já sugerido. Horário de Brasília.
+                  </p>
+                </div>
+                <PainelPrazos prazos={divulgacao.prazos} carregando={divulgacao.calculando} />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button type="button" size="sm" variant="outline" onClick={divulgacao.gerarAviso} disabled={divulgacao.gerando || !divulgacao.fimPropostas}>
+                    {divulgacao.gerando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                    {divulgacao.aviso ? "Gerar de novo" : "Gerar aviso (PDF)"}
+                  </Button>
+                  {divulgacao.aviso ? (
+                    <button type="button" className="text-sm text-blue-800 hover:underline" onClick={divulgacao.abrirAviso}>
+                      Conferir aviso v{divulgacao.aviso.versao}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-600">Gere e confira o aviso (é o documento publicado no PNCP).</span>
+                  )}
+                </div>
               </div>
-              <div>
-                <dt className="font-medium text-gray-800">Início do recebimento de propostas</dt>
-                <dd className="font-mono text-gray-900">{fmtDataHora(av.inicio_recebimento)}</dd>
-              </div>
-              <div>
-                <dt className="font-medium text-gray-800">Fim do recebimento</dt>
-                <dd className="font-mono text-gray-900">{fmtDataHora(av.fim_recebimento)}</dd>
-              </div>
-            </dl>
-            {av.minimo ? (
+            ) : (
+              <dl className="text-sm space-y-2">
+                <div>
+                  <dt className="font-medium text-gray-800">Publicação prevista</dt>
+                  <dd className="font-mono text-gray-900">{av.publicacao_prevista ? fmtDia(av.publicacao_prevista) : "ao publicar"}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-gray-800">Início do recebimento de propostas</dt>
+                  <dd className="font-mono text-gray-900">{fmtDataHora(av.inicio_recebimento)}</dd>
+                </div>
+                <div>
+                  <dt className="font-medium text-gray-800">Fim do recebimento</dt>
+                  <dd className="font-mono text-gray-900">{fmtDataHora(av.fim_recebimento)}</dd>
+                </div>
+              </dl>
+            )}
+            {!publicarAqui && av.minimo ? (
               av.fim_recebimento ? (
                 <p className={`text-sm font-medium ${av.atende ? "text-[#1F4E79]" : "text-[#9A4308]"}`}>
-                  {av.dias_uteis ?? "—"} dias úteis de divulgação — mínimo de {av.minimo} {av.atende ? "atendido" : `não atendido (fim a partir de ${fmtDia(av.minimo_fim)})`} ({av.fundamento})
+                  {av.dias_uteis ?? "—"} dias úteis de divulgação — mínimo de {av.minimo}{" "}
+                  {av.atende ? "atendido" : `não atendido (fim a partir de ${fmtDia(av.minimo_fim)})`} ({av.fundamento})
                 </p>
               ) : (
-                <p className="text-sm text-gray-700">Mínimo de {av.minimo} dias úteis ({av.fundamento}), contados no calendário do órgão — as datas são definidas ao publicar.</p>
+                <p className="text-sm text-gray-700">
+                  Mínimo de {av.minimo} dias úteis ({av.fundamento}), contados no calendário do órgão — as datas são definidas ao publicar.
+                </p>
               )
             ) : null}
             <div className="border-t pt-2 space-y-1.5">
@@ -395,11 +499,54 @@ export default function ConformidadePage() {
               {av.canais.map((c) => (
                 <div key={c.nome} className="flex justify-between gap-2 text-sm">
                   <span>{c.nome}</span>
-                  <span className="text-[#1F4E79] font-medium text-right">{c.situacao}</span>
+                  <span className={`font-medium text-right ${c.ok ? "text-green-800" : "text-[#1F4E79]"}`}>
+                    {c.chave === "SITIO" && c.ok && c.detalhe ? (
+                      <Link href={c.detalhe} className="hover:underline" target="_blank">
+                        {c.situacao}
+                      </Link>
+                    ) : (
+                      c.situacao
+                    )}
+                    {c.detalhe && c.chave !== "SITIO" && <span className="block text-xs font-normal text-gray-600">{c.detalhe}</span>}
+                  </span>
                 </div>
               ))}
             </div>
-            {d.publicar.pode ? (
+            {d.publicacao.controle_interno.aviso && (
+              <p className="text-xs rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-900" role="note">
+                {d.publicacao.controle_interno.aviso}{" "}
+                <Link href={`/orgao/processos/${id}/fase-interna/controle-interno`} className="underline">
+                  Abrir o controle interno
+                </Link>
+              </p>
+            )}
+            {publicarAqui ? (
+              <>
+                <Button
+                  className="w-full h-12"
+                  disabled={!d.publicar.pode || !divulgacao.aviso || divulgacao.divulgando || !divulgacao.fimPropostas}
+                  aria-describedby="motivo-publicar"
+                  onClick={publicar}
+                >
+                  {divulgacao.divulgando ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : d.publicar.pode ? (
+                    <Send className="w-4 h-4 mr-1" aria-hidden="true" />
+                  ) : (
+                    <ShieldAlert className="w-4 h-4 mr-1" aria-hidden="true" />
+                  )}{" "}
+                  {d.publicar.rotulo}
+                </Button>
+                <ErroPendencias erro={divulgacao.erro} />
+                <p id="motivo-publicar" className="text-xs text-gray-600">
+                  {!d.publicar.pode
+                    ? "Bloqueios e atenções que exigem justificativa impedem a publicação."
+                    : !divulgacao.aviso
+                      ? "Gere o aviso antes de publicar."
+                      : "Publicar pratica o ato PUBLICAR (portão C, itens, aviso e prazo conferidos de novo) e envia o aviso ao PNCP."}
+                </p>
+              </>
+            ) : d.publicar.pode ? (
               <Button asChild className="w-full h-12">
                 <Link href={`/orgao/processos/${id}#titulo-etapa-publicacao`}>
                   <Send className="w-4 h-4 mr-1" aria-hidden="true" /> Publicar
@@ -410,12 +557,42 @@ export default function ConformidadePage() {
                 <ShieldAlert className="w-4 h-4 mr-1" aria-hidden="true" /> {d.aplicavel ? d.publicar.rotulo : "Publicação já feita"}
               </Button>
             )}
-            {!d.publicar.pode && d.aplicavel && (
+            {!publicarAqui && !d.publicar.pode && d.aplicavel && (
               <p id="motivo-publicar" className="text-xs text-gray-600">
-                Bloqueios e atenções que exigem justificativa impedem a publicação. As demais regras (itens, aviso, prazo) são conferidas no checklist do processo.
+                Bloqueios e atenções que exigem justificativa impedem a publicação. As demais regras (itens, aviso, prazo) são conferidas no checklist do
+                processo.
               </p>
             )}
           </section>
+
+          {d.publicacao.diario_oficial.pode_registrar || d.publicacao.diario_oficial.registros.length > 0 ? (
+            <section className="rounded-lg border bg-white p-5 space-y-2" aria-labelledby="titulo-diario-oficial">
+              <h2 id="titulo-diario-oficial" className="font-serif text-xl font-semibold text-gray-900 flex items-center gap-2">
+                <Newspaper className="w-5 h-5" aria-hidden="true" /> Diário Oficial
+              </h2>
+              {d.publicacao.diario_oficial.confirma_divulgacao && (
+                <p className="text-xs text-amber-900 bg-amber-50 rounded px-2 py-1">
+                  Órgão sem integração com o PNCP: o registro no Diário Oficial é a divulgação oficial (art. 176, parágrafo único) — o prazo corre dessa data.
+                </p>
+              )}
+              {d.publicacao.diario_oficial.registros.length === 0 && <p className="text-sm text-gray-600">Nenhuma publicação registrada.</p>}
+              <ul className="space-y-1 text-sm">
+                {d.publicacao.diario_oficial.registros.map((r) => (
+                  <li key={r.id} className={r.vigente ? "" : "text-gray-500 line-through"}>
+                    {r.numero} — {r.data_publicacao ? fmtDia(`${r.data_publicacao}T12:00:00-03:00`) : "—"}
+                    {r.anexada ? " · página anexada" : ""}
+                    {r.folhas ? ` · ${r.folhas}` : ""}
+                    {!r.vigente && ` (substituído — v${r.versao})`}
+                  </li>
+                ))}
+              </ul>
+              {d.publicacao.diario_oficial.pode_registrar && (
+                <Button variant="outline" className="h-11" onClick={() => setDialogoDo(true)}>
+                  {d.publicacao.diario_oficial.registros.length ? "Registrar nova publicação" : "Registrar a publicação"}
+                </Button>
+              )}
+            </section>
+          ) : null}
 
           <section className="rounded-lg border bg-white p-5 space-y-2">
             <h2 className="font-serif text-xl font-semibold text-gray-900">Assinaturas</h2>
@@ -450,6 +627,19 @@ export default function ConformidadePage() {
         </aside>
       </div>
 
+      <RegistrarDiarioOficialDialog
+        licitacaoId={id}
+        aberto={dialogoDo}
+        confirmaDivulgacao={d.publicacao.diario_oficial.confirma_divulgacao}
+        onFechar={() => setDialogoDo(false)}
+        onRegistrado={async () => {
+          setDialogoDo(false)
+          avisarTarefasAtualizadas()
+          setAtualizacao((n) => n + 1)
+          await carregar()
+        }}
+      />
+
       <Dialog open={!!visor} onOpenChange={(v) => !v && setVisor(null)}>
         <DialogContent className="max-w-5xl w-[95vw]">
           <DialogHeader>
@@ -460,5 +650,117 @@ export default function ConformidadePage() {
         </DialogContent>
       </Dialog>
     </EtapaShell>
+  )
+}
+
+/**
+ * Registro da publicação no Diário Oficial do órgão (peça PDO da etapa 8):
+ * número/edição, data e página — e, opcional, a página em PDF (entra nos
+ * autos com folhas). Órgão sem PNCP aguardando: é a divulgação oficial.
+ * API: POST /api/fase-interna/:id/publicacao/diario-oficial (multipart).
+ */
+function RegistrarDiarioOficialDialog({
+  licitacaoId,
+  aberto,
+  confirmaDivulgacao,
+  onFechar,
+  onRegistrado,
+}: {
+  licitacaoId: string
+  aberto: boolean
+  confirmaDivulgacao: boolean
+  onFechar: () => void
+  onRegistrado: () => void
+}) {
+  const [numero, setNumero] = useState("")
+  const [data, setData] = useState("")
+  const [pagina, setPagina] = useState("")
+  const [link, setLink] = useState("")
+  const [arquivo, setArquivo] = useState<File | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const hoje = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10)
+
+  useEffect(() => {
+    if (!aberto) return
+    setNumero("")
+    setData(hoje)
+    setPagina("")
+    setLink("")
+    setArquivo(null)
+    setErro(null)
+  }, [aberto, hoje])
+
+  const enviar = async () => {
+    setEnviando(true)
+    setErro(null)
+    try {
+      const fd = new FormData()
+      fd.append("numero_edicao", numero.trim())
+      fd.append("data_publicacao", data)
+      if (pagina.trim()) fd.append("pagina", pagina.trim())
+      if (link.trim()) fd.append("link", link.trim())
+      if (arquivo) fd.append("arquivo", arquivo)
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/publicacao/diario-oficial`, { method: "POST", body: fd })
+      if (!r.ok) throw new Error(await erroDaApi(r))
+      const j = await r.json()
+      toast.success(j.confirmou_divulgacao ? "Publicação registrada — divulgação oficial confirmada (o prazo corre desta data)." : "Publicação no Diário Oficial registrada nos autos.")
+      onRegistrado()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Dialog open={aberto} onOpenChange={(v) => !v && !enviando && onFechar()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Publicação no Diário Oficial</DialogTitle>
+          <DialogDescription>
+            O registro vira peça da publicação nos autos.{" "}
+            {confirmaDivulgacao ? "Sem integração com o PNCP, ele é a divulgação oficial (art. 176, parágrafo único)." : "A divulgação oficial continua sendo a do PNCP."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="do-numero" className="text-sm font-medium">Número / edição</label>
+            <Input id="do-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Ex.: nº 1.234" className="mt-1" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label htmlFor="do-data" className="text-sm font-medium">Data da publicação</label>
+              <Input id="do-data" type="date" max={hoje} value={data} onChange={(e) => setData(e.target.value)} className="mt-1" />
+            </div>
+            <div>
+              <label htmlFor="do-pagina" className="text-sm font-medium">Página</label>
+              <Input id="do-pagina" value={pagina} onChange={(e) => setPagina(e.target.value)} placeholder="Ex.: 12" className="mt-1" />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="do-link" className="text-sm font-medium">Link (opcional)</label>
+            <Input id="do-link" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://…" className="mt-1" />
+          </div>
+          <div>
+            <label htmlFor="do-arquivo" className="text-sm font-medium">Página do diário em PDF (opcional)</label>
+            <Input id="do-arquivo" type="file" accept="application/pdf,.pdf" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} className="mt-1" />
+          </div>
+          {erro && (
+            <p className="text-sm text-red-700" role="alert">
+              {erro}
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onFechar} disabled={enviando}>
+            Cancelar
+          </Button>
+          <Button onClick={enviar} disabled={enviando || !numero.trim() || !data}>
+            {enviando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null} Registrar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -41,6 +41,8 @@ Ao publicar, o edital vai para a fila do PNCP. **A divulgação oficial é a do 
 2. **reconfere o cronograma pela data confirmada**: se a confirmação atrasou e o prazo mínimo (art. 55; na dispensa, 3 dias úteis — art. 75, §3º) deixou de ser respeitado, as datas são **estendidas** até o mínimo legal (mesmo horário, no N-ésimo dia útil). O prazo mínimo é piso: estender protege a isonomia e nunca encurta o prazo de ninguém. O ajuste fica no histórico, o órgão recebe uma notificação e a compra é retificada no PNCP;
 3. passa o processo para **Publicado** e, se a data de início já chegou, para **Recebendo propostas**.
 
+> **Fase interna — etapa 8.** Na dispensa, a publicação também pode ser feita pela tela da **conformidade** (parte [02](02-fase-interna-e-criacao.md#publicar-pela-tela-da-conformidade-etapa-8)): é o mesmo ato, com o mesmo portão. A etapa 8 e a tarefa da publicação só se concluem com a **confirmação** do PNCP (ou com o registro do Diário Oficial, no órgão sem PNCP). A publicação no **Diário Oficial do órgão** é registrada como peça dos autos (número, data, página e, se quiser, a página em PDF).
+
 ### Aviso NÃO publicado no PNCP
 
 Se o PNCP recusar ou não responder, a tela mostra no topo o alerta **"Aviso NÃO publicado no PNCP — prazo não iniciado"** com o retorno real da API (código HTTP, mensagem, tentativas, última tentativa e a próxima tentativa automática) e as **pendências detectadas**. **Ver detalhes** abre a aba PNCP; **Corrigir pendências** leva ao checklist da etapa atual, que também mostra a tabela **Envios ao PNCP** (registro, situação, retorno da API e tentativas) e o botão **Reenviar ao PNCP** — desabilitado, com o motivo escrito, enquanto houver pendência:

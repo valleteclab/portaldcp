@@ -662,6 +662,20 @@ export class Licitacao {
   dispensa_lances_prorrogacao_min: number | null;
 
   /**
+   * DISPUTA DA DISPENSA ELETRÔNICA (fase interna — Entrega 5): ESCOLHA do
+   * agente no processo (PUT /fase-interna/:id/modo-disputa, só na fase
+   * interna). true = com disputa de lances (sessão em tempo real — IN SEGES
+   * 67/2021, quando adotada; janela de 6 a 10 h obrigatória antes do
+   * julgamento); false = sem disputa de lances (Lei 14.133, art. 75, §3º:
+   * só propostas no prazo do aviso; menor preço; empate → a registrada
+   * primeiro). NULL na fase interna = vale o padrão sugerido do órgão; o
+   * PUBLICAR grava o efetivo e CONGELA. NULL depois de publicado = processo
+   * anterior (com lances) — `licitacoes/modo-disputa-dispensa.ts`.
+   */
+  @Column({ type: 'boolean', nullable: true })
+  dispensa_com_lances: boolean | null;
+
+  /**
    * Flag para indicar se a licitação não possui vinculação com PCA
    * 
    * Lei 14.133/2021, Art. 12, §1º:

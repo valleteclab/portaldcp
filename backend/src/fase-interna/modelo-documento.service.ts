@@ -1,3 +1,4 @@
+import { modoDisputaDaDispensa, textoFormaDisputa } from '../licitacoes/modo-disputa-dispensa';
 import { definicaoDoFundamento, fundamentoEfetivo, incisoLimiteDoFundamento, textoDoFundamento } from '../licitacoes/fundamento-legal';
 import { limiteDispensa } from '../parametros-licitacao/limites-dispensa';
 import {
@@ -310,7 +311,7 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
       reserva?.ldo_numero ? `a Lei de Diretrizes Orçamentárias (Lei nº ${reserva.ldo_numero}/${reserva.ldo_exercicio})` : null,
     ].filter(Boolean);
     const [cfg] = licitacao.orgao_id
-      ? await q(`SELECT autoridade_rotulo FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [licitacao.orgao_id]).catch(() => [])
+      ? await q(`SELECT autoridade_rotulo, dispensa_com_lances FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [licitacao.orgao_id]).catch(() => [])
       : [];
     const [agente] = (licitacao as any).pregoeiro_id
       ? await q(`SELECT nome, cargo FROM usuarios WHERE id::text = $1`, [String((licitacao as any).pregoeiro_id)]).catch(() => [])
@@ -341,6 +342,13 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
       'licitacao.sigilo': sigiloso
         ? `O orçamento estimado é SIGILOSO (art. 24 da Lei nº 14.133/2021)${(licitacao as any).justificativa_sigilo ? `: ${String((licitacao as any).justificativa_sigilo)}` : ''}, e será divulgado após o julgamento.`
         : 'O orçamento estimado é público.',
+      // Dispensa com/sem etapa de lances (Entrega 5): configuração até publicar; depois, a do processo
+      'licitacao.forma_disputa': (() => {
+        const modo = modoDisputaDaDispensa(licitacao as any, cfg?.dispensa_com_lances);
+        return modo.aplica
+          ? textoFormaDisputa(modo.com_lances)
+          : 'Critério de julgamento, modo de disputa e prazos conforme o edital (arts. 33, 56 e 55 da Lei nº 14.133/2021).';
+      })(),
       'reserva.dotacao': dotacao,
       'reserva.situacao': reserva ? (reserva.status === 'EMITIDA' ? 'reservada' : 'em preparação') : 'sem reserva',
       'reserva.exercicios': reserva?.linhas || '—',

@@ -9,7 +9,7 @@
  *            antes de publicar).
  *  Portão C — antes de publicar (etapa 8): ENQ-01, VINC-01, MARCA-01,
  *            PRECO-01..03, CRONO-01, LEI-01, EXERC-01, DUP-01, ASS-01,
- *            PRAZO-01, MINUTA-DESAT, SIGILO-01, ART92-01.
+ *            PRAZO-01, MINUTA-DESAT, SIGILO-01, ART92-01, DISP-01 (Entrega 5).
  *
  * Reaproveita, sem duplicar: `detectarIndicacaoMarca` (E3A), os alertas da
  * cotação (`alertasDaCotacao`/`propostasDiretas`, E3A), `portaoBArt72` e as
@@ -750,6 +750,42 @@ export const SIGILO_01: Regra = {
   },
 };
 
+/**
+ * DISP-01 (Entrega 5) — dispensa escolhida SEM disputa de lances num órgão
+ * cujo regulamento local ADOTA a IN SEGES 67/2021 (que prevê a etapa de
+ * lances). Só atenção: a Lei 14.133 (art. 75, §3º) admite a dispensa só com
+ * propostas; o aviso é para o agente confirmar a escolha. Sem o dado do
+ * regulamento (padrão false), não avisa.
+ */
+export const DISP_01: Regra = {
+  codigo: 'DISP-01',
+  descricao: 'Dispensa sem disputa de lances em órgão que adota a IN 67',
+  severidade: 'ATENCAO',
+  etapa: 'PUBLICACAO',
+  portao: 'C',
+  aplicavel: (ctx) =>
+    ctx.processo.modalidade !== 'DISPENSA_ELETRONICA'
+      ? 'Só na dispensa eletrônica.'
+      : !ctx.processo.regulamento_adota_in67
+        ? 'O regulamento do órgão não adota a IN 67 (configuração).'
+        : null,
+  avaliar(ctx) {
+    if (ctx.processo.dispensa_com_lances !== false) return [];
+    return [
+      {
+        regra: 'DISP-01',
+        chave: 'sem-lances',
+        severidade: 'ATENCAO',
+        titulo: 'Dispensa sem disputa de lances, mas o regulamento do órgão adota a IN 67',
+        mensagem:
+          'O processo foi definido SEM disputa de lances (Lei 14.133/2021, art. 75, §3º — só propostas no prazo do aviso), mas o regulamento do órgão adota a IN SEGES 67/2021, que prevê a sessão de lances. Confirme a escolha no processo (Editar processo › Classificação) ou registre a justificativa.',
+        evidencias: [],
+        tipo_peca_responsavel: 'ME',
+      },
+    ];
+  },
+};
+
 /** Cláusulas obrigatórias (art. 92) — ids das seções do modelo da minuta do contrato. */
 export const CLAUSULAS_ART92: Array<{ id: string; ref: string }> = [
   { id: 'objeto', ref: 'I' },
@@ -833,6 +869,7 @@ export const REGRAS: Regra[] = [
   MINUTA_DESAT,
   SIGILO_01,
   ART92_01,
+  DISP_01,
 ];
 
 export const regraPorCodigo = (codigo: string) => REGRAS.find((r) => r.codigo === codigo) ?? null;

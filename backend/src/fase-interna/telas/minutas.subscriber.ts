@@ -13,6 +13,7 @@ const COLUNAS: Record<string, string> = {
   numero_edital: 'número da dispensa/edital',
   sigilo_orcamento: 'sigilo do orçamento',
   objeto: 'objeto',
+  dispensa_com_lances: 'disputa da dispensa (com/sem lances)',
 };
 
 /**

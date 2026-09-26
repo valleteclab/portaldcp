@@ -418,7 +418,7 @@ Deseja também limpar os itens vinculados aos lotes?`,
         </TabsContent>
 
         <TabsContent value="classificacao">
-          <ClassificacaoTab dados={classificacao} onChange={handleClassificacaoChange} orgaoId={orgaoId} />
+          <ClassificacaoTab dados={classificacao} onChange={handleClassificacaoChange} orgaoId={orgaoId} licitacaoId={id} />
         </TabsContent>
 
         <TabsContent value="itens">

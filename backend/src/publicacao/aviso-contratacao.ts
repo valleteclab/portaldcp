@@ -4,6 +4,7 @@ import { join } from 'path';
 import type { EntityManager } from 'typeorm';
 import { diretorioDeGravacao } from '../common/arquivos/arquivos';
 import { gerarAvisoDispensaPdf } from '../licitacoes/aviso-dispensa-pdf';
+import { modoDisputaDaDispensa } from '../licitacoes/modo-disputa-dispensa';
 
 /**
  * ============================================================================
@@ -96,12 +97,22 @@ export async function gerarAvisoContratacaoSql(m: EntityManager, licitacaoId: st
   );
   const lic: Record<string, any> = { ...base, ...(o.licitacao ?? {}) };
   for (const [k, v] of Object.entries(o.cronograma ?? {})) if (v) lic[k] = new Date(v as any);
+  // Modo da dispensa (Entrega 5): prévia na fase interna = configuração do
+  // órgão; no PUBLICAR/confirmação = o valor gravado no processo
+  const [cfg] = base.orgao_id
+    ? await m.query(`SELECT dispensa_com_lances FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [String(base.orgao_id)]).catch(() => [])
+    : [];
+  const modo = modoDisputaDaDispensa(
+    { modalidade: String(base.modalidade ?? ''), fase: o.licitacao?.dispensa_com_lances !== undefined ? 'PUBLICADO' : String(base.fase ?? ''), dispensa_com_lances: lic.dispensa_com_lances },
+    cfg?.dispensa_com_lances,
+  );
   const buffer = gerarAvisoDispensaPdf({
     orgao_nome: base.orgao_nome || 'Órgão',
     orgao_cnpj: String(base.orgao_cnpj || '').replace(/\D/g, '') || undefined,
     licitacao: lic,
     itens,
     url_sistema: process.env.FRONTEND_URL || undefined,
+    com_lances: modo.aplica ? modo.com_lances : true,
   });
 
   const [{ ultima }] = await m.query(
@@ -166,7 +177,7 @@ export async function gerarAvisoContratacaoSql(m: EntityManager, licitacaoId: st
 /** PUBLICAR (na transação do ato): aviso gerado com o cronograma publicado, versão PUBLICADA. */
 export async function publicarAvisoContratacaoSql(m: EntityManager, lic: Record<string, any>, motivo?: string): Promise<AvisoVigenteMeta> {
   const dados: Record<string, any> = {};
-  for (const c of ['data_publicacao_edital', 'data_limite_impugnacao', 'data_inicio_acolhimento', 'data_fim_acolhimento', 'data_abertura_sessao', 'data_divulgacao_oficial']) {
+  for (const c of ['data_publicacao_edital', 'data_limite_impugnacao', 'data_inicio_acolhimento', 'data_fim_acolhimento', 'data_abertura_sessao', 'data_divulgacao_oficial', 'dispensa_com_lances']) {
     if (lic[c] !== undefined) dados[c] = lic[c];
   }
   return gerarAvisoContratacaoSql(m, String(lic.id), { licitacao: dados, publicar: true, motivo });

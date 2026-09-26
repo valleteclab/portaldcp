@@ -47,6 +47,23 @@ export class ConfiguracaoFaseInterna {
   @Column({ type: 'varchar', length: 120, nullable: true })
   autoridade_rotulo: string | null;
 
+  /**
+   * PADRÃO SUGERIDO para novas dispensas: com disputa de lances (true) ou só
+   * recebimento de propostas (false). A regra é a ESCOLHA do agente no
+   * processo (`licitacoes.dispensa_com_lances`); isto vale só enquanto ele não
+   * escolhe. Entrega 5.
+   */
+  @Column({ type: 'boolean', default: true })
+  dispensa_com_lances: boolean;
+
+  /**
+   * O regulamento local da Lei 14.133 adota a IN SEGES 67/2021 (disputa de
+   * lances na dispensa)? Com true, a conformidade avisa (ATENÇÃO, DISP-01) a
+   * dispensa escolhida SEM lances. Padrão false (sem aviso).
+   */
+  @Column({ type: 'boolean', default: false })
+  regulamento_adota_in67: boolean;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   atualizado_por_id: string | null;
 

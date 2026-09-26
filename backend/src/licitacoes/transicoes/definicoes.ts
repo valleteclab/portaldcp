@@ -28,6 +28,7 @@ import {
 import { publicarAvisoContratacaoSql } from '../../publicacao/aviso-contratacao';
 import {
   concluirExtincaoSql,
+  congelarModoDisputaDispensaSql,
   excluirPropostasNaoConfirmadasSql,
   marcarEditalPublicadoSql,
 } from '../../publicacao/publicacao.sql';
@@ -270,6 +271,9 @@ export const haPropostasAptas: Precondicao = async (ctx) => {
  * depois de uma desclassificação) não reabre a etapa de lances.
  */
 export const janelaLancesDispensaEncerrada: Precondicao = async (ctx) => {
+  // Dispensa publicada SEM etapa de lances (regulamento do órgão — Entrega 5
+  // da fase interna, decisão 5): só propostas; o julgamento vem do fim do prazo
+  if (ctx.licitacao.dispensa_com_lances === false) return null;
   const fim = ctx.licitacao.dispensa_lances_fim;
   if (fim && ctx.agora < new Date(fim)) {
     return `A fase de lances está aberta até ${formatarDataBrasilia(new Date(fim))} — o julgamento só é liberado depois do encerramento da janela (IN SEGES 67/2021, art. 15).`;
@@ -772,6 +776,9 @@ const PUBLICAR: DefinicaoAto = {
   // de contratação direta é (re)gerado com o cronograma publicado e guardado
   // como a versão PUBLICADA — é o arquivo enviado ao PNCP
   efeitosPersistidos: [
+    // Dispensa: o modo (com/sem etapa de lances) da configuração do órgão é
+    // gravado no processo AGORA (congelado) — antes do aviso, que o imprime
+    async (lic, m, ctx) => congelarModoDisputaDispensaSql(m, lic, ctx.dados),
     async (lic, m) => marcarEditalPublicadoSql(m, lic.id),
     async (lic, m) => {
       if (lic.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA && !lic.selecao_externa) await publicarAvisoContratacaoSql(m, lic);

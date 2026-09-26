@@ -1,3 +1,4 @@
+import { modoDisputaDaDispensa } from '../../licitacoes/modo-disputa-dispensa';
 /**
  * MONTAGEM DO CONTEXTO do motor de conformidade (Entrega 4) — função PURA
  * sobre as linhas lidas do banco (o serviço lê; o teste monta à mão).
@@ -45,6 +46,10 @@ export interface LicitacaoLinha {
   data_inicio_acolhimento?: Date | string | null;
   data_fim_acolhimento?: Date | string | null;
   data_abertura_sessao?: Date | string | null;
+  /** Escolha da disputa da dispensa (Entrega 5) e o padrão/regulamento do órgão. */
+  dispensa_com_lances?: boolean | null;
+  padrao_dispensa_com_lances?: boolean | null;
+  regulamento_adota_in67?: boolean | null;
 }
 
 export interface DocumentoLinha {
@@ -212,6 +217,11 @@ export function montarContexto(e: EntradaContexto): ContextoConformidade {
       exercicio: Number(lic.exercicio) || Number(hojeEmBrasilia(e.agora).slice(0, 4)),
       cronograma: cron,
       data_pretendida: dfd?.dados_estruturados?._dfd?.data_pretendida ? String(dfd.dados_estruturados._dfd.data_pretendida).slice(0, 10) : null,
+      dispensa_com_lances: (() => {
+        const modo = modoDisputaDaDispensa(lic, lic.padrao_dispensa_com_lances);
+        return modo.aplica ? modo.com_lances : null;
+      })(),
+      regulamento_adota_in67: lic.regulamento_adota_in67 === true,
     },
     instrucao: e.instrucao.itens,
     pecas: e.documentos.filter((d) => d.status !== 'SUBSTITUIDO').map((d) => pecaDoContexto(d, e.textos_pdf?.[d.id] ?? null)),

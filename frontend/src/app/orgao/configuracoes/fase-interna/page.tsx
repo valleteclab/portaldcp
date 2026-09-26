@@ -39,6 +39,10 @@ interface Configuracao {
   /** Entrega 3B: quem assina a autorização (autoridade colegiada) e o nome da autoridade. */
   signatarios_autorizacao: Array<{ usuario_id: string; papel: string }>
   autoridade_rotulo: string
+  /** Entrega 5: PADRÃO SUGERIDO para novas dispensas (a escolha é do agente em cada processo). */
+  dispensa_com_lances: boolean
+  /** O regulamento local adota a IN SEGES 67/2021? (aviso DISP-01 da conformidade) */
+  regulamento_adota_in67: boolean
   padrao: boolean
   setores: Array<{ id: string; nome: string; codigo: string }>
   papeis: Array<{ codigo: string; rotulo: string }>
@@ -136,6 +140,8 @@ export default function ConfiguracaoFaseInternaPage() {
           prazos: cfg.prazos,
           signatarios_autorizacao: cfg.signatarios_autorizacao.filter((s) => s.usuario_id),
           autoridade_rotulo: cfg.autoridade_rotulo,
+          dispensa_com_lances: cfg.dispensa_com_lances !== false,
+          regulamento_adota_in67: cfg.regulamento_adota_in67 === true,
         }),
       })
       if (!r.ok) throw new Error(await lerErro(r))
@@ -215,6 +221,54 @@ export default function ConfiguracaoFaseInternaPage() {
               aviso: não impede a publicação. Ao desativar, as tarefas abertas dessa etapa são canceladas.
             </span>
           </label>
+          <fieldset className="space-y-2 pt-2 border-t" disabled={!admin}>
+            <legend className="text-sm font-semibold">Dispensa eletrônica — padrão sugerido para novas dispensas</legend>
+            <p className="text-xs text-gray-600">
+              Quem escolhe é o agente, em cada processo (Editar processo › Classificação ou a tela da conformidade), até a publicação. Aqui fica só o
+              valor que já vem marcado.
+            </p>
+            <label className="flex gap-2 items-start text-sm">
+              <input
+                type="radio"
+                name="dispensa-lances"
+                className="mt-1"
+                checked={cfg.dispensa_com_lances !== false}
+                onChange={() => setCfg({ ...cfg, dispensa_com_lances: true })}
+              />
+              <span>
+                <b>Com disputa de lances</b> (sessão de lances em tempo real, de 6 a 10 horas, depois do prazo de propostas — IN SEGES nº 67/2021, quando
+                adotada pelo órgão).
+              </span>
+            </label>
+            <label className="flex gap-2 items-start text-sm">
+              <input
+                type="radio"
+                name="dispensa-lances"
+                className="mt-1"
+                checked={cfg.dispensa_com_lances === false}
+                onChange={() => setCfg({ ...cfg, dispensa_com_lances: false })}
+              />
+              <span>
+                <b>Sem disputa de lances</b> (só recebimento de propostas no prazo do aviso — Lei nº 14.133/2021, art. 75, §3º, aviso de 3 dias úteis para
+                propostas adicionais); vence o menor preço e, no empate, a proposta registrada primeiro.
+              </span>
+            </label>
+            <label className="flex gap-2 items-start text-sm pt-1">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={cfg.regulamento_adota_in67 === true}
+                onChange={(e) => setCfg({ ...cfg, regulamento_adota_in67: e.target.checked })}
+              />
+              <span>
+                <b>O regulamento local adota a IN SEGES nº 67/2021</b> — com esta opção, a conformidade avisa (atenção, não bloqueio) a dispensa definida sem
+                disputa de lances.
+              </span>
+            </label>
+            <p className="text-xs text-gray-600">
+              A escolha de cada processo é gravada quando ele é publicado: mudar aqui não altera os processos já criados com escolha nem os publicados.
+            </p>
+          </fieldset>
         </CardContent>
       </Card>
 

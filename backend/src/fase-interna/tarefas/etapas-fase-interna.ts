@@ -79,7 +79,7 @@ export type SituacaoPasso =
   | 'AGUARDANDO' // dependências ainda não cumpridas (a peça pode ser feita mesmo assim)
   | 'DISPONIVEL' // dependências cumpridas, nada começado
   | 'EM_ANDAMENTO' // alguma peça em elaboração/aprovação/assinatura ou parte pronta
-  | 'CONCLUIDO' // todas as peças prontas (ou "não se aplica"); publicação: processo divulgado
+  | 'CONCLUIDO' // todas as peças prontas (ou "não se aplica"); publicação: divulgação CONFIRMADA (PNCP/diário oficial)
   | 'NAO_REALIZADO' // a fase interna acabou (processo divulgado) sem a peça
   | 'CANCELADO'; // processo revogado/anulado na fase interna
 
@@ -333,7 +333,8 @@ export function pecaProntaParaEtapa(status: string): boolean {
  *  - Passo sem peça na instrução do processo (ex.: minutas no rito completo)
  *    não aparece; dependência dele conta como cumprida.
  *  - Controle interno: só com `controle_interno_ativo`.
- *  - Publicação: CONCLUIDO quando o processo saiu da fase interna.
+ *  - Publicação: EM_ANDAMENTO enquanto aguarda a confirmação do PNCP
+ *    (AGUARDANDO_DIVULGACAO — Entrega 5); CONCLUIDO com a divulgação confirmada.
  *  - Processo divulgado: o que não ficou pronto vira NAO_REALIZADO; revogado
  *    ou anulado na fase interna: CANCELADO.
  */
@@ -345,7 +346,11 @@ export function etapasDaFaseInterna(
 ): EtapaCalculada[] {
   const direta = !!processo.contratacao_direta;
   const faseInterna = FASES_INTERNAS.has(processo.fase);
-  const cancelado = SITUACOES_CANCELAM.has(String(processo.situacao ?? '')) && faseInterna;
+  // Entrega 5: PUBLICAR leva a AGUARDANDO_DIVULGACAO — a etapa 8 só conclui
+  // com a CONFIRMAÇÃO do PNCP (ou do diário oficial, sem PNCP): até lá a
+  // publicação está EM_ANDAMENTO e a tarefa continua aberta.
+  const aguardandoDivulgacao = processo.fase === FaseLicitacao.AGUARDANDO_DIVULGACAO;
+  const cancelado = SITUACOES_CANCELAM.has(String(processo.situacao ?? '')) && (faseInterna || aguardandoDivulgacao);
   const divulgado = !faseInterna;
 
   // Peças por passo (na ordem da instrução)
@@ -385,14 +390,22 @@ export function etapasDaFaseInterna(
 
     let situacao: SituacaoPasso;
     if (passo === P.PUBLICACAO) {
-      situacao = divulgado ? 'CONCLUIDO' : cancelado ? 'CANCELADO' : pendencias.length ? 'AGUARDANDO' : 'DISPONIVEL';
+      situacao = cancelado
+        ? 'CANCELADO'
+        : aguardandoDivulgacao
+          ? 'EM_ANDAMENTO'
+          : divulgado
+            ? 'CONCLUIDO'
+            : pendencias.length
+              ? 'AGUARDANDO'
+              : 'DISPONIVEL';
     } else {
       // Portão A (Entrega 4): com LIM-01 aberto a pesquisa não conclui, mesmo com a peça pronta
       const barrado = (bloqueios[passo] ?? []).length > 0 && !divulgado && !cancelado;
       const todas = lista.every((x) => x.pronta) && !barrado;
       const comecou = lista.some((x) => x.pronta || STATUS_EM_ANDAMENTO.has(x.status));
       if (todas) situacao = 'CONCLUIDO';
-      else if (cancelado) situacao = 'CANCELADO';
+      else if (cancelado && faseInterna) situacao = 'CANCELADO';
       else if (divulgado) situacao = 'NAO_REALIZADO';
       else if (comecou) situacao = 'EM_ANDAMENTO';
       else situacao = pendencias.length ? 'AGUARDANDO' : 'DISPONIVEL';

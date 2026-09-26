@@ -129,11 +129,22 @@ describe('etapasDaFaseInterna — contratação direta (art. 72)', () => {
     expect(passo(etapas, P.PUBLICACAO).portao).toBe('C_CONFORMIDADE');
   });
 
-  it('processo divulgado: publicação concluída; o que faltou vira "não realizado"', () => {
-    const etapas = etapasDaFaseInterna({ ...direta, fase: 'AGUARDANDO_DIVULGACAO' }, instrucaoDireta(ok('DFD', 'PP', 'AA')), semCI);
+  it('processo divulgado (PNCP confirmou): publicação concluída; o que faltou vira "não realizado"', () => {
+    const etapas = etapasDaFaseInterna({ ...direta, fase: 'PUBLICADO' }, instrucaoDireta(ok('DFD', 'PP', 'AA')), semCI);
     expect(passo(etapas, P.PUBLICACAO).situacao).toBe('CONCLUIDO');
     expect(passo(etapas, P.ETP).situacao).toBe('NAO_REALIZADO');
     expect(etapaAtual(etapas)).toBeNull();
+  });
+
+  it('Entrega 5: publicado e AGUARDANDO a confirmação do PNCP — a etapa 8 segue em andamento (a tarefa não fecha)', () => {
+    const etapas = etapasDaFaseInterna({ ...direta, fase: 'AGUARDANDO_DIVULGACAO' }, instrucaoDireta(ok('DFD', 'PP', 'AA')), semCI);
+    expect(passo(etapas, P.PUBLICACAO).situacao).toBe('EM_ANDAMENTO');
+    expect(passo(etapas, P.ETP).situacao).toBe('NAO_REALIZADO');
+    expect(etapas.find((e) => e.etapa === E.CONFORMIDADE_PUBLICACAO)!.situacao).toBe('EM_ANDAMENTO');
+    // revogado enquanto aguarda: a publicação é cancelada (a tarefa também)
+    const rev = etapasDaFaseInterna({ ...direta, fase: 'AGUARDANDO_DIVULGACAO', situacao: 'REVOGADA' }, instrucaoDireta(ok('DFD', 'PP', 'AA')), semCI);
+    expect(passo(rev, P.PUBLICACAO).situacao).toBe('CANCELADO');
+    expect(passo(rev, P.ETP).situacao).toBe('NAO_REALIZADO');
   });
 
   it('revogado na fase interna: o que não estava pronto fica cancelado', () => {

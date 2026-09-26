@@ -37,6 +37,13 @@ export interface ConfigFaseInternaEfetiva {
   signatarios_autorizacao: SignatarioAutorizacao[];
   /** Nome da autoridade nos despachos (padrão: "Autoridade competente"). */
   autoridade_rotulo: string;
+  /**
+   * PADRÃO SUGERIDO para novas dispensas (true = com disputa de lances). A
+   * regra é a escolha do agente no processo — Entrega 5.
+   */
+  dispensa_com_lances: boolean;
+  /** O regulamento local adota a IN SEGES 67/2021? (aviso DISP-01 da conformidade) */
+  regulamento_adota_in67: boolean;
   /** true = ainda não gravada (valores padrão). */
   padrao: boolean;
 }
@@ -71,6 +78,8 @@ export function configEfetiva(
     prazos?: Record<string, any> | null;
     signatarios_autorizacao?: unknown;
     autoridade_rotulo?: string | null;
+    dispensa_com_lances?: boolean | null;
+    regulamento_adota_in67?: boolean | null;
   } | null,
 ): ConfigFaseInternaEfetiva {
   const responsaveis = responsaveisPadrao();
@@ -93,6 +102,9 @@ export function configEfetiva(
     prazos,
     signatarios_autorizacao: normalizarSignatariosAutorizacao(linha?.signatarios_autorizacao),
     autoridade_rotulo: String(linha?.autoridade_rotulo ?? '').trim() || AUTORIDADE_ROTULO_PADRAO,
+    // padrão: COM lances (IN 67); só o false gravado desliga
+    dispensa_com_lances: linha?.dispensa_com_lances !== false,
+    regulamento_adota_in67: linha?.regulamento_adota_in67 === true,
     padrao: !linha,
   };
 }

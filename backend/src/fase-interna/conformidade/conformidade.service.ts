@@ -121,7 +121,9 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
               tipo_contratacao::text AS tipo_contratacao, criterio_julgamento::text AS criterio_julgamento, regime_execucao::text AS regime_execucao,
               natureza_objeto, fase::text AS fase, situacao::text AS situacao, fundamento_legal, sigilo_orcamento::text AS sigilo_orcamento,
               justificativa_sigilo, valor_total_estimado, COALESCE(ano, EXTRACT(YEAR FROM created_at))::int AS exercicio, selecao_externa,
-              data_publicacao_edital, data_inicio_acolhimento, data_fim_acolhimento, data_abertura_sessao, updated_at
+              data_publicacao_edital, data_inicio_acolhimento, data_fim_acolhimento, data_abertura_sessao, updated_at, dispensa_com_lances,
+              (SELECT c.dispensa_com_lances FROM configuracoes_fase_interna c WHERE c.orgao_id = licitacoes.orgao_id) AS padrao_dispensa_com_lances,
+              (SELECT c.regulamento_adota_in67 FROM configuracoes_fase_interna c WHERE c.orgao_id = licitacoes.orgao_id) AS regulamento_adota_in67
          FROM licitacoes WHERE id::text = $1`,
       [licitacaoId],
     );

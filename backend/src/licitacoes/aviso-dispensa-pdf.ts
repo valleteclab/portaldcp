@@ -8,6 +8,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
+import { REFERENCIA_COM_LANCES, REFERENCIA_SEM_LANCES, textoFormaDisputa } from './modo-disputa-dispensa';
 
 const fmtMoeda = (v: any) =>
   Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -22,6 +23,11 @@ export interface DadosAvisoDispensa {
   itens: any[];
   /** URL do sistema onde as propostas são recebidas (portal do fornecedor) */
   url_sistema?: string;
+  /**
+   * Disputa da dispensa (fase interna, Entrega 5 — escolha do agente no
+   * processo): com disputa de lances ou só recebimento de propostas.
+   */
+  com_lances?: boolean;
 }
 
 export function gerarAvisoDispensaPdf(dados: DadosAvisoDispensa): Buffer {
@@ -49,12 +55,19 @@ export function gerarAvisoDispensaPdf(dados: DadosAvisoDispensa): Buffer {
   y += 9;
 
   const lic = dados.licitacao;
+  const comLances = dados.com_lances !== false;
   const linhas: Array<[string, string]> = [
     ['Processo', String(lic.numero_processo || '—')],
     // Fundamento: campo único do processo (fundamento-legal.ts) — o mesmo do PNCP
     ['Fundamento legal', fundamentoLegalTexto(lic) || '—'],
     ['Objeto', String(lic.objeto || '—')],
-    ['Critério de julgamento', 'Menor preço unitário por item'],
+    ['Critério de julgamento', comLances ? 'Menor preço unitário por item' : 'Menor preço unitário por item (empate: prevalece a proposta registrada primeiro)'],
+    [
+      'Disputa',
+      comLances
+        ? `Com disputa de lances (sessão de lances em tempo real, de 6 a 10 horas, depois do prazo de propostas) — ${REFERENCIA_COM_LANCES}`
+        : `Sem disputa de lances (só recebimento de propostas no prazo do aviso) — ${REFERENCIA_SEM_LANCES}`,
+    ],
     ['Valor total estimado', fmtMoeda(lic.valor_total_estimado)],
     [
       'Divulgação oficial (PNCP)',
@@ -68,7 +81,9 @@ export function gerarAvisoDispensaPdf(dados: DadosAvisoDispensa): Buffer {
     ],
     [
       'Forma de participação',
-      `Eletrônica, pelo sistema ${dados.url_sistema || 'Portal DCP'} (cadastro gratuito de fornecedores). Encerrado o prazo de propostas, haverá etapa de lances (IN SEGES 67/2021, art. 11).`,
+      `Eletrônica, pelo sistema ${dados.url_sistema || 'Portal DCP'} (cadastro gratuito de fornecedores). ${
+        comLances ? 'Encerrado o prazo de propostas, haverá sessão de disputa de lances (IN SEGES 67/2021, art. 11).' : 'Não haverá disputa de lances: valem as propostas recebidas até o fim do prazo do aviso.'
+      }`,
     ],
   ];
   autoTable(doc, {
@@ -112,10 +127,9 @@ export function gerarAvisoDispensaPdf(dados: DadosAvisoDispensa): Buffer {
     'limites deste aviso, respeitado o prazo mínimo de 3 (três) dias úteis contado da divulgação no PNCP (art. 75, §3º, ' +
     'da Lei 14.133/2021; IN SEGES 67/2021, art. 6º, parágrafo único) — se a confirmação da publicação no PNCP ocorrer ' +
     'depois, as datas serão estendidas até o mínimo legal. O conteúdo das propostas é sigiloso até a abertura. ' +
-    'Encerrado o prazo, haverá etapa de lances, sem identificação dos fornecedores (IN SEGES 67/2021, arts. 11 e 13), ' +
-    'e o julgamento pelo menor preço unitário por item (art. 15); o órgão poderá negociar condições mais vantajosas com ' +
-    'o vencedor pelo sistema (art. 16). A comunicação entre o órgão e os fornecedores é feita pelas mensagens do sistema ' +
-    '(art. 10). O resultado e o contrato serão divulgados no PNCP.';
+    textoFormaDisputa(comLances) +
+    ' A comunicação entre o órgão e os fornecedores é feita pelas mensagens do sistema ' +
+    '(IN SEGES 67/2021, art. 10). O resultado e o contrato serão divulgados no PNCP.';
   const linhasTexto = doc.splitTextToSize(texto, W - mX * 2);
   doc.text(linhasTexto, mX, y);
   y += linhasTexto.length * 4.2 + 8;

@@ -61,6 +61,9 @@ export function EtapaDispensa({
   const lancesFim = l.dispensa_lances_fim ? new Date(l.dispensa_lances_fim) : null
   const lancesAberta = !!lancesFim && agora < lancesFim
   const julgado = dados.checklist.resultado_registrado
+  // Entrega 5: dispensa SEM etapa de lances (regulamento do órgão) — só propostas; julga no fim do prazo
+  const modo = l.modo_disputa_dispensa ?? null
+  const semLances = modo?.aplica === true && modo.com_lances === false
   const atoJulgar: AtoDisponivel | undefined = (dados.atos_disponiveis || []).find((a) => a.ato === "JULGAR_DISPENSA")
   const validas = dados.propostas.filter((p) => !["RASCUNHO", "CANCELADA"].includes(p.status))
 
@@ -168,6 +171,11 @@ export function EtapaDispensa({
           <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">Etapa atual</p>
           <h2 id="titulo-recebimento" className="text-lg font-semibold">Recebimento de propostas e avisos aos fornecedores</h2>
           <p className="text-sm text-gray-700">Propostas até {fmtBrasilia(fimPrazo)} (horário de Brasília).</p>
+          {modo?.aplica && (
+            <p className="text-xs text-gray-600">
+              {modo.descricao} — {modo.referencia}.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3 rounded-md border bg-slate-50 p-3">
           <Lock className="w-5 h-5 text-amber-700 shrink-0" aria-hidden="true" />
@@ -189,15 +197,31 @@ export function EtapaDispensa({
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">Etapa atual</p>
           <h2 id="titulo-julgamento" className="text-lg font-semibold">
-            {julgado ? "Julgamento e negociação com o vencedor" : lancesAberta ? "Etapa de lances" : "Etapa de lances e julgamento"}
+            {julgado
+              ? "Julgamento e negociação com o vencedor"
+              : semLances
+                ? "Julgamento das propostas (sem disputa de lances)"
+                : lancesAberta
+                  ? "Etapa de lances"
+                  : "Etapa de lances e julgamento"}
           </h2>
           <p className="text-sm text-gray-700">
             {validas.length} {validas.length === 1 ? "proposta" : "propostas"} · prazo encerrado em {fmtBrasilia(fimPrazo)}
             {lancesFim ? ` · lances ${lancesAberta ? "até" : "encerrados em"} ${fmtBrasilia(lancesFim)}` : ""}
           </p>
+          {modo?.aplica && (
+            <p className="text-xs text-gray-600 mt-0.5">
+              {modo.com_lances
+                ? lancesFim
+                  ? `Com etapa de lances de ${fmtBrasilia(l.dispensa_lances_inicio)} a ${fmtBrasilia(lancesFim)}`
+                  : modo.descricao
+                : modo.descricao}{" "}
+({modo.referencia})
+            </p>
+          )}
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
-          {!lancesFim && !julgado && validas.length > 0 && (
+          {!semLances && !lancesFim && !julgado && validas.length > 0 && (
             <Button variant="outline" onClick={() => setModalLances(true)}>Abrir etapa de lances</Button>
           )}
           <Button onClick={julgar} disabled={julgando || (!!atoJulgar && !atoJulgar.disponivel) || (!atoJulgar && !julgado)}>

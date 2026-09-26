@@ -48,6 +48,10 @@ export enum TipoDocumentoFaseInterna {
   // Entrega 2 — etapa opcional entre o parecer e a publicação (desativável
   // por órgão; na Câmara de LEM, Portaria 089/2024, art. 85).
   MANIFESTACAO_CONTROLE_INTERNO = 'MCI',
+
+  // Entrega 5 — peça da PUBLICAÇÃO (etapa 8): registro da publicação no
+  // Diário Oficial do órgão (número/edição, data e página, ou a página anexada).
+  PUBLICACAO_DIARIO_OFICIAL = 'PDO',
 }
 
 export enum StatusDocumento {
