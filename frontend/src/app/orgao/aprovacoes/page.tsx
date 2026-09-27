@@ -305,7 +305,10 @@ export default function CentralAprovacoesPage() {
   // Assinaturas (homologação E1): quantas esperam o usuário do login — badge da aba
   const [assinaturasPendentes, setAssinaturasPendentes] = useState(0);
   useEffect(() => {
-    carregarAssinaturasPendentes().then((r) => setAssinaturasPendentes(r?.itens.length ?? 0));
+    carregarAssinaturasPendentes()
+      .then((r) => setAssinaturasPendentes(r?.itens.length ?? 0))
+      .finally(() => marcarCarregada('assinaturas'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // UI State
@@ -1021,6 +1024,7 @@ export default function CentralAprovacoesPage() {
     { valor: 'contratos', visivel: podeLiberarContratos, pendentes: contratos.length },
     { valor: 'demandas', visivel: podeAprovarDemandas, pendentes: pendentesPlanejamento },
     { valor: 'documentos', visivel: true, pendentes: pendentesDocumentos },
+    { valor: 'assinaturas', visivel: true, pendentes: assinaturasPendentes },
     { valor: 'requisicoes', visivel: podeAprovarRequisicoes, pendentes: requisicoes.length },
     { valor: 'medicoes', visivel: true, pendentes: medicoes.length },
     { valor: 'ordens-servico', visivel: true, pendentes: ordensServico.length },
