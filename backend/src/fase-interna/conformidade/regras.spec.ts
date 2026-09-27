@@ -26,6 +26,7 @@ import {
   LEI_01,
   LIM_01,
   LIM_02,
+  LIM_03,
   MARCA_01,
   MINUTA_DESAT,
   PRAZO_01,
@@ -58,7 +59,7 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
     expect(real.filter((a) => a.erro)).toEqual([]);
     const corrigido = avaliarRegras(ctxCorrigido());
     expect(corrigido.filter((a) => a.achados.length).map((a) => `${a.regra.codigo}: ${a.achados[0].mensagem}`)).toEqual([]);
-    expect(REGRAS).toHaveLength(28); // F1: + FLUXO-01
+    expect(REGRAS).toHaveLength(29); // F1: + FLUXO-01; homologação multiusuário: + LIM-03
   });
 
   describe('LIM-01 — limite do inciso no exercício, no ramo (portão A)', () => {
@@ -76,6 +77,35 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
     it('fora da dispensa por valor: não se aplica', () => {
       const r = rodar(LIM_01, com(pa139Real, (e) => (e.limite = { ...consumo(0), aplicavel: false, motivo: 'O limite de valor só se aplica à dispensa do art. 75, I e II.' })));
       expect(r).toMatchObject({ aplicavel: false, achados: [] });
+    });
+  });
+
+  describe('E6 (homologação multiusuário) — itens sem código CATMAT/CATSER', () => {
+    /** Ramo "sem classificação": só o próprio processo conta (consumo-limite.service). */
+    const semCodigo = (deste: number) => {
+      const c = consumo(deste, deste);
+      c.ramos = c.ramos.map((r) => ({ ...r, ramo: { classe: 'MATERIAL:SEM_CODIGO', unidade_gestora: '', sem_classificacao: true }, sem_classificacao: true }));
+      return c;
+    };
+    it('R$ 300 de papel sem código: nada de LIM-01 (bloqueio) — LIM-03 (atenção) pede a classificação', () => {
+      const ctx = com(pa139Real, (e) => (e.limite = semCodigo(300)));
+      expect(rodar(LIM_01, ctx).achados).toEqual([]);
+      expect(rodar(LIM_02, ctx).achados).toEqual([]);
+      const [a] = rodar(LIM_03, ctx).achados;
+      expect(a.severidade).toBe('ATENCAO');
+      expect(a.exige_justificativa).toBeFalsy();
+      expect(a.mensagem).toMatch(/classifique os itens pelo catálogo para o controle do limite do art\. 75, §1º/);
+      expect(a.mensagem).toMatch(/R\$\s?300,00/);
+    });
+    it('o próprio processo, sozinho e sem código, acima do limite: LIM-01 continua bloqueando (com a mensagem do processo)', () => {
+      const [a] = rodar(LIM_01, com(pa139Real, (e) => (e.limite = semCodigo(70_000)))).achados;
+      expect(a.severidade).toBe('BLOQUEIO');
+      expect(a.titulo).toBe('Limite da dispensa ultrapassado por este processo');
+      expect(a.mensagem).not.toMatch(/outra\(s\) dispensa/);
+    });
+    it('itens classificados: LIM-03 não dispara (real e corrigido)', () => {
+      expect(rodar(LIM_03).achados).toEqual([]);
+      expect(rodar(LIM_03, ctxCorrigido()).achados).toEqual([]);
     });
   });
 

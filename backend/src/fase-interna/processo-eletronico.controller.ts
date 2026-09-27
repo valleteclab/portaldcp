@@ -31,6 +31,7 @@ import { AprovacaoPecasService } from './aprovacao-pecas.service';
 import { TarefasService } from './tarefas/tarefas.service';
 import type { Response } from 'express';
 import * as fs from 'fs';
+import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
 
 /**
  * Processo eletrônico da fase interna (estilo SEI):
@@ -47,7 +48,7 @@ import * as fs from 'fs';
  * ADMIN do órgão.
  */
 @Controller('fase-interna')
-@UseGuards(DonoFaseInternaGuard)
+@UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class ProcessoEletronicoController {
   constructor(
     private readonly modelos: ModeloDocumentoService,
@@ -192,6 +193,7 @@ export class ProcessoEletronicoController {
   }
 
   /** Cria documento da fase interna a partir do modelo efetivo (ou de um modelo específico) */
+  @TrabalhoNaEtapa({ tipoCorpo: 'tipo', acao: 'criar a peça a partir do modelo' })
   @Post(':licitacaoId/documentos/do-modelo')
   async criarDocumentoDeModelo(
     @Param('licitacaoId') licitacaoId: string,
@@ -389,6 +391,7 @@ export class ProcessoEletronicoController {
   // ==========================================================================
 
   /** Submete o documento instanciando as etapas do fluxo configurado (quem envia: o usuário do token). */
+  @TrabalhoNaEtapa({ documentoParam: 'id', acao: 'enviar para aprovação' })
   @Put('documento/:id/submeter-fluxo')
   @DonoPor('documento', 'id')
   async submeterFluxo(@Param('id') id: string, @AtorAtual() ator: Ator, @Req() req: any) {

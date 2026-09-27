@@ -4,6 +4,7 @@ import type { Ator } from '../../auth/acesso/ator';
 import { DonoFaseInternaGuard, DonoModo } from '../dono-fase-interna.guard';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { RascunhoIaService } from './rascunho-ia.service';
+import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
 
 /**
  * RASCUNHO DA IA POR ETAPA (F4a). DonoFaseInternaGuard na classe: anônimo
@@ -13,7 +14,7 @@ import { RascunhoIaService } from './rascunho-ia.service';
  * de outro processo → 404. Autor sempre do JWT.
  */
 @Controller('fase-interna')
-@UseGuards(DonoFaseInternaGuard)
+@UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class RascunhoIaController {
   constructor(
     private readonly rascunhos: RascunhoIaService,
@@ -34,6 +35,7 @@ export class RascunhoIaController {
   }
 
   /** "Aceitar como base" — só seções vazias; devolve o que entrou e o que foi mantido. */
+  @TrabalhoNaEtapa({ rascunhoParam: 'rascunhoId', acao: 'aceitar o rascunho da IA' })
   @Post(':licitacaoId/rascunho-ia/:rascunhoId/aceitar')
   @DonoModo('leitura')
   async aceitar(@Param('licitacaoId') id: string, @Param('rascunhoId') rascunhoId: string, @AtorAtual() ator: Ator) {

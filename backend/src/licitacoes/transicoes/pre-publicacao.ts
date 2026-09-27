@@ -2,6 +2,7 @@ import { FaseLicitacao, ModalidadeLicitacao } from '../entities/licitacao.entity
 import { itemValidoParaPublicacao, pendenciaItensParaPublicacao } from '../../itens/regras-itens-publicacao';
 import { MODALIDADES_COM_EDITAL } from '../../publicacao/regras-publicacao';
 import {
+  PREFIXO_ETAPAS_DO_FLUXO,
   avisoContratacaoDiretaGerado,
   editalAnexado,
   exclusividadeMpeArt48,
@@ -35,7 +36,7 @@ export type AcaoConferencia =
   | 'ABRIR_CONTROLE_INTERNO';
 
 export interface ItemConferencia {
-  chave: 'DOCUMENTOS' | 'AUTORIZACAO' | 'CONTROLE_INTERNO' | 'AVISO' | 'EDITAL' | 'ITENS' | 'PCA' | 'ME_EPP' | 'CONFORMIDADE' | 'OUTRAS';
+  chave: 'DOCUMENTOS' | 'AUTORIZACAO' | 'ETAPAS' | 'CONTROLE_INTERNO' | 'AVISO' | 'EDITAL' | 'ITENS' | 'PCA' | 'ME_EPP' | 'CONFORMIDADE' | 'OUTRAS';
   rotulo: string;
   fundamento: string;
   estado: EstadoConferencia;
@@ -167,6 +168,23 @@ export async function conferirPrePublicacao(e: EntradaConferencia): Promise<Conf
       estado: pend.length ? 'PENDENTE' : 'OK',
       bloqueia: pend.length > 0,
       detalhe: pend.length ? pend.join(' · ') : null,
+      pendencias: pend,
+      acao: pend.length ? 'ABRIR_FASE_INTERNA' : null,
+    });
+  }
+
+  // 1b. Etapas do modelo de fluxo (homologação multiusuário — E3): minutas,
+  //     parecer (ou a dispensa por ato), controle interno ligado e autorização
+  //     concluídos — as mesmas pendências da trava do PUBLICAR
+  if (interna && direta) {
+    const pend = e.pendenciasPublicar.filter((p) => p.startsWith(PREFIXO_ETAPAS_DO_FLUXO));
+    itens.push({
+      chave: 'ETAPAS',
+      rotulo: 'Etapas obrigatórias do fluxo concluídas (minutas, parecer, controle interno, autorização)',
+      fundamento: 'Lei 14.133/2021, arts. 53, §4º, e 72',
+      estado: pend.length ? 'PENDENTE' : 'OK',
+      bloqueia: pend.length > 0,
+      detalhe: pend.length ? pend.map((p) => p.slice(PREFIXO_ETAPAS_DO_FLUXO.length + 2)).join(' · ') : 'Todas as etapas do fluxo concluídas',
       pendencias: pend,
       acao: pend.length ? 'ABRIR_FASE_INTERNA' : null,
     });

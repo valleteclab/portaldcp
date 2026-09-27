@@ -17,24 +17,30 @@ import {
   tipoDoProcesso,
   validarModelo,
 } from './modelo-fluxo';
-import { REQUISITOS_SEMENTE, modeloSemente } from './semente-fluxo';
+import { REQUISITOS_SEMENTE, comOrdemNovaDaDireta, modeloSemente, ordemAnteriorDaDireta } from './semente-fluxo';
 import { regrasDaTrava, travasSemente } from './travas';
 
 const opcoes = { catalogo: CODIGOS_DO_CATALOGO, papeis: PAPEIS_FASE_INTERNA };
 const validar = (m: ModeloFluxo, extra: Partial<Parameters<typeof validarModelo>[2]> = {}) => validarModelo(m, REQUISITOS_SEMENTE, { ...opcoes, ...extra });
 const editar = (m: ModeloFluxo, etapas: any[], resto: any = {}) => aplicarEdicao(m, { etapas, ...resto }).modelo;
 
-/** As constantes que existiam até a F1 (tarefas/etapas-fase-interna.ts). */
-const DEPENDENCIAS_DIRETA_ANTIGAS: Record<string, string[]> = {
+/**
+ * Contratação direta: o MAPA APROVADO PELO DONO (§4 do plano; homologação
+ * multiusuário, 27/09/2026) — … → reserva → minutas → parecer → (controle
+ * interno) → AUTORIZAÇÃO → publicação (art. 53, §4º; art. 72, VI a VIII;
+ * Portaria 089/2024). Até então a semente repetia as constantes antigas
+ * (autorização antes das minutas e do parecer).
+ */
+const DEPENDENCIAS_DIRETA: Record<string, string[]> = {
   DFD: [],
   ETP: ['DFD'],
   TR: ['DFD'],
   PESQUISA: ['DFD'],
   RESERVA: ['PESQUISA'],
-  AUTORIZACAO: ['DFD', 'ETP', 'TR', 'PESQUISA', 'RESERVA'],
-  MINUTAS: ['AUTORIZACAO'],
+  MINUTAS: ['ETP', 'TR', 'RESERVA'],
   PARECER: ['MINUTAS'],
-  PUBLICACAO: ['PARECER'],
+  AUTORIZACAO: ['DFD', 'ETP', 'TR', 'PESQUISA', 'RESERVA', 'PARECER'],
+  PUBLICACAO: ['AUTORIZACAO', 'PARECER'],
 };
 const DEPENDENCIAS_RITO_ANTIGAS: Record<string, string[]> = {
   DFD: [],
@@ -49,10 +55,12 @@ const DEPENDENCIAS_RITO_ANTIGAS: Record<string, string[]> = {
 };
 const PRAZOS_089 = { DFD: null, ETP: null, TR: null, PESQUISA: 30, RESERVA: 3, AUTORIZACAO: 3, MINUTAS: 5, PARECER: 5, CONTROLE_INTERNO: 3, PUBLICACAO: 5 };
 
-describe('semente "Câmara — Portaria 089" = o comportamento das constantes de antes da F1', () => {
-  it('dependências efetivas (opcionais desligadas atravessadas) iguais às antigas — direta e rito', () => {
-    const direta = dependenciasEfetivas(modeloSemente('DISPENSA').etapas);
-    for (const [k, v] of Object.entries(DEPENDENCIAS_DIRETA_ANTIGAS)) expect([k, [...(direta.get(k) ?? [])].sort()]).toEqual([k, [...v].sort()]);
+describe('semente "Câmara — Portaria 089"', () => {
+  it('dependências efetivas (opcionais desligadas atravessadas): direta (dispensa e inexigibilidade) no mapa do dono; rito igual às constantes antigas', () => {
+    for (const tipo of ['DISPENSA', 'INEXIGIBILIDADE'] as const) {
+      const direta = dependenciasEfetivas(modeloSemente(tipo).etapas);
+      for (const [k, v] of Object.entries(DEPENDENCIAS_DIRETA)) expect([tipo, k, [...(direta.get(k) ?? [])].sort()]).toEqual([tipo, k, [...v].sort()]);
+    }
     const rito = dependenciasEfetivas(modeloSemente('LICITACAO').etapas);
     for (const [k, v] of Object.entries(DEPENDENCIAS_RITO_ANTIGAS)) expect([k, [...(rito.get(k) ?? [])].sort()]).toEqual([k, [...v].sort()]);
   });
@@ -135,15 +143,63 @@ describe('validação do modelo pela lei (erro com o artigo)', () => {
   });
 });
 
+describe('ordem da contratação direta (homologação multiusuário, 27/09/2026)', () => {
+  it('a semente não tem aviso de ordem: autorização depois do parecer nos dois tipos da contratação direta', () => {
+    for (const t of ['DISPENSA', 'INEXIGIBILIDADE'] as const) expect(validar(modeloSemente(t)).avisos.filter((a) => a.codigo === 'AVISO_AUTORIZACAO_ANTES_DO_PARECER')).toEqual([]);
+  });
+
+  it('autorização antes do parecer: salva (não é erro), mas com AVISO citando o art. 53, §4º — só na contratação direta', () => {
+    const antigo = editar(modeloSemente('DISPENSA'), [
+      { codigo: 'AUTORIZACAO', depende_de: ['DFD', 'ETP', 'TR', 'PESQUISA', 'RESERVA'] },
+      { codigo: 'MINUTAS', depende_de: ['AUTORIZACAO'] },
+      { codigo: 'PUBLICACAO', depende_de: ['PARECER', 'CONTROLE_INTERNO'] },
+    ]);
+    const r = validar(antigo);
+    expect(r.ok).toBe(true);
+    expect(r.avisos).toContainEqual(expect.objectContaining({ codigo: 'AVISO_AUTORIZACAO_ANTES_DO_PARECER', fundamento: 'art. 53, §4º', etapa: 'AUTORIZACAO' }));
+    expect(validar(modeloSemente('LICITACAO')).avisos.some((a) => a.codigo === 'AVISO_AUTORIZACAO_ANTES_DO_PARECER')).toBe(false);
+  });
+
+  it('migração de boot: reconhece a ordem anterior intocada e aplica a nova (sem mexer no resto do órgão)', () => {
+    const antigo = editar(modeloSemente('INEXIGIBILIDADE'), [
+      { codigo: 'AUTORIZACAO', ordem: 60, depende_de: ['DFD', 'ETP', 'TR', 'PESQUISA', 'RESERVA'] },
+      { codigo: 'MINUTAS', ordem: 70, depende_de: ['AUTORIZACAO'] },
+      { codigo: 'PARECER', ordem: 80, depende_de: ['MINUTAS'] },
+      { codigo: 'CONTROLE_INTERNO', ordem: 90, depende_de: ['PARECER'] },
+      { codigo: 'PUBLICACAO', ordem: 100, depende_de: ['PARECER', 'CONTROLE_INTERNO'] },
+      { codigo: 'TR', prazo_dias_uteis: 7 },
+    ]);
+    expect(ordemAnteriorDaDireta(antigo.etapas)).toBe(true);
+    const novo = comOrdemNovaDaDireta(antigo.etapas);
+    expect(ordemAnteriorDaDireta(novo)).toBe(false); // idempotente: não reaplica
+    const dep = (c: string) => novo.find((e) => e.codigo === c)!.depende_de;
+    expect(dep('AUTORIZACAO')).toEqual(expect.arrayContaining(['PARECER']));
+    expect(dep('MINUTAS')).not.toContain('AUTORIZACAO');
+    expect(novo.find((e) => e.codigo === 'TR')!.prazo_dias_uteis).toBe(7);
+    // Modelo editado pelo órgão (outra ordem) não é reconhecido: fica como está
+    expect(ordemAnteriorDaDireta(editar(antigo, [{ codigo: 'MINUTAS', depende_de: ['AUTORIZACAO', 'RESERVA'] }]).etapas)).toBe(false);
+  });
+
+  it('"exigir a posse para trabalhar nas peças": ligada na semente, editável (booleano) e segue o modelo vigente no processo', () => {
+    const m = modeloSemente('DISPENSA');
+    expect(m.exigir_posse_pecas).toBe(true);
+    const desl = aplicarEdicao(m, { exigir_posse_pecas: false });
+    expect(desl.erros).toEqual([]);
+    expect(desl.modelo.exigir_posse_pecas).toBe(false);
+    expect(aplicarEdicao(m, { exigir_posse_pecas: 'sim' }).erros[0]).toMatchObject({ codigo: 'CAMPO_INVALIDO' });
+    expect(modeloEfetivoDoProcesso(snapshotDoModelo(m), desl.modelo).exigir_posse_pecas).toBe(false);
+  });
+});
+
 describe('desenho e dependências (paralelo)', () => {
   it('níveis do grafo: etapas independentes na mesma coluna', () => {
     expect(niveisDoGrafo(modeloSemente('DISPENSA').etapas).map((n) => n.etapas)).toEqual([
       ['DFD'],
       ['ETP', 'TR', 'PESQUISA'],
       ['RESERVA'],
-      ['AUTORIZACAO'],
       ['MINUTAS'],
       ['PARECER'],
+      ['AUTORIZACAO'],
       ['PUBLICACAO'],
     ]);
     const comInicio = editar(modeloSemente('DISPENSA'), [{ codigo: 'AUTORIZACAO_INICIO', ligada: true }]);
@@ -152,6 +208,7 @@ describe('desenho e dependências (paralelo)', () => {
 
   it('dependentes (transitivos) de uma etapa', () => {
     expect(dependentesDe(modeloSemente('DISPENSA').etapas, 'PESQUISA').sort()).toEqual(['AUTORIZACAO', 'MINUTAS', 'PARECER', 'PUBLICACAO', 'RESERVA']);
+    expect(dependentesDe(modeloSemente('DISPENSA').etapas, 'PARECER').sort()).toEqual(['AUTORIZACAO', 'PUBLICACAO']);
   });
 });
 
@@ -174,8 +231,13 @@ describe('etapasDaFaseInterna com o modelo (F1)', () => {
 
   it('aprovação da demanda exigida e não dada: a DFD pronta aguarda a aprovação e as demais aguardam', () => {
     const e = etapasDaFaseInterna(direta, instr({ DFD: 'OK' }), m, {}, { demanda_aprovada: false });
-    expect(passo(e, 'DFD')).toMatchObject({ situacao: 'EM_ANDAMENTO', aguardando_aprovacao: true });
-    expect(passo(e, 'ETP').situacao).toBe('AGUARDANDO');
+    expect(passo(e, 'DFD')).toMatchObject({ situacao: 'EM_ANDAMENTO', aguardando_aprovacao: true, pode_iniciar: true, aguardando_demanda: false });
+    expect(passo(e, 'ETP')).toMatchObject({ situacao: 'AGUARDANDO', pode_iniciar: false, aguardando_demanda: true });
+    // Homologação multiusuário: peça começada antes da aprovação não faz a etapa "poder começar" — nem gera tarefa
+    const cedo = etapasDaFaseInterna(direta, instr({ DFD: 'OK', PP: 'EM_ELABORACAO' }), m, {}, { demanda_aprovada: false });
+    expect(passo(cedo, 'PESQUISA')).toMatchObject({ situacao: 'EM_ANDAMENTO', pode_iniciar: false, aguardando_demanda: true });
+    const plano = planejarSincronizacao(passosDasEtapas(cedo), [], () => ({ usuario_id: 'u', papel: null, setor_id: null }));
+    expect(plano.criar.map((c) => c.passo.passo)).toEqual(['DFD']);
     // modelo sem a exigência: segue como antes
     const sem = { ...m, aprovacao_demanda: { ...m.aprovacao_demanda, exigida: false } };
     expect(passo(etapasDaFaseInterna(direta, instr({ DFD: 'OK' }), sem, {}, { demanda_aprovada: false }), 'DFD').situacao).toBe('CONCLUIDO');

@@ -27,6 +27,8 @@ export interface ConsumoRamo {
   quantidade_processos: number;
   percentual: number;
   excede: boolean;
+  /** Itens sem código CATMAT/CATSER nem classe: soma só deste processo (ramo não conhecido — E6). */
+  sem_classificacao?: boolean;
 }
 
 export interface ConsumoDoLimiteProcesso {
@@ -136,7 +138,7 @@ export class ConsumoLimiteService {
     for (const r of doProcesso) if (!ramos.some((x) => x.classe === r.ramo.classe && x.unidade_gestora === r.ramo.unidade_gestora)) ramos.push(r.ramo);
 
     const consumo: ConsumoRamo[] = ramos.map((ramo) => {
-      const c = consumoDoLimite(registros, lic.orgao_id, exercicio, ramo, inciso);
+      const c = consumoDoLimite(registros, lic.orgao_id, exercicio, ramo, inciso, licitacaoId);
       const deste = c.processos.find((p) => p.licitacao_id === licitacaoId)?.valor ?? 0;
       return {
         ramo,
@@ -146,6 +148,7 @@ export class ConsumoLimiteService {
         quantidade_processos: c.processos.length,
         percentual: limite ? percentualDoLimite(c.total, limite.valor) : 0,
         excede: !!limite && c.total > limite.valor,
+        sem_classificacao: !!ramo.sem_classificacao,
       };
     });
     consumo.sort((a, b) => b.total - a.total);

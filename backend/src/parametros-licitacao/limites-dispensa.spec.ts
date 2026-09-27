@@ -47,7 +47,7 @@ describe('consumoDoLimite(orgao, exercicio, ramo) — art. 75, §1º', () => {
   it('ramo = classe do CATMAT/CATSER + unidade gestora', () => {
     expect(softwareUG1).toEqual({ classe: 'SERVICO:0859', unidade_gestora: '1' });
     expect(ramoDoItem({ codigo_catmat: '446820', classe: null }, null)).toEqual({ classe: 'MATERIAL:COD:446820', unidade_gestora: '' });
-    expect(ramoDoItem({ tipo_item: 'SERVICO' }, '2')).toEqual({ classe: 'SERVICO:SEM_CODIGO', unidade_gestora: '2' });
+    expect(ramoDoItem({ tipo_item: 'SERVICO' }, '2')).toEqual({ classe: 'SERVICO:SEM_CODIGO', unidade_gestora: '2', sem_classificacao: true });
   });
 
   it('soma só o mesmo órgão, exercício, ramo e inciso', () => {
@@ -67,6 +67,36 @@ describe('consumoDoLimite(orgao, exercicio, ramo) — art. 75, §1º', () => {
       { licitacao_id: 'L1', valor: 31753.44 },
       { licitacao_id: 'L2', valor: 30000 },
     ]);
+  });
+
+  it('E6 (homologação multiusuário): item SEM código não soma com os sem código das outras dispensas — R$ 300 de papel não viram 119% do limite', () => {
+    const papel = ramoDoItem({ tipo_item: 'MATERIAL' }, '');
+    expect(papel.sem_classificacao).toBe(true);
+    const registros: RegistroConsumo[] = [
+      reg({ licitacao_id: 'PAPEL', ramo: papel, valor: 300 }),
+      // 11 outras dispensas do exercício, também sem código (objetos diversos): R$ 77.730,00
+      ...Array.from({ length: 11 }, (_, i) => reg({ licitacao_id: `OUTRA-${i}`, ramo: ramoDoItem({ tipo_item: 'MATERIAL' }, ''), valor: i === 0 ? 77730 - 10 * 7000 : 7000 })),
+    ];
+    // Antes: tudo num ramo "MATERIAL:SEM_CODIGO" → R$ 78.030,00 (119,1% de R$ 65.492,11)
+    const c = consumoDoLimite(registros, 'A', 2025, papel, 'II', 'PAPEL');
+    expect(c.total).toBe(300);
+    expect(c.processos).toEqual([{ licitacao_id: 'PAPEL', valor: 300 }]);
+    expect(percentualDoLimite(c.total, 65492.11)).toBe(0.4);
+    // Sem o processo em análise, o ramo sem classificação não soma ninguém (não há ramo conhecido)
+    expect(consumoDoLimite(registros, 'A', 2025, papel, 'II').total).toBe(0);
+  });
+
+  it('E6: item com código do catálogo continua somando no ramo (classe) — só o sem código fica isolado', () => {
+    const resma = ramoDoItem({ codigo_catmat: '461872', classe: '7510', tipo_item: 'MATERIAL' }, '');
+    expect(resma.sem_classificacao).toBeUndefined();
+    const registros: RegistroConsumo[] = [
+      reg({ licitacao_id: 'L1', ramo: resma, valor: 300 }),
+      reg({ licitacao_id: 'L2', ramo: ramoDoItem({ codigo_catmat: '999', classe: '7510' }, ''), valor: 60000 }),
+      reg({ licitacao_id: 'L3', ramo: ramoDoItem({ tipo_item: 'MATERIAL' }, ''), valor: 50000 }), // sem código: não entra
+    ];
+    expect(consumoDoLimite(registros, 'A', 2025, resma, 'II', 'L1').total).toBe(60300);
+    // classe do catálogo próprio (sem CATMAT) vale como ramo
+    expect(ramoDoItem({ codigo_catalogo: 'CP-10', classe: 'PAPELARIA' }, '')).toEqual({ classe: 'MATERIAL:PAPELARIA', unidade_gestora: '' });
   });
 
   it('percentual do limite — caso da Dispensa 029/2025 (98,4% de R$ 62.725,59)', () => {

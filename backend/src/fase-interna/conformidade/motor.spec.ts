@@ -84,8 +84,8 @@ describe('Motor — portões', () => {
   const real = () => avaliarRegras(montarContexto(pa139Real()));
 
   it('portão A só olha o limite (LIM-01); B, o limite e o art. 72; C, tudo menos o art. 72 I/II/IV', () => {
-    expect(regrasDoPortao('A').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02']);
-    expect(regrasDoPortao('B').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
+    expect(regrasDoPortao('A').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02', 'LIM-03']);
+    expect(regrasDoPortao('B').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02', 'LIM-03', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
     expect(regrasDoPortao('C').map((r) => r.codigo)).not.toContain('A72-I');
     expect(regrasDoPortao('C').map((r) => r.codigo)).not.toContain('A72-VII');
   });

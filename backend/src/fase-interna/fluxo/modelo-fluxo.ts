@@ -113,6 +113,13 @@ export interface ModeloFluxo {
   descricao: string | null;
   versao: number;
   aprovacao_demanda: AprovacaoDemandaModelo;
+  /**
+   * ISOLAMENTO DAS PEÇAS (homologação multiusuário, 27/09/2026): no modo
+   * POR_SETOR, só quem ESTÁ COM o processo (posse da tramitação) trabalha nas
+   * peças da etapa. Ligada por padrão; no modo SIMPLES não se aplica (uma
+   * pessoa conduz tudo e a tramitação é automática).
+   */
+  exigir_posse_pecas: boolean;
   etapas: EtapaDoModelo[];
 }
 
@@ -396,8 +403,34 @@ export function validarModelo(
     }
   }
 
+  if (!ciclo) avisos.push(...avisosDeOrdem(modelo));
   if (opcoes.usuarios) avisos.push(...avisosDeSegregacao(modelo, aplicaveis.filter((r) => r.tipo === 'SEGREGACAO'), opcoes.usuarios));
   return { ok: erros.length === 0, erros, avisos };
+}
+
+/**
+ * AVISOS DE ORDEM (não bloqueiam): na contratação direta, a autorização da
+ * autoridade (art. 72, VIII) deve vir DEPOIS do parecer jurídico — é o
+ * controle prévio de legalidade da contratação direta (art. 53, §4º; na
+ * Câmara de LEM, Portaria 089/2024: Jurídico → Controle Interno →
+ * Presidência). O órgão pode ter outra ordem, mas a tela avisa.
+ */
+export function avisosDeOrdem(modelo: Pick<ModeloFluxo, 'tipo_processo' | 'etapas'>): ErroModelo[] {
+  if (!ehContratacaoDireta(modelo.tipo_processo)) return [];
+  const aut = modelo.etapas.find((e) => e.codigo === 'AUTORIZACAO' && e.ligada);
+  const par = modelo.etapas.find((e) => e.codigo === 'PARECER' && e.ligada);
+  if (!aut || !par) return [];
+  if (dependeTransitivamente(modelo.etapas, aut.codigo, par.codigo)) return [];
+  return [
+    {
+      codigo: 'AVISO_AUTORIZACAO_ANTES_DO_PARECER',
+      etapa: aut.codigo,
+      fundamento: 'art. 53, §4º',
+      mensagem:
+        `Na contratação direta, "${aut.titulo}" deveria depender de "${par.titulo}": o parecer jurídico é o controle prévio de legalidade ` +
+        'da contratação direta e vem antes da autorização da autoridade (art. 53, §4º; art. 72, III e VIII).',
+    },
+  ];
 }
 
 /** Pessoas que podem cair na etapa pelo responsável configurado (papel/setor/usuário). */
@@ -507,9 +540,16 @@ export function aplicarEdicao(atual: ModeloFluxo, corpo: any): { modelo: ModeloF
       }
     }
   }
+  let exigirPosse = atual.exigir_posse_pecas !== false;
+  if (corpo?.exigir_posse_pecas !== undefined) {
+    if (typeof corpo.exigir_posse_pecas !== 'boolean') {
+      erros.push({ codigo: 'CAMPO_INVALIDO', etapa: null, fundamento: null, mensagem: '"Exigir a posse para trabalhar nas peças" deve ser verdadeiro ou falso.' });
+    } else exigirPosse = corpo.exigir_posse_pecas;
+  }
   return {
     modelo: {
       ...atual,
+      exigir_posse_pecas: exigirPosse,
       nome: corpo?.nome !== undefined ? texto(corpo.nome, 200) || atual.nome : atual.nome,
       descricao: corpo?.descricao !== undefined ? texto(corpo.descricao, 2000) || null : atual.descricao,
       aprovacao_demanda: aprovacao,
@@ -587,6 +627,8 @@ export function modeloEfetivoDoProcesso(snapshot: SnapshotModelo, vigente: Model
     descricao: null,
     versao: snapshot.versao,
     aprovacao_demanda: vigente ? { ...snapshot.aprovacao_demanda, aprovador: { ...vigente.aprovacao_demanda.aprovador } } : snapshot.aprovacao_demanda,
+    // Operacional (como quem faz e o prazo): segue o modelo vigente
+    exigir_posse_pecas: vigente ? vigente.exigir_posse_pecas !== false : true,
     etapas,
   };
 }

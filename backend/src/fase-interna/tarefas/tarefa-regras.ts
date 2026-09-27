@@ -127,6 +127,8 @@ export interface PlanoSincronizacao {
  *    que nasce quando a etapa reaberta for concluída de novo (pendências
  *    cumpridas); a aberta é mantida.
  * Passo AGUARDANDO com tarefa aberta (dependência voltou atrás): mantém.
+ * Passo que ainda NÃO PODE COMEÇAR (dependência pendente ou demanda não
+ * aprovada) não ganha tarefa, mesmo com a peça começada.
  */
 export function planejarSincronizacao(
   passos: PassoCalculado[],
@@ -176,7 +178,14 @@ export function planejarSincronizacao(
   if (opcoes.processo_encerrado) return plano;
 
   for (const p of passos) {
-    const precisa = p.situacao === 'DISPONIVEL' || p.situacao === 'EM_ANDAMENTO' || (p.situacao === 'A_REVISAR' && p.pendencias.length === 0);
+    // Tarefa só para a etapa que PODE começar (dependências cumpridas e a
+    // demanda aprovada — homologação multiusuário, 27/09/2026): peça começada
+    // fora da vez não gera tarefa antes da hora
+    const podeComecar = p.pode_iniciar !== false;
+    const precisa =
+      p.situacao === 'DISPONIVEL' ||
+      (p.situacao === 'EM_ANDAMENTO' && podeComecar) ||
+      (p.situacao === 'A_REVISAR' && p.pendencias.length === 0 && podeComecar);
     if (precisa && !comTarefa.has(chaveDoPasso(p.passo))) {
       plano.criar.push({ passo: p, responsavel: responsavelDe(p.passo) });
     }

@@ -48,6 +48,8 @@ export enum AcaoLogFaseInterna {
   IA_REVISADA_POR = 'IA_REVISADA_POR',
   // Autos em ordem cronológica de juntada (27/09/2026): folhas recalculadas uma vez (migração)
   AUTOS_RENUMERADOS = 'AUTOS_RENUMERADOS',
+  // Isolamento das peças (homologação multiusuário): administrador/login do órgão trabalhou fora da responsabilidade/posse
+  ACAO_FORA_DA_RESPONSABILIDADE = 'ACAO_FORA_DA_RESPONSABILIDADE',
 }
 
 @Entity('logs_fase_interna')

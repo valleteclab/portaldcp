@@ -45,6 +45,7 @@ import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 import { JuntadaPecasService } from './juntada-pecas.service';
 import { AprovacaoPecasService } from './aprovacao-pecas.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
+import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
 
 /**
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
@@ -54,7 +55,7 @@ import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
  */
 
 @Controller('fase-interna')
-@UseGuards(DonoFaseInternaGuard)
+@UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class FaseInternaController {
   constructor(
     private readonly faseInternaService: FaseInternaService,
@@ -89,6 +90,7 @@ export class FaseInternaController {
    * `observacao`. Grava SHA-256, nova versão (a anterior vira SUBSTITUIDO) e as
    * folhas dos autos; conta como peça pronta no checklist.
    */
+  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'anexar peça feita fora' })
   @Post(':licitacaoId/documentos/:tipo/anexo')
   @UseInterceptors(FileInterceptor('arquivo', { storage: memoryStorage(), limits: { fileSize: ANEXO_MAX_BYTES, files: 1 } }))
   async anexarPeca(
@@ -122,6 +124,7 @@ export class FaseInternaController {
    * Envia a peça feita no sistema para assinatura com VÁRIOS signatários
    * (ex.: Mesa Diretora). Corpo: { signatarios: [{ usuario_id, papel }] }.
    */
+  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'enviar para assinatura' })
   @Post(':licitacaoId/documentos/:tipo/assinatura')
   async enviarParaAssinatura(
     @Param('licitacaoId') licitacaoId: string,
@@ -161,6 +164,7 @@ export class FaseInternaController {
    * emissão): gerar é emitir — a peça passa a contar como pronta com este
    * conteúdo (homologação E4: rascunho salvo não é peça pronta).
    */
+  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'gerar a peça' })
   @Post(':licitacaoId/documentos/:tipo/emitir')
   async emitirPeca(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string, @AtorAtual() ator: Ator) {
     const autor = await this.tarefas.autor(ator);
@@ -230,6 +234,7 @@ export class FaseInternaController {
    * preços real + rascunhos IA) e deixa tudo sugerido p/ revisão.
    * Acompanhe por licitacao.preparacao_automatica (processo-completo).
    */
+  @TrabalhoNaEtapa({ condutor: 'preparar o processo inteiro com o copiloto' })
   @Post(':licitacaoId/preparar-automatico')
   async prepararAutomatico(@Param('licitacaoId') licitacaoId: string) {
     return this.preparacaoAutomaticaService.iniciar(licitacaoId);
@@ -242,6 +247,7 @@ export class FaseInternaController {
    * com texto, GERA o documento (PDF) — é a emissão; sem texto, fica em
    * elaboração (rascunho não conta como pronta).
    */
+  @TrabalhoNaEtapa({ tipoCorpo: 'tipo', acao: 'registrar a peça' })
   @Post(':licitacaoId/documento')
   async criarDocumento(
     @Param('licitacaoId') licitacaoId: string,
@@ -335,6 +341,7 @@ export class FaseInternaController {
    * Auto-save do editor (conteúdo HTML inteiro).
    * Mantido para compatibilidade com o DocumentEditor legado.
    */
+  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'salvar rascunho' })
   @Patch(':licitacaoId/documentos/:tipo/conteudo')
   async atualizarConteudo(
     @Param('licitacaoId') licitacaoId: string,
@@ -349,6 +356,7 @@ export class FaseInternaController {
    * Atualiza dados_estruturados[secaoId] = html.
    * SEM validação — permite salvar rascunhos incompletos.
    */
+  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'salvar rascunho' })
   @Patch(':licitacaoId/documentos/:tipo/secao/:secaoId')
   async atualizarSecao(
     @Param('licitacaoId') licitacaoId: string,
@@ -383,6 +391,7 @@ export class FaseInternaController {
     return this.derivacaoService.montarSeed(licitacaoId, tipo);
   }
 
+  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'preencher a peça com os dados do processo' })
   @Post(':licitacaoId/documentos/:tipo/aplicar-seed')
   async aplicarSeed(
     @Param('licitacaoId') licitacaoId: string,
@@ -418,6 +427,7 @@ export class FaseInternaController {
     return this.faseInternaService.getInstrucao(licitacaoId);
   }
 
+  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'marcar "não se aplica"' })
   @Post(':licitacaoId/instrucao/:tipo/nao-se-aplica')
   async marcarNaoSeAplica(
     @Param('licitacaoId') licitacaoId: string,
@@ -488,6 +498,7 @@ export class FaseInternaController {
     return this.faseInternaService.getRiscos(licitacaoId);
   }
 
+  @TrabalhoNaEtapa({ passo: 'ETP', acao: 'análise de riscos' })
   @Post(':licitacaoId/riscos')
   async adicionarRisco(
     @Param('licitacaoId') licitacaoId: string,
@@ -505,6 +516,7 @@ export class FaseInternaController {
     return this.faseInternaService.adicionarRisco(licitacaoId, body);
   }
 
+  @TrabalhoNaEtapa({ passo: 'ETP', acao: 'análise de riscos' })
   @Put(':licitacaoId/riscos/:riscoId')
   async atualizarRisco(
     @Param('licitacaoId') licitacaoId: string,
@@ -524,6 +536,7 @@ export class FaseInternaController {
     return this.faseInternaService.atualizarRisco(licitacaoId, riscoId, body);
   }
 
+  @TrabalhoNaEtapa({ passo: 'ETP', acao: 'análise de riscos' })
   @Delete(':licitacaoId/riscos/:riscoId')
   async removerRisco(
     @Param('licitacaoId') licitacaoId: string,
@@ -569,6 +582,7 @@ export class FaseInternaController {
     return this.faseInternaService.getPrecos(licitacaoId);
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Post(':licitacaoId/precos/item')
   async adicionarItemPesquisa(
     @Param('licitacaoId') licitacaoId: string,
@@ -606,6 +620,7 @@ export class FaseInternaController {
     });
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Delete(':licitacaoId/precos/item/:itemNumero')
   async removerItemPesquisa(
     @Param('licitacaoId') licitacaoId: string,
@@ -617,6 +632,7 @@ export class FaseInternaController {
     );
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Put(':licitacaoId/precos/metodologia')
   async salvarMetodologia(
     @Param('licitacaoId') licitacaoId: string,
@@ -639,6 +655,7 @@ export class FaseInternaController {
     );
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Put(':licitacaoId/precos/responsavel')
   async salvarResponsavel(
     @Param('licitacaoId') licitacaoId: string,
@@ -659,6 +676,7 @@ export class FaseInternaController {
     );
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Post(':licitacaoId/precos/fonte')
   async adicionarFontePreco(
     @Param('licitacaoId') licitacaoId: string,
@@ -689,6 +707,7 @@ export class FaseInternaController {
     );
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Delete(':licitacaoId/precos/fonte')
   async removerFontePreco(
     @Param('licitacaoId') licitacaoId: string,
@@ -702,6 +721,7 @@ export class FaseInternaController {
     );
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'agente de pesquisa de preços' })
   @Post(':licitacaoId/precos/agente/executar')
   async executarAgentePrecos(
     @Param('licitacaoId') licitacaoId: string,
@@ -748,6 +768,7 @@ export class FaseInternaController {
     return this.faseInternaService.getPrecos(licitacaoId);
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'agente de pesquisa de preços' })
   @Post(':licitacaoId/precos/item/:itemNumero/agente/executar')
   async executarAgentePrecosItem(
     @Param('licitacaoId') licitacaoId: string,
@@ -784,6 +805,7 @@ export class FaseInternaController {
     );
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Post(':licitacaoId/precos/agente/candidatos/:candidateId/aprovar')
   async aprovarCandidatoPreco(
     @Param('licitacaoId') licitacaoId: string,
@@ -800,6 +822,7 @@ export class FaseInternaController {
     );
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Post(':licitacaoId/precos/agente/candidatos/:candidateId/rejeitar')
   async rejeitarCandidatoPreco(
     @Param('licitacaoId') licitacaoId: string,
@@ -814,6 +837,7 @@ export class FaseInternaController {
     );
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Post(':licitacaoId/precos/agente/nfe/importar')
   async importarNfeAgentePrecos(
     @Param('licitacaoId') licitacaoId: string,
@@ -833,6 +857,7 @@ export class FaseInternaController {
     return this.pesquisaPrecosAgentService.importarNfe(licitacaoId, body);
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Post(':licitacaoId/precos/fonte-precos/csv')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -898,6 +923,7 @@ export class FaseInternaController {
 
   // === WIZARD ===
 
+  @TrabalhoNaEtapa({ condutor: 'usar o assistente de criação do processo' })
   @Post(':licitacaoId/wizard')
   async salvarWizard(
     @Param('licitacaoId') licitacaoId: string,
@@ -920,6 +946,7 @@ export class FaseInternaController {
 
   // === UPLOAD DE COMPROVANTE POR COTAÇÃO ===
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Post(':licitacaoId/precos/comprovante')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -979,6 +1006,7 @@ export class FaseInternaController {
 
   // === GERAÇÃO DO DOCUMENTO PP (PDF FORMAL) ===
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'gerar a pesquisa de preços' })
   @Post(':licitacaoId/precos/gerar-documento')
   async gerarDocumentoPP(
     @Param('licitacaoId') licitacaoId: string,

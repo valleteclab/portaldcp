@@ -23,6 +23,8 @@ import { AtorAtual, AutenticacaoOpcional, SomenteOrgao } from '../auth/acesso/ac
 import { ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { licitacaoEhPublica } from '../licitacoes/licitacao-visao.util';
+import { ModuleRef } from '@nestjs/core';
+import { MAPA_TIPO_DOCUMENTOS_LICITACAO } from '../fase-interna/espelho-documentos-licitacao';
 
 /**
  * AUTORIZAÇÃO (E1a):
@@ -39,7 +41,29 @@ export class DocumentosController {
   constructor(
     private readonly documentosService: DocumentosService,
     private readonly acesso: AcessoLicitacaoService,
+    private readonly moduleRef: ModuleRef,
   ) {}
+
+  /**
+   * ISOLAMENTO DAS PEÇAS (homologação multiusuário): o arquivo da aba
+   * Documentos de um tipo que vira peça da fase interna (espelho — TR, ETP,
+   * pesquisa, parecer…) passa pela mesma regra das telas das etapas: só quem
+   * responde pela etapa, com a etapa podendo começar (e a posse no modo por
+   * setor). Resolução tardia do serviço da fase interna (sem ciclo de módulos).
+   */
+  private async exigirTrabalhoNaPeca(licitacaoId: string, tipo: string | undefined, ator: Ator) {
+    const tipoPeca = tipo ? MAPA_TIPO_DOCUMENTOS_LICITACAO[tipo] : undefined;
+    if (!tipoPeca) return;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PermissaoEtapaService } = require('../fase-interna/fluxo/permissao-etapa.service');
+    let servico: any = null;
+    try {
+      servico = this.moduleRef.get(PermissaoEtapaService, { strict: false });
+    } catch {
+      return;
+    }
+    await servico.exigirPodeTrabalhar(licitacaoId, { tipo: tipoPeca }, ator, 'anexar pela aba Documentos');
+  }
 
   /** Ator é o órgão dono (ou admin) da licitação `orgaoIdDaLicitacao`? */
   private ehDono(ator: Ator | null, orgaoIdDaLicitacao: string | null | undefined): boolean {
@@ -97,6 +121,7 @@ export class DocumentosController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    await this.exigirTrabalhoNaPeca(licitacaoId, body?.tipo, ator);
     return this.documentosService.upload(licitacaoId, body.tipo, arquivo, {
       titulo: body.titulo,
       descricao: body.descricao,
@@ -173,6 +198,7 @@ export class DocumentosController {
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaLicitacao(ator, licitacaoId);
+    await this.exigirTrabalhoNaPeca(licitacaoId, body?.tipo, ator);
     return this.documentosService.vincularDocumentoExistente(licitacaoId, {
       tipo: body.tipo,
       titulo: body.titulo,

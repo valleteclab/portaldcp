@@ -4,6 +4,7 @@ import { DocumentoEstruturadoService } from './documento-estruturado.service';
 import { ContextoUsuario } from './audit-log.service';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { FaseInternaService } from './fase-interna.service';
+import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
 
 /**
  * Endpoints para manipulacao dos dados estruturados (jsonb)
@@ -11,13 +12,14 @@ import { FaseInternaService } from './fase-interna.service';
  */
 /** AUTORIZAÇÃO (E1a): só o órgão dono da licitação do documento (DonoFaseInternaGuard). */
 @Controller('fase-interna/estruturado')
-@UseGuards(DonoFaseInternaGuard)
+@UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class DocumentoEstruturadoController {
   constructor(
     private readonly documentoEstruturadoService: DocumentoEstruturadoService,
     private readonly faseInternaService: FaseInternaService,
   ) {}
 
+  @TrabalhoNaEtapa({ documentoParam: 'documentoId', acao: 'salvar dados da peça' })
   @Put(':documentoId/dados')
   @DonoPor('documento', 'documentoId')
   async salvarDados(
@@ -43,6 +45,7 @@ export class DocumentoEstruturadoController {
     );
   }
 
+  @TrabalhoNaEtapa({ documentoParam: 'documentoId', acao: 'recalcular a peça' })
   @Put(':documentoId/recalcular')
   @DonoPor('documento', 'documentoId')
   async recalcular(

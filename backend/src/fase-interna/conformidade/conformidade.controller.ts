@@ -9,6 +9,7 @@ import { ANEXO_MAX_BYTES } from '../pecas-fase-interna.service';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { PublicacaoTelaService } from '../telas/publicacao-tela.service';
 import { ConformidadeService } from './conformidade.service';
+import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
 
 /**
  * CONFORMIDADE ANTES DA PUBLICAÇÃO (Entrega 4; mockup Conformidade) e a
@@ -18,7 +19,7 @@ import { ConformidadeService } from './conformidade.service';
  * do JWT. Achado de outro processo: 404.
  */
 @Controller('fase-interna')
-@UseGuards(DonoFaseInternaGuard)
+@UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class ConformidadeController {
   constructor(
     private readonly conformidade: ConformidadeService,
@@ -93,6 +94,7 @@ export class ConformidadeController {
    * Órgão sem PNCP aguardando a divulgação: confirma a divulgação oficial
    * (art. 176, par. único). Só depois de publicar (409 antes).
    */
+  @TrabalhoNaEtapa({ passo: 'PUBLICACAO', acao: 'registrar a publicação no diário oficial' })
   @Post(':licitacaoId/publicacao/diario-oficial')
   @UseInterceptors(FileInterceptor('arquivo', { storage: memoryStorage(), limits: { fileSize: ANEXO_MAX_BYTES, files: 1 } }))
   async registrarDiarioOficial(

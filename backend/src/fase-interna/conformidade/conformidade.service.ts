@@ -453,14 +453,29 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
       [licitacaoId, CHAVE_TAREFA_RENOVACAO],
     );
     const aberta = (chave: string) => abertas.find((t) => t.chave === chave);
+    // Homologação multiusuário: tarefa de achado só para etapa que PODE começar
+    // (demanda aprovada e dependências concluídas) — antes disso, ninguém recebe
+    // tarefa de uma etapa que ainda não pode ser trabalhada (a tarefa nasce depois)
+    const podeIniciar = new Map<string, boolean>();
+    const etapaPodeIniciar = async (passo: string) => {
+      if (!podeIniciar.has(passo)) podeIniciar.set(passo, await this.tarefas.podeIniciarPasso(licitacaoId, passo).catch(() => true));
+      return podeIniciar.get(passo)!;
+    };
     for (const a of achados) {
       const chave = chaveTarefaDoAchado(a.id);
-      const precisa = a.status === 'ABERTO' && a.severidade === 'BLOQUEIO' && !a.sem_tarefa;
+      const passoAchado = passoDoAchado({ regra: a.regra, tipo_peca_responsavel: a.tipo_peca }, contratacaoDireta);
+      const bloqueio = a.status === 'ABERTO' && a.severidade === 'BLOQUEIO' && !a.sem_tarefa;
+      const precisa = bloqueio && (await etapaPodeIniciar(passoAchado));
+      if (bloqueio && !precisa && aberta(chave)) {
+        await this.tarefas.cancelarTarefaPorChave(licitacaoId, chave, 'A etapa ainda não pode começar (aguardando a aprovação da demanda ou etapas anteriores) — a tarefa volta quando ela puder.');
+        continue;
+      }
+      if (bloqueio && !precisa) continue;
       if (precisa && !aberta(chave)) {
         const onde = (a.evidencias ?? []).slice(0, 3).map((e) => `${e.titulo}${e.folha != null ? `, fl. ${e.folha}` : ''}`);
         await this.tarefas.criarTarefaDoSistema(licitacaoId, {
           chave,
-          passo: passoDoAchado({ regra: a.regra, tipo_peca_responsavel: a.tipo_peca }, contratacaoDireta),
+          passo: passoAchado,
           titulo: `Conformidade (${a.regra}) — ${a.titulo}`.slice(0, 250),
           descricao: `Processo ${numeroProcesso}. ${a.mensagem}${onde.length ? ` Onde: ${onde.join('; ')}.` : ''} Corrija a peça: o achado se resolve na próxima revisão (automática ao salvar a peça, ou "Revisar agora" na tela da conformidade).`,
           tipo_peca: a.tipo_peca,

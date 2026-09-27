@@ -198,7 +198,8 @@ export function pa139Corrigido(): EntradaContexto {
       : d.id === 'doc-DO'
         ? { ...d, data_documento: '2025-12-10T12:00:00-03:00' }
         : d.id === 'doc-AA'
-          ? { ...d, data_documento: '2025-12-10T12:00:00-03:00' }
+          ? // despacho datado DEPOIS do parecer (17/12) — contratação direta: parecer antes da autorização (art. 53, §4º)
+            { ...d, data_documento: '2025-12-18T12:00:00-03:00' }
           : d,
   );
   e.pesquisa_dados.justificativa_metodo = 'Menor preço: as três propostas atendem igualmente ao TR (IN SEGES 65/2021, art. 6º).';

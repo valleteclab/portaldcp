@@ -469,22 +469,50 @@ export async function ajustarCronograma(
 const CONTRATACAO_DIRETA = [ModalidadeLicitacao.DISPENSA_ELETRONICA, ModalidadeLicitacao.INEXIGIBILIDADE];
 
 /**
- * Instrução mínima do art. 72 (DFD, estimativa de despesa, autorização) —
- * gate de publicação da contratação direta. Via POST /api/fase-interna/:id/documento.
+ * Instrução do art. 72 NA ORDEM DO FLUXO (homologação multiusuário,
+ * 27/09/2026): DFD, estimativa de despesa e autorização feitas no sistema; as
+ * peças "se for o caso" (ETP, riscos, TR, reserva, relatório/minutas, parecer,
+ * designação) marcadas "não se aplica" com justificativa, cada uma quando a
+ * etapa dela PODE COMEÇAR — a demanda aprovada antes (o login do órgão aprova
+ * ao fazer o DFD) e o modelo "Câmara — Portaria 089": … reserva → minutas →
+ * parecer → autorização. A publicação exige todas as etapas concluídas (E3).
+ * Via POST /api/fase-interna/:id/documento e /instrucao/:tipo/nao-se-aplica.
  */
 export async function prepararInstrucaoContratacaoDireta(ctx: AppE2E, lic: LicitacaoFixture): Promise<void> {
-  const docs: Array<[TipoDocumentoFaseInterna, string]> = [
-    [TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'Formalização da demanda (DFD)'],
-    [TipoDocumentoFaseInterna.PESQUISA_PRECOS, 'Estimativa de despesa'],
-    [TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Autorização da autoridade competente'],
+  const T = TipoDocumentoFaseInterna;
+  const passos: Array<[TipoDocumentoFaseInterna, string | null]> = [
+    [T.DOCUMENTO_FORMALIZACAO_DEMANDA, 'Formalização da demanda (DFD)'],
+    [T.ESTUDO_TECNICO_PRELIMINAR, null],
+    [T.ANALISE_RISCOS, null],
+    [T.TERMO_REFERENCIA, null],
+    [T.PESQUISA_PRECOS, 'Estimativa de despesa'],
+    [T.DOTACAO_ORCAMENTARIA, null],
+    [T.RELATORIO_AGENTE, null],
+    [T.MINUTA_EDITAL, null],
+    [T.MINUTA_CONTRATO, null],
+    [T.JUSTIFICATIVA_CONTRATACAO, null],
+    [T.PARECER_JURIDICO, null],
+    [T.AUTORIZACAO_ABERTURA, 'Autorização da autoridade competente'],
+    [T.DESIGNACAO_PREGOEIRO, null],
   ];
-  for (const [tipo, titulo] of docs) {
-    const r = await ctx
-      .http()
-      .post(`/api/fase-interna/${lic.id}/documento`)
-      .set(bearer(lic.orgao.token))
-      .send({ tipo, titulo, descricao: `${titulo} — documento de teste E2E` });
-    esperarStatus(r, 201, `criar documento ${tipo}`);
+  const instrucao = await ctx.http().get(`/api/fase-interna/${lic.id}/instrucao`).set(bearer(lic.orgao.token));
+  esperarStatus(instrucao, 200, 'instrução do processo');
+  const naInstrucao = new Map<string, string>((instrucao.body?.itens ?? []).map((i: any) => [i.tipo, i.status]));
+  for (const [tipo, titulo] of passos) {
+    const status = naInstrucao.get(tipo);
+    if (!status || status === 'OK' || status === 'NAO_SE_APLICA') continue;
+    const r = titulo
+      ? await ctx
+          .http()
+          .post(`/api/fase-interna/${lic.id}/documento`)
+          .set(bearer(lic.orgao.token))
+          .send({ tipo, titulo, descricao: `${titulo} — documento de teste E2E` })
+      : await ctx
+          .http()
+          .post(`/api/fase-interna/${lic.id}/instrucao/${tipo}/nao-se-aplica`)
+          .set(bearer(lic.orgao.token))
+          .send({ justificativa: `Peça "se for o caso" dispensada nesta contratação de teste E2E (${tipo}).` });
+    esperarStatus(r, 201, titulo ? `criar documento ${tipo}` : `marcar "não se aplica" ${tipo}`);
   }
 }
 
@@ -499,7 +527,9 @@ export async function prepararDocumentosEtapa(
   lic: LicitacaoFixture,
   etapa: FaseLicitacao,
 ): Promise<void> {
-  for (const tipo of DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[etapa] ?? []) {
+  // Na ordem do fluxo: a reserva (dotação) antes da autorização (art. 18 — a autorização depende dela)
+  const ordem = (t: TipoDocumentoFaseInterna) => (t === TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA ? 0 : 1);
+  for (const tipo of [...(DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[etapa] ?? [])].sort((a, b) => ordem(a) - ordem(b))) {
     const r = await ctx
       .http()
       .post(`/api/fase-interna/${lic.id}/documento`)

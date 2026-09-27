@@ -20,6 +20,7 @@ import { licitacaoEhPublica, licitacaoParaOrgao, licitacaoParaPublico } from './
 import { AtoLicitacao, atorTransicaoDe } from './transicoes/transicoes.tipos';
 import { atoExiste } from './transicoes/definicoes';
 import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
+import { ATOS_DE_EXTINCAO } from './permissao-atos-processo';
 
 /**
  * AUTORIZAÇÃO (E1a):
@@ -205,6 +206,8 @@ export class LicitacoesController {
   ): Promise<any> {
     await this.dono(ator, id);
     if (!atoExiste(ato)) throw new BadRequestException(`Ato desconhecido: ${ato}`);
+    // Revogar/anular (e a intenção — art. 71, §3º): quem conduz o processo ou a autoridade
+    if (ATOS_DE_EXTINCAO.includes(ato)) await this.licitacoesService.exigirExtincao(ator, id);
     const r = await this.licitacoesService.executarAto(id, ato as AtoLicitacao, body || {}, atorTransicaoDe(ator), ator);
     return { ...r, licitacao: licitacaoParaOrgao(r.licitacao) };
   }
@@ -296,7 +299,7 @@ export class LicitacoesController {
   @SomenteOrgao()
   async processoCompleto(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
     await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
-    return await this.licitacoesService.processoCompleto(id);
+    return await this.licitacoesService.processoCompleto(id, ator);
   }
 
   /** Dispensa eletrônica: julga propostas por menor preço por item e adjudica (art. 75 §3º) */
@@ -574,6 +577,8 @@ export class LicitacoesController {
   @SomenteOrgao()
   async delete(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<{ message: string }> {
     await this.dono(ator, id);
+    // Excluir o processo (só na fase interna): quem o conduz — nunca um setor que só recebeu o processo
+    await this.licitacoesService.exigirQuemConduz(ator, id, 'excluir o processo');
     await this.licitacoesService.delete(id);
     return { message: 'Licitação excluída com sucesso' };
   }

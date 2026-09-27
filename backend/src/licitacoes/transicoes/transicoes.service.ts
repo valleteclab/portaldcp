@@ -522,6 +522,18 @@ export class TransicoesService {
           cronograma: contexto?.cronograma ?? null,
           somenteAvaliacao: !!contexto?.somenteAvaliacao,
         }),
+      etapasPendentesParaPublicar: async () => {
+        // Resolução tardia (mesmo motivo de `instrucaoProcesso`): só leitura — roda na transação do ato
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { TarefasService } = require('../../fase-interna/tarefas/tarefas.service');
+        let servico: any;
+        try {
+          servico = this.moduleRef.get(TarefasService, { strict: false });
+        } catch {
+          return null;
+        }
+        return servico.etapasPendentesParaPublicar(licitacaoId);
+      },
       instrucaoProcesso: async (etapa) => {
         // Resolução tardia: evita ciclo de módulos (a fase-interna depende
         // deste serviço para as próprias transições).
