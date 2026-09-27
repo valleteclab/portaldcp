@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { localDoOrgao } from '../textos-documento';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import type { Ator } from '../../auth/acesso/ator';
@@ -476,7 +477,7 @@ export class ParecerTelaService {
     if (atual?.status === StatusDocumento.AGUARDANDO_ASSINATURA) throw new ConflictException('O parecer já está em assinatura.');
 
     const tela = await this.obter(licitacaoId, fase, ator);
-    const [orgao] = await this.ds.query(`SELECT cidade FROM orgaos WHERE id::text = $1`, [lic.orgao_id]).catch(() => [{}]);
+    const [orgao] = await this.ds.query(`SELECT cidade, uf FROM orgaos WHERE id::text = $1`, [lic.orgao_id]).catch(() => [{}]);
     const html = textoDoParecer({
       fase,
       numero_processo: lic.numero_processo,
@@ -488,7 +489,8 @@ export class ParecerTelaService {
       fundamentacao: fundamentacao || null,
       ressalvas: ressalvas || null,
       jurista: `${jurista.nome}${jurista.cargo ? ` — ${jurista.cargo}` : ''}`,
-      cidade: orgao?.cidade ?? '',
+      // município do cadastro ("A definir" = sem cidade: só a data)
+      cidade: localDoOrgao(orgao),
       data: new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: 'long', year: 'numeric' }),
     });
     const titulo = fase === 'EXTERNA' ? 'Parecer jurídico da fase externa' : 'Parecer jurídico';

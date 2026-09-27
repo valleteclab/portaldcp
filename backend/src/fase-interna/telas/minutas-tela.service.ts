@@ -160,15 +160,19 @@ export class MinutasTelaService {
       await m.query(`SELECT id FROM licitacoes WHERE id::text = $1 FOR UPDATE`, [licitacaoId]);
       const repo = m.getRepository(DocumentoFaseInterna);
       const atual = await repo.findOne({ where: { licitacao_id: licitacaoId, tipo, versao_atual: true } });
-      const reescrever =
+      const emElaboracao =
         !!atual &&
         atual.origem === OrigemDocumento.INTERNO &&
         [StatusDocumento.EM_ELABORACAO, StatusDocumento.PENDENTE].includes(atual.status) &&
         !atual.dados_estruturados?.nao_se_aplica;
+      const internos = Object.fromEntries(
+        Object.entries((emElaboracao && atual!.dados_estruturados) || {}).filter(([k]) => k.startsWith('_') && !['_gerado', '_desatualizada'].includes(k)),
+      );
+      // Regerar = VERSÃO NOVA (homologação E3): só o rascunho que ainda não
+      // virou PDF é reescrito; a versão já gerada fica no histórico (SUBSTITUIDO)
+      // e os autos citam "substitui a versão N".
+      const reescrever = emElaboracao && !atual!.data_geracao_arquivo;
       if (reescrever) {
-        const internos = Object.fromEntries(
-          Object.entries(atual!.dados_estruturados || {}).filter(([k]) => k.startsWith('_') && !['_gerado', '_desatualizada'].includes(k)),
-        );
         atual!.dados_estruturados = { ...internos, ...secoes, ...extras };
         atual!.descricao = descricao;
         atual!.titulo = titulo || atual!.titulo;
@@ -184,7 +188,12 @@ export class MinutasTelaService {
           titulo: titulo || TITULO_DOCUMENTO[tipo] || tipo,
           descricao,
           // o histórico das devoluções da autoridade acompanha as versões
-          dados_estruturados: { ...(atual?.dados_estruturados?._devolucoes ? { _devolucoes: atual.dados_estruturados._devolucoes } : {}), ...secoes, ...extras },
+          dados_estruturados: {
+            ...internos,
+            ...(atual?.dados_estruturados?._devolucoes ? { _devolucoes: atual.dados_estruturados._devolucoes } : {}),
+            ...secoes,
+            ...extras,
+          },
           status: StatusDocumento.EM_ELABORACAO,
           origem: OrigemDocumento.INTERNO,
           versao: (atual?.versao ?? 0) + 1,

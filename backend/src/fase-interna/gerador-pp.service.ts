@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, createWriteStream } from 'fs';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemPesquisaPrecos } from './types/pesquisa-precos.type';
 import * as QRCode from 'qrcode';
+import { localDoOrgao, quantidadeComUnidade, valorCadastral } from './textos-documento';
 
 const PDFDocument = require('pdfkit');
 
@@ -224,15 +225,14 @@ export class GeradorPpService {
             width: cabecalhoW,
             align: 'center',
           });
+        // Cadastro incompleto ("A definir", CEP 00000-000) não vai para o PDF
         const endereco = [
-          [orgaoDetalhes?.logradouro, orgaoDetalhes?.numero]
+          [valorCadastral(orgaoDetalhes?.logradouro), valorCadastral(orgaoDetalhes?.numero)]
             .filter(Boolean)
             .join(', '),
-          orgaoDetalhes?.bairro,
-          [orgaoDetalhes?.cidade, orgaoDetalhes?.uf]
-            .filter(Boolean)
-            .join(' - '),
-          orgaoDetalhes?.cep ? `CEP ${orgaoDetalhes.cep}` : '',
+          valorCadastral(orgaoDetalhes?.bairro),
+          localDoOrgao(orgaoDetalhes).replace('/', ' - '),
+          valorCadastral(orgaoDetalhes?.cep) ? `CEP ${orgaoDetalhes.cep}` : '',
         ]
           .filter(Boolean)
           .join(' | ');
@@ -387,7 +387,7 @@ export class GeradorPpService {
             .font('Helvetica')
             .fillColor('#374151')
             .text(
-              `Quantidade: ${item.quantidade} ${item.unidade}`,
+              `Quantidade: ${quantidadeComUnidade(item.quantidade, item.unidade)}`,
               marginL,
               doc.y,
             );
@@ -796,6 +796,9 @@ export class GeradorPpService {
         const totalPages = doc.bufferedPageRange().count;
         for (let p = 0; p < totalPages; p++) {
           doc.switchToPage(p);
+          // O rodapé fica ABAIXO da margem inferior: sem zerá-la, o pdfkit abria
+          // uma página nova (em branco) a cada rodapé — 2 folhas viravam 4 nos autos.
+          doc.page.margins.bottom = 0;
           const footerY = doc.page.height - 30;
           doc
             .moveTo(marginL, footerY - 5)
@@ -810,7 +813,7 @@ export class GeradorPpService {
               `Pesquisa de Preços  —  ${dados.numeroProcesso}  —  Página ${p + 1} de ${totalPages}`,
               marginL,
               footerY,
-              { width: contentW, align: 'center' },
+              { width: contentW, align: 'center', lineBreak: false },
             );
         }
 
@@ -903,7 +906,8 @@ export class GeradorPpService {
         );
         doc.moveDown(2);
         const hoje = new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: 'long', year: 'numeric' });
-        doc.text(`${orgao?.cidade ? `${orgao.cidade}, ` : ''}${hoje}.`, { align: 'right' });
+        const local = localDoOrgao(orgao);
+        doc.text(`${local ? `${local}, ` : ''}${hoje}.`, { align: 'right' });
         doc.moveDown(2.5);
         doc.text('_______________________________________', { align: 'center' });
         doc.text(dados.responsavel.nome, { align: 'center' });

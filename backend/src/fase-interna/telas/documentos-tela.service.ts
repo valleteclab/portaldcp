@@ -390,9 +390,15 @@ export class DocumentosTelaService {
       throw new ConflictException('A versão atual foi anexada ou está em assinatura. Para refazer aqui, edite uma seção (abre uma versão nova).');
     }
     if (atual?.dados_estruturados?.nao_se_aplica) throw new ConflictException('A peça está marcada como "não se aplica" — desfaça antes de gerar.');
+    // GERAR DE NOVO = VERSÃO NOVA (homologação E3): a versão já gerada (com PDF)
+    // fica no histórico como SUBSTITUIDO e a nova herda o texto — é o que a
+    // diligência do parecer exige ("corrija a peça: nova versão") e o que os
+    // autos citam ("substitui a versão N"). Só a versão atual entra nos autos.
+    if (atual && atual.data_geracao_arquivo) await this.novaVersaoCopiando(atual, autor);
     const seed = await this.derivacao.montarSeed(licitacaoId, t);
     const ids = Object.keys(seed.secoes);
-    if (ids.length) await this.derivacao.aplicarSeed(licitacaoId, t, ids, false);
+    // Seções derivadas e não editadas acompanham o processo (valor da pesquisa, reserva, fundamento)
+    if (ids.length) await this.derivacao.aplicarSeed(licitacaoId, t, ids, false, { atualizarDerivadas: true });
     let doc = await this.docAtual(licitacaoId, t);
     if (!doc) throw new BadRequestException('Preencha ao menos uma seção antes de gerar.');
     if (!doc.titulo || doc.titulo === tipo) {
@@ -405,6 +411,51 @@ export class DocumentosTelaService {
     await this.gerador.gerarPdf(doc.id, { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined });
     const final = await this.docAtual(licitacaoId, t);
     return { peca: this.resumoPeca(final), secoes: this.secoesDe(final), secoes_derivadas: ids };
+  }
+
+  /**
+   * Versão nova da peça feita aqui, copiando o texto da atual (a anterior vira
+   * SUBSTITUIDO, com o PDF que foi gerado para ela). Transação com trava no
+   * processo: dois cliques não criam duas versões com o mesmo número.
+   */
+  private async novaVersaoCopiando(atual: DocumentoFaseInterna, autor: Autor): Promise<DocumentoFaseInterna> {
+    const nova = await this.ds.transaction(async (m) => {
+      await m.query(`SELECT id FROM licitacoes WHERE id::text = $1 FOR UPDATE`, [atual.licitacao_id]);
+      const repo = m.getRepository(DocumentoFaseInterna);
+      const vigente = await repo.findOne({ where: { id: atual.id } });
+      if (!vigente?.versao_atual) return repo.findOneOrFail({ where: { licitacao_id: atual.licitacao_id, tipo: atual.tipo, versao_atual: true } });
+      await repo.update(vigente.id, { versao_atual: false, status: StatusDocumento.SUBSTITUIDO });
+      const dados = { ...(vigente.dados_estruturados || {}) };
+      delete dados._desatualizada;
+      return repo.save(
+        repo.create({
+          licitacao_id: vigente.licitacao_id,
+          tipo: vigente.tipo,
+          titulo: vigente.titulo,
+          descricao: vigente.descricao,
+          dados_estruturados: dados,
+          status: StatusDocumento.EM_ELABORACAO,
+          origem: OrigemDocumento.INTERNO,
+          versao: (vigente.versao || 1) + 1,
+          versao_atual: true,
+          versao_anterior_id: vigente.id,
+          obrigatorio: vigente.obrigatorio,
+          criado_por_id: (autor.id ?? vigente.criado_por_id ?? undefined) as any,
+          criado_por_nome: (autor.nome ?? vigente.criado_por_nome ?? undefined) as any,
+        }),
+      );
+    });
+    await this.auditLog
+      .log({
+        licitacao_id: atual.licitacao_id,
+        documento_id: nova.id,
+        acao: AcaoLogFaseInterna.DOCUMENTO_VERSIONADO,
+        descricao: `${TITULO_DOCUMENTO[atual.tipo] ?? atual.tipo} gerado de novo — versão ${nova.versao} (substitui a versão ${atual.versao}), por ${autor.nome ?? 'usuário'}`,
+        dados_depois: { versao: nova.versao, versao_anterior_id: atual.id },
+        contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
+      })
+      .catch(() => undefined);
+    return nova;
   }
 
   // ==========================================================================

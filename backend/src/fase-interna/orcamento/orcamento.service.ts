@@ -415,29 +415,11 @@ export class OrcamentoService {
   /** Contexto {{reserva.*}} do modelo da informação orçamentária. */
   private async variaveisDaReserva(r: ReservaOrcamentaria, linhas: LinhaReserva[]): Promise<Record<string, string>> {
     const leis = await this.leisPorId([r.lei_ldo_id, r.lei_loa_id, r.lei_ppa_id]);
-    const loa = r.lei_loa_id ? this.rotuloLei(leis.get(r.lei_loa_id)) : null;
-    const tabela =
-      '<table><tr><th>Exercício</th><th>Valor</th><th>Situação</th></tr>' +
-      linhas
-        .map(
-          (l) =>
-            `<tr><td>${l.exercicio}</td><td>${BRL(l.valor)}</td><td>${l.situacao === 'RESERVADO' ? `Reservado${l.numero_reserva ? ` (reserva nº ${l.numero_reserva})` : ''}` : 'Previsão — a confirmar na LOA do exercício'}</td></tr>`,
-        )
-        .join('') +
-      `<tr><td><strong>Total</strong></td><td><strong>${BRL(totalDasLinhas(linhas))}</strong></td><td></td></tr></table>`;
-    return {
-      'reserva.total': BRL(totalDasLinhas(linhas)),
-      'reserva.unidade_orcamentaria': r.unidade_orcamentaria || '—',
-      'reserva.programa': r.programa || '—',
-      'reserva.projeto_atividade': r.projeto_atividade || '—',
-      'reserva.elemento_despesa': r.elemento_despesa || '—',
-      'reserva.fonte_recurso': r.fonte_recurso || '—',
-      'reserva.distribuicao': tabela,
-      'reserva.lei_ldo': r.lei_ldo_id ? this.rotuloLei(leis.get(r.lei_ldo_id)) : '—',
-      'reserva.lei_loa': loa || '—',
-      'reserva.lei_ppa': r.lei_ppa_id ? this.rotuloLei(leis.get(r.lei_ppa_id)) : '—',
-      'reserva.exercicio': String(r.exercicio_base ?? ''),
-    };
+    return variaveisDaReserva(r, linhas, {
+      ldo: r.lei_ldo_id ? this.rotuloLei(leis.get(r.lei_ldo_id)) : null,
+      loa: r.lei_loa_id ? this.rotuloLei(leis.get(r.lei_loa_id)) : null,
+      ppa: r.lei_ppa_id ? this.rotuloLei(leis.get(r.lei_ppa_id)) : null,
+    });
   }
 
   /**
@@ -710,4 +692,37 @@ export class OrcamentoService {
     const dist = linhas.map((l) => `${l.exercicio}: ${BRL(l.valor)} (${l.situacao === 'RESERVADO' ? 'reservado' : 'previsão'})`).join('; ');
     return { status: r.status, texto: `${classif}${dist ? ` — ${dist}` : ''}`, linhas };
   }
+}
+
+/**
+ * Variáveis {{reserva.*}} do modelo da informação orçamentária (função pura —
+ * o teste dos modelos padrão confere que nenhuma variável fica sem valor).
+ */
+export function variaveisDaReserva(
+  r: Pick<ReservaOrcamentaria, 'unidade_orcamentaria' | 'programa' | 'projeto_atividade' | 'elemento_despesa' | 'fonte_recurso' | 'exercicio_base'>,
+  linhas: LinhaReserva[],
+  leis: { ldo: string | null; loa: string | null; ppa: string | null },
+): Record<string, string> {
+  const tabela =
+    '<table><tr><th>Exercício</th><th>Valor</th><th>Situação</th></tr>' +
+    linhas
+      .map(
+        (l) =>
+          `<tr><td>${l.exercicio}</td><td>${BRL(l.valor)}</td><td>${l.situacao === 'RESERVADO' ? `Reservado${l.numero_reserva ? ` (reserva nº ${l.numero_reserva})` : ''}` : 'Previsão — a confirmar na LOA do exercício'}</td></tr>`,
+      )
+      .join('') +
+    `<tr><td><strong>Total</strong></td><td><strong>${BRL(totalDasLinhas(linhas))}</strong></td><td></td></tr></table>`;
+  return {
+    'reserva.total': BRL(totalDasLinhas(linhas)),
+    'reserva.unidade_orcamentaria': r.unidade_orcamentaria || '—',
+    'reserva.programa': r.programa || '—',
+    'reserva.projeto_atividade': r.projeto_atividade || '—',
+    'reserva.elemento_despesa': r.elemento_despesa || '—',
+    'reserva.fonte_recurso': r.fonte_recurso || '—',
+    'reserva.distribuicao': tabela,
+    'reserva.lei_ldo': leis.ldo || '—',
+    'reserva.lei_loa': leis.loa || '—',
+    'reserva.lei_ppa': leis.ppa || '—',
+    'reserva.exercicio': String(r.exercicio_base ?? '') || '—',
+  };
 }

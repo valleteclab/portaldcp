@@ -76,7 +76,7 @@ export class GeradorPdfService {
             .text(orgao.bairro.toUpperCase(), textX, lineY, { width: textW });
           lineY += 13;
         }
-        if (orgao.cidade) {
+        if (orgao.cidade && !/^a definir$/i.test(String(orgao.cidade).trim())) {
           const cidadeUF = `${orgao.cidade.toUpperCase()} - ${(orgao.uf || '').toUpperCase()}`;
           doc.fontSize(9).font('Helvetica').fillColor('#374151')
             .text(cidadeUF, textX, lineY, { width: textW });
@@ -359,7 +359,7 @@ export class GeradorPdfService {
             .text(orgao.bairro.toUpperCase(), textX, lineY, { width: textW });
           lineY += 13;
         }
-        if (orgao.cidade) {
+        if (orgao.cidade && !/^a definir$/i.test(String(orgao.cidade).trim())) {
           const cidadeUF = `${orgao.cidade.toUpperCase()} - ${(orgao.uf || '').toUpperCase()}`;
           doc.fontSize(9).font('Helvetica').fillColor('#374151')
             .text(cidadeUF, textX, lineY, { width: textW });
