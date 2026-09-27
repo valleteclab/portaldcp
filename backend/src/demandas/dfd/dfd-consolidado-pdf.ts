@@ -179,7 +179,7 @@ export async function gerarPdfDfdConsolidado(d: DadosDfdPdf): Promise<Buffer> {
   campo('Objeto', d.objeto);
   campo('Unidade de planejamento', d.unidade_planejamento ?? '');
   campo('Responsável', [d.responsavel_nome, d.responsavel_cargo].filter(Boolean).join(' — '));
-  campo('Setores demandantes', [...new Set(d.demandas.map((x) => x.setor))].join('; '));
+  campo('Setores demandantes', [...new Set(d.demandas.map((x) => x.setor))].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR')).join('; '));
   campo('Data pretendida para a contratação', dataIso(d.data_pretendida) ?? '');
   campo('Prioridade', d.prioridade ? PRIORIDADE[d.prioridade] ?? d.prioridade : '');
   campo('Plano de Contratações Anual', d.pca ?? 'Sem item do PCA comum a todas as demandas (vínculo por item no processo)');

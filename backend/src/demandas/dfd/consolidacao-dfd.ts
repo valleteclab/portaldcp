@@ -264,7 +264,7 @@ export interface SugestoesDfd {
  * PCA quando TODOS os itens apontam o mesmo.
  */
 export function sugestoesDoDfd(demandas: DemandaParaDfd[], itens: ItemConsolidado[]): SugestoesDfd {
-  const setores = [...new Set(demandas.map((d) => limpo(d.unidade_requisitante)).filter(Boolean))];
+  const setores = [...new Set(demandas.map((d) => limpo(d.unidade_requisitante)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   let objeto: string;
   const classes = new Set(itens.map((i) => normalizar(i.nome_classe) || normalizar(i.codigo_classe)).filter(Boolean));
   if (demandas.length === 1) {

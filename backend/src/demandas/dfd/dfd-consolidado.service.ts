@@ -742,7 +742,7 @@ export class DfdConsolidadoService {
    */
   async camposDaPeca(dfd: DfdLinha, demandas: DemandaCarregada[]) {
     const esc = (s: unknown) => String(s ?? '').replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!);
-    const setores = [...new Set(demandas.map((d) => d.unidade_requisitante).filter(Boolean))];
+    const setores = [...new Set(demandas.map((d) => d.unidade_requisitante).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'pt-BR'));
     let unidade: { id: string | null; nome: string | null };
     if (setores.length === 1) {
       const idDemanda = demandas.find((d) => d.setor_id)?.setor_id ?? null;
