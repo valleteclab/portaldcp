@@ -58,7 +58,7 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
     expect(real.filter((a) => a.erro)).toEqual([]);
     const corrigido = avaliarRegras(ctxCorrigido());
     expect(corrigido.filter((a) => a.achados.length).map((a) => `${a.regra.codigo}: ${a.achados[0].mensagem}`)).toEqual([]);
-    expect(REGRAS).toHaveLength(27);
+    expect(REGRAS).toHaveLength(28); // F1: + FLUXO-01
   });
 
   describe('LIM-01 — limite do inciso no exercício, no ramo (portão A)', () => {

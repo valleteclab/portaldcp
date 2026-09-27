@@ -20,10 +20,12 @@ import { AuditLogService, ContextoUsuario } from '../audit-log.service';
 import { FaseInternaService } from '../fase-interna.service';
 import { ConfiguracaoFaseInterna } from './configuracao-fase-interna.entity';
 import { ConfigFaseInternaEfetiva, configEfetiva, papelValido, validarConfiguracao, validarSignatariosAutorizacao } from './configuracao-fase-interna';
-import { regrasDoPortao } from '../conformidade/motor';
+import { ContextoFluxoProcesso, CondutorDoProcesso, ModeloFluxoService } from '../fluxo/modelo-fluxo.service';
+import { ModeloFluxo, niveisDoGrafo } from '../fluxo/modelo-fluxo';
 import {
   BloqueiosDePortao,
   DEFINICAO_PASSO,
+  EstadoFluxoParaEtapas,
   EtapaCalculada,
   PassoCalculado,
   PassoFaseInterna,
@@ -62,6 +64,24 @@ interface Perfil {
 }
 
 const SITUACOES_ENCERRAM_TUDO = ['REVOGADA', 'ANULADA'];
+
+/** F1: responsável de cada etapa do modelo de fluxo (o que `responsavelDoPasso` lê). */
+export function responsaveisDoModelo(modelo: Pick<ModeloFluxo, 'etapas'>): Record<string, { papel: any; setor_id: string | null; usuario_id: string | null }> {
+  return Object.fromEntries(modelo.etapas.map((e) => [e.codigo, { papel: e.responsavel.papel, setor_id: e.responsavel.setor_id, usuario_id: e.responsavel.usuario_id }]));
+}
+
+/** F1: prazo (dias úteis) de cada etapa do modelo de fluxo. */
+export function prazosDoModelo(modelo: Pick<ModeloFluxo, 'etapas'>): Record<string, number | null> {
+  return Object.fromEntries(modelo.etapas.map((e) => [e.codigo, e.prazo_dias_uteis]));
+}
+
+const ROTULO_ORIGEM_APROVACAO: Record<string, string> = {
+  DEMANDA: 'demanda aprovada no módulo de demandas',
+  PECA_EXTERNA: 'DFD juntada feita fora — a aprovação consta da peça',
+  APROVADOR: 'feita, aprovada ou assinada por quem aprova',
+  MANUAL: 'aprovação registrada no processo',
+  LEGADO: 'processo anterior ao modelo de fluxo',
+};
 
 /**
  * TAREFAS E CAIXA DE ENTRADA DA FASE INTERNA (Entrega 2).
@@ -125,6 +145,7 @@ export class TarefasService {
     @InjectRepository(ConfiguracaoFaseInterna) private readonly configRepo: Repository<ConfiguracaoFaseInterna>,
     private readonly faseInterna: FaseInternaService,
     private readonly auditLog: AuditLogService,
+    private readonly modeloFluxo: ModeloFluxoService,
     @Optional() private readonly notificacoes?: NotificacoesService,
   ) {
     definirAgendadorDeTarefas((id) => this.agendar(id));
@@ -197,13 +218,26 @@ export class TarefasService {
   // CONFIGURAÇÃO DO ÓRGÃO
   // ==========================================================================
 
+  /**
+   * Configuração do órgão. F1: responsáveis, prazos e controle interno vêm do
+   * MODELO DE FLUXO vigente do órgão (o da dispensa — a tela antiga mostra um
+   * só); o modo, os signatários e as opções da dispensa, da configuração.
+   */
   async configuracao(orgaoId: string): Promise<ConfigFaseInternaEfetiva> {
     const linha = await this.configRepo.findOne({ where: { orgao_id: orgaoId } });
-    return configEfetiva(orgaoId, linha);
+    const base = configEfetiva(orgaoId, linha);
+    const modelo = await this.modeloFluxo.modeloVigente(orgaoId, 'DISPENSA');
+    return {
+      ...base,
+      controle_interno_ativo: !!modelo.etapas.find((e) => e.codigo === PassoFaseInterna.CONTROLE_INTERNO)?.ligada,
+      responsaveis: { ...base.responsaveis, ...responsaveisDoModelo(modelo) } as ConfigFaseInternaEfetiva['responsaveis'],
+      prazos: { ...base.prazos, ...prazosDoModelo(modelo) } as ConfigFaseInternaEfetiva['prazos'],
+    };
   }
 
   async configuracaoParaTela(orgaoId: string) {
     const config = await this.configuracao(orgaoId);
+    const modelo = await this.modeloFluxo.modeloVigente(orgaoId, 'DISPENSA');
     const setores: Array<{ id: string; nome: string; codigo: string }> = await this.ds.query(
       `SELECT id::text AS id, nome, codigo FROM setores WHERE orgao_id::text = $1 ORDER BY nome`,
       [orgaoId],
@@ -212,14 +246,18 @@ export class TarefasService {
       ...config,
       setores,
       papeis: Object.entries(ROTULO_PAPEL).map(([codigo, rotulo]) => ({ codigo, rotulo })),
-      passos: (Object.values(PassoFaseInterna) as PassoFaseInterna[]).map((p) => ({
-        passo: p,
-        etapa: DEFINICAO_PASSO[p].etapa,
-        etapa_titulo: TITULO_ETAPA[DEFINICAO_PASSO[p].etapa],
-        titulo: DEFINICAO_PASSO[p].titulo,
-        papel_padrao: DEFINICAO_PASSO[p].papel_padrao,
-        prazo_padrao: DEFINICAO_PASSO[p].prazo_padrao,
-      })),
+      // Etapas do modelo de fluxo (as ligadas; o controle interno a tela filtra)
+      passos: modelo.etapas
+        .filter((e) => e.ligada || e.codigo === PassoFaseInterna.CONTROLE_INTERNO)
+        .map((e) => ({
+          passo: e.codigo,
+          etapa: e.grupo,
+          etapa_titulo: e.grupo_titulo,
+          titulo: e.titulo,
+          papel_padrao: DEFINICAO_PASSO[e.codigo as PassoFaseInterna]?.papel_padrao ?? e.responsavel.papel,
+          prazo_padrao: DEFINICAO_PASSO[e.codigo as PassoFaseInterna]?.prazo_padrao ?? null,
+        })),
+      modelo_fluxo: { nome: modelo.nome, versao: modelo.versao, proprio: !!modelo.orgao_id, tela: '/orgao/configuracoes/fluxo' },
     };
   }
 
@@ -264,6 +302,8 @@ export class TarefasService {
         atualizado_por_nome: autor.nome,
       }),
     );
+    // F1: responsáveis, prazos e controle interno vão para o MODELO DE FLUXO do órgão
+    await this.modeloFluxo.aplicarConfiguracaoLegada(orgaoId, corpo ?? {}, r.valores, autor);
     await this.sincronizarOrgao(orgaoId);
     return this.configuracaoParaTela(orgaoId);
   }
@@ -347,18 +387,26 @@ export class TarefasService {
 
     const config = await this.configuracao(lic.orgao_id);
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
+    const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
+    const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
+    // F1: o modelo de fluxo do processo (snapshot + operacional vigente) e o estado dele
+    const fluxo = await this.modeloDoProcesso(licitacaoId, lic.orgao_id, instrucao.contratacao_direta);
+    if (fluxo.ctx && FASES_INTERNAS.includes(lic.fase)) {
+      await this.atualizarEstadoDoFluxo(fluxo.ctx, instrucao.itens, { modo: config.modo, agente_id: agente ?? criador });
+    }
     const etapas = etapasDaFaseInterna(
       { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao },
       instrucao.itens,
-      config,
+      fluxo.modelo,
       await this.bloqueiosDePortao(licitacaoId),
+      fluxo.estado,
     );
     const passos = passosDasEtapas(etapas);
     const abertas = await this.tarefaRepo.find({ where: { licitacao_id: licitacaoId, status: 'ABERTA' } });
 
-    const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
-    const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
-    const responsavelDe = (p: PassoFaseInterna) => responsavelDoPasso(p, config, { agente_id: agente, criador_usuario_id: criador });
+    const prazos = prazosDoModelo(fluxo.modelo);
+    const responsavelDe = (p: PassoFaseInterna) =>
+      responsavelDoPasso(p, { modo: config.modo, responsaveis: responsaveisDoModelo(fluxo.modelo) }, { agente_id: agente, criador_usuario_id: criador });
 
     const plano = planejarSincronizacao(passos, abertas, responsavelDe, {
       processo_encerrado: SITUACOES_ENCERRAM_TUDO.includes(lic.situacao) && FASES_INTERNAS.includes(lic.fase),
@@ -369,7 +417,7 @@ export class TarefasService {
     let criadas = 0;
 
     for (const { passo, responsavel } of plano.criar) {
-      const valores = this.valoresDaTarefaDoPasso(lic, passo, responsavel, config, agora, cal);
+      const valores = this.valoresDaTarefaDoPasso(lic, passo, responsavel, prazos, agora, cal);
       const r = await this.tarefaRepo.createQueryBuilder().insert().into(Tarefa).values(valores).orIgnore().returning(['id']).execute();
       const id = r.raw?.[0]?.id;
       if (!id) continue; // já existia uma aberta (outra instância) — idempotente
@@ -455,15 +503,15 @@ export class TarefasService {
       [licitacaoId],
     );
     if (!lic?.orgao_id) return null;
-    const config = await this.configuracao(lic.orgao_id);
+    const { modelo } = await this.modeloDoProcesso(licitacaoId, lic.orgao_id);
     const responsavel = t.responsavel ?? (await this.responsavelDoPassoNoProcesso(licitacaoId, t.passo));
-    const dias = config.prazos[t.passo] ?? null;
+    const dias = prazosDoModelo(modelo)[t.passo] ?? null;
     const valores: Partial<Tarefa> = {
       orgao_id: lic.orgao_id,
       licitacao_id: licitacaoId,
       documento_id: t.documento_id ?? null,
       tipo_peca: t.tipo_peca ?? null,
-      etapa: DEFINICAO_PASSO[t.passo].etapa,
+      etapa: modelo.etapas.find((e) => e.codigo === t.passo)?.grupo ?? DEFINICAO_PASSO[t.passo]?.etapa ?? null,
       passo: t.passo,
       chave: t.chave,
       tipo: t.tipo ?? 'PECA',
@@ -500,9 +548,10 @@ export class TarefasService {
     const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, pregoeiro_id::text AS pregoeiro_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
     if (!lic?.orgao_id) return { usuario_id: null, papel: null, setor_id: null };
     const config = await this.configuracao(lic.orgao_id);
+    const { modelo } = await this.modeloDoProcesso(licitacaoId, lic.orgao_id);
     const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
     const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
-    return responsavelDoPasso(passo, config, { agente_id: agente, criador_usuario_id: criador });
+    return responsavelDoPasso(passo, { modo: config.modo, responsaveis: responsaveisDoModelo(modelo) }, { agente_id: agente, criador_usuario_id: criador });
   }
 
   /**
@@ -551,11 +600,11 @@ export class TarefasService {
     lic: { id: string; orgao_id: string; numero_processo: string; objeto: string | null },
     passo: PassoCalculado,
     responsavel: Responsavel,
-    config: ConfigFaseInternaEfetiva,
+    prazos: Partial<Record<string, number | null>>,
     agora: Date,
     cal: ReturnType<typeof calendarioDoOrgao>,
   ): Partial<Tarefa> {
-    const dias = config.prazos[passo.passo] ?? null;
+    const dias = prazos[passo.passo] ?? null;
     const tipoPeca = passo.peca_pendente ?? passo.pecas[0]?.tipo ?? null;
     return {
       orgao_id: lic.orgao_id,
@@ -567,7 +616,8 @@ export class TarefasService {
       chave: chaveDoPasso(passo.passo),
       tipo: passo.passo === PassoFaseInterna.PUBLICACAO ? 'PUBLICACAO' : 'PECA',
       origem: 'ETAPA',
-      titulo: passo.titulo,
+      // F1: etapa reaberta ("voltar") ou a revisar vira tarefa de revisão
+      titulo: (passo.reaberta ? `Refazer (etapa reaberta): ${passo.titulo}` : passo.situacao === 'A_REVISAR' ? `Revisar: ${passo.titulo}` : passo.titulo).slice(0, 250),
       descricao: this.descricaoDaTarefa(lic, passo),
       responsavel_usuario_id: responsavel.usuario_id,
       responsavel_papel: responsavel.papel,
@@ -599,6 +649,7 @@ export class TarefasService {
     );
     if (!lic?.orgao_id) return 0;
     const config = await this.configuracao(lic.orgao_id);
+    const { modelo } = await this.modeloDoProcesso(licitacaoId, lic.orgao_id);
     const passos = passosDasEtapas(await this.etapasCalculadas(licitacaoId, lic, config));
     const chaves: Array<{ chave: string }> = await this.ds.query(
       `SELECT DISTINCT chave FROM tarefas WHERE licitacao_id::text = $1 AND chave IS NOT NULL`,
@@ -613,9 +664,9 @@ export class TarefasService {
     let n = 0;
     for (const passo of nascer) {
       const autor = await this.quemCumpriuPasso(licitacaoId, passo);
-      const responsavel = responsavelDoPasso(passo.passo, config, { agente_id: agente, criador_usuario_id: criador });
+      const responsavel = responsavelDoPasso(passo.passo, { modo: config.modo, responsaveis: responsaveisDoModelo(modelo) }, { agente_id: agente, criador_usuario_id: criador });
       const valores: Partial<Tarefa> = {
-        ...this.valoresDaTarefaDoPasso(lic, passo, responsavel, config, agora, cal),
+        ...this.valoresDaTarefaDoPasso(lic, passo, responsavel, prazosDoModelo(modelo), agora, cal),
         prazo: null,
         status: 'CONCLUIDA',
         concluida_em: agora,
@@ -644,6 +695,14 @@ export class TarefasService {
     if (passo.passo === PassoFaseInterna.PUBLICACAO) {
       return `${cabeca} Confira o checklist de pré-publicação e publique o aviso/edital.`;
     }
+    if (passo.reaberta) {
+      return `${cabeca} A etapa foi reaberta${passo.reaberta.por_nome ? ` por ${passo.reaberta.por_nome}` : ''}: ${passo.reaberta.motivo ?? ''} Corrija a peça (nova versão ou novo anexo) ou confirme a revisão.`;
+    }
+    if (passo.situacao === 'A_REVISAR' && passo.a_revisar) {
+      return `${cabeca} Uma etapa de que esta depende foi reaberta (${passo.a_revisar.motivo ?? 'sem motivo'}). Revise a peça e atualize-a, ou confirme que continua valendo.`;
+    }
+    if (passo.conclusao === 'REGISTRO') return `${cabeca} Registre o despacho desta etapa no processo.`;
+    if (passo.aguardando_aprovacao) return `${cabeca} A demanda está pronta e aguarda a aprovação de quem foi designado para aprovar.`;
     const pecas = passo.pecas.map((p) => p.titulo).join('; ');
     return `${cabeca} Peças: ${pecas}. Faça aqui, anexe o PDF feito fora ou marque "não se aplica" quando a lei permitir.`;
   }
@@ -654,9 +713,11 @@ export class TarefasService {
    * Lidos do motor de conformidade, que roda na mesma fila, logo antes.
    */
   private async bloqueiosDePortao(licitacaoId: string): Promise<BloqueiosDePortao> {
-    const codigos = regrasDoPortao('A')
-      .filter((r) => r.severidade === 'BLOQUEIO')
-      .map((r) => r.codigo);
+    // F1: as regras que seguram o ato "concluir a pesquisa" vêm das travas por ato (dados)
+    const codigos = (await this.modeloFluxo.travas())
+      .filter((t) => t.ato === 'CONCLUIR_PESQUISA' && t.ativa && t.severidade === 'BLOQUEIO')
+      .map((t) => t.regra);
+    if (!codigos.length) return {};
     const linhas: Array<{ regra: string; mensagem: string }> = await this.ds
       .query(`SELECT regra, mensagem FROM achados_conformidade WHERE licitacao_id::text = $1 AND status = 'ABERTO' AND severidade = 'BLOQUEIO' AND regra = ANY($2::text[])`, [
         licitacaoId,
@@ -1093,19 +1154,118 @@ export class TarefasService {
   async etapasCalculadas(
     licitacaoId: string,
     lic: { orgao_id: string; fase: string; situacao: string | null },
-    config?: ConfigFaseInternaEfetiva,
+    // Mantido por compatibilidade (painel TV): o modelo e o estado são os do processo (F1)
+    _config?: ConfigFaseInternaEfetiva,
   ): Promise<EtapaCalculada[]> {
-    const cfg = config ?? (await this.configuracao(lic.orgao_id));
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
+    const fluxo = await this.modeloDoProcesso(licitacaoId, lic.orgao_id, instrucao.contratacao_direta);
     return etapasDaFaseInterna(
       { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao },
       instrucao.itens,
-      cfg,
+      fluxo.modelo,
       await this.bloqueiosDePortao(licitacaoId),
+      fluxo.estado,
     );
   }
 
-  async etapasDoProcesso(licitacaoId: string) {
+  /**
+   * MODELO DE FLUXO DO PROCESSO (F1): snapshot do caminho + operacional
+   * vigente e o estado (aprovação da demanda, reabertas, a revisar,
+   * registros). Sem linha de fluxo (falha ao criar): o modelo vigente do
+   * órgão, sem estado (comportamento de antes da F1).
+   */
+  async modeloDoProcesso(
+    licitacaoId: string,
+    orgaoId: string,
+    contratacaoDireta?: boolean,
+  ): Promise<{ modelo: ModeloFluxo; estado: EstadoFluxoParaEtapas; ctx: ContextoFluxoProcesso | null }> {
+    try {
+      const ctx = await this.modeloFluxo.contextoDoProcesso(licitacaoId);
+      if (ctx) return { modelo: ctx.modelo, estado: ctx.estado, ctx };
+    } catch (e: any) {
+      this.logger.warn(`Modelo de fluxo do processo ${licitacaoId} indisponível: ${e?.message ?? e}`);
+    }
+    const [l] = contratacaoDireta === undefined ? await this.ds.query(`SELECT modalidade::text AS modalidade FROM licitacoes WHERE id::text = $1`, [licitacaoId]) : [];
+    const tipo = contratacaoDireta === undefined ? this.modeloFluxo.tipoDaModalidade(l?.modalidade) : contratacaoDireta ? 'DISPENSA' : 'LICITACAO';
+    return { modelo: await this.modeloFluxo.modeloVigente(orgaoId, tipo), estado: {}, ctx: null };
+  }
+
+  /** F1: controle interno ligado no modelo de fluxo DESTE processo (operacional vigente). */
+  async controleInternoAtivoNoProcesso(licitacaoId: string): Promise<boolean> {
+    const [l] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, modalidade::text AS modalidade FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!l?.orgao_id) return false;
+    return this.modeloFluxo.controleInternoAtivo(l.orgao_id, l.modalidade);
+  }
+
+  /** F1: controle interno ligado no modelo do órgão para a modalidade (antes de o processo existir). */
+  controleInternoAtivoPorModalidade(orgaoId: string, modalidade: string): Promise<boolean> {
+    return this.modeloFluxo.controleInternoAtivo(orgaoId, modalidade);
+  }
+
+  /**
+   * Antes de calcular as etapas: a marca de etapa reaberta/a revisar sai
+   * sozinha quando a peça dela é alterada depois; a aprovação da demanda é
+   * registrada quando já existe por outro caminho (demanda aprovada, DFD
+   * juntada, feita/aprovada/assinada por quem aprova — ou pelo condutor no
+   * modo simples).
+   */
+  private async atualizarEstadoDoFluxo(ctx: ContextoFluxoProcesso, itens: Array<{ tipo: string; status: string }>, condutor: CondutorDoProcesso): Promise<void> {
+    try {
+      const limpos = await this.modeloFluxo.limparMarcasPorPecaAlterada(ctx);
+      for (const l of limpos) {
+        const titulo = ctx.modelo.etapas.find((e) => e.codigo === l.codigo)?.titulo ?? l.codigo;
+        await this.log(ctx.licitacao_id, AcaoLogFaseInterna.ETAPA_REVISADA, `Etapa "${titulo}" revista: a peça foi alterada depois da ${l.marca === 'reaberta' ? 'reabertura' : 'marca "a revisar"'}`, { etapa: l.codigo, marca: l.marca }, { etapa: l.codigo, automatica: true });
+      }
+      const origem = await this.modeloFluxo.verificarAprovacaoAutomatica(ctx, itens, condutor);
+      if (origem) {
+        ctx.fluxo.demanda_aprovada = true;
+        ctx.estado.demanda_aprovada = true;
+        const [f] = await this.ds.query(`SELECT aprovacao_demanda FROM fluxos_processo_fase_interna WHERE id::text = $1`, [ctx.fluxo.id]);
+        const ap = f?.aprovacao_demanda ?? {};
+        await this.log(
+          ctx.licitacao_id,
+          AcaoLogFaseInterna.DEMANDA_APROVADA,
+          `Demanda aprovada (${ROTULO_ORIGEM_APROVACAO[origem] ?? origem})${ap.por_nome ? ` — ${ap.por_nome}` : ''}`,
+          null,
+          { origem, ...ap },
+          { usuario_id: ap.por_id ?? undefined, usuario_nome: ap.por_nome ?? undefined },
+        );
+      }
+    } catch (e: any) {
+      this.logger.warn(`Estado do fluxo do processo ${ctx.licitacao_id} não atualizado: ${e?.message ?? e}`);
+    }
+  }
+
+  /**
+   * Quem CONDUZ o processo (pode voltar/avançar etapa e dispensar o parecer
+   * informando o ato): o login do órgão, o administrador (do órgão ou da
+   * plataforma) e o agente de contratação do processo.
+   */
+  async podeConduzirProcesso(ator: Ator, licitacaoId: string): Promise<boolean> {
+    if (ator.admin || ator.tipo === 'ORGAO') return true;
+    if (ator.tipo !== 'USUARIO' || !ator.usuarioId) return false;
+    const [r] = await this.ds.query(
+      `SELECT u.role::text AS role, l.pregoeiro_id::text AS pregoeiro_id
+         FROM licitacoes l LEFT JOIN usuarios u ON u.id::text = $2 AND u.orgao_id = l.orgao_id
+        WHERE l.id::text = $1`,
+      [licitacaoId, ator.usuarioId],
+    );
+    return r?.role === 'ADMIN' || (!!r?.pregoeiro_id && r.pregoeiro_id === ator.usuarioId);
+  }
+
+  /** O ator aprova a demanda deste processo pelo modelo? */
+  async podeAprovarDemanda(ator: Ator, licitacaoId: string, modelo: ModeloFluxo): Promise<boolean> {
+    if (ator.admin || ator.tipo === 'ORGAO') return true;
+    if (ator.tipo !== 'USUARIO' || !ator.usuarioId) return false;
+    const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, pregoeiro_id::text AS pregoeiro_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!lic) return false;
+    const config = await this.configuracao(lic.orgao_id);
+    const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
+    const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
+    return this.modeloFluxo.ehAprovador(ator.usuarioId, lic.orgao_id, modelo.aprovacao_demanda.aprovador, { modo: config.modo, agente_id: agente ?? criador });
+  }
+
+  async etapasDoProcesso(licitacaoId: string, ator?: Ator) {
     // Sincroniza (pela fila do processo — nada em paralelo) e recalcula para a tela
     await this.agendar(licitacaoId);
     const [lic] = await this.ds.query(
@@ -1115,6 +1275,9 @@ export class TarefasService {
     if (!lic) throw new NotFoundException('Licitação não encontrada');
     const config = await this.configuracao(lic.orgao_id);
     const etapas = await this.etapasCalculadas(licitacaoId, lic, config);
+    const fluxo = await this.modeloDoProcesso(licitacaoId, lic.orgao_id);
+    const prazos = prazosDoModelo(fluxo.modelo);
+    const respModelo = { modo: config.modo, responsaveis: responsaveisDoModelo(fluxo.modelo) };
 
     const tarefas: any[] = await this.ds.query(`${this.SELECT_TAREFA} WHERE t.licitacao_id::text = $1 ORDER BY t.created_at`, [licitacaoId]);
     const perfilNeutro: Perfil = { orgaoId: lic.orgao_id, usuarioId: null, papeis: [], setorId: null, orgao: true, adminOrgao: true };
@@ -1136,12 +1299,13 @@ export class TarefasService {
       for (const p of e.passos) {
         const daChave = tarefas.filter((t) => t.chave === chaveDoPasso(p.passo));
         const tarefa = daChave.find((t) => t.status === 'ABERTA') ?? daChave[daChave.length - 1] ?? null;
-        const previsto = responsavelDoPasso(p.passo, config, { agente_id: agente, criador_usuario_id: criador });
+        const previsto = responsavelDoPasso(p.passo, respModelo, { agente_id: agente, criador_usuario_id: criador });
         passos.push({
           ...p,
+          codigo: p.passo,
           tarefa: tarefa ? this.paraTela(tarefa, perfilNeutro, agora) : null,
           responsavel_previsto: { ...previsto, rotulo: await nomeResp(previsto) },
-          prazo_dias_uteis: config.prazos[p.passo] ?? null,
+          prazo_dias_uteis: prazos[p.passo] ?? null,
         });
       }
       saida.push({ ...e, passos });
@@ -1149,17 +1313,59 @@ export class TarefasService {
     const historico = await this.ds.query(
       `SELECT acao::text AS acao, descricao, usuario_nome, created_at FROM logs_fase_interna
         WHERE licitacao_id::text = $1 AND acao::text = ANY($2::text[]) ORDER BY created_at DESC LIMIT 40`,
-      [licitacaoId, ['ETAPA_ALTERADA', 'TAREFA_CRIADA', 'TAREFA_CONCLUIDA', 'TAREFA_CANCELADA', 'TAREFA_REATRIBUIDA']],
+      [
+        licitacaoId,
+        ['ETAPA_ALTERADA', 'TAREFA_CRIADA', 'TAREFA_CONCLUIDA', 'TAREFA_CANCELADA', 'TAREFA_REATRIBUIDA', 'ETAPA_REABERTA', 'ETAPA_REVISADA', 'ETAPA_REGISTRADA', 'DEMANDA_APROVADA', 'PARECER_DISPENSADO'],
+      ],
     );
     const atual = etapaAtual(etapas);
+
+    // F1: modelo usado, aprovação da demanda, parecer dispensado, desenho e permissões
+    const f = fluxo.ctx?.fluxo ?? null;
+    const ap = fluxo.modelo.aprovacao_demanda;
+    const [pj] = await this.ds.query(
+      `SELECT dados_estruturados->'parecer_dispensado' AS dispensa FROM documentos_fase_interna
+        WHERE licitacao_id::text = $1 AND tipo::text = 'PJ' AND versao_atual = true AND (dados_estruturados->>'nao_se_aplica')::boolean IS TRUE LIMIT 1`,
+      [licitacaoId],
+    );
+    const nomesAprovador = {
+      setor: ap.aprovador.tipo === 'SETOR' && ap.aprovador.valor ? await this.nomeDoSetor(ap.aprovador.valor) : null,
+      usuario: ap.aprovador.tipo === 'USUARIO' && ap.aprovador.valor ? await this.nomeDoAtor(ap.aprovador.valor) : null,
+    };
+    const conduz = ator ? await this.podeConduzirProcesso(ator, licitacaoId) : false;
+    const aprovada = fluxo.estado.demanda_aprovada !== false;
+    const interna = FASES_INTERNAS.includes(lic.fase);
+    const parecer = fluxo.modelo.etapas.find((e) => e.codigo === PassoFaseInterna.PARECER);
     return {
       modo: config.modo,
-      controle_interno_ativo: config.controle_interno_ativo,
+      controle_interno_ativo: !!fluxo.modelo.etapas.find((e) => e.codigo === PassoFaseInterna.CONTROLE_INTERNO)?.ligada,
       etapa_atual: atual?.etapa ?? null,
       concluidas: etapas.filter((e) => e.situacao === 'CONCLUIDA').length,
       total: etapas.length,
       etapas: saida,
       historico,
+      modelo: {
+        id: fluxo.modelo.id,
+        nome: f?.modelo_nome ?? fluxo.modelo.nome,
+        versao: f?.modelo_versao ?? fluxo.modelo.versao,
+        tipo_processo: f?.tipo_processo ?? fluxo.modelo.tipo_processo,
+        snapshot_em: f?.snapshot_em ?? null,
+        legado: !!f?.legado,
+      },
+      aprovacao_demanda: {
+        exigida: !!ap.exigida,
+        aprovada,
+        etapa: ap.etapa,
+        registro: f?.aprovacao_demanda ?? null,
+        aprovador: { ...ap.aprovador, rotulo: this.modeloFluxo.rotuloAprovador(ap.aprovador, nomesAprovador) },
+        pode_aprovar: !!ator && interna && !!ap.exigida && !aprovada && (await this.podeAprovarDemanda(ator, licitacaoId, fluxo.modelo)),
+      },
+      parecer: {
+        dispensavel_por_ato: !!parecer?.dispensavel_por_ato && fluxo.modelo.tipo_processo !== 'LICITACAO',
+        dispensa: pj?.dispensa ?? null,
+      },
+      desenho: niveisDoGrafo(fluxo.modelo.etapas.filter((e) => etapas.some((x) => x.passos.some((p) => p.passo === e.codigo)))),
+      permissoes: { conduzir: conduz && interna, reabrir: conduz && interna, dispensar_parecer: conduz && interna },
     };
   }
 

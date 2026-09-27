@@ -55,6 +55,9 @@ export const COLUNAS_PAINEL: Array<{ chave: ColunaPainel; titulo: string }> = [
 /** Etapa da fase interna (Entrega 2) → coluna. O controle interno vai com o parecer. */
 export const COLUNA_DA_ETAPA: Record<EtapaFaseInterna, ColunaPainel> = {
   [EtapaFaseInterna.DEMANDA]: 'DEMANDA',
+  // F1 — etapas opcionais do modelo de fluxo
+  [EtapaFaseInterna.AUTORIZACAO_INICIO]: 'DEMANDA',
+  [EtapaFaseInterna.INDICACAO_MODALIDADE]: 'PESQUISA',
   [EtapaFaseInterna.ETP_RISCOS]: 'PLANEJAMENTO',
   [EtapaFaseInterna.TERMO_REFERENCIA]: 'PLANEJAMENTO',
   [EtapaFaseInterna.PESQUISA_PRECOS]: 'PESQUISA',

@@ -1,6 +1,7 @@
 import { criarCalendario } from '../../common/prazos/calendario';
 import { configEfetiva, validarConfiguracao } from './configuracao-fase-interna';
 import { etapasDaFaseInterna, PapelFaseInterna, PassoFaseInterna as P, passosDasEtapas } from './etapas-fase-interna';
+import { modeloSemente } from '../fluxo/semente-fluxo';
 import { chaveDoPasso, destinoDaTarefa, passosCumpridosSemTarefa, planejarSincronizacao, prazoDaTarefa, quemCumpriu, responsavelDoPasso, TarefaAberta, tarefaAtrasada } from './tarefa-regras';
 
 describe('prazo da tarefa em dias úteis (calendário do órgão)', () => {
@@ -86,7 +87,7 @@ describe('plano de sincronização das tarefas (idempotente)', () => {
   });
 
   it('processo novo: cria só a tarefa da demanda; com ela aberta, não cria de novo', () => {
-    const passos = passosDasEtapas(etapasDaFaseInterna(processo, instr({}), { controle_interno_ativo: false }));
+    const passos = passosDasEtapas(etapasDaFaseInterna(processo, instr({}), modeloSemente('DISPENSA')));
     const p1 = planejarSincronizacao(passos, [], resp);
     expect(p1.criar.map((c) => c.passo.passo)).toEqual([P.DFD]);
     expect(p1.criar[0].responsavel).toEqual({ usuario_id: 'u1', papel: null, setor_id: null });
@@ -95,7 +96,7 @@ describe('plano de sincronização das tarefas (idempotente)', () => {
   });
 
   it('peça pronta: conclui a tarefa e cria as que ficaram disponíveis', () => {
-    const passos = passosDasEtapas(etapasDaFaseInterna(processo, instr({ DFD: 'OK' }), { controle_interno_ativo: false }));
+    const passos = passosDasEtapas(etapasDaFaseInterna(processo, instr({ DFD: 'OK' }), modeloSemente('DISPENSA')));
     const p = planejarSincronizacao(passos, [aberta(P.DFD)], resp);
     expect(p.concluir.map((c) => c.tarefa_id)).toEqual(['t-DFD']);
     expect(p.criar.map((c) => c.passo.passo)).toEqual([P.ETP, P.TR, P.PESQUISA]);
@@ -105,13 +106,13 @@ describe('plano de sincronização das tarefas (idempotente)', () => {
   });
 
   it('controle interno desativado cancela a tarefa aberta dele', () => {
-    const passos = passosDasEtapas(etapasDaFaseInterna(processo, instr({}), { controle_interno_ativo: false }));
+    const passos = passosDasEtapas(etapasDaFaseInterna(processo, instr({}), modeloSemente('DISPENSA')));
     const p = planejarSincronizacao(passos, [aberta(P.DFD), aberta(P.CONTROLE_INTERNO)], resp);
     expect(p.cancelar).toEqual([{ tarefa_id: 't-CONTROLE_INTERNO', motivo: expect.stringMatching(/deixou de se aplicar/) }]);
   });
 
   it('processo revogado: cancela todas as abertas (inclusive diligência) e não cria nada', () => {
-    const passos = passosDasEtapas(etapasDaFaseInterna({ ...processo, situacao: 'REVOGADA' }, instr({}), { controle_interno_ativo: false }));
+    const passos = passosDasEtapas(etapasDaFaseInterna({ ...processo, situacao: 'REVOGADA' }, instr({}), modeloSemente('DISPENSA')));
     const dil = { ...aberta(P.DFD), id: 't-dil', chave: 'diligencia:1', origem: 'DILIGENCIA' };
     const p = planejarSincronizacao(passos, [aberta(P.DFD), dil], resp, { processo_encerrado: true });
     expect(p.cancelar.map((c) => c.tarefa_id)).toEqual(['t-DFD', 't-dil']);
@@ -119,7 +120,7 @@ describe('plano de sincronização das tarefas (idempotente)', () => {
   });
 
   it('responsável mudou (modo/agente): reatribui — salvo se foi reatribuída à mão', () => {
-    const passos = passosDasEtapas(etapasDaFaseInterna(processo, instr({}), { controle_interno_ativo: false }));
+    const passos = passosDasEtapas(etapasDaFaseInterna(processo, instr({}), modeloSemente('DISPENSA')));
     const porSetor = configEfetiva('o1', { modo: 'POR_SETOR' });
     const respSetor = (p: P) => responsavelDoPasso(p, porSetor, { agente_id: 'u1' });
     const p = planejarSincronizacao(passos, [aberta(P.DFD)], respSetor);
@@ -128,7 +129,7 @@ describe('plano de sincronização das tarefas (idempotente)', () => {
   });
 
   it('fase interna encerrada sem a peça: cancela a tarefa', () => {
-    const passos = passosDasEtapas(etapasDaFaseInterna({ ...processo, fase: 'PUBLICADO' }, instr({ DFD: 'OK' }), { controle_interno_ativo: false }));
+    const passos = passosDasEtapas(etapasDaFaseInterna({ ...processo, fase: 'PUBLICADO' }, instr({ DFD: 'OK' }), modeloSemente('DISPENSA')));
     const p = planejarSincronizacao(passos, [aberta(P.ETP)], resp);
     expect(p.cancelar).toEqual([{ tarefa_id: 't-ETP', motivo: expect.stringMatching(/encerrada/) }]);
   });

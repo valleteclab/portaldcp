@@ -21,7 +21,7 @@ import { desatualizacaoRelevante, hashSecoes, secoesDaPeca } from '../telas/minu
 import type { LinhaInstrucaoPortao } from './art72';
 import { diaEmBrasiliaIso } from './regras';
 import { normalizarNumeroLei, textoPuro } from './texto';
-import type { AnexoAvulso, AtoProtegido, ContextoConformidade, Cronograma, PecaConformidade } from './tipos';
+import type { AnexoAvulso, AtoProtegido, ContextoConformidade, Cronograma, FluxoConformidade, PecaConformidade } from './tipos';
 
 export interface LicitacaoLinha {
   id: string;
@@ -95,6 +95,8 @@ export interface EntradaContexto {
   ato_pretendido?: AtoProtegido | null;
   /** Cronograma do ato (ex.: as datas do pedido de publicação) — prevalece sobre o gravado. */
   cronograma?: Partial<Cronograma> | null;
+  /** F1: modelo de fluxo do processo (dependências e etapas reabertas/a revisar). */
+  fluxo?: FluxoConformidade | null;
 }
 
 const TITULO_PADRAO: Record<string, string> = {
@@ -255,5 +257,6 @@ export function montarContexto(e: EntradaContexto): ContextoConformidade {
     limite: e.limite ?? null,
     calendario: e.calendario,
     ato_pretendido: e.ato_pretendido ?? null,
+    fluxo: e.fluxo ?? null,
   };
 }

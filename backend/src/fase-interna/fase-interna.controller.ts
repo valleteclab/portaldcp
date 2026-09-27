@@ -218,13 +218,22 @@ export class FaseInternaController {
     },
     @AtorAtual() ator: Ator,
   ) {
+    // F1: autor sempre do JWT (antes vinha do corpo) — é quem "cumpriu" a peça
+    // e conta para a aprovação da demanda (o login do órgão aprova).
+    const id = ator.admin ? null : ator.usuarioId ?? ator.orgaoId ?? null;
+    const [u] = id && ehUuid(id)
+      ? await this.dataSource.query(
+          `SELECT nome FROM usuarios WHERE id::text = $1 UNION ALL SELECT nome FROM orgaos WHERE id::text = $1 LIMIT 1`,
+          [id],
+        )
+      : [];
     const doc = await this.faseInternaService.criarDocumento(
       licitacaoId,
       body.tipo,
       body.titulo,
       body.descricao,
-      body.criadorId,
-      body.criadorNome,
+      id ?? undefined,
+      ator.admin ? 'Administrador da plataforma' : u?.nome ?? undefined,
     );
     if (!String(body.descricao ?? '').trim()) return doc;
     return this.pecas.gerarDocumentoDaPecaCriada(doc.id, ator);

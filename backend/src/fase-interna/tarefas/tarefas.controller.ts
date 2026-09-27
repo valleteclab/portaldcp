@@ -102,8 +102,13 @@ export class ConfiguracaoFaseInternaController {
 export class EtapasFaseInternaController {
   constructor(private readonly tarefas: TarefasService) {}
 
+  /**
+   * Etapas + (F1) dependências, se pode iniciar, responsável, prazo,
+   * obrigatória/opcional, "a revisar", modelo/versão, aprovação da demanda,
+   * parecer dispensado, desenho (níveis) e permissões de quem consulta.
+   */
   @Get(':licitacaoId/etapas')
-  etapas(@Param('licitacaoId') licitacaoId: string) {
-    return this.tarefas.etapasDoProcesso(licitacaoId);
+  etapas(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    return this.tarefas.etapasDoProcesso(licitacaoId, ator);
   }
 }

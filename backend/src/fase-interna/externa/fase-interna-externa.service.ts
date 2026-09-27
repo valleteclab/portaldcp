@@ -136,14 +136,14 @@ export class FaseInternaExternaService {
     return ator.orgaoId!;
   }
 
-  private async controleInternoAtivo(orgaoId: string): Promise<boolean> {
-    const [c] = await this.ds.query(`SELECT controle_interno_ativo FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [orgaoId]).catch(() => []);
-    return !!c?.controle_interno_ativo;
+  /** F1: controle interno ligado no modelo de fluxo do órgão para o tipo do processo. */
+  private async controleInternoAtivo(orgaoId: string, modalidade: string): Promise<boolean> {
+    return this.tarefas.controleInternoAtivoPorModalidade(orgaoId, modalidade).catch(() => false);
   }
 
   private async linhasParaNovo(orgaoId: string, modalidade: string): Promise<{ direta: boolean; linhas: LinhaChecklistExterna[] }> {
     const direta = MODALIDADES_CONTRATACAO_DIRETA.includes(modalidade);
-    const linhas = linhasDoChecklist({ contratacao_direta: direta, controle_interno_ativo: await this.controleInternoAtivo(orgaoId) });
+    const linhas = linhasDoChecklist({ contratacao_direta: direta, controle_interno_ativo: await this.controleInternoAtivo(orgaoId, modalidade) });
     return { direta, linhas };
   }
 

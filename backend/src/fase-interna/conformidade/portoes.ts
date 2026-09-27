@@ -11,6 +11,11 @@
  *  - B (art. 72): autorizar — enviar o despacho para assinatura, assinar,
  *    anexar o despacho assinado fora.
  *  - C (conformidade): PUBLICAR.
+ *
+ * F1 (modelo de fluxo em dados): QUAIS regras seguram cada ato, e com que
+ * severidade, vêm da tabela `travas_ato_fluxo` (semeada com o comportamento
+ * acima; editável só pelo administrador da plataforma). O verificador
+ * registrado (`ConformidadeService.pendenciasDoPortao`) lê as travas do ato.
  */
 import type { AtoProtegido, Portao } from './tipos';
 

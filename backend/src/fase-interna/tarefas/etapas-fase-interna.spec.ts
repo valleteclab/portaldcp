@@ -7,6 +7,7 @@ import {
   passosDasEtapas,
   situacaoDaEtapa,
 } from './etapas-fase-interna';
+import { modeloSemente } from '../fluxo/semente-fluxo';
 
 /** Instrução do art. 72 (contratação direta), como devolve o getInstrucao. */
 function instrucaoDireta(status: Partial<Record<string, string>> = {}, extras: Array<{ tipo: string; titulo: string }> = []) {
@@ -39,8 +40,14 @@ function instrucaoRito(status: Partial<Record<string, string>> = {}) {
 }
 
 const ok = (...tipos: string[]) => Object.fromEntries(tipos.map((t) => [t, 'OK']));
-const semCI = { controle_interno_ativo: false };
-const comCI = { controle_interno_ativo: true };
+/** F1: o modelo de fluxo (semente "Câmara — Portaria 089") com o controle interno ligado/desligado. */
+const modelo = (tipo: 'DISPENSA' | 'LICITACAO', ci: boolean) => {
+  const m = modeloSemente(tipo);
+  return { ...m, etapas: m.etapas.map((e) => (e.codigo === 'CONTROLE_INTERNO' ? { ...e, ligada: ci } : e)) };
+};
+const semCI = modelo('DISPENSA', false);
+const comCI = modelo('DISPENSA', true);
+const semCIRito = modelo('LICITACAO', false);
 const direta = { contratacao_direta: true, fase: 'PLANEJAMENTO', situacao: 'ATIVA' };
 const rito = { contratacao_direta: false, fase: 'PLANEJAMENTO', situacao: 'ATIVA' };
 const passo = (etapas: ReturnType<typeof etapasDaFaseInterna>, p: P) => passosDasEtapas(etapas).find((x) => x.passo === p)!;
@@ -158,13 +165,13 @@ describe('etapasDaFaseInterna — contratação direta (art. 72)', () => {
 
 describe('etapasDaFaseInterna — rito completo (art. 18) e máquina de estados', () => {
   it('sem minutas na instrução, o passo some; parecer vem antes da autorização', () => {
-    const etapas = etapasDaFaseInterna(rito, instrucaoRito(), semCI);
+    const etapas = etapasDaFaseInterna(rito, instrucaoRito(), semCIRito);
     expect(passosDasEtapas(etapas).map((p) => p.passo)).toEqual([P.DFD, P.ETP, P.TR, P.PESQUISA, P.RESERVA, P.PARECER, P.AUTORIZACAO, P.PUBLICACAO]);
     expect(etapas.map((e) => e.etapa)).toEqual([
       E.DEMANDA, E.ETP_RISCOS, E.TERMO_REFERENCIA, E.PESQUISA_PRECOS, E.RESERVA_ORCAMENTARIA,
       E.MINUTAS_PARECER, E.AUTORIZACAO, E.CONFORMIDADE_PUBLICACAO,
     ]);
-    const quase = etapasDaFaseInterna(rito, instrucaoRito(ok('DFD', 'ETP', 'TR', 'JC', 'PP', 'MCP', 'DO')), semCI);
+    const quase = etapasDaFaseInterna(rito, instrucaoRito(ok('DFD', 'ETP', 'TR', 'JC', 'PP', 'MCP', 'DO')), semCIRito);
     expect(passo(quase, P.PARECER).situacao).toBe('DISPONIVEL');
     expect(passo(quase, P.AUTORIZACAO).pendencias).toEqual([P.PARECER]);
   });
@@ -177,7 +184,7 @@ describe('etapasDaFaseInterna — rito completo (art. 18) e máquina de estados'
   });
 
   it('cada etapa diz a fase da máquina a que corresponde', () => {
-    const etapas = etapasDaFaseInterna(rito, instrucaoRito(), semCI);
+    const etapas = etapasDaFaseInterna(rito, instrucaoRito(), semCIRito);
     const fase = (e: E) => etapas.find((x) => x.etapa === e)!.fase_maquina;
     expect(fase(E.DEMANDA)).toBe('PLANEJAMENTO');
     expect(fase(E.TERMO_REFERENCIA)).toBe('TERMO_REFERENCIA');

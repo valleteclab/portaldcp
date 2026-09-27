@@ -71,9 +71,11 @@ export class PublicacaoTelaService {
     const l = await this.lic(licitacaoId);
     const interna = ehFaseInterna(l.fase);
     const aguardando = l.fase === FaseLicitacao.AGUARDANDO_DIVULGACAO;
-    const [cfg] = l.orgao_id
-      ? await this.ds.query(`SELECT dispensa_com_lances, controle_interno_ativo FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [l.orgao_id])
+    const [linhaCfg] = l.orgao_id
+      ? await this.ds.query(`SELECT dispensa_com_lances FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [l.orgao_id])
       : [];
+    // F1: o controle interno vem do modelo de fluxo do processo
+    const cfg = { dispensa_com_lances: linhaCfg?.dispensa_com_lances, controle_interno_ativo: l.orgao_id ? await this.tarefas.controleInternoAtivoNoProcesso(licitacaoId) : false };
     const modo = modoDisputaDaDispensa(l, cfg?.dispensa_com_lances);
     const [escolha] = modo.aplica ? await this.ultimaEscolhaDoModo(licitacaoId) : [];
     const [compra] = await this.ds.query(

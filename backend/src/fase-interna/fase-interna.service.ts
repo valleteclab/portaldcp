@@ -3,8 +3,10 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import axios from 'axios';
+import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
 import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -73,6 +75,7 @@ export class FaseInternaService {
     @InjectRepository(ItemLicitacao)
     private readonly itemRepository: Repository<ItemLicitacao>,
     private readonly transicoes: TransicoesService,
+    @Optional() private readonly modeloFluxo?: ModeloFluxoService,
   ) {}
 
   // ========================================
@@ -229,15 +232,16 @@ export class FaseInternaService {
 
     const contratacaoDireta = this.isContratacaoDireta(licitacao);
     // Controle interno (Entrega 2): peça da etapa opcional, só quando o órgão
-    // a ativou (Configurações → Fase interna) — aviso, não obrigatória.
-    const [cfgFaseInterna] = await this.documentoRepository.manager
-      .query(`SELECT controle_interno_ativo FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [licitacao.orgao_id])
-      .catch(() => []);
+    // a ligou — aviso, não obrigatória. F1: vem do MODELO DE FLUXO do órgão
+    // (etapa CONTROLE_INTERNO ligada), assim como as etapas com aprovação interna.
+    const operacional = licitacao.orgao_id && this.modeloFluxo
+      ? await this.modeloFluxo.operacionalDoProcesso(licitacao.orgao_id, licitacao.modalidade as string).catch(() => null)
+      : null;
     // Linhas do checklist: fonte única (documentos-obrigatorios.ts — também
     // usada pela entrada "fase interna feita fora", antes de o processo existir)
     const checklist = linhasDoChecklist({
       contratacao_direta: contratacaoDireta,
-      controle_interno_ativo: !!cfgFaseInterna?.controle_interno_ativo,
+      controle_interno_ativo: !!operacional?.controle_interno_ativo,
       etapa,
     });
 
@@ -258,6 +262,9 @@ export class FaseInternaService {
       .catch(() => []);
     const temFluxoGenerico = fluxos.some((f) => f.tipo_documento === null);
     const tiposComFluxo = new Set(fluxos.map((f) => f.tipo_documento).filter(Boolean));
+    // F1: etapa com "aprovação interna" no modelo de fluxo — a peça feita no
+    // sistema só conta depois de aprovada (fluxo de aprovação) ou assinada
+    for (const t of operacional?.tipos_com_aprovacao ?? []) tiposComFluxo.add(t);
 
     // Etapa em análise de cada documento em tramitação (p/ mostrar quem está com o processo)
     const etapasAtuais: Array<{
