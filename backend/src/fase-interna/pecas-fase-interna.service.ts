@@ -37,6 +37,11 @@ import { TITULO_DOCUMENTO } from './documentos-obrigatorios';
 import { atribuirFolhas, contarPaginasPdf } from './folhas-autos';
 import { TarefasService } from './tarefas/tarefas.service';
 import { pendenciasDoPortaoDoProcesso } from './conformidade/portoes';
+import { PassoFaseInterna, passoDaPeca } from './tarefas/etapas-fase-interna';
+
+/** Tarefa "Assinar <peça>" do signatário interno — uma por versão da peça e signatário. */
+export const PREFIXO_TAREFA_ASSINATURA = 'assinatura:';
+export const chaveTarefaAssinatura = (documentoId: string, usuarioId: string) => `${PREFIXO_TAREFA_ASSINATURA}${documentoId}:${usuarioId}`;
 
 /** Limite do PDF anexado (MB) — FASE_INTERNA_ANEXO_MAX_MB. */
 export const ANEXO_MAX_BYTES = Math.max(1, Number(process.env.FASE_INTERNA_ANEXO_MAX_MB) || 25) * 1024 * 1024;
@@ -125,6 +130,18 @@ export class PecasFaseInternaService implements OnModuleInit {
   onModuleInit() {
     // Conclusão no portal de assinaturas (todos assinaram) → peça ASSINADA
     this.assinaturas.registrarAoConcluir((docId, url) => this.aoConcluirAssinatura(docId, url));
+  }
+
+  /** Nome de quem age (usuário do órgão ou o próprio órgão) — sempre do JWT. */
+  private async nomeDoAtor(ator: Ator | null | undefined): Promise<string | null> {
+    if (!ator) return null;
+    if (ator.admin) return 'Administrador da plataforma';
+    const id = ator.usuarioId ?? (ator.tipo === 'ORGAO' ? ator.orgaoId : null);
+    if (!id) return null;
+    const [r] = await this.ds
+      .query(`SELECT nome FROM usuarios WHERE id::text = $1 UNION ALL SELECT nome FROM orgaos WHERE id::text = $1 LIMIT 1`, [id])
+      .catch(() => [] as any[]);
+    return r?.nome ?? null;
   }
 
   // ==========================================================================
@@ -282,6 +299,7 @@ export class PecasFaseInternaService implements OnModuleInit {
     const signatarios = normalizarSignatariosInformados(meta?.signatarios);
 
     const rel = this.gravar(PASTA_PECAS, licitacaoId, `peca-${tipo.toLowerCase()}`, pdf.buffer);
+    const nomeAtor = await this.nomeDoAtor(ator);
     try {
       const { doc, anterior } = await this.gravarNovaVersao(
         licitacaoId,
@@ -303,6 +321,8 @@ export class PecasFaseInternaService implements OnModuleInit {
           tamanho_bytes: pdf.buffer.length,
           hash_arquivo: pdf.hash,
           criado_por_id: idDoAtor(ator) as any,
+          // Quem anexou aparece no histórico de versões da tela da peça
+          criado_por_nome: (nomeAtor ?? undefined) as any,
         },
         pdf.paginas,
       );
@@ -584,6 +604,7 @@ export class PecasFaseInternaService implements OnModuleInit {
     tipoParam: string,
     corpo: { signatarios?: Array<{ usuario_id?: string; papel?: string }> },
     ator: Ator,
+    opcoes: { assinaturaImediata?: boolean } = {},
   ): Promise<DocumentoFaseInterna> {
     const tipo = this.tipoValido(tipoParam);
     const lic = await this.licitacaoParaPeca(licitacaoId, tipo);
@@ -656,10 +677,66 @@ export class PecasFaseInternaService implements OnModuleInit {
     });
     // Update sem o id da licitação não passa pelo gatilho: a peça saiu de "pronta" (tarefa reabre)
     this.tarefas?.agendar(doc.licitacao_id);
-    await this.assinaturas.dispararNotificacoesAssinatura(docAss.id).catch((e: any) =>
-      this.logger.warn(`Notificação de assinatura da peça ${tipo} não enviada: ${e?.message ?? e}`),
-    );
+    // Quem emite e assina na hora (parecer, controle interno, aprovação interna) não recebe aviso nem tarefa
+    if (!opcoes.assinaturaImediata) {
+      // Homologação E1: o signatário interno ganha a tarefa "Assinar <peça>" (sino, e-mail e WhatsApp
+      // com o link da Central › Assinaturas). Sem tarefas (desligadas), vale o aviso do portal.
+      const criadas = await this.criarTarefasDeAssinatura(lic, doc, tipo, signatarios, ator).catch((e: any) => {
+        this.logger.warn(`Tarefas de assinatura da peça ${tipo} não criadas: ${e?.message ?? e}`);
+        return 0;
+      });
+      if (!criadas) {
+        await this.assinaturas.dispararNotificacoesAssinatura(docAss.id).catch((e: any) =>
+          this.logger.warn(`Notificação de assinatura da peça ${tipo} não enviada: ${e?.message ?? e}`),
+        );
+      }
+    }
     return this.docRepo.findOneOrFail({ where: { id: doc.id } });
+  }
+
+  /**
+   * TAREFA "ASSINAR <PEÇA>" (homologação E1 — o TR em assinatura não tinha
+   * onde ser assinado): uma por signatário e versão, responsável = o próprio
+   * signatário. Conclui quando ele assina; a reconciliação da sincronização
+   * cancela as que sobram (versão nova, devolução, pedido cancelado).
+   */
+  private async criarTarefasDeAssinatura(
+    lic: { id: string; orgao_id: string },
+    doc: Pick<DocumentoFaseInterna, 'id' | 'titulo' | 'versao'>,
+    tipo: TipoDocumentoFaseInterna,
+    signatarios: Array<{ usuario_id: string; papel: string }>,
+    ator: Ator,
+  ): Promise<number> {
+    if (!this.tarefas?.ativo()) return 0;
+    const [l] = await this.ds.query(`SELECT numero_processo FROM licitacoes WHERE id::text = $1`, [lic.id]);
+    const { modelo } = await this.tarefas.modeloDoProcesso(lic.id, lic.orgao_id);
+    const passo =
+      passoDaPeca(tipo, true, modelo) ??
+      passoDaPeca(tipo, true) ??
+      passoDaPeca(tipo, false) ??
+      (String(tipo).startsWith('PJ') ? PassoFaseInterna.PARECER : PassoFaseInterna.PUBLICACAO);
+    const titulo = doc.titulo || tituloDaPeca(tipo);
+    const quem = (await this.nomeDoAtor(ator)) ?? 'O responsável pela peça';
+    let n = 0;
+    for (const s of signatarios) {
+      const id = await this.tarefas.criarTarefaDoSistema(lic.id, {
+        chave: chaveTarefaAssinatura(doc.id, s.usuario_id),
+        passo,
+        titulo: `Assinar: ${titulo} (versão ${doc.versao})`.slice(0, 250),
+        descricao:
+          `Processo ${l?.numero_processo ?? ''}. ${quem} enviou ${titulo} (versão ${doc.versao}) para a sua assinatura` +
+          `${s.papel ? ` como ${s.papel}` : ''}. Veja o PDF e assine na Central de Aprovações › Assinaturas (ou na tela da peça).`,
+        tipo_peca: tipo,
+        documento_id: doc.id,
+        origem: 'ASSINATURA',
+        origem_id: doc.id,
+        tipo: 'ASSINATURA',
+        responsavel: { usuario_id: s.usuario_id, papel: null, setor_id: null },
+        prazo_dias_uteis: null,
+      });
+      if (id) n++;
+    }
+    return n;
   }
 
   /**
@@ -684,7 +761,7 @@ export class PecasFaseInternaService implements OnModuleInit {
     if (doc.status !== StatusDocumento.AGUARDANDO_ASSINATURA || !doc.documento_assinatura_id) {
       throw new ConflictException(doc.status === StatusDocumento.ASSINADO ? 'A peça já está assinada.' : 'A peça não está aguardando assinaturas.');
     }
-    const [u] = await this.ds.query(`SELECT email, cpf FROM usuarios WHERE id::text = $1 AND ativo = true`, [ator.usuarioId]);
+    const [u] = await this.ds.query(`SELECT email, cpf, nome FROM usuarios WHERE id::text = $1 AND ativo = true`, [ator.usuarioId]);
     if (!u?.email) throw new ForbiddenException('Usuário inativo ou sem e-mail — não pode assinar.');
     const [sig] = await this.ds.query(
       `SELECT id::text AS id, status::text AS status FROM signatarios_documento WHERE documento_id::text = $1 AND lower(email) = lower($2) LIMIT 1`,
@@ -695,6 +772,10 @@ export class PecasFaseInternaService implements OnModuleInit {
     await exigirPortaoB(licitacaoId, tipo);
     const r = await this.assinaturas.assinarComoOrgaoUser(doc.documento_assinatura_id, sig.id, { email: u.email, cpf: u.cpf }, rede.ip || '', rede.userAgent || '');
     const concluida = !!r?.pdf_url;
+    // A tarefa "Assinar <peça>" deste signatário conclui com a assinatura
+    await this.tarefas
+      ?.concluirTarefaPorChave(licitacaoId, chaveTarefaAssinatura(doc.id, ator.usuarioId), { id: ator.usuarioId, nome: u.nome ?? null })
+      .catch((e: any) => this.logger.warn(`Tarefa de assinatura não concluída: ${e?.message ?? e}`));
     if (concluida) {
       // O portal avisa o ouvinte (aoConcluirAssinatura) sem esperar: aguarda a peça ficar ASSINADA
       for (let i = 0; i < 100; i++) {
@@ -718,22 +799,33 @@ export class PecasFaseInternaService implements OnModuleInit {
     rede: { ip?: string; userAgent?: string } = {},
   ): Promise<DocumentoFaseInterna> {
     if (!ator.usuarioId) throw new ForbiddenException('Entre com o seu usuário para assinar.');
-    await this.enviarParaAssinatura(licitacaoId, tipo, { signatarios: [{ usuario_id: ator.usuarioId, papel }] }, ator);
+    await this.enviarParaAssinatura(licitacaoId, tipo, { signatarios: [{ usuario_id: ator.usuarioId, papel }] }, ator, { assinaturaImediata: true });
     const r = await this.assinarComoSignatario(licitacaoId, tipo, ator, rede);
     return r.documento;
   }
 
-  /** Situação da assinatura da peça (quem já assinou, quem falta). */
-  async situacaoAssinatura(licitacaoId: string, tipoParam: string) {
+  /**
+   * Situação da assinatura da peça (quem já assinou, quem falta) e se o
+   * usuário do JWT é signatário que ainda precisa assinar (`pode_assinar`).
+   */
+  async situacaoAssinatura(licitacaoId: string, tipoParam: string, ator?: Ator | null) {
     const tipo = this.tipoValido(tipoParam);
     const doc = await this.docRepo.findOne({ where: { licitacao_id: licitacaoId, tipo, versao_atual: true } });
     if (!doc) throw new NotFoundException('Peça não encontrada');
-    if (!doc.documento_assinatura_id) return { documento_id: doc.id, status: doc.status, signatarios: [] };
+    if (!doc.documento_assinatura_id) return { documento_id: doc.id, status: doc.status, signatarios: [], pode_assinar: false, eu_assino: false };
     const sigs: any[] = await this.ds.query(
       `SELECT nome, email, papel, status::text AS status, data_assinatura FROM signatarios_documento WHERE documento_id::text = $1 ORDER BY created_at, nome`,
       [doc.documento_assinatura_id],
     );
+    const exigidos = doc.signatarios_exigidos ?? [];
+    const doExigido = (email: string | null) =>
+      exigidos.find((x) => x.email && email && String(x.email).toLowerCase() === String(email).toLowerCase()) ?? null;
+    const meu = ator?.usuarioId ? exigidos.find((x) => x.usuario_id === ator.usuarioId) ?? null : null;
+    const minhaLinha = meu ? sigs.find((x) => doExigido(x.email)?.usuario_id === meu.usuario_id) : null;
+    const aguardando = doc.status === StatusDocumento.AGUARDANDO_ASSINATURA;
     return {
+      pode_assinar: aguardando && !!minhaLinha && minhaLinha.status !== 'ASSINADO',
+      eu_assino: !!meu,
       documento_id: doc.id,
       documento_assinatura_id: doc.documento_assinatura_id,
       status: doc.status,
@@ -741,7 +833,7 @@ export class PecasFaseInternaService implements OnModuleInit {
       hash_arquivo: doc.hash_arquivo,
       folha_inicial: doc.folha_inicial,
       folha_final: doc.folha_final,
-      signatarios: sigs.map((s) => ({ nome: s.nome, papel: s.papel, status: s.status, data_assinatura: s.data_assinatura })),
+      signatarios: sigs.map((s) => ({ nome: s.nome, papel: s.papel, status: s.status, data_assinatura: s.data_assinatura, usuario_id: doExigido(s.email)?.usuario_id ?? null })),
     };
   }
 

@@ -30,6 +30,8 @@ export function destinoDaTarefa(t: { licitacao_id: string; passo?: string | null
   if (t.tipo_peca === 'PJE') return `/orgao/processos/${t.licitacao_id}/fase-interna/parecer?fase=EXTERNA`;
   // "Aprovar a demanda" → a Central de Aprovações (todas as aprovações num lugar só)
   if (t.origem === 'APROVACAO') return `/orgao/aprovacoes?tab=demandas&processo=${t.licitacao_id}`;
+  // "Assinar <peça>" → a Central de Aprovações, aba Assinaturas (Ver PDF e Assinar)
+  if (t.origem === 'ASSINATURA') return `/orgao/aprovacoes?tab=assinaturas&processo=${t.licitacao_id}`;
   // F3: "Enviar o processo" → a tela do processo (topo "Está com…")
   if (t.origem === 'TRAMITACAO') return `/orgao/processos/${t.licitacao_id}`;
   // Entrega 4: tarefa de achado da conformidade → a tela da conformidade, no achado
