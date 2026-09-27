@@ -231,7 +231,7 @@ export function PecasFaseInterna({
                     <span className="text-[11px] text-gray-700 bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5">aguarda envio p/ aprovação</span>
                   )}
                 </div>
-                <div className="flex items-center gap-1 shrink-0 flex-wrap">
+                <div className="flex items-center gap-1 min-w-0 flex-wrap">
                   {it.status !== "NAO_SE_APLICA" && (
                     <>
                       <Button asChild size="sm" variant="ghost" className="h-7 px-2 text-[11px]">

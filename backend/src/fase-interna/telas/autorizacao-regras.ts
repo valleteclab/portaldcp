@@ -67,6 +67,8 @@ export function resumoDaAutorizacao(e: {
   numero_processo: string;
   objeto: string;
   modalidade_rotulo: string;
+  /** Código da modalidade (VI e VII antes da autorização só na contratação direta sem aviso). */
+  modalidade?: string | null;
   fundamento_referencia: string | null;
   teto: number | null;
   sigiloso: boolean;
@@ -75,7 +77,7 @@ export function resumoDaAutorizacao(e: {
   itens: LinhaInstrucaoPortao[];
   folhas: number | null;
 }) {
-  const portao = portaoBArt72(e.itens);
+  const portao = portaoBArt72(e.itens, e.modalidade ?? null);
   const conferidas = portao.linhas.filter((l) => l.exigido && l.situacao === 'OK').flatMap((l) => l.pecas.filter((p) => p.status === 'OK').map((p) => p.tipo));
   return {
     titulo: `Autorizar a abertura do PA ${e.numero_processo}`,

@@ -151,3 +151,27 @@ export function pendenciasDoPortao(portao: Portao, avaliacoes: AvaliacaoRegra[],
 export function impedemPublicar(achados: Array<Pick<AchadoCalculado, 'severidade' | 'exige_justificativa'> & { status?: string }>): number {
   return achados.filter((a) => (a.status ?? 'ABERTO') === 'ABERTO' && (a.severidade === 'BLOQUEIO' || a.exige_justificativa)).length;
 }
+
+/**
+ * CONTAGENS DA CONFORMIDADE — uma função só para o quadro do processo, o
+ * checklist de pré-publicação e a tela da conformidade (homologação E6):
+ * bloqueios e atenções ABERTOS (todas as regras e portões), o que impede
+ * publicar e os bloqueios por portão.
+ */
+export function contagemDaConformidade(
+  achados: Array<{ regra: string; severidade: Severidade; exige_justificativa?: boolean; status: string; portao?: string | null }>,
+  regras: Regra[] = REGRAS,
+): { bloqueios: number; atencoes: number; impedem_publicar: number; bloqueios_por_portao: Record<Portao, number> } {
+  const abertos = achados.filter((a) => a.status === 'ABERTO');
+  const porPortao: Record<Portao, number> = { A: 0, B: 0, C: 0 };
+  for (const a of abertos.filter((x) => x.severidade === 'BLOQUEIO')) {
+    const p = (a.portao ?? regras.find((r) => r.codigo === a.regra)?.portao ?? 'C') as Portao;
+    porPortao[p] = (porPortao[p] ?? 0) + 1;
+  }
+  return {
+    bloqueios: abertos.filter((a) => a.severidade === 'BLOQUEIO').length,
+    atencoes: abertos.filter((a) => a.severidade === 'ATENCAO').length,
+    impedem_publicar: impedemPublicar(abertos.map((a) => ({ severidade: a.severidade, exige_justificativa: !!a.exige_justificativa, status: a.status }))),
+    bloqueios_por_portao: porPortao,
+  };
+}

@@ -49,7 +49,7 @@ import {
 import { estadoEditalCredenciamentoSql } from '../../credenciamento/credenciamento.sql';
 import { avisoContratacaoVigenteSql } from '../../publicacao/aviso-contratacao';
 import { PROVIDENCIAS_ART22_IN67 } from './definicoes';
-import { ROTULO_FASE, ROTULO_SITUACAO } from './fases';
+import { ROTULO_FASE, ROTULO_SITUACAO, ehFaseInterna } from './fases';
 import { REGISTRO_MIGRACAO_DIVULGACAO, REGISTRO_MIGRACAO_SITUACAO } from './transicoes.tipos';
 
 /** Registros que não são atos executáveis. */
@@ -83,7 +83,7 @@ function nomeDoAtor(tipo: string, id: string | null, nomes: Map<string, string>)
   return tipo === 'FORNECEDOR' ? 'Fornecedor' : tipo === 'ORGAO' ? 'Órgão' : 'Usuário do órgão';
 }
 import { pendenciasModalidadeSql } from '../../modalidades-especiais/pendencias.sql';
-import { pendenciasDoPortaoDoProcesso } from '../../fase-interna/conformidade/portoes';
+import { pendenciasDoPortaoDoProcesso, resumoDaConformidadeDoProcesso } from '../../fase-interna/conformidade/portoes';
 
 /**
  * ============================================================================
@@ -338,7 +338,9 @@ export class TransicoesService {
       `SELECT COUNT(*)::int AS total FROM itens_licitacao WHERE licitacao_id::text = $1 AND item_pca_id IS NOT NULL AND status::text <> 'CANCELADO'`,
       [licitacaoId],
     );
-    return conferirPrePublicacao({ ctx, instrucao, itensComPca: Number(pca?.total ?? 0), pendenciasPublicar });
+    // Contagens da conformidade: as do motor (fonte única — as mesmas do quadro do processo)
+    const conformidade = ehFaseInterna(lic.fase) ? await resumoDaConformidadeDoProcesso(licitacaoId) : null;
+    return conferirPrePublicacao({ ctx, instrucao, itensComPca: Number(pca?.total ?? 0), pendenciasPublicar, conformidade });
   }
 
   /** Histórico de transições (mais antigo primeiro). */

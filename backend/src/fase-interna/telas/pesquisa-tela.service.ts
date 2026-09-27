@@ -551,7 +551,7 @@ export class PesquisaTelaService {
     // anterior, com o mapa e a certidão dela, fica no histórico (SUBSTITUIDO).
     const alvo = jaEmitida ? await this.novaVersaoDaPesquisa(doc) : doc;
     await this.salvarDados(alvo, dados);
-    await this.faseInterna.registrarDocumentoPPGerado(licitacaoId, mapa, total);
+    await this.faseInterna.registrarDocumentoPPGerado(licitacaoId, mapa, total, autor);
     await this.log(licitacaoId, doc.id, `Mapa e certidão da pesquisa emitidos por ${autor.nome ?? 'usuário'} (método ${metodo}, total ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`, autor);
     return this.obter(licitacaoId);
   }

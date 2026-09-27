@@ -9,7 +9,8 @@
 export type TelaEtapa = "dfd" | "etp" | "tr" | "pesquisa" | "reserva" | "autorizacao" | "minutas" | "parecer" | "controle-interno" | "conformidade"
 
 export interface EtapaDaBarra {
-  numero: number
+  /** Número da etapa da SPEC; a etapa 7 tem passos (7a, 7b, 7c) — nunca dois números iguais na barra. */
+  numero: string
   titulo: string
   passo: string
   tela: TelaEtapa | null
@@ -19,19 +20,70 @@ export interface EtapaDaBarra {
   opcional?: boolean
 }
 
-/** As 8 etapas da SPEC, na ordem sugerida (a ordem não trava: valem as dependências). */
+/**
+ * As 8 etapas da SPEC, na ordem sugerida (a ordem não trava: valem as
+ * dependências). A etapa 7 tem dois responsáveis (minutas do agente, parecer
+ * da Procuradoria) e o controle interno opcional: 7a, 7b e 7c (homologação
+ * 26/09/2026 — a barra mostrava três "7").
+ */
 export const ETAPAS_DA_BARRA: EtapaDaBarra[] = [
-  { numero: 1, titulo: "Demanda", passo: "DFD", tela: "dfd", tipos: ["DFD"] },
-  { numero: 2, titulo: "ETP", passo: "ETP", tela: "etp", tipos: ["ETP", "AR"] },
-  { numero: 3, titulo: "TR", passo: "TR", tela: "tr", tipos: ["TR", "PB", "PE"] },
-  { numero: 4, titulo: "Pesquisa", passo: "PESQUISA", tela: "pesquisa", tipos: ["PP", "MCP"] },
-  { numero: 5, titulo: "Reserva", passo: "RESERVA", tela: "reserva", tipos: ["DO"] },
-  { numero: 6, titulo: "Autorização", passo: "AUTORIZACAO", tela: "autorizacao", tipos: ["AA", "DP"] },
-  { numero: 7, titulo: "Minutas", passo: "MINUTAS", tela: "minutas", tipos: ["RAG", "ME", "MC"] },
-  { numero: 7, titulo: "Parecer", passo: "PARECER", tela: "parecer", tipos: ["PJ"] },
-  { numero: 7, titulo: "Controle interno", passo: "CONTROLE_INTERNO", tela: "controle-interno", tipos: ["MCI"], opcional: true },
-  { numero: 8, titulo: "Conformidade e publicação", passo: "PUBLICACAO", tela: "conformidade", tipos: [] },
+  { numero: "1", titulo: "Demanda", passo: "DFD", tela: "dfd", tipos: ["DFD"] },
+  { numero: "2", titulo: "ETP", passo: "ETP", tela: "etp", tipos: ["ETP", "AR"] },
+  { numero: "3", titulo: "TR", passo: "TR", tela: "tr", tipos: ["TR", "PB", "PE"] },
+  { numero: "4", titulo: "Pesquisa", passo: "PESQUISA", tela: "pesquisa", tipos: ["PP", "MCP"] },
+  { numero: "5", titulo: "Reserva", passo: "RESERVA", tela: "reserva", tipos: ["DO"] },
+  { numero: "6", titulo: "Autorização", passo: "AUTORIZACAO", tela: "autorizacao", tipos: ["AA", "DP"] },
+  { numero: "7a", titulo: "Minutas", passo: "MINUTAS", tela: "minutas", tipos: ["RAG", "ME", "MC"] },
+  { numero: "7b", titulo: "Parecer", passo: "PARECER", tela: "parecer", tipos: ["PJ"] },
+  { numero: "7c", titulo: "Controle interno", passo: "CONTROLE_INTERNO", tela: "controle-interno", tipos: ["MCI"], opcional: true },
+  { numero: "8", titulo: "Conformidade e publicação", passo: "PUBLICACAO", tela: "conformidade", tipos: [] },
 ]
+
+/**
+ * ESTADO SEMPRE ATUAL (homologação E9: a reserva ficava "Pendente" até
+ * recarregar; a barra de etapas mostrava ✔ numa tela e não em outra). Toda
+ * ação que muda o estado da fase interna avisa por este evento; a barra de
+ * etapas, o quadro da peça, o fluxo e a tela do processo recarregam. Também
+ * recarregam ao voltar para a aba/janela.
+ */
+export const EVENTO_FASE_INTERNA = "fase-interna:atualizada"
+
+export function avisarFaseInternaAtualizada(licitacaoId: string) {
+  if (typeof window === "undefined") return
+  window.dispatchEvent(new CustomEvent(EVENTO_FASE_INTERNA, { detail: { licitacaoId } }))
+}
+
+/** Assina o aviso de mudança (do processo) e a volta à aba; devolve a função que cancela. */
+export function aoAtualizarFaseInterna(licitacaoId: string, recarregar: () => void): () => void {
+  if (typeof window === "undefined") return () => undefined
+  const noEvento = (e: Event) => {
+    const id = (e as CustomEvent<{ licitacaoId?: string }>).detail?.licitacaoId
+    if (!id || id === licitacaoId) recarregar()
+  }
+  const naVolta = () => {
+    if (document.visibilityState === "visible") recarregar()
+  }
+  window.addEventListener(EVENTO_FASE_INTERNA, noEvento)
+  window.addEventListener("focus", naVolta)
+  document.addEventListener("visibilitychange", naVolta)
+  return () => {
+    window.removeEventListener(EVENTO_FASE_INTERNA, noEvento)
+    window.removeEventListener("focus", naVolta)
+    document.removeEventListener("visibilitychange", naVolta)
+  }
+}
+
+/**
+ * Carga "a última vence": respostas que chegam fora de ordem (uma leitura
+ * lenta iniciada ANTES da ação) não sobrescrevem o estado novo.
+ */
+export function criarUltimaCarga() {
+  let seq = 0
+  return () => {
+    const minha = ++seq
+    return () => minha === seq
+  }
+}
 
 export const rotaDaTela = (licitacaoId: string, tela: TelaEtapa) => `/orgao/processos/${licitacaoId}/fase-interna/${tela}`
 

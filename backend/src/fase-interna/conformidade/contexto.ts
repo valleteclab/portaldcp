@@ -17,7 +17,7 @@ import type { CalendarioDiasUteis } from '../../common/prazos/dias-uteis';
 import type { ConsumoDoLimiteProcesso } from '../../parametros-licitacao/consumo-limite.service';
 import { hojeEmBrasilia } from '../peca-regras';
 import { metodoDaMetodologia } from '../telas/pesquisa-regras';
-import { hashSecoes, secoesDaPeca } from '../telas/minutas-regras';
+import { desatualizacaoRelevante, hashSecoes, secoesDaPeca } from '../telas/minutas-regras';
 import type { LinhaInstrucaoPortao } from './art72';
 import { diaEmBrasiliaIso } from './regras';
 import { normalizarNumeroLei, textoPuro } from './texto';
@@ -170,7 +170,8 @@ export function pecaDoContexto(d: DocumentoLinha, textosPdf?: string[] | null): 
     impressao,
     exige_assinatura: !!dados._exige_assinatura,
     signatarios_faltantes: faltantes,
-    desatualizada: dados._desatualizada?.texto ? { texto: String(dados._desatualizada.texto), motivo: dados._desatualizada.motivo } : null,
+    desatualizada:
+      dados._desatualizada?.texto && desatualizacaoRelevante(d.tipo, dados._desatualizada) ? { texto: String(dados._desatualizada.texto), motivo: dados._desatualizada.motivo } : null,
     justificativa_marca: dados._marca?.justificativa ? String(dados._marca.justificativa) : null,
     id_externo: d.sistema_origem === 'documentos_licitacao' ? d.id_externo ?? null : null,
   };

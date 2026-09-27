@@ -8,12 +8,12 @@
  * GET /api/fase-interna/:id/etapas. As etapas com tela própria viram link;
  * as demais levam ao quadro "Fluxo da fase interna" do processo.
  */
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, CheckCircle2, ChevronRight, Circle, CircleDashed, Clock } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
-import { ETAPAS_DA_BARRA, rotaDaTela, type TelaEtapa } from "@/lib/fase-interna/telas"
+import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, rotaDaTela, type TelaEtapa } from "@/lib/fase-interna/telas"
 
 interface LicitacaoCabecalho {
   id: string
@@ -64,6 +64,7 @@ export function EtapaShell({
 }) {
   const [lic, setLic] = useState<LicitacaoCabecalho | null>(null)
   const [situacoes, setSituacoes] = useState<Record<string, string>>({})
+  const ultima = useRef(criarUltimaCarga())
 
   useEffect(() => {
     authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
@@ -72,10 +73,12 @@ export function EtapaShell({
   }, [licitacaoId])
 
   const carregarEtapas = useCallback(async () => {
+    const vigente = ultima.current()
     try {
-      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/etapas`)
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/etapas`, { cache: "no-store" })
       if (!r.ok) return
       const j = (await r.json()) as EtapasResposta
+      if (!vigente()) return // uma carga mais nova já está valendo
       const mapa: Record<string, string> = {}
       for (const e of j.etapas || []) for (const p of e.passos || []) mapa[p.passo] = p.situacao
       setSituacoes(mapa)
@@ -87,6 +90,17 @@ export function EtapaShell({
   useEffect(() => {
     carregarEtapas()
   }, [carregarEtapas, atualizacao])
+  // A tela gravou algo (atualizacao mudou): avisa os demais quadros da página (peças, fluxo)
+  const primeira = useRef(true)
+  useEffect(() => {
+    if (primeira.current) {
+      primeira.current = false
+      return
+    }
+    avisarFaseInternaAtualizada(licitacaoId)
+  }, [atualizacao, licitacaoId])
+  // Mudança vinda de outro quadro, ou volta à aba: recarrega a barra
+  useEffect(() => aoAtualizarFaseInterna(licitacaoId, carregarEtapas), [licitacaoId, carregarEtapas])
 
   return (
     <div className="max-w-7xl mx-auto px-0 sm:px-2 py-4 space-y-4">
@@ -102,7 +116,7 @@ export function EtapaShell({
         )}
       </div>
 
-      <nav aria-label="Etapas da fase interna" className="overflow-x-auto -mx-1 px-1">
+      <nav aria-label="Etapas da fase interna" className="relative overflow-x-auto -mx-1 px-1">
         <ol className="flex items-center gap-1 min-w-max text-xs">
           {ETAPAS_DA_BARRA.filter((e) => !e.opcional || situacoes[e.passo] !== undefined || e.tela === tela).map((e, i, lista) => {
             const sit = situacoes[e.passo] ?? null

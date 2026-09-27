@@ -176,7 +176,7 @@ export default function EtpPage() {
     >
       <div className="grid gap-3 md:grid-cols-2">
         <CaminhosDaPeca licitacaoId={id} tipo="ETP" titulo="Estudo técnico preliminar" fazerAqui="redigir e gerar o ETP" atualizacao={atualizacao} onAtualizado={recarregarTudo} compacto />
-        <CaminhosDaPeca licitacaoId={id} tipo="AR" titulo="Análise de riscos" fazerAqui="preencher a matriz de riscos" atualizacao={atualizacao} onAtualizado={recarregarTudo} permitirAssinatura={false} compacto />
+        <CaminhosDaPeca licitacaoId={id} tipo="AR" titulo="Análise de riscos" fazerAqui="preencher a matriz de riscos e gerar o documento" atualizacao={atualizacao} onAtualizado={recarregarTudo} permitirAssinatura={false} emitir compacto />
       </div>
 
       {bloqueios > 0 && (

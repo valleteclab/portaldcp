@@ -124,6 +124,18 @@ export class FaseInternaController {
     return this.pecas.situacaoAssinatura(licitacaoId, tipo);
   }
 
+  /**
+   * "Gerar documento (PDF)" da peça feita no editor (sem ato próprio de
+   * emissão): gerar é emitir — a peça passa a contar como pronta com este
+   * conteúdo (homologação E4: rascunho salvo não é peça pronta).
+   */
+  @Post(':licitacaoId/documentos/:tipo/emitir')
+  async emitirPeca(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string, @AtorAtual() ator: Ator) {
+    const autor = await this.tarefas.autor(ator);
+    const doc = await this.pecas.emitirPeca(licitacaoId, tipo, ator, autor);
+    return { documento_id: doc.id, tipo: doc.tipo, versao: doc.versao, status: doc.status, emitido: doc.dados_estruturados?._emitido ?? null };
+  }
+
   /** Consumo do limite da dispensa no exercício (art. 75, §1º) — leitura para o painel. */
   @Get(':licitacaoId/consumo-limite')
   async consumoDoLimite(@Param('licitacaoId') licitacaoId: string) {
@@ -188,6 +200,11 @@ export class FaseInternaController {
 
   // === DOCUMENTOS ===
 
+  /**
+   * Registra a peça COM o conteúdo final (API/integrações): cria a versão e,
+   * com texto, GERA o documento (PDF) — é a emissão; sem texto, fica em
+   * elaboração (rascunho não conta como pronta).
+   */
   @Post(':licitacaoId/documento')
   async criarDocumento(
     @Param('licitacaoId') licitacaoId: string,
@@ -199,8 +216,9 @@ export class FaseInternaController {
       criadorId?: string;
       criadorNome?: string;
     },
+    @AtorAtual() ator: Ator,
   ) {
-    return this.faseInternaService.criarDocumento(
+    const doc = await this.faseInternaService.criarDocumento(
       licitacaoId,
       body.tipo,
       body.titulo,
@@ -208,6 +226,8 @@ export class FaseInternaController {
       body.criadorId,
       body.criadorNome,
     );
+    if (!String(body.descricao ?? '').trim()) return doc;
+    return this.pecas.gerarDocumentoDaPecaCriada(doc.id, ator);
   }
 
   @Post('importar-processo')

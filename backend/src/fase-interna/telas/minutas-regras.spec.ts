@@ -1,4 +1,4 @@
-import { decidirRegeracao, hashSecoes, incisosDoArt75Citados, normalizarNumero, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
+import { CAMPO_DISPUTA_DISPENSA, camposQueAfetamAPeca, decidirRegeracao, desatualizacaoRelevante, hashSecoes, incisosDoArt75Citados, normalizarNumero, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 const gerada = (secoes: Record<string, string>, extra: Record<string, unknown> = {}) => ({
   id: 'd1',
@@ -23,7 +23,7 @@ describe('Minutas geradas por modelo — regeração ao mudar o processo (Entreg
 
   it('editada à mão → marcada como desatualizada (não regera)', () => {
     const doc = gerada(secoes);
-    doc.dados_estruturados.foro = '<p>Foro da comarca de LEM, editado pelo agente</p>';
+    (doc.dados_estruturados as Record<string, unknown>).foro = '<p>Foro da comarca de LEM, editado pelo agente</p>';
     expect(pecaEditadaAMao(doc)).toBe(true);
     expect(decidirRegeracao(doc)).toEqual({ acao: 'MARCAR_DESATUALIZADA', motivo: 'EDITADA' });
   });
@@ -60,5 +60,20 @@ describe('Conferências de texto das minutas (leitura)', () => {
     expect(incisosDoArt75Citados('com fundamento no art. 75, I, da Lei; e no Art. 75, inciso II')).toEqual(['I', 'II']);
     expect(incisosDoArt75Citados('Lei 14.133/2021, art. 75, II')).toEqual(['II']);
     expect(incisosDoArt75Citados('art. 74, caput')).toEqual([]);
+  });
+});
+
+describe('Despacho de autorização × modo de disputa (homologação 26/09/2026 — decisão do dono)', () => {
+  it('trocar com/sem lances não desatualiza o despacho (art. 75, §3º: escolha do agente); a minuta do aviso acompanha', () => {
+    expect(camposQueAfetamAPeca('AA', [CAMPO_DISPUTA_DISPENSA])).toEqual([]);
+    expect(camposQueAfetamAPeca('AA', [CAMPO_DISPUTA_DISPENSA, 'fundamento legal'])).toEqual(['fundamento legal']);
+    expect(camposQueAfetamAPeca('ME', [CAMPO_DISPUTA_DISPENSA])).toEqual([CAMPO_DISPUTA_DISPENSA]);
+  });
+  it('marca antiga do despacho só pela disputa deixa de valer; por outro campo continua', () => {
+    expect(desatualizacaoRelevante('AA', { campos: [CAMPO_DISPUTA_DISPENSA] })).toBe(false);
+    expect(desatualizacaoRelevante('AA', { campos: ['objeto'] })).toBe(true);
+    expect(desatualizacaoRelevante('ME', { campos: [CAMPO_DISPUTA_DISPENSA] })).toBe(true);
+    expect(desatualizacaoRelevante('AA', { texto: 'sem campos' } as any)).toBe(true);
+    expect(desatualizacaoRelevante('AA', null)).toBe(false);
   });
 });

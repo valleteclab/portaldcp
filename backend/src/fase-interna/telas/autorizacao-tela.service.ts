@@ -130,6 +130,7 @@ export class AutorizacaoTelaService {
       numero_processo: lic.numero_processo,
       objeto: lic.objeto,
       modalidade_rotulo: ROTULO_MODALIDADE[lic.modalidade] ?? lic.modalidade,
+      modalidade: lic.modalidade,
       fundamento_referencia: definicaoDoFundamento(fundamento)?.referencia ?? null,
       teto,
       sigiloso: lic.sigilo_orcamento === 'SIGILOSO',
@@ -153,6 +154,13 @@ export class AutorizacaoTelaService {
       },
       contratacao_direta: instrucao.contratacao_direta,
       situacao,
+      // "Regerar despacho": só antes de autorizar (depois, só pelo fluxo explícito de nova autorização)
+      regerar:
+        situacao === 'AUTORIZADA'
+          ? { permitido: false, nova_autorizacao: ehFaseInterna(lic.fase), motivo: 'Autorizado: o despacho assinado não é regerado. Para mudar, use "Nova autorização" (vai de novo para a assinatura da autoridade).' }
+          : situacao === 'AGUARDANDO_ASSINATURAS'
+            ? { permitido: false, nova_autorizacao: false, motivo: 'O despacho está com a autoridade para assinatura — aguarde ou peça a devolução.' }
+            : { permitido: ehFaseInterna(lic.fase), nova_autorizacao: false, motivo: ehFaseInterna(lic.fase) ? null : 'A fase interna foi encerrada.' },
       autoridade: config.autoridade_rotulo,
       resumo,
       portao_b_bloqueios: bloqueiosPortaoB,
@@ -186,15 +194,49 @@ export class AutorizacaoTelaService {
     if (!ehFaseInterna(lic.fase)) throw new ConflictException('A fase interna foi encerrada — a autorização não muda mais.');
   }
 
-  /** Gera (ou regera) o despacho pelo modelo — o texto só vale depois de assinado. */
-  async gerar(licitacaoId: string, ator: Ator, autor: Autor) {
+  /**
+   * Gera (ou regera) o despacho pelo modelo — o texto só vale depois de
+   * assinado. Depois de AUTORIZADO (assinado por todos ou anexado assinado
+   * fora), o despacho NÃO é regerado: a autorização é ato da autoridade (art.
+   * 72, VIII). Mudar exige o fluxo explícito de NOVA AUTORIZAÇÃO
+   * (`{ nova_autorizacao: true, motivo }`): versão nova do despacho, que volta
+   * a passar pelo portão B e pela assinatura da autoridade; a autorização
+   * anterior fica no histórico (homologação 26/09/2026).
+   */
+  async gerar(licitacaoId: string, ator: Ator, autor: Autor, body: any = {}) {
     const lic = await this.minutas.licitacao(licitacaoId);
     this.exigirFaseInterna(lic);
     const atual = await this.minutas.docAtual(licitacaoId, AA);
     if (atual?.status === StatusDocumento.AGUARDANDO_ASSINATURA) {
       throw new ConflictException('O despacho está com a autoridade para assinatura — aguarde ou peça a devolução.');
     }
-    await this.minutas.gerarPorModelo(licitacaoId, AA, autor, { extras: atual?.dados_estruturados?._devolucoes ? { _devolucoes: atual.dados_estruturados._devolucoes } : {} });
+    let motivo: string | null = null;
+    if (situacaoDaAutorizacao(atual) === 'AUTORIZADA') {
+      if (body?.nova_autorizacao !== true) {
+        throw new ConflictException(
+          'A autorização já foi dada — o despacho assinado não é regerado. Para mudar, use "Nova autorização" e informe o motivo: o despacho novo volta para a assinatura da autoridade (art. 72, VIII).',
+        );
+      }
+      motivo = String(body?.motivo ?? '').trim().slice(0, 2000);
+      if (motivo.length < 10) throw new BadRequestException('Informe o motivo da nova autorização (fica registrado no histórico do processo).');
+    }
+    const doc = await this.minutas.gerarPorModelo(licitacaoId, AA, autor, {
+      motivo: motivo ? `nova autorização: ${motivo}` : undefined,
+      extras: atual?.dados_estruturados?._devolucoes ? { _devolucoes: atual.dados_estruturados._devolucoes } : {},
+    });
+    if (motivo) {
+      await this.auditLog
+        .log({
+          licitacao_id: licitacaoId,
+          documento_id: doc.id,
+          acao: AcaoLogFaseInterna.DOCUMENTO_VERSIONADO,
+          descricao: `Nova autorização solicitada por ${autor.nome ?? 'usuário'} (substitui o despacho v${atual?.versao ?? '?'} já autorizado): ${motivo}`,
+          dados_antes: { documento_id: atual?.id ?? null, versao: atual?.versao ?? null, status: atual?.status ?? null },
+          dados_depois: { documento_id: doc.id, versao: doc.versao, motivo },
+          contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
+        })
+        .catch(() => undefined);
+    }
     return this.obter(licitacaoId, ator);
   }
 
@@ -301,6 +343,7 @@ export class AutorizacaoTelaService {
   /** Portão B isolado (para outras telas). */
   async portaoB(licitacaoId: string) {
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
-    return portaoBArt72(instrucao.itens);
+    const lic = await this.minutas.licitacao(licitacaoId);
+    return portaoBArt72(instrucao.itens, lic.modalidade);
   }
 }

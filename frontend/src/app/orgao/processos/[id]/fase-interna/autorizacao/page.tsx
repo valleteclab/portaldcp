@@ -63,6 +63,8 @@ interface AutorizacaoTela {
   signatarios_configurados: Array<{ usuario_id: string; nome: string; papel: string; ativo: boolean }>
   assinaturas: { total: number; assinaram: number; faltam: string[]; sou_signatario: boolean; ja_assinei: boolean; posso_assinar: boolean }
   pode_devolver: boolean
+  /** "Regerar despacho": só antes de autorizar; depois, só pelo fluxo de nova autorização (motivo). */
+  regerar?: { permitido: boolean; nova_autorizacao: boolean; motivo: string | null }
   devolucoes: Array<{ motivo: string; por_nome: string | null; em: string; versao: number }>
   ultima_devolucao: { motivo: string; por_nome: string | null; em: string } | null
   autos_pdf: string
@@ -172,12 +174,14 @@ export default function AutorizacaoPage() {
   const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao()
   const [d, setD] = useState<AutorizacaoTela | null>(null)
   const [erro, setErro] = useState<string | null>(null)
-  const [ocupado, setOcupado] = useState(false)
+  const [ocupado, setOcupado] = useState<string | null>(null)
   const [atualizacao, setAtualizacao] = useState(0)
+  /** Recusa do backend fica NA TELA (não só no aviso que some) — homologação E5. */
+  const [erroAcao, setErroAcao] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     try {
-      const r = await authFetch(`${API_URL}/api/fase-interna/${id}/autorizacao`)
+      const r = await authFetch(`${API_URL}/api/fase-interna/${id}/autorizacao`, { cache: "no-store" })
       if (!r.ok) throw new Error(await erroDaApi(r))
       setD(await r.json())
     } catch (e) {
@@ -189,7 +193,8 @@ export default function AutorizacaoPage() {
   }, [carregar])
 
   const acao = async (rota: string, corpo: unknown, sucesso: string) => {
-    setOcupado(true)
+    setOcupado(rota)
+    setErroAcao(null)
     try {
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/autorizacao/${rota}`, {
         method: "POST",
@@ -202,10 +207,25 @@ export default function AutorizacaoPage() {
       setAtualizacao((n) => n + 1)
       toast.success(j.concluida ? "Autorização assinada por todos — processo autorizado." : sucesso)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      setErroAcao(msg)
+      toast.error(msg)
     } finally {
-      setOcupado(false)
+      setOcupado(null)
     }
+  }
+  const novaAutorizacao = async () => {
+    const motivo = await pedirTexto({
+      titulo: "Nova autorização",
+      mensagem:
+        "A autorização já foi dada. Uma nova autorização cria uma versão nova do despacho, que volta a passar pelo art. 72 (portão B) e pela assinatura da autoridade; até lá o processo fica sem autorização. A anterior fica no histórico.",
+      rotulo: "Motivo (fica registrado no histórico do processo)",
+      obrigatorio: true,
+      minimo: 10,
+      confirmarRotulo: "Gerar nova autorização",
+    })
+    if (!motivo) return
+    await acao("gerar", { nova_autorizacao: true, motivo: motivo.trim() }, "Despacho novo gerado — envie à autoridade para assinar.")
   }
 
   const assinar = async () => {
@@ -245,6 +265,8 @@ export default function AutorizacaoPage() {
   const sit = SITUACAO[d.situacao]
   const aguardando = d.situacao === "AGUARDANDO_ASSINATURAS"
   const podeGerar = d.licitacao.fase_interna && !aguardando
+  // Depois de autorizado o despacho não é regerado (só pelo fluxo explícito de nova autorização)
+  const podeRegerar = podeGerar && (d.regerar ? d.regerar.permitido : d.situacao !== "AUTORIZADA")
   const decisao = d.assinaturas.sou_signatario || d.pode_devolver
 
   return (
@@ -257,11 +279,21 @@ export default function AutorizacaoPage() {
       acoes={
         !decisao || !aguardando ? (
           <>
-            <Button variant="outline" onClick={() => acao("gerar", {}, "Despacho gerado pelo modelo (lê o processo).")} disabled={ocupado || !podeGerar} title="Gera o despacho pelo modelo com objeto, fundamento, teto, dotação e leis do processo">
-              <FileText className="w-4 h-4 mr-1" /> {d.peca && !d.peca.anexada ? "Regerar despacho" : "Gerar despacho"}
+            <Button
+              variant="outline"
+              onClick={() => acao("gerar", {}, "Despacho gerado pelo modelo (lê o processo).")}
+              disabled={!!ocupado || !podeRegerar}
+              title={!podeRegerar && d.regerar?.motivo ? d.regerar.motivo : "Gera o despacho pelo modelo com objeto, fundamento, teto, dotação e leis do processo"}
+            >
+              {ocupado === "gerar" ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />} {d.peca && !d.peca.anexada ? "Regerar despacho" : "Gerar despacho"}
             </Button>
-            <Button onClick={() => acao("enviar", {}, "Despacho enviado à autoridade para assinatura.")} disabled={ocupado || !podeGerar || d.situacao === "AUTORIZADA"}>
-              {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />} Enviar à autoridade
+            {d.regerar?.nova_autorizacao && (
+              <Button variant="outline" onClick={novaAutorizacao} disabled={!!ocupado} title="Cria um despacho novo, que volta para a assinatura da autoridade">
+                <Undo2 className="w-4 h-4 mr-1" /> Nova autorização…
+              </Button>
+            )}
+            <Button onClick={() => acao("enviar", {}, "Despacho enviado à autoridade para assinatura.")} disabled={!!ocupado || !podeGerar || d.situacao === "AUTORIZADA"}>
+              {ocupado === "enviar" ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />} Enviar à autoridade
             </Button>
           </>
         ) : null
@@ -272,9 +304,25 @@ export default function AutorizacaoPage() {
         <b>{sit.texto}</b>
         {aguardando && ` — ${d.assinaturas.assinaram} de ${d.assinaturas.total} assinaturas. A autorização só vale quando todos assinarem.`}
         {d.situacao === "DEVOLVIDA" && d.ultima_devolucao && ` — "${d.ultima_devolucao.motivo}" (${d.ultima_devolucao.por_nome ?? "autoridade"}, ${fmtDia(d.ultima_devolucao.em)}). Corrija e reenvie.`}
+        {d.situacao === "AUTORIZADA" && d.regerar?.motivo && <span className="block text-xs font-normal mt-0.5">{d.regerar.motivo}</span>}
       </div>
+      {ocupado === "assinar" && (
+        <p className="text-sm text-blue-900 flex items-center gap-2" role="status">
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> Registrando a assinatura e gerando o despacho assinado…
+        </p>
+      )}
+      {erroAcao && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 flex items-start justify-between gap-2" role="alert">
+          <span>
+            <b>Não foi possível concluir:</b> {erroAcao}
+          </span>
+          <button type="button" className="text-xs underline shrink-0" onClick={() => setErroAcao(null)}>
+            fechar
+          </button>
+        </div>
+      )}
 
-      {decisao && <DecisaoNoCelular d={d} ocupado={ocupado} onAssinar={assinar} onDevolver={devolver} />}
+      {decisao && <DecisaoNoCelular d={d} ocupado={!!ocupado} onAssinar={assinar} onDevolver={devolver} />}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
         <div className="space-y-4 min-w-0">
@@ -326,7 +374,7 @@ export default function AutorizacaoPage() {
                 <Link className="text-blue-800 hover:underline" href={`/orgao/processos/${id}/fase-interna/conformidade`}>Ver na conformidade</Link>
               </div>
             ) : (
-              <p className="text-xs text-gray-600">O portão B bloqueia a autorização (envio, assinatura e anexo do despacho) enquanto faltar peça dos incisos I, II ou IV.</p>
+              <p className="text-xs text-gray-600">O portão B bloqueia a autorização (envio, assinatura e anexo do despacho) enquanto faltar peça dos incisos I, II ou IV — e, na inexigibilidade (sem aviso), a razão da escolha e o preço (VI e VII). Na dispensa eletrônica, VI e VII se cumprem depois da seleção do fornecedor.</p>
             )}
             <ul className="divide-y">
               {d.resumo.portao_b.linhas.map((l) => (

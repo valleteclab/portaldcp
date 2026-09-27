@@ -79,6 +79,30 @@ export function decidirRegeracao(doc: PecaParaRegerar): DecisaoRegeracao {
   return { acao: 'REGERAR' };
 }
 
+/** Rótulo (do `MinutasSubscriber`) da mudança do modo de disputa da dispensa. */
+export const CAMPO_DISPUTA_DISPENSA = 'disputa da dispensa (com/sem lances)';
+
+/**
+ * O que, da mudança do processo, afeta ESTA peça. Decisão do dono
+ * (homologação 26/09/2026): com ou sem lances é escolha do agente de
+ * contratação no processo (Lei 14.133/2021, art. 75, §3º — a condução da
+ * seleção), não da autoridade — trocar o modo de disputa NÃO desatualiza o
+ * despacho de autorização (art. 72, VIII: a autoridade autoriza o objeto, o
+ * enquadramento, o teto e a dotação; o texto do despacho não cita a disputa).
+ * A minuta do aviso continua acompanhando (ela cita a forma de disputa).
+ */
+export function camposQueAfetamAPeca(tipo: string, campos: string[]): string[] {
+  if (tipo === 'AA') return campos.filter((c) => c !== CAMPO_DISPUTA_DISPENSA);
+  return campos;
+}
+
+/** A marca "desatualizada" ainda vale para a peça? (a do despacho só pela disputa deixou de valer). */
+export function desatualizacaoRelevante(tipo: string, marca: { campos?: unknown } | null | undefined): boolean {
+  if (!marca) return false;
+  if (!Array.isArray(marca.campos)) return true;
+  return camposQueAfetamAPeca(tipo, marca.campos.map(String)).length > 0;
+}
+
 // ---------------------------------------------------------------------------
 // Conferências de texto — a implementação é a do motor de conformidade
 // (Entrega 4: `conformidade/texto.ts`); reexportadas aqui para quem já usava.

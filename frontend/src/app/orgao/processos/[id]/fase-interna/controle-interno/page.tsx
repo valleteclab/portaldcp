@@ -40,6 +40,8 @@ export default function ControleInternoPage() {
   const [conclusao, setConclusao] = useState<"FAVORAVEL" | "COM_APONTAMENTOS">("FAVORAVEL")
   const [texto, setTexto] = useState("")
   const [apontamentos, setApontamentos] = useState("")
+  /** Recusa do backend fica na tela (não só no aviso que some) — homologação E5. */
+  const [erroAcao, setErroAcao] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     try {
@@ -56,6 +58,7 @@ export default function ControleInternoPage() {
 
   const manifestar = async () => {
     setOcupado(true)
+    setErroAcao(null)
     try {
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/controle-interno/manifestar`, {
         method: "POST",
@@ -67,7 +70,9 @@ export default function ControleInternoPage() {
       setAtualizacao((n) => n + 1)
       toast.success("Manifestação assinada e juntada aos autos.")
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      setErroAcao(msg)
+      toast.error(msg)
     } finally {
       setOcupado(false)
     }
@@ -92,6 +97,11 @@ export default function ControleInternoPage() {
 
   return (
     <EtapaShell licitacaoId={id} tela="controle-interno" titulo="Controle interno" subtitulo="Art. 169, II da Lei 14.133/2021 — regulamento do órgão" atualizacao={atualizacao}>
+      {erroAcao && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
+          <b>Não foi possível concluir:</b> {erroAcao}
+        </div>
+      )}
       {!d.ativo ? (
         <div className="rounded-lg border bg-slate-50 p-4 text-sm text-gray-800">
           O controle interno está <b>desativado</b> para este órgão — a etapa não se aplica. O administrador pode ativá-la em{" "}

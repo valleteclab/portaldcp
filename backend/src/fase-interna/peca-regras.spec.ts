@@ -1,9 +1,13 @@
 import {
   dataDocumentoDaAssinatura,
   hojeEmBrasilia,
+  impressaoConteudoPeca,
   normalizarSignatariosInformados,
   pareceSerPdf,
   pecaContaComoPronta,
+  pecaEmitida,
+  pecaProntaPelaRegraAnterior,
+  registroDeEmissao,
   planoNovaVersao,
   proximaFaixaDeFolhas,
   validarDataDocumentoAnexo,
@@ -86,7 +90,61 @@ describe('peça que só vale assinada (Entrega 3B — despacho, parecer, control
     expect(pecaContaComoPronta({ ...gerada, status: 'ASSINADO' })).toBe(true);
     expect(pecaContaComoPronta({ ...gerada, status: 'REPROVADO' })).toBe(false);
     expect(pecaContaComoPronta({ tipo: 'AA', status: 'IMPORTADO', caminho_arquivo: 'a.pdf' })).toBe(true);
-    // sem a marca (fluxos antigos): o texto basta, como antes
-    expect(pecaContaComoPronta({ tipo: 'AA', status: 'EM_ELABORACAO', descricao: '<p>AUTORIZO</p>' })).toBe(true);
+    // sem a marca e só com texto (rascunho): não conta — a peça precisa ser GERADA (homologação E4)
+    expect(pecaContaComoPronta({ tipo: 'AA', status: 'EM_ELABORACAO', descricao: '<p>AUTORIZO</p>' })).toBe(false);
+  });
+});
+
+describe('peça feita no sistema só é PRONTA depois de gerada/emitida (homologação 26/09/2026 — E4)', () => {
+  const dfd = { tipo: 'DFD', status: 'EM_ELABORACAO', descricao: '<p>Necessidade</p>', dados_estruturados: { demanda: '<p>Necessidade</p>', _dfd: { responsavel_id: 'u1' } } };
+
+  it('rascunho salvo automaticamente (texto, campos) é "em elaboração"', () => {
+    expect(pecaContaComoPronta(dfd)).toBe(false);
+    expect(pecaEmitida(dfd)).toBe(false);
+  });
+
+  it('gerada: conta; editar depois volta a "em elaboração"; gerar de novo volta a contar', () => {
+    const gerada = { ...dfd, arquivo_pdf_path: 'x.pdf', dados_estruturados: { ...dfd.dados_estruturados, _emitido: registroDeEmissao(dfd, { id: 'u1', nome: 'Agente' }) } };
+    expect(pecaContaComoPronta(gerada)).toBe(true);
+    // chaves internas (autor da edição, marcações) não mudam o conteúdo
+    const comMeta = { ...gerada, dados_estruturados: { ...gerada.dados_estruturados, _edicoes: { demanda: { por_nome: 'X' } }, _desatualizada: { motivo: 'X' } } };
+    expect(pecaContaComoPronta(comMeta)).toBe(true);
+    // a ordem das chaves não importa
+    const reordenado = { ...gerada, dados_estruturados: { _emitido: gerada.dados_estruturados._emitido, _dfd: gerada.dados_estruturados._dfd, demanda: '<p>Necessidade</p>' } };
+    expect(pecaContaComoPronta(reordenado)).toBe(true);
+    const editada = { ...gerada, descricao: '<p>Necessidade alterada</p>', dados_estruturados: { ...gerada.dados_estruturados, demanda: '<p>Necessidade alterada</p>' } };
+    expect(pecaContaComoPronta(editada)).toBe(false);
+    const regerada = { ...editada, dados_estruturados: { ...editada.dados_estruturados, _emitido: registroDeEmissao(editada) } };
+    expect(pecaContaComoPronta(regerada)).toBe(true);
+  });
+
+  it('pesquisa com cotações mas sem o mapa emitido não conta; com o mapa conta', () => {
+    const pp = { tipo: 'PP', status: 'EM_ELABORACAO', dados_estruturados: { itens: [{ item_numero: 1, cotacoes: [{ valor_unitario: 10 }] }] } as any };
+    expect(pecaContaComoPronta(pp)).toBe(false);
+    const emitida = { ...pp, arquivo_pdf_path: 'mapa.pdf', descricao: 'Pesquisa', dados_estruturados: { ...pp.dados_estruturados } };
+    emitida.dados_estruturados._emitido = registroDeEmissao(emitida);
+    expect(pecaContaComoPronta(emitida)).toBe(true);
+    // nova cotação depois do mapa: a pesquisa volta a "em elaboração"
+    const mais = { ...emitida, dados_estruturados: { ...emitida.dados_estruturados, itens: [{ item_numero: 1, cotacoes: [{ valor_unitario: 10 }, { valor_unitario: 12 }] }] } };
+    expect(pecaContaComoPronta(mais)).toBe(false);
+  });
+
+  it('dados existentes: PDF gerado antes da regra continua pronto; legado migrado conta; anexada e "não se aplica" contam', () => {
+    expect(pecaContaComoPronta({ tipo: 'TR', status: 'EM_ELABORACAO', descricao: '<p>TR</p>', arquivo_pdf_path: 'tr.pdf', dados_estruturados: { objeto: '<p>TR</p>' } })).toBe(true);
+    expect(pecaContaComoPronta({ tipo: 'JC', status: 'EM_ELABORACAO', descricao: '<p>J</p>', dados_estruturados: { justificativa: '<p>J</p>', _emitido: { em: 'x', legado: true } } })).toBe(true);
+    expect(pecaContaComoPronta({ tipo: 'DFD', status: 'IMPORTADO', caminho_arquivo: 'a.pdf' })).toBe(true);
+    expect(pecaContaComoPronta({ tipo: 'ETP', status: 'APROVADO', dados_estruturados: { nao_se_aplica: true } })).toBe(true);
+  });
+
+  it('regra anterior (só para a migração de processos já divulgados): o texto bastava', () => {
+    expect(pecaProntaPelaRegraAnterior(dfd)).toBe(true);
+    expect(pecaProntaPelaRegraAnterior({ tipo: 'PP', status: 'EM_ELABORACAO', dados_estruturados: { itens: [{ cotacoes: [] }] } })).toBe(false);
+  });
+
+  it('impressão estável do conteúdo (sem as chaves internas)', () => {
+    const a = impressaoConteudoPeca({ descricao: 'x', dados_estruturados: { b: 1, a: { d: 2, c: [1, 2] }, _x: 1 } });
+    const b = impressaoConteudoPeca({ descricao: ' x ', dados_estruturados: { a: { c: [1, 2], d: 2 }, b: 1 } });
+    expect(a).toBe(b);
+    expect(impressaoConteudoPeca({ descricao: 'x', dados_estruturados: { a: 1 } })).not.toBe(impressaoConteudoPeca({ descricao: 'x', dados_estruturados: { a: 2 } }));
   });
 });

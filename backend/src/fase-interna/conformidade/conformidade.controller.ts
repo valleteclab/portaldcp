@@ -55,8 +55,9 @@ export class ConformidadeController {
   @Post(':licitacaoId/conformidade/revisar')
   async revisar(@Param('licitacaoId') id: string, @AtorAtual() ator: Ator) {
     await this.conformidade.revisar(id, { origem: 'MANUAL', autor: await this.tarefas.autor(ator) });
-    // as etapas (portão A da pesquisa) e as tarefas acompanham
-    await this.tarefas.agendar(id);
+    // as etapas (portão A da pesquisa) e as tarefas acompanham — sem refazer a
+    // revisão (a automática sobrescrevia a manual: "Última revisão" não mudava)
+    await this.tarefas.agendar(id, 0, { semRotinasAntes: true });
     return this.tela(id);
   }
 

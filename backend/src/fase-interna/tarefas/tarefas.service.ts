@@ -145,7 +145,7 @@ export class TarefasService {
    * processo). A promessa fica registrada na hora — as leituras da caixa
    * esperam por ela (`aguardarPendentes`).
    */
-  agendar(licitacaoId: string, atrasoMs = 0): Promise<void> {
+  agendar(licitacaoId: string, atrasoMs = 0, opcoes: { semRotinasAntes?: boolean } = {}): Promise<void> {
     if (!this.ativo()) return Promise.resolve();
     // Juntada em lote em curso: roda uma vez no `retomar`
     if (this.suspensos.has(licitacaoId)) return Promise.resolve();
@@ -155,12 +155,17 @@ export class TarefasService {
       return atual.promessa;
     }
     const estado = { repetir: false, promessa: Promise.resolve() };
+    // Quem acabou de revisar a conformidade (ex.: "Revisar agora") pula a revisão
+    // automática desta rodada — senão ela sobrescreve a revisão manual
+    let pularAntes = !!opcoes.semRotinasAntes;
     estado.promessa = (async () => {
       try {
         if (atrasoMs > 0) await new Promise((r) => setTimeout(r, atrasoMs));
         do {
           estado.repetir = false;
-          for (const fn of this.antesDeSincronizar) {
+          const rotinas = pularAntes ? [] : this.antesDeSincronizar;
+          pularAntes = false;
+          for (const fn of rotinas) {
             try {
               await fn(licitacaoId);
             } catch (e: any) {

@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { API_URL, authFetch } from '@/lib/api'
+import { avisarFaseInternaAtualizada } from '@/lib/fase-interna/telas'
 import { SecaoEditor } from './SecaoEditor'
 import { PainelIA } from './PainelIA'
 import {
@@ -205,6 +206,8 @@ export function DocumentoSeccionado({
           ...prev,
           [secaoId]: res.ok ? 'saved' : 'error',
         }))
+        // Editar a peça depois de gerada a devolve a "em elaboração": os quadros da página recarregam
+        if (res.ok) avisarFaseInternaAtualizada(licitacaoId)
         // Limpa o indicador "saved" após 3s
         if (res.ok) {
           setTimeout(() => {

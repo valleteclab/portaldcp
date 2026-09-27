@@ -34,7 +34,7 @@ import {
   TITULO_DOCUMENTO,
   linhasDoChecklist,
 } from './documentos-obrigatorios';
-import { pecaContaComoPronta } from './peca-regras';
+import { pecaContaComoPronta, registroDeEmissao } from './peca-regras';
 import {
   RiscoIdentificado,
   MatrizRiscosDados,
@@ -1259,6 +1259,7 @@ export class FaseInternaService {
     licitacaoId: string,
     caminhoRelativo: string,
     valorTotal: number,
+    autor?: { id?: string | null; nome?: string | null } | null,
   ): Promise<void> {
     const licitacao = await this.licitacaoRepository.findOneBy({ id: licitacaoId });
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
@@ -1269,6 +1270,12 @@ export class FaseInternaService {
     doc.data_geracao_arquivo = new Date();
     doc.nome_arquivo = nome;
     doc.descricao = resumo;
+    // Mapa emitido = a pesquisa feita aqui fica PRONTA com estes dados (antes
+    // do mapa ela é "em elaboração", mesmo com cotações — homologação E4)
+    doc.dados_estruturados = {
+      ...(doc.dados_estruturados && typeof doc.dados_estruturados === 'object' ? doc.dados_estruturados : {}),
+      _emitido: registroDeEmissao(doc, autor ?? null),
+    };
     await this.documentoRepository.save(doc);
 
     let mapa = await this.documentoRepository.findOne({

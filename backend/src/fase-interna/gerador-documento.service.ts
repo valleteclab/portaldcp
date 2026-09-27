@@ -10,6 +10,7 @@ import { DocumentoFaseInterna, TipoDocumentoFaseInterna } from './entities/docum
 import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 import { AuditLogService, ContextoUsuario } from './audit-log.service';
 import { ModeloDocumentoService } from './modelo-documento.service';
+import { impressaoConteudoPeca, registroDeEmissao } from './peca-regras';
 
 import { EtpDados } from './types/etp-dados.type';
 import { TrDados } from './types/tr-dados.type';
@@ -122,6 +123,7 @@ export class GeradorDocumentoService {
   async gerarPdf(
     documentoId: string,
     contexto?: ContextoUsuario,
+    opcoes: { registrarEmissao?: boolean } = {},
   ): Promise<{ caminho: string; hash: string }> {
     const documento = await this.carregarDocumento(documentoId);
     const licitacaoNumero = await this.resolverNumeroLicitacao(documento);
@@ -141,6 +143,17 @@ export class GeradorDocumentoService {
     documento.arquivo_pdf_path = caminho;
     documento.data_geracao_arquivo = new Date();
     documento.hash_arquivo = hash;
+    // Gerar o PDF da peça feita no sistema é a EMISSÃO: a peça conta como
+    // pronta com ESTE conteúdo (editar depois volta a "em elaboração"). Os
+    // autos só materializam o PDF (`registrarEmissao: false`); registro que já
+    // corresponde ao conteúdo não é regravado (a peça não "muda" à toa).
+    const atual = documento.dados_estruturados?._emitido;
+    if (opcoes.registrarEmissao !== false && !(atual?.impressao && atual.impressao === impressaoConteudoPeca(documento))) {
+      documento.dados_estruturados = {
+        ...(documento.dados_estruturados && typeof documento.dados_estruturados === 'object' ? documento.dados_estruturados : {}),
+        _emitido: registroDeEmissao(documento, { id: contexto?.usuario_id ?? null, nome: contexto?.usuario_nome ?? null }),
+      };
+    }
     await this.docRepo.save(documento);
 
     await this.auditLog.log({

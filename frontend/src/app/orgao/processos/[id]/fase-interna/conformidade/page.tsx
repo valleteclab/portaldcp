@@ -123,6 +123,10 @@ interface QuadroPublicacao {
 const fmtDataHora = (v?: string | null) =>
   v ? new Date(v).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"
 
+/** Com os segundos: "Revisar agora" duas vezes no mesmo minuto mostra a revisão nova (homologação). */
+const fmtDataHoraSeg = (v?: string | null) =>
+  v ? new Date(v).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"
+
 const ROTULO_ORIGEM: Record<string, string> = { MANUAL: "revisão manual", AUTOMATICA: "revisão automática", TELA: "primeira abertura" }
 const SITUACAO_REGRA: Record<RegraTela["situacao"], { texto: string; cls: string }> = {
   APROVADA: { texto: "Aprovada", cls: "text-[#1F4E79]" },
@@ -246,7 +250,7 @@ export default function ConformidadePage() {
           Etapa 8 · O sistema cruza todas as peças dos autos entre si e só libera a publicação sem bloqueios abertos.
           {d.revisao && (
             <span className="block text-xs text-gray-600 mt-0.5">
-              Última revisão: {fmtDataHora(d.revisao.em)} · {ROTULO_ORIGEM[d.revisao.origem] ?? d.revisao.origem}
+              Última revisão: {fmtDataHoraSeg(d.revisao.em)} · {ROTULO_ORIGEM[d.revisao.origem] ?? d.revisao.origem}
               {d.revisao.por_nome && d.revisao.origem === "MANUAL" ? ` por ${d.revisao.por_nome}` : ""}
             </span>
           )}

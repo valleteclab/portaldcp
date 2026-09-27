@@ -7,9 +7,10 @@
  *  - pelo roteiro do parecer (itens A72_*).
  *
  * Momento de cada inciso: I, II e IV são exigidos ANTES da autorização (portão
- * B); VIII é a própria autorização; III (parecer) vem depois; V e VI
- * (habilitação e razão da escolha) e VII (preço) são da fase externa / do
- * relatório do agente e não bloqueiam a autorização.
+ * B); VIII é a própria autorização; III (parecer) vem depois; V (habilitação)
+ * é da fase externa. VI (razão da escolha) e VII (preço) dependem da
+ * modalidade: após a seleção na dispensa eletrônica e no credenciamento; antes
+ * da autorização na contratação direta sem aviso (`momentoDoInciso`).
  */
 
 export interface LinhaInstrucaoPortao {
@@ -35,6 +36,53 @@ export const INCISOS_ART72: Array<{ inciso: string; texto: string; tipos: string
 
 export const PRONTA = new Set(['OK', 'NAO_SE_APLICA']);
 
+/**
+ * RAZÃO DA ESCOLHA (VI) E JUSTIFICATIVA DE PREÇO (VII) — o momento depende de
+ * COMO o contratado é escolhido (homologação 26/09/2026):
+ *  - dispensa ELETRÔNICA (com ou sem lances): o contratado e o preço final
+ *    resultam das propostas recebidas depois da divulgação do aviso (Lei
+ *    14.133/2021, art. 75, §3º; IN SEGES/ME 67/2021) — cumpridos APÓS A
+ *    SELEÇÃO, conferidos no parecer da fase externa, antes da adjudicação;
+ *  - credenciamento: contrata-se todo interessado que atenda ao edital de
+ *    chamamento (art. 79) — idem, depois do chamamento;
+ *  - contratação direta SEM aviso (inexigibilidade, art. 74): o contratado é
+ *    definido antes — VI e VII são exigidos ANTES da autorização (portão B).
+ */
+export const MODALIDADES_SELECAO_POSTERIOR = ['DISPENSA_ELETRONICA', 'CREDENCIAMENTO'];
+
+export const selecaoPosterior = (modalidade: string | null | undefined) => MODALIDADES_SELECAO_POSTERIOR.includes(String(modalidade ?? ''));
+
+/** Contratação direta SEM aviso nem disputa: o contratado é definido antes da autorização (inexigibilidade, art. 74). */
+export const MODALIDADES_SEM_AVISO = ['INEXIGIBILIDADE'];
+export const contratacaoSemAviso = (modalidade: string | null | undefined) => MODALIDADES_SEM_AVISO.includes(String(modalidade ?? ''));
+
+/** Peças que trazem a razão da escolha e a justificativa do preço (VI e VII). */
+export const TIPOS_ESCOLHA_PRECO = ['RAG', 'JC'];
+
+export function motivoEscolhaAposSelecao(modalidade: string | null | undefined): string {
+  return modalidade === 'CREDENCIAMENTO'
+    ? 'Cumprido após o chamamento: no credenciamento contrata-se todo interessado que atenda ao edital (art. 79); a escolha e o preço decorrem do chamamento.'
+    : 'Cumprido após a seleção do fornecedor: na dispensa eletrônica (com ou sem lances) o contratado e o preço final resultam das propostas recebidas depois da divulgação do aviso (art. 75, §3º; IN SEGES/ME 67/2021). A razão da escolha e a justificativa do preço final são conferidas no parecer da fase externa, antes da adjudicação.';
+}
+
+/** Momento do inciso para a modalidade do processo (VI e VII mudam — ver acima). */
+export function momentoDoInciso(inciso: string, modalidade?: string | null): MomentoInciso {
+  const def = INCISOS_ART72.find((i) => i.inciso === inciso);
+  if ((inciso === 'VI' || inciso === 'VII') && contratacaoSemAviso(modalidade)) return 'ANTES';
+  return def?.momento ?? 'DEPOIS';
+}
+
+/**
+ * VI/VII na contratação direta sem aviso: ao menos UMA peça pronta (feita e
+ * emitida, anexada ou assinada) com a razão da escolha e o preço — o relatório
+ * do agente ou a justificativa da contratação direta. "Não se aplica" não
+ * supre: os incisos VI e VII não são "se for o caso".
+ */
+export function situacaoEscolhaPreco(itens: LinhaInstrucaoPortao[]): { ok: boolean; pecas: Array<{ tipo: string; titulo: string; status: string; documento_id?: string | null }> } {
+  const pecas = pecasDoInciso(itens, TIPOS_ESCOLHA_PRECO);
+  return { ok: pecas.some((p) => p.status === 'OK'), pecas };
+}
+
 export interface LinhaPortaoB {
   inciso: string;
   referencia: string;
@@ -56,20 +104,28 @@ export function pecasDoInciso(itens: LinhaInstrucaoPortao[], tipos: string[]) {
 
 /**
  * PORTÃO B — checklist do art. 72. Exigidos para autorizar: I, II e IV (toda
- * peça do inciso presente na instrução pronta ou "não se aplica"). Uma peça
- * do inciso fora da instrução do processo (ex.: rito completo) não conta.
+ * peça do inciso presente na instrução pronta ou "não se aplica") e, na
+ * contratação direta SEM aviso (inexigibilidade), também VI e VII (`modalidade`;
+ * ver `momentoDoInciso`). Uma peça do inciso fora da instrução do processo
+ * (ex.: rito completo) não conta.
  */
-export function portaoBArt72(itens: LinhaInstrucaoPortao[]): { linhas: LinhaPortaoB[]; ok: boolean; pendentes: string[] } {
+export function portaoBArt72(itens: LinhaInstrucaoPortao[], modalidade?: string | null): { linhas: LinhaPortaoB[]; ok: boolean; pendentes: string[] } {
   const linhas: LinhaPortaoB[] = INCISOS_ART72.map((i) => {
     const pecas = pecasDoInciso(itens, i.tipos);
-    const exigido = i.momento === 'ANTES';
+    const momento = momentoDoInciso(i.inciso, modalidade);
+    const exigido = momento === 'ANTES';
     let situacao: LinhaPortaoB['situacao'];
-    if (i.momento !== 'ANTES' && i.momento !== 'ESTA_ETAPA') situacao = pecas.length && pecas.every((p) => PRONTA.has(p.status)) ? 'OK' : 'DEPOIS';
+    if ((i.inciso === 'VI' || i.inciso === 'VII') && momento === 'ANTES') {
+      const s = situacaoEscolhaPreco(itens);
+      situacao = s.ok ? 'OK' : s.pecas.some((p) => p.status !== 'PENDENTE' && p.status !== 'NAO_SE_APLICA') ? 'EM_ANDAMENTO' : 'PENDENTE';
+      return { inciso: i.inciso, referencia: `Art. 72, ${i.inciso}`, texto: i.texto, momento, exigido, situacao, pecas };
+    }
+    if (momento !== 'ANTES' && momento !== 'ESTA_ETAPA') situacao = pecas.length && pecas.every((p) => PRONTA.has(p.status)) ? 'OK' : 'DEPOIS';
     else if (!pecas.length) situacao = 'OK';
     else if (pecas.every((p) => PRONTA.has(p.status))) situacao = 'OK';
     else if (pecas.some((p) => p.status !== 'PENDENTE')) situacao = 'EM_ANDAMENTO';
     else situacao = 'PENDENTE';
-    return { inciso: i.inciso, referencia: `Art. 72, ${i.inciso}`, texto: i.texto, momento: i.momento, exigido, situacao, pecas };
+    return { inciso: i.inciso, referencia: `Art. 72, ${i.inciso}`, texto: i.texto, momento, exigido, situacao, pecas };
   });
   const pendentes = linhas.filter((l) => l.exigido && l.situacao !== 'OK').map((l) => `${l.referencia} — ${l.texto}`);
   return { linhas, ok: pendentes.length === 0, pendentes };

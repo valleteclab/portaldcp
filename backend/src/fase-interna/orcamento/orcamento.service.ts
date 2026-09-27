@@ -14,7 +14,7 @@ import { GeradorDocumentoService } from '../gerador-documento.service';
 import { ModeloDocumentoService } from '../modelo-documento.service';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { PassoFaseInterna } from '../tarefas/etapas-fase-interna';
-import { hojeEmBrasilia } from '../peca-regras';
+import { hojeEmBrasilia, registroDeEmissao } from '../peca-regras';
 import { DotacaoOrcamentaria, LeiOrcamentaria, ReservaOrcamentaria, ReservaOrcamentariaLinha, TipoLeiOrcamentaria } from './orcamento.entities';
 import { LinhaReserva, conferirParaEmitir, linhasNaEmissao, planoRenovacao, precisaRenovar, totalDasLinhas, validarLinhas } from '../telas/reserva-regras';
 
@@ -456,6 +456,11 @@ export class OrcamentoService {
     }
     if (r.observacao) secoes.observacao = `<p>${r.observacao.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)}</p>`;
 
+    // A emissão É o ato: a peça DO conta como pronta com este conteúdo (mesmo
+    // se o PDF falhar — ele é gerado de novo nos autos)
+    const descricaoDo = Object.values(secoes).filter(Boolean).join('\n');
+    const dadosDo = { ...secoes, reserva_id: r.id, reserva_versao: r.versao };
+    const emitido = registroDeEmissao({ descricao: descricaoDo, dados_estruturados: dadosDo }, autor);
     const doc = await this.ds.transaction(async (m) => {
       await m.query(`SELECT id FROM licitacoes WHERE id::text = $1 FOR UPDATE`, [licitacaoId]);
       const repo = m.getRepository(DocumentoFaseInterna);
@@ -466,8 +471,8 @@ export class OrcamentoService {
           licitacao_id: licitacaoId,
           tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
           titulo: modelo?.nome || 'Informação orçamentária',
-          descricao: Object.values(secoes).filter(Boolean).join('\n'),
-          dados_estruturados: { ...secoes, reserva_id: r.id, reserva_versao: r.versao },
+          descricao: descricaoDo,
+          dados_estruturados: { ...dadosDo, _emitido: emitido },
           status: StatusDocumento.EM_ELABORACAO,
           origem: OrigemDocumento.INTERNO,
           versao: (anterior?.versao ?? 0) + 1,

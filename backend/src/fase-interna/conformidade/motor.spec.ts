@@ -4,7 +4,7 @@
  */
 import { incisoArt75DoFundamento, montarContexto, pecaDoContexto } from './contexto';
 import { consumo, pa139Corrigido, pa139Real } from './fixtures/pa-139-2025';
-import { AchadoExistente, avaliarRegras, impedemPublicar, pendenciasDoPortao, planejarRevisao, planoVazio, regrasDoPortao, todosOsAchados } from './motor';
+import { AchadoExistente, avaliarRegras, contagemDaConformidade, impedemPublicar, pendenciasDoPortao, planejarRevisao, planoVazio, regrasDoPortao, todosOsAchados } from './motor';
 import { REGRAS } from './regras';
 import type { AchadoCalculado, AvaliacaoRegra, Regra } from './tipos';
 
@@ -85,8 +85,9 @@ describe('Motor — portões', () => {
 
   it('portão A só olha o limite (LIM-01); B, o limite e o art. 72; C, tudo menos o art. 72 I/II/IV', () => {
     expect(regrasDoPortao('A').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02']);
-    expect(regrasDoPortao('B').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02', 'A72-I', 'A72-II', 'A72-IV']);
+    expect(regrasDoPortao('B').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
     expect(regrasDoPortao('C').map((r) => r.codigo)).not.toContain('A72-I');
+    expect(regrasDoPortao('C').map((r) => r.codigo)).not.toContain('A72-VII');
   });
 
   it('portão C recusa o PA 139/2025 real: bloqueios (ENQ-01, VINC-01, ASS-01) e as atenções que exigem justificativa (MARCA-01, PRECO-01) — com o que falta e onde', () => {
@@ -122,6 +123,19 @@ describe('Motor — portões', () => {
     const ach = todosOsAchados(real()) as Array<AchadoCalculado & { status?: string }>;
     expect(impedemPublicar(ach)).toBe(5); // ENQ-01, VINC-01, ASS-01 + MARCA-01 e PRECO-01
     expect(impedemPublicar(ach.map((a) => (a.regra === 'MARCA-01' ? { ...a, status: 'JUSTIFICADO' } : a)))).toBe(4);
+  });
+
+  it('contagem ÚNICA (quadro do processo, checklist e tela — homologação E6): bloqueios de todos os portões, por portão', () => {
+    const achados = [
+      { regra: 'A72-I', severidade: 'BLOQUEIO' as const, status: 'ABERTO' },
+      { regra: 'A72-II', severidade: 'BLOQUEIO' as const, status: 'ABERTO' },
+      { regra: 'A72-IV', severidade: 'BLOQUEIO' as const, status: 'ABERTO' },
+      { regra: 'LIM-01', severidade: 'BLOQUEIO' as const, status: 'ABERTO', portao: 'A' },
+      { regra: 'VINC-01', severidade: 'BLOQUEIO' as const, status: 'RESOLVIDO' },
+      { regra: 'MARCA-01', severidade: 'ATENCAO' as const, status: 'ABERTO', exige_justificativa: true },
+      { regra: 'LIM-02', severidade: 'ATENCAO' as const, status: 'JUSTIFICADO' },
+    ];
+    expect(contagemDaConformidade(achados)).toEqual({ bloqueios: 4, atencoes: 1, impedem_publicar: 5, bloqueios_por_portao: { A: 1, B: 3, C: 0 } });
   });
 });
 

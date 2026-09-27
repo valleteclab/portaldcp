@@ -37,3 +37,30 @@ export async function pendenciasDoPortaoDoProcesso(licitacaoId: string, portao: 
   if (!verificador || process.env.FASE_INTERNA_CONFORMIDADE === 'false') return [];
   return verificador(licitacaoId, portao, opcoes);
 }
+
+/**
+ * RESUMO DA CONFORMIDADE — a FONTE ÚNICA das contagens (quadro "Fluxo da fase
+ * interna", checklist de pré-publicação e tela da conformidade): os achados
+ * do motor depois de uma revisão atualizada (homologação 26/09/2026, E6: o
+ * checklist dizia "nenhum bloqueio" e o quadro "4 bloqueios").
+ */
+export interface ResumoConformidadeProcesso {
+  aplicavel: boolean;
+  bloqueios: number;
+  atencoes: number;
+  impedem_publicar: number;
+  /** Bloqueios abertos por portão (A limite, B art. 72, C antes de publicar). */
+  bloqueios_por_portao: Record<Portao, number>;
+}
+
+let resumidor: ((licitacaoId: string) => Promise<ResumoConformidadeProcesso>) | null = null;
+
+export function definirResumidorDeConformidade(fn: ((licitacaoId: string) => Promise<ResumoConformidadeProcesso>) | null) {
+  resumidor = fn;
+}
+
+/** Resumo do motor (null = motor desligado ou indisponível). */
+export async function resumoDaConformidadeDoProcesso(licitacaoId: string): Promise<ResumoConformidadeProcesso | null> {
+  if (!resumidor || process.env.FASE_INTERNA_CONFORMIDADE === 'false') return null;
+  return resumidor(licitacaoId).catch(() => null);
+}

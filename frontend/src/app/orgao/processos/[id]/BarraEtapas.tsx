@@ -15,7 +15,8 @@ const ESTILO: Record<EstadoEtapa, { barra: string; titulo: string; detalhe: stri
  */
 export function BarraEtapas({ etapas }: { etapas: Etapa[] }) {
   return (
-    <nav aria-label="Etapas do processo" className="rounded-lg border bg-white p-3 overflow-x-auto">
+    // relative: o texto só para leitor de tela (sr-only, absoluto) fica DENTRO da área que rola — senão ele esticava a página (rolagem horizontal)
+    <nav aria-label="Etapas do processo" className="relative rounded-lg border bg-white p-3 overflow-x-auto">
       <ol className="flex gap-3 min-w-max">
         {etapas.map((e, i) => {
           const s = ESTILO[e.estado]
