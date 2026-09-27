@@ -30,6 +30,7 @@ import {
   levarAteFase,
   pdfDeTeste,
 } from './support';
+import { TarefasService } from '../src/fase-interna/tarefas/tarefas.service';
 import { corpoDivulgacao, criarDocumentoInstrucao, fimPropostasSugerido, vincularOrgaoPncp } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { TipoDocumentoFaseInterna } from '../src/fase-interna/entities/documento-fase-interna.entity';
@@ -61,6 +62,12 @@ describe('Fase interna — Entrega 1 (base)', () => {
   const instrucao = async (lic: LicitacaoFixture) =>
     (await http().get(`/api/fase-interna/${lic.id}/instrucao`).set(bearer(lic.orgao.token)).expect(200)).body;
   const itemDe = (inst: any, tipo: string) => inst.itens.find((i: any) => i.tipo === tipo);
+  /** Última folha já juntada (autos em ordem cronológica: as peças geradas antes já ocupam folhas). */
+  const ultimaFolhaJuntada = async (lic: { id: string }) => {
+    await ctx.app.get(TarefasService).aguardarPendentes();
+    const [{ ultima }] = await sql(`SELECT COALESCE(MAX(folha_final), 0)::int AS ultima FROM juntadas_autos WHERE licitacao_id = $1`, [lic.id]);
+    return ultima as number;
+  };
 
   beforeAll(async () => {
     ctx = await criarApp();
@@ -78,6 +85,7 @@ describe('Fase interna — Entrega 1 (base)', () => {
   describe('A. anexar PDF da peça feita fora', () => {
     let lic: LicitacaoFixture;
     let v1: any;
+    let antes = 0;
 
     beforeAll(async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
@@ -122,6 +130,9 @@ describe('Fase interna — Entrega 1 (base)', () => {
     });
 
     it('anexo válido: IMPORTADO/ARQUIVO, SHA-256, data da peça + data do envio, folhas, e conta no checklist', async () => {
+      // DFD e despacho gerados antes já estão juntados: o anexo recebe a folha seguinte
+      antes = await ultimaFolhaJuntada(lic);
+      expect(antes).toBeGreaterThanOrEqual(2);
       const pdf = pdfDeTeste('Mapa de precos feito fora');
       const r = await anexar(lic, 'PP', A.token, { data_documento: '2026-01-15', numero_peca: 'Mapa 012/2026', observacao: 'Pesquisa feita pelo Setor de Compras' }, pdf, 'mapa.pdf');
       expect(r.status).toBe(201);
@@ -134,8 +145,8 @@ describe('Fase interna — Entrega 1 (base)', () => {
         versao_atual: true,
         numero_peca: 'Mapa 012/2026',
         hash_arquivo: createHash('sha256').update(pdf).digest('hex'),
-        folha_inicial: 1,
-        folha_final: 1,
+        folha_inicial: antes + 1,
+        folha_final: antes + 1,
         total_paginas: 1,
       });
       expect(String(v1.data_documento)).toMatch(/^2026-01-15/);
@@ -145,7 +156,7 @@ describe('Fase interna — Entrega 1 (base)', () => {
       const inst = await instrucao(lic);
       const pp = itemDe(inst, 'PP');
       expect(pp.status).toBe('OK');
-      expect(pp.peca).toMatchObject({ anexada: true, numero_peca: 'Mapa 012/2026', folha_inicial: 1, versao: 1 });
+      expect(pp.peca).toMatchObject({ anexada: true, numero_peca: 'Mapa 012/2026', folha_inicial: antes + 1, versao: 1 });
       expect(inst.pode_divulgar).toBe(true);
       expect(pp.pode_nao_se_aplicar).toBe(false); // obrigatória no art. 72
       expect(itemDe(inst, 'ETP').pode_nao_se_aplicar).toBe(true);
@@ -154,7 +165,11 @@ describe('Fase interna — Entrega 1 (base)', () => {
     it('substituir cria nova versão; a anterior fica SUBSTITUIDO e as folhas seguem a sequência', async () => {
       const r = await anexar(lic, 'PP', A.token, { numero_peca: 'Mapa 012/2026 (retificado)' }, pdfDeTeste('Mapa v2'));
       expect(r.status).toBe(201);
-      expect(r.body).toMatchObject({ versao: 2, versao_anterior_id: v1.id, folha_inicial: 2, folha_final: 2 });
+      expect(r.body).toMatchObject({ versao: 2, versao_anterior_id: v1.id, folha_inicial: antes + 2, folha_final: antes + 2 });
+      // a v1 continua nos autos, na folha dela (juntada substituída)
+      const [j1] = await sql(`SELECT folha_inicial, substituida_por_id FROM juntadas_autos WHERE documento_id = $1`, [v1.id]);
+      expect(j1.folha_inicial).toBe(antes + 1);
+      expect(j1.substituida_por_id).toBeTruthy();
       const versoes = (await http().get(`/api/fase-interna/${lic.id}/documentos/PP`).set(bearer(A.token)).expect(200)).body as any[];
       expect(versoes.map((v) => [v.versao, v.status, v.versao_atual])).toEqual([
         [2, 'IMPORTADO', true],
@@ -447,6 +462,11 @@ describe('Fase interna — Entrega 1 (base)', () => {
       expect(envio.body.signatarios_exigidos).toHaveLength(4);
       const docAssId = envio.body.documento_assinatura_id;
       expect(itemDe(await instrucao(lic), 'AA').status).toBe('EM_ASSINATURA');
+      // o que já estava juntado (DFD, estimativa e o despacho emitido antes do envio)
+      const antes = await ultimaFolhaJuntada(lic);
+      const juntadasDaPeca = async () =>
+        Number((await sql(`SELECT COUNT(*)::int AS n FROM juntadas_autos WHERE documento_id = $1`, [envio.body.id]))[0].n);
+      const antesDaPeca = await juntadasDaPeca();
 
       const sigs: any[] = await sql(`SELECT id::text AS id, email, papel FROM signatarios_documento WHERE documento_id = $1`, [docAssId]);
       expect(sigs.map((s) => s.papel).sort()).toEqual([...papeis].sort());
@@ -460,6 +480,9 @@ describe('Fase interna — Entrega 1 (base)', () => {
           const [d] = await sql(`SELECT status::text AS status FROM documentos_fase_interna WHERE id = $1`, [envio.body.id]);
           expect(d.status).toBe('AGUARDANDO_ASSINATURA');
           expect(itemDe(await instrucao(lic), 'AA').status).toBe('EM_ASSINATURA');
+          // assinatura parcial NÃO é juntada
+          expect(await ultimaFolhaJuntada(lic)).toBe(antes);
+          expect(await juntadasDaPeca()).toBe(antesDaPeca);
         }
       }
       let doc: any = null;
@@ -472,8 +495,12 @@ describe('Fase interna — Entrega 1 (base)', () => {
       expect(doc.totalmente_assinado).toBe(true);
       expect(doc.data_documento).toBeTruthy();
       expect(doc.hash_arquivo).toMatch(/^[0-9a-f]{64}$/);
-      expect(doc.folha_inicial).toBe(1);
-      expect(doc.folha_final).toBeGreaterThanOrEqual(1);
+      // a via assinada entra UMA vez, quando a última assinatura conclui — na folha seguinte
+      expect(doc.folha_inicial).toBe(antes + 1);
+      expect(doc.folha_final).toBeGreaterThanOrEqual(antes + 1);
+      expect(await juntadasDaPeca()).toBe(antesDaPeca + 1);
+      const [assinada] = await sql(`SELECT origem, conteudo FROM juntadas_autos WHERE documento_id = $1 AND folha_inicial = $2`, [envio.body.id, antes + 1]);
+      expect(assinada).toEqual({ origem: 'ASSINADA', conteudo: `arq:${doc.hash_arquivo}` });
       expect(doc.assinaturas).toHaveLength(4);
       expect(doc.assinaturas.map((a: any) => a.assinante_cargo).sort()).toEqual([...papeis].sort());
       const inst = await instrucao(lic);

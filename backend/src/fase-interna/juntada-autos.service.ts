@@ -7,6 +7,8 @@ import { createHash, randomUUID } from 'crypto';
 import { basesDeLeitura, caminhoContido, diretorioDeGravacao, resolverArquivoDeUrl } from '../common/arquivos/arquivos';
 import { GeradorDocumentoService } from './gerador-documento.service';
 import { TarefasService } from './tarefas/tarefas.service';
+import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
+import { ehFaseInterna } from '../licitacoes/transicoes/fases';
 import { pecaContaComoPronta, proximaFaixaDeFolhas } from './peca-regras';
 import {
   COLUNAS_PECA_JUNTADA,
@@ -84,6 +86,7 @@ export class JuntadaAutosService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly gerador: GeradorDocumentoService,
     @Optional() tarefas?: TarefasService,
+    @Optional() private readonly modeloFluxo?: ModeloFluxoService,
   ) {
     // Na fila do processo (sincronização): antes da liberação, nada (a migração de boot vem antes)
     tarefas?.registrarAntesDeSincronizar((id) => (this.liberada ? this.juntarPendentes(id) : Promise.resolve(0)), { porUltimo: true });
@@ -143,11 +146,14 @@ export class JuntadaAutosService {
     const juntado = (docId: string | null, vaga: string, conteudo: string) =>
       livro.some((l) => l.conteudo === conteudo && (docId ? l.documento_id === docId : l.vaga === vaga));
     const pp = docs.find((d) => d.tipo === 'PP');
+    const comAprovacao = await this.tiposComAprovacaoInterna(licitacaoId);
     const itens: ItemJuntavel[] = [];
     for (const d of docs) {
       const dados = d.dados_estruturados ?? {};
       if (dados?.nao_se_aplica) continue;
       if (!pecaContaComoPronta(d)) continue;
+      // Etapa com aprovação interna: a peça feita no sistema só é ato (e só é juntada) aprovada ou assinada
+      if (comAprovacao.has(d.tipo) && !pecaAnexada(d) && !['APROVADO', 'ASSINADO'].includes(d.status)) continue;
       const base = dadosJuntadaDaPeca(d);
       const emitidoPor = dados?._emitido?.por_nome ?? null;
       const momento = momentoDaJuntadaDaPeca(d);
@@ -180,6 +186,18 @@ export class JuntadaAutosService {
       }
     }
     return itens;
+  }
+
+  /** Tipos de peça com "aprovação interna" ligada no modelo de fluxo (só na fase interna). */
+  private async tiposComAprovacaoInterna(licitacaoId: string): Promise<Set<string>> {
+    if (!this.modeloFluxo) return new Set();
+    try {
+      const [l] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, modalidade::text AS modalidade, fase::text AS fase FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+      if (!l?.orgao_id || !ehFaseInterna(l.fase)) return new Set();
+      return new Set((await this.modeloFluxo.operacionalDoProcesso(l.orgao_id, l.modalidade)).tipos_com_aprovacao);
+    } catch {
+      return new Set();
+    }
   }
 
   /** O arquivo da peça tal como deve ser juntado (null: nada a juntar ainda). */
