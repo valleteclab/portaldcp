@@ -157,8 +157,10 @@ export default function CriarProcessoDeDemandaDialog({
       if (res.ok) {
         const created = await res.json();
         onOpenChange(false);
-        // Entrega 3A: o processo criado da demanda abre na tela do DFD (dentro do processo)
-        router.push(`/orgao/processos/${created.id}/fase-interna/dfd`);
+        // Toda criação abre a tela do processo, com o quadro "Fluxo da fase
+        // interna" (homologação 26/09/2026 — E7; o DFD é a 1ª etapa do quadro)
+        window.dispatchEvent(new Event("processos-updated"));
+        router.push(`/orgao/processos/${created.id}`);
         return;
       }
       const data = await res.json().catch(() => null);

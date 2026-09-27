@@ -23,6 +23,8 @@ import {
   valorDosItens,
 } from "@/lib/fase-interna/criacao"
 import { EscolhaModoFaseInterna } from "@/components/fase-interna/externa/EscolhaModoFaseInterna"
+import { AvisoLimiteFundamento, CampoFundamentoLegal } from "@/components/fase-interna/CampoFundamentoLegal"
+import { avisarTarefasAtualizadas } from "@/lib/tarefas"
 
 function getOrgaoId(): string {
   if (typeof window === "undefined") return ""
@@ -40,6 +42,14 @@ function gerarNumeroProcesso(): string {
   const mes = String(now.getMonth() + 1).padStart(2, "0")
   const random = Math.floor(Math.random() * 99999).toString().padStart(5, "0")
   return `${ano}${mes}.${random}`
+}
+
+/** Valor digitado nos dados básicos: "R$ 1.500,50" (digitado) ou "1500.5" (vindo do backend). */
+function valorDigitado(valor?: string): number {
+  if (!valor) return 0
+  const bruto = valor.replace(/[R$\s]/g, "")
+  const limpo = bruto.includes(",") ? bruto.replace(/\./g, "").replace(",", ".") : bruto
+  return parseFloat(limpo) || 0
 }
 
 function mapearModalidade(frontend: string): string {
@@ -378,22 +388,24 @@ async function typewriterFill(
 }
 
 // ─── Sidebar ───────────────────────────────────────────────────────
-function WizardSidebar({ etapas, current, completed, onJump, opcionais = [] }: {
+function WizardSidebar({ etapas, current, completed, onJump, opcionais = [], rodape }: {
   etapas: typeof WIZARD_ETAPAS
   current: string
   completed: string[]
   onJump: (id: string) => void
   /** Etapas facultativas (contratação direta — art. 72, "se for o caso") */
   opcionais?: string[]
+  /** Nota abaixo das etapas (criação: o que vem depois, na tela do processo). */
+  rodape?: React.ReactNode
 }) {
   const visivel = etapas.slice(0, -1)
-  const progresso = (completed.length / visivel.length) * 100
+  const progresso = (Math.min(completed.filter((c) => visivel.some((e) => e.id === c)).length, visivel.length) / visivel.length) * 100
 
   return (
-    <div className="w-[220px] shrink-0 border-r border-gray-100 bg-white flex flex-col">
+    <div className="hidden md:flex w-[220px] shrink-0 border-r border-gray-100 bg-white flex-col">
       <div className="px-4 pt-5 pb-3">
         <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-2">
-          Fase interna · {completed.length}/{visivel.length}
+          {rodape ? "Novo processo" : "Fase interna"} · {Math.min(completed.filter((c) => visivel.some((e) => e.id === c)).length, visivel.length)}/{visivel.length}
         </div>
         <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
           <div className="h-full bg-[#1351b4] rounded-full transition-all duration-500" style={{ width: `${progresso}%` }} />
@@ -428,7 +440,34 @@ function WizardSidebar({ etapas, current, completed, onJump, opcionais = [] }: {
             </button>
           )
         })}
+        {rodape}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Criação (homologação 26/09/2026 — E7): o assistente só CRIA o processo
+ * (dados básicos e itens). Ao salvar, abre a tela do processo com o quadro
+ * "Fluxo da fase interna", onde cada etapa tem a sua tela (plano F2: "o
+ * assistente fica só para criar: ao salvar ou sair, sempre abre processos/[id]").
+ * Rascunhos antigos (?id=&step=) continuam no assistente completo.
+ */
+const ETAPAS_CRIACAO: typeof WIZARD_ETAPAS = [
+  WIZARD_ETAPAS[0],
+  WIZARD_ETAPAS[1],
+  { id: "concluido", sigla: "OK", nome: "Processo criado", art: "" },
+]
+const DEPOIS_NA_TELA_DO_PROCESSO = ["DFD", "ETP e riscos", "TR", "Pesquisa de preços", "Reserva orçamentária", "Autorização", "Minutas e parecer", "Conformidade e publicação"]
+
+function NotaDepoisDaCriacao() {
+  return (
+    <div className="mx-4 mt-3 p-3 rounded-lg bg-[#f6f9fd] border border-[#dbe8fb] text-[11px] text-gray-600 leading-relaxed">
+      <p className="font-semibold text-[#1351b4] mb-1">Depois, na tela do processo</p>
+      <p>Ao salvar, o processo abre com o quadro <b>Fluxo da fase interna</b>. Cada etapa tem a sua tela (fazer aqui ou anexar o PDF feito fora):</p>
+      <ol className="list-decimal ml-4 mt-1 space-y-0.5">
+        {DEPOIS_NA_TELA_DO_PROCESSO.map((e) => <li key={e}>{e}</li>)}
+      </ol>
     </div>
   )
 }
@@ -452,9 +491,17 @@ function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: stri
   const [erro, setErro] = useState<string | null>(null)
   const [animando, setAnimando] = useState<string | null>(null)
 
+  // Natureza trocada com a dispensa por valor (art. 75, I/II) escolhida: volta ao padrão da natureza
+  const handleCategoria = (v: string) => {
+    onChange("categoria", v)
+    if (["ART75_I", "ART75_II"].includes(dados.fundamento)) onChange("fundamento", "")
+  }
+
   // Ao trocar modalidade: limpa critério incompatível e ajusta modo de disputa
   const handleModalidade = (v: string) => {
     onChange("modalidade", v)
+    // O fundamento é da modalidade: volta ao padrão da nova
+    onChange("fundamento", "")
     // Leilão é alienação de bens (art. 6º XL) — E7c
     if (v === "Leilão") onChange("categoria", "Alienação de Bens")
     const criteriosValidos = CRITERIOS_POR_MODALIDADE[v] || []
@@ -523,7 +570,7 @@ Formato de resposta:
     ["Menor preço", "Maior desconto", "Melhor técnica", "Técnica e preço", "Maior lance", "Maior retorno econômico"]
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+    <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto w-full">
       {/* Cabeçalho */}
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -576,14 +623,14 @@ Formato de resposta:
         </div>
 
         {/* Categoria + Modalidade */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
               Natureza do objeto *
               {animando === "categoria" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
             </Label>
-            <Select value={dados.categoria || ""} onValueChange={(v) => onChange("categoria", v)}>
-              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+            <Select value={dados.categoria || ""} onValueChange={handleCategoria}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Selecione…" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="Compras / Aquisição de Bens">Compras / Aquisição de Bens</SelectItem>
                 <SelectItem value="Serviços Comuns">Serviços Comuns</SelectItem>
@@ -602,7 +649,7 @@ Formato de resposta:
               {animando === "modalidade" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
             </Label>
             <Select value={dados.modalidade || ""} onValueChange={handleModalidade}>
-              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Selecione…" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="Pregão Eletrônico">Pregão Eletrônico</SelectItem>
                 <SelectItem value="Concorrência">Concorrência</SelectItem>
@@ -617,16 +664,28 @@ Formato de resposta:
           </div>
         </div>
 
+        {/* Fundamento legal (fonte única do backend): visível e alterável — na dispensa, o inciso do art. 75 */}
+        {dados.modalidade && (
+          <CampoFundamentoLegal
+            id="assistente-fundamento"
+            modalidade={mapearModalidade(dados.modalidade)}
+            tipoContratacao={dados.categoria ? mapearCategoria(dados.categoria) : null}
+            value={dados.fundamento || ""}
+            onChange={(codigo) => onChange("fundamento", codigo)}
+            valor={valorDigitado(dados.valor)}
+          />
+        )}
+
         {/* Critério de Julgamento + Modo de Disputa (só para licitação formal) */}
         {ehLicitacaoFormal && (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
                 Critério de julgamento *
                 {animando === "criterio" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
               </Label>
               <Select value={dados.criterio || ""} onValueChange={(v) => onChange("criterio", v)}>
-                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Selecione…" /></SelectTrigger>
                 <SelectContent>
                   {criteriosDisponiveis.map((c) => (
                     <SelectItem key={c} value={c}>{c}</SelectItem>
@@ -641,7 +700,7 @@ Formato de resposta:
                   Modo de disputa
                 </Label>
                 <Select value={dados.modoDisputa || "Aberto"} onValueChange={(v) => onChange("modoDisputa", v)}>
-                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue placeholder="Selecione…" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Aberto">Aberto</SelectItem>
                     <SelectItem value="Aberto e Fechado">Aberto e Fechado</SelectItem>
@@ -665,7 +724,7 @@ Formato de resposta:
         )}
 
         {/* Área demandante + Valor estimado */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
               Área demandante *
@@ -937,7 +996,7 @@ function StepDocumento({ stepKey, secoes, onChangeSec, onNext, onBack, ctx, cust
   const todasPreenchidas = preenchidas === tpl.secoes.length
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+    <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto w-full">
       {/* Header do documento */}
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -1075,7 +1134,7 @@ Retorne APENAS JSON: [{"descricao":"...","categoria":"...","probabilidade":1-5,"
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+    <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto w-full">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Análise de Riscos</h2>
@@ -1134,13 +1193,18 @@ Retorne APENAS JSON: [{"descricao":"...","categoria":"...","probabilidade":1-5,"
  * "Salvar e continuar" grava o rascunho — a pesquisa de preços trabalha sobre
  * os itens gravados.
  */
-function StepItens({ itens, setItens, modalidade, onNext, onBack, salvando }: {
+function StepItens({ itens, setItens, modalidade, categoria, fundamento, onNext, onBack, salvando, rotuloAvancar = "Salvar e continuar" }: {
   itens: ItemLicitacao[]
   setItens: (i: ItemLicitacao[]) => void
   modalidade: string
+  /** Rótulo da natureza (para o limite do art. 75, I/II). */
+  categoria?: string
+  /** Fundamento escolhido nos dados básicos (vazio = padrão). */
+  fundamento?: string
   onNext: () => void
   onBack: () => void
   salvando: boolean
+  rotuloAvancar?: string
 }) {
   const preenchidos = itens.filter(itemPreenchido)
   const incompletos = itens.length - preenchidos.length
@@ -1153,7 +1217,7 @@ function StepItens({ itens, setItens, modalidade, onNext, onBack, salvando }: {
         ? "No concurso o item é o prêmio (ou a remuneração) — o valor unitário é o valor do prêmio."
         : "Descreva cada item com quantidade e unidade. O valor unitário estimado pode vir da pesquisa de preços (etapa PP), que o preenche ao gerar o documento."
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full">
+    <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-8 max-w-4xl mx-auto w-full">
       <div className="mb-4">
         <h2 className="text-lg font-bold text-gray-900">Itens da contratação</h2>
         <p className="text-sm text-gray-500 mt-1">{dica}</p>
@@ -1174,11 +1238,19 @@ function StepItens({ itens, setItens, modalidade, onNext, onBack, salvando }: {
           . Lotes: em Editar dados → Lotes, no processo.
         </span>
       </div>
+      {total > 0 && (
+        <AvisoLimiteFundamento
+          modalidade={mapearModalidade(modalidade)}
+          tipoContratacao={categoria ? mapearCategoria(categoria) : null}
+          fundamento={fundamento}
+          valor={total}
+        />
+      )}
 
-      <div className="mt-6 flex items-center justify-between">
+      <div className="mt-6 flex items-center justify-between gap-2 flex-wrap">
         <Button variant="ghost" onClick={onBack} className="text-gray-600"><ArrowLeft className="w-4 h-4 mr-1.5" /> Anterior</Button>
         <Button onClick={onNext} disabled={preenchidos.length === 0 || salvando} className="bg-[#1351b4] hover:bg-[#0c326f]">
-          {salvando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando…</> : <>Salvar e continuar <ArrowRight className="w-4 h-4 ml-2" /></>}
+          {salvando ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando…</> : <>{rotuloAvancar} <ArrowRight className="w-4 h-4 ml-2" /></>}
         </Button>
       </div>
     </div>
@@ -1285,7 +1357,7 @@ function StepDotacao({ dotacao, setDotacao, onNext, onBack, opcional = false, ro
   )
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+    <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto w-full">
       <div className="mb-6">
         <h2 className="text-lg font-bold text-gray-900">Dotação Orçamentária</h2>
         <p className="text-sm text-gray-500 mt-1">
@@ -1327,7 +1399,7 @@ function StepDotacao({ dotacao, setDotacao, onNext, onBack, opcional = false, ro
       {/* Campos de dotação */}
       {!dispensada && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label className="text-xs font-semibold text-gray-700 mb-1.5">Elemento de despesa *</Label>
               <Input
@@ -1354,7 +1426,7 @@ function StepDotacao({ dotacao, setDotacao, onNext, onBack, opcional = false, ro
               placeholder="Ex: 20.122.0000.2272.0001 – Programa/Ação/Sub-ação"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label className="text-xs font-semibold text-gray-700 mb-1.5">Valor disponível (R$)</Label>
               <Input
@@ -1422,7 +1494,7 @@ function StepAutorizacao({ autorizacao, setAutorizacao, onNext, onBack, ctx }: a
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+    <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto w-full">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Autorização da Autoridade Competente</h2>
@@ -1459,7 +1531,7 @@ function StepJuridico({ parecer, setParecer, onNext, onBack, ctx, opcional = fal
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full">
+    <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto w-full">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="text-lg font-bold text-gray-900">Parecer Jurídico</h2>
@@ -1496,7 +1568,7 @@ function StepConcluido({ ctx, onCriar, criando, dispensados = [] }: { ctx: any; 
     "Parecer Jurídico",
   ]
   return (
-    <div className="flex-1 overflow-y-auto p-8 max-w-2xl mx-auto w-full flex flex-col items-center justify-center text-center">
+    <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-8 max-w-2xl mx-auto w-full flex flex-col items-center justify-center text-center">
       <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mb-6">
         <Check className="w-8 h-8 text-green-600" />
       </div>
@@ -1558,7 +1630,8 @@ export default function NovoProcessoPage() {
   const stepParam = searchParams.get("step")
   // Pergunta inicial (processo novo): guiado aqui ou fase interna já feita fora
   const [modoGuiado, setModoGuiado] = useState(searchParams.get("modo") === "guiado")
-  const [step, setStep] = useState(stepParam || "dados")
+  // Processo novo: só dados e itens (a criação termina na tela do processo)
+  const [step, setStep] = useState(processoId ? stepParam || "dados" : stepParam === "itens" ? "itens" : "dados")
   const [completed, setCompleted] = useState<string[]>([])
   const [criando, setCriando] = useState(false)
   const [salvandoRascunho, setSalvandoRascunho] = useState(false)
@@ -1641,6 +1714,7 @@ export default function NovoProcessoPage() {
             criterio: desmapearCriterio(licitacao.criterio_julgamento),
             modoDisputa: desmapearModoDisputa(licitacao.modo_disputa),
             valor: licitacao.valor_total_estimado ? String(licitacao.valor_total_estimado) : "",
+            fundamento: licitacao.fundamento_legal || "",
           }))
         }
         await carregarItens(processoId)
@@ -1801,12 +1875,7 @@ export default function NovoProcessoPage() {
     if (!orgaoId) throw new Error("Órgão não identificado. Faça login novamente.")
 
     let valorEstimado = valorDosItens(itens.filter(itemPreenchido))
-    if (!(valorEstimado > 0) && dados.valor) {
-      // "R$ 1.500,50" (digitado) ou "1500.5" (vindo do backend)
-      const bruto = dados.valor.replace(/[R$\s]/g, "")
-      const valorLimpo = bruto.includes(",") ? bruto.replace(/\./g, "").replace(",", ".") : bruto
-      valorEstimado = parseFloat(valorLimpo) || 0
-    }
+    if (!(valorEstimado > 0) && dados.valor) valorEstimado = valorDigitado(dados.valor)
 
     const payloadLicitacao = {
       ...(processoId ? {} : { numero_processo: gerarNumeroProcesso() }),
@@ -1814,6 +1883,8 @@ export default function NovoProcessoPage() {
       objeto: dados.objeto,
       modalidade: mapearModalidade(dados.modalidade),
       tipo_contratacao: mapearCategoria(dados.categoria),
+      // Fundamento escolhido no assistente (vazio = o padrão da modalidade, gravado pelo servidor)
+      ...(dados.fundamento ? { fundamento_legal: dados.fundamento } : {}),
       criterio_julgamento: mapearCriterio(dados.criterio || "Menor preço"),
       modo_disputa: mapearModoDisputa(dados.modoDisputa || "Aberto"),
       valor_total_estimado: valorEstimado > 0 ? Math.round(valorEstimado * 100) / 100 : undefined,
@@ -1893,16 +1964,25 @@ export default function NovoProcessoPage() {
 
   const jump = (id: string) => goToStep(id)
 
-  /** Itens: grava o rascunho (processo + itens) e segue para o DFD com o id na URL. */
+  /** Tela do processo (quadro "Fluxo da fase interna") — destino de toda criação. */
+  const abrirProcessoCriado = (id: string) => {
+    window.dispatchEvent(new Event("processos-updated"))
+    avisarTarefasAtualizadas()
+    toast.success("Processo criado. Continue pelas etapas no quadro \"Fluxo da fase interna\".")
+    router.push(`/orgao/processos/${id}`)
+  }
+
+  /**
+   * Itens: grava o processo e os itens. Processo NOVO → abre a tela do
+   * processo (E7 da homologação). Rascunho antigo do assistente → segue no DFD.
+   */
   const salvarItensEContinuar = async () => {
     setSalvandoItens(true)
     try {
       const id = await persistirProcesso()
       setCompleted((prev) => Array.from(new Set([...prev, "dados", "itens"])))
       if (!processoId) {
-        window.dispatchEvent(new Event("processos-updated"))
-        toast.success("Rascunho do processo criado com os itens")
-        router.push(urlDoAssistente(id, "dfd"))
+        abrirProcessoCriado(id)
       } else {
         toast.success("Itens salvos")
         goToStep("dfd")
@@ -1937,7 +2017,8 @@ export default function NovoProcessoPage() {
     setSalvandoRascunho(true)
     try {
       const licitacaoId = await persistirProcesso()
-      if (!processoId) window.dispatchEvent(new Event("processos-updated"))
+      // Processo novo: salvar = criar → a tela do processo (itens e peças seguem por lá)
+      if (!processoId) return abrirProcessoCriado(licitacaoId)
       toast.success("Rascunho salvo")
       router.push(urlDoAssistente(licitacaoId, step))
     } catch (e: any) {
@@ -1997,7 +2078,8 @@ export default function NovoProcessoPage() {
 
   let content: React.ReactNode
   if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} />
-  else if (step === "itens")  content = <StepItens itens={itens} setItens={setItens} modalidade={dados.modalidade} onNext={salvarItensEContinuar} onBack={back} salvando={salvandoItens} />
+  else if (step === "itens")  content = <StepItens itens={itens} setItens={setItens} modalidade={dados.modalidade} categoria={dados.categoria} fundamento={dados.fundamento}
+    onNext={salvarItensEContinuar} onBack={back} salvando={salvandoItens} rotuloAvancar={processoId ? "Salvar e continuar" : "Salvar e abrir o processo"} />
   else if (step === "dfd")    content = <StepDocumento
     stepKey="dfd"
     secoes={docs.dfd}
@@ -2077,10 +2159,10 @@ export default function NovoProcessoPage() {
 
       {/* Header da etapa */}
       {step !== "concluido" && (
-        <div className="px-6 py-2.5 border-b border-gray-100 bg-[#f6f9fd] shrink-0 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold bg-[#1351b4] text-white px-2.5 py-1 rounded-full">
-              Fase interna · {idxAtual + 1} de {WIZARD_ETAPAS.length - 1}
+        <div className="px-4 sm:px-6 py-2.5 border-b border-gray-100 bg-[#f6f9fd] shrink-0 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-x-3 gap-y-1 flex-wrap min-w-0">
+            <span className="text-xs font-bold bg-[#1351b4] text-white px-2.5 py-1 rounded-full whitespace-nowrap">
+              {processoId ? `Fase interna · ${idxAtual + 1} de ${WIZARD_ETAPAS.length - 1}` : `Novo processo · ${idxAtual + 1} de ${ETAPAS_CRIACAO.length - 1}`}
             </span>
             <span className="text-xs font-bold text-gray-800">{etapaAtual?.nome}</span>
             {etapaAtual?.art && <span className="text-xs text-gray-400">{etapaAtual.art}</span>}
@@ -2095,17 +2177,21 @@ export default function NovoProcessoPage() {
           >
             {salvandoRascunho ? (
               <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Salvando...</>
-            ) : (
+            ) : processoId ? (
               <><Save className="w-3.5 h-3.5 mr-1.5" /> Salvar rascunho</>
+            ) : (
+              <><Save className="w-3.5 h-3.5 mr-1.5" /> Salvar e abrir o processo</>
             )}
           </Button>
         </div>
       )}
 
       {/* Corpo: sidebar + conteúdo */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 min-w-0">
         {step !== "concluido" && (
-          <WizardSidebar etapas={WIZARD_ETAPAS} current={step} completed={completed} onJump={jump} opcionais={etapasOpcionais} />
+          processoId
+            ? <WizardSidebar etapas={WIZARD_ETAPAS} current={step} completed={completed} onJump={jump} opcionais={etapasOpcionais} />
+            : <WizardSidebar etapas={ETAPAS_CRIACAO} current={step} completed={completed} onJump={jump} rodape={<NotaDepoisDaCriacao />} />
         )}
         {content}
       </div>
