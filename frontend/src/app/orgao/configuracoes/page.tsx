@@ -534,6 +534,16 @@ export default function ConfiguracoesPage() {
             variant="outline"
             size="sm"
             className="gap-1.5"
+            onClick={() => router.push('/orgao/configuracoes/fluxo')}
+            title="Etapas da fase interna, dependências, responsáveis, prazos, etapas opcionais e o desenho do fluxo — validado pela Lei 14.133"
+          >
+            <GitBranch className="h-4 w-4" />
+            Modelo de fluxo
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
             onClick={() => router.push('/orgao/configuracoes/orcamento')}
             title="Dotações orçamentárias por exercício e leis (LDO, LOA, PPA) — listas usadas na reserva orçamentária"
           >

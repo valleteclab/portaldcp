@@ -44,8 +44,8 @@ export class ControleInternoTelaService {
 
   async obter(licitacaoId: string, ator: Ator) {
     const lic = await this.minutas.licitacao(licitacaoId);
-    const config = await this.tarefas.configuracao(lic.orgao_id);
-    if (!config.controle_interno_ativo) {
+    // F1: o controle interno ligado vem do modelo de fluxo do processo
+    if (!(await this.tarefas.controleInternoAtivoNoProcesso(licitacaoId))) {
       return { ativo: false, licitacao: { id: lic.id, numero_processo: lic.numero_processo, objeto: lic.objeto, fase: lic.fase } };
     }
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
@@ -67,8 +67,7 @@ export class ControleInternoTelaService {
   /** Manifestação feita aqui: gera a peça MCI e a assina pelo emissor (papel CONTROLE_INTERNO). */
   async manifestar(licitacaoId: string, body: any, ator: Ator, autor: Autor, rede: { ip?: string; userAgent?: string }) {
     const lic = await this.minutas.licitacao(licitacaoId);
-    const config = await this.tarefas.configuracao(lic.orgao_id);
-    if (!config.controle_interno_ativo) throw new ConflictException('O controle interno está desativado para este órgão.');
+    if (!(await this.tarefas.controleInternoAtivoNoProcesso(licitacaoId))) throw new ConflictException('O controle interno está desativado para este órgão.');
     if (!ehFaseInterna(lic.fase)) throw new ConflictException('A fase interna foi encerrada.');
     const emissor = await this.parecer.exigirPapel(ator, lic.orgao_id, PapelFaseInterna.CONTROLE_INTERNO, 'se manifesta pelo controle interno');
     const v = validarManifestacao(body);

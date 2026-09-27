@@ -1,6 +1,12 @@
 /**
  * CONFIGURAÇÃO DA FASE INTERNA POR ÓRGÃO (Entrega 2) — regras puras.
  *
+ * F1 (modelo de fluxo em dados): responsáveis, prazos e o controle interno
+ * passaram para o MODELO DE FLUXO do órgão (`fluxo/`). Esta configuração
+ * continua com o modo, os signatários da autorização, o nome da autoridade e
+ * as opções da dispensa; o PUT antigo (`responsaveis`, `prazos`,
+ * `controle_interno_ativo`) continua aceito e é gravado no modelo do órgão.
+ *
  *  - modo SIMPLES (padrão — decisão 1 do dono): uma pessoa pode fazer tudo;
  *    toda tarefa vai para o responsável do processo (agente de contratação).
  *  - modo POR_SETOR: cada passo vai para o papel/setor configurado.
@@ -17,6 +23,8 @@ export type ModoFaseInterna = 'SIMPLES' | 'POR_SETOR';
 export interface ResponsavelDoPassoConfig {
   papel: PapelFaseInterna | null;
   setor_id: string | null;
+  /** F1: pessoa responsável (modelo de fluxo) — prevalece sobre papel/setor. */
+  usuario_id?: string | null;
 }
 
 export interface SignatarioAutorizacao {

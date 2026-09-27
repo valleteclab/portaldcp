@@ -10,26 +10,14 @@
  */
 import { CalendarioDiasUteis, fimDoPrazoEmDiasUteis } from '../../common/prazos/dias-uteis';
 import { ConfigFaseInternaEfetiva } from './configuracao-fase-interna';
+import { TELA_DO_PASSO } from '../fluxo/catalogo-fluxo';
 import { DEFINICAO_PASSO, PapelFaseInterna, PassoCalculado, PassoFaseInterna } from './etapas-fase-interna';
 
 /** Chave de idempotência da tarefa de um passo. */
 export const chaveDoPasso = (passo: PassoFaseInterna | string) => `etapa:${passo}`;
 
-/** Telas por etapa (Entrega 3A): `/orgao/processos/:id/fase-interna/<tela>`. */
-export const TELA_DO_PASSO: Partial<Record<string, string>> = {
-  DFD: 'dfd',
-  ETP: 'etp',
-  TR: 'tr',
-  PESQUISA: 'pesquisa',
-  RESERVA: 'reserva',
-  // Entrega 3B
-  AUTORIZACAO: 'autorizacao',
-  MINUTAS: 'minutas',
-  PARECER: 'parecer',
-  CONTROLE_INTERNO: 'controle-interno',
-  // Entrega 4: a etapa 8 (conformidade e publicação)
-  PUBLICACAO: 'conformidade',
-};
+/** Telas por etapa (Entrega 3A): `/orgao/processos/:id/fase-interna/<tela>` — do catálogo (F1). */
+export { TELA_DO_PASSO };
 
 /**
  * Para onde a tarefa leva: a tela da etapa (DFD, ETP, TR, pesquisa, reserva,
@@ -74,12 +62,13 @@ export interface Responsavel {
  *  - SIMPLES: o responsável do processo (agente de contratação/pregoeiro);
  *    sem ele, quem criou o processo; sem ninguém, a caixa do papel "Agente de
  *    contratação" do órgão.
- *  - POR_SETOR: o papel/setor configurado para o passo; se o papel é o de
- *    agente de contratação e o processo tem agente, vai direto para ele.
+ *  - POR_SETOR: o responsável da etapa no MODELO DE FLUXO do processo (F1):
+ *    a pessoa, se houver; senão o papel/setor; se o papel é o de agente de
+ *    contratação e o processo tem agente, vai direto para ele.
  */
 export function responsavelDoPasso(
-  passo: PassoFaseInterna,
-  config: Pick<ConfigFaseInternaEfetiva, 'modo' | 'responsaveis'>,
+  passo: PassoFaseInterna | string,
+  config: Pick<ConfigFaseInternaEfetiva, 'modo'> & { responsaveis: Partial<Record<string, { papel: string | null; setor_id: string | null; usuario_id?: string | null }>> },
   processo: { agente_id?: string | null; criador_usuario_id?: string | null },
 ): Responsavel {
   const agente = processo.agente_id || null;
@@ -90,7 +79,8 @@ export function responsavelDoPasso(
       ? { usuario_id: usuario, papel: null, setor_id: null }
       : { usuario_id: null, papel: PapelFaseInterna.AGENTE_CONTRATACAO, setor_id: null };
   }
-  const r = config.responsaveis[passo] ?? { papel: DEFINICAO_PASSO[passo].papel_padrao, setor_id: null };
+  const r = config.responsaveis[passo] ?? { papel: DEFINICAO_PASSO[passo as PassoFaseInterna]?.papel_padrao ?? null, setor_id: null };
+  if (r.usuario_id) return { usuario_id: r.usuario_id, papel: null, setor_id: null };
   if (r.papel === PapelFaseInterna.AGENTE_CONTRATACAO && !r.setor_id && agente) {
     return { usuario_id: agente, papel: null, setor_id: null };
   }
@@ -127,6 +117,9 @@ export interface PlanoSincronizacao {
  *    → cancelar TODAS as abertas (inclusive diligências e achados);
  *  - responsável calculado mudou (config, agente do processo) e a tarefa não
  *    foi reatribuída à mão → reatribuir.
+ *  - F1: passo A_REVISAR (depende de uma etapa reaberta) → tarefa de revisão,
+ *    que nasce quando a etapa reaberta for concluída de novo (pendências
+ *    cumpridas); a aberta é mantida.
  * Passo AGUARDANDO com tarefa aberta (dependência voltou atrás): mantém.
  */
 export function planejarSincronizacao(
@@ -162,7 +155,8 @@ export function planejarSincronizacao(
         plano.cancelar.push({ tarefa_id: t.id, motivo: 'Processo revogado ou anulado.' });
         break;
       case 'DISPONIVEL':
-      case 'EM_ANDAMENTO': {
+      case 'EM_ANDAMENTO':
+      case 'A_REVISAR': {
         if (t.atribuicao_manual) break;
         const atual: Responsavel = { usuario_id: t.responsavel_usuario_id, papel: t.responsavel_papel, setor_id: t.responsavel_setor_id };
         const novo = responsavelDe(passo.passo);
@@ -176,7 +170,8 @@ export function planejarSincronizacao(
   if (opcoes.processo_encerrado) return plano;
 
   for (const p of passos) {
-    if ((p.situacao === 'DISPONIVEL' || p.situacao === 'EM_ANDAMENTO') && !comTarefa.has(chaveDoPasso(p.passo))) {
+    const precisa = p.situacao === 'DISPONIVEL' || p.situacao === 'EM_ANDAMENTO' || (p.situacao === 'A_REVISAR' && p.pendencias.length === 0);
+    if (precisa && !comTarefa.has(chaveDoPasso(p.passo))) {
       plano.criar.push({ passo: p, responsavel: responsavelDe(p.passo) });
     }
   }

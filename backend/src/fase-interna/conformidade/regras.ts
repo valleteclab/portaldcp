@@ -560,12 +560,15 @@ export const CRONO_01: Regra = {
   avaliar(ctx) {
     const direta = ctx.processo.contratacao_direta;
     const datadas = ativas(ctx).filter((p) => p.data_documento && !FORA_DA_CRONOLOGIA.has(p.tipo));
+    // F1: as dependências são as do MODELO DE FLUXO do processo (sem ele, as do modelo padrão)
+    const passoDe = (tipo: string) => (ctx.fluxo ? ctx.fluxo.passo_da_peca[tipo] ?? null : passoDaPeca(tipo, direta));
+    const depsDe = (passo: string) => (ctx.fluxo ? ctx.fluxo.dependencias[passo] ?? [] : dependenciasDoPasso(passo, direta));
     const r: AchadoCalculado[] = [];
     for (const p of datadas) {
-      const passo = passoDaPeca(p.tipo, direta);
+      const passo = passoDe(p.tipo);
       if (!passo) continue;
-      for (const dep of dependenciasDoPasso(passo, direta)) {
-        for (const q of datadas.filter((x) => passoDaPeca(x.tipo, direta) === dep && x.tipo !== p.tipo)) {
+      for (const dep of depsDe(passo)) {
+        for (const q of datadas.filter((x) => passoDe(x.tipo) === dep && x.tipo !== p.tipo)) {
           if (p.data_documento! >= q.data_documento!) continue;
           r.push({
             regra: 'CRONO-01',
@@ -959,6 +962,38 @@ export const ART92_01: Regra = {
   },
 };
 
+/**
+ * FLUXO-01 (F1) — etapa reaberta ("voltar") ou a revisar ainda pendente: não
+ * se publica com a instrução em revisão. A tarefa é a da própria etapa.
+ */
+export const FLUXO_01: Regra = {
+  codigo: 'FLUXO-01',
+  descricao: 'Nenhuma etapa reaberta ou a revisar pendente (modelo de fluxo)',
+  severidade: 'BLOQUEIO',
+  etapa: 'PUBLICACAO',
+  portao: 'C',
+  sem_tarefa: true,
+  aplicavel: (ctx) => (ctx.fluxo?.pendentes?.length ? null : 'Nenhuma etapa reaberta ou a revisar.'),
+  avaliar(ctx) {
+    return (ctx.fluxo?.pendentes ?? []).map((p) => {
+      const evid = ctx.pecas.filter((x) => p.tipos_peca.includes(x.tipo)).map((x) => evidenciaDaPeca(x));
+      return {
+        regra: 'FLUXO-01',
+        chave: `etapa:${p.codigo}`,
+        severidade: 'BLOQUEIO' as const,
+        titulo: p.marca === 'REABERTA' ? `Etapa reaberta: ${p.titulo}` : `Etapa a revisar: ${p.titulo}`,
+        mensagem:
+          p.marca === 'REABERTA'
+            ? `A etapa "${p.titulo}" foi reaberta${p.motivo ? ` (${p.motivo})` : ''}. Corrija a peça ou confirme a revisão antes de publicar.`
+            : `A etapa "${p.titulo}" depende de uma etapa reaberta${p.motivo ? ` (${p.motivo})` : ''}. Revise-a (atualize a peça ou confirme que continua valendo) antes de publicar.`,
+        evidencias: evid,
+        tipo_peca_responsavel: p.tipos_peca[0] ?? null,
+        acao: 'CORRIGIR_PECA' as const,
+      };
+    });
+  },
+};
+
 /** TODAS AS REGRAS, na ordem da tela (portão A, B e C). */
 export const REGRAS: Regra[] = [
   LIM_01,
@@ -988,6 +1023,7 @@ export const REGRAS: Regra[] = [
   SIGILO_01,
   ART92_01,
   DISP_01,
+  FLUXO_01,
 ];
 
 export const regraPorCodigo = (codigo: string) => REGRAS.find((r) => r.codigo === codigo) ?? null;

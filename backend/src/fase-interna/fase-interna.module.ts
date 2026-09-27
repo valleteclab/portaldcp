@@ -32,6 +32,11 @@ import { PublicacaoTelaService } from './telas/publicacao-tela.service';
 import { AchadoConformidade, RevisaoConformidade } from './conformidade/achado.entity';
 import { ConformidadeService } from './conformidade/conformidade.service';
 import { ConformidadeController } from './conformidade/conformidade.controller';
+import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, RequisitoLegalFluxo, TravaAtoFluxo } from './fluxo/modelo-fluxo.entities';
+import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
+import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
+import { FluxoProcessoController, ModeloFluxoController } from './fluxo/modelo-fluxo.controller';
+import { MigracaoModeloFluxoBootService } from './fluxo/migracao-modelo-fluxo-boot.service';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
@@ -111,6 +116,12 @@ import {
       Diligencia,
       AchadoConformidade,
       RevisaoConformidade,
+      // F1 — modelo de fluxo em dados
+      ModeloFluxoFaseInterna,
+      EtapaModeloFluxo,
+      RequisitoLegalFluxo,
+      TravaAtoFluxo,
+      FluxoProcessoFaseInterna,
     ]),
   ],
   controllers: [
@@ -124,8 +135,13 @@ import {
     OrcamentoController,
     TelasAnaliseDecisaoController,
     ConformidadeController,
+    ModeloFluxoController,
+    FluxoProcessoController,
   ],
   providers: [
+    ModeloFluxoService,
+    FluxoProcessoService,
+    MigracaoModeloFluxoBootService,
     FaseInternaService,
     PecasFaseInternaService,
     JuntadaPecasService,
@@ -185,6 +201,7 @@ import {
     TarefasService,
     OrcamentoService,
     ConformidadeService,
+    ModeloFluxoService,
   ],
 })
 export class FaseInternaModule {}

@@ -20,9 +20,33 @@ import { AchadoExistente, avaliarRegras, contagemDaConformidade, pendenciasDoPor
 import { OpcoesPortao, definirResumidorDeConformidade, definirVerificadorDePortao } from './portoes';
 import { REGRAS, avaliacaoDoPrazo, passoDoAchado, publicacaoPrevista, regraPorCodigo, rotuloFolhas } from './regras';
 import { paginasDoArquivo } from './texto-pdf';
+import { ModeloFluxoService } from '../fluxo/modelo-fluxo.service';
+import { regrasDaTrava } from '../fluxo/travas';
+import { ModeloFluxo, dependenciasEfetivas } from '../fluxo/modelo-fluxo';
+import type { FluxoConformidade } from './tipos';
 import type { AchadoCalculado, AtoProtegido, AvaliacaoRegra, ContextoConformidade, Portao } from './tipos';
 
 type Autor = { id: string | null; nome: string | null };
+
+/** F1: o que a conformidade usa do modelo de fluxo do processo. */
+export function fluxoParaConformidade(
+  modelo: ModeloFluxo,
+  fluxo: { reabertas?: Record<string, any> | null; a_revisar?: Record<string, any> | null },
+): FluxoConformidade {
+  const efetivas = dependenciasEfetivas(modelo.etapas);
+  const passo_da_peca: Record<string, string> = {};
+  for (const e of modelo.etapas) for (const t of e.tipos_peca) passo_da_peca[t] = e.codigo;
+  const titulo = (c: string) => modelo.etapas.find((e) => e.codigo === c)?.titulo ?? c;
+  const tipos = (c: string) => modelo.etapas.find((e) => e.codigo === c)?.tipos_peca ?? [];
+  return {
+    dependencias: Object.fromEntries(efetivas),
+    passo_da_peca,
+    pendentes: [
+      ...Object.entries(fluxo.reabertas ?? {}).map(([c, m]) => ({ codigo: c, titulo: titulo(c), marca: 'REABERTA' as const, motivo: m?.motivo ?? null, tipos_peca: tipos(c) })),
+      ...Object.entries(fluxo.a_revisar ?? {}).map(([c, m]) => ({ codigo: c, titulo: titulo(c), marca: 'A_REVISAR' as const, motivo: m?.motivo ?? null, tipos_peca: tipos(c) })),
+    ],
+  };
+}
 const SISTEMA: Autor = { id: 'sistema', nome: 'Sistema (revisão automática)' };
 export const chaveTarefaDoAchado = (id: string) => `achado:${id}`;
 
@@ -84,6 +108,7 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
     private readonly consumoLimite: ConsumoLimiteService,
     private readonly tarefas: TarefasService,
     private readonly auditLog: AuditLogService,
+    private readonly modeloFluxo: ModeloFluxoService,
   ) {}
 
   onModuleInit() {
@@ -215,6 +240,12 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
       limite = null;
     }
     const valorItens = simulados ? Object.values(simulados).reduce((s, v) => s + (Number(v) || 0), 0) : Number(total);
+    // F1: o modelo de fluxo do processo (dependências da CRONO-01; etapas reabertas/a revisar da FLUXO-01)
+    // Só leitura: a avaliação do portão pode rodar dentro da transação do ato
+    const fluxo = await this.modeloFluxo
+      .contextoDoProcesso(licitacaoId, { gravar: false })
+      .then((c) => (c ? fluxoParaConformidade(c.modelo, c.fluxo) : null))
+      .catch(() => null);
     return {
       arquivos,
       entrada: {
@@ -236,6 +267,7 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
         limite,
         calendario: calendarioDoOrgao(lic.orgao_id),
         ato_pretendido: opcoes.ato ?? null,
+        fluxo,
         cronograma: opcoes.cronograma
           ? Object.fromEntries(
               ['data_publicacao_edital', 'data_inicio_acolhimento', 'data_fim_acolhimento', 'data_abertura_sessao']
@@ -279,7 +311,9 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
       `SELECT regra, chave FROM achados_conformidade WHERE licitacao_id::text = $1 AND status = 'JUSTIFICADO'`,
       [licitacaoId],
     );
-    const pend = pendenciasDoPortao(portao, avaliacoes, new Set(justificados.map((j) => `${j.regra}|${j.chave}`)));
+    // F1: quais regras seguram o ATO e com que severidade vem dos dados (travas por ato)
+    const doAto = regrasDaTrava(await this.modeloFluxo.travas(), ato);
+    const pend = pendenciasDoPortao(portao, avaliacoes, new Set(justificados.map((j) => `${j.regra}|${j.chave}`)), doAto);
     // O ato foi recusado: a tela da conformidade passa a mostrar o motivo
     if (pend.length && !opcoes.somenteAvaliacao) void this.tarefas.agendar(licitacaoId);
     return pend;

@@ -159,6 +159,18 @@ export interface ContextoConformidade {
   calendario: CalendarioDiasUteis;
   /** Ato que está para ser praticado (avaliação do portão) — ausente na revisão comum. */
   ato_pretendido?: AtoProtegido | null;
+  /** F1: modelo de fluxo do processo — ausente = o modelo padrão (reserva das regras puras). */
+  fluxo?: FluxoConformidade | null;
+}
+
+/** O que a conformidade usa do modelo de fluxo do processo (F1). */
+export interface FluxoConformidade {
+  /** Passo → dependências efetivas (etapas ligadas). */
+  dependencias: Record<string, string[]>;
+  /** Tipo de peça → passo. */
+  passo_da_peca: Record<string, string>;
+  /** Etapas reabertas ("voltar") e a revisar — não se publica com elas pendentes. */
+  pendentes: Array<{ codigo: string; titulo: string; marca: 'REABERTA' | 'A_REVISAR'; motivo: string | null; tipos_peca: string[] }>;
 }
 
 export interface Regra {

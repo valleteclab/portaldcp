@@ -1,5 +1,6 @@
 import { criarCalendario } from '../common/prazos/calendario';
 import { EtapaFaseInterna as E, etapaAtual, etapasDaFaseInterna } from '../fase-interna/tarefas/etapas-fase-interna';
+import { modeloSemente } from '../fase-interna/fluxo/semente-fluxo';
 import {
   CHAVES_PROIBIDAS,
   COLUNAS_PAINEL,
@@ -47,7 +48,7 @@ describe('colunas do quadro — a partir das etapas da fase interna e das fases'
 
   it('fase interna: a coluna vem da etapa atual de etapasDaFaseInterna (sem regra nova)', () => {
     const coluna = (status: Record<string, string>) => {
-      const atual = etapaAtual(etapasDaFaseInterna(direta, instrucaoDireta(status), { controle_interno_ativo: false }));
+      const atual = etapaAtual(etapasDaFaseInterna(direta, instrucaoDireta(status), modeloSemente('DISPENSA')));
       return colunaDoProcesso({ fase: 'PLANEJAMENTO', situacao: 'ATIVA', etapa_atual: atual?.etapa ?? null });
     };
     expect(coluna({})).toBe('DEMANDA');

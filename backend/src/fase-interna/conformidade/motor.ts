@@ -104,7 +104,12 @@ export const planoVazio = (p: PlanoRevisao) => !p.criar.length && !p.atualizar.l
 // Portões
 // ---------------------------------------------------------------------------
 
-/** Regras que cada portão aplica. A: limite; B: limite + art. 72 (I, II, IV); C: tudo o que não é do portão B. */
+/**
+ * Regras que cada portão aplica POR PADRÃO. A: limite; B: limite + art. 72
+ * (I, II, IV); C: tudo o que não é do portão B. Desde a F1 isto é só a
+ * SEMENTE das travas por ato (`fluxo/travas.ts`, tabela `travas_ato_fluxo`):
+ * quem decide no ato são os dados.
+ */
 export function regrasDoPortao(portao: Portao, regras: Regra[] = REGRAS): Regra[] {
   if (portao === 'A') return regras.filter((r) => r.etapa === 'PESQUISA');
   if (portao === 'B') return regras.filter((r) => r.etapa === 'PESQUISA' || r.etapa === 'AUTORIZACAO');
@@ -132,13 +137,26 @@ const ROTULO_PORTAO: Record<Portao, string> = {
  * repetem (mesma regra, uma mensagem só). `justificados`: "REGRA|chave" dos
  * achados JUSTIFICADOS gravados.
  */
-export function pendenciasDoPortao(portao: Portao, avaliacoes: AvaliacaoRegra[], justificados: Set<string>): string[] {
-  const doPortao = new Set(regrasDoPortao(portao).filter((r) => !r.garantida_no_ato).map((r) => r.codigo));
+export function pendenciasDoPortao(
+  portao: Portao,
+  avaliacoes: AvaliacaoRegra[],
+  justificados: Set<string>,
+  /**
+   * F1: as regras do ATO e a severidade aplicada nele vêm dos DADOS (travas
+   * por ato — `fluxo/travas.ts`). Sem isso, o padrão de sempre (`regrasDoPortao`).
+   */
+  doAto?: Array<{ regra: Regra; severidade: Severidade }>,
+): string[] {
+  const lista = doAto ?? regrasDoPortao(portao).map((regra) => ({ regra, severidade: regra.severidade }));
+  const doPortao = new Map(lista.filter((x) => !x.regra.garantida_no_ato).map((x) => [x.regra.codigo, x]));
   const r: string[] = [];
   for (const av of avaliacoes) {
-    if (!doPortao.has(av.regra.codigo)) continue;
+    const trava = doPortao.get(av.regra.codigo);
+    if (!trava) continue;
+    // Severidade do dado diferente da regra: vale a do dado neste ato
+    const severidadeNoAto = (a: AchadoCalculado) => (trava.severidade !== trava.regra.severidade ? trava.severidade : a.severidade);
     for (const a of av.achados) {
-      if (a.severidade === 'BLOQUEIO') r.push(`${ROTULO_PORTAO[portao]} — ${a.regra}: ${a.mensagem}${onde(a)}`);
+      if (severidadeNoAto(a) === 'BLOQUEIO') r.push(`${ROTULO_PORTAO[portao]} — ${a.regra}: ${a.mensagem}${onde(a)}`);
       else if (a.exige_justificativa && !justificados.has(`${a.regra}|${a.chave}`)) {
         r.push(`${ROTULO_PORTAO[portao]} — ${a.regra} (justificativa obrigatória): ${a.mensagem}${onde(a)}`);
       }

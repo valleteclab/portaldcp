@@ -10,7 +10,8 @@
  * Fonte: GET /api/fase-interna/:id/etapas.
  */
 import { useCallback, useEffect, useState } from "react"
-import { CheckCircle2, ChevronDown, ChevronUp, Circle, CircleDashed, Clock, FileStack, MinusCircle, XCircle } from "lucide-react"
+import { CheckCircle2, ChevronDown, ChevronUp, Circle, CircleDashed, Clock, FileStack, MinusCircle, RotateCcw, XCircle } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { JuntarDocumentosDialog } from "@/components/fase-interna/externa/JuntarDocumentosDialog"
 import { API_URL, authFetch } from "@/lib/api"
@@ -21,7 +22,7 @@ import { rotaDaTela, telaDoPasso } from "@/lib/fase-interna/telas"
 interface PassoEtapa {
   passo: string
   titulo: string
-  situacao: "AGUARDANDO" | "DISPONIVEL" | "EM_ANDAMENTO" | "CONCLUIDO" | "NAO_REALIZADO" | "CANCELADO"
+  situacao: "AGUARDANDO" | "DISPONIVEL" | "EM_ANDAMENTO" | "A_REVISAR" | "CONCLUIDO" | "NAO_REALIZADO" | "CANCELADO"
   pecas: Array<{ tipo: string; titulo: string; status: string; pronta: boolean }>
   pendencias: string[]
   peca_pendente: string | null
@@ -30,6 +31,13 @@ interface PassoEtapa {
   prazo_dias_uteis: number | null
   /** Entrega 4 — portão A: LIM-01 aberto segura a conclusão da pesquisa. */
   bloqueio_portao?: string[]
+  /** F1 — modelo de fluxo em dados. */
+  conclusao?: "PECAS" | "DIVULGACAO" | "REGISTRO"
+  aguardando_aprovacao?: boolean
+  reaberta?: { motivo?: string | null; por_nome?: string | null } | null
+  a_revisar?: { motivo?: string | null } | null
+  registro?: { texto?: string | null; por_nome?: string | null; em?: string } | null
+  pode_iniciar?: boolean
 }
 
 /** Entrega 4 — resumo do motor de conformidade (GET /fase-interna/:id/conformidade/resumo). */
@@ -47,7 +55,7 @@ interface EtapaTela {
   etapa: string
   numero: number
   titulo: string
-  situacao: "AGUARDANDO" | "DISPONIVEL" | "EM_ANDAMENTO" | "CONCLUIDA" | "NAO_REALIZADA" | "CANCELADA"
+  situacao: "AGUARDANDO" | "DISPONIVEL" | "EM_ANDAMENTO" | "A_REVISAR" | "CONCLUIDA" | "NAO_REALIZADA" | "CANCELADA"
   nao_se_aplica: boolean
   passos: PassoEtapa[]
 }
@@ -60,12 +68,16 @@ interface EtapasResposta {
   total: number
   etapas: EtapaTela[]
   historico: Array<{ acao: string; descricao: string; usuario_nome: string | null; created_at: string }>
+  /** F1 — modelo de fluxo em dados (a visão completa com voltar/avançar é da F3). */
+  aprovacao_demanda?: { exigida: boolean; aprovada: boolean; pode_aprovar: boolean; aprovador: { rotulo: string } }
+  permissoes?: { conduzir: boolean; reabrir: boolean }
 }
 
 const ROTULO_SITUACAO: Record<EtapaTela["situacao"], string> = {
   AGUARDANDO: "Aguardando etapa anterior",
   DISPONIVEL: "A fazer",
   EM_ANDAMENTO: "Em andamento",
+  A_REVISAR: "A revisar (etapa anterior reaberta)",
   CONCLUIDA: "Concluída",
   NAO_REALIZADA: "Não realizada",
   CANCELADA: "Cancelada",
@@ -73,6 +85,8 @@ const ROTULO_SITUACAO: Record<EtapaTela["situacao"], string> = {
 
 const TITULO_PASSO: Record<string, string> = {
   DFD: "Demanda",
+  AUTORIZACAO_INICIO: "Autorização de início",
+  INDICACAO_MODALIDADE: "Indicação da modalidade",
   ETP: "Estudo técnico",
   TR: "Termo de referência",
   PESQUISA: "Pesquisa de preços",
@@ -88,6 +102,7 @@ function IconeSituacao({ s }: { s: EtapaTela["situacao"] }) {
   const cls = "w-4 h-4 shrink-0"
   if (s === "CONCLUIDA") return <CheckCircle2 className={`${cls} text-green-700`} aria-hidden="true" />
   if (s === "EM_ANDAMENTO") return <Clock className={`${cls} text-blue-700`} aria-hidden="true" />
+  if (s === "A_REVISAR") return <RotateCcw className={`${cls} text-amber-700`} aria-hidden="true" />
   if (s === "DISPONIVEL") return <Circle className={`${cls} text-blue-700`} aria-hidden="true" />
   if (s === "CANCELADA") return <XCircle className={`${cls} text-slate-500`} aria-hidden="true" />
   if (s === "NAO_REALIZADA") return <MinusCircle className={`${cls} text-slate-500`} aria-hidden="true" />
@@ -109,6 +124,8 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
   const [aberto, setAberto] = useState<string | null>(null)
   const [historico, setHistorico] = useState(false)
   const [conformidade, setConformidade] = useState<ResumoConformidade | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [despacho, setDespacho] = useState<Record<string, string>>({})
 
   const carregar = useCallback(async () => {
     try {
@@ -129,6 +146,31 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
 
   if (!dados?.etapas?.length) return null
   const atual = dados.etapa_atual
+
+  /** F1: ação do fluxo (aprovar a demanda, registrar o despacho de uma etapa de registro). */
+  const acao = async (url: string, corpo: unknown, ok: string) => {
+    setEnviando(true)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/${url}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
+      })
+      if (!r.ok) {
+        const j = await r.json().catch(() => null)
+        throw new Error(j?.message ? (Array.isArray(j.message) ? j.message.join(" ") : j.message) : `HTTP ${r.status}`)
+      }
+      setDados(await r.json())
+      avisarTarefasAtualizadas()
+      onAtualizado?.()
+      toast.success(ok)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEnviando(false)
+    }
+  }
+  const aprovacao = dados.aprovacao_demanda
 
   const irParaPeca = (tipo: string | null) => {
     const el = tipo ? document.getElementById(`peca-${tipo}`) : null
@@ -170,6 +212,18 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
             ))}
           </ul>
           <button type="button" className="mt-1 text-blue-800 hover:underline" onClick={() => setJuntando(true)}>Juntar de novo →</button>
+        </div>
+      )}
+      {aprovacao?.exigida && !aprovacao.aprovada && (
+        <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-950 flex items-start justify-between gap-2 flex-wrap" role="status">
+          <span>
+            <b>A demanda aguarda aprovação</b> ({aprovacao.aprovador.rotulo}). As etapas seguintes só abrem depois dela.
+          </span>
+          {aprovacao.pode_aprovar && (
+            <Button size="sm" className="h-7 text-[11px]" disabled={enviando} onClick={() => acao("demanda/aprovar", {}, "Demanda aprovada.")}>
+              Aprovar a demanda
+            </Button>
+          )}
         </div>
       )}
       <p className="text-xs text-gray-600">
@@ -264,6 +318,32 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
                       <div className="text-gray-600">
                         {p.pecas.map((x) => `${x.titulo}${x.pronta ? " ✓" : ""}`).join(" · ") || "Checklist de pré-publicação"}
                       </div>
+                      {p.aguardando_aprovacao && <div className="text-amber-800">Pronta — aguarda a aprovação da demanda.</div>}
+                      {p.reaberta && <div className="text-amber-800">Reaberta{p.reaberta.por_nome ? ` por ${p.reaberta.por_nome}` : ""}: {p.reaberta.motivo}</div>}
+                      {p.a_revisar && <div className="text-amber-800">A revisar: {p.a_revisar.motivo}</div>}
+                      {p.conclusao === "REGISTRO" && p.registro && p.situacao === "CONCLUIDO" && (
+                        <div className="text-green-800">Despacho: {p.registro.texto}{p.registro.por_nome ? ` (${p.registro.por_nome})` : ""}</div>
+                      )}
+                      {p.conclusao === "REGISTRO" && p.situacao === "DISPONIVEL" && dados.permissoes?.conduzir && (
+                        <form
+                          className="mt-1 flex gap-1 items-start"
+                          onSubmit={(ev) => {
+                            ev.preventDefault()
+                            acao(`etapas/${p.passo}/concluir`, { texto: despacho[p.passo] ?? "" }, "Despacho registrado.")
+                          }}
+                        >
+                          <textarea
+                            aria-label={`Despacho de ${p.titulo}`}
+                            className="border rounded px-1.5 py-1 text-xs flex-1 min-h-[2.5rem]"
+                            placeholder="Ex.: Autorizo o início do processo de contratação."
+                            value={despacho[p.passo] ?? ""}
+                            onChange={(ev) => setDespacho((d) => ({ ...d, [p.passo]: ev.target.value }))}
+                          />
+                          <Button type="submit" size="sm" className="h-7 text-[11px]" disabled={enviando}>
+                            Registrar
+                          </Button>
+                        </form>
+                      )}
                       {p.pendencias.length > 0 && p.situacao === "AGUARDANDO" && (
                         <div className="text-gray-600">Depois de: {p.pendencias.map((d) => TITULO_PASSO[d] ?? d).join(", ")}</div>
                       )}

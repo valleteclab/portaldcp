@@ -35,6 +35,12 @@ export enum AcaoLogFaseInterna {
   TAREFA_CONCLUIDA = 'TAREFA_CONCLUIDA',
   TAREFA_CANCELADA = 'TAREFA_CANCELADA',
   TAREFA_REATRIBUIDA = 'TAREFA_REATRIBUIDA',
+  // Modelo de fluxo em dados (F1): voltar/avançar etapa, aprovação da demanda, parecer dispensado
+  ETAPA_REABERTA = 'ETAPA_REABERTA',
+  ETAPA_REVISADA = 'ETAPA_REVISADA',
+  ETAPA_REGISTRADA = 'ETAPA_REGISTRADA',
+  DEMANDA_APROVADA = 'DEMANDA_APROVADA',
+  PARECER_DISPENSADO = 'PARECER_DISPENSADO',
 }
 
 @Entity('logs_fase_interna')
