@@ -796,6 +796,9 @@ export class GeradorPpService {
         const totalPages = doc.bufferedPageRange().count;
         for (let p = 0; p < totalPages; p++) {
           doc.switchToPage(p);
+          // O rodapé fica ABAIXO da margem inferior: sem zerá-la, o pdfkit abria
+          // uma página nova (em branco) a cada rodapé — 2 folhas viravam 4 nos autos.
+          doc.page.margins.bottom = 0;
           const footerY = doc.page.height - 30;
           doc
             .moveTo(marginL, footerY - 5)
@@ -810,7 +813,7 @@ export class GeradorPpService {
               `Pesquisa de Preços  —  ${dados.numeroProcesso}  —  Página ${p + 1} de ${totalPages}`,
               marginL,
               footerY,
-              { width: contentW, align: 'center' },
+              { width: contentW, align: 'center', lineBreak: false },
             );
         }
 
