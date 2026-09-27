@@ -15,6 +15,12 @@
  * Quem pode agir é o servidor quem decide: o 403/400 volta com a razão e a
  * tela mostra (nunca engole). Toda ação recarrega o topo e avisa a tela
  * (`onAtualizado`), que recarrega as etapas e a linha do tempo.
+ *
+ * Homologação multiusuário (E7): "com quem está" é lido e mostrado na hora —
+ * não espera a sugestão de envio (que aguarda a sincronização do processo);
+ * o "Recebi" some assim que o servidor confirma (sem 2º clique) e os botões
+ * ficam desabilitados enquanto a ação roda. Depois de publicar, a barra fica
+ * com a posse final ("fase interna encerrada") em vez de sumir.
  */
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
@@ -70,12 +76,15 @@ export function ComQuemEstaBarra({
   etapas,
   onAtualizado,
   onVerLinhaDoTempo,
+  encerrada = null,
 }: {
   licitacaoId: string
   atualizacao?: unknown
   etapas: EtapasFluxoResposta | null
   onAtualizado: () => void
   onVerLinhaDoTempo?: () => void
+  /** Fase interna encerrada (processo publicado): só a posse final, sem ações. */
+  encerrada?: { publicadoEm: string | null } | null
 }) {
   const [cqe, setCqe] = useState<ComQuemEsta | null>(null)
   const [sugestao, setSugestao] = useState<SugestaoEnvio | null>(null)
@@ -87,32 +96,43 @@ export function ComQuemEstaBarra({
   const [receberData, setReceberData] = useState<string | null>(null)
   const [anexar, setAnexar] = useState<PecaParaAnexar | null>(null)
   const [ultima] = useState(criarUltimaCarga)
+  const [ultimaSugestao] = useState(criarUltimaCarga)
 
-  const carregar = useCallback(async () => {
+  /** Com quem está — leitura rápida, aplicada assim que chega. */
+  const carregarPosse = useCallback(async () => {
     const vale = ultima()
-    // Estado só muda depois das respostas (nunca no mesmo tique do efeito)
-    await Promise.all([
-      authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/tramitacao/com-quem-esta`),
-      // F3a: se ainda não publicado (404) ou com erro, o envio cai no modo manual
-      authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/tramitacao/sugestao-envio`).catch(() => null),
-    ])
-      .then(async ([r, s]) => {
-        const sug: SugestaoEnvio | null = s?.ok ? await s.json().catch(() => null) : null
+    // Estado só muda depois da resposta (nunca no mesmo tique do efeito)
+    await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/tramitacao/com-quem-esta`, { cache: "no-store" })
+      .then(async (r) => {
         if (!r.ok) {
           const msg = await mensagemDoErro(r, "Não foi possível saber com quem o processo está")
           if (vale()) setErroCarga(msg)
-        } else {
-          const atual = (await r.json()) as ComQuemEsta
-          if (!vale()) return
-          setErroCarga(null)
-          setCqe(atual)
+          return
         }
-        if (vale()) setSugestao(sug && Array.isArray(sug.destinos) ? sug : null)
+        const atual = (await r.json()) as ComQuemEsta
+        if (!vale()) return
+        setErroCarga(null)
+        setCqe(atual)
       })
       .catch((e) => {
         if (vale()) setErroCarga(e instanceof Error ? e.message : String(e))
       })
   }, [licitacaoId, ultima])
+
+  /** Sugestão de envio — espera a sincronização do processo; chega depois, sem segurar a barra. */
+  const estaEncerrada = !!encerrada
+  const carregarSugestao = useCallback(async () => {
+    if (estaEncerrada) return
+    const vale = ultimaSugestao()
+    // F3a: se ainda não publicado (404) ou com erro, o envio cai no modo manual
+    const s = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/tramitacao/sugestao-envio`, { cache: "no-store" }).catch(() => null)
+    const sug: SugestaoEnvio | null = s?.ok ? await s.json().catch(() => null) : null
+    if (vale()) setSugestao(sug && Array.isArray(sug.destinos) ? sug : null)
+  }, [licitacaoId, ultimaSugestao, estaEncerrada])
+
+  const carregar = useCallback(async () => {
+    await Promise.all([carregarPosse(), carregarSugestao()])
+  }, [carregarPosse, carregarSugestao])
   useEffect(() => { carregar() }, [carregar, atualizacao])
 
   const depoisDaAcao = (msg: string) => {
@@ -123,7 +143,7 @@ export function ComQuemEstaBarra({
   }
 
   const receber = async (dataOcorrencia?: string) => {
-    if (!cqe?.tramitacao_id) return
+    if (!cqe?.tramitacao_id || ocupado) return
     setOcupado("receber")
     setErroAcao(null)
     try {
@@ -133,7 +153,15 @@ export function ComQuemEstaBarra({
         body: JSON.stringify(dataOcorrencia ? { data_ocorrencia: dataOcorrencia } : {}),
       })
       if (!r.ok) throw new Error(await mensagemDoErro(r, "Não foi possível confirmar o recebimento"))
+      const t = await r.json().catch(() => null)
       setReceberData(null)
+      // A barra muda já com a resposta do servidor (o "Recebi" some — sem 2º clique)
+      ultima() // invalida leituras em voo, anteriores ao recebimento
+      setCqe((c) =>
+        c && c.tramitacao_id === cqe.tramitacao_id
+          ? { ...c, status: "RECEBIDA", recebido_em: t?.data_recebimento ?? new Date().toISOString(), recebido_por: t?.recebido_por_nome ?? c.recebido_por }
+          : c,
+      )
       depoisDaAcao("Recebimento registrado.")
     } catch (e) {
       setErroAcao(e instanceof Error ? e.message : String(e))
@@ -151,6 +179,7 @@ export function ComQuemEstaBarra({
   const pecas = useMemo(() => pecasParaAnexar(etapas), [etapas])
   const principal = sugestao?.destinos.find((d) => d.principal) ?? null
 
+  if (encerrada && (!cqe || cqe.status === "SEM_TRAMITACAO") && !erroCarga) return null
   if (!cqe && !erroCarga) {
     return (
       <section aria-label="Com quem está o processo" className="rounded-lg border bg-white p-3 text-sm text-gray-600 flex items-center gap-2">
@@ -159,10 +188,48 @@ export function ComQuemEstaBarra({
     )
   }
 
-  const prazo = cqe ? situacaoDoPrazo(cqe) : null
+  const prazo = cqe && !encerrada ? situacaoDoPrazo(cqe) : null
   const sem = !cqe || cqe.status === "SEM_TRAMITACAO"
   const folha = rotuloDaFolha(cqe?.folha)
   const de = cqe?.de ? [cqe.de.setor_nome, cqe.de.usuario_nome].filter(Boolean).join(" · ") : ""
+
+  // Depois de publicar: a posse final, com o despacho e a linha do tempo (nada mais se move)
+  if (encerrada && cqe && !sem) {
+    return (
+      <section aria-label="Com quem está o processo" className="rounded-lg border border-slate-200 bg-slate-50 p-3 sm:p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-slate-700" aria-hidden="true" />
+            <div className="min-w-0">
+              <p className="text-sm text-gray-900">
+                <b>Com: {rotuloDoDestino(cqe)}</b>
+                {encerrada.publicadoEm ? <span> — publicado em {fmtBrasilia(encerrada.publicadoEm, false)}</span> : <span> — processo publicado</span>}
+              </p>
+              <p className="text-xs text-gray-700">
+                Fase interna encerrada: a tramitação da fase interna terminou aqui
+                {cqe.desde && ` (desde ${fmtBrasilia(cqe.desde, false)}`}
+                {cqe.desde && (de ? `, enviado por ${de})` : ")")}.
+                {cqe.folha?.url && (
+                  <>
+                    {" "}
+                    <button type="button" className="text-blue-800 hover:underline" onClick={verDespacho}>
+                      Ver o último despacho{folha ? ` (${folha})` : ""}
+                    </button>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+          {onVerLinhaDoTempo && (
+            <Button size="sm" variant="ghost" className="text-blue-800" onClick={onVerLinhaDoTempo}>
+              <History className="w-4 h-4 mr-1" aria-hidden="true" /> Linha do tempo
+            </Button>
+          )}
+        </div>
+        {erroAcao && <p role="alert" className="mt-2 text-sm text-red-800">{erroAcao}</p>}
+      </section>
+    )
+  }
 
   return (
     <section
@@ -213,7 +280,7 @@ export function ComQuemEstaBarra({
 
         <div className="flex flex-wrap items-center gap-2">
           {acoes.receber && (
-            <Button size="sm" onClick={() => receber()} disabled={ocupado !== null}>
+            <Button size="sm" onClick={() => receber()} disabled={ocupado !== null} aria-busy={ocupado === "receber"}>
               {ocupado === "receber" ? <Loader2 className="w-4 h-4 mr-1 animate-spin" aria-hidden="true" /> : <CheckCheck className="w-4 h-4 mr-1" aria-hidden="true" />}
               Recebi
             </Button>
@@ -224,7 +291,7 @@ export function ComQuemEstaBarra({
           {acoes.enviar && (
             <Button size="sm" variant={acoes.receber ? "outline" : "default"} onClick={() => setEnviarAberto(true)} disabled={ocupado !== null}>
               <Send className="w-4 h-4 mr-1" aria-hidden="true" />
-              <span className="inline-block max-w-[14rem] truncate align-bottom">{principal ? `Enviar para: ${principal.rotulo}` : "Enviar para"}</span>
+              <span className="inline-block max-w-[14rem] truncate align-bottom">{principal ? (principal.depois_de?.length ? `Enviar (próximo: ${principal.rotulo})` : `Enviar para: ${principal.rotulo}`) : "Enviar para"}</span>
               <ChevronDown className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
             </Button>
           )}
@@ -369,6 +436,8 @@ function EnviarProcessoDialog({
   const [chave, setChave] = useState<string | null>(null)
   /** Texto editado; null = o despacho sugerido para o destino. */
   const [despachoEditado, setDespachoEditado] = useState<string | null>(null)
+  /** O usuário escreveu o despacho: trocar o destino não sobrescreve o texto dele (homologação). */
+  const [despachoDoUsuario, setDespachoDoUsuario] = useState(false)
   const [prazoEditado, setPrazoEditado] = useState<string | null>(null)
   const [aconteceuEm, setAconteceuEm] = useState("")
   const [erro, setErro] = useState<string | null>(null)
@@ -380,13 +449,16 @@ function EnviarProcessoDialog({
   const { opcoes, inicial, manual } = useMemo(() => opcoesDeDestino(sugestao, setores ?? []), [sugestao, setores])
   const passos = useMemo(() => todosOsPassos(etapas), [etapas])
   const escolhida = opcoes.find((o) => o.chave === (chave ?? inicial)) ?? null
-  const despacho = despachoEditado ?? despachoParaDestino(escolhida, sugestao)
+  const despachoSugerido = despachoParaDestino(escolhida, sugestao)
+  const despacho = despachoEditado ?? despachoSugerido
   const prazoSugerido = prazoParaDestino(escolhida, passos)
   const prazo = prazoEditado ?? (prazoSugerido ? String(prazoSugerido) : "")
 
   const aplicarDestino = (o: OpcaoDestino | null) => {
     setChave(o?.chave ?? null)
-    setDespachoEditado(null) // o despacho e o prazo acompanham o novo destino
+    // O despacho sugerido acompanha o destino — mas o texto que o usuário escreveu fica
+    // (a troca de setor não mistura nem apaga; "Usar o texto sugerido" troca se ele quiser)
+    if (!despachoDoUsuario) setDespachoEditado(null)
     setPrazoEditado(null)
     setAjustadoIa(false)
   }
@@ -411,6 +483,7 @@ function EnviarProcessoDialog({
       const texto = (await a.json())?.aceite?.campos?.texto
       if (texto) {
         setDespachoEditado(String(texto))
+        setDespachoDoUsuario(true)
         setAjustadoIa(true)
       }
     } catch (e) {
@@ -460,9 +533,9 @@ function EnviarProcessoDialog({
       onEnviado(destino)
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e))
-    } finally {
       setEnviando(false)
     }
+    // sucesso: o diálogo fecha; "enviando" continua true até lá (sem clique duplo)
   }
 
   return (
@@ -483,17 +556,21 @@ function EnviarProcessoDialog({
                 {sugestao?.motivo_bloqueio || "O envio não está liberado agora."}
               </p>
             )}
+            <ExplicacaoDaSugestao sugestao={sugestao} />
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">Para onde vai</legend>
               {sugeridos.length > 0 && (
                 <div className="space-y-1.5" role="radiogroup" aria-label="Destinos sugeridos pelo fluxo">
                   {sugeridos.map((o) => (
-                    <label key={o.chave} className={`flex cursor-pointer items-start gap-2 rounded border px-2.5 py-2 text-sm ${chave === o.chave ? "border-blue-600 bg-blue-50" : "border-gray-200"}`}>
-                      <input type="radio" name="destino" className="mt-1" checked={chave === o.chave} onChange={() => aplicarDestino(o)} />
+                    <label key={o.chave} className={`flex cursor-pointer items-start gap-2 rounded border px-2.5 py-2 text-sm ${escolhida?.chave === o.chave ? "border-blue-600 bg-blue-50" : "border-gray-200"}`}>
+                      <input type="radio" name="destino" className="mt-1" checked={escolhida?.chave === o.chave} onChange={() => aplicarDestino(o)} />
                       <span className="min-w-0">
                         <span className="font-medium text-gray-900">{o.rotulo}</span>
                         {o.principal && <span className="ml-1.5 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-900">sugerido pelo fluxo</span>}
                         {o.etapas.length > 0 && <span className="block text-xs text-gray-600">Faz: {o.etapas.map(([, n]) => n).join(", ")}</span>}
+                        {!!o.depois_de?.length && (
+                          <span className="block text-xs text-amber-900">Depois de concluir: {o.depois_de.map(([, n]) => n).join(", ")}</span>
+                        )}
                       </span>
                     </label>
                   ))}
@@ -522,11 +599,28 @@ function EnviarProcessoDialog({
                 rows={4}
                 value={despacho}
                 placeholder="Ex.: Encaminhe-se à Contabilidade para a reserva orçamentária."
-                onChange={(e) => setDespachoEditado(e.target.value)}
+                onChange={(e) => {
+                  setDespachoEditado(e.target.value)
+                  setDespachoDoUsuario(true)
+                }}
               />
+              {despachoDoUsuario && !!despachoSugerido && despachoSugerido.trim() !== despacho.trim() && (
+                <button
+                  type="button"
+                  className="mt-1 text-xs text-blue-800 hover:underline text-left"
+                  onClick={() => {
+                    setDespachoEditado(null)
+                    setDespachoDoUsuario(false)
+                    setAjustadoIa(false)
+                  }}
+                  title={despachoSugerido}
+                >
+                  Usar o texto sugerido para {escolhida?.rotulo ?? "o destino"}
+                </button>
+              )}
               <div className="mt-1 flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-xs text-gray-600">
-                  {ajustadoIa ? "Texto ajustado pela IA — revise antes de enviar." : !manual ? "Sugerido pelo fluxo; pode editar." : ""}
+                  {ajustadoIa ? "Texto ajustado pela IA — revise antes de enviar." : despachoDoUsuario ? "Texto seu — trocar o destino não o altera." : !manual ? "Sugerido pelo fluxo; pode editar." : ""}
                 </p>
                 <button
                   type="button"
@@ -634,5 +728,33 @@ function DevolverDialog({ tramitacaoId, origem, onFechar, onDevolvido }: { trami
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * Por que o fluxo sugeriu (ou não) um destino: etapas que ainda estão com quem
+ * tem o processo e etapas sem setor definido no modelo (homologação: "o fluxo
+ * não sugeriu o destino" sem explicar nada).
+ */
+function ExplicacaoDaSugestao({ sugestao }: { sugestao: SugestaoEnvio | null }) {
+  if (!sugestao) return null
+  const pendentes = sugestao.pendentes_do_detentor ?? []
+  const semDestino = sugestao.etapas_sem_destino ?? []
+  const temPrincipal = sugestao.destinos.some((d) => d.principal)
+  if (!pendentes.length && !semDestino.length) return null
+  return (
+    <div className="rounded border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-800 space-y-1" role="note">
+      {pendentes.length > 0 && (
+        <p>
+          Ainda com quem está com o processo: <b>{pendentes.map(([, n]) => n).join(", ")}</b>.
+          {temPrincipal ? " O destino sugerido vale depois de concluí-las." : " Conclua antes de enviar — ou envie a outro setor, se for o caso."}
+        </p>
+      )}
+      {semDestino.length > 0 && (
+        <p>
+          Sem setor definido no modelo de fluxo para: <b>{semDestino.map(([, n]) => n).join(", ")}</b>. Escolha o setor abaixo (o administrador pode definir o responsável em Configurações › Fluxo).
+        </p>
+      )}
+    </div>
   )
 }

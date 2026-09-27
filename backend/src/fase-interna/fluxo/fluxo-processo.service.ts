@@ -78,11 +78,11 @@ export class FluxoProcessoService {
   // VOLTAR (reabrir etapa)
   // ==========================================================================
 
-  async reabrir(licitacaoId: string, codigo: string, body: any, ator: Ator) {
+  async reabrir(licitacaoId: string, codigo: string, body: any, ator: Ator, opcoes: { permissaoConferida?: boolean } = {}) {
     const lic = await this.processo(licitacaoId);
     // Quem conduz o processo ou o responsável pela etapa no modelo (homologação: o "Voltar"
     // fica na própria tela da etapa — quem fez a peça pode voltá-la, com motivo)
-    if (!(await this.podeReabrir(ator, licitacaoId, codigo))) {
+    if (!opcoes.permissaoConferida && !(await this.podeReabrir(ator, licitacaoId, codigo))) {
       throw new ForbiddenException('Só quem conduz o processo (agente de contratação, administrador do órgão ou o login do órgão) ou o responsável pela etapa reabre uma etapa.');
     }
     const motivo = this.motivo(body?.motivo, 'o motivo da reabertura');
@@ -143,7 +143,7 @@ export class FluxoProcessoService {
   async reabrirParaDesfazerNaoSeAplica(licitacaoId: string, tipo: string, motivo: unknown, ator: Ator): Promise<void> {
     const lic = await this.processo(licitacaoId);
     const [doc] = await this.ds.query(
-      `SELECT id FROM documentos_fase_interna WHERE licitacao_id::text = $1 AND tipo::text = $2 AND versao_atual = true
+      `SELECT id, aprovador_id FROM documentos_fase_interna WHERE licitacao_id::text = $1 AND tipo::text = $2 AND versao_atual = true
           AND (dados_estruturados->>'nao_se_aplica')::boolean IS TRUE LIMIT 1`,
       [licitacaoId, tipo],
     );
@@ -159,7 +159,12 @@ export class FluxoProcessoService {
         `Desfazer o "não se aplica" reabre a etapa "${passo.titulo}", que está concluída: informe o motivo (pelo menos 10 caracteres). As etapas que dependem dela ficam "a revisar".`,
       );
     }
-    await this.reabrir(licitacaoId, etapa.codigo, { motivo: `Desfeito o "não se aplica": ${texto}` }, ator);
+    // Quem marcou o "não se aplica" também desfaz a própria marcação (além de quem conduz e do responsável)
+    const marcouEle = !!ator.usuarioId && !!doc.aprovador_id && String(doc.aprovador_id) === ator.usuarioId;
+    if (!marcouEle && !(await this.podeReabrir(ator, licitacaoId, etapa.codigo))) {
+      throw new ForbiddenException('Só quem conduz o processo, o responsável pela etapa ou quem marcou o "não se aplica" o desfaz depois de a etapa concluir.');
+    }
+    await this.reabrir(licitacaoId, etapa.codigo, { motivo: `Desfeito o "não se aplica": ${texto}` }, ator, { permissaoConferida: true });
   }
 
   // ==========================================================================

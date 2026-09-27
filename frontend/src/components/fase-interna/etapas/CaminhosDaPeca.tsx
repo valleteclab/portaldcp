@@ -7,21 +7,28 @@
  * justificativa (art. 72, I — "se for o caso"). Mostra a situação da peça
  * (instrução do processo), as versões (histórico — Entrega 1) e o envio para
  * assinatura com vários signatários.
- * Fontes: GET /api/fase-interna/:id/instrucao, /documentos/:tipo, /documentos/:tipo/assinatura.
+ * Homologação multiusuário: quem assina vê "Assinar" aqui (os demais, "Aguardando
+ * assinatura de …"); a diligência do parecer sobre a peça aparece como aviso
+ * com "Sanar"; cada versão diz quem gerou/anexou; desfazer "não se aplica" pede
+ * o motivo (é voltar a etapa).
+ * Fontes: GET /api/fase-interna/:id/instrucao, /documentos/:tipo, /documentos/:tipo/assinatura,
+ * /diligencias?tipo=.
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import Link from "next/link"
-import { AlertTriangle, CheckCircle2, Circle, FilePlus2, FileText, History, Loader2, PenLine, ShieldCheck, Upload } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Circle, FilePlus2, FileText, Gavel, History, Loader2, PenLine, ShieldCheck, Upload } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { AnexarPecaDialog } from "./AnexarPecaDialog"
 import { aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
+import { avisarTarefasAtualizadas } from "@/lib/tarefas"
 
 export interface LinhaInstrucao {
   tipo: string
@@ -49,6 +56,9 @@ export interface LinhaInstrucao {
     folha_inicial: number | null
     folha_final: number | null
     tem_arquivo: boolean
+    /** Quem anexou/gerou a versão atual e quando. */
+    registrada_por?: string | null
+    registrada_em?: string | null
   }
 }
 
@@ -153,6 +163,20 @@ export function CaminhosDaPeca({
 
   const naoSeAplica = async (desfazer: boolean) => {
     let corpo: Record<string, unknown> = { desfazer: true }
+    if (desfazer) {
+      // Desfazer "não se aplica" de etapa concluída é VOLTAR a etapa: motivo obrigatório e as
+      // etapas que dependem dela ficam "a revisar" (homologação — antes reabria sem nada)
+      const m = await pedirTexto({
+        titulo: `Desfazer "não se aplica" — ${titulo}`,
+        mensagem: "A etapa volta a ficar em elaboração. Se ela já estava concluída, as etapas que dependem dela ficam \"a revisar\". O motivo vai para o histórico do processo.",
+        rotulo: "Motivo",
+        obrigatorio: true,
+        minimo: 10,
+        confirmarRotulo: "Desfazer e reabrir",
+      })
+      if (!m) return
+      corpo = { desfazer: true, motivo: m.trim() }
+    }
     if (!desfazer) {
       const j = await pedirTexto({
         titulo: `"${titulo}" não se aplica`,
@@ -229,6 +253,7 @@ export function CaminhosDaPeca({
           {p && status !== "NAO_SE_APLICA" && (
             <p className="text-xs text-gray-700">
               {p.anexada ? "Anexada (feita fora)" : "Feita no sistema"}
+              {p.registrada_por ? ` · ${p.anexada ? "anexada" : "gerada"} por ${p.registrada_por}${p.registrada_em ? ` em ${fmtDia(p.registrada_em)}` : ""}` : ""}
               {p.numero_peca ? ` · ${p.numero_peca}` : ""}
               {p.data_documento ? ` · de ${fmtDia(p.data_documento)}` : ""}
               {p.folha_inicial != null ? ` · fls. ${p.folha_inicial}${p.folha_final && p.folha_final !== p.folha_inicial ? `–${p.folha_final}` : ""}` : ""}
@@ -243,6 +268,7 @@ export function CaminhosDaPeca({
             </p>
           )}
           <AprovacaoInternaDaPeca linha={linha} status={status} />
+          {status === "EM_ASSINATURA" && <AssinaturaDaPeca licitacaoId={licitacaoId} tipo={tipo} titulo={titulo} atualizacao={atualizacao} onAssinado={() => void aposAcao()} />}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
           {p?.tem_arquivo && linha?.documento_id && (
@@ -282,6 +308,7 @@ export function CaminhosDaPeca({
           )}
         </div>
       </div>
+      <DiligenciasDaPeca licitacaoId={licitacaoId} tipo={tipo} titulo={titulo} atualizacao={atualizacao} onSanada={() => void aposAcao()} />
       {!compacto && status !== "NAO_SE_APLICA" && (
         <p className="text-xs text-gray-600">
           Dois caminhos, que contam igual: <b>{fazerAqui ?? "fazer aqui"}</b> nesta tela, ou <b>anexar o PDF feito fora</b> (com a data que consta na peça e quem assinou).
@@ -294,6 +321,7 @@ export function CaminhosDaPeca({
             <li key={v.id} className="flex items-center justify-between gap-2 flex-wrap">
               <span>
                 Versão {v.versao} · {v.origem === "INTERNO" ? "feita no sistema" : "anexada"} · {String(v.status).replaceAll("_", " ").toLowerCase()}
+                {autorDaVersao(v) ? ` · ${v.origem === "INTERNO" ? "gerada" : "anexada"} por ${autorDaVersao(v)}` : ""}
                 {v.data_documento ? ` · de ${fmtDia(v.data_documento)}` : ""} · gravada em {fmtDia(v.updated_at || v.created_at)}
               </span>
               {(v.caminho_arquivo || v.arquivo_pdf_path) && (
@@ -467,5 +495,226 @@ function AssinaturaDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** Quem gerou/anexou a versão: quem anexou, quem emitiu o documento ou quem assinou. */
+function autorDaVersao(v: any): string | null {
+  if (v?.criado_por_nome) return v.criado_por_nome
+  if (v?.dados_estruturados?._emitido?.por_nome) return v.dados_estruturados._emitido.por_nome
+  const ass = Array.isArray(v?.assinaturas) ? v.assinaturas.map((a: any) => a?.assinante_nome).filter(Boolean) : []
+  return ass.length ? ass.join(", ") : null
+}
+
+interface SituacaoAssinatura {
+  status: string
+  pode_assinar?: boolean
+  eu_assino?: boolean
+  signatarios: Array<{ nome: string; papel: string | null; status: string; data_assinatura: string | null; usuario_id?: string | null }>
+}
+
+/**
+ * ASSINATURA DA PEÇA (homologação E1): todos veem de quem falta a
+ * assinatura; o signatário designado assina aqui mesmo, com o próprio login
+ * (o servidor confere — 403 para os demais). Também fica na Central de
+ * Aprovações › Assinaturas.
+ */
+function AssinaturaDaPeca({ licitacaoId, tipo, titulo, atualizacao, onAssinado }: { licitacaoId: string; tipo: string; titulo: string; atualizacao?: unknown; onAssinado: () => void }) {
+  const { confirmar, dialogo } = useDialogoConfirmacao()
+  const [s, setS] = useState<SituacaoAssinatura | null>(null)
+  const [assinando, setAssinando] = useState(false)
+  const carregar = useCallback(async () => {
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos/${tipo}/assinatura`, { cache: "no-store" })
+      setS(r.ok ? await r.json() : null)
+    } catch {
+      setS(null)
+    }
+  }, [licitacaoId, tipo])
+  useEffect(() => {
+    carregar()
+  }, [carregar, atualizacao])
+
+  if (!s || !s.signatarios?.length) return null
+  const faltam = s.signatarios.filter((x) => x.status !== "ASSINADO")
+  const assinaram = s.signatarios.filter((x) => x.status === "ASSINADO")
+
+  const assinar = async () => {
+    const ok = await confirmar({
+      titulo: `Assinar — ${titulo}`,
+      mensagem: "Você assina com o seu usuário; a assinatura fica registrada com data e hora (Brasília). A peça só vale quando todos os signatários assinarem.",
+      confirmarRotulo: "Assinar",
+    })
+    if (!ok) return
+    setAssinando(true)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos/${tipo}/assinar`, { method: "POST" })
+      if (!r.ok) throw new Error(await erroDaApi(r))
+      const j = await r.json().catch(() => null)
+      toast.success(j?.concluida ? `${titulo}: assinada por todos.` : `${titulo}: sua assinatura foi registrada.`)
+      avisarTarefasAtualizadas()
+      await carregar()
+      onAssinado()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAssinando(false)
+    }
+  }
+
+  return (
+    <div className="text-xs rounded border border-amber-200 bg-amber-50 text-amber-950 px-2 py-1.5 flex items-start justify-between gap-2 flex-wrap" role="status">
+      {dialogo}
+      <span className="flex items-start gap-1.5 min-w-0">
+        <PenLine className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+        <span>
+          Aguardando assinatura de <b>{faltam.map((x) => `${x.nome}${x.papel ? ` (${x.papel})` : ""}`).join(", ") || "—"}</b>
+          {assinaram.length > 0 && <> · já assinaram: {assinaram.map((x) => x.nome).join(", ")}</>}
+          {!s.pode_assinar && (
+            <>
+              {" "}· quem assina vê a peça em <Link className="underline" href="/orgao/aprovacoes?tab=assinaturas">Aprovações › Assinaturas</Link>
+            </>
+          )}
+        </span>
+      </span>
+      {s.pode_assinar && (
+        <Button size="sm" className="h-7" onClick={assinar} disabled={assinando}>
+          {assinando ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" aria-hidden="true" /> : <PenLine className="w-3.5 h-3.5 mr-1" aria-hidden="true" />} Assinar
+        </Button>
+      )}
+    </div>
+  )
+}
+
+interface DiligenciaDaPeca {
+  id: string
+  status: "ABERTA" | "SANADA"
+  descricao: string
+  trecho: string | null
+  folha: number | null
+  aberta_por_nome: string | null
+  created_at: string
+  versao_alvo: number | null
+  versao_atual: number | null
+  versao_nova_pronta: boolean
+  pode_sanar: boolean
+  resposta: string | null
+  sanada_por_nome: string | null
+  sanada_em: string | null
+}
+
+/**
+ * DILIGÊNCIA DO PARECER NA TELA DA PEÇA (homologação: a tarefa levava à peça,
+ * mas o aviso e o "Sanar" só existiam na tela do Parecer). Mesma regra do
+ * parecer: sanar exige versão nova PRONTA da peça (gerada, anexada ou
+ * assinada) ou a resposta "não há o que alterar", com a explicação.
+ */
+function DiligenciasDaPeca({ licitacaoId, tipo, titulo, atualizacao, onSanada }: { licitacaoId: string; tipo: string; titulo: string; atualizacao?: unknown; onSanada: () => void }) {
+  const [lista, setLista] = useState<DiligenciaDaPeca[]>([])
+  const [sanando, setSanando] = useState<DiligenciaDaPeca | null>(null)
+  const [resposta, setResposta] = useState("")
+  const [semAlteracao, setSemAlteracao] = useState(false)
+  const [enviando, setEnviando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const carregar = useCallback(async () => {
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/diligencias?tipo=${encodeURIComponent(tipo)}`, { cache: "no-store" })
+      setLista(r.ok ? ((await r.json()).diligencias ?? []) : [])
+    } catch {
+      setLista([])
+    }
+  }, [licitacaoId, tipo])
+  useEffect(() => {
+    carregar()
+  }, [carregar, atualizacao])
+  useEffect(() => aoAtualizarFaseInterna(licitacaoId, carregar), [licitacaoId, carregar])
+
+  const abertas = lista.filter((d) => d.status === "ABERTA")
+  if (!abertas.length) return null
+
+  const sanar = async () => {
+    if (!sanando) return
+    if (semAlteracao && resposta.trim().length < 10) return setErro("Explique por que a peça não precisa ser alterada (pelo menos 10 caracteres).")
+    setEnviando(true)
+    setErro(null)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/parecer/diligencias/${sanando.id}/sanar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ retorno: "PECA", resposta: resposta.trim(), sem_alteracao: semAlteracao }),
+      })
+      if (!r.ok) throw new Error(await erroDaApi(r))
+      toast.success("Diligência sanada — o processo volta para a Procuradoria.")
+      setSanando(null)
+      avisarTarefasAtualizadas()
+      await carregar()
+      onSanada()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2" aria-label={`Diligências sobre ${titulo}`}>
+      {abertas.map((d) => (
+        <div key={d.id} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-950 flex items-start justify-between gap-2 flex-wrap" role="alert">
+          <div className="min-w-0 space-y-0.5">
+            <p className="flex items-center gap-1.5 font-medium">
+              <Gavel className="w-4 h-4 shrink-0" aria-hidden="true" /> Diligência do parecer jurídico sobre esta peça
+            </p>
+            <p>{d.descricao}</p>
+            {d.trecho && <p className="text-xs">Trecho: “{d.trecho}”{d.folha != null ? ` · fl. ${d.folha}` : ""}</p>}
+            <p className="text-xs text-red-900">
+              Aberta por {d.aberta_por_nome ?? "Procuradoria"} em {fmtDia(d.created_at)} · sobre a versão {d.versao_alvo ?? "—"}
+              {d.versao_atual && d.versao_atual !== d.versao_alvo ? ` · agora na versão ${d.versao_atual}${d.versao_nova_pronta ? " (pronta)" : " (ainda não pronta)"}` : ""}
+            </p>
+            {!d.versao_nova_pronta && d.pode_sanar && (
+              <p className="text-xs text-red-900">Corrija a peça (gere de novo ou anexe a versão corrigida) e clique em Sanar — ou responda que não há o que alterar.</p>
+            )}
+          </div>
+          {d.pode_sanar ? (
+            <Button size="sm" className="h-8" onClick={() => { setSanando(d); setResposta(""); setSemAlteracao(!d.versao_nova_pronta); setErro(null) }}>
+              Sanar
+            </Button>
+          ) : (
+            <span className="text-xs text-red-900">Quem responde pela peça sana a diligência.</span>
+          )}
+        </div>
+      ))}
+      <Dialog open={!!sanando} onOpenChange={(v) => !v && setSanando(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sanar a diligência — {titulo}</DialogTitle>
+            <DialogDescription>O processo volta para a Procuradoria com a sua resposta. A diligência: “{sanando?.descricao}”</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {sanando?.versao_nova_pronta ? (
+              <p className="text-sm text-green-900 rounded border border-green-200 bg-green-50 px-2 py-1.5">A peça tem versão nova pronta (versão {sanando.versao_atual}) — ela será a resposta.</p>
+            ) : (
+              <p className="text-sm text-amber-950 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+                Ainda não há versão nova pronta da peça. Para sanar agora, responda que não há o que alterar, explicando.
+              </p>
+            )}
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4" checked={semAlteracao} onChange={(e) => setSemAlteracao(e.target.checked)} disabled={!sanando?.versao_nova_pronta} />
+              Não há o que alterar na peça (esclarecimento à Procuradoria)
+            </label>
+            <div>
+              <Label htmlFor="resposta-diligencia">Resposta{semAlteracao ? " *" : " (opcional)"}</Label>
+              <Textarea id="resposta-diligencia" className="mt-1" rows={3} value={resposta} onChange={(e) => setResposta(e.target.value)} />
+            </div>
+            {erro && <p className="text-sm text-red-700" role="alert">{erro}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSanando(null)} disabled={enviando}>Cancelar</Button>
+            <Button onClick={sanar} disabled={enviando}>
+              {enviando && <Loader2 className="w-4 h-4 mr-1 animate-spin" aria-hidden="true" />} Sanar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

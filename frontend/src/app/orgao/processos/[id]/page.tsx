@@ -242,11 +242,13 @@ export default function ProcessoPage() {
       )}
 
       {/* Está com… (F3b): com quem o processo está na fase interna — mesmo quando as peças são feitas à mão */}
-      {faseInterna && (
+      {/* Depois de publicar (homologação): a barra fica com a posse final, em vez de sumir */}
+      {(faseInterna || (!!fase && fase !== "CANCELADA" && !!(l.data_publicacao_edital || fase === "AGUARDANDO_DIVULGACAO"))) && (
         <ComQuemEstaBarra
           licitacaoId={id}
           atualizacao={dados}
           etapas={fluxo.dados}
+          encerrada={faseInterna ? null : { publicadoEm: l.data_publicacao_edital ?? null }}
           onAtualizado={atualizar}
           onVerLinhaDoTempo={() => {
             setAba("tramitacao")

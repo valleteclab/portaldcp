@@ -19,10 +19,11 @@ import { AlertTriangle, FileText, Loader2, ShieldAlert } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { BaseEditavelAviso } from "@/components/fase-interna/etapas/BaseEditavelAviso"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { AssistenteEtp, type AnaliseEtp } from "@/components/fase-interna/etapas/AssistenteEtp"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
-import { erroDaApi } from "@/lib/fase-interna/telas"
+import { erroDaApi, vigenteEBaseDoEditor } from "@/lib/fase-interna/telas"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
   ssr: false,
@@ -50,6 +51,8 @@ export default function EtpPage() {
   const { id } = useParams() as { id: string }
   const [d, setD] = useState<EtpTela | null>(null)
   const [documento, setDocumento] = useState<any>(null)
+  /** Versão vigente (pode ser o PDF anexado) — o editor mostra a base (última feita aqui). */
+  const [vigente, setVigente] = useState<any>(null)
   const [licitacao, setLicitacao] = useState<any>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [editorChave, setEditorChave] = useState(0)
@@ -76,7 +79,10 @@ export default function EtpPage() {
     ])
     if (docRes.ok) {
       const lista = await docRes.json()
-      setDocumento(Array.isArray(lista) ? lista.find((x: any) => x.versao_atual) ?? lista[0] ?? null : lista)
+      // E5: com o ETP anexado, o editor mostra a última versão feita aqui (base para gerar de novo)
+      const vb = vigenteEBaseDoEditor(Array.isArray(lista) ? lista : [])
+      setVigente(vb.vigente)
+      setDocumento(vb.base)
     }
     if (licRes.ok) setLicitacao(await licRes.json())
     setEditorChave((n) => n + 1)
@@ -203,6 +209,7 @@ export default function EtpPage() {
         </div>
       ) : (
         <>
+          <BaseEditavelAviso vigente={vigente} base={documento} titulo="o ETP" />
           <div className="rounded-lg border bg-white overflow-hidden h-[70vh] lg:h-[calc(100vh-260px)] min-h-[480px]">
             {documento !== undefined && (
               <DocumentoSeccionado

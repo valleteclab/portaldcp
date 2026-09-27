@@ -1332,7 +1332,8 @@ function PainelNaoSeAplica({ processoId, etapa, marcado, onMarcado, onPular }: {
       const res = await authFetch(`${API_URL}/api/fase-interna/${processoId}/instrucao/${doc.tipo}/nao-se-aplica`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(desfazer ? { desfazer: true } : { justificativa: texto.trim() }),
+        // No assistente de criação, desfazer = elaborar a peça (o motivo vai para o histórico)
+        body: JSON.stringify(desfazer ? { desfazer: true, motivo: "Desfeito no assistente de criação do processo: a peça será elaborada." } : { justificativa: texto.trim() }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))

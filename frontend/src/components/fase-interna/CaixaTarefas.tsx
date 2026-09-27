@@ -209,6 +209,11 @@ function ItemTarefa({ t, ocupada, onAssumir, onReatribuir }: { t: TarefaTela; oc
           {t.origem === "DILIGENCIA" && (
             <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-amber-50 text-amber-900">Diligência</span>
           )}
+          {t.origem === "ASSINATURA" && (
+            <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-violet-50 text-violet-900" title="Assine na Central de Aprovações › Assinaturas (ou na tela da peça)">
+              Assinatura
+            </span>
+          )}
           <span className="font-medium text-slate-900">{t.titulo}</span>
           <span className="text-xs text-slate-600">Processo {t.processo.numero_processo}</span>
           {t.etapa_titulo && <span className="text-xs text-slate-500">· {t.etapa_titulo}</span>}
@@ -240,7 +245,7 @@ function ItemTarefa({ t, ocupada, onAssumir, onReatribuir }: { t: TarefaTela; oc
           )}
           <Button asChild size="sm" variant={aberta ? "default" : "outline"}>
             <Link href={t.destino}>
-              {aberta ? (t.tipo === "PUBLICACAO" ? "Abrir publicação" : t.origem === "ACHADO" ? "Abrir achado" : "Abrir peça") : "Ver processo"} <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
+              {aberta ? (t.tipo === "PUBLICACAO" ? "Abrir publicação" : t.origem === "ACHADO" ? "Abrir achado" : t.origem === "ASSINATURA" ? "Ver e assinar" : "Abrir peça") : "Ver processo"} <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
             </Link>
           </Button>
         </div>

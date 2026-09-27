@@ -52,7 +52,7 @@ export function LinhaDoTempoTramitacao({ licitacaoId, atualizacao }: { licitacao
   const carregar = useCallback(async () => {
     const vale = ultima()
     // Estado só muda depois da resposta (nunca no mesmo tique do efeito)
-    await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/tramitacao/linha-do-tempo`)
+    await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/tramitacao/linha-do-tempo`, { cache: "no-store" })
       .then(async (r) => {
         if (!vale()) return
         if (!r.ok) {
