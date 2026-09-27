@@ -3,6 +3,7 @@
  * a caixa de tarefas, o menu (badge) e a tela do processo.
  * Fonte: GET /api/tarefas, /api/tarefas/contagem, /api/fase-interna/:id/etapas.
  */
+import { useSyncExternalStore } from "react"
 import { API_URL, authFetch } from "@/lib/api"
 
 export interface TarefaTela {
@@ -77,4 +78,62 @@ export async function carregarContagemTarefas(): Promise<{ para_mim: number; atr
 
 export const avisarTarefasAtualizadas = () => {
   if (typeof window !== "undefined") window.dispatchEvent(new Event("tarefas-atualizadas"))
+}
+
+// ─── Contagem ÚNICA (homologação 26/09/2026) ─────────────────────────────
+// O menu principal e o menu da fase interna buscavam a contagem cada um na sua
+// hora (24 × 25 na mesma tela). Agora há um valor só na página: os dois badges
+// leem daqui, uma busca por vez, e a caixa de tarefas publica a contagem que
+// acabou de receber — os três números são sempre o mesmo.
+
+export type ContagemTarefas = { para_mim: number; atrasadas: number }
+
+let contagemAtual: ContagemTarefas | null = null
+let buscaEmCurso: Promise<void> | null = null
+const ouvintes = new Set<() => void>()
+
+function publicar(c: ContagemTarefas | null) {
+  const mudou = c?.para_mim !== contagemAtual?.para_mim || c?.atrasadas !== contagemAtual?.atrasadas
+  contagemAtual = c
+  if (mudou) ouvintes.forEach((f) => f())
+}
+
+/** Publica a contagem recebida por outra leitura (ex.: a caixa de tarefas). */
+export function publicarContagemTarefas(c: ContagemTarefas | null | undefined) {
+  if (c) publicar({ para_mim: Number(c.para_mim) || 0, atrasadas: Number(c.atrasadas) || 0 })
+}
+
+/** Recarrega a contagem do servidor (chamadas simultâneas viram uma busca só). */
+export function atualizarContagemTarefas(): Promise<void> {
+  if (!buscaEmCurso) {
+    buscaEmCurso = carregarContagemTarefas()
+      .then((c) => {
+        if (c) publicar(c)
+      })
+      .finally(() => {
+        buscaEmCurso = null
+      })
+  }
+  return buscaEmCurso
+}
+
+let ouvindoEvento = false
+function assinar(f: () => void) {
+  ouvintes.add(f)
+  if (!ouvindoEvento && typeof window !== "undefined") {
+    ouvindoEvento = true
+    window.addEventListener("tarefas-atualizadas", () => void atualizarContagemTarefas())
+  }
+  return () => {
+    ouvintes.delete(f)
+  }
+}
+
+/** Badge de "Minhas tarefas": a mesma contagem em todos os menus da página. */
+export function useContagemTarefas(): ContagemTarefas | null {
+  return useSyncExternalStore(
+    assinar,
+    () => contagemAtual,
+    () => null,
+  )
 }

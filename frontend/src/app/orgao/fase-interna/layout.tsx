@@ -1,14 +1,47 @@
 "use client"
 
-import { useState } from "react"
-import { Sparkles, X } from "lucide-react"
+import { useState, useSyncExternalStore } from "react"
+import { Sparkles } from "lucide-react"
 import { FaseInternaNav } from "@/components/fase-interna/FaseInternaNav"
 import { CopilotoIA } from "@/components/fase-interna/CopilotoIA"
 import { usePathname } from "next/navigation"
 
+/**
+ * Preferência do painel Procura+ AI (por navegador). Homologação 26/09/2026:
+ * o painel abria sozinho e cobria os cartões de "Minhas tarefas" — agora começa
+ * FECHADO e só abre quando o usuário pede (e fica aberto se ele deixou aberto).
+ */
+const CHAVE_COPILOTO = "fase-interna:procura-ai-aberto"
+
+function lerPreferencia(): boolean {
+  try {
+    return localStorage.getItem(CHAVE_COPILOTO) === "1"
+  } catch {
+    return false
+  }
+}
+
+function gravarPreferencia(aberto: boolean) {
+  try {
+    localStorage.setItem(CHAVE_COPILOTO, aberto ? "1" : "0")
+  } catch {
+    /* sem armazenamento: vale só nesta visita */
+  }
+}
+
+const semAssinatura = () => () => {}
+
 export default function FaseInternaLayout({ children }: { children: React.ReactNode }) {
-  const [copilotoAberto, setCopilotoAberto] = useState(true)
+  // Preferência gravada (no servidor: fechado) e a escolha feita nesta visita
+  const preferenciaGravada = useSyncExternalStore(semAssinatura, lerPreferencia, () => false)
+  const [escolha, setEscolha] = useState<boolean | null>(null)
+  const copilotoAberto = escolha ?? preferenciaGravada
   const pathname = usePathname()
+
+  const alternarCopiloto = (aberto: boolean) => {
+    setEscolha(aberto)
+    gravarPreferencia(aberto)
+  }
 
   // Telas com assistente de IA EMBUTIDA (ex.: editor de documentos tem o
   // Procura+ AI próprio, com contexto do documento) — não duplicar o chat.
@@ -29,22 +62,26 @@ export default function FaseInternaLayout({ children }: { children: React.ReactN
       <FaseInternaNav />
 
       {/* Conteúdo principal */}
-      <main className="flex-1 overflow-y-auto bg-slate-50">
+      <main className="flex-1 min-w-0 overflow-y-auto bg-slate-50">
         {children}
       </main>
 
-      {/* Copiloto IA (oculto onde a tela já tem o assistente embutido) */}
+      {/* Copiloto IA (oculto onde a tela já tem o assistente embutido). Aberto,
+          ocupa uma coluna própria (não sobrepõe o conteúdo); fechado, vira uma
+          aba na borda direita — longe do botão do assistente geral (canto inferior). */}
       {!temAssistentePropria && (copilotoAberto ? (
         <div className="w-80 shrink-0 flex flex-col overflow-hidden">
-          <CopilotoIA contexto={contexto} onClose={() => setCopilotoAberto(false)} />
+          <CopilotoIA contexto={contexto} onClose={() => alternarCopiloto(false)} />
         </div>
       ) : (
         <button
-          onClick={() => setCopilotoAberto(true)}
-          className="fixed bottom-6 right-6 w-12 h-12 bg-[#1351b4] hover:bg-[#0c326f] text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-50"
+          type="button"
+          onClick={() => alternarCopiloto(true)}
+          className="fixed right-0 top-1/2 -translate-y-1/2 z-40 flex items-center gap-1.5 rounded-l-lg bg-[#1351b4] hover:bg-[#0c326f] text-white px-2 py-3 shadow-lg [writing-mode:vertical-rl] text-xs font-semibold"
           title="Abrir Procura+ AI"
+          aria-label="Abrir o assistente Procura+ AI"
         >
-          <Sparkles className="w-5 h-5" />
+          <Sparkles className="w-4 h-4" aria-hidden="true" /> Procura+ AI
         </button>
       ))}
     </div>

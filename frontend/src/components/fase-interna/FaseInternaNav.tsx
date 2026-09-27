@@ -19,7 +19,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { API_URL, authFetch } from "@/lib/api";
-import { carregarContagemTarefas } from "@/lib/tarefas";
+import { atualizarContagemTarefas, useContagemTarefas } from "@/lib/tarefas";
 
 type NavItem = {
   href: string;
@@ -100,7 +100,7 @@ export function FaseInternaNav() {
   const searchParams = useSearchParams();
   const [procCount, setProcCount] = useState<number | undefined>(undefined);
   const [aprovCount, setAprovCount] = useState<number | undefined>(undefined);
-  const [tarefasCount, setTarefasCount] = useState<{ para_mim: number; atrasadas: number } | null>(null);
+  const tarefasCount = useContagemTarefas();
   const processoPathId = pathname.match(
     /\/orgao\/fase-interna\/processos\/([^/]+)/,
   )?.[1];
@@ -147,21 +147,20 @@ export function FaseInternaNav() {
         }
       }
     };
-    const carregarTarefas = async () => {
-      const c = await carregarContagemTarefas();
-      if (isMounted) setTarefasCount(c);
-    };
     carregar();
-    carregarTarefas();
     // Recarrega badge quando um processo é criado ou excluído na mesma aba
     window.addEventListener('processos-updated', carregar);
-    window.addEventListener('tarefas-atualizadas', carregarTarefas);
     return () => {
       isMounted = false;
       window.removeEventListener('processos-updated', carregar);
-      window.removeEventListener('tarefas-atualizadas', carregarTarefas);
     };
   }, []);
+
+  // Tarefas: a MESMA contagem do menu principal e da caixa (fonte única — @/lib/tarefas);
+  // o evento "tarefas-atualizadas" recarrega para todos
+  useEffect(() => {
+    void atualizarContagemTarefas();
+  }, [pathname]);
 
   const documentNav: NavItem[] = [
     {
