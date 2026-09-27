@@ -390,7 +390,7 @@ export class TarefasService {
     const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
     const criador = agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id);
     // F1: o modelo de fluxo do processo (snapshot + operacional vigente) e o estado dele
-    const fluxo = await this.modeloDoProcesso(licitacaoId, lic.orgao_id, instrucao.contratacao_direta);
+    const fluxo = await this.modeloDoProcesso(licitacaoId, lic.orgao_id, instrucao.contratacao_direta, true);
     if (fluxo.ctx && FASES_INTERNAS.includes(lic.fase)) {
       await this.atualizarEstadoDoFluxo(fluxo.ctx, instrucao.itens, { modo: config.modo, agente_id: agente ?? criador });
     }
@@ -1173,15 +1173,20 @@ export class TarefasService {
    * vigente e o estado (aprovação da demanda, reabertas, a revisar,
    * registros). Sem linha de fluxo (falha ao criar): o modelo vigente do
    * órgão, sem estado (comportamento de antes da F1).
+   *
+   * `gravar`: só a SINCRONIZAÇÃO (depois do commit) grava a linha do fluxo;
+   * as demais leituras podem rodar dentro da transação de um ato e são só
+   * leitura (ver `ModeloFluxoService.fluxoDoProcesso`).
    */
   async modeloDoProcesso(
     licitacaoId: string,
     orgaoId: string,
     contratacaoDireta?: boolean,
+    gravar = false,
   ): Promise<{ modelo: ModeloFluxo; estado: EstadoFluxoParaEtapas; ctx: ContextoFluxoProcesso | null }> {
     try {
-      const ctx = await this.modeloFluxo.contextoDoProcesso(licitacaoId);
-      if (ctx) return { modelo: ctx.modelo, estado: ctx.estado, ctx };
+      const ctx = await this.modeloFluxo.contextoDoProcesso(licitacaoId, { gravar });
+      if (ctx) return { modelo: ctx.modelo, estado: ctx.estado, ctx: gravar ? ctx : ctx.fluxo.id ? ctx : null };
     } catch (e: any) {
       this.logger.warn(`Modelo de fluxo do processo ${licitacaoId} indisponível: ${e?.message ?? e}`);
     }

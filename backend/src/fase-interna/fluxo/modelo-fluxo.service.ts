@@ -490,12 +490,50 @@ export class ModeloFluxoService {
    * vigente do órgão). Processo anterior ao marco da F1 nasce LEGADO, com a
    * demanda aprovada (não trava). Mudou o tipo (modalidade trocada na fase
    * interna): novo snapshot, mantendo as marcas.
+   *
+   * `gravar: false` (SÓ LEITURA): nada é gravado — sem linha, o fluxo vem
+   * montado em memória. Obrigatório em quem pode rodar DENTRO da transação de
+   * um ato (portões: a transação segura a linha da licitação e o INSERT com a
+   * FK dela, em outra conexão, esperaria para sempre).
    */
-  async fluxoDoProcesso(licitacaoId: string): Promise<{ fluxo: FluxoProcessoFaseInterna; tipo: TipoProcessoFluxo; orgao_id: string } | null> {
+  async fluxoDoProcesso(
+    licitacaoId: string,
+    opcoes: { gravar?: boolean } = {},
+  ): Promise<{ fluxo: FluxoProcessoFaseInterna; tipo: TipoProcessoFluxo; orgao_id: string } | null> {
+    const gravar = opcoes.gravar !== false;
     const lic = await this.licitacao(licitacaoId);
     if (!lic?.orgao_id) return null;
     const tipo = this.tipoDaModalidade(lic.modalidade);
     let fluxo = await this.fluxoRepo.findOne({ where: { licitacao_id: licitacaoId } });
+    if (!fluxo && !gravar) {
+      const vigente = await this.modeloVigente(lic.orgao_id, tipo);
+      const legado = new Date(lic.created_at).getTime() < (await this.marco()).getTime();
+      const transitorio = this.fluxoRepo.create({
+        id: '',
+        licitacao_id: licitacaoId,
+        orgao_id: lic.orgao_id,
+        tipo_processo: tipo,
+        modelo_id: vigente.id,
+        modelo_versao: vigente.versao,
+        modelo_nome: vigente.nome,
+        snapshot: snapshotDoModelo(vigente) as any,
+        snapshot_em: new Date(),
+        legado,
+        demanda_aprovada: legado,
+        aprovacao_demanda: null,
+        reabertas: {},
+        a_revisar: {},
+        registros: {},
+      });
+      return { fluxo: transitorio, tipo, orgao_id: lic.orgao_id };
+    }
+    if (fluxo && !gravar) {
+      if (fluxo.tipo_processo !== tipo) {
+        const vigente = await this.modeloVigente(lic.orgao_id, tipo);
+        fluxo = { ...fluxo, tipo_processo: tipo, snapshot: snapshotDoModelo(vigente) as any };
+      }
+      return { fluxo, tipo, orgao_id: lic.orgao_id };
+    }
     if (!fluxo) {
       const vigente = await this.modeloVigente(lic.orgao_id, tipo);
       const legado = new Date(lic.created_at).getTime() < (await this.marco()).getTime();
@@ -539,8 +577,8 @@ export class ModeloFluxoService {
   }
 
   /** Modelo efetivo e estado do processo — o que `etapasDaFaseInterna` recebe. */
-  async contextoDoProcesso(licitacaoId: string): Promise<ContextoFluxoProcesso | null> {
-    const r = await this.fluxoDoProcesso(licitacaoId);
+  async contextoDoProcesso(licitacaoId: string, opcoes: { gravar?: boolean } = {}): Promise<ContextoFluxoProcesso | null> {
+    const r = await this.fluxoDoProcesso(licitacaoId, opcoes);
     if (!r) return null;
     const vigente = await this.modeloVigente(r.orgao_id, r.tipo);
     const modelo = modeloEfetivoDoProcesso(r.fluxo.snapshot as SnapshotModelo, vigente);

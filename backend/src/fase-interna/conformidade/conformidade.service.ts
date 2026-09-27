@@ -241,8 +241,9 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
     }
     const valorItens = simulados ? Object.values(simulados).reduce((s, v) => s + (Number(v) || 0), 0) : Number(total);
     // F1: o modelo de fluxo do processo (dependências da CRONO-01; etapas reabertas/a revisar da FLUXO-01)
+    // Só leitura: a avaliação do portão pode rodar dentro da transação do ato
     const fluxo = await this.modeloFluxo
-      .contextoDoProcesso(licitacaoId)
+      .contextoDoProcesso(licitacaoId, { gravar: false })
       .then((c) => (c ? fluxoParaConformidade(c.modelo, c.fluxo) : null))
       .catch(() => null);
     return {
