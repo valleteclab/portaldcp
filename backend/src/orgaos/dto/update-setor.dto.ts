@@ -1,4 +1,4 @@
-import { IsString, IsOptional, MaxLength, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 export class UpdateSetorDto {
   @IsOptional()
@@ -11,4 +11,9 @@ export class UpdateSetorDto {
   @IsString()
   @MinLength(1)
   nome?: string;
+
+  /** Chefe do setor (usuário do mesmo órgão). `null` remove (IsOptional aceita null). */
+  @IsOptional()
+  @IsUUID()
+  chefe_usuario_id?: string | null;
 }

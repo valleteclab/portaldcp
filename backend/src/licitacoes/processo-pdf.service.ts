@@ -19,6 +19,7 @@ import {
   carimboDeFolha,
   dataPorExtenso,
   impressaoDosAutos,
+  intercalarDespachos,
   numerarFolhas,
   ordenarPecasDosAutos,
   paginasDoIndice,
@@ -80,6 +81,10 @@ interface EntradaAutos {
   fonte: Fonte;
   /** Impressão do conteúdo (id, versão, arquivo/conteúdo, status). */
   impressao: string;
+  /** Quando a peça entrou no processo (intercala os despachos de tramitação); sem ele, `data_documento`. */
+  momento?: Date | null;
+  /** Despacho de tramitação (espinha): folhas gravadas na tramitação. */
+  tramitacao_id?: string | null;
 }
 
 export interface EntradaIndice {
@@ -92,6 +97,8 @@ export interface EntradaIndice {
   signatarios: string[];
   observacao: string | null;
   documento_id: string | null;
+  /** Despacho de tramitação: id da tramitação (folhas gravadas nela). */
+  tramitacao_id?: string | null;
 }
 
 export interface MetaAutos {
@@ -362,7 +369,7 @@ export class ProcessoPdfService {
     const docs: any[] = await this.dataSource.query(
       `SELECT id::text AS id, tipo::text AS tipo, titulo, status::text AS status, origem::text AS origem, versao,
               versao_anterior_id::text AS versao_anterior_id, caminho_arquivo, arquivo_pdf_path, hash_arquivo,
-              data_documento, data_geracao_arquivo, updated_at, numero_peca, assinaturas, signatarios_informados,
+              data_documento, data_geracao_arquivo, updated_at, created_at, numero_peca, assinaturas, signatarios_informados,
               descricao, dados_estruturados, aprovador_nome, md5(COALESCE(descricao, '') || COALESCE(dados_estruturados::text, '')) AS conteudo
          FROM documentos_fase_interna
         WHERE licitacao_id::text = $1 AND versao_atual = true AND status::text <> 'SUBSTITUIDO'`,
@@ -379,8 +386,13 @@ export class ProcessoPdfService {
       if (!pecaContaComoPronta(d)) continue; // ainda não é ato (em elaboração, aguardando assinatura…)
       const signatarios = this.signatariosDe(d);
       const obs = [d.numero_peca, Number(d.versao) > 1 ? `substitui a versão ${Number(d.versao) - 1}` : null].filter(Boolean).join(' · ') || null;
-      const base = { chave: d.tipo, titulo, signatarios, observacao: obs, documento_id: d.id, data_documento: d.data_documento ? new Date(d.data_documento) : null };
       const anexada = d.origem !== 'INTERNO';
+      // Momento da peça no processo (intercala os despachos): anexada → a data do
+      // documento; feita aqui → quando ficou pronta (criação ou assinatura, a mais recente)
+      const criada = d.created_at ? new Date(d.created_at) : null;
+      const datada = d.data_documento ? new Date(d.data_documento) : null;
+      const momento = anexada ? datada ?? criada : criada && datada ? (datada > criada ? datada : criada) : criada ?? datada;
+      const base = { chave: d.tipo, titulo, signatarios, observacao: obs, documento_id: d.id, data_documento: datada, momento };
       const proprio = anexada || d.status === 'ASSINADO' ? this.caminhoFisico(d.caminho_arquivo) : null;
       if (proprio) {
         caminhosUsados.add(proprio);
@@ -559,7 +571,47 @@ export class ProcessoPdfService {
       });
     }
 
-    const ordenadas = ordenarPecasDosAutos(entradas);
+    // ── 5. Despachos de tramitação (espinha): cada envio/devolução é folha dos autos,
+    //       intercalada cronologicamente entre as peças (autos-regras: intercalarDespachos)
+    const despachos: any[] = await this.dataSource
+      .query(
+        `SELECT id::text AS id, sequencia, despacho_arquivo, despacho_hash, COALESCE(data_ocorrencia, data_envio) AS em,
+                de_setor_nome, de_usuario_nome, para_setor_nome, para_usuario_nome, devolucao_de_id, despacho
+           FROM tramitacoes_processo
+          WHERE licitacao_id::text = $1 AND despacho_arquivo IS NOT NULL
+          ORDER BY sequencia ASC`,
+        [id],
+      )
+      .catch(() => [] as any[]);
+    const entradasDespacho: EntradaAutos[] = [];
+    for (const t of despachos) {
+      const arq = this.caminhoFisico(t.despacho_arquivo);
+      if (!arq) {
+        ausentes.push(`Despacho de tramitação nº ${t.sequencia} (arquivo não encontrado)`);
+        continue;
+      }
+      const devolucao = !!t.devolucao_de_id || /^DEVOLU[CÇ][AÃ]O:/i.test(String(t.despacho ?? ''));
+      const para = [t.para_setor_nome, t.para_usuario_nome].filter(Boolean).join(' · ');
+      entradasDespacho.push({
+        chave: 'DESPACHO_TRAMITACAO',
+        ordem: String(t.sequencia).padStart(6, '0'),
+        titulo: `${devolucao ? 'Despacho de devolução' : 'Despacho de tramitação'} nº ${t.sequencia}:${t.de_setor_nome ? ` de ${t.de_setor_nome}` : ''} para ${para || 'o destino'}`,
+        origem: 'GERADA',
+        data_documento: t.em ? new Date(t.em) : null,
+        signatarios: t.de_usuario_nome ? [t.de_usuario_nome] : [],
+        observacao: null,
+        documento_id: null,
+        tramitacao_id: t.id,
+        momento: t.em ? new Date(t.em) : null,
+        fonte: { tipo: 'ARQUIVO', caminho: arq },
+        impressao: `despacho:${t.id}:${t.despacho_hash ?? t.despacho_arquivo}`,
+      });
+    }
+
+    const ordenadas = intercalarDespachos(
+      ordenarPecasDosAutos(entradas).map((e) => ({ ...e, momento: e.momento ?? e.data_documento })),
+      entradasDespacho,
+    );
     const extras: ExtrasAutos = { ausentes, interessado: await this.interessado(lic) };
     const hash = impressaoDosAutos({
       processo: [lic.numero_processo, lic.numero_edital, lic.objeto, lic.modalidade, (lic as any).created_at, (lic as any).orgao?.nome, extras.interessado],
@@ -637,6 +689,7 @@ export class ProcessoPdfService {
         signatarios: p.e.signatarios,
         observacao: p.e.observacao,
         documento_id: p.e.documento_id,
+        tramitacao_id: p.e.tramitacao_id ?? null,
       }));
 
       // PASSO 2 — monta: termos + peças copiadas uma a uma, carimbando cada folha
@@ -692,6 +745,17 @@ export class ProcessoPdfService {
    */
   private async gravarFolhasNasPecas(indice: EntradaIndice[]) {
     for (const e of indice) {
+      if (e.tramitacao_id) {
+        // Despacho de tramitação: as folhas ficam na própria tramitação
+        await this.dataSource
+          .query(
+            `UPDATE tramitacoes_processo SET folha_inicial = $2, folha_final = $3
+              WHERE id::text = $1 AND (folha_inicial IS DISTINCT FROM $2 OR folha_final IS DISTINCT FROM $3)`,
+            [e.tramitacao_id, e.folha_inicial, e.folha_final],
+          )
+          .catch((err: any) => this.logger.warn(`[autos] folhas do despacho ${e.tramitacao_id} não gravadas: ${err?.message ?? err}`));
+        continue;
+      }
       if (!e.documento_id) continue;
       await this.dataSource
         .query(

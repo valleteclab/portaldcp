@@ -53,11 +53,15 @@ export class TramitacaoProcesso {
   de_usuario_nome: string;
 
   // === DESTINO ===
-  @Column()
-  para_setor_id: string;
+  /**
+   * Setor de destino. Nulo só no envio direto a uma pessoa sem lotação
+   * (espinha da tramitação). Registros antigos sempre têm setor.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  para_setor_id: string | null;
 
-  @Column()
-  para_setor_nome: string;
+  @Column({ type: 'varchar', nullable: true })
+  para_setor_nome: string | null;
 
   /** Opcional: atribuição direta a um usuário do setor */
   @Column({ nullable: true })
@@ -71,8 +75,13 @@ export class TramitacaoProcesso {
   @Column({ type: 'text' })
   despacho: string;
 
+  /** LEGADO: prazo em dias CORRIDOS (registros anteriores à espinha). */
   @Column({ type: 'int', nullable: true })
   prazo_dias: number;
+
+  /** Prazo em DIAS ÚTEIS pelo calendário do órgão (art. 183) — `data_prazo` = fim do prazo. */
+  @Column({ type: 'int', nullable: true })
+  prazo_dias_uteis: number | null;
 
   @Column({ type: 'timestamp', nullable: true })
   data_prazo: Date;
@@ -96,6 +105,70 @@ export class TramitacaoProcesso {
   @Column({ type: 'timestamp', nullable: true })
   data_devolucao: Date;
 
+  /** Momento em que o REGISTRO foi feito (lançamento). O envio efetivo é `data_ocorrencia ?? data_envio`. */
   @CreateDateColumn()
   data_envio: Date;
+
+  // === ESPINHA DA TRAMITAÇÃO (F2) — todos opcionais: registros antigos continuam válidos ===
+
+  /** Finalidade do envio ("para a reserva orçamentária"), usada no despacho padrão. */
+  @Column({ type: 'varchar', length: 300, nullable: true })
+  finalidade: string | null;
+
+  /** Envio automático do sistema (modo simples): despacho padrão, sem texto digitado. */
+  @Column({ type: 'boolean', default: false })
+  automatico: boolean;
+
+  /** Esta tramitação é a volta de uma devolução (id da tramitação devolvida). */
+  @Column({ type: 'uuid', nullable: true })
+  devolucao_de_id: string | null;
+
+  /**
+   * LANÇAMENTO POSTERIOR (processo físico): o envio ocorreu em `data_ocorrencia`
+   * (não futura, não anterior à movimentação anterior) e foi lançado em
+   * `data_envio` por `lancado_por_*`.
+   */
+  @Column({ type: 'timestamp', nullable: true })
+  data_ocorrencia: Date | null;
+
+  @Column({ type: 'boolean', default: false })
+  lancado_posteriormente: boolean;
+
+  @Column({ type: 'varchar', nullable: true })
+  lancado_por_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  lancado_por_nome: string | null;
+
+  /** Recebimento lançado depois do fato: `data_recebimento` é a data em que ocorreu; aqui, quando foi lançado. */
+  @Column({ type: 'boolean', default: false })
+  recebimento_lancado_posteriormente: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  recebimento_lancado_em: Date | null;
+
+  // === DESPACHO NOS AUTOS (folha) ===
+  /** PDF do despacho (referência lógica `licitacoes/<id>/despacho-….pdf`). */
+  @Column({ type: 'varchar', nullable: true })
+  despacho_arquivo: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  despacho_hash: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  despacho_paginas: number | null;
+
+  /** Folhas do despacho nos autos (mesma sequência das peças — `folhas-autos.ts`). */
+  @Column({ type: 'int', nullable: true })
+  folha_inicial: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  folha_final: number | null;
+
+  // === AVISOS DE PRAZO (idempotentes) ===
+  @Column({ type: 'timestamp', nullable: true })
+  aviso_vespera_em: Date | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  aviso_vencido_em: Date | null;
 }

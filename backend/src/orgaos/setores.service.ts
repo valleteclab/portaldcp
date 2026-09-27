@@ -56,10 +56,12 @@ export class SetoresService {
       throw new HttpException('Já existe um setor com este código', HttpStatus.CONFLICT);
     }
 
+    const chefe = await this.chefeValido(orgaoId, dto.chefe_usuario_id);
     const setor = this.setorRepository.create({
       orgao_id: orgaoId,
       codigo,
       nome: dto.nome,
+      chefe_usuario_id: chefe,
     });
     return this.setorRepository.save(setor);
   }
@@ -79,8 +81,22 @@ export class SetoresService {
       }
     }
 
+    if (dto.chefe_usuario_id !== undefined) {
+      dto = { ...dto, chefe_usuario_id: await this.chefeValido(orgaoId, dto.chefe_usuario_id) };
+    }
     Object.assign(setor, dto);
     return this.setorRepository.save(setor);
+  }
+
+  /** Chefe do setor: usuário ATIVO do mesmo órgão (vazio/null → sem chefe). */
+  private async chefeValido(orgaoId: string, chefeId: string | null | undefined): Promise<string | null> {
+    if (!chefeId) return null;
+    const [u] = await this.setorRepository.manager.query(
+      `SELECT id::text AS id FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2 AND ativo = true`,
+      [chefeId, orgaoId],
+    );
+    if (!u) throw new HttpException('Chefe do setor deve ser um usuário ativo deste órgão', HttpStatus.BAD_REQUEST);
+    return u.id;
   }
 
   async delete(orgaoId: string, id: string): Promise<void> {
