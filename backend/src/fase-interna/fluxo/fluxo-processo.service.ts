@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import type { Ator } from '../../auth/acesso/ator';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { AuditLogService } from '../audit-log.service';
+import { RevisaoIaService } from '../ia-rascunho/revisao-ia.service';
 import { DespachoEtapaService } from '../despacho-etapa.service';
 import { TipoDocumentoFaseInterna } from '../entities/documento-fase-interna.entity';
 import { AcaoLogFaseInterna } from '../entities/log-fase-interna.entity';
@@ -34,6 +35,7 @@ export class FluxoProcessoService {
     private readonly faseInterna: FaseInternaService,
     private readonly auditLog: AuditLogService,
     private readonly despachos: DespachoEtapaService,
+    private readonly revisaoIa: RevisaoIaService,
   ) {}
 
   private async processo(licitacaoId: string) {
@@ -171,6 +173,8 @@ export class FluxoProcessoService {
     }
     await this.modeloFluxo.gravarMarcas(ctx.fluxo.id, { reabertas, a_revisar: aRevisar, registros });
     await this.log(licitacaoId, acao, `${descricao}${despacho ? ` (despacho nos autos, fl. ${despacho.folha_inicial})` : ''}`, { etapa: codigo, texto, despacho }, autor);
+    // F4a: despacho registrado a partir do texto sugerido pela IA (aceito) → registra quem revisou
+    if (passo.conclusao === 'REGISTRO' && despacho) await this.revisaoIa.registrarNaEmissao(licitacaoId, 'REGISTRO', { etapa: codigo, autor, ato: 'registrado' });
     await this.tarefas.agendar(licitacaoId);
     return this.tarefas.etapasDoProcesso(licitacaoId, ator);
   }

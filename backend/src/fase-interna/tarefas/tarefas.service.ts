@@ -1512,7 +1512,9 @@ export class TarefasService {
         WHERE licitacao_id::text = $1 AND acao::text = ANY($2::text[]) ORDER BY created_at DESC LIMIT 40`,
       [
         licitacaoId,
-        ['ETAPA_ALTERADA', 'TAREFA_CRIADA', 'TAREFA_CONCLUIDA', 'TAREFA_CANCELADA', 'TAREFA_REATRIBUIDA', 'ETAPA_REABERTA', 'ETAPA_REVISADA', 'ETAPA_REGISTRADA', 'DEMANDA_APROVADA', 'PARECER_DISPENSADO'],
+        ['ETAPA_ALTERADA', 'TAREFA_CRIADA', 'TAREFA_CONCLUIDA', 'TAREFA_CANCELADA', 'TAREFA_REATRIBUIDA', 'ETAPA_REABERTA', 'ETAPA_REVISADA', 'ETAPA_REGISTRADA', 'DEMANDA_APROVADA', 'PARECER_DISPENSADO',
+          // F4a: IA em toda etapa — rascunho gerado, aceito ou descartado e quem revisou na emissão
+          'IA_RASCUNHO_GERADO', 'IA_RASCUNHO_ACEITO', 'IA_RASCUNHO_DESCARTADO', 'IA_REVISADA_POR'],
       ],
     );
     const atual = etapaAtual(etapas);

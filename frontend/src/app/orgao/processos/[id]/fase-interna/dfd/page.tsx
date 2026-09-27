@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { EditorItensDialog } from "@/components/fase-interna/etapas/EditorItensDialog"
+import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { erroDaApi, rotaDaTela } from "@/lib/fase-interna/telas"
 
 const SecaoEditor = dynamic(() => import("@/components/editor/SecaoEditor").then((m) => ({ default: m.SecaoEditor })), {
@@ -63,6 +64,8 @@ export default function DfdPage() {
   const [gerando, setGerando] = useState(false)
   const [editarItens, setEditarItens] = useState(false)
   const [atualizacao, setAtualizacao] = useState(0)
+  // O editor da necessidade só lê o valor ao montar: o aceite do rascunho da IA remonta
+  const [editorChave, setEditorChave] = useState(0)
   const [objeto, setObjeto] = useState("")
   const [justSemPca, setJustSemPca] = useState("")
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -173,6 +176,19 @@ export default function DfdPage() {
       }
     >
       <CaminhosDaPeca licitacaoId={id} tipo="DFD" titulo="DFD" fazerAqui="preencher e gerar o DFD" atualizacao={atualizacao} onAtualizado={() => { carregar(); setAtualizacao((n) => n + 1) }} />
+      <RascunhoIaFaixa
+        licitacaoId={id}
+        peca="DFD"
+        somenteLeitura={bloqueada}
+        atualizacao={atualizacao}
+        explicacaoAceite="Aceitar preenche a necessidade só se ela estiver vazia. A lista de quantidades, o PCA e a data o sistema monta dos itens e dos campos desta tela."
+        onAceito={async () => {
+          if (timer.current) clearTimeout(timer.current)
+          await carregar()
+          setEditorChave((n) => n + 1)
+          setAtualizacao((n) => n + 1)
+        }}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4 min-w-0">
@@ -272,6 +288,7 @@ export default function DfdPage() {
             <div className="space-y-1">
               <Label>Por que o órgão precisa disso? (necessidade)</Label>
               <SecaoEditor
+                key={editorChave}
                 value={d.secoes.demanda || ""}
                 onChange={salvarNecessidade}
                 readOnly={bloqueada}

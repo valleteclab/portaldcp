@@ -18,7 +18,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
-import { AlertTriangle, CheckCheck, ChevronDown, CornerUpLeft, FileUp, History, Loader2, MapPin, Send } from "lucide-react"
+import { AlertTriangle, CheckCheck, ChevronDown, CornerUpLeft, FileUp, History, Loader2, MapPin, Send, Sparkles } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { fmtBrasilia } from "@/lib/publicacao"
 import { criarUltimaCarga, hojeBrasilia } from "@/lib/fase-interna/telas"
@@ -373,6 +373,9 @@ function EnviarProcessoDialog({
   const [aconteceuEm, setAconteceuEm] = useState("")
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  /** F4a: despacho ajustado pela IA (texto sugerido, revisado por quem envia). */
+  const [ajustandoIa, setAjustandoIa] = useState(false)
+  const [ajustadoIa, setAjustadoIa] = useState(false)
 
   const { opcoes, inicial, manual } = useMemo(() => opcoesDeDestino(sugestao, setores ?? []), [sugestao, setores])
   const passos = useMemo(() => todosOsPassos(etapas), [etapas])
@@ -385,6 +388,36 @@ function EnviarProcessoDialog({
     setChave(o?.chave ?? null)
     setDespachoEditado(null) // o despacho e o prazo acompanham o novo destino
     setPrazoEditado(null)
+    setAjustadoIa(false)
+  }
+
+  /** "Ajustar com IA": a IA reescreve o despacho deixando clara a finalidade; quem envia revisa. */
+  const ajustarComIa = async () => {
+    if (!escolhida) return setErro("Escolha para onde o processo vai.")
+    setAjustandoIa(true)
+    setErro(null)
+    try {
+      const base = `${API_URL}/api/fase-interna/${licitacaoId}/rascunho-ia`
+      const g = await authFetch(`${base}/gerar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ peca: "TRAMITACAO", destino: escolhida.rotulo, finalidade: (escolhida.principal && sugestao?.finalidade) || "", despacho }),
+      })
+      if (!g.ok) throw new Error(await mensagemDoErro(g, "A IA não está disponível agora"))
+      const tela = await g.json()
+      if (tela?.rascunho?.status !== "GERADO") throw new Error(tela?.rascunho?.erro ? `A IA não conseguiu ajustar o despacho (${tela.rascunho.erro}).` : "A IA não conseguiu ajustar o despacho.")
+      const a = await authFetch(`${base}/${tela.rascunho.id}/aceitar`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      if (!a.ok) throw new Error(await mensagemDoErro(a, "Não foi possível usar o texto da IA"))
+      const texto = (await a.json())?.aceite?.campos?.texto
+      if (texto) {
+        setDespachoEditado(String(texto))
+        setAjustadoIa(true)
+      }
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAjustandoIa(false)
+    }
   }
 
   useEffect(() => {
@@ -491,7 +524,20 @@ function EnviarProcessoDialog({
                 placeholder="Ex.: Encaminhe-se à Contabilidade para a reserva orçamentária."
                 onChange={(e) => setDespachoEditado(e.target.value)}
               />
-              {!manual && <p className="mt-1 text-xs text-gray-600">Sugerido pelo fluxo; pode editar.</p>}
+              <div className="mt-1 flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-xs text-gray-600">
+                  {ajustadoIa ? "Texto ajustado pela IA — revise antes de enviar." : !manual ? "Sugerido pelo fluxo; pode editar." : ""}
+                </p>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-xs text-blue-800 hover:underline disabled:opacity-50"
+                  onClick={ajustarComIa}
+                  disabled={ajustandoIa || !escolhida || bloqueado}
+                  title="A IA ajusta o texto para deixar clara a finalidade do envio; você revisa antes de enviar"
+                >
+                  {ajustandoIa ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" /> : <Sparkles className="w-3 h-3" aria-hidden="true" />} Ajustar com IA
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap gap-4">
               <div>

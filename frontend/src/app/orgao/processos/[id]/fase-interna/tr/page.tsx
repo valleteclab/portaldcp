@@ -18,6 +18,7 @@ import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
+import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { erroDaApi, fmtMoeda, rotaDaTela } from "@/lib/fase-interna/telas"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
@@ -126,6 +127,19 @@ export default function TrPage() {
       }
     >
       <CaminhosDaPeca licitacaoId={id} tipo="TR" titulo="Termo de referência" fazerAqui="redigir e gerar o TR (derivado do ETP)" atualizacao={atualizacao} onAtualizado={() => { carregar(); setAtualizacao((n) => n + 1) }} />
+      {!naoSeAplica && (
+        <RascunhoIaFaixa
+          licitacaoId={id}
+          peca="TR"
+          somenteLeitura={somenteLeitura}
+          atualizacao={atualizacao}
+          explicacaoAceite="Aceitar preenche só as seções vazias do TR. Valor estimado, dotação e critérios de seleção continuam vindo do processo."
+          onAceito={async () => {
+            await carregar()
+            setAtualizacao((n) => n + 1)
+          }}
+        />
+      )}
 
       <div className="grid gap-3 md:grid-cols-3">
         <section className="rounded-lg border bg-white p-3 space-y-1" aria-label="Fundamento legal">

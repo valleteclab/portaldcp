@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
+import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
 
 interface ControleTela {
@@ -63,7 +64,8 @@ export default function ControleInternoPage() {
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/controle-interno/manifestar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conclusao, texto, apontamentos }),
+        // Apontamentos só na manifestação "com apontamentos" (o campo fica escondido na favorável)
+        body: JSON.stringify({ conclusao, texto, apontamentos: conclusao === "COM_APONTAMENTOS" ? apontamentos : "" }),
       })
       if (!r.ok) throw new Error(await erroDaApi(r))
       setD(await r.json())
@@ -131,6 +133,19 @@ export default function ControleInternoPage() {
           {d.parecer && d.parecer.status !== "OK" && d.parecer.status !== "NAO_SE_APLICA" && (
             <p className="text-sm text-amber-900">O parecer jurídico ainda não está pronto — a manifestação costuma vir depois dele.</p>
           )}
+          <RascunhoIaFaixa
+            licitacaoId={id}
+            peca="MCI"
+            somenteLeitura={!d.pode_manifestar || d.licitacao.fase_interna === false || !!d.manifestacao}
+            atualizacao={atualizacao}
+            rotuloAceitar="Levar para o formulário"
+            explicacaoAceite="O texto vai para os campos vazios do formulário abaixo. A conclusão (favorável ou com apontamentos) é sua."
+            onAceito={(a) => {
+              const c = a.campos ?? {}
+              if (c.texto && !texto.trim()) setTexto(c.texto)
+              if (c.apontamentos && !apontamentos.trim()) setApontamentos(c.apontamentos)
+            }}
+          />
           {d.pode_manifestar ? (
             <section aria-label="Manifestação" className="rounded-lg border bg-white p-4 space-y-2 max-w-3xl">
               <div className="flex gap-4 text-sm flex-wrap">

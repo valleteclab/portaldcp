@@ -41,6 +41,10 @@ import { IntegracaoFluxoService } from './fluxo/integracao-fluxo.service';
 import { IntegracaoFluxoController } from './fluxo/integracao-fluxo.controller';
 import { DespachoEtapaService } from './despacho-etapa.service';
 import { DespachoFaseInterna } from './entities/despacho-fase-interna.entity';
+import { RascunhoIaFaseInterna } from './ia-rascunho/rascunho-ia.entity';
+import { RascunhoIaService } from './ia-rascunho/rascunho-ia.service';
+import { RevisaoIaService } from './ia-rascunho/revisao-ia.service';
+import { RascunhoIaController } from './ia-rascunho/rascunho-ia.controller';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
@@ -128,6 +132,8 @@ import {
       FluxoProcessoFaseInterna,
       // F3 — despacho das etapas de registro (folha dos autos)
       DespachoFaseInterna,
+      // F4a — rascunho da IA por etapa (não é peça)
+      RascunhoIaFaseInterna,
     ]),
   ],
   controllers: [
@@ -144,12 +150,15 @@ import {
     ModeloFluxoController,
     FluxoProcessoController,
     IntegracaoFluxoController,
+    RascunhoIaController,
   ],
   providers: [
     ModeloFluxoService,
     FluxoProcessoService,
     IntegracaoFluxoService,
     DespachoEtapaService,
+    RevisaoIaService,
+    RascunhoIaService,
     MigracaoModeloFluxoBootService,
     FaseInternaService,
     PecasFaseInternaService,

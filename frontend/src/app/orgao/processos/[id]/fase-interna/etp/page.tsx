@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { AssistenteEtp, type AnaliseEtp } from "@/components/fase-interna/etapas/AssistenteEtp"
+import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { erroDaApi } from "@/lib/fase-interna/telas"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
@@ -178,6 +179,17 @@ export default function EtpPage() {
         <CaminhosDaPeca licitacaoId={id} tipo="ETP" titulo="Estudo técnico preliminar" fazerAqui="redigir e gerar o ETP" atualizacao={atualizacao} onAtualizado={recarregarTudo} compacto />
         <CaminhosDaPeca licitacaoId={id} tipo="AR" titulo="Análise de riscos" fazerAqui="preencher a matriz de riscos e gerar o documento" atualizacao={atualizacao} onAtualizado={recarregarTudo} permitirAssinatura={false} emitir compacto />
       </div>
+
+      {!naoSeAplica && (
+        <RascunhoIaFaixa
+          licitacaoId={id}
+          peca="ETP"
+          somenteLeitura={somenteLeitura}
+          atualizacao={atualizacao}
+          explicacaoAceite="Aceitar preenche só os incisos vazios do ETP — o que você já escreveu fica. Previsão no PCA e estimativa de valor continuam vindo do DFD e da pesquisa."
+          onAceito={recarregarTudo}
+        />
+      )}
 
       {bloqueios > 0 && (
         <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900" role="alert">

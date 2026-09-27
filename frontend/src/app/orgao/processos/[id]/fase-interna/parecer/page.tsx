@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { VisorDosAutos, type PecaAberta } from "@/components/fase-interna/etapas/VisorDosAutos"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
@@ -253,6 +254,25 @@ export default function ParecerPage() {
             fechar
           </button>
         </div>
+      )}
+      {fase === "PREVIA" && naFaseInterna && (
+        <RascunhoIaFaixa
+          licitacaoId={id}
+          peca="PJ"
+          somenteLeitura={!d.pode_emitir || !d.disponivel || !!emitido}
+          atualizacao={atualizacao}
+          rotuloAceitar="Usar a minuta como base"
+          explicacaoAceite="Usar como base preenche a fundamentação e as ressalvas só se estiverem vazias. A conclusão é sua: escolha abaixo e assine."
+          onAceito={async () => {
+            // o que o jurista já digitou (e ainda não salvou) fica
+            const f = fundamentacao
+            const r = ressalvas
+            await carregar()
+            if (f.trim()) setFundamentacao(f)
+            if (r.trim()) setRessalvas(r)
+            setAtualizacao((n) => n + 1)
+          }}
+        />
       )}
       {bloqueioAssinatura && d.pode_emitir && d.disponivel && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="status">

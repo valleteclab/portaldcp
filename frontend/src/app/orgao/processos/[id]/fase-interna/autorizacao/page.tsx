@@ -23,6 +23,7 @@ import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
 import { Button } from "@/components/ui/button"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
+import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { erroDaApi, fmtDia, fmtMoeda } from "@/lib/fase-interna/telas"
 import { textoDaTrava } from "@/lib/fase-interna/travas"
@@ -336,6 +337,18 @@ export default function AutorizacaoPage() {
             atualizacao={atualizacao}
             permitirAssinatura={false}
             onAtualizado={() => {
+              carregar()
+              setAtualizacao((n) => n + 1)
+            }}
+          />
+          <RascunhoIaFaixa
+            licitacaoId={id}
+            peca="AA"
+            somenteLeitura={!podeRegerar}
+            atualizacao={atualizacao}
+            rotuloAceitar="Aceitar e gerar o despacho"
+            explicacaoAceite="Aceitar gera o despacho com este texto (o local, a data e a autoridade vêm do modelo). Ele só vale depois de assinado pela autoridade; “Regerar despacho” volta ao texto do modelo."
+            onAceito={() => {
               carregar()
               setAtualizacao((n) => n + 1)
             }}

@@ -198,6 +198,28 @@ Continua em código só o **catálogo** (o que o sistema sabe fazer: tela de cad
 - **Só a sincronização grava o fluxo do processo.** A sincronização roda depois do commit. Portões, instrução e tarefas do sistema só leem, porque rodam dentro da transação do ato: gravar ali, por outra conexão, travaria na linha da licitação.
 - **API para a F3:** descrita na PR. Consumida pela visão da fase interna (voltar e avançar, desenho) e pela integração tarefas ↔ tramitação.
 
+## 13. F4a — IA em toda etapa (T4, 27/09/2026)
+
+Branch `claude/ia-rascunho-etapas`. Código em `backend/src/fase-interna/ia-rascunho/`; faixa comum `RascunhoIaFaixa` nas telas das etapas.
+
+**Princípio do dono:** "sempre com IA para fazer e humano revisar".
+
+- **Rascunho não é peça.** Fica em `rascunhos_ia_fase_interna` (origem IA, modelo de IA, data, quem disparou) e nunca conta como peça pronta (regra da #517).
+- **Ao chegar:** com `ia_rascunho` ligado na etapa do modelo, a etapa disponível (ou em andamento) ganha o rascunho em segundo plano, depois da sincronização. Roda fora da fila do processo e de qualquer transação, com limite de concorrência. É idempotente: um por etapa e peça, e de novo só se a etapa for reaberta. Se a IA falhar, fica registrado e a tela oferece "Gerar com IA". Sem chave de IA ou com `FASE_INTERNA_IA_RASCUNHO=false`, nada é pedido.
+- **Peças cobertas:**
+  - DFD: a necessidade, com justificativa e quantidades a partir dos itens;
+  - ETP e TR: as seções do modelo, menos as que o sistema preenche com dados do processo;
+  - despacho de autorização: art. 72, VIII e o fundamento;
+  - minuta de parecer: relatório, fundamentação e conclusão sugerida;
+  - manifestação do controle interno;
+  - despacho das etapas de registro e ajuste do despacho de envio.
+- **Revisão:**
+  - "Aceitar como base" preenche só as seções vazias. Texto escrito por uma pessoa nunca é sobrescrito.
+  - No despacho da autoridade, o aceite gera o despacho com o texto revisado. Ele só vale assinado.
+  - No parecer, só quem tem o papel Jurídico aceita, e a conclusão nunca é preenchida.
+  - Ao emitir a peça feita a partir do rascunho, fica registrado quem revisou (`IA_REVISADA_POR`, usuário do login). O registro vai para o histórico e, de forma discreta, para `_ia_rascunho` da peça. Não entra no texto oficial nem no PDF.
+- **Privacidade:** o contexto enviado à IA é só do processo do órgão do login. Não inclui texto de pesquisa de preços nem de relatório com fornecedor. CPF, CNPJ, e-mail e telefone saem mascarados. No orçamento sigiloso (art. 24), nenhum valor é enviado.
+
 ---
 
 ## Anexo A — Levantamento técnico (26/09/2026)

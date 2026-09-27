@@ -250,6 +250,52 @@ export class IaService {
     return iaConfig.modelo || this.defaultModel;
   }
 
+  /** A IA está configurada (chave no Admin ou OPENROUTER_API_KEY)? Sem chave, nada é pedido a ela. */
+  async configurada(): Promise<boolean> {
+    try {
+      const iaConfig = await this.systemConfigService.getIaConfig();
+      return !!iaConfig.apiKey || !!this.configService.get<string>('OPENROUTER_API_KEY');
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Pedido de RASCUNHO estruturado (F4a — rascunho por etapa da fase
+   * interna): resposta em JSON, temperatura baixa, e o modelo usado (para o
+   * registro "gerado pela IA, modelo X").
+   */
+  async gerarRascunhoJson(systemPrompt: string, userPrompt: string, opcoes: { maxTokens?: number } = {}): Promise<{ texto: string; modelo: string }> {
+    const apiKey = await this.getApiKey();
+    const model = await this.getModel();
+    const response = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://portaldcp.com.br',
+        'X-Title': 'Portal DCP',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: opcoes.maxTokens ?? 4000,
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok) {
+      const erro = await response.text().catch(() => '');
+      this.logger.error(`[gerarRascunhoJson] Erro OpenRouter: ${response.status} — ${erro.slice(0, 300)}`);
+      throw new Error(`Erro na API de IA: ${response.status}`);
+    }
+    const data = await response.json();
+    return { texto: String(data.choices?.[0]?.message?.content ?? ''), modelo: String(data.model || model) };
+  }
+
   async testarConexao(): Promise<{ configurado: boolean; chave: string; mensagem: string }> {
     try {
       const key = await this.getApiKey();
