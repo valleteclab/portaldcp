@@ -14,6 +14,7 @@ import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { calendarioDoOrgao, inicioDoDia, inicioDoDiaSeguinte, DIA_MS } from '../common/prazos/dias-uteis';
 import { TarefasService } from '../fase-interna/tarefas/tarefas.service';
+import { ComQuemEsta, TramitacaoService } from '../fase-interna/tramitacao.service';
 import { ROTULO_PAPEL, etapaAtual } from '../fase-interna/tarefas/etapas-fase-interna';
 import type { ConfigFaseInternaEfetiva } from '../fase-interna/tarefas/configuracao-fase-interna';
 import { ConfiguracaoPainelTv, PainelTvLink } from './painel-tv-link.entity';
@@ -29,6 +30,8 @@ import {
   TEXTO_PRORROGACAO,
   chavesProibidasEm,
   colunaDoProcesso,
+  comQuemDoCartao,
+  ComQuemCartao,
   contarPorFaixa,
   corDoPrazo,
   diasNaEtapa,
@@ -79,7 +82,8 @@ export interface CartaoProcesso {
   objeto: string;
   modalidade: string;
   etapa: string;
-  com_quem: { nome: string; tipo: 'PESSOA' | 'SETOR' | 'AGENTE' } | null;
+  /** F3: pela tramitação (posse), com desde/prazo/atraso; sem ela, pela tarefa aberta. */
+  com_quem: ComQuemCartao | null;
   dias_na_etapa: number | null;
   prazo: string | null;
   cor_prazo: CorPrazo | null;
@@ -159,6 +163,7 @@ export class PainelTvService {
     @InjectRepository(PainelTvLink) private readonly links: Repository<PainelTvLink>,
     @InjectRepository(ConfiguracaoPainelTv) private readonly configs: Repository<ConfiguracaoPainelTv>,
     private readonly tarefas: TarefasService,
+    private readonly tramitacao: TramitacaoService,
   ) {}
 
   /** Cache de 30 a 60 s (PAINEL_TV_CACHE_MS; 0 desliga — usado nos testes). */
@@ -397,6 +402,13 @@ export class PainelTvService {
 
     const cfgFaseInterna = await this.tarefas.configuracao(orgaoId);
     const etapas = await this.etapasAtuais(orgaoId, internos, cfgFaseInterna);
+    // F3: "com quem está" pela tramitação (posse vigente), numa consulta só
+    const posses: Map<string, ComQuemEsta> = ids.length
+      ? await this.tramitacao.comQuemEstaEmLote(orgaoId, ids, agora).catch((e: any) => {
+          this.logger.warn(`Painel para TV: tramitação não lida: ${e?.message ?? e}`);
+          return new Map<string, ComQuemEsta>();
+        })
+      : new Map<string, ComQuemEsta>();
 
     const [tarefas, achados, entradasInternas, entradasExternas] = ids.length
       ? await Promise.all([
@@ -528,7 +540,7 @@ export class PainelTvService {
         objeto: resumirTexto(l.objeto, 70),
         modalidade: modalidadeCurta(l.modalidade),
         etapa: rotuloDaEtapa({ fase: l.fase, situacao: l.situacao, data_homologacao: l.data_homologacao, etapa_atual: etapa?.etapa ?? null }),
-        com_quem: this.comQuem(escolhida, l.agente_nome),
+        com_quem: this.comQuem(posses.get(l.id) ?? null, escolhida, l.agente_nome, agora),
         dias_na_etapa: dias,
         prazo: prazoEtapa ? prazoEtapa.toISOString() : null,
         cor_prazo: cor,
@@ -593,17 +605,28 @@ export class PainelTvService {
     return saida;
   }
 
-  /** "Com quem está": o responsável da tarefa aberta (pessoa, ou papel/setor); sem tarefa, o agente do processo. */
-  private comQuem(tarefa: any | null, agente: string | null): CartaoProcesso['com_quem'] {
-    if (tarefa) {
-      if (tarefa.responsavel_usuario_id) return { nome: tarefa.responsavel_nome || 'Servidor', tipo: 'PESSOA' };
-      const partes = [
-        tarefa.responsavel_papel ? ROTULO_PAPEL[tarefa.responsavel_papel as keyof typeof ROTULO_PAPEL] ?? tarefa.responsavel_papel : null,
-        tarefa.setor_nome ? `setor ${tarefa.setor_nome}` : null,
-      ].filter(Boolean);
-      if (partes.length) return { nome: partes.join(' · '), tipo: 'SETOR' };
-    }
-    return agente ? { nome: agente, tipo: 'AGENTE' } : null;
+  /**
+   * "Com quem está": a posse da tramitação (setor/pessoa, desde, prazo e
+   * atraso); sem tramitação vigente, o responsável da tarefa aberta (pessoa,
+   * ou papel/setor); sem tarefa, o agente do processo.
+   */
+  private comQuem(posse: ComQuemEsta | null, tarefa: any | null, agente: string | null, agora: Date): CartaoProcesso['com_quem'] {
+    const vigente = posse && (posse.status === 'PENDENTE' || posse.status === 'RECEBIDA') ? posse : null;
+    return comQuemDoCartao(
+      vigente,
+      tarefa
+        ? {
+            responsavel_usuario_id: tarefa.responsavel_usuario_id,
+            responsavel_nome: tarefa.responsavel_nome,
+            rotulo_papel: tarefa.responsavel_papel ? ROTULO_PAPEL[tarefa.responsavel_papel as keyof typeof ROTULO_PAPEL] ?? tarefa.responsavel_papel : null,
+            setor_nome: tarefa.setor_nome,
+            created_at: tarefa.created_at,
+            prazo: tarefa.prazo,
+          }
+        : null,
+      agente,
+      agora,
+    );
   }
 
   private async montarPublicados(orgaoId: string, agora: Date) {

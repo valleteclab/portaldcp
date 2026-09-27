@@ -208,6 +208,11 @@ export function despachoPadrao(destino: string, finalidade?: string | null): str
   return `Encaminhe-se ao(à) ${alvo} ${/^(para|a fim|com vistas)\b/i.test(f) ? f : `para ${f}`}.`;
 }
 
+/** Posse inicial (F3): "Autue-se e encaminhe-se ao(à) Compras para a pesquisa de preços." */
+export function despachoDeAutuacao(destino: string, finalidade?: string | null): string {
+  return `Autue-se e e${despachoPadrao(destino, finalidade).slice(1)}`;
+}
+
 /** "20/09/2026 às 14:05" no horário de Brasília (UTC-3 fixo). */
 export function dataHoraBrasilia(d: Date | string): string {
   const b = new Date(new Date(d).getTime() - DESLOCAMENTO_BRASILIA_MS);

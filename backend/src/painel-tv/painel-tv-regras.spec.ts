@@ -8,6 +8,7 @@ import {
   LimitadorPorChave,
   chavesProibidasEm,
   colunaDoProcesso,
+  comQuemDoCartao,
   contarPorFaixa,
   corDoPrazo,
   diasNaEtapa,
@@ -272,5 +273,30 @@ describe('limite por token e cache curto', () => {
     expect(c.obter('orgao', 45_000)).toBeUndefined();
     c.guardar('orgao', 2, 0, 0); // ttl 0 = sem cache
     expect(c.obter('orgao', 1)).toBeUndefined();
+  });
+});
+
+describe('com quem está (F3): pela tramitação; sem ela, pela tarefa; sem tarefa, o agente', () => {
+  const agora = new Date('2026-09-28T15:00:00Z');
+
+  it('posse da tramitação: setor e/ou pessoa, desde, prazo e atraso — nunca o despacho', () => {
+    const c = comQuemDoCartao(
+      { setor: { nome: 'Contabilidade' }, usuario: { nome: 'Kátia' }, desde: '2026-09-20T12:00:00.000Z', prazo: '2026-09-23T23:59:59.000Z', vencido: true },
+      { responsavel_usuario_id: 'x', responsavel_nome: 'Outro' },
+      'Agente',
+      agora,
+    );
+    expect(c).toEqual({ nome: 'Contabilidade · Kátia', tipo: 'PESSOA', desde: '2026-09-20T12:00:00.000Z', prazo: '2026-09-23T23:59:59.000Z', atrasado: true });
+    expect(chavesProibidasEm(c)).toEqual([]);
+    expect(comQuemDoCartao({ setor: { nome: 'Jurídico' }, usuario: null, desde: null, prazo: null, vencido: false }, null, null, agora)?.tipo).toBe('SETOR');
+  });
+
+  it('sem tramitação: o responsável da tarefa aberta (com o prazo dela); sem tarefa: o agente', () => {
+    expect(
+      comQuemDoCartao(null, { responsavel_usuario_id: 'u', responsavel_nome: 'Pedro', created_at: '2026-09-25T10:00:00Z', prazo: '2026-09-27T10:00:00Z' }, 'Agente', agora),
+    ).toEqual({ nome: 'Pedro', tipo: 'PESSOA', desde: '2026-09-25T10:00:00.000Z', prazo: '2026-09-27T10:00:00.000Z', atrasado: true });
+    expect(comQuemDoCartao(null, { rotulo_papel: 'Compras', setor_nome: 'Compras' }, null, agora)).toMatchObject({ nome: 'Compras · setor Compras', tipo: 'SETOR', atrasado: false });
+    expect(comQuemDoCartao(null, null, 'Ana', agora)).toEqual({ nome: 'Ana', tipo: 'AGENTE', desde: null, prazo: null, atrasado: false });
+    expect(comQuemDoCartao(null, null, null, agora)).toBeNull();
   });
 });

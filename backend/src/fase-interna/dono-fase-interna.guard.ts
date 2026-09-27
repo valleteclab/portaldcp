@@ -29,7 +29,7 @@ import { atorDaRequisicao, ehOrgao } from '../auth/acesso/ator';
  * Roda ANTES dos interceptors (upload multer): arquivo de quem não é dono
  * nem chega a ser gravado.
  */
-export type RecursoFaseInterna = 'documento' | 'tramitacao' | 'etapa';
+export type RecursoFaseInterna = 'documento' | 'tramitacao' | 'etapa' | 'despacho';
 export const DONO_POR_KEY = 'fase-interna:dono-por';
 
 /** Licitação dona do recurso identificado pelo parâmetro `param` da rota. */
@@ -47,6 +47,8 @@ const SQL_LICITACAO_DO_RECURSO: Record<RecursoFaseInterna, string> = {
   documento: `SELECT licitacao_id FROM documentos_fase_interna WHERE id = $1`,
   tramitacao: `SELECT licitacao_id FROM tramitacoes_processo WHERE id = $1`,
   etapa: `SELECT licitacao_id FROM aprovacoes_documento WHERE id = $1`,
+  // F3: despacho de etapa de registro (folha dos autos)
+  despacho: `SELECT licitacao_id FROM despachos_fase_interna WHERE id = $1`,
 };
 
 @Injectable()

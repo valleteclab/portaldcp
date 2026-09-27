@@ -188,7 +188,7 @@ function regraArt72(inciso: string, opcoes: { severidade: 'BLOQUEIO' | 'ATENCAO'
       if (rito) return rito;
       if (def.momento === 'FASE_EXTERNA' && !opcoes.tipos) return 'Fase externa — não bloqueia a fase interna.';
       // Portão B: vale para o ATO de autorizar; autorização já dada = portão superado
-      if (antesDeAutorizar && autorizacaoPraticada(ctx) && ctx.ato_pretendido !== 'AUTORIZAR') return 'A autorização já foi dada (o portão B é conferido antes de autorizar).';
+      if (antesDeAutorizar && autorizacaoPraticada(ctx) && ctx.ato_pretendido !== 'AUTORIZAR') return 'A autorização já foi dada (a trava da lei é conferida antes de autorizar).';
       // Depois da autorização: parecer e justificativa de preço (III e VII)
       if (!antesDeAutorizar && inciso !== 'VIII' && !autorizacaoPraticada(ctx) && ctx.ato_pretendido !== 'PUBLICAR') return 'Conferido depois da autorização, antes de publicar.';
       return null;
@@ -205,7 +205,7 @@ function regraArt72(inciso: string, opcoes: { severidade: 'BLOQUEIO' | 'ATENCAO'
         inciso === 'VIII'
           ? 'Sem a autorização não se publica.'
           : antesDeAutorizar
-            ? 'Sem isso a autoridade não autoriza (portão B): faça, anexe ou marque "não se aplica" quando a lei permitir.'
+            ? 'Sem isso a autoridade não autoriza (trava da lei: autorizar): faça, anexe ou marque "não se aplica" quando a lei permitir.'
             : 'Junte a peça ou registre por que não se aplica.';
       return [
         {
@@ -259,7 +259,7 @@ function regraArt72EscolhaPreco(inciso: 'VI' | 'VII'): Regra {
       if (rito) return rito;
       // Só a contratação direta SEM aviso (inexigibilidade) exige antes; dispensa eletrônica e credenciamento: após a seleção
       if (!contratacaoSemAviso(ctx.processo.modalidade)) return motivoEscolhaAposSelecao(ctx.processo.modalidade);
-      if (autorizacaoPraticada(ctx) && ctx.ato_pretendido !== 'AUTORIZAR') return 'A autorização já foi dada (o portão B é conferido antes de autorizar).';
+      if (autorizacaoPraticada(ctx) && ctx.ato_pretendido !== 'AUTORIZAR') return 'A autorização já foi dada (a trava da lei é conferida antes de autorizar).';
       return null;
     },
     avaliar(ctx) {
@@ -281,7 +281,7 @@ function regraArt72EscolhaPreco(inciso: 'VI' | 'VII'): Regra {
           titulo: `Art. 72, ${inciso} incompleto`,
           mensagem:
             `Art. 72, ${inciso} — ${def.texto}: falta ${oque}, no relatório do agente ou na justificativa da contratação direta (pronta: gerada, anexada ou assinada). ` +
-            'Na contratação direta sem aviso (inexigibilidade, art. 74) o contratado é definido antes: sem isso a autoridade não autoriza (portão B). "Não se aplica" não supre este inciso.',
+            'Na contratação direta sem aviso (inexigibilidade, art. 74) o contratado é definido antes: sem isso a autoridade não autoriza (trava da lei: autorizar). "Não se aplica" não supre este inciso.',
           evidencias: evid,
           tipo_peca_responsavel: alvo?.tipo ?? 'RAG',
           acao: 'CORRIGIR_PECA',

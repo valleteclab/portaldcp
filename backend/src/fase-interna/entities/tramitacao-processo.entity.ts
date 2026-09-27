@@ -165,6 +165,25 @@ export class TramitacaoProcesso {
   @Column({ type: 'int', nullable: true })
   folha_final: number | null;
 
+  // === INTEGRAÇÃO COM AS TAREFAS (F3) ===
+
+  /**
+   * Etapas (códigos do modelo de fluxo) para as quais o processo foi enviado:
+   * as tarefas abertas delas passam ao destino na chegada. Nulo = pelo destino
+   * de cada etapa no modelo.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  etapas: string[] | null;
+
+  /**
+   * Registro da POSSE INICIAL (autuação): criado pelo sistema ao abrir o
+   * processo (ou na primeira sincronização de processo antigo sem
+   * tramitação), sem aviso e sem folha — a autuação já está na capa e no termo
+   * de abertura dos autos. Não limita a data de um lançamento posterior.
+   */
+  @Column({ type: 'boolean', default: false })
+  posse_inicial: boolean;
+
   // === AVISOS DE PRAZO (idempotentes) ===
   @Column({ type: 'timestamp', nullable: true })
   aviso_vespera_em: Date | null;

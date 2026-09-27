@@ -85,7 +85,7 @@ export interface EntradaConferencia {
 }
 
 /** Pendências do portão C (motor de conformidade — Entrega 4) começam assim. */
-const PREFIXO_PORTAO_C = 'Portão C';
+const PREFIXO_PORTAO_C = 'Trava da lei (publicar)';
 
 /** Tipo da autorização da autoridade competente na instrução (art. 72, VIII). */
 const TIPO_AUTORIZACAO = 'AA';

@@ -316,7 +316,7 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
     it('o PUBLICAR da tela é recusado pelo portão C com o que falta e onde; o Diário Oficial antes de publicar é 409', async () => {
       const r = await http().put(`/api/licitacoes/${lic.id}/publicar-edital`).set(bearer(agenteB.token)).send(corpoDivulgacao(fimPropostasSugerido()));
       expect(r.status).toBe(400);
-      expect(r.body.pendencias.join(' ')).toMatch(/Portão C \(conformidade\) — VINC-01/);
+      expect(r.body.pendencias.join(' ')).toMatch(/Trava da lei \(publicar\) — VINC-01/);
       const d = await http()
         .post(`/api/fase-interna/${lic.id}/publicacao/diario-oficial`)
         .set(bearer(agenteB.token))

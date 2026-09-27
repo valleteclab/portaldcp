@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import type { Ator } from '../../auth/acesso/ator';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { AuditLogService } from '../audit-log.service';
+import { DespachoEtapaService } from '../despacho-etapa.service';
 import { TipoDocumentoFaseInterna } from '../entities/documento-fase-interna.entity';
 import { AcaoLogFaseInterna } from '../entities/log-fase-interna.entity';
 import { FaseInternaService } from '../fase-interna.service';
@@ -32,6 +33,7 @@ export class FluxoProcessoService {
     private readonly tarefas: TarefasService,
     private readonly faseInterna: FaseInternaService,
     private readonly auditLog: AuditLogService,
+    private readonly despachos: DespachoEtapaService,
   ) {}
 
   private async processo(licitacaoId: string) {
@@ -160,8 +162,15 @@ export class FluxoProcessoService {
     } else {
       throw new ConflictException('Nada a concluir aqui: esta etapa conclui quando as peças dela ficam prontas (feitas, assinadas, anexadas ou "não se aplica").');
     }
+    // F3: o despacho da etapa de REGISTRO vira folha nos autos (PDF, mesma sequência das peças)
+    let despacho: MarcaEtapa['despacho'] = null;
+    if (passo.conclusao === 'REGISTRO' && registros[codigo] === marca) {
+      const d = await this.despachos.registrar(licitacaoId, { etapa: codigo, titulo_etapa: passo.titulo, texto, autor });
+      despacho = { id: d.id, folha_inicial: d.folha_inicial, folha_final: d.folha_final, url: d.url };
+      registros[codigo] = { ...marca, despacho };
+    }
     await this.modeloFluxo.gravarMarcas(ctx.fluxo.id, { reabertas, a_revisar: aRevisar, registros });
-    await this.log(licitacaoId, acao, descricao, { etapa: codigo, texto }, autor);
+    await this.log(licitacaoId, acao, `${descricao}${despacho ? ` (despacho nos autos, fl. ${despacho.folha_inicial})` : ''}`, { etapa: codigo, texto, despacho }, autor);
     await this.tarefas.agendar(licitacaoId);
     return this.tarefas.etapasDoProcesso(licitacaoId, ator);
   }

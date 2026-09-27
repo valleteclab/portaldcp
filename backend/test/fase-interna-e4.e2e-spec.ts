@@ -152,7 +152,7 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       const r = await publicar(lic);
       expect(r.status).toBe(400);
       const pend = (r.body.pendencias ?? [r.body.message]).join(' ');
-      expect(pend).toMatch(/Portão C \(conformidade\) — VINC-01: Minuta do contrato cita PA nº 115\/2025/);
+      expect(pend).toMatch(/Trava da lei \(publicar\) — VINC-01: Minuta do contrato cita PA nº 115\/2025/);
       expect(pend).toMatch(/\[Minuta do contrato, fl\. \d+\]/);
       const [l] = await sql(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [lic.id]);
       expect(l.fase).toBe(FaseLicitacao.APROVACAO_INTERNA);
@@ -261,7 +261,7 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       await sql(`UPDATE licitacoes SET fase = 'PESQUISA_PRECOS' WHERE id = $1`, [l2.id]);
       const r = await http().post(`/api/licitacoes/${l2.id}/atos/CONCLUIR_PESQUISA_PRECOS`).set(bearer(X.token)).send({});
       expect(r.status).toBe(400);
-      expect((r.body.pendencias ?? [r.body.message]).join(' ')).toMatch(/Portão A \(limite e fracionamento\) — LIM-01/);
+      expect((r.body.pendencias ?? [r.body.message]).join(' ')).toMatch(/Trava da lei \(concluir a pesquisa\) — LIM-01/);
       // pesquisa feita fora: o mapa anexado não conclui a etapa enquanto o limite estoura
       expect((await anexar(l2, 'PP', X.token)).status).toBe(201);
       await esperar();

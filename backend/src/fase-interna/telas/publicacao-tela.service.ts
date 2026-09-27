@@ -167,7 +167,7 @@ export class PublicacaoTelaService {
       etapa8: {
         situacao: interna ? 'PENDENTE' : aguardando ? 'AGUARDANDO_CONFIRMACAO' : 'CONCLUIDA',
         texto: interna
-          ? 'Publicar pratica o ato PUBLICAR (portão C) e envia o aviso ao PNCP.'
+          ? 'Publicar pratica o ato PUBLICAR (trava da lei: publicar) e envia o aviso ao PNCP.'
           : aguardando
             ? 'Aviso enviado — a etapa conclui quando o PNCP confirmar a publicação (o prazo corre dessa data).'
             : `Publicação confirmada em ${fmtDataHora(l.data_divulgacao_oficial)}${l.meio_divulgacao_oficial === 'DIARIO_OFICIAL' ? ' (Diário Oficial)' : ' (PNCP)'}.`,

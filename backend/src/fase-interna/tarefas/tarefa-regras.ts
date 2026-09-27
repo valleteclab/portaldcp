@@ -28,6 +28,8 @@ export { TELA_DO_PASSO };
  */
 export function destinoDaTarefa(t: { licitacao_id: string; passo?: string | null; tipo_peca?: string | null; origem?: string | null; origem_id?: string | null }): string {
   if (t.tipo_peca === 'PJE') return `/orgao/processos/${t.licitacao_id}/fase-interna/parecer?fase=EXTERNA`;
+  // F3: "Aprovar a demanda" e "Enviar o processo" → a tela do processo (topo "Está com…")
+  if (t.origem === 'APROVACAO' || t.origem === 'TRAMITACAO') return `/orgao/processos/${t.licitacao_id}`;
   // Entrega 4: tarefa de achado da conformidade → a tela da conformidade, no achado
   if (t.origem === 'ACHADO') return `/orgao/processos/${t.licitacao_id}/fase-interna/conformidade${t.origem_id ? `#achado-${t.origem_id}` : ''}`;
   const tela = t.passo ? TELA_DO_PASSO[t.passo] : undefined;
@@ -198,6 +200,25 @@ export function quemCumpriu(doc: {
     return { id: doc.aprovador_id || null, nome: doc.aprovador_nome || null };
   }
   return { id: doc.criado_por_id || null, nome: doc.criado_por_nome || null };
+}
+
+/** Janela padrão do aviso duplicado (minutos): tramitação e tarefa do mesmo processo para a mesma pessoa. */
+export const JANELA_AVISO_DUPLICADO_MIN = 30;
+
+/**
+ * AVISO SEM DUPLICAR (F3): quem já foi avisado pela TRAMITAÇÃO deste processo
+ * (chegada — e-mail/WhatsApp com o link) há pouco não recebe outro aviso pela
+ * tarefa correspondente. `avisosRecentes`: avisos de tramitação do processo,
+ * com a idade em segundos. Devolve só quem ainda deve ser avisado.
+ */
+export function destinatariosSemAvisoRecente<T extends { id: string }>(
+  destinatarios: T[],
+  avisosRecentes: Array<{ usuario_id: string | null; idade_s: number }>,
+  janelaMin: number = JANELA_AVISO_DUPLICADO_MIN,
+): T[] {
+  const janela = Math.max(0, Number(janelaMin) || 0) * 60;
+  const avisados = new Set(avisosRecentes.filter((a) => !!a.usuario_id && a.idade_s >= 0 && a.idade_s <= janela).map((a) => a.usuario_id));
+  return destinatarios.filter((d) => !avisados.has(d.id));
 }
 
 /**

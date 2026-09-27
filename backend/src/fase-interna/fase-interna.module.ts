@@ -37,6 +37,10 @@ import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 import { FluxoProcessoController, ModeloFluxoController } from './fluxo/modelo-fluxo.controller';
 import { MigracaoModeloFluxoBootService } from './fluxo/migracao-modelo-fluxo-boot.service';
+import { IntegracaoFluxoService } from './fluxo/integracao-fluxo.service';
+import { IntegracaoFluxoController } from './fluxo/integracao-fluxo.controller';
+import { DespachoEtapaService } from './despacho-etapa.service';
+import { DespachoFaseInterna } from './entities/despacho-fase-interna.entity';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
@@ -122,6 +126,8 @@ import {
       RequisitoLegalFluxo,
       TravaAtoFluxo,
       FluxoProcessoFaseInterna,
+      // F3 — despacho das etapas de registro (folha dos autos)
+      DespachoFaseInterna,
     ]),
   ],
   controllers: [
@@ -137,10 +143,13 @@ import {
     ConformidadeController,
     ModeloFluxoController,
     FluxoProcessoController,
+    IntegracaoFluxoController,
   ],
   providers: [
     ModeloFluxoService,
     FluxoProcessoService,
+    IntegracaoFluxoService,
+    DespachoEtapaService,
     MigracaoModeloFluxoBootService,
     FaseInternaService,
     PecasFaseInternaService,
@@ -202,6 +211,7 @@ import {
     OrcamentoService,
     ConformidadeService,
     ModeloFluxoService,
+    IntegracaoFluxoService,
   ],
 })
 export class FaseInternaModule {}

@@ -85,6 +85,8 @@ interface EntradaAutos {
   momento?: Date | null;
   /** Despacho de tramitação (espinha): folhas gravadas na tramitação. */
   tramitacao_id?: string | null;
+  /** Despacho de etapa de registro (F3): folhas gravadas no despacho. */
+  despacho_etapa_id?: string | null;
 }
 
 export interface EntradaIndice {
@@ -99,6 +101,8 @@ export interface EntradaIndice {
   documento_id: string | null;
   /** Despacho de tramitação: id da tramitação (folhas gravadas nela). */
   tramitacao_id?: string | null;
+  /** Despacho de etapa de registro (F3): id do despacho (folhas gravadas nele). */
+  despacho_etapa_id?: string | null;
 }
 
 export interface MetaAutos {
@@ -608,6 +612,38 @@ export class ProcessoPdfService {
       });
     }
 
+    // ── 5b. Despachos das etapas de registro (F3): também folhas, intercalados na ordem cronológica
+    const despachosEtapa: any[] = await this.dataSource
+      .query(
+        `SELECT id::text AS id, etapa, titulo, arquivo, hash, registrado_em, autor_nome, autor_cargo
+           FROM despachos_fase_interna
+          WHERE licitacao_id::text = $1 AND arquivo IS NOT NULL
+          ORDER BY registrado_em ASC`,
+        [id],
+      )
+      .catch(() => [] as any[]);
+    for (const d of despachosEtapa) {
+      const arq = this.caminhoFisico(d.arquivo);
+      if (!arq) {
+        ausentes.push(`${d.titulo} (arquivo não encontrado)`);
+        continue;
+      }
+      entradasDespacho.push({
+        chave: 'DESPACHO_ETAPA',
+        ordem: String(d.etapa),
+        titulo: d.titulo,
+        origem: 'GERADA',
+        data_documento: d.registrado_em ? new Date(d.registrado_em) : null,
+        signatarios: d.autor_nome ? [[d.autor_nome, d.autor_cargo].filter(Boolean).join(' — ')] : [],
+        observacao: null,
+        documento_id: null,
+        despacho_etapa_id: d.id,
+        momento: d.registrado_em ? new Date(d.registrado_em) : null,
+        fonte: { tipo: 'ARQUIVO', caminho: arq },
+        impressao: `despacho-etapa:${d.id}:${d.hash ?? d.arquivo}`,
+      });
+    }
+
     const ordenadas = intercalarDespachos(
       ordenarPecasDosAutos(entradas).map((e) => ({ ...e, momento: e.momento ?? e.data_documento })),
       entradasDespacho,
@@ -690,6 +726,7 @@ export class ProcessoPdfService {
         observacao: p.e.observacao,
         documento_id: p.e.documento_id,
         tramitacao_id: p.e.tramitacao_id ?? null,
+        despacho_etapa_id: p.e.despacho_etapa_id ?? null,
       }));
 
       // PASSO 2 — monta: termos + peças copiadas uma a uma, carimbando cada folha
@@ -754,6 +791,17 @@ export class ProcessoPdfService {
             [e.tramitacao_id, e.folha_inicial, e.folha_final],
           )
           .catch((err: any) => this.logger.warn(`[autos] folhas do despacho ${e.tramitacao_id} não gravadas: ${err?.message ?? err}`));
+        continue;
+      }
+      if (e.despacho_etapa_id) {
+        // Despacho de etapa de registro (F3): as folhas ficam no próprio despacho
+        await this.dataSource
+          .query(
+            `UPDATE despachos_fase_interna SET folha_inicial = $2, folha_final = $3
+              WHERE id::text = $1 AND (folha_inicial IS DISTINCT FROM $2 OR folha_final IS DISTINCT FROM $3)`,
+            [e.despacho_etapa_id, e.folha_inicial, e.folha_final],
+          )
+          .catch((err: any) => this.logger.warn(`[autos] folhas do despacho de etapa ${e.despacho_etapa_id} não gravadas: ${err?.message ?? err}`));
         continue;
       }
       if (!e.documento_id) continue;

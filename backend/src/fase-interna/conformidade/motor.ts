@@ -124,10 +124,14 @@ const onde = (a: AchadoCalculado) => {
   return lugares.length ? ` [${[...new Set(lugares)].join('; ')}]` : '';
 };
 
-const ROTULO_PORTAO: Record<Portao, string> = {
-  A: 'Portão A (limite e fracionamento)',
-  B: 'Portão B (art. 72)',
-  C: 'Portão C (conformidade)',
+/**
+ * Nome do portão para quem lê: "Trava da lei (<ato que ela segura>)" (plano
+ * §3 e decisão 4 do dono). Os códigos internos (A/B/C, `portao`) não mudam.
+ */
+export const ROTULO_PORTAO: Record<Portao, string> = {
+  A: 'Trava da lei (concluir a pesquisa)',
+  B: 'Trava da lei (autorizar)',
+  C: 'Trava da lei (publicar)',
 };
 
 /**
