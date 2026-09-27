@@ -179,7 +179,7 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       await http().put('/api/fluxo-fase-interna/requisitos/RL-CD-AUTORIZACAO').set(bearer(ctx.tokenAdmin())).send({ mensagem: 'Falta a autorização da autoridade competente' }).expect(200);
       const travas = (await http().get('/api/fluxo-fase-interna/travas').set(bearer(agenteA.token)).expect(200)).body;
       expect(travas.map((t: any) => t.ato)).toEqual(['CONCLUIR_PESQUISA', 'AUTORIZAR', 'PUBLICAR']);
-      expect(travas[1].regras.map((r: any) => r.regra)).toEqual(['LIM-01', 'LIM-02', 'A72-I', 'A72-II', 'A72-IV']);
+      expect(travas[1].regras.map((r: any) => r.regra)).toEqual(['LIM-01', 'LIM-02', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
       expect((await http().put('/api/fluxo-fase-interna/travas/AUTORIZAR/A72-I').set(bearer(A.token)).send({ ativa: false })).status).toBe(403);
       await http().put('/api/fluxo-fase-interna/travas/AUTORIZAR/A72-I').set(bearer(ctx.tokenAdmin())).send({ severidade: 'BLOQUEIO' }).expect(200);
       const sis = (await modelo(ctx.tokenAdmin(), 'DISPENSA', '?sistema=true').expect(200)).body;
@@ -331,6 +331,7 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       antigo = await criarLicitacao(ctx, D, ModalidadeLicitacao.DISPENSA_ELETRONICA);
       expect((await anexar(antigo, 'DFD', D.token)).status).toBe(201);
       expect((await naoSeAplica(antigo, 'ETP', D.token)).status).toBe(201); // o estudo já começou
+      expect(passo(await etapas(antigo, D.token), 'ETP').situacao).not.toBe('AGUARDANDO'); // fluxo gravado (snapshot) antes da edição
       await salvar(D.token, {
         etapas: [
           { codigo: 'AUTORIZACAO_INICIO', ligada: true },

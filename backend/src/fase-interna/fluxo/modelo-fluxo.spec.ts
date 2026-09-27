@@ -72,7 +72,7 @@ describe('semente "Câmara — Portaria 089" = o comportamento das constantes de
   it('travas por ato semeadas = portões de sempre (A, B, C)', () => {
     const t = travasSemente();
     expect(t.filter((x) => x.ato === 'CONCLUIR_PESQUISA').map((x) => x.regra)).toEqual(regrasDoPortao('A').map((r) => r.codigo));
-    expect(t.filter((x) => x.ato === 'AUTORIZAR').map((x) => x.regra)).toEqual(['LIM-01', 'LIM-02', 'A72-I', 'A72-II', 'A72-IV']);
+    expect(t.filter((x) => x.ato === 'AUTORIZAR').map((x) => x.regra)).toEqual(regrasDoPortao('B').map((r) => r.codigo));
     expect(t.filter((x) => x.ato === 'PUBLICAR').map((x) => x.regra)).toEqual(regrasDoPortao('C').map((r) => r.codigo));
     expect(t.every((x) => x.severidade === REGRAS.find((r) => r.codigo === x.regra)!.severidade)).toBe(true);
   });
