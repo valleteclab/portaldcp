@@ -220,6 +220,18 @@ Branch `claude/ia-rascunho-etapas`. Código em `backend/src/fase-interna/ia-rasc
   - Ao emitir a peça feita a partir do rascunho, fica registrado quem revisou (`IA_REVISADA_POR`, usuário do login). O registro vai para o histórico e, de forma discreta, para `_ia_rascunho` da peça. Não entra no texto oficial nem no PDF.
 - **Privacidade:** o contexto enviado à IA é só do processo do órgão do login. Não inclui texto de pesquisa de preços nem de relatório com fornecedor. CPF, CNPJ, e-mail e telefone saem mascarados. No orçamento sigiloso (art. 24), nenhum valor é enviado.
 
+## 14. Demanda → DFD consolidado → processo (27/09/2026)
+
+Branch `claude/demanda-dfd-consolidado`. Código em `backend/src/demandas/dfd/` e `backend/src/fase-interna/fluxo/planejamento-fluxo*`; telas `/orgao/demandas/consolidacao` e `/orgao/demandas/dfd/[id]`.
+
+- **Demanda** = pedido de qualquer setor (não abre processo). **DFD** = documento da **unidade de planejamento**, que junta pedidos parecidos (art. 12, VII — evita o fracionamento, art. 75, §1º) e abre **um** processo.
+- **Nova entidade** `dfds_consolidados` (+ ligação `dfds_consolidados_demandas`, N demandas → 1 DFD → 1 processo) em vez de evoluir `ContratacaoFutura`: a contratação futura era um agrupamento do PCA sem itens, sem aprovação e ligado por uma coluna na demanda; as existentes ficam legíveis na tela do planejamento. `licitacoes.demanda_id` continua para o processo de 1 demanda (compatibilidade); processos antigos de 1 demanda ganham o vínculo pela migração de boot.
+- **Itens**: soma pelo código do item do catálogo; sem código, por classe + descrição (mesma unidade). Cada item guarda a origem (demanda, setor, quantidade) e o ajuste do planejamento (a soma original fica).
+- **Planejamento no modelo de fluxo** (dados — `planejamento_fluxo_orgao`, padrão do sistema semeado no boot): quem aprova a demanda (padrão: "pode aprovar demandas"), quem monta o DFD e abre o processo (padrão: papel **PLANEJAMENTO** + administrador do órgão) e a **2ª aprovação do DFD** (desligada por padrão).
+- **Aprovação**: aprovador sempre do token. A aprovação da demanda do processo conta sozinha quando **todas** as demandas de origem estão aprovadas (e o DFD, com a 2ª aprovação ligada). A Central de Aprovações junta demandas, DFDs e a "aprovação da demanda" dos processos; a tarefa "Aprovar a demanda" leva para lá.
+- **Travas**: demanda num DFD não é editada, não entra em outro DFD e não abre processo sozinha. "Iniciar contratação" de uma demanda = DFD de 1 demanda, só para a unidade de planejamento.
+- **Alerta de parecidos**: função pura (`consolidacao-dfd.ts › parecidos`) — o DFD ainda não é processo, então não cabe no motor de conformidade (que roda sobre a licitação). Atenção, nunca bloqueio; vai para o histórico do processo na abertura.
+
 ---
 
 ## Anexo A — Levantamento técnico (26/09/2026)

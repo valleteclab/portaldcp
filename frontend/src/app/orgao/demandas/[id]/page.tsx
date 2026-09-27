@@ -67,6 +67,8 @@ interface Demanda {
   motivo_rejeicao?: string
   created_at: string
   itens: ItemDemanda[]
+  /** DFD consolidado (unidade de planejamento) em que a demanda entrou — travada enquanto estiver nele. */
+  dfd?: { id: string; numero: number; ano: number; status: string; licitacao_id: string | null } | null
 }
 
 // Item normalizado — mesma forma para qualquer fonte
@@ -91,7 +93,7 @@ const STATUS_CONFIG: Record<string, { label: string; cor: string; icon: any }> =
   EM_ANALISE:  { label: 'Em Análise',   cor: 'bg-yellow-100 text-yellow-700', icon: Clock },
   APROVADA:    { label: 'Aprovada',     cor: 'bg-green-100 text-green-700',   icon: CheckCircle },
   REJEITADA:   { label: 'Rejeitada',    cor: 'bg-red-100 text-red-700',       icon: XCircle },
-  CONSOLIDADA: { label: 'Consolidada',  cor: 'bg-purple-100 text-purple-700', icon: CheckCircle },
+  CONSOLIDADA: { label: 'No PCA',       cor: 'bg-purple-100 text-purple-700', icon: CheckCircle },
   EM_CONTRATACAO: { label: 'Em contratação', cor: 'bg-indigo-100 text-indigo-700', icon: Clock },
   CONTRATADA:  { label: 'Contratada',   cor: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
 }
@@ -976,7 +978,7 @@ function JustificativaDemanda({
           className="min-h-[360px] w-full resize-y border-gray-200 px-5 py-4 text-[15px] leading-7 text-gray-800 shadow-sm focus:border-blue-500 focus:ring-blue-500"
           />
           <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-            <span>A justificativa compõe o DFD e será utilizada na instrução da fase interna.</span>
+            <span>A justificativa acompanha o pedido e é aproveitada pela unidade de planejamento no DFD.</span>
             <span>{caracteres.toLocaleString('pt-BR')} caracteres</span>
           </div>
         </div>
@@ -1152,31 +1154,30 @@ export default function DetalheDemandaPage() {
 
   // ── Aprovar/Rejeitar direto na página (o aprovador não precisa voltar) ────
   const [decidindo, setDecidindo] = useState(false)
-  // Permissão: login direto do órgão sempre pode; usuário precisa da flag
+  // Permissões pelo modelo de fluxo (Configurações › Fluxo): quem aprova a demanda e quem monta o DFD
   const [podeAprovar, setPodeAprovar] = useState(false)
+  const [podeMontarDfd, setPodeMontarDfd] = useState(false)
   useEffect(() => {
-    try {
-      const u = localStorage.getItem('usuario')
-      if (!u) { setPodeAprovar(true); return } // login direto do órgão
-      setPodeAprovar(JSON.parse(u)?.pode_aprovar_demandas === true)
-    } catch { setPodeAprovar(false) }
+    authFetch(`${API_URL}/api/dfds-consolidados/permissoes`)
+      .then(async (r) => {
+        if (!r.ok) return
+        const p = await r.json()
+        setPodeAprovar(!!p.pode_aprovar_demanda)
+        setPodeMontarDfd(!!p.pode_montar)
+      })
+      .catch(() => { /* sem permissões: botões ocultos */ })
   }, [])
 
   const aprovarAqui = async () => {
     if (!demanda || decidindo) return
-    let aprovador = 'Aprovador'
-    try {
-      const u = JSON.parse(localStorage.getItem('usuario') || '{}')
-      const o = JSON.parse(localStorage.getItem('orgao') || '{}')
-      aprovador = u?.nome || o?.nome || 'Aprovador'
-    } catch { /* usa default */ }
     if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: `Aprovar a demanda de ${demanda.unidade_requisitante}?` }))) return
     setDecidindo(true)
     try {
+      // Quem aprova vem do login (o servidor registra)
       const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/aprovar`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aprovadoPor: aprovador }),
+        body: JSON.stringify({}),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -1213,6 +1214,25 @@ export default function DetalheDemandaPage() {
     }
   }
 
+  // ── Rejeitada: o setor volta a demanda para rascunho, corrige e reenvia ───
+  const voltarParaRascunho = async () => {
+    if (!demanda || decidindo) return
+    if (!(await confirmarAcao({ titulo: 'Corrigir a demanda', mensagem: 'A demanda volta para rascunho para você corrigir e enviar de novo. O motivo da rejeição continua visível.' }))) return
+    setDecidindo(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/voltar-rascunho`, { method: 'PATCH' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || `HTTP ${res.status}`)
+      }
+      await carregarDemanda()
+    } catch (e: any) {
+      toast.error(`Não foi possível voltar para rascunho: ${e.message}`)
+    } finally {
+      setDecidindo(false)
+    }
+  }
+
   // ── Acompanhamento (PCA → processo → contrato) ────────────────────────────
   const [acomp, setAcomp] = useState<any>(null)
   useEffect(() => {
@@ -1234,21 +1254,13 @@ export default function DetalheDemandaPage() {
 
   useEffect(() => {
     if (!demanda?.id) return
-    // Processo já iniciado a partir desta demanda?
-    authFetch(`${API_URL}/api/licitacoes?demanda_id=${demanda.id}`)
-      .then(async (r) => {
-        if (!r.ok) return
-        const lista = await r.json()
-        if (Array.isArray(lista) && lista.length > 0) {
-          setProcessoVinculado({ id: lista[0].id, numero_processo: lista[0].numero_processo, modalidade: lista[0].modalidade })
-        }
-      })
-      .catch(() => { /* segue sem vínculo */ })
+    // Processo já iniciado a partir desta demanda (sozinha ou pelo DFD consolidado)?
+    if (acomp?.processo) setProcessoVinculado({ id: acomp.processo.id, numero_processo: acomp.processo.numero_processo, modalidade: acomp.processo.modalidade })
     // Limite da dispensa do exercício (art. 75, II — tabela por exercício) para sugerir a modalidade
     authFetch(`${API_URL}/api/parametros-licitacao/limites-dispensa`)
       .then(async (r) => { if (r.ok) { const l = await r.json(); if (l?.II?.valor != null) setLimiteDispensa(Number(l.II.valor)) } })
       .catch(() => { /* sugestão fica sem limite */ })
-  }, [demanda?.id, orgaoId])
+  }, [demanda?.id, orgaoId, acomp?.processo])
 
   const abrirModalIniciar = () => {
     const total = (demanda?.itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
@@ -1258,34 +1270,47 @@ export default function DetalheDemandaPage() {
     setModalIniciar(true)
   }
 
+  /**
+   * "Iniciar contratação" de UMA demanda (só a unidade de planejamento): por
+   * baixo, um DFD de 1 demanda — o mesmo caminho do DFD consolidado.
+   */
   const iniciarContratacao = async () => {
     if (!demanda || !modalidadeEscolhida || !modoFaseInterna) return
     lembrarEscolhaModo(modoFaseInterna)
-    // Fase interna já feita fora: o fluxo curto (dados, itens e PDFs) com a demanda pré-carregada
-    if (modoFaseInterna === 'FORA') {
-      router.push(rotaFaseInternaFeitaFora({ modalidade: modalidadeEscolhida, demandaId: demanda.id }))
-      return
-    }
     setIniciando(true)
+    let dfdId: string | null = null
     try {
-      const res = await authFetch(`${API_URL}/api/licitacoes/a-partir-de-demanda`, {
+      const rd = await authFetch(`${API_URL}/api/dfds-consolidados/a-partir-de-demanda/${demanda.id}`, { method: 'POST' })
+      const dfd = await rd.json().catch(() => null)
+      if (!rd.ok) throw new Error(dfd?.message || `HTTP ${rd.status}`)
+      dfdId = dfd.id
+      // Fase interna já feita fora: o fluxo curto (dados, itens e PDFs) com o DFD pré-carregado
+      if (modoFaseInterna === 'FORA') {
+        router.push(rotaFaseInternaFeitaFora({ modalidade: modalidadeEscolhida, dfdId: dfd.id }))
+        return
+      }
+      const res = await authFetch(`${API_URL}/api/dfds-consolidados/${dfd.id}/abrir-processo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demanda_id: demanda.id, modalidade: modalidadeEscolhida }),
+        body: JSON.stringify({ modalidade: modalidadeEscolhida }),
       })
       const j = await res.json().catch(() => null)
       if (!res.ok) throw new Error(j?.message || `HTTP ${res.status}`)
+      const licId = j?.licitacao?.id
+      if (j?.alerta) toast.warning(j.alerta, { duration: 12000 })
       // Modo co-work: dispara a preparação automática em background
       // (pesquisa de preços real + rascunhos IA) antes de abrir o cockpit
-      if (prepararAutomatico && j?.id) {
+      if (prepararAutomatico && licId) {
         try {
-          await authFetch(`${API_URL}/api/fase-interna/${j.id}/preparar-automatico`, { method: 'POST' })
+          await authFetch(`${API_URL}/api/fase-interna/${licId}/preparar-automatico`, { method: 'POST' })
         } catch { /* cockpit permite disparar de novo */ }
       }
-      router.push(`/orgao/processos/${j.id}`)
+      router.push(`/orgao/processos/${licId}`)
     } catch (e: any) {
       toast.error(`Não foi possível iniciar a contratação: ${e.message}`)
       setIniciando(false)
+      // 2ª aprovação ligada: o DFD de 1 demanda fica pronto para enviar à aprovação
+      if (dfdId && /2ª aprovação/.test(String(e.message))) router.push(`/orgao/demandas/dfd/${dfdId}`)
     }
   }
 
@@ -1466,7 +1491,7 @@ export default function DetalheDemandaPage() {
             <Users className="h-3.5 w-3.5 opacity-70" />
           </div>
           <h2 className="font-bold text-sm leading-tight">
-            Documento de Formalização da Demanda
+            Demanda (pedido do setor)
           </h2>
           <div className="mt-2">
             <span className={`text-xs font-semibold uppercase px-2 py-0.5 rounded ${
@@ -1523,7 +1548,7 @@ export default function DetalheDemandaPage() {
           <p className="text-xs text-gray-500">
             PCA <span className="font-semibold text-gray-700">{demanda.ano_referencia}</span>
           </p>
-          <p className="text-xs text-gray-500">Estimativa Preliminar deste DFD</p>
+          <p className="text-xs text-gray-500">Estimativa preliminar desta demanda</p>
           <p className="text-base font-bold text-blue-700">{fmt(totalDemanda)}</p>
         </div>
       </aside>
@@ -1540,18 +1565,39 @@ export default function DetalheDemandaPage() {
           </button>
           <ChevronRight className="h-3 w-3" />
           <span className="text-gray-700 font-medium">
-            DFD — {demanda.unidade_requisitante}
+            Demanda — {demanda.unidade_requisitante}
           </span>
         </div>
 
-        {/* Alerta de rejeição */}
+        {/* Alerta de rejeição (o setor volta para rascunho, corrige e reenvia) */}
         {demanda.status === 'REJEITADA' && demanda.motivo_rejeicao && (
-          <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2">
+          <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2 items-start">
             <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-medium text-red-800 text-sm">Demanda Rejeitada: </span>
+            <div className="flex-1">
+              <span className="font-medium text-red-800 text-sm">Demanda rejeitada: </span>
               <span className="text-sm text-red-700">{demanda.motivo_rejeicao}</span>
             </div>
+            <Button size="sm" variant="outline" className="border-red-300 text-red-700 hover:bg-red-100" onClick={voltarParaRascunho} disabled={decidindo}>
+              Voltar para rascunho e corrigir
+            </Button>
+          </div>
+        )}
+        {demanda.status === 'RASCUNHO' && demanda.motivo_rejeicao && (
+          <div className="mx-6 mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
+            Corrija conforme a rejeição e envie de novo: <b>{demanda.motivo_rejeicao}</b>
+          </div>
+        )}
+        {/* Juntada num DFD consolidado: travada (a unidade de planejamento conduz) */}
+        {demanda.dfd && (
+          <div className="mx-6 mt-4 bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex gap-2 items-center text-sm text-indigo-900">
+            <Lock className="h-4 w-4 shrink-0" />
+            <span className="flex-1">
+              Esta demanda está no <b>DFD nº {demanda.dfd.numero}/{demanda.dfd.ano}</b>, montado pela unidade de planejamento
+              (Lei 14.133, art. 12, VII) — não pode mais ser alterada nem abrir processo sozinha.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => router.push(`/orgao/demandas/dfd/${demanda.dfd!.id}`)}>
+              Ver DFD
+            </Button>
           </div>
         )}
 
@@ -1609,7 +1655,7 @@ export default function DetalheDemandaPage() {
                 {enviando
                   ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                   : <Send className="h-4 w-4 mr-1.5" />}
-                Enviar DFD
+                Enviar demanda
               </Button>
             )}
             {(demanda.status === 'APROVADA' || demanda.status === 'CONSOLIDADA' || demanda.status === 'EM_CONTRATACAO' || demanda.status === 'CONTRATADA') && (
@@ -1618,12 +1664,12 @@ export default function DetalheDemandaPage() {
                   title={`Processo ${processoVinculado.numero_processo} iniciado a partir desta demanda`}>
                   Ver processo {processoVinculado.numero_processo}
                 </Button>
-              ) : (
+              ) : podeMontarDfd && !demanda.dfd ? (
                 <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={abrirModalIniciar}
-                  title="Cria o processo de contratação já vinculado e pré-preenchido com os itens desta demanda">
+                  title="Unidade de planejamento: abre o processo só com esta demanda (DFD de 1 demanda). Para juntar pedidos parecidos, use o DFD consolidado.">
                   🚀 Iniciar contratação
                 </Button>
-              )
+              ) : null
             )}
           </div>
         </div>
@@ -1653,6 +1699,22 @@ export default function DetalheDemandaPage() {
                     </span>
                   )}
                 </span>
+                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
+                {/* 1b. DFD consolidado (unidade de planejamento) */}
+                {acomp.dfd ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/orgao/demandas/dfd/${acomp.dfd.id}`)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 transition-colors"
+                    title="DFD montado pela unidade de planejamento"
+                  >
+                    ✓ No DFD nº {acomp.dfd.numero}/{acomp.dfd.ano}
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium bg-gray-50 text-gray-500 border-gray-200">
+                    ○ DFD (planejamento)
+                  </span>
+                )}
                 <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
                 {/* 2. PCA */}
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
@@ -2001,8 +2063,9 @@ export default function DetalheDemandaPage() {
         <DialogContent className="max-w-lg">
           <h2 className="text-lg font-semibold">Iniciar contratação</h2>
           <p className="text-sm text-gray-600 -mt-1">
-            O processo nasce <b>vinculado a esta demanda</b> e pré-preenchido: itens, quantidades,
-            valores estimados e o DFD gerado automaticamente. Valor total estimado:{' '}
+            O processo nasce de um <b>DFD de 1 demanda</b> (unidade de planejamento) e vem pré-preenchido: itens,
+            quantidades, valores estimados e o DFD do processo. Havendo pedidos parecidos de outros setores, prefira
+            juntar tudo num <b>DFD consolidado</b> (art. 12, VII). Valor total estimado:{' '}
             <b>{fmt((demanda?.itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0))}</b>.
           </p>
           <div className="space-y-2">

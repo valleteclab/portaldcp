@@ -175,6 +175,29 @@ interface MedicaoPendente {
   };
 }
 
+/** DFD consolidado aguardando a 2ª aprovação (ligada em Configurações › Fluxo). */
+interface DfdPendente {
+  id: string;
+  ano: number;
+  numero: number;
+  objeto: string;
+  valor_total_estimado: number;
+  n_itens: number;
+  n_demandas: number;
+  setores: string | null;
+  responsavel_nome: string | null;
+}
+
+/** Processo cuja demanda aguarda aprovação (tarefa "Aprovar a demanda" de quem consulta). */
+interface ProcessoPendente {
+  tarefa_id: string;
+  licitacao_id: string;
+  numero_processo: string;
+  objeto: string;
+  modalidade: string;
+  created_at: string;
+}
+
 interface DemandaAprovacao {
   id: string;
   ano_referencia: number;
@@ -259,6 +282,9 @@ export default function CentralAprovacoesPage() {
   // Dados
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([]);
   const [demandas, setDemandas] = useState<DemandaAprovacao[]>([]);
+  // Central (planejamento): DFDs na 2ª aprovação e a aprovação da demanda dos processos — só o que ESTE usuário aprova
+  const [dfdsPendentes, setDfdsPendentes] = useState<DfdPendente[]>([]);
+  const [processosPendentes, setProcessosPendentes] = useState<ProcessoPendente[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [medicoes, setMedicoes] = useState<MedicaoPendente[]>([]);
   const [ordensServico, setOrdensServico] = useState<OSPendente[]>([]);
@@ -410,23 +436,23 @@ export default function CentralAprovacoesPage() {
   useEffect(() => {
     if (!loading && orgaoId) {
       if (podeLiberarContratos) carregarContratos();
-      if (podeAprovarDemandas) carregarDemandas();
+      carregarDemandas();
       if (podeAprovarRequisicoes) carregarRequisicoes();
       carregarMedicoes();
       carregarOrdensServico();
     }
-  }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes, podeAprovarDemandas]);
+  }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes]);
 
   useEffect(() => {
     if (!orgaoId) return;
     const interval = setInterval(() => {
       if (podeAprovarRequisicoes) carregarRequisicoes();
-      if (podeAprovarDemandas) carregarDemandas();
+      carregarDemandas();
       carregarMedicoes();
       carregarOrdensServico();
     }, 30000);
     return () => clearInterval(interval);
-  }, [orgaoId, podeAprovarRequisicoes, podeAprovarDemandas]);
+  }, [orgaoId, podeAprovarRequisicoes]);
 
   // ============ CARREGAR DADOS ============
 
@@ -459,17 +485,22 @@ export default function CentralAprovacoesPage() {
     }
   };
 
+  /**
+   * Demandas e DFD: tudo o que ESTE usuário aprova no planejamento (o servidor
+   * decide pelo modelo de fluxo): demandas enviadas, DFDs na 2ª aprovação e a
+   * aprovação da demanda dos processos (tarefa "Aprovar a demanda").
+   */
   const carregarDemandas = async () => {
     if (!orgaoId) return;
     setLoadingDemandas(true);
     try {
-      const [enviadasRes, analiseRes] = await Promise.all([
-        authFetch(`${API_URL}/api/demandas?orgaoId=${orgaoId}&status=ENVIADA`),
-        authFetch(`${API_URL}/api/demandas?orgaoId=${orgaoId}&status=EM_ANALISE`),
-      ]);
-      const enviadas = enviadasRes.ok ? await enviadasRes.json() : [];
-      const analise = analiseRes.ok ? await analiseRes.json() : [];
-      setDemandas([...(Array.isArray(enviadas) ? enviadas : []), ...(Array.isArray(analise) ? analise : [])]);
+      const res = await authFetch(`${API_URL}/api/dfds-consolidados/central`);
+      if (!res.ok) return;
+      const c = await res.json();
+      setDemandas(Array.isArray(c.demandas) ? c.demandas : []);
+      setDfdsPendentes(Array.isArray(c.dfds) ? c.dfds : []);
+      setProcessosPendentes(Array.isArray(c.processos) ? c.processos : []);
+      if (c.permissoes?.pode_aprovar_demanda || c.permissoes?.pode_aprovar_dfd || c.total > 0) setPodeAprovarDemandas(true);
     } catch (error) {
       console.error('Erro ao carregar demandas:', error);
     } finally {
@@ -619,15 +650,14 @@ export default function CentralAprovacoesPage() {
   };
 
   const aprovarDemanda = async (demanda: DemandaAprovacao) => {
-    if (!(await confirmar({ titulo: 'Aprovar demanda', mensagem: `Aprovar a demanda "${demanda.unidade_requisitante}" para o PCA ${demanda.ano_referencia}?`, confirmarRotulo: 'Aprovar' }))) return;
+    if (!(await confirmar({ titulo: 'Aprovar demanda', mensagem: `Aprovar a demanda de "${demanda.unidade_requisitante}" (exercício ${demanda.ano_referencia})? Depois a unidade de planejamento junta os pedidos parecidos no DFD.`, confirmarRotulo: 'Aprovar' }))) return;
     setProcessando(true);
     try {
-      const usuarioStr = localStorage.getItem('usuario');
-      const usuario = usuarioStr ? JSON.parse(usuarioStr) : {};
+      // Quem aprova vem do login (o servidor registra)
       const res = await authFetch(`${API_URL}/api/demandas/${demanda.id}/aprovar`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aprovadoPor: usuario.nome || usuario.email || 'Usuário' }),
+        body: JSON.stringify({}),
       });
       if (res.ok) {
         await carregarDemandas();
@@ -663,6 +693,61 @@ export default function CentralAprovacoesPage() {
         const err = await res.json().catch(() => ({}));
         toast.error(err.message || 'Erro ao rejeitar demanda');
       }
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  // ============ AÇÕES DFD (2ª aprovação) E APROVAÇÃO DA DEMANDA DO PROCESSO ============
+
+  const aprovarDfd = async (dfd: DfdPendente) => {
+    if (!(await confirmar({ titulo: 'Aprovar o DFD', mensagem: `Aprovar o DFD nº ${dfd.numero}/${dfd.ano}? Depois dele a unidade de planejamento abre o processo.`, confirmarRotulo: 'Aprovar' }))) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/dfds-consolidados/${dfd.id}/aprovar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.message || 'Erro ao aprovar o DFD');
+      }
+      await carregarDemandas();
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const devolverDfd = async (dfd: DfdPendente) => {
+    const motivo = await pedirTexto({
+      titulo: 'Devolver o DFD',
+      mensagem: `DFD nº ${dfd.numero}/${dfd.ano} — volta para a unidade de planejamento ajustar.`,
+      rotulo: 'Motivo da devolução',
+      obrigatorio: true,
+      confirmarRotulo: 'Devolver',
+      destrutivo: true,
+    });
+    if (!motivo) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/dfds-consolidados/${dfd.id}/devolver`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo }) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.message || 'Erro ao devolver o DFD');
+      }
+      await carregarDemandas();
+    } finally {
+      setProcessando(false);
+    }
+  };
+
+  const aprovarDemandaDoProcesso = async (p: ProcessoPendente) => {
+    if (!(await confirmar({ titulo: 'Aprovar a demanda', mensagem: `Aprovar a demanda do processo ${p.numero_processo}? As demais etapas da fase interna só abrem depois dela.`, confirmarRotulo: 'Aprovar' }))) return;
+    setProcessando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${p.licitacao_id}/demanda/aprovar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.message || 'Erro ao aprovar a demanda do processo');
+      }
+      await carregarDemandas();
     } finally {
       setProcessando(false);
     }
@@ -915,7 +1000,8 @@ export default function CentralAprovacoesPage() {
     );
   }
 
-  const totalPendentes = contratos.length + demandas.length + requisicoes.length + medicoes.length + ordensServico.length;
+  const pendentesPlanejamento = demandas.length + dfdsPendentes.length + processosPendentes.length;
+  const totalPendentes = contratos.length + pendentesPlanejamento + requisicoes.length + medicoes.length + ordensServico.length;
   const valorTotalContratos = contratos.reduce((acc, c) => acc + Number(c.valor_global || 0), 0);
   const valorTotalDemandas = demandas.reduce(
     (acc, d) => acc + (d.itens || []).reduce((sum, item) => sum + Number(item.valor_total_estimado || 0), 0),
@@ -975,15 +1061,15 @@ export default function CentralAprovacoesPage() {
         )}
 
         {podeAprovarDemandas && (
-          <Card className={demandas.length > 0 ? 'border-amber-200 bg-amber-50' : ''}>
+          <Card className={pendentesPlanejamento > 0 ? 'border-amber-200 bg-amber-50' : ''}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-amber-500" />
-                Demandas DFD
+                Demandas e DFD
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-amber-600">{demandas.length}</div>
+              <div className="text-2xl font-bold text-amber-600">{pendentesPlanejamento}</div>
               <p className="text-xs text-gray-500 mt-1">{formatarMoeda(valorTotalDemandas)}</p>
             </CardContent>
           </Card>
@@ -1059,9 +1145,9 @@ export default function CentralAprovacoesPage() {
           {podeAprovarDemandas && (
             <TabsTrigger value="demandas" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Demandas DFD
-              {demandas.length > 0 && (
-                <Badge className="ml-1 bg-amber-600 text-white text-xs px-1.5 py-0">{demandas.length}</Badge>
+              Demandas e DFD
+              {pendentesPlanejamento > 0 && (
+                <Badge className="ml-1 bg-amber-600 text-white text-xs px-1.5 py-0">{pendentesPlanejamento}</Badge>
               )}
             </TabsTrigger>
           )}
@@ -1099,18 +1185,88 @@ export default function CentralAprovacoesPage() {
           <CaixaDocumentosAprovacao />
         </TabsContent>
 
-        {/* ============ TAB DEMANDAS DFD ============ */}
+        {/* ============ TAB DEMANDAS E DFD (planejamento) ============ */}
         <TabsContent value="demandas" className="space-y-4">
-          {loadingDemandas ? (
+          {/* Aprovação da demanda nos processos (tarefa "Aprovar a demanda") */}
+          {processosPendentes.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700">Aprovação da demanda nos processos</h3>
+              {processosPendentes.map((p) => (
+                <Card key={p.licitacao_id} className={`border-l-4 border-l-indigo-400 ${searchParams.get('processo') === p.licitacao_id ? 'ring-2 ring-indigo-300' : ''}`}>
+                  <CardContent className="p-4 flex items-start justify-between gap-4 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900">Processo {p.numero_processo}</p>
+                      <p className="text-sm text-gray-700 break-words">{p.objeto}</p>
+                      <p className="text-xs text-gray-500 mt-1">A demanda (DFD) está pronta; as demais etapas só abrem depois da sua aprovação.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => aprovarDemandaDoProcesso(p)} disabled={processando}>
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Aprovar a demanda
+                      </Button>
+                      <Button size="sm" variant="ghost" asChild>
+                        <Link href={`/orgao/processos/${p.licitacao_id}`}>
+                          <Eye className="h-4 w-4 mr-1" />
+                          Ver processo
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* DFD consolidado — 2ª aprovação (quando ligada em Configurações › Fluxo) */}
+          {dfdsPendentes.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700">DFD consolidado (2ª aprovação)</h3>
+              {dfdsPendentes.map((f) => (
+                <Card key={f.id} className="border-l-4 border-l-blue-400">
+                  <CardContent className="p-4 flex items-start justify-between gap-4 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900">DFD nº {f.numero}/{f.ano}</p>
+                      <p className="text-sm text-gray-700 break-words">{f.objeto}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {f.n_demandas} demanda(s){f.setores ? ` — ${f.setores}` : ''} • {f.n_itens} item(ns) • {formatarMoeda(Number(f.valor_total_estimado) || 0)}
+                        {f.responsavel_nome ? ` • planejamento: ${f.responsavel_nome}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => aprovarDfd(f)} disabled={processando}>
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Aprovar
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50" onClick={() => devolverDfd(f)} disabled={processando}>
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Devolver
+                      </Button>
+                      <Button size="sm" variant="ghost" asChild>
+                        <Link href={`/orgao/demandas/dfd/${f.id}`}>
+                          <Eye className="h-4 w-4 mr-1" />
+                          Ver DFD
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {(processosPendentes.length > 0 || dfdsPendentes.length > 0) && demandas.length > 0 && (
+            <h3 className="text-sm font-semibold text-gray-700">Demandas dos setores</h3>
+          )}
+          {loadingDemandas && pendentesPlanejamento === 0 ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
             </div>
-          ) : demandas.length === 0 ? (
+          ) : pendentesPlanejamento === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <CheckCircle className="h-12 w-12 text-green-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhuma demanda pendente</h3>
-                <p className="text-gray-500">Todas as demandas DFD foram processadas.</p>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Nada pendente para você</h3>
+                <p className="text-gray-500">Demandas, DFDs e aprovações de demanda dos processos aparecem aqui quando dependem de você.</p>
               </CardContent>
             </Card>
           ) : (
@@ -1129,7 +1285,7 @@ export default function CentralAprovacoesPage() {
                             </Badge>
                           </div>
                           <p className="text-sm text-gray-500">
-                            PCA {demanda.ano_referencia} • Responsável: {demanda.responsavel_nome || 'Não informado'}
+                            Exercício {demanda.ano_referencia} • Responsável: {demanda.responsavel_nome || 'Não informado'}
                           </p>
                           {demanda.descricao_sucinta_objeto && (
                             <p className="text-sm text-gray-700 mt-1.5 whitespace-pre-wrap break-words">
@@ -1173,7 +1329,7 @@ export default function CentralAprovacoesPage() {
                         <Button size="sm" variant="ghost" asChild>
                           <Link href={`/orgao/demandas/${demanda.id}`}>
                             <Eye className="h-4 w-4 mr-1" />
-                            Ver DFD
+                            Ver demanda
                           </Link>
                         </Button>
                       </div>

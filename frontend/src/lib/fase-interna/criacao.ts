@@ -29,11 +29,12 @@ export function lembrarEscolhaModo(modo: ModoFaseInterna) {
   }
 }
 
-/** Rota do fluxo curto "fase interna feita fora" (modalidade e demanda de origem opcionais). */
-export function rotaFaseInternaFeitaFora(opts: { modalidade?: string | null; demandaId?: string | null } = {}) {
+/** Rota do fluxo curto "fase interna feita fora" (modalidade e origem — DFD consolidado ou demanda — opcionais). */
+export function rotaFaseInternaFeitaFora(opts: { modalidade?: string | null; demandaId?: string | null; dfdId?: string | null } = {}) {
   const q = new URLSearchParams()
   if (opts.modalidade) q.set("modalidade", opts.modalidade)
-  if (opts.demandaId) q.set("demanda_id", opts.demandaId)
+  if (opts.dfdId) q.set("dfd_id", opts.dfdId)
+  else if (opts.demandaId) q.set("demanda_id", opts.demandaId)
   const s = q.toString()
   return `/orgao/fase-interna/processos/novo/externa${s ? `?${s}` : ""}`
 }

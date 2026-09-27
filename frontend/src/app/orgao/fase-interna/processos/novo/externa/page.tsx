@@ -106,6 +106,8 @@ function FaseInternaFeitaFora() {
   const router = useRouter()
   const params = useSearchParams()
   const demandaId = params.get("demanda_id")
+  // DFD consolidado de origem (unidade de planejamento): itens somados e objeto do DFD
+  const dfdId = params.get("dfd_id")
   const [passo, setPasso] = useState<Passo>("DADOS")
   const [dados, setDados] = useState<Dados>({
     modalidade: params.get("modalidade") && MODALIDADES.some((m) => m.value === params.get("modalidade")) ? params.get("modalidade")! : "",
@@ -139,9 +141,41 @@ function FaseInternaFeitaFora() {
 
   useEffect(() => { lembrarEscolhaModo("FORA") }, [])
 
+  // DFD consolidado de origem: objeto, unidade e itens somados (o backend confere o DFD de novo)
+  useEffect(() => {
+    if (!dfdId) return
+    authFetch(`${API_URL}/api/dfds-consolidados/${dfdId}`)
+      .then(async (r) => {
+        if (!r.ok) return toast.error("DFD de origem não encontrado.")
+        const d = await r.json()
+        const its: any[] = d.itens ?? []
+        const setores = [...new Set((d.demandas ?? []).map((x: any) => x.unidade_requisitante))].join(", ")
+        set({
+          objeto: d.objeto || "",
+          area_demandante: d.unidade_planejamento_nome ? `${d.unidade_planejamento_nome}${setores ? ` (demandas de: ${setores})` : ""}` : setores,
+          tipo_contratacao: its.some((i) => i.categoria === "SERVICO") ? "SERVICO" : "COMPRA",
+        })
+        setItens(
+          its.map((i, n) => ({
+            numero: n + 1,
+            descricao: i.descricao || "",
+            quantidade: Number(i.quantidade) || 1,
+            unidade: normalizarUnidade(i.unidade_medida),
+            valor_unitario: Number(i.valor_unitario_estimado) || 0,
+            tipo_item: i.categoria === "SERVICO" ? "SERVICO" : "MATERIAL",
+            codigo_catalogo: i.codigo_item_catalogo || undefined,
+            classe_catalogo: i.nome_classe || undefined,
+            item_pca_id: i.item_pca_id || undefined,
+            justificativa_sem_pca: i.item_pca_id ? undefined : i.justificativa || undefined,
+          })),
+        )
+      })
+      .catch(() => toast.error("Não foi possível carregar o DFD de origem."))
+  }, [dfdId])
+
   // Demanda de origem: objeto, área e itens aproveitados (o backend confere a demanda de novo)
   useEffect(() => {
-    if (!demandaId) return
+    if (!demandaId || dfdId) return
     authFetch(`${API_URL}/api/demandas/${demandaId}`)
       .then(async (r) => {
         if (!r.ok) return toast.error("Demanda de origem não encontrada.")
@@ -168,7 +202,7 @@ function FaseInternaFeitaFora() {
         )
       })
       .catch(() => toast.error("Não foi possível carregar a demanda de origem."))
-  }, [demandaId])
+  }, [demandaId, dfdId])
 
   // Fundamento legal: opções da modalidade (fonte única do enquadramento — backend)
   useEffect(() => {
@@ -278,7 +312,8 @@ function FaseInternaFeitaFora() {
           area_demandante: dados.area_demandante.trim() || null,
           dispensa_com_lances: dados.modalidade === "DISPENSA_ELETRONICA" ? dados.dispensa_com_lances : null,
           sigilo: { sigiloso: dados.sigiloso, justificativa: dados.sigiloso ? dados.justificativa_sigilo.trim() : null },
-          demanda_id: demandaId,
+          demanda_id: dfdId ? null : demandaId,
+          dfd_id: dfdId,
           itens: corpoItens(),
           classificacao: envio.classificacao,
         }),

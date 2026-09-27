@@ -39,6 +39,8 @@ interface Demanda {
   ano_referencia?: number | string;
   status?: string;
   itens?: ItemDemanda[];
+  /** Juntada num DFD consolidado: o processo sai do DFD (não aparece aqui). */
+  dfd?: { id: string } | null;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -120,7 +122,7 @@ export default function CriarProcessoDeDemandaDialog({
         const lista: Demanda[] = Array.isArray(data)
           ? data
           : data.data || data.items || [];
-        setDemandas(lista);
+        setDemandas(lista.filter((d) => !d.dfd));
       } else {
         setDemandas([]);
         const data = await res.json().catch(() => null);
@@ -182,8 +184,13 @@ export default function CriarProcessoDeDemandaDialog({
             Criar processo a partir de demanda
           </DialogTitle>
           <DialogDescription>
-            Selecione uma demanda aprovada. O objeto, os itens e os valores
-            serão aproveitados automaticamente no novo processo.
+            Unidade de planejamento: selecione uma demanda aprovada (vira um DFD
+            de 1 demanda). O objeto, os itens e os valores são aproveitados no
+            novo processo. Para juntar pedidos parecidos de vários setores, use o{" "}
+            <a href="/orgao/demandas/consolidacao" className="text-[#1351b4] underline">
+              DFD consolidado
+            </a>{" "}
+            (art. 12, VII).
           </DialogDescription>
         </DialogHeader>
 
