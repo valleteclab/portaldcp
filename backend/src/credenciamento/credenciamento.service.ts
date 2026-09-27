@@ -75,6 +75,7 @@ import {
 } from './regras-credenciamento';
 import { estadoEditalCredenciamentoSql } from './credenciamento.sql';
 import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
+import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ehUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
@@ -148,6 +149,8 @@ export class CredenciamentoService {
     private readonly transicoes: TransicoesService,
     private readonly habilitacao: HabilitacaoService,
     private readonly contratos: ContratosService,
+    // Gerador único do nº do processo administrativo (por órgão/ano)
+    private readonly numeros: NumeroProcessoService,
     @Optional() private readonly notificacoes?: NotificacoesService,
   ) {}
 
@@ -316,9 +319,8 @@ export class CredenciamentoService {
         [orgaoId, ano],
       );
       const seq = Number(n) + 1;
-      const numeroProcesso = String(dados.numero_processo ?? '').trim() || `CRED-${String(seq).padStart(3, '0')}/${ano}-${randomUUID().slice(0, 4)}`;
-      const [dup] = await m.query(`SELECT 1 FROM licitacoes WHERE numero_processo = $1`, [numeroProcesso]);
-      if (dup) throw new ConflictException(`Já existe um processo com o número ${numeroProcesso}`);
+      // Nº do processo administrativo: digitado (único no órgão → 409) ou o gerador único (órgão/ano)
+      const numeroProcesso = await this.numeros.numeroParaCriacao(orgaoId, dados.numero_processo, m);
       const lic = await m.save(
         m.create(Licitacao, {
           numero_processo: numeroProcesso,

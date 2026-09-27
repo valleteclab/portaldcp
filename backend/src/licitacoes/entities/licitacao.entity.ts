@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, BeforeInsert } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, BeforeInsert, Unique } from 'typeorm';
 import { fundamentoPadrao } from '../fundamento-legal';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { ItemLicitacao } from '../../itens/entities/item-licitacao.entity';
@@ -179,12 +179,17 @@ export enum RegimeExecucao {
 }
 
 @Entity('licitacoes')
+// Nº do processo administrativo: único POR ÓRGÃO (cada órgão tem a sua sequência
+// — numero-processo/numero-processo.service.ts). Nome fixo: o serviço traduz a
+// violação em 409 (UQ_LICITACOES_ORGAO_NUMERO_PROCESSO).
+@Unique('UQ_licitacoes_orgao_numero_processo', ['orgao_id', 'numero_processo'])
 export class Licitacao {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   // === IDENTIFICAÇÃO ===
-  @Column({ unique: true })
+  /** Nº do PROCESSO ADMINISTRATIVO (gerado pelo NumeroProcessoService ou digitado). Não é o nº da dispensa/licitação (`numero_edital`). */
+  @Column()
   numero_processo: string;
 
   @Column({ nullable: true })

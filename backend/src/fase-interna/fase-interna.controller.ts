@@ -261,7 +261,7 @@ export class FaseInternaController {
     body: {
       sistemaOrigem: string;
       idExterno: string;
-      numero_processo: string;
+      numero_processo?: string;
       objeto: string;
       modalidade: string;
       orgaoId: string;
@@ -282,7 +282,10 @@ export class FaseInternaController {
     },
     @AtorAtual() ator: Ator,
   ) {
-    return this.faseInternaService.importarProcessoCompleto(body, atorTransicaoDe(ator));
+    // Órgão do JWT (o do corpo só vale para o admin da plataforma)
+    const orgaoId = ator.admin ? body.orgaoId : ator.orgaoId!;
+    if (!orgaoId) throw new BadRequestException('Órgão não identificado');
+    return this.faseInternaService.importarProcessoCompleto({ ...body, orgaoId }, atorTransicaoDe(ator));
   }
 
   @Get(':licitacaoId/contexto')

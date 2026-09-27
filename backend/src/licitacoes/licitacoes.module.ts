@@ -29,6 +29,7 @@ import { MigracaoLegadoE9BootService } from './migracao-legado-e9-boot.service';
 import { MigracaoFundamentoLegalBootService } from './migracao-fundamento-legal-boot.service';
 
 import { DfdModule } from '../demandas/dfd/dfd.module';
+import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
 
 @Module({
   imports: [
@@ -46,6 +47,8 @@ import { DfdModule } from '../demandas/dfd/dfd.module';
     ResultadoModule,
     // DFD consolidado (unidade de planejamento): o processo nasce do DFD
     DfdModule,
+    // Gerador único do nº do processo administrativo (por órgão/ano)
+    NumeroProcessoModule,
   ],
   // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
   controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController],

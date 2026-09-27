@@ -50,6 +50,7 @@ import { DfdConsolidadoService } from '../demandas/dfd/dfd-consolidado.service';
 import { textoDoAlerta } from '../demandas/dfd/consolidacao-dfd';
 import { AuditLogService } from '../fase-interna/audit-log.service';
 import { AcaoLogFaseInterna } from '../fase-interna/entities/log-fase-interna.entity';
+import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -111,6 +112,8 @@ export class LicitacoesService {
     // DFD consolidado (unidade de planejamento): o processo nasce do DFD (N demandas)
     private readonly dfds: DfdConsolidadoService,
     private readonly auditLog: AuditLogService,
+    // Gerador único do nº do processo administrativo (sequencial por órgão/ano)
+    private readonly numeros: NumeroProcessoService,
   ) {}
 
   /**
@@ -192,15 +195,10 @@ export class LicitacoesService {
       modalidadeFinal: createDto.modalidade,
     });
     if (vedacaoInversao) throw new BadRequestException(vedacaoInversao.mensagem);
-    const existing = await this.licitacaoRepository.findOne({
-      where: { numero_processo: createDto.numero_processo },
-    });
-
-    if (existing) {
-      throw new ConflictException(
-        `Já existe uma licitação com o processo ${createDto.numero_processo}`,
-      );
-    }
+    // Nº do processo administrativo: digitado (único no órgão → 409) ou gerado
+    // pelo gerador único, na transação da gravação (ver abaixo)
+    const numeroDigitado = this.numeros.normalizar(createDto.numero_processo);
+    if (numeroDigitado) await this.numeros.exigirLivre(createDto.orgao_id, numeroDigitado);
 
     // Gera ano e sequencial
     const ano = new Date().getFullYear();
@@ -239,7 +237,14 @@ export class LicitacoesService {
     });
     Object.assign(licitacao, beneficioMpe);
 
-    const salva = await this.licitacaoRepository.save(licitacao);
+    const salva = await this.licitacaoRepository.manager.transaction(async (m) => {
+      licitacao.numero_processo = await this.numeros.numeroParaCriacao(createDto.orgao_id, numeroDigitado, m);
+      try {
+        return await m.getRepository(Licitacao).save(licitacao);
+      } catch (e) {
+        throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
+      }
+    });
     if (opcoes.dfd_consolidado) await this.dfds.vincularProcesso(opcoes.dfd_consolidado.id, salva.id, opcoes.dfd_consolidado.ator, salva.numero_processo);
     await this.transicoes.registrarCriacao(salva, ator, undefined, opcoes.registro);
     // E6.5: vinculada ao item do PCA / às demandas → item LICITACAO_INICIADA, demandas EM_CONTRATACAO
@@ -399,31 +404,16 @@ export class LicitacoesService {
     atorAcesso?: Ator | null,
   ): Promise<{ licitacao: Licitacao; alertas: any[]; alerta: string | null }> {
     this.conferirModalidadeCriterio(dto);
-    if (dto.numero_processo) {
-      const existente = await this.licitacaoRepository.findOne({ where: { numero_processo: dto.numero_processo } });
-      if (existente) throw new ConflictException(`Já existe uma licitação com o processo ${dto.numero_processo}`);
-    }
+    // Nº do processo digitado: único no órgão do DFD (409 antes de reservar)
+    const numeroDigitado = this.numeros.normalizar(dto.numero_processo);
+    if (numeroDigitado && orgaoIdDoAtor) await this.numeros.exigirLivre(orgaoIdDoAtor, numeroDigitado);
     // Reserva (ninguém abre dois; confere aprovação, itens e demandas)
     const { dfd, anterior, demandas } = await this.dfds.reservarParaProcesso(dfdId, orgaoIdDoAtor ?? null);
     const itens = dfd.itens;
     const ano = new Date().getFullYear();
     let licitacaoSalva: Licitacao;
     try {
-      // 3. Número do processo
-      let numero_processo: string;
-      if (dto.numero_processo) {
-        numero_processo = dto.numero_processo;
-      } else {
-        const count = await this.licitacaoRepository.count({ where: { ano } });
-        let sequencial = count + 1;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          numero_processo = `${ano}/${String(sequencial).padStart(5, '0')}`;
-          const existente = await this.licitacaoRepository.findOne({ where: { numero_processo } });
-          if (!existente) break;
-          sequencial++;
-        }
-      }
+      // 3. Número do processo: o gerador único (órgão/ano), dentro da transação da gravação
       const countParaSeq = await this.licitacaoRepository.count({ where: { ano } });
       // 4–5. Objeto e valor (do DFD)
       const objeto = dto.objeto || dfd.objeto || (itens.length === 1 ? itens[0].descricao : `Contratação referente ao DFD nº ${dfd.numero}/${dfd.ano}`);
@@ -436,7 +426,6 @@ export class LicitacoesService {
         // compatibilidade: processo de 1 demanda mantém o vínculo antigo
         demanda_id: demandas.length === 1 ? demandas[0].id : (null as any),
         item_pca_id: dfd.item_pca_id ?? (undefined as any),
-        numero_processo,
         modalidade: dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO,
         tipo_contratacao: dto.tipo_contratacao ?? (itens.some((i) => i.categoria === 'SERVICO') ? TipoContratacao.SERVICO : TipoContratacao.COMPRA),
         criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
@@ -446,7 +435,14 @@ export class LicitacoesService {
         sequencial: countParaSeq + 1,
         data_abertura_processo: new Date(),
       });
-      licitacaoSalva = await this.licitacaoRepository.save(licitacao);
+      licitacaoSalva = await this.licitacaoRepository.manager.transaction(async (m) => {
+        licitacao.numero_processo = await this.numeros.numeroParaCriacao(dfd.orgao_id, numeroDigitado, m);
+        try {
+          return await m.getRepository(Licitacao).save(licitacao);
+        } catch (e) {
+          throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
+        }
+      });
     } catch (e) {
       await this.dfds.liberarReserva(dfdId, anterior);
       throw e;
@@ -722,8 +718,21 @@ export class LicitacoesService {
       const e = comoErro(eCapturado);
       throw new BadRequestException(e?.message ?? 'Benefício ME/EPP inválido');
     }
+    // Nº do processo administrativo: vazio = mantém; outro = único no órgão (409)
+    if (dadosLicitacao.numero_processo !== undefined) {
+      const novo = this.numeros.normalizar(dadosLicitacao.numero_processo);
+      if (!novo || novo === licitacao.numero_processo) delete dadosLicitacao.numero_processo;
+      else {
+        await this.numeros.exigirLivre(licitacao.orgao_id, novo, undefined, licitacao.id);
+        dadosLicitacao.numero_processo = novo;
+      }
+    }
     Object.assign(licitacao, dadosLicitacao);
-    await this.licitacaoRepository.save(licitacao);
+    try {
+      await this.licitacaoRepository.save(licitacao);
+    } catch (e) {
+      throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
+    }
 
     // Função auxiliar para validar UUID
     const isValidUUID = (str: string): boolean => {

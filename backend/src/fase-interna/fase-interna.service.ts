@@ -49,6 +49,7 @@ import {
   PesquisaPrecosDados,
   calcularEstatisticasItem,
 } from './types/pesquisa-precos.type';
+import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
 
 /** Id do risco da matriz (riscos antigos, sem id, usam "R-<número>"). */
 const idDoRisco = (r: { id?: string; numero?: number }) => r.id || `R-${r.numero}`;
@@ -76,6 +77,8 @@ export class FaseInternaService {
     @InjectRepository(ItemLicitacao)
     private readonly itemRepository: Repository<ItemLicitacao>,
     private readonly transicoes: TransicoesService,
+    // Gerador único do nº do processo administrativo (importação sem número)
+    private readonly numeros: NumeroProcessoService,
     @Optional() private readonly modeloFluxo?: ModeloFluxoService,
   ) {}
 
@@ -605,7 +608,8 @@ export class FaseInternaService {
   async importarProcessoCompleto(dados: {
     sistemaOrigem: string;
     idExterno: string;
-    numero_processo: string;
+    /** Nº do processo administrativo de origem; vazio → o gerador único do órgão. */
+    numero_processo?: string;
     objeto: string;
     modalidade: string;
     orgaoId: string;
@@ -636,14 +640,21 @@ export class FaseInternaService {
     // contam como prontos). Faltando documento, o processo para na etapa e a
     // resposta traz as pendências.
     const licitacao = this.licitacaoRepository.create({
-      numero_processo: dados.numero_processo,
       objeto: dados.objeto,
       modalidade: dados.modalidade as any,
       orgao_id: dados.orgaoId,
       fase: FaseLicitacao.PLANEJAMENTO,
     });
 
-    await this.licitacaoRepository.save(licitacao);
+    await this.licitacaoRepository.manager.transaction(async (m) => {
+      // Nº digitado (único no órgão → 409) ou gerado — o mesmo gerador dos demais caminhos
+      licitacao.numero_processo = await this.numeros.numeroParaCriacao(dados.orgaoId, dados.numero_processo, m);
+      try {
+        await m.getRepository(Licitacao).save(licitacao);
+      } catch (e) {
+        throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
+      }
+    });
     await this.transicoes.registrarCriacao(licitacao, ator, undefined, {
       origem: 'importacao',
       sistema_origem: dados.sistemaOrigem,
