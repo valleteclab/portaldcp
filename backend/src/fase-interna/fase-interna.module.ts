@@ -55,11 +55,13 @@ import { TramitacaoProcesso } from './entities/tramitacao-processo.entity';
 import {
   FluxoAprovacaoDocumento,
   AprovacaoDocumento,
+  ModeloFluxoAprovacao,
 } from './entities/fluxo-aprovacao.entity';
 import { ModeloDocumentoService } from './modelo-documento.service';
 import { TramitacaoService } from './tramitacao.service';
 import { TramitacaoPrazosScheduler } from './tramitacao-prazos.scheduler';
 import { AprovacaoService } from './aprovacao.service';
+import { AprovacaoPecasService } from './aprovacao-pecas.service';
 import { ProcessoEletronicoController } from './processo-eletronico.controller';
 import { Setor } from '../orgaos/entities/setor.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
@@ -108,6 +110,7 @@ import {
       TramitacaoProcesso,
       FluxoAprovacaoDocumento,
       AprovacaoDocumento,
+      ModeloFluxoAprovacao,
       Setor,
       Orgao,
       Licitacao,
@@ -188,6 +191,7 @@ import {
     TramitacaoService,
     TramitacaoPrazosScheduler,
     AprovacaoService,
+    AprovacaoPecasService,
     DerivacaoService,
     AuditLogService,
     DocumentoEstruturadoService,
@@ -221,6 +225,7 @@ import {
     ModeloDocumentoService,
     TramitacaoService,
     AprovacaoService,
+    AprovacaoPecasService,
     TarefasService,
     OrcamentoService,
     ConformidadeService,

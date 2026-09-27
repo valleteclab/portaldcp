@@ -11,7 +11,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Circle, FilePlus2, FileText, History, Loader2, PenLine, Upload } from "lucide-react"
+import Link from "next/link"
+import { AlertTriangle, CheckCircle2, Circle, FilePlus2, FileText, History, Loader2, PenLine, ShieldCheck, Upload } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
 import { Button } from "@/components/ui/button"
@@ -31,6 +32,13 @@ export interface LinhaInstrucao {
   documento_id?: string
   justificativa?: string
   pode_nao_se_aplicar?: boolean
+  /** Aprovação interna da etapa (fluxo de aprovação do órgão). */
+  exige_aprovacao?: boolean
+  aprovacao_interna?: boolean
+  aprovacao?: { etapa: number; total: number; etapa_nome: string; responsavel: string | null; rotulo?: string }
+  fluxo_aprovacao?: { id: string; nome: string; generico: boolean } | null
+  sem_fluxo_aprovacao?: boolean
+  reprovacao?: { motivo: string | null; por: string | null; em: string | null; etapa_nome: string }
   peca?: {
     versao: number
     origem: string
@@ -133,7 +141,8 @@ export function CaminhosDaPeca({
     try {
       const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos/${tipo}/emitir`, { method: "POST" })
       if (!r.ok) throw new Error(await erroDaApi(r))
-      toast.success(`${titulo}: documento gerado — a peça está pronta`)
+      const j = await r.json().catch(() => null)
+      toast.success(j?.em_aprovacao ? `${titulo}: documento gerado e enviado para a aprovação interna` : `${titulo}: documento gerado — a peça está pronta`)
       await aposAcao()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
@@ -227,11 +236,13 @@ export function CaminhosDaPeca({
             </p>
           )}
           {status === "NAO_SE_APLICA" && linha?.justificativa && <p className="text-xs text-gray-700">Justificativa: {linha.justificativa}</p>}
-          {status === "EM_ELABORACAO" && feitaAqui && (
+          {status === "EM_ELABORACAO" && feitaAqui && !linha?.reprovacao && (
             <p className="text-xs text-blue-900">
-              Rascunho salvo — ainda não é a peça. Ela fica pronta depois de {emitir ? "gerar o documento" : fazerAqui ?? "gerar o documento"} (ou de anexar o PDF feito fora).
+              Rascunho salvo — ainda não é a peça. Ela fica pronta depois de {emitir ? "gerar o documento" : fazerAqui ?? "gerar o documento"} (ou de anexar o PDF feito fora)
+              {linha?.aprovacao_interna ? " e de aprovada na conferência interna" : ""}.
             </p>
           )}
+          <AprovacaoInternaDaPeca linha={linha} status={status} />
         </div>
         <div className="flex items-center gap-1 flex-wrap">
           {p?.tem_arquivo && linha?.documento_id && (
@@ -249,7 +260,7 @@ export function CaminhosDaPeca({
               <Upload className="w-3.5 h-3.5 mr-1" /> Anexar feito fora
             </Button>
           )}
-          {permitirAssinatura && feitaAqui && status !== "NAO_SE_APLICA" && status !== "EM_ASSINATURA" && p?.status !== "ASSINADO" && (
+          {permitirAssinatura && feitaAqui && status !== "NAO_SE_APLICA" && status !== "EM_ASSINATURA" && status !== "EM_APROVACAO" && p?.status !== "ASSINADO" && (
             <Button size="sm" variant="outline" className="h-8" disabled={ocupado} onClick={() => setAssinar(true)} title="Envia a peça feita aqui para os signatários (a data da peça é a da última assinatura)">
               <PenLine className="w-3.5 h-3.5 mr-1" /> Enviar para assinatura
             </Button>
@@ -295,6 +306,54 @@ export function CaminhosDaPeca({
         </ul>
       )}
     </section>
+  )
+}
+
+/**
+ * APROVAÇÃO INTERNA DA PEÇA (fluxo de aprovação do órgão, nas etapas com
+ * "aprovação interna" ligada): com quem está, o motivo da reprovação e o aviso
+ * de aprovação interna ligada sem fluxo cadastrado (aprovação única).
+ */
+function AprovacaoInternaDaPeca({ linha, status }: { linha: LinhaInstrucao | null; status: string }) {
+  if (!linha) return null
+  if (status === "EM_APROVACAO") {
+    const a = linha.aprovacao
+    return (
+      <p className="text-xs rounded border border-amber-200 bg-amber-50 text-amber-900 px-2 py-1.5 flex items-start gap-1.5" role="status">
+        <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+        <span>
+          {a?.rotulo ?? (a ? `Aguardando aprovação: ${a.etapa_nome} — ${a.responsavel ?? "quem conduz o processo"} (${a.etapa} de ${a.total})` : "Aguardando aprovação interna")}
+          . Quem aprova vê a peça em <Link className="underline" href="/orgao/aprovacoes?tab=documentos">Aprovações › Documentos</Link>.
+        </span>
+      </p>
+    )
+  }
+  if (linha.reprovacao && status !== "OK" && status !== "NAO_SE_APLICA") {
+    const r = linha.reprovacao
+    return (
+      <p className="text-xs rounded border border-red-200 bg-red-50 text-red-900 px-2 py-1.5 flex items-start gap-1.5" role="alert">
+        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+        <span>
+          Reprovada em &quot;{r.etapa_nome}&quot;{r.por ? ` por ${r.por}` : ""}{r.em ? ` em ${fmtDia(r.em)}` : ""}: <b>{r.motivo || "sem motivo informado"}</b>. Corrija e gere a peça de novo (ou anexe a
+          corrigida) — ela volta sozinha para a aprovação.
+        </span>
+      </p>
+    )
+  }
+  if (!linha.aprovacao_interna || status === "OK" || status === "NAO_SE_APLICA") return null
+  if (linha.sem_fluxo_aprovacao) {
+    return (
+      <p className="text-xs rounded border border-amber-200 bg-amber-50 text-amber-900 px-2 py-1.5">
+        Aprovação interna ligada, mas sem fluxo cadastrado para esta peça: ao gerar ou anexar, vale a aprovação única por quem conduz o processo.{" "}
+        <Link className="underline" href="/orgao/configuracoes/fluxos-aprovacao">Cadastrar um fluxo</Link>
+      </p>
+    )
+  }
+  return (
+    <p className="text-xs text-gray-700 flex items-center gap-1.5">
+      <ShieldCheck className="w-3.5 h-3.5 text-blue-800" aria-hidden="true" />
+      Com conferência interna: ao gerar ou anexar, a peça vai para o fluxo &quot;{linha.fluxo_aprovacao?.nome}&quot;{linha.fluxo_aprovacao?.generico ? " (genérico)" : ""} e só vale depois de aprovada.
+    </p>
   )
 }
 

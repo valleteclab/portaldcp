@@ -244,15 +244,22 @@ export class ModeloFluxoService {
     const chave = `${orgaoId ?? 'sistema'}|${tipo}`;
     const c = this.cacheVigente.get(chave);
     if (c && c.ate > Date.now()) return c.modelo;
+    // Leitura que começou antes de uma gravação não entra no cache (senão o
+    // modelo antigo valeria por mais 3 s depois de salvo)
+    const geracao = this.geracaoCache;
     const modelo = (orgaoId ? await this.modeloProprio(orgaoId, tipo) : null) ?? (await this.modeloDoSistema(tipo));
-    this.cacheVigente.set(chave, { modelo, ate: Date.now() + 3000 });
+    if (geracao === this.geracaoCache) this.cacheVigente.set(chave, { modelo, ate: Date.now() + 3000 });
     return modelo;
   }
+
+  /** Muda a cada gravação: leitura iniciada antes dela não é guardada no cache. */
+  private geracaoCache = 0;
 
   private readonly cacheVigente = new Map<string, { modelo: ModeloFluxo; ate: number }>();
   private cacheTravas: { travas: TravaAto[]; ate: number } | null = null;
 
   private limparCache() {
+    this.geracaoCache++;
     this.cacheVigente.clear();
     this.cacheTravas = null;
   }
@@ -393,6 +400,8 @@ export class ModeloFluxoService {
       }
       await em.createQueryBuilder().insert().into(EtapaModeloFluxo).values(m.etapas.map((e) => this.linhaDaEtapa(id, e))).execute();
     });
+    // De novo depois do commit: quem leu durante a transação guardou o modelo antigo
+    this.limparCache();
     return (await this.carregar({ orgao_id: orgaoId, tipo }))!;
   }
 

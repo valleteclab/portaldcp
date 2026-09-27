@@ -163,7 +163,7 @@ export function Sidebar({ userType }: SidebarProps) {
   const orgaoLinks: MenuLink[] = [
     { href: "/orgao", label: "Dashboard", icon: LayoutDashboard }, // Sempre visível
     { href: "/orgao/demandas", label: "Demandas", icon: ClipboardList, modulo: ModuloSistema.DEMANDAS },
-    { href: "/orgao/demandas/consolidacao", label: "Consolidação DFD", icon: ClipboardCheck, modulo: ModuloSistema.DEMANDAS },
+    { href: "/orgao/demandas/consolidacao", label: "DFD consolidado", icon: ClipboardCheck, modulo: ModuloSistema.DEMANDAS },
     { href: "/orgao/pca", label: "PCA", icon: Calendar, modulo: ModuloSistema.PCA },
     // Licitação (E8): um caminho por ato — a sala da sessão abre do processo
     { href: "/orgao/licitacoes", label: "Processos", icon: FileText, modulo: ModuloSistema.LICITACOES },

@@ -157,7 +157,7 @@ export function pecaEmitida(doc: { caminho_arquivo?: string | null; arquivo_pdf_
 /**
  * A peça CONTA como pronta no checklist (sem fluxo de aprovação configurado)?
  *  - Anexada (IMPORTADO), aprovada ou assinada: sim.
- *  - Aguardando assinatura, pendente, reprovada ou substituída: não.
+ *  - Aguardando assinatura, em aprovação, pendente, reprovada ou substituída: não.
  *  - Feita no sistema: SÓ depois de GERADA/EMITIDA (DFD/ETP/TR/minutas
  *    gerados, mapa da pesquisa emitido, informação orçamentária emitida…) e
  *    sem edição posterior. O rascunho salvo automaticamente é "em elaboração"
@@ -172,7 +172,8 @@ export function pecaContaComoPronta(doc: {
   descricao?: string | null;
   dados_estruturados?: any;
 }): boolean {
-  if (['REPROVADO', 'PENDENTE', 'AGUARDANDO_ASSINATURA', 'SUBSTITUIDO'].includes(doc.status)) return false;
+  // Em aprovação interna (fluxo de aprovação do órgão): ainda não é ato
+  if (['REPROVADO', 'PENDENTE', 'AGUARDANDO_ASSINATURA', 'AGUARDANDO_APROVACAO', 'SUBSTITUIDO'].includes(doc.status)) return false;
   if (['APROVADO', 'IMPORTADO', 'ASSINADO'].includes(doc.status)) return true;
   // Entrega 3B: peça gerada que SÓ vale assinada (despacho de autorização,
   // parecer, controle interno) — o texto pronto ainda não é o ato.

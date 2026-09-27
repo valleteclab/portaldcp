@@ -41,6 +41,7 @@ import { TarefasService } from './tarefas/tarefas.service';
 import { AuditLogService } from './audit-log.service';
 import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 import { JuntadaPecasService } from './juntada-pecas.service';
+import { AprovacaoPecasService } from './aprovacao-pecas.service';
 
 /**
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
@@ -64,6 +65,7 @@ export class FaseInternaController {
     private readonly tarefas: TarefasService,
     private readonly auditLog: AuditLogService,
     private readonly juntada: JuntadaPecasService,
+    private readonly aprovacaoPecas: AprovacaoPecasService,
   ) {}
 
   private enviarPdf(res: Response, arq: { caminho: string; nome: string }) {
@@ -95,7 +97,13 @@ export class FaseInternaController {
     // Um caminho só (também o da juntada em lote da fase interna feita fora):
     // grava a peça e conclui renovação de dotação, devolução da autorização e
     // retorno à Procuradoria pendentes (Entregas 3A/3B)
-    return this.juntada.anexar(licitacaoId, tipo, arquivo, body ?? {}, ator);
+    const doc = await this.juntada.anexar(licitacaoId, tipo, arquivo, body ?? {}, ator);
+    // Etapa com "aprovação interna": a peça anexada pela etapa vai para o fluxo
+    // de aprovação do órgão (a juntada em lote da fase feita fora não passa aqui)
+    if (await this.aprovacaoPecas.avaliarPeca(doc.id, { anexadaAgora: true })) {
+      return (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
+    }
+    return doc;
   }
 
   /** Arquivo da peça (anexo, PDF gerado ou assinado) — só o órgão dono. */
@@ -132,8 +140,11 @@ export class FaseInternaController {
   @Post(':licitacaoId/documentos/:tipo/emitir')
   async emitirPeca(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string, @AtorAtual() ator: Ator) {
     const autor = await this.tarefas.autor(ator);
-    const doc = await this.pecas.emitirPeca(licitacaoId, tipo, ator, autor);
-    return { documento_id: doc.id, tipo: doc.tipo, versao: doc.versao, status: doc.status, emitido: doc.dados_estruturados?._emitido ?? null };
+    let doc = await this.pecas.emitirPeca(licitacaoId, tipo, ator, autor);
+    // Etapa com "aprovação interna": a peça emitida vai para o fluxo do órgão
+    const emAprovacao = await this.aprovacaoPecas.avaliarPeca(doc.id);
+    if (emAprovacao) doc = (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
+    return { documento_id: doc.id, tipo: doc.tipo, versao: doc.versao, status: doc.status, emitido: doc.dados_estruturados?._emitido ?? null, em_aprovacao: emAprovacao };
   }
 
   /** Consumo do limite da dispensa no exercício (art. 75, §1º) — leitura para o painel. */
@@ -236,7 +247,12 @@ export class FaseInternaController {
       ator.admin ? 'Administrador da plataforma' : u?.nome ?? undefined,
     );
     if (!String(body.descricao ?? '').trim()) return doc;
-    return this.pecas.gerarDocumentoDaPecaCriada(doc.id, ator);
+    const gerada = await this.pecas.gerarDocumentoDaPecaCriada(doc.id, ator);
+    // Etapa com "aprovação interna": a peça gerada vai para o fluxo do órgão
+    if (await this.aprovacaoPecas.avaliarPeca(gerada.id)) {
+      return (await this.faseInternaService.getDocumento(gerada.id).catch(() => null)) ?? gerada;
+    }
+    return gerada;
   }
 
   @Post('importar-processo')
