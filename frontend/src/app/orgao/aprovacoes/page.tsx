@@ -251,6 +251,8 @@ export default function CentralAprovacoesPage() {
 
   // Permissões
   const [podeAprovarRequisicoes, setPodeAprovarRequisicoes] = useState(false);
+  // Demandas (DFD): mesma regra do backend — flag pode_aprovar_demandas (não a do almoxarifado)
+  const [podeAprovarDemandas, setPodeAprovarDemandas] = useState(false);
   const [podeLiberarContratos, setPodeLiberarContratos] = useState(false);
   const [orgaoId, setOrgaoId] = useState<string | null>(null);
 
@@ -384,12 +386,14 @@ export default function CentralAprovacoesPage() {
       if (usuarioStr) {
         const usuario = JSON.parse(usuarioStr);
         setPodeAprovarRequisicoes(usuario.pode_aprovar_requisicoes === true);
+        setPodeAprovarDemandas(usuario.pode_aprovar_demandas === true);
         setPodeLiberarContratos(usuario.pode_liberar_contratos === true);
         setOrgaoId(usuario.orgao_id);
       } else if (orgaoStr) {
         // Login direto como órgão — tem todas as permissões
         const orgao = JSON.parse(orgaoStr);
         setPodeAprovarRequisicoes(true);
+        setPodeAprovarDemandas(true);
         setPodeLiberarContratos(true);
         setOrgaoId(orgao.id);
       } else {
@@ -406,23 +410,23 @@ export default function CentralAprovacoesPage() {
   useEffect(() => {
     if (!loading && orgaoId) {
       if (podeLiberarContratos) carregarContratos();
-      if (podeAprovarRequisicoes) carregarDemandas();
+      if (podeAprovarDemandas) carregarDemandas();
       if (podeAprovarRequisicoes) carregarRequisicoes();
       carregarMedicoes();
       carregarOrdensServico();
     }
-  }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes]);
+  }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes, podeAprovarDemandas]);
 
   useEffect(() => {
     if (!orgaoId) return;
     const interval = setInterval(() => {
       if (podeAprovarRequisicoes) carregarRequisicoes();
-      if (podeAprovarRequisicoes) carregarDemandas();
+      if (podeAprovarDemandas) carregarDemandas();
       carregarMedicoes();
       carregarOrdensServico();
     }, 30000);
     return () => clearInterval(interval);
-  }, [orgaoId, podeAprovarRequisicoes]);
+  }, [orgaoId, podeAprovarRequisicoes, podeAprovarDemandas]);
 
   // ============ CARREGAR DADOS ============
 
@@ -503,7 +507,7 @@ export default function CentralAprovacoesPage() {
 
   const recarregarTudo = () => {
     if (podeLiberarContratos) carregarContratos();
-    if (podeAprovarRequisicoes) carregarDemandas();
+    if (podeAprovarDemandas) carregarDemandas();
     if (podeAprovarRequisicoes) carregarRequisicoes();
     carregarMedicoes();
     carregarOrdensServico();
@@ -898,7 +902,7 @@ export default function CentralAprovacoesPage() {
     );
   }
 
-  if (!podeAprovarRequisicoes && !podeLiberarContratos) {
+  if (!podeAprovarRequisicoes && !podeLiberarContratos && !podeAprovarDemandas) {
     return (
       <div className="space-y-6">
         {dialogo}
@@ -970,7 +974,7 @@ export default function CentralAprovacoesPage() {
           </Card>
         )}
 
-        {podeAprovarRequisicoes && (
+        {podeAprovarDemandas && (
           <Card className={demandas.length > 0 ? 'border-amber-200 bg-amber-50' : ''}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
@@ -1052,7 +1056,7 @@ export default function CentralAprovacoesPage() {
               )}
             </TabsTrigger>
           )}
-          {podeAprovarRequisicoes && (
+          {podeAprovarDemandas && (
             <TabsTrigger value="demandas" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Demandas DFD

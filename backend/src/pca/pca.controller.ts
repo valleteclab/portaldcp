@@ -216,7 +216,13 @@ export class PcaController {
     @AtorAtual() ator: Ator | null,
   ) {
     await this.exigirPca(ator, pcaId);
-    return this.pcaService.consolidarDemandas(pcaId, body.demandaIds);
+    // Toda DFD da lista precisa ser do órgão do token (outro órgão → 403; inexistente → 404)
+    const demandaIds = (Array.isArray(body?.demandaIds) ? body.demandaIds : []).map(String);
+    const donos = await this.pcaService.orgaosDasDemandas(demandaIds);
+    for (const id of demandaIds) {
+      this.acesso.assertMesmoOrgao(ator, donos.get(id.toLowerCase()), 'escrita', 'Demanda');
+    }
+    return this.pcaService.consolidarDemandas(pcaId, demandaIds);
   }
 
   // ============ ITENS DO PCA ============

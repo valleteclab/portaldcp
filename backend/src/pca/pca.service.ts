@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PlanoContratacaoAnual, ItemPCA, StatusPCA, StatusItemPCA, CategoriaItemPCA } from './entities/pca.entity';
 import { ItemCatalogoProprio } from '../catalogo/entities/catalogo-proprio.entity';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 
 @Injectable()
 export class PcaService {
@@ -31,6 +32,19 @@ export class PcaService {
     const item = await this.itemPcaRepository.findOne({ where: { id: itemId }, relations: ['pca'] });
     if (!item || !item.pca) throw new NotFoundException('Item não encontrado');
     return item.pca.orgao_id;
+  }
+
+  /** Órgão dono de cada DFD informada (id → orgao_id; ausente = não existe). */
+  async orgaosDasDemandas(ids: string[]): Promise<Map<string, string>> {
+    const validos = ids.filter((id) => ehUuid(id));
+    const mapa = new Map<string, string>();
+    if (validos.length === 0) return mapa;
+    const linhas: Array<{ id: string; orgao_id: string }> = await this.pcaRepository.manager.query(
+      `SELECT id::text AS id, orgao_id FROM demandas WHERE id = ANY($1::uuid[])`,
+      [validos],
+    );
+    for (const l of linhas) mapa.set(l.id, l.orgao_id);
+    return mapa;
   }
 
   // ============ PCA ============
@@ -977,8 +991,10 @@ export class PcaService {
       demanda: any;
     };
     const todosItens: ItemComDemanda[] = [];
+    // Só as DFDs conferidas aqui (mesmo órgão do PCA, aprovadas) são marcadas no fim
+    const idsValidos: string[] = [];
 
-    for (const demandaId of demandaIds) {
+    for (const demandaId of (demandaIds || []).filter((id) => ehUuid(id))) {
       const demanda = await demandasRepository.findOne({
         where: { id: demandaId },
         relations: ['itens'],
@@ -986,10 +1002,13 @@ export class PcaService {
 
       // Só demandas do MESMO órgão do PCA (ids de outro órgão são ignorados)
       if (!demanda || demanda.status !== 'APROVADA' || demanda.orgao_id !== pca.orgao_id) continue;
+      // evita contar/agrupar duas vezes a mesma DFD repetida na lista
+      if (idsValidos.includes(demanda.id)) continue;
 
       for (const item of demanda.itens || []) {
         todosItens.push({ item, demanda });
       }
+      idsValidos.push(demanda.id);
       demandasConsolidadas++;
     }
 
@@ -1131,9 +1150,10 @@ export class PcaService {
     }
 
     // ── Marcar demandas como consolidadas ─────────────────────────────────────
-    for (const demandaId of demandaIds) {
+    // (só as conferidas acima: DFD de outro órgão nunca é tocada)
+    for (const demandaId of idsValidos) {
       const demanda = await demandasRepository.findOne({ where: { id: demandaId } }) as any;
-      if (demanda && demanda.status === 'APROVADA') {
+      if (demanda && demanda.status === 'APROVADA' && demanda.orgao_id === pca.orgao_id) {
         await demandasRepository.update(demandaId, {
           status: 'CONSOLIDADA',
           pca_id: pcaId,
