@@ -240,6 +240,22 @@ export class DocumentosTelaService {
    * outro órgão são recusados (400).
    */
   async salvarDfd(licitacaoId: string, body: any, autor: Autor) {
+    // Um DFD por vez por processo (autosave da necessidade × troca de unidade chegando juntos):
+    // cada gravação parte do estado deixado pela anterior
+    const anterior = this.filaDfd.get(licitacaoId) ?? Promise.resolve();
+    const minha = anterior.catch(() => undefined).then(() => this.salvarDfdAgora(licitacaoId, body, autor));
+    const marca = minha.catch(() => undefined);
+    this.filaDfd.set(licitacaoId, marca);
+    try {
+      return await minha;
+    } finally {
+      if (this.filaDfd.get(licitacaoId) === marca) this.filaDfd.delete(licitacaoId);
+    }
+  }
+
+  private readonly filaDfd = new Map<string, Promise<unknown>>();
+
+  private async salvarDfdAgora(licitacaoId: string, body: any, autor: Autor) {
     const lic = await this.licitacao(licitacaoId);
     const interna = ehFaseInterna(lic.fase);
     const updLic: Record<string, any> = {};
@@ -276,6 +292,9 @@ export class DocumentosTelaService {
     // Campos estruturados (listas das tabelas do órgão)
     const doc0 = await this.docAtual(licitacaoId, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA);
     const campos = this.camposDfd(doc0);
+    // Só os campos que ESTE pedido mudou (aplicados sobre o estado mais novo ao gravar):
+    // o autosave da necessidade não devolve mais um setor/responsável/data antigos
+    const alterados: Partial<CamposDfd> = {};
     const usuarioDoOrgao = async (id: string, rotulo: string) => {
       const [u] = ehUuid(id) ? await this.ds.query(`SELECT id::text AS id, nome FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2`, [id, lic.orgao_id]) : [];
       if (!u) throw new BadRequestException(`${rotulo}: usuário não encontrado no órgão.`);
@@ -294,6 +313,8 @@ export class DocumentosTelaService {
         campos.unidade_requisitante_id = null;
         campos.unidade_requisitante_nome = null;
       }
+      alterados.unidade_requisitante_id = campos.unidade_requisitante_id;
+      alterados.unidade_requisitante_nome = campos.unidade_requisitante_nome;
     }
     for (const [campo, nome, rotulo] of [
       ['responsavel_id', 'responsavel_nome', 'Responsável'],
@@ -309,18 +330,22 @@ export class DocumentosTelaService {
         campos[campo] = null;
         campos[nome] = null;
       }
+      alterados[campo] = campos[campo];
+      alterados[nome] = campos[nome];
     }
     if (body?.data_pretendida !== undefined) {
       mudouCampos = true;
       const d = String(body.data_pretendida ?? '').slice(0, 10);
       if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new BadRequestException('Data pretendida inválida (AAAA-MM-DD).');
       campos.data_pretendida = d || null;
+      alterados.data_pretendida = campos.data_pretendida;
     }
     if (body?.prioridade !== undefined) {
       mudouCampos = true;
       const p = String(body.prioridade ?? '').toUpperCase();
       if (p && !PRIORIDADES.includes(p)) throw new BadRequestException('Prioridade inválida.');
       campos.prioridade = p || null;
+      alterados.prioridade = campos.prioridade;
     }
 
     const mudouNecessidade = body?.necessidade_html !== undefined;
@@ -341,23 +366,38 @@ export class DocumentosTelaService {
           await this.docRepo.save(alvo);
         }
       }
-      const doc = await this.docAtual(licitacaoId, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA);
-      if (doc) {
-        const dados = { ...(doc.dados_estruturados || {}) };
-        dados._dfd = { ...campos, atualizado_por: autor.nome, atualizado_em: new Date().toISOString() };
+      const doc0b = await this.docAtual(licitacaoId, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA);
+      if (doc0b) {
+        // Gravação por MESCLA no banco (jsonb): só as chaves que este pedido muda. Antes a
+        // peça inteira era regravada com o retrato do começo da requisição — o autosave da
+        // necessidade desfazia a unidade escolhida em paralelo, e vice-versa.
+        Object.assign(campos, this.camposDfd(doc0b), alterados);
+        const dfdPatch: Record<string, unknown> = { ...alterados };
+        if (mudouCampos) Object.assign(dfdPatch, { atualizado_por: autor.nome, atualizado_em: new Date().toISOString() });
         const licAtual = await this.licitacao(licitacaoId);
-        dados.previsao = await this.textoPrevisaoPca(licAtual);
+        const secoesPatch: Record<string, string> = { previsao: await this.textoPrevisaoPca(licAtual) };
         if (campos.data_pretendida) {
           const [a, m, d] = campos.data_pretendida.split('-');
-          dados.data = `<p>Data pretendida para a contratação: ${d}/${m}/${a}${campos.prioridade ? ` (prioridade ${campos.prioridade.toLowerCase()})` : ''}.</p>`;
+          secoesPatch.data = `<p>Data pretendida para a contratação: ${d}/${m}/${a}${campos.prioridade ? ` (prioridade ${campos.prioridade.toLowerCase()})` : ''}.</p>`;
         }
-        doc.dados_estruturados = dados;
-        doc.descricao = Object.entries(dados)
-          .filter(([k, v]) => !k.startsWith('_') && typeof v === 'string' && v.trim())
-          .map(([, v]) => v)
-          .join('\n');
-        if (!doc.titulo || doc.titulo === 'DFD') doc.titulo = TITULO_DOCUMENTO[doc.tipo] ?? doc.titulo;
-        await this.docRepo.save(doc);
+        await this.ds.query(
+          `UPDATE documentos_fase_interna
+              SET dados_estruturados = jsonb_set(COALESCE(dados_estruturados, '{}'::jsonb) || $2::jsonb, '{_dfd}',
+                                                 COALESCE(dados_estruturados -> '_dfd', '{}'::jsonb) || $3::jsonb, true)
+            WHERE id::text = $1`,
+          [doc0b.id, JSON.stringify(secoesPatch), JSON.stringify(dfdPatch)],
+        );
+        // descrição (texto das seções) e título a partir do estado já mesclado
+        const doc = await this.docRepo.findOne({ where: { id: doc0b.id } });
+        if (doc) {
+          const dados = doc.dados_estruturados || {};
+          doc.descricao = Object.entries(dados)
+            .filter(([k, v]) => !k.startsWith('_') && typeof v === 'string' && (v as string).trim())
+            .map(([, v]) => v as string)
+            .join('\n');
+          if (!doc.titulo || doc.titulo === 'DFD') doc.titulo = TITULO_DOCUMENTO[doc.tipo] ?? doc.titulo;
+          await this.docRepo.save(doc);
+        }
       }
     }
     return this.obterDfd(licitacaoId);

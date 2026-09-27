@@ -37,6 +37,7 @@ import {
   Users,
   Inbox,
   Menu,
+  Tv,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -170,6 +171,8 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/fase-interna/processos/novo", label: "Novo processo", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     // Fase interna (Entrega 2): a entrada da área é a caixa de tarefas do usuário
     { href: "/orgao/fase-interna", label: "Minhas tarefas", icon: Inbox, modulo: ModuloSistema.LICITACOES },
+    // Painel para TV (link sem login para a TV do setor) — o administrador gera em Configurações
+    { href: "/orgao/configuracoes?tab=painel-tv", label: "Painel para TV", icon: Tv, modulo: ModuloSistema.LICITACOES, requerRole: 'ADMIN' },
     // Aprovações: documentos da fase interna (fluxo por etapa) para todos; demais abas conforme a permissão
     { href: "/orgao/aprovacoes", label: "Aprovações", icon: CheckCircle },
     { href: "/orgao/atas", label: "Atas de Registro de Preços", icon: BookMarked, modulo: ModuloSistema.ATAS },

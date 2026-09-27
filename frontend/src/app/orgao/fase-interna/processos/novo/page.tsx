@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { ArrowLeft, ArrowRight, Check, Sparkles, Home, ChevronRight, Loader2, AlertCircle, Plus, Trash2, Save } from "lucide-react"
@@ -36,6 +36,19 @@ function getOrgaoId(): string {
     return ""
   }
 }
+
+/** Usuário logado (servidor do órgão): id e setor — pré-preenchem a área demandante e o responsável do DFD. */
+function usuarioLogado(): { id: string; setor_id: string | null } | null {
+  if (typeof window === "undefined") return null
+  try {
+    const u = JSON.parse(localStorage.getItem("usuario") || "null")
+    return u?.id ? { id: String(u.id), setor_id: u.setor_id ? String(u.setor_id) : null } : null
+  } catch {
+    return null
+  }
+}
+
+interface SetorDoOrgao { id: string; nome: string; codigo?: string }
 
 /** Valor digitado nos dados básicos: "R$ 1.500,50" (digitado) ou "1500.5" (vindo do backend). */
 function valorDigitado(valor?: string): number {
@@ -474,7 +487,7 @@ const CRITERIOS_POR_MODALIDADE: Record<string, string[]> = Object.fromEntries(
 )
 
 // ─── Step: Dados básicos ───────────────────────────────────────────
-function StepDados({ dados, onChange, onNext, processoNovo }: { dados: any; onChange: (k: string, v: string) => void; onNext: () => void; processoNovo?: boolean }) {
+function StepDados({ dados, onChange, onNext, processoNovo, setores }: { dados: any; onChange: (k: string, v: string) => void; onNext: () => void; processoNovo?: boolean; setores: SetorDoOrgao[] }) {
   const objetoOk = (dados.objeto || "").trim().length >= 10
   const ehLicitacaoFormal = MODALIDADES_LICITACAO.includes(dados.modalidade)
   const valido = dados.objeto && dados.categoria && dados.modalidade &&
@@ -543,7 +556,8 @@ Formato de resposta:
       const jsonMatch = resposta.match(/\{[\s\S]*\}/)
       if (!jsonMatch) throw new Error("JSON não encontrado na resposta")
       const parsed = JSON.parse(jsonMatch[0])
-      const campos = ["objeto", "categoria", "modalidade", "criterio", "area", "valor"]
+      // A área demandante é escolhida na lista de setores (a IA não a sobrescreve)
+      const campos = ["objeto", "categoria", "modalidade", "criterio", "valor"]
       for (const campo of campos) {
         if (typeof parsed[campo] === "string" && parsed[campo].trim()) {
           setAnimando(campo)
@@ -722,16 +736,52 @@ Formato de resposta:
         {/* Área demandante + Valor estimado */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+            <Label htmlFor="assistente-area" className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
               Área demandante *
-              {animando === "area" && <Sparkles className="w-3 h-3 text-[#1351b4] animate-pulse" />}
             </Label>
-            <Input
-              value={dados.area || ""}
-              onChange={(e) => onChange("area", e.target.value)}
-              placeholder="Ex: SETIC, Gabinete, DCOMP…"
-            />
-            <p className="mt-1 text-[10px] text-gray-400">Unidade requisitante (Art. 18, §1º)</p>
+            {setores.length > 0 && dados.areaLivre !== "1" ? (
+              <Select
+                value={dados.setorId || ""}
+                onValueChange={(v) => {
+                  if (v === "__outro__") {
+                    onChange("areaLivre", "1")
+                    onChange("setorId", "")
+                    onChange("area", "")
+                    return
+                  }
+                  const setor = setores.find((x) => x.id === v)
+                  onChange("setorId", v)
+                  onChange("area", setor?.nome || "")
+                }}
+              >
+                <SelectTrigger id="assistente-area" className="w-full"><SelectValue placeholder="Selecione o setor…" /></SelectTrigger>
+                <SelectContent>
+                  {setores.map((x) => (
+                    <SelectItem key={x.id} value={x.id}>{x.codigo ? `${x.codigo} - ` : ""}{x.nome}</SelectItem>
+                  ))}
+                  <SelectItem value="__outro__">Outro (digitar o nome)</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="flex gap-2">
+                <Input
+                  id="assistente-area"
+                  value={dados.area || ""}
+                  onChange={(e) => { onChange("area", e.target.value); onChange("setorId", "") }}
+                  placeholder="Nome da unidade que pede"
+                />
+                {setores.length > 0 && (
+                  <Button type="button" variant="outline" size="sm" className="shrink-0 h-9" onClick={() => { onChange("areaLivre", ""); onChange("area", "") }}>
+                    Lista
+                  </Button>
+                )}
+              </div>
+            )}
+            <p className="mt-1 text-[10px] text-gray-400">
+              {dados.setorId || !setores.length
+                ? "Unidade requisitante (Art. 18, §1º) — vai para o DFD da etapa 1"
+                : "Setor fora da lista: o DFD pede um setor cadastrado (Configurações › Setores)"}
+            </p>
           </div>
           <div>
             <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
@@ -1632,8 +1682,27 @@ export default function NovoProcessoPage() {
   const [criando, setCriando] = useState(false)
   const [salvandoRascunho, setSalvandoRascunho] = useState(false)
   const [salvandoItens, setSalvandoItens] = useState(false)
+  // O DFD da etapa 1 é pré-preenchido UMA vez (na criação) — depois quem manda é a tela do DFD
+  const dfdPreenchido = useRef(false)
 
   const [dados, setDados] = useState<Record<string, string>>({})
+  // Setores do órgão (área demandante = setor; o DFD da etapa 1 já nasce com ele)
+  const [setores, setSetores] = useState<SetorDoOrgao[]>([])
+  useEffect(() => {
+    const orgaoId = getOrgaoId()
+    if (!orgaoId) return
+    authFetch(`${API_URL}/api/orgaos/${orgaoId}/setores`)
+      .then(async (r) => (r.ok ? r.json() : []))
+      .then((lista) => {
+        const s: SetorDoOrgao[] = Array.isArray(lista) ? lista : []
+        setSetores(s)
+        // processo novo: já vem com o setor de quem está logado (editável)
+        const eu = usuarioLogado()
+        const meu = eu?.setor_id ? s.find((x) => x.id === eu.setor_id) : null
+        if (meu && !processoId) setDados((p) => (p.setorId || p.area ? p : { ...p, setorId: meu.id, area: meu.nome }))
+      })
+      .catch(() => { /* sem setores: área em texto livre */ })
+  }, [processoId])
   const [itens, setItens] = useState<ItemLicitacao[]>([])
   const [docs, setDocs] = useState<Record<string, Record<string, string>>>({
     dfd: {}, etp: {}, tr: {}, edital: {}, aviso: {}
@@ -1917,6 +1986,25 @@ export default function NovoProcessoPage() {
         throw new Error(err.message || "Erro ao salvar os documentos do processo")
       }
     }
+    // Processo novo: o DFD da etapa 1 já nasce com o que o assistente sabe — unidade
+    // requisitante (setor escolhido) e responsável (quem está criando). O objeto e os
+    // itens o DFD lê do próprio processo. Falha aqui não impede a criação.
+    if (!processoId && !dfdPreenchido.current) {
+      const eu = usuarioLogado()
+      const corpoDfd: Record<string, string> = {}
+      if (dados.setorId) corpoDfd.unidade_requisitante_id = dados.setorId
+      if (eu?.id) corpoDfd.responsavel_id = eu.id
+      if (Object.keys(corpoDfd).length) {
+        try {
+          const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/dfd`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(corpoDfd),
+          })
+          if (r.ok) dfdPreenchido.current = true
+        } catch { /* o usuário completa na tela do DFD */ }
+      }
+    }
     return licitacaoId
   }
 
@@ -2074,7 +2162,7 @@ export default function NovoProcessoPage() {
   const semTexto = (o: Record<string, string>) => !Object.values(o || {}).some((v) => (v || "").trim())
 
   let content: React.ReactNode
-  if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} processoNovo={!processoId} />
+  if (step === "dados")       content = <StepDados dados={dados} setores={setores} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} processoNovo={!processoId} />
   else if (step === "itens")  content = <StepItens itens={itens} setItens={setItens} modalidade={dados.modalidade} categoria={dados.categoria} fundamento={dados.fundamento}
     onNext={salvarItensEContinuar} onBack={back} salvando={salvandoItens} rotuloAvancar={processoId ? "Salvar e continuar" : "Salvar e abrir o processo"} />
   else if (step === "dfd")    content = <StepDocumento

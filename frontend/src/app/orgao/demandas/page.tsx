@@ -21,20 +21,11 @@ import {
   X,
   ChevronUp,
   ChevronDown,
-  Sparkles
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -42,11 +33,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 
 import { API_URL, authFetch } from '@/lib/api'
+import { NovaDemandaDialog } from '@/components/demandas/NovaDemandaDialog'
+import { carregarEscopoDemandas, type EscopoDemandas } from '@/components/demandas/tipos'
 import { toast } from "sonner"
 import { confirmarAcao } from "@/components/DialogoGlobal"
 
@@ -94,15 +86,6 @@ interface Demanda {
   dfd?: { id: string; numero: number; ano: number; status: string } | null
 }
 
-interface SetorOrgao {
-  id: string
-  codigo: string
-  nome: string
-  responsavel_nome?: string
-  responsavel_email?: string
-  responsavel_telefone?: string
-}
-
 interface Estatisticas {
   total: number
   porStatus: { status: string; total: number; valor: number }[]
@@ -139,98 +122,13 @@ function DemandasPageContent() {
   const [filtroStatus, setFiltroStatus] = useState<string>('TODOS')
   const [filtroUnidade, setFiltroUnidade] = useState<string>('TODAS')
   const [unidades, setUnidades] = useState<string[]>([])
-  const [setores, setSetores] = useState<SetorOrgao[]>([])
+  // O que quem está logado vê: todas as demandas do órgão ou só as do seu setor
+  const [escopo, setEscopo] = useState<EscopoDemandas | null>(null)
   const [termoBusca, setTermoBusca] = useState('')
 
   // Estados para modais
   const [showNovaDemanda, setShowNovaDemanda] = useState(false)
   const [demandaExpandida, setDemandaExpandida] = useState<string | null>(null)
-
-  // Estado para nova demanda
-  const [novaDemanda, setNovaDemanda] = useState({
-    unidade_requisitante: '',
-    responsavel_nome: '',
-    responsavel_email: '',
-    responsavel_telefone: '',
-    data_desejada_contratacao: '',
-    renovacao_contrato: false,
-    descricao_sucinta_objeto: '',
-    observacoes: ''
-  })
-  const [salvando, setSalvando] = useState(false)
-  // Setor fora da lista cadastrada → digitação livre
-  const [setorLivre, setSetorLivre] = useState(false)
-  // "Melhorar com IA" na descrição sucinta
-  const [melhorandoDescricao, setMelhorandoDescricao] = useState(false)
-
-  const melhorarDescricaoComIA = async () => {
-    const texto = novaDemanda.descricao_sucinta_objeto.trim()
-    if (!texto || melhorandoDescricao) return
-    setMelhorandoDescricao(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/ia/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mensagens: [{
-            role: 'user',
-            content:
-              `Você redige descrições sucintas de objeto para demandas de contratação pública (Lei 14.133/2021). ` +
-              `Reescreva o texto abaixo como uma descrição sucinta formal, clara e específica (1 a 3 frases), ` +
-              `preservando a intenção. Responda APENAS com o texto final, sem aspas nem comentários.\n\n` +
-              `Setor requisitante: ${novaDemanda.unidade_requisitante || 'não informado'}\n` +
-              `Texto do usuário: ${texto}`,
-          }],
-          tipoDocumento: 'DFD',
-        }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      const melhorado = String(data.resposta || '').trim()
-      if (melhorado) setNovaDemanda((d) => ({ ...d, descricao_sucinta_objeto: melhorado }))
-    } catch {
-      toast.error('Não foi possível melhorar o texto agora — você pode continuar com o seu.')
-    } finally {
-      setMelhorandoDescricao(false)
-    }
-  }
-
-  const [melhorandoJustificativa, setMelhorandoJustificativa] = useState(false)
-
-  const melhorarJustificativaComIA = async () => {
-    if (melhorandoJustificativa) return
-    setMelhorandoJustificativa(true)
-    try {
-      const atual = novaDemanda.observacoes.trim()
-      const res = await authFetch(`${API_URL}/api/ia/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mensagens: [{
-            role: 'user',
-            content:
-              `Você redige justificativas de necessidade para demandas de contratação pública (Art. 18, I, Lei 14.133/2021). ` +
-              (atual
-                ? `Melhore e desenvolva o texto do usuário, preservando os fatos. `
-                : `Redija a justificativa a partir do objeto informado. `) +
-              `Texto formal e objetivo, 1 a 2 parágrafos. Responda APENAS com o texto final.\n\n` +
-              `Objeto: ${novaDemanda.descricao_sucinta_objeto || 'não informado'}\n` +
-              `Setor: ${novaDemanda.unidade_requisitante || 'não informado'}\n` +
-              (atual ? `\nTexto do usuário:\n${atual}` : ''),
-          }],
-          tipoDocumento: 'DFD',
-        }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      const novo = String(data.resposta || '').trim()
-      if (novo) setNovaDemanda((d) => ({ ...d, observacoes: novo }))
-    } catch {
-      toast.error('Não foi possível gerar agora — você pode preencher depois, na seção 2 da demanda.')
-    } finally {
-      setMelhorandoJustificativa(false)
-    }
-  }
 
   // orgaoId carregado do localStorage (mesmo padrão do PCA)
   const [orgaoId, setOrgaoId] = useState('')
@@ -276,75 +174,11 @@ function DemandasPageContent() {
         setUnidades(data)
       }
 
-      authFetch(`${API_URL}/api/orgaos/${orgaoId}/setores`)
-        .then(async (setoresRes) => {
-          if (!setoresRes.ok) return
-          const data = await setoresRes.json()
-          setSetores(Array.isArray(data) ? data : [])
-        })
-        .catch((error) => {
-          console.error('Erro ao carregar setores:', error)
-          setSetores([])
-        })
+      if (!escopo) carregarEscopoDemandas(orgaoId).then(setEscopo)
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const criarDemanda = async () => {
-    if (!novaDemanda.unidade_requisitante) {
-      toast.warning('Informe a unidade requisitante')
-      return
-    }
-    if (!novaDemanda.descricao_sucinta_objeto.trim()) {
-      toast.warning('Informe a descrição sucinta do objeto')
-      return
-    }
-
-    setSalvando(true)
-    try {
-      // Campos de data vazios NÃO podem ir como '' (o banco rejeita a data
-      // inválida e o usuário via só um erro genérico) — omite quando vazio
-      const payload: Record<string, unknown> = {
-        orgaoId,
-        ano_referencia: anoSelecionado,
-        ...novaDemanda,
-      }
-      if (!novaDemanda.data_desejada_contratacao) delete payload.data_desejada_contratacao
-      const response = await authFetch(`${API_URL}/api/demandas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-
-      if (response.ok) {
-        const demandaCriada = await response.json()
-        setShowNovaDemanda(false)
-        setSetorLivre(false)
-        setNovaDemanda({
-          unidade_requisitante: '',
-          responsavel_nome: '',
-          responsavel_email: '',
-          responsavel_telefone: '',
-          data_desejada_contratacao: '',
-          renovacao_contrato: false,
-          descricao_sucinta_objeto: '',
-          observacoes: ''
-        })
-        // Navegar direto para a página de detalhe da demanda criada
-        router.push(`/orgao/demandas/${demandaCriada.id}`)
-      } else {
-        const err = await response.json().catch(() => ({}))
-        const msg = Array.isArray(err.message) ? err.message.join('\n') : err.message
-        toast.error(msg || 'Erro ao criar demanda — verifique os campos obrigatórios (*)')
-      }
-    } catch (error) {
-      console.error('Erro ao criar demanda:', error)
-      toast.error('Erro ao criar demanda')
-    } finally {
-      setSalvando(false)
     }
   }
 
@@ -435,6 +269,13 @@ function DemandasPageContent() {
         </div>
       </div>
 
+      {escopo && !escopo.todas && (
+        <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900" role="note">
+          Você vê as demandas {escopo.setor_nome ? <>do setor <b>{escopo.setor_nome}</b> e </> : null}que você criou.
+          Quem aprova as demandas e a unidade de planejamento veem as de todos os setores.
+        </p>
+      )}
+
       {/* Estatísticas */}
       {estatisticas && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -465,7 +306,7 @@ function DemandasPageContent() {
               <div className="text-2xl font-bold text-blue-600">
                 {formatarMoeda(estatisticas.valorTotal)}
               </div>
-              <p className="text-sm text-gray-500">Valor Total Estimado</p>
+              <p className="text-sm text-gray-500">{escopo && !escopo.todas ? 'Valor estimado (seu setor)' : 'Valor Total Estimado'}</p>
             </CardContent>
           </Card>
         </div>
@@ -662,202 +503,14 @@ function DemandasPageContent() {
         </div>
       )}
 
-      {/* Modal Nova Demanda */}
-      <Dialog open={showNovaDemanda} onOpenChange={setShowNovaDemanda}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Nova demanda</DialogTitle>
-            <DialogDescription>
-              O pedido do seu setor para o PCA {anoSelecionado}: o que precisa, por quê e para quando.
-              Depois de criar, você adiciona os itens e envia para aprovação.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="block text-sm font-medium mb-1">Unidade requisitante *</label>
-              {setores.length > 0 && !setorLivre ? (
-                <Select
-                  value={novaDemanda.unidade_requisitante}
-                  onValueChange={(value) => {
-                    if (value === '__outro__') {
-                      // Setor fora da lista: libera a digitação em vez de
-                      // deixar o usuário num beco sem saída
-                      setSetorLivre(true)
-                      setNovaDemanda({ ...novaDemanda, unidade_requisitante: '' })
-                      return
-                    }
-                    const setor = setores.find(s => s.nome === value)
-                    setNovaDemanda({
-                      ...novaDemanda,
-                      unidade_requisitante: value,
-                      responsavel_nome: setor?.responsavel_nome || novaDemanda.responsavel_nome,
-                      responsavel_email: setor?.responsavel_email || novaDemanda.responsavel_email,
-                      responsavel_telefone: setor?.responsavel_telefone || novaDemanda.responsavel_telefone
-                    })
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o setor requisitante" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {setores.map(setor => (
-                      <SelectItem key={setor.id} value={setor.nome}>
-                        {setor.codigo} - {setor.nome}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="__outro__">➕ Outro setor (digitar o nome)</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div className="flex gap-2">
-                  <Input
-                    value={novaDemanda.unidade_requisitante}
-                    onChange={(e) => setNovaDemanda({...novaDemanda, unidade_requisitante: e.target.value})}
-                    placeholder="Ex: Departamento de TI, Setor de Compras..."
-                    autoFocus={setorLivre}
-                  />
-                  {setores.length > 0 && (
-                    <Button type="button" variant="outline" size="sm" className="shrink-0 h-10"
-                      onClick={() => { setSetorLivre(false); setNovaDemanda({ ...novaDemanda, unidade_requisitante: '' }) }}>
-                      Voltar à lista
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Descrição do pedido *</label>
-              <Textarea
-                value={novaDemanda.descricao_sucinta_objeto}
-                onChange={(e) => setNovaDemanda({...novaDemanda, descricao_sucinta_objeto: e.target.value})}
-                placeholder="Escreva do seu jeito (ex: 'preciso de 20 cadeiras pro administrativo') — a IA formaliza para você."
-                rows={3}
-              />
-              <div className="flex items-start sm:items-center justify-between gap-2 mt-1 flex-wrap sm:flex-nowrap">
-                <p className="text-xs text-gray-600">
-                  Este resumo identifica o seu pedido — a unidade de planejamento usa para juntar pedidos parecidos no DFD.
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 h-7 text-xs gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
-                  onClick={melhorarDescricaoComIA}
-                  disabled={melhorandoDescricao || !novaDemanda.descricao_sucinta_objeto.trim()}
-                  title="A IA reescreve o seu texto como uma descrição formal de contratação (você pode editar depois)"
-                >
-                  {melhorandoDescricao
-                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                    : <Sparkles className="h-3 w-3" />}
-                  {melhorandoDescricao ? 'Melhorando…' : 'Melhorar com IA'}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Tipo da demanda</label>
-                <Select
-                  value={novaDemanda.renovacao_contrato ? 'RENOVACAO' : 'NOVA'}
-                  onValueChange={(value) => setNovaDemanda({
-                    ...novaDemanda,
-                    renovacao_contrato: value === 'RENOVACAO'
-                  })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="NOVA">Nova demanda</SelectItem>
-                    <SelectItem value="RENOVACAO">Renovação contratual</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Para quando (data desejada) <span className="text-gray-500 font-normal">(opcional)</span></label>
-                <Input
-                  type="date"
-                  value={novaDemanda.data_desejada_contratacao}
-                  onChange={(e) => setNovaDemanda({...novaDemanda, data_desejada_contratacao: e.target.value})}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Nome do responsável</label>
-                <Input
-                  value={novaDemanda.responsavel_nome}
-                  onChange={(e) => setNovaDemanda({...novaDemanda, responsavel_nome: e.target.value})}
-                  placeholder="Nome completo"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Telefone</label>
-                <Input
-                  value={novaDemanda.responsavel_telefone}
-                  onChange={(e) => setNovaDemanda({...novaDemanda, responsavel_telefone: e.target.value})}
-                  placeholder="(00) 00000-0000"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">E-mail do responsável</label>
-              <Input
-                type="email"
-                value={novaDemanda.responsavel_email}
-                onChange={(e) => setNovaDemanda({...novaDemanda, responsavel_email: e.target.value})}
-                placeholder="email@orgao.gov.br"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Justificativa da necessidade <span className="text-gray-500 font-normal">(opcional aqui, editável depois)</span>
-              </label>
-              <Textarea
-                value={novaDemanda.observacoes}
-                onChange={(e) => setNovaDemanda({...novaDemanda, observacoes: e.target.value})}
-                placeholder="Por que essa contratação é necessária? Escreva do seu jeito — a IA formaliza."
-                rows={3}
-              />
-              <div className="flex justify-end mt-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
-                  onClick={melhorarJustificativaComIA}
-                  disabled={melhorandoJustificativa || (!novaDemanda.observacoes.trim() && !novaDemanda.descricao_sucinta_objeto.trim())}
-                  title="A IA redige/melhora a justificativa usando o objeto informado acima"
-                >
-                  {melhorandoJustificativa
-                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                    : <Sparkles className="h-3 w-3" />}
-                  {melhorandoJustificativa ? 'Gerando…' : novaDemanda.observacoes.trim() ? 'Melhorar com IA' : 'Redigir com IA'}
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNovaDemanda(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={criarDemanda} disabled={salvando}>
-              {salvando ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4 mr-2" />
-              )}
-              Criar demanda
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Nova demanda (estado próprio: digitar não redesenha a lista) */}
+      <NovaDemandaDialog
+        open={showNovaDemanda}
+        onOpenChange={setShowNovaDemanda}
+        ano={anoSelecionado}
+        orgaoId={orgaoId}
+        onCriada={(id) => router.push(`/orgao/demandas/${id}`)}
+      />
 
     </div>
   )

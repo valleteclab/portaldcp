@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
-import { API_URL, authFetch } from '@/lib/api'
+import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
 import { toast } from 'sonner'
 import { ROTULO_STATUS_DFD, COR_STATUS_DFD, type Parecido, AlertaParecidos, formatarMoeda } from '@/components/demandas/dfd-comum'
 
@@ -225,9 +225,10 @@ function DfdConsolidadoContent() {
   const livres = new Set(demandas.map((d) => d.id))
 
   return (
-    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+    // w-full/min-w-0: a página não rola para o lado (1366px e celular) — tabela rola por dentro
+    <div className="p-3 sm:p-6 space-y-6 bg-gray-50 min-h-screen w-full min-w-0 max-w-full overflow-x-hidden">
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
+        <div className="min-w-0 flex-[1_1_280px]">
           <Button variant="ghost" className="mb-2" onClick={() => router.push('/orgao/demandas')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Demandas
@@ -267,7 +268,7 @@ function DfdConsolidadoContent() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 [&>*]:min-w-0">
         <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{demandas.length}</div><p className="text-sm text-gray-500">Demandas aprovadas livres</p></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{grupos.length}</div><p className="text-sm text-gray-500">Classes/grupos</p></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{dfds.filter((f) => f.status !== 'CANCELADO').length}</div><p className="text-sm text-gray-500">DFDs em {ano}</p></CardContent></Card>
@@ -289,13 +290,13 @@ function DfdConsolidadoContent() {
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 min-w-0">
             {carregandoPrevia && <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Somando os itens…</p>}
             {previa && (
               <>
                 <AlertaParecidos alertas={previa.alertas} />
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full min-w-[560px] text-sm">
                     <thead>
                       <tr className="text-left text-xs text-gray-500 border-b">
                         <th className="py-1 pr-2">Nº</th>
@@ -328,12 +329,12 @@ function DfdConsolidadoContent() {
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-3">
-            <div className="relative flex-1 min-w-[260px]">
+            <div className="relative flex-1 min-w-[min(260px,100%)]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input value={termo} onChange={(e) => setTermo(e.target.value)} placeholder="Pesquisar por classe, objeto, setor ou responsável..." className="pl-10 bg-white" />
             </div>
             <Select value={unidade} onValueChange={setUnidade}>
-              <SelectTrigger className="w-64 bg-white"><SelectValue placeholder="Setor" /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-64 bg-white"><SelectValue placeholder="Setor" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="TODAS">Todos os setores</SelectItem>
                 {unidades.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
@@ -360,16 +361,16 @@ function DfdConsolidadoContent() {
             const selGrupo = g.demandas.filter((d) => selecionadas.includes(d.id)).length
             return (
               <Card key={g.chave} className="overflow-hidden">
-                <div className="w-full p-4 flex items-center justify-between gap-4 hover:bg-gray-50 cursor-pointer" onClick={() => setGrupoAberto(aberto ? null : g.chave)}>
-                  <div className="flex items-center gap-3">
+                <div className="w-full p-3 sm:p-4 flex items-center justify-between gap-3 sm:gap-4 flex-wrap hover:bg-gray-50 cursor-pointer" onClick={() => setGrupoAberto(aberto ? null : g.chave)}>
+                  <div className="flex items-center gap-3 min-w-0 flex-[1_1_240px]">
                     {aberto ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
                     <Badge variant="outline">{g.categoria === 'MATERIAL' ? 'M' : 'S'}</Badge>
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-xs text-gray-500">Classe/grupo</div>
-                      <div className="font-semibold">{g.codigo} — {g.nome}</div>
+                      <div className="font-semibold break-words">{g.codigo} — {g.nome}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-6 text-right">
+                  <div className="flex items-center gap-4 sm:gap-6 text-right flex-wrap">
                     <div><div className="font-semibold">{g.demandas.length}</div><div className="text-xs text-gray-500">demanda(s)</div></div>
                     <div><div className="font-semibold">{formatarMoeda(g.valor)}</div><div className="text-xs text-gray-500">estimado</div></div>
                     {permissoes?.pode_montar && (
@@ -380,9 +381,9 @@ function DfdConsolidadoContent() {
                   </div>
                 </div>
                 {aberto && (
-                  <div className="border-t bg-white p-4 divide-y">
+                  <div className="border-t bg-white p-3 sm:p-4 divide-y">
                     {g.demandas.map((d) => (
-                      <div key={d.id} className="grid grid-cols-[32px_1fr_160px_120px_120px] gap-3 py-2 items-center">
+                      <div key={d.id} className="grid grid-cols-[32px_minmax(0,1fr)_auto] sm:grid-cols-[32px_minmax(0,1fr)_140px_100px_110px] gap-3 py-2 items-center">
                         {permissoes?.pode_montar ? (
                           <button
                             type="button"
@@ -393,12 +394,13 @@ function DfdConsolidadoContent() {
                             {selecionadas.includes(d.id) && <Check className="h-3.5 w-3.5" />}
                           </button>
                         ) : <span />}
-                        <div>
-                          <Link href={`/orgao/demandas/${d.id}`} className="font-medium text-blue-700 hover:underline">Demanda — {d.unidade_requisitante}</Link>
-                          <p className="text-sm text-gray-700 line-clamp-2">{d.descricao_sucinta_objeto || 'Sem descrição'}</p>
+                        <div className="min-w-0">
+                          <Link href={`/orgao/demandas/${d.id}`} className="font-medium text-blue-700 hover:underline break-words">Demanda — {d.unidade_requisitante}</Link>
+                          <p className="text-sm text-gray-700 line-clamp-2 break-words">{d.descricao_sucinta_objeto || 'Sem descrição'}</p>
+                          <p className="text-xs text-gray-600 sm:hidden">Para quando: {d.data_desejada_contratacao ? formatarDataBR(String(d.data_desejada_contratacao)) : '—'}</p>
                         </div>
-                        <span className="text-sm text-gray-700">{d.unidade_requisitante}</span>
-                        <span className="text-sm text-gray-700">{d.data_desejada_contratacao ? String(d.data_desejada_contratacao).slice(0, 10).split('-').reverse().join('/') : '—'}</span>
+                        <span className="hidden sm:block text-sm text-gray-700 break-words">{d.unidade_requisitante}</span>
+                        <span className="hidden sm:block text-sm text-gray-700">{d.data_desejada_contratacao ? formatarDataBR(String(d.data_desejada_contratacao)) : '—'}</span>
                         <span className="text-sm font-semibold text-right">{formatarMoeda(valorDaDemanda(d))}</span>
                       </div>
                     ))}
@@ -418,7 +420,7 @@ function DfdConsolidadoContent() {
           ) : (
             dfds.map((f) => (
               <Link key={f.id} href={`/orgao/demandas/dfd/${f.id}`} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3 hover:bg-gray-50">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="font-semibold flex items-center gap-2 flex-wrap">
                     DFD nº {f.numero}/{f.ano}
                     <Badge className={COR_STATUS_DFD[f.status]}>{ROTULO_STATUS_DFD[f.status] ?? f.status}</Badge>
@@ -447,8 +449,8 @@ function DfdConsolidadoContent() {
             {antigas.map((c) => {
               const ids = (c.demandas || []).map((d) => d.id).filter((id) => livres.has(id))
               return (
-                <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
-                  <div>
+                <div key={c.id} className="flex items-center justify-between gap-3 flex-wrap rounded-lg border bg-white p-3">
+                  <div className="min-w-0 flex-[1_1_220px]">
                     <div className="font-semibold">{c.identificador} — {c.titulo}</div>
                     <div className="text-sm text-gray-500">{(c.demandas || []).length} demanda(s) • {c.categoria}</div>
                   </div>

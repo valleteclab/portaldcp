@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { API_URL, authFetch } from "@/lib/api"
+import { LinkPainelTv } from "@/components/painel-tv/LinkPainelTv"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -274,7 +275,7 @@ export default function FaseInternaDashboard() {
     <div className="p-6 pb-10 max-w-screen-xl">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-6">
         <div>
           {/* Breadcrumb */}
           <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
@@ -286,7 +287,8 @@ export default function FaseInternaDashboard() {
           <h1 className="text-2xl font-bold text-gray-900">Painel de processos licitatórios</h1>
           <p className="text-sm text-gray-500 mt-1">Visão geral da fase interna · Lei nº 14.133/2021</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <LinkPainelTv />
           <Button variant="ghost" size="sm" className="text-gray-600 border border-gray-200">
             Exportar
           </Button>

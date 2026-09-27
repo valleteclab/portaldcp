@@ -3,6 +3,9 @@
  */
 import type { ComponentType } from 'react'
 import { CheckCircle, Clock, FileText, Send, XCircle } from 'lucide-react'
+import { API_URL, authFetch } from '@/lib/api'
+
+export { trimestreDaData, trimestreInicialDoItem } from '@/lib/demandas/trimestre'
 
 export interface ItemDemanda {
   id: string
@@ -31,6 +34,8 @@ export interface Demanda {
   orgao_id: string
   ano_referencia: number
   unidade_requisitante: string
+  /** Setor do órgão (quando a unidade é um setor cadastrado). */
+  setor_id?: string | null
   responsavel_nome?: string
   responsavel_email?: string
   responsavel_telefone?: string
@@ -40,6 +45,10 @@ export interface Demanda {
   data_desejada_contratacao?: string
   renovacao_contrato?: boolean
   motivo_rejeicao?: string
+  data_envio?: string | null
+  /** Quem aprovou (do token) e quando. */
+  aprovado_por?: string | null
+  data_aprovacao?: string | null
   created_at: string
   itens: ItemDemanda[]
   /** DFD consolidado (unidade de planejamento) em que a demanda entrou — travada enquanto estiver nele. */
@@ -120,3 +129,34 @@ export const fmtMoeda = (v: number) =>
 
 export const totalDaDemanda = (itens: ItemDemanda[] | undefined) =>
   (itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
+
+/** Setor do órgão (GET /api/orgaos/:id/setores). */
+export interface SetorOrgao {
+  id: string
+  codigo?: string
+  nome: string
+  responsavel_nome?: string
+  responsavel_email?: string
+  responsavel_telefone?: string
+}
+
+/**
+ * GET /api/demandas/escopo — o que quem está logado vê (todas as demandas do
+ * órgão ou só as do seu setor e as que criou) e os dados dele (pré-preenchem a
+ * "Nova demanda"; login do órgão → usuario null).
+ */
+export interface EscopoDemandas {
+  todas: boolean
+  setor_id: string | null
+  setor_nome: string | null
+  usuario: { id: string; nome: string | null; email: string | null; telefone: string | null; setor_id: string | null; setor_nome: string | null } | null
+}
+
+export async function carregarEscopoDemandas(orgaoId?: string): Promise<EscopoDemandas | null> {
+  try {
+    const r = await authFetch(`${API_URL}/api/demandas/escopo${orgaoId ? `?orgaoId=${orgaoId}` : ''}`)
+    return r.ok ? await r.json() : null
+  } catch {
+    return null
+  }
+}

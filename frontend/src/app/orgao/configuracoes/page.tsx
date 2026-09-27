@@ -59,6 +59,12 @@ interface Setor {
   chefe_usuario_id?: string | null
 }
 
+/** MunicÃ­pio nÃ£o informado (vazio ou o "A definir" do cadastro) â€” sai nos documentos (local e data, autos). */
+function municipioPendente(cidade: string | null | undefined): boolean {
+  const c = String(cidade ?? '').trim()
+  return !c || /^a\s*definir$/i.test(c)
+}
+
 export default function ConfiguracoesPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -112,6 +118,8 @@ export default function ConfiguracoesPage() {
     logo_url: '' as string | null,
   })
   const [loading, setLoading] = useState(true)
+  // MunicÃ­pio como estÃ¡ GRAVADO (o aviso some ao salvar, nÃ£o ao digitar)
+  const [cidadeGravada, setCidadeGravada] = useState<string | null>(null)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -136,6 +144,7 @@ export default function ConfiguracoesPage() {
           logo_url: dados.logo_url || null,
         }
         setOrgao(orgaoAtual)
+        setCidadeGravada(orgaoAtual.cidade)
         const atual = localStorage.getItem('orgao') ? JSON.parse(localStorage.getItem('orgao')!) : {}
         localStorage.setItem('orgao', JSON.stringify({ ...atual, ...dados }))
       }
@@ -332,6 +341,7 @@ export default function ConfiguracoesPage() {
       if (res.ok) {
         const dados = await res.json()
         setOrgao((prev) => ({ ...prev, ...dados }))
+        setCidadeGravada(dados?.cidade ?? orgao.cidade)
         const atual = localStorage.getItem("orgao") ? JSON.parse(localStorage.getItem("orgao")!) : {}
         localStorage.setItem("orgao", JSON.stringify({ ...atual, ...dados }))
         toast.success("Dados do órgão salvos com sucesso!")
@@ -487,12 +497,12 @@ export default function ConfiguracoesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Configuracoes</h1>
           <p className="text-muted-foreground">Gerencie as configuracoes do orgao</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
             variant="outline"
             size="sm"
@@ -560,8 +570,31 @@ export default function ConfiguracoesPage() {
             <CalendarDays className="h-4 w-4" />
             Feriados
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => handleTabChange('painel-tv')}
+            title="Link da TV do setor de licitaÃ§Ã£o (sem login): processos em andamento, prazos e sessÃµes do dia"
+          >
+            <Tv className="h-4 w-4" />
+            Painel para TV
+          </Button>
         </div>
       </div>
+
+      {/* MunicÃ­pio em branco / "A definir": aparece nos documentos (local e data) */}
+      {cidadeGravada !== null && municipioPendente(cidadeGravada) && (
+        <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 flex items-start gap-2 flex-wrap">
+          <span className="flex-1 min-w-[220px]">
+            <b>Preencha o municÃ­pio do Ã³rgÃ£o</b> â€” ele aparece nos documentos (local e data das peÃ§as e dos autos).
+            {cidadeGravada ? <> Hoje estÃ¡ &quot;{cidadeGravada}&quot;.</> : null}
+          </span>
+          {activeTab !== 'orgao' && (
+            <Button size="sm" variant="outline" className="bg-white" onClick={() => handleTabChange('orgao')}>Preencher agora</Button>
+          )}
+        </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
@@ -583,7 +616,7 @@ export default function ConfiguracoesPage() {
           <TabsTrigger value="transparencia">
             <Globe className="h-4 w-4 mr-2" /> Transparência
           </TabsTrigger>
-          <TabsTrigger value="painel-tv">
+          <TabsTrigger value="painel-tv" title="Link da TV do setor de licitaÃ§Ã£o: processos, prazos e sessÃµes do dia">
             <Tv className="h-4 w-4 mr-2" /> Painel para TV
           </TabsTrigger>
           <TabsTrigger value="seguranca">
@@ -621,11 +654,18 @@ export default function ConfiguracoesPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Cidade</Label>
-                  <Input 
+                  <Label htmlFor="orgao-cidade">Cidade (município)</Label>
+                  <Input
+                    id="orgao-cidade"
                     value={orgao.cidade}
                     onChange={(e) => setOrgao({...orgao, cidade: e.target.value})}
+                    aria-invalid={municipioPendente(orgao.cidade) || undefined}
+                    className={municipioPendente(orgao.cidade) ? 'border-amber-400 bg-amber-50' : undefined}
+                    placeholder="Ex.: Luís Eduardo Magalhães"
                   />
+                  {municipioPendente(orgao.cidade) && (
+                    <p className="text-xs text-amber-800">Preencha o município — aparece nos documentos.</p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">

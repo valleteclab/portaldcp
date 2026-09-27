@@ -24,7 +24,7 @@ import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { EditorItensDialog } from "@/components/fase-interna/etapas/EditorItensDialog"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
-import { erroDaApi, rotaDaTela } from "@/lib/fase-interna/telas"
+import { criarUltimaCarga, erroDaApi, rotaDaTela } from "@/lib/fase-interna/telas"
 
 const SecaoEditor = dynamic(() => import("@/components/editor/SecaoEditor").then((m) => ({ default: m.SecaoEditor })), {
   ssr: false,
@@ -68,20 +68,35 @@ export default function DfdPage() {
   const [editorChave, setEditorChave] = useState(0)
   const [objeto, setObjeto] = useState("")
   const [justSemPca, setJustSemPca] = useState("")
+  // "Não consta do PCA" marcado e ainda sem justificativa gravada: fica marcado na tela
+  // (o servidor só grava com a justificativa) — antes qualquer autosave/recarga desmarcava
+  const [semPcaLocal, setSemPcaLocal] = useState(false)
+  // Texto digitado e ainda não gravado não é sobrescrito por recarga
+  const objetoSujo = useRef(false)
+  const justSujo = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const necessidadePendente = useRef<string | null>(null)
+  // Respostas fora de ordem (autosave × seleção × recarga) não voltam a tela para um estado velho
+  const ultima = useRef(criarUltimaCarga()).current
+
+  const aplicar = useCallback((j: DfdTela) => {
+    setD(j)
+    if (!objetoSujo.current) setObjeto(j.licitacao.objeto || "")
+    if (!justSujo.current) setJustSemPca(j.licitacao.justificativa_sem_pca || "")
+    if (j.licitacao.sem_pca || j.licitacao.item_pca_id) setSemPcaLocal(false)
+  }, [])
 
   const carregar = useCallback(async () => {
+    const vale = ultima()
     try {
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/dfd`)
       if (!r.ok) throw new Error(await erroDaApi(r))
       const j = (await r.json()) as DfdTela
-      setD(j)
-      setObjeto(j.licitacao.objeto || "")
-      setJustSemPca(j.licitacao.justificativa_sem_pca || "")
+      if (vale()) aplicar(j)
     } catch (e) {
-      setErro(e instanceof Error ? e.message : String(e))
+      if (vale()) setErro(e instanceof Error ? e.message : String(e))
     }
-  }, [id])
+  }, [id, ultima, aplicar])
   useEffect(() => {
     carregar()
   }, [carregar])
@@ -89,6 +104,7 @@ export default function DfdPage() {
   const salvar = useCallback(
     async (corpo: Record<string, unknown>) => {
       setSalvando("salvando")
+      const vale = ultima()
       try {
         const r = await authFetch(`${API_URL}/api/fase-interna/${id}/dfd`, {
           method: "PUT",
@@ -97,7 +113,9 @@ export default function DfdPage() {
         })
         if (!r.ok) throw new Error(await erroDaApi(r))
         const j = (await r.json()) as DfdTela
-        setD((atual) => (atual ? { ...j, secoes: { ...j.secoes } } : j))
+        if ("objeto" in corpo) objetoSujo.current = false
+        if ("justificativa_sem_pca" in corpo || "sem_pca" in corpo) justSujo.current = false
+        if (vale()) aplicar(j)
         setSalvando("salvo")
         setAtualizacao((n) => n + 1)
       } catch (e) {
@@ -105,14 +123,32 @@ export default function DfdPage() {
         toast.error(e instanceof Error ? e.message : String(e))
       }
     },
-    [id],
+    [id, ultima, aplicar],
   )
 
   const salvarNecessidade = (html: string) => {
     if (timer.current) clearTimeout(timer.current)
     setSalvando("idle")
-    timer.current = setTimeout(() => salvar({ necessidade_html: html }), 900)
+    necessidadePendente.current = html
+    timer.current = setTimeout(() => {
+      necessidadePendente.current = null
+      salvar({ necessidade_html: html })
+    }, 900)
   }
+
+  // Saiu da tela com a necessidade digitada há menos de 1 s: grava assim mesmo
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current)
+    const html = necessidadePendente.current
+    if (html !== null) {
+      authFetch(`${API_URL}/api/fase-interna/${id}/dfd`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ necessidade_html: html }),
+        keepalive: true,
+      }).catch(() => undefined)
+    }
+  }, [id])
 
   const gerar = async () => {
     setGerando(true)
@@ -147,7 +183,7 @@ export default function DfdPage() {
   }
 
   const bloqueada = !d.licitacao.fase_interna
-  const semPca = d.licitacao.sem_pca
+  const semPca = d.licitacao.sem_pca || semPcaLocal
   const itemPcaSel = d.licitacao.item_pca_id ?? ""
 
   return (
@@ -184,6 +220,7 @@ export default function DfdPage() {
         explicacaoAceite="Aceitar preenche a necessidade só se ela estiver vazia. A lista de quantidades, o PCA e a data o sistema monta dos itens e dos campos desta tela."
         onAceito={async () => {
           if (timer.current) clearTimeout(timer.current)
+          necessidadePendente.current = null
           await carregar()
           setEditorChave((n) => n + 1)
           setAtualizacao((n) => n + 1)
@@ -249,8 +286,15 @@ export default function DfdPage() {
                   disabled={bloqueada}
                   checked={semPca}
                   onChange={(e) => {
-                    if (e.target.checked) setD({ ...d, licitacao: { ...d.licitacao, sem_pca: true, item_pca_id: null } })
-                    else salvar({ sem_pca: false, item_pca_id: null })
+                    if (e.target.checked) {
+                      // só grava com a justificativa (art. 12, §1º); até lá fica marcado aqui
+                      setSemPcaLocal(true)
+                      setD({ ...d, licitacao: { ...d.licitacao, item_pca_id: null } })
+                    } else {
+                      setSemPcaLocal(false)
+                      justSujo.current = false
+                      if (d.licitacao.sem_pca) salvar({ sem_pca: false, item_pca_id: null })
+                    }
                   }}
                 />
                 A contratação não consta do PCA
@@ -263,7 +307,7 @@ export default function DfdPage() {
                     rows={2}
                     value={justSemPca}
                     disabled={bloqueada}
-                    onChange={(e) => setJustSemPca(e.target.value)}
+                    onChange={(e) => { justSujo.current = true; setJustSemPca(e.target.value) }}
                     onBlur={() => justSemPca.trim().length >= 10 && salvar({ sem_pca: true, justificativa_sem_pca: justSemPca })}
                     placeholder="Por que a contratação não foi prevista no plano anual?"
                   />
@@ -279,8 +323,11 @@ export default function DfdPage() {
                 rows={2}
                 value={objeto}
                 disabled={bloqueada}
-                onChange={(e) => setObjeto(e.target.value)}
-                onBlur={() => objeto.trim() && objeto.trim() !== d.licitacao.objeto && salvar({ objeto: objeto.trim() })}
+                onChange={(e) => { objetoSujo.current = true; setObjeto(e.target.value) }}
+                onBlur={() => {
+                  if (objeto.trim() && objeto.trim() !== d.licitacao.objeto) salvar({ objeto: objeto.trim() })
+                  else objetoSujo.current = false
+                }}
               />
               <p className="text-xs text-gray-600">Descreva a função, não o produto: evite marcas e modelos (art. 41, I).</p>
             </div>

@@ -242,9 +242,10 @@ function DfdDetalhe() {
   }
 
   return (
-    <div className="p-6 space-y-5 bg-gray-50 min-h-screen max-w-6xl">
+    // min-w-0/w-full: nada (select com opção longa, tabela) empurra a página para o lado — rolagem só dentro da tabela
+    <div className="p-3 sm:p-6 space-y-5 bg-gray-50 min-h-screen max-w-6xl w-full min-w-0 overflow-x-hidden">
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
+        <div className="min-w-0 flex-[1_1_280px]">
           <Link href="/orgao/demandas/consolidacao" className="text-sm text-blue-800 hover:underline inline-flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" aria-hidden="true" /> DFDs consolidados
           </Link>
@@ -252,7 +253,7 @@ function DfdDetalhe() {
             {dfd.rotulo}
             <Badge className={COR_STATUS_DFD[dfd.status]}>{ROTULO_STATUS_DFD[dfd.status] ?? dfd.status}</Badge>
           </h1>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 break-words">
             Documento de Formalização da Demanda — {dfd.demandas.length} demanda(s) de {[...new Set(dfd.demandas.map((d) => d.unidade_requisitante))].join(', ') || '—'}
           </p>
           {dfd.processo && (
@@ -307,7 +308,7 @@ function DfdDetalhe() {
 
       <Card>
         <CardHeader><CardTitle className="text-base">Dados do DFD</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 [&>*]:min-w-0">
           <div className="md:col-span-2">
             <label htmlFor="dfd-objeto" className="block text-sm font-medium mb-1">Objeto</label>
             <Textarea id="dfd-objeto" rows={2} value={form.objeto ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, objeto: e.target.value })} />
@@ -318,14 +319,14 @@ function DfdDetalhe() {
           </div>
           <div>
             <label htmlFor="dfd-unidade" className="block text-sm font-medium mb-1">Unidade de planejamento</label>
-            <select id="dfd-unidade" className="w-full border rounded-md h-9 px-2 bg-white" value={form.unidade_planejamento_id ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, unidade_planejamento_id: e.target.value })}>
+            <select id="dfd-unidade" className="w-full min-w-0 max-w-full truncate border rounded-md h-9 px-2 bg-white" value={form.unidade_planejamento_id ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, unidade_planejamento_id: e.target.value })}>
               <option value="">—</option>
               {dfd.opcoes.setores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
           </div>
           <div>
             <label htmlFor="dfd-resp" className="block text-sm font-medium mb-1">Responsável</label>
-            <select id="dfd-resp" className="w-full border rounded-md h-9 px-2 bg-white" value={form.responsavel_id ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, responsavel_id: e.target.value })}>
+            <select id="dfd-resp" className="w-full min-w-0 max-w-full truncate border rounded-md h-9 px-2 bg-white" value={form.responsavel_id ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, responsavel_id: e.target.value })}>
               <option value="">—</option>
               {dfd.opcoes.usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}{u.cargo ? ` — ${u.cargo}` : ''}</option>)}
             </select>
@@ -336,14 +337,14 @@ function DfdDetalhe() {
           </div>
           <div>
             <label htmlFor="dfd-prio" className="block text-sm font-medium mb-1">Prioridade</label>
-            <select id="dfd-prio" className="w-full border rounded-md h-9 px-2 bg-white" value={form.prioridade ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, prioridade: e.target.value })}>
+            <select id="dfd-prio" className="w-full min-w-0 max-w-full truncate border rounded-md h-9 px-2 bg-white" value={form.prioridade ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, prioridade: e.target.value })}>
               <option value="">—</option>
               {PRIORIDADES.map((x) => <option key={x.v} value={x.v}>{x.r}</option>)}
             </select>
           </div>
           <div className="md:col-span-2">
             <label htmlFor="dfd-pca" className="block text-sm font-medium mb-1">Item do PCA (comum ao DFD)</label>
-            <select id="dfd-pca" className="w-full border rounded-md h-9 px-2 bg-white" value={form.item_pca_id ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, item_pca_id: e.target.value })}>
+            <select id="dfd-pca" className="w-full min-w-0 max-w-full truncate border rounded-md h-9 px-2 bg-white" value={form.item_pca_id ?? ''} disabled={!editavel} onChange={(e) => setForm({ ...form, item_pca_id: e.target.value })}>
               <option value="">Sem item comum (o vínculo fica por item no processo)</option>
               {dfd.opcoes.itens_pca.map((i) => <option key={i.id} value={i.id}>PCA {i.ano} — item {i.numero_item}: {i.descricao_objeto}</option>)}
             </select>
@@ -353,8 +354,8 @@ function DfdDetalhe() {
 
       <Card>
         <CardHeader><CardTitle className="text-base">Itens consolidados</CardTitle></CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <CardContent className="overflow-x-auto min-w-0">
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-500 border-b">
                 <th className="py-2 pr-2">Nº</th>
@@ -439,8 +440,8 @@ function DfdDetalhe() {
         <CardHeader><CardTitle className="text-base">Demandas de origem</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {dfd.demandas.map((d) => (
-            <div key={d.id} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
-              <div className="min-w-0">
+            <div key={d.id} className="flex items-center justify-between gap-3 flex-wrap rounded-lg border bg-white p-3">
+              <div className="min-w-0 flex-[1_1_220px]">
                 <Link href={`/orgao/demandas/${d.id}`} className="font-medium text-blue-700 hover:underline">Demanda — {d.unidade_requisitante}</Link>
                 <p className="text-sm text-gray-700 truncate">{d.descricao_sucinta_objeto || 'Sem descrição'}</p>
                 <p className="text-xs text-gray-500">{d.n_itens} item(ns){d.aprovado_por ? ` • aprovada por ${d.aprovado_por}` : ''}{d.data_aprovacao ? ` em ${dataHora(d.data_aprovacao)}` : ''}</p>
@@ -454,9 +455,9 @@ function DfdDetalhe() {
             </div>
           ))}
           {editavel && disponiveis.length > 0 && (
-            <div className="flex gap-2 items-center pt-2">
+            <div className="flex gap-2 items-center pt-2 flex-wrap">
               <label htmlFor="dfd-incluir" className="sr-only">Incluir demanda aprovada</label>
-              <select id="dfd-incluir" className="flex-1 border rounded-md h-9 px-2 bg-white" value={paraIncluir} onChange={(e) => setParaIncluir(e.target.value)}>
+              <select id="dfd-incluir" className="flex-1 min-w-0 max-w-full truncate border rounded-md h-9 px-2 bg-white" value={paraIncluir} onChange={(e) => setParaIncluir(e.target.value)}>
                 <option value="">Incluir outra demanda aprovada…</option>
                 {disponiveis.map((d) => <option key={d.id} value={d.id}>{d.unidade_requisitante} — {d.descricao_sucinta_objeto || 'sem descrição'}</option>)}
               </select>
@@ -472,7 +473,7 @@ function DfdDetalhe() {
           <CardContent>
             <ul className="space-y-1 text-sm">
               {[...dfd.historico].reverse().map((h, n) => (
-                <li key={n} className="text-gray-700">
+                <li key={n} className="text-gray-700 break-words">
                   <span className="text-gray-500">{dataHora(h.em)}</span> — {h.por_nome ?? 'Sistema'}: {h.texto}
                 </li>
               ))}
@@ -482,7 +483,7 @@ function DfdDetalhe() {
       )}
 
       <Dialog open={modalAbrir} onOpenChange={setModalAbrir}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[92vh] overflow-y-auto">
           <h2 className="text-lg font-semibold">Abrir processo a partir do {dfd.rotulo}</h2>
           <p className="text-sm text-gray-600 -mt-1">
             O processo nasce com os itens consolidados ({dfd.itens.length}), o valor estimado de <b>{formatarMoeda(dfd.valor_total_estimado)}</b> e a peça

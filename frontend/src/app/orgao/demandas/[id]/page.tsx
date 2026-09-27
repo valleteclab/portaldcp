@@ -19,15 +19,17 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
+import { API_URL, authFetch, formatarDataBR, formatarDataHoraBR } from '@/lib/api'
 import { toast } from "sonner"
 import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 import { type ModoFaseInterna, lembrarEscolhaModo, rotaFaseInternaFeitaFora, ultimaEscolhaModo } from '@/lib/fase-interna/criacao'
 import { OpcoesModoFaseInterna } from '@/components/fase-interna/externa/EscolhaModoFaseInterna'
 import {
-  STATUS_DEMANDA, fmtMoeda, totalDaDemanda,
-  type AcompanhamentoDaDemanda, type Demanda, type FormItemState, type ItemDemanda, type ItemSelecionado,
+  STATUS_DEMANDA, fmtMoeda, totalDaDemanda, trimestreDaData, trimestreInicialDoItem,
+  type AcompanhamentoDaDemanda, type Demanda, type FormItemState, type ItemDemanda, type ItemSelecionado, type SetorOrgao,
 } from '@/components/demandas/tipos'
 import { SecaoDemanda } from '@/components/demandas/SecaoDemanda'
 import { JustificativaDemanda } from '@/components/demandas/JustificativaDemanda'
@@ -82,6 +84,10 @@ export default function DetalheDemandaPage() {
     } catch { /* ignore */ }
   }, [])
 
+  // Setores do órgão: o rascunho (inclusive o devolvido) troca a unidade requisitante
+  const [setores, setSetores] = useState<SetorOrgao[]>([])
+  const [unidadeLivre, setUnidadeLivre] = useState(false)
+
   const carregarDemanda = useCallback(async () => {
     try {
       const res = await authFetch(`${API_URL}/api/demandas/${id}`)
@@ -99,6 +105,17 @@ export default function DetalheDemandaPage() {
   }, [id, router])
 
   useEffect(() => { carregarDemanda() }, [carregarDemanda])
+
+  useEffect(() => {
+    if (!orgaoId || demanda?.status !== 'RASCUNHO' || setores.length) return
+    authFetch(`${API_URL}/api/orgaos/${orgaoId}/setores`)
+      .then(async (r) => {
+        if (!r.ok) return
+        const lista = await r.json()
+        setSetores(Array.isArray(lista) ? lista : [])
+      })
+      .catch(() => { /* sem setores: a unidade fica em texto livre */ })
+  }, [orgaoId, demanda?.status, setores.length])
 
   // Na chegada, leva à PRIMEIRA seção incompleta do rascunho (depois o usuário manda)
   const secaoInicialDefinida = useRef(false)
@@ -466,6 +483,12 @@ export default function DetalheDemandaPage() {
             <span>PCA {demanda.ano_referencia}</span>
             <span aria-hidden="true">·</span>
             <span>criada em {formatarDataBR(demanda.created_at)}</span>
+            {demanda.data_aprovacao && aprovadaOuAdiante && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>aprovada por <b className="font-medium">{demanda.aprovado_por || 'aprovador'}</b> em {formatarDataBR(demanda.data_aprovacao)}</span>
+              </>
+            )}
             {podeEditar && (
               <>
                 <span aria-hidden="true">·</span>
@@ -592,12 +615,93 @@ export default function DetalheDemandaPage() {
                 )}
                 <p className="text-xs text-gray-600">O planejamento usa este resumo para juntar pedidos parecidos de outros setores num DFD.</p>
               </div>
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 border-t pt-4">
-                <Dado rotulo="Unidade requisitante">{demanda.unidade_requisitante}</Dado>
-                <Dado rotulo="Ano de referência (PCA)">{demanda.ano_referencia}</Dado>
-                <Dado rotulo="Tipo da demanda">{demanda.renovacao_contrato ? 'Renovação contratual' : 'Nova demanda'}</Dado>
-                <Dado rotulo="Para quando (data desejada)">{formatarDataBR(demanda.data_desejada_contratacao)}</Dado>
-              </dl>
+              {podeEditar ? (
+                /* Rascunho (inclusive o devolvido): todos os dados do pedido são editáveis */
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 border-t pt-4">
+                  <div className="space-y-1 min-w-0">
+                    <label htmlFor="demanda-unidade" className="block text-xs text-gray-600">Unidade requisitante *</label>
+                    {setores.length > 0 && !unidadeLivre && (!demanda.unidade_requisitante || setores.some(x => x.id === demanda.setor_id || x.nome === demanda.unidade_requisitante)) ? (
+                      <Select
+                        value={setores.find(x => x.id === demanda.setor_id || x.nome === demanda.unidade_requisitante)?.id ?? ''}
+                        onValueChange={(v) => {
+                          if (v === '__outro__') { setUnidadeLivre(true); return }
+                          const setor = setores.find(x => x.id === v)
+                          if (!setor) return
+                          setDemanda(d => d ? { ...d, setor_id: setor.id, unidade_requisitante: setor.nome } : d)
+                          salvarDadosDemanda({ setor_id: setor.id, unidade_requisitante: setor.nome })
+                        }}
+                      >
+                        <SelectTrigger id="demanda-unidade" className="h-9 bg-white"><SelectValue placeholder="Selecione o setor" /></SelectTrigger>
+                        <SelectContent>
+                          {setores.map(x => <SelectItem key={x.id} value={x.id}>{x.codigo ? `${x.codigo} - ` : ''}{x.nome}</SelectItem>)}
+                          <SelectItem value="__outro__">Outro setor (digitar o nome)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="demanda-unidade"
+                        className="h-9 bg-white"
+                        value={demanda.unidade_requisitante || ''}
+                        onChange={(e) => setDemanda(d => d ? { ...d, unidade_requisitante: e.target.value, setor_id: null } : d)}
+                        onBlur={(e) => { if (e.target.value.trim()) salvarDadosDemanda({ unidade_requisitante: e.target.value.trim() }) }}
+                        placeholder="Nome do setor que pede"
+                      />
+                    )}
+                  </div>
+                  <Dado rotulo="Ano de referência (PCA)">{demanda.ano_referencia}</Dado>
+                  <div className="space-y-1 min-w-0">
+                    <label htmlFor="demanda-tipo" className="block text-xs text-gray-600">Tipo da demanda</label>
+                    <Select
+                      value={demanda.renovacao_contrato ? 'RENOVACAO' : 'NOVA'}
+                      onValueChange={(v) => {
+                        const renovacao = v === 'RENOVACAO'
+                        setDemanda(d => d ? { ...d, renovacao_contrato: renovacao } : d)
+                        salvarDadosDemanda({ renovacao_contrato: renovacao })
+                      }}
+                    >
+                      <SelectTrigger id="demanda-tipo" className="h-9 bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="NOVA">Nova demanda</SelectItem>
+                        <SelectItem value="RENOVACAO">Renovação contratual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1 min-w-0">
+                    <label htmlFor="demanda-data" className="block text-xs text-gray-600">Para quando (data desejada)</label>
+                    <Input
+                      id="demanda-data"
+                      type="date"
+                      className="h-9 bg-white"
+                      value={(demanda.data_desejada_contratacao || '').slice(0, 10)}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setDemanda(d => d ? { ...d, data_desejada_contratacao: v } : d)
+                        // data completa (ou apagada) → grava; digitação pela metade espera
+                        if (!v || /^\d{4}-\d{2}-\d{2}$/.test(v)) salvarDadosDemanda({ data_desejada_contratacao: v })
+                      }}
+                    />
+                    <p className="text-xs text-gray-600">
+                      {trimestreDaData(demanda.data_desejada_contratacao)
+                        ? `Novos itens entram no ${trimestreDaData(demanda.data_desejada_contratacao)}º trimestre (dá para mudar em cada item).`
+                        : 'Sem data: você escolhe o trimestre de cada item.'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 border-t pt-4">
+                  <Dado rotulo="Unidade requisitante">{demanda.unidade_requisitante}</Dado>
+                  <Dado rotulo="Ano de referência (PCA)">{demanda.ano_referencia}</Dado>
+                  <Dado rotulo="Tipo da demanda">{demanda.renovacao_contrato ? 'Renovação contratual' : 'Nova demanda'}</Dado>
+                  <Dado rotulo="Para quando (data desejada)">
+                    {demanda.data_desejada_contratacao ? formatarDataBR(demanda.data_desejada_contratacao) : <span className="font-normal text-gray-500 italic">Não informado</span>}
+                  </Dado>
+                  {demanda.data_aprovacao && (
+                    <Dado rotulo="Aprovada por">
+                      {demanda.aprovado_por || 'Aprovador'} <span className="font-normal text-gray-700">em {formatarDataHoraBR(demanda.data_aprovacao).slice(0, 17)}</span>
+                    </Dado>
+                  )}
+                </dl>
+              )}
             </div>
           </SecaoDemanda>
 
@@ -625,19 +729,42 @@ export default function DetalheDemandaPage() {
             numero={4}
             titulo="Responsável pelo pedido"
             completa={!!demanda.responsavel_nome?.trim()}
-            descricao="Quem responde pela demanda no setor (informado ao criar a demanda)."
+            descricao={podeEditar ? 'Quem responde pela demanda no setor (quem cria já vem preenchido; dá para trocar).' : 'Quem responde pela demanda no setor.'}
           >
-            <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-3">
-              {[
-                { rotulo: 'Nome', valor: demanda.responsavel_nome },
-                { rotulo: 'E-mail', valor: demanda.responsavel_email },
-                { rotulo: 'Telefone', valor: demanda.responsavel_telefone },
-              ].map(row => (
-                <Dado key={row.rotulo} rotulo={row.rotulo}>
-                  {row.valor || <span className="font-normal text-gray-500 italic">Não informado</span>}
-                </Dado>
-              ))}
-            </dl>
+            {podeEditar ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-3">
+                {([
+                  { campo: 'responsavel_nome', rotulo: 'Nome', tipo: 'text', ph: 'Nome completo' },
+                  { campo: 'responsavel_email', rotulo: 'E-mail', tipo: 'email', ph: 'email@orgao.gov.br' },
+                  { campo: 'responsavel_telefone', rotulo: 'Telefone', tipo: 'tel', ph: '(00) 00000-0000' },
+                ] as const).map(c => (
+                  <div key={c.campo} className="space-y-1 min-w-0">
+                    <label htmlFor={`demanda-${c.campo}`} className="block text-xs text-gray-600">{c.rotulo}</label>
+                    <Input
+                      id={`demanda-${c.campo}`}
+                      type={c.tipo}
+                      className="h-9 bg-white"
+                      value={demanda[c.campo] || ''}
+                      placeholder={c.ph}
+                      onChange={(e) => setDemanda(d => d ? { ...d, [c.campo]: e.target.value } : d)}
+                      onBlur={(e) => salvarDadosDemanda({ [c.campo]: e.target.value.trim() })}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-3">
+                {[
+                  { rotulo: 'Nome', valor: demanda.responsavel_nome },
+                  { rotulo: 'E-mail', valor: demanda.responsavel_email },
+                  { rotulo: 'Telefone', valor: demanda.responsavel_telefone },
+                ].map(row => (
+                  <Dado key={row.rotulo} rotulo={row.rotulo}>
+                    {row.valor || <span className="font-normal text-gray-500 italic">Não informado</span>}
+                  </Dado>
+                ))}
+              </dl>
+            )}
           </SecaoDemanda>
         </div>
 
@@ -664,6 +791,7 @@ export default function DetalheDemandaPage() {
           {itemSelecionado ? (
             <FormItemDemanda
               item={itemSelecionado}
+              inicial={{ trimestre_previsto: trimestreInicialDoItem(demanda.data_desejada_contratacao) }}
               onConfirm={async (form) => {
                 await adicionarItem(form)
                 setDialogAdicionar(false)
@@ -693,7 +821,7 @@ export default function DetalheDemandaPage() {
                 quantidade_estimada: String(Number(itemEditando.quantidade_estimada) || 1),
                 unidade_medida: itemEditando.unidade_medida || 'UN',
                 valor_unitario_estimado: itemEditando.valor_unitario_estimado != null ? String(Number(itemEditando.valor_unitario_estimado)) : '',
-                trimestre_previsto: String(itemEditando.trimestre_previsto || 1),
+                trimestre_previsto: itemEditando.trimestre_previsto ? String(itemEditando.trimestre_previsto) : trimestreInicialDoItem(demanda.data_desejada_contratacao),
                 prioridade: String(itemEditando.prioridade || 3),
                 renovacao_contrato: !!itemEditando.renovacao_contrato,
                 codigo_classe: itemEditando.codigo_classe,
