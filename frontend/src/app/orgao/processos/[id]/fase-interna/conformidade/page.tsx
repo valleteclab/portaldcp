@@ -32,6 +32,7 @@ import { BotaoGerarAutos } from "../../BotaoGerarAutos"
 import { EscolhaDisputaDispensa } from "@/components/licitacao/EscolhaDisputaDispensa"
 import type { ModoDisputaDispensa } from "../../tipos"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { VisorDosAutos, type PecaAberta, type PecaDosAutos } from "@/components/fase-interna/etapas/VisorDosAutos"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
@@ -140,6 +141,8 @@ const SITUACAO_REGRA: Record<RegraTela["situacao"], { texto: string; cls: string
 
 export default function ConformidadePage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const { pedirTexto, dialogo } = useDialogoConfirmacao()
   const [d, setD] = useState<ConformidadeTela | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -244,6 +247,7 @@ export default function ConformidadePage() {
   const av = d.aviso
   return (
     <EtapaShell
+      onPermissao={setPerm}
       licitacaoId={id}
       tela="conformidade"
       titulo="Conformidade antes da publicação"
@@ -593,7 +597,7 @@ export default function ConformidadePage() {
                 ))}
               </ul>
               {d.publicacao.diario_oficial.pode_registrar && (
-                <Button variant="outline" className="h-11" onClick={() => setDialogoDo(true)}>
+                <Button variant="outline" className="h-11" disabled={!perm.pode} title={perm.motivo ?? undefined} onClick={() => setDialogoDo(true)}>
                   {d.publicacao.diario_oficial.registros.length ? "Registrar nova publicação" : "Registrar a publicação"}
                 </Button>
               )}

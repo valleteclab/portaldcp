@@ -63,6 +63,11 @@ export interface PassoFluxo {
   fundamento?: string | null
   dispensavel_por_ato?: boolean
   aguardando_aprovacao?: boolean
+  /** Etapa espera a aprovação da demanda (homologação multiusuário). */
+  aguardando_demanda?: boolean
+  /** Quem está vendo pode trabalhar nas peças desta etapa (isolamento) e, se não, por quê. */
+  pode_trabalhar?: boolean
+  motivo_trabalho?: string | null
   reaberta?: MarcaFluxo | null
   a_revisar?: MarcaFluxo | null
   registro?: MarcaFluxo | null
@@ -90,6 +95,10 @@ export interface AprovacaoDemanda {
   aprovada: boolean
   etapa?: string
   pode_aprovar: boolean
+  /** Quem está vendo é quem aprova (vê o botão; desabilitado sem o DFD pronto). */
+  eh_aprovador?: boolean
+  dfd_pronto?: boolean
+  motivo_bloqueio?: string | null
   aprovador: { rotulo: string }
   registro?: { origem?: string | null; por_nome?: string | null; em?: string | null; observacao?: string | null } | null
 }
@@ -114,6 +123,8 @@ export interface EtapasFluxoResposta {
   parecer?: { dispensavel_por_ato: boolean; dispensa: DispensaParecer | null }
   desenho?: Array<{ nivel: number; etapas: string[] }>
   permissoes?: PermissoesFluxo
+  /** Isolamento das peças: por etapa do modelo, quem está vendo pode trabalhar nela? */
+  permissoes_trabalho?: Record<string, { pode_trabalhar: boolean; motivo: string | null; codigo?: string }>
 }
 
 // ---------------------------------------------------------------------------

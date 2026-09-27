@@ -265,11 +265,21 @@ export function FluxoFaseInterna({
             <p className="font-semibold">Aguardando aprovação da demanda por {aprovacao.aprovador.rotulo}</p>
             <p className="text-xs">A aprovação da demanda dá início ao processo de compra. As etapas que dependem dela só começam depois.</p>
           </div>
-          {aprovacao.pode_aprovar && (
-            <Button size="sm" disabled={ocupado} onClick={aprovarDemanda}>
-              {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 mr-1" aria-hidden="true" />}
-              Aprovar a demanda
-            </Button>
+          {(aprovacao.pode_aprovar || aprovacao.eh_aprovador) && (
+            <div className="text-right">
+              <Button
+                size="sm"
+                disabled={ocupado || !aprovacao.pode_aprovar}
+                onClick={aprovarDemanda}
+                aria-describedby={!aprovacao.pode_aprovar && aprovacao.motivo_bloqueio ? "motivo-aprovar-demanda" : undefined}
+              >
+                {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 mr-1" aria-hidden="true" />}
+                Aprovar a demanda
+              </Button>
+              {!aprovacao.pode_aprovar && aprovacao.motivo_bloqueio && (
+                <p id="motivo-aprovar-demanda" className="text-xs text-amber-950 mt-1 max-w-xs">{aprovacao.motivo_bloqueio}</p>
+              )}
+            </div>
           )}
         </div>
       )}

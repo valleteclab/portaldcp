@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { EditorItensDialog } from "@/components/fase-interna/etapas/EditorItensDialog"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
@@ -58,6 +59,8 @@ const selectCls = "w-full h-9 rounded-md border border-input bg-white px-3 text-
 
 export default function DfdPage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const [d, setD] = useState<DfdTela | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState<"idle" | "salvando" | "salvo" | "erro">("idle")
@@ -182,12 +185,13 @@ export default function DfdPage() {
     )
   }
 
-  const bloqueada = !d.licitacao.fase_interna
+  const bloqueada = !d.licitacao.fase_interna || !perm.pode
   const semPca = d.licitacao.sem_pca || semPcaLocal
   const itemPcaSel = d.licitacao.item_pca_id ?? ""
 
   return (
     <EtapaShell
+      onPermissao={setPerm}
       licitacaoId={id}
       tela="dfd"
       titulo="Documento de Formalização da Demanda"

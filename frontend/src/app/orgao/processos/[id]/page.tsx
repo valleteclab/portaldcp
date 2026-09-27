@@ -146,8 +146,11 @@ export default function ProcessoPage() {
       resultadoRegistrado: dados.checklist.resultado_registrado,
       atosDisponiveis: dados.atos_disponiveis,
     })
-    // Excluir: só na fase interna (o backend recusa depois da publicação)
-    if (FASES_INTERNAS.includes(dados.licitacao.fase)) e.push({ chave: "EXCLUIR", rotulo: "Excluir processo…", disponivel: true, destrutiva: true })
+    // Excluir: só na fase interna (o backend recusa depois da publicação) e só para quem conduz o
+    // processo (agente, administrador, login do órgão) — homologação multiusuário: Compras via "Excluir"
+    if (FASES_INTERNAS.includes(dados.licitacao.fase) && dados.permissoes_processo?.excluir !== false) {
+      e.push({ chave: "EXCLUIR", rotulo: "Excluir processo…", disponivel: true, destrutiva: true })
+    }
     return e
   }, [dados])
 

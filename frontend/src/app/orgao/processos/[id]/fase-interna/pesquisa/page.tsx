@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { PesquisaPrecosDetalhe } from "@/components/fase-interna/PesquisaPrecosDetalhe"
 import { ConsumoLimiteDispensa } from "../../ConsumoLimiteDispensa"
@@ -93,6 +94,8 @@ const ROTULO_METODO: Record<Metodo, string> = { MENOR: "Menor preço", MEDIANA: 
 
 export default function PesquisaPage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const [d, setD] = useState<PesquisaTela | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [atualizacao, setAtualizacao] = useState(0)
@@ -182,11 +185,12 @@ export default function PesquisaPage() {
       </div>
     )
   }
-  const bloqueada = !d.licitacao.fase_interna
+  const bloqueada = !d.licitacao.fase_interna || !perm.pode
   const dispensa = d.licitacao.modalidade === "DISPENSA_ELETRONICA"
 
   return (
     <EtapaShell
+      onPermissao={setPerm}
       licitacaoId={id}
       tela="pesquisa"
       titulo="Pesquisa de preços"

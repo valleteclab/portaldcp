@@ -29,6 +29,7 @@ import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirma
 import { AnexarPecaDialog } from "./AnexarPecaDialog"
 import { aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
+import { usePermissaoEtapa } from "@/lib/fase-interna/permissao-etapa"
 
 export interface LinhaInstrucao {
   tipo: string
@@ -130,6 +131,10 @@ export function CaminhosDaPeca({
 }) {
   const { pedirTexto, dialogo } = useDialogoConfirmacao()
   const { linha, recarregar } = useLinhaInstrucao(licitacaoId, tipo, atualizacao)
+  // Isolamento das peças: sem permissão na etapa, as ações de escrita ficam desabilitadas (com o motivo)
+  const permissao = usePermissaoEtapa()
+  const bloqueado = !permissao.pode
+  const motivoBloqueio = bloqueado ? permissao.motivo ?? "Você não pode alterar as peças desta etapa agora." : undefined
   const [anexando, setAnexando] = useState(false)
   const [ocupado, setOcupado] = useState(false)
   const [versoes, setVersoes] = useState<any[] | null>(null)
@@ -277,27 +282,27 @@ export function CaminhosDaPeca({
             </Button>
           )}
           {emitir && feitaAqui && status === "EM_ELABORACAO" && (
-            <Button size="sm" className="h-8" disabled={ocupado} onClick={gerarDocumento} title="Gerar o documento é a emissão: só assim a peça feita aqui fica pronta (o rascunho salvo não conta)">
+            <Button size="sm" className="h-8" disabled={ocupado || bloqueado} onClick={gerarDocumento} title={motivoBloqueio ?? "Gerar o documento é a emissão: só assim a peça feita aqui fica pronta (o rascunho salvo não conta)"}>
               {ocupado ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <FilePlus2 className="w-3.5 h-3.5 mr-1" />} Gerar documento (PDF)
             </Button>
           )}
           {status !== "NAO_SE_APLICA" && (
-            <Button size="sm" variant="outline" className="h-8" disabled={ocupado} onClick={() => setAnexando(true)}>
+            <Button size="sm" variant="outline" className="h-8" disabled={ocupado || bloqueado} title={motivoBloqueio} onClick={() => setAnexando(true)}>
               <Upload className="w-3.5 h-3.5 mr-1" /> Anexar feito fora
             </Button>
           )}
           {permitirAssinatura && feitaAqui && status !== "NAO_SE_APLICA" && status !== "EM_ASSINATURA" && status !== "EM_APROVACAO" && p?.status !== "ASSINADO" && (
-            <Button size="sm" variant="outline" className="h-8" disabled={ocupado} onClick={() => setAssinar(true)} title="Envia a peça feita aqui para os signatários (a data da peça é a da última assinatura)">
+            <Button size="sm" variant="outline" className="h-8" disabled={ocupado || bloqueado} onClick={() => setAssinar(true)} title={motivoBloqueio ?? "Envia a peça feita aqui para os signatários (a data da peça é a da última assinatura)"}>
               <PenLine className="w-3.5 h-3.5 mr-1" /> Enviar para assinatura
             </Button>
           )}
           {linha?.pode_nao_se_aplicar && status !== "NAO_SE_APLICA" && status !== "OK" && (
-            <Button size="sm" variant="ghost" className="h-8" disabled={ocupado} onClick={() => naoSeAplica(false)}>
+            <Button size="sm" variant="ghost" className="h-8" disabled={ocupado || bloqueado} title={motivoBloqueio} onClick={() => naoSeAplica(false)}>
               Não se aplica
             </Button>
           )}
           {status === "NAO_SE_APLICA" && (
-            <Button size="sm" variant="ghost" className="h-8" disabled={ocupado} onClick={() => naoSeAplica(true)}>
+            <Button size="sm" variant="ghost" className="h-8" disabled={ocupado || bloqueado} title={motivoBloqueio} onClick={() => naoSeAplica(true)}>
               Desfazer &quot;não se aplica&quot;
             </Button>
           )}
@@ -309,7 +314,12 @@ export function CaminhosDaPeca({
         </div>
       </div>
       <DiligenciasDaPeca licitacaoId={licitacaoId} tipo={tipo} titulo={titulo} atualizacao={atualizacao} onSanada={() => void aposAcao()} />
-      {!compacto && status !== "NAO_SE_APLICA" && (
+      {bloqueado && (
+        <p className="text-xs text-slate-700" role="note">
+          Somente leitura: {motivoBloqueio}
+        </p>
+      )}
+      {!compacto && !bloqueado && status !== "NAO_SE_APLICA" && (
         <p className="text-xs text-gray-600">
           Dois caminhos, que contam igual: <b>{fazerAqui ?? "fazer aqui"}</b> nesta tela, ou <b>anexar o PDF feito fora</b> (com a data que consta na peça e quem assinou).
         </p>

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, Circle, FileText, Loader2, PenLine, Upload } from "lucide-react"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { AnexarPecaDialog } from "@/components/fase-interna/etapas/AnexarPecaDialog"
+import { passoDoTipo, permissaoDoPasso, type PermissoesTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { rotaFazerAqui } from "@/lib/fase-interna/telas"
 
 interface ItemInstrucao {
@@ -61,12 +62,16 @@ export function PecasFaseInterna({
   mostrarCopiloto,
   atualizacao,
   onAtualizado,
+  permissoes,
 }: {
   licitacaoId: string
   mostrarCopiloto: boolean
   atualizacao?: unknown
   onAtualizado: () => void
+  /** Isolamento das peças (GET /etapas → permissoes_trabalho): quem vê pode trabalhar em cada etapa? */
+  permissoes?: PermissoesTrabalho | null
 }) {
+  const permissaoDoTipo = (tipo: string) => permissaoDoPasso(permissoes, passoDoTipo(tipo))
   const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao()
   const [instrucao, setInstrucao] = useState<Instrucao | null>(null)
   const [carregandoTipo, setCarregandoTipo] = useState<string | null>(null)
@@ -198,6 +203,7 @@ export function PecasFaseInterna({
         peca={anexando}
         onFechar={() => setAnexando(null)}
         onAnexado={() => { setAnexando(null); carregar(); onAtualizado() }}
+        bloqueio={anexando ? (permissaoDoTipo(anexando.tipo).pode ? null : permissaoDoTipo(anexando.tipo).motivo) : null}
       />
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-semibold text-gray-800">
@@ -252,7 +258,8 @@ export function PecasFaseInterna({
                           <PenLine className="w-3 h-3 mr-1" /> Fazer aqui
                         </Link>
                       </Button>
-                      <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={ocupado}
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={ocupado || !permissaoDoTipo(it.tipo).pode}
+                        title={permissaoDoTipo(it.tipo).motivo ?? undefined}
                         onClick={() => setAnexando({ tipo: it.tipo, titulo: it.titulo, jaTem: !!p })}>
                         <Upload className="w-3 h-3 mr-1" /> Anexar PDF
                       </Button>
@@ -264,13 +271,15 @@ export function PecasFaseInterna({
                     </>
                   )}
                   {it.pode_nao_se_aplicar && it.status !== "NAO_SE_APLICA" && it.status !== "OK" && (
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={ocupado}
+                    <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={ocupado || !permissaoDoTipo(it.tipo).pode}
+                      title={permissaoDoTipo(it.tipo).motivo ?? undefined}
                       onClick={() => naoSeAplica(it.tipo, it.titulo, false)}>
                       Não se aplica
                     </Button>
                   )}
                   {it.status === "NAO_SE_APLICA" && (
-                    <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={ocupado}
+                    <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" disabled={ocupado || !permissaoDoTipo(it.tipo).pode}
+                      title={permissaoDoTipo(it.tipo).motivo ?? undefined}
                       onClick={() => naoSeAplica(it.tipo, it.titulo, true)}>
                       desfazer
                     </Button>
