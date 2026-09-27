@@ -43,6 +43,7 @@ import {
 } from './entities/fluxo-aprovacao.entity';
 import { ModeloDocumentoService } from './modelo-documento.service';
 import { TramitacaoService } from './tramitacao.service';
+import { TramitacaoPrazosScheduler } from './tramitacao-prazos.scheduler';
 import { AprovacaoService } from './aprovacao.service';
 import { ProcessoEletronicoController } from './processo-eletronico.controller';
 import { Setor } from '../orgaos/entities/setor.entity';
@@ -146,6 +147,7 @@ import {
     PreparacaoAutomaticaService,
     ModeloDocumentoService,
     TramitacaoService,
+    TramitacaoPrazosScheduler,
     AprovacaoService,
     DerivacaoService,
     AuditLogService,

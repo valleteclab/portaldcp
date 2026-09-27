@@ -367,7 +367,9 @@ describe('E5 — recursos com efeito', () => {
       expect(m.status).toBe(201);
       expect(m.body.status).toBe('AGUARDANDO_AUTORIDADE');
       const prazo = new Date(m.body.prazoDecisaoAutoridade).getTime();
-      expect(prazo - Date.now()).toBeGreaterThan(13 * 86_400_000); // 10 dias úteis ≥ 14 dias corridos
+      // 10 dias úteis somam pelo menos 12 dias corridos (começando num domingo);
+      // o limite de 11 dias vale para qualquer dia/hora em que o teste rode.
+      expect(prazo - Date.now()).toBeGreaterThan(11 * 86_400_000);
       expect((await buscarLicitacao(ctx, lic)).fase).toBe(FaseLicitacao.RECURSO);
     });
 

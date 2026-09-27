@@ -12,11 +12,13 @@ import {
   ForbiddenException,
   NotFoundException,
   UseGuards,
+  Res,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { ModeloDocumentoService } from './modelo-documento.service';
-import { TramitacaoService, TramitarDto } from './tramitacao.service';
+import { TramitacaoService } from './tramitacao.service';
+import type { TramitarDto } from './tramitacao.service';
 import { AprovacaoService } from './aprovacao.service';
 import { TipoDocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { ModeloDocumento } from './entities/modelo-documento.entity';
@@ -25,7 +27,9 @@ import { ContextoUsuario } from './audit-log.service';
 import { AtorAtual } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
-import { DonoFaseInternaGuard, DonoPor } from './dono-fase-interna.guard';
+import { DonoFaseInternaGuard, DonoModo, DonoPor } from './dono-fase-interna.guard';
+import type { Response } from 'express';
+import * as fs from 'fs';
 
 /**
  * Processo eletrônico da fase interna (estilo SEI):
@@ -201,13 +205,21 @@ export class ProcessoEletronicoController {
   // TRAMITAÇÃO
   // ==========================================================================
 
+  /**
+   * Envia o processo (setor e/ou pessoa) com despacho — o despacho vira folha
+   * nos autos e o destino é avisado (interno, e-mail, WhatsApp). Quem envia é
+   * SEMPRE o usuário do token (usuário no corpo é ignorado). Corpo:
+   * { para_setor_id?, para_usuario_id?, despacho, finalidade?, prazo_dias_uteis?, data_ocorrencia? }.
+   */
   @Post(':licitacaoId/tramitar')
+  @DonoModo('leitura')
   tramitar(
     @Param('licitacaoId') licitacaoId: string,
-    @Body() body: TramitarDto & { usuarioId?: string; usuarioNome?: string },
+    @Body() body: TramitarDto,
+    @AtorAtual() ator: Ator,
     @Req() req: any,
   ) {
-    return this.tramitacao.tramitar(licitacaoId, body, this.contexto(req, body));
+    return this.tramitacao.tramitar(licitacaoId, body ?? {}, ator, this.contexto(req));
   }
 
   @Get(':licitacaoId/tramitacoes')
@@ -220,42 +232,85 @@ export class ProcessoEletronicoController {
     return this.tramitacao.tramitacaoAtual(licitacaoId);
   }
 
+  /** Com quem está: setor, pessoa, desde, prazo e dias úteis restantes. */
+  @Get(':licitacaoId/tramitacao/com-quem-esta')
+  comQuemEsta(@Param('licitacaoId') licitacaoId: string) {
+    return this.tramitacao.comQuemEsta(licitacaoId);
+  }
+
+  /** Linha do tempo: envios, recebimentos e devoluções, com despacho e link da folha. */
+  @Get(':licitacaoId/tramitacao/linha-do-tempo')
+  linhaDoTempo(@Param('licitacaoId') licitacaoId: string) {
+    return this.tramitacao.linhaDoTempo(licitacaoId);
+  }
+
+  /**
+   * Caixa de entrada da tramitação. Servidor (sem papel ADMIN): SEMPRE a
+   * própria — setor de lotação + envios diretos a ele (filtros de outro
+   * setor/pessoa → 403). Órgão/ADMIN: setor ou pessoa do órgão; sem filtro,
+   * todas do órgão. `?recebidas=1` inclui as já recebidas.
+   */
   @Get('tramitacoes/caixa-entrada')
   async caixaEntrada(
     @AtorAtual() ator: Ator,
     @Query('setorId') setorId?: string,
     @Query('usuarioId') usuarioId?: string,
+    @Query('recebidas') recebidas?: string,
   ) {
-    return this.tramitacao.caixaEntrada(await this.destinoDaCaixa(ator, setorId, usuarioId));
+    const incluirRecebidas = recebidas === '1' || recebidas === 'true';
+    if (!ator.admin && ator.tipo === 'USUARIO' && !ProcessoEletronicoController.PAPEIS_CAIXA_DO_ORGAO.includes(ator.role || '')) {
+      const [eu] = ator.usuarioId && ehUuid(ator.usuarioId)
+        ? await this.dataSource.query(`SELECT setor_id::text AS setor_id FROM usuarios WHERE id::text = $1`, [ator.usuarioId])
+        : [];
+      const meuSetor: string | null = eu?.setor_id ?? null;
+      if (usuarioId && usuarioId !== ator.usuarioId) throw new ForbiddenException('Acesso negado: só é possível consultar a própria caixa');
+      if (setorId && setorId !== meuSetor) throw new ForbiddenException('Acesso negado: só é possível consultar a caixa do próprio setor');
+      return this.tramitacao.caixaEntrada({ setorId: meuSetor, usuarioId: ator.usuarioId, orgaoId: ator.orgaoId!, incluirRecebidas });
+    }
+    if (!setorId && !usuarioId && ator.tipo === 'USUARIO' && ator.usuarioId) {
+      // ADMIN do órgão sem filtro: a própria caixa (setor + pessoa)
+      const [eu] = await this.dataSource.query(`SELECT setor_id::text AS setor_id FROM usuarios WHERE id::text = $1`, [ator.usuarioId]);
+      return this.tramitacao.caixaEntrada({ setorId: eu?.setor_id ?? null, usuarioId: ator.usuarioId, orgaoId: ator.orgaoId!, incluirRecebidas });
+    }
+    const destino = await this.destinoDaCaixa(ator, setorId, usuarioId);
+    return this.tramitacao.caixaEntrada({ ...destino, incluirRecebidas });
   }
 
+  /** Confirma o recebimento (setor/pessoa de destino, chefe do setor ou ADMIN). Corpo: { data_ocorrencia? }. */
   @Put('tramitacoes/:id/receber')
   @DonoPor('tramitacao', 'id')
+  @DonoModo('leitura')
   receberTramitacao(
     @Param('id') id: string,
-    @Body() body: { usuarioId?: string; usuarioNome?: string },
+    @Body() body: { data_ocorrencia?: string },
+    @AtorAtual() ator: Ator,
     @Req() req: any,
   ) {
-    return this.tramitacao.receber(
-      id,
-      { id: body?.usuarioId, nome: body?.usuarioNome },
-      this.contexto(req, body),
-    );
+    return this.tramitacao.receber(id, ator, { data_ocorrencia: body?.data_ocorrencia ?? null }, this.contexto(req));
   }
 
+  /** Devolve a quem enviou, com motivo obrigatório. Corpo: { motivo, data_ocorrencia? }. */
   @Put('tramitacoes/:id/devolver')
   @DonoPor('tramitacao', 'id')
+  @DonoModo('leitura')
   devolverTramitacao(
     @Param('id') id: string,
-    @Body() body: { motivo: string; usuarioId?: string; usuarioNome?: string },
+    @Body() body: { motivo: string; data_ocorrencia?: string },
+    @AtorAtual() ator: Ator,
     @Req() req: any,
   ) {
-    return this.tramitacao.devolver(
-      id,
-      body?.motivo,
-      { id: body?.usuarioId, nome: body?.usuarioNome },
-      this.contexto(req, body),
-    );
+    return this.tramitacao.devolver(id, body?.motivo, ator, { data_ocorrencia: body?.data_ocorrencia ?? null }, this.contexto(req));
+  }
+
+  /** PDF do despacho (folha dos autos). */
+  @Get('tramitacoes/:id/despacho')
+  @DonoPor('tramitacao', 'id')
+  async despachoPdf(@Param('id') id: string, @Res() res: Response) {
+    const arq = await this.tramitacao.arquivoDoDespacho(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${arq.nome}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(fs.readFileSync(arq.caminho));
   }
 
   // ==========================================================================

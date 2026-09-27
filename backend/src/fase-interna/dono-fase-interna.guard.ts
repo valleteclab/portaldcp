@@ -23,7 +23,8 @@ import { atorDaRequisicao, ehOrgao } from '../auth/acesso/ator';
  *  - rota com `:licitacaoId` → órgão DONO da licitação;
  *  - rota marcada com @DonoPor('documento' | 'tramitacao' | 'etapa', 'param')
  *    → resolve a licitação do recurso e exige o órgão dono.
- *  Modo: GET → 'leitura' (outro órgão recebe 404); demais → 'escrita' (403).
+ *  Modo: GET → 'leitura' (outro órgão recebe 404); demais → 'escrita' (403),
+ *  salvo @DonoModo('leitura') (404 também na escrita — tramitação).
  *
  * Roda ANTES dos interceptors (upload multer): arquivo de quem não é dono
  * nem chega a ser gravado.
@@ -33,6 +34,14 @@ export const DONO_POR_KEY = 'fase-interna:dono-por';
 
 /** Licitação dona do recurso identificado pelo parâmetro `param` da rota. */
 export const DonoPor = (recurso: RecursoFaseInterna, param = 'id') => SetMetadata(DONO_POR_KEY, { recurso, param });
+
+export const DONO_MODO_KEY = 'fase-interna:dono-modo';
+/**
+ * Força o modo da checagem do órgão dono. `leitura` numa escrita: processo
+ * de OUTRO órgão responde 404 (como se não existisse) em vez de 403 —
+ * tramitação (espinha): nem a existência do processo alheio é revelada.
+ */
+export const DonoModo = (modo: ModoAcesso) => SetMetadata(DONO_MODO_KEY, modo);
 
 const SQL_LICITACAO_DO_RECURSO: Record<RecursoFaseInterna, string> = {
   documento: `SELECT licitacao_id FROM documentos_fase_interna WHERE id = $1`,
@@ -57,7 +66,8 @@ export class DonoFaseInternaGuard implements CanActivate {
     if (!ator) throw new UnauthorizedException('Autenticação necessária');
     if (!ator.admin && !ehOrgao(ator)) throw new ForbiddenException('Ação exclusiva do órgão');
 
-    const modo: ModoAcesso = req.method === 'GET' ? 'leitura' : 'escrita';
+    const modo: ModoAcesso =
+      this.reflector.get<ModoAcesso>(DONO_MODO_KEY, context.getHandler()) ?? (req.method === 'GET' ? 'leitura' : 'escrita');
     const params = req.params || {};
 
     if (params.licitacaoId !== undefined) {

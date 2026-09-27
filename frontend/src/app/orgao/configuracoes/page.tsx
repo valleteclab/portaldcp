@@ -55,6 +55,8 @@ interface Setor {
   id: string
   codigo: string
   nome: string
+  /** Chefe do setor (opcional): avisado de todo processo que chega ao setor. */
+  chefe_usuario_id?: string | null
 }
 
 export default function ConfiguracoesPage() {
@@ -262,7 +264,8 @@ export default function ConfiguracoesPage() {
   const [loadingSetores, setLoadingSetores] = useState(false)
   const [modalSetorOpen, setModalSetorOpen] = useState(false)
   const [editingSetor, setEditingSetor] = useState<Setor | null>(null)
-  const [formSetor, setFormSetor] = useState({ codigo: '', nome: '' })
+  const [formSetor, setFormSetor] = useState({ codigo: '', nome: '', chefe_usuario_id: '' })
+  const [usuariosOrgao, setUsuariosOrgao] = useState<{ id: string; nome: string; ativo?: boolean }[]>([])
   const [savingSetor, setSavingSetor] = useState(false)
   const [savingOrgao, setSavingOrgao] = useState(false)
 
@@ -364,13 +367,22 @@ export default function ConfiguracoesPage() {
     if (orgao.id) carregarSetores()
   }, [orgao.id])
 
+  // Usuários do órgão (para escolher o chefe do setor)
+  useEffect(() => {
+    if (!orgao.id) return
+    authFetch(`${API_URL}/api/usuarios`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((lista) => setUsuariosOrgao(Array.isArray(lista) ? lista.filter((u: any) => u.ativo !== false) : []))
+      .catch(() => setUsuariosOrgao([]))
+  }, [orgao.id])
+
   const abrirModalSetor = (setor?: Setor) => {
     if (setor) {
       setEditingSetor(setor)
-      setFormSetor({ codigo: setor.codigo, nome: setor.nome })
+      setFormSetor({ codigo: setor.codigo, nome: setor.nome, chefe_usuario_id: setor.chefe_usuario_id || '' })
     } else {
       setEditingSetor(null)
-      setFormSetor({ codigo: '', nome: '' })
+      setFormSetor({ codigo: '', nome: '', chefe_usuario_id: '' })
     }
     setModalSetorOpen(true)
   }
@@ -382,9 +394,10 @@ export default function ConfiguracoesPage() {
       const url = editingSetor
         ? `${API_URL}/api/orgaos/${orgao.id}/setores/${editingSetor.id}`
         : `${API_URL}/api/orgaos/${orgao.id}/setores`
+      const chefe = formSetor.chefe_usuario_id || null
       const body = editingSetor
-        ? { codigo: formSetor.codigo, nome: formSetor.nome }
-        : { nome: formSetor.nome }
+        ? { codigo: formSetor.codigo, nome: formSetor.nome, chefe_usuario_id: chefe }
+        : { nome: formSetor.nome, ...(chefe ? { chefe_usuario_id: chefe } : {}) }
       const res = await authFetch(url, {
         method: editingSetor ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -813,6 +826,7 @@ export default function ConfiguracoesPage() {
                     <TableRow>
                       <TableHead>Código</TableHead>
                       <TableHead>Nome</TableHead>
+                      <TableHead>Chefe</TableHead>
                       <TableHead className="w-24">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -821,6 +835,9 @@ export default function ConfiguracoesPage() {
                       <TableRow key={s.id}>
                         <TableCell className="font-mono">{s.codigo}</TableCell>
                         <TableCell>{s.nome}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {s.chefe_usuario_id ? usuariosOrgao.find((u) => u.id === s.chefe_usuario_id)?.nome || '—' : '—'}
+                        </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
                             <Button variant="ghost" size="sm" onClick={() => abrirModalSetor(s)}>
@@ -861,6 +878,23 @@ export default function ConfiguracoesPage() {
                     onChange={(e) => setFormSetor({ ...formSetor, nome: e.target.value })}
                     placeholder="Ex: Departamento de Compras"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="chefe-setor">Chefe do setor (opcional)</Label>
+                  <select
+                    id="chefe-setor"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                    value={formSetor.chefe_usuario_id}
+                    onChange={(e) => setFormSetor({ ...formSetor, chefe_usuario_id: e.target.value })}
+                  >
+                    <option value="">Sem chefe</option>
+                    {usuariosOrgao.map((u) => (
+                      <option key={u.id} value={u.id}>{u.nome}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    O chefe é avisado (e-mail e WhatsApp) de todo processo tramitado para o setor e pode recebê-lo.
+                  </p>
                 </div>
               </div>
               <DialogFooter>

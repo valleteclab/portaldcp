@@ -222,3 +222,36 @@ export function dataPorExtenso(d: Date): string {
   const b = new Date(d.getTime() - 3 * 3_600_000);
   return `${b.getUTCDate()} de ${meses[b.getUTCMonth()]} de ${b.getUTCFullYear()}`;
 }
+
+/**
+ * DESPACHOS DE TRAMITAÇÃO nos autos (espinha da tramitação): as peças seguem
+ * a ORDEM LÓGICA; cada despacho entra logo depois da última peça (na ordem
+ * lógica) que já existia quando ele foi dado — como no papel, o despacho de
+ * envio vem depois da peça que o setor juntou. Entre si, os despachos ficam
+ * em ordem cronológica (nunca um despacho antes do anterior). Peça sem
+ * momento conhecido não prende o despacho.
+ */
+export function intercalarDespachos<T extends { momento?: Date | null }>(pecasOrdenadas: T[], despachos: T[]): T[] {
+  const ds = despachos
+    .map((d, i) => ({ d, i, t: d.momento ? new Date(d.momento).getTime() : Number.POSITIVE_INFINITY }))
+    .sort((a, b) => a.t - b.t || a.i - b.i);
+  // índice da peça depois da qual o despacho entra (-1 = antes de todas)
+  const apos = new Map<number, T[]>();
+  let piso = -1;
+  for (const { d, t } of ds) {
+    let pos = -1;
+    pecasOrdenadas.forEach((p, idx) => {
+      if (p.momento && new Date(p.momento).getTime() <= t) pos = idx;
+    });
+    pos = Math.max(pos, piso);
+    piso = pos;
+    const l = apos.get(pos) ?? [];
+    l.push(d);
+    apos.set(pos, l);
+  }
+  const saida: T[] = [...(apos.get(-1) ?? [])];
+  pecasOrdenadas.forEach((p, idx) => {
+    saida.push(p, ...(apos.get(idx) ?? []));
+  });
+  return saida;
+}

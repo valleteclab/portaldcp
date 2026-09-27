@@ -27,6 +27,14 @@ export class Setor {
   @Column()
   nome: string;
 
+  /**
+   * Chefe do setor (opcional) — usuário do MESMO órgão. Recebe o aviso de
+   * chegada de todo processo tramitado para o setor (tramitação da fase
+   * interna) e pode receber/devolver por ele.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  chefe_usuario_id: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 
