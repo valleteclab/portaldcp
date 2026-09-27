@@ -5,6 +5,7 @@ import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, Statu
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 
 @Injectable()
 export class DemandasService {
@@ -21,6 +22,42 @@ export class DemandasService {
     private dataSource: DataSource,
     private notificacoesService: NotificacoesService,
   ) {}
+
+  // ==================== DONO (checagem de órgão no controller) ====================
+
+  /** Órgão dono da demanda; null se não existe (ou id inválido). */
+  async orgaoDaDemanda(id: string): Promise<string | null> {
+    if (!ehUuid(id)) return null;
+    const [r] = await this.dataSource.query(`SELECT orgao_id FROM demandas WHERE id = $1`, [id]);
+    return r?.orgao_id ?? null;
+  }
+
+  /** Órgão dono do item da demanda (pela demanda); null se não existe. */
+  async orgaoDoItemDemanda(itemId: string): Promise<string | null> {
+    if (!ehUuid(itemId)) return null;
+    const [r] = await this.dataSource.query(
+      `SELECT d.orgao_id FROM itens_demanda i JOIN demandas d ON d.id = i.demanda_id WHERE i.id = $1`,
+      [itemId],
+    );
+    return r?.orgao_id ?? null;
+  }
+
+  /** Órgão dono do PCA; null se não existe. */
+  async orgaoDoPca(pcaId: string): Promise<string | null> {
+    if (!ehUuid(pcaId)) return null;
+    const [r] = await this.dataSource.query(`SELECT orgao_id FROM planos_contratacao_anual WHERE id = $1`, [pcaId]);
+    return r?.orgao_id ?? null;
+  }
+
+  /** Órgão dono do item do PCA (pelo PCA do item); null se não existe. */
+  async orgaoDoItemPca(itemPcaId: string): Promise<string | null> {
+    if (!ehUuid(itemPcaId)) return null;
+    const [r] = await this.dataSource.query(
+      `SELECT p.orgao_id FROM itens_pca ip JOIN planos_contratacao_anual p ON p.id = ip.pca_id WHERE ip.id = $1`,
+      [itemPcaId],
+    );
+    return r?.orgao_id ?? null;
+  }
 
   /** Permissão de aprovar/rejeitar demandas (login de usuário do órgão). */
   async usuarioPodeAprovarDemandas(usuarioId: string): Promise<boolean> {
@@ -451,7 +488,8 @@ export class DemandasService {
     if (contratacoes.length === 0) return;
 
     const demandas = await this.demandaRepository.find({
-      where: contratacoes.map((contratacao) => ({ contratacao_futura_id: contratacao.id })),
+      // demanda só aparece na contratação do MESMO órgão
+      where: contratacoes.map((contratacao) => ({ contratacao_futura_id: contratacao.id, orgao_id: contratacao.orgao_id })),
       relations: ['itens'],
     });
 
@@ -523,9 +561,9 @@ export class DemandasService {
   }
 
   async vincularDemandasContratacaoFutura(orgaoId: string, contratacaoId: string, demandaIds: string[]): Promise<ContratacaoFutura> {
-    const contratacao = await this.contratacaoFuturaRepository.findOne({
-      where: { id: contratacaoId, orgao_id: orgaoId },
-    });
+    const contratacao = ehUuid(contratacaoId)
+      ? await this.contratacaoFuturaRepository.findOne({ where: { id: contratacaoId, orgao_id: orgaoId } })
+      : null;
 
     if (!contratacao) {
       throw new NotFoundException('Contratação futura não encontrada');
@@ -543,7 +581,7 @@ export class DemandasService {
     await this.demandaRepository.update(demandaIds, { contratacao_futura_id: contratacao.id } as any);
 
     const todasDemandas = await this.demandaRepository.find({
-      where: { contratacao_futura_id: contratacao.id },
+      where: { contratacao_futura_id: contratacao.id, orgao_id: orgaoId },
       relations: ['itens'],
     });
     contratacao.valor_total_estimado = todasDemandas.reduce((total, demanda) => (
