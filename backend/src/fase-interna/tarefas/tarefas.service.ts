@@ -1555,7 +1555,8 @@ export class TarefasService {
             FASES_INTERNAS.includes(lic.fase) &&
             (p.situacao === 'CONCLUIDO' || p.situacao === 'A_REVISAR') &&
             p.conclusao !== 'DIVULGACAO' &&
-            (conduzAqui || (await this.ehResponsavelDaEtapa(ator, lic.orgao_id, fluxo.modelo.etapas.find((x) => x.codigo === p.passo)?.responsavel))),
+            (conduzAqui ||
+              (config.modo === 'POR_SETOR' && (await this.ehResponsavelDaEtapa(ator, lic.orgao_id, fluxo.modelo.etapas.find((x) => x.codigo === p.passo)?.responsavel)))),
           tarefa: tarefa ? this.paraTela(tarefa, perfilNeutro, agora) : null,
           responsavel_previsto: { ...previsto, rotulo: await nomeResp(previsto) },
           prazo_dias_uteis: prazos[p.passo] ?? null,

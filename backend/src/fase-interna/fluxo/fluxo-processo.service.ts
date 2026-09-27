@@ -125,12 +125,15 @@ export class FluxoProcessoService {
     return this.tarefas.etapasDoProcesso(licitacaoId, ator);
   }
 
-  /** Pode voltar (reabrir) esta etapa: quem conduz o processo ou o responsável pela etapa no modelo. */
+  /** Pode voltar (reabrir) esta etapa: quem conduz o processo ou (modo por setor) o responsável pela etapa no modelo. */
   async podeReabrir(ator: Ator, licitacaoId: string, codigo: string): Promise<boolean> {
     if (await this.tarefas.podeConduzirProcesso(ator, licitacaoId)) return true;
     const ctx = await this.modeloFluxo.contextoDoProcesso(licitacaoId).catch(() => null);
     const etapa = ctx?.modelo.etapas.find((e) => e.codigo === codigo);
-    return !!ctx && !!etapa && (await this.ehResponsavel(ator, ctx.orgao_id, etapa.responsavel));
+    if (!ctx || !etapa) return false;
+    // Modo SIMPLES: uma pessoa conduz tudo — só ela (e o administrador) volta etapa
+    if ((await this.tarefas.configuracao(ctx.orgao_id)).modo !== 'POR_SETOR') return false;
+    return this.ehResponsavel(ator, ctx.orgao_id, etapa.responsavel);
   }
 
   /**
