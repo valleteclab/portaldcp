@@ -1,1101 +1,64 @@
 'use client'
 
+/**
+ * DEMANDA (pedido do setor) — tela no padrão das demais do órgão: menu do
+ * sistema, cabeçalho com título, situação e ações; as 4 seções em cartões numa
+ * página só (1 Informações gerais, 2 Justificativa, 3 Materiais e serviços,
+ * 4 Responsável) e o resumo lateral (checklist, estimativa, PCA).
+ * Peças em components/demandas/. Regras e API inalteradas: GET/PUT
+ * /api/demandas/:id, itens (POST/PUT/DELETE), enviar, aprovar/rejeitar,
+ * voltar-rascunho e "Iniciar contratação" (DFD de 1 demanda).
+ */
 import { useState, useEffect, useCallback, useRef } from 'react'
+import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Package, Wrench, Trash2, Send, Search, Loader2,
-  CheckCircle, XCircle, Clock, FileText, AlertCircle, BookOpen,
-  Plus, Check, X, ChevronRight, ChevronLeft, Info, Database, Globe,
-  ChevronsUpDown, Pencil, Home, Lock, Users, Wand2, Sparkles
+  AlertCircle, ArrowLeft, CheckCircle, ChevronRight, FileText, Loader2, Lock,
+  Rocket, Send, Undo2, XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
-} from '@/components/ui/select'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList
-} from '@/components/ui/command'
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle
-} from '@/components/ui/dialog'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { BuscaItemCatalogoProprio } from '@/components/catalogo'
-import { API_URL, authFetch } from '@/lib/api'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
 import { toast } from "sonner"
 import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 import { type ModoFaseInterna, lembrarEscolhaModo, rotaFaseInternaFeitaFora, ultimaEscolhaModo } from '@/lib/fase-interna/criacao'
 import { OpcoesModoFaseInterna } from '@/components/fase-interna/externa/EscolhaModoFaseInterna'
+import {
+  STATUS_DEMANDA, fmtMoeda, totalDaDemanda,
+  type AcompanhamentoDaDemanda, type Demanda, type FormItemState, type ItemDemanda, type ItemSelecionado,
+} from '@/components/demandas/tipos'
+import { SecaoDemanda } from '@/components/demandas/SecaoDemanda'
+import { JustificativaDemanda } from '@/components/demandas/JustificativaDemanda'
+import { ItensDemanda } from '@/components/demandas/ItensDemanda'
+import { FormItemDemanda } from '@/components/demandas/FormItemDemanda'
+import { PainelBuscaItem } from '@/components/demandas/PainelBuscaItem'
+import { AcompanhamentoDemanda } from '@/components/demandas/AcompanhamentoDemanda'
+import { ResumoDemanda, checklistDaDemanda } from '@/components/demandas/ResumoDemanda'
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-
-interface ItemDemanda {
-  id: string
-  categoria: 'MATERIAL' | 'SERVICO'
-  codigo_classe?: string
-  nome_classe?: string
-  codigo_item_catalogo?: string
-  descricao_objeto: string
-  justificativa?: string
-  quantidade_estimada: number
-  unidade_medida: string
-  valor_unitario_estimado?: number
-  valor_total_estimado?: number
-  trimestre_previsto?: number
-  data_desejada_contratacao?: string
-  renovacao_contrato: boolean
-  prioridade: number
-  catalogo_utilizado: string
-}
-
-interface Demanda {
-  id: string
-  orgao_id: string
-  ano_referencia: number
-  unidade_requisitante: string
-  responsavel_nome?: string
-  responsavel_email?: string
-  responsavel_telefone?: string
-  status: 'RASCUNHO' | 'ENVIADA' | 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONSOLIDADA' | 'EM_CONTRATACAO' | 'CONTRATADA'
-  observacoes?: string
-  descricao_sucinta_objeto?: string
-  data_desejada_contratacao?: string
-  renovacao_contrato?: boolean
-  motivo_rejeicao?: string
-  created_at: string
-  itens: ItemDemanda[]
-  /** DFD consolidado (unidade de planejamento) em que a demanda entrou — travada enquanto estiver nele. */
-  dfd?: { id: string; numero: number; ano: number; status: string; licitacao_id: string | null } | null
-}
-
-// Item normalizado — mesma forma para qualquer fonte
-interface ItemSelecionado {
-  codigo: string
-  descricao: string
-  tipo: 'MATERIAL' | 'SERVICO'
-  unidade_padrao?: string
-  codigo_classe?: string
-  nome_classe?: string
-  codigo_pdm?: string
-  nome_pdm?: string
-  descricao_detalhada?: string
-  fonte: 'COMPRASGOV' | 'PROPRIO' | 'NOVO'
-}
-
-// ─── Config ────────────────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<string, { label: string; cor: string; icon: any }> = {
-  RASCUNHO:    { label: 'Rascunho',     cor: 'bg-gray-100 text-gray-700',     icon: FileText },
-  ENVIADA:     { label: 'Enviada',      cor: 'bg-blue-100 text-blue-700',     icon: Send },
-  EM_ANALISE:  { label: 'Em Análise',   cor: 'bg-yellow-100 text-yellow-700', icon: Clock },
-  APROVADA:    { label: 'Aprovada',     cor: 'bg-green-100 text-green-700',   icon: CheckCircle },
-  REJEITADA:   { label: 'Rejeitada',    cor: 'bg-red-100 text-red-700',       icon: XCircle },
-  CONSOLIDADA: { label: 'No PCA',       cor: 'bg-purple-100 text-purple-700', icon: CheckCircle },
-  EM_CONTRATACAO: { label: 'Em contratação', cor: 'bg-indigo-100 text-indigo-700', icon: Clock },
-  CONTRATADA:  { label: 'Contratada',   cor: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
-}
-
-const PRIORIDADE_CONFIG: Record<number, { label: string; cor: string }> = {
-  1: { label: 'Muito Alta', cor: 'text-red-600' },
-  2: { label: 'Alta',       cor: 'text-orange-500' },
-  3: { label: 'Média',      cor: 'text-yellow-600' },
-  4: { label: 'Baixa',      cor: 'text-blue-500' },
-  5: { label: 'Muito Baixa', cor: 'text-gray-400' },
-}
-
-type FonteBusca = 'federal' | 'proprio'
-
-// ─── Busca CATMAT/CATSER (catálogo federal) inline ────────────────────────────
-
-interface PdmComprasGov {
-  codigoPdm: number
-  nomePdm: string
-  codigoClasse?: number
-  nomeClasse?: string
-}
-
-interface FiltroPdm {
-  codigo: string
-  nome: string
-  obrigatoria: boolean
-  valores: { codigo: string; nome: string }[]
-}
-
-function BuscaCatalogoFederal({ onSelect }: { onSelect: (item: ItemSelecionado) => void }) {
-  const [termo, setTermo] = useState('')
-  const [tipo, setTipo] = useState<'all' | 'MATERIAL' | 'SERVICO'>('all')
-  const [resultados, setResultados] = useState<any[]>([])
-  const [pdms, setPdms] = useState<PdmComprasGov[]>([])
-  const [pdmSelecionado, setPdmSelecionado] = useState<PdmComprasGov | null>(null)
-  const [filtros, setFiltros] = useState<FiltroPdm[]>([])
-  const [filtrosSelecionados, setFiltrosSelecionados] = useState<Record<string, string>>({})
-  const [totalFederal, setTotalFederal] = useState(0)
-  const [unidadePdm, setUnidadePdm] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-  const [buscado, setBuscado] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // IA: traduz a necessidade em termos de busca do catálogo
-  const [sugestoesIA, setSugestoesIA] = useState<string[]>([])
-  const [buscandoIA, setBuscandoIA] = useState(false)
-
-  const sugerirTermosComIA = async () => {
-    const necessidade = termo.trim()
-    if (!necessidade || buscandoIA) return
-    setBuscandoIA(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/ia/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mensagens: [{
-            role: 'user',
-            content:
-              `O catálogo de compras públicas (CATMAT/CATSER) é indexado por nomes curtos de materiais/serviços. ` +
-              `O servidor descreveu a necessidade assim: "${necessidade}". ` +
-              `Liste até 3 termos de busca prováveis no catálogo (substantivo principal, 1 a 2 palavras cada, singular). ` +
-              `Responda APENAS com um JSON array de strings, ex: ["cadeira giratória","poltrona"].`,
-          }],
-          tipoDocumento: 'catalogo',
-        }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      const m = String(data.resposta || '').match(/\[[\s\S]*\]/)
-      const termos: string[] = m ? JSON.parse(m[0]) : []
-      const validos = termos.filter((t) => typeof t === 'string' && t.trim().length > 1).slice(0, 3)
-      if (validos.length === 0) throw new Error('sem termos')
-      setSugestoesIA(validos)
-      setTermo(validos[0]) // dispara a busca automática
-    } catch {
-      toast('A IA não conseguiu sugerir termos agora — tente buscar por uma palavra-chave simples (ex: "cadeira").')
-    } finally {
-      setBuscandoIA(false)
-    }
-  }
-
-  const normalizarBusca = (valor: string) =>
-    valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
-
-  const parseCaracteristicas = (item: any): { nome: string; valor: string }[] => {
-    let caracts: { nome: string; valor: string }[] = []
-    if (item.descricao_detalhada) {
-      try { caracts = JSON.parse(item.descricao_detalhada) } catch { /* ignore */ }
-    }
-    if (caracts.length === 0 && item.descricao) {
-      const dashIdx = item.descricao.indexOf(' - ')
-      if (dashIdx > -1) {
-        const caractsStr = item.descricao.slice(dashIdx + 3)
-        caracts = caractsStr.split(', ')
-          .map((c: string) => {
-            const colonIdx = c.indexOf(': ')
-            if (colonIdx > -1) return { nome: c.slice(0, colonIdx).trim(), valor: c.slice(colonIdx + 2).trim() }
-            return null
-          })
-          .filter((c: { nome: string; valor: string } | null): c is { nome: string; valor: string } =>
-            c !== null && c.nome.length > 0 && c.valor.length > 0
-          )
-      }
-    }
-    return caracts
-  }
-
-  const carregarItensPdm = useCallback(async (pdm: PdmComprasGov, filtrosAtuais: Record<string, string>) => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams({
-        limite: '100',
-        filtros: JSON.stringify(filtrosAtuais),
-      })
-      const res = await authFetch(`${API_URL}/api/catalogo/comprasgov/pdm/${pdm.codigoPdm}/itens?${params}`)
-      if (res.ok) {
-        const data = await res.json()
-        setResultados(data.itens ?? [])
-        setFiltros(data.filtros ?? [])
-        setUnidadePdm(data.unidade ?? null)
-        setTotalFederal(data.total ?? data.itens?.length ?? 0)
-      }
-    } catch { /* silencioso */ } finally {
-      setLoading(false)
-      setBuscado(true)
-    }
-  }, [])
-
-  const selecionarPdm = useCallback((pdm: PdmComprasGov) => {
-    setPdmSelecionado(pdm)
-    setFiltrosSelecionados({})
-    carregarItensPdm(pdm, {})
-  }, [carregarItensPdm])
-
-  const buscar = useCallback(async (t: string, tp: string) => {
-    if (t.trim().length < 2) {
-      setResultados([])
-      setPdms([])
-      setPdmSelecionado(null)
-      setFiltros([])
-      setBuscado(false)
-      return
-    }
-    setLoading(true)
-    try {
-      setPdmSelecionado(null)
-      setFiltros([])
-      setFiltrosSelecionados({})
-      setUnidadePdm(null)
-      setTotalFederal(0)
-
-      if (tp !== 'SERVICO') {
-        const paramsPdm = new URLSearchParams({ termo: t, limite: '12' })
-        const resPdm = await authFetch(`${API_URL}/api/catalogo/comprasgov/pdms?${paramsPdm}`)
-        const pdmsData = resPdm.ok ? await resPdm.json() : []
-        setPdms(pdmsData)
-
-        const pdmExato = pdmsData.find((pdm: PdmComprasGov) =>
-          normalizarBusca(pdm.nomePdm) === normalizarBusca(t)
-        )
-
-        if (pdmExato) {
-          setPdmSelecionado(pdmExato)
-          await carregarItensPdm(pdmExato, {})
-          return
-        }
-      } else {
-        setPdms([])
-      }
-
-      const params = new URLSearchParams({ termo: t, limite: '30' })
-      if (tp !== 'all') params.set('tipo', tp)
-      const res = await authFetch(`${API_URL}/api/catalogo/itens?${params}`)
-      if (res.ok) {
-        const data = await res.json()
-        const itens = Array.isArray(data) ? data : (data.dados ?? [])
-        setResultados(itens)
-        setTotalFederal(itens.length)
-      }
-    } catch { /* silencioso */ } finally {
-      setLoading(false)
-      setBuscado(true)
-    }
-  }, [carregarItensPdm])
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => buscar(termo, tipo), 350)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [termo, tipo, buscar])
-
-  useEffect(() => {
-    if (!pdmSelecionado) return
-    carregarItensPdm(pdmSelecionado, filtrosSelecionados)
-  }, [filtrosSelecionados, pdmSelecionado, carregarItensPdm])
-
+/** Linha "rótulo: valor" dos dados da demanda. */
+function Dado({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            value={termo}
-            onChange={e => setTermo(e.target.value)}
-            placeholder="Buscar pelo código ou descrição (ex: 446820, computador...)"
-            className="pl-9 h-10"
-          />
-          {loading && (
-            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-gray-400" />
-          )}
-        </div>
-        <Select value={tipo} onValueChange={(v: any) => setTipo(v)}>
-          <SelectTrigger className="w-36 h-10">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos</SelectItem>
-            <SelectItem value="MATERIAL">Material</SelectItem>
-            <SelectItem value="SERVICO">Serviço</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-10 shrink-0 gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
-          onClick={sugerirTermosComIA}
-          disabled={buscandoIA || termo.trim().length < 3}
-          title="Escreva a necessidade com as suas palavras e a IA traduz para os termos do catálogo"
-        >
-          {buscandoIA ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-          IA
-        </Button>
-      </div>
-
-      {sugestoesIA.length > 0 && (
-        <div className="flex items-center gap-1.5 flex-wrap text-xs">
-          <span className="text-gray-500">✨ A IA sugeriu buscar por:</span>
-          {sugestoesIA.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setTermo(s)}
-              className={`px-2 py-1 rounded-full border transition-colors ${
-                termo === s
-                  ? 'bg-[#1351b4] text-white border-[#1351b4]'
-                  : 'bg-white text-[#1351b4] border-[#c5d4eb] hover:bg-[#ecf3fc]'
-              }`}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {pdms.length > 0 && !pdmSelecionado && (
-        <div className="border rounded-lg bg-white divide-y max-h-56 overflow-y-auto">
-          {pdms.map(pdm => (
-            <button
-              key={pdm.codigoPdm}
-              type="button"
-              onClick={() => selecionarPdm(pdm)}
-              className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-sm text-gray-900">PDM: {pdm.codigoPdm} - {pdm.nomePdm}</p>
-                  {pdm.nomeClasse && <p className="text-xs text-gray-500 mt-0.5">Classe: {pdm.codigoClasse} - {pdm.nomeClasse}</p>}
-                </div>
-                <ChevronRight className="h-4 w-4 text-gray-400 mt-0.5" />
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {pdmSelecionado && (
-        <div className="border rounded-lg bg-gray-50 p-3 space-y-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs text-gray-500">PDM selecionado</p>
-              <p className="text-sm font-semibold text-gray-900">{pdmSelecionado.codigoPdm} - {pdmSelecionado.nomePdm}</p>
-              {unidadePdm?.siglaUnidadeFornecimento && (
-                <p className="text-xs text-gray-500 mt-1">Unidade: {unidadePdm.nomeUnidadeFornecimento || unidadePdm.siglaUnidadeFornecimento}</p>
-              )}
-            </div>
-            {Object.keys(filtrosSelecionados).length > 0 && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setFiltrosSelecionados({})}>
-                Limpar filtros
-              </Button>
-            )}
-          </div>
-
-          {filtros.length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {filtros.map(filtro => (
-                <div key={filtro.codigo} className="space-y-1">
-                  <label className="text-xs font-medium text-gray-700">
-                    {filtro.nome}{filtro.obrigatoria ? ' *' : ''}
-                  </label>
-                  <Select
-                    value={filtrosSelecionados[filtro.codigo] ?? 'all'}
-                    onValueChange={(value) => {
-                      setFiltrosSelecionados(prev => {
-                        const next = { ...prev }
-                        if (value === 'all') delete next[filtro.codigo]
-                        else next[filtro.codigo] = value
-                        return next
-                      })
-                    }}
-                  >
-                    <SelectTrigger className="h-9 bg-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos</SelectItem>
-                      {filtro.valores.map(valor => (
-                        <SelectItem key={valor.codigo} value={valor.codigo}>{valor.nome}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {buscado && resultados.length === 0 && !loading && pdms.length === 0 && (
-        <div className="text-center py-5 text-gray-400 bg-gray-50 rounded-lg text-sm">
-          Nenhum item encontrado. Tente outro termo ou use "Catálogo Próprio".
-        </div>
-      )}
-
-      {resultados.length > 0 && (
-        <div>
-          <p className="text-xs text-gray-500 mb-1.5">
-            Foram encontrados <strong>{totalFederal || resultados.length}</strong> {resultados.length === 1 ? 'resultado' : 'resultados'}
-          </p>
-          {/* Cabeçalho da tabela */}
-          <div className="bg-gray-50 border border-b-0 rounded-t-lg grid grid-cols-[80px_1fr_32px] px-4 py-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Código</span>
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Nome do Material / Serviço</span>
-            <span />
-          </div>
-          <div className="border rounded-b-lg divide-y max-h-96 overflow-y-auto bg-white shadow-sm">
-            {resultados.map(item => {
-              // Parsear características: podem vir como JSON em descricao_detalhada ou como parte do objeto
-              let caracts: { nome: string; valor: string }[] = parseCaracteristicas(item)
-              if (item.descricao_detalhada) {
-                try { caracts = JSON.parse(item.descricao_detalhada) } catch { /* ignore */ }
-              }
-              // Fallback: parsear string "PDM - Car1: Val1, Car2: Val2, ..." quando descricao_detalhada nulo
-              if (caracts.length === 0 && item.descricao) {
-                const dashIdx = item.descricao.indexOf(' - ')
-                if (dashIdx > -1) {
-                  const caractsStr = item.descricao.slice(dashIdx + 3)
-                  caracts = caractsStr.split(', ')
-                    .map((c: string) => {
-                      const colonIdx = c.indexOf(': ')
-                      if (colonIdx > -1) return { nome: c.slice(0, colonIdx).trim(), valor: c.slice(colonIdx + 2).trim() }
-                      return null
-                    })
-                    .filter((c: { nome: string; valor: string } | null): c is { nome: string; valor: string } =>
-                      c !== null && c.nome.length > 0 && c.valor.length > 0
-                    )
-                }
-              }
-              const nomePdm = item.nome_pdm || (item.descricao?.indexOf(' - ') > -1 ? item.descricao.split(' - ')[0] : item.descricao)
-              const nomeCls = item.classe?.nome || item.nome_classe || ''
-
-              return (
-                <button
-                  key={item.id || item.codigo}
-                  type="button"
-                  onClick={() => onSelect({
-                    codigo: item.codigo,
-                    descricao: item.descricao,
-                    tipo: item.tipo,
-                    unidade_padrao: item.unidade_padrao,
-                    codigo_classe: item.codigo_classe || item.classe?.codigo,
-                    nome_classe: item.classe?.nome || item.nome_classe,
-                    codigo_pdm: item.codigo_pdm,
-                    nome_pdm: item.nome_pdm,
-                    descricao_detalhada: item.descricao_detalhada,
-                    fonte: 'COMPRASGOV',
-                  })}
-                  className="w-full grid grid-cols-[80px_1fr_32px] items-start px-4 py-3 hover:bg-blue-50 text-left transition-colors group gap-3"
-                >
-                  {/* Código */}
-                  <div className="pt-0.5">
-                    <span className="font-mono text-sm font-semibold text-gray-700">{item.codigo}</span>
-                  </div>
-
-                  {/* Descrição estruturada */}
-                  <div className="min-w-0">
-                    <p className="font-bold text-sm text-gray-900 leading-snug">
-                      {nomePdm}
-                    </p>
-                    {caracts.length > 0 && (
-                      <div className="mt-1 space-y-0.5">
-                        {caracts.map((c, i) => (
-                          <p key={i} className="text-xs text-gray-600">
-                            <span className="text-gray-400">{c.nome}:</span>{' '}
-                            <span>{c.valor}</span>
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      {nomeCls && (
-                        <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">
-                          {nomeCls}
-                        </span>
-                      )}
-                      {item.unidade_padrao && (
-                        <Badge variant="outline" className="text-xs py-0">{item.unidade_padrao}</Badge>
-                      )}
-                      {item.sustentavel && (
-                        <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">♻ Sustentável</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Ação */}
-                  <div className="pt-0.5 flex justify-center">
-                    <Plus className="h-4 w-4 text-gray-300 group-hover:text-blue-500 transition-colors" />
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
+    <div className="min-w-0">
+      <dt className="text-xs text-gray-600">{rotulo}</dt>
+      <dd className="text-sm font-medium text-gray-900 break-words">{children}</dd>
     </div>
   )
 }
 
-// ─── Formulário de item selecionado ──────────────────────────────────────────
-
-interface FormItemState {
-  quantidade_estimada: string
-  unidade_medida: string
-  valor_unitario_estimado: string
-  trimestre_previsto: string
-  prioridade: string
-  renovacao_contrato: boolean
-  codigo_classe?: string
-  nome_classe?: string
-}
-
-function FormAdicionarItem({
-  item,
-  onConfirm,
-  onCancelar,
-  loading,
-}: {
-  item: ItemSelecionado
-  onConfirm: (form: FormItemState) => void
-  onCancelar: () => void
-  loading: boolean
-}) {
-  const [form, setForm] = useState<FormItemState>({
-    quantidade_estimada: '1',
-    unidade_medida: item.unidade_padrao || 'UN',
-    valor_unitario_estimado: '',
-    trimestre_previsto: '1',
-    prioridade: '3',
-    renovacao_contrato: false,
+/** Item da demanda na forma do formulário (edição). */
+function itemParaSelecionado(item: ItemDemanda): ItemSelecionado {
+  return {
+    codigo: item.codigo_item_catalogo || '',
+    descricao: item.descricao_objeto,
+    tipo: item.categoria,
+    unidade_padrao: item.unidade_medida,
     codigo_classe: item.codigo_classe,
     nome_classe: item.nome_classe,
-  })
-  const [classes, setClasses] = useState<{ id: string; codigo: string; nome: string }[]>([])
-  const [classeOpen, setClasseOpen] = useState(false)
-  const [buscaClasse, setBuscaClasse] = useState(item.nome_classe || item.codigo_classe || '')
-  const [criandoClasse, setCriandoClasse] = useState(false)
-
-  // Preço de referência REAL (compras públicas — dados abertos Compras.gov.br)
-  // para o servidor não estimar o valor unitário no chute
-  const [precoRef, setPrecoRef] = useState<{ mediana: number; amostras: number } | null>(null)
-  const [precoRefLoading, setPrecoRefLoading] = useState(false)
-  useEffect(() => {
-    if (!item.codigo || item.fonte !== 'COMPRASGOV') return
-    setPrecoRefLoading(true)
-    authFetch(`${API_URL}/api/fase-interna/preco-referencia?codigo=${encodeURIComponent(item.codigo)}&tipo=${item.tipo}`)
-      .then(async (r) => {
-        if (!r.ok) return
-        const d = await r.json()
-        if (d?.encontrado && d.mediana > 0) setPrecoRef({ mediana: d.mediana, amostras: d.amostras || 0 })
-      })
-      .catch(() => { /* referência é opcional */ })
-      .finally(() => setPrecoRefLoading(false))
-  }, [item.codigo, item.tipo, item.fonte])
-
-  // Sempre carregar classes — usa as classificações do nosso catálogo próprio
-  useEffect(() => {
-    const params = new URLSearchParams({ limite: '200' })
-    if (item.tipo) params.set('tipo', item.tipo)
-    authFetch(`${API_URL}/api/catalogo-proprio/classificacoes?${params}`)
-      .then(r => r.json())
-      .then(data => setClasses(Array.isArray(data) ? data : (data.dados ?? [])))
-      .catch(() => {})
-  }, [item.tipo])
-
-  // Nome da classe selecionada (do formulário ou do item)
-  const classeSelecionada = form.codigo_classe
-    ? classes.find(c => c.codigo === form.codigo_classe)
-    : null
-  const termoNovaClasse = buscaClasse.trim()
-  const existeClasseNaBusca = termoNovaClasse.length > 0 && classes.some(c =>
-    c.codigo.toLowerCase() === termoNovaClasse.toLowerCase() ||
-    c.nome.trim().toLowerCase() === termoNovaClasse.toLowerCase()
-  )
-  const podeCriarClasse = termoNovaClasse.length >= 3 && !existeClasseNaBusca
-
-  const criarClassificacao = async () => {
-    if (!podeCriarClasse || criandoClasse) return
-    setCriandoClasse(true)
-    try {
-      const res = await authFetch(`${API_URL}/api/catalogo-proprio/classificacoes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nome: termoNovaClasse,
-          tipo: item.tipo,
-          palavras_chave: termoNovaClasse.split(/\s+/).filter(Boolean),
-        }),
-      })
-      if (!res.ok) throw new Error('Erro ao criar classificacao')
-      const nova = await res.json()
-      setClasses(prev => [...prev, nova].sort((a, b) => a.codigo.localeCompare(b.codigo)))
-      setForm(prev => ({ ...prev, codigo_classe: nova.codigo, nome_classe: nova.nome }))
-      setBuscaClasse('')
-      setClasseOpen(false)
-    } catch {
-      toast.error('Não foi possível criar a classificação agora. Tente novamente.')
-    } finally {
-      setCriandoClasse(false)
-    }
+    fonte: item.catalogo_utilizado === 'COMPRASGOV' ? 'COMPRASGOV' : 'PROPRIO',
   }
-
-  const valor = parseFloat(form.valor_unitario_estimado) || 0
-  const qtd = parseFloat(form.quantidade_estimada) || 0
-  const total = valor * qtd
-
-  const fmt = (v: number) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-
-  const fonteLabel: Record<string, string> = {
-    COMPRASGOV: 'CATMAT/CATSER',
-    PROPRIO: 'Catálogo Próprio',
-    NOVO: 'Novo Item',
-  }
-  const fonteCor: Record<string, string> = {
-    COMPRASGOV: 'bg-green-50 text-green-700 border-green-200',
-    PROPRIO: 'bg-blue-50 text-blue-700 border-blue-200',
-    NOVO: 'bg-purple-50 text-purple-700 border-purple-200',
-  }
-
-  return (
-    <div className="border-2 border-blue-200 rounded-xl p-5 bg-blue-50 space-y-4">
-      {/* Item selecionado */}
-      <div className="flex items-start gap-3 bg-white rounded-lg p-3 border border-blue-100">
-        <div className="shrink-0 mt-0.5">
-          {item.tipo === 'MATERIAL'
-            ? <Package className="h-5 w-5 text-blue-500" />
-            : <Wrench className="h-5 w-5 text-purple-500" />}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-            <span className="font-semibold text-sm">{item.descricao}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${fonteCor[item.fonte]}`}>
-              {fonteLabel[item.fonte]}
-            </span>
-          </div>
-          <div className="text-xs text-gray-500 font-mono">{item.codigo}</div>
-        </div>
-        <button onClick={onCancelar} className="text-gray-400 hover:text-gray-600 shrink-0">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Classificação — sempre visível para vincular ao nosso sistema */}
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
-          <BookOpen className="h-3.5 w-3.5 text-blue-500" />
-          Classificação no nosso sistema
-          {!form.codigo_classe && (
-            <span className="text-amber-600 font-normal ml-1">* necessária para agrupar no PCA</span>
-          )}
-        </label>
-        <Popover open={classeOpen} onOpenChange={setClasseOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className={`w-full flex items-center justify-between h-9 px-3 rounded-md border text-sm bg-white transition-colors
-                ${classeOpen ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200 hover:border-gray-300'}
-                ${!form.codigo_classe ? 'text-amber-700 border-amber-300 bg-amber-50' : 'text-gray-900'}`}
-            >
-              <span className="flex items-center gap-2 truncate">
-                {form.codigo_classe ? (
-                  <>
-                    <span className="font-mono text-xs text-gray-400 shrink-0">{form.codigo_classe}</span>
-                    <span className="truncate">{classeSelecionada?.nome || form.nome_classe || '—'}</span>
-                  </>
-                ) : (
-                  <span className="text-amber-600">Selecione a classificação...</span>
-                )}
-              </span>
-              <ChevronsUpDown className="h-4 w-4 text-gray-400 shrink-0 ml-2" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[400px] p-0" align="start">
-            <Command shouldFilter={false}>
-              <CommandInput
-                placeholder={`Buscar por código ou nome${item.codigo_classe ? ` (ex: ${item.codigo_classe})` : ''}...`}
-                value={buscaClasse}
-                onValueChange={setBuscaClasse}
-              />
-              <CommandList>
-                <CommandEmpty className="py-4 text-center text-sm text-gray-500">
-                  Nenhuma classificação encontrada
-                </CommandEmpty>
-                <CommandGroup>
-                  {classes.map(c => (
-                    <CommandItem
-                      key={c.id}
-                      value={`${c.codigo} ${c.nome}`}
-                      onSelect={() => {
-                        setForm({ ...form, codigo_classe: c.codigo, nome_classe: c.nome })
-                        setClasseOpen(false)
-                      }}
-                      className="flex items-center gap-2 cursor-pointer"
-                    >
-                      <Check className={`h-4 w-4 shrink-0 ${form.codigo_classe === c.codigo ? 'opacity-100 text-blue-600' : 'opacity-0'}`} />
-                      <span className="font-mono text-xs text-gray-400 shrink-0 w-14">{c.codigo}</span>
-                      <span className="truncate text-sm">{c.nome}</span>
-                    </CommandItem>
-                  ))}
-                  {podeCriarClasse && (
-                    <CommandItem
-                      value={`criar ${termoNovaClasse}`}
-                      onSelect={criarClassificacao}
-                      className="flex items-center gap-2 cursor-pointer border-t mt-1 pt-2 text-blue-700"
-                    >
-                      {criandoClasse ? (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                      ) : (
-                        <Plus className="h-4 w-4 shrink-0" />
-                      )}
-                      <span className="truncate text-sm font-medium">
-                        Criar nova classificação: "{termoNovaClasse}"
-                      </span>
-                    </CommandItem>
-                  )}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
-        {form.codigo_classe && (
-          <p className="mt-1 text-xs text-green-600 flex items-center gap-1">
-            <Check className="h-3 w-3" />
-            Itens desta classificação serão agrupados em 1 linha no PCA
-          </p>
-        )}
-      </div>
-
-      {/* Campos */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Quantidade *</label>
-          <Input type="number" min="1" value={form.quantidade_estimada}
-            onChange={e => setForm({ ...form, quantidade_estimada: e.target.value })}
-            className="h-9 bg-white" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Unidade</label>
-          <Select value={form.unidade_medida} onValueChange={v => setForm({ ...form, unidade_medida: v })}>
-            <SelectTrigger className="h-9 bg-white"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {['UN', 'MES', 'HR', 'KG', 'M', 'M2', 'M3', 'L', 'CX', 'PCT', 'RL', 'SV'].map(u => (
-                <SelectItem key={u} value={u}>{u}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-2">
-            Valor Unitário (R$)
-            {precoRefLoading && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
-          </label>
-          <Input type="number" min="0" step="0.01" value={form.valor_unitario_estimado}
-            onChange={e => setForm({ ...form, valor_unitario_estimado: e.target.value })}
-            placeholder="0,00" className="h-9 bg-white" />
-          {precoRef && (
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, valor_unitario_estimado: String(precoRef.mediana) })}
-              className="mt-1 text-xs text-[#1351b4] hover:underline text-left"
-              title="Mediana de compras públicas reais (dados abertos do Compras.gov.br) — clique para usar"
-            >
-              💰 Referência: R$ {precoRef.mediana.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} (mediana de {precoRef.amostras} compras públicas) — usar
-            </button>
-          )}
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Trimestre Previsto</label>
-          <Select value={form.trimestre_previsto} onValueChange={v => setForm({ ...form, trimestre_previsto: v })}>
-            <SelectTrigger className="h-9 bg-white"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">1º Trimestre (Jan–Mar)</SelectItem>
-              <SelectItem value="2">2º Trimestre (Abr–Jun)</SelectItem>
-              <SelectItem value="3">3º Trimestre (Jul–Set)</SelectItem>
-              <SelectItem value="4">4º Trimestre (Out–Dez)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-xs font-medium text-gray-700 mb-1">Prioridade</label>
-        <div className="flex gap-1.5">
-          {[1, 2, 3, 4, 5].map(p => (
-            <button key={p} type="button"
-              onClick={() => setForm({ ...form, prioridade: String(p) })}
-              className={`flex-1 py-1 rounded text-xs font-medium transition-colors border ${
-                form.prioridade === String(p)
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
-              }`}
-            >
-              {PRIORIDADE_CONFIG[p]?.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {total > 0 && (
-        <div className="bg-white rounded-lg p-3 border border-blue-100 flex justify-between items-center">
-          <span className="text-sm text-gray-600">Valor Total Estimado</span>
-          <span className="font-bold text-blue-700 text-lg">{fmt(total)}</span>
-        </div>
-      )}
-
-      <div className="flex gap-2 pt-1">
-        <Button variant="outline" onClick={onCancelar} className="flex-1" size="sm">Cancelar</Button>
-        <Button onClick={() => onConfirm(form)}
-          disabled={loading || !form.codigo_classe || !form.quantidade_estimada || parseFloat(form.quantidade_estimada) <= 0}
-          className="flex-1 bg-blue-600 hover:bg-blue-700" size="sm">
-          {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-          Adicionar à Demanda
-        </Button>
-      </div>
-    </div>
-  )
 }
-
-// ─── Justificativa da Demanda (nível demanda, salva em observacoes) ───────────
-
-function JustificativaDemanda({
-  demandaId,
-  justificativa,
-  podeEditar,
-  onSalvo,
-  contextoObjeto,
-}: {
-  demandaId: string
-  justificativa: string
-  podeEditar: boolean
-  onSalvo: (texto: string) => void
-  contextoObjeto?: string
-}) {
-  const [texto, setTexto] = useState(justificativa)
-  const [salvando, setSalvando] = useState(false)
-  const [salvo, setSalvo] = useState(true)
-  const [melhorando, setMelhorando] = useState(false)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Sincroniza quando a prop muda (ex.: reload)
-  useEffect(() => { setTexto(justificativa) }, [justificativa])
-
-  const salvar = useCallback(async (valor: string) => {
-    setSalvando(true)
-    try {
-      await authFetch(`${API_URL}/api/demandas/${demandaId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ observacoes: valor }),
-      })
-      onSalvo(valor)
-      setSalvo(true)
-    } finally {
-      setSalvando(false)
-    }
-  }, [demandaId, onSalvo])
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value
-    setTexto(val)
-    setSalvo(false)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => salvar(val), 1200)
-  }
-
-  // Redige/melhora a justificativa com IA usando o objeto da demanda como
-  // contexto — o servidor escreve tópicos (ou nada) e revisa o resultado
-  const melhorarComIA = async () => {
-    if (melhorando) return
-    setMelhorando(true)
-    try {
-      const atual = texto.trim()
-      const res = await authFetch(`${API_URL}/api/ia/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mensagens: [{
-            role: 'user',
-            content:
-              `Você redige justificativas de necessidade para demandas de contratação pública (Art. 18, I, Lei 14.133/2021). ` +
-              (atual
-                ? `Melhore e desenvolva o texto do usuário, preservando todos os fatos e intenções. `
-                : `Redija a justificativa da necessidade a partir do objeto informado. `) +
-              `Texto formal, 2 a 4 parágrafos, sem placeholders. Responda APENAS com o texto final.\n\n` +
-              `Objeto da demanda: ${contextoObjeto || 'não informado'}\n` +
-              (atual ? `\nTexto do usuário:\n${atual}` : ''),
-          }],
-          tipoDocumento: 'DFD',
-        }),
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      const novo = String(data.resposta || '').trim()
-      if (!novo) throw new Error('vazio')
-      setTexto(novo)
-      setSalvo(false)
-      await salvar(novo)
-    } catch {
-      toast.error('Não foi possível gerar agora — tente novamente em instantes.')
-    } finally {
-      setMelhorando(false)
-    }
-  }
-
-  const caracteres = texto.trim().length
-
-  return (
-    <div className="bg-white rounded-lg border shadow-sm overflow-hidden max-w-5xl">
-      <div className="border-b px-6 py-4 flex items-start justify-between gap-4">
-        <label className="text-base font-semibold text-gray-900 flex items-center gap-2">
-          <FileText className="h-4 w-4 text-blue-600" />
-          Justificativa da Necessidade
-          <span className="text-xs font-normal text-gray-400">(Art. 18, I — Lei 14.133/2021)</span>
-        </label>
-        {podeEditar && (
-          <div className="flex items-center gap-2 shrink-0">
-            <span className={`text-xs font-medium rounded px-2 py-1 border ${salvando ? 'text-amber-700 bg-amber-50 border-amber-200' : salvo && texto ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-500 bg-gray-50 border-gray-200'}`}>
-              {salvando ? '● Salvando…' : salvo && texto ? '✓ Salvo' : ''}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs gap-1.5 text-[#1351b4] border-[#c5d4eb] bg-[#f6f9fd] hover:bg-[#ecf3fc]"
-              onClick={melhorarComIA}
-              disabled={melhorando}
-              title={texto.trim() ? 'A IA desenvolve o seu texto preservando os fatos' : 'A IA redige a justificativa a partir do objeto da demanda'}
-            >
-              {melhorando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-              {melhorando ? 'Gerando…' : texto.trim() ? 'Melhorar com IA' : 'Redigir com IA'}
-            </Button>
-          </div>
-        )}
-      </div>
-      {podeEditar ? (
-        <div className="p-6 bg-gray-50">
-          <Textarea
-          value={texto}
-          onChange={handleChange}
-          placeholder="Descreva a necessidade que justifica esta demanda de contratação. Ex.: A contratação se faz necessária para garantir o funcionamento adequado das atividades do setor, conforme Art. 18, I da Lei 14.133/2021..."
-          rows={14}
-          className="min-h-[360px] w-full resize-y border-gray-200 px-5 py-4 text-[15px] leading-7 text-gray-800 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-          />
-          <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-            <span>A justificativa acompanha o pedido e é aproveitada pela unidade de planejamento no DFD.</span>
-            <span>{caracteres.toLocaleString('pt-BR')} caracteres</span>
-          </div>
-        </div>
-      ) : (
-        <div className="p-6 bg-gray-50">
-          <div className="min-h-[260px] rounded-md border bg-white px-5 py-4 text-[15px] leading-7 text-gray-800 whitespace-pre-wrap">
-            {texto || <span className="text-gray-400 italic">Sem justificativa informada.</span>}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Painel de busca com 2 fontes ─────────────────────────────────────────────
-
-function PainelBusca({
-  orgaoId,
-  onSelect,
-}: {
-  orgaoId: string
-  onSelect: (item: ItemSelecionado) => void
-}) {
-  const [fonte, setFonte] = useState<FonteBusca>('federal')
-
-  return (
-    <div className="space-y-4">
-      {/* Seletor de fonte */}
-      <div className="flex rounded-lg border bg-white overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setFonte('federal')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
-            fonte === 'federal'
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <Globe className="h-4 w-4" />
-          CATMAT / CATSER
-          <span className={`text-xs px-1 rounded ${fonte === 'federal' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
-            ComprasGov
-          </span>
-        </button>
-        <div className="w-px bg-gray-200" />
-        <button
-          type="button"
-          onClick={() => setFonte('proprio')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
-            fonte === 'proprio'
-              ? 'bg-blue-600 text-white'
-              : 'text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <Database className="h-4 w-4" />
-          Catálogo Próprio
-          <span className={`text-xs px-1 rounded ${fonte === 'proprio' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
-            + Novo
-          </span>
-        </button>
-      </div>
-
-      {/* Conteúdo da busca */}
-      {fonte === 'federal' ? (
-        <div className="space-y-3">
-          <BuscaCatalogoFederal onSelect={onSelect} />
-          <BuscaItemCatalogoProprio
-            orgaoId={orgaoId}
-            manualOnly
-            onChange={(item) => {
-              if (item) {
-                onSelect({
-                  codigo: item.codigo,
-                  descricao: item.descricao,
-                  tipo: item.tipo,
-                  unidade_padrao: item.unidade_padrao,
-                  codigo_classe: item.classificacao?.codigo,
-                  nome_classe: item.classificacao?.nome,
-                  fonte: 'PROPRIO',
-                })
-              }
-            }}
-          />
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-xs text-gray-500">
-            Busque no catálogo do órgão ou clique em <strong>"Cadastrar novo item"</strong> para criar um novo.
-          </p>
-          <BuscaItemCatalogoProprio
-            orgaoId={orgaoId}
-            placeholder="Buscar no catálogo próprio ou criar novo..."
-            onChange={(item) => {
-              if (item) {
-                onSelect({
-                  codigo: item.codigo,
-                  descricao: item.descricao,
-                  tipo: item.tipo,
-                  unidade_padrao: item.unidade_padrao,
-                  codigo_classe: item.classificacao?.codigo,
-                  nome_classe: item.classificacao?.nome,
-                  fonte: 'PROPRIO',
-                })
-              }
-            }}
-          />
-          <p className="text-xs text-blue-600 flex items-center gap-1">
-            <Info className="h-3 w-3" />
-            O botão "Cadastrar novo item" no campo acima abre um formulário completo de criação.
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function DetalheDemandaPage() {
   const { id } = useParams<{ id: string }>()
@@ -1108,23 +71,8 @@ export default function DetalheDemandaPage() {
   const [orgaoId, setOrgaoId] = useState('')
 
   const [itemSelecionado, setItemSelecionado] = useState<ItemSelecionado | null>(null)
-
-  // ── Estado do layout DFD ──────────────────────────────────────────────────
-  const [secaoAtiva, setSecaoAtiva] = useState<1 | 2 | 3 | 4>(3)
-  // Abre na PRIMEIRA seção incompleta (só na chegada — depois o usuário manda)
-  const secaoInicialDefinida = useRef(false)
-  useEffect(() => {
-    if (!demanda || secaoInicialDefinida.current) return
-    secaoInicialDefinida.current = true
-    if (demanda.status !== 'RASCUNHO') return // leitura: mantém padrão (itens)
-    if (!demanda.descricao_sucinta_objeto?.trim()) setSecaoAtiva(1)
-    else if (!demanda.observacoes?.trim()) setSecaoAtiva(2)
-    else if ((demanda.itens?.length ?? 0) === 0) setSecaoAtiva(3)
-    else setSecaoAtiva(4)
-  }, [demanda])
   const [dialogAdicionar, setDialogAdicionar] = useState(false)
-  const [filtroItens, setFiltroItens] = useState('')
-  const [tabTipo, setTabTipo] = useState<'MATERIAL' | 'SERVICO'>('MATERIAL')
+  const [itemEditando, setItemEditando] = useState<ItemDemanda | null>(null)
 
   // ── Carregar orgaoId e demanda ─────────────────────────────────────────────
   useEffect(() => {
@@ -1151,6 +99,21 @@ export default function DetalheDemandaPage() {
   }, [id, router])
 
   useEffect(() => { carregarDemanda() }, [carregarDemanda])
+
+  // Na chegada, leva à PRIMEIRA seção incompleta do rascunho (depois o usuário manda)
+  const secaoInicialDefinida = useRef(false)
+  useEffect(() => {
+    if (!demanda || secaoInicialDefinida.current) return
+    secaoInicialDefinida.current = true
+    if (demanda.status !== 'RASCUNHO') return
+    const secao = !demanda.descricao_sucinta_objeto?.trim() ? 1
+      : !demanda.observacoes?.trim() ? 2
+      : (demanda.itens?.length ?? 0) === 0 ? 3
+      : null
+    if (secao && secao > 1) {
+      requestAnimationFrame(() => document.getElementById(`secao-${secao}`)?.scrollIntoView({ block: 'start' }))
+    }
+  }, [demanda])
 
   // ── Aprovar/Rejeitar direto na página (o aprovador não precisa voltar) ────
   const [decidindo, setDecidindo] = useState(false)
@@ -1184,8 +147,8 @@ export default function DetalheDemandaPage() {
         throw new Error(err.message || `HTTP ${res.status}`)
       }
       await carregarDemanda()
-    } catch (e: any) {
-      toast.error(`Erro ao aprovar: ${e.message}`)
+    } catch (e: unknown) {
+      toast.error(`Erro ao aprovar: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setDecidindo(false)
     }
@@ -1207,8 +170,8 @@ export default function DetalheDemandaPage() {
         throw new Error(err.message || `HTTP ${res.status}`)
       }
       await carregarDemanda()
-    } catch (e: any) {
-      toast.error(`Erro ao rejeitar: ${e.message}`)
+    } catch (e: unknown) {
+      toast.error(`Erro ao rejeitar: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setDecidindo(false)
     }
@@ -1226,15 +189,15 @@ export default function DetalheDemandaPage() {
         throw new Error(err.message || `HTTP ${res.status}`)
       }
       await carregarDemanda()
-    } catch (e: any) {
-      toast.error(`Não foi possível voltar para rascunho: ${e.message}`)
+    } catch (e: unknown) {
+      toast.error(`Não foi possível voltar para rascunho: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setDecidindo(false)
     }
   }
 
   // ── Acompanhamento (PCA → processo → contrato) ────────────────────────────
-  const [acomp, setAcomp] = useState<any>(null)
+  const [acomp, setAcomp] = useState<AcompanhamentoDaDemanda | null>(null)
   useEffect(() => {
     if (!demanda?.id || demanda.status === 'RASCUNHO') return
     authFetch(`${API_URL}/api/demandas/${demanda.id}/acompanhamento`)
@@ -1263,7 +226,7 @@ export default function DetalheDemandaPage() {
   }, [demanda?.id, orgaoId, acomp?.processo])
 
   const abrirModalIniciar = () => {
-    const total = (demanda?.itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0)
+    const total = totalDaDemanda(demanda?.itens)
     // Sugestão: dentro do limite do art. 75 → dispensa; acima → pregão
     setModalidadeEscolhida(limiteDispensa != null && total > limiteDispensa ? 'PREGAO_ELETRONICO' : 'DISPENSA_ELETRONICA')
     setModoFaseInterna(ultimaEscolhaModo())
@@ -1306,11 +269,12 @@ export default function DetalheDemandaPage() {
         } catch { /* cockpit permite disparar de novo */ }
       }
       router.push(`/orgao/processos/${licId}`)
-    } catch (e: any) {
-      toast.error(`Não foi possível iniciar a contratação: ${e.message}`)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      toast.error(`Não foi possível iniciar a contratação: ${msg}`)
       setIniciando(false)
       // 2ª aprovação ligada: o DFD de 1 demanda fica pronto para enviar à aprovação
-      if (dfdId && /2ª aprovação/.test(String(e.message))) router.push(`/orgao/demandas/dfd/${dfdId}`)
+      if (dfdId && /2ª aprovação/.test(msg)) router.push(`/orgao/demandas/dfd/${dfdId}`)
     }
   }
 
@@ -1398,6 +362,36 @@ export default function DetalheDemandaPage() {
     }
   }
 
+  // ── Editar item (PUT /api/demandas/itens/:id — o servidor recalcula o total) ──
+  const salvarEdicaoItem = async (form: FormItemState) => {
+    if (!itemEditando) return
+    setSalvando(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/demandas/itens/${itemEditando.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigo_classe: form.codigo_classe || itemEditando.codigo_classe,
+          nome_classe: form.nome_classe || itemEditando.nome_classe,
+          quantidade_estimada: parseFloat(form.quantidade_estimada) || 1,
+          unidade_medida: form.unidade_medida,
+          valor_unitario_estimado: parseFloat(form.valor_unitario_estimado) || 0,
+          trimestre_previsto: parseInt(form.trimestre_previsto),
+          prioridade: parseInt(form.prioridade),
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.message || 'Não foi possível salvar o item')
+        return
+      }
+      setItemEditando(null)
+      carregarDemanda()
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   // ── Remover item ───────────────────────────────────────────────────────────
   const removerItem = async (itemId: string) => {
     if (!(await confirmarAcao({ titulo: 'Confirmação', mensagem: 'Remover este item da demanda?', destrutivo: true }))) return
@@ -1425,619 +419,250 @@ export default function DetalheDemandaPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-8 w-8 animate-spin text-gray-500" aria-label="Carregando a demanda" />
       </div>
     )
   }
   if (!demanda) return null
 
-  const StatusIcon = STATUS_CONFIG[demanda.status]?.icon || FileText
+  const status = STATUS_DEMANDA[demanda.status]
+  const StatusIcon = status?.icon || FileText
   const podeEditar = demanda.status === 'RASCUNHO'
-  const fmt = (v: number) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
-  const totalDemanda = (demanda.itens ?? []).reduce(
-    (acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0
-  )
-
-  // Seções com status de completude
-  const SECOES = [
-    { id: 1 as const, titulo: 'Informações Gerais',        icon: Home,      completa: true },
-    { id: 2 as const, titulo: 'Justificativa de Necessidade', icon: FileText, completa: !!(demanda.observacoes?.trim()) },
-    { id: 3 as const, titulo: 'Materiais/Serviços',        icon: Package,   completa: demanda.itens.length > 0 },
-    { id: 4 as const, titulo: 'Responsáveis',              icon: Users,     completa: !!(demanda.responsavel_nome?.trim()) },
-  ]
-
-  // Itens filtrados para a tabela
-  const itensFiltrados = demanda.itens.filter(item => {
-    const filtroOk = !filtroItens || item.descricao_objeto.toLowerCase().includes(filtroItens.toLowerCase()) ||
-      (item.codigo_item_catalogo || '').toLowerCase().includes(filtroItens.toLowerCase()) ||
-      (item.nome_classe || '').toLowerCase().includes(filtroItens.toLowerCase())
-    const tipoOk = item.categoria === tabTipo
-    return filtroOk && tipoOk
-  })
-  const nMateriais = demanda.itens.filter(i => i.categoria === 'MATERIAL').length
-  const nServicos  = demanda.itens.filter(i => i.categoria === 'SERVICO').length
-
-  // Agrupamento para prévia do PCA
-  // Usa nome_classe normalizado como chave para consolidar itens de origens diferentes
-  // (CATMAT federal usa código "7060", catálogo próprio usa "1000" — mas mesmo nome de classe)
-  const gruposPCA = (() => {
-    const map = new Map<string, { nome: string; valor: number; itens: number }>()
-    for (const item of demanda.itens) {
-      const nome  = item.nome_classe || item.descricao_objeto || ''
-      const chave = nome.trim().toUpperCase() || item.codigo_classe || `sem-classe:${item.id}`
-      const atual = map.get(chave) || { nome, valor: 0, itens: 0 }
-      atual.valor += Number(item.valor_total_estimado) || 0
-      atual.itens += 1
-      map.set(chave, atual)
-    }
-    return Array.from(map.values())
-  })()
-
-  const irParaSecao = (s: 1 | 2 | 3 | 4) => setSecaoAtiva(s)
-  const secaoAnterior = () => secaoAtiva > 1 && irParaSecao((secaoAtiva - 1) as any)
-  const proximaSecao  = () => secaoAtiva < 4 && irParaSecao((secaoAtiva + 1) as any)
+  const totalDemanda = totalDaDemanda(demanda.itens)
+  const titulo = demanda.descricao_sucinta_objeto?.trim() || 'Nova demanda'
+  const podeEnviar = demanda.itens.length > 0 && !!demanda.descricao_sucinta_objeto?.trim()
+  const faltaParaEnviar = checklistDaDemanda(demanda).filter(c => c.obrigatorio && !c.ok)
+  const aprovadaOuAdiante = ['APROVADA', 'CONSOLIDADA', 'EM_CONTRATACAO', 'CONTRATADA'].includes(demanda.status)
+  const voltar = () => (window.history.length > 1 ? router.back() : router.push('/orgao/demandas'))
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
+    <div className="max-w-7xl mx-auto py-2 sm:py-4 space-y-4 min-w-0">
+      {/* Trilha */}
+      <nav aria-label="Trilha" className="flex items-center gap-1 text-sm text-gray-600 min-w-0">
+        <Link href="/orgao/demandas" className="text-blue-800 hover:underline shrink-0">Demandas</Link>
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate text-gray-800">Demanda — {demanda.unidade_requisitante}</span>
+      </nav>
 
-      {/* ══ SIDEBAR ══════════════════════════════════════════════════════════ */}
-      <aside className="w-64 bg-white border-r shadow-sm flex flex-col fixed top-0 left-0 h-full z-20">
-        {/* Cabeçalho azul */}
-        <div className="bg-blue-700 text-white p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Lock className="h-3.5 w-3.5 opacity-70" />
-            <Users className="h-3.5 w-3.5 opacity-70" />
-          </div>
-          <h2 className="font-bold text-sm leading-tight">
-            Demanda (pedido do setor)
-          </h2>
-          <div className="mt-2">
-            <span className={`text-xs font-semibold uppercase px-2 py-0.5 rounded ${
-              demanda.status === 'RASCUNHO' ? 'bg-blue-600 text-blue-100' :
-              demanda.status === 'APROVADA' ? 'bg-green-600 text-white' :
-              demanda.status === 'REJEITADA' ? 'bg-red-600 text-white' :
-              'bg-blue-500 text-white'
-            }`}>
-              {STATUS_CONFIG[demanda.status]?.label}
-            </span>
-          </div>
-        </div>
-
-        {/* Navegação de seções */}
-        <nav className="flex-1 py-4 overflow-y-auto">
-          <p className="text-xs font-semibold text-gray-400 uppercase px-4 mb-2 tracking-wide">
-            Seções do Documento
-          </p>
-          <div className="space-y-0.5 px-2">
-            {SECOES.map(s => {
-              const Icon = s.icon
-              const ativa = secaoAtiva === s.id
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => irParaSecao(s.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left ${
-                    ativa
-                      ? 'bg-blue-50 text-blue-700 font-semibold'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
-                >
-                  <span className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold shrink-0 ${
-                    ativa
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : s.completa
-                        ? 'border-green-400 bg-green-50 text-green-600'
-                        : 'border-gray-300 text-gray-400'
-                  }`}>
-                    {s.completa && !ativa ? <Check className="h-3 w-3" /> : s.id}
-                  </span>
-                  <span className="flex-1 leading-tight">{s.titulo}</span>
-                  {s.completa && !ativa && (
-                    <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </nav>
-
-        {/* Rodapé: PCA + estimativa */}
-        <div className="border-t p-4 bg-gray-50 space-y-1">
-          <p className="text-xs text-gray-500">
-            PCA <span className="font-semibold text-gray-700">{demanda.ano_referencia}</span>
-          </p>
-          <p className="text-xs text-gray-500">Estimativa preliminar desta demanda</p>
-          <p className="text-base font-bold text-blue-700">{fmt(totalDemanda)}</p>
-        </div>
-      </aside>
-
-      {/* ══ CONTEÚDO PRINCIPAL ═══════════════════════════════════════════════ */}
-      <main className="ml-64 flex-1 flex flex-col min-h-screen">
-
-        {/* Breadcrumb */}
-        <div className="bg-white border-b px-6 py-2.5 flex items-center gap-1.5 text-xs text-gray-500">
-          <button onClick={() => router.push('/orgao/demandas')}
-            className="hover:text-blue-600 flex items-center gap-1">
-            <Home className="h-3.5 w-3.5" />
-            Demandas
-          </button>
-          <ChevronRight className="h-3 w-3" />
-          <span className="text-gray-700 font-medium">
-            Demanda — {demanda.unidade_requisitante}
-          </span>
-        </div>
-
-        {/* Alerta de rejeição (o setor volta para rascunho, corrige e reenvia) */}
-        {demanda.status === 'REJEITADA' && demanda.motivo_rejeicao && (
-          <div className="mx-6 mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2 items-start">
-            <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <span className="font-medium text-red-800 text-sm">Demanda rejeitada: </span>
-              <span className="text-sm text-red-700">{demanda.motivo_rejeicao}</span>
-            </div>
-            <Button size="sm" variant="outline" className="border-red-300 text-red-700 hover:bg-red-100" onClick={voltarParaRascunho} disabled={decidindo}>
-              Voltar para rascunho e corrigir
-            </Button>
-          </div>
-        )}
-        {demanda.status === 'RASCUNHO' && demanda.motivo_rejeicao && (
-          <div className="mx-6 mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-900">
-            Corrija conforme a rejeição e envie de novo: <b>{demanda.motivo_rejeicao}</b>
-          </div>
-        )}
-        {/* Juntada num DFD consolidado: travada (a unidade de planejamento conduz) */}
-        {demanda.dfd && (
-          <div className="mx-6 mt-4 bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex gap-2 items-center text-sm text-indigo-900">
-            <Lock className="h-4 w-4 shrink-0" />
-            <span className="flex-1">
-              Esta demanda está no <b>DFD nº {demanda.dfd.numero}/{demanda.dfd.ano}</b>, montado pela unidade de planejamento
-              (Lei 14.133, art. 12, VII) — não pode mais ser alterada nem abrir processo sozinha.
-            </span>
-            <Button size="sm" variant="outline" onClick={() => router.push(`/orgao/demandas/dfd/${demanda.dfd!.id}`)}>
-              Ver DFD
-            </Button>
-          </div>
-        )}
-
-        {/* ── Header da seção: navegação + ações ───────────────────────── */}
-        <div className="bg-white border-b px-6 py-3 flex items-center justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
-              <button
-                onClick={secaoAnterior}
-                disabled={secaoAtiva === 1}
-                className="w-7 h-7 border rounded flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button
-                onClick={proximaSecao}
-                disabled={secaoAtiva === 4}
-                className="w-7 h-7 border rounded flex items-center justify-center text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-            <h1 className="font-semibold text-gray-900 text-base">
-              {secaoAtiva}. {SECOES[secaoAtiva - 1].titulo}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm"
-              onClick={() => (window.history.length > 1 ? router.back() : router.push('/orgao/demandas'))}
-              title="Volta para a tela anterior (lista, aprovações…)">
-              Voltar
-            </Button>
-            {/* Aprovador decide AQUI mesmo — sem precisar voltar à central */}
-            {podeAprovar && (demanda.status === 'ENVIADA' || demanda.status === 'EM_ANALISE') && (
+      {/* Cabeçalho: título, situação e ações */}
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0 flex-[1_1_320px]">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 break-words line-clamp-2" title={titulo}>
+            {titulo}
+          </h1>
+          <div className="mt-1.5 flex items-center gap-2 flex-wrap text-sm text-gray-700">
+            <Badge className={`${status?.cor ?? ''} hover:opacity-100`}>
+              <StatusIcon className="h-3 w-3 mr-1" aria-hidden="true" />
+              {status?.label ?? demanda.status}
+            </Badge>
+            {demanda.dfd && (
+              <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
+                DFD nº {demanda.dfd.numero}/{demanda.dfd.ano}
+              </Badge>
+            )}
+            <span>{demanda.unidade_requisitante}</span>
+            <span aria-hidden="true">·</span>
+            <span>PCA {demanda.ano_referencia}</span>
+            <span aria-hidden="true">·</span>
+            <span>criada em {formatarDataBR(demanda.created_at)}</span>
+            {podeEditar && (
               <>
-                <Button size="sm" className="bg-green-600 hover:bg-green-700"
-                  onClick={aprovarAqui} disabled={decidindo}>
-                  {decidindo ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-1.5" />}
-                  Aprovar
-                </Button>
-                <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50"
-                  onClick={rejeitarAqui} disabled={decidindo}>
-                  <XCircle className="h-4 w-4 mr-1.5" />
-                  Rejeitar
-                </Button>
+                <span aria-hidden="true">·</span>
+                <span className="text-gray-600" role="status">{salvando ? 'salvando…' : 'salvo automaticamente'}</span>
               </>
             )}
-            {podeEditar && (
-              <Button
-                size="sm"
-                onClick={enviarParaAprovacao}
-                disabled={enviando || demanda.itens.length === 0 || !demanda.descricao_sucinta_objeto?.trim()}
-                className="bg-blue-700 hover:bg-blue-800"
-              >
-                {enviando
-                  ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                  : <Send className="h-4 w-4 mr-1.5" />}
-                Enviar demanda
-              </Button>
-            )}
-            {(demanda.status === 'APROVADA' || demanda.status === 'CONSOLIDADA' || demanda.status === 'EM_CONTRATACAO' || demanda.status === 'CONTRATADA') && (
-              processoVinculado ? (
-                <Button size="sm" variant="outline" onClick={() => router.push(`/orgao/processos/${processoVinculado.id}`)}
-                  title={`Processo ${processoVinculado.numero_processo} iniciado a partir desta demanda`}>
-                  Ver processo {processoVinculado.numero_processo}
-                </Button>
-              ) : podeMontarDfd && !demanda.dfd ? (
-                <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={abrirModalIniciar}
-                  title="Unidade de planejamento: abre o processo só com esta demanda (DFD de 1 demanda). Para juntar pedidos parecidos, use o DFD consolidado.">
-                  🚀 Iniciar contratação
-                </Button>
-              ) : null
-            )}
           </div>
         </div>
-
-        {/* ── Conteúdo da seção ────────────────────────────────────────── */}
-        <div className="flex-1 p-6">
-
-          {/* ── Acompanhamento: o requisitante VÊ o pedido andando ───────── */}
-          {acomp && demanda.status !== 'RASCUNHO' && (
-            <div className="max-w-5xl mb-5 bg-white rounded-lg border shadow-sm px-5 py-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                Acompanhamento da demanda
-              </p>
-              <div className="flex items-center gap-2 flex-wrap text-sm">
-                {/* 1. Aprovação */}
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
-                  demanda.status === 'REJEITADA'
-                    ? 'bg-red-50 text-red-700 border-red-200'
-                    : acomp.demanda.data_aprovacao
-                      ? 'bg-green-50 text-green-700 border-green-200'
-                      : 'bg-amber-50 text-amber-700 border-amber-200'
-                }`}>
-                  {demanda.status === 'REJEITADA' ? '✗ Rejeitada' : acomp.demanda.data_aprovacao ? '✓ Aprovada' : '⏳ Em aprovação'}
-                  {acomp.demanda.data_aprovacao && (
-                    <span className="font-normal opacity-75">
-                      {new Date(acomp.demanda.data_aprovacao).toLocaleDateString('pt-BR')}
-                    </span>
-                  )}
-                </span>
-                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
-                {/* 1b. DFD consolidado (unidade de planejamento) */}
-                {acomp.dfd ? (
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/orgao/demandas/dfd/${acomp.dfd.id}`)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 transition-colors"
-                    title="DFD montado pela unidade de planejamento"
-                  >
-                    ✓ No DFD nº {acomp.dfd.numero}/{acomp.dfd.ano}
-                  </button>
-                ) : (
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium bg-gray-50 text-gray-500 border-gray-200">
-                    ○ DFD (planejamento)
-                  </span>
-                )}
-                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
-                {/* 2. PCA */}
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
-                  acomp.pca.consolidada ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-500 border-gray-200'
-                }`}>
-                  {acomp.pca.consolidada
-                    ? `✓ No PCA ${acomp.pca.itens[0]?.ano_exercicio || ''} (item ${acomp.pca.itens.map((i: any) => i.numero_item).join(', ')})`
-                    : '○ PCA — não consolidada'}
-                </span>
-                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
-                {/* 3. Contratação */}
-                {acomp.processo ? (
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/orgao/processos/${acomp.processo.id}`)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 transition-colors"
-                    title="Abrir o cockpit do processo"
-                  >
-                    {acomp.processo.data_homologacao ? '✓' : '⏳'} Processo {acomp.processo.numero_processo} · {String(acomp.processo.fase || '').replaceAll('_', ' ').toLowerCase()}
-                  </button>
-                ) : (
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium bg-gray-50 text-gray-500 border-gray-200">
-                    ○ Contratação não iniciada
-                  </span>
-                )}
-                <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
-                {/* 4. Contrato */}
-                {acomp.contratos.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/orgao/contratos/${acomp.contratos[0].id}`)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium bg-green-50 text-green-700 border-green-200 hover:bg-green-100 transition-colors"
-                    title="Abrir o contrato"
-                  >
-                    ✓ Contrato {acomp.contratos.map((c: any) => c.numero_contrato).join(', ')}
-                    {acomp.contratos.some((c: any) => c.assinatura_status === 'CONCLUIDO') && ' · assinado'}
-                  </button>
-                ) : (
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium bg-gray-50 text-gray-500 border-gray-200">
-                    ○ Contrato
-                  </span>
-                )}
-              </div>
-            </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" onClick={voltar} title="Volta para a tela anterior (lista, aprovações…)">
+            <ArrowLeft className="h-4 w-4 mr-2" aria-hidden="true" /> Voltar
+          </Button>
+          {/* Rejeitada: o setor volta para rascunho, corrige e reenvia */}
+          {demanda.status === 'REJEITADA' && demanda.motivo_rejeicao && (
+            <Button variant="outline" className="border-red-300 text-red-700 hover:bg-red-50" onClick={voltarParaRascunho} disabled={decidindo}>
+              <Undo2 className="h-4 w-4 mr-2" aria-hidden="true" /> Voltar para rascunho e corrigir
+            </Button>
           )}
+          {/* Aprovador decide AQUI mesmo — sem precisar voltar à central */}
+          {podeAprovar && (demanda.status === 'ENVIADA' || demanda.status === 'EM_ANALISE') && (
+            <>
+              <Button className="bg-green-600 hover:bg-green-700" onClick={aprovarAqui} disabled={decidindo}>
+                {decidindo ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" aria-hidden="true" />}
+                Aprovar
+              </Button>
+              <Button variant="outline" className="text-red-700 border-red-300 hover:bg-red-50" onClick={rejeitarAqui} disabled={decidindo}>
+                <XCircle className="h-4 w-4 mr-2" aria-hidden="true" /> Rejeitar
+              </Button>
+            </>
+          )}
+          {podeEditar && (
+            <Button
+              onClick={enviarParaAprovacao}
+              disabled={enviando || !podeEnviar}
+              title={podeEnviar ? 'Envia o pedido para aprovação' : 'Para enviar: descrição do pedido e ao menos 1 item'}
+            >
+              {enviando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" aria-hidden="true" />}
+              Enviar demanda
+            </Button>
+          )}
+          {aprovadaOuAdiante && (
+            processoVinculado ? (
+              <Button variant="outline" onClick={() => router.push(`/orgao/processos/${processoVinculado.id}`)}
+                title={`Processo ${processoVinculado.numero_processo} iniciado a partir desta demanda`}>
+                Ver processo {processoVinculado.numero_processo}
+              </Button>
+            ) : podeMontarDfd && !demanda.dfd ? (
+              <Button className="bg-green-600 hover:bg-green-700" onClick={abrirModalIniciar}
+                title="Unidade de planejamento: abre o processo só com esta demanda (DFD de 1 demanda). Para juntar pedidos parecidos, use o DFD consolidado.">
+                <Rocket className="h-4 w-4 mr-2" aria-hidden="true" /> Iniciar contratação
+              </Button>
+            ) : null
+          )}
+        </div>
+      </header>
 
-          {/* ── Seção 1: Informações Gerais ─────────────────────────────── */}
-          {secaoAtiva === 1 && (
-            <div className="max-w-3xl space-y-4">
-              <div className="bg-white rounded-xl border shadow-sm p-5">
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <label className="text-sm font-semibold text-gray-900">
-                    Descrição sucinta do objeto *
-                  </label>
-                  {salvando && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
-                </div>
+      {podeEditar && faltaParaEnviar.length > 0 && (
+        <p className="text-sm text-amber-800">
+          Para enviar, falta: {faltaParaEnviar.map(c => c.secao === 1 ? 'a descrição do pedido (seção 1)' : 'ao menos 1 item (seção 3)').join(' e ')}.
+        </p>
+      )}
+
+      {/* Avisos */}
+      {demanda.status === 'REJEITADA' && demanda.motivo_rejeicao && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 flex gap-2 items-start">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <p>
+            <span className="font-semibold">Demanda rejeitada: </span>{demanda.motivo_rejeicao}
+            <span className="block text-xs mt-0.5">Use &quot;Voltar para rascunho e corrigir&quot; acima para ajustar e enviar de novo.</span>
+          </p>
+        </div>
+      )}
+      {demanda.status === 'RASCUNHO' && demanda.motivo_rejeicao && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Corrija conforme a rejeição e envie de novo: <b>{demanda.motivo_rejeicao}</b>
+        </div>
+      )}
+      {/* Juntada num DFD consolidado: travada (a unidade de planejamento conduz) */}
+      {demanda.dfd && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 flex gap-2 items-start sm:items-center flex-wrap text-sm text-indigo-900">
+          <Lock className="h-4 w-4 shrink-0 mt-0.5 sm:mt-0" aria-hidden="true" />
+          <span className="flex-1 min-w-[200px]">
+            Esta demanda está no <b>DFD nº {demanda.dfd.numero}/{demanda.dfd.ano}</b>, montado pela unidade de planejamento
+            (Lei 14.133, art. 12, VII) — não pode mais ser alterada nem abrir processo sozinha.
+          </span>
+          <Button size="sm" variant="outline" className="bg-white" onClick={() => router.push(`/orgao/demandas/dfd/${demanda.dfd!.id}`)}>
+            Ver DFD
+          </Button>
+        </div>
+      )}
+
+      {/* Acompanhamento: o requisitante VÊ o pedido andando */}
+      {acomp && demanda.status !== 'RASCUNHO' && (
+        <AcompanhamentoDemanda acomp={acomp} rejeitada={demanda.status === 'REJEITADA'} />
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="space-y-4 min-w-0">
+          {/* 1. Informações gerais */}
+          <SecaoDemanda
+            id="secao-1"
+            numero={1}
+            titulo="Informações gerais"
+            completa={!!demanda.descricao_sucinta_objeto?.trim()}
+            descricao="Resumo do pedido em 1 a 3 frases: o que o setor precisa e para quê."
+          >
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label htmlFor="demanda-descricao" className="block text-sm font-medium text-gray-800">Descrição do pedido *</label>
                 {podeEditar ? (
                   <Textarea
+                    id="demanda-descricao"
                     value={demanda.descricao_sucinta_objeto || ''}
                     onChange={(e) => setDemanda(d => d ? { ...d, descricao_sucinta_objeto: e.target.value } : d)}
                     onBlur={(e) => salvarDadosDemanda({ descricao_sucinta_objeto: e.target.value })}
-                    placeholder="Ex: Aquisição de notebooks para atender as atividades administrativas do setor de TI."
-                    rows={4}
+                    placeholder="Ex.: Aquisição de notebooks para atender as atividades administrativas do setor de TI."
+                    rows={3}
                     className="resize-y"
                   />
                 ) : (
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                  <p id="demanda-descricao" className="text-sm text-gray-800 whitespace-pre-wrap break-words">
                     {demanda.descricao_sucinta_objeto || 'Sem descrição sucinta informada.'}
                   </p>
                 )}
-                <p className="text-xs text-gray-500 mt-2">
-                  Esse resumo aparece na consolidação das demandas e orienta a criação da contratação futura.
-                </p>
+                <p className="text-xs text-gray-600">O planejamento usa este resumo para juntar pedidos parecidos de outros setores num DFD.</p>
               </div>
-              <div className="bg-white rounded-xl border shadow-sm divide-y">
-                {[
-                  { label: 'Unidade Requisitante', valor: demanda.unidade_requisitante },
-                  { label: 'Ano de Referência (PCA)', valor: String(demanda.ano_referencia) },
-                  { label: 'Tipo da Demanda', valor: demanda.renovacao_contrato ? 'Renovação contratual' : 'Nova demanda' },
-                  {
-                    label: 'Data Desejada',
-                    valor: demanda.data_desejada_contratacao
-                      ? new Date(demanda.data_desejada_contratacao).toLocaleDateString('pt-BR')
-                      : '-'
-                  },
-                  { label: 'Status', valor: STATUS_CONFIG[demanda.status]?.label },
-                  { label: 'Data de Criação', valor: new Date(demanda.created_at).toLocaleDateString('pt-BR') },
-                ].map(row => (
-                  <div key={row.label} className="flex items-center px-5 py-3.5">
-                    <span className="text-sm text-gray-500 w-48 shrink-0">{row.label}</span>
-                    <span className="text-sm font-medium text-gray-900">{row.valor}</span>
-                  </div>
-                ))}
-              </div>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 border-t pt-4">
+                <Dado rotulo="Unidade requisitante">{demanda.unidade_requisitante}</Dado>
+                <Dado rotulo="Ano de referência (PCA)">{demanda.ano_referencia}</Dado>
+                <Dado rotulo="Tipo da demanda">{demanda.renovacao_contrato ? 'Renovação contratual' : 'Nova demanda'}</Dado>
+                <Dado rotulo="Para quando (data desejada)">{formatarDataBR(demanda.data_desejada_contratacao)}</Dado>
+              </dl>
             </div>
-          )}
+          </SecaoDemanda>
 
-          {/* ── Seção 2: Justificativa ──────────────────────────────────── */}
-          {secaoAtiva === 2 && (
-            <div className="max-w-5xl">
-              <JustificativaDemanda
-                demandaId={demanda.id}
-                justificativa={demanda.observacoes || ''}
-                podeEditar={podeEditar}
-                onSalvo={(texto) => setDemanda(d => d ? { ...d, observacoes: texto } : d)}
-                contextoObjeto={demanda.descricao_sucinta_objeto || ''}
-              />
-              <p className="mt-3 text-xs text-gray-400">
-                A justificativa fundamenta a necessidade de contratação conforme Art. 18, I — Lei 14.133/2021.
-              </p>
-            </div>
-          )}
+          {/* 2. Justificativa */}
+          <JustificativaDemanda
+            demandaId={demanda.id}
+            justificativa={demanda.observacoes || ''}
+            podeEditar={podeEditar}
+            onSalvo={(texto) => setDemanda(d => d ? { ...d, observacoes: texto } : d)}
+            contextoObjeto={demanda.descricao_sucinta_objeto || ''}
+          />
 
-          {/* ── Seção 3: Materiais/Serviços ─────────────────────────────── */}
-          {secaoAtiva === 3 && (
-            <div className="space-y-4">
+          {/* 3. Materiais e serviços */}
+          <ItensDemanda
+            itens={demanda.itens}
+            podeEditar={podeEditar}
+            onAdicionar={() => { setItemSelecionado(null); setDialogAdicionar(true) }}
+            onEditar={setItemEditando}
+            onRemover={removerItem}
+          />
 
-              {/* Barra superior: busca + adicionar */}
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1 max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    value={filtroItens}
-                    onChange={e => setFiltroItens(e.target.value)}
-                    placeholder="Pesquisar por descrição, código ou classe..."
-                    className="pl-9 h-9 text-sm"
-                  />
-                </div>
-                {podeEditar && (
-                  <Button
-                    size="sm"
-                    onClick={() => { setItemSelecionado(null); setDialogAdicionar(true) }}
-                    className="bg-blue-700 hover:bg-blue-800 whitespace-nowrap"
-                  >
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    Adicionar
-                  </Button>
-                )}
-              </div>
+          {/* 4. Responsável */}
+          <SecaoDemanda
+            id="secao-4"
+            numero={4}
+            titulo="Responsável pelo pedido"
+            completa={!!demanda.responsavel_nome?.trim()}
+            descricao="Quem responde pela demanda no setor (informado ao criar a demanda)."
+          >
+            <dl className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-3">
+              {[
+                { rotulo: 'Nome', valor: demanda.responsavel_nome },
+                { rotulo: 'E-mail', valor: demanda.responsavel_email },
+                { rotulo: 'Telefone', valor: demanda.responsavel_telefone },
+              ].map(row => (
+                <Dado key={row.rotulo} rotulo={row.rotulo}>
+                  {row.valor || <span className="font-normal text-gray-500 italic">Não informado</span>}
+                </Dado>
+              ))}
+            </dl>
+          </SecaoDemanda>
+        </div>
 
-              {/* Tabs Materiais / Serviços */}
-              <div className="flex border-b">
-                {(['MATERIAL', 'SERVICO'] as const).map(tipo => (
-                  <button
-                    key={tipo}
-                    onClick={() => setTabTipo(tipo)}
-                    className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-                      tabTipo === tipo
-                        ? 'border-blue-600 text-blue-700'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    {tipo === 'MATERIAL' ? 'Materiais' : 'Serviços'}
-                    <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
-                      tabTipo === tipo ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {tipo === 'MATERIAL' ? nMateriais : nServicos}
-                    </span>
-                  </button>
-                ))}
-              </div>
+        <aside aria-label="Resumo da demanda" className="min-w-0">
+          <ResumoDemanda demanda={demanda} total={totalDemanda} editavel={podeEditar} />
+        </aside>
+      </div>
 
-              {/* Tabela de itens */}
-              {itensFiltrados.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-gray-200">
-                  <Package className="h-10 w-10 mx-auto text-gray-300 mb-3" />
-                  <p className="font-medium text-gray-500">
-                    {demanda.itens.length === 0
-                      ? 'Nenhum item adicionado ainda'
-                      : 'Nenhum item encontrado'}
-                  </p>
-                  {demanda.itens.length === 0 && podeEditar && (
-                    <Button size="sm" variant="outline" className="mt-4"
-                      onClick={() => { setItemSelecionado(null); setDialogAdicionar(true) }}>
-                      <Plus className="h-4 w-4 mr-1.5" /> Adicionar primeiro item
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b text-xs text-gray-500 uppercase tracking-wide">
-                        <th className="px-4 py-3 text-left font-semibold w-12">Nº</th>
-                        <th className="px-4 py-3 text-left font-semibold">Classe</th>
-                        <th className="px-4 py-3 text-left font-semibold">Código</th>
-                        <th className="px-4 py-3 text-left font-semibold">Descrição</th>
-                        <th className="px-4 py-3 text-right font-semibold w-16">Qtd</th>
-                        <th className="px-4 py-3 text-right font-semibold w-28">Val. Unit.</th>
-                        <th className="px-4 py-3 text-right font-semibold w-28">Val. Total</th>
-                        {podeEditar && <th className="px-4 py-3 text-center font-semibold w-20">Ações</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {itensFiltrados.map((item, idx) => (
-                        <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 text-gray-400 text-xs">{idx + 1}</td>
-                          <td className="px-4 py-3">
-                            {item.nome_classe ? (
-                              <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
-                                {item.nome_classe}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-300">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 font-mono text-xs text-gray-400">
-                            {item.codigo_item_catalogo || '—'}
-                          </td>
-                          <td className="px-4 py-3 max-w-xs">
-                            <p className="font-medium text-gray-900 line-clamp-2 text-sm leading-snug">
-                              {item.descricao_objeto}
-                            </p>
-                            {item.trimestre_previsto && (
-                              <span className="text-xs text-gray-400">{item.trimestre_previsto}º Trimestre</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-right text-gray-700">
-                            {item.quantidade_estimada} {item.unidade_medida}
-                          </td>
-                          <td className="px-4 py-3 text-right text-gray-700">
-                            {fmt(Number(item.valor_unitario_estimado) || 0)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-semibold text-blue-700">
-                            {fmt(Number(item.valor_total_estimado) || 0)}
-                          </td>
-                          {podeEditar && (
-                            <td className="px-4 py-3">
-                              <div className="flex items-center justify-center gap-1">
-                                <button
-                                  onClick={() => removerItem(item.id)}
-                                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                                  title="Remover"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                    {/* Rodapé com total */}
-                    <tfoot>
-                      <tr className="bg-gray-50 border-t-2 border-gray-200">
-                        <td colSpan={podeEditar ? 6 : 5} className="px-4 py-3 text-sm font-semibold text-gray-700 text-right">
-                          Total da Demanda
-                        </td>
-                        <td className="px-4 py-3 text-right font-bold text-blue-700 text-base">
-                          {fmt(totalDemanda)}
-                        </td>
-                        {podeEditar && <td />}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-
-              {/* Prévia PCA */}
-              {gruposPCA.length > 0 && (
-                <div className="bg-purple-50 border border-purple-100 rounded-xl p-4">
-                  <h3 className="text-xs font-semibold text-purple-700 mb-2 flex items-center gap-1.5">
-                    <Info className="h-3.5 w-3.5" />
-                    Como será consolidado no PCA
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                    {gruposPCA.map((g, i) => (
-                      <div key={i} className="flex justify-between items-center text-xs bg-white rounded-lg p-2.5 border border-purple-100">
-                        <span className="font-medium text-gray-700 truncate flex-1 mr-2">{g.nome}</span>
-                        <span className="text-gray-400 mr-2 shrink-0">{g.itens} {g.itens === 1 ? 'item' : 'itens'}</span>
-                        <span className="font-bold text-purple-700 whitespace-nowrap">{fmt(g.valor)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-purple-500 mt-2">
-                    Cada classificação gera 1 linha no PCA — Art. 12, VII — Lei 14.133/2021
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Seção 4: Responsáveis ────────────────────────────────────── */}
-          {secaoAtiva === 4 && (
-            <div className="max-w-2xl space-y-4">
-              <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
-                <h3 className="font-semibold text-gray-800 text-sm">Dados do Responsável pela Demanda</h3>
-                <div className="grid grid-cols-1 gap-3">
-                  {[
-                    { label: 'Nome', valor: demanda.responsavel_nome },
-                    { label: 'E-mail', valor: demanda.responsavel_email },
-                    { label: 'Telefone', valor: demanda.responsavel_telefone },
-                  ].map(row => (
-                    <div key={row.label} className="flex items-center border rounded-lg px-4 py-3 bg-gray-50">
-                      <span className="text-xs text-gray-500 w-24 shrink-0">{row.label}</span>
-                      <span className="text-sm font-medium text-gray-900">
-                        {row.valor || <span className="text-gray-400 italic">Não informado</span>}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-        </div>{/* /conteudo seção */}
-      </main>{/* /main */}
-
-      {/* ══ DIALOG: Adicionar Item ═══════════════════════════════════════════ */}
+      {/* ══ Adicionar item ═══════════════════════════════════════════════════ */}
       <Dialog open={dialogAdicionar} onOpenChange={(open) => {
         setDialogAdicionar(open)
         if (!open) setItemSelecionado(null)
       }}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl max-h-[92vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <Plus className="h-4 w-4 text-blue-600" />
-              Adicionar Material ou Serviço
-            </DialogTitle>
+            <DialogTitle>Adicionar material ou serviço</DialogTitle>
+            <DialogDescription>
+              {itemSelecionado
+                ? 'Informe a classe e a quantidade. O valor é uma estimativa.'
+                : 'Procure pelo nome ou código. Não achou? Use o catálogo do órgão para cadastrar um item novo.'}
+            </DialogDescription>
           </DialogHeader>
 
           {itemSelecionado ? (
-            <FormAdicionarItem
+            <FormItemDemanda
               item={itemSelecionado}
               onConfirm={async (form) => {
                 await adicionarItem(form)
@@ -2047,29 +672,55 @@ export default function DetalheDemandaPage() {
               loading={salvando}
             />
           ) : (
-            <div className="space-y-4">
-              <PainelBusca orgaoId={orgaoId} onSelect={setItemSelecionado} />
-              <p className="text-xs text-gray-400 flex gap-1.5">
-                <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                Itens com classificação são agrupados no PCA. Itens sem classificação geram item individual.
-              </p>
-            </div>
+            <PainelBuscaItem orgaoId={orgaoId} onSelect={setItemSelecionado} />
           )}
         </DialogContent>
       </Dialog>
 
-      {/* ── Modal: Iniciar contratação a partir da demanda ─────────────────── */}
+      {/* ══ Editar item ══════════════════════════════════════════════════════ */}
+      <Dialog open={!!itemEditando} onOpenChange={(open) => { if (!open) setItemEditando(null) }}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar item</DialogTitle>
+            <DialogDescription>Ajuste a classe, a quantidade, o valor estimado, o prazo ou a prioridade.</DialogDescription>
+          </DialogHeader>
+          {itemEditando && (
+            <FormItemDemanda
+              key={itemEditando.id}
+              item={itemParaSelecionado(itemEditando)}
+              editando
+              inicial={{
+                quantidade_estimada: String(Number(itemEditando.quantidade_estimada) || 1),
+                unidade_medida: itemEditando.unidade_medida || 'UN',
+                valor_unitario_estimado: itemEditando.valor_unitario_estimado != null ? String(Number(itemEditando.valor_unitario_estimado)) : '',
+                trimestre_previsto: String(itemEditando.trimestre_previsto || 1),
+                prioridade: String(itemEditando.prioridade || 3),
+                renovacao_contrato: !!itemEditando.renovacao_contrato,
+                codigo_classe: itemEditando.codigo_classe,
+                nome_classe: itemEditando.nome_classe,
+              }}
+              onConfirm={salvarEdicaoItem}
+              onCancelar={() => setItemEditando(null)}
+              loading={salvando}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ══ Iniciar contratação a partir da demanda ══════════════════════════ */}
       <Dialog open={modalIniciar} onOpenChange={setModalIniciar}>
-        <DialogContent className="max-w-lg">
-          <h2 className="text-lg font-semibold">Iniciar contratação</h2>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-lg max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Iniciar contratação</DialogTitle>
+          </DialogHeader>
           <p className="text-sm text-gray-600 -mt-1">
             O processo nasce de um <b>DFD de 1 demanda</b> (unidade de planejamento) e vem pré-preenchido: itens,
             quantidades, valores estimados e o DFD do processo. Havendo pedidos parecidos de outros setores, prefira
             juntar tudo num <b>DFD consolidado</b> (art. 12, VII). Valor total estimado:{' '}
-            <b>{fmt((demanda?.itens ?? []).reduce((acc, item) => acc + (Number(item.valor_total_estimado) || 0), 0))}</b>.
+            <b>{fmtMoeda(totalDemanda)}</b>.
           </p>
           <div className="space-y-2">
-            <label className="text-sm font-semibold">Modalidade da contratação</label>
+            <p className="text-sm font-semibold">Modalidade da contratação</p>
             {[
               { valor: 'DISPENSA_ELETRONICA', nome: 'Dispensa Eletrônica', desc: 'Art. 75 — contratação direta com disputa; aviso publicado automaticamente no PNCP' },
               { valor: 'PREGAO_ELETRONICO', nome: 'Pregão Eletrônico', desc: 'Art. 28, I — modalidade padrão para bens e serviços comuns' },
@@ -2084,14 +735,14 @@ export default function DetalheDemandaPage() {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">{m.nome}</span>
-                  {modalidadeEscolhida === m.valor && <CheckCircle className="h-4 w-4 text-blue-600" />}
+                  {modalidadeEscolhida === m.valor && <CheckCircle className="h-4 w-4 text-blue-600" aria-hidden="true" />}
                 </div>
-                <p className="text-xs text-gray-500">{m.desc}</p>
+                <p className="text-xs text-gray-600">{m.desc}</p>
               </button>
             ))}
             {limiteDispensa != null && (
-              <p className="text-xs text-gray-400">
-                💡 Sugestão automática pelo limite vigente da dispensa ({fmt(limiteDispensa)} — art. 75, II).
+              <p className="text-xs text-gray-600">
+                Sugestão automática pelo limite vigente da dispensa ({fmtMoeda(limiteDispensa)} — art. 75, II).
                 A escolha é sua: nem toda demanda vira dispensa.
               </p>
             )}
@@ -2101,24 +752,24 @@ export default function DetalheDemandaPage() {
 
           {/* Modo co-work: o copiloto prepara o processo inteiro */}
           {modoFaseInterna !== 'FORA' && (
-          <label className="flex items-start gap-2.5 rounded-lg border border-[#c5d4eb] bg-[#f6f9fd] p-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[#1351b4]"
-              checked={prepararAutomatico}
-              onChange={(e) => setPrepararAutomatico(e.target.checked)}
-            />
-            <span className="text-xs leading-relaxed">
-              <span className="font-semibold text-[#1351b4]">🤖 Preparar tudo automaticamente (copiloto)</span>
-              <br />
-              <span className="text-gray-600">
-                O sistema pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do
-                ETP, TR e autorização — você só revisa e aprova. Nada é publicado sem a sua validação.
+            <label className="flex items-start gap-2.5 rounded-lg border border-[#c5d4eb] bg-[#f6f9fd] p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[#1351b4]"
+                checked={prepararAutomatico}
+                onChange={(e) => setPrepararAutomatico(e.target.checked)}
+              />
+              <span className="text-xs leading-relaxed">
+                <span className="font-semibold text-[#1351b4]">Preparar tudo automaticamente (copiloto)</span>
+                <br />
+                <span className="text-gray-600">
+                  O sistema pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do
+                  ETP, TR e autorização — você só revisa e aprova. Nada é publicado sem a sua validação.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
           )}
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex justify-end gap-2 pt-2 flex-wrap">
             <Button variant="outline" onClick={() => setModalIniciar(false)} disabled={iniciando}>Cancelar</Button>
             <Button onClick={iniciarContratacao} disabled={iniciando || !modalidadeEscolhida || !modoFaseInterna} className="bg-green-600 hover:bg-green-700">
               {iniciando ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
@@ -2127,7 +778,6 @@ export default function DetalheDemandaPage() {
           </div>
         </DialogContent>
       </Dialog>
-
     </div>
   )
 }
