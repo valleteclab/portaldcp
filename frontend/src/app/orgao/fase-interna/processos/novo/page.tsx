@@ -24,6 +24,7 @@ import {
 } from "@/lib/fase-interna/criacao"
 import { EscolhaModoFaseInterna } from "@/components/fase-interna/externa/EscolhaModoFaseInterna"
 import { AvisoLimiteFundamento, CampoFundamentoLegal } from "@/components/fase-interna/CampoFundamentoLegal"
+import { CampoNumeroProcesso } from "@/components/fase-interna/NumeroProcesso"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
 
 function getOrgaoId(): string {
@@ -34,14 +35,6 @@ function getOrgaoId(): string {
   } catch {
     return ""
   }
-}
-
-function gerarNumeroProcesso(): string {
-  const now = new Date()
-  const ano = now.getFullYear()
-  const mes = String(now.getMonth() + 1).padStart(2, "0")
-  const random = Math.floor(Math.random() * 99999).toString().padStart(5, "0")
-  return `${ano}${mes}.${random}`
 }
 
 /** Valor digitado nos dados básicos: "R$ 1.500,50" (digitado) ou "1500.5" (vindo do backend). */
@@ -481,7 +474,7 @@ const CRITERIOS_POR_MODALIDADE: Record<string, string[]> = Object.fromEntries(
 )
 
 // ─── Step: Dados básicos ───────────────────────────────────────────
-function StepDados({ dados, onChange, onNext }: { dados: any; onChange: (k: string, v: string) => void; onNext: () => void }) {
+function StepDados({ dados, onChange, onNext, processoNovo }: { dados: any; onChange: (k: string, v: string) => void; onNext: () => void; processoNovo?: boolean }) {
   const objetoOk = (dados.objeto || "").trim().length >= 10
   const ehLicitacaoFormal = MODALIDADES_LICITACAO.includes(dados.modalidade)
   const valido = dados.objeto && dados.categoria && dados.modalidade &&
@@ -603,6 +596,9 @@ Formato de resposta:
       )}
 
       <div className="space-y-5">
+        {/* Nº do processo administrativo: em branco, o servidor gera (sequencial do órgão/ano) */}
+        {processoNovo && <CampoNumeroProcesso value={dados.numero_processo || ""} onChange={(v) => onChange("numero_processo", v)} />}
+
         {/* Objeto */}
         <div>
           <Label className="text-xs font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
@@ -1878,7 +1874,8 @@ export default function NovoProcessoPage() {
     if (!(valorEstimado > 0) && dados.valor) valorEstimado = valorDigitado(dados.valor)
 
     const payloadLicitacao = {
-      ...(processoId ? {} : { numero_processo: gerarNumeroProcesso() }),
+      // Nº do processo administrativo: digitado (o órgão já tem um) ou, em branco, gerado pelo servidor
+      ...(!processoId && dados.numero_processo?.trim() ? { numero_processo: dados.numero_processo.trim() } : {}),
       orgao_id: orgaoId,
       objeto: dados.objeto,
       modalidade: mapearModalidade(dados.modalidade),
@@ -2077,7 +2074,7 @@ export default function NovoProcessoPage() {
   const semTexto = (o: Record<string, string>) => !Object.values(o || {}).some((v) => (v || "").trim())
 
   let content: React.ReactNode
-  if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} />
+  if (step === "dados")       content = <StepDados dados={dados} onChange={(k, v) => setDados((p) => ({ ...p, [k]: v }))} onNext={advance} processoNovo={!processoId} />
   else if (step === "itens")  content = <StepItens itens={itens} setItens={setItens} modalidade={dados.modalidade} categoria={dados.categoria} fundamento={dados.fundamento}
     onNext={salvarItensEContinuar} onBack={back} salvando={salvandoItens} rotuloAvancar={processoId ? "Salvar e continuar" : "Salvar e abrir o processo"} />
   else if (step === "dfd")    content = <StepDocumento

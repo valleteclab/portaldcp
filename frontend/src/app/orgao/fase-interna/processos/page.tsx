@@ -382,7 +382,7 @@ export default function ProcessosPage() {
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/60">
                   <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">
-                    Nº / Objeto
+                    Processo adm. nº / Objeto
                   </th>
                   <th className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide px-3 py-3">
                     Modalidade

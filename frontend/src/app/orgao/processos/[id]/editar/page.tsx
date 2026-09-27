@@ -352,7 +352,7 @@ Deseja também limpar os itens vinculados aos lotes?`,
           </Button>
           <div>
             <h1 className="text-2xl font-bold">Editar processo</h1>
-            <p className="text-muted-foreground">{dadosBasicos.numero_processo}</p>
+            <p className="text-muted-foreground">Processo administrativo nº {dadosBasicos.numero_processo}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

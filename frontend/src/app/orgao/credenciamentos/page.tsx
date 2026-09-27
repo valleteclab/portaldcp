@@ -124,8 +124,8 @@ export default function CredenciamentosOrgaoPage() {
           <CardContent className="space-y-4">
             <div className="grid md:grid-cols-3 gap-3">
               <label className="text-sm">
-                Nº do processo
-                <Input value={form.numero_processo} onChange={(e) => setForm({ ...form, numero_processo: e.target.value })} placeholder="gerado se vazio" />
+                Processo administrativo nº
+                <Input value={form.numero_processo} onChange={(e) => setForm({ ...form, numero_processo: e.target.value })} placeholder="em branco: o sistema gera" />
               </label>
               <label className="text-sm md:col-span-2">
                 Objeto
@@ -242,7 +242,7 @@ export default function CredenciamentosOrgaoPage() {
                       <Badge className={s.cor}>{s.label}</Badge>
                       {c.regra_rotulo && <Badge variant="outline">{c.regra_rotulo}</Badge>}
                       <span className="text-xs text-gray-500">
-                        Processo {c.numero_processo} · Edital {c.numero_edital || '—'}
+                        Processo administrativo nº {c.numero_processo} · Edital {c.numero_edital || '—'}
                       </span>
                     </div>
                     <div className="font-medium">{c.objeto}</div>

@@ -306,7 +306,7 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
       const [um] = await sql(`SELECT numero_processo FROM licitacoes WHERE orgao_id = $1 LIMIT 1`, [A.id]);
       const dup = await criar(agente.token, dadosPadrao({ numero_processo: um.numero_processo }), seisPdfs());
       expect(dup.status).toBe(400);
-      expect(dup.body.message).toMatch(/Já existe um processo com o número/);
+      expect(dup.body.message).toMatch(/Já existe um processo administrativo nº .* neste órgão/);
     });
   });
 

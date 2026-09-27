@@ -3,9 +3,14 @@ import { ModalidadeLicitacao, ModoDisputa, CriterioJulgamento, TipoContratacao, 
 import { BaseLance } from '../../disputa/modelo-lance';
 
 export class CreateLicitacaoDto {
+  /**
+   * Nº do PROCESSO ADMINISTRATIVO. Opcional: vazio → o sistema gera (sequencial
+   * do órgão/ano, na máscara do órgão). Digitado (o órgão já tem um, do
+   * protocolo/papel) → único no órgão (409 se repetido).
+   */
   @IsString()
-  @IsNotEmpty({ message: 'O número do processo é obrigatório' })
-  numero_processo: string;
+  @IsOptional()
+  numero_processo?: string;
 
   @IsString()
   @IsOptional()

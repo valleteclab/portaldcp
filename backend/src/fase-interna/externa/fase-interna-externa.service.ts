@@ -281,8 +281,12 @@ export class FaseInternaExternaService {
       ]) {
         if (motivo) erros.push({ passo: 'DADOS', mensagem: motivo });
       }
-      const [dup] = await this.ds.query(`SELECT 1 FROM licitacoes WHERE numero_processo = $1 LIMIT 1`, [dados.numero_processo]);
-      if (dup) erros.push({ passo: 'DADOS', mensagem: `Já existe um processo com o número ${dados.numero_processo}.` });
+      // Nº do processo administrativo: único NO ÓRGÃO (outro órgão pode ter o mesmo número)
+      const [dup] = await this.ds.query(`SELECT 1 FROM licitacoes WHERE numero_processo = $1 AND orgao_id::text = $2 LIMIT 1`, [
+        dados.numero_processo.replace(/\s+/g, ' ').trim(),
+        orgaoId,
+      ]);
+      if (dup) erros.push({ passo: 'DADOS', mensagem: `Já existe um processo administrativo nº ${dados.numero_processo} neste órgão.` });
     }
     // Item do PCA: só do próprio órgão
     const pcas = it.itens.map((i) => i.item_pca_id).filter((x): x is string => !!x);

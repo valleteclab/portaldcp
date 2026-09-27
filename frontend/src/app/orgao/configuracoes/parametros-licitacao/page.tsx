@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { API_URL, authFetch, formatarDataBR } from "@/lib/api";
 import { FormalizacaoResultadoConfig } from "@/components/resultado/FormalizacaoResultadoConfig";
+import { NumeracaoProcessoConfig } from "@/components/fase-interna/NumeroProcesso";
 import { confirmarAcao } from "@/components/DialogoGlobal"
 
 interface Parametros {
@@ -265,6 +266,9 @@ export default function ParametrosLicitacaoPage() {
         </div>
       ) : (
         <>
+          {/* Nº do processo administrativo: formato do gerador do órgão (salva à parte) */}
+          <NumeracaoProcessoConfig />
+
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
