@@ -122,6 +122,9 @@ describe('F3a — integração da tramitação com as tarefas', () => {
       expect(await avisosTramitacao(lic)).toEqual([]);
       const com = (await http().get(`/api/fase-interna/${lic.id}/tramitacao/com-quem-esta`).set(bearer(agente.token)).expect(200)).body;
       expect(com).toMatchObject({ status: 'RECEBIDA', usuario: { id: agente.id }, posse_inicial: true });
+      // "desde" no mesmo relógio das demais datas (coluna sem fuso): nunca no futuro
+      expect(new Date(com.desde).getTime()).toBeLessThanOrEqual(Date.now());
+      expect(Date.now() - new Date(com.desde).getTime()).toBeLessThan(10 * 60_000);
     });
 
     it('etapas do condutor concluídas → envio automático à Contabilidade (despacho padrão, folha, prazo do modelo, aviso)', async () => {

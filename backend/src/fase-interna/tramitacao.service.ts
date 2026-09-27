@@ -375,6 +375,8 @@ export class TramitacaoService {
           para_usuario_nome: (destino.usuario?.nome ?? undefined) as any,
           despacho: despachoDeAutuacao(destino.nome, o.finalidade),
           finalidade: 'autuação',
+          // mesmo relógio das demais datas da tramitação (coluna sem fuso — ver executarEnvio)
+          data_envio: new Date(),
           // Já está com quem conduz: não fica "aguardando recebimento"
           status: StatusTramitacao.RECEBIDA,
           automatico: true,
