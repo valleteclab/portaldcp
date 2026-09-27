@@ -156,6 +156,9 @@ describe('destino da tarefa (Entregas 3 e 4)', () => {
     expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'PESQUISA' })).toBe('/orgao/processos/L/fase-interna/pesquisa');
     expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'PUBLICACAO' })).toBe('/orgao/processos/L/fase-interna/conformidade');
     expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'MINUTAS', origem: 'ACHADO', origem_id: 'a1' })).toBe('/orgao/processos/L/fase-interna/conformidade#achado-a1');
+    // "Aprovar a demanda" → Central de Aprovações; "Enviar o processo" → tela do processo
+    expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'DFD', origem: 'APROVACAO' })).toBe('/orgao/aprovacoes?tab=demandas&processo=L');
+    expect(destinoDaTarefa({ licitacao_id: 'L', passo: 'RESERVA', origem: 'TRAMITACAO' })).toBe('/orgao/processos/L');
   });
 });
 

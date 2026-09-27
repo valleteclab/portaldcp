@@ -126,6 +126,8 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
     C1 = await criarOrgao(ctx, { nome: 'Câmara Externa C (limite)' });
     F = await criarFornecedor(ctx);
     agente = await criarUsuarioOrgao(ctx, A, { role: RoleUsuario.PREGOEIRO, nome: 'Ana Agente' });
+    // DFD consolidado: abrir processo a partir de demanda é da unidade de planejamento (papel PLANEJAMENTO)
+    await sql(`UPDATE usuarios SET papeis_fase_interna = COALESCE(papeis_fase_interna, '[]'::jsonb) || '["PLANEJAMENTO"]'::jsonb WHERE id = $1`, [agente.id]);
     agenteC = await criarUsuarioOrgao(ctx, C1, { role: RoleUsuario.PREGOEIRO, nome: 'Caio Agente' });
   });
 
@@ -435,6 +437,21 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
       const r3 = await criar(agente.token, dadosPadrao({ demanda_id: demB.id }), seisPdfs());
       expect(r3.status).toBe(400);
       expect(r3.body.message).toMatch(/Demanda não encontrada/);
+    });
+
+    it('só a unidade de planejamento abre o processo a partir da demanda (sem o papel → 403, nada criado)', async () => {
+      const [dem] = await sql(
+        `INSERT INTO demandas (id, orgao_id, ano_referencia, unidade_requisitante, status, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, 2026, 'Secretaria sem planejamento', 'APROVADA', now(), now()) RETURNING id`,
+        [A.id],
+      );
+      const semPapel = await criarUsuarioOrgao(ctx, A, { role: RoleUsuario.PREGOEIRO, nome: 'Beto Sem Papel' });
+      const dados = dadosPadrao({ demanda_id: dem.id });
+      const r = await criar(semPapel.token, dados, seisPdfs());
+      expect(r.status).toBe(403);
+      expect(await processosComNumero(dados.numero_processo)).toHaveLength(0);
+      const [d] = await sql(`SELECT status::text AS s FROM demandas WHERE id = $1`, [dem.id]);
+      expect(d.s).toBe('APROVADA');
     });
   });
 

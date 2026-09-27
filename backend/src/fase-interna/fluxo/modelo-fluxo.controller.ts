@@ -10,6 +10,7 @@ import { ROTULO_PAPEL } from './codigos';
 import { FluxoProcessoService } from './fluxo-processo.service';
 import { ModeloFluxo, ROTULO_TIPO_PROCESSO, TIPOS_PROCESSO_FLUXO, TipoProcessoFluxo, niveisDoGrafo, requisitoSeAplica, tipoProcessoValido } from './modelo-fluxo';
 import { ModeloFluxoService } from './modelo-fluxo.service';
+import { PlanejamentoFluxoService } from './planejamento-fluxo.service';
 import { ATOS_PROTEGIDOS, ROTULO_ATO } from './travas';
 
 /** Administração do órgão: login do órgão, usuário com papel ADMIN ou admin da plataforma. */
@@ -48,6 +49,7 @@ export class ModeloFluxoController {
   constructor(
     private readonly modelos: ModeloFluxoService,
     private readonly tarefas: TarefasService,
+    private readonly planejamento: PlanejamentoFluxoService,
   ) {}
 
   private async tela(orgaoId: string | null, tipo: TipoProcessoFluxo, modelo?: ModeloFluxo, validacao?: any) {
@@ -120,6 +122,28 @@ export class ModeloFluxoController {
     await this.modelos.restaurarPadrao(o, t, await this.tarefas.autor(ator));
     await this.tarefas.sincronizarOrgao(o);
     return this.tela(o, t);
+  }
+
+  // --- Planejamento (antes do processo): demanda → DFD consolidado → processo ---
+
+  /** Quem aprova a demanda, quem monta o DFD (unidade de planejamento) e a 2ª aprovação do DFD. */
+  @Get('planejamento')
+  planejamentoDoOrgao(@AtorAtual() ator: Ator, @Query('orgao_id') orgaoId?: string, @Query('sistema') sistema?: string) {
+    return this.planejamento.tela(alvo(ator, orgaoId, sistema));
+  }
+
+  @Put('planejamento')
+  async salvarPlanejamento(@Body() body: any, @AtorAtual() ator: Ator, @Query('orgao_id') orgaoId?: string, @Query('sistema') sistema?: string) {
+    exigirAdminDoOrgao(ator);
+    return this.planejamento.salvar(alvo(ator, orgaoId, sistema), body ?? {}, await this.tarefas.autor(ator));
+  }
+
+  @Post('planejamento/restaurar')
+  async restaurarPlanejamento(@AtorAtual() ator: Ator, @Query('orgao_id') orgaoId?: string) {
+    exigirAdminDoOrgao(ator);
+    const o = alvo(ator, orgaoId);
+    if (!o) throw new BadRequestException('Informe o órgão');
+    return this.planejamento.restaurar(o);
   }
 
   // --- Requisitos mínimos da lei (leitura: órgão; escrita: admin da plataforma) ---

@@ -50,6 +50,8 @@ export enum PapelFaseInterna {
   CONTROLE_INTERNO = 'CONTROLE_INTERNO',
   AUTORIDADE = 'AUTORIDADE',
   AGENTE_CONTRATACAO = 'AGENTE_CONTRATACAO',
+  /** Unidade de planejamento: junta as demandas dos setores no DFD consolidado e abre o processo (art. 12, VII). */
+  PLANEJAMENTO = 'PLANEJAMENTO',
 }
 
 export const ROTULO_PAPEL: Record<PapelFaseInterna, string> = {
@@ -60,6 +62,7 @@ export const ROTULO_PAPEL: Record<PapelFaseInterna, string> = {
   [PapelFaseInterna.CONTROLE_INTERNO]: 'Controle interno',
   [PapelFaseInterna.AUTORIDADE]: 'Autoridade',
   [PapelFaseInterna.AGENTE_CONTRATACAO]: 'Agente de contratação',
+  [PapelFaseInterna.PLANEJAMENTO]: 'Planejamento (monta o DFD)',
 };
 
 export const PAPEIS_FASE_INTERNA = Object.values(PapelFaseInterna) as string[];

@@ -71,7 +71,7 @@ export class LicitacoesController {
     @AtorAtual() ator: Ator,
   ): Promise<Licitacao> {
     return licitacaoParaOrgao(
-      await this.licitacoesService.criarAPartirDeDemanda(dto, ator.admin ? null : ator.orgaoId, atorTransicaoDe(ator)),
+      await this.licitacoesService.criarAPartirDeDemanda(dto, ator.admin ? null : ator.orgaoId, atorTransicaoDe(ator), ator),
     );
   }
 

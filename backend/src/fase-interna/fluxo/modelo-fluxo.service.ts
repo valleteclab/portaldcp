@@ -689,12 +689,25 @@ export class ModeloFluxoService {
   ): Promise<string | null> {
     const ap = ctx.modelo.aprovacao_demanda;
     if (!ap.exigida || ctx.fluxo.demanda_aprovada || (ctx.fluxo.reabertas ?? {})[ap.etapa]) return null;
-    const [dem] = await this.ds.query(
-      `SELECT d.status::text AS status FROM licitacoes l JOIN demandas d ON d.id = l.demanda_id WHERE l.id::text = $1`,
-      [ctx.licitacao_id],
-    ).catch(() => []);
-    if (dem && DEMANDA_APROVADA.includes(dem.status)) {
-      return (await this.registrarAprovacao(ctx.fluxo.id, { origem: 'DEMANDA', por_id: null, por_nome: 'Módulo de demandas (demanda aprovada)' })) ? 'DEMANDA' : null;
+    // Demandas de origem: o vínculo antigo (1 demanda) e as do DFD consolidado (N demandas)
+    const dems: Array<{ status: string }> = await this.ds
+      .query(
+        `SELECT d.id, d.status::text AS status FROM licitacoes l JOIN demandas d ON d.id = l.demanda_id WHERE l.id::text = $1
+         UNION
+         SELECT d.id, d.status::text FROM dfds_consolidados f JOIN dfds_consolidados_demandas fd ON fd.dfd_id = f.id JOIN demandas d ON d.id = fd.demanda_id
+          WHERE f.licitacao_id::text = $1`,
+        [ctx.licitacao_id],
+      )
+      .catch(() => []);
+    const [dfd] = await this.ds
+      .query(`SELECT numero, ano, exige_aprovacao, aprovacao FROM dfds_consolidados WHERE licitacao_id::text = $1 LIMIT 1`, [ctx.licitacao_id])
+      .catch(() => []);
+    const dfdOk = !dfd || !dfd.exige_aprovacao || !!dfd.aprovacao;
+    if (dems.length && dems.every((d) => DEMANDA_APROVADA.includes(d.status)) && dfdOk) {
+      const porNome = dfd
+        ? `DFD consolidado nº ${dfd.numero}/${dfd.ano} (${dems.length} demanda(s) aprovada(s)${dfd.exige_aprovacao ? `; DFD aprovado por ${dfd.aprovacao?.por_nome ?? 'o aprovador'}` : ''})`
+        : 'Módulo de demandas (demanda aprovada)';
+      return (await this.registrarAprovacao(ctx.fluxo.id, { origem: 'DEMANDA', por_id: null, por_nome: porNome })) ? 'DEMANDA' : null;
     }
     const etapa = ctx.modelo.etapas.find((e) => e.codigo === ap.etapa);
     const tipos = etapa?.tipos_peca ?? [];

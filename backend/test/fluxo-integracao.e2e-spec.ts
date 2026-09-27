@@ -271,16 +271,20 @@ describe('F3a — integração da tramitação com as tarefas', () => {
       return lic;
     };
 
-    it('DFD pronta aguardando: tarefa "Aprovar a demanda" para quem pode aprovar, com aviso (e-mail/WhatsApp) e link do processo; conclui na aprovação', async () => {
+    it('DFD pronta aguardando: tarefa "Aprovar a demanda" para quem pode aprovar, com aviso (e-mail/WhatsApp) e link da Central de Aprovações; conclui na aprovação', async () => {
       const lic = await demandaFeitaPorRita();
       const aprovar = (await tarefasDe(lic)).find((t: any) => t.origem === 'APROVACAO' && t.status === 'ABERTA');
       expect(aprovar).toMatchObject({ chave: `demanda:aprovar:${paula.id}`, titulo: 'Aprovar a demanda', responsavel_usuario_id: paula.id, passo: 'DFD' });
       const avisos = await avisosDaTarefa(aprovar.id);
       expect(avisos.map((a: any) => a.usuario_id)).toEqual([paula.id]);
-      expect(avisos[0].link).toBe(`/orgao/processos/${lic.id}`);
-      expect(avisos[0].metadata.whatsapp_url).toBe(`http://localhost:3000/orgao/processos/${lic.id}`);
+      // o link leva à Central de Aprovações (todas as aprovações num lugar só)
+      expect(avisos[0].link).toBe(`/orgao/aprovacoes?tab=demandas&processo=${lic.id}`);
+      expect(avisos[0].metadata.whatsapp_url).toBe(`http://localhost:3000/orgao/aprovacoes?tab=demandas&processo=${lic.id}`);
       const caixa = (await http().get('/api/tarefas?aba=para-mim').set(bearer(paula.token)).expect(200)).body;
-      expect(caixa.tarefas.find((t: any) => t.id === aprovar.id)?.destino).toBe(`/orgao/processos/${lic.id}`);
+      expect(caixa.tarefas.find((t: any) => t.id === aprovar.id)?.destino).toBe(`/orgao/aprovacoes?tab=demandas&processo=${lic.id}`);
+      // e aparece na Central para quem aprova (só para ela)
+      const central = (await http().get('/api/dfds-consolidados/central').set(bearer(paula.token)).expect(200)).body;
+      expect(central.processos.map((p: any) => p.licitacao_id)).toContain(lic.id);
 
       await http().post(`/api/fase-interna/${lic.id}/demanda/aprovar`).set(bearer(paula.token)).send({ observacao: 'Aprovada.' }).expect(201);
       const depois = (await tarefasDe(lic)).find((t: any) => t.id === aprovar.id);

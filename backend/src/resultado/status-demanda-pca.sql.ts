@@ -25,14 +25,23 @@ export interface ExecutorSqlResultado {
 
 const afetadas = (r: any): number => Number(Array.isArray(r) ? (r[1] ?? 0) : (r?.affected ?? 0)) || 0;
 
+/**
+ * Demandas do processo: o vínculo antigo (`licitacoes.demanda_id`, 1 demanda)
+ * e as do DFD consolidado (`dfds_consolidados.licitacao_id` →
+ * `dfds_consolidados_demandas`, N demandas → 1 processo).
+ */
+const DEMANDAS_DO_PROCESSO = `
+  SELECT l.demanda_id FROM licitacoes l WHERE l.id::text = $1 AND l.demanda_id IS NOT NULL
+  UNION
+  SELECT fd.demanda_id FROM dfds_consolidados f JOIN dfds_consolidados_demandas fd ON fd.dfd_id = f.id WHERE f.licitacao_id::text = $1`;
+
 export async function marcarContratacaoIniciada(
   db: ExecutorSqlResultado,
   licitacaoId: string,
 ): Promise<{ demanda: number; itemPca: number }> {
   const demanda = await db.query(
     `UPDATE demandas d SET status = 'EM_CONTRATACAO', updated_at = now()
-       FROM licitacoes l
-      WHERE l.id = $1 AND l.demanda_id::text = d.id::text AND d.status::text IN ('APROVADA','CONSOLIDADA')`,
+      WHERE d.id IN (${DEMANDAS_DO_PROCESSO}) AND d.status::text IN ('APROVADA','CONSOLIDADA')`,
     [licitacaoId],
   );
   const itemPca = await db.query(
@@ -50,8 +59,7 @@ export async function marcarContratado(
 ): Promise<{ demanda: number; itemPca: number }> {
   const demanda = await db.query(
     `UPDATE demandas d SET status = 'CONTRATADA', updated_at = now()
-       FROM licitacoes l
-      WHERE l.id = $1 AND l.demanda_id::text = d.id::text
+      WHERE d.id IN (${DEMANDAS_DO_PROCESSO})
         AND d.status::text IN ('APROVADA','CONSOLIDADA','EM_CONTRATACAO')`,
     [licitacaoId],
   );
