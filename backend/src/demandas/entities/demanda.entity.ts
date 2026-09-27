@@ -16,12 +16,26 @@ export enum StatusDemanda {
   CONTRATADA = 'CONTRATADA',
 }
 
-/** Demanda que já originou processo: não se edita, não se exclui, não volta a rascunho. */
+/**
+ * Demanda que já originou processo: não se edita, não se exclui, não volta a
+ * rascunho. A demanda juntada num DFD consolidado (ligação em
+ * `dfds_consolidados_demandas`) também fica travada — ver `demandaTravada`.
+ * Com o DFD consolidado, UM processo pode ter N demandas: a atualização
+ * automática (resultado/status-demanda-pca.sql.ts) segue a ligação.
+ */
 export const STATUS_DEMANDA_EM_PROCESSO: ReadonlyArray<StatusDemanda> = [
   StatusDemanda.CONSOLIDADA,
   StatusDemanda.EM_CONTRATACAO,
   StatusDemanda.CONTRATADA,
 ];
+
+/** Demandas que podem entrar num DFD consolidado (aprovadas; CONSOLIDADA = já no PCA). */
+export const STATUS_DEMANDA_PARA_DFD: ReadonlyArray<StatusDemanda> = [StatusDemanda.APROVADA, StatusDemanda.CONSOLIDADA];
+
+/** Travada: já em processo (status) ou juntada num DFD consolidado ativo. */
+export function demandaTravada(status: StatusDemanda | string, noDfd: boolean): boolean {
+  return noDfd || STATUS_DEMANDA_EM_PROCESSO.includes(status as StatusDemanda);
+}
 
 /**
  * Demanda de Contratação
@@ -40,6 +54,17 @@ export class Demanda {
 
   @Column()
   unidade_requisitante: string; // Setor/Área que está solicitando
+
+  /** Setor do órgão (quando o nome confere com um setor cadastrado ou vem do usuário) — a peça DFD usa o id. */
+  @Column({ type: 'uuid', nullable: true })
+  setor_id: string | null;
+
+  /** Quem criou a demanda (usuário do token; login do órgão = id do órgão) — recebe os avisos do ciclo. */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  criado_por_id: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  criado_por_nome: string | null;
 
   @Column({ nullable: true })
   responsavel_nome: string;
@@ -73,6 +98,10 @@ export class Demanda {
 
   @Column({ type: 'varchar', nullable: true })
   aprovado_por: string;
+
+  /** Quem aprovou (sempre do token). */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  aprovado_por_id: string | null;
 
   @Column({ type: 'text', nullable: true })
   motivo_rejeicao: string;

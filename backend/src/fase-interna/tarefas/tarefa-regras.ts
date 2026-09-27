@@ -28,8 +28,10 @@ export { TELA_DO_PASSO };
  */
 export function destinoDaTarefa(t: { licitacao_id: string; passo?: string | null; tipo_peca?: string | null; origem?: string | null; origem_id?: string | null }): string {
   if (t.tipo_peca === 'PJE') return `/orgao/processos/${t.licitacao_id}/fase-interna/parecer?fase=EXTERNA`;
-  // F3: "Aprovar a demanda" e "Enviar o processo" → a tela do processo (topo "Está com…")
-  if (t.origem === 'APROVACAO' || t.origem === 'TRAMITACAO') return `/orgao/processos/${t.licitacao_id}`;
+  // "Aprovar a demanda" → a Central de Aprovações (todas as aprovações num lugar só)
+  if (t.origem === 'APROVACAO') return `/orgao/aprovacoes?tab=demandas&processo=${t.licitacao_id}`;
+  // F3: "Enviar o processo" → a tela do processo (topo "Está com…")
+  if (t.origem === 'TRAMITACAO') return `/orgao/processos/${t.licitacao_id}`;
   // Entrega 4: tarefa de achado da conformidade → a tela da conformidade, no achado
   if (t.origem === 'ACHADO') return `/orgao/processos/${t.licitacao_id}/fase-interna/conformidade${t.origem_id ? `#achado-${t.origem_id}` : ''}`;
   const tela = t.passo ? TELA_DO_PASSO[t.passo] : undefined;

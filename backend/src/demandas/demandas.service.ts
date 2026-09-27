@@ -1,11 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda, STATUS_DEMANDA_EM_PROCESSO } from './entities/demanda.entity';
+import { ContratacaoFutura, Demanda, ItemDemanda, StatusContratacaoFutura, StatusDemanda, STATUS_DEMANDA_EM_PROCESSO, demandaTravada } from './entities/demanda.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import type { Ator } from '../auth/acesso/ator';
+import { PlanejamentoFluxoService } from '../fase-interna/fluxo/planejamento-fluxo.service';
+import { rotuloRegra } from '../fase-interna/fluxo/planejamento-fluxo';
+import { DfdConsolidadoService } from './dfd/dfd-consolidado.service';
 
 @Injectable()
 export class DemandasService {
@@ -21,6 +25,10 @@ export class DemandasService {
     @InjectDataSource()
     private dataSource: DataSource,
     private notificacoesService: NotificacoesService,
+    // Planejamento no modelo de fluxo: quem aprova a demanda (padrão: "pode aprovar demandas")
+    private planejamento: PlanejamentoFluxoService,
+    // DFD consolidado: a demanda juntada num DFD fica travada
+    private dfds: DfdConsolidadoService,
   ) {}
 
   // ==================== DONO (checagem de órgão no controller) ====================
@@ -59,6 +67,24 @@ export class DemandasService {
     return r?.orgao_id ?? null;
   }
 
+  /**
+   * Aprova/rejeita a demanda? Pela regra do modelo de fluxo (Configurações ›
+   * Fluxo — padrão: "pode aprovar demandas"); o login do órgão e o admin da
+   * plataforma sempre. Sempre pelo token.
+   */
+  async exigirAprovador(ator: Ator, orgaoId: string): Promise<void> {
+    if (await this.planejamento.podeAprovarDemanda(ator, orgaoId)) return;
+    const p = await this.planejamento.vigente(orgaoId);
+    throw new ForbiddenException(`Você não tem permissão para aprovar demandas (quem aprova: ${rotuloRegra(p.aprovador_demanda, 'APROVAR')}).`);
+  }
+
+  /** Nome (e id) de quem age, do token: usuário do órgão, login do órgão ou admin da plataforma. */
+  private async quem(ator: Ator | null | undefined): Promise<{ id: string | null; nome: string | null }> {
+    if (!ator) return { id: null, nome: null };
+    const a = await this.dfds.autor(ator);
+    return { id: a.id, nome: a.nome };
+  }
+
   /** Permissão de aprovar/rejeitar demandas (login de usuário do órgão). */
   async usuarioPodeAprovarDemandas(usuarioId: string): Promise<boolean> {
     const [u] = await this.dataSource
@@ -75,16 +101,25 @@ export class DemandasService {
     mensagem: string,
   ): Promise<void> {
     try {
+      const link = `/orgao/demandas/${demanda.id}`;
+      const [u] =
+        demanda.criado_por_id && ehUuid(demanda.criado_por_id)
+          ? await this.dataSource.query(`SELECT id::text AS id, email, telefone FROM usuarios WHERE id::text = $1 AND ativo = true`, [demanda.criado_por_id])
+          : [];
       await this.notificacoesService.criar({
         orgao_id: demanda.orgao_id,
-        usuario_id: demanda.orgao_id, // sino do órgão lista por orgao_id
-        usuario_email: demanda.responsavel_email || undefined,
+        // quem pediu (usuário) recebe no sino, e-mail e WhatsApp; senão o sino do órgão
+        usuario_id: u?.id ?? demanda.orgao_id,
+        usuario_email: u?.email || demanda.responsavel_email || undefined,
+        usuario_telefone: u?.telefone || undefined,
         tipo,
         titulo,
         mensagem,
         entidade_tipo: 'DEMANDA',
         entidade_id: demanda.id,
-        link: `/orgao/demandas/${demanda.id}`,
+        link,
+        metadata: { whatsapp_url: `${process.env.APP_URL || 'https://portaldcp.com.br'}${link}` },
+        enviar_email: !!u,
       } as any);
     } catch (e: any) {
       this.logger.warn(`Notificação da demanda não enviada: ${e.message}`);
@@ -117,7 +152,27 @@ export class DemandasService {
 
     query.orderBy('d.created_at', 'DESC');
 
-    return query.getMany();
+    const lista = await query.getMany();
+    return this.comDfd(lista);
+  }
+
+  /** Acrescenta `dfd` (DFD consolidado em que a demanda está) — a lista e a tela mostram "No DFD nº X". */
+  private async comDfd<T extends Demanda | Demanda[]>(alvo: T): Promise<T> {
+    const lista = Array.isArray(alvo) ? alvo : [alvo];
+    const mapa = await this.dfds.dfdsDasDemandas(lista.map((d) => d.id)).catch(() => new Map());
+    for (const d of lista) (d as any).dfd = mapa.get(d.id) ?? null;
+    return alvo;
+  }
+
+  /** A demanda está num DFD consolidado? (travada) */
+  private async noDfd(id: string): Promise<{ numero: number; ano: number } | null> {
+    return this.dfds.dfdDaDemanda(id);
+  }
+
+  private async exigirDestravada(demanda: Demanda, acao: string): Promise<void> {
+    const dfd = await this.noDfd(demanda.id);
+    if (dfd) throw new BadRequestException(`A demanda está no DFD nº ${dfd.numero}/${dfd.ano} (consolidado pela unidade de planejamento) e não pode ser ${acao}.`);
+    if (demandaTravada(demanda.status, false)) throw new BadRequestException(`Demanda já consolidada ou em contratação não pode ser ${acao}`);
   }
 
   async findOne(id: string): Promise<Demanda> {
@@ -130,7 +185,7 @@ export class DemandasService {
       throw new NotFoundException('Demanda não encontrada');
     }
 
-    return demanda;
+    return this.comDfd(demanda);
   }
 
   async create(dados: {
@@ -144,8 +199,27 @@ export class DemandasService {
     descricao_sucinta_objeto?: string;
     data_desejada_contratacao?: Date | string;
     renovacao_contrato?: boolean;
-  }): Promise<Demanda> {
+    setor_id?: string | null;
+  }, ator?: Ator | null): Promise<Demanda> {
+    // Quem pede (do token) e o setor: o informado (do órgão), o de mesmo nome ou o do usuário
+    const autor = await this.quem(ator);
+    let setorId: string | null = null;
+    if (dados.setor_id && ehUuid(dados.setor_id)) {
+      const [s] = await this.dataSource.query(`SELECT id::text AS id FROM setores WHERE id::text = $1 AND orgao_id::text = $2`, [dados.setor_id, dados.orgaoId]);
+      if (!s) throw new BadRequestException('Setor não encontrado no órgão.');
+      setorId = s.id;
+    } else if (dados.unidade_requisitante) {
+      const [s] = await this.dataSource.query(`SELECT id::text AS id FROM setores WHERE orgao_id::text = $1 AND lower(trim(nome)) = lower(trim($2)) LIMIT 1`, [dados.orgaoId, dados.unidade_requisitante]);
+      setorId = s?.id ?? null;
+    }
+    if (!setorId && ator?.tipo === 'USUARIO' && ator.usuarioId) {
+      const [u] = await this.dataSource.query(`SELECT setor_id::text AS setor_id FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2`, [ator.usuarioId, dados.orgaoId]);
+      setorId = u?.setor_id ?? null;
+    }
     const demanda = this.demandaRepository.create({
+      setor_id: setorId,
+      criado_por_id: autor.id,
+      criado_por_nome: autor.nome,
       orgao_id: dados.orgaoId,
       ano_referencia: dados.ano_referencia,
       unidade_requisitante: dados.unidade_requisitante,
@@ -169,22 +243,21 @@ export class DemandasService {
   async update(id: string, dados: Partial<Demanda>): Promise<Demanda> {
     const demanda = await this.findOne(id);
 
-    // Não permite editar demandas já consolidadas / em contratação / contratadas
-    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
-      throw new BadRequestException('Demanda já consolidada ou em contratação não pode ser editada');
-    }
+    // Não permite editar demandas já consolidadas / em contratação / contratadas / num DFD
+    await this.exigirDestravada(demanda, 'editada');
 
     Object.assign(demanda, dados);
-    return this.demandaRepository.save(demanda);
+    delete (demanda as any).dfd;
+    const salva = await this.demandaRepository.save(demanda);
+    return this.comDfd(salva);
   }
 
   async delete(id: string): Promise<void> {
     const demanda = await this.findOne(id);
 
-    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
-      throw new BadRequestException('Demanda já consolidada ou em contratação não pode ser excluída');
-    }
+    await this.exigirDestravada(demanda, 'excluída');
 
+    delete (demanda as any).dfd;
     await this.demandaRepository.remove(demanda);
   }
 
@@ -208,7 +281,25 @@ export class DemandasService {
     demanda.status = StatusDemanda.ENVIADA;
     demanda.data_envio = new Date();
 
-    return this.demandaRepository.save(demanda);
+    delete (demanda as any).dfd;
+    const salva = await this.demandaRepository.save(demanda);
+    // Aviso a quem aprova (Central de Aprovações) — sino, e-mail e WhatsApp
+    try {
+      const p = await this.planejamento.vigente(salva.orgao_id);
+      const total = (salva.itens || []).reduce((t, i) => t + (Number(i.valor_total_estimado) || 0), 0);
+      await this.dfds.avisar(
+        salva.orgao_id,
+        await this.planejamento.destinatarios(salva.orgao_id, p.aprovador_demanda, 'APROVAR'),
+        `Demanda de ${salva.unidade_requisitante} aguarda aprovação`,
+        `${salva.descricao_sucinta_objeto || 'Demanda'} — ${(salva.itens || []).length} item(ns), ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Acesse a Central de Aprovações.`,
+        '/orgao/aprovacoes?tab=demandas',
+        salva.id,
+        'DEMANDA',
+      );
+    } catch (e: any) {
+      this.logger.warn(`Aviso de demanda enviada não saiu: ${e?.message ?? e}`);
+    }
+    return salva;
   }
 
   async iniciarAnalise(id: string): Promise<Demanda> {
@@ -222,18 +313,23 @@ export class DemandasService {
     return this.demandaRepository.save(demanda);
   }
 
-  async aprovar(id: string, aprovadoPor: string): Promise<Demanda> {
+  /** Aprova — quem aprovou vem do TOKEN (o `aprovadoPor` do corpo é ignorado). */
+  async aprovar(id: string, ator: Ator): Promise<Demanda> {
     const demanda = await this.findOne(id);
 
     if (demanda.status !== StatusDemanda.EM_ANALISE && demanda.status !== StatusDemanda.ENVIADA) {
       throw new BadRequestException('Demanda não está em análise');
     }
+    const autor = await this.quem(ator);
+    const aprovadoPor = autor.nome || 'Aprovador';
 
     demanda.status = StatusDemanda.APROVADA;
     demanda.data_aprovacao = new Date();
     demanda.aprovado_por = aprovadoPor;
+    demanda.aprovado_por_id = autor.id;
     demanda.motivo_rejeicao = undefined as any;
 
+    delete (demanda as any).dfd;
     const salva = await this.demandaRepository.save(demanda);
     await this.notificarRequisitante(
       salva,
@@ -251,15 +347,17 @@ export class DemandasService {
       throw new BadRequestException('Demanda não está em análise');
     }
 
+    if (!String(motivo ?? '').trim()) throw new BadRequestException('Informe o motivo da rejeição.');
     demanda.status = StatusDemanda.REJEITADA;
-    demanda.motivo_rejeicao = motivo;
+    demanda.motivo_rejeicao = String(motivo).trim().slice(0, 4000);
 
+    delete (demanda as any).dfd;
     const salva = await this.demandaRepository.save(demanda);
     await this.notificarRequisitante(
       salva,
       TipoNotificacao.DEMANDA_REJEITADA,
       'Demanda rejeitada',
-      `A demanda "${salva.descricao_sucinta_objeto || salva.unidade_requisitante}" foi rejeitada. Motivo: ${motivo}`,
+      `A demanda "${salva.descricao_sucinta_objeto || salva.unidade_requisitante}" foi rejeitada. Motivo: ${salva.motivo_rejeicao} — ajuste e envie de novo (botão "Voltar para rascunho").`,
     );
     return salva;
   }
@@ -267,16 +365,16 @@ export class DemandasService {
   async voltarParaRascunho(id: string): Promise<Demanda> {
     const demanda = await this.findOne(id);
 
-    if (STATUS_DEMANDA_EM_PROCESSO.includes(demanda.status)) {
-      throw new BadRequestException('Demanda consolidada ou em contratação não pode voltar para rascunho');
-    }
+    await this.exigirDestravada(demanda, 'voltar para rascunho');
 
     demanda.status = StatusDemanda.RASCUNHO;
     demanda.data_envio = undefined as any;
     demanda.data_aprovacao = undefined as any;
     demanda.aprovado_por = undefined as any;
-    demanda.motivo_rejeicao = undefined as any;
+    demanda.aprovado_por_id = null;
+    // o motivo da rejeição fica visível até o reenvio (o setor corrige com ele à vista)
 
+    delete (demanda as any).dfd;
     return this.demandaRepository.save(demanda);
   }
 
@@ -301,12 +399,18 @@ export class DemandasService {
       [id],
     ).catch(() => []);
 
-    // Processo originado desta demanda
+    // DFD consolidado em que a demanda entrou (unidade de planejamento)
+    const dfd = await this.noDfd(id).catch(() => null);
+
+    // Processo originado desta demanda: o vínculo antigo ou o do DFD consolidado (N demandas → 1 processo)
     const [licitacao] = await this.dataSource.query(
       `SELECT id, numero_processo, modalidade, fase, valor_total_estimado,
               data_publicacao_edital, data_homologacao, valor_homologado,
               link_pncp
-       FROM licitacoes WHERE demanda_id = $1 ORDER BY created_at ASC LIMIT 1`,
+       FROM licitacoes
+       WHERE demanda_id = $1
+          OR id IN (SELECT f.licitacao_id FROM dfds_consolidados f JOIN dfds_consolidados_demandas fd ON fd.dfd_id = f.id WHERE fd.demanda_id = $1)
+       ORDER BY created_at ASC LIMIT 1`,
       [id],
     ).catch(() => [null]);
     // Estado da compra no PNCP: fila (E9)
@@ -338,6 +442,7 @@ export class DemandasService {
         consolidada: itensPca.length > 0,
         itens: itensPca,
       },
+      dfd: dfd ?? null,
       processo: licitacao || null,
       contratos,
     };

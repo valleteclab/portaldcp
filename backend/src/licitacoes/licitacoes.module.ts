@@ -28,6 +28,8 @@ import { PortalFornecedorService } from './portal-fornecedor.service';
 import { MigracaoLegadoE9BootService } from './migracao-legado-e9-boot.service';
 import { MigracaoFundamentoLegalBootService } from './migracao-fundamento-legal-boot.service';
 
+import { DfdModule } from '../demandas/dfd/dfd.module';
+
 @Module({
   imports: [
     // DispensaLance/DispensaMensagem: @deprecated — só para o synchronize manter as tabelas legadas (migração E2; ninguém escreve)
@@ -42,6 +44,8 @@ import { MigracaoFundamentoLegalBootService } from './migracao-fundamento-legal-
     DisputaModule,
     // Resultado único (E6): julgamento da dispensa e resultado externo gravam por ele
     ResultadoModule,
+    // DFD consolidado (unidade de planejamento): o processo nasce do DFD
+    DfdModule,
   ],
   // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
   controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController],

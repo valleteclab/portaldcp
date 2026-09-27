@@ -296,3 +296,43 @@ export class FluxoProcessoFaseInterna {
   @UpdateDateColumn({ type: 'timestamptz' })
   updated_at: Date;
 }
+
+/**
+ * PLANEJAMENTO (antes do processo): quem aprova a demanda (pedido), quem
+ * monta o DFD consolidado e abre o processo, e a 2ª aprovação (do DFD) —
+ * `fluxo/planejamento-fluxo.ts`. Um por órgão; `orgao_id` nulo = o padrão do
+ * sistema (semeado no boot). Cada gravação soma 1 na versão.
+ */
+@Entity('planejamento_fluxo_orgao')
+@Index('uq_planejamento_fluxo_orgao', ['orgao_id'], { unique: true, where: 'orgao_id IS NOT NULL' })
+export class PlanejamentoFluxoOrgao {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  orgao_id: string | null;
+
+  @Column({ type: 'int', default: 1 })
+  versao: number;
+
+  /** { tipo: PERMISSAO|PAPEL|SETOR|USUARIO, valor }. */
+  @Column({ type: 'jsonb' })
+  aprovador_demanda: Record<string, any>;
+
+  /** { tipo, valor } — a unidade de planejamento. */
+  @Column({ type: 'jsonb' })
+  responsavel_dfd: Record<string, any>;
+
+  /** { exigida, aprovador: { tipo, valor } } — 2ª aprovação, desligada por padrão. */
+  @Column({ type: 'jsonb' })
+  aprovacao_dfd: Record<string, any>;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  atualizado_por_nome: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updated_at: Date;
+}

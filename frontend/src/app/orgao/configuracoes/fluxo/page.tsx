@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { API_URL, authFetch } from "@/lib/api"
 import { DesenhoFluxo } from "@/components/fase-interna/fluxo/DesenhoFluxo"
+import { PlanejamentoFluxoCard } from "@/components/fase-interna/fluxo/PlanejamentoFluxoCard"
 
 type Tipo = "DISPENSA" | "INEXIGIBILIDADE" | "LICITACAO"
 
@@ -329,6 +330,8 @@ export default function ModeloFluxoPage() {
         </p>
         {!admin && <p className="text-sm text-amber-800 mt-2">Somente o administrador do órgão altera o modelo.</p>}
       </div>
+
+      <PlanejamentoFluxoCard admin={admin} />
 
       <div role="tablist" aria-label="Tipo de processo" className="flex gap-2 flex-wrap">
         {TIPOS.map((t) => (

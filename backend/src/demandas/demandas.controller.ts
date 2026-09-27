@@ -21,7 +21,11 @@ const CAMPOS_PROTEGIDOS_DEMANDA = [
   'data_envio',
   'data_aprovacao',
   'aprovado_por',
+  'aprovado_por_id',
+  'criado_por_id',
+  'criado_por_nome',
   'motivo_rejeicao',
+  'dfd',
   'itens',
   'created_at',
   'updated_at',
@@ -204,12 +208,13 @@ export class DemandasController {
       descricao_sucinta_objeto?: string;
       data_desejada_contratacao?: string;
       renovacao_contrato?: boolean;
+      setor_id?: string | null;
     },
     @AtorAtual() ator: Ator | null,
   ) {
     // Órgão SEMPRE do token (o admin da plataforma informa); outro órgão no corpo → 403
     const orgaoId = this.acesso.orgaoParaCriacao(ator, dados?.orgaoId || dados?.orgao_id);
-    return this.demandasService.create({ ...dados, orgaoId });
+    return this.demandasService.create({ ...dados, orgaoId }, ator);
   }
 
   @Put(':id')
@@ -244,40 +249,28 @@ export class DemandasController {
   }
 
   /**
-   * Aprovar/rejeitar exige permissão: login direto do ÓRGÃO e ADMIN sempre
-   * podem; usuário do órgão precisa da flag pode_aprovar_demandas.
-   * O usuário é o do TOKEN (nunca do corpo).
+   * Aprovar/rejeitar: pela regra do modelo de fluxo (Configurações › Fluxo —
+   * padrão: "pode aprovar demandas"); login do órgão e admin da plataforma
+   * sempre. Quem aprova é o do TOKEN — `aprovadoPor` do corpo é ignorado.
    */
-  private async exigirPermissaoAprovacao(user: JwtPayload): Promise<void> {
-    if (user.type === UserType.ORGAO || user.type === UserType.ADMIN) return;
-    const pode = await this.demandasService.usuarioPodeAprovarDemandas(user.sub);
-    if (!pode) {
-      throw new ForbiddenException('Você não tem permissão para aprovar demandas');
-    }
-  }
-
   @Patch(':id/aprovar')
-  async aprovar(
-    @Param('id') id: string,
-    @Body() body: { aprovadoPor: string },
-    @Req() request: { user: JwtPayload },
-    @AtorAtual() ator: Ator | null,
-  ) {
+  async aprovar(@Param('id') id: string, @AtorAtual() ator: Ator | null) {
     await this.exigirDemanda(ator, id);
-    await this.exigirPermissaoAprovacao(request.user);
-    return this.demandasService.aprovar(id, body.aprovadoPor);
+    const orgaoId = (await this.demandasService.orgaoDaDemanda(id))!;
+    await this.demandasService.exigirAprovador(ator!, orgaoId);
+    return this.demandasService.aprovar(id, ator!);
   }
 
   @Patch(':id/rejeitar')
   async rejeitar(
     @Param('id') id: string,
     @Body() body: { motivo: string },
-    @Req() request: { user: JwtPayload },
     @AtorAtual() ator: Ator | null,
   ) {
     await this.exigirDemanda(ator, id);
-    await this.exigirPermissaoAprovacao(request.user);
-    return this.demandasService.rejeitar(id, body.motivo);
+    const orgaoId = (await this.demandasService.orgaoDaDemanda(id))!;
+    await this.demandasService.exigirAprovador(ator!, orgaoId);
+    return this.demandasService.rejeitar(id, body?.motivo);
   }
 
   @Patch(':id/voltar-rascunho')

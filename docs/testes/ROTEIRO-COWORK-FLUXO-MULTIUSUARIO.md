@@ -1,7 +1,7 @@
 # Roteiro de homologação — Fluxo da fase interna com vários usuários
 
 **Para:** o Claude (Cowork) que vai testar o sistema pelo navegador.
-**Objetivo:** percorrer uma **dispensa eletrônica** do início ao fim com **6 usuários, um papel cada** — como ela é usada de verdade, de mesa em mesa — conferindo a tramitação ("com quem está"), a visão da fase interna (avançar/voltar, etapas em paralelo), a aprovação da demanda, o isolamento entre setores e os autos em PDF com os despachos.
+**Objetivo:** percorrer uma **dispensa eletrônica** do início ao fim com **6 usuários, um papel cada** — como ela é usada de verdade, de mesa em mesa — começando pelos **pedidos dos setores (demandas)**, a **aprovação na Central de Aprovações** e o **DFD consolidado** montado pela unidade de planejamento, e conferindo a tramitação ("com quem está"), a visão da fase interna (avançar/voltar, etapas em paralelo), o isolamento entre setores e os autos em PDF com os despachos.
 
 Este roteiro **complementa** `docs/testes/ROTEIRO-COWORK-FASE-INTERNA.md` (um usuário só, com todos os papéis, focado nas peças). Aqui o foco é a **tramitação entre pessoas**. Rode os dois; o que um não cobre, o outro cobre.
 
@@ -36,7 +36,7 @@ Entre com o **administrador** numa janela à parte (pode ser a mesma do Agente d
 
 **Configurações › Usuários** (ou onde o admin cadastra/edita usuário): para cada um dos 6 logins que o dono passar, confirme ou ajuste:
 - **Setor** de lotação (o do papel dele: Requisitante no setor Requisitante, Compras no setor Compras, etc.);
-- **Papel(is) da fase interna** (**Configurações › Fase interna e tarefas**, quadro "Papéis dos usuários"): dê a cada usuário **um só papel principal** para este teste — Requisitante, Compras, Contabilidade, Jurídico, Autoridade e Agente de contratação, um para cada login. **Esperado:** "Salvo às HH:MM" na linha de cada usuário; ao recarregar, os papéis continuam.
+- **Papel(is) da fase interna** (**Configurações › Fase interna e tarefas**, quadro "Papéis dos usuários"): dê a cada usuário **um só papel principal** para este teste — Requisitante, Compras, Contabilidade, Jurídico, Autoridade e Agente de contratação, um para cada login. **Além disso**, dê ao **Agente de contratação** (Janela 6) também o papel **Planejamento** — ele fará o papel da unidade de planejamento que monta o DFD. **Esperado:** "Salvo às HH:MM" na linha de cada usuário; ao recarregar, os papéis continuam.
 
 ### 1.3 Modelo de fluxo — Configurações › Fluxo (`/orgao/configuracoes/fluxo`) — 1ª rodada: **POR_SETOR**
 
@@ -47,7 +47,13 @@ Entre com o **administrador** numa janela à parte (pode ser a mesma do Agente d
    - Clique em **Salvar modelo**. **Esperado:** confirmação (barra de status), sem erro de validação da lei; se o sistema recusar alguma combinação, anote a mensagem (ela deve citar o artigo).
    - Se quiser conferir o modelo pronto da Câmara, o botão **Restaurar modelo padrão** aplica "Câmara — Portaria 089" — não é obrigatório usá-lo, mas é uma forma rápida de já vir com setores e ordem coerentes; ajuste os responsáveis depois para os 6 papéis de teste.
 
-> Guarde o link `/orgao/configuracoes/fluxo` — a **segunda rodada** deste roteiro (seção 7) repete um percurso curto em modo **Simples**, para comparar.
+3. Ainda em **Configurações › Fluxo**, no quadro **"Antes do processo: demandas e DFD"** (no alto):
+   - **Quem aprova a demanda** = **Papel › Autoridade** (Janela 5);
+   - **Quem monta o DFD e abre o processo** = **Papel › Planejamento** (padrão);
+   - **2ª aprovação do DFD** = **desligada** (padrão) nesta primeira passada.
+   - Clique em **Salvar**. **Esperado:** "Salvo às HH:MM (versão N)".
+
+> Guarde o link `/orgao/configuracoes/fluxo` — a **segunda rodada** deste roteiro (seção 11) repete um percurso curto em modo **Simples**, para comparar.
 
 ### 1.4 Orçamento (se ainda não tiver dessa rodada)
 
@@ -66,31 +72,57 @@ Abra as 6 janelas/perfis e faça login, uma vez, em cada uma, confirmando o nome
 | 3 | Contabilidade | CONTABILIDADE |
 | 4 | Jurídico | JURIDICO |
 | 5 | Autoridade/Presidência | AUTORIDADE |
-| 6 | Agente de contratação | AGENTE_CONTRATACAO |
+| 6 | Agente de contratação (e unidade de planejamento) | AGENTE_CONTRATACAO + PLANEJAMENTO |
 
 **Esperado:** cada janela mostra o nome do usuário correto; **Minhas tarefas** de cada uma está vazia (ou só com tarefas de testes anteriores) antes de começar.
 
 ---
 
-## 3. Criar a demanda e o processo (Janela 1 — Requisitante)
+## 3. Setores pedem, a Autoridade aprova, o planejamento monta o DFD e abre o processo
 
-1. Crie uma **demanda** (menu **Demandas** › **Nova demanda**) com objeto "TESTE COWORK MULTI — licença de software de gestão (12 meses) + implantação", unidade requisitante = o setor Requisitante, com 1–2 itens.
-   - **Esperado:** demanda salva, situação inicial (não aprovada ainda).
-2. Ainda na Janela 1, abra a demanda e clique em **Iniciar contratação** (Dispensa Eletrônica) — ou crie o processo pelo assistente e vincule à demanda, se o fluxo do órgão for esse. Preencha o DFD (necessidade, item do PCA ou justificativa).
-   - **Esperado:** o processo abre na tela `/orgao/processos/[id]` com o quadro **"Fluxo da fase interna"**. Como a demanda ainda **não foi aprovada**, deve aparecer o bloco amarelo **"Aguardando aprovação da demanda por [rótulo do aprovador]"** e as etapas seguintes (ETP, TR, Pesquisa) devem aparecer como **"Aguardando: Demanda"**, sem o botão de abrir.
-3. Na Janela 1, gere o **DFD** ("Gerar DFD"). **Esperado:** PDF gerado; a peça da Demanda fica pronta, mas a etapa da demanda continua "aguardando aprovação" enquanto ninguém aprovar.
+**Conceito:** a **demanda** é o pedido de qualquer setor (o que precisa, quanto, por quê, para quando) e **não abre processo**. O **DFD** é feito pela **unidade de planejamento**, que junta os pedidos parecidos num único DFD (art. 12, VII — evita o fracionamento) e abre **um** processo.
+
+### 3.1 Os setores criam as demandas
+
+1. **Janela 1 — Requisitante:** menu **Demandas** › **Nova demanda**: objeto "TESTE COWORK MULTI — licença de software de gestão (12 meses)", unidade requisitante = o setor Requisitante, com **1 item do catálogo** (anote o código do item) e quantidade 3. Clique em **Enviar demanda**.
+   - **Esperado:** a tela se chama **"Demanda (pedido do setor)"** (não "DFD"); o breadcrumb diz **"Demanda — [setor]"**; depois de enviar, situação **Enviada**.
+2. **Janela 2 — Compras** (aqui fazendo o papel de um segundo setor que pede): **Nova demanda** "TESTE COWORK MULTI — licenças adicionais", com o **mesmo item do catálogo**, quantidade 2. **Enviar demanda**.
+3. (Opcional, para o alerta) **Janela 3 — Contabilidade:** uma terceira demanda com item **da mesma classe** (ou o mesmo item), quantidade 1. **Enviar demanda**.
+
+### 3.2 A Autoridade aprova na Central de Aprovações (Janela 5)
+
+1. **Janela 5 — Autoridade:** confira o aviso (sino; e-mail/WhatsApp se configurados) e abra **Central de Aprovações** › aba **"Demandas e DFD"**. **Esperado:** as demandas enviadas aparecem com Aprovar / Rejeitar / Ver demanda.
+2. **Rejeite** a demanda da Janela 2 com o motivo "TESTE — informe o prazo de uso". **Janela 2:** abra a demanda. **Esperado:** faixa vermelha com o motivo e o botão **"Voltar para rascunho e corrigir"**. Clique, ajuste a demanda, envie de novo.
+3. **Janela 5:** aprove as demandas das Janelas 1, 2 (e 3, se criou). **Esperado:** situação **Aprovada**; em "aprovada por" aparece o **nome de quem está logado** (não dá para escolher outro).
+4. **Isolamento:** na **Janela 4 — Jurídico**, abra a Central › "Demandas e DFD". **Esperado:** nada pendente (o Jurídico não aprova demandas).
+
+### 3.3 O planejamento monta o DFD (Janela 6 — Agente com papel Planejamento)
+
+1. Menu **Demandas** › **DFD consolidado**. **Esperado:** as demandas aprovadas e livres aparecem agrupadas por classe.
+2. Marque as demandas das Janelas 1 e 2 (a da Janela 3 fica de fora de propósito). **Esperado:** a **prévia** mostra o item **somado** (3 + 2 = 5) e **de onde veio** cada quantidade (Requisitante: 3; Compras: 2); se criou a 3ª demanda, aparece o aviso amarelo **"Atenção: há outro pedido parecido no mesmo exercício"** com o link dela (art. 12, VII; art. 75, §1º) — é aviso, não trava.
+3. Clique em **Montar DFD**. **Esperado:** abre o **DFD nº N/2026** "Em elaboração", com objeto, justificativa de cada setor, unidade de planejamento (o setor do usuário), responsável (ele), data pretendida e prioridade já sugeridos. Ajuste a quantidade do item para 4 com a justificativa "TESTE — uma licença reaproveitada" e **Salvar dados e ajustes**.
+4. Clique em **PDF do DFD**. **Esperado:** PDF com os itens somados, a origem de cada quantidade ("somado: 5"), as demandas de origem (setor, quem aprovou) e a data no horário de Brasília.
+5. **Travas:** na **Janela 1**, abra a sua demanda. **Esperado:** faixa "Esta demanda está no DFD nº N/2026…" e nada editável; o botão "Iniciar contratação" **não aparece**. Na Janela 1, abra **Demandas › DFD consolidado**. **Esperado:** consulta sem os botões de montar ("só a unidade de planejamento…").
+6. **Janela 6:** no DFD, **Abrir processo** › Dispensa Eletrônica › fase interna guiada. **Esperado:** o processo abre em `/orgao/processos/[id]` com os **itens do DFD** (quantidade 4); a peça **DFD do processo** já vem preenchida (unidade, responsável, data pretendida, prioridade, PCA) e o quadro "Fluxo da fase interna" mostra a **demanda já aprovada** ("DFD consolidado nº N/2026 (2 demandas aprovadas)"): ETP, TR e Pesquisa liberados. As demandas das Janelas 1 e 2 passam a **Em contratação**.
+
+### 3.4 (Opcional) 2ª aprovação do DFD
+
+1. **Administrador:** Configurações › Fluxo › "Antes do processo": ligue **Exigir a 2ª aprovação do DFD**, aprovador = **Papel › Autoridade**. Salve.
+2. **Janela 6:** monte um DFD com a demanda da Janela 3. **Esperado:** "Abrir processo" não aparece; aparece **Enviar para aprovação**. Envie.
+3. **Janela 5:** Central › "Demandas e DFD" › bloco **"DFD consolidado (2ª aprovação)"**: **Devolva** com motivo; **Janela 6** ajusta e reenvia; **Janela 5** **Aprova**. **Janela 6:** agora **Abrir processo** aparece.
+4. **Administrador:** desligue a 2ª aprovação ao final (padrão).
 
 ---
 
-## 4. Aprovação da demanda (Janela 5 — Autoridade/Presidência)
+## 4. Aprovação da demanda dentro do processo (processo criado sem demanda)
 
-1. Na Janela 5, abra o mesmo processo (`/orgao/processos/[id]`).
-   - **Esperado:** o mesmo bloco amarelo aparece, e como este usuário é o aprovador designado, o botão **"Aprovar a demanda"** deve estar visível.
-2. Clique em **Aprovar a demanda** (com observação opcional).
-   - **Esperado:** a mensagem de sucesso muda para uma linha verde "Demanda aprovada por [nome] em [data]"; as etapas ETP, TR e Pesquisa deixam de mostrar "Aguardando: Demanda" e passam a ter o botão de abrir/gerar liberado.
-3. Confira em **Minhas tarefas** (Janela 1, Requisitante): a tarefa da demanda deve estar concluída.
+O processo aberto pelo DFD já nasce com a demanda aprovada. Para ver a aprovação **dentro** do processo, crie um processo pelo assistente **Novo processo** (sem demanda), na Janela 1, e gere o DFD da etapa 1.
 
-**Isolamento:** troque para a Janela 2 (Compras) e tente clicar em **Aprovar a demanda** *antes* do passo 2 acima (se ainda estiver pendente) ou confira que o botão simplesmente **não aparece** para quem não é o aprovador. **Esperado:** sem o botão para quem não pode aprovar; se forçar a chamada (ex.: pelo devtools), o servidor deve recusar — mas o teste normal é apenas conferir que o botão não aparece para o usuário errado.
+1. **Esperado:** bloco amarelo **"Aguardando aprovação da demanda por [Autoridade]"**; ETP, TR e Pesquisa aparecem como **"Aguardando: Demanda"**.
+2. **Janela 5 — Autoridade:** em **Minhas tarefas**, a tarefa **"Aprovar a demanda"** leva à **Central de Aprovações** › "Demandas e DFD" › bloco "Aprovação da demanda nos processos". Clique em **Aprovar a demanda** ali.
+   - **Esperado:** no processo, a linha verde "Demanda aprovada por [nome] em [data]"; as etapas seguintes liberadas.
+
+**Isolamento:** na Janela 2 (Compras), a Central não mostra essa aprovação e, no processo, o botão **Aprovar a demanda** não aparece.
 
 ---
 
@@ -204,4 +236,4 @@ Entregue um relatório com:
 3. **Erros**, cada um com: URL, janela/usuário, passos para reproduzir, mensagem exata, o que era esperado e o print.
 4. **Confusões de uso:** telas ou textos em que um servidor da Câmara ficaria perdido (mesmo sem erro técnico) — em especial confusões **entre papéis** (ex.: um usuário não entender por que não pode agir, ou não achar o botão certo).
 5. **Isolamento:** liste explicitamente cada tentativa de ação fora do papel/setor (seção 8) e se foi corretamente recusada.
-6. **Dados criados:** número dos dois processos (rodada por setor e rodada simples), a demanda, os setores/usuários ajustados e o modo em que o órgão ficou configurado ao final, para a limpeza depois.
+6. **Dados criados:** número dos processos (DFD consolidado, processo sem demanda e rodada simples), as demandas, os DFDs (nº/ano), os setores/usuários ajustados, o modo do órgão e se a 2ª aprovação do DFD ficou ligada ou desligada ao final, para a limpeza depois.

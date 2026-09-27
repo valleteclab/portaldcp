@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import type { Ator } from '../../auth/acesso/ator';
 import { ehUuid } from '../../auth/acesso/acesso-licitacao.service';
 import { LicitacoesService } from '../../licitacoes/licitacoes.service';
+import { DfdConsolidadoService } from '../../demandas/dfd/dfd-consolidado.service';
 import { CriterioJulgamento, ModoDisputa, SITUACOES_TERMINAIS } from '../../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao } from '../../itens/entities/item-licitacao.entity';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
@@ -122,6 +123,8 @@ export class FaseInternaExternaService {
     private readonly auditLog: AuditLogService,
     private readonly publicacao: PublicacaoTelaService,
     private readonly minutas: MinutasTelaService,
+    // DFD consolidado: a origem do processo (N demandas) — ou UMA demanda (DFD de 1 demanda)
+    private readonly dfds: DfdConsolidadoService,
   ) {}
 
   // ==========================================================================
@@ -293,12 +296,17 @@ export class FaseInternaExternaService {
         if (i.item_pca_id && !ok.has(i.item_pca_id)) erros.push({ passo: 'ITENS', indice: idx, mensagem: `Item ${idx + 1}: item do PCA não encontrado.` });
       });
     }
-    // Demanda de origem: do órgão, aprovada, sem processo (mesma conferência da criação guiada)
-    let demandaStatus: string | null = null;
-    if (dados.demanda_id) {
+    // Origem: DFD consolidado ou UMA demanda (vira DFD de 1 demanda) — só a
+    // unidade de planejamento abre processo a partir deles (403); do órgão,
+    // aprovada(s), sem processo (mesma conferência da criação guiada)
+    if (dados.dfd_id || dados.demanda_id) {
+      await this.dfds.exigirMontar(ator, orgaoId);
       try {
-        const dem = await this.licitacoes.demandaParaProcesso(dados.demanda_id, orgaoId);
-        demandaStatus = dem.status as string;
+        if (dados.dfd_id) {
+          if ((await this.dfds.orgaoDoDfd(dados.dfd_id)) !== orgaoId) throw new NotFoundException('DFD não encontrado');
+        } else {
+          await this.licitacoes.demandaParaProcesso(dados.demanda_id!, orgaoId);
+        }
       } catch (e) {
         erros.push({ passo: 'DADOS', mensagem: mensagemDoErro(e) });
       }
@@ -322,7 +330,26 @@ export class FaseInternaExternaService {
     // A agenda das tarefas fica suspensa: as dos passos cumpridos nascem concluídas no fim
     this.tarefas.suspender(id);
     let resultado: ResultadoJuntada;
+    // DFD reservado para este processo (desfeito se a criação falhar)
+    let reserva: Awaited<ReturnType<DfdConsolidadoService['reservarParaProcesso']>> | null = null;
+    let dfdCriadoAgora: string | null = null;
+    let statusDemandas: Array<{ id: string; status: string }> = [];
     try {
+      if (dados.dfd_id || dados.demanda_id) {
+        try {
+          let dfdId = dados.dfd_id;
+          if (!dfdId) {
+            const antes = await this.dfds.dfdDaDemanda(dados.demanda_id!);
+            dfdId = (await this.dfds.criarDeUmaDemanda(dados.demanda_id!, orgaoId, ator)).id;
+            if (!antes) dfdCriadoAgora = dfdId;
+          }
+          reserva = await this.dfds.reservarParaProcesso(dfdId, orgaoId);
+          statusDemandas = reserva.demandas.map((d) => ({ id: d.id, status: d.status }));
+        } catch (e) {
+          if (dfdCriadoAgora) await this.apagarDfd(dfdCriadoAgora);
+          throw new BadRequestException({ message: mensagemDoErro(e), passo: 'DADOS' });
+        }
+      }
       try {
         await this.licitacoes.create(
           {
@@ -340,8 +367,10 @@ export class FaseInternaExternaService {
           atorTransicaoDe(ator),
           {
             id,
-            demanda_id: dados.demanda_id,
-            registro: { fase_interna: 'EXTERNA' },
+            // compatibilidade: processo de 1 demanda mantém o vínculo antigo
+            demanda_id: reserva && reserva.demandas.length === 1 ? reserva.demandas[0].id : null,
+            dfd_consolidado: reserva ? { id: reserva.dfd.id, ator } : null,
+            registro: { fase_interna: 'EXTERNA', ...(reserva ? { dfd_consolidado_id: reserva.dfd.id } : {}) },
             fase_interna_externa: {
               modo: 'EXTERNA',
               por_id: autor.id,
@@ -357,7 +386,8 @@ export class FaseInternaExternaService {
         // A criação confere as mesmas regras (recusou antes de gravar); se falhou
         // depois de gravar a linha (histórico, demanda), desfaz o que ficou
         const [ficou] = await this.ds.query(`SELECT 1 FROM licitacoes WHERE id::text = $1`, [id]);
-        if (ficou) await this.desfazerCriacao(id, dados.demanda_id, demandaStatus);
+        if (ficou) await this.desfazerCriacao(id, statusDemandas, reserva, dfdCriadoAgora);
+        else if (reserva) await this.desfazerDfd(reserva, dfdCriadoAgora);
         if (e instanceof HttpException) throw new BadRequestException({ message: mensagemDoErro(e), passo: 'DADOS' });
         throw e;
       }
@@ -366,7 +396,7 @@ export class FaseInternaExternaService {
         if (dados.dispensa_com_lances !== null) await this.publicacao.definirModoDisputa(id, { com_lances: dados.dispensa_com_lances }, autor);
         if (dados.sigilo.sigiloso) await this.minutas.salvarSigilo(id, { sigiloso: true, justificativa: dados.sigilo.justificativa }, autor);
       } catch (e) {
-        await this.desfazerCriacao(id, dados.demanda_id, demandaStatus);
+        await this.desfazerCriacao(id, statusDemandas, reserva, dfdCriadoAgora);
         throw e instanceof HttpException
           ? e
           : new ConflictException(`Não foi possível gravar os itens do processo — nada foi criado (${mensagemDoErro(e)}). Tente de novo.`);
@@ -413,14 +443,28 @@ export class FaseInternaExternaService {
    * origem à situação anterior. Falhou o desfazer: o erro diz qual processo
    * sobrou (nada fica "sem aviso").
    */
-  private async desfazerCriacao(licitacaoId: string, demandaId: string | null, demandaStatus: string | null) {
+  private async desfazerCriacao(
+    licitacaoId: string,
+    demandas: Array<{ id: string; status: string }>,
+    reserva: { dfd: { id: string }; anterior: string } | null = null,
+    dfdCriadoAgora: string | null = null,
+  ) {
     try {
       await this.ds.transaction(async (m) => {
         for (const t of ['logs_fase_interna', 'tarefas', 'itens_licitacao', 'documentos_fase_interna', 'licitacao_transicoes']) {
           await m.query(`DELETE FROM ${t} WHERE licitacao_id::text = $1`, [licitacaoId]);
         }
         await m.query(`DELETE FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
-        if (demandaId && demandaStatus) await m.query(`UPDATE demandas SET status = $2 WHERE id::text = $1`, [demandaId, demandaStatus]);
+        // As demandas voltam à situação anterior; o DFD volta a ficar sem processo (ou sai, se nasceu agora)
+        for (const d of demandas) await m.query(`UPDATE demandas SET status = $2 WHERE id::text = $1`, [d.id, d.status]);
+        if (reserva) {
+          if (dfdCriadoAgora === reserva.dfd.id) {
+            await m.query(`DELETE FROM dfds_consolidados_demandas WHERE dfd_id::text = $1`, [reserva.dfd.id]);
+            await m.query(`DELETE FROM dfds_consolidados WHERE id::text = $1`, [reserva.dfd.id]);
+          } else {
+            await m.query(`UPDATE dfds_consolidados SET licitacao_id = NULL, status = $2, updated_at = now() WHERE id::text = $1`, [reserva.dfd.id, reserva.anterior]);
+          }
+        }
       });
     } catch (e) {
       this.logger.error(`Criação do processo ${licitacaoId} (fase interna feita fora) não foi desfeita: ${mensagemDoErro(e)}`);
@@ -428,6 +472,21 @@ export class FaseInternaExternaService {
         `A gravação falhou no meio e o processo criado (id ${licitacaoId}) não pôde ser desfeito automaticamente — abra-o e revogue/exclua antes de tentar de novo.`,
       );
     }
+  }
+
+  /** A criação falhou antes de gravar o processo: o DFD reservado volta (ou sai, se nasceu agora). */
+  private async desfazerDfd(reserva: { dfd: { id: string }; anterior: any }, dfdCriadoAgora: string | null) {
+    if (dfdCriadoAgora === reserva.dfd.id) await this.apagarDfd(reserva.dfd.id);
+    else await this.dfds.liberarReserva(reserva.dfd.id, reserva.anterior);
+  }
+
+  private async apagarDfd(dfdId: string) {
+    await this.ds
+      .transaction(async (m) => {
+        await m.query(`DELETE FROM dfds_consolidados_demandas WHERE dfd_id::text = $1`, [dfdId]);
+        await m.query(`DELETE FROM dfds_consolidados WHERE id::text = $1 AND licitacao_id IS NULL`, [dfdId]);
+      })
+      .catch(() => undefined);
   }
 
   // ==========================================================================

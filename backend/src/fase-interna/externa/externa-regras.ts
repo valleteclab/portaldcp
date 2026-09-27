@@ -415,6 +415,8 @@ export interface DadosExternos {
   dispensa_com_lances: boolean | null;
   sigilo: { sigiloso: boolean; justificativa: string | null };
   demanda_id: string | null;
+  /** DFD consolidado de origem (unidade de planejamento — N demandas). */
+  dfd_id: string | null;
   orgao_id: string | null;
 }
 
@@ -445,6 +447,9 @@ export function validarDadosExternos(bruto: any): { ok: boolean; erros: ErroExte
   if (motivoSigilo) e(motivoSigilo);
   const demanda = texto(bruto?.demanda_id, 60);
   if (demanda && !UUID.test(demanda)) e('Demanda de origem inválida.');
+  const dfd = texto(bruto?.dfd_id, 60);
+  if (dfd && !UUID.test(dfd)) e('DFD de origem inválido.');
+  if (dfd && demanda) e('Informe o DFD ou a demanda de origem — não os dois.');
   const orgao = texto(bruto?.orgao_id, 60);
   return {
     ok: erros.length === 0,
@@ -462,6 +467,7 @@ export function validarDadosExternos(bruto: any): { ok: boolean; erros: ErroExte
       dispensa_com_lances: comLances,
       sigilo: { sigiloso, justificativa: sigiloso ? justificativaSigilo : null },
       demanda_id: demanda,
+      dfd_id: dfd,
       orgao_id: orgao && UUID.test(orgao) ? orgao : null,
     },
   };

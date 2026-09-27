@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { executarMigracaoDeBoot } from '../../common/migracao-boot';
 import { ModeloFluxoService } from './modelo-fluxo.service';
+import { PlanejamentoFluxoService } from './planejamento-fluxo.service';
 
 /**
  * F1 — modelo de fluxo em dados. Na fila única das migrações de boot:
@@ -10,7 +11,9 @@ import { ModeloFluxoService } from './modelo-fluxo.service';
  *     mínimos da lei e as travas por ato (só o que falta);
  *  2. dá a cada órgão que já tinha `configuracoes_fase_interna` um modelo
  *     próprio equivalente (responsáveis, prazos, controle interno);
- *  3. grava o fluxo LEGADO dos processos que já existiam (snapshot do modelo
+ *  3. semeia o PLANEJAMENTO padrão (quem aprova a demanda, quem monta o DFD,
+ *     2ª aprovação do DFD desligada);
+ *  4. grava o fluxo LEGADO dos processos que já existiam (snapshot do modelo
  *     do órgão e demanda aprovada — nada trava, nada muda).
  * Idempotente. Falha é logada e NÃO derruba o boot.
  * Desligar: FASE_INTERNA_FLUXO_NO_BOOT=false.
@@ -22,6 +25,7 @@ export class MigracaoModeloFluxoBootService implements OnApplicationBootstrap {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly modelos: ModeloFluxoService,
+    private readonly planejamento: PlanejamentoFluxoService,
   ) {}
 
   onApplicationBootstrap(): Promise<void> {
@@ -34,6 +38,7 @@ export class MigracaoModeloFluxoBootService implements OnApplicationBootstrap {
       return;
     }
     try {
+      await this.planejamento.garantirSemente();
       const r = await this.modelos.migrar();
       if (r.orgaos || r.processos) this.logger.log(`Modelo de fluxo: ${r.orgaos} órgão(s) com modelo próprio; ${r.processos} processo(s) com fluxo gravado`);
     } catch (e: unknown) {

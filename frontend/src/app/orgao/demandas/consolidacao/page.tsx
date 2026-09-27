@@ -1,53 +1,39 @@
 'use client'
 
+/**
+ * DFD CONSOLIDADO — tela da UNIDADE DE PLANEJAMENTO.
+ * As demandas (pedidos dos setores) aprovadas e livres aparecem agrupadas por
+ * classe; o planejamento escolhe as parecidas, vê a prévia (itens somados e o
+ * alerta de pedidos parecidos no exercício — art. 12, VII, e art. 75, §1º) e
+ * monta o DFD, que abre UM processo. As "contratações futuras" antigas ficam
+ * legíveis no fim da página.
+ * Fonte: /api/dfds-consolidados (+ /demandas-disponiveis, /previa, /permissoes).
+ */
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import {
-  ArrowLeft,
-  Briefcase,
-  Calendar,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ClipboardList,
-  FileText,
-  Loader2,
-  Plus,
-  Search,
-} from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, ClipboardList, FileText, Loader2, Lock, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ModuleGuard } from '@/components/ModuleGuard'
 import { ModuloSistema } from '@/hooks/useModulosOrgao'
 import { API_URL, authFetch } from '@/lib/api'
-import { toast } from "sonner"
+import { toast } from 'sonner'
+import { ROTULO_STATUS_DFD, COR_STATUS_DFD, type Parecido, AlertaParecidos, formatarMoeda } from '@/components/demandas/dfd-comum'
 
 interface ItemDemanda {
   id: string
   categoria: 'MATERIAL' | 'SERVICO'
   codigo_classe?: string
   nome_classe?: string
+  codigo_item_catalogo?: string
   descricao_objeto: string
-  valor_total_estimado?: number
-  prioridade?: number
+  quantidade_estimada?: number | string
+  unidade_medida?: string
+  valor_total_estimado?: number | string
 }
 
 interface Demanda {
@@ -58,20 +44,45 @@ interface Demanda {
   status: string
   descricao_sucinta_objeto?: string
   data_desejada_contratacao?: string
-  renovacao_contrato?: boolean
-  contratacao_futura_id?: string
   itens: ItemDemanda[]
+}
+
+interface DfdResumo {
+  id: string
+  ano: number
+  numero: number
+  status: string
+  origem: string
+  objeto: string
+  valor_total_estimado: number
+  licitacao_id: string | null
+  numero_processo: string | null
+  n_itens: number
+  n_demandas: number
+  setores: string | null
 }
 
 interface ContratacaoFutura {
   id: string
   identificador: string
   titulo: string
-  categoria: 'MATERIAL' | 'SERVICO' | 'OBRA' | 'OUTROS'
-  descricao?: string
+  categoria: string
   valor_total_estimado: number
-  status: string
-  demandas?: Demanda[]
+  demandas?: Array<{ id: string; unidade_requisitante: string }>
+}
+
+interface Permissoes {
+  pode_montar: boolean
+  exige_aprovacao_dfd: boolean
+  responsavel_dfd: string
+  aprovador_dfd: string
+}
+
+interface Previa {
+  itens: Array<{ chave: string; numero: number; descricao: string; unidade_medida: string; quantidade_somada: number; valor_total_estimado: number; origens: Array<{ setor: string; quantidade: number }> }>
+  valor_total_estimado: number
+  alertas: Parecido[]
+  alerta: string | null
 }
 
 interface GrupoClasse {
@@ -83,59 +94,38 @@ interface GrupoClasse {
   valor: number
 }
 
-function ConsolidacaoDemandasContent() {
+const valorDaDemanda = (d: Demanda) => (d.itens || []).reduce((t, i) => t + (Number(i.valor_total_estimado) || 0), 0)
+
+function DfdConsolidadoContent() {
   const router = useRouter()
-  const [orgaoId, setOrgaoId] = useState('')
   const [ano, setAno] = useState(new Date().getFullYear())
   const [demandas, setDemandas] = useState<Demanda[]>([])
-  const [contratacoes, setContratacoes] = useState<ContratacaoFutura[]>([])
+  const [dfds, setDfds] = useState<DfdResumo[]>([])
+  const [antigas, setAntigas] = useState<ContratacaoFutura[]>([])
+  const [permissoes, setPermissoes] = useState<Permissoes | null>(null)
   const [loading, setLoading] = useState(true)
   const [termo, setTermo] = useState('')
   const [unidade, setUnidade] = useState('TODAS')
   const [grupoAberto, setGrupoAberto] = useState<string | null>(null)
   const [selecionadas, setSelecionadas] = useState<string[]>([])
-  const [showContratacao, setShowContratacao] = useState(false)
-  const [modoContratacao, setModoContratacao] = useState<'nova' | 'existente'>('nova')
-  const [contratacaoExistenteId, setContratacaoExistenteId] = useState('')
-  const [salvando, setSalvando] = useState(false)
-  const [form, setForm] = useState({
-    titulo: '',
-    categoria: 'MATERIAL' as 'MATERIAL' | 'SERVICO' | 'OBRA' | 'OUTROS',
-    descricao: '',
-    data_inicio_processo: '',
-    data_conclusao_processo: '',
-    prazo_estimado_dias: '',
-  })
-
-  useEffect(() => {
-    try {
-      const orgaoData = localStorage.getItem('orgao')
-      if (orgaoData) {
-        const orgao = JSON.parse(orgaoData)
-        setOrgaoId(orgao.id)
-      }
-    } catch {
-      setOrgaoId('')
-    }
-  }, [])
+  const [previa, setPrevia] = useState<Previa | null>(null)
+  const [carregandoPrevia, setCarregandoPrevia] = useState(false)
+  const [montando, setMontando] = useState(false)
 
   const carregar = async () => {
-    if (!orgaoId) return
     setLoading(true)
     try {
-      const [demandasRes, contratacoesRes] = await Promise.all([
-        authFetch(`${API_URL}/api/demandas/para-consolidar?orgaoId=${orgaoId}&ano=${ano}`),
-        authFetch(`${API_URL}/api/demandas/contratacoes-futuras?orgaoId=${orgaoId}&ano=${ano}`),
+      const [dRes, fRes, cRes, pRes] = await Promise.all([
+        authFetch(`${API_URL}/api/dfds-consolidados/demandas-disponiveis?ano=${ano}`),
+        authFetch(`${API_URL}/api/dfds-consolidados?ano=${ano}`),
+        authFetch(`${API_URL}/api/demandas/contratacoes-futuras?ano=${ano}`),
+        authFetch(`${API_URL}/api/dfds-consolidados/permissoes`),
       ])
-
-      if (demandasRes.ok) {
-        const data = await demandasRes.json()
-        setDemandas(Array.isArray(data) ? data : [])
-      }
-      if (contratacoesRes.ok) {
-        const data = await contratacoesRes.json()
-        setContratacoes(Array.isArray(data) ? data : [])
-      }
+      setDemandas(dRes.ok ? await dRes.json() : [])
+      setDfds(fRes.ok ? await fRes.json() : [])
+      const c = cRes.ok ? await cRes.json() : []
+      setAntigas(Array.isArray(c) ? c : [])
+      if (pRes.ok) setPermissoes(await pRes.json())
     } finally {
       setLoading(false)
     }
@@ -143,33 +133,52 @@ function ConsolidacaoDemandasContent() {
 
   useEffect(() => {
     carregar()
-  }, [orgaoId, ano])
+    setSelecionadas([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ano])
 
-  const formatarMoeda = (valor: number) =>
-    new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
+  // Prévia (itens somados + alerta de parecidos) a cada mudança na seleção
+  useEffect(() => {
+    if (!selecionadas.length || !permissoes?.pode_montar) {
+      setPrevia(null)
+      return
+    }
+    const t = setTimeout(async () => {
+      setCarregandoPrevia(true)
+      try {
+        const r = await authFetch(`${API_URL}/api/dfds-consolidados/previa`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ demanda_ids: selecionadas }),
+        })
+        const j = await r.json().catch(() => null)
+        if (r.ok) setPrevia(j)
+        else {
+          setPrevia(null)
+          toast.error(j?.message || 'Não foi possível consolidar')
+        }
+      } finally {
+        setCarregandoPrevia(false)
+      }
+    }, 400)
+    return () => clearTimeout(t)
+  }, [selecionadas, permissoes?.pode_montar])
 
-  const unidades = useMemo(() => {
-    return Array.from(new Set(demandas.map((d) => d.unidade_requisitante).filter(Boolean))).sort()
-  }, [demandas])
+  const unidades = useMemo(() => Array.from(new Set(demandas.map((d) => d.unidade_requisitante).filter(Boolean))).sort(), [demandas])
 
   const grupos = useMemo(() => {
     const mapa = new Map<string, GrupoClasse>()
+    const busca = termo.trim().toLowerCase()
     for (const demanda of demandas) {
       if (unidade !== 'TODAS' && demanda.unidade_requisitante !== unidade) continue
-      const busca = termo.trim().toLowerCase()
       if (busca) {
-        const match =
+        const ok =
           demanda.unidade_requisitante.toLowerCase().includes(busca) ||
           demanda.responsavel_nome?.toLowerCase().includes(busca) ||
           demanda.descricao_sucinta_objeto?.toLowerCase().includes(busca) ||
-          demanda.itens.some((item) =>
-            item.descricao_objeto.toLowerCase().includes(busca) ||
-            item.nome_classe?.toLowerCase().includes(busca) ||
-            item.codigo_classe?.toLowerCase().includes(busca)
-          )
-        if (!match) continue
+          demanda.itens.some((i) => i.descricao_objeto.toLowerCase().includes(busca) || i.nome_classe?.toLowerCase().includes(busca) || i.codigo_classe?.toLowerCase().includes(busca))
+        if (!ok) continue
       }
-
       const chaves = new Map<string, { codigo: string; nome: string; categoria: 'MATERIAL' | 'SERVICO'; valor: number }>()
       for (const item of demanda.itens || []) {
         const codigo = item.codigo_classe || 'SEM-CLASSE'
@@ -179,293 +188,220 @@ function ConsolidacaoDemandasContent() {
         atual.valor += Number(item.valor_total_estimado) || 0
         chaves.set(chave, atual)
       }
-
       for (const [chave, dados] of chaves) {
-        const grupo = mapa.get(chave) || {
-          chave,
-          codigo: dados.codigo,
-          nome: dados.nome,
-          categoria: dados.categoria,
-          demandas: [],
-          valor: 0,
-        }
+        const grupo = mapa.get(chave) || { chave, codigo: dados.codigo, nome: dados.nome, categoria: dados.categoria, demandas: [], valor: 0 }
         grupo.demandas.push(demanda)
         grupo.valor += dados.valor
         mapa.set(chave, grupo)
       }
     }
-
-    return Array.from(mapa.values()).sort((a, b) =>
-      `${a.categoria}${a.codigo}`.localeCompare(`${b.categoria}${b.codigo}`, 'pt-BR')
-    )
+    return Array.from(mapa.values()).sort((a, b) => `${a.categoria}${a.codigo}`.localeCompare(`${b.categoria}${b.codigo}`, 'pt-BR'))
   }, [demandas, termo, unidade])
 
-  const demandasSelecionadas = useMemo(() => {
-    const ids = new Set(selecionadas)
-    return demandas.filter((d) => ids.has(d.id))
-  }, [demandas, selecionadas])
+  const alternar = (id: string) => setSelecionadas((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))
+  const selecionarGrupo = (g: GrupoClasse) => setSelecionadas((a) => Array.from(new Set([...a, ...g.demandas.map((d) => d.id)])))
+  const valorSelecionado = demandas.filter((d) => selecionadas.includes(d.id)).reduce((t, d) => t + valorDaDemanda(d), 0)
 
-  const valorSelecionado = demandasSelecionadas.reduce((total, demanda) => (
-    total + (demanda.itens || []).reduce((subtotal, item) => subtotal + (Number(item.valor_total_estimado) || 0), 0)
-  ), 0)
-
-  const alternarDemanda = (id: string) => {
-    setSelecionadas((atuais) =>
-      atuais.includes(id) ? atuais.filter((item) => item !== id) : [...atuais, id]
-    )
-  }
-
-  const prepararContratacao = (grupo?: GrupoClasse) => {
-    if (grupo) {
-      const idsGrupo = grupo.demandas.map((d) => d.id)
-      setSelecionadas((atuais) => Array.from(new Set([...atuais, ...idsGrupo])))
-      setForm({
-        titulo: `${grupo.categoria === 'SERVICO' ? 'Contratação de' : 'Aquisição de'} ${grupo.nome}`,
-        categoria: grupo.categoria,
-        descricao: `Contratação futura consolidada a partir de ${grupo.demandas.length} DFD(s) da classe ${grupo.codigo} - ${grupo.nome}.`,
-        data_inicio_processo: '',
-        data_conclusao_processo: '',
-        prazo_estimado_dias: '',
-      })
-    }
-    setShowContratacao(true)
-  }
-
-  const salvarContratacao = async () => {
-    if (selecionadas.length === 0) {
-      toast.warning('Selecione ao menos uma DFD')
-      return
-    }
-    setSalvando(true)
+  const montarDfd = async () => {
+    if (!selecionadas.length) return
+    setMontando(true)
     try {
-      const payload = { orgaoId, demandaIds: selecionadas }
-      const res = modoContratacao === 'nova'
-        ? await authFetch(`${API_URL}/api/demandas/contratacoes-futuras`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ...payload,
-              ano_referencia: ano,
-              titulo: form.titulo,
-              categoria: form.categoria,
-              descricao: form.descricao,
-              data_inicio_processo: form.data_inicio_processo || undefined,
-              data_conclusao_processo: form.data_conclusao_processo || undefined,
-              prazo_estimado_dias: form.prazo_estimado_dias ? Number(form.prazo_estimado_dias) : undefined,
-            }),
-          })
-        : await authFetch(`${API_URL}/api/demandas/contratacoes-futuras/${contratacaoExistenteId}/demandas`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        toast.error(err.message || 'Erro ao salvar contratação futura')
-        return
-      }
-
-      setShowContratacao(false)
-      setSelecionadas([])
-      setContratacaoExistenteId('')
-      await carregar()
+      const r = await authFetch(`${API_URL}/api/dfds-consolidados`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ demanda_ids: selecionadas }),
+      })
+      const j = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
+      toast.success(`${j.rotulo} montado — revise os campos e os itens.`)
+      router.push(`/orgao/demandas/dfd/${j.id}`)
+    } catch (e: any) {
+      toast.error(`DFD não montado: ${e.message}`)
     } finally {
-      setSalvando(false)
+      setMontando(false)
     }
   }
+
+  const livres = new Set(demandas.map((d) => d.id))
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Button variant="ghost" className="mb-2" onClick={() => router.push('/orgao/demandas')}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Voltar
+            Demandas
           </Button>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ClipboardList className="h-6 w-6" />
-            Consolidação das Demandas
+            DFD consolidado
           </h1>
-          <p className="text-gray-600">Agrupe DFDs por classe/grupo e forme contratações futuras para o PCA.</p>
+          <p className="text-gray-600 max-w-3xl">
+            A unidade de planejamento junta as demandas parecidas dos setores num único Documento de Formalização da Demanda
+            (Lei 14.133, art. 12, VII — evita o fracionamento, art. 75, §1º) e abre um processo.
+          </p>
+          {permissoes && (
+            <p className="text-xs text-gray-500 mt-1">
+              Quem monta: {permissoes.responsavel_dfd}.{' '}
+              {permissoes.exige_aprovacao_dfd ? `2ª aprovação do DFD ligada (${permissoes.aprovador_dfd}).` : '2ª aprovação do DFD desligada.'}{' '}
+              <Link href="/orgao/configuracoes/fluxo" className="text-blue-700 underline">Configurações › Fluxo</Link>
+            </p>
+          )}
         </div>
-        <Select value={String(ano)} onValueChange={(value) => setAno(Number(value))}>
+        <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
           <SelectTrigger className="w-32 bg-white">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 1 + i).map((item) => (
-              <SelectItem key={item} value={String(item)}>{item}</SelectItem>
+            {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 1 + i).map((a) => (
+              <SelectItem key={a} value={String(a)}>{a}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
+      {permissoes && !permissoes.pode_montar && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
+          <Lock className="h-4 w-4 shrink-0 mt-0.5" />
+          Você pode consultar os DFDs, mas só a unidade de planejamento monta o DFD e abre o processo ({permissoes.responsavel_dfd}).
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{demandas.length}</div>
-            <p className="text-sm text-gray-500">DFDs disponíveis</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{grupos.length}</div>
-            <p className="text-sm text-gray-500">Classes/grupos</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{contratacoes.length}</div>
-            <p className="text-sm text-gray-500">Contratações futuras</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-2xl font-bold text-blue-700">{formatarMoeda(valorSelecionado)}</div>
-            <p className="text-sm text-gray-500">{selecionadas.length} DFD(s) selecionada(s)</p>
-          </CardContent>
-        </Card>
+        <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{demandas.length}</div><p className="text-sm text-gray-500">Demandas aprovadas livres</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{grupos.length}</div><p className="text-sm text-gray-500">Classes/grupos</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-2xl font-bold">{dfds.filter((f) => f.status !== 'CANCELADO').length}</div><p className="text-sm text-gray-500">DFDs em {ano}</p></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-2xl font-bold text-blue-700">{formatarMoeda(valorSelecionado)}</div><p className="text-sm text-gray-500">{selecionadas.length} demanda(s) selecionada(s)</p></CardContent></Card>
       </div>
+
+      {/* Seleção + prévia */}
+      {permissoes?.pode_montar && selecionadas.length > 0 && (
+        <Card className="border-blue-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center justify-between gap-2 flex-wrap">
+              <span>Prévia do DFD ({selecionadas.length} demanda(s))</span>
+              <span className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setSelecionadas([])}>Limpar</Button>
+                <Button size="sm" onClick={montarDfd} disabled={montando || carregandoPrevia || !previa}>
+                  {montando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+                  Montar DFD
+                </Button>
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {carregandoPrevia && <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Somando os itens…</p>}
+            {previa && (
+              <>
+                <AlertaParecidos alertas={previa.alertas} />
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 border-b">
+                        <th className="py-1 pr-2">Nº</th>
+                        <th className="py-1 pr-2">Item</th>
+                        <th className="py-1 pr-2 text-right">Qtd. somada</th>
+                        <th className="py-1 pr-2">De onde veio</th>
+                        <th className="py-1 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previa.itens.map((i) => (
+                        <tr key={i.chave} className="border-b last:border-0">
+                          <td className="py-1 pr-2">{i.numero}</td>
+                          <td className="py-1 pr-2">{i.descricao}</td>
+                          <td className="py-1 pr-2 text-right">{Number(i.quantidade_somada).toLocaleString('pt-BR')} {i.unidade_medida}</td>
+                          <td className="py-1 pr-2 text-xs text-gray-600">{i.origens.map((o) => `${o.setor}: ${Number(o.quantidade).toLocaleString('pt-BR')}`).join('; ')}</td>
+                          <td className="py-1 text-right">{formatarMoeda(i.valor_total_estimado)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-sm font-semibold text-right">Total estimado: {formatarMoeda(previa.valor_total_estimado)}</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-3">
-            <div className="relative flex-1 min-w-[280px]">
+            <div className="relative flex-1 min-w-[260px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                value={termo}
-                onChange={(e) => setTermo(e.target.value)}
-                placeholder="Pesquisar por classe, objeto, setor ou responsável..."
-                className="pl-10 bg-white"
-              />
+              <Input value={termo} onChange={(e) => setTermo(e.target.value)} placeholder="Pesquisar por classe, objeto, setor ou responsável..." className="pl-10 bg-white" />
             </div>
             <Select value={unidade} onValueChange={setUnidade}>
-              <SelectTrigger className="w-64 bg-white">
-                <SelectValue placeholder="Área requisitante" />
-              </SelectTrigger>
+              <SelectTrigger className="w-64 bg-white"><SelectValue placeholder="Setor" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="TODAS">Todas as áreas</SelectItem>
-                {unidades.map((item) => (
-                  <SelectItem key={item} value={item}>{item}</SelectItem>
-                ))}
+                <SelectItem value="TODAS">Todos os setores</SelectItem>
+                {unidades.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Button onClick={() => prepararContratacao()} disabled={selecionadas.length === 0}>
-              <Briefcase className="h-4 w-4 mr-2" />
-              Contratação
-            </Button>
           </div>
         </CardContent>
       </Card>
 
       {loading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-        </div>
+        <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>
       ) : grupos.length === 0 ? (
         <Card>
-          <CardContent className="py-16 text-center">
+          <CardContent className="py-12 text-center">
             <FileText className="h-12 w-12 mx-auto text-gray-300 mb-3" />
-            <h2 className="font-semibold text-gray-700">Nenhuma DFD aprovada para consolidar</h2>
-            <p className="text-sm text-gray-500 mt-1">Aprove DFDs de {ano} para elas aparecerem nesta etapa.</p>
+            <h2 className="font-semibold text-gray-700">Nenhuma demanda aprovada livre em {ano}</h2>
+            <p className="text-sm text-gray-500 mt-1">As demandas aparecem aqui depois de aprovadas na Central de Aprovações.</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {grupos.map((grupo) => {
-            const aberto = grupoAberto === grupo.chave
-            const selecionadasGrupo = grupo.demandas.filter((d) => selecionadas.includes(d.id)).length
+          {grupos.map((g) => {
+            const aberto = grupoAberto === g.chave
+            const selGrupo = g.demandas.filter((d) => selecionadas.includes(d.id)).length
             return (
-              <Card key={grupo.chave} className="overflow-hidden">
-                <button
-                  className="w-full p-5 flex items-center justify-between gap-4 hover:bg-gray-50 text-left"
-                  onClick={() => setGrupoAberto(aberto ? null : grupo.chave)}
-                >
-                  <div className="flex items-center gap-4">
+              <Card key={g.chave} className="overflow-hidden">
+                <div className="w-full p-4 flex items-center justify-between gap-4 hover:bg-gray-50 cursor-pointer" onClick={() => setGrupoAberto(aberto ? null : g.chave)}>
+                  <div className="flex items-center gap-3">
                     {aberto ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
-                    <Badge variant="outline">{grupo.categoria === 'MATERIAL' ? 'M' : 'S'}</Badge>
+                    <Badge variant="outline">{g.categoria === 'MATERIAL' ? 'M' : 'S'}</Badge>
                     <div>
-                      <div className="text-sm text-gray-500">Classe/Grupo</div>
-                      <div className="font-semibold">{grupo.codigo} - {grupo.nome}</div>
+                      <div className="text-xs text-gray-500">Classe/grupo</div>
+                      <div className="font-semibold">{g.codigo} — {g.nome}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-8 text-right">
-                    <div>
-                      <div className="font-semibold">{grupo.demandas.length}</div>
-                      <div className="text-sm text-gray-500">DFD(s)</div>
-                    </div>
-                    <div>
-                      <div className="font-semibold">{formatarMoeda(grupo.valor)}</div>
-                      <div className="text-sm text-gray-500">Valor estimado</div>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant={selecionadasGrupo > 0 ? 'default' : 'outline'}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        prepararContratacao(grupo)
-                      }}
-                    >
-                      <Briefcase className="h-4 w-4 mr-2" />
-                      Contratação
-                    </Button>
+                  <div className="flex items-center gap-6 text-right">
+                    <div><div className="font-semibold">{g.demandas.length}</div><div className="text-xs text-gray-500">demanda(s)</div></div>
+                    <div><div className="font-semibold">{formatarMoeda(g.valor)}</div><div className="text-xs text-gray-500">estimado</div></div>
+                    {permissoes?.pode_montar && (
+                      <Button size="sm" variant={selGrupo === g.demandas.length ? 'default' : 'outline'} onClick={(e) => { e.stopPropagation(); selecionarGrupo(g) }}>
+                        Juntar a classe
+                      </Button>
+                    )}
                   </div>
-                </button>
-
+                </div>
                 {aberto && (
-                  <div className="border-t bg-white p-5">
-                    <div className="grid grid-cols-[36px_1fr_160px_150px_130px] gap-4 px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50 rounded">
-                      <span />
-                      <span>DFD / Objeto</span>
-                      <span>Área requisitante</span>
-                      <span>Data desejada</span>
-                      <span className="text-right">Valor</span>
-                    </div>
-                    <div className="divide-y">
-                      {grupo.demandas.map((demanda) => {
-                        const valor = (demanda.itens || []).reduce((total, item) => total + (Number(item.valor_total_estimado) || 0), 0)
-                        const vinculada = !!demanda.contratacao_futura_id
-                        return (
-                          <div key={demanda.id} className="grid grid-cols-[36px_1fr_160px_150px_130px] gap-4 px-3 py-3 items-center">
-                            <button
-                              type="button"
-                              onClick={() => alternarDemanda(demanda.id)}
-                              className={`h-5 w-5 rounded border flex items-center justify-center ${
-                                selecionadas.includes(demanda.id)
-                                  ? 'bg-blue-600 border-blue-600 text-white'
-                                  : 'bg-white border-gray-300'
-                              }`}
-                            >
-                              {selecionadas.includes(demanda.id) && <Check className="h-3.5 w-3.5" />}
-                            </button>
-                            <div>
-                              <button
-                                onClick={() => router.push(`/orgao/demandas/${demanda.id}`)}
-                                className="font-medium text-blue-700 hover:underline text-left"
-                              >
-                                DFD - {demanda.unidade_requisitante}
-                              </button>
-                              <p className="text-sm text-gray-700 line-clamp-2">
-                                {demanda.descricao_sucinta_objeto || 'Sem descrição sucinta informada'}
-                              </p>
-                              {vinculada && (
-                                <Badge variant="outline" className="mt-1 bg-blue-50 text-blue-700 border-blue-200">
-                                  Vinculada à contratação futura
-                                </Badge>
-                              )}
-                            </div>
-                            <span className="text-sm text-gray-700">{demanda.unidade_requisitante}</span>
-                            <span className="text-sm text-gray-700">
-                              {demanda.data_desejada_contratacao
-                                ? new Date(demanda.data_desejada_contratacao).toLocaleDateString('pt-BR')
-                                : '-'}
-                            </span>
-                            <span className="text-sm font-semibold text-right">{formatarMoeda(valor)}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
+                  <div className="border-t bg-white p-4 divide-y">
+                    {g.demandas.map((d) => (
+                      <div key={d.id} className="grid grid-cols-[32px_1fr_160px_120px_120px] gap-3 py-2 items-center">
+                        {permissoes?.pode_montar ? (
+                          <button
+                            type="button"
+                            aria-label={selecionadas.includes(d.id) ? 'Tirar da seleção' : 'Selecionar'}
+                            onClick={() => alternar(d.id)}
+                            className={`h-5 w-5 rounded border flex items-center justify-center ${selecionadas.includes(d.id) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300'}`}
+                          >
+                            {selecionadas.includes(d.id) && <Check className="h-3.5 w-3.5" />}
+                          </button>
+                        ) : <span />}
+                        <div>
+                          <Link href={`/orgao/demandas/${d.id}`} className="font-medium text-blue-700 hover:underline">Demanda — {d.unidade_requisitante}</Link>
+                          <p className="text-sm text-gray-700 line-clamp-2">{d.descricao_sucinta_objeto || 'Sem descrição'}</p>
+                        </div>
+                        <span className="text-sm text-gray-700">{d.unidade_requisitante}</span>
+                        <span className="text-sm text-gray-700">{d.data_desejada_contratacao ? String(d.data_desejada_contratacao).slice(0, 10).split('-').reverse().join('/') : '—'}</span>
+                        <span className="text-sm font-semibold text-right">{formatarMoeda(valorDaDemanda(d))}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </Card>
@@ -475,144 +411,67 @@ function ConsolidacaoDemandasContent() {
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Contratações futuras em elaboração</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-base">DFDs de {ano}</CardTitle></CardHeader>
         <CardContent className="space-y-2">
-          {contratacoes.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhuma contratação futura criada para {ano}.</p>
-          ) : contratacoes.map((contratacao) => (
-            <div key={contratacao.id} className="flex items-center justify-between rounded-lg border bg-white p-3">
-              <div>
-                <div className="font-semibold">{contratacao.identificador} - {contratacao.titulo}</div>
-                <div className="text-sm text-gray-500">
-                  {(contratacao.demandas || []).length} DFD(s) vinculada(s) • {contratacao.categoria}
+          {dfds.length === 0 ? (
+            <p className="text-sm text-gray-500">Nenhum DFD montado em {ano}.</p>
+          ) : (
+            dfds.map((f) => (
+              <Link key={f.id} href={`/orgao/demandas/dfd/${f.id}`} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3 hover:bg-gray-50">
+                <div className="min-w-0">
+                  <div className="font-semibold flex items-center gap-2 flex-wrap">
+                    DFD nº {f.numero}/{f.ano}
+                    <Badge className={COR_STATUS_DFD[f.status]}>{ROTULO_STATUS_DFD[f.status] ?? f.status}</Badge>
+                    {f.numero_processo && <Badge variant="outline">Processo {f.numero_processo}</Badge>}
+                  </div>
+                  <div className="text-sm text-gray-700 truncate">{f.objeto}</div>
+                  <div className="text-xs text-gray-500">{f.n_demandas} demanda(s){f.setores ? ` — ${f.setores}` : ''} • {f.n_itens} item(ns)</div>
                 </div>
-              </div>
-              <div className="font-semibold text-blue-700">{formatarMoeda(Number(contratacao.valor_total_estimado) || 0)}</div>
-            </div>
-          ))}
+                <div className="font-semibold text-blue-700 shrink-0">{formatarMoeda(f.valor_total_estimado)}</div>
+              </Link>
+            ))
+          )}
         </CardContent>
       </Card>
 
-      <Dialog open={showContratacao} onOpenChange={setShowContratacao}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Selecionar Contratação</DialogTitle>
-            <DialogDescription>
-              Vincule {selecionadas.length} DFD(s) a uma contratação futura nova ou existente.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={modoContratacao === 'nova' ? 'default' : 'outline'}
-                onClick={() => setModoContratacao('nova')}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Criar nova
-              </Button>
-              <Button
-                type="button"
-                variant={modoContratacao === 'existente' ? 'default' : 'outline'}
-                onClick={() => setModoContratacao('existente')}
-              >
-                <Briefcase className="h-4 w-4 mr-2" />
-                Usar existente
-              </Button>
-            </div>
-
-            {modoContratacao === 'nova' ? (
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1">Título da contratação *</label>
-                  <Input value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
+      {antigas.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Contratações futuras (agrupamento antigo)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-xs text-gray-500 flex gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Agrupamentos feitos antes do DFD consolidado — ficam só para consulta. Para abrir processo, monte o DFD com as demandas.
+            </p>
+            {antigas.map((c) => {
+              const ids = (c.demandas || []).map((d) => d.id).filter((id) => livres.has(id))
+              return (
+                <div key={c.id} className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+                  <div>
+                    <div className="font-semibold">{c.identificador} — {c.titulo}</div>
+                    <div className="text-sm text-gray-500">{(c.demandas || []).length} demanda(s) • {c.categoria}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold text-blue-700">{formatarMoeda(Number(c.valor_total_estimado) || 0)}</span>
+                    {permissoes?.pode_montar && ids.length > 0 && (
+                      <Button size="sm" variant="outline" onClick={() => setSelecionadas(ids)}>Selecionar para o DFD</Button>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Categoria</label>
-                  <Select
-                    value={form.categoria}
-                    onValueChange={(value) => setForm({
-                      ...form,
-                      categoria: value as 'MATERIAL' | 'SERVICO' | 'OBRA' | 'OUTROS',
-                    })}
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="MATERIAL">Material</SelectItem>
-                      <SelectItem value="SERVICO">Serviço</SelectItem>
-                      <SelectItem value="OBRA">Obra</SelectItem>
-                      <SelectItem value="OUTROS">Outros</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Prazo estimado do processo</label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={form.prazo_estimado_dias}
-                    onChange={(e) => setForm({ ...form, prazo_estimado_dias: e.target.value })}
-                    placeholder="Dias"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Início estimado do processo</label>
-                  <Input type="date" value={form.data_inicio_processo} onChange={(e) => setForm({ ...form, data_inicio_processo: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Conclusão estimada</label>
-                  <Input type="date" value={form.data_conclusao_processo} onChange={(e) => setForm({ ...form, data_conclusao_processo: e.target.value })} />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1">Descrição</label>
-                  <Textarea value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} rows={4} />
-                </div>
-              </div>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium mb-1">Contratação futura existente</label>
-                <Select value={contratacaoExistenteId} onValueChange={setContratacaoExistenteId}>
-                  <SelectTrigger><SelectValue placeholder="Selecione uma contratação" /></SelectTrigger>
-                  <SelectContent>
-                    {contratacoes.map((contratacao) => (
-                      <SelectItem key={contratacao.id} value={contratacao.id}>
-                        {contratacao.identificador} - {contratacao.titulo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-sm text-blue-900 flex items-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Valor selecionado: <strong>{formatarMoeda(valorSelecionado)}</strong>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowContratacao(false)}>Fechar</Button>
-            <Button
-              onClick={salvarContratacao}
-              disabled={salvando || (modoContratacao === 'nova' ? !form.titulo.trim() : !contratacaoExistenteId)}
-            >
-              {salvando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
-              Concluir
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
 
-export default function ConsolidacaoDemandasPage() {
+export default function DfdConsolidadoPage() {
   return (
     <ModuleGuard modulo={ModuloSistema.DEMANDAS}>
-      <ConsolidacaoDemandasContent />
+      <DfdConsolidadoContent />
     </ModuleGuard>
   )
 }

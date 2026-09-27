@@ -32,7 +32,8 @@ import { PublicacaoTelaService } from './telas/publicacao-tela.service';
 import { AchadoConformidade, RevisaoConformidade } from './conformidade/achado.entity';
 import { ConformidadeService } from './conformidade/conformidade.service';
 import { ConformidadeController } from './conformidade/conformidade.controller';
-import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, RequisitoLegalFluxo, TravaAtoFluxo } from './fluxo/modelo-fluxo.entities';
+import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, PlanejamentoFluxoOrgao, RequisitoLegalFluxo, TravaAtoFluxo } from './fluxo/modelo-fluxo.entities';
+import { PlanejamentoFluxoService } from './fluxo/planejamento-fluxo.service';
 import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 import { FluxoProcessoController, ModeloFluxoController } from './fluxo/modelo-fluxo.controller';
@@ -130,6 +131,7 @@ import {
       RequisitoLegalFluxo,
       TravaAtoFluxo,
       FluxoProcessoFaseInterna,
+      PlanejamentoFluxoOrgao,
       // F3 — despacho das etapas de registro (folha dos autos)
       DespachoFaseInterna,
       // F4a — rascunho da IA por etapa (não é peça)
@@ -154,6 +156,7 @@ import {
   ],
   providers: [
     ModeloFluxoService,
+    PlanejamentoFluxoService,
     FluxoProcessoService,
     IntegracaoFluxoService,
     DespachoEtapaService,
@@ -220,6 +223,7 @@ import {
     OrcamentoService,
     ConformidadeService,
     ModeloFluxoService,
+    PlanejamentoFluxoService,
     IntegracaoFluxoService,
   ],
 })

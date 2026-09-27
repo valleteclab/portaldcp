@@ -11,16 +11,32 @@ A fase interna é a preparação da contratação (art. 18): descrever a necessi
 
 A última escolha fica marcada como sugestão (etiqueta "sua última escolha"), mas a pergunta sempre aparece. Na dispensa, a opção "feita fora" traz a etiqueta **comum na dispensa**.
 
-### A. A partir de uma demanda aprovada (recomendado)
+### Antes do processo: demanda, aprovação e DFD
 
-1. Menu **Demandas** › abra a demanda (ela precisa estar **Aprovada** ou **Consolidada**).
-2. Clique em **Iniciar contratação**.
+- **Demanda** é o **pedido** de qualquer servidor ou setor: o que precisa, quanto, por quê e para quando (ex.: a Comunicação pede notebooks; o Gabinete pede toner). É simples e **não abre processo**. Qualquer usuário com o módulo de Demandas cria a sua (menu **Demandas** › **Nova demanda**) e clica em **Enviar demanda**.
+- Quem aprova as demandas recebe o aviso (sino, e-mail e WhatsApp) e aprova ou rejeita na **Central de Aprovações** › aba **Demandas e DFD**. O nome de quem aprovou é o do login. **Demanda rejeitada:** o setor abre a demanda, clica em **Voltar para rascunho e corrigir**, ajusta (o motivo da rejeição continua à vista) e envia de novo.
+- **DFD** (Documento de Formalização da Demanda) é feito pela **unidade de planejamento** (na Câmara, a Diretoria Administrativa): no menu **Demandas** › **DFD consolidado**, ela junta os **pedidos parecidos de vários setores** num único DFD e abre **um** processo. Isso cumpre o art. 12, VII, da Lei 14.133/2021 e evita o fracionamento da despesa (art. 75, §1º).
+  1. As demandas aprovadas e livres aparecem **agrupadas por classe**. Marque as que vão juntas (ou **Juntar a classe**). A **prévia** mostra os itens **somados** — pelo **código do item do catálogo** quando houver; senão pela classe + descrição — e **de qual setor veio cada quantidade**.
+  2. **Atenção de pedidos parecidos:** se no mesmo exercício houver outra demanda aprovada fora de DFD, outro DFD ou processo com itens do mesmo código ou da mesma classe, aparece um aviso amarelo com a lista e o link de cada um. Não impede continuar: avalie juntar ou registre por que é separado.
+  3. **Montar DFD** cria o **DFD nº N/ano** (em elaboração), já com objeto, justificativa de cada setor, unidade de planejamento e responsável (quem montou), data pretendida (a mais cedo), prioridade (a mais alta) e o item do PCA quando todas as demandas apontam o mesmo. Tudo é editável; na tabela de itens o planejamento **ajusta** quantidade e valor (a soma original fica guardada e aparece no PDF), tira itens ou inclui/tira demandas.
+  4. **PDF do DFD** lista os itens somados, a origem de cada quantidade e as demandas de origem (setor, objeto, quem aprovou), com data no horário de Brasília.
+  5. **Abrir processo**: escolha a modalidade e se a fase interna é guiada ou feita fora. O processo nasce com os **itens consolidados** e a **peça DFD do processo já preenchida** (unidade requisitante, responsável, data pretendida, prioridade e PCA) — nada de redigitar. As demandas passam a **Em contratação**.
+- **Demanda juntada num DFD fica travada**: não é editada, não entra em outro DFD e não abre processo sozinha. Na lista, aparece a etiqueta **DFD nº N/ano**; na demanda, o acompanhamento mostra Aprovada › No DFD › PCA › Processo › Contrato.
+- **2ª aprovação (do DFD)** é **opcional** e vem **desligada**. Com ela ligada em [Configurações › Fluxo](01-configuracao-do-orgao.md#configurar-o-fluxo-configurações-›-fluxo), o planejamento clica em **Enviar para aprovação**; o aprovador designado aprova ou devolve (com motivo) na Central de Aprovações; o processo só abre depois da aprovação.
+- Só a **unidade de planejamento** monta o DFD e abre o processo: por padrão, o **administrador do órgão** e quem tem o papel **Planejamento** (configurável). Os demais usuários consultam os DFDs, sem os botões.
+
+### A. A partir de uma demanda aprovada (atalho da unidade de planejamento)
+
+Quando não há pedidos parecidos para juntar, a unidade de planejamento pode abrir o processo de **uma** demanda só. Por baixo, o sistema cria um **DFD de 1 demanda** e segue o mesmo caminho do DFD consolidado.
+
+1. Menu **Demandas** › abra a demanda (ela precisa estar **Aprovada** ou **No PCA**, e fora de um DFD).
+2. Clique em **Iniciar contratação** (o botão só aparece para a unidade de planejamento).
 3. Na janela, escolha a **Modalidade da contratação**: Dispensa Eletrônica, Pregão Eletrônico, Inexigibilidade ou Concorrência. O sistema sugere a dispensa quando o valor cabe no limite vigente do art. 75, II — mas a escolha é sua.
    - Responda também **"Como a fase interna deste processo foi feita?"**. Com **"Já foi feita fora"**, o botão vira **Continuar: dados, itens e PDFs** e abre o fluxo curto (forma C) com o objeto, a área e os itens da demanda já preenchidos.
 4. Se quiser, marque a opção do **copiloto**: "O sistema pesquisa preços em fontes reais (PNCP/Painel de Preços) e redige os rascunhos do ETP, TR e autorização — você só revisa e aprova."
 5. Clique em **Criar processo**. O processo abre direto na **tela do DFD** (veja "Telas por etapa", abaixo).
 
-O processo nasce **vinculado à demanda** e já com itens, quantidades, valores estimados e o DFD. A demanda passa a **Em contratação** e o item do PCA a **Licitação iniciada**. Quando o contrato for assinado por todos, a demanda vira **Contratada** e o item do PCA **Contratado**.
+O processo nasce **vinculado à demanda** (pelo DFD de 1 demanda) e já com itens, quantidades, valores estimados e o DFD. A demanda passa a **Em contratação** e o item do PCA a **Licitação iniciada**. Quando o contrato for assinado por todos, a demanda (todas as demandas do DFD) vira **Contratada** e o item do PCA **Contratado**. Com a 2ª aprovação ligada, o sistema leva você ao DFD para enviá-lo à aprovação antes de abrir o processo.
 
 Se a demanda já tiver processo, o botão vira **Ver processo &lt;número&gt;**.
 
@@ -135,12 +151,12 @@ Cada etapa mostra a situação (com a mesma cor da barra de etapas), o responsá
 O início do processo de compra é a **aprovação da demanda**, feita por quem o órgão designou (na maioria dos casos, quem tem a permissão de aprovar demandas — configurável em [Configurações › Fluxo](01-configuracao-do-orgao.md#configurar-o-fluxo-configurações-›-fluxo)). Enquanto a demanda não for aprovada, a Demanda/DFD fica **"aguardando aprovação"**, e as etapas seguintes (Estudo Técnico, Termo de Referência, Pesquisa) ficam **"Aguardando: Demanda"** — não é possível adiantar o processo antes da aprovação.
 
 A aprovação conta **sozinha**, sem precisar de um clique, quando:
-- o processo nasceu de uma **demanda já aprovada** no módulo de Demandas;
+- o processo nasceu de um **DFD consolidado** (ou de uma demanda) e **todas as demandas de origem estão aprovadas** — e, com a 2ª aprovação ligada, o DFD também foi aprovado. A linha verde diz "DFD consolidado nº N/ano (X demandas aprovadas)";
 - o DFD foi **juntado feito fora** (a aprovação já consta da peça anexada, salvo se o órgão desligar essa regra no modelo);
 - o DFD foi feito no sistema e **aprovado pelo fluxo de aprovação de documentos** do órgão, ou assinado por quem aprova;
 - o órgão está no **modo simples** (uma pessoa conduz o processo inteiro) — nesse caso, quem conduz já é considerado o aprovador.
 
-Quando é preciso um clique, o bloco amarelo no topo do quadro **"Fluxo da fase interna"** mostra **"Aguardando aprovação da demanda por [pessoa/papel/setor]"**, com o botão **"Aprovar a demanda"** visível só para quem pode aprovar. Depois de aprovada, a linha fica verde: "Demanda aprovada por [nome] em [data]".
+Quando é preciso um clique, o bloco amarelo no topo do quadro **"Fluxo da fase interna"** mostra **"Aguardando aprovação da demanda por [pessoa/papel/setor]"**, com o botão **"Aprovar a demanda"** visível só para quem pode aprovar. Quem aprova recebe a tarefa **"Aprovar a demanda"**, que leva à **Central de Aprovações** › **Demandas e DFD** (bloco "Aprovação da demanda nos processos") — dá para aprovar ali mesmo. Depois de aprovada, a linha fica verde: "Demanda aprovada por [nome] em [data]".
 
 **Reabrir a demanda** (voltar a etapa da Demanda) desfaz a aprovação — o processo volta a precisar de uma nova aprovação antes de seguir.
 
@@ -456,6 +472,8 @@ Quando acionado (na criação a partir da demanda ou pelo botão **Preparar auto
 - em caso de falha, a mensagem e o botão **Tentar de novo**.
 
 ## Aprovações
+
+**Central de Aprovações** (`/orgao/aprovacoes`): todas as aprovações ficam num lugar só, e **cada pessoa vê só o que ela aprova**. A aba **Demandas e DFD** junta: as **demandas** enviadas pelos setores (para quem aprova demandas), os **DFDs consolidados** na 2ª aprovação (para o aprovador do DFD, quando ligada) e a **aprovação da demanda nos processos** (tarefa "Aprovar a demanda"). As demais abas (documentos, contratos, requisições, medições, OS) seguem como antes.
 
 Quando um documento tem fluxo de aprovação configurado (veja [Configuração](01-configuracao-do-orgao.md#5-fluxos-de-aprovação)):
 

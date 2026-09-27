@@ -46,6 +46,10 @@ import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizaca
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
 import { comoErro } from '../common/erros';
 import { colunasTipadasDosMetadados, mensagemCamposInvalidos, normalizarCamposTipados } from './normalizar-campos-edicao';
+import { DfdConsolidadoService } from '../demandas/dfd/dfd-consolidado.service';
+import { textoDoAlerta } from '../demandas/dfd/consolidacao-dfd';
+import { AuditLogService } from '../fase-interna/audit-log.service';
+import { AcaoLogFaseInterna } from '../fase-interna/entities/log-fase-interna.entity';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -104,6 +108,9 @@ export class LicitacoesService {
     // Resultado único (E6): julgamento da dispensa e resultado externo gravam
     // a adjudicação pelo mesmo serviço; homologar é só dele.
     private readonly resultado: ResultadoService,
+    // DFD consolidado (unidade de planejamento): o processo nasce do DFD (N demandas)
+    private readonly dfds: DfdConsolidadoService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   /**
@@ -116,21 +123,24 @@ export class LicitacoesService {
     titulo: string,
     mensagem: string,
   ): Promise<void> {
-    if (!licitacao.demanda_id) return;
     try {
-      const demanda = await this.demandaRepository.findOneBy({ id: licitacao.demanda_id });
-      if (!demanda) return;
-      await this.notificacoesService.criar({
-        orgao_id: licitacao.orgao_id,
-        usuario_id: licitacao.orgao_id,
-        usuario_email: demanda.responsavel_email || undefined,
-        tipo,
-        titulo,
-        mensagem,
-        entidade_tipo: 'DEMANDA',
-        entidade_id: demanda.id,
-        link: `/orgao/demandas/${demanda.id}`,
-      } as any);
+      // Todas as demandas do processo: o vínculo antigo e as do DFD consolidado
+      const ids = await this.dfds.demandasDoProcesso(licitacao.id);
+      if (!ids.length) return;
+      const demandas = await this.demandaRepository.find({ where: ids.map((id) => ({ id })) });
+      for (const demanda of demandas) {
+        await this.notificacoesService.criar({
+          orgao_id: licitacao.orgao_id,
+          usuario_id: licitacao.orgao_id,
+          usuario_email: demanda.responsavel_email || undefined,
+          tipo,
+          titulo,
+          mensagem,
+          entidade_tipo: 'DEMANDA',
+          entidade_id: demanda.id,
+          link: `/orgao/demandas/${demanda.id}`,
+        } as any);
+      }
     } catch (eCapturado: unknown) {
       const e = comoErro(eCapturado);
       this.logger.warn(`Notificação da demanda de origem não enviada: ${e.message}`);
@@ -156,7 +166,14 @@ export class LicitacoesService {
   async create(
     createDto: CreateLicitacaoDto,
     ator: AtorTransicao = atorSistema('api'),
-    opcoes: { id?: string; demanda_id?: string | null; registro?: Record<string, any>; fase_interna_externa?: Record<string, any> | null } = {},
+    opcoes: {
+      id?: string;
+      demanda_id?: string | null;
+      registro?: Record<string, any>;
+      fase_interna_externa?: Record<string, any> | null;
+      /** DFD consolidado já reservado (`DfdConsolidadoService.reservarParaProcesso`): grava a ligação antes do status das demandas. */
+      dfd_consolidado?: { id: string; ator: Ator | null } | null;
+    } = {},
   ): Promise<Licitacao> {
     // Modo de disputa × critério de julgamento (Lei 14.133 art. 56 §§1º e 2º)
     const vedacao = motivoModoCriterioInvalido(createDto.modo_disputa, createDto.criterio_julgamento);
@@ -223,9 +240,10 @@ export class LicitacoesService {
     Object.assign(licitacao, beneficioMpe);
 
     const salva = await this.licitacaoRepository.save(licitacao);
+    if (opcoes.dfd_consolidado) await this.dfds.vincularProcesso(opcoes.dfd_consolidado.id, salva.id, opcoes.dfd_consolidado.ator, salva.numero_processo);
     await this.transicoes.registrarCriacao(salva, ator, undefined, opcoes.registro);
-    // E6.5: vinculada ao item do PCA → item LICITACAO_INICIADA
-    if (salva.item_pca_id || salva.demanda_id) await this.resultado.aoCriarProcesso(salva.id);
+    // E6.5: vinculada ao item do PCA / às demandas → item LICITACAO_INICIADA, demandas EM_CONTRATACAO
+    if (salva.item_pca_id || salva.demanda_id || opcoes.dfd_consolidado) await this.resultado.aoCriarProcesso(salva.id);
     return salva;
   }
 
@@ -264,6 +282,16 @@ export class LicitacoesService {
       throw new ConflictException(
         `Esta demanda já originou o processo ${jaExiste.numero_processo}`,
       );
+    }
+    // Juntada num DFD consolidado: o processo sai do DFD (não da demanda sozinha)
+    const noDfd = await this.dfds.dfdDaDemanda(demandaId);
+    if (noDfd) {
+      const ids = await this.dfds.idsDasDemandas(noDfd.id);
+      if (noDfd.status === 'EM_PROCESSO' || ids.length > 1) {
+        throw new ConflictException(
+          `Esta demanda já está no DFD nº ${noDfd.numero}/${noDfd.ano} (consolidado pela unidade de planejamento) — o processo é aberto pelo DFD.`,
+        );
+      }
     }
     return demanda;
   }
@@ -324,6 +352,9 @@ export class LicitacoesService {
   }
 
   /**
+   * "Iniciar contratação" a partir de UMA demanda (só a unidade de
+   * planejamento): por baixo, um DFD de 1 demanda e o mesmo caminho do DFD
+   * consolidado (`criarAPartirDeDfd`).
    * @param orgaoIdDoAtor órgão do usuário autenticado (null/undefined = admin da
    *        plataforma). Demanda de outro órgão → 404 (não confirma que existe).
    */
@@ -331,163 +362,163 @@ export class LicitacoesService {
     dto: CreateFromDemandaDto,
     orgaoIdDoAtor?: string | null,
     ator: AtorTransicao = atorSistema('api'),
+    atorAcesso?: Ator | null,
   ): Promise<Licitacao> {
-    // 1–2. Demanda do órgão, aprovada e ainda sem processo
+    // 1–2. Demanda do órgão, aprovada e ainda sem processo (mensagens de sempre)
     const demanda = await this.demandaParaProcesso(dto.demanda_id, orgaoIdDoAtor);
+    if (!atorAcesso) throw new BadRequestException('Autenticação necessária');
+    await this.dfds.exigirMontar(atorAcesso, demanda.orgao_id);
+    this.conferirModalidadeCriterio(dto);
+    const dfd = await this.dfds.criarDeUmaDemanda(demanda.id, demanda.orgao_id, atorAcesso);
+    const r = await this.criarAPartirDeDfd(dfd.id, dto, demanda.orgao_id, ator, atorAcesso);
+    return r.licitacao;
+  }
 
-    const itens = demanda.itens || [];
-
-    // 3. Gera/valida numero_processo
-    const ano = new Date().getFullYear();
-    let numero_processo: string;
-
-    if (dto.numero_processo) {
-      const existente = await this.licitacaoRepository.findOne({
-        where: { numero_processo: dto.numero_processo },
-      });
-      if (existente) {
-        throw new ConflictException(
-          `Já existe uma licitação com o processo ${dto.numero_processo}`,
-        );
-      }
-      numero_processo = dto.numero_processo;
-    } else {
-      const count = await this.licitacaoRepository.count({ where: { ano } });
-      let sequencial = count + 1;
-      // Garante unicidade incrementando o sequencial até estar livre
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        numero_processo = `${ano}/${String(sequencial).padStart(5, '0')}`;
-        const existente = await this.licitacaoRepository.findOne({
-          where: { numero_processo },
-        });
-        if (!existente) break;
-        sequencial++;
-      }
-    }
-
-    // Sequencial determinístico para persistência (contagem do ano + 1)
-    const countParaSeq = await this.licitacaoRepository.count({ where: { ano } });
-
-    // 4. Compõe o objeto
-    let objeto: string;
-    if (dto.objeto) {
-      objeto = dto.objeto;
-    } else if (itens.length === 1) {
-      objeto = itens[0].descricao_objeto;
-    } else {
-      objeto = `Contratação referente à demanda ${demanda.unidade_requisitante} (${itens.length} itens)`;
-    }
-
-    // 5. Soma dos valores estimados
-    const valor_total_estimado = itens.reduce(
-      (acc, it) => acc + (Number(it.valor_total_estimado) || 0),
-      0,
-    );
-
-    // Modo (padrão ABERTO) × critério — Lei 14.133 art. 56 §§1º e 2º
+  /** Modo (padrão ABERTO) × critério e modalidade × critério — Lei 14.133 art. 56 §§1º e 2º. */
+  private conferirModalidadeCriterio(dto: { modalidade?: ModalidadeLicitacao; criterio_julgamento?: CriterioJulgamento }) {
     const vedacaoModo = motivoModoCriterioInvalido(undefined, dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO);
     if (vedacaoModo) throw new BadRequestException(vedacaoModo);
-    const vedacaoModalidadeDemanda = motivoModalidadeCriterioInvalido(dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO, dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO);
-    if (vedacaoModalidadeDemanda) throw new BadRequestException(vedacaoModalidadeDemanda);
+    const vedacaoModalidade = motivoModalidadeCriterioInvalido(dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO, dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO);
+    if (vedacaoModalidade) throw new BadRequestException(vedacaoModalidade);
+  }
 
-    // 6. Cria e salva a Licitacao
-    const licitacao = this.licitacaoRepository.create({
-      orgao_id: demanda.orgao_id,
-      objeto,
-      valor_total_estimado,
-      demanda_id: demanda.id,
-      numero_processo,
-      modalidade: dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO,
-      // Deriva da natureza dos itens quando não informado
-      tipo_contratacao:
-        dto.tipo_contratacao ??
-        (itens.some((i) => i.categoria === 'SERVICO')
-          ? TipoContratacao.SERVICO
-          : TipoContratacao.COMPRA),
-      criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
-      fase: FaseLicitacao.PLANEJAMENTO,
-      situacao: SituacaoLicitacao.ATIVA,
-      ano,
-      sequencial: countParaSeq + 1,
-      data_abertura_processo: new Date(),
+  /**
+   * ABRE O PROCESSO a partir do DFD consolidado (unidade de planejamento):
+   * itens somados do DFD, ligação processo ↔ DFD ↔ demandas (N:1 pela tabela
+   * de ligação; `demanda_id` só quando é 1 demanda, por compatibilidade) e a
+   * PEÇA DFD do processo nasce preenchida (unidade requisitante, responsável,
+   * data pretendida, prioridade, item do PCA comum) — nada de redigitar.
+   * Com a 2ª aprovação ligada, só abre com o DFD aprovado. Devolve também o
+   * alerta de parecidos (atenção — art. 12, VII; art. 75, §1º).
+   */
+  async criarAPartirDeDfd(
+    dfdId: string,
+    dto: Partial<CreateFromDemandaDto>,
+    orgaoIdDoAtor: string | null | undefined,
+    ator: AtorTransicao = atorSistema('api'),
+    atorAcesso?: Ator | null,
+  ): Promise<{ licitacao: Licitacao; alertas: any[]; alerta: string | null }> {
+    this.conferirModalidadeCriterio(dto);
+    if (dto.numero_processo) {
+      const existente = await this.licitacaoRepository.findOne({ where: { numero_processo: dto.numero_processo } });
+      if (existente) throw new ConflictException(`Já existe uma licitação com o processo ${dto.numero_processo}`);
+    }
+    // Reserva (ninguém abre dois; confere aprovação, itens e demandas)
+    const { dfd, anterior, demandas } = await this.dfds.reservarParaProcesso(dfdId, orgaoIdDoAtor ?? null);
+    const itens = dfd.itens;
+    const ano = new Date().getFullYear();
+    let licitacaoSalva: Licitacao;
+    try {
+      // 3. Número do processo
+      let numero_processo: string;
+      if (dto.numero_processo) {
+        numero_processo = dto.numero_processo;
+      } else {
+        const count = await this.licitacaoRepository.count({ where: { ano } });
+        let sequencial = count + 1;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          numero_processo = `${ano}/${String(sequencial).padStart(5, '0')}`;
+          const existente = await this.licitacaoRepository.findOne({ where: { numero_processo } });
+          if (!existente) break;
+          sequencial++;
+        }
+      }
+      const countParaSeq = await this.licitacaoRepository.count({ where: { ano } });
+      // 4–5. Objeto e valor (do DFD)
+      const objeto = dto.objeto || dfd.objeto || (itens.length === 1 ? itens[0].descricao : `Contratação referente ao DFD nº ${dfd.numero}/${dfd.ano}`);
+      const valor_total_estimado = itens.reduce((acc, it) => acc + (Number(it.valor_total_estimado) || 0), 0);
+      // 6. Processo
+      const licitacao = this.licitacaoRepository.create({
+        orgao_id: dfd.orgao_id,
+        objeto,
+        valor_total_estimado,
+        // compatibilidade: processo de 1 demanda mantém o vínculo antigo
+        demanda_id: demandas.length === 1 ? demandas[0].id : (null as any),
+        item_pca_id: dfd.item_pca_id ?? (undefined as any),
+        numero_processo,
+        modalidade: dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO,
+        tipo_contratacao: dto.tipo_contratacao ?? (itens.some((i) => i.categoria === 'SERVICO') ? TipoContratacao.SERVICO : TipoContratacao.COMPRA),
+        criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
+        fase: FaseLicitacao.PLANEJAMENTO,
+        situacao: SituacaoLicitacao.ATIVA,
+        ano,
+        sequencial: countParaSeq + 1,
+        data_abertura_processo: new Date(),
+      });
+      licitacaoSalva = await this.licitacaoRepository.save(licitacao);
+    } catch (e) {
+      await this.dfds.liberarReserva(dfdId, anterior);
+      throw e;
+    }
+    await this.dfds.vincularProcesso(dfdId, licitacaoSalva.id, atorAcesso ?? null, licitacaoSalva.numero_processo);
+    await this.transicoes.registrarCriacao(licitacaoSalva, ator, undefined, {
+      demanda_id: licitacaoSalva.demanda_id ?? null,
+      dfd_consolidado_id: dfd.id,
+      demandas: demandas.map((d) => d.id),
     });
-
-    const licitacaoSalva = await this.licitacaoRepository.save(licitacao);
-    await this.transicoes.registrarCriacao(licitacaoSalva, ator, undefined, { demanda_id: demanda.id });
-    // E6.5: demanda → EM_CONTRATACAO; item do PCA → LICITACAO_INICIADA
+    // E6.5: demandas → EM_CONTRATACAO (todas as do DFD); item do PCA → LICITACAO_INICIADA
     await this.resultado.aoCriarProcesso(licitacaoSalva.id);
 
-    // 7. Cria os itens da licitação a partir dos itens da demanda
-    const itensLicitacao = itens.map((item, i) => {
-      const semPca = !item.item_pca_id;
-      const codigoCatmat =
-        item.categoria === 'MATERIAL' ? item.codigo_classe : undefined;
-      const codigoCatser =
-        item.categoria === 'MATERIAL' ? undefined : item.codigo_classe;
-
-      return this.itemRepository.create({
+    // 7. Itens do processo = itens consolidados do DFD
+    const itensLicitacao = itens.map((item, i) =>
+      this.itemRepository.create({
         licitacao_id: licitacaoSalva.id,
         numero_item: i + 1,
-        descricao_resumida: item.descricao_objeto,
-        descricao_detalhada: item.descricao_objeto,
-        quantidade: item.quantidade_estimada,
+        descricao_resumida: item.descricao,
+        descricao_detalhada: item.descricao,
+        quantidade: Number(item.quantidade),
         unidade_medida: this.mapUnidade(item.unidade_medida),
-        valor_unitario_estimado: item.valor_unitario_estimado ?? 0,
-        valor_total_estimado: item.valor_total_estimado ?? 0,
-        codigo_catalogo: item.codigo_item_catalogo,
-        codigo_catmat: codigoCatmat,
-        codigo_catser: codigoCatser,
-        classe_catalogo: item.nome_classe,
-        nome_pdm: item.nome_classe,
+        valor_unitario_estimado: Number(item.valor_unitario_estimado) || 0,
+        valor_total_estimado: Number(item.valor_total_estimado) || 0,
+        codigo_catalogo: item.codigo_item_catalogo ?? undefined,
+        codigo_catmat: item.categoria === 'MATERIAL' ? item.codigo_classe ?? undefined : undefined,
+        codigo_catser: item.categoria === 'MATERIAL' ? undefined : item.codigo_classe ?? undefined,
+        classe_catalogo: item.nome_classe ?? undefined,
+        nome_pdm: item.nome_classe ?? undefined,
         nome_grupo: item.categoria,
         item_pca_id: item.item_pca_id ?? undefined,
-        sem_pca: semPca,
-        justificativa_sem_pca: item.item_pca_id ? undefined : (item.justificativa ?? undefined),
-      });
-    });
+        sem_pca: !item.item_pca_id,
+        justificativa_sem_pca: item.item_pca_id ? undefined : item.justificativa ?? undefined,
+      }),
+    );
+    if (itensLicitacao.length > 0) await this.itemRepository.save(itensLicitacao);
 
-    if (itensLicitacao.length > 0) {
-      await this.itemRepository.save(itensLicitacao);
-    }
-
-    // 7.5 DFD gerado automaticamente da própria demanda — a instrução do
-    // Art. 72 nasce com o primeiro obrigatório pronto (campos alinhados às
-    // regras de conformidade do DFD: demanda/quantidade/previsao).
+    // 7.5 Peça DFD do processo, preenchida a partir do DFD consolidado
+    const alertas = await this.dfds.alertas(dfd.orgao_id, dfd.ano, itens, { dfdId: dfd.id, demandaIds: demandas.map((d) => d.id), licitacaoId: licitacaoSalva.id });
+    const alerta = textoDoAlerta(alertas);
     try {
-      const qtdResumo = itens
-        .map((i) => `${i.descricao_objeto} — ${Number(i.quantidade_estimada) || 1} ${i.unidade_medida || 'UN'}`)
-        .join('; ');
-      const previsao = demanda.data_desejada_contratacao
-        ? new Date(demanda.data_desejada_contratacao).toLocaleDateString('pt-BR')
-        : `Ano de referência ${demanda.ano_referencia}`;
-      const dadosDfd = {
-        demanda: `${demanda.descricao_sucinta_objeto || objeto}\n\nUnidade requisitante: ${demanda.unidade_requisitante}${demanda.responsavel_nome ? `\nResponsável: ${demanda.responsavel_nome}` : ''}${demanda.observacoes ? `\n\nObservações: ${demanda.observacoes}` : ''}`,
-        quantidade: qtdResumo,
-        previsao,
-        data: new Date().toISOString().split('T')[0],
-      };
+      const pc = await this.dfds.camposDaPeca(dfd, demandas);
+      const dados = { ...pc.secoes, _dfd: pc._dfd, _dfd_consolidado: pc._dfd_consolidado };
+      const descricao = Object.values(pc.secoes)
+        .filter((v) => typeof v === 'string' && v.trim())
+        .join('\n');
       await this.dataSource.query(
         `INSERT INTO documentos_fase_interna
            (licitacao_id, tipo, titulo, descricao, dados_estruturados, status, origem, versao, versao_atual, obrigatorio)
          VALUES ($1, 'DFD', 'Formalização da Demanda (DFD)', $2, $3, 'EM_ELABORACAO', 'INTERNO', 1, true, true)`,
-        [
-          licitacaoSalva.id,
-          `${dadosDfd.demanda}\n\nQuantidades: ${dadosDfd.quantidade}\n\nPrevisão: ${dadosDfd.previsao}`,
-          JSON.stringify(dadosDfd),
-        ],
+        [licitacaoSalva.id, descricao, JSON.stringify(dados)],
       );
+      const setores = [...new Set(demandas.map((d) => d.unidade_requisitante))];
+      await this.auditLog
+        .log({
+          licitacao_id: licitacaoSalva.id,
+          acao: AcaoLogFaseInterna.DOCUMENTO_CRIADO,
+          descricao:
+            `DFD do processo preenchido a partir do DFD consolidado nº ${dfd.numero}/${dfd.ano} (${demandas.length} demanda(s): ${setores.join(', ')})` +
+            (alerta ? `. ${alerta}` : ''),
+          dados_depois: { dfd_consolidado_id: dfd.id, demandas: demandas.map((d) => d.id), alertas },
+          contexto: atorAcesso?.usuarioId ? { usuario_id: atorAcesso.usuarioId } : undefined,
+        })
+        .catch(() => undefined);
     } catch (eCapturado: unknown) {
       const e = comoErro(eCapturado);
-      this.logger.warn(`DFD automático da demanda não gerado: ${e.message}`);
+      this.logger.warn(`DFD automático do DFD consolidado não gerado: ${e.message}`);
     }
 
-    // 8. Retorna a licitação recarregada com os itens
-    const resultado = await this.licitacaoRepository.findOne({
-      where: { id: licitacaoSalva.id },
-      relations: ['itens'],
-    });
-    return resultado!;
+    // 8. Processo recarregado com os itens
+    const resultado = await this.licitacaoRepository.findOne({ where: { id: licitacaoSalva.id }, relations: ['itens'] });
+    return { licitacao: resultado!, alertas, alerta };
   }
 
   async findAll(filtros?: {

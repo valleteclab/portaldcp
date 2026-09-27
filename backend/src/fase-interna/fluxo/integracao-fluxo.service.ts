@@ -195,7 +195,7 @@ export class IntegracaoFluxoService {
         titulo: 'Aprovar a demanda',
         descricao:
           `Processo ${r.lic.numero_processo}${objeto ? ` — ${objeto.length > 140 ? `${objeto.slice(0, 137)}…` : objeto}` : ''}. ` +
-          'A demanda (DFD) está pronta e aguarda a sua aprovação: abra o processo e use "Aprovar a demanda". As demais etapas só abrem depois dela.',
+          'A demanda (DFD) está pronta e aguarda a sua aprovação na Central de Aprovações (aba "Demandas e DFD"). As demais etapas só abrem depois dela.',
         origem: 'APROVACAO',
         tipo: 'OUTRO',
         responsavel: alvo.responsavel,

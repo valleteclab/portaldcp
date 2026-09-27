@@ -90,6 +90,8 @@ interface Demanda {
   pca_id?: string
   created_at: string
   itens: ItemDemanda[]
+  /** DFD consolidado (unidade de planejamento) em que a demanda entrou. */
+  dfd?: { id: string; numero: number; ano: number; status: string } | null
 }
 
 interface SetorOrgao {
@@ -115,7 +117,7 @@ const STATUS_CONFIG: Record<string, { label: string; cor: string; icon: Componen
   EM_ANALISE: { label: 'Em Análise', cor: 'bg-yellow-100 text-yellow-800', icon: Clock },
   APROVADA: { label: 'Aprovada', cor: 'bg-green-100 text-green-800', icon: CheckCircle },
   REJEITADA: { label: 'Rejeitada', cor: 'bg-red-100 text-red-800', icon: XCircle },
-  CONSOLIDADA: { label: 'Consolidada', cor: 'bg-purple-100 text-purple-800', icon: CheckCircle },
+  CONSOLIDADA: { label: 'No PCA', cor: 'bg-purple-100 text-purple-800', icon: CheckCircle },
   EM_CONTRATACAO: { label: 'Em contratação', cor: 'bg-indigo-100 text-indigo-800', icon: Clock },
   CONTRATADA: { label: 'Contratada', cor: 'bg-emerald-100 text-emerald-800', icon: CheckCircle },
 }
@@ -409,9 +411,10 @@ function DemandasPageContent() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={() => router.push('/orgao/demandas/consolidacao')}>
+          <Button variant="outline" onClick={() => router.push('/orgao/demandas/consolidacao')}
+            title="Unidade de planejamento: junta demandas parecidas de vários setores num DFD e abre o processo (art. 12, VII)">
             <ArrowRight className="h-4 w-4 mr-2" />
-            Consolidação
+            DFD consolidado
           </Button>
           <Select value={String(anoSelecionado)} onValueChange={(v) => setAnoSelecionado(parseInt(v))}>
             <SelectTrigger className="w-32">
@@ -567,6 +570,11 @@ function DemandasPageContent() {
                         <StatusIcon className="h-3 w-3 mr-1" />
                         {STATUS_CONFIG[demanda.status]?.label}
                       </Badge>
+                      {demanda.dfd && (
+                        <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200" title="Juntada pela unidade de planejamento num DFD consolidado">
+                          DFD nº {demanda.dfd.numero}/{demanda.dfd.ano}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -731,7 +739,7 @@ function DemandasPageContent() {
               />
               <div className="flex items-center justify-between gap-2 mt-1">
                 <p className="text-xs text-gray-500">
-                  Este resumo identifica a DFD na consolidação e ajuda a formar a contratação futura.
+                  Este resumo identifica o seu pedido — a unidade de planejamento usa para juntar pedidos parecidos no DFD.
                 </p>
                 <Button
                   type="button"

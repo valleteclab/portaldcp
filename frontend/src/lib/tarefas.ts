@@ -48,6 +48,7 @@ export const ROTULO_PAPEL: Record<string, string> = {
   CONTROLE_INTERNO: "Controle interno",
   AUTORIDADE: "Autoridade",
   AGENTE_CONTRATACAO: "Agente de contratação",
+  PLANEJAMENTO: "Planejamento (monta o DFD)",
 }
 
 const fmt = (d: string | Date, opts: Intl.DateTimeFormatOptions) =>
