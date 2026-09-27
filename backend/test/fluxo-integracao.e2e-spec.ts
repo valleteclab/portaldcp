@@ -406,6 +406,9 @@ describe('F3a — integração da tramitação com as tarefas', () => {
       expect(idx.indexOf(e)).toBeGreaterThan(dfd);
       const [d] = await sql(`SELECT folha_inicial, folha_final FROM despachos_fase_interna WHERE id = $1`, [despacho.id]);
       expect(d).toEqual({ folha_inicial: e.folha_inicial, folha_final: e.folha_final });
+      // a folha é a da juntada (a que a tela mostrou ao concluir a etapa) — a montagem não renumera
+      expect(e.folha_inicial).toBe(despacho.folha_inicial);
+      expect(e.juntado_em).toBeTruthy();
     });
   });
 });

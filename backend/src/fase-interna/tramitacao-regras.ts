@@ -263,6 +263,8 @@ export interface TramitacaoLinha {
   despacho_arquivo?: string | null;
   folha_inicial?: number | null;
   folha_final?: number | null;
+  /** Posse inicial (autuação, F3a): sem folha — nos autos, é o termo de abertura. */
+  posse_inicial?: boolean | null;
 }
 
 export type TipoEventoTramitacao = 'ENVIO' | 'DEVOLUCAO' | 'RECEBIMENTO';
@@ -288,6 +290,8 @@ export interface EventoLinhaDoTempo {
   lancado_por: { id: string | null; nome: string | null } | null;
   /** Folha do despacho nos autos (envio/devolução). */
   folha: { folha_inicial: number | null; folha_final: number | null; url: string } | null;
+  /** Onde o ato está nos autos quando não tem folha própria (posse inicial → "Termo de abertura (autuação)"). */
+  nos_autos?: string | null;
 }
 
 const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
@@ -329,6 +333,8 @@ export function montarLinhaDoTempo(tramitacoes: TramitacaoLinha[], urlDaFolha: (
       lancado_em: t.lancado_posteriormente ? iso(t.data_envio) : null,
       lancado_por: t.lancado_posteriormente ? { id: t.lancado_por_id ?? null, nome: t.lancado_por_nome ?? null } : null,
       folha: t.despacho_arquivo ? { folha_inicial: t.folha_inicial ?? null, folha_final: t.folha_final ?? null, url: urlDaFolha(t.id) } : null,
+      // Autos em ordem cronológica: o despacho nº 1 (posse inicial) é o termo de autuação/abertura
+      ...(t.posse_inicial && !t.despacho_arquivo ? { nos_autos: 'Termo de abertura (autuação)' } : {}),
       _ordem: 0,
     });
     if (t.data_recebimento) {

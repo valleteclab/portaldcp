@@ -168,6 +168,23 @@ export class GeradorDocumentoService {
     return { caminho, hash };
   }
 
+  /**
+   * MATERIALIZA o PDF da peça em `destino`, sem gravar nada na peça (nem
+   * caminho, nem emissão, nem histórico) — para a juntada nos autos e a
+   * montagem legada: gerar o arquivo não é a emissão e não pode "mexer" na
+   * peça (a gravação disparava as rotinas da peça e os autos saíam
+   * "desatualizados" logo depois de gerados).
+   */
+  async materializarPdf(documentoId: string, destino: string): Promise<{ caminho: string; hash: string }> {
+    const documento = await this.carregarDocumento(documentoId);
+    const licitacaoNumero = await this.resolverNumeroLicitacao(documento);
+    await fs.promises.mkdir(path.dirname(destino), { recursive: true });
+    const html = semVariaveisCruas((await this.renderPorSecoesDoModelo(documento)) ?? this.renderPorTipo(documento, licitacaoNumero));
+    const estilo = await this.resolverEstiloDocumento(documento);
+    await this.escreverPdf(destino, documento, licitacaoNumero, html, estilo);
+    return { caminho: destino, hash: await this.calcularHashArquivo(destino) };
+  }
+
   async gerarDocx(
     documentoId: string,
     contexto?: ContextoUsuario,

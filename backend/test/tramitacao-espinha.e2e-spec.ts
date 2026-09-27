@@ -11,7 +11,8 @@
  *  D. Lançamento posterior (processo físico): data não futura, não anterior à
  *     movimentação anterior; "lançada em X por Y, ocorrida em Z" no despacho.
  *  E. Com quem está, linha do tempo, caixa de entrada pelo JWT.
- *  F. Autos: despachos intercalados cronologicamente, folhas gravadas.
+ *  F. Autos: despachos intercalados na ordem de juntada, cada um na folha da
+ *     juntada (a mesma da tela — a montagem não reescreve folha).
  *  G. Avisos de prazo (véspera e vencido) idempotentes.
  *  H. Isolamento: outro órgão 404 (inclusive na escrita), fornecedor 403,
  *     anônimo 401, setor de outro órgão 400, chefe de outro órgão 400.
@@ -371,7 +372,7 @@ describe('Tramitação como espinha (F2)', () => {
 
   // ==========================================================================
   describe('F. autos: despachos como folhas, em ordem cronológica', () => {
-    it('os autos trazem o DFD e depois os despachos na ordem; folhas regravadas na tramitação', async () => {
+    it('os autos trazem o DFD e depois os despachos na ordem, cada um na folha da juntada (a da tela)', async () => {
       const g = await http().post(`/api/licitacoes/${lic.id}/processo-pdf/gerar`).set(bearer(admin.token));
       expect(g.status).toBe(201);
       const limite = Date.now() + 90_000;
@@ -402,6 +403,11 @@ describe('Tramitação como espinha (F2)', () => {
       expect(e1.tramitacao_id).toBeTruthy();
       const [t] = await sql(`SELECT folha_inicial, folha_final FROM tramitacoes_processo WHERE id = $1`, [e1.tramitacao_id]);
       expect(t).toEqual({ folha_inicial: e1.folha_inicial, folha_final: e1.folha_final });
+      // a folha é a da juntada (fl. 2, logo depois do DFD) — nada foi renumerado na montagem
+      expect(e1.folha_inicial).toBe(2);
+      const pre = paginas.length - Number(r.headers['x-autos-folhas']) - 1; // capa, termo de abertura e índice, sem folha
+      expect(paginas[pre + e1.folha_inicial - 1]).toMatch(/DESPACHO DE TRAMITAÇÃO Nº 1/);
+      expect(paginas[pre + e1.folha_inicial - 1]).toContain('Fl. 000002');
     });
   });
 

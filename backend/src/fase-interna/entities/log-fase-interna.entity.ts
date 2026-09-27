@@ -46,6 +46,8 @@ export enum AcaoLogFaseInterna {
   IA_RASCUNHO_ACEITO = 'IA_RASCUNHO_ACEITO',
   IA_RASCUNHO_DESCARTADO = 'IA_RASCUNHO_DESCARTADO',
   IA_REVISADA_POR = 'IA_REVISADA_POR',
+  // Autos em ordem cronológica de juntada (27/09/2026): folhas recalculadas uma vez (migração)
+  AUTOS_RENUMERADOS = 'AUTOS_RENUMERADOS',
 }
 
 @Entity('logs_fase_interna')

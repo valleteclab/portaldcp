@@ -15,9 +15,10 @@ type Situacao =
  * "GERAR AUTOS (PDF)" (fase interna, Entrega 6; mockup Main e Conformidade):
  * pede a montagem (POST /licitacoes/:id/processo-pdf/gerar — fila única, em
  * segundo plano; o backend avisa por notificação quando fica pronta),
- * acompanha a situação e baixa o PDF (capa, índice, peças na ordem lógica,
- * carimbo "Fl. 000123" em todas as folhas). Nada mudou nas peças → o mesmo
- * PDF sai do cache na hora.
+ * acompanha a situação e baixa o PDF (capa, termo de abertura com a autuação,
+ * índice e os documentos na ORDEM CRONOLÓGICA DE JUNTADA, cada um na folha que
+ * a tela mostra, com o carimbo "Fl. 000123"). Nada mudou nas juntadas → o
+ * mesmo PDF sai do cache na hora.
  */
 export function BotaoGerarAutos({ licitacaoId, numeroProcesso, variante = "outline" }: { licitacaoId: string; numeroProcesso?: string | null; variante?: "outline" | "default" }) {
   const [estado, setEstado] = useState<"ocioso" | "gerando" | "baixando">("ocioso")

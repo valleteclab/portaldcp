@@ -146,8 +146,11 @@ export class TarefasService {
    */
   private readonly antesDeSincronizar: Array<(licitacaoId: string) => Promise<unknown>> = [];
 
-  registrarAntesDeSincronizar(fn: (licitacaoId: string) => Promise<unknown>) {
-    this.antesDeSincronizar.push(fn);
+  /** Rotinas "antes" que rodam por ÚLTIMO e sempre (depois das demais — ex.: a juntada da peça nos autos, depois do envio ao fluxo de aprovação). */
+  private readonly antesDeSincronizarPorUltimo: Array<(licitacaoId: string) => Promise<unknown>> = [];
+
+  registrarAntesDeSincronizar(fn: (licitacaoId: string) => Promise<unknown>, opcoes: { porUltimo?: boolean } = {}) {
+    (opcoes.porUltimo ? this.antesDeSincronizarPorUltimo : this.antesDeSincronizar).push(fn);
   }
 
   /** F3: rotinas depois de aplicar o plano (integração com a tramitação). */
@@ -240,7 +243,7 @@ export class TarefasService {
         if (opcoes.depoisDe) await opcoes.depoisDe.catch(() => undefined);
         do {
           estado.repetir = false;
-          const rotinas = pularAntes ? [] : this.antesDeSincronizar;
+          const rotinas = [...(pularAntes ? [] : this.antesDeSincronizar), ...this.antesDeSincronizarPorUltimo];
           pularAntes = false;
           for (const fn of rotinas) {
             try {

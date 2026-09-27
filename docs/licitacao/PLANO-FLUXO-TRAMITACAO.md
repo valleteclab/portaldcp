@@ -246,6 +246,22 @@ Branch `claude/fluxo-aprovacao-pecas`. Código em `backend/src/fase-interna/apro
 - **Avisos:** aprovador (sino, e-mail e WhatsApp com link para a Central); reprovação → quem fez a peça, com o motivo e o link da etapa.
 - **Cache do modelo de fluxo:** a leitura feita durante a gravação do modelo não fica mais no cache (o modelo antigo valia por até 3 s depois de salvo).
 
+## 16. Autos em ordem cronológica de juntada (27/09/2026)
+
+Branch `claude/autos-ordem-cronologica`. Decisão do dono depois da homologação com vários usuários (relatório, "9 · Autos" e E4): os autos seguem a **ordem de juntada**, como no papel (Lei nº 9.784/1999, art. 22, §4º — folhas numeradas em sequência; nada sai sem termo de desentranhamento).
+
+- **Livro de juntadas** (`juntadas_autos`): cada juntada com a faixa de folhas atribuída **na juntada** (definitiva — a tela e o PDF mostram a mesma), o arquivo tal como juntado, a data e quem juntou. A montagem dos autos **não grava nada** (acabou a reescrita das folhas da PR #518) e segue o livro na ordem das folhas.
+- **Quando se junta:** peça anexada, via assinada, despacho de tramitação e despacho de etapa — no próprio ato; peça feita no sistema — quando fica pronta (rotina da fila do processo, depois do envio ao fluxo de aprovação e antes do envio automático da tramitação; o PDF é copiado); aviso publicado, ata, documentos da fase externa e termo de justificativas — na sincronização do processo publicado; registro das publicações (muda a cada envio ao PNCP) — quando os autos são pedidos.
+- **Versão substituída continua nos autos**, na folha original, com o carimbo "Substituída pela versão N — fl. X"; a nova traz "Substitui a fl. Y". O índice lista na ordem das folhas, com a data de juntada de cada documento, e marca as substituídas.
+- **Capa, termo de abertura e índice sem folha** (as folhas das peças começam na fl. 1 desde a primeira juntada). O **despacho nº 1** (posse inicial, sem folha — F3a) é o texto de autuação do termo de abertura ("Autue-se e encaminhe-se…", data/hora e quem); a linha do tempo mostra "Nos autos: Termo de abertura (autuação)". **Termo de encerramento** também sem folha, com as folhas de 000001 a N.
+- **Buraco na numeração** (juntada cancelada, dado antigo): a folha sai com a certidão "folha sem documento" e o índice explica — nunca se renumera.
+- **Dados existentes (migração de boot, uma vez por processo, `autos_processo`):**
+  - processo **ainda na fase interna**: folhas recalculadas uma vez pela ordem cronológica de juntada (anexo → quando foi anexado; peça do sistema → a emissão; assinada → a última assinatura; despachos → o registro), inclusive as versões substituídas; o antes/depois fica em `autos_processo.detalhe` e no histórico do processo (`AUTOS_RENUMERADOS`);
+  - processo **já publicado** com autos da regra anterior: **não muda** — regime `LOGICO_LEGADO` (a montagem antiga, na ordem lógica), com o motivo registrado; os autos que já saíram não são refeitos;
+  - publicado sem autos anteriores, ou fase interna sem juntada: cronológico, nada a mudar.
+- **Outros ajustes:** "A definir"/UF no despacho de tramitação e nos termos tratado como ausente (só a data); a situação dos autos deixa de sair "DESATUALIZADO" logo depois de gerar (a impressão é calculada depois das juntadas pendentes e a montagem não mexe nas peças — inclusive no regime legado, que materializa o PDF sem gravar a peça).
+- Desligar: `AUTOS_JUNTADA_AUTOMATICA=false` (juntada das peças do sistema e dos documentos externos) e `AUTOS_CRONOLOGICOS_NO_BOOT=false` (migração).
+
 ---
 
 ## Anexo A — Levantamento técnico (26/09/2026)

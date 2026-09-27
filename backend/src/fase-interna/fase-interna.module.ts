@@ -11,6 +11,10 @@ import { JuntadaPecasService } from './juntada-pecas.service';
 import { MigracaoEspelhoDocumentosBootService } from './migracao-espelho-documentos-boot.service';
 import { MigracaoPecaEmitidaBootService } from './migracao-peca-emitida-boot.service';
 import { CopilotoInterrompidoBootService } from './copiloto-interrompido-boot.service';
+import { JuntadaAutosService } from './juntada-autos.service';
+import { MigracaoAutosCronologicosBootService } from './migracao-autos-cronologicos-boot.service';
+import { JuntadaAutos } from './entities/juntada-autos.entity';
+import { AutosProcesso } from './entities/autos-processo.entity';
 import { Tarefa } from './tarefas/tarefa.entity';
 import { ConfiguracaoFaseInterna } from './tarefas/configuracao-fase-interna.entity';
 import { TarefasService } from './tarefas/tarefas.service';
@@ -142,6 +146,9 @@ import {
       DespachoFaseInterna,
       // F4a — rascunho da IA por etapa (não é peça)
       RascunhoIaFaseInterna,
+      // Autos em ordem cronológica de juntada (livro de juntadas e regime por processo)
+      JuntadaAutos,
+      AutosProcesso,
     ]),
   ],
   controllers: [
@@ -161,6 +168,9 @@ import {
     RascunhoIaController,
   ],
   providers: [
+    // Primeira migração do módulo: as folhas dos autos são decididas antes de qualquer
+    // outra rotina de boot juntar algo (espelho de documentos, sincronização das tarefas)
+    MigracaoAutosCronologicosBootService,
     ModeloFluxoService,
     PlanejamentoFluxoService,
     FluxoProcessoService,
@@ -175,6 +185,7 @@ import {
     MigracaoEspelhoDocumentosBootService,
     MigracaoPecaEmitidaBootService,
     CopilotoInterrompidoBootService,
+    JuntadaAutosService,
     TarefasService,
     TarefasSubscriber,
     MigracaoTarefasBootService,
@@ -234,6 +245,7 @@ import {
     ModeloFluxoService,
     PlanejamentoFluxoService,
     IntegracaoFluxoService,
+    JuntadaAutosService,
   ],
 })
 export class FaseInternaModule {}
