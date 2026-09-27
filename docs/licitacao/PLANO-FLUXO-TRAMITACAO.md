@@ -195,6 +195,8 @@ Continua em código só o **catálogo** (o que o sistema sabe fazer: tela de cad
 - **Voltar/avançar:** reabrir etapa concluída (motivo obrigatório; só quem conduz o processo) deixa as dependentes concluídas "a revisar", sem apagar peça; a marca sai sozinha quando a peça é alterada, ou pelo "avançar" (confirmar a revisão). A conformidade reflete: regra **FLUXO-01** (bloqueio) segura a publicação enquanto houver etapa reaberta ou a revisar. Reabrir a demanda desfaz a aprovação.
 - **Parecer dispensável** (art. 53, §5º): só se o modelo permitir (etapa "dispensável por ato"; recusado na licitação) e com número e data do ato; vira o "não se aplica" do parecer com a justificativa citando o ato — vai para o termo de justificativas dos autos e satisfaz a A72-III.
 - **Etapas novas opcionais** (desligadas por padrão): "autorização de início" e "indicação da modalidade" concluem por **despacho registrado** no processo.
+- **Só a sincronização grava o fluxo do processo.** A sincronização roda depois do commit. Portões, instrução e tarefas do sistema só leem, porque rodam dentro da transação do ato: gravar ali, por outra conexão, travaria na linha da licitação.
+- **API para a F3:** descrita na PR. Consumida pela visão da fase interna (voltar e avançar, desenho) e pela integração tarefas ↔ tramitação.
 
 ---
 
