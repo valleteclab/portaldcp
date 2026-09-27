@@ -35,7 +35,27 @@ export const RODAPE_PADRAO_HTML = `
 export const AUTORIZACAO_TEXTO_PADRAO =
   '<p>Considerando a instrução do Processo Administrativo nº {{licitacao.numero_processo}}, cujo objeto é {{licitacao.objeto}}, AUTORIZO o prosseguimento da contratação, com fundamento na {{licitacao.fundamento_legal}}, até o valor máximo (teto) de {{licitacao.teto}}.</p>' +
   '<p>A despesa correrá à conta da dotação: {{reserva.dotacao}}, em conformidade com {{reserva.leis}}.</p>' +
+  '<p>{{local_data}}.</p><p>{{autoridade.nome}}</p>';
+
+/**
+ * Textos padrão SUBSTITUÍDOS na homologação de 26/09/2026 — o seed troca
+ * pelos novos nos modelos do SISTEMA (modelo próprio do órgão não é tocado):
+ *  - "{{orgao.cidade}}, {{data_atual}}" saía "A definir, 26 de setembro" com o
+ *    cadastro incompleto → `{{local_data}}` (sem município, só a data);
+ *  - "Agente de contratação: {{agente.nome}}" saía "Agente de contratação:
+ *    Agente de contratação" sem o agente designado → `{{agente.identificacao}}`;
+ *  - foro "({{orgao.cidade}})" → `{{orgao.foro}}` (art. 92, §1º).
+ */
+export const AUTORIZACAO_TEXTO_E3B =
+  '<p>Considerando a instrução do Processo Administrativo nº {{licitacao.numero_processo}}, cujo objeto é {{licitacao.objeto}}, AUTORIZO o prosseguimento da contratação, com fundamento na {{licitacao.fundamento_legal}}, até o valor máximo (teto) de {{licitacao.teto}}.</p>' +
+  '<p>A despesa correrá à conta da dotação: {{reserva.dotacao}}, em conformidade com {{reserva.leis}}.</p>' +
   '<p>{{orgao.cidade}}, {{data_atual}}.</p><p>{{autoridade.nome}}</p>';
+export const RAG_IDENTIFICACAO_E3B =
+  '<p>Processo Administrativo nº {{licitacao.numero_processo}} — {{licitacao.modalidade}} nº {{licitacao.numero_dispensa}}. Objeto: {{licitacao.objeto}}.</p><p>Agente de contratação: {{agente.nome}}, {{portaria.designacao}}.</p>';
+export const RAG_CONCLUSAO_E3B =
+  '<p>Instruído o processo, encaminho os autos para análise jurídica (art. 53 c/c art. 72, III), acompanhados da minuta do aviso e da minuta do contrato.</p><p>{{orgao.cidade}}, {{data_atual}}.</p><p>{{agente.nome}} — {{agente.cargo}}</p>';
+export const MC_FORO_E3B = '<p>Fica eleito o foro da sede da Administração ({{orgao.cidade}}) para dirimir as questões decorrentes deste contrato.</p>';
+export const TEXTOS_SUBSTITUIDOS_HOMOLOGACAO: string[] = [AUTORIZACAO_TEXTO_E3B, RAG_IDENTIFICACAO_E3B, RAG_CONCLUSAO_E3B, MC_FORO_E3B];
 
 /** Texto ANTIGO (Entrega 1) do despacho — o seed troca pelo novo nos modelos do sistema. */
 export const AUTORIZACAO_TEXTO_E1 =
@@ -214,7 +234,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
         obrigatorio: true,
         fundamento_legal: 'Art. 72',
         texto_padrao:
-          '<p>Processo Administrativo nº {{licitacao.numero_processo}} — {{licitacao.modalidade}} nº {{licitacao.numero_dispensa}}. Objeto: {{licitacao.objeto}}.</p><p>Agente de contratação: {{agente.nome}}, {{portaria.designacao}}.</p>',
+          '<p>Processo Administrativo nº {{licitacao.numero_processo}} — {{licitacao.modalidade}} nº {{licitacao.numero_dispensa}}. Objeto: {{licitacao.objeto}}.</p><p>{{agente.identificacao}}.</p>',
       },
       {
         id: 'enquadramento',
@@ -252,7 +272,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
         obrigatorio: true,
         fundamento_legal: 'Art. 72',
         texto_padrao:
-          '<p>Instruído o processo, encaminho os autos para análise jurídica (art. 53 c/c art. 72, III), acompanhados da minuta do aviso e da minuta do contrato.</p><p>{{orgao.cidade}}, {{data_atual}}.</p><p>{{agente.nome}} — {{agente.cargo}}</p>',
+          '<p>Instruído o processo, encaminho os autos para análise jurídica (art. 53 c/c art. 72, III), acompanhados da minuta do aviso e da minuta do contrato.</p><p>{{local_data}}.</p><p>{{agente.assinatura}}</p>',
       },
     ],
   },
@@ -287,7 +307,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
       { id: 'habilitacao', titulo: 'Cláusula décima segunda — Da manutenção das condições de habilitação (art. 92, XVI)', obrigatorio: true, fundamento_legal: 'Art. 92, XVI', texto_padrao: '<p>A contratada obriga-se a manter, durante toda a execução do contrato, as condições de habilitação e qualificação exigidas.</p>' },
       { id: 'gestao', titulo: 'Cláusula décima terceira — Da gestão e fiscalização (art. 92, XVIII)', obrigatorio: true, fundamento_legal: 'Art. 92, XVIII · Art. 117', placeholder: 'Modelo de gestão, gestor e fiscal do contrato…' },
       { id: 'extincao', titulo: 'Cláusula décima quarta — Da extinção (art. 92, XIX)', obrigatorio: true, fundamento_legal: 'Art. 92, XIX · Art. 137', placeholder: 'Hipóteses de extinção do contrato…' },
-      { id: 'foro', titulo: 'Cláusula décima quinta — Do foro (art. 92, §1º)', obrigatorio: true, fundamento_legal: 'Art. 92, §1º', texto_padrao: '<p>Fica eleito o foro da sede da Administração ({{orgao.cidade}}) para dirimir as questões decorrentes deste contrato.</p>' },
+      { id: 'foro', titulo: 'Cláusula décima quinta — Do foro (art. 92, §1º)', obrigatorio: true, fundamento_legal: 'Art. 92, §1º', texto_padrao: '<p>Fica eleito {{orgao.foro}} para dirimir as questões decorrentes deste contrato (art. 92, §1º, da Lei nº 14.133/2021).</p>' },
     ],
   },
   {

@@ -25,7 +25,18 @@ import {
   RODAPE_PADRAO_HTML,
   AUTORIZACAO_TEXTO_E1,
   MINUTA_AVISO_PREAMBULO_ANTIGO,
+  TEXTOS_SUBSTITUIDOS_HOMOLOGACAO,
 } from './modelos-padrao';
+import {
+  dataPorExtensoBrasilia,
+  localDoOrgao,
+  localEData,
+  rotuloCriterio,
+  rotuloModalidade,
+  rotuloModoDisputa,
+  substituirVariaveis,
+  valorCadastral,
+} from './textos-documento';
 
 /**
  * Modelos de documento personalizáveis por órgão (estilo SEI).
@@ -42,6 +53,8 @@ const TEXTOS_PADRAO_LEGADOS: string[] = [
   // Entrega 3B: despacho com teto e dotação; minuta do aviso também para a contratação direta
   AUTORIZACAO_TEXTO_E1,
   MINUTA_AVISO_PREAMBULO_ANTIGO,
+  // Homologação (26/09/2026): local/data sem "A definir", agente sem repetir o cargo, foro
+  ...TEXTOS_SUBSTITUIDOS_HOMOLOGACAO,
 ];
 
 @Injectable()
@@ -241,12 +254,9 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
       ? await this.orgaoRepo.findOne({ where: { id: licitacao.orgao_id } })
       : null;
 
-    const dataAtual = new Date().toLocaleDateString('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-    });
+    const dataAtual = dataPorExtensoBrasilia();
+    // Município do cadastro do órgão ("A definir" do cadastro incompleto = sem cidade)
+    const local = localDoOrgao(orgao as any);
 
     const valor = Number(licitacao.valor_total_estimado || 0);
     const extras = await this.contextoDoProcesso(licitacao, valor).catch((e) => {
@@ -254,13 +264,20 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
       return {} as Record<string, string>;
     });
     return {
-      'orgao.nome': orgao?.nome || '',
-      'orgao.cnpj': orgao?.cnpj || '',
-      'orgao.cidade': (orgao as any)?.cidade || '',
+      'orgao.nome': valorCadastral(orgao?.nome),
+      'orgao.cnpj': valorCadastral(orgao?.cnpj),
+      'orgao.cidade': local,
+      'orgao.local': local,
+      // Art. 92, §1º: foro da sede da Administração
+      'orgao.foro': local ? `o foro da sede da Administração, em ${local},` : 'o foro da sede da Administração',
       'licitacao.numero_processo': licitacao.numero_processo || '',
       'licitacao.numero_edital': licitacao.numero_edital || '',
       'licitacao.objeto': licitacao.objeto || '',
-      'licitacao.modalidade': String(licitacao.modalidade || ''),
+      // Rótulo legível — nunca o código interno (DISPENSA_ELETRONICA) no texto da peça
+      'licitacao.modalidade': rotuloModalidade(licitacao.modalidade),
+      'licitacao.modalidade_codigo': String(licitacao.modalidade || ''),
+      'licitacao.criterio_julgamento': rotuloCriterio((licitacao as any).criterio_julgamento),
+      'licitacao.modo_disputa': rotuloModoDisputa((licitacao as any).modo_disputa),
       // Fundamento legal: fonte única do processo (nunca texto livre da peça)
       'licitacao.fundamento_legal': textoDoFundamento(fundamentoEfetivo(licitacao)) || '',
       'licitacao.fundamento_referencia': definicaoDoFundamento(fundamentoEfetivo(licitacao))?.referencia || '',
@@ -268,6 +285,8 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
         ? valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
         : '',
       data_atual: dataAtual,
+      // "Cidade/UF, 26 de setembro de 2026" — sem município no cadastro, só a data
+      local_data: localEData(local, dataAtual),
       ...extras,
     };
   }
@@ -293,7 +312,7 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
     const [reserva] = await q(
       `SELECT r.status, r.unidade_orcamentaria, r.programa, r.projeto_atividade, r.elemento_despesa, r.fonte_recurso,
               ldo.numero AS ldo_numero, ldo.exercicio AS ldo_exercicio, loa.numero AS loa_numero, loa.exercicio AS loa_exercicio,
-              (SELECT string_agg(l.exercicio::text || ': ' || l.valor::text || ' (' || lower(l.situacao) || ')', '; ' ORDER BY l.exercicio)
+              (SELECT json_agg(json_build_object('exercicio', l.exercicio, 'valor', l.valor, 'situacao', l.situacao) ORDER BY l.exercicio)
                  FROM reservas_orcamentarias_linhas l WHERE l.reserva_id = r.id) AS linhas
          FROM reservas_orcamentarias r
          LEFT JOIN leis_orcamentarias ldo ON ldo.id = r.lei_ldo_id
@@ -313,9 +332,20 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
     const [cfg] = licitacao.orgao_id
       ? await q(`SELECT autoridade_rotulo, dispensa_com_lances FROM configuracoes_fase_interna WHERE orgao_id::text = $1`, [licitacao.orgao_id]).catch(() => [])
       : [];
-    const [agente] = (licitacao as any).pregoeiro_id
+    // Agente de contratação: o designado no processo; senão, o ÚNICO usuário
+    // ativo do órgão com o papel "Agente de contratação" (Configurações › papéis).
+    let [agente] = (licitacao as any).pregoeiro_id
       ? await q(`SELECT nome, cargo FROM usuarios WHERE id::text = $1`, [String((licitacao as any).pregoeiro_id)]).catch(() => [])
       : [];
+    if (!agente?.nome && licitacao.orgao_id) {
+      const candidatos = await q(
+        `SELECT nome, cargo FROM usuarios WHERE orgao_id::text = $1 AND ativo = true AND papeis_fase_interna @> '["AGENTE_CONTRATACAO"]'::jsonb LIMIT 2`,
+        [licitacao.orgao_id],
+      ).catch(() => []);
+      if (candidatos.length === 1) agente = candidatos[0];
+    }
+    const nomeAgente = valorCadastral(agente?.nome);
+    const cargoAgente = valorCadastral(agente?.cargo);
     // Portaria de designação: a peça DP do processo, senão a portaria ativa do órgão no exercício
     const exercicio = Number((licitacao as any).ano) || new Date((licitacao as any).created_at ?? Date.now()).getFullYear();
     const [dp] = await q(
@@ -329,6 +359,7 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
         ).catch(() => [])
       : [];
     const numeroPortaria = dp?.numero_peca || portaria?.numero || null;
+    const designacao = numeroPortaria ? `designado pela ${numeroPortaria}` : 'designado por portaria do órgão';
     // Limite do inciso do fundamento (art. 75, I/II) no exercício — o do INCISO CERTO (PA 139/2025)
     const inciso = incisoLimiteDoFundamento(fundamentoEfetivo(licitacao));
     const limite = inciso ? limiteDispensa(exercicio, inciso) : null;
@@ -351,12 +382,19 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
       })(),
       'reserva.dotacao': dotacao,
       'reserva.situacao': reserva ? (reserva.status === 'EMITIDA' ? 'reservada' : 'em preparação') : 'sem reserva',
-      'reserva.exercicios': reserva?.linhas || '—',
+      // "2026: R$ 10.000,00 (reservado); 2027: R$ 12.600,00 (previsão)" — nunca "10000.00 (previsao)"
+      'reserva.exercicios':
+        (Array.isArray(reserva?.linhas) ? reserva.linhas : [])
+          .map((l: any) => `${l.exercicio}: ${BRL(Number(l.valor))} (${String(l.situacao).toUpperCase() === 'RESERVADO' ? 'reservado' : 'previsão'})`)
+          .join('; ') || '—',
       'reserva.leis': leis.length ? leis.join(' e ') : 'as leis orçamentárias do exercício',
       'autoridade.nome': String(cfg?.autoridade_rotulo ?? '').trim() || 'Autoridade competente',
-      'agente.nome': agente?.nome || 'Agente de contratação',
-      'agente.cargo': agente?.cargo || 'Agente de contratação',
-      'portaria.designacao': numeroPortaria ? `designado pela ${numeroPortaria}` : 'designado por portaria do órgão',
+      'agente.nome': nomeAgente || 'Agente de contratação',
+      'agente.cargo': cargoAgente || 'Agente de contratação',
+      'portaria.designacao': designacao,
+      // Frase inteira (sem "Agente de contratação: Agente de contratação" quando falta o nome)
+      'agente.identificacao': nomeAgente ? `Agente de contratação: ${nomeAgente}, ${designacao}` : `Agente de contratação ${designacao}`,
+      'agente.assinatura': nomeAgente ? `${nomeAgente} — ${cargoAgente || 'Agente de contratação'}` : 'Agente de contratação',
     };
   }
 
@@ -395,10 +433,12 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
     return this.docRepo.save(documento);
   }
 
+  /**
+   * Troca as variáveis do modelo. Variável sem dado (ou desconhecida — modelo
+   * do órgão com um nome errado) sai como "—": nunca `{{…}}` cru na peça.
+   */
   substituirVariaveis(texto: string, contexto: Record<string, string>): string {
-    return texto.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, chave) =>
-      contexto[chave] !== undefined ? contexto[chave] : m,
-    );
+    return substituirVariaveis(texto, contexto);
   }
 
   private validarSecoes(secoes: SecaoModelo[]) {
