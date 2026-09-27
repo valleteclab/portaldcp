@@ -43,7 +43,7 @@ import { Badge } from "@/components/ui/badge"
 import { useModulosOrgao, ModuloSistema } from "@/hooks/useModulosOrgao"
 import { NotificacoesBadge } from "@/components/NotificacoesBadge"
 import { API_URL, getAssetUrl } from "@/lib/api"
-import { carregarContagemTarefas } from "@/lib/tarefas"
+import { atualizarContagemTarefas, useContagemTarefas } from "@/lib/tarefas"
 
 interface SidebarProps {
   userType: 'fornecedor' | 'orgao'
@@ -70,22 +70,13 @@ export function Sidebar({ userType }: SidebarProps) {
   const [permissoesUsuario, setPermissoesUsuario] = useState<Record<string, boolean>>({})
   const [roleUsuario, setRoleUsuario] = useState<string | null>(null)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
-  const [tarefas, setTarefas] = useState<{ para_mim: number; atrasadas: number } | null>(null)
-
-  // Badge de "Minhas tarefas" (fase interna): abertas para mim e atrasadas
+  // Badge de "Minhas tarefas" (fase interna): abertas para mim e atrasadas —
+  // contagem única da página (a mesma do menu da fase interna e da caixa)
+  const contagemTarefas = useContagemTarefas()
+  const tarefas = userType === 'orgao' ? contagemTarefas : null
   useEffect(() => {
     if (userType !== 'orgao') return
-    let vivo = true
-    const carregar = async () => {
-      const c = await carregarContagemTarefas()
-      if (vivo) setTarefas(c)
-    }
-    carregar()
-    window.addEventListener('tarefas-atualizadas', carregar)
-    return () => {
-      vivo = false
-      window.removeEventListener('tarefas-atualizadas', carregar)
-    }
+    void atualizarContagemTarefas()
   }, [userType, pathname])
 
   useEffect(() => {

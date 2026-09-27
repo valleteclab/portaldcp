@@ -21,6 +21,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ItemLicitacao, ItemPCA, UNIDADES, ModoVinculacaoPCA, LoteLicitacao, ModoAplicacaoBeneficioMPE } from "./types"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { normalizarUnidade } from '@/lib/fase-interna/criacao'
 
 interface ItensTabProps {
   itens: ItemLicitacao[]
@@ -55,6 +56,9 @@ export function ItensTab({
   const [itensCatalogo, setItensCatalogo] = useState<any[]>([])
   const [loadingCatalogo, setLoadingCatalogo] = useState(false)
   const [totalCatalogo, setTotalCatalogo] = useState(0)
+  /** Termo da última busca concluída (vazio = ainda não buscou) e erro — para "Nenhum item encontrado". */
+  const [termoBuscado, setTermoBuscado] = useState('')
+  const [erroCatalogo, setErroCatalogo] = useState<string | null>(null)
   const [itemSelecionadoCatalogo, setItemSelecionadoCatalogo] = useState<any | null>(null)
   
   // Estados para formulário de item do catálogo
@@ -98,10 +102,13 @@ export function ItensTab({
     if (!termoBusca || termoBusca.length < 3) {
       setItensCatalogo([])
       setTotalCatalogo(0)
+      setTermoBuscado('')
+      setErroCatalogo(null)
       return
     }
-    
+
     setLoadingCatalogo(true)
+    setErroCatalogo(null)
     try {
       const params = new URLSearchParams({
         termo: termoBusca,
@@ -120,9 +127,16 @@ export function ItensTab({
         }
         setTotalCatalogo(data.total || 0)
         setPaginaCatalogo(pagina)
+        setTermoBuscado(termoBusca)
+      } else {
+        if (pagina === 1) { setItensCatalogo([]); setTotalCatalogo(0) }
+        setTermoBuscado(termoBusca)
+        setErroCatalogo(`Não foi possível consultar o catálogo agora (HTTP ${res.status}). Tente de novo.`)
       }
     } catch (error) {
       console.error('Erro ao buscar no catálogo:', error)
+      setTermoBuscado(termoBusca)
+      setErroCatalogo('Não foi possível consultar o catálogo agora. Verifique a conexão e tente de novo.')
     } finally {
       setLoadingCatalogo(false)
     }
@@ -145,6 +159,8 @@ export function ItensTab({
       } else {
         setItensCatalogo([])
         setTotalCatalogo(0)
+        setTermoBuscado('')
+        setErroCatalogo(null)
       }
     }, 400)
 
@@ -192,7 +208,8 @@ export function ItensTab({
     setItemSelecionadoCatalogo(item)
     setQuantidadeItem(1)
     setValorUnitarioStr('')
-    setUnidadeItem(item.unidade_padrao || 'UNIDADE')
+    // Catálogo traz "UN", "KG"...: no enum do sistema (senão o campo fica em branco)
+    setUnidadeItem(normalizarUnidade(item.unidade_padrao || (item.tipo === 'SERVICO' ? 'SERVICO' : 'UNIDADE')))
   }
 
   const confirmarItemCatalogo = () => {
@@ -562,7 +579,7 @@ export function ItensTab({
                       )}
                       
                       {/* Linha 3: Quantidade, Unidade, Valor */}
-                      <div className="grid grid-cols-4 gap-3">
+                      <div className="grid grid-cols-2 lg:grid-cols-[minmax(0,0.8fr)_minmax(11rem,1.3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3">
                         <div>
                           <Label className="text-xs text-muted-foreground">Quantidade</Label>
                           <Input
@@ -575,7 +592,7 @@ export function ItensTab({
                         <div>
                           <Label className="text-xs text-muted-foreground">Unidade</Label>
                           <Select value={item.unidade} onValueChange={(v) => updateItem(index, 'unidade', v)}>
-                            <SelectTrigger>
+                            <SelectTrigger className="w-full">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -630,7 +647,7 @@ export function ItensTab({
                             value={item.tipo_item || (item.codigo_catser ? 'SERVICO' : item.codigo_catmat ? 'MATERIAL' : 'AUTO')}
                             onValueChange={(v) => updateItem(index, 'tipo_item', v === 'AUTO' ? undefined : v)}
                           >
-                            <SelectTrigger>
+                            <SelectTrigger className="w-full">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -755,10 +772,24 @@ export function ItensTab({
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-green-600" />
               </div>
+            ) : erroCatalogo ? (
+              <div className="text-center py-12 px-4 text-red-700" role="alert">
+                <AlertTriangle className="h-10 w-10 mx-auto mb-3 opacity-60" />
+                <p>{erroCatalogo}</p>
+              </div>
+            ) : itensCatalogo.length === 0 && termoBuscado && termoBuscado === buscaCatalogo ? (
+              <div className="text-center py-12 px-4 text-muted-foreground" role="status">
+                <Search className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p className="font-medium text-slate-700">Nenhum item encontrado para &ldquo;{termoBuscado}&rdquo; em {tipoCatalogo === 'MATERIAL' ? 'Material (CATMAT)' : 'Serviço (CATSER)'}.</p>
+                <p className="text-sm mt-1">
+                  Tente outra palavra (mais curta ou sem acento), o código do item, ou troque o tipo para {tipoCatalogo === 'MATERIAL' ? 'Serviço' : 'Material'}.
+                  Se o item não existir no catálogo, feche esta janela e use &ldquo;Adicionar Manual&rdquo; para digitá-lo.
+                </p>
+              </div>
             ) : itensCatalogo.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <ShoppingCart className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                <p>Digite para buscar itens</p>
+                <p>Digite ao menos 3 letras para buscar itens</p>
               </div>
             ) : (
               <div className="divide-y">
@@ -813,7 +844,7 @@ export function ItensTab({
                 <p className="text-sm">{itemSelecionadoCatalogo.descricao}</p>
               </div>
               
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-[minmax(0,0.8fr)_minmax(11rem,1.3fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3">
                 <div>
                   <Label className="text-xs">Quantidade *</Label>
                   <Input
@@ -826,7 +857,7 @@ export function ItensTab({
                 <div>
                   <Label className="text-xs">Unidade</Label>
                   <Select value={unidadeItem} onValueChange={setUnidadeItem}>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -895,7 +926,7 @@ export function ItensTab({
             <div>
               <Label className="text-xs">Ano</Label>
               <Select value={String(anoPca)} onValueChange={(v) => setAnoPca(Number(v))}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -908,7 +939,7 @@ export function ItensTab({
             <div>
               <Label className="text-xs">Tipo</Label>
               <Select value={tipoPca} onValueChange={setTipoPca}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

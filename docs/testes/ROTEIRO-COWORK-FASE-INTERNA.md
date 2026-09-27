@@ -24,14 +24,17 @@ Entre com o **administrador do órgão de teste**.
 1. **Configurações › Fase interna e tarefas** (`/orgao/configuracoes/fase-interna`)
    - Modo: **Simples**.
    - Controle interno: **desligado** (primeira rodada).
-   - Prazos: clique em **"Modelo Portaria 089"** e salve.
+   - Prazos: clique em **"Modelo Portaria 089"** e salve. **Esperado:** um quadro diz o que foi aplicado (DFD, ETP e TR sem prazo; Pesquisa 30; Reserva 3; Autorização 3; Minutas 5; Parecer 5; Controle interno 3; Publicação 5 dias úteis) e o que mudou — ou "nada mudou", se a configuração já seguia o modelo (é o padrão).
    - Padrão sugerido para novas dispensas: **com lances**.
    - Signatários da autorização: cadastre **um** usuário (o próprio administrador ou o usuário "autoridade" informado), com o papel **Autoridade**.
    - Papéis dos usuários: dê ao usuário de teste os papéis **Agente de contratação, Jurídico, Contabilidade e Autoridade** (um usuário pode ter vários).
-   - **Esperado:** salva sem erro; ao recarregar, os valores continuam.
+   - **Esperado:** salva sem erro, com a confirmação na barra do fim da tela ("Configuração salva às HH:MM") e, nos papéis, "Salvo às HH:MM" na linha do usuário; ao recarregar, os valores continuam.
 2. **Configurações › Orçamento** (`/orgao/configuracoes/orcamento`)
-   - Cadastre **1 lei** (ex.: "LOA 2026 — Lei nº 0000/2025") e **1 dotação** (unidade orçamentária, programa, projeto/atividade, elemento 3.3.90.40, fonte 500).
-   - **Esperado:** aparecem nas listas.
+   - Cadastre **duas leis**, cada uma com o seu **tipo** (botão "Nova lei" ou os atalhos "Cadastrar LDO/LOA 2026" do quadro "O que a reserva orçamentária usa"):
+     - **LDO 2026** (tipo LDO — ex.: "Lei nº 0001/2025"): **obrigatória na Reserva** (campo "Lei da LDO *");
+     - **LOA 2026** (tipo LOA — ex.: "Lei nº 0000/2025"): citada na informação orçamentária e no despacho.
+   - Cadastre **1 dotação** de 2026 (unidade orçamentária, programa, projeto/atividade, elemento 3.3.90.40, fonte 500, com saldo).
+   - **Esperado:** aparecem nas listas, e o quadro "O que a reserva orçamentária usa" mostra LDO, LOA e dotação com ✔.
 
 ---
 
@@ -39,9 +42,9 @@ Entre com o **administrador do órgão de teste**.
 
 1. **Fase interna › Novo processo** (assistente) ou a partir de uma demanda.
    - Objeto: "TESTE COWORK — licença de software de gestão de conteúdo (12 meses) + implantação".
-   - Modalidade: **Dispensa**. Fundamento: **art. 75, II**.
+   - Modalidade: **Dispensa**. Fundamento: **art. 75, II** (campo "Fundamento legal" nos dados básicos — já vem sugerido pela natureza; confira).
    - Itens: 2 itens: "Implantação e treinamento" (1 serviço) e "Licença mensal do software" (12 meses), com código **CATSER**, unidade e quantidade.
-   - **Esperado:** ao salvar, o sistema abre a **tela do processo** (`/orgao/processos/[id]`) com o quadro **"Fluxo da fase interna"**, com as etapas e o responsável.
+   - **Esperado:** ao clicar em **"Salvar e abrir o processo"** (Itens), o sistema abre a **tela do processo** (`/orgao/processos/[id]`) com o quadro **"Fluxo da fase interna"**, com as etapas e o responsável. O mesmo vale para "Criar a partir de demanda" e para a entrada "já foi feita fora".
 2. Abra **Minhas tarefas** (`/orgao/fase-interna`).
    - **Esperado:** aparecem as tarefas desse processo, com prazo. O botão da tarefa leva à tela da etapa.
 

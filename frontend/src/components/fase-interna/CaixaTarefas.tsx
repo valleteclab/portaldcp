@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
-import { avisarTarefasAtualizadas, fmtDia, fmtDiaCurto, rotuloPrazo, type CaixaTarefas as Caixa, type TarefaTela } from "@/lib/tarefas"
+import { avisarTarefasAtualizadas, fmtDia, fmtDiaCurto, publicarContagemTarefas, rotuloPrazo, type CaixaTarefas as Caixa, type TarefaTela } from "@/lib/tarefas"
 
 type Aba = "para-mim" | "aguardando" | "concluidas"
 
@@ -52,6 +52,8 @@ export function CaixaTarefas() {
       const j = await r.json().catch(() => null)
       if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
       setDados(j)
+      // Os badges dos menus mostram o mesmo número desta leitura (contagem única)
+      publicarContagemTarefas(j?.contagem)
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e))
     } finally {

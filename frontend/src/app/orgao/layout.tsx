@@ -14,7 +14,9 @@ export default function OrgaoLayout({
     <AuthGuard userType="orgao">
       <div className="flex min-h-screen bg-slate-50">
         <Sidebar userType="orgao" />
-        <div className="flex-1 flex flex-col">
+        {/* min-w-0: conteúdo largo (tabelas) rola dentro da própria área em vez de
+            alargar a coluna além da tela (conteúdo "cortado" / rolagem horizontal) */}
+        <div className="flex-1 min-w-0 flex flex-col">
           <Header />
           <main className="flex-1 p-6">
             <div className="max-w-[1920px] mx-auto w-full px-4">
