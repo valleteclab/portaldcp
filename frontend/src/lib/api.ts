@@ -239,7 +239,8 @@ export function formatarDataBR(dataISO: string | null | undefined): string {
   if (!dataISO) return '-';
   // Data "pura" (coluna DATE, sem hora): formata direto, SEM conversão de fuso,
   // para não voltar 1 dia em UTC-3 (Brasília). Ex.: "2026-05-21" -> "21/05/2026".
-  const dataPura = /^\d{4}-\d{2}-\d{2}$/.exec(dataISO);
+  // (grupos de captura: sem eles, dataPura[1..3] eram undefined → "undefined/undefined/undefined")
+  const dataPura = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dataISO).trim());
   if (dataPura) return `${dataPura[3]}/${dataPura[2]}/${dataPura[1]}`;
   try {
     // Se a string tem hora mas não tem timezone (Z ou +HH:mm), força UTC
