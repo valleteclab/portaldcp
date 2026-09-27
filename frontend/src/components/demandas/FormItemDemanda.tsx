@@ -36,7 +36,8 @@ export function FormItemDemanda({
     quantidade_estimada: '1',
     unidade_medida: item.unidade_padrao || 'UN',
     valor_unitario_estimado: '',
-    trimestre_previsto: '1',
+    // sem "1º" por padrão: a tela passa o trimestre do "Para quando" da demanda; sem data, o usuário escolhe
+    trimestre_previsto: '',
     prioridade: '3',
     renovacao_contrato: false,
     codigo_classe: item.codigo_classe,
@@ -282,9 +283,11 @@ export function FormItemDemanda({
           )}
         </div>
         <div>
-          <label htmlFor="item-trimestre" className={labelCls}>Para quando (trimestre)</label>
+          <label htmlFor="item-trimestre" className={labelCls}>Para quando (trimestre) *</label>
           <Select value={form.trimestre_previsto} onValueChange={v => setForm({ ...form, trimestre_previsto: v })}>
-            <SelectTrigger id="item-trimestre" className="h-9 w-full bg-white"><SelectValue /></SelectTrigger>
+            <SelectTrigger id="item-trimestre" className={`h-9 w-full ${form.trimestre_previsto ? 'bg-white' : 'bg-amber-50 border-amber-300'}`}>
+              <SelectValue placeholder="Escolha o trimestre…" />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="1">1º trimestre (jan–mar)</SelectItem>
               <SelectItem value="2">2º trimestre (abr–jun)</SelectItem>
@@ -321,7 +324,8 @@ export function FormItemDemanda({
         <div className="flex gap-2 ml-auto">
           <Button type="button" variant="outline" onClick={onCancelar}>Cancelar</Button>
           <Button type="button" onClick={() => onConfirm(form)}
-            disabled={loading || !form.codigo_classe || !form.quantidade_estimada || parseFloat(form.quantidade_estimada) <= 0}>
+            disabled={loading || !form.codigo_classe || !form.trimestre_previsto || !form.quantidade_estimada || parseFloat(form.quantidade_estimada) <= 0}
+            title={!form.trimestre_previsto ? 'Escolha o trimestre do item' : undefined}>
             {loading
               ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               : editando ? <Save className="h-4 w-4 mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
