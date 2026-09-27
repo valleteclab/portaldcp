@@ -47,6 +47,8 @@ interface Configuracao {
   setores: Array<{ id: string; nome: string; codigo: string }>
   papeis: Array<{ codigo: string; rotulo: string }>
   passos: PassoConfig[]
+  /** F1: o modelo de fluxo de onde vêm responsáveis, prazos e o controle interno. */
+  modelo_fluxo?: { nome: string; versao: number; proprio: boolean; tela: string }
 }
 
 interface UsuarioPapel {
@@ -333,6 +335,15 @@ export default function ConfiguracaoFaseInternaPage() {
         <h1 className="text-2xl font-bold text-slate-800 mt-1">Fase interna e tarefas</h1>
         <p className="text-sm text-slate-600">
           Como as tarefas da fase interna são distribuídas no órgão. Qualquer peça pode sempre ser feita no sistema ou anexada em PDF feito fora.
+        </p>
+        <p className="text-sm text-slate-700 mt-2">
+          As etapas, as dependências entre elas, as opcionais (autorização de início, indicação da modalidade, controle interno) e a aprovação da
+          demanda ficam no{" "}
+          <Link href="/orgao/configuracoes/fluxo" className="text-blue-800 hover:underline font-medium">
+            modelo de fluxo
+          </Link>
+          {cfg.modelo_fluxo ? ` (${cfg.modelo_fluxo.nome}, versão ${cfg.modelo_fluxo.versao}${cfg.modelo_fluxo.proprio ? "" : " — padrão do sistema"})` : ""}. Os prazos e
+          responsáveis abaixo são os da dispensa e gravam no mesmo modelo.
         </p>
         {!admin && <p className="text-sm text-amber-800 mt-2">Somente o administrador do órgão altera esta configuração.</p>}
         {admin && (
