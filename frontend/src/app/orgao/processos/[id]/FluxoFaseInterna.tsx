@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { JuntarDocumentosDialog } from "@/components/fase-interna/externa/JuntarDocumentosDialog"
+import { carregarRascunhoIa, paragrafosDoRascunho } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { DesenhoFaseInterna } from "@/components/fase-interna/fluxo/DesenhoFaseInterna"
 import { mensagemDoErro } from "@/components/fase-interna/fluxo/despacho"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
@@ -148,12 +149,19 @@ export function FluxoFaseInterna({
   }
 
   const concluir = async (p: PassoFluxo, a: AcaoConcluir) => {
+    // F4a: despacho da etapa de registro sugerido pela IA (rascunho ao chegar) — vem no campo para revisar
+    const ia = a.tipo === "REGISTRO" ? await carregarRascunhoIa(licitacaoId, "REGISTRO", p.passo) : null
+    const sugerido = ia?.rascunho && ["GERADO", "ACEITO"].includes(ia.rascunho.status) && !ia.rascunho.revisado_por_nome ? ia.rascunho : null
+    const textoSugerido = sugerido ? paragrafosDoRascunho(sugerido.secoes.find((x) => x.id === "texto")?.texto ?? "").join("\n") : ""
     const texto = await pedirTexto({
       titulo: `${a.rotulo} — ${p.titulo}`,
       mensagem:
         a.tipo === "REGISTRO"
-          ? "Esta etapa conclui com o despacho registrado no processo."
+          ? `Esta etapa conclui com o despacho registrado no processo.${
+              textoSugerido ? `\n\nTexto sugerido pela IA em ${fmtBrasilia(sugerido!.gerado_em)} — revise antes de registrar (quem registra fica como revisor).` : ""
+            }`
           : "Confirme que a etapa foi conferida depois da etapa que voltou. Ela volta a contar como concluída.",
+      valorInicial: textoSugerido || undefined,
       rotulo: a.pedido,
       placeholder: a.tipo === "REGISTRO" ? "Ex.: Autorizo o início do processo de contratação." : "Ex.: Conferido — o TR continua compatível com o ETP revisto.",
       obrigatorio: true,
@@ -161,6 +169,10 @@ export function FluxoFaseInterna({
       confirmarRotulo: a.rotulo,
     })
     if (texto === null) return
+    // Usou o texto da IA: o rascunho vira "aceito" e o registro do despacho anota quem revisou
+    if (sugerido?.status === "GERADO") {
+      await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/rascunho-ia/${sugerido.id}/aceitar`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null)
+    }
     await acao(`etapas/${p.passo}/concluir`, { texto }, a.tipo === "REGISTRO" ? "Despacho registrado." : "Revisão registrada.")
   }
 

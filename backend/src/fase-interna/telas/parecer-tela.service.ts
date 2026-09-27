@@ -19,6 +19,7 @@ import { PapelFaseInterna, PassoFaseInterna, passoDaPeca } from '../tarefas/etap
 import { Autor, MinutasTelaService } from './minutas-tela.service';
 import { ConformidadeService } from '../conformidade/conformidade.service';
 import { secoesDaPeca } from './minutas-regras';
+import { RevisaoIaService } from '../ia-rascunho/revisao-ia.service';
 import { AnaliseJuridica, Diligencia, FaseAnaliseJuridica } from './parecer.entities';
 import {
   ConclusaoParecer,
@@ -78,6 +79,7 @@ export class ParecerTelaService {
     private readonly tarefas: TarefasService,
     private readonly auditLog: AuditLogService,
     private readonly conformidade: ConformidadeService,
+    private readonly revisaoIa: RevisaoIaService,
   ) {}
 
   // ==========================================================================
@@ -515,6 +517,8 @@ export class ParecerTelaService {
     await this.ds.query(`UPDATE diligencias SET parecer_documento_id = $2, updated_at = now() WHERE analise_id::text = $1 AND parecer_documento_id IS NULL`, [analise.id, doc.id]);
     await this.tarefas.concluirTarefaPorChave(licitacaoId, chaveRetornoParecer(analise.id), autor);
     if (fase === 'EXTERNA') await this.tarefas.concluirTarefaPorChave(licitacaoId, CHAVE_TAREFA_PJE, autor);
+    // F4a: parecer emitido a partir da minuta da IA aceita → registra quem revisou (o jurista do JWT)
+    if (fase === 'PREVIA') await this.revisaoIa.registrarNaEmissao(licitacaoId, 'PJ', { documentoId: doc.id, autor, ato: 'emitido' });
     this.logger.log(`Parecer ${tipo} do processo ${licitacaoId} emitido (${v.conclusao}) e ${assinado.status === StatusDocumento.ASSINADO ? 'assinado' : 'em assinatura'}`);
     return this.obter(licitacaoId, fase, ator);
   }

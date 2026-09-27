@@ -8,6 +8,7 @@ import { TarefasService } from '../tarefas/tarefas.service';
 import { PapelFaseInterna } from '../tarefas/etapas-fase-interna';
 import { Autor, MinutasTelaService } from './minutas-tela.service';
 import { ParecerTelaService } from './parecer-tela.service';
+import { RevisaoIaService } from '../ia-rascunho/revisao-ia.service';
 
 const MCI = TipoDocumentoFaseInterna.MANIFESTACAO_CONTROLE_INTERNO;
 export type ConclusaoControleInterno = 'FAVORAVEL' | 'COM_APONTAMENTOS';
@@ -40,6 +41,7 @@ export class ControleInternoTelaService {
     private readonly pecas: PecasFaseInternaService,
     private readonly tarefas: TarefasService,
     private readonly parecer: ParecerTelaService,
+    private readonly revisaoIa: RevisaoIaService,
   ) {}
 
   async obter(licitacaoId: string, ator: Ator) {
@@ -80,12 +82,14 @@ export class ControleInternoTelaService {
       (v.texto ? `<p>${esc(v.texto)}</p>` : '<p>A unidade de controle interno examinou a instrução do processo quanto à regularidade formal.</p>') +
       (v.apontamentos ? `<p><strong>Apontamentos.</strong> ${esc(v.apontamentos)}</p>` : '') +
       `<p><strong>Conclusão:</strong> manifestação ${ROTULO[v.conclusao].toUpperCase()}.</p><p>${esc(data)}.</p><p>${esc(emissor.nome)}${emissor.cargo ? ` — ${esc(emissor.cargo)}` : ''}</p>`;
-    await this.minutas.gravarPecaGerada(licitacaoId, MCI, { manifestacao: html }, 'Manifestação do controle interno', autor, {
+    const doc = await this.minutas.gravarPecaGerada(licitacaoId, MCI, { manifestacao: html }, 'Manifestação do controle interno', autor, {
       extras: { _manifestacao: { conclusao: v.conclusao, apontamentos: v.apontamentos || null, por_nome: autor.nome, em: new Date().toISOString() } },
       log: `Manifestação do controle interno (${ROTULO[v.conclusao]})`,
       dadosLog: { conclusao: v.conclusao },
     });
     await this.pecas.enviarEAssinarComoEmissor(licitacaoId, MCI, ator, emissor.cargo || 'Controle interno', rede);
+    // F4a: manifestação feita a partir do rascunho da IA aceito → registra quem revisou
+    await this.revisaoIa.registrarNaEmissao(licitacaoId, 'MCI', { documentoId: doc.id, autor, ato: 'emitida' });
     return this.obter(licitacaoId, ator);
   }
 }

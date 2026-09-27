@@ -41,6 +41,11 @@ export enum AcaoLogFaseInterna {
   ETAPA_REGISTRADA = 'ETAPA_REGISTRADA',
   DEMANDA_APROVADA = 'DEMANDA_APROVADA',
   PARECER_DISPENSADO = 'PARECER_DISPENSADO',
+  // IA em toda etapa (F4a): rascunho gerado/aceito/descartado e a revisão humana na emissão
+  IA_RASCUNHO_GERADO = 'IA_RASCUNHO_GERADO',
+  IA_RASCUNHO_ACEITO = 'IA_RASCUNHO_ACEITO',
+  IA_RASCUNHO_DESCARTADO = 'IA_RASCUNHO_DESCARTADO',
+  IA_REVISADA_POR = 'IA_REVISADA_POR',
 }
 
 @Entity('logs_fase_interna')

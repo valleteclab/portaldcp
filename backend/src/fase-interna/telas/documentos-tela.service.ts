@@ -19,6 +19,8 @@ import { GeradorDocumentoService } from '../gerador-documento.service';
 import { MODELOS_PADRAO } from '../modelos-padrao';
 import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
 import { OrcamentoService } from '../orcamento/orcamento.service';
+import { resumoIaDaPeca } from '../ia-rascunho/rascunho-ia-regras';
+import { RevisaoIaService } from '../ia-rascunho/revisao-ia.service';
 import { coerenciaEntreSecoes, detectarIndicacaoMarca, incisosObrigatoriosVazios, situacaoDosIncisos, textoPuro } from './etp-analise';
 
 type Autor = { id: string | null; nome: string | null };
@@ -62,6 +64,7 @@ export class DocumentosTelaService {
     private readonly orcamento: OrcamentoService,
     private readonly auditLog: AuditLogService,
     private readonly ia: IaService,
+    private readonly revisaoIa: RevisaoIaService,
   ) {}
 
   private async licitacao(licitacaoId: string) {
@@ -102,6 +105,7 @@ export class DocumentosTelaService {
       pdf_gerado_em: doc.data_geracao_arquivo ?? null,
       nao_se_aplica: !!doc.dados_estruturados?.nao_se_aplica,
       justificativa_nao_se_aplica: doc.dados_estruturados?.justificativa_nao_se_aplica ?? null,
+      ia_rascunho: resumoIaDaPeca(doc.dados_estruturados),
     };
   }
 
@@ -409,6 +413,8 @@ export class DocumentosTelaService {
       await this.docRepo.update(doc.id, { criado_por_id: autor.id, criado_por_nome: autor.nome ?? undefined } as any);
     }
     await this.gerador.gerarPdf(doc.id, { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined });
+    // F4a: peça gerada a partir do rascunho da IA → registra quem revisou (usuário do JWT)
+    await this.revisaoIa.registrarNaEmissao(licitacaoId, t as 'DFD' | 'ETP' | 'TR', { documentoId: doc.id, autor, ato: 'gerado' });
     const final = await this.docAtual(licitacaoId, t);
     return { peca: this.resumoPeca(final), secoes: this.secoesDe(final), secoes_derivadas: ids };
   }

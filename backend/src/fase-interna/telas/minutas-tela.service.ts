@@ -12,6 +12,7 @@ import { ModeloDocumentoService } from '../modelo-documento.service';
 import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
 import { OrcamentoService } from '../orcamento/orcamento.service';
 import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
+import { resumoIaDaPeca } from '../ia-rascunho/rascunho-ia-regras';
 import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, decidirRegeracao, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 export type Autor = { id: string | null; nome: string | null };
@@ -94,6 +95,7 @@ export class MinutasTelaService {
       desatualizada: desatualizacaoRelevante(doc.tipo, d._desatualizada) ? d._desatualizada : null,
       exige_assinatura: !!d._exige_assinatura,
       signatarios_exigidos: doc.signatarios_exigidos ?? null,
+      ia_rascunho: resumoIaDaPeca(d),
     };
   }
 
@@ -111,18 +113,24 @@ export class MinutasTelaService {
     licitacaoId: string,
     tipoParam: string,
     autor: Autor,
-    opcoes: { motivo?: string; extras?: Record<string, unknown> } = {},
+    opcoes: { motivo?: string; extras?: Record<string, unknown>; substituirSecoes?: Record<string, string> } = {},
   ): Promise<DocumentoFaseInterna> {
     const tipo = String(tipoParam || '').toUpperCase() as TipoDocumentoFaseInterna;
     const lic = await this.licitacao(licitacaoId);
     const modelo = await this.modelos.resolverModelo(lic.orgao_id, tipo);
     if (!modelo) throw new BadRequestException(`Não há modelo para ${TITULO_DOCUMENTO[tipo] ?? tipo}.`);
     const contexto = await this.modelos.montarContextoVariaveis(licitacaoId);
-    const secoes: Record<string, string> = {};
-    for (const s of modelo.secoes || []) secoes[s.id] = s.texto_padrao ? this.modelos.substituirVariaveis(s.texto_padrao, contexto) : '';
+    const doModelo: Record<string, string> = {};
+    for (const s of modelo.secoes || []) doModelo[s.id] = s.texto_padrao ? this.modelos.substituirVariaveis(s.texto_padrao, contexto) : '';
+    // F4a: texto revisado do rascunho da IA no lugar do texto do modelo (só nas
+    // seções do modelo). A impressão guardada é a do MODELO: a peça conta como
+    // "editada" — se o processo mudar, ganha o aviso "desatualizada", nunca é
+    // reescrita sozinha por cima do texto revisado.
+    const secoes: Record<string, string> = { ...doModelo };
+    for (const [id, texto] of Object.entries(opcoes.substituirSecoes ?? {})) if (id in doModelo && String(texto ?? '').trim()) secoes[id] = texto;
     const fundamento = fundamentoEfetivo(lic);
     const meta = {
-      hash: hashSecoes(secoes),
+      hash: hashSecoes(doModelo),
       em: new Date().toISOString(),
       por_id: autor.id,
       por_nome: autor.nome,
@@ -166,7 +174,7 @@ export class MinutasTelaService {
         [StatusDocumento.EM_ELABORACAO, StatusDocumento.PENDENTE].includes(atual.status) &&
         !atual.dados_estruturados?.nao_se_aplica;
       const internos = Object.fromEntries(
-        Object.entries((emElaboracao && atual!.dados_estruturados) || {}).filter(([k]) => k.startsWith('_') && !['_gerado', '_desatualizada'].includes(k)),
+        Object.entries((emElaboracao && atual!.dados_estruturados) || {}).filter(([k]) => k.startsWith('_') && !['_gerado', '_desatualizada', '_ia_rascunho'].includes(k)),
       );
       // Regerar = VERSÃO NOVA (homologação E3): só o rascunho que ainda não
       // virou PDF é reescrito; a versão já gerada fica no histórico (SUBSTITUIDO)
