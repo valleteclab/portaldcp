@@ -44,11 +44,19 @@ export interface Tramitacao {
   sequencia: number;
   de_setor_nome?: string;
   de_usuario_nome?: string;
-  para_setor_nome: string;
+  para_setor_nome?: string | null;
   para_usuario_nome?: string;
   despacho: string;
   prazo_dias?: number;
+  prazo_dias_uteis?: number | null;
   data_prazo?: string;
+  data_ocorrencia?: string | null;
+  lancado_posteriormente?: boolean;
+  lancado_por_nome?: string | null;
+  automatico?: boolean;
+  folha_inicial?: number | null;
+  folha_final?: number | null;
+  despacho_arquivo?: string | null;
   status: "PENDENTE" | "RECEBIDA" | "DEVOLVIDA" | "CONCLUIDA";
   data_envio: string;
   data_recebimento?: string;
@@ -63,22 +71,19 @@ const STATUS_BADGE: Record<Tramitacao["status"], { label: string; cls: string }>
   CONCLUIDA: { label: "Concluída", cls: "bg-gray-100 text-gray-600" },
 };
 
-function usuarioLogado(): { id?: string; nome?: string } {
-  try {
-    const u = localStorage.getItem("usuario");
-    if (u) {
-      const parsed = JSON.parse(u);
-      return { id: parsed.id, nome: parsed.nome || parsed.email };
-    }
-    const o = localStorage.getItem("orgao");
-    if (o) {
-      const parsed = JSON.parse(o);
-      return { id: parsed.id, nome: parsed.nome };
-    }
-  } catch {
-    /* ignore */
-  }
-  return {};
+/** Mensagem de erro da API (403: só quem está com o processo pode agir). */
+async function erroDaApi(res: Response, padrao: string): Promise<string> {
+  const body = await res.json().catch(() => null);
+  const msg = body?.message;
+  return (Array.isArray(msg) ? msg.join("; ") : msg) || padrao;
+}
+
+/** Folhas do despacho nos autos: "fl. 5" ou "fls. 5–6". */
+function rotuloFolhas(t: Tramitacao): string | null {
+  if (!t.folha_inicial) return null;
+  return t.folha_final && t.folha_final > t.folha_inicial
+    ? `fls. ${t.folha_inicial}–${t.folha_final}`
+    : `fl. ${t.folha_inicial}`;
 }
 
 /**
@@ -106,6 +111,9 @@ export function TramitacaoProcessoCard({
   const [setorDestino, setSetorDestino] = useState("");
   const [despacho, setDespacho] = useState("");
   const [prazoDias, setPrazoDias] = useState("");
+  // Lançamento de movimentação que já aconteceu (processo físico)
+  const [dataOcorrencia, setDataOcorrencia] = useState("");
+  const [erroAcao, setErroAcao] = useState<string | null>(null);
 
   // Devolução
   const [devolvendoId, setDevolvendoId] = useState<string | null>(null);
@@ -159,7 +167,6 @@ export function TramitacaoProcessoCard({
     }
     setEnviando(true);
     setErro(null);
-    const usuario = usuarioLogado();
     try {
       const res = await authFetch(
         `${API_URL}/api/fase-interna/${licitacaoId}/tramitar`,
@@ -168,19 +175,16 @@ export function TramitacaoProcessoCard({
           body: JSON.stringify({
             para_setor_id: setorDestino,
             despacho: despacho.trim(),
-            prazo_dias: prazoDias ? parseInt(prazoDias, 10) : undefined,
-            usuarioId: usuario.id,
-            usuarioNome: usuario.nome,
+            prazo_dias_uteis: prazoDias ? parseInt(prazoDias, 10) : undefined,
+            data_ocorrencia: dataOcorrencia || undefined,
           }),
         },
       );
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.message || "Falha ao tramitar o processo");
-      }
+      if (!res.ok) throw new Error(await erroDaApi(res, "Falha ao tramitar o processo"));
       setSetorDestino("");
       setDespacho("");
       setPrazoDias("");
+      setDataOcorrencia("");
       fecharDialog();
       await carregar();
     } catch (e) {
@@ -190,37 +194,44 @@ export function TramitacaoProcessoCard({
     }
   };
 
+  // Quem recebe/devolve é o usuário do login (o servidor confere o setor de destino)
   const receber = async (tramitacaoId: string) => {
-    const usuario = usuarioLogado();
+    setErroAcao(null);
     const res = await authFetch(
       `${API_URL}/api/fase-interna/tramitacoes/${tramitacaoId}/receber`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ usuarioId: usuario.id, usuarioNome: usuario.nome }),
-      },
+      { method: "PUT", body: JSON.stringify({}) },
     );
     if (res.ok) await carregar();
+    else setErroAcao(await erroDaApi(res, "Não foi possível confirmar o recebimento"));
   };
 
   const devolver = async () => {
     if (!devolvendoId || !motivoDevolucao.trim()) return;
-    const usuario = usuarioLogado();
+    setErroAcao(null);
     const res = await authFetch(
       `${API_URL}/api/fase-interna/tramitacoes/${devolvendoId}/devolver`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          motivo: motivoDevolucao.trim(),
-          usuarioId: usuario.id,
-          usuarioNome: usuario.nome,
-        }),
-      },
+      { method: "PUT", body: JSON.stringify({ motivo: motivoDevolucao.trim() }) },
     );
     if (res.ok) {
       setDevolvendoId(null);
       setMotivoDevolucao("");
       await carregar();
+    } else {
+      setDevolvendoId(null);
+      setErroAcao(await erroDaApi(res, "Não foi possível devolver o processo"));
     }
+  };
+
+  /** Abre o PDF do despacho (folha dos autos) com a sessão do usuário. */
+  const abrirDespacho = async (tramitacaoId: string) => {
+    const res = await authFetch(`${API_URL}/api/fase-interna/tramitacoes/${tramitacaoId}/despacho`);
+    if (!res.ok) {
+      setErroAcao(await erroDaApi(res, "Despacho indisponível"));
+      return;
+    }
+    const url = URL.createObjectURL(await res.blob());
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   const atual = tramitacoes.length
@@ -246,10 +257,11 @@ export function TramitacaoProcessoCard({
         </div>
         {atual && (
           <p className="text-xs text-gray-500 mt-1">
-            Processo atualmente em: <strong>{atual.para_setor_nome}</strong>
-            {atual.para_usuario_nome ? ` (${atual.para_usuario_nome})` : ""}
+            Processo atualmente em: <strong>{atual.para_setor_nome || atual.para_usuario_nome}</strong>
+            {atual.para_setor_nome && atual.para_usuario_nome ? ` (${atual.para_usuario_nome})` : ""}
           </p>
         )}
+        {erroAcao && <p className="text-xs text-red-600 mt-1">{erroAcao}</p>}
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -282,8 +294,7 @@ export function TramitacaoProcessoCard({
                     </span>
                     <ArrowRight className="w-3 h-3 text-gray-400" />
                     <span className="text-xs font-semibold text-gray-900">
-                      {t.para_setor_nome}
-                      {t.para_usuario_nome ? ` · ${t.para_usuario_nome}` : ""}
+                      {[t.para_setor_nome, t.para_usuario_nome].filter(Boolean).join(" · ")}
                     </span>
                     <Badge className={`${badge.cls} border-0 text-[10px]`}>
                       {badge.label}
@@ -293,11 +304,25 @@ export function TramitacaoProcessoCard({
                     {t.despacho}
                   </p>
                   <p className="text-[11px] text-gray-400 mt-1">
-                    Enviado em {formatarDataHoraBR(t.data_envio)}
+                    Enviado em {formatarDataHoraBR(t.data_ocorrencia || t.data_envio)}
+                    {t.de_usuario_nome ? ` por ${t.de_usuario_nome}` : ""}
+                    {t.lancado_posteriormente &&
+                      ` (lançado em ${formatarDataHoraBR(t.data_envio)}${t.lancado_por_nome ? ` por ${t.lancado_por_nome}` : ""})`}
+                    {t.automatico && " · envio automático"}
                     {t.data_recebimento &&
                       ` · Recebido em ${formatarDataHoraBR(t.data_recebimento)}${t.recebido_por_nome ? ` por ${t.recebido_por_nome}` : ""}`}
-                    {t.data_prazo && ` · Prazo: ${formatarDataHoraBR(t.data_prazo)}`}
+                    {t.data_prazo &&
+                      ` · Prazo: ${formatarDataHoraBR(t.data_prazo)}${t.prazo_dias_uteis ? ` (${t.prazo_dias_uteis} dia(s) útil(eis))` : ""}`}
                   </p>
+                  {t.despacho_arquivo && (
+                    <button
+                      type="button"
+                      className="text-[11px] text-[#1351b4] hover:underline mt-0.5"
+                      onClick={() => abrirDespacho(t.id)}
+                    >
+                      Ver despacho nos autos{rotuloFolhas(t) ? ` (${rotuloFolhas(t)})` : ""}
+                    </button>
+                  )}
                   {t.motivo_devolucao && (
                     <p className="text-[11px] text-red-600 mt-0.5">
                       Motivo da devolução: {t.motivo_devolucao}
@@ -314,7 +339,7 @@ export function TramitacaoProcessoCard({
                         <Check className="w-3 h-3" />
                         Confirmar recebimento
                       </Button>
-                      {t.de_setor_nome && (
+                      {(t.de_setor_nome || t.de_usuario_nome) && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -340,7 +365,8 @@ export function TramitacaoProcessoCard({
           <DialogHeader>
             <DialogTitle>Encaminhar processo</DialogTitle>
             <DialogDescription>
-              O despacho é obrigatório e fica registrado no histórico do processo.
+              O despacho é obrigatório e entra nos autos como folha. Quem
+              recebe é avisado por e-mail e WhatsApp.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -376,7 +402,7 @@ export function TramitacaoProcessoCard({
               />
             </div>
             <div>
-              <Label>Prazo (dias, opcional)</Label>
+              <Label>Prazo (dias úteis, opcional)</Label>
               <Input
                 type="number"
                 min={1}
@@ -384,6 +410,19 @@ export function TramitacaoProcessoCard({
                 value={prazoDias}
                 onChange={(e) => setPrazoDias(e.target.value)}
               />
+            </div>
+            <div>
+              <Label>Data em que o envio ocorreu (opcional)</Label>
+              <Input
+                type="date"
+                className="mt-1 w-44"
+                value={dataOcorrencia}
+                onChange={(e) => setDataOcorrencia(e.target.value)}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Use só para lançar uma movimentação que já aconteceu (processo
+                físico). Fica registrado que o lançamento foi feito depois.
+              </p>
             </div>
             {erro && <p className="text-sm text-red-600">{erro}</p>}
           </div>
