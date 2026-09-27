@@ -82,7 +82,7 @@ export function DadosBasicosTab({ dados, onChange }: DadosBasicosTabProps) {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="numero_processo">Número do Processo *</Label>
+                <Label htmlFor="numero_processo">Processo administrativo nº *</Label>
                 <Input 
                   id="numero_processo"
                   placeholder="Ex: 001/2025"
@@ -90,7 +90,7 @@ export function DadosBasicosTab({ dados, onChange }: DadosBasicosTabProps) {
                   onChange={(e) => updateField('numero_processo', e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Formato sugerido: NNN/AAAA
+                  Único no órgão. Não é o nº da dispensa/licitação.
                 </p>
               </div>
               

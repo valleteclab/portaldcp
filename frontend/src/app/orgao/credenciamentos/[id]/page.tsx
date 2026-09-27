@@ -149,7 +149,7 @@ export default function CredenciamentoOrgaoPage() {
           </div>
           <h1 className="text-xl font-bold">{c.objeto}</h1>
           <p className="text-sm text-gray-600">
-            Processo {c.numero_processo} · Edital {c.numero_edital || '—'} · vigência {dataHora(cfg.vigencia_inicio)} a {dataHora(cfg.vigencia_fim)}
+            Processo administrativo nº {c.numero_processo} · Edital {c.numero_edital || '—'} · vigência {dataHora(cfg.vigencia_inicio)} a {dataHora(cfg.vigencia_fim)}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">

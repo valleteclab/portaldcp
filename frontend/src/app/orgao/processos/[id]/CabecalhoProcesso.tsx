@@ -44,7 +44,8 @@ export function CabecalhoProcesso({
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold">
-              {rotuloModalidade(l.modalidade)} {l.numero_processo}
+              {rotuloModalidade(l.modalidade)}{" "}
+              <span className="font-normal text-gray-500 text-lg whitespace-nowrap">· Processo administrativo nº {l.numero_processo}</span>
             </h1>
             <Badge className={`${corFase(l.fase)} hover:opacity-100`}>{rotuloFase(l.fase)}</Badge>
             <SituacaoBadge licitacao={l} />
