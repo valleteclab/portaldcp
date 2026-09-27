@@ -295,7 +295,7 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
         expect(texto).not.toContain('115/2025');
         expect(r.pecas[t].referencias_divergentes).toEqual([]);
       }
-      expect(r.pecas.MC.secoes.vinculacao).toMatch(/Processo Administrativo nº 139\/2025 \(DISPENSA_ELETRONICA nº 029\/2025\), com fundamento na Lei 14\.133\/2021, art\. 75, II/);
+      expect(r.pecas.MC.secoes.vinculacao).toMatch(/Processo Administrativo nº 139\/2025 \(Dispensa eletrônica nº 029\/2025\), com fundamento na Lei 14\.133\/2021, art\. 75, II/);
       expect(r.pecas.RAG.secoes.identificacao).toContain('designado pela Portaria 089/2024');
       expect(r.pecas.RAG.secoes.enquadramento).toMatch(/art\. 75, II, valor atualizado pelo Dec\./);
       expect(r.dados_do_processo.fundamento_legal.codigo).toBe('ART75_II');
@@ -332,7 +332,8 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       const depois = (await http().get(`/api/fase-interna/${lic.id}/minutas`).set(bearer(agente.token)).expect(200)).body;
       expect(depois.pecas.MC.secoes.vinculacao).toContain('art. 75, VIII');
       expect(depois.pecas.MC.secoes.vinculacao).not.toContain('art. 75, II,');
-      expect(depois.pecas.MC.peca).toMatchObject({ versao: versaoMc, editada: false, desatualizada: null });
+      // regerada = VERSÃO NOVA (homologação E3): a anterior fica no histórico
+      expect(depois.pecas.MC.peca).toMatchObject({ versao: versaoMc + 1, editada: false, desatualizada: null });
       expect(depois.pecas.ME.secoes.preambulo).toContain('art. 75, VIII');
       expect(depois.pecas.RAG.peca.desatualizada).toMatchObject({ motivo: 'EDITADA', campos: ['fundamento legal'] });
       expect(depois.pecas.RAG.secoes.enquadramento).toContain('art. 75, II'); // não foi reescrita
@@ -346,7 +347,7 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       await http().put(`/api/licitacoes/${lic.id}`).set(bearer(A.token)).send({ fundamento_legal: 'ART75_VIII' }).expect(200);
       await esperar();
       const igual = (await http().get(`/api/fase-interna/${lic.id}/minutas`).set(bearer(agente.token)).expect(200)).body;
-      expect(igual.pecas.MC.peca.versao).toBe(versaoMc);
+      expect(igual.pecas.MC.peca.versao).toBe(versaoMc + 1);
     });
 
     it('tipo inválido: 400; minuta feita fora (anexo) também conta', async () => {
