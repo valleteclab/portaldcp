@@ -45,6 +45,7 @@ import { dispensaSemLances, modoDisputaDaDispensa, vencedoresSemLances } from '.
 import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizacao';
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
 import { comoErro } from '../common/erros';
+import { colunasTipadasDosMetadados, mensagemCamposInvalidos, normalizarCamposTipados } from './normalizar-campos-edicao';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -579,6 +580,17 @@ export class LicitacoesService {
     // `fase_interna_externa`: só pela entrada/juntada da fase interna feita fora.
     for (const campo of ['id', 'fase', 'situacao', 'fase_anterior', 'fase_interna_concluida', 'data_homologacao', 'data_adjudicacao', 'dispensa_com_lances', 'fase_interna_externa']) {
       delete dadosLicitacao[campo];
+    }
+
+    // Campos tipados (datas, números, UUID, booleanos): vazio → NULL; inválido → 400.
+    // O corpo não passa por validação de classe (Partial<DTO>): sem isto, a data
+    // vazia do cronograma virava "Invalid Date" no banco → 500 (homologação E1).
+    const invalidos = normalizarCamposTipados(
+      dadosLicitacao,
+      colunasTipadasDosMetadados((this.licitacaoRepository.metadata?.columns ?? []) as any),
+    );
+    if (invalidos.length) {
+      throw new BadRequestException({ message: mensagemCamposInvalidos(invalidos), campos_invalidos: invalidos });
     }
 
     // Pregoeiro/agente (E9): só usuário ATIVO do próprio órgão da licitação

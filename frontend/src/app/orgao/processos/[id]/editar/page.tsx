@@ -295,7 +295,11 @@ Deseja também limpar os itens vinculados aos lotes?`,
         ...classificacao,
         // Disputa por lote só com lotes (sem lotes volta a disputa por item)
         ...(classificacao.base_lance === 'TOTAL_LOTE' && !classificacao.usa_lotes ? { base_lance: 'TOTAL_ITEM' } : {}),
-        ...cronograma,
+        // Datas vazias vão como null (nunca ''): na fase interna o cronograma
+        // ainda não existe e '' virava data inválida no backend.
+        ...Object.fromEntries(
+          Object.entries(cronograma).map(([campo, valor]) => [campo, typeof valor === 'string' && valor.trim() ? valor : null]),
+        ),
         // pregoeiro_nome_atual é só exibição (o nome sai do usuário vinculado)
         ...(({ pregoeiro_nome_atual: _nome, ...resto }) => resto)(configuracoes),
         itens,
