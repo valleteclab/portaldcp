@@ -16,7 +16,7 @@ import { PassoFaseInterna } from '../tarefas/etapas-fase-interna';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { AchadoConformidade, RevisaoConformidade } from './achado.entity';
 import { DocumentoLinha, EntradaContexto, montarContexto } from './contexto';
-import { AchadoExistente, avaliarRegras, contagemDaConformidade, pendenciasDoPortao, planejarRevisao, planoVazio } from './motor';
+import { AchadoExistente, ROTULO_PORTAO, avaliarRegras, contagemDaConformidade, pendenciasDoPortao, planejarRevisao, planoVazio } from './motor';
 import { OpcoesPortao, definirResumidorDeConformidade, definirVerificadorDePortao } from './portoes';
 import { REGRAS, avaliacaoDoPrazo, passoDoAchado, publicacaoPrevista, regraPorCodigo, rotuloFolhas } from './regras';
 import { paginasDoArquivo } from './texto-pdf';
@@ -324,7 +324,7 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
     const pend = await this.pendenciasDoPortao(licitacaoId, portao, opcoes);
     if (!pend.length) return;
     throw new BadRequestException({
-      message: pend.length === 1 ? pend[0] : `Pendências do portão ${portao}: ${pend.join(' | ')}`,
+      message: pend.length === 1 ? pend[0] : `Pendências da ${ROTULO_PORTAO[portao].replace(/^Trava/, 'trava')}: ${pend.join(' | ')}`,
       pendencias: pend,
       portao,
     });
@@ -647,7 +647,7 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
       },
       ativo: this.ativo(),
       aplicavel: interna,
-      motivo: interna ? null : 'O processo já foi divulgado: a conferência ficou como estava na publicação (o portão vale só para o ato que ainda vai ser praticado).',
+      motivo: interna ? null : 'O processo já foi divulgado: a conferência ficou como estava na publicação (a trava da lei vale só para o ato que ainda vai ser praticado).',
       revisao: revisao ? { em: revisao.revisado_em, por_nome: revisao.revisado_por_nome, origem: revisao.origem } : null,
       contagem: {
         bloqueios,

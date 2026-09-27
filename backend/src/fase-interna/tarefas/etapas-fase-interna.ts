@@ -129,6 +129,8 @@ export interface MarcaEtapa {
   motivo?: string | null;
   texto?: string | null;
   origem?: string | null;
+  /** F3: despacho da etapa de registro nos autos (folha). */
+  despacho?: { id: string; folha_inicial: number | null; folha_final: number | null; url: string } | null;
 }
 
 /**

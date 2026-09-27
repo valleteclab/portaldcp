@@ -254,7 +254,7 @@ export class AutorizacaoTelaService {
     if (doc && doc.origem !== 'INTERNO') throw new ConflictException('A autorização foi anexada (assinada fora). Para refazer aqui, gere um novo despacho.');
     // Portão B (Entrega 4): sem o art. 72 completo, o despacho não vai para a autoridade
     const pend = await pendenciasDoPortaoDoProcesso(licitacaoId, 'B', { ato: 'AUTORIZAR' });
-    if (pend.length) throw new BadRequestException({ message: pend.length === 1 ? pend[0] : `Pendências do portão B (art. 72): ${pend.join(' | ')}`, pendencias: pend, portao: 'B' });
+    if (pend.length) throw new BadRequestException({ message: pend.length === 1 ? pend[0] : `Pendências da trava da lei (autorizar — art. 72): ${pend.join(' | ')}`, pendencias: pend, portao: 'B' });
     if (!doc || doc.status === StatusDocumento.REPROVADO || doc.dados_estruturados?.nao_se_aplica) {
       doc = await this.minutas.gerarPorModelo(licitacaoId, AA, autor, { extras: doc?.dados_estruturados?._devolucoes ? { _devolucoes: doc.dados_estruturados._devolucoes } : {} });
     }

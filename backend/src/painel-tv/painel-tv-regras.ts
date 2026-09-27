@@ -216,6 +216,47 @@ export function processoAtrasado(
 }
 
 // ---------------------------------------------------------------------------
+// Com quem está (F3: pela tramitação; sem ela, pela tarefa aberta)
+// ---------------------------------------------------------------------------
+
+export interface ComQuemCartao {
+  nome: string;
+  tipo: 'PESSOA' | 'SETOR' | 'AGENTE';
+  /** Desde quando está com ele (ISO) — envio efetivo da tramitação; na tarefa, a criação. */
+  desde: string | null;
+  /** Fim do prazo da posse (ISO) — o da tramitação; na tarefa, o da tarefa. */
+  prazo: string | null;
+  atrasado: boolean;
+}
+
+/**
+ * "COM QUEM ESTÁ" do cartão: a POSSE da tramitação (setor e/ou pessoa, desde
+ * quando, prazo e atraso em dias úteis — `comQuemEsta`); sem tramitação
+ * vigente, o responsável da tarefa aberta (pessoa ou papel/setor); sem
+ * tarefa, o agente do processo. Só nome, tipo e datas — nunca o despacho.
+ */
+export function comQuemDoCartao(
+  posse: { setor: { nome: string | null } | null; usuario: { nome: string | null } | null; desde: string | null; prazo: string | null; vencido: boolean } | null,
+  tarefa: { responsavel_usuario_id?: string | null; responsavel_nome?: string | null; rotulo_papel?: string | null; setor_nome?: string | null; created_at?: Date | string | null; prazo?: Date | string | null } | null,
+  agente: string | null,
+  agora: Date,
+): ComQuemCartao | null {
+  const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
+  if (posse && (posse.setor || posse.usuario)) {
+    const nome = [posse.setor?.nome, posse.usuario?.nome].filter(Boolean).join(' · ') || 'Setor';
+    return { nome, tipo: posse.usuario ? 'PESSOA' : 'SETOR', desde: posse.desde, prazo: posse.prazo, atrasado: !!posse.vencido };
+  }
+  if (tarefa) {
+    const atrasado = !!tarefa.prazo && new Date(tarefa.prazo).getTime() < agora.getTime();
+    const datas = { desde: iso(tarefa.created_at), prazo: iso(tarefa.prazo), atrasado };
+    if (tarefa.responsavel_usuario_id) return { nome: tarefa.responsavel_nome || 'Servidor', tipo: 'PESSOA', ...datas };
+    const partes = [tarefa.rotulo_papel || null, tarefa.setor_nome ? `setor ${tarefa.setor_nome}` : null].filter(Boolean);
+    if (partes.length) return { nome: partes.join(' · '), tipo: 'SETOR', ...datas };
+  }
+  return agente ? { nome: agente, tipo: 'AGENTE', desde: null, prazo: null, atrasado: false } : null;
+}
+
+// ---------------------------------------------------------------------------
 // Contratos vencendo
 // ---------------------------------------------------------------------------
 

@@ -213,7 +213,12 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       expect(passo(et, 'DFD')).toMatchObject({ situacao: 'EM_ANDAMENTO', aguardando_aprovacao: true });
       expect(passo(et, 'ETP').situacao).toBe('AGUARDANDO');
       expect(et.modelo).toMatchObject({ nome: 'Câmara — Portaria 089', tipo_processo: 'DISPENSA', legado: false });
-      expect((await abertas(lic)).map((t: any) => t.passo)).toEqual(['DFD']);
+      // F3: além da tarefa da DFD, a tarefa "Aprovar a demanda" para quem aprova
+      expect((await abertas(lic)).map((t: any) => [t.passo, t.origem])).toEqual([
+        ['DFD', 'ETAPA'],
+        ['DFD', 'APROVACAO'],
+      ]);
+      expect((await abertas(lic)).find((t: any) => t.origem === 'APROVACAO')).toMatchObject({ titulo: 'Aprovar a demanda', responsavel_usuario_id: aprovador.id });
       expect((await etapas(lic, requisitante.token)).aprovacao_demanda.pode_aprovar).toBe(false);
     });
 

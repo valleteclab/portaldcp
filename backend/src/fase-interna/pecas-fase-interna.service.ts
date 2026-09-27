@@ -105,7 +105,7 @@ async function exigirPortaoB(licitacaoId: string, tipo: string) {
   if (tipo !== TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA) return;
   const pend = await pendenciasDoPortaoDoProcesso(licitacaoId, 'B', { ato: 'AUTORIZAR' });
   if (pend.length) {
-    throw new BadRequestException({ message: pend.length === 1 ? pend[0] : `Pendências do portão B (art. 72): ${pend.join(' | ')}`, pendencias: pend, portao: 'B' });
+    throw new BadRequestException({ message: pend.length === 1 ? pend[0] : `Pendências da trava da lei (autorizar — art. 72): ${pend.join(' | ')}`, pendencias: pend, portao: 'B' });
   }
 }
 

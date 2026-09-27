@@ -30,6 +30,12 @@ export interface DadosDespachoPdf {
   automatico?: boolean;
   lancado_posteriormente?: boolean;
   lancado_por?: string | null;
+  /** F3 (despacho de etapa de registro): título próprio no lugar de "DESPACHO DE TRAMITAÇÃO Nº N". */
+  titulo?: string | null;
+  /** F3: campos no lugar de De/Para (ex.: [['Etapa', 'Autorização de início']]). */
+  campos?: Array<[string, string]> | null;
+  /** F3: rodapé no lugar de "Enviado eletronicamente…". */
+  rodape?: string[] | null;
 }
 
 const A4: [number, number] = [595.28, 841.89];
@@ -88,12 +94,16 @@ export async function gerarPdfDespacho(d: DadosDespachoPdf): Promise<Buffer> {
 
   centro(d.orgao_nome.toUpperCase(), 12, negrito);
   y -= 6;
-  centro(`${d.devolucao ? 'DESPACHO DE DEVOLUÇÃO' : 'DESPACHO DE TRAMITAÇÃO'} Nº ${d.sequencia}`, 13, negrito, AZUL);
+  centro(d.titulo || `${d.devolucao ? 'DESPACHO DE DEVOLUÇÃO' : 'DESPACHO DE TRAMITAÇÃO'} Nº ${d.sequencia}`, 13, negrito, AZUL);
   centro(`Processo administrativo nº ${d.numero_processo}`, 10, fonte, CINZA);
   y -= 10;
   if (d.objeto) campo('Objeto', d.objeto);
-  campo('De', d.de);
-  campo('Para', d.para);
+  if (d.campos?.length) {
+    for (const [rotulo, valor] of d.campos) campo(rotulo, valor);
+  } else {
+    campo('De', d.de);
+    campo('Para', d.para);
+  }
   if (d.prazo_dias_uteis && d.data_prazo) {
     campo('Prazo', `${d.prazo_dias_uteis} dia(s) útil(eis), até ${dataBrasilia(d.data_prazo)} (art. 183 da Lei nº 14.133/2021)`);
   }
@@ -107,7 +117,9 @@ export async function gerarPdfDespacho(d: DadosDespachoPdf): Promise<Buffer> {
   y -= 22;
 
   const rodape: string[] = [];
-  if (d.lancado_posteriormente) {
+  if (d.rodape?.length) {
+    rodape.push(...d.rodape);
+  } else if (d.lancado_posteriormente) {
     rodape.push(
       `Movimentação lançada posteriormente: lançada em ${dataHoraBrasilia(d.registrado_em)} por ${d.lancado_por || d.enviado_por}, ocorrida em ${dataBrasilia(d.ocorrido_em)}.`,
     );

@@ -27,6 +27,7 @@ import {
   DEFINICAO_PASSO,
   EstadoFluxoParaEtapas,
   EtapaCalculada,
+  PapelFaseInterna,
   PassoCalculado,
   PassoFaseInterna,
   ROTULO_PAPEL,
@@ -37,10 +38,14 @@ import {
 } from './etapas-fase-interna';
 import { Tarefa } from './tarefa.entity';
 import { definirAgendadorDeTarefas } from './aviso-tarefas';
+import { DestinoEtapa, Posse, destinoDaEtapa, responsavelNaPosse } from '../fluxo/proximo-destino';
 import {
+  JANELA_AVISO_DUPLICADO_MIN,
   Responsavel,
   chaveDoPasso,
+  destinatariosSemAvisoRecente,
   destinoDaTarefa,
+  mesmoResponsavel,
   passosCumpridosSemTarefa,
   planejarSincronizacao,
   prazoDaTarefa,
@@ -64,6 +69,33 @@ interface Perfil {
 }
 
 const SITUACOES_ENCERRAM_TUDO = ['REVOGADA', 'ANULADA'];
+
+/** Posse vigente (tramitação PENDENTE/RECEBIDA) com o id da tramitação. */
+export type PosseVigente = Posse & { tramitacao_id: string; posse_inicial: boolean };
+
+/**
+ * F3: o que a sincronização acabou de calcular e aplicar — para quem integra
+ * a tramitação (posse inicial, envio automático, "Enviar o processo",
+ * "Aprovar a demanda"). Roda na MESMA fila do processo, depois das tarefas
+ * de etapa e antes dos avisos das tarefas criadas (assim o aviso da
+ * tramitação vem primeiro e o da tarefa não se repete).
+ */
+export interface ResultadoSincronizacao {
+  lic: { id: string; orgao_id: string; numero_processo: string; objeto: string | null; fase: string; situacao: string | null; pregoeiro_id: string | null };
+  etapas: EtapaCalculada[];
+  passos: PassoCalculado[];
+  config: ConfigFaseInternaEfetiva;
+  modelo: ModeloFluxo;
+  estado: EstadoFluxoParaEtapas;
+  ctx: ContextoFluxoProcesso | null;
+  /** Passos cujas tarefas foram concluídas NESTA sincronização (e quem cumpriu). */
+  concluidas: Array<{ passo: string; autor: { id: string | null; nome: string | null } }>;
+  /** false na migração de boot: nada avisa nem se move sozinho (só a posse inicial, que não avisa). */
+  notificar: boolean;
+  condutor_id: string | null;
+  posse: PosseVigente | null;
+  destinos: Record<string, DestinoEtapa | null>;
+}
 
 /** F1: responsável de cada etapa do modelo de fluxo (o que `responsavelDoPasso` lê). */
 export function responsaveisDoModelo(modelo: Pick<ModeloFluxo, 'etapas'>): Record<string, { papel: any; setor_id: string | null; usuario_id: string | null }> {
@@ -114,6 +146,26 @@ export class TarefasService {
 
   registrarAntesDeSincronizar(fn: (licitacaoId: string) => Promise<unknown>) {
     this.antesDeSincronizar.push(fn);
+  }
+
+  /** F3: rotinas depois de aplicar o plano (integração com a tramitação). */
+  private readonly depoisDeSincronizar: Array<(r: ResultadoSincronizacao) => Promise<unknown>> = [];
+
+  registrarDepoisDeSincronizar(fn: (r: ResultadoSincronizacao) => Promise<unknown>) {
+    this.depoisDeSincronizar.push(fn);
+  }
+
+  /**
+   * Espera a sincronização em curso/agendada DESTE processo (ex.: antes de um
+   * envio manual da tramitação, para a posse inicial não correr em paralelo).
+   * Nunca chamar de dentro da própria fila do processo.
+   */
+  async aguardarProcesso(licitacaoId: string): Promise<void> {
+    for (let i = 0; i < 5; i++) {
+      const f = this.filas.get(licitacaoId);
+      if (!f) return;
+      await f.promessa.catch(() => undefined);
+    }
   }
 
   /**
@@ -405,8 +457,19 @@ export class TarefasService {
     const abertas = await this.tarefaRepo.find({ where: { licitacao_id: licitacaoId, status: 'ABERTA' } });
 
     const prazos = prazosDoModelo(fluxo.modelo);
-    const responsavelDe = (p: PassoFaseInterna) =>
-      responsavelDoPasso(p, { modo: config.modo, responsaveis: responsaveisDoModelo(fluxo.modelo) }, { agente_id: agente, criador_usuario_id: criador });
+    // F3: posse única — a tarefa da etapa de quem recebeu o processo passa ao destino do envio
+    const condutor = agente ?? criador;
+    const posse = await this.posseAtual(licitacaoId);
+    const destinos = await this.destinosDoProcesso(lic.orgao_id, fluxo.modelo, config.modo, condutor);
+    const responsavelCom = (posseAgora: Posse | null) => (p: PassoFaseInterna | string) =>
+      responsavelNaPosse(
+        responsavelDoPasso(p, { modo: config.modo, responsaveis: responsaveisDoModelo(fluxo.modelo) }, { agente_id: agente, criador_usuario_id: criador }),
+        p,
+        destinos[p],
+        posseAgora,
+        config.modo,
+      );
+    const responsavelDe = responsavelCom(posse);
 
     const plano = planejarSincronizacao(passos, abertas, responsavelDe, {
       processo_encerrado: SITUACOES_ENCERRAM_TUDO.includes(lic.situacao) && FASES_INTERNAS.includes(lic.fase),
@@ -415,6 +478,8 @@ export class TarefasService {
     const agora = new Date();
     const cal = calendarioDoOrgao(lic.orgao_id);
     let criadas = 0;
+    const avisos: Tarefa[] = [];
+    const concluidas: ResultadoSincronizacao['concluidas'] = [];
 
     for (const { passo, responsavel } of plano.criar) {
       const valores = this.valoresDaTarefaDoPasso(lic, passo, responsavel, prazos, agora, cal);
@@ -429,7 +494,8 @@ export class TarefasService {
         responsavel,
         prazo: valores.prazo,
       });
-      if (opcoes.notificar !== false) await this.notificar(lic, { ...valores, id } as Tarefa, 'nova');
+      // o aviso sai no fim (depois da tramitação — sem aviso repetido)
+      if (opcoes.notificar !== false) avisos.push({ ...valores, id } as Tarefa);
     }
 
     for (const { tarefa_id, passo } of plano.concluir) {
@@ -440,6 +506,7 @@ export class TarefasService {
         [tarefa_id, autor.id, autor.nome],
       );
       if (!Number(r?.[1])) continue; // outra sincronização já concluiu
+      concluidas.push({ passo: passo.passo, autor });
       await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CONCLUIDA, `Tarefa concluída: ${passo.titulo}`, null, {
         tarefa_id,
         passo: passo.passo,
@@ -469,7 +536,107 @@ export class TarefasService {
     }
 
     await this.registrarMudancasDeEtapa(licitacaoId, etapas);
+
+    // F3: integração com a tramitação (posse inicial, envio automático, "Enviar o processo", "Aprovar a demanda")
+    const resultado: ResultadoSincronizacao = {
+      lic,
+      etapas,
+      passos,
+      config,
+      modelo: fluxo.modelo,
+      estado: fluxo.estado,
+      ctx: fluxo.ctx,
+      concluidas,
+      notificar: opcoes.notificar !== false,
+      condutor_id: condutor,
+      posse,
+      destinos,
+    };
+    for (const fn of this.depoisDeSincronizar) {
+      try {
+        await fn(resultado);
+      } catch (e: any) {
+        this.logger.warn(`Integração do processo ${licitacaoId} com a tramitação falhou: ${e?.message ?? e}`);
+      }
+    }
+    // A posse mudou agora (envio automático): as tarefas que acabaram de nascer já vão para o
+    // destino — e o aviso sai para ele uma vez só (quem já foi avisado pela tramitação não repete)
+    if (avisos.length) {
+      const posseDepois = await this.posseAtual(licitacaoId);
+      if ((posseDepois?.tramitacao_id ?? null) !== (posse?.tramitacao_id ?? null)) {
+        const novoDe = responsavelCom(posseDepois);
+        for (const t of avisos) {
+          if (t.origem !== 'ETAPA' || !t.passo) continue;
+          const para = novoDe(t.passo);
+          const de: Responsavel = { usuario_id: t.responsavel_usuario_id, papel: t.responsavel_papel, setor_id: t.responsavel_setor_id };
+          if (mesmoResponsavel(de, para)) continue;
+          const r = await this.ds.query(
+            `UPDATE tarefas SET responsavel_usuario_id = $2, responsavel_papel = $3, responsavel_setor_id = $4, updated_at = now()
+              WHERE id::text = $1 AND status = 'ABERTA' AND atribuicao_manual = false RETURNING id`,
+            [t.id, para.usuario_id, para.papel, para.setor_id],
+          );
+          if (!Number(r?.[1])) continue;
+          Object.assign(t, { responsavel_usuario_id: para.usuario_id, responsavel_papel: para.papel, responsavel_setor_id: para.setor_id });
+          await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_REATRIBUIDA, 'Responsável recalculado: o processo chegou ao destino da etapa', { responsavel: de }, { tarefa_id: t.id, responsavel: para });
+        }
+      }
+    }
+    for (const t of avisos) await this.notificar(lic, t, 'nova');
     return { etapas, config, criadas };
+  }
+
+  // ==========================================================================
+  // POSSE (tramitação) E DESTINO DE CADA ETAPA (F3)
+  // ==========================================================================
+
+  /** Com quem o processo está: a tramitação vigente (PENDENTE/RECEBIDA). Só leitura. */
+  async posseAtual(licitacaoId: string): Promise<PosseVigente | null> {
+    const [t] = await this.ds
+      .query(
+        `SELECT id::text AS id, status::text AS status, para_setor_id, para_usuario_id, etapas, posse_inicial
+           FROM tramitacoes_processo WHERE licitacao_id::text = $1 ORDER BY sequencia DESC LIMIT 1`,
+        [licitacaoId],
+      )
+      .catch(() => [] as any[]);
+    if (!t || !['PENDENTE', 'RECEBIDA'].includes(t.status)) return null;
+    if (!t.para_setor_id && !t.para_usuario_id) return null;
+    return {
+      tramitacao_id: t.id,
+      setor_id: t.para_setor_id ?? null,
+      usuario_id: t.para_usuario_id ?? null,
+      etapas: Array.isArray(t.etapas) ? t.etapas : null,
+      posse_inicial: !!t.posse_inicial,
+    };
+  }
+
+  /** Quem conduz o processo: o agente designado (usuário ativo do órgão), senão quem criou. */
+  async condutorDoProcesso(licitacaoId: string): Promise<string | null> {
+    const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, pregoeiro_id::text AS pregoeiro_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!lic?.orgao_id) return null;
+    return (await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id)) ?? (await this.criadorDoProcesso(licitacaoId, lic.orgao_id));
+  }
+
+  /**
+   * DESTINO de cada etapa do modelo do processo (para onde o processo vai
+   * para ela): o responsável da etapa no modelo (pessoa, setor ou papel,
+   * resolvido pelos usuários ativos do órgão) — `destinoDaEtapa`.
+   */
+  async destinosDoProcesso(orgaoId: string, modelo: Pick<ModeloFluxo, 'etapas'>, modo: string, condutorId: string | null): Promise<Record<string, DestinoEtapa | null>> {
+    const usuarios: any[] = await this.ds.query(
+      `SELECT u.id::text AS id, u.nome, u.setor_id::text AS setor_id, s.nome AS setor_nome, u.papeis_fase_interna AS papeis
+         FROM usuarios u LEFT JOIN setores s ON s.id = u.setor_id
+        WHERE u.orgao_id::text = $1 AND u.ativo = true`,
+      [orgaoId],
+    );
+    const setores: Array<{ id: string; nome: string }> = await this.ds.query(`SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1`, [orgaoId]);
+    const ctx = {
+      modo,
+      condutor_id: condutorId,
+      papel_do_condutor: PapelFaseInterna.AGENTE_CONTRATACAO,
+      usuarios: usuarios.map((u) => ({ id: u.id, nome: u.nome || 'Usuário', setor_id: u.setor_id ?? null, setor_nome: u.setor_nome ?? null, papeis: Array.isArray(u.papeis) ? u.papeis : [] })),
+      setores,
+    };
+    return Object.fromEntries(modelo.etapas.map((e) => [e.codigo, destinoDaEtapa(e.responsavel, ctx)]));
   }
 
   /**
@@ -490,11 +657,15 @@ export class TarefasService {
       tipo_peca?: string | null;
       documento_id?: string | null;
       /** Entrega 3B: diligência do parecer (origem DILIGENCIA) e devolução da autorização; Entrega 4: achado da conformidade. */
-      origem?: 'SISTEMA' | 'DILIGENCIA' | 'ACHADO';
+      origem?: 'SISTEMA' | 'DILIGENCIA' | 'ACHADO' | 'APROVACAO' | 'TRAMITACAO';
       origem_id?: string | null;
       tipo?: 'PECA' | 'DILIGENCIA' | 'ACHADO' | 'OUTRO';
       /** Responsável explícito (ex.: o agente do processo); sem ele, o do passo. */
       responsavel?: Responsavel | null;
+      /** F3: prazo próprio em dias úteis (sem ele, o do passo no modelo); null = sem prazo. */
+      prazo_dias_uteis?: number | null;
+      /** F3: false = sem aviso (migração). */
+      notificar?: boolean;
     },
   ): Promise<string | null> {
     if (!this.ativo()) return null;
@@ -505,7 +676,7 @@ export class TarefasService {
     if (!lic?.orgao_id) return null;
     const { modelo } = await this.modeloDoProcesso(licitacaoId, lic.orgao_id);
     const responsavel = t.responsavel ?? (await this.responsavelDoPassoNoProcesso(licitacaoId, t.passo));
-    const dias = prazosDoModelo(modelo)[t.passo] ?? null;
+    const dias = t.prazo_dias_uteis !== undefined ? t.prazo_dias_uteis : prazosDoModelo(modelo)[t.passo] ?? null;
     const valores: Partial<Tarefa> = {
       orgao_id: lic.orgao_id,
       licitacao_id: licitacaoId,
@@ -536,7 +707,7 @@ export class TarefasService {
       return aberta?.id ?? null;
     }
     await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CRIADA, `Tarefa criada: ${t.titulo}`, null, { tarefa_id: id, passo: t.passo, chave: t.chave, responsavel, prazo: valores.prazo });
-    await this.notificar(lic, { ...valores, id } as Tarefa, 'nova');
+    if (t.notificar !== false) await this.notificar(lic, { ...valores, id } as Tarefa, 'nova');
     return id;
   }
 
@@ -833,10 +1004,31 @@ export class TarefasService {
     );
   }
 
+  private janelaAvisoDuplicado(): number {
+    const bruto = process.env.FASE_INTERNA_AVISO_DUPLICADO_MIN;
+    const v = Number(bruto);
+    return bruto !== undefined && bruto !== '' && Number.isFinite(v) && v >= 0 ? v : JANELA_AVISO_DUPLICADO_MIN;
+  }
+
+  /** Avisos de tramitação (chegada) do processo no último dia, com a idade em segundos (relógio do banco). */
+  private async avisosRecentesDeTramitacao(licitacaoId: string): Promise<Array<{ usuario_id: string | null; idade_s: number }>> {
+    const linhas: any[] = await this.ds
+      .query(
+        `SELECT usuario_id::text AS usuario_id, EXTRACT(EPOCH FROM (now() - created_at))::float AS idade_s
+           FROM notificacoes
+          WHERE entidade_id = $1 AND tipo::text = 'PROCESSO_TRAMITADO' AND created_at > now() - interval '1 day'`,
+        [licitacaoId],
+      )
+      .catch(() => [] as any[]);
+    return linhas.map((l) => ({ usuario_id: l.usuario_id ?? null, idade_s: Number(l.idade_s) }));
+  }
+
   private async notificar(lic: { id: string; numero_processo: string }, t: Tarefa, motivo: 'nova' | 'reatribuida') {
     if (!this.notificacoes || process.env.FASE_INTERNA_TAREFAS_NOTIFICAR === 'false') return;
     try {
-      const para: Array<{ id: string; email?: string; telefone?: string }> = await this.destinatarios(t);
+      const todos: Array<{ id: string; email?: string; telefone?: string }> = await this.destinatarios(t);
+      // F3: quem acabou de ser avisado pela TRAMITAÇÃO deste processo não recebe o aviso repetido da tarefa
+      const para = destinatariosSemAvisoRecente(todos, await this.avisosRecentesDeTramitacao(lic.id), this.janelaAvisoDuplicado());
       if (!para.length) return;
       const link = destinoDaTarefa({ licitacao_id: lic.id, passo: t.passo, tipo_peca: t.tipo_peca, origem: t.origem, origem_id: t.origem_id });
       const prazo = t.prazo ? ` Prazo: ${new Date(t.prazo).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.` : '';

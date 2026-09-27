@@ -277,7 +277,9 @@ describe('Painel para TV', () => {
       const sig = cartao(d, proc.sigiloso.numero_processo);
       expect(sig).toMatchObject({ coluna: 'DEMANDA', etapa: 'Demanda (DFD)', modalidade: 'Pregão', suspenso: false });
       expect(sig.objeto.length).toBeLessThanOrEqual(70);
-      expect(sig.com_quem).toEqual({ nome: 'Pedro Pregoeiro', tipo: 'PESSOA' }); // responsável da tarefa aberta
+      // F3: com quem está vem da tramitação (posse inicial com o agente), com desde/prazo/atraso
+      expect(sig.com_quem).toMatchObject({ nome: 'Pedro Pregoeiro', tipo: 'PESSOA', prazo: null, atrasado: false });
+      expect(new Date(sig.com_quem.desde).getTime()).toBeLessThanOrEqual(Date.now());
       expect(sig.dias_na_etapa).toBe(0);
       expect(['VERDE', 'AMARELO', null]).toContain(sig.cor_prazo);
 
@@ -319,6 +321,21 @@ describe('Painel para TV', () => {
       expect(demanda.processos[0].numero).toBe(at.numero);
       expect(JSON.stringify(d)).not.toContain(TEXTO_ACHADO);
       expect(JSON.stringify(d)).not.toContain('VINC-01');
+    });
+
+    it('com quem está (F3): pela tramitação — setor, desde, prazo e atraso da posse; o despacho nunca sai na TV', async () => {
+      const setor = (await http().post(`/api/orgaos/${A.id}/setores`).set(bearer(A.token)).send({ nome: 'Protocolo Geral' }).expect(201)).body.id;
+      const despacho = 'Despacho sigiloso de teste do painel: não pode aparecer na TV.';
+      const t = await http().post(`/api/fase-interna/${proc.atrasado.id}/tramitar`).set(bearer(A.token)).send({ para_setor_id: setor, despacho, prazo_dias_uteis: 1 });
+      expect(t.status).toBe(201);
+      await sql(`UPDATE tramitacoes_processo SET data_prazo = now() - interval '2 days' WHERE id = $1`, [t.body.id]);
+      const d = (await tv(tokenA).expect(200)).body;
+      const at = cartao(d, proc.atrasado.numero_processo);
+      expect(at.com_quem).toMatchObject({ nome: 'Protocolo Geral', tipo: 'SETOR', atrasado: true });
+      expect(new Date(at.com_quem.desde).getTime()).toBeLessThanOrEqual(Date.now());
+      expect(new Date(at.com_quem.prazo).getTime()).toBeLessThan(Date.now());
+      expect(JSON.stringify(d)).not.toContain(despacho);
+      expect(chavesProibidasEm(d)).toEqual([]);
     });
 
     it('contratos: vigentes dentro da janela (90), com dias, cor, gestor/fiscal, art. 107 e aditivo em andamento', async () => {

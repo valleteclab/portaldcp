@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Optional,
 } from '@nestjs/common';
@@ -34,6 +35,7 @@ import {
   PerfilTramitacao,
   avisoDePrazoDevido,
   dataBrasilia,
+  despachoDeAutuacao,
   despachoPadrao,
   ehDevolucao,
   escolherDestinatarios,
@@ -57,6 +59,8 @@ export interface TramitarDto {
   prazo_dias?: number | null;
   /** Lançamento posterior: data (AAAA-MM-DD) ou data/hora ISO em que o envio OCORREU. */
   data_ocorrencia?: string | null;
+  /** F3: etapas (códigos do modelo) para as quais o processo vai — as tarefas delas passam ao destino. */
+  etapas?: string[] | null;
 }
 
 /** Serviço interno (F3): enviar o processo a um setor/pessoa. */
@@ -71,8 +75,27 @@ export interface EnviarTramitacaoParams {
   /** Envio do sistema (modo simples): despacho padrão e sem exigir que o ator esteja com o processo. */
   automatico?: boolean;
   data_ocorrencia?: string | Date | null;
+  /** F3: etapas (códigos do modelo) para as quais o processo vai. */
+  etapas?: string[] | null;
+  /** F3: false = sem aviso de chegada (padrão: avisa). */
+  notificar?: boolean;
+  /**
+   * F3 (envio automático): só envia se a tramitação vigente ainda for esta
+   * (null = sem tramitação). Mudou no meio do caminho → 409, nada é gravado.
+   */
+  se_vigente?: string | null;
   ator: Ator;
   contexto?: ContextoUsuario;
+}
+
+/** Movimentação da posse (envio ou devolução) — para quem integra (tarefas, F3). */
+export interface MovimentacaoTramitacao {
+  licitacao_id: string;
+  tipo: 'ENVIO' | 'DEVOLUCAO';
+  tramitacao: TramitacaoProcesso;
+  automatico: boolean;
+  /** Quem movimentou (do JWT). */
+  por: { id: string | null; nome: string };
 }
 
 export interface ComQuemEsta {
@@ -93,6 +116,10 @@ export interface ComQuemEsta {
   automatico: boolean;
   lancado_posteriormente: boolean;
   folha: { folha_inicial: number | null; folha_final: number | null; url: string } | null;
+  /** F3: registro da posse inicial (autuação, sem folha). */
+  posse_inicial: boolean;
+  /** F3: etapas para as quais o processo foi enviado (null = pelo modelo). */
+  etapas: string[] | null;
 }
 
 interface Perfil extends PerfilTramitacao {
@@ -133,6 +160,43 @@ export class TramitacaoService {
     @InjectDataSource() private readonly ds: DataSource,
     @Optional() private readonly notificacoes?: NotificacoesService,
   ) {}
+
+  // ==========================================================================
+  // INTEGRAÇÃO (F3): quem precisa saber das movimentações
+  // ==========================================================================
+
+  /** Antes de uma movimentação manual (ex.: esperar a sincronização em curso do processo). */
+  private readonly antesDeMovimentar: Array<(licitacaoId: string) => Promise<unknown>> = [];
+  /** Depois de cada envio/devolução gravado (ex.: tarefas: chegada ao destino). */
+  private readonly aoMovimentar: Array<(m: MovimentacaoTramitacao) => unknown> = [];
+
+  registrarAntesDeMovimentar(fn: (licitacaoId: string) => Promise<unknown>) {
+    this.antesDeMovimentar.push(fn);
+  }
+
+  registrarAoMovimentar(fn: (m: MovimentacaoTramitacao) => unknown) {
+    this.aoMovimentar.push(fn);
+  }
+
+  private async esperarAntes(licitacaoId: string) {
+    for (const fn of this.antesDeMovimentar) {
+      try {
+        await fn(licitacaoId);
+      } catch (e: any) {
+        this.logger.warn(`Rotina antes da tramitação do processo ${licitacaoId} falhou: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  private async avisarMovimentacao(m: MovimentacaoTramitacao) {
+    for (const fn of this.aoMovimentar) {
+      try {
+        await fn(m);
+      } catch (e: any) {
+        this.logger.warn(`Rotina depois da tramitação do processo ${m.licitacao_id} falhou: ${e?.message ?? e}`);
+      }
+    }
+  }
 
   // ==========================================================================
   // IDENTIDADE E ISOLAMENTO
@@ -196,6 +260,28 @@ export class TramitacaoService {
   // ENVIAR (serviço interno — F3 — e REST)
   // ==========================================================================
 
+  /**
+   * O ator pode enviar o processo agora? (F3 — sugestão de envio): sem
+   * tramitação vigente, qualquer usuário do órgão; com ela, quem está com o
+   * processo (setor, pessoa, chefe do setor) ou o administrador do órgão —
+   * a mesma regra do `enviar`. Outro órgão → 404.
+   */
+  async permissaoDeEnvio(licitacaoId: string, ator: Ator): Promise<{ pode: boolean; motivo: string | null }> {
+    const lic = await this.licitacaoDoAtor(licitacaoId, ator);
+    let perfil: Perfil;
+    try {
+      perfil = await this.perfil(ator, lic.orgao_id);
+    } catch {
+      return { pode: false, motivo: 'Usuário sem acesso a este processo.' };
+    }
+    const atual = await this.tramitacaoAtual(lic.id);
+    const vigente = atual && [StatusTramitacao.PENDENTE, StatusTramitacao.RECEBIDA].includes(atual.status) ? atual : null;
+    if (!vigente) return { pode: true, motivo: null };
+    if (podeAtuarNoDestino(perfil, vigente, await this.chefeDoSetor(vigente.para_setor_id))) return { pode: true, motivo: null };
+    const com = [vigente.para_setor_nome, vigente.para_usuario_nome].filter(Boolean).join(' · ') || 'outro destino';
+    return { pode: false, motivo: `O processo está com ${com}: só quem está com ele (ou o administrador do órgão) envia.` };
+  }
+
   /** REST `POST :licitacaoId/tramitar` — mesmo caminho do serviço interno. */
   async tramitar(licitacaoId: string, dto: TramitarDto, ator: Ator, contexto?: ContextoUsuario): Promise<TramitacaoProcesso> {
     return this.enviar({
@@ -205,9 +291,19 @@ export class TramitacaoService {
       finalidade: dto?.finalidade,
       prazo_dias_uteis: dto?.prazo_dias_uteis ?? dto?.prazo_dias ?? null,
       data_ocorrencia: dto?.data_ocorrencia ?? null,
+      etapas: dto?.etapas ?? null,
       ator,
       contexto,
     });
+  }
+
+  /** Códigos de etapa informados no envio (lista curta de textos; o resto é recusado). */
+  private validarEtapas(v: unknown): string[] | null {
+    if (v === null || v === undefined) return null;
+    if (!Array.isArray(v) || v.length > 30 || v.some((x) => typeof x !== 'string' || !/^[A-Z0-9_]{1,40}$/.test(x))) {
+      throw new BadRequestException('etapas: envie a lista de códigos das etapas (ex.: ["RESERVA"]).');
+    }
+    return v.length ? [...new Set(v as string[])] : null;
   }
 
   /**
@@ -222,6 +318,9 @@ export class TramitacaoService {
     const texto = this.textoDoDespacho(params, destino.nome);
     const prazo = this.validarPrazo(params.prazo_dias_uteis);
     const finalidade = String(params.finalidade ?? '').trim().slice(0, 300) || null;
+    const etapas = this.validarEtapas(params.etapas);
+    // F3: envio manual espera a sincronização em curso do processo (posse inicial, envio automático)
+    if (!params.automatico) await this.esperarAntes(lic.id);
 
     const tramitacao = await this.executarEnvio(lic, perfil, {
       destino,
@@ -231,14 +330,67 @@ export class TramitacaoService {
       automatico: !!params.automatico,
       data_ocorrencia: params.data_ocorrencia ?? null,
       exigirPosse: !params.automatico,
+      etapas,
+      se_vigente: params.se_vigente,
     });
 
     await this.registrarLog(lic.id, AcaoLogFaseInterna.PROCESSO_TRAMITADO,
       `Processo ${params.automatico ? 'encaminhado automaticamente' : 'tramitado'} para ${destino.nome}${tramitacao.lancado_posteriormente ? ` (lançamento posterior, ocorrido em ${dataBrasilia(momentoDoEnvio(tramitacao))})` : ''}`,
-      { tramitacao_id: tramitacao.id, despacho: texto, prazo_dias_uteis: prazo, automatico: !!params.automatico, data_ocorrencia: tramitacao.data_ocorrencia },
+      { tramitacao_id: tramitacao.id, despacho: texto, prazo_dias_uteis: prazo, automatico: !!params.automatico, data_ocorrencia: tramitacao.data_ocorrencia, etapas },
       this.contextoDe(perfil, params.contexto));
-    await this.notificarChegada(lic, tramitacao, perfil.usuario_id);
+    if (params.notificar !== false) await this.notificarChegada(lic, tramitacao, perfil.usuario_id);
+    await this.avisarMovimentacao({ licitacao_id: lic.id, tipo: 'ENVIO', tramitacao, automatico: !!params.automatico, por: { id: perfil.usuario_id, nome: perfil.nome } });
     return tramitacao;
+  }
+
+  /**
+   * POSSE INICIAL (F3): ao abrir o processo — ou, no processo antigo sem
+   * nenhuma tramitação, na primeira sincronização — o processo fica com quem
+   * conduz a etapa atual. Registro do sistema, sem aviso e sem folha (a
+   * autuação já é a capa e o termo de abertura dos autos). Idempotente: com
+   * qualquer tramitação já gravada, não faz nada (null).
+   */
+  async registrarPosseInicial(
+    licitacaoId: string,
+    para: { setor_id?: string | null; usuario_id?: string | null },
+    o: { finalidade?: string | null; etapas?: string[] | null; por?: { id: string | null; nome: string | null } | null },
+  ): Promise<TramitacaoProcesso | null> {
+    const lic = ehUuid(licitacaoId) ? await this.licitacaoRepo.findOne({ where: { id: licitacaoId } }) : null;
+    if (!lic?.orgao_id) return null;
+    const destino = await this.resolverDestino(lic.orgao_id, para);
+    const criada = await this.ds.transaction(async (m) => {
+      await m.query(`SELECT id FROM licitacoes WHERE id::text = $1 FOR UPDATE`, [lic.id]);
+      const [existe] = await m.query(`SELECT 1 FROM tramitacoes_processo WHERE licitacao_id::text = $1 LIMIT 1`, [lic.id]);
+      if (existe) return null;
+      const repo = m.getRepository(TramitacaoProcesso);
+      return repo.save(
+        repo.create({
+          licitacao_id: lic.id,
+          sequencia: 1,
+          de_usuario_id: (o.por?.id ?? undefined) as any,
+          de_usuario_nome: (o.por?.nome || 'Sistema (autuação)') as any,
+          para_setor_id: destino.setor?.id ?? null,
+          para_setor_nome: destino.setor?.nome ?? null,
+          para_usuario_id: (destino.usuario?.id ?? undefined) as any,
+          para_usuario_nome: (destino.usuario?.nome ?? undefined) as any,
+          despacho: despachoDeAutuacao(destino.nome, o.finalidade),
+          finalidade: 'autuação',
+          // Já está com quem conduz: não fica "aguardando recebimento"
+          status: StatusTramitacao.RECEBIDA,
+          automatico: true,
+          posse_inicial: true,
+          etapas: o.etapas?.length ? o.etapas : null,
+        }),
+      );
+    });
+    if (!criada) return null;
+    await this.registrarLog(lic.id, AcaoLogFaseInterna.PROCESSO_TRAMITADO, `Posse inicial registrada: o processo está com ${destino.nome} (autuação, sem aviso)`, {
+      tramitacao_id: criada.id,
+      posse_inicial: true,
+      despacho: criada.despacho,
+      etapas: criada.etapas,
+    }, { usuario_id: o.por?.id ?? undefined, usuario_nome: o.por?.nome ?? 'Sistema' });
+    return criada;
   }
 
   private textoDoDespacho(p: Pick<EnviarTramitacaoParams, 'despacho' | 'finalidade' | 'automatico'>, destinoNome: string): string {
@@ -301,6 +453,8 @@ export class TramitacaoService {
       data_ocorrencia: string | Date | null;
       exigirPosse: boolean;
       devolucao?: { tramitacao_id: string; motivo: string };
+      etapas?: string[] | null;
+      se_vigente?: string | null;
     },
   ): Promise<TramitacaoProcesso> {
     let arquivoGravado: string | null = null;
@@ -310,6 +464,10 @@ export class TramitacaoService {
         const repo = m.getRepository(TramitacaoProcesso);
         const atual = await repo.findOne({ where: { licitacao_id: lic.id }, order: { sequencia: 'DESC' } });
         const vigente = atual && [StatusTramitacao.PENDENTE, StatusTramitacao.RECEBIDA].includes(atual.status) ? atual : null;
+        // F3 (envio automático): a posse mudou enquanto o sistema decidia → não envia
+        if (o.se_vigente !== undefined && (vigente?.id ?? null) !== (o.se_vigente ?? null)) {
+          throw new ConflictException('A tramitação do processo mudou — o envio automático não foi feito.');
+        }
 
         if (o.devolucao) {
           if (!vigente || vigente.id !== o.devolucao.tramitacao_id) {
@@ -328,7 +486,8 @@ export class TramitacaoService {
 
         // Data em que ocorreu (lançamento posterior) — nunca antes da movimentação anterior
         const agora = new Date();
-        const minimo = atual ? this.ultimaMovimentacao(atual) : null;
+        // A posse inicial (autuação do sistema) não limita o lançamento do que já ocorreu no papel
+        const minimo = atual && !(atual.posse_inicial && !atual.data_recebimento) ? this.ultimaMovimentacao(atual) : null;
         let ocorrencia = agora;
         let lancadoPosteriormente = false;
         if (o.data_ocorrencia) {
@@ -385,6 +544,7 @@ export class TramitacaoService {
             data_envio: agora,
             automatico: o.automatico,
             devolucao_de_id: o.devolucao?.tramitacao_id ?? null,
+            etapas: o.etapas?.length ? o.etapas : null,
             data_ocorrencia: lancadoPosteriormente ? ocorrencia : null,
             lancado_posteriormente: lancadoPosteriormente,
             lancado_por_id: lancadoPosteriormente ? perfil.usuario_id : null,
@@ -518,6 +678,10 @@ export class TramitacaoService {
       throw new BadRequestException('Esta tramitação não pode ser devolvida');
     }
     await this.exigirQuemEstaComOProcesso(perfil, tramitacao, 'devolvê-lo');
+    if (tramitacao.posse_inicial) {
+      throw new BadRequestException('A posse inicial (autuação) não se devolve: envie o processo ao destino com um despacho.');
+    }
+    await this.esperarAntes(lic.id);
 
     // Volta para a origem: o setor de onde veio e, se ainda for do órgão, quem enviou
     let usuarioVolta: string | null = null;
@@ -552,6 +716,7 @@ export class TramitacaoService {
       this.contextoDe(perfil, contexto),
     );
     await this.notificarChegada(lic, volta, perfil.usuario_id);
+    await this.avisarMovimentacao({ licitacao_id: lic.id, tipo: 'DEVOLUCAO', tramitacao: volta, automatico: false, por: { id: perfil.usuario_id, nome: perfil.nome } });
     return volta;
   }
 
@@ -576,16 +741,39 @@ export class TramitacaoService {
   async comQuemEsta(licitacaoId: string, agora: Date = new Date()): Promise<ComQuemEsta> {
     const lic = await this.licitacaoRepo.findOne({ where: { id: licitacaoId } });
     if (!lic) throw new NotFoundException('Processo não encontrado');
-    const t = await this.tramitacaoAtual(licitacaoId);
+    return this.paraComQuemEsta(await this.tramitacaoAtual(licitacaoId), lic.orgao_id, agora);
+  }
+
+  /**
+   * COM QUEM ESTÁ, em lote (painel da TV): a mesma leitura de `comQuemEsta`
+   * para vários processos do MESMO órgão, numa consulta só. Processo sem
+   * tramitação fica de fora do mapa.
+   */
+  async comQuemEstaEmLote(orgaoId: string, licitacaoIds: string[], agora: Date = new Date()): Promise<Map<string, ComQuemEsta>> {
+    const saida = new Map<string, ComQuemEsta>();
+    const ids = licitacaoIds.filter((id) => ehUuid(id));
+    if (!ids.length) return saida;
+    const linhas: TramitacaoProcesso[] = await this.tramitacaoRepo
+      .createQueryBuilder('t')
+      .innerJoin('t.licitacao', 'l')
+      .where('l.orgao_id = :orgaoId', { orgaoId })
+      .andWhere('t.licitacao_id IN (:...ids)', { ids })
+      .andWhere('t.sequencia = (SELECT MAX(t2.sequencia) FROM tramitacoes_processo t2 WHERE t2.licitacao_id = t.licitacao_id)')
+      .getMany();
+    for (const t of linhas) saida.set(t.licitacao_id, this.paraComQuemEsta(t, orgaoId, agora));
+    return saida;
+  }
+
+  private paraComQuemEsta(t: TramitacaoProcesso | null, orgaoId: string, agora: Date): ComQuemEsta {
     if (!t) {
       return {
         tramitacao_id: null, status: 'SEM_TRAMITACAO', setor: null, usuario: null, desde: null, recebido_em: null, recebido_por: null,
         prazo: null, prazo_dias_uteis: null, dias_uteis_restantes: null, vencido: false, de: null, despacho: null,
-        automatico: false, lancado_posteriormente: false, folha: null,
+        automatico: false, lancado_posteriormente: false, folha: null, posse_inicial: false, etapas: null,
       };
     }
     const ativa = [StatusTramitacao.PENDENTE, StatusTramitacao.RECEBIDA].includes(t.status);
-    const s = ativa ? situacaoDoPrazo(t.data_prazo, agora, calendarioDoOrgao(lic.orgao_id)) : { dias_uteis_restantes: null, vencido: false };
+    const s = ativa ? situacaoDoPrazo(t.data_prazo, agora, calendarioDoOrgao(orgaoId)) : { dias_uteis_restantes: null, vencido: false };
     return {
       tramitacao_id: t.id,
       status: t.status,
@@ -603,6 +791,8 @@ export class TramitacaoService {
       automatico: !!t.automatico,
       lancado_posteriormente: !!t.lancado_posteriormente,
       folha: t.despacho_arquivo ? { folha_inicial: t.folha_inicial ?? null, folha_final: t.folha_final ?? null, url: url(t.id) } : null,
+      posse_inicial: !!t.posse_inicial,
+      etapas: Array.isArray(t.etapas) && t.etapas.length ? t.etapas : null,
     };
   }
 

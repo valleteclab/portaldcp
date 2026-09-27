@@ -3,7 +3,7 @@ import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
 
 export type StatusTarefa = 'ABERTA' | 'CONCLUIDA' | 'CANCELADA';
 /** De onde a tarefa veio. DILIGENCIA (parecer — Entrega 3) e ACHADO (conformidade — Entrega 4) são ganchos. */
-export type OrigemTarefa = 'ETAPA' | 'DILIGENCIA' | 'ACHADO' | 'SISTEMA';
+export type OrigemTarefa = 'ETAPA' | 'DILIGENCIA' | 'ACHADO' | 'SISTEMA' | 'APROVACAO' | 'TRAMITACAO';
 /** O que a tarefa pede: produzir/anexar a peça, publicar, responder diligência, sanar achado. */
 export type TipoTarefa = 'PECA' | 'PUBLICACAO' | 'DILIGENCIA' | 'ACHADO' | 'OUTRO';
 
