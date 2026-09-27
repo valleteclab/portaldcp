@@ -414,4 +414,156 @@ describe('Demanda → DFD consolidado → processo', () => {
       await tarefas().aguardarPendentes();
     });
   });
+
+  // ==========================================================================
+  describe('7. visibilidade por setor (homologação multiusuário) e rascunho editável', () => {
+    let setorCompras: string;
+    let carla: UsuarioOrgaoFixture; // Compras (requisitante)
+    let rui: UsuarioOrgaoFixture; // Comunicação, colega da Rita (não criou nada)
+    let dc: string; // demanda de Compras (Carla)
+    let dr: string; // 2ª demanda da Comunicação (Rita)
+    let dLegado: string; // demanda antiga, sem setor gravado, da "Comunicação"
+    const ids = (lista: any[]) => lista.map((d: any) => d.id);
+
+    beforeAll(async () => {
+      [{ id: setorCompras }] = await sql(`INSERT INTO setores (orgao_id, codigo, nome) VALUES ($1, 'CPR', 'Compras') RETURNING id::text AS id`, [A.id]);
+      carla = await criarUsuarioOrgao(ctx, A, { role: RoleUsuario.EQUIPE_APOIO, nome: 'Carla Compras' });
+      rui = await criarUsuarioOrgao(ctx, A, { role: RoleUsuario.EQUIPE_APOIO, nome: 'Rui Comunicação' });
+      await sql(`UPDATE usuarios SET setor_id = $2 WHERE id = $1`, [carla.id, setorCompras]);
+      await sql(`UPDATE usuarios SET setor_id = $2 WHERE id = $1`, [rui.id, setorCom]);
+      dc = await criarDemanda(carla, 'Compras', 'Papel A4 para compras', [{ ...toner(3), valor_unitario_estimado: 1000 }], `${ANO}-03-10`);
+      dr = await criarDemanda(rita, 'Comunicação', 'Microfones', [{ ...toner(1), valor_unitario_estimado: 50 }]);
+      dLegado = await criarDemanda(A, 'Comunicação', 'Pedido antigo da comunicação', []);
+      await sql(`UPDATE demandas SET setor_id = NULL, criado_por_id = NULL WHERE id = $1`, [dLegado]);
+    });
+
+    it('requisitante: lista, estatísticas e unidades só do seu setor (e as que criou)', async () => {
+      const lr = (await http().get(`/api/demandas?ano=${ANO}`).set(bearer(rita.token)).expect(200)).body;
+      expect(ids(lr)).toEqual(expect.arrayContaining([d1, dr, dLegado]));
+      for (const outro of [dc, d2, d3, demandaB]) expect(ids(lr)).not.toContain(outro);
+      // colega do mesmo setor vê as da Comunicação, mesmo sem ter criado
+      const lrui = ids((await http().get(`/api/demandas?ano=${ANO}`).set(bearer(rui.token)).expect(200)).body);
+      expect(lrui).toEqual(expect.arrayContaining([d1, dr, dLegado]));
+      expect(lrui).not.toContain(dc);
+      // quem não tem setor: só as que criou
+      const lgil = ids((await http().get(`/api/demandas?ano=${ANO}`).set(bearer(gil.token)).expect(200)).body);
+      expect(lgil).toContain(d2);
+      expect(lgil).not.toContain(d1);
+      expect(lgil).not.toContain(dc);
+      // estatísticas no mesmo escopo (sem os valores do órgão inteiro)
+      const est = (await http().get(`/api/demandas/estatisticas?ano=${ANO}`).set(bearer(rita.token)).expect(200)).body;
+      const soma = lr.reduce((t: number, d: any) => t + (d.itens || []).reduce((s: number, i: any) => s + Number(i.valor_total_estimado || 0), 0), 0);
+      expect(est.total).toBe(lr.length);
+      expect(est.valorTotal).toBeCloseTo(soma, 2);
+      expect(est.porUnidade.map((u: any) => u.unidade)).not.toContain('Compras');
+      const un = (await http().get('/api/demandas/unidades').set(bearer(rita.token)).expect(200)).body;
+      expect(un).not.toContain('Compras');
+      // escopo + quem está logado (a "Nova demanda" já vem com o setor e o responsável)
+      expect((await http().get('/api/demandas/escopo').set(bearer(rita.token)).expect(200)).body).toEqual({
+        todas: false,
+        setor_id: setorCom,
+        setor_nome: 'Comunicação',
+        usuario: expect.objectContaining({ id: rita.id, nome: 'Rita Comunicação', setor_id: setorCom, setor_nome: 'Comunicação' }),
+      });
+      expect((await http().get('/api/demandas/escopo').set(bearer(A.token)).expect(200)).body).toMatchObject({ todas: true, usuario: null });
+    });
+
+    it('requisitante: demanda de outro setor por id → 404 na leitura e 403 na escrita (nada muda)', async () => {
+      await http().get(`/api/demandas/${dc}`).set(bearer(rita.token)).expect(404);
+      await http().get(`/api/demandas/${dc}/acompanhamento`).set(bearer(rita.token)).expect(404);
+      await http().put(`/api/demandas/${dc}`).set(bearer(rita.token)).send({ observacoes: 'invasão' }).expect(403);
+      await http().post(`/api/demandas/${dc}/itens`).set(bearer(rita.token)).send(toner(1)).expect(403);
+      await http().patch(`/api/demandas/${dc}/enviar`).set(bearer(rita.token)).expect(403);
+      await http().delete(`/api/demandas/${dc}`).set(bearer(rita.token)).expect(403);
+      const [item] = await sql(`SELECT id::text AS id FROM itens_demanda WHERE demanda_id = $1 LIMIT 1`, [dc]);
+      await http().put(`/api/demandas/itens/${item.id}`).set(bearer(rita.token)).send({ quantidade_estimada: 99 }).expect(403);
+      await http().delete(`/api/demandas/itens/${item.id}`).set(bearer(rita.token)).expect(403);
+      const [r] = await sql(`SELECT status::text AS status, observacoes FROM demandas WHERE id = $1`, [dc]);
+      expect(r).toEqual({ status: 'RASCUNHO', observacoes: 'Justificativa de Compras' });
+      const [q] = await sql(`SELECT count(*)::int AS n, max(quantidade_estimada)::int AS q FROM itens_demanda WHERE demanda_id = $1`, [dc]);
+      expect(q).toEqual({ n: 1, q: 3 });
+      // a própria (e a do colega de setor) continuam abertas
+      await http().get(`/api/demandas/${dr}`).set(bearer(rita.token)).expect(200);
+      await http().get(`/api/demandas/${dr}`).set(bearer(rui.token)).expect(200);
+      await http().get(`/api/demandas/${dLegado}`).set(bearer(rita.token)).expect(200);
+    });
+
+    it('aprovador, planejamento e login do órgão veem todas; outro órgão continua sem ver', async () => {
+      for (const u of [paula, plinio, A]) {
+        const l = ids((await http().get(`/api/demandas?ano=${ANO}`).set(bearer(u.token)).expect(200)).body);
+        expect(l).toEqual(expect.arrayContaining([d1, d2, d3, dc, dr, dLegado]));
+        expect(l).not.toContain(demandaB);
+        await http().get(`/api/demandas/${dc}`).set(bearer(u.token)).expect(200);
+        expect((await http().get('/api/demandas/escopo').set(bearer(u.token)).expect(200)).body.todas).toBe(true);
+      }
+      await http().get(`/api/demandas/${dc}`).set(bearer(planejB.token)).expect(404);
+      expect(ids((await http().get(`/api/demandas?ano=${ANO}`).set(bearer(planejB.token)).expect(200)).body)).not.toContain(dc);
+    });
+
+    it('rascunho (inclusive devolvido): o PUT troca "para quando", unidade, tipo e responsável — nunca dono/status/vínculos', async () => {
+      await http().patch(`/api/demandas/${dc}/enviar`).set(bearer(carla.token)).expect(200);
+      await http().patch(`/api/demandas/${dc}/rejeitar`).set(bearer(paula.token)).send({ motivo: 'Corrija a data' }).expect(200);
+      await http().patch(`/api/demandas/${dc}/voltar-rascunho`).set(bearer(carla.token)).expect(200);
+      const r = (
+        await http()
+          .put(`/api/demandas/${dc}`)
+          .set(bearer(carla.token))
+          .send({
+            data_desejada_contratacao: `${ANO}-08-15`,
+            unidade_requisitante: 'Compras',
+            renovacao_contrato: true,
+            responsavel_nome: 'Carla Compras',
+            responsavel_email: 'carla@camara.test',
+            responsavel_telefone: '(77) 99999-0000',
+            // ignorados
+            status: 'APROVADA',
+            orgao_id: B.id,
+            criado_por_id: rita.id,
+            aprovado_por: 'Forjado',
+            pca_id: itemPca,
+          })
+          .expect(200)
+      ).body;
+      // data só-dia (sem hora): a tela formata sem fuso
+      expect(r.data_desejada_contratacao).toBe(`${ANO}-08-15`);
+      const [d] = await sql(
+        `SELECT status::text AS status, orgao_id::text AS orgao_id, criado_por_id, aprovado_por, pca_id, setor_id::text AS setor_id, renovacao_contrato,
+                responsavel_nome, responsavel_email, to_char(data_desejada_contratacao, 'YYYY-MM-DD') AS data
+           FROM demandas WHERE id = $1`,
+        [dc],
+      );
+      expect(d).toEqual({
+        status: 'RASCUNHO',
+        orgao_id: A.id,
+        criado_por_id: carla.id,
+        aprovado_por: null,
+        pca_id: null,
+        setor_id: setorCompras,
+        renovacao_contrato: true,
+        responsavel_nome: 'Carla Compras',
+        responsavel_email: 'carla@camara.test',
+        data: `${ANO}-08-15`,
+      });
+      // o item que herdou a data da demanda acompanha
+      const [i] = await sql(`SELECT to_char(data_desejada_contratacao, 'YYYY-MM-DD') AS data FROM itens_demanda WHERE demanda_id = $1`, [dc]);
+      expect(i.data).toBe(`${ANO}-08-15`);
+      // GET devolve a data só-dia
+      expect((await http().get(`/api/demandas/${dc}`).set(bearer(carla.token)).expect(200)).body.data_desejada_contratacao).toBe(`${ANO}-08-15`);
+      // data inválida → 400; setor de outro órgão → 400; data vazia → sem data
+      await http().put(`/api/demandas/${dc}`).set(bearer(carla.token)).send({ data_desejada_contratacao: 'amanhã' }).expect(400);
+      const [{ id: setorB }] = await sql(`INSERT INTO setores (orgao_id, codigo, nome) VALUES ($1, 'SB', 'Setor B') RETURNING id::text AS id`, [B.id]);
+      await http().put(`/api/demandas/${dc}`).set(bearer(carla.token)).send({ setor_id: setorB }).expect(400);
+      const semData = (await http().put(`/api/demandas/${dc}`).set(bearer(carla.token)).send({ data_desejada_contratacao: '' }).expect(200)).body;
+      expect(semData.data_desejada_contratacao).toBeNull();
+      await http().put(`/api/demandas/${dc}`).set(bearer(carla.token)).send({ data_desejada_contratacao: `${ANO}-08-15` }).expect(200);
+    });
+
+    it('aprovada: a demanda mostra quem aprovou e quando', async () => {
+      await http().patch(`/api/demandas/${dc}/enviar`).set(bearer(carla.token)).expect(200);
+      await http().patch(`/api/demandas/${dc}/aprovar`).set(bearer(paula.token)).expect(200);
+      const d = (await http().get(`/api/demandas/${dc}`).set(bearer(carla.token)).expect(200)).body;
+      expect(d.aprovado_por).toBe('Paula Aprovadora');
+      expect(d.data_aprovacao).toBeTruthy();
+    });
+  });
 });

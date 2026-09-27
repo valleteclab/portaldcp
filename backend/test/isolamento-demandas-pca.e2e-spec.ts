@@ -93,6 +93,9 @@ describe('Isolamento — demandas e PCA', () => {
     aprovadorA = await criarUsuarioOrgao(ctx, A, { role: RoleUsuario.PREGOEIRO });
     aprovadorB = await criarUsuarioOrgao(ctx, B, { role: RoleUsuario.PREGOEIRO });
     await sql(`UPDATE usuarios SET pode_aprovar_demandas = true WHERE id = ANY($1::uuid[])`, [[aprovadorA.id, aprovadorB.id]]);
+    // usuarioA é do setor que pede (visibilidade por setor: o requisitante alcança as demandas do seu setor)
+    const [{ id: setorSaudeA }] = await sql(`INSERT INTO setores (orgao_id, codigo, nome) VALUES ($1, 'SAU', 'Secretaria de Saúde A') RETURNING id::text AS id`, [A.id]);
+    await sql(`UPDATE usuarios SET setor_id = $2 WHERE id = $1`, [usuarioA.id, setorSaudeA]);
 
     ({ demanda: demandaA, item: itemA } = await criarDemanda(A, 'Secretaria de Saúde A'));
     ({ demanda: demandaAprovadaA } = await criarDemanda(A, 'Secretaria de Educação A'));

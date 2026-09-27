@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Patch, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Patch, Req, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DemandasService } from './demandas.service';
 import { StatusDemanda, ItemDemanda } from './entities/demanda.entity';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -68,16 +68,29 @@ export class DemandasController {
     throw new ForbiddenException('Não foi possível identificar o órgão do usuário');
   }
 
-  /** A demanda é do órgão do token (leitura de outro órgão → 404; escrita → 403). */
+  /**
+   * A demanda é do órgão do token (leitura de outro órgão → 404; escrita → 403)
+   * e está no escopo de quem consulta: o requisitante só alcança as do seu
+   * setor e as que criou (outro setor: leitura → 404; escrita → 403).
+   */
   private async exigirDemanda(ator: Ator | null, demandaId: string, modo: ModoAcesso = 'escrita'): Promise<void> {
     const orgaoId = await this.demandasService.orgaoDaDemanda(demandaId);
     this.acesso.assertMesmoOrgao(ator, orgaoId, modo, 'Demanda');
+    await this.exigirNoEscopo(ator, demandaId, modo);
   }
 
-  /** O item é de demanda do órgão do token. */
+  private async exigirNoEscopo(ator: Ator | null, demandaId: string, modo: ModoAcesso): Promise<void> {
+    if (await this.demandasService.demandaVisivel(ator, demandaId)) return;
+    if (modo === 'leitura') throw new NotFoundException('Demanda não encontrada');
+    throw new ForbiddenException('Esta demanda é de outro setor: só o setor que pediu, quem aprova e a unidade de planejamento a alteram.');
+  }
+
+  /** O item é de demanda do órgão do token (e no escopo de quem consulta). */
   private async exigirItemDemanda(ator: Ator | null, itemId: string, modo: ModoAcesso = 'escrita'): Promise<void> {
     const orgaoId = await this.demandasService.orgaoDoItemDemanda(itemId);
     this.acesso.assertMesmoOrgao(ator, orgaoId, modo, 'Item');
+    const demandaId = await this.demandasService.demandaDoItem(itemId);
+    if (demandaId) await this.exigirNoEscopo(ator, demandaId, modo);
   }
 
   /** Lista de DFDs do corpo: todas do órgão do token (outro órgão → 403; inexistente → 404). */
@@ -91,9 +104,11 @@ export class DemandasController {
 
   // ==================== DEMANDAS ====================
 
+  /** Lista no escopo de quem consulta (requisitante: o seu setor e as que criou). */
   @Get()
   async findAll(
     @Req() request: { user: JwtPayload },
+    @AtorAtual() ator: Ator | null,
     @Query('orgaoId') orgaoIdParam?: string,
     @Query('ano') ano?: string,
     @Query('status') status?: StatusDemanda,
@@ -105,26 +120,45 @@ export class DemandasController {
       ano: ano ? parseInt(ano) : undefined,
       status,
       unidadeRequisitante,
+      escopo: await this.demandasService.escopo(ator, orgaoId),
     });
+  }
+
+  /** O que quem consulta vê: todas as demandas do órgão ou só as do setor dele (a tela explica). */
+  @Get('escopo')
+  async escopo(
+    @Req() request: { user: JwtPayload },
+    @AtorAtual() ator: Ator | null,
+    @Query('orgaoId') orgaoIdParam?: string,
+  ) {
+    const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
+    const e = await this.demandasService.escopo(ator, orgaoId);
+    // `usuario`: quem está logado (preenche setor e responsável da "Nova demanda"); login do órgão → null
+    const usuario = await this.demandasService.usuarioLogado(ator, orgaoId);
+    return e.todas
+      ? { todas: true, setor_id: null, setor_nome: null, usuario }
+      : { todas: false, setor_id: e.setorId, setor_nome: e.setorNome, usuario };
   }
 
   @Get('estatisticas')
   async getEstatisticas(
     @Req() request: { user: JwtPayload },
+    @AtorAtual() ator: Ator | null,
     @Query('ano') ano: string,
     @Query('orgaoId') orgaoIdParam?: string,
   ) {
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
-    return this.demandasService.getEstatisticas(orgaoId, parseInt(ano));
+    return this.demandasService.getEstatisticas(orgaoId, parseInt(ano), await this.demandasService.escopo(ator, orgaoId));
   }
 
   @Get('unidades')
   async getUnidadesRequisitantes(
     @Req() request: { user: JwtPayload },
+    @AtorAtual() ator: Ator | null,
     @Query('orgaoId') orgaoIdParam?: string,
   ) {
     const orgaoId = this.getOrgaoId(request.user, orgaoIdParam);
-    return this.demandasService.getUnidadesRequisitantes(orgaoId);
+    return this.demandasService.getUnidadesRequisitantes(orgaoId, await this.demandasService.escopo(ator, orgaoId));
   }
 
   @Get('para-consolidar')
@@ -224,6 +258,7 @@ export class DemandasController {
     @AtorAtual() ator: Ator | null,
   ) {
     await this.exigirDemanda(ator, id);
+    // só os campos do pedido (lista fechada no serviço); dono/status/vínculos continuam ignorados
     return this.demandasService.update(id, semCampos(dados, CAMPOS_PROTEGIDOS_DEMANDA));
   }
 

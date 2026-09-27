@@ -10,6 +10,7 @@ import type { Ator } from '../auth/acesso/ator';
 import { PlanejamentoFluxoService } from '../fase-interna/fluxo/planejamento-fluxo.service';
 import { rotuloRegra } from '../fase-interna/fluxo/planejamento-fluxo';
 import { DfdConsolidadoService } from './dfd/dfd-consolidado.service';
+import { EscopoDemandas, condicaoSqlDoEscopo, demandaNoEscopo, veTodasAsDemandas } from './visibilidade-demandas';
 
 @Injectable()
 export class DemandasService {
@@ -50,6 +51,13 @@ export class DemandasService {
     return r?.orgao_id ?? null;
   }
 
+  /** Demanda do item; null se não existe. */
+  async demandaDoItem(itemId: string): Promise<string | null> {
+    if (!ehUuid(itemId)) return null;
+    const [r] = await this.dataSource.query(`SELECT demanda_id::text AS demanda_id FROM itens_demanda WHERE id = $1`, [itemId]);
+    return r?.demanda_id ?? null;
+  }
+
   /** Órgão dono do PCA; null se não existe. */
   async orgaoDoPca(pcaId: string): Promise<string | null> {
     if (!ehUuid(pcaId)) return null;
@@ -76,6 +84,57 @@ export class DemandasService {
     if (await this.planejamento.podeAprovarDemanda(ator, orgaoId)) return;
     const p = await this.planejamento.vigente(orgaoId);
     throw new ForbiddenException(`Você não tem permissão para aprovar demandas (quem aprova: ${rotuloRegra(p.aprovador_demanda, 'APROVAR')}).`);
+  }
+
+  /**
+   * Quais demandas do órgão quem consulta vê (token + banco): requisitante →
+   * as do seu setor e as que criou; aprovador, planejamento, administrador do
+   * órgão, login do órgão e admin da plataforma → todas. Ver `visibilidade-demandas.ts`.
+   */
+  async escopo(ator: Ator | null | undefined, orgaoId: string): Promise<EscopoDemandas> {
+    if (!ator) return { todas: false, usuarioId: '', setorId: null, setorNome: null };
+    if (ator.admin || (ator.tipo === 'ORGAO' && ator.orgaoId === orgaoId)) return { todas: true };
+    const pessoa = await this.planejamento.pessoa(ator, orgaoId);
+    const [aprovarDemanda, montarDfd, aprovarDfd] = pessoa
+      ? await Promise.all([
+          this.planejamento.podeAprovarDemanda(ator, orgaoId),
+          this.planejamento.podeMontarDfd(ator, orgaoId),
+          this.planejamento.podeAprovarDfd(ator, orgaoId),
+        ])
+      : [false, false, false];
+    if (veTodasAsDemandas(pessoa, { aprovarDemanda, montarDfd, aprovarDfd })) return { todas: true };
+    let setorNome: string | null = null;
+    if (pessoa?.setor_id) {
+      const [s] = await this.dataSource.query(`SELECT nome FROM setores WHERE id::text = $1 AND orgao_id::text = $2`, [pessoa.setor_id, orgaoId]);
+      setorNome = s?.nome ?? null;
+    }
+    return { todas: false, usuarioId: ator.usuarioId ?? ator.id, setorId: pessoa?.setor_id ?? null, setorNome };
+  }
+
+  /** Dados de quem está logado (usuário do órgão do token) para pré-preencher a "Nova demanda". */
+  async usuarioLogado(ator: Ator | null | undefined, orgaoId: string): Promise<{
+    id: string; nome: string | null; email: string | null; telefone: string | null; setor_id: string | null; setor_nome: string | null;
+  } | null> {
+    if (!ator || ator.tipo !== 'USUARIO' || !ator.usuarioId || !ehUuid(ator.usuarioId)) return null;
+    const [u] = await this.dataSource.query(
+      `SELECT u.id::text AS id, u.nome, u.email, u.telefone, u.setor_id::text AS setor_id, s.nome AS setor_nome
+         FROM usuarios u LEFT JOIN setores s ON s.id = u.setor_id AND s.orgao_id::text = $2
+        WHERE u.id::text = $1 AND u.orgao_id::text = $2`,
+      [ator.usuarioId, orgaoId],
+    );
+    if (!u) return null;
+    return { id: u.id, nome: u.nome ?? null, email: u.email ?? null, telefone: u.telefone ?? null, setor_id: u.setor_nome ? u.setor_id : null, setor_nome: u.setor_nome ?? null };
+  }
+
+  /** A demanda está no escopo de quem consulta? (id inexistente → false) */
+  async demandaVisivel(ator: Ator | null | undefined, demandaId: string): Promise<boolean> {
+    if (!ehUuid(demandaId)) return false;
+    const [d] = await this.dataSource.query(
+      `SELECT orgao_id::text AS orgao_id, setor_id::text AS setor_id, unidade_requisitante, criado_por_id FROM demandas WHERE id = $1`,
+      [demandaId],
+    );
+    if (!d) return false;
+    return demandaNoEscopo(await this.escopo(ator, d.orgao_id), d);
   }
 
   /** Nome (e id) de quem age, do token: usuário do órgão, login do órgão ou admin da plataforma. */
@@ -133,10 +192,15 @@ export class DemandasService {
     ano?: number;
     status?: StatusDemanda;
     unidadeRequisitante?: string;
+    /** Escopo de quem consulta (requisitante → só o setor dele e as que criou). Omitido = todas. */
+    escopo?: EscopoDemandas;
   }): Promise<Demanda[]> {
     const query = this.demandaRepository.createQueryBuilder('d')
       .leftJoinAndSelect('d.itens', 'itens')
       .where('d.orgao_id = :orgaoId', { orgaoId: params.orgaoId });
+
+    const cond = params.escopo ? condicaoSqlDoEscopo(params.escopo, 'd') : null;
+    if (cond) query.andWhere(cond.sql, cond.params);
 
     if (params.ano) {
       query.andWhere('d.ano_referencia = :ano', { ano: params.ano });
@@ -246,10 +310,64 @@ export class DemandasService {
     // Não permite editar demandas já consolidadas / em contratação / contratadas / num DFD
     await this.exigirDestravada(demanda, 'editada');
 
-    Object.assign(demanda, dados);
+    const campos = await this.camposEditaveis(demanda, (dados ?? {}) as Record<string, unknown>);
+    const dataAnterior = demanda.data_desejada_contratacao as unknown as string | null;
+    Object.assign(demanda, campos);
     delete (demanda as any).dfd;
+    const itens = demanda.itens;
+    delete (demanda as any).itens;
     const salva = await this.demandaRepository.save(demanda);
+    // itens que herdaram a data da demanda acompanham a nova data
+    if ('data_desejada_contratacao' in campos) {
+      await this.dataSource.query(
+        `UPDATE itens_demanda SET data_desejada_contratacao = $2
+          WHERE demanda_id = $1 AND (data_desejada_contratacao IS NULL OR data_desejada_contratacao = $3::date)`,
+        [id, campos.data_desejada_contratacao ?? null, dataAnterior ?? null],
+      );
+    }
+    salva.itens = itens ?? [];
     return this.comDfd(salva);
+  }
+
+  /**
+   * Campos do PEDIDO que o PUT troca (lista fechada — dono, status, vínculos e
+   * ciclo nunca): descrição, justificativa, unidade/setor, tipo, "para quando",
+   * responsável e ano do PCA. Data vazia → null; data inválida → 400; setor de
+   * outro órgão → 400.
+   */
+  private async camposEditaveis(demanda: Demanda, dados: Record<string, unknown>): Promise<Partial<Demanda>> {
+    const out: Record<string, unknown> = {};
+    const texto = (v: unknown) => (v == null ? null : String(v));
+    for (const c of ['descricao_sucinta_objeto', 'observacoes', 'responsavel_nome', 'responsavel_email', 'responsavel_telefone'] as const) {
+      if (c in dados) out[c] = texto(dados[c]);
+    }
+    if ('renovacao_contrato' in dados) out.renovacao_contrato = dados.renovacao_contrato === true || dados.renovacao_contrato === 'true';
+    if ('ano_referencia' in dados) {
+      const ano = Number(dados.ano_referencia);
+      if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) throw new BadRequestException('Ano de referência (PCA) inválido.');
+      out.ano_referencia = ano;
+    }
+    if ('data_desejada_contratacao' in dados) {
+      const v = String(dados.data_desejada_contratacao ?? '').trim().slice(0, 10);
+      if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new BadRequestException('"Para quando" deve ser uma data (AAAA-MM-DD).');
+      out.data_desejada_contratacao = v || null;
+    }
+    // Setor: pelo id (do órgão) ou pelo nome digitado (casando com um setor cadastrado)
+    if ('setor_id' in dados && dados.setor_id) {
+      const [s] = ehUuid(String(dados.setor_id))
+        ? await this.dataSource.query(`SELECT id::text AS id, nome FROM setores WHERE id::text = $1 AND orgao_id::text = $2`, [String(dados.setor_id), demanda.orgao_id])
+        : [];
+      if (!s) throw new BadRequestException('Setor não encontrado no órgão.');
+      out.setor_id = s.id;
+      out.unidade_requisitante = texto(dados.unidade_requisitante)?.trim() || s.nome;
+    } else if ('unidade_requisitante' in dados) {
+      const nome = texto(dados.unidade_requisitante)?.trim() || '';
+      if (!nome) throw new BadRequestException('Informe a unidade requisitante.');
+      out.unidade_requisitante = nome;
+      const [s] = await this.dataSource.query(`SELECT id::text AS id FROM setores WHERE orgao_id::text = $1 AND lower(trim(nome)) = lower(trim($2)) LIMIT 1`, [demanda.orgao_id, nome]);
+      out.setor_id = s?.id ?? null;
+    }
+    return out as Partial<Demanda>;
   }
 
   async delete(id: string): Promise<void> {
@@ -713,13 +831,14 @@ export class DemandasService {
 
   // ==================== ESTATÍSTICAS ====================
 
-  async getEstatisticas(orgaoId: string, ano: number): Promise<{
+  async getEstatisticas(orgaoId: string, ano: number, escopo?: EscopoDemandas): Promise<{
     total: number;
     porStatus: { status: string; total: number; valor: number }[];
     porUnidade: { unidade: string; total: number; valor: number }[];
     valorTotal: number;
   }> {
-    const demandas = await this.findAll({ orgaoId, ano });
+    // mesmo escopo da lista: o requisitante não vê valores do órgão inteiro
+    const demandas = await this.findAll({ orgaoId, ano, escopo });
 
     const porStatus: Record<string, { total: number; valor: number }> = {};
     const porUnidade: Record<string, { total: number; valor: number }> = {};
@@ -763,14 +882,15 @@ export class DemandasService {
 
   // ==================== UNIDADES REQUISITANTES ====================
 
-  async getUnidadesRequisitantes(orgaoId: string): Promise<string[]> {
-    const result = await this.demandaRepository
+  async getUnidadesRequisitantes(orgaoId: string, escopo?: EscopoDemandas): Promise<string[]> {
+    const query = this.demandaRepository
       .createQueryBuilder('d')
       .select('DISTINCT d.unidade_requisitante', 'unidade')
       .where('d.orgao_id = :orgaoId', { orgaoId })
-      .andWhere('d.unidade_requisitante IS NOT NULL')
-      .orderBy('d.unidade_requisitante', 'ASC')
-      .getRawMany();
+      .andWhere('d.unidade_requisitante IS NOT NULL');
+    const cond = escopo ? condicaoSqlDoEscopo(escopo, 'd') : null;
+    if (cond) query.andWhere(cond.sql, cond.params);
+    const result = await query.orderBy('d.unidade_requisitante', 'ASC').getRawMany();
 
     return result.map(r => r.unidade);
   }
