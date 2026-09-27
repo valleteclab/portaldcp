@@ -10,6 +10,7 @@ import { PecasFaseInternaService } from './pecas-fase-interna.service';
 import { JuntadaPecasService } from './juntada-pecas.service';
 import { MigracaoEspelhoDocumentosBootService } from './migracao-espelho-documentos-boot.service';
 import { MigracaoPecaEmitidaBootService } from './migracao-peca-emitida-boot.service';
+import { CopilotoInterrompidoBootService } from './copiloto-interrompido-boot.service';
 import { Tarefa } from './tarefas/tarefa.entity';
 import { ConfiguracaoFaseInterna } from './tarefas/configuracao-fase-interna.entity';
 import { TarefasService } from './tarefas/tarefas.service';
@@ -168,6 +169,7 @@ import {
     JuntadaPecasService,
     MigracaoEspelhoDocumentosBootService,
     MigracaoPecaEmitidaBootService,
+    CopilotoInterrompidoBootService,
     TarefasService,
     TarefasSubscriber,
     MigracaoTarefasBootService,

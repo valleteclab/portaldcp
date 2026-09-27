@@ -12,6 +12,7 @@ import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { FaseInternaService } from './fase-interna.service';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
 import { IaService } from '../ia/ia.service';
+import { preparacaoTravada } from './preparacao-regras';
 
 /**
  * MODO CO-WORK (copiloto) — prepara o processo INTEIRO e deixa tudo
@@ -110,7 +111,9 @@ export class PreparacaoAutomaticaService {
     if (!lic) throw new NotFoundException('Licitação não encontrada');
 
     const atual = (lic as any).preparacao_automatica as StatusPreparacao | null;
-    if (atual?.status === 'EXECUTANDO') {
+    // Execução "presa" (servidor reiniciou no meio e o boot não pegou): passados
+    // 30 min sem concluir, pode rodar de novo.
+    if (atual?.status === 'EXECUTANDO' && !preparacaoTravada(atual, new Date())) {
       return { iniciada: false, ja_executando: true };
     }
 
@@ -118,6 +121,9 @@ export class PreparacaoAutomaticaService {
       status: 'EXECUTANDO',
       etapa: 'Iniciando a preparação…',
       iniciada_em: new Date().toISOString(),
+      // nova rodada: limpa o erro/conclusão da anterior (ex.: interrompida pelo reinício)
+      erro: undefined,
+      concluida_em: undefined,
       log: [],
     });
 
