@@ -169,6 +169,13 @@ export default function ModeloFluxoPage() {
 
   useEffect(() => {
     setAdmin(ehAdminDoOrgao())
+    // Link direto para uma aba (ex.: vindo de Fluxos de aprovação: ?tipo=LICITACAO)
+    try {
+      const t = new URLSearchParams(window.location.search).get("tipo")?.toUpperCase()
+      if (t === "DISPENSA" || t === "INEXIGIBILIDADE" || t === "LICITACAO") setTipo(t as Tipo)
+    } catch {
+      /* aba padrão */
+    }
   }, [])
   useEffect(() => {
     carregar(tipo)

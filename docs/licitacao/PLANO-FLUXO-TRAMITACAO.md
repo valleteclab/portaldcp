@@ -232,6 +232,20 @@ Branch `claude/demanda-dfd-consolidado`. Código em `backend/src/demandas/dfd/` 
 - **Travas**: demanda num DFD não é editada, não entra em outro DFD e não abre processo sozinha. "Iniciar contratação" de uma demanda = DFD de 1 demanda, só para a unidade de planejamento.
 - **Alerta de parecidos**: função pura (`consolidacao-dfd.ts › parecidos`) — o DFD ainda não é processo, então não cabe no motor de conformidade (que roda sobre a licitação). Atenção, nunca bloqueio; vai para o histórico do processo na abertura.
 
+## 15. Fluxo de aprovação das peças nas telas das etapas (27/09/2026)
+
+Branch `claude/fluxo-aprovacao-pecas`. Código em `backend/src/fase-interna/aprovacao-pecas*.ts` e `aprovacao.service.ts`; telas `/orgao/configuracoes/fluxos-aprovacao`, Central (`/orgao/aprovacoes?tab=documentos`) e o quadro da peça nas etapas (`CaminhosDaPeca`).
+
+- **Por que "não dava certo":** o fluxo só valia para etapas com "aprovação interna" ligada (desligada em todas), o envio ao fluxo só existia no editor antigo e a tela não explicava nada.
+- **Quando vale:** só nas etapas com "aprovação interna" ligada no modelo de fluxo. Fluxo cadastrado sem ela **não trava nada** (antes, qualquer fluxo cadastrado fazia a peça esperar uma aprovação que as telas novas não pediam).
+- **Envio automático:** peça **emitida** (gerada no sistema) ou **anexada pela etapa** vai sozinha para o fluxo do tipo → genérico → aprovação única. Roda fora de qualquer transação de ato (na chamada da tela e na rotina "antes de sincronizar" da fila do processo), uma avaliação por processo de cada vez. A juntada em lote da fase feita fora **não** vai (as conferências já constam de fora). Reprovada: só volta depois de corrigida e gerada de novo (nova emissão ou nova versão).
+- **Sem fluxo cadastrado** (regra de `resolverFluxo`, mantida): aprovação única, decidida por **quem conduz o processo** (login do órgão, ADMIN do órgão, agente do processo). A etapa mostra o aviso "aprovação interna ligada, mas sem fluxo cadastrado".
+- **Quem decide:** sempre o usuário do token. Pessoa indicada → só ela; setor indicado → quem é do setor; sem responsável → quem conduz. Os demais: 403; outro órgão: 404. A última etapa com assinatura aprova **assinando** a peça (portal de assinaturas; o próprio aprovador). Assinatura só na última etapa.
+- **Modelos prontos em dados** (`modelos_fluxo_aprovacao`, semente no boot, só o admin da plataforma altera; a semente não sobrescreve o que ele editou): "TR conferido pelo chefe" (TR), "Pesquisa conferida" (PP, MCP), "Minutas revisadas" (ME, MC, RAG), "DFD assinado pela Diretoria" (DFD). "Usar este modelo" abre o editor preenchido; o setor/pessoa de cada etapa é obrigatório.
+- **Um fluxo, várias peças** (`tipos_documento`); dois fluxos para a mesma peça → 409.
+- **Avisos:** aprovador (sino, e-mail e WhatsApp com link para a Central); reprovação → quem fez a peça, com o motivo e o link da etapa.
+- **Cache do modelo de fluxo:** a leitura feita durante a gravação do modelo não fica mais no cache (o modelo antigo valia por até 3 s depois de salvo).
+
 ---
 
 ## Anexo A — Levantamento técnico (26/09/2026)

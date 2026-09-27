@@ -29,6 +29,7 @@ import {
 import { AprovacaoDocumento, ModeloFluxoAprovacao, StatusEtapaAprovacao } from './entities/fluxo-aprovacao.entity';
 import { DocumentoFaseInterna, OrigemDocumento, TipoDocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { ROTULO_TIPO_PROCESSO, TIPOS_PROCESSO_FLUXO } from './fluxo/modelo-fluxo';
+import { CATALOGO_ETAPAS } from './fluxo/catalogo-fluxo';
 import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
 import { PecasFaseInternaService } from './pecas-fase-interna.service';
 import { TarefasService } from './tarefas/tarefas.service';
@@ -407,6 +408,8 @@ export class AprovacaoPecasService implements OnModuleInit, OnApplicationBootstr
       tipos.push({ tipo, rotulo: ROTULO_TIPO_PROCESSO[tipo], modelo: m.nome, proprio: !!m.orgao_id, etapas });
     }
     const algumaLigada = tipos.some((t) => t.etapas.length > 0);
-    return { tipos, alguma_ligada: algumaLigada, tela_modelo_fluxo: '/orgao/configuracoes/fluxo' };
+    // Peças das etapas (catálogo) — as que o editor oferece em "vale para"
+    const pecas = [...new Set(CATALOGO_ETAPAS.flatMap((c) => [...c.tipos_peca.direta, ...c.tipos_peca.licitacao]))].map((t) => ({ tipo: t, titulo: tituloDoTipo(t) }));
+    return { tipos, alguma_ligada: algumaLigada, pecas, tela_modelo_fluxo: '/orgao/configuracoes/fluxo' };
   }
 }
