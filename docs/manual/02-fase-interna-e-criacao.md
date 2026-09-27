@@ -72,7 +72,7 @@ Ao lado dos arquivos, o **checklist do art. 72** (contratação direta) ou **do 
 Clique em **Criar o processo e juntar os documentos**. O sistema cria o processo, grava os itens e junta as peças **numa operação só**:
 
 - **Tudo é conferido antes de gravar** (dados, itens, cada PDF, a classificação e o art. 72 antes do despacho). Havendo erro, **nada é gravado** e a tela volta para o passo a corrigir, com a mensagem ao lado do arquivo ou do campo (ex.: "A data do documento não pode ser futura", "Só é aceito arquivo PDF", "Dois arquivos para a mesma peça").
-- Se uma peça for recusada no meio (ex.: o despacho de autorização barrado pelo **limite da dispensa** — portão B), o processo é criado com o resto e a peça vira **pendência**: aparece na tela de resultado com o motivo e **Tentar de novo as pendências** (mesmos arquivos), e fica registrada no processo — o quadro **Fluxo da fase interna** mostra "Pendências da juntada dos documentos feitos fora" com **Juntar de novo**. A pendência some sozinha quando a peça entra por qualquer caminho.
+- Se uma peça for recusada no meio (ex.: o despacho de autorização barrado pelo **limite da dispensa** — trava da lei — autorizar), o processo é criado com o resto e a peça vira **pendência**: aparece na tela de resultado com o motivo e **Tentar de novo as pendências** (mesmos arquivos), e fica registrada no processo — o quadro **Fluxo da fase interna** mostra "Pendências da juntada dos documentos feitos fora" com **Juntar de novo**. A pendência some sozinha quando a peça entra por qualquer caminho.
 
 Depois de criado, o processo abre na **tela do processo** com o Fluxo da fase interna já refletindo as peças: as **tarefas** dos passos cumpridos nascem **concluídas** (em nome de quem juntou — ninguém recebe aviso de tarefa que já está feita) e as dos passos que faltam ficam abertas. No cabeçalho aparece a etiqueta **Fase interna externa (documentos anexados)**; no histórico do processo, o ato de criação registra "Fase interna feita fora do sistema — documentos anexados", com quem e quando. Siga para **Conferir a conformidade** e publique (a conformidade vale igual: só publica sem bloqueio).
 
@@ -100,9 +100,53 @@ Cada tarefa tem o botão **Abrir peça**. Nas etapas com tela própria (DFD, ETP
 
 > **Tramitação × tarefa.** A tramitação continua sendo o despacho formal entre setores, que vai para os autos. A tarefa é o "o que eu tenho que fazer". Uma não cria a outra.
 
+## Com quem está o processo (tramitação)
+
+Na fase interna, o topo da tela do processo mostra sempre **com quem o processo está agora** — como nos autos em papel, que andam de mesa em mesa:
+
+> **Está com: Contabilidade (Maria) · desde 20/09/2026 · prazo 23/09/2026 (faltam 2 dias úteis)**
+> Aguardando o recebimento · enviado por Compras · Ver despacho (fl. 12)
+> [✓ Recebi]  [⇪ Anexar feito fora]  [➤ Enviar para: Jurídico ▾]  [↩ Devolver]  [⟲ Linha do tempo]
+
+- **Recebi** — confirma que o setor ou a pessoa recebeu os autos.
+- **Anexar feito fora** — quando a peça foi feita em papel ou em outro sistema: anexa o PDF direto da barra, sem precisar entrar na tela da etapa.
+- **Enviar para ▾** — escolhe o próximo setor (o sistema já sugere o destino certo, pelo fluxo configurado), com um **despacho** pronto e editável (ex.: "Encaminhe-se ao(à) Contabilidade para a reserva orçamentária.") e o **prazo em dias úteis**. Cada envio vira uma **folha nos autos** — o despacho formal, como no processo em papel.
+- **Devolver** — volta o processo para quem enviou, com o **motivo obrigatório**.
+- **Linha do tempo** — mostra cada envio, recebimento e devolução, com data, quem fez, o despacho e o link para a folha correspondente nos autos.
+- Se o processo já andou no papel antes de alguém registrar no sistema, use **"Recebeu antes (processo em papel)? Informar a data do recebimento"** (no Recebi) ou o campo **"Aconteceu em"** (no Enviar/Devolver) para lançar a movimentação com a **data em que ela realmente ocorreu** (nunca uma data futura). A linha do tempo mostra "lançado depois, em … por …".
+- Quando não há nenhuma tramitação ainda, o bloco mostra **"Ainda sem registro de com quem está"**, com o botão para enviar o primeiro despacho.
+- **Isolamento:** só o setor de destino, a pessoa de destino, o **chefe do setor** ou o administrador do órgão podem clicar em Recebi ou Devolver; só quem está com o processo pode Enviar adiante. Tentar fora disso é recusado, com a mensagem na tela.
+- No **modo simples** (uma pessoa conduz o processo), a tramitação acontece **sozinha**: quando a etapa muda de responsável (por exemplo, a reserva é do setor Contabilidade no modelo, mesmo com uma pessoa conduzindo tudo), o sistema registra o envio automático, com o despacho padrão e a folha nos autos.
+- Quem recebe o aviso: se o destino é uma **pessoa**, só ela é avisada; se é um **setor**, todos os usuários ativos daquele setor e o chefe (se houver) recebem — por notificação interna, e-mail e **WhatsApp com o link do processo**, quando o órgão tem o WhatsApp configurado.
+
+## Visão da fase interna (avançar, voltar, etapas em paralelo)
+
+O quadro **Fluxo da fase interna**, na tela do processo, mostra as etapas em **colunas**: etapas na mesma coluna são **independentes** e podem andar ao mesmo tempo (ex.: o Estudo Técnico e o Termo de Referência, os dois liberados assim que a Demanda é aprovada); uma etapa só fica disponível depois de **todas** as etapas de que ela depende terminarem — enquanto isso, ela aparece como **"Aguardando: …"**, sem o botão de abrir.
+
+Cada etapa mostra a situação (com a mesma cor da barra de etapas), o responsável, o prazo, as peças (com ✓ quando prontas) e os botões que fazem sentido para ela:
+
+- **Abrir a etapa** — vai para a tela onde a peça é feita ou anexada.
+- **Avançar** (o rótulo muda conforme o tipo de conclusão: **Registrar o despacho**, para etapas que concluem por um registro simples — como a autorização de início ou a indicação de modalidade, quando o modelo as liga —, ou **Confirmar a revisão**, para confirmar que uma etapa marcada "a revisar" foi conferida de novo).
+- **Voltar** — reabre uma etapa já concluída. Pede um **motivo obrigatório** e mostra, antes de confirmar, **quais etapas dependentes ficam "a revisar"** (nenhuma peça é apagada) e que a trava da lei volta a valer para elas até serem confirmadas de novo. Só quem conduz o processo pode voltar uma etapa.
+- Quando uma etapa volta, as que dependiam dela e já estavam concluídas ficam marcadas **"A revisar: …"**. A marca some sozinha quando a peça é alterada, ou quando alguém clica em **Confirmar a revisão**.
+
+## Aprovação da demanda
+
+O início do processo de compra é a **aprovação da demanda**, feita por quem o órgão designou (na maioria dos casos, quem tem a permissão de aprovar demandas — configurável em [Configurações › Fluxo](01-configuracao-do-orgao.md#configurar-o-fluxo-configurações-›-fluxo)). Enquanto a demanda não for aprovada, a Demanda/DFD fica **"aguardando aprovação"**, e as etapas seguintes (Estudo Técnico, Termo de Referência, Pesquisa) ficam **"Aguardando: Demanda"** — não é possível adiantar o processo antes da aprovação.
+
+A aprovação conta **sozinha**, sem precisar de um clique, quando:
+- o processo nasceu de uma **demanda já aprovada** no módulo de Demandas;
+- o DFD foi **juntado feito fora** (a aprovação já consta da peça anexada, salvo se o órgão desligar essa regra no modelo);
+- o DFD foi feito no sistema e **aprovado pelo fluxo de aprovação de documentos** do órgão, ou assinado por quem aprova;
+- o órgão está no **modo simples** (uma pessoa conduz o processo inteiro) — nesse caso, quem conduz já é considerado o aprovador.
+
+Quando é preciso um clique, o bloco amarelo no topo do quadro **"Fluxo da fase interna"** mostra **"Aguardando aprovação da demanda por [pessoa/papel/setor]"**, com o botão **"Aprovar a demanda"** visível só para quem pode aprovar. Depois de aprovada, a linha fica verde: "Demanda aprovada por [nome] em [data]".
+
+**Reabrir a demanda** (voltar a etapa da Demanda) desfaz a aprovação — o processo volta a precisar de uma nova aprovação antes de seguir.
+
 ## Etapas da fase interna
 
-Na tela do processo, o quadro **Fluxo da fase interna** mostra as etapas com a situação, o responsável e o prazo:
+Na tela do processo, o quadro **Fluxo da fase interna** mostra as etapas com a situação, o responsável e o prazo. O **caminho exato** (quais etapas existem, a ordem e as dependências entre elas) é configurado pelo administrador do órgão em [Configurações › Fluxo](01-configuracao-do-orgao.md#configurar-o-fluxo-configurações-›-fluxo), por tipo de processo — o que segue é o modelo pronto da Câmara ("Câmara — Portaria 089"), usado como ponto de partida:
 
 1. Demanda (DFD)
 2. ETP e análise de riscos
@@ -116,8 +160,7 @@ Na tela do processo, o quadro **Fluxo da fase interna** mostra as etapas com a s
 
 Na licitação (rito completo), o parecer vem antes da autorização.
 
-- A **ordem é sugestão**: qualquer peça pode ser feita ou anexada antes, e conta na hora.
-- As tarefas seguem as dependências. Depois da demanda, ficam disponíveis o estudo técnico, o TR e a pesquisa. A reserva orçamentária espera a pesquisa, porque precisa do valor. A autorização espera as etapas 1 a 5. As minutas vêm depois da autorização, e o parecer vem depois das minutas.
+- **A ordem e as dependências vêm do modelo do órgão** (cada processo guarda o retrato do modelo do dia em que nasceu — mudar o modelo depois não muda o caminho de um processo já em andamento). No modelo padrão: depois da demanda aprovada, ficam disponíveis o estudo técnico, o TR e a pesquisa, lado a lado. A reserva orçamentária espera a pesquisa, porque precisa do valor. A autorização espera as etapas 1 a 5. As minutas vêm depois da autorização, e o parecer vem depois das minutas.
 - Clique numa etapa para ver as peças, o que falta, o prazo padrão e quem concluiu. **Ver histórico** mostra cada mudança de etapa e de tarefa, com quem e quando.
 
 ## Telas por etapa
@@ -177,7 +220,7 @@ No alto, escolha **Pesquisa feita aqui** ou **Pesquisa feita fora (anexar o mapa
 
 No painel ao lado: **Limite e fracionamento (art. 75, §1º)** (dispensa) — por exemplo, "98,4% de R$ 62.725,59 — Dec. 12.343/2024", amarelo acima de 80% e vermelho acima de 100% —, e os **Avisos desta etapa** (validade, escolha dos fornecedores, sigilo, parâmetro não registrado).
 
-> **Portão A — limite e fracionamento.** Se a soma das dispensas do órgão no exercício, no mesmo ramo (classe CATMAT/CATSER e unidade gestora), com o valor desta pesquisa passar do limite do inciso, o sistema **recusa emitir o mapa e a certidão** (e o ato "Concluir pesquisa de preços"), mostrando a soma e o limite. Na pesquisa feita fora, o valor digitado nos itens é gravado, mas a etapa da pesquisa **não conclui** (a reserva e a autorização não abrem) e nasce a tarefa "Conformidade (LIM-01)" para quem cuida da pesquisa. Acima de 80% do limite, só atenção (LIM-02). Reveja o objeto e as quantidades ou adote a licitação.
+> **Trava da lei — concluir a pesquisa (limite e fracionamento).** Se a soma das dispensas do órgão no exercício, no mesmo ramo (classe CATMAT/CATSER e unidade gestora), com o valor desta pesquisa passar do limite do inciso, o sistema **recusa emitir o mapa e a certidão** (e o ato "Concluir pesquisa de preços"), mostrando a soma e o limite. Na pesquisa feita fora, o valor digitado nos itens é gravado, mas a etapa da pesquisa **não conclui** (a reserva e a autorização não abrem) e nasce a tarefa "Conformidade (LIM-01)" para quem cuida da pesquisa. Acima de 80% do limite, só atenção (LIM-02). Reveja o objeto e as quantidades ou adote a licitação.
 
 ### 5. Reserva orçamentária
 
@@ -199,9 +242,9 @@ A tela tem duas visões:
   - **Gerar despacho** monta o texto pelo modelo, lendo o processo: número, objeto, fundamento legal, teto, dotação e leis da reserva, e o nome da autoridade;
   - **Enviar à autoridade** manda o despacho para os signatários da configuração do órgão (Configurações › Fase interna › Autorização). A autoridade pode ser **colegiada** (ex.: Mesa Diretora com 4 signatários): a autorização **só vale quando todos assinarem**. Antes disso, o despacho aparece como "aguardando as assinaturas" e **não conta** como peça pronta.
 
-O quadro **Instrução do art. 72 (portão B)** mostra se as peças exigidas para autorizar estão prontas: I (DFD e, se for o caso, ETP, riscos e TR), II (pesquisa) e IV (dotação). III (parecer), VI e VII (razão da escolha e preço) vêm depois.
+O quadro **Instrução do art. 72 (trava da lei — autorizar)** mostra se as peças exigidas para autorizar estão prontas: I (DFD e, se for o caso, ETP, riscos e TR), II (pesquisa) e IV (dotação). III (parecer), VI e VII (razão da escolha e preço) vêm depois.
 
-> **Portão B — bloqueia.** Enquanto faltar peça dos incisos I, II ou IV (feita, anexada ou "não se aplica"), ou o limite da dispensa estourar no ramo, o despacho **não vai para a autoridade**, **não é assinado** e o despacho assinado fora **não é anexado**. A tela mostra em vermelho o que falta.
+> **Trava da lei — autorizar.** Enquanto faltar peça dos incisos I, II ou IV (feita, anexada ou "não se aplica"), ou o limite da dispensa estourar no ramo, o despacho **não vai para a autoridade**, **não é assinado** e o despacho assinado fora **não é anexado**. A tela mostra em vermelho o que falta.
 
 O despacho assinado fora (Mesa em papel) entra por **Anexar feito fora** e conta como autorizado. Na mesma tela fica a **designação do agente** (portaria do órgão).
 
@@ -246,7 +289,7 @@ A conferência automática é a do **motor de conformidade** (a mesma da tela da
 
 A tela aparece entre o parecer e a publicação. Nela, a manifestação é **Favorável** ou **Com apontamentos** (os apontamentos são obrigatórios). **Assinar manifestação** gera a peça e a assina com o usuário de quem tem o papel **Controle interno**. A manifestação feita fora também pode ser anexada. Por enquanto a etapa é **aviso**: não impede a publicação — sem a manifestação, o checklist antes de publicar mostra a linha amarela **Manifestação do controle interno** (com o link **Abrir o controle interno**) e a tela da conformidade repete o aviso. Com o controle interno desativado, a tela informa que a etapa não se aplica.
 
-### 8. Conformidade e publicação (portão C)
+### 8. Conformidade e publicação (trava da lei — publicar)
 
 Antes de publicar, o **motor de conformidade** cruza todas as peças dos autos entre si — as feitas no sistema e o texto dos PDFs anexados (o PDF digitalizado, sem texto, não é lido: confira no papel). A tela (`/orgao/processos/<id>/fase-interna/conformidade`) mostra:
 
@@ -257,8 +300,8 @@ Antes de publicar, o **motor de conformidade** cruza todas as peças dos autos e
 
 | Regra | O que confere | Efeito |
 |---|---|---|
-| LIM-01 / LIM-02 | Soma das dispensas do órgão no exercício, no mesmo ramo, dentro do limite do inciso / acima de 80% | Bloqueio (portão A) / atenção |
-| A72-I, II, IV | Peças do art. 72 antes de autorizar | Bloqueio (portão B) |
+| LIM-01 / LIM-02 | Soma das dispensas do órgão no exercício, no mesmo ramo, dentro do limite do inciso / acima de 80% | Bloqueio (trava — pesquisa) / atenção |
+| A72-I, II, IV | Peças do art. 72 antes de autorizar | Bloqueio (trava — autorizar) |
 | A72-III, VII, VIII | Parecer, justificativa de preço e autorização antes de publicar | Atenção / atenção / bloqueio |
 | ENQ-01 | O mesmo inciso do art. 75 em todas as peças e no fundamento legal | Bloqueio |
 | VINC-01 | Peça (despacho, informação orçamentária, relatório, minutas, parecer) que cita o número de outro processo | Bloqueio |
@@ -275,12 +318,12 @@ Antes de publicar, o **motor de conformidade** cruza todas as peças dos autos e
 
 - **Bloqueio** não se justifica: corrija a peça (versão nova, feita aqui ou anexada) — o achado se resolve sozinho na revisão seguinte. Cada bloqueio aberto vira uma **tarefa** ("Conformidade") para quem responde pela peça, que conclui quando o achado se resolve.
 - **Atenção** pode ser **justificada** (texto obrigatório; a justificativa vai para os autos). As que exigem justificativa (marca "ou similar", estimativa por uma única cotação) impedem a publicação até serem justificadas.
-- **Não é possível publicar com bloqueio aberto.** O checklist de publicação da tela do processo ganhou a linha **Conformidade das peças (portão C)**, e o **Publicar** recusa com o que falta e onde (peça e folha). O quadro **Fluxo da fase interna** do processo mostra o resumo dos achados.
+- **Não é possível publicar com bloqueio aberto.** O checklist de publicação da tela do processo ganhou a linha **Conformidade das peças (trava da lei — publicar)**, e o **Publicar** recusa com o que falta e onde (peça e folha). O quadro **Fluxo da fase interna** do processo mostra o resumo dos achados.
 - **Processo já publicado:** a conferência fica como estava na publicação — nada do que já foi feito é travado.
 
 #### Publicar pela tela da conformidade (etapa 8)
 
-Na **dispensa eletrônica** a publicação é feita na própria tela da conformidade — é o mesmo ato **Publicar** do processo (com o portão C, os itens, o aviso e o prazo conferidos de novo):
+Na **dispensa eletrônica** a publicação é feita na própria tela da conformidade — é o mesmo ato **Publicar** do processo (com a trava da lei — publicar, os itens, o aviso e o prazo conferidos de novo):
 
 1. **Fim do recebimento de propostas** — já vem com a data mínima (3 dias úteis — art. 75, §3º —, contados no calendário do órgão); o painel mostra os dias úteis e os feriados que não contam. O início é a confirmação da publicação pelo PNCP.
 2. **Disputa da dispensa** — escolha **Com disputa de lances (sessão de lances em tempo real)** ou **Sem disputa de lances (só recebimento de propostas no prazo do aviso)**. A mesma escolha está em **Editar processo › Classificação**. Vem marcado o padrão sugerido pelo órgão (parte [01](01-configuracao-do-orgao.md#8-fase-interna-e-tarefas)); a escolha fica no histórico com o nome de quem escolheu e pode mudar até a publicação.
@@ -311,7 +354,30 @@ A montagem roda **em segundo plano** (um processo por vez): o botão acompanha e
 
 > **Folhas.** A folha dada na juntada da peça é provisória; ao montar os autos, **o PDF é a fonte**: cada peça passa a mostrar as folhas que tem nos autos (tela do parecer, conformidade, índice). Por isso as folhas citadas numa evidência antiga podem mudar depois da montagem — confira a peça pelo índice.
 
-> **Tramitação.** O despacho formal entre setores (estilo SEI) fica na aba **Tramitação** da tela do processo. O antigo "dossiê da fase interna" (`/orgao/fase-interna/processos/<id>`) e as telas avulsas do editor (DFD, ETP, TR) e de preços agora redirecionam para as telas acima.
+> **Tramitação.** O despacho formal entre setores fica no **topo da tela do processo** ("Está com…", veja "Com quem está o processo", acima) e na aba **Tramitação**, que continua disponível com o histórico completo. O antigo "dossiê da fase interna" (`/orgao/fase-interna/processos/<id>`) e as telas avulsas do editor (DFD, ETP, TR) e de preços agora redirecionam para as telas acima.
+
+## Trava da lei (o que é)
+
+**Trava da lei** é o nome que o sistema usa para as verificações obrigatórias, ligadas a um ato: enquanto a lei não estiver cumprida, o sistema **não deixa o ato acontecer**. São três:
+
+| Trava | Segura o ato de… | O que ela exige | Base |
+|---|---|---|---|
+| **Concluir a pesquisa de preços** | emitir o mapa e a certidão | a soma das dispensas do órgão no mesmo ramo, no exercício, não pode passar o limite (evita o fracionamento) | art. 75, §1º |
+| **Autorizar** | autorizar a contratação | DFD e ETP/TR prontos (ou "não se aplica" justificado), pesquisa de preços e reserva orçamentária | art. 72, I, II e IV |
+| **Publicar** | publicar o aviso | todas as peças citam o mesmo inciso e o número deste processo, peças assinadas e datadas, marca só com "ou similar" ou justificativa | arts. 72, 75 e 41, I |
+
+Sempre que uma tela mostrar "Trava da lei — [nome]" com um "?" ao lado, clique para ver a explicação em linguagem simples. A trava é diferente da **conformidade**, que aponta **atenções** (coisas para conferir ou justificar) sem travar o ato.
+
+## Parecer dispensado por ato (art. 53, §5º)
+
+Quando o órgão liga essa opção no modelo do tipo de processo (Dispensa ou Inexigibilidade), o Jurídico pode **dispensar** o parecer prévio por um **ato próprio**, em vez de emitir o parecer de sempre. Na licitação (pregão, concorrência), essa opção não existe — o parecer é sempre obrigatório (art. 53, caput).
+
+No quadro **Fluxo da fase interna**, quando o parecer estiver disponível para dispensa, aparece o botão **"Dispensar parecer (ato do jurídico)"**. Ao clicar, informe:
+- o **número do ato** do jurídico;
+- a **data do ato** (não pode ser futura);
+- opcionalmente, a hipótese.
+
+O registro entra nos autos como o **"não se aplica"** do parecer, com a justificativa citando o número e a data do ato — vai automaticamente para o **termo de justificativas** dos autos, satisfazendo a conferência do art. 72, III. O cartão da etapa passa a mostrar: "Dispensado por ato do jurídico — nº …, de … (art. 53, §5º)".
 
 ## Documentos obrigatórios por modalidade
 
@@ -379,7 +445,7 @@ Quando a autoridade é colegiada (ex.: Mesa Diretora com 4 assinaturas), a peça
 
 - O **fundamento legal** do processo (ex.: "art. 75, II — dispensa por valor; art. 74, III, 'c'; art. 75, VIII — emergência") é escolhido em **Editar dados › Classificação › Fundamento legal**. As opções dependem da modalidade. Esse campo é a **fonte única**: vai para o PNCP (amparo legal), para as peças geradas por modelo e para o aviso de contratação direta. Trocar a modalidade devolve o fundamento ao padrão dela.
 - **Limites da dispensa por valor** (art. 75, I e II) são **por exercício**, com o decreto de cada ano: 2023 — Dec. 11.317/2022 (R$ 114.416,65 / R$ 57.208,33); 2024 — Dec. 11.871/2023 (R$ 119.812,02 / R$ 59.906,02); 2025 — Dec. 12.343/2024 (R$ 125.451,15 / R$ 62.725,59); 2026 — Dec. 12.807/2025 (R$ 130.984,20 / R$ 65.492,11). O administrador da plataforma cadastra o exercício seguinte quando sai o decreto; enquanto não cadastra, vale o do último ano, marcado como provisório.
-- Na dispensa por valor, a etapa atual mostra o **consumo do limite**: quanto o órgão já contratou no exercício, no mesmo ramo (classe do código CATMAT/CATSER) e na mesma unidade gestora — por exemplo, "98,4% de R$ 62.725,59 — Dec. 12.343/2024". Acima de 80% o quadro fica amarelo; acima de 100%, vermelho (art. 75, §1º — fracionamento). Acima de 100% é **bloqueio** (portão A): a pesquisa não conclui, a autorização não sai e o processo não é publicado.
+- Na dispensa por valor, a etapa atual mostra o **consumo do limite**: quanto o órgão já contratou no exercício, no mesmo ramo (classe do código CATMAT/CATSER) e na mesma unidade gestora — por exemplo, "98,4% de R$ 62.725,59 — Dec. 12.343/2024". Acima de 80% o quadro fica amarelo; acima de 100%, vermelho (art. 75, §1º — fracionamento). Acima de 100% é **bloqueio** (trava da lei — concluir a pesquisa): a pesquisa não conclui, a autorização não sai e o processo não é publicado.
 
 ## O copiloto (preparação automática)
 
