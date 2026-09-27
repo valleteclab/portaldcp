@@ -138,6 +138,31 @@ export class PesquisaTelaService {
     return this.faseInterna.getOuCriarDocPP(licitacaoId);
   }
 
+  /** Versão nova da pesquisa já emitida (a anterior vira SUBSTITUIDO, com o mapa e a certidão dela). */
+  private async novaVersaoDaPesquisa(atual: DocumentoFaseInterna): Promise<DocumentoFaseInterna> {
+    return this.docRepo.manager.transaction(async (m) => {
+      await m.query(`SELECT id FROM licitacoes WHERE id::text = $1 FOR UPDATE`, [atual.licitacao_id]);
+      const repo = m.getRepository(DocumentoFaseInterna);
+      await repo.update(atual.id, { versao_atual: false, status: StatusDocumento.SUBSTITUIDO });
+      return repo.save(
+        repo.create({
+          licitacao_id: atual.licitacao_id,
+          tipo: TipoDocumentoFaseInterna.PESQUISA_PRECOS,
+          titulo: atual.titulo || 'Pesquisa de Preços',
+          status: StatusDocumento.EM_ELABORACAO,
+          origem: OrigemDocumento.INTERNO,
+          versao: (atual.versao || 1) + 1,
+          versao_atual: true,
+          versao_anterior_id: atual.id,
+          obrigatorio: atual.obrigatorio,
+          criado_por_id: atual.criado_por_id,
+          criado_por_nome: atual.criado_por_nome,
+          dados_estruturados: {},
+        }),
+      );
+    });
+  }
+
   private async salvarDados(doc: DocumentoFaseInterna, dados: PesquisaPrecosDados) {
     dados.itens = (dados.itens || []).map((i) => ({ ...i, ...calcularEstatisticasItem(i) }));
     doc.dados_estruturados = dados;
@@ -520,8 +545,12 @@ export class PesquisaTelaService {
       responsavel,
     });
     dados.certidao = { path: certidao, gerada_em: new Date().toISOString() };
+    const jaEmitida = !!doc.dados_estruturados?.mapa_gerado_em;
     dados.mapa_gerado_em = new Date().toISOString();
-    await this.salvarDados(doc, dados);
+    // Emitir de novo = VERSÃO NOVA da pesquisa (homologação E3): a emissão
+    // anterior, com o mapa e a certidão dela, fica no histórico (SUBSTITUIDO).
+    const alvo = jaEmitida ? await this.novaVersaoDaPesquisa(doc) : doc;
+    await this.salvarDados(alvo, dados);
     await this.faseInterna.registrarDocumentoPPGerado(licitacaoId, mapa, total);
     await this.log(licitacaoId, doc.id, `Mapa e certidão da pesquisa emitidos por ${autor.nome ?? 'usuário'} (método ${metodo}, total ${total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`, autor);
     return this.obter(licitacaoId);

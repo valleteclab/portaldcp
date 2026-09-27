@@ -15,6 +15,7 @@ import { EtpDados } from './types/etp-dados.type';
 import { TrDados } from './types/tr-dados.type';
 import { PesquisaPrecosDados, calcularEstatisticasItem, ItemPesquisaPrecos } from './types/pesquisa-precos.type';
 import { MatrizRiscosDados, calcularGrauRisco, RiscoIdentificado } from './types/matriz-riscos.type';
+import { formatarQuantidade, quantidadeComUnidade, rotuloUnidade, semVariaveisCruas, substituirVariaveis, valorCadastral } from './textos-documento';
 
 /**
  * Serviço de geração de documentos da Fase Interna em PDF e DOCX.
@@ -62,15 +63,28 @@ export class GeradorDocumentoService {
         .replace(/&nbsp;/g, ' ')
         .trim();
     const vars: Record<string, string> = {
-      orgao_nome: orgao.nome || 'Órgão',
-      orgao_cnpj: orgao.cnpj || '',
+      orgao_nome: valorCadastral(orgao.nome) || 'Órgão',
+      orgao_cnpj: valorCadastral(orgao.cnpj),
       numero_processo: lic.numero_processo || doc.licitacao_id,
       numero_edital: lic.numero_edital || '',
       documento_titulo: doc.titulo || doc.tipo,
       data: new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
     };
-    const aplicarVars = (texto: string) =>
-      texto.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => vars[k] ?? '');
+    // As variáveis do cabeçalho/rodapé do MODELO são as mesmas das seções
+    // ({{orgao.nome}}, {{orgao.cnpj}}, {{licitacao.numero_processo}}…): antes só
+    // os nomes sem ponto eram trocados e o PDF saía com o "{{orgao.nome}}" cru
+    // (homologação E2). Variável sem dado sai como "—".
+    const contexto: Record<string, string> = { ...vars };
+    if (doc.licitacao_id) {
+      Object.assign(
+        contexto,
+        await this.modeloDocumentoService.montarContextoVariaveis(doc.licitacao_id).catch((e: any) => {
+          this.logger.warn(`Variáveis do cabeçalho não montadas (${doc.tipo}): ${e?.message ?? e}`);
+          return {};
+        }),
+      );
+    }
+    const aplicarVars = (texto: string) => substituirVariaveis(texto, contexto);
 
     try {
       const modelo = await this.modeloDocumentoService.resolverModelo(
@@ -118,7 +132,8 @@ export class GeradorDocumentoService {
 
     // Peça feita pelo EDITOR DE SEÇÕES (modelo do órgão/sistema): renderiza as
     // seções do modelo, com os títulos (Entrega 3A). Senão, o renderizador do tipo.
-    const html = (await this.renderPorSecoesDoModelo(documento)) ?? this.renderPorTipo(documento, licitacaoNumero);
+    // Rede de segurança: nenhuma variável de modelo sai crua ({{…}} → "—")
+    const html = semVariaveisCruas((await this.renderPorSecoesDoModelo(documento)) ?? this.renderPorTipo(documento, licitacaoNumero));
     const estilo = await this.resolverEstiloDocumento(documento);
     await this.escreverPdf(caminho, documento, licitacaoNumero, html, estilo);
 
@@ -479,14 +494,22 @@ export class GeradorDocumentoService {
     const pageWidth = (pdf as any).page.width;
     const totalWidth = pageWidth - 120;
     const numCols = linhas[0].celulas.length;
-    const colW = totalWidth / numCols;
     const padding = 4;
+    // Larguras proporcionais opcionais: <table data-larguras="6,32,13,...">
+    const pesos = String(/data-larguras\s*=\s*"([^"]*)"/i.exec(_attrs || '')?.[1] ?? '')
+      .split(',')
+      .map((x) => Number(x))
+      .filter((x) => Number.isFinite(x) && x > 0);
+    const somaPesos = pesos.reduce((s, x) => s + x, 0);
+    const larguras: number[] =
+      pesos.length === numCols ? pesos.map((p) => (totalWidth * p) / somaPesos) : Array.from({ length: numCols }, () => totalWidth / numCols);
+    const xDaColuna = (i: number) => startX + larguras.slice(0, i).reduce((s, x) => s + x, 0);
 
     pdf.moveDown(0.3);
 
     for (const linha of linhas) {
       // Quebra de página se necessário
-      const altura = this.estimarAlturaLinha(pdf, linha.celulas, colW, padding, linha.header);
+      const altura = this.estimarAlturaLinha(pdf, linha.celulas, larguras, padding, linha.header);
       if (pdf.y + altura > (pdf as any).page.height - 80) {
         pdf.addPage();
       }
@@ -501,7 +524,8 @@ export class GeradorDocumentoService {
 
       // Bordas + texto
       for (let i = 0; i < numCols; i++) {
-        const x = startX + i * colW;
+        const x = xDaColuna(i);
+        const colW = larguras[i];
         pdf.save();
         pdf.rect(x, yIni, colW, altura).strokeColor('#888').lineWidth(0.4).stroke();
         pdf
@@ -523,16 +547,17 @@ export class GeradorDocumentoService {
   private estimarAlturaLinha(
     pdf: PDFKit.PDFDocument,
     celulas: string[],
-    colW: number,
+    larguras: number[],
     padding: number,
     header: boolean,
   ): number {
     let max = 0;
     pdf.font(header ? 'Times-Bold' : 'Times-Roman').fontSize(header ? 9.5 : 9);
-    for (const c of celulas) {
-      const h = pdf.heightOfString(c || ' ', { width: colW - 2 * padding });
+    celulas.forEach((c, i) => {
+      const w = larguras[i] ?? larguras[larguras.length - 1];
+      const h = pdf.heightOfString(c || ' ', { width: w - 2 * padding });
       if (h > max) max = h;
-    }
+    });
     return max + 2 * padding;
   }
 
@@ -550,10 +575,10 @@ export class GeradorDocumentoService {
     const dados = documento.dados_estruturados;
     if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return null;
     const lic: any = (documento as any).licitacao || {};
-    let secoes: Array<{ id: string; titulo: string }> = [];
+    let secoes: Array<{ id: string; titulo: string; obrigatorio: boolean }> = [];
     try {
       const modelo = await this.modeloDocumentoService.resolverModelo(lic.orgao_id || null, documento.tipo);
-      secoes = (modelo?.secoes || []).map((s) => ({ id: s.id, titulo: s.titulo }));
+      secoes = (modelo?.secoes || []).map((s) => ({ id: s.id, titulo: s.titulo, obrigatorio: s.obrigatorio !== false }));
     } catch {
       secoes = [];
     }
@@ -564,13 +589,67 @@ export class GeradorDocumentoService {
       const t = html.trim();
       return /^<(p|ul|ol|table|h[1-3]|div)[\s>]/i.test(t) ? t.replace(/<ol([^>]*)>/gi, '<ul$1>').replace(/<\/ol>/gi, '</ul>') : `<p>${this.escapeHtml(t.replace(/<[^>]+>/g, ' '))}</p>`;
     };
+    // TR: a TABELA DE ITENS (art. 6º, XXIII, "a" e "i"; art. 40) logo depois do objeto
+    const tabelaItens =
+      documento.tipo === TipoDocumentoFaseInterna.TERMO_REFERENCIA ? await this.tabelaItensDoProcesso(documento.licitacao_id, lic.sigilo_orcamento === 'SIGILOSO') : '';
     let html = '';
+    let tabelaPosta = false;
     for (const s of secoes) {
       const v = dados[s.id];
-      html += `<h2>${this.escapeHtml(String(s.titulo || s.id).replace(/\s*\*$/, ''))}</h2>`;
-      html += comTexto(v) ? blocos(String(v)) : '<p>—</p>';
+      if (comTexto(v)) {
+        html += `<h2>${this.escapeHtml(String(s.titulo || s.id).replace(/\s*\*$/, ''))}</h2>`;
+        html += blocos(String(v));
+      } else if (s.obrigatorio) {
+        // Seção obrigatória vazia: nota explicativa (nunca um "—" solto); a opcional vazia é omitida
+        html += `<h2>${this.escapeHtml(String(s.titulo || s.id).replace(/\s*\*$/, ''))}</h2>`;
+        html += '<p>Seção não preenchida nesta versão do documento.</p>';
+      }
+      if (tabelaItens && !tabelaPosta && s.id === 'objeto') {
+        html += tabelaItens;
+        tabelaPosta = true;
+      }
     }
+    if (tabelaItens && !tabelaPosta) html += tabelaItens;
     return html;
+  }
+
+  /**
+   * Tabela dos itens do processo para o TR: descrição, código CATMAT/CATSER,
+   * unidade, quantidade (padrão brasileiro) e os valores unitário e total
+   * estimados (os da pesquisa, gravados nos itens na emissão do mapa). No
+   * orçamento sigiloso (art. 24) os valores não aparecem.
+   */
+  private async tabelaItensDoProcesso(licitacaoId: string, sigiloso: boolean): Promise<string> {
+    const itens: any[] = await this.docRepo.manager
+      .query(
+        `SELECT numero_item, descricao_resumida, unidade_medida::text AS unidade_medida, quantidade, valor_unitario_estimado, valor_total_estimado,
+                codigo_catmat, codigo_catser, codigo_catalogo, tipo_item::text AS tipo_item
+           FROM itens_licitacao WHERE licitacao_id::text = $1 AND status::text <> 'CANCELADO' ORDER BY numero_item`,
+        [licitacaoId],
+      )
+      .catch(() => []);
+    if (!itens.length) return '';
+    const codigo = (i: any) =>
+      i.codigo_catser ? `CATSER ${i.codigo_catser}` : i.codigo_catmat ? `CATMAT ${i.codigo_catmat}` : i.codigo_catalogo ? `${i.tipo_item === 'SERVICO' ? 'CATSER' : 'CATMAT'} ${i.codigo_catalogo}` : '—';
+    const totalDe = (i: any) => {
+      const t = Number(i.valor_total_estimado);
+      return Number.isFinite(t) && t > 0 ? t : Number(i.quantidade || 0) * Number(i.valor_unitario_estimado || 0);
+    };
+    let h = '<h2>Itens da contratação (quantitativos e valores estimados)</h2>';
+    h += '<table data-larguras="6,32,13,10,9,15,15"><thead><tr><th>Item</th><th>Descrição</th><th>CATMAT/CATSER</th><th>Unidade</th><th>Qtd.</th><th>Valor unitário estimado</th><th>Valor total estimado</th></tr></thead><tbody>';
+    let total = 0;
+    for (const i of itens) {
+      const t = totalDe(i);
+      total += t;
+      h +=
+        `<tr><td>${this.escapeHtml(String(i.numero_item ?? ''))}</td><td>${this.escapeHtml(i.descricao_resumida ?? '')}</td><td>${this.escapeHtml(codigo(i))}</td>` +
+        `<td>${this.escapeHtml(rotuloUnidade(i.unidade_medida, i.quantidade))}</td><td>${this.escapeHtml(formatarQuantidade(i.quantidade))}</td>` +
+        `<td>${sigiloso ? 'sigiloso' : this.fmtMoeda(Number(i.valor_unitario_estimado || 0))}</td><td>${sigiloso ? 'sigiloso' : this.fmtMoeda(t)}</td></tr>`;
+    }
+    h += `<tr><td></td><td><strong>Total estimado</strong></td><td></td><td></td><td></td><td></td><td>${sigiloso ? 'sigiloso' : this.fmtMoeda(Math.round(total * 100) / 100)}</td></tr>`;
+    h += '</tbody></table>';
+    if (sigiloso) h += '<p>Orçamento estimado sigiloso (art. 24 da Lei nº 14.133/2021): os valores constam dos autos, com acesso restrito aos órgãos de controle, e serão divulgados após o julgamento.</p>';
+    return h;
   }
 
   private renderPorTipo(documento: DocumentoFaseInterna, licitacaoNumero: string): string {
@@ -883,7 +962,7 @@ export class GeradorDocumentoService {
     if (!itens || !itens.length) return '<p>Sem itens informados.</p>';
     let h = `<table><thead><tr><th>Item</th><th>Descrição</th><th>Qtd.</th><th>Unid.</th><th>Vlr. Unit. Estimado</th></tr></thead><tbody>`;
     for (const it of itens) {
-      h += `<tr><td>${it.item_numero}</td><td>${this.escapeHtml(it.descricao)}</td><td>${it.quantidade}</td><td>${this.escapeHtml(it.unidade)}</td><td>${it.valor_unitario_estimado != null ? this.fmtMoeda(it.valor_unitario_estimado) : '—'}</td></tr>`;
+      h += `<tr><td>${it.item_numero}</td><td>${this.escapeHtml(it.descricao)}</td><td>${this.escapeHtml(formatarQuantidade(it.quantidade))}</td><td>${this.escapeHtml(rotuloUnidade(it.unidade, it.quantidade))}</td><td>${it.valor_unitario_estimado != null ? this.fmtMoeda(it.valor_unitario_estimado) : '—'}</td></tr>`;
     }
     h += `</tbody></table>`;
     return h;
@@ -906,7 +985,7 @@ export class GeradorDocumentoService {
       valorTotal += (item.valor_referencial || 0) * (item.quantidade || 0);
 
       html += `<h2>Item ${item.item_numero ?? idx + 1} — ${this.escapeHtml(item.descricao)}</h2>`;
-      html += `<p><strong>Quantidade:</strong> ${item.quantidade} ${this.escapeHtml(item.unidade)}</p>`;
+      html += `<p><strong>Quantidade:</strong> ${this.escapeHtml(quantidadeComUnidade(item.quantidade, item.unidade))}</p>`;
 
       // Tabela de cotações
       html += `<h3>Cotações</h3>`;

@@ -32,6 +32,7 @@ import {
   PRECO_01,
   PRECO_02,
   PRECO_03,
+  PRECO_04,
   REGRAS,
   SIGILO_01,
   VINC_01,
@@ -57,7 +58,7 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
     expect(real.filter((a) => a.erro)).toEqual([]);
     const corrigido = avaliarRegras(ctxCorrigido());
     expect(corrigido.filter((a) => a.achados.length).map((a) => `${a.regra.codigo}: ${a.achados[0].mensagem}`)).toEqual([]);
-    expect(REGRAS).toHaveLength(26);
+    expect(REGRAS).toHaveLength(27);
   });
 
   describe('LIM-01 — limite do inciso no exercício, no ramo (portão A)', () => {
@@ -366,6 +367,28 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
     });
     it('minuta anexada: conferir no PDF (não se aplica ao motor)', () => {
       expect(rodar(ART92_01)).toMatchObject({ aplicavel: false });
+    });
+  });
+  describe('PRECO-04 — TR com valor diferente da pesquisa (homologação 26/09/2026)', () => {
+    const trFeitoAqui = (texto: string) => (e: EntradaContexto) => {
+      e.licitacao.sigilo_orcamento = 'PUBLICO';
+      e.documentos = e.documentos.filter((d) => d.tipo !== 'TR');
+      e.documentos.push({ id: 'doc-TR2', tipo: 'TR', status: 'EM_ELABORACAO', origem: 'INTERNO', dados_estruturados: { estimativa_valor_tr: texto } });
+    };
+    it('TR gerado antes da pesquisa (R$ 24.000,00) × pesquisa de R$ 61.753,44 → ATENÇÃO', () => {
+      const [a] = rodar(PRECO_04, com(pa139Corrigido, trFeitoAqui('<p>Valor total estimado da contratação: R$ 24.000,00.</p>'))).achados;
+      expect(a).toMatchObject({ severidade: 'ATENCAO', titulo: 'TR com valor diferente da pesquisa', tipo_peca_responsavel: 'TR' });
+      expect(a.mensagem).toMatch(/R\$\s?24\.000,00.*R\$\s?61\.753,44/);
+    });
+    it('TR com o valor da pesquisa (regerado): não dispara', () => {
+      expect(rodar(PRECO_04, com(pa139Corrigido, trFeitoAqui('<p>Valor total estimado da contratação: R$ 61.753,44, apurado na pesquisa.</p>'))).achados).toEqual([]);
+    });
+    it('sigilo (art. 24), TR anexado ou sem pesquisa emitida: não se aplica', () => {
+      expect(rodar(PRECO_04)).toMatchObject({ aplicavel: false });
+      expect(rodar(PRECO_04, com(pa139Corrigido, (e) => (e.licitacao.sigilo_orcamento = 'PUBLICO')))).toMatchObject({ aplicavel: false });
+      expect(
+        rodar(PRECO_04, com(pa139Corrigido, (e) => { trFeitoAqui('<p>R$ 1,00</p>')(e); e.pesquisa_dados.itens[0].valor_referencial = null; })),
+      ).toMatchObject({ aplicavel: false });
     });
   });
 });

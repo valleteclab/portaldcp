@@ -8,7 +8,7 @@
  *            são da fase externa e não bloqueiam; III, VII e VIII conferidos
  *            antes de publicar).
  *  Portão C — antes de publicar (etapa 8): ENQ-01, VINC-01, MARCA-01,
- *            PRECO-01..03, CRONO-01, LEI-01, EXERC-01, DUP-01, ASS-01,
+ *            PRECO-01..04, CRONO-01, LEI-01, EXERC-01, DUP-01, ASS-01,
  *            PRAZO-01, MINUTA-DESAT, SIGILO-01, ART92-01, DISP-01 (Entrega 5).
  *
  * Reaproveita, sem duplicar: `detectarIndicacaoMarca` (E3A), os alertas da
@@ -428,6 +428,60 @@ function regraAlertaCotacao(codigo: 'PRECO-02' | 'PRECO-03', alertas: string[], 
 
 export const PRECO_02 = regraAlertaCotacao('PRECO-02', ['VENCE_ANTES_DA_PUBLICACAO', 'VENCIDA'], 'Cotação válida até a publicação prevista', 'Cotação vence antes da publicação');
 export const PRECO_03 = regraAlertaCotacao('PRECO-03', ['EMITIDA_HA_MAIS_DE_6_MESES'], 'Cotação emitida há no máximo 6 meses (art. 23, §1º, IV)', 'Cotação com mais de 6 meses');
+
+/** Total apurado pela pesquisa emitida (Σ valor de referência × quantidade) — null sem pesquisa emitida. */
+export function totalDaPesquisa(itens: Array<{ valor_referencial?: number | null; quantidade?: number | null }> | null | undefined): number | null {
+  const com = (itens ?? []).filter((i) => Number(i?.valor_referencial) > 0 && Number(i?.quantidade) > 0);
+  if (!com.length) return null;
+  return Math.round(com.reduce((s, i) => s + Math.round(Number(i.valor_referencial) * Number(i.quantidade) * 100) / 100, 0) * 100) / 100;
+}
+
+/** Valores em reais citados num texto ("R$ 24.000,00" → 24000). */
+export function valoresEmReais(texto: string): number[] {
+  return [...String(texto ?? '').matchAll(/R\$\s?(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})/g)].map((m) => Number(`${m[1].replace(/\./g, '')}.${m[2]}`));
+}
+
+/**
+ * PRECO-04 (homologação de 26/09/2026) — o TR feito no sistema cita um valor
+ * estimado diferente do apurado na pesquisa de preços. O valor estimado do TR
+ * é o da pesquisa (art. 6º, XXIII, "i", e art. 23): TR gerado antes da
+ * pesquisa precisa ser gerado de novo. Só atenção (o TR pode citar o valor
+ * de outra forma); no sigilo (art. 24) o TR não traz o valor.
+ */
+export const PRECO_04: Regra = {
+  codigo: 'PRECO-04',
+  descricao: 'Valor estimado do termo de referência igual ao da pesquisa de preços (art. 6º, XXIII, "i"; art. 23)',
+  severidade: 'ATENCAO',
+  etapa: 'PUBLICACAO',
+  portao: 'C',
+  aplicavel(ctx) {
+    if (ctx.processo.sigiloso) return 'Orçamento sigiloso: o TR não traz o valor (art. 24).';
+    if (totalDaPesquisa(ctx.pesquisa?.itens) === null) return 'Sem pesquisa de preços emitida no sistema.';
+    const tr = doTipo(ctx, 'TR')[0];
+    if (!tr) return 'Sem termo de referência (ou "não se aplica").';
+    if (tr.anexada) return 'TR anexado — conferir o valor no PDF.';
+    return null;
+  },
+  avaliar(ctx) {
+    const tr = doTipo(ctx, 'TR')[0];
+    const total = totalDaPesquisa(ctx.pesquisa?.itens)!;
+    const texto = String(tr.secoes?.estimativa_valor_tr ?? '');
+    const citados = valoresEmReais(texto);
+    if (!citados.length || citados.some((v) => Math.abs(v - total) <= 0.05)) return [];
+    return [
+      {
+        regra: 'PRECO-04',
+        chave: 'TR',
+        severidade: 'ATENCAO',
+        titulo: 'TR com valor diferente da pesquisa',
+        mensagem: `O termo de referência cita ${citados.map((v) => BRL(v)).join(', ')} como valor estimado, mas a pesquisa de preços apurou ${BRL(total)}. Gere o TR de novo (versão nova, com o valor da pesquisa) ou justifique.`,
+        evidencias: [evidenciaDaPeca(tr, null, textoPuro(texto).slice(0, 200))],
+        tipo_peca_responsavel: 'TR',
+        acao: 'CORRIGIR_PECA',
+      },
+    ];
+  },
+};
 
 /** Peças que não entram na cronologia (documento do órgão reaproveitado em todos os processos). */
 const FORA_DA_CRONOLOGIA = new Set(['DP', 'DEA', 'PJE']);
@@ -860,6 +914,7 @@ export const REGRAS: Regra[] = [
   PRECO_01,
   PRECO_02,
   PRECO_03,
+  PRECO_04,
   CRONO_01,
   LEI_01,
   EXERC_01,
