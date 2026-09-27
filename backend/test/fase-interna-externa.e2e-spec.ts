@@ -439,6 +439,39 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
       expect(r3.body.message).toMatch(/Demanda não encontrada/);
     });
 
+    it('fase interna feita fora a partir do DFD consolidado (N demandas → 1 processo, vínculo pela tabela de ligação)', async () => {
+      const ids: string[] = [];
+      for (const setor of ['Setor DFD 1', 'Setor DFD 2']) {
+        const [dem] = await sql(
+          `INSERT INTO demandas (id, orgao_id, ano_referencia, unidade_requisitante, status, created_at, updated_at)
+           VALUES (gen_random_uuid(), $1, 2026, $2, 'APROVADA', now(), now()) RETURNING id`,
+          [A.id, setor],
+        );
+        await sql(
+          `INSERT INTO itens_demanda (demanda_id, categoria, descricao_objeto, quantidade_estimada, unidade_medida, valor_unitario_estimado, valor_total_estimado, codigo_item_catalogo)
+           VALUES ($1, 'MATERIAL', 'Cadeira giratória', 2, 'UN', 500, 1000, 'M-CAD-1')`,
+          [dem.id],
+        );
+        ids.push(dem.id);
+      }
+      const dfd = (await http().post('/api/dfds-consolidados').set(bearer(agente.token)).send({ demanda_ids: ids }).expect(201)).body;
+      expect(dfd.itens).toHaveLength(1);
+      expect(dfd.itens[0].quantidade).toBe(4);
+      const dados = dadosPadrao({ dfd_id: dfd.id });
+      const r = await criar(agente.token, dados, seisPdfs());
+      expect(r.status).toBe(201);
+      const [lic] = await sql(`SELECT demanda_id FROM licitacoes WHERE id = $1`, [r.body.licitacao_id]);
+      expect(lic.demanda_id).toBeNull();
+      const [f] = await sql(`SELECT status, licitacao_id::text AS licitacao_id FROM dfds_consolidados WHERE id = $1`, [dfd.id]);
+      expect(f).toEqual({ status: 'EM_PROCESSO', licitacao_id: r.body.licitacao_id });
+      const st = await sql(`SELECT status::text AS s FROM demandas WHERE id = ANY($1::uuid[])`, [ids]);
+      expect(st.map((x: any) => x.s)).toEqual(['EM_CONTRATACAO', 'EM_CONTRATACAO']);
+      // o mesmo DFD não abre outro processo
+      const r2 = await criar(agente.token, dadosPadrao({ dfd_id: dfd.id }), seisPdfs());
+      expect(r2.status).toBe(400);
+      expect(r2.body.message).toMatch(/já abriu o processo/);
+    });
+
     it('só a unidade de planejamento abre o processo a partir da demanda (sem o papel → 403, nada criado)', async () => {
       const [dem] = await sql(
         `INSERT INTO demandas (id, orgao_id, ano_referencia, unidade_requisitante, status, created_at, updated_at)
