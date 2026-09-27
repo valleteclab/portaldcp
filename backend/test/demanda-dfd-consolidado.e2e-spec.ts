@@ -565,5 +565,25 @@ describe('Demanda → DFD consolidado → processo', () => {
       expect(d.aprovado_por).toBe('Paula Aprovadora');
       expect(d.data_aprovacao).toBeTruthy();
     });
+
+    it('DFD do processo (assistente): nasce com setor e responsável; o autosave da necessidade não desfaz o que foi escolhido', async () => {
+      const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      // o assistente "Novo processo" grava a unidade (setor) e o responsável logo depois de criar
+      const pre = (await http().put(`/api/fase-interna/${lic.id}/dfd`).set(bearer(A.token)).send({ unidade_requisitante_id: setorCompras, responsavel_id: carla.id }).expect(200)).body;
+      expect(pre.campos).toMatchObject({ unidade_requisitante_id: setorCompras, unidade_requisitante_nome: 'Compras', responsavel_id: carla.id });
+      // autosave da necessidade e troca da unidade ao mesmo tempo: nenhum desfaz o outro
+      await Promise.all([
+        http().put(`/api/fase-interna/${lic.id}/dfd`).set(bearer(A.token)).send({ necessidade_html: '<p>Papel para o setor de compras.</p>' }).expect(200),
+        http().put(`/api/fase-interna/${lic.id}/dfd`).set(bearer(A.token)).send({ unidade_requisitante_id: setorCom }).expect(200),
+      ]);
+      const r = (await http().get(`/api/fase-interna/${lic.id}/dfd`).set(bearer(A.token)).expect(200)).body;
+      expect(r.campos).toMatchObject({ unidade_requisitante_id: setorCom, responsavel_id: carla.id });
+      expect(r.secoes.demanda).toContain('Papel para o setor de compras');
+      // só a necessidade depois: a unidade e o responsável continuam
+      await http().put(`/api/fase-interna/${lic.id}/dfd`).set(bearer(A.token)).send({ necessidade_html: '<p>Papel A4 para o setor.</p>' }).expect(200);
+      const r2 = (await http().get(`/api/fase-interna/${lic.id}/dfd`).set(bearer(A.token)).expect(200)).body;
+      expect(r2.campos).toMatchObject({ unidade_requisitante_id: setorCom, responsavel_id: carla.id });
+      await tarefas().aguardarPendentes();
+    });
   });
 });

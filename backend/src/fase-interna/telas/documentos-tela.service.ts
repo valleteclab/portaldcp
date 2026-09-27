@@ -276,6 +276,9 @@ export class DocumentosTelaService {
     // Campos estruturados (listas das tabelas do órgão)
     const doc0 = await this.docAtual(licitacaoId, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA);
     const campos = this.camposDfd(doc0);
+    // Só os campos que ESTE pedido mudou (aplicados sobre o estado mais novo ao gravar):
+    // o autosave da necessidade não devolve mais um setor/responsável/data antigos
+    const alterados: Partial<CamposDfd> = {};
     const usuarioDoOrgao = async (id: string, rotulo: string) => {
       const [u] = ehUuid(id) ? await this.ds.query(`SELECT id::text AS id, nome FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2`, [id, lic.orgao_id]) : [];
       if (!u) throw new BadRequestException(`${rotulo}: usuário não encontrado no órgão.`);
@@ -294,6 +297,8 @@ export class DocumentosTelaService {
         campos.unidade_requisitante_id = null;
         campos.unidade_requisitante_nome = null;
       }
+      alterados.unidade_requisitante_id = campos.unidade_requisitante_id;
+      alterados.unidade_requisitante_nome = campos.unidade_requisitante_nome;
     }
     for (const [campo, nome, rotulo] of [
       ['responsavel_id', 'responsavel_nome', 'Responsável'],
@@ -309,18 +314,22 @@ export class DocumentosTelaService {
         campos[campo] = null;
         campos[nome] = null;
       }
+      alterados[campo] = campos[campo];
+      alterados[nome] = campos[nome];
     }
     if (body?.data_pretendida !== undefined) {
       mudouCampos = true;
       const d = String(body.data_pretendida ?? '').slice(0, 10);
       if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new BadRequestException('Data pretendida inválida (AAAA-MM-DD).');
       campos.data_pretendida = d || null;
+      alterados.data_pretendida = campos.data_pretendida;
     }
     if (body?.prioridade !== undefined) {
       mudouCampos = true;
       const p = String(body.prioridade ?? '').toUpperCase();
       if (p && !PRIORIDADES.includes(p)) throw new BadRequestException('Prioridade inválida.');
       campos.prioridade = p || null;
+      alterados.prioridade = campos.prioridade;
     }
 
     const mudouNecessidade = body?.necessidade_html !== undefined;
@@ -344,7 +353,11 @@ export class DocumentosTelaService {
       const doc = await this.docAtual(licitacaoId, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA);
       if (doc) {
         const dados = { ...(doc.dados_estruturados || {}) };
-        dados._dfd = { ...campos, atualizado_por: autor.nome, atualizado_em: new Date().toISOString() };
+        const vigentes = { ...this.camposDfd(doc), ...alterados };
+        Object.assign(campos, vigentes);
+        dados._dfd = mudouCampos
+          ? { ...(dados._dfd || {}), ...vigentes, atualizado_por: autor.nome, atualizado_em: new Date().toISOString() }
+          : { ...(dados._dfd || {}), ...vigentes };
         const licAtual = await this.licitacao(licitacaoId);
         dados.previsao = await this.textoPrevisaoPca(licAtual);
         if (campos.data_pretendida) {
