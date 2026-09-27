@@ -34,7 +34,7 @@ interface EtapaDaCaixa {
 // Cada um vê só as etapas que são dele: indicadas a ele, ao setor dele ou —
 // sem responsável — dos processos que ele conduz. Quem decide é sempre o
 // usuário do login (o servidor confere; etapa de outra pessoa → 403).
-export function CaixaDocumentosAprovacao() {
+export function CaixaDocumentosAprovacao({ onContagem }: { onContagem?: (n: number) => void } = {}) {
   const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao();
   const [etapas, setEtapas] = useState<EtapaDaCaixa[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -50,6 +50,8 @@ export function CaixaDocumentosAprovacao() {
   }, []);
 
   useEffect(() => { carregarCaixa(); }, [carregarCaixa]);
+  // contador da aba (Central de Aprovações) acompanha a lista
+  useEffect(() => { if (!carregando) onContagem?.(etapas.length); }, [etapas, carregando, onContagem]);
 
   const decidir = async (etapa: EtapaDaCaixa, aprovar: boolean) => {
     let justificativa: string | undefined;

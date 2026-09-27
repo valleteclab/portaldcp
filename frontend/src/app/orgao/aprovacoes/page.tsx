@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -66,6 +66,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { API_URL, authFetch } from '@/lib/api';
+import { abaInicialDaCentral } from '@/lib/aprovacoes/aba-inicial';
 
 // ============ INTERFACES ============
 
@@ -196,6 +197,10 @@ interface ProcessoPendente {
   objeto: string;
   modalidade: string;
   created_at: string;
+  /** Quando o servidor informa que ainda não dá para aprovar (ex.: aguardando o DFD) e o que falta. */
+  pode_aprovar?: boolean;
+  motivo_bloqueio?: string | null;
+  falta?: string | string[] | null;
 }
 
 interface DemandaAprovacao {
@@ -270,7 +275,14 @@ export default function CentralAprovacoesPage() {
   const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('contratos');
+  // Aba: a de ?tab= ou a 1ª com pendência para este usuário (decidida depois da 1ª carga)
+  const [activeTab, setActiveTabState] = useState('');
+  const abaDefinida = useRef(false);
+  const setActiveTab = (tab: string) => { abaDefinida.current = true; setActiveTabState(tab); };
+  // 1ª carga de cada aba (para escolher a aba com pendência)
+  const [carregadas, setCarregadas] = useState<Record<string, boolean>>({});
+  const marcarCarregada = (aba: string) => setCarregadas(c => (c[aba] ? c : { ...c, [aba]: true }));
+  const [pendentesDocumentos, setPendentesDocumentos] = useState(0);
 
   // Permissões
   const [podeAprovarRequisicoes, setPodeAprovarRequisicoes] = useState(false);
@@ -440,6 +452,7 @@ export default function CentralAprovacoesPage() {
       if (podeAprovarRequisicoes) carregarRequisicoes();
       carregarMedicoes();
       carregarOrdensServico();
+      carregarContagemDocumentos();
     }
   }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes]);
 
@@ -468,6 +481,7 @@ export default function CentralAprovacoesPage() {
       console.error('Erro ao carregar contratos:', error);
     } finally {
       setLoadingContratos(false);
+      marcarCarregada('contratos');
     }
   };
 
@@ -482,6 +496,7 @@ export default function CentralAprovacoesPage() {
       console.error('Erro ao carregar requisições:', error);
     } finally {
       setLoadingRequisicoes(false);
+      marcarCarregada('requisicoes');
     }
   };
 
@@ -505,6 +520,7 @@ export default function CentralAprovacoesPage() {
       console.error('Erro ao carregar demandas:', error);
     } finally {
       setLoadingDemandas(false);
+      marcarCarregada('demandas');
     }
   };
 
@@ -519,6 +535,7 @@ export default function CentralAprovacoesPage() {
       console.error('Erro ao carregar medições:', error);
     } finally {
       setLoadingMedicoes(false);
+      marcarCarregada('medicoes');
     }
   };
 
@@ -533,7 +550,20 @@ export default function CentralAprovacoesPage() {
       console.error('Erro ao carregar OS:', error);
     } finally {
       setLoadingOS(false);
+      marcarCarregada('ordens-servico');
     }
+  };
+
+  /** Peças do processo aguardando este usuário (a aba monta a lista; aqui só a contagem). */
+  const carregarContagemDocumentos = async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/aprovacoes/caixa`, { cache: 'no-store' });
+      if (res.ok) {
+        const lista = await res.json();
+        setPendentesDocumentos(Array.isArray(lista) ? lista.length : 0);
+      }
+    } catch { /* contagem fica 0 */ }
+    finally { marcarCarregada('documentos'); }
   };
 
   const recarregarTudo = () => {
@@ -977,6 +1007,35 @@ export default function CentralAprovacoesPage() {
     }
   };
 
+  const pendentesPlanejamento = demandas.length + dfdsPendentes.length + processosPendentes.length;
+
+  // Abas na ordem da tela, com o que cada uma tem para ESTE usuário
+  const abasDaCentral = [
+    { valor: 'contratos', visivel: podeLiberarContratos, pendentes: contratos.length },
+    { valor: 'demandas', visivel: podeAprovarDemandas, pendentes: pendentesPlanejamento },
+    { valor: 'documentos', visivel: true, pendentes: pendentesDocumentos },
+    { valor: 'requisicoes', visivel: podeAprovarRequisicoes, pendentes: requisicoes.length },
+    { valor: 'medicoes', visivel: true, pendentes: medicoes.length },
+    { valor: 'ordens-servico', visivel: true, pendentes: ordensServico.length },
+  ];
+  const abasEsperadas = abasDaCentral.filter(a => a.visivel && a.valor !== 'demandas').map(a => a.valor).concat('demandas');
+  const cargaInicialCompleta = abasEsperadas.every(a => carregadas[a]);
+
+  // Sem ?tab=: abre na 1ª aba com pendência para este usuário (antes: sempre "Contratos",
+  // mesmo para quem não vê essa aba). Espera a 1ª carga de cada aba (no máximo 8 s).
+  const [esperaEsgotada, setEsperaEsgotada] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setEsperaEsgotada(true), 8000);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (abaDefinida.current || loading) return;
+    if (!cargaInicialCompleta && !esperaEsgotada) return;
+    abaDefinida.current = true;
+    setActiveTabState(abaInicialDaCentral(abasDaCentral, searchParams.get('tab')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cargaInicialCompleta, esperaEsgotada, loading]);
+
   // ============ RENDER ============
 
   if (loading) {
@@ -1000,7 +1059,6 @@ export default function CentralAprovacoesPage() {
     );
   }
 
-  const pendentesPlanejamento = demandas.length + dfdsPendentes.length + processosPendentes.length;
   const totalPendentes = contratos.length + pendentesPlanejamento + requisicoes.length + medicoes.length + ordensServico.length;
   const valorTotalContratos = contratos.reduce((acc, c) => acc + Number(c.valor_global || 0), 0);
   const valorTotalDemandas = demandas.reduce(
@@ -1130,7 +1188,12 @@ export default function CentralAprovacoesPage() {
         </Card>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — abre na 1ª com pendência (ou na de ?tab=) */}
+      {!activeTab && (
+        <p className="text-sm text-gray-600 flex items-center gap-2" role="status">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Procurando o que depende de você…
+        </p>
+      )}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           {podeLiberarContratos && (
@@ -1154,6 +1217,9 @@ export default function CentralAprovacoesPage() {
           <TabsTrigger value="documentos" className="flex items-center gap-2">
             <FileCheck className="h-4 w-4" />
             Documentos do processo
+            {pendentesDocumentos > 0 && (
+              <Badge className="ml-1 bg-sky-700 text-white text-xs px-1.5 py-0">{pendentesDocumentos}</Badge>
+            )}
           </TabsTrigger>
           {podeAprovarRequisicoes && (
             <TabsTrigger value="requisicoes" className="flex items-center gap-2">
@@ -1182,7 +1248,7 @@ export default function CentralAprovacoesPage() {
 
         {/* ============ TAB DOCUMENTOS DO PROCESSO (fluxos de aprovação) ==== */}
         <TabsContent value="documentos" className="space-y-4">
-          <CaixaDocumentosAprovacao />
+          <CaixaDocumentosAprovacao onContagem={setPendentesDocumentos} />
         </TabsContent>
 
         {/* ============ TAB DEMANDAS E DFD (planejamento) ============ */}
@@ -1197,10 +1263,19 @@ export default function CentralAprovacoesPage() {
                     <div className="min-w-0">
                       <p className="font-semibold text-gray-900">Processo {p.numero_processo}</p>
                       <p className="text-sm text-gray-700 break-words">{p.objeto}</p>
-                      <p className="text-xs text-gray-500 mt-1">A demanda (DFD) está pronta; as demais etapas só abrem depois da sua aprovação.</p>
+                      {p.pode_aprovar === false || p.motivo_bloqueio || p.falta ? (
+                        <p className="text-xs text-amber-800 mt-1" role="note">
+                          <b>Ainda não dá para aprovar:</b>{' '}
+                          {p.motivo_bloqueio || (Array.isArray(p.falta) ? p.falta.join('; ') : p.falta) || 'falta concluir uma etapa anterior (veja o processo).'}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500 mt-1">A demanda (DFD) está pronta; as demais etapas só abrem depois da sua aprovação.</p>
+                      )}
                     </div>
                     <div className="flex gap-2">
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => aprovarDemandaDoProcesso(p)} disabled={processando}>
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => aprovarDemandaDoProcesso(p)}
+                        disabled={processando || p.pode_aprovar === false}
+                        title={p.pode_aprovar === false ? (p.motivo_bloqueio || 'Ainda não dá para aprovar') : undefined}>
                         <CheckCircle className="h-4 w-4 mr-1" />
                         Aprovar a demanda
                       </Button>
