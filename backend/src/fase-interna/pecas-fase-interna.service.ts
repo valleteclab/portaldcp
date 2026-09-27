@@ -55,6 +55,17 @@ const PASTA_DOC_ORGAO = 'fase-interna';
 
 const TIPOS_VALIDOS = new Set<string>(Object.values(TipoDocumentoFaseInterna));
 
+/** Peças que só se emitem pelo ato próprio da tela (não pelo "Gerar documento" genérico). */
+const EMISSAO_PELA_TELA: Partial<Record<string, string>> = {
+  PP: 'A pesquisa de preços fica pronta ao emitir o mapa e a certidão (tela da pesquisa) — ou anexe o mapa feito fora.',
+  DO: 'A informação orçamentária fica pronta ao emitir a reserva (tela da reserva) — ou anexe a feita fora.',
+  AA: 'O despacho de autorização só vale assinado pela autoridade (tela da autorização) — ou anexe o assinado fora.',
+  PJ: 'O parecer jurídico só vale assinado pela Procuradoria (tela do parecer) — ou anexe o assinado fora.',
+  PJE: 'O parecer da fase externa só vale assinado pela Procuradoria (tela do parecer) — ou anexe o assinado fora.',
+  MCI: 'A manifestação do controle interno só vale assinada (tela do controle interno) — ou anexe a assinada fora.',
+  PDO: 'O Diário Oficial se registra na publicação (etapa 8).',
+};
+
 export interface ArquivoRecebido {
   buffer: Buffer;
   originalname?: string;
@@ -507,6 +518,55 @@ export class PecasFaseInternaService implements OnModuleInit {
     );
     await this.cancelarAssinaturaPendente(anterior, lic.orgao_id);
     return doc;
+  }
+
+  // ==========================================================================
+  // EMITIR (gerar o PDF) A PEÇA FEITA NO EDITOR
+  // ==========================================================================
+
+  /**
+   * "Gerar documento (PDF)" da peça feita no sistema que NÃO tem ato próprio
+   * de emissão (editor de seções: justificativa, designação, projeto básico,
+   * minuta do edital, análise de riscos…). Gerar é a EMISSÃO: a peça passa a
+   * contar como pronta com este conteúdo; editar depois volta a "em
+   * elaboração" (homologação E4 — rascunho não é peça pronta).
+   * As peças com ato próprio emitem pela tela delas: pesquisa (mapa),
+   * informação orçamentária (reserva), despacho, parecer e controle interno
+   * (assinatura) e o registro do Diário Oficial.
+   */
+  async emitirPeca(licitacaoId: string, tipoParam: string, ator: Ator | null, autor?: { id?: string | null; nome?: string | null }) {
+    const tipo = this.tipoValido(String(tipoParam || '').toUpperCase());
+    const proprio = EMISSAO_PELA_TELA[tipo];
+    if (proprio) throw new BadRequestException(proprio);
+    await this.licitacaoParaPeca(licitacaoId, tipo);
+    const doc = await this.docRepo.findOne({ where: { licitacao_id: licitacaoId, tipo, versao_atual: true } });
+    if (!doc) throw new NotFoundException('A peça ainda não foi elaborada — escreva a peça antes de gerar o documento.');
+    if (doc.origem !== OrigemDocumento.INTERNO) throw new ConflictException('A versão atual foi anexada (feita fora) — ela já é o documento.');
+    if (doc.dados_estruturados?.nao_se_aplica) throw new ConflictException('A peça está marcada como "não se aplica".');
+    if (doc.status === StatusDocumento.ASSINADO || doc.status === StatusDocumento.AGUARDANDO_ASSINATURA) {
+      throw new ConflictException('A peça está assinada ou em assinatura — para mudar, abra uma versão nova editando o texto.');
+    }
+    const vazia =
+      !String(doc.descricao ?? '').trim() &&
+      !Object.keys(doc.dados_estruturados ?? {}).some((k) => !k.startsWith('_') && doc.dados_estruturados[k] !== '' && doc.dados_estruturados[k] != null);
+    if (vazia) throw new BadRequestException('A peça está vazia — escreva o conteúdo antes de gerar o documento.');
+    const idAutor = autor?.id ?? idDoAtor(ator);
+    await this.gerador.gerarPdf(doc.id, { usuario_id: idAutor ?? undefined, usuario_nome: autor?.nome ?? undefined });
+    return this.docRepo.findOneOrFail({ where: { id: doc.id } });
+  }
+
+  /**
+   * Peça registrada pela API com o conteúdo final (POST /fase-interna/:id/documento):
+   * gera o documento — o registro com texto é a emissão (compatibilidade das
+   * integrações; a tela usa o rascunho + "Gerar").
+   */
+  async gerarDocumentoDaPecaCriada(documentoId: string, ator: Ator | null) {
+    try {
+      await this.gerador.gerarPdf(documentoId, { usuario_id: idDoAtor(ator) ?? undefined });
+    } catch (e: any) {
+      this.logger.warn(`Documento da peça ${documentoId} não gerado: ${e?.message ?? e}`);
+    }
+    return this.docRepo.findOneOrFail({ where: { id: documentoId } });
   }
 
   // ==========================================================================

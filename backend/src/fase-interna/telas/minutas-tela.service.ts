@@ -12,7 +12,7 @@ import { ModeloDocumentoService } from '../modelo-documento.service';
 import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
 import { OrcamentoService } from '../orcamento/orcamento.service';
 import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
-import { TIPOS_REGERAVEIS, decidirRegeracao, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
+import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, decidirRegeracao, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 export type Autor = { id: string | null; nome: string | null };
 
@@ -91,7 +91,7 @@ export class MinutasTelaService {
       gerada_pelo_modelo: !!d._gerado?.hash,
       gerada_em: d._gerado?.em ?? null,
       editada: pecaEditadaAMao(doc),
-      desatualizada: d._desatualizada ?? null,
+      desatualizada: desatualizacaoRelevante(doc.tipo, d._desatualizada) ? d._desatualizada : null,
       exige_assinatura: !!d._exige_assinatura,
       signatarios_exigidos: doc.signatarios_exigidos ?? null,
     };
@@ -241,7 +241,11 @@ export class MinutasTelaService {
     if (!lic) return { regeradas, desatualizadas };
     // Depois da divulgação as minutas viram peças do edital: só o aviso
     if (!ehFaseInterna(lic.fase)) return { regeradas, desatualizadas };
+    const todosOsCampos = campos;
     for (const tipo of TIPOS_REGERAVEIS) {
+      // Só o que a peça cita (o despacho não muda com o modo de disputa — decisão do dono)
+      const campos = camposQueAfetamAPeca(tipo, todosOsCampos);
+      if (!campos.length) continue;
       const doc = await this.docAtual(licitacaoId, tipo);
       if (!doc) continue;
       const decisao = decidirRegeracao(doc);

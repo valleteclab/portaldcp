@@ -8,6 +8,7 @@
  *  - Folhas: sequência única por processo, atribuída quando a peça é
  *    finalizada (anexo recebido ou assinatura concluída).
  */
+import { createHash } from 'crypto';
 
 /** Data de hoje no fuso de Brasília (YYYY-MM-DD) — convenção do projeto (UTC-3). */
 export function hojeEmBrasilia(agora: Date = new Date()): string {
@@ -89,11 +90,79 @@ export function pareceSerPdf(buffer: Buffer | null | undefined): boolean {
   return inicio.includes('%PDF-');
 }
 
+/** JSON com as chaves em ordem (a impressão não depende da ordem de gravação). */
+function jsonEstavel(v: unknown): string {
+  if (v === null || v === undefined) return 'null';
+  if (v instanceof Date) return JSON.stringify(v.toISOString());
+  if (Array.isArray(v)) return `[${v.map(jsonEstavel).join(',')}]`;
+  if (typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .filter((k) => o[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${jsonEstavel(o[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+
+/**
+ * IMPRESSÃO DO CONTEÚDO da peça feita no sistema: o texto (`descricao`) e os
+ * dados das seções/estrutura — sem as chaves internas (`_…`: autor da edição,
+ * registro de emissão, marcações). Qualquer edição depois da emissão muda a
+ * impressão, e a peça volta a "em elaboração".
+ */
+export function impressaoConteudoPeca(doc: { descricao?: string | null; dados_estruturados?: any }): string {
+  const dados = doc.dados_estruturados && typeof doc.dados_estruturados === 'object' ? doc.dados_estruturados : {};
+  const conteudo: Record<string, unknown> = {};
+  for (const k of Object.keys(dados)) if (!k.startsWith('_')) conteudo[k] = dados[k];
+  return createHash('sha256')
+    .update(jsonEstavel([String(doc.descricao ?? '').trim(), conteudo]))
+    .digest('hex');
+}
+
+/** Registro da EMISSÃO (`dados_estruturados._emitido`): o documento foi gerado/emitido com este conteúdo. */
+export interface RegistroEmissao {
+  impressao?: string;
+  em: string;
+  por_id?: string | null;
+  por_nome?: string | null;
+  /** Peça pronta pela regra anterior (texto bastava), em processo já divulgado — migração de boot. */
+  legado?: boolean;
+  motivo?: string | null;
+}
+
+export function registroDeEmissao(
+  doc: { descricao?: string | null; dados_estruturados?: any },
+  autor?: { id?: string | null; nome?: string | null } | null,
+  agora: Date = new Date(),
+): RegistroEmissao {
+  return { impressao: impressaoConteudoPeca(doc), em: agora.toISOString(), por_id: autor?.id ?? null, por_nome: autor?.nome ?? null };
+}
+
+/**
+ * A peça feita no sistema está EMITIDA com o conteúdo atual? (gerada/emitida
+ * e não editada depois). Sem registro de emissão: o PDF gerado antes desta
+ * regra conta (não "desprontar" o que já foi emitido); só texto, não.
+ */
+export function pecaEmitida(doc: { caminho_arquivo?: string | null; arquivo_pdf_path?: string | null; descricao?: string | null; dados_estruturados?: any }): boolean {
+  const emitido = doc.dados_estruturados?._emitido as RegistroEmissao | undefined;
+  if (emitido && typeof emitido === 'object') {
+    if (emitido.legado) return true;
+    return !!emitido.impressao && emitido.impressao === impressaoConteudoPeca(doc);
+  }
+  return !!(doc.caminho_arquivo || doc.arquivo_pdf_path);
+}
+
 /**
  * A peça CONTA como pronta no checklist (sem fluxo de aprovação configurado)?
- * Anexada (IMPORTADO), aprovada ou assinada: sim. Aguardando assinatura,
- * pendente ou reprovada: não. Elaborada no sistema: basta ter conteúdo ou
- * arquivo — na pesquisa de preços, ao menos uma cotação.
+ *  - Anexada (IMPORTADO), aprovada ou assinada: sim.
+ *  - Aguardando assinatura, pendente, reprovada ou substituída: não.
+ *  - Feita no sistema: SÓ depois de GERADA/EMITIDA (DFD/ETP/TR/minutas
+ *    gerados, mapa da pesquisa emitido, informação orçamentária emitida…) e
+ *    sem edição posterior. O rascunho salvo automaticamente é "em elaboração"
+ *    — mesmo com texto (homologação 26/09/2026, E4: o DFD ficava "Pronta"
+ *    só com o autosave; a pesquisa, antes do mapa).
  */
 export function pecaContaComoPronta(doc: {
   tipo: string;
@@ -105,13 +174,30 @@ export function pecaContaComoPronta(doc: {
 }): boolean {
   if (['REPROVADO', 'PENDENTE', 'AGUARDANDO_ASSINATURA', 'SUBSTITUIDO'].includes(doc.status)) return false;
   if (['APROVADO', 'IMPORTADO', 'ASSINADO'].includes(doc.status)) return true;
-  const dados = doc.dados_estruturados;
   // Entrega 3B: peça gerada que SÓ vale assinada (despacho de autorização,
   // parecer, controle interno) — o texto pronto ainda não é o ato.
+  if (doc.dados_estruturados?._exige_assinatura) return false;
+  return pecaEmitida(doc);
+}
+
+/**
+ * Regra ANTERIOR (texto bastava) — só para a migração de boot, que marca como
+ * emitidas as peças que já contavam como prontas em processos já divulgados
+ * (os autos e as etapas desses processos não mudam).
+ */
+export function pecaProntaPelaRegraAnterior(doc: {
+  tipo: string;
+  status: string;
+  caminho_arquivo?: string | null;
+  arquivo_pdf_path?: string | null;
+  descricao?: string | null;
+  dados_estruturados?: any;
+}): boolean {
+  if (['REPROVADO', 'PENDENTE', 'AGUARDANDO_ASSINATURA', 'SUBSTITUIDO'].includes(doc.status)) return false;
+  if (['APROVADO', 'IMPORTADO', 'ASSINADO'].includes(doc.status)) return true;
+  const dados = doc.dados_estruturados;
   if (dados?._exige_assinatura) return false;
   if (doc.caminho_arquivo || doc.arquivo_pdf_path || (doc.descricao && doc.descricao.trim())) return true;
-  // Pesquisa de preços: o módulo cria o documento (itens sem cotação) só de
-  // abrir a tela — conta quando há ao menos uma cotação registrada.
   if (doc.tipo === 'PP' && dados && Array.isArray(dados.itens)) {
     return dados.itens.some((i: any) => (i?.cotacoes?.length ?? 0) > 0);
   }

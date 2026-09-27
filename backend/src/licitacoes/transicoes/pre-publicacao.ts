@@ -8,6 +8,7 @@ import {
   instrucaoCompleta,
 } from './definicoes';
 import { ehFaseInterna } from './fases';
+import type { ResumoConformidadeProcesso } from '../../fase-interna/conformidade/portoes';
 import { AtoLicitacao, ContextoTransicao } from './transicoes.tipos';
 
 /**
@@ -79,6 +80,8 @@ export interface EntradaConferencia {
   itensComPca: number;
   /** Pendências do PUBLICAR avaliadas pela máquina (as linhas que sobram viram "Outras"). */
   pendenciasPublicar: string[];
+  /** Contagens do motor de conformidade (fonte única — mesmas do quadro do processo). */
+  conformidade?: ResumoConformidadeProcesso | null;
 }
 
 /** Pendências do portão C (motor de conformidade — Entrega 4) começam assim. */
@@ -254,18 +257,33 @@ export async function conferirPrePublicacao(e: EntradaConferencia): Promise<Conf
     });
   }
 
-  // 6. Portão C — conformidade (Entrega 4): o motor cruza as peças entre si
+  // 6. Conformidade (Entrega 4): o motor cruza as peças entre si. O que BLOQUEIA
+  //    esta linha é o que o PUBLICAR recusaria (portão C); as CONTAGENS são as
+  //    do motor — as mesmas do quadro "Fluxo da fase interna" e da tela da
+  //    conformidade (homologação E6: aqui dizia "nenhum bloqueio" e lá "4").
   if (interna) {
     const conformidade = e.pendenciasPublicar.filter((p) => p.startsWith(PREFIXO_PORTAO_C));
+    const r = e.conformidade ?? null;
+    const bloqueios = r ? Math.max(r.bloqueios, conformidade.length) : conformidade.length;
+    const plural = (n: number, s: string, p: string) => `${n} ${n === 1 ? s : p}`;
+    let detalhe: string;
+    if (conformidade.length) {
+      detalhe = `${plural(bloqueios, 'bloqueio aberto', 'bloqueios abertos')} na conformidade — ${plural(conformidade.length, 'pendência impede', 'pendências impedem')} publicar (enquadramento, vinculação, marca, assinaturas…)`;
+    } else if (bloqueios > 0) {
+      // Ex.: art. 72 incompleto e sem autorização — já cobrados nas linhas da instrução e da autorização
+      detalhe = `${plural(bloqueios, 'bloqueio aberto', 'bloqueios abertos')} na conformidade — peças do art. 72, limite ou autorização; resolvidos com as peças e a autorização (veja a conformidade)`;
+    } else {
+      detalhe = r?.atencoes ? `Nenhum bloqueio aberto · ${plural(r.atencoes, 'atenção', 'atenções')}` : 'Nenhum bloqueio aberto';
+    }
     itens.push({
       chave: 'CONFORMIDADE',
-      rotulo: 'Conformidade das peças (portão C)',
+      rotulo: 'Conformidade das peças',
       fundamento: 'Lei 14.133/2021, arts. 41, 72, 75 e 92',
-      estado: conformidade.length ? 'PENDENTE' : 'OK',
+      estado: conformidade.length ? 'PENDENTE' : bloqueios > 0 ? 'ALERTA' : 'OK',
       bloqueia: conformidade.length > 0,
-      detalhe: conformidade.length ? `${conformidade.length} pendência(s) — enquadramento, vinculação, marca, assinaturas…` : 'Nenhum bloqueio aberto',
+      detalhe,
       pendencias: conformidade,
-      acao: conformidade.length ? 'ABRIR_CONFORMIDADE' : null,
+      acao: conformidade.length || bloqueios > 0 ? 'ABRIR_CONFORMIDADE' : null,
     });
   }
 

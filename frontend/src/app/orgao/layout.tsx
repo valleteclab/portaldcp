@@ -14,12 +14,11 @@ export default function OrgaoLayout({
     <AuthGuard userType="orgao">
       <div className="flex min-h-screen bg-slate-50">
         <Sidebar userType="orgao" />
-        {/* min-w-0: conteúdo largo (tabelas) rola dentro da própria área em vez de
-            alargar a coluna além da tela (conteúdo "cortado" / rolagem horizontal) */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        {/* min-w-0: conteúdo largo (barra de etapas, tabelas) rola DENTRO do quadro, sem esticar a página (homologação 26/09/2026: rolagem horizontal na tela do processo) */}
+        <div className="flex-1 flex flex-col min-w-0">
           <Header />
-          <main className="flex-1 p-6">
-            <div className="max-w-[1920px] mx-auto w-full px-4">
+          <main className="flex-1 p-3 sm:p-6">
+            <div className="max-w-[1920px] mx-auto w-full px-0 sm:px-4">
               {children}
             </div>
           </main>

@@ -114,13 +114,53 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
       });
       expect(rodar(A72_I, ctx).achados).toHaveLength(1);
     });
-    it('V e VI são da fase externa (não bloqueiam); III e VII só ATENÇÃO, depois da autorização', () => {
+    it('V é da fase externa (não bloqueia); III só ATENÇÃO, depois da autorização', () => {
       expect(rodar(A72_V)).toMatchObject({ aplicavel: false, motivo: expect.stringMatching(/fase externa/i) });
-      expect(rodar(A72_VI)).toMatchObject({ aplicavel: false });
-      const ctx = com(pa139Real, (e) => (e.instrucao.itens = e.instrucao.itens.map((i) => (i.tipo === 'PJ' || i.tipo === 'RAG' ? { ...i, status: 'PENDENTE' } : i))));
+      const ctx = com(pa139Real, (e) => (e.instrucao.itens = e.instrucao.itens.map((i) => (i.tipo === 'PJ' ? { ...i, status: 'PENDENTE' } : i))));
       expect(rodar(A72_III, ctx).achados[0].severidade).toBe('ATENCAO');
-      expect(rodar(A72_VII, ctx).achados[0].severidade).toBe('ATENCAO');
       expect(rodar(A72_III, ctxCorrigido()).achados).toEqual([]);
+    });
+
+    describe('VI e VII (razão da escolha e preço) — homologação 26/09/2026', () => {
+      const semEscolha = (e: EntradaContexto) => {
+        e.instrucao.itens = e.instrucao.itens.map((i) => (i.tipo === 'RAG' || i.tipo === 'JC' ? { ...i, status: 'PENDENTE' } : i));
+      };
+      it('dispensa eletrônica (com ou sem lances): não acusa falta antes da publicação — "cumprido após a seleção do fornecedor"', () => {
+        for (const lances of [true, false]) {
+          const ctx = com(pa139Real, (e) => {
+            semEscolha(e);
+            e.licitacao.dispensa_com_lances = lances;
+            e.ato_pretendido = 'PUBLICAR';
+          });
+          for (const r of [A72_VI, A72_VII]) {
+            const av = rodar(r, ctx);
+            expect(av).toMatchObject({ aplicavel: false, achados: [] });
+            expect(av.motivo).toMatch(/após a seleção do fornecedor/);
+            expect(av.motivo).toMatch(/art\. 75, §3º/);
+          }
+        }
+        // nem no ato de autorizar
+        expect(rodar(A72_VII, com(pa139Real, (e) => { semEscolha(e); e.ato_pretendido = 'AUTORIZAR'; }))).toMatchObject({ aplicavel: false });
+      });
+      it('credenciamento: cumprido após o chamamento', () => {
+        expect(rodar(A72_VI, com(pa139Real, (e) => { semEscolha(e); e.licitacao.modalidade = 'CREDENCIAMENTO'; })).motivo).toMatch(/chamamento/);
+      });
+      it('inexigibilidade (sem aviso): exigidos ANTES da autorização (portão B, BLOQUEIO); relatório pronto supre; "não se aplica" não', () => {
+        const inex = (mut?: (e: EntradaContexto) => void) =>
+          com(pa139Real, (e) => {
+            e.licitacao.modalidade = 'INEXIGIBILIDADE';
+            e.instrucao.itens = e.instrucao.itens.map((i) => (i.tipo === 'AA' ? { ...i, status: 'EM_ELABORACAO' } : i));
+            mut?.(e);
+          });
+        const falta = rodar(A72_VII, inex(semEscolha));
+        expect(falta.achados[0]).toMatchObject({ regra: 'A72-VII', severidade: 'BLOQUEIO', chave: 'inciso:VII' });
+        expect(falta.achados[0].mensagem).toMatch(/justificativa do preço \(art\. 23, §4º\)/);
+        expect(rodar(A72_VI, inex(semEscolha)).achados[0].mensagem).toMatch(/razão da escolha do contratado/);
+        expect(rodar(A72_VI, inex((e) => (e.instrucao.itens = e.instrucao.itens.map((i) => (i.tipo === 'RAG' ? { ...i, status: 'NAO_SE_APLICA' } : i.tipo === 'JC' ? { ...i, status: 'NAO_SE_APLICA' } : i))))).achados).toHaveLength(1);
+        expect(rodar(A72_VI, inex((e) => (e.instrucao.itens = e.instrucao.itens.map((i) => (i.tipo === 'RAG' ? { ...i, status: 'OK' } : i.tipo === 'JC' ? { ...i, status: 'PENDENTE' } : i))))).achados).toEqual([]);
+        // autorização já dada: portão B superado
+        expect(rodar(A72_VI, com(pa139Real, (e) => { e.licitacao.modalidade = 'INEXIGIBILIDADE'; semEscolha(e); }))).toMatchObject({ aplicavel: false });
+      });
     });
     it('rito completo: não se aplica (instrução do art. 18)', () => {
       expect(rodar(A72_I, com(pa139Real, (e) => (e.instrucao.contratacao_direta = false)))).toMatchObject({ aplicavel: false });

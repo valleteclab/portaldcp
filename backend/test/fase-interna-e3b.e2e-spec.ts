@@ -515,7 +515,8 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       expect(cx.tarefas.find((x: any) => x.id === t.id).destino).toBe(`/orgao/processos/${lic.id}/fase-interna/parecer?fase=EXTERNA`);
       const g = (await http().get(`/api/fase-interna/${lic.id}/parecer?fase=EXTERNA`).set(bearer(juridicoC.token)).expect(200)).body;
       expect(g).toMatchObject({ disponivel: true, fase: 'EXTERNA' });
-      expect(g.roteiro.map((i: any) => i.id)).toEqual(['PREVIO', 'DIVULGACAO', 'JULGAMENTO', 'PRECO', 'HABILITACAO', 'RECURSOS']);
+      // homologação 26/09/2026: art. 72, VI e VII conferidos aqui (vencedor e preço final registrados)
+      expect(g.roteiro.map((i: any) => i.id)).toEqual(['PREVIO', 'DIVULGACAO', 'JULGAMENTO', 'PRECO', 'A72_VI_VII', 'HABILITACAO', 'RECURSOS']);
       const r = (await http().post(`/api/fase-interna/${lic.id}/parecer/emitir`).set(bearer(juridicoC.token)).send({ fase: 'EXTERNA', conclusao: 'FAVORAVEL' }).expect(201)).body;
       expect(r.parecer).toMatchObject({ tipo: 'PJE', status: 'ASSINADO' });
       expect((await tarefasDoProcesso(lic)).find((x: any) => x.chave === 'sistema:parecer-fase-externa')).toMatchObject({ status: 'CONCLUIDA', concluida_por_id: juridicoC.id });

@@ -13,6 +13,7 @@ import { AuditLogService } from '../audit-log.service';
 import { FaseInternaService } from '../fase-interna.service';
 import { PecasFaseInternaService } from '../pecas-fase-interna.service';
 import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
+import { pecaContaComoPronta } from '../peca-regras';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { PapelFaseInterna, PassoFaseInterna, passoDaPeca } from '../tarefas/etapas-fase-interna';
 import { Autor, MinutasTelaService } from './minutas-tela.service';
@@ -189,6 +190,7 @@ export class ParecerTelaService {
         fundamento_referencia: definicaoDoFundamento(fundamento)?.referencia ?? null,
         numero_processo: lic.numero_processo,
         avaliacoes,
+        modalidade: lic.modalidade,
       });
     } else {
       const pj = instrucao.itens.find((i) => i.tipo === 'PJ');
@@ -377,7 +379,7 @@ export class ParecerTelaService {
     const atual = await this.minutas.docAtual(licitacaoId, d.tipo_alvo);
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
     const linha = instrucao.itens.find((i) => i.tipo === d.tipo_alvo);
-    const pronta = !!atual && (linha ? ['OK', 'NAO_SE_APLICA'].includes(linha.status) : atual.status !== StatusDocumento.EM_ELABORACAO || !!atual.descricao);
+    const pronta = !!atual && (linha ? ['OK', 'NAO_SE_APLICA'].includes(linha.status) : pecaContaComoPronta(atual as any));
     const resposta = String(body?.resposta ?? '').trim().slice(0, 4000);
     const r = podeSanar(d, { documento_atual_id: atual?.id ?? null, atual_pronta: pronta, sem_alteracao: body?.sem_alteracao === true, resposta });
     if (!r.ok) throw new BadRequestException(r.erro);

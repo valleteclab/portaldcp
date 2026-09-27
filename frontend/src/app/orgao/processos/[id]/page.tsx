@@ -17,6 +17,7 @@ import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { FASES_INTERNAS } from "@/lib/licitacao-rotulos"
+import { aoAtualizarFaseInterna } from "@/lib/fase-interna/telas"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { AbasProcesso, type AbaProcesso } from "./AbasProcesso"
 import { AreaEtapaAtual } from "./AreaEtapaAtual"
@@ -69,6 +70,9 @@ export default function ProcessoPage() {
     carregar(true)
     recarregarDivulgacao()
   }, [carregar, recarregarDivulgacao])
+  // Estado sempre atual (homologação E9): quando uma tela da fase interna avisa que
+  // mudou algo, ou ao voltar para a aba, o quadro do processo recarrega em silêncio
+  useEffect(() => (id ? aoAtualizarFaseInterna(id, atualizar) : undefined), [id, atualizar])
 
   // Copiloto (preparação automática): atualiza sozinho enquanto executa
   useEffect(() => {
@@ -208,7 +212,7 @@ export default function ProcessoPage() {
   const acaoResultado = dados.acoes_menu?.find((a) => a.ato === "REGISTRAR_RESULTADO_EXTERNO")
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 space-y-5">
+    <div className="max-w-7xl mx-auto px-0 py-4 sm:px-2 sm:py-6 space-y-5 min-w-0">
       {dialogo}
       {cancelamento.dialogo}
 
@@ -237,7 +241,7 @@ export default function ProcessoPage() {
       <BarraEtapas etapas={etapas} />
 
       {/* 5 e 6. Etapa atual + coluna lateral (empilha no celular) */}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div id="area-etapa-atual" className="space-y-5 min-w-0 scroll-mt-4">
           {l.preparacao_automatica && <CopilotoStatus p={l.preparacao_automatica} />}
           <ExtincaoLicitacao licitacaoId={id} acoes={dados.acoes_menu} pedido={pedidoExtincao} onAtualizado={atualizar} />
@@ -255,7 +259,7 @@ export default function ProcessoPage() {
           />
           <ProximaEtapaCard etapa={seguinte} dispensa={l.modalidade === "DISPENSA_ELETRONICA"} />
         </div>
-        <aside aria-label="Dados, prazos e comunicação">
+        <aside aria-label="Dados, prazos e comunicação" className="min-w-0">
           <ColunaLateral dados={dados} mensagens={mensagens} regras={regras} />
         </aside>
       </div>

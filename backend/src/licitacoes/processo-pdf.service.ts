@@ -607,7 +607,8 @@ export class ProcessoPdfService {
         try {
           let caminho: string;
           if (e.fonte.tipo === 'ARQUIVO') caminho = e.fonte.caminho;
-          else if (e.fonte.tipo === 'GERAR_PECA') caminho = (await this.geradorDocumentoService.gerarPdf(e.fonte.documento_id)).caminho;
+          // Montar os autos só materializa o PDF: não é a emissão da peça (não mexe no registro de emissão)
+          else if (e.fonte.tipo === 'GERAR_PECA') caminho = (await this.geradorDocumentoService.gerarPdf(e.fonte.documento_id, undefined, { registrarEmissao: false })).caminho;
           else {
             caminho = path.join(tmp, `${prontas.length}-${e.chave}.pdf`);
             fs.writeFileSync(caminho, await e.fonte.gerar());

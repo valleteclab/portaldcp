@@ -17,9 +17,9 @@ function Bloco({ titulo, children }: { titulo: string; children: ReactNode }) {
 
 function Linha({ rotulo, valor }: { rotulo: string; valor: ReactNode }) {
   return (
-    <div className="grid grid-cols-[7.5rem_1fr] gap-2 py-1 text-sm">
+    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-2 py-1 text-sm">
       <dt className="text-gray-600">{rotulo}</dt>
-      <dd className="text-gray-900 break-words">{valor}</dd>
+      <dd className="text-gray-900 min-w-0 [overflow-wrap:anywhere]">{valor}</dd>
     </div>
   )
 }

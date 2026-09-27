@@ -9,6 +9,7 @@ import { DocumentoOrgao } from './entities/documento-orgao.entity';
 import { PecasFaseInternaService } from './pecas-fase-interna.service';
 import { JuntadaPecasService } from './juntada-pecas.service';
 import { MigracaoEspelhoDocumentosBootService } from './migracao-espelho-documentos-boot.service';
+import { MigracaoPecaEmitidaBootService } from './migracao-peca-emitida-boot.service';
 import { Tarefa } from './tarefas/tarefa.entity';
 import { ConfiguracaoFaseInterna } from './tarefas/configuracao-fase-interna.entity';
 import { TarefasService } from './tarefas/tarefas.service';
@@ -128,6 +129,7 @@ import {
     PecasFaseInternaService,
     JuntadaPecasService,
     MigracaoEspelhoDocumentosBootService,
+    MigracaoPecaEmitidaBootService,
     TarefasService,
     TarefasSubscriber,
     MigracaoTarefasBootService,

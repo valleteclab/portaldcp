@@ -16,8 +16,8 @@ import { PassoFaseInterna } from '../tarefas/etapas-fase-interna';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { AchadoConformidade, RevisaoConformidade } from './achado.entity';
 import { DocumentoLinha, EntradaContexto, montarContexto } from './contexto';
-import { AchadoExistente, avaliarRegras, impedemPublicar, pendenciasDoPortao, planejarRevisao, planoVazio } from './motor';
-import { OpcoesPortao, definirVerificadorDePortao } from './portoes';
+import { AchadoExistente, avaliarRegras, contagemDaConformidade, pendenciasDoPortao, planejarRevisao, planoVazio } from './motor';
+import { OpcoesPortao, definirResumidorDeConformidade, definirVerificadorDePortao } from './portoes';
 import { REGRAS, avaliacaoDoPrazo, passoDoAchado, publicacaoPrevista, regraPorCodigo, rotuloFolhas } from './regras';
 import { paginasDoArquivo } from './texto-pdf';
 import type { AchadoCalculado, AtoProtegido, AvaliacaoRegra, ContextoConformidade, Portao } from './tipos';
@@ -89,10 +89,12 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     this.tarefas.registrarAntesDeSincronizar((id) => this.revisar(id, { origem: 'AUTOMATICA' }));
     definirVerificadorDePortao((id, portao, opcoes) => this.pendenciasDoPortao(id, portao, opcoes));
+    definirResumidorDeConformidade((id) => this.resumo(id));
   }
 
   onModuleDestroy() {
     definirVerificadorDePortao(null);
+    definirResumidorDeConformidade(null);
   }
 
   ativo(): boolean {
@@ -571,11 +573,7 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
   async obter(licitacaoId: string) {
     const lic = await this.licitacao(licitacaoId);
     const interna = ehFaseInterna(lic.fase);
-    let revisao = await this.revisaoRepo.findOne({ where: { licitacao_id: licitacaoId } });
-    if (interna && this.ativo() && (!revisao || (await this.revisaoDesatualizada(licitacaoId, revisao.revisado_em)))) {
-      await this.revisar(licitacaoId, { origem: revisao ? 'AUTOMATICA' : 'TELA' });
-      revisao = await this.revisaoRepo.findOne({ where: { licitacao_id: licitacaoId } });
-    }
+    const revisao = await this.revisaoEmDia(licitacaoId, lic.fase);
     const { ctx, arquivos } = await this.avaliacao(licitacaoId);
     const todos = await this.repo.find({ where: { licitacao_id: licitacaoId }, order: { created_at: 'ASC' } });
     const tarefas: Array<{ id: string; chave: string; status: string }> = await this.ds.query(
@@ -595,10 +593,11 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
       const situacao = !rv ? 'NAO_AVALIADA' : rv.erro ? 'ERRO' : !rv.aplicavel ? 'NAO_SE_APLICA' : comAchado.has(r.codigo) ? 'COM_ACHADO' : 'APROVADA';
       return { codigo: r.codigo, descricao: r.descricao, severidade: r.severidade, etapa: r.etapa, portao: r.portao, situacao, motivo: rv?.motivo ?? rv?.erro ?? null };
     });
-    const abertos = vigentes.filter((a) => a.status === 'ABERTO');
-    const bloqueios = abertos.filter((a) => a.severidade === 'BLOQUEIO').length;
-    const atencoes = abertos.filter((a) => a.severidade === 'ATENCAO').length;
-    const impedem = impedemPublicar(abertos);
+    // Mesmas contagens do quadro do processo e do checklist (fonte única — E6)
+    const contagem = contagemDaConformidade(vigentes);
+    const bloqueios = contagem.bloqueios;
+    const atencoes = contagem.atencoes;
+    const impedem = contagem.impedem_publicar;
     const prazo = avaliacaoDoPrazo(ctx);
     const c = ctx.processo.cronograma;
     return {
@@ -692,18 +691,34 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** Resumo para o painel do processo (contagens e os achados abertos). */
+  /** A revisão gravada está em dia? Senão revisa agora (fase interna) — base das contagens das telas. */
+  private async revisaoEmDia(licitacaoId: string, fase: string) {
+    let revisao = await this.revisaoRepo.findOne({ where: { licitacao_id: licitacaoId } });
+    if (ehFaseInterna(fase) && this.ativo() && (!revisao || (await this.revisaoDesatualizada(licitacaoId, revisao.revisado_em)))) {
+      await this.revisar(licitacaoId, { origem: revisao ? 'AUTOMATICA' : 'TELA' });
+      revisao = await this.revisaoRepo.findOne({ where: { licitacao_id: licitacaoId } });
+    }
+    return revisao;
+  }
+
+  /**
+   * Resumo para o painel do processo e o checklist de pré-publicação — a
+   * FONTE ÚNICA das contagens (homologação E6): os achados do motor depois de
+   * uma revisão em dia; bloqueios de todos os portões, por portão.
+   */
   async resumo(licitacaoId: string) {
     const [lic] = await this.ds.query(`SELECT fase::text AS fase FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
     if (!lic) throw new NotFoundException('Licitação não encontrada');
-    const revisao = await this.revisaoRepo.findOne({ where: { licitacao_id: licitacaoId } });
+    const revisao = await this.revisaoEmDia(licitacaoId, lic.fase);
     const abertos = await this.repo.find({ where: { licitacao_id: licitacaoId, status: 'ABERTO' }, order: { created_at: 'ASC' } });
+    const contagem = contagemDaConformidade(abertos);
     return {
       aplicavel: ehFaseInterna(lic.fase),
       revisado_em: revisao?.revisado_em ?? null,
-      bloqueios: abertos.filter((a) => a.severidade === 'BLOQUEIO').length,
-      atencoes: abertos.filter((a) => a.severidade === 'ATENCAO').length,
-      impedem_publicar: impedemPublicar(abertos),
+      bloqueios: contagem.bloqueios,
+      atencoes: contagem.atencoes,
+      bloqueios_por_portao: contagem.bloqueios_por_portao,
+      impedem_publicar: contagem.impedem_publicar,
       achados: abertos
         .sort((a, b) => (a.severidade === b.severidade ? 0 : a.severidade === 'BLOQUEIO' ? -1 : 1))
         .slice(0, 6)

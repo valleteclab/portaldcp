@@ -9,9 +9,9 @@
  * assinatura com vários signatários.
  * Fontes: GET /api/fase-interna/:id/instrucao, /documentos/:tipo, /documentos/:tipo/assinatura.
  */
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { CheckCircle2, Circle, FileText, History, Loader2, PenLine, Upload } from "lucide-react"
+import { CheckCircle2, Circle, FilePlus2, FileText, History, Loader2, PenLine, Upload } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
 import { Button } from "@/components/ui/button"
@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { AnexarPecaDialog } from "./AnexarPecaDialog"
-import { erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
+import { aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
 
 export interface LinhaInstrucao {
   tipo: string
@@ -53,15 +53,23 @@ const ROTULO_STATUS: Record<string, { texto: string; cls: string }> = {
   EM_ASSINATURA: { texto: "Aguardando assinaturas", cls: "bg-amber-50 text-amber-900 border-amber-200" },
 }
 
-/** Linha da instrução de um tipo (hook compartilhado pelas telas). */
+/**
+ * Linha da instrução de um tipo (hook compartilhado pelas telas). Recarrega
+ * quando a tela grava (`atualizacao`), quando outro quadro avisa que mudou e
+ * ao voltar para a aba; resposta fora de ordem não sobrescreve a mais nova
+ * (homologação E9: a reserva ficava "Pendente" até recarregar a página).
+ */
 export function useLinhaInstrucao(licitacaoId: string, tipo: string, atualizacao?: unknown) {
   const [linha, setLinha] = useState<LinhaInstrucao | null>(null)
   const [contratacaoDireta, setContratacaoDireta] = useState(false)
+  const ultima = useRef(criarUltimaCarga())
   const carregar = useCallback(async () => {
+    const vigente = ultima.current()
     try {
-      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/instrucao`)
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/instrucao`, { cache: "no-store" })
       if (!r.ok) return
       const j = await r.json()
+      if (!vigente()) return
       setContratacaoDireta(!!j.contratacao_direta)
       setLinha((j.itens || []).find((i: LinhaInstrucao) => i.tipo === tipo) ?? null)
     } catch {
@@ -71,6 +79,7 @@ export function useLinhaInstrucao(licitacaoId: string, tipo: string, atualizacao
   useEffect(() => {
     carregar()
   }, [carregar, atualizacao])
+  useEffect(() => aoAtualizarFaseInterna(licitacaoId, carregar), [licitacaoId, carregar])
   return { linha, contratacaoDireta, recarregar: carregar }
 }
 
@@ -83,6 +92,7 @@ export function CaminhosDaPeca({
   onAtualizado,
   permitirAssinatura = true,
   compacto = false,
+  emitir = false,
 }: {
   licitacaoId: string
   tipo: string
@@ -93,6 +103,12 @@ export function CaminhosDaPeca({
   onAtualizado: () => void
   permitirAssinatura?: boolean
   compacto?: boolean
+  /**
+   * Oferece "Gerar documento (PDF)" para a peça feita aqui em elaboração —
+   * gerar é a emissão (a peça só fica pronta gerada, anexada ou assinada).
+   * Para as peças sem ato próprio (análise de riscos, editor de seções).
+   */
+  emitir?: boolean
 }) {
   const { pedirTexto, dialogo } = useDialogoConfirmacao()
   const { linha, recarregar } = useLinhaInstrucao(licitacaoId, tipo, atualizacao)
@@ -105,6 +121,26 @@ export function CaminhosDaPeca({
   const status = linha?.status ?? (p ? "EM_ELABORACAO" : "PENDENTE")
   const rotulo = ROTULO_STATUS[status] ?? { texto: status, cls: "bg-slate-50 text-slate-700 border-slate-200" }
   const feitaAqui = !!p && !p.anexada
+  /** Depois de qualquer ação: este quadro, a tela e os demais quadros (barra de etapas, fluxo) recarregam. */
+  const aposAcao = async () => {
+    await recarregar()
+    onAtualizado()
+    avisarFaseInternaAtualizada(licitacaoId)
+  }
+
+  const gerarDocumento = async () => {
+    setOcupado(true)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/documentos/${tipo}/emitir`, { method: "POST" })
+      if (!r.ok) throw new Error(await erroDaApi(r))
+      toast.success(`${titulo}: documento gerado — a peça está pronta`)
+      await aposAcao()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setOcupado(false)
+    }
+  }
 
   const naoSeAplica = async (desfazer: boolean) => {
     let corpo: Record<string, unknown> = { desfazer: true }
@@ -128,8 +164,7 @@ export function CaminhosDaPeca({
       })
       if (!r.ok) throw new Error(await erroDaApi(r))
       toast.success(desfazer ? "Marcação desfeita" : `${titulo}: não se aplica (registrado nos autos)`)
-      await recarregar()
-      onAtualizado()
+      await aposAcao()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -156,8 +191,7 @@ export function CaminhosDaPeca({
         onFechar={() => setAnexando(false)}
         onAnexado={() => {
           setAnexando(false)
-          recarregar()
-          onAtualizado()
+          void aposAcao()
         }}
       />
       <AssinaturaDialog
@@ -168,8 +202,7 @@ export function CaminhosDaPeca({
         onFechar={() => setAssinar(false)}
         onEnviado={() => {
           setAssinar(false)
-          recarregar()
-          onAtualizado()
+          void aposAcao()
         }}
       />
       <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -194,11 +227,21 @@ export function CaminhosDaPeca({
             </p>
           )}
           {status === "NAO_SE_APLICA" && linha?.justificativa && <p className="text-xs text-gray-700">Justificativa: {linha.justificativa}</p>}
+          {status === "EM_ELABORACAO" && feitaAqui && (
+            <p className="text-xs text-blue-900">
+              Rascunho salvo — ainda não é a peça. Ela fica pronta depois de {emitir ? "gerar o documento" : fazerAqui ?? "gerar o documento"} (ou de anexar o PDF feito fora).
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
           {p?.tem_arquivo && linha?.documento_id && (
             <Button size="sm" variant="outline" className="h-8" onClick={() => abrirArquivoAutenticado(`${API_URL}/api/fase-interna/documento/${linha.documento_id}/arquivo`)}>
               <FileText className="w-3.5 h-3.5 mr-1" /> Ver PDF
+            </Button>
+          )}
+          {emitir && feitaAqui && status === "EM_ELABORACAO" && (
+            <Button size="sm" className="h-8" disabled={ocupado} onClick={gerarDocumento} title="Gerar o documento é a emissão: só assim a peça feita aqui fica pronta (o rascunho salvo não conta)">
+              {ocupado ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <FilePlus2 className="w-3.5 h-3.5 mr-1" />} Gerar documento (PDF)
             </Button>
           )}
           {status !== "NAO_SE_APLICA" && (

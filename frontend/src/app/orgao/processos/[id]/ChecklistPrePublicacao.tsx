@@ -162,7 +162,7 @@ export function ChecklistPrePublicacao({
       ) : (
         <ul className="divide-y border rounded-md">
           {conferencia.itens.map((i) => (
-            <li key={i.chave} className={`flex items-start gap-3 px-3 py-2.5 ${i.estado === "PENDENTE" ? "bg-red-50/60" : ""}`}>
+            <li key={i.chave} className={`flex flex-wrap sm:flex-nowrap items-start gap-3 px-3 py-2.5 ${i.estado === "PENDENTE" ? "bg-red-50/60" : ""}`}>
               <IconeEstado i={i} />
               <div className="flex-1 min-w-0">
                 <p className={`text-sm ${i.estado === "PENDENTE" ? "font-medium" : ""}`}>
@@ -170,7 +170,7 @@ export function ChecklistPrePublicacao({
                 </p>
                 {i.detalhe && <p className="text-xs text-gray-700">{i.detalhe}</p>}
               </div>
-              <div className="shrink-0">{acaoDaLinha(i)}</div>
+              <div className="shrink-0 basis-full pl-9 sm:basis-auto sm:pl-0">{acaoDaLinha(i)}</div>
             </li>
           ))}
         </ul>

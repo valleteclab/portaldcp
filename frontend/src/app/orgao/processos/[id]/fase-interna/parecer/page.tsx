@@ -31,6 +31,7 @@ import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { VisorDosAutos, type PecaAberta } from "@/components/fase-interna/etapas/VisorDosAutos"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
+import { FASES_INTERNAS } from "@/lib/licitacao-rotulos"
 
 interface Peca {
   documento_id: string
@@ -120,6 +121,7 @@ export default function ParecerPage() {
   const [sanando, setSanando] = useState<DiligenciaTela | null>(null)
   const [resposta, setResposta] = useState("")
   const [semAlteracao, setSemAlteracao] = useState(false)
+  const [erroAcao, setErroAcao] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     try {
@@ -142,6 +144,7 @@ export default function ParecerPage() {
 
   const chamar = async (metodo: string, rota: string, corpo: unknown, sucesso: string) => {
     setOcupado(true)
+    setErroAcao(null)
     try {
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/${rota}`, {
         method: metodo,
@@ -156,7 +159,10 @@ export default function ParecerPage() {
       toast.success(sucesso)
       return true
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e))
+      // A recusa fica NA TELA (o aviso some e podia ficar coberto) — homologação E5
+      const msg = e instanceof Error ? e.message : String(e)
+      setErroAcao(msg)
+      toast.error(msg)
       return false
     } finally {
       setOcupado(false)
@@ -194,28 +200,43 @@ export default function ParecerPage() {
   }
   const tipoParecer = fase === "EXTERNA" ? "PJE" : "PJ"
   const emitido = d.parecer?.status === "ASSINADO" || d.parecer?.anexada
+  // O processo ainda está na fase interna: o parecer desta tela é o PRÉVIO (art. 53); o da fase externa só existe depois da sessão
+  const naFaseInterna = FASES_INTERNAS.includes(d.licitacao.fase)
+  // Favorável com diligência aberta é recusado pelo backend: o botão já explica (homologação E5)
+  const bloqueioAssinatura =
+    conclusao === "FAVORAVEL" && d.diligencias_abertas > 0
+      ? `Há ${d.diligencias_abertas} ${d.diligencias_abertas === 1 ? "diligência aberta" : "diligências abertas"}: aguarde o saneamento (ou cancele) antes do parecer favorável — ou escolha "favorável com ressalvas".`
+      : null
 
   return (
     <EtapaShell
       licitacaoId={id}
       tela="parecer"
-      titulo={fase === "EXTERNA" ? "Parecer jurídico da fase externa" : "Parecer jurídico"}
+      titulo={fase === "EXTERNA" ? "Parecer jurídico da fase externa" : "Parecer jurídico prévio (fase interna)"}
       subtitulo={
         <span>
-          {fase === "EXTERNA" ? "Depois da sessão, antes da adjudicação" : "Art. 53 c/c art. 72, III da Lei 14.133/2021"} · PA {d.licitacao.numero_processo} ·{" "}
-          <Link className="text-blue-800 hover:underline" href={`?fase=${fase === "EXTERNA" ? "PREVIA" : "EXTERNA"}`}>
-            {fase === "EXTERNA" ? "ver o parecer prévio" : "parecer da fase externa"}
-          </Link>
+          {fase === "EXTERNA" ? "Depois da sessão, antes da adjudicação" : "Análise jurídica prévia da contratação — art. 53 c/c art. 72, III da Lei 14.133/2021"} · PA {d.licitacao.numero_processo}
+          {fase === "EXTERNA" ? (
+            <>
+              {" · "}
+              <Link className="text-blue-800 hover:underline" href="?fase=PREVIA">ver o parecer prévio</Link>
+            </>
+          ) : !naFaseInterna ? (
+            <>
+              {" · "}
+              <Link className="text-blue-800 hover:underline" href="?fase=EXTERNA">ir para o parecer da fase externa</Link>
+            </>
+          ) : null}
         </span>
       }
       atualizacao={atualizacao}
       acoes={
         d.pode_emitir && d.disponivel ? (
           <>
-            <Button variant="outline" disabled={ocupado} onClick={() => setNovaDil({ tipo_alvo: aberta?.tipo ?? d.autos[0]?.tipo ?? "", descricao: "", item_roteiro: "", trecho: "" })}>
+            <Button variant="outline" disabled={ocupado} onClick={() => { setErroAcao(null); setNovaDil({ tipo_alvo: aberta?.tipo ?? d.autos[0]?.tipo ?? "", descricao: "", item_roteiro: "", trecho: "" }) }}>
               <MessageSquareWarning className="w-4 h-4 mr-1" /> Devolver com diligência
             </Button>
-            <Button disabled={ocupado} onClick={emitir}>
+            <Button disabled={ocupado || !!bloqueioAssinatura} onClick={emitir} title={bloqueioAssinatura ?? "Monta o parecer do roteiro e assina com o seu usuário"}>
               {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <PenLine className="w-4 h-4 mr-1" />} Assinar parecer
             </Button>
           </>
@@ -223,6 +244,21 @@ export default function ParecerPage() {
       }
     >
       {dialogo}
+      {erroAcao && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 flex items-start justify-between gap-2" role="alert">
+          <span>
+            <b>Não foi possível concluir:</b> {erroAcao}
+          </span>
+          <button type="button" className="text-xs underline shrink-0" onClick={() => setErroAcao(null)}>
+            fechar
+          </button>
+        </div>
+      )}
+      {bloqueioAssinatura && d.pode_emitir && d.disponivel && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="status">
+          {bloqueioAssinatura}
+        </div>
+      )}
       {!d.disponivel && (
         <div className="rounded-lg border bg-slate-50 px-4 py-2.5 text-sm text-gray-800 flex items-center justify-between gap-2 flex-wrap" role="status">
           <span>{d.motivo}</span>
@@ -324,7 +360,7 @@ export default function ParecerPage() {
                   </p>
                   <div className="flex gap-2 flex-wrap">
                     {x.status === "ABERTA" && (
-                      <Button size="sm" variant="outline" className="h-7" disabled={ocupado} onClick={() => { setSanando(x); setResposta(""); setSemAlteracao(false) }}>
+                      <Button size="sm" variant="outline" className="h-7" disabled={ocupado} onClick={() => { setErroAcao(null); setSanando(x); setResposta(""); setSemAlteracao(false) }}>
                         Sanar
                       </Button>
                     )}
@@ -368,7 +404,7 @@ export default function ParecerPage() {
               <Textarea id="ress" rows={2} value={ressalvas} onChange={(e) => setRessalvas(e.target.value)} placeholder="Condições para o prosseguimento (favorável com ressalvas)." />
               <div className="flex gap-2 flex-wrap">
                 <Button variant="outline" size="sm" disabled={ocupado} onClick={salvarTexto}>Salvar rascunho</Button>
-                <Button size="sm" disabled={ocupado} onClick={emitir}><PenLine className="w-4 h-4 mr-1" /> Assinar parecer</Button>
+                <Button size="sm" disabled={ocupado || !!bloqueioAssinatura} onClick={emitir} title={bloqueioAssinatura ?? undefined}><PenLine className="w-4 h-4 mr-1" /> Assinar parecer</Button>
               </div>
               <p className="text-xs text-gray-600">O texto do parecer é montado a partir deste roteiro. Cada diligência vira tarefa do responsável pela peça e o processo volta à Procuradoria quando sanada.</p>
             </section>
@@ -417,6 +453,7 @@ export default function ParecerPage() {
               <Input id="trecho" value={novaDil.trecho} onChange={(e) => setNovaDil({ ...novaDil, trecho: e.target.value })} />
             </div>
           )}
+          {erroAcao && <p className="text-sm text-red-700" role="alert">{erroAcao}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setNovaDil(null)} disabled={ocupado}>Cancelar</Button>
             <Button
@@ -457,6 +494,7 @@ export default function ParecerPage() {
               </label>
             </div>
           )}
+          {erroAcao && <p className="text-sm text-red-700" role="alert">{erroAcao}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setSanando(null)} disabled={ocupado}>Cancelar</Button>
             <Button

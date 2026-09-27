@@ -14,6 +14,7 @@ import {
 import { API_URL, authFetch } from "@/lib/api"
 import { TITULOS_TIPO } from "@/lib/fase-interna/secoes-template"
 import { AprovacaoEtapasPanel } from "@/components/fase-interna/AprovacaoEtapasPanel"
+import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { rotaDaTela, telaDoTipo } from "@/lib/fase-interna/telas"
 
 // Importação dinâmica — DocumentoSeccionado usa Tiptap (browser-only)
@@ -31,6 +32,9 @@ const DocumentoSeccionado = dynamic(
     ),
   },
 )
+
+/** Peças que só ficam prontas pelo ato da tela delas (mapa, reserva, assinatura) — não pelo "Gerar documento". */
+const TIPOS_COM_ATO_PROPRIO = new Set(["PP", "DO", "AA", "PJ", "PJE", "MCI", "PDO"])
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -179,6 +183,19 @@ export default function EditorDocumentoPage({
             </button>
           )}
         </div>
+      </div>
+
+      {/* ── Situação da peça: o rascunho só fica pronto depois de gerar o documento (ou anexar) ── */}
+      <div className="px-4 py-2 border-b border-gray-200 bg-white shrink-0 max-h-[40vh] overflow-y-auto">
+        <CaminhosDaPeca
+          licitacaoId={id}
+          tipo={tipo}
+          titulo={tituloDocumento}
+          fazerAqui="escrever as seções e gerar o documento"
+          emitir={!TIPOS_COM_ATO_PROPRIO.has(tipo)}
+          onAtualizado={carregarTudo}
+          compacto
+        />
       </div>
 
       {/* ── Editor de seções guiadas + painel de aprovação ── */}

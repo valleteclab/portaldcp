@@ -36,6 +36,7 @@ import {
   BookMarked,
   Users,
   Inbox,
+  Menu,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -62,9 +63,21 @@ interface MenuLink {
   requerRole?: string
 }
 
+/** Abre/fecha o menu lateral no celular (o botão ☰ fica no cabeçalho, o menu no Sidebar). */
+const EVENTO_MENU_LATERAL = 'menu-lateral:alternar'
+
 export function Sidebar({ userType }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
+  // Gaveta aberta NA página atual: navegou, fecha sozinha
+  const [abertoEm, setAbertoEm] = useState<string | null>(null)
+  const abertoNoCelular = abertoEm === pathname
+  const setAbertoNoCelular = (aberto: boolean) => setAbertoEm(aberto ? pathname : null)
+  useEffect(() => {
+    const alternar = () => setAbertoEm((v) => (v === window.location.pathname ? null : window.location.pathname))
+    window.addEventListener(EVENTO_MENU_LATERAL, alternar)
+    return () => window.removeEventListener(EVENTO_MENU_LATERAL, alternar)
+  }, [])
   const { modulos, loading: modulosLoading, temAcesso } = useModulosOrgao()
   const [podeAprovar, setPodeAprovar] = useState(false)
   const [permissoesUsuario, setPermissoesUsuario] = useState<Record<string, boolean>>({})
@@ -256,7 +269,13 @@ export function Sidebar({ userType }: SidebarProps) {
   const links = getFilteredLinks(userType === 'fornecedor' ? fornecedorLinks : orgaoLinks)
 
   return (
-    <aside className="w-64 bg-slate-900 text-white min-h-screen flex flex-col">
+    <>
+    {/* Celular: o menu lateral vira gaveta (botão ☰ no cabeçalho) — sem ele a tela ficava com 100 px úteis e rolagem lateral */}
+    {abertoNoCelular && <div className="fixed inset-0 z-40 bg-black/40 md:hidden" aria-hidden="true" onClick={() => setAbertoNoCelular(false)} />}
+    <aside
+      id="menu-lateral"
+      className={`w-64 bg-slate-900 text-white min-h-screen flex-col shrink-0 ${abertoNoCelular ? 'fixed inset-y-0 left-0 z-50 flex overflow-y-auto' : 'hidden'} md:static md:z-auto md:flex`}
+    >
       <div className="p-4 border-b border-slate-700">
         <Link href={userType === 'orgao' ? '/orgao' : '/'} className="flex items-center gap-3">
           <div className="bg-white rounded-lg p-1.5 flex items-center justify-center min-w-[50px] min-h-[50px]">
@@ -327,6 +346,7 @@ export function Sidebar({ userType }: SidebarProps) {
         </Button>
       </div>
     </aside>
+    </>
   )
 }
 
@@ -427,15 +447,25 @@ export function Header() {
   }
 
   return (
-    <header className="h-16 bg-white border-b flex items-center justify-between px-6">
-      <div className="flex items-center gap-4">
+    <header className="h-16 bg-white border-b flex items-center justify-between gap-2 px-3 sm:px-6 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden shrink-0"
+          aria-label="Abrir o menu"
+          aria-controls="menu-lateral"
+          onClick={() => window.dispatchEvent(new Event(EVENTO_MENU_LATERAL))}
+        >
+          <Menu className="h-5 w-5" aria-hidden="true" />
+        </Button>
         <Input
           placeholder="Buscar licitações..."
-          className="w-80"
+          className="hidden md:block w-80"
         />
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
         {(pathname.startsWith('/orgao') || pathname.startsWith('/fornecedor')) && <NotificacoesBadge />}
 
         <div className="flex items-center gap-3">
@@ -446,7 +476,7 @@ export function Header() {
               className="h-10 w-10 object-contain"
             />
           )}
-          <div className="text-right">
+          <div className="text-right hidden sm:block min-w-0">
             <p className="text-sm font-medium">
               {usuario?.orgaoNome || usuario?.nome || 'Usuário'}
             </p>

@@ -42,10 +42,13 @@ export class TelasAnaliseDecisaoController {
     return this.autorizacao.obter(id, ator);
   }
 
-  /** Gera (ou regera) o despacho pelo modelo. */
+  /**
+   * Gera (ou regera) o despacho pelo modelo. Depois de autorizado: 409, salvo
+   * `{ nova_autorizacao: true, motivo }` (versão nova, de novo à autoridade).
+   */
   @Post(':licitacaoId/autorizacao/gerar')
-  async gerarAutorizacao(@Param('licitacaoId') id: string, @AtorAtual() ator: Ator) {
-    return this.autorizacao.gerar(id, ator, await this.autor(ator));
+  async gerarAutorizacao(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    return this.autorizacao.gerar(id, ator, await this.autor(ator), body ?? {});
   }
 
   /** Envia à autoridade: { signatarios?: [{ usuario_id, papel }] } — sem lista, os da configuração. */

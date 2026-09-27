@@ -4,6 +4,7 @@ import {
   podeCancelar,
   podeReabrir,
   podeSanar,
+  roteiroFaseExterna,
   roteiroPrevio,
   textoDoParecer,
   validarEmissao,
@@ -31,6 +32,23 @@ describe('Roteiro do parecer (Entrega 3B) — lê o motor de conformidade (Entre
     const r = roteiro(pa139Corrigido(), [linha('DFD'), linha('ETP', 'NAO_SE_APLICA'), linha('TR'), linha('PP'), linha('DO', 'PENDENTE'), linha('AA'), linha('RAG')]);
     const s = Object.fromEntries(r.map((i) => [i.id, i.automatico.situacao]));
     expect(s).toMatchObject({ A72_I: 'CONFORME', A72_II: 'CONFORME', A72_IV: 'PENDENTE', A72_VI_VII: 'CONFORME', A72_VIII: 'CONFORME' });
+  });
+
+  it('art. 72, VI e VII por modalidade (homologação 26/09/2026): dispensa eletrônica → critério e preço estimado aqui; inexigibilidade → relatório OU justificativa', () => {
+    const base = { contratacao_direta: true, fundamento_referencia: 'art. 75, II', numero_processo: '1/2026', avaliacoes: [] };
+    const disp = roteiroPrevio({ ...base, modalidade: 'DISPENSA_ELETRONICA', instrucao: [linha('RAG'), linha('JC', 'PENDENTE')] }).find((i) => i.id === 'A72_VI_VII')!;
+    expect(disp.texto).toMatch(/preço estimado.*fase externa/);
+    expect(disp.automatico.situacao).toBe('CONFORME');
+    const inex = (instrucao: any[]) => roteiroPrevio({ ...base, modalidade: 'INEXIGIBILIDADE', instrucao }).find((i) => i.id === 'A72_VI_VII')!.automatico.situacao;
+    expect(inex([linha('RAG', 'PENDENTE'), linha('JC')])).toBe('CONFORME');
+    expect(inex([linha('RAG', 'NAO_SE_APLICA'), linha('JC', 'NAO_SE_APLICA')])).toBe('PENDENTE');
+  });
+
+  it('parecer da fase externa: VI e VII conferidos com o vencedor e o preço final registrados', () => {
+    const item = (e: Parameters<typeof roteiroFaseExterna>[0]) => roteiroFaseExterna(e).find((i) => i.id === 'A72_VI_VII')!.automatico;
+    expect(item({ parecer_previo: 'OK', tem_vencedor: true, valor_vencedor: 22600, valor_estimado: 24000 })).toMatchObject({ situacao: 'CONFORME' });
+    expect(item({ parecer_previo: 'OK', tem_vencedor: true, valor_vencedor: 25000, valor_estimado: 24000 })).toMatchObject({ situacao: 'ATENCAO' });
+    expect(item({ parecer_previo: 'OK', tem_vencedor: false, valor_vencedor: null, valor_estimado: 24000 })).toMatchObject({ situacao: 'PENDENTE' });
   });
 
   it('PA 139/2025: o inciso I citado no relatório e na minuta do aviso quando o processo é do inciso II → atenção no art. 75 (ENQ-01)', () => {

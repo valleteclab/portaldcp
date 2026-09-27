@@ -4,9 +4,10 @@
  * registrada em `REGRAS` com código, descrição, severidade, etapa e portão.
  *
  *  Portão A — limite e fracionamento (etapa 4, pesquisa): LIM-01, LIM-02.
- *  Portão B — art. 72 (etapa 6, autorização): A72-I, A72-II, A72-IV (V e VI
- *            são da fase externa e não bloqueiam; III, VII e VIII conferidos
- *            antes de publicar).
+ *  Portão B — art. 72 (etapa 6, autorização): A72-I, A72-II, A72-IV e, na
+ *            contratação direta sem aviso, A72-VI e A72-VII (na dispensa
+ *            eletrônica são cumpridos após a seleção do fornecedor; V é da
+ *            fase externa; III e VIII conferidos antes de publicar).
  *  Portão C — antes de publicar (etapa 8): ENQ-01, VINC-01, MARCA-01,
  *            PRECO-01..04, CRONO-01, LEI-01, EXERC-01, DUP-01, ASS-01,
  *            PRAZO-01, MINUTA-DESAT, SIGILO-01, ART92-01, DISP-01 (Entrega 5).
@@ -22,7 +23,7 @@ import { avaliarPrazosDePublicacao, fimDoRecebimento, formatarDataBrasilia } fro
 import { detectarIndicacaoMarca } from '../telas/etp-analise';
 import { propostasDiretas } from '../telas/pesquisa-regras';
 import { PassoFaseInterna, dependenciasDoPasso, passoDaPeca } from '../tarefas/etapas-fase-interna';
-import { INCISOS_ART72, PRONTA, descreverFaltantes, situacaoDasPecasDoArt72 } from './art72';
+import { INCISOS_ART72, PRONTA, contratacaoSemAviso, descreverFaltantes, motivoEscolhaAposSelecao, situacaoDasPecasDoArt72, situacaoEscolhaPreco } from './art72';
 import { leisOrcamentariasCitadas, ocorrenciasDeOutroProcesso, ocorrenciasDoArt75, textoPuro } from './texto';
 import type { AchadoCalculado, ContextoConformidade, Evidencia, PecaConformidade, Regra } from './tipos';
 
@@ -227,9 +228,71 @@ export const A72_II = regraArt72('II', { severidade: 'BLOQUEIO', etapa: 'AUTORIZ
 export const A72_III = regraArt72('III', { severidade: 'ATENCAO', etapa: 'PUBLICACAO', portao: 'C' });
 export const A72_IV = regraArt72('IV', { severidade: 'BLOQUEIO', etapa: 'AUTORIZACAO', portao: 'B' });
 export const A72_V = regraArt72('V', { severidade: 'ATENCAO', etapa: 'PUBLICACAO', portao: 'C' });
-export const A72_VI = regraArt72('VI', { severidade: 'ATENCAO', etapa: 'PUBLICACAO', portao: 'C' });
-/** Justificativa de preço (relatório do agente / justificativa): conferida antes de publicar, sem bloquear. */
-export const A72_VII = regraArt72('VII', { severidade: 'ATENCAO', etapa: 'PUBLICACAO', portao: 'C', tipos: ['RAG', 'JC'] });
+
+/**
+ * A72-VI (razão da escolha do contratado) e A72-VII (justificativa de preço)
+ * — homologação 26/09/2026. O momento depende de como o contratado é escolhido
+ * (`momentoDoInciso`, art72.ts):
+ *  - dispensa ELETRÔNICA, com ou sem lances (art. 75, §3º; IN SEGES/ME
+ *    67/2021), e credenciamento (art. 79): o contratado e o preço final só
+ *    existem DEPOIS da seleção — na fase interna a regra NÃO acusa falta
+ *    (informativo "cumprido após a seleção do fornecedor"); a conferência é a
+ *    do parecer da fase externa, antes da adjudicação (roteiro com o vencedor
+ *    e o preço registrados no julgamento);
+ *  - contratação direta SEM aviso (inexigibilidade, art. 74): o contratado é
+ *    definido antes — exigidos ANTES da autorização (portão B, BLOQUEIO): ao
+ *    menos uma peça pronta com a escolha e o preço (relatório do agente ou
+ *    justificativa da contratação direta; art. 23, §4º para o preço).
+ */
+function regraArt72EscolhaPreco(inciso: 'VI' | 'VII'): Regra {
+  const def = INCISOS_ART72.find((i) => i.inciso === inciso)!;
+  const codigo = `A72-${inciso}`;
+  return {
+    codigo,
+    descricao: `Art. 72, ${inciso} — ${def.texto} (antes da autorização na contratação direta sem aviso; após a seleção do fornecedor na dispensa eletrônica)`,
+    severidade: 'BLOQUEIO',
+    etapa: 'AUTORIZACAO',
+    portao: 'B',
+    sem_tarefa: true,
+    aplicavel(ctx) {
+      const rito = naoDireta(ctx);
+      if (rito) return rito;
+      // Só a contratação direta SEM aviso (inexigibilidade) exige antes; dispensa eletrônica e credenciamento: após a seleção
+      if (!contratacaoSemAviso(ctx.processo.modalidade)) return motivoEscolhaAposSelecao(ctx.processo.modalidade);
+      if (autorizacaoPraticada(ctx) && ctx.ato_pretendido !== 'AUTORIZAR') return 'A autorização já foi dada (o portão B é conferido antes de autorizar).';
+      return null;
+    },
+    avaliar(ctx) {
+      const s = situacaoEscolhaPreco(ctx.instrucao);
+      if (s.ok) return [];
+      const alvo = s.pecas.find((p) => p.tipo === 'RAG') ?? s.pecas[0] ?? null;
+      const evid: Evidencia[] = s.pecas
+        .filter((p) => p.status !== 'NAO_SE_APLICA')
+        .map((f) => {
+          const p = ctx.pecas.find((x) => x.tipo === f.tipo);
+          return p ? evidenciaDaPeca(p) : { documento_id: f.documento_id ?? null, tipo: f.tipo, titulo: f.titulo, folha: null, trecho: null };
+        });
+      const oque = inciso === 'VI' ? 'a razão da escolha do contratado' : 'a justificativa do preço (art. 23, §4º)';
+      return [
+        {
+          regra: codigo,
+          chave: `inciso:${inciso}`,
+          severidade: 'BLOQUEIO',
+          titulo: `Art. 72, ${inciso} incompleto`,
+          mensagem:
+            `Art. 72, ${inciso} — ${def.texto}: falta ${oque}, no relatório do agente ou na justificativa da contratação direta (pronta: gerada, anexada ou assinada). ` +
+            'Na contratação direta sem aviso (inexigibilidade, art. 74) o contratado é definido antes: sem isso a autoridade não autoriza (portão B). "Não se aplica" não supre este inciso.',
+          evidencias: evid,
+          tipo_peca_responsavel: alvo?.tipo ?? 'RAG',
+          acao: 'CORRIGIR_PECA',
+        },
+      ];
+    },
+  };
+}
+
+export const A72_VI = regraArt72EscolhaPreco('VI');
+export const A72_VII = regraArt72EscolhaPreco('VII');
 /** A autorização é peça obrigatória: a pré-condição de instrução do PUBLICAR já a exige (uma mensagem só). */
 export const A72_VIII = regraArt72('VIII', { severidade: 'BLOQUEIO', etapa: 'PUBLICACAO', portao: 'C', garantida_no_ato: true });
 

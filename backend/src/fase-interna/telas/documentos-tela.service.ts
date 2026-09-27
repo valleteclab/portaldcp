@@ -605,7 +605,8 @@ export class DocumentosTelaService {
       contratacao_direta: instrucao.contratacao_direta,
       instrucao: instrucao.itens.find((i) => i.tipo === 'TR') ?? null,
       tr: { peca: this.resumoPeca(tr), secoes: this.secoesDe(tr) },
-      etp: { peca: this.resumoPeca(etp), pronto: !!etp && (etp.status !== StatusDocumento.EM_ELABORACAO || textoPuro(etp.descricao).length > 10) },
+      // Mesma regra da instrução: pronto = emitido (gerado/anexado/assinado) ou "não se aplica"
+      etp: { peca: this.resumoPeca(etp), pronto: ['OK', 'NAO_SE_APLICA'].includes(instrucao.itens.find((i) => i.tipo === 'ETP')?.status ?? '') },
       itens,
       valor_total: total,
       sigilo: { sigiloso: lic.sigilo_orcamento === 'SIGILOSO', justificativa: lic.justificativa_sigilo ?? null },

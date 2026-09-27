@@ -15,7 +15,7 @@
  *    (condicionado ao saneamento — exige as ressalvas) ou desfavorável
  *    (exige a fundamentação).
  */
-import { situacaoDasPecasDoArt72, type LinhaInstrucaoPortao } from '../conformidade/art72';
+import { contratacaoSemAviso, selecaoPosterior, situacaoDasPecasDoArt72, situacaoEscolhaPreco, type LinhaInstrucaoPortao } from '../conformidade/art72';
 import type { AchadoCalculado, AvaliacaoRegra } from '../conformidade/tipos';
 
 // Cláusulas do art. 92: a implementação é a do motor (regra ART92-01), reexportada aqui.
@@ -74,13 +74,39 @@ export function roteiroPrevio(e: {
   fundamento_referencia: string | null;
   numero_processo: string | null;
   avaliacoes: AvaliacaoRegra[];
+  /** Modalidade: na dispensa eletrônica a escolha e o preço final só existem após a seleção (art. 75, §3º). */
+  modalidade?: string | null;
 }): ItemRoteiro[] {
   const itens: ItemRoteiro[] = [];
   const I = e.instrucao;
   itens.push({ id: 'A72_I', ref: 'Art. 72, I', texto: 'DFD e, se for o caso, ETP, riscos e TR juntados', tipos: ['DFD', 'ETP', 'AR', 'TR'], automatico: pecas(I, ['DFD', 'ETP', 'AR', 'TR'], 'Planejamento') });
   itens.push({ id: 'A72_II', ref: 'Art. 72, II', texto: 'Estimativa de despesa conforme o art. 23', tipos: ['PP', 'MCP'], automatico: pecas(I, ['PP'], 'Pesquisa de preços') });
   itens.push({ id: 'A72_IV', ref: 'Art. 72, IV', texto: 'Compatibilidade orçamentária', tipos: ['DO'], automatico: pecas(I, ['DO'], 'Informação orçamentária') });
-  itens.push({ id: 'A72_VI_VII', ref: 'Art. 72, VI e VII', texto: 'Razão da escolha e justificativa do preço (relatório do agente)', tipos: ['RAG', 'JC'], automatico: pecas(I, ['RAG'], 'Relatório do agente') });
+  if (e.modalidade && selecaoPosterior(e.modalidade)) {
+    // Dispensa eletrônica / credenciamento: aqui, o critério de escolha e o preço ESTIMADO (relatório do agente);
+    // o contratado e o preço final são conferidos no parecer da fase externa
+    itens.push({
+      id: 'A72_VI_VII',
+      ref: 'Art. 72, VI e VII',
+      texto: 'Critério de escolha e preço estimado (relatório do agente) — o contratado e o preço final são conferidos no parecer da fase externa',
+      tipos: ['RAG', 'JC'],
+      automatico: pecas(I, ['RAG'], 'Relatório do agente'),
+    });
+  } else if (contratacaoSemAviso(e.modalidade)) {
+    // Contratação direta sem aviso (inexigibilidade): escolha e preço antes da autorização — relatório OU justificativa
+    const s = situacaoEscolhaPreco(I);
+    itens.push({
+      id: 'A72_VI_VII',
+      ref: 'Art. 72, VI e VII',
+      texto: 'Razão da escolha do contratado e justificativa do preço (art. 23, §4º)',
+      tipos: ['RAG', 'JC'],
+      automatico: s.ok
+        ? { situacao: 'CONFORME', detalhe: 'Relatório do agente ou justificativa da contratação direta juntado' }
+        : { situacao: 'PENDENTE', detalhe: 'Falta o relatório do agente ou a justificativa da contratação direta' },
+    });
+  } else {
+    itens.push({ id: 'A72_VI_VII', ref: 'Art. 72, VI e VII', texto: 'Razão da escolha e justificativa do preço (relatório do agente)', tipos: ['RAG', 'JC'], automatico: pecas(I, ['RAG'], 'Relatório do agente') });
+  }
   itens.push({ id: 'A72_VIII', ref: 'Art. 72, VIII', texto: 'Autorização da autoridade competente', tipos: ['AA'], automatico: pecas(I, ['AA'], 'Autorização') });
 
   // Enquadramento (ENQ-01): o inciso citado nas peças é o do processo?
@@ -186,6 +212,19 @@ export function roteiroFaseExterna(e: { parecer_previo: string | null; tem_vence
       texto: 'Preço vencedor dentro do estimado',
       tipos: ['PP'],
       automatico: acimaDoEstimado ? { situacao: 'ATENCAO', detalhe: 'Valor vencedor acima do estimado' } : { situacao: 'CONFORME', detalhe: 'Valor dentro do estimado' },
+    },
+    {
+      // Na dispensa eletrônica, VI e VII só se cumprem aqui: o contratado e o preço final vêm da seleção
+      id: 'A72_VI_VII',
+      ref: 'Art. 72, VI e VII',
+      texto: 'Razão da escolha do contratado e justificativa do preço final (vencedor e preço registrados no julgamento)',
+      tipos: ['RAG'],
+      automatico:
+        e.tem_vencedor && e.valor_vencedor != null
+          ? acimaDoEstimado
+            ? { situacao: 'ATENCAO', detalhe: 'Vencedor registrado, com preço acima do estimado — justificar o preço' }
+            : { situacao: 'CONFORME', detalhe: 'Vencedor e preço final registrados no julgamento (menor preço, dentro do estimado)' }
+          : { situacao: 'PENDENTE', detalhe: 'Sem vencedor e preço final registrados — a escolha e o preço só existem após a seleção' },
     },
     { id: 'HABILITACAO', ref: 'Art. 62 · Art. 72, V', texto: 'Habilitação do vencedor', tipos: [], automatico: { situacao: 'PENDENTE', detalhe: 'Conferir os documentos de habilitação' } },
     { id: 'RECURSOS', ref: 'Art. 165', texto: 'Recursos decididos', tipos: [], automatico: { situacao: 'PENDENTE', detalhe: 'Conferir o prazo e as decisões' } },

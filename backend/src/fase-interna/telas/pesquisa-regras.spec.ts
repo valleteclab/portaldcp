@@ -144,6 +144,16 @@ describe('pesquisa de preços — parâmetros do art. 23, §1º e propostas', ()
     expect(ps[2].evidencia_resumo).toBe('Não consultado');
   });
 
+  it('3 fornecedores com 2 itens = 3 propostas (não 6 — homologação 26/09/2026)', () => {
+    const itens = [item(1, 12, [['A', 100, 'g1'], ['B', 110, 'g2'], ['C', 120, 'g3']]), item(2, 1, [['A', 1000, 'g1'], ['B', 900, 'g2'], ['C', 950, 'g3']])];
+    const iv = parametrosDaPesquisa([], itens).find((p) => p.inciso === 'IV')!;
+    expect(iv.evidencia_resumo).toMatch(/· 3 propostas/);
+    expect(iv.cotacoes).toBe(6); // preços por item continuam contados como preços
+    // sem o grupo da tela: conta pelo CNPJ/fornecedor
+    const semGrupo = itens.map((i) => ({ ...i, cotacoes: i.cotacoes.map((c: any, n: number) => ({ ...c, grupo_id: undefined, fornecedor_cnpj: `0000000000000${n}` })) }));
+    expect(parametrosDaPesquisa([], semGrupo as any).find((p) => p.inciso === 'IV')!.evidencia_resumo).toMatch(/· 3 propostas/);
+  });
+
   it('validação do registro manual', () => {
     expect(validarParametro({ inciso: 'I', situacao: 'SEM_RETORNO', data_consulta: '2025-12-10' }, '2025-12-10')).toBeNull();
     expect(validarParametro({ inciso: 'I', situacao: 'SEM_RETORNO' }, '2025-12-10')).toMatch(/data/);

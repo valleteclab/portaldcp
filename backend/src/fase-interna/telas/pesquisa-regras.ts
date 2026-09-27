@@ -115,7 +115,10 @@ export function parametrosDaPesquisa(registrados: ParametroArt23[] | null | unde
     if (situacaoTela === 'PENDENTE') resumo = 'Não consultado';
     else if (situacaoTela === 'SEM_RETORNO') resumo = `Consultado${data ? ` ${data}` : ''} · sem retorno${base.resultado ? ` — ${base.resultado}` : ''}`;
     else {
-      const n = cotacoes.length;
+      // Inciso IV: a PROPOSTA é do fornecedor (uma por fornecedor, com o preço
+      // de cada item) — contar as cotações por item dava "6 propostas" com 3
+      // fornecedores e 2 itens (homologação 26/09/2026).
+      const n = inciso === 'IV' ? new Set(cotacoes.map((c) => chaveDaProposta(c))).size : cotacoes.length;
       const qtd = inciso === 'IV' ? `${n} ${n === 1 ? 'proposta' : 'propostas'}` : `${n} ${n === 1 ? 'preço' : 'preços'}`;
       resumo = `Consultado${data ? ` ${data}` : ''} · ${qtd}${base.resultado ? ` — ${base.resultado}` : ''}`;
     }
@@ -288,6 +291,11 @@ export interface PropostaDireta {
 
 const soDigitos = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 
+/** Uma proposta = um fornecedor (o grupo da tela, senão o CNPJ, senão o nome) — com o preço de cada item. */
+export function chaveDaProposta(c: Partial<CotacaoComGrupo>): string {
+  return c.grupo_id || `cnpj:${soDigitos(c.fornecedor_cnpj) || String(c.fornecedor_razao_social || c.descricao_fonte || '').trim().toLowerCase()}`;
+}
+
 /**
  * Cotações diretas (fonte FORNECEDOR_DIRETO) agrupadas por proposta: pelo
  * `grupo_id` (propostas lançadas pela tela nova) ou pelo CNPJ/fornecedor
@@ -299,7 +307,7 @@ export function propostasDiretas(itens: ItemPesquisaPrecos[], ref: { hoje: strin
     (item.cotacoes || []).forEach((c0) => {
       const c = c0 as CotacaoComGrupo;
       if (c.fonte !== 'FORNECEDOR_DIRETO') return;
-      const chave = c.grupo_id || `cnpj:${soDigitos(c.fornecedor_cnpj) || String(c.fornecedor_razao_social || c.descricao_fonte || '').trim().toLowerCase()}`;
+      const chave = chaveDaProposta(c);
       let p = mapa.get(chave);
       if (!p) {
         p = {
