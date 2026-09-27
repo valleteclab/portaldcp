@@ -51,13 +51,17 @@ export default function ProcessoPage() {
 
   const carregar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true)
-    setErro(null)
     try {
       const res = await authFetch(`${API_URL}/api/licitacoes/${id}/processo-completo`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const j = (await res.json()) as ProcessoCompleto
       setDados(j)
+      setErro(null)
     } catch (e: any) {
+      // Atualização em silêncio (copiloto, volta à aba): uma falha passageira de
+      // rede — ex.: o servidor reiniciando num deploy — não troca a tela por
+      // "Failed to fetch"; mantém o que já estava e tenta de novo na próxima.
+      if (silencioso) return
       setErro(e.message || "Erro ao carregar o processo")
     } finally {
       if (!silencioso) setLoading(false)
