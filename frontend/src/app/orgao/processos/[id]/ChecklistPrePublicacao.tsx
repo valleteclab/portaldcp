@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react"
 import Link from "next/link"
 import { API_URL, authFetch } from "@/lib/api"
+import { textoDaTrava } from "@/lib/fase-interna/travas"
 import { Button } from "@/components/ui/button"
 import { Check, X, AlertTriangle, Loader2 } from "lucide-react"
 import { FilaPncp } from "./FilaPncp"
@@ -105,7 +106,7 @@ export function ChecklistPrePublicacao({
       const res = await authFetch(`${API_URL}/api/pncp/fila/${id}/reenviar`, { method: "POST" })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        setErro(j?.message || `HTTP ${res.status}`)
+        setErro(textoDaTrava(j?.message || `HTTP ${res.status}`))
       }
     } finally {
       setReenviando(false)
@@ -168,7 +169,7 @@ export function ChecklistPrePublicacao({
                 <p className={`text-sm ${i.estado === "PENDENTE" ? "font-medium" : ""}`}>
                   {i.rotulo} <span className="text-xs text-gray-600">({i.fundamento})</span>
                 </p>
-                {i.detalhe && <p className="text-xs text-gray-700">{i.detalhe}</p>}
+                {i.detalhe && <p className="text-xs text-gray-700">{textoDaTrava(i.detalhe)}</p>}
               </div>
               <div className="shrink-0 basis-full pl-9 sm:basis-auto sm:pl-0">{acaoDaLinha(i)}</div>
             </li>

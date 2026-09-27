@@ -6,7 +6,8 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/fase-interna/visao-fluxo.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

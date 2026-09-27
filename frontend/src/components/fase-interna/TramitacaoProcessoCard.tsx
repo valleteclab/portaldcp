@@ -94,8 +94,14 @@ export function TramitacaoProcessoCard({
   licitacaoId,
   abrirEncaminharExterno,
   onEncaminharFechado,
+  atualizacao,
+  onAtualizado,
 }: {
   licitacaoId: string;
+  /** Muda quando o processo muda (recarrega a lista). */
+  atualizacao?: unknown;
+  /** Avisa a tela depois de encaminhar/receber/devolver (topo "Está com…"). */
+  onAtualizado?: () => void;
   /** Quando true, abre o dialog de encaminhamento (controlado pelo pai). */
   abrirEncaminharExterno?: boolean;
   onEncaminharFechado?: () => void;
@@ -148,7 +154,7 @@ export function TramitacaoProcessoCard({
 
   useEffect(() => {
     carregar();
-  }, [carregar]);
+  }, [carregar, atualizacao]);
 
   useEffect(() => {
     if (abrirEncaminharExterno) setDialogAberto(true);
@@ -187,6 +193,7 @@ export function TramitacaoProcessoCard({
       setDataOcorrencia("");
       fecharDialog();
       await carregar();
+      onAtualizado?.();
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao tramitar");
     } finally {
@@ -201,8 +208,10 @@ export function TramitacaoProcessoCard({
       `${API_URL}/api/fase-interna/tramitacoes/${tramitacaoId}/receber`,
       { method: "PUT", body: JSON.stringify({}) },
     );
-    if (res.ok) await carregar();
-    else setErroAcao(await erroDaApi(res, "Não foi possível confirmar o recebimento"));
+    if (res.ok) {
+      await carregar();
+      onAtualizado?.();
+    } else setErroAcao(await erroDaApi(res, "Não foi possível confirmar o recebimento"));
   };
 
   const devolver = async () => {
@@ -216,6 +225,7 @@ export function TramitacaoProcessoCard({
       setDevolvendoId(null);
       setMotivoDevolucao("");
       await carregar();
+      onAtualizado?.();
     } else {
       setDevolvendoId(null);
       setErroAcao(await erroDaApi(res, "Não foi possível devolver o processo"));

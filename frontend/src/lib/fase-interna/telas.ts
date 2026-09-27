@@ -6,6 +6,8 @@
  * e abre pelo quadro "Fluxo da fase interna" ou pela tarefa da caixa.
  */
 
+import { textoDaTrava } from "./travas"
+
 export type TelaEtapa = "dfd" | "etp" | "tr" | "pesquisa" | "reserva" | "autorizacao" | "minutas" | "parecer" | "controle-interno" | "conformidade"
 
 export interface EtapaDaBarra {
@@ -145,11 +147,11 @@ export const fmtDia = (d?: string | null) => {
 /** Hoje em Brasília (AAAA-MM-DD). */
 export const hojeBrasilia = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10)
 
-/** Mensagem de erro da API (inclui a lista `pendencias`, quando houver). */
+/** Mensagem de erro da API (inclui a lista `pendencias`, quando houver). "Portão X" vira "Trava da lei — …". */
 export async function erroDaApi(res: Response): Promise<string> {
   const j = await res.json().catch(() => null)
-  if (Array.isArray(j?.pendencias) && j.pendencias.length) return j.pendencias.join(" ")
-  return (Array.isArray(j?.message) ? j.message.join(" ") : j?.message) || `HTTP ${res.status}`
+  if (Array.isArray(j?.pendencias) && j.pendencias.length) return textoDaTrava(j.pendencias.join(" "))
+  return textoDaTrava((Array.isArray(j?.message) ? j.message.join(" ") : j?.message) || `HTTP ${res.status}`)
 }
 
 /** Texto puro de um HTML (contagem de preenchimento). */

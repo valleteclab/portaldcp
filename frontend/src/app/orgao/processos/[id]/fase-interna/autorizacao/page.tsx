@@ -25,6 +25,8 @@ import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { erroDaApi, fmtDia, fmtMoeda } from "@/lib/fase-interna/telas"
+import { textoDaTrava } from "@/lib/fase-interna/travas"
+import { AjudaTravaDaLei } from "@/components/fase-interna/fluxo/AjudaTravaDaLei"
 
 interface LinhaPortao {
   inciso: string
@@ -218,7 +220,7 @@ export default function AutorizacaoPage() {
     const motivo = await pedirTexto({
       titulo: "Nova autorização",
       mensagem:
-        "A autorização já foi dada. Uma nova autorização cria uma versão nova do despacho, que volta a passar pelo art. 72 (portão B) e pela assinatura da autoridade; até lá o processo fica sem autorização. A anterior fica no histórico.",
+        "A autorização já foi dada. Uma nova autorização cria uma versão nova do despacho, que volta a passar pela trava da lei do art. 72 e pela assinatura da autoridade; até lá o processo fica sem autorização. A anterior fica no histórico.",
       rotulo: "Motivo (fica registrado no histórico do processo)",
       obrigatorio: true,
       minimo: 10,
@@ -356,9 +358,11 @@ export default function AutorizacaoPage() {
             )}
           </section>
 
-          <section aria-label="Portão B — art. 72" className="rounded-lg border bg-white p-4 space-y-2">
+          <section aria-label="Trava da lei — autorizar (art. 72)" className="rounded-lg border bg-white p-4 space-y-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h2 className="text-sm font-semibold text-gray-900">Instrução do art. 72 (portão B)</h2>
+              <h2 className="text-sm font-semibold text-gray-900">
+                Instrução do art. 72 — trava da lei para autorizar <AjudaTravaDaLei destaque="B" />
+              </h2>
               <span className={`text-xs rounded px-2 py-0.5 border ${d.resumo.portao_b.ok ? "bg-green-50 text-green-900 border-green-200" : "bg-amber-50 text-amber-900 border-amber-200"}`}>
                 {d.resumo.portao_b.ok ? "Peças exigidas para autorizar: completas" : `${d.resumo.portao_b.pendentes.length} pendência(s)`}
               </span>
@@ -368,13 +372,13 @@ export default function AutorizacaoPage() {
                 <p className="font-semibold">A autorização está bloqueada: o despacho não vai para a autoridade, não é assinado nem anexado enquanto houver:</p>
                 <ul className="list-disc pl-4">
                   {d.portao_b_bloqueios.map((b, i) => (
-                    <li key={i}>{b.replace(/^Portão B \(art\. 72\) — /, "")}</li>
+                    <li key={i}>{textoDaTrava(b).replace(/^Trava da lei — [^—]+— /, "")}</li>
                   ))}
                 </ul>
                 <Link className="text-blue-800 hover:underline" href={`/orgao/processos/${id}/fase-interna/conformidade`}>Ver na conformidade</Link>
               </div>
             ) : (
-              <p className="text-xs text-gray-600">O portão B bloqueia a autorização (envio, assinatura e anexo do despacho) enquanto faltar peça dos incisos I, II ou IV — e, na inexigibilidade (sem aviso), a razão da escolha e o preço (VI e VII). Na dispensa eletrônica, VI e VII se cumprem depois da seleção do fornecedor.</p>
+              <p className="text-xs text-gray-600">A trava da lei do art. 72 bloqueia a autorização (envio, assinatura e anexo do despacho) enquanto faltar peça dos incisos I, II ou IV — e, na inexigibilidade (sem aviso), a razão da escolha e o preço (VI e VII). Na dispensa eletrônica, VI e VII se cumprem depois da seleção do fornecedor.</p>
             )}
             <ul className="divide-y">
               {d.resumo.portao_b.linhas.map((l) => (

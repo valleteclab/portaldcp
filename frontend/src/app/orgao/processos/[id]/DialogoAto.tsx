@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { API_URL, authFetch } from "@/lib/api"
+import { textoDaTrava } from "@/lib/fase-interna/travas"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -79,7 +80,7 @@ export function DialogoAto({
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
         const pend: string[] = Array.isArray(j?.pendencias) ? j.pendencias : []
-        throw new Error(pend.length > 1 ? pend.join(" · ") : j?.message || `HTTP ${res.status}`)
+        throw new Error(textoDaTrava(pend.length > 1 ? pend.join(" · ") : j?.message || `HTTP ${res.status}`))
       }
       onFechar()
       onAtualizado()
