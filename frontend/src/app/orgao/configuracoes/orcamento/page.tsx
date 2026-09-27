@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { ArrowLeft, Loader2, Pencil, Plus } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Circle, Loader2, Pencil, Plus } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { DotacaoDialog, LeiDialog, type DotacaoTabela, type LeiTabela } from "@/components/fase-interna/etapas/CadastroOrcamentoDialogs"
@@ -20,7 +20,18 @@ export default function OrcamentoConfigPage() {
   const [leis, setLeis] = useState<LeiTabela[] | null>(null)
   const [editDot, setEditDot] = useState<DotacaoTabela | null | "nova">(null)
   const [editLei, setEditLei] = useState<LeiTabela | null | "nova">(null)
+  /** Tipo já marcado ao abrir "Nova lei" pelos atalhos do quadro "O que a reserva usa". */
+  const [tipoNovaLei, setTipoNovaLei] = useState<"LDO" | "LOA" | "PPA" | undefined>(undefined)
   const [todas, setTodas] = useState(false)
+  const exercicio = Number(new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 4))
+  const leiDoExercicio = (tipo: "LDO" | "LOA" | "PPA") =>
+    (leis ?? []).find(
+      (l) => l.tipo === tipo && l.ativo !== false && (tipo === "PPA" ? l.exercicio <= exercicio && (l.exercicio_fim ?? l.exercicio) >= exercicio : l.exercicio === exercicio),
+    )
+  const novaLei = (tipo?: "LDO" | "LOA" | "PPA") => {
+    setTipoNovaLei(tipo)
+    setEditLei("nova")
+  }
 
   const carregar = useCallback(async () => {
     try {
@@ -84,12 +95,64 @@ export default function OrcamentoConfigPage() {
       <LeiDialog
         aberto={editLei !== null}
         inicial={editLei && editLei !== "nova" ? editLei : null}
+        tipoSugerido={tipoNovaLei}
         onFechar={() => setEditLei(null)}
         onSalvo={() => {
           setEditLei(null)
           carregar()
         }}
       />
+
+      {/* Homologação 26/09/2026: a reserva exige a LDO, e o roteiro só mandava cadastrar 1 lei.
+          Cada lei é cadastrada separada, com o seu TIPO (LDO e LOA são leis diferentes). */}
+      <section className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-2" aria-label="O que a reserva orçamentária usa">
+        <h2 className="text-base font-semibold text-gray-900">O que a reserva orçamentária usa ({exercicio})</h2>
+        <p className="text-sm text-gray-700">
+          Cadastre <b>cada lei separadamente</b>, escolhendo o tipo: a <b>LDO</b> e a <b>LOA</b> do exercício são duas leis diferentes (e o PPA, uma terceira,
+          opcional). A reserva de cada processo escolhe a dotação e as leis daqui.
+        </p>
+        {!leis || !dotacoes ? (
+          <Loader2 className="w-4 h-4 animate-spin text-gray-500" aria-label="Carregando" />
+        ) : (
+          <ul className="text-sm space-y-1.5">
+            {[
+              { tipo: "LDO" as const, rotulo: "LDO — Lei de Diretrizes Orçamentárias", nota: "obrigatória na reserva (campo \"Lei da LDO *\")" },
+              { tipo: "LOA" as const, rotulo: "LOA — Lei Orçamentária Anual", nota: "citada na informação orçamentária e no despacho" },
+              { tipo: "PPA" as const, rotulo: "PPA — Plano Plurianual", nota: "opcional" },
+            ].map(({ tipo, rotulo, nota }) => {
+              const lei = leiDoExercicio(tipo)
+              return (
+                <li key={tipo} className="flex items-center gap-2 flex-wrap">
+                  {lei ? (
+                    <CheckCircle2 className="w-4 h-4 text-green-700" aria-hidden="true" />
+                  ) : (
+                    <Circle className={`w-4 h-4 ${tipo === "PPA" ? "text-gray-400" : "text-amber-600"}`} aria-hidden="true" />
+                  )}
+                  <span>
+                    <b>{rotulo}</b> <span className="text-gray-600">— {nota}:</span>{" "}
+                    {lei ? <span className="text-green-800">Lei nº {lei.numero} cadastrada</span> : <span className={tipo === "PPA" ? "text-gray-600" : "text-amber-800"}>não cadastrada para {exercicio}</span>}
+                  </span>
+                  {!lei && (
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => novaLei(tipo)}>
+                      <Plus className="w-3.5 h-3.5 mr-1" /> Cadastrar {tipo} {exercicio}
+                    </Button>
+                  )}
+                </li>
+              )
+            })}
+            <li className="flex items-center gap-2 flex-wrap">
+              {dotacoes.some((d) => d.ativo !== false && Number(d.exercicio) === exercicio) ? (
+                <CheckCircle2 className="w-4 h-4 text-green-700" aria-hidden="true" />
+              ) : (
+                <Circle className="w-4 h-4 text-amber-600" aria-hidden="true" />
+              )}
+              <span>
+                <b>Dotação de {exercicio}</b> <span className="text-gray-600">— unidade, programa, projeto/atividade, elemento e fonte, com saldo</span>
+              </span>
+            </li>
+          </ul>
+        )}
+      </section>
 
       <section className="rounded-lg border bg-white p-4 space-y-3" aria-label="Dotações">
         <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -143,8 +206,8 @@ export default function OrcamentoConfigPage() {
 
       <section className="rounded-lg border bg-white p-4 space-y-3" aria-label="Leis orçamentárias">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <h2 className="text-base font-semibold text-gray-900">Leis orçamentárias (LDO, LOA, PPA)</h2>
-          <Button size="sm" onClick={() => setEditLei("nova")}>
+          <h2 className="text-base font-semibold text-gray-900">Leis orçamentárias (LDO, LOA, PPA — uma linha por lei)</h2>
+          <Button size="sm" onClick={() => novaLei()}>
             <Plus className="w-4 h-4 mr-1" /> Nova lei
           </Button>
         </div>
