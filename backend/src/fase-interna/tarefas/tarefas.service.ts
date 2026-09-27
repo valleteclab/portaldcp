@@ -69,6 +69,8 @@ interface Perfil {
 }
 
 const SITUACOES_ENCERRAM_TUDO = ['REVOGADA', 'ANULADA'];
+/** Re-sincronização do órgão inteiro (troca de modo, modelo de fluxo): processos em paralelo, no máximo. */
+const SINCRONIZACAO_ORGAO_PARALELA = 3;
 
 /** Posse vigente (tramitação PENDENTE/RECEBIDA) com o id da tramitação. */
 export type PosseVigente = Posse & { tramitacao_id: string; posse_inicial: boolean };
@@ -218,7 +220,7 @@ export class TarefasService {
    * processo). A promessa fica registrada na hora — as leituras da caixa
    * esperam por ela (`aguardarPendentes`).
    */
-  agendar(licitacaoId: string, atrasoMs = 0, opcoes: { semRotinasAntes?: boolean } = {}): Promise<void> {
+  agendar(licitacaoId: string, atrasoMs = 0, opcoes: { semRotinasAntes?: boolean; depoisDe?: Promise<unknown> } = {}): Promise<void> {
     if (!this.ativo()) return Promise.resolve();
     // Juntada em lote em curso: roda uma vez no `retomar`
     if (this.suspensos.has(licitacaoId)) return Promise.resolve();
@@ -234,6 +236,8 @@ export class TarefasService {
     estado.promessa = (async () => {
       try {
         if (atrasoMs > 0) await new Promise((r) => setTimeout(r, atrasoMs));
+        // sincronização do órgão inteiro: espera a vez na trilha (registrado já na fila)
+        if (opcoes.depoisDe) await opcoes.depoisDe.catch(() => undefined);
         do {
           estado.repetir = false;
           const rotinas = pularAntes ? [] : this.antesDeSincronizar;
@@ -373,9 +377,22 @@ export class TarefasService {
     return linhas.map((l) => l.id);
   }
 
+  /**
+   * Re-sincroniza os processos do órgão EM SEGUNDO PLANO (E9 da homologação:
+   * "Salvar" da configuração ficava em "Salvando…" > 30 s enquanto a requisição
+   * esperava processo por processo). Devolve logo depois de ENFILEIRAR: cada
+   * processo entra na hora na sua fila (`filas`) — as leituras que chamam
+   * `aguardarPendentes` (caixa, contagem, etapas) continuam consistentes —,
+   * mas roda em no máximo `SINCRONIZACAO_ORGAO_PARALELA` trilhas.
+   * Erros já são tratados/logados no `agendar`.
+   */
   async sincronizarOrgao(orgaoId: string): Promise<void> {
-    // Pela fila de cada processo (erros já são tratados/logados no agendar)
-    for (const id of await this.processosParaSincronizar(orgaoId)) await this.agendar(id);
+    const ids = await this.processosParaSincronizar(orgaoId);
+    const trilhas: Array<Promise<unknown>> = Array.from({ length: SINCRONIZACAO_ORGAO_PARALELA }, () => Promise.resolve());
+    ids.forEach((id, i) => {
+      const t = i % trilhas.length;
+      trilhas[t] = this.agendar(id, 0, { depoisDe: trilhas[t] });
+    });
   }
 
   // ==========================================================================

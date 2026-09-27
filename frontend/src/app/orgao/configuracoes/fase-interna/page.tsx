@@ -224,11 +224,19 @@ export default function ConfiguracaoFaseInternaPage() {
   const salvar = async () => {
     setSalvando(true)
     setRetorno(null)
+    // O botão nunca fica preso em "Salvando…": o servidor responde logo (o ajuste das
+    // tarefas roda em segundo plano) e, se a rede travar, desiste em 45 s com aviso.
+    const controle = new AbortController()
+    const limite = setTimeout(() => controle.abort(), 45000)
     try {
       const r = await authFetch(`${API_URL}/api/fase-interna/configuracao`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(corpoDaConfiguracao(cfg)),
+        signal: controle.signal,
+      }).catch((e) => {
+        if (controle.signal.aborted) throw new Error("o servidor demorou a responder. Recarregue a página para conferir se a configuração foi gravada.")
+        throw e
       })
       if (!r.ok) throw new Error(await lerErro(r))
       // Mantém as chaves das linhas de signatário (o foco e o texto digitado não "pulam")
@@ -241,7 +249,7 @@ export default function ConfiguracaoFaseInternaPage() {
       setCfg(comAsMesmasChaves)
       setGravado(JSON.stringify(corpoDaConfiguracao(comAsMesmasChaves)))
       setAvisoModelo(null)
-      const texto = `Configuração salva às ${horaBrasilia(new Date())}. As tarefas abertas foram ajustadas.`
+      const texto = `Configuração salva às ${horaBrasilia(new Date())}. As tarefas abertas dos processos estão sendo ajustadas (em alguns instantes aparecem nas caixas).`
       setRetorno({ tipo: "ok", texto })
       toast.success(texto)
     } catch (e) {
@@ -249,6 +257,7 @@ export default function ConfiguracaoFaseInternaPage() {
       setRetorno({ tipo: "erro", texto })
       toast.error(texto)
     } finally {
+      clearTimeout(limite)
       setSalvando(false)
     }
   }
