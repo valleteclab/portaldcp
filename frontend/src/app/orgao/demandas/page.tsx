@@ -664,20 +664,18 @@ function DemandasPageContent() {
 
       {/* Modal Nova Demanda */}
       <Dialog open={showNovaDemanda} onOpenChange={setShowNovaDemanda}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5" />
-              Nova Demanda de Contratação
-            </DialogTitle>
+            <DialogTitle>Nova demanda</DialogTitle>
             <DialogDescription>
-              Crie uma nova demanda para o PCA {anoSelecionado}
+              O pedido do seu setor para o PCA {anoSelecionado}: o que precisa, por quê e para quando.
+              Depois de criar, você adiciona os itens e envia para aprovação.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-2">
             <div>
-              <label className="block text-sm font-medium mb-1">Unidade Requisitante *</label>
+              <label className="block text-sm font-medium mb-1">Unidade requisitante *</label>
               {setores.length > 0 && !setorLivre ? (
                 <Select
                   value={novaDemanda.unidade_requisitante}
@@ -730,15 +728,15 @@ function DemandasPageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Descrição Sucinta do Objeto *</label>
+              <label className="block text-sm font-medium mb-1">Descrição do pedido *</label>
               <Textarea
                 value={novaDemanda.descricao_sucinta_objeto}
                 onChange={(e) => setNovaDemanda({...novaDemanda, descricao_sucinta_objeto: e.target.value})}
                 placeholder="Escreva do seu jeito (ex: 'preciso de 20 cadeiras pro administrativo') — a IA formaliza para você."
                 rows={3}
               />
-              <div className="flex items-center justify-between gap-2 mt-1">
-                <p className="text-xs text-gray-500">
+              <div className="flex items-start sm:items-center justify-between gap-2 mt-1 flex-wrap sm:flex-nowrap">
+                <p className="text-xs text-gray-600">
                   Este resumo identifica o seu pedido — a unidade de planejamento usa para juntar pedidos parecidos no DFD.
                 </p>
                 <Button
@@ -758,9 +756,9 @@ function DemandasPageContent() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Tipo da Demanda</label>
+                <label className="block text-sm font-medium mb-1">Tipo da demanda</label>
                 <Select
                   value={novaDemanda.renovacao_contrato ? 'RENOVACAO' : 'NOVA'}
                   onValueChange={(value) => setNovaDemanda({
@@ -778,7 +776,7 @@ function DemandasPageContent() {
                 </Select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Data Desejada <span className="text-gray-400 font-normal">(opcional)</span></label>
+                <label className="block text-sm font-medium mb-1">Para quando (data desejada) <span className="text-gray-500 font-normal">(opcional)</span></label>
                 <Input
                   type="date"
                   value={novaDemanda.data_desejada_contratacao}
@@ -787,9 +785,9 @@ function DemandasPageContent() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Nome do Responsável</label>
+                <label className="block text-sm font-medium mb-1">Nome do responsável</label>
                 <Input
                   value={novaDemanda.responsavel_nome}
                   onChange={(e) => setNovaDemanda({...novaDemanda, responsavel_nome: e.target.value})}
@@ -807,7 +805,7 @@ function DemandasPageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">E-mail do Responsável</label>
+              <label className="block text-sm font-medium mb-1">E-mail do responsável</label>
               <Input
                 type="email"
                 value={novaDemanda.responsavel_email}
@@ -818,7 +816,7 @@ function DemandasPageContent() {
 
             <div>
               <label className="block text-sm font-medium mb-1">
-                Justificativa da Necessidade <span className="text-gray-400 font-normal">(Art. 18, I — opcional aqui, editável depois)</span>
+                Justificativa da necessidade <span className="text-gray-500 font-normal">(opcional aqui, editável depois)</span>
               </label>
               <Textarea
                 value={novaDemanda.observacoes}
@@ -855,7 +853,7 @@ function DemandasPageContent() {
               ) : (
                 <Plus className="h-4 w-4 mr-2" />
               )}
-              Criar Demanda
+              Criar demanda
             </Button>
           </DialogFooter>
         </DialogContent>
