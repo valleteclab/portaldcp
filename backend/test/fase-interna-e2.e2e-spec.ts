@@ -66,7 +66,12 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
       .attach('arquivo', pdfDeTeste(`Peca ${tipo}`), { filename: 'peca.pdf', contentType: 'application/pdf' });
   const naoSeAplica = (lic: { id: string }, tipo: string, token: string) =>
     http().post(`/api/fase-interna/${lic.id}/instrucao/${tipo}/nao-se-aplica`).set(bearer(token)).send({ justificativa: 'Objeto simples, sem necessidade.' });
-  const configurar = (token: string, corpo: any) => http().put('/api/fase-interna/configuracao').set(bearer(token)).send(corpo);
+  // a re-sincronização dos processos do órgão roda em segundo plano (E9): espera antes de conferir
+  const configurar = async (token: string, corpo: any) => {
+    const r = await http().put('/api/fase-interna/configuracao').set(bearer(token)).send(corpo);
+    await tarefas().aguardarPendentes();
+    return r;
+  };
 
   beforeAll(async () => {
     ctx = await criarApp();
