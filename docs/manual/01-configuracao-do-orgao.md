@@ -152,6 +152,22 @@ Em **Configurações** › **Fase interna e tarefas** o administrador do órgão
 
 > **Atenção.** Ao salvar, as tarefas abertas são ajustadas na hora: a troca de modo muda o responsável das tarefas que ninguém reatribuiu à mão.
 
+### Chefe do setor
+
+Na aba **Setores**, cada setor pode ter um **chefe** (um dos usuários do órgão). O chefe não precisa estar diretamente na tarefa: quando um processo **chega ao setor** (pela tramitação), tanto quem tem o papel do setor quanto o **chefe** são avisados e podem **receber** o processo em nome do setor. Sem chefe cadastrado, só quem tem o papel do setor recebe o aviso e a tarefa.
+
+### Configurar o fluxo (Configurações › Fluxo)
+
+Em **Configurações › Fluxo** (`/orgao/configuracoes/fluxo`) o administrador desenha, **por tipo de processo** (Dispensa, Inexigibilidade, Licitação), o caminho que a fase interna percorre — é a evolução do quadro "Responsável e prazo por etapa" acima, agora com a **ordem, as dependências entre etapas e o desenho** visíveis:
+
+- Escolha o **tipo** no topo (Dispensa, Inexigibilidade ou Licitação). Cada tipo tem o seu modelo.
+- Para cada etapa: **quem faz** (um papel, um setor ou uma pessoa), o **prazo em dias úteis**, se a etapa está **ligada** (só as opcionais podem ser desligadas — ex.: "autorização de início" e "indicação da modalidade", que a lei não exige), se a **IA prepara o rascunho** quando o processo chega, se pede **aprovação interna** antes de enviar adiante, se é **dispensável por ato** (só no Parecer, art. 53, §5º) e **de quais outras etapas ela depende**.
+- **A aprovação da demanda**: escolha quem aprova — por padrão, quem tem a permissão "pode aprovar demandas", mas pode ser um papel, um setor ou uma pessoa específica. Enquanto ninguém aprovar, o processo não avança para as etapas seguintes (veja "Aprovação da demanda", na parte [02](02-fase-interna-e-criacao.md#aprovação-da-demanda)).
+- O quadro mostra o **desenho** do fluxo (colunas por nível de dependência — etapas na mesma coluna podem andar ao mesmo tempo).
+- **Salvar modelo** valida pela Lei 14.133 antes de gravar: uma etapa obrigatória não pode ser desligada, a autorização não pode vir antes da pesquisa e da reserva, e ciclos nas dependências são recusados — o erro sempre cita o artigo (ex.: "Falta a autorização da autoridade competente, art. 72, VIII"). Um aviso (não bloqueia) aparece quando a mesma pessoa está em duas funções que deveriam se controlar (ex.: quem faz a pesquisa também autoriza — art. 7º, §1º).
+- **Restaurar modelo padrão** aplica de volta o modelo pronto **"Câmara — Portaria 089"**, perdendo os ajustes que o órgão tiver feito naquele tipo.
+- Processos **já em andamento não mudam de caminho** quando o modelo é editado depois: cada processo guarda o retrato (o "instantâneo") do modelo no momento em que nasceu. Só quem faz, o prazo, a IA e o liga/desliga das etapas opcionais seguem o modelo mais recente.
+
 ## 9. Orçamento (dotações e leis)
 
 Em **Configurações** › **Orçamento** o órgão mantém as tabelas que a **reserva orçamentária** dos processos usa — sem digitação livre na reserva:

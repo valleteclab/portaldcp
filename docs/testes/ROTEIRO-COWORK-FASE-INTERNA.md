@@ -3,6 +3,14 @@
 **Para:** o Claude (Cowork) que vai testar o sistema pelo navegador.
 **Objetivo:** percorrer uma **dispensa eletrônica** do início (DFD) até a publicação e os autos em PDF, conferindo cada etapa e registrando o que funcionou, o que falhou e o que ficou confuso.
 
+> **Complemento:** este roteiro usa **um usuário só, com todos os papéis** — bom para conferir cada peça e cada tela. Para testar a **tramitação entre pessoas** (quem recebe, "Está com…", avançar/voltar, isolamento entre setores), use `docs/testes/ROTEIRO-COWORK-FLUXO-MULTIUSUARIO.md` (6 usuários, um papel cada).
+>
+> **O que mudou desde a última rodada (27/09/2026):**
+> - A **aprovação da demanda** agora é o início do processo de compra: enquanto a demanda não for aprovada pela pessoa designada, a Demanda/DFD fica "aguardando aprovação" e as etapas seguintes (ETP, TR, Pesquisa) aparecem como "Aguardando: Demanda" — não abrem antes disso. Veja o passo 2 atualizado, abaixo.
+> - "Portão A/B/C" na tela virou **"Trava da lei"** (com "?" explicando o que ela segura). O texto mudou; o código e as regras continuam os mesmos.
+> - Uma peça feita no sistema (DFD, TR, pesquisa etc.) só conta como **pronta** depois de **gerada/emitida** ou **anexada** — salvar o rascunho sozinho não conclui mais a etapa.
+> - O quadro **"Fluxo da fase interna"** ganhou uma **visão em colunas** (avançar/voltar, etapas independentes lado a lado, "a revisar" quando uma etapa anterior volta) e, na fase interna, o topo da tela do processo mostra **"Está com: …"** — a mesma tramitação testada no roteiro multiusuário.
+
 ---
 
 ## 0. Regras (leia antes de começar)
@@ -45,8 +53,9 @@ Entre com o **administrador do órgão de teste**.
    - Modalidade: **Dispensa**. Fundamento: **art. 75, II** (campo "Fundamento legal" nos dados básicos — já vem sugerido pela natureza; confira).
    - Itens: 2 itens: "Implantação e treinamento" (1 serviço) e "Licença mensal do software" (12 meses), com código **CATSER**, unidade e quantidade.
    - **Esperado:** ao clicar em **"Salvar e abrir o processo"** (Itens), o sistema abre a **tela do processo** (`/orgao/processos/[id]`) com o quadro **"Fluxo da fase interna"**, com as etapas e o responsável. O mesmo vale para "Criar a partir de demanda" e para a entrada "já foi feita fora".
+   - **Aprovação da demanda (novo):** se o processo nasceu de uma demanda que ainda não está aprovada (ou se o modelo do órgão exige aprovação e você não conduz sozinho no modo simples), o quadro mostra o bloco **"Aguardando aprovação da demanda por [aprovador]"**, e as etapas seguintes (ETP, TR, Pesquisa) aparecem como **"Aguardando: Demanda"**, sem abrir. Aprove clicando em **"Aprovar a demanda"** (se o seu usuário for o aprovador designado) antes de seguir para o passo 3. Se o processo nasceu de demanda já aprovada, ou você conduz no modo simples, a aprovação já conta sozinha — confira a linha verde "Demanda aprovada".
 2. Abra **Minhas tarefas** (`/orgao/fase-interna`).
-   - **Esperado:** aparecem as tarefas desse processo, com prazo. O botão da tarefa leva à tela da etapa.
+   - **Esperado:** aparecem as tarefas desse processo, com prazo (inclusive a tarefa **"Aprovar a demanda"**, se aplicável). O botão da tarefa leva à tela da etapa.
 
 ---
 
@@ -56,7 +65,7 @@ Para **cada etapa**, confira três coisas: (a) a tela abre pelo quadro do proces
 
 | # | Etapa (rota) | O que fazer | O que deve acontecer |
 |---|---|---|---|
-| 1 | **DFD** (`…/fase-interna/dfd`) | Preencha necessidade, responsável, item do PCA **ou** justificativa de ausência. **Gerar DFD**. | PDF do DFD gerado; etapa concluída. |
+| 1 | **DFD** (`…/fase-interna/dfd`) | Preencha necessidade, responsável, item do PCA **ou** justificativa de ausência. **Gerar DFD**. | PDF do DFD gerado; etapa concluída **só depois de gerado/emitido** (o rascunho salvo sozinho, sem gerar, não conclui). |
 | 2 | **ETP** (`…/etp`) | Na dispensa, teste **"Não se aplica"** com justificativa. *(Opcional: gere uma seção com o assistente e escreva "similar ao ARION" para ver o alerta de marca.)* | "Não se aplica" aceito; alerta de marca aparece se testado. |
 | 3 | **TR** (`…/tr`) | Gere o TR. Confira que o **fundamento** aparece como art. 75, II. | TR gerado, com os itens. |
 | 4 | **Pesquisa** (`…/pesquisa`) | Marque os parâmetros do art. 23 (um deles "consultado sem retorno"). Lance **3 cotações** com CNPJ, validade e valores. Escolha o método (menor/média/mediana) e escreva a justificativa. **Emitir mapa e certidão**. | Cálculos corretos; **consumo do limite** aparece (ex.: "X% de R$ 65.492,11 — Dec. 12.807/2025", se o exercício for 2026); PDFs do mapa e da certidão. |
