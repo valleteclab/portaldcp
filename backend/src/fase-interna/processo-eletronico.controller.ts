@@ -22,12 +22,13 @@ import type { TramitarDto } from './tramitacao.service';
 import { AprovacaoService } from './aprovacao.service';
 import { TipoDocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { ModeloDocumento } from './entities/modelo-documento.entity';
-import { FluxoAprovacaoDocumento } from './entities/fluxo-aprovacao.entity';
 import { ContextoUsuario } from './audit-log.service';
 import { AtorAtual } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { DonoFaseInternaGuard, DonoModo, DonoPor } from './dono-fase-interna.guard';
+import { AprovacaoPecasService } from './aprovacao-pecas.service';
+import { TarefasService } from './tarefas/tarefas.service';
 import type { Response } from 'express';
 import * as fs from 'fs';
 
@@ -53,7 +54,15 @@ export class ProcessoEletronicoController {
     private readonly tramitacao: TramitacaoService,
     private readonly aprovacao: AprovacaoService,
     private readonly dataSource: DataSource,
+    private readonly aprovacaoPecas: AprovacaoPecasService,
+    private readonly tarefas: TarefasService,
   ) {}
+
+  /** Administração do órgão: login do órgão, usuário com papel ADMIN ou admin da plataforma. */
+  private exigirAdminDoOrgao(ator: Ator) {
+    if (ator.admin || ator.tipo === 'ORGAO' || (ator.tipo === 'USUARIO' && ator.role === 'ADMIN')) return;
+    throw new ForbiddenException('Só o administrador do órgão altera os fluxos de aprovação');
+  }
 
   /** Papéis do servidor que enxergam as caixas de todo o órgão. */
   private static readonly PAPEIS_CAIXA_DO_ORGAO = ['ADMIN'];
@@ -324,20 +333,54 @@ export class ProcessoEletronicoController {
     return this.aprovacao.listarFluxos(orgaoId);
   }
 
+  /** Catálogo de modelos prontos (dados). `?todos=1` inclui os desativados (admin da plataforma). */
+  @Get('fluxos-aprovacao/modelos-prontos')
+  modelosProntos(@AtorAtual() ator: Ator, @Query('todos') todos?: string) {
+    return this.aprovacaoPecas.modelosProntos(ator.admin && (todos === '1' || todos === 'true'));
+  }
+
+  /** Novo modelo pronto — só o admin da plataforma. */
+  @Post('fluxos-aprovacao/modelos-prontos')
+  criarModeloPronto(@Body() body: any, @AtorAtual() ator: Ator) {
+    return this.aprovacaoPecas.criarModeloPronto(ator, body ?? {});
+  }
+
+  /** Altera (ou desativa, `ativo: false`) um modelo pronto — só o admin da plataforma. */
+  @Put('fluxos-aprovacao/modelos-prontos/:id')
+  atualizarModeloPronto(@Param('id') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    return this.aprovacaoPecas.atualizarModeloPronto(ator, id, body ?? {});
+  }
+
+  /**
+   * Onde o fluxo vale: etapas do modelo de fluxo do órgão com "aprovação
+   * interna" ligada (por tipo de processo) e o fluxo usado para cada peça.
+   */
+  @Get('fluxos-aprovacao/cobertura')
+  cobertura(@Query('orgaoId') orgaoIdInformado: string, @AtorAtual() ator: Ator) {
+    const orgaoId = this.orgaoDoAtor(ator, orgaoIdInformado);
+    if (!orgaoId) throw new BadRequestException('orgaoId é obrigatório');
+    return this.aprovacaoPecas.cobertura(orgaoId);
+  }
+
   @Post('fluxos-aprovacao')
-  criarFluxo(@Body() body: Partial<FluxoAprovacaoDocumento>, @AtorAtual() ator: Ator) {
-    return this.aprovacao.criarFluxo({ ...body, orgao_id: this.orgaoDoAtor(ator, body?.orgao_id) as string });
+  async criarFluxo(@Body() body: any, @AtorAtual() ator: Ator) {
+    this.exigirAdminDoOrgao(ator);
+    const orgaoId = this.orgaoDoAtor(ator, body?.orgao_id);
+    if (!orgaoId) throw new BadRequestException('orgao_id é obrigatório');
+    return this.aprovacao.criarFluxo(orgaoId, body ?? {}, await this.tarefas.autor(ator));
   }
 
   @Put('fluxos-aprovacao/:id')
-  async atualizarFluxo(@Param('id') id: string, @Body() body: Partial<FluxoAprovacaoDocumento>, @AtorAtual() ator: Ator) {
+  async atualizarFluxo(@Param('id') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     await this.assertFluxo(ator, id);
-    return this.aprovacao.atualizarFluxo(id, body);
+    this.exigirAdminDoOrgao(ator);
+    return this.aprovacao.atualizarFluxo(id, body ?? {});
   }
 
   @Delete('fluxos-aprovacao/:id')
   async removerFluxo(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.assertFluxo(ator, id);
+    this.exigirAdminDoOrgao(ator);
     return this.aprovacao.removerFluxo(id);
   }
 
@@ -345,15 +388,16 @@ export class ProcessoEletronicoController {
   // APROVAÇÃO MULTI-ETAPA (instância por documento)
   // ==========================================================================
 
-  /** Submete o documento instanciando as etapas do fluxo configurado */
+  /** Submete o documento instanciando as etapas do fluxo configurado (quem envia: o usuário do token). */
   @Put('documento/:id/submeter-fluxo')
   @DonoPor('documento', 'id')
-  submeterFluxo(
-    @Param('id') id: string,
-    @Body() body: { usuarioId?: string; usuarioNome?: string },
-    @Req() req: any,
-  ) {
-    return this.aprovacao.submeter(id, this.contexto(req, body));
+  async submeterFluxo(@Param('id') id: string, @AtorAtual() ator: Ator, @Req() req: any) {
+    const autor = await this.tarefas.autor(ator);
+    return this.aprovacao.submeter(
+      id,
+      { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined, ip_origem: req?.ip, user_agent: req?.headers?.['user-agent'] },
+      { por: autor },
+    );
   }
 
   @Get('documento/:id/etapas-aprovacao')
@@ -362,42 +406,51 @@ export class ProcessoEletronicoController {
     return this.aprovacao.listarEtapasDocumento(id);
   }
 
+  /**
+   * Caixa de aprovações. Sem filtro: a do usuário do token (Central de
+   * Aprovações — só as etapas que são dele). Com `setorId`/`usuarioId`: o
+   * login do órgão/ADMIN consulta um setor ou uma pessoa do órgão.
+   */
   @Get('aprovacoes/caixa')
   async caixaAprovacoes(
     @AtorAtual() ator: Ator,
     @Query('usuarioId') usuarioId?: string,
     @Query('setorId') setorId?: string,
   ) {
+    // A peça emitida agora vai para o fluxo depois do commit: espera a fila
+    await this.tarefas.aguardarPendentes();
+    const servidorComum = ator.tipo === 'USUARIO' && !ProcessoEletronicoController.PAPEIS_CAIXA_DO_ORGAO.includes(ator.role || '');
+    if (!ator.admin && (!(setorId || usuarioId) || servidorComum)) {
+      // Servidor comum: sempre a própria caixa (filtro de outra pessoa/órgão → 403)
+      if (setorId || usuarioId) await this.destinoDaCaixa(ator, setorId, usuarioId);
+      return this.aprovacaoPecas.caixa(ator);
+    }
     return this.aprovacao.caixaAprovacoes(await this.destinoDaCaixa(ator, setorId, usuarioId));
   }
 
+  /** Aprova a etapa — só quem é o responsável por ela (usuário do token); 403 se não é sua. */
   @Put('aprovacoes/etapa/:etapaId/aprovar')
   @DonoPor('etapa', 'etapaId')
+  @DonoModo('leitura')
   aprovarEtapa(
     @Param('etapaId') etapaId: string,
-    @Body() body: { usuarioId?: string; usuarioNome?: string; justificativa?: string },
+    @Body() body: { justificativa?: string; papel?: string },
+    @AtorAtual() ator: Ator,
     @Req() req: any,
   ) {
-    return this.aprovacao.aprovarEtapa(
-      etapaId,
-      { id: body?.usuarioId, nome: body?.usuarioNome },
-      body?.justificativa,
-      this.contexto(req, body),
-    );
+    return this.aprovacaoPecas.decidir(etapaId, ator, 'aprovar', body ?? {}, { ip: req?.ip, userAgent: req?.headers?.['user-agent'] });
   }
 
+  /** Reprova a etapa (motivo obrigatório): a peça volta para quem a fez. */
   @Put('aprovacoes/etapa/:etapaId/reprovar')
   @DonoPor('etapa', 'etapaId')
+  @DonoModo('leitura')
   reprovarEtapa(
     @Param('etapaId') etapaId: string,
-    @Body() body: { usuarioId?: string; usuarioNome?: string; justificativa: string },
+    @Body() body: { justificativa?: string },
+    @AtorAtual() ator: Ator,
     @Req() req: any,
   ) {
-    return this.aprovacao.reprovarEtapa(
-      etapaId,
-      { id: body?.usuarioId, nome: body?.usuarioNome },
-      body?.justificativa,
-      this.contexto(req, body),
-    );
+    return this.aprovacaoPecas.decidir(etapaId, ator, 'reprovar', body ?? {}, { ip: req?.ip, userAgent: req?.headers?.['user-agent'] });
   }
 }
