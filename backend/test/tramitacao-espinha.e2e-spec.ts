@@ -406,7 +406,7 @@ describe('Tramitação como espinha (F2)', () => {
       // a folha é a da juntada (fl. 2, logo depois do DFD) — nada foi renumerado na montagem
       expect(e1.folha_inicial).toBe(2);
       const pre = paginas.length - Number(r.headers['x-autos-folhas']) - 1; // capa, termo de abertura e índice, sem folha
-      expect(paginas[pre + e1.folha_inicial - 1]).toMatch(/DESPACHO DE TRAMITAÇÃO Nº 1/);
+      expect(paginas[pre + e1.folha_inicial - 1]).toMatch(/DESPACHO DE TRAMITAÇÃO Nº 1 Processo/);
       expect(paginas[pre + e1.folha_inicial - 1]).toContain('Fl. 000002');
     });
   });
