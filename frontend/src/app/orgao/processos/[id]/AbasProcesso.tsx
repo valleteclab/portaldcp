@@ -15,6 +15,7 @@ import { RetificarEdital } from "./RetificarEdital"
 import { FilaPncp } from "./FilaPncp"
 import { HistoricoProcesso } from "./HistoricoProcesso"
 import { TramitacaoProcessoCard } from "@/components/fase-interna/TramitacaoProcessoCard"
+import { LinhaDoTempoTramitacao } from "@/components/fase-interna/fluxo/LinhaDoTempoTramitacao"
 import { FASES_SALA } from "./SessaoPublicaCard"
 import { fmtMoeda, type ProcessoCompleto } from "./tipos"
 
@@ -202,9 +203,10 @@ export function AbasProcesso({
           <TabsContent value="pncp" forceMount className={conteudo}>
             <PncpAba dados={dados} onAtualizado={onAtualizado} />
           </TabsContent>
-          {/* Tramitação entre setores (despacho formal, estilo SEI) — veio do antigo cockpit da fase interna (Entrega 3A) */}
-          <TabsContent value="tramitacao" className={conteudo}>
-            <TramitacaoProcessoCard licitacaoId={l.id} />
+          {/* Tramitação entre setores (despacho formal, estilo SEI): linha do tempo (F3b) + o quadro de antes (Entrega 3A) */}
+          <TabsContent value="tramitacao" className={`${conteudo} space-y-4`}>
+            <LinhaDoTempoTramitacao licitacaoId={l.id} atualizacao={dados} />
+            <TramitacaoProcessoCard licitacaoId={l.id} atualizacao={dados} onAtualizado={onAtualizado} />
           </TabsContent>
           <TabsContent value="historico" forceMount className={conteudo}>
             <HistoricoProcesso licitacaoId={l.id} atualizacao={dados} />

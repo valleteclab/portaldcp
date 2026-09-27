@@ -32,6 +32,8 @@ import { DivulgarAvisoDialog } from "./DivulgarAvisoDialog"
 import { etapaAtualESeguinte, etapasDoProcesso } from "./etapas"
 import { ExtincaoLicitacao, type TipoExtincao } from "./ExtincaoLicitacao"
 import { useMensagensDispensa } from "./MensagensDispensa"
+import { useEtapasFluxo } from "./useEtapasFluxo"
+import { ComQuemEstaBarra } from "@/components/fase-interna/fluxo/ComQuemEstaBarra"
 import { entradasDoMenu } from "./MenuAcoes"
 import { ProximaEtapaCard } from "./ProximaEtapaCard"
 import { ResultadoExternoDialog } from "./ResultadoExternoDialog"
@@ -80,6 +82,10 @@ export default function ProcessoPage() {
     const t = setInterval(() => carregar(true), 5000)
     return () => clearInterval(t)
   }, [dados?.licitacao.preparacao_automatica?.status, carregar])
+
+  // Etapas da fase interna: uma leitura só para o topo "Está com…" e a visão da fase interna (F3b)
+  const faseInterna = !!fase && FASES_INTERNAS.includes(fase)
+  const fluxo = useEtapasFluxo(id, faseInterna, dados)
 
   // Checklist de pré-publicação (backend) — na fase interna e enquanto aguarda o PNCP
   const [conferencia, setConferencia] = useState<ConferenciaPrePublicacao | null>(null)
@@ -231,6 +237,20 @@ export default function ProcessoPage() {
         />
       )}
 
+      {/* Está com… (F3b): com quem o processo está na fase interna — mesmo quando as peças são feitas à mão */}
+      {faseInterna && (
+        <ComQuemEstaBarra
+          licitacaoId={id}
+          atualizacao={dados}
+          etapas={fluxo.dados}
+          onAtualizado={atualizar}
+          onVerLinhaDoTempo={() => {
+            setAba("tramitacao")
+            irPara("abas-processo")
+          }}
+        />
+      )}
+
       {/* 2. Cabeçalho + "Mais ações" */}
       <CabecalhoProcesso licitacao={l} entradasMenu={entradas} onAcao={aoEscolherAcao} />
 
@@ -256,6 +276,7 @@ export default function ProcessoPage() {
             onCancelarPublicacao={cancelamento.cancelar}
             onRegistrarResultadoExterno={acaoResultado?.disponivel ? () => setModalResultado(true) : null}
             onAtualizado={atualizar}
+            fluxo={fluxo}
           />
           <ProximaEtapaCard etapa={seguinte} dispensa={l.modalidade === "DISPENSA_ELETRONICA"} />
         </div>

@@ -1,44 +1,40 @@
 "use client"
 
 /**
- * FLUXO DA FASE INTERNA (Entrega 2 — mockup Main.dc.html). Na área da etapa
- * atual da tela do processo: as etapas (8 da SPEC + controle interno, quando o
- * órgão o ativou) com situação, responsável e prazo. A situação vem das peças
- * (feita aqui, anexada, assinada ou "não se aplica") e das dependências — a
- * ordem é sugestão. Cada passo abre a TELA DA ETAPA (Entrega 3A: DFD, ETP, TR,
- * pesquisa e reserva) ou, nas demais, leva à peça no quadro logo abaixo.
- * Fonte: GET /api/fase-interna/:id/etapas.
+ * VISÃO DA FASE INTERNA (F3b — plano PLANO-FLUXO-TRAMITACAO.md §10) — na área
+ * da etapa atual da tela do processo, na mesma linguagem da barra de etapas do
+ * processo inteiro:
+ *  - aprovação da demanda (início do processo de compra): "Aguardando
+ *    aprovação da demanda por <aprovador>" + "Aprovar a demanda" para quem pode;
+ *  - DESENHO das etapas em colunas por nível de dependência: as que não
+ *    dependem umas das outras ficam lado a lado e andam ao mesmo tempo; a que
+ *    depende de outra mostra "Aguardando: …" e não tem ação de início;
+ *  - em cada etapa: situação, responsável, prazo, peças; Abrir (tela da
+ *    etapa), Avançar (despacho da etapa de registro ou confirmar a revisão) e
+ *    Voltar (motivo obrigatório; as dependentes concluídas ficam "a revisar");
+ *  - parecer dispensado por ato do jurídico (art. 53, §5º), quando o modelo permite.
+ * As etapas vêm da tela do processo (useEtapasFluxo — GET /api/fase-interna/:id/etapas);
+ * as ações devolvem as etapas atualizadas e avisam a tela (topo "Está com…" e
+ * linha do tempo recarregam).
  */
 import { useCallback, useEffect, useState } from "react"
-import { CheckCircle2, ChevronDown, ChevronUp, Circle, CircleDashed, Clock, FileStack, MinusCircle, RotateCcw, XCircle } from "lucide-react"
+import Link from "next/link"
+import { AlertTriangle, CheckCircle2, FileStack, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { JuntarDocumentosDialog } from "@/components/fase-interna/externa/JuntarDocumentosDialog"
+import { DesenhoFaseInterna } from "@/components/fase-interna/fluxo/DesenhoFaseInterna"
+import { mensagemDoErro } from "@/components/fase-interna/fluxo/despacho"
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { API_URL, authFetch } from "@/lib/api"
-import { avisarTarefasAtualizadas, fmtDia, rotuloPrazo, type TarefaTela } from "@/lib/tarefas"
-import Link from "next/link"
-import { rotaDaTela, telaDoPasso } from "@/lib/fase-interna/telas"
-
-interface PassoEtapa {
-  passo: string
-  titulo: string
-  situacao: "AGUARDANDO" | "DISPONIVEL" | "EM_ANDAMENTO" | "A_REVISAR" | "CONCLUIDO" | "NAO_REALIZADO" | "CANCELADO"
-  pecas: Array<{ tipo: string; titulo: string; status: string; pronta: boolean }>
-  pendencias: string[]
-  peca_pendente: string | null
-  tarefa: TarefaTela | null
-  responsavel_previsto: { rotulo: string }
-  prazo_dias_uteis: number | null
-  /** Entrega 4 — portão A: LIM-01 aberto segura a conclusão da pesquisa. */
-  bloqueio_portao?: string[]
-  /** F1 — modelo de fluxo em dados. */
-  conclusao?: "PECAS" | "DIVULGACAO" | "REGISTRO"
-  aguardando_aprovacao?: boolean
-  reaberta?: { motivo?: string | null; por_nome?: string | null } | null
-  a_revisar?: { motivo?: string | null } | null
-  registro?: { texto?: string | null; por_nome?: string | null; em?: string } | null
-  pode_iniciar?: boolean
-}
+import { fmtBrasilia } from "@/lib/publicacao"
+import { hojeBrasilia } from "@/lib/fase-interna/telas"
+import { dependentesAfetados, todosOsPassos, type AcaoConcluir, type EtapasFluxoResposta, type PassoFluxo } from "@/lib/fase-interna/visao-fluxo"
+import type { EtapasFluxo } from "./useEtapasFluxo"
 
 /** Entrega 4 — resumo do motor de conformidade (GET /fase-interna/:id/conformidade/resumo). */
 interface ResumoConformidade {
@@ -51,64 +47,6 @@ interface ResumoConformidade {
   destino: string
 }
 
-interface EtapaTela {
-  etapa: string
-  numero: number
-  titulo: string
-  situacao: "AGUARDANDO" | "DISPONIVEL" | "EM_ANDAMENTO" | "A_REVISAR" | "CONCLUIDA" | "NAO_REALIZADA" | "CANCELADA"
-  nao_se_aplica: boolean
-  passos: PassoEtapa[]
-}
-
-interface EtapasResposta {
-  modo: "SIMPLES" | "POR_SETOR"
-  controle_interno_ativo: boolean
-  etapa_atual: string | null
-  concluidas: number
-  total: number
-  etapas: EtapaTela[]
-  historico: Array<{ acao: string; descricao: string; usuario_nome: string | null; created_at: string }>
-  /** F1 — modelo de fluxo em dados (a visão completa com voltar/avançar é da F3). */
-  aprovacao_demanda?: { exigida: boolean; aprovada: boolean; pode_aprovar: boolean; aprovador: { rotulo: string } }
-  permissoes?: { conduzir: boolean; reabrir: boolean }
-}
-
-const ROTULO_SITUACAO: Record<EtapaTela["situacao"], string> = {
-  AGUARDANDO: "Aguardando etapa anterior",
-  DISPONIVEL: "A fazer",
-  EM_ANDAMENTO: "Em andamento",
-  A_REVISAR: "A revisar (etapa anterior reaberta)",
-  CONCLUIDA: "Concluída",
-  NAO_REALIZADA: "Não realizada",
-  CANCELADA: "Cancelada",
-}
-
-const TITULO_PASSO: Record<string, string> = {
-  DFD: "Demanda",
-  AUTORIZACAO_INICIO: "Autorização de início",
-  INDICACAO_MODALIDADE: "Indicação da modalidade",
-  ETP: "Estudo técnico",
-  TR: "Termo de referência",
-  PESQUISA: "Pesquisa de preços",
-  RESERVA: "Reserva orçamentária",
-  AUTORIZACAO: "Autorização",
-  MINUTAS: "Minutas",
-  PARECER: "Parecer",
-  CONTROLE_INTERNO: "Controle interno",
-  PUBLICACAO: "Publicação",
-}
-
-function IconeSituacao({ s }: { s: EtapaTela["situacao"] }) {
-  const cls = "w-4 h-4 shrink-0"
-  if (s === "CONCLUIDA") return <CheckCircle2 className={`${cls} text-green-700`} aria-hidden="true" />
-  if (s === "EM_ANDAMENTO") return <Clock className={`${cls} text-blue-700`} aria-hidden="true" />
-  if (s === "A_REVISAR") return <RotateCcw className={`${cls} text-amber-700`} aria-hidden="true" />
-  if (s === "DISPONIVEL") return <Circle className={`${cls} text-blue-700`} aria-hidden="true" />
-  if (s === "CANCELADA") return <XCircle className={`${cls} text-slate-500`} aria-hidden="true" />
-  if (s === "NAO_REALIZADA") return <MinusCircle className={`${cls} text-slate-500`} aria-hidden="true" />
-  return <CircleDashed className={`${cls} text-slate-400`} aria-hidden="true" />
-}
-
 /** Fase interna feita fora (GET /api/fase-interna/:id/externa): pendências da juntada ainda abertas. */
 interface SituacaoExterna {
   externa: boolean
@@ -117,60 +55,139 @@ interface SituacaoExterna {
   pode_juntar: boolean
 }
 
-export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { licitacaoId: string; atualizacao?: unknown; onAtualizado?: () => void }) {
-  const [dados, setDados] = useState<EtapasResposta | null>(null)
+/** Como a aprovação da demanda foi dada (mesmos rótulos do histórico no servidor). */
+const ORIGEM_APROVACAO: Record<string, string> = {
+  DEMANDA: "demanda aprovada no módulo de demandas",
+  PECA_EXTERNA: "DFD juntada feita fora — a aprovação consta da peça",
+  APROVADOR: "feita, aprovada ou assinada por quem aprova",
+  MANUAL: "aprovação registrada no processo",
+  LEGADO: "processo anterior ao modelo de fluxo",
+}
+
+export function FluxoFaseInterna({
+  licitacaoId,
+  atualizacao,
+  fluxo,
+  interna,
+  onAtualizado,
+}: {
+  licitacaoId: string
+  atualizacao?: unknown
+  fluxo: EtapasFluxo
+  interna: boolean
+  onAtualizado?: () => void
+}) {
+  const dados = fluxo.dados
   const [externa, setExterna] = useState<SituacaoExterna | null>(null)
   const [juntando, setJuntando] = useState(false)
-  const [aberto, setAberto] = useState<string | null>(null)
   const [historico, setHistorico] = useState(false)
   const [conformidade, setConformidade] = useState<ResumoConformidade | null>(null)
-  const [enviando, setEnviando] = useState(false)
-  const [despacho, setDespacho] = useState<Record<string, string>>({})
+  const [ocupado, setOcupado] = useState(false)
+  const [erroAcao, setErroAcao] = useState<string | null>(null)
+  const [dispensando, setDispensando] = useState(false)
+  const { pedirTexto, dialogo } = useDialogoConfirmacao()
 
-  const carregar = useCallback(async () => {
+  const carregarExtras = useCallback(async () => {
     try {
-      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/etapas`)
-      if (r.ok) {
-        setDados(await r.json())
-        avisarTarefasAtualizadas() // a tela sincroniza as tarefas: atualiza o badge do menu
-      }
       const c = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/conformidade/resumo`)
       if (c.ok) setConformidade(await c.json())
       const x = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/externa`)
       if (x.ok) setExterna(await x.json())
     } catch {
-      /* quadro fica oculto */
+      /* quadros auxiliares ficam ocultos */
     }
   }, [licitacaoId])
-  useEffect(() => { carregar() }, [carregar, atualizacao])
+  useEffect(() => { carregarExtras() }, [carregarExtras, atualizacao])
 
-  if (!dados?.etapas?.length) return null
-  const atual = dados.etapa_atual
-
-  /** F1: ação do fluxo (aprovar a demanda, registrar o despacho de uma etapa de registro). */
-  const acao = async (url: string, corpo: unknown, ok: string) => {
-    setEnviando(true)
+  /**
+   * Ação do fluxo: devolve as etapas atualizadas; erro do servidor (403/400/409)
+   * aparece na tela. Resolve com a mensagem de erro, ou null quando deu certo.
+   */
+  const acao = async (url: string, corpo: unknown, ok: string): Promise<string | null> => {
+    setOcupado(true)
+    setErroAcao(null)
     try {
       const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/${url}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(corpo),
       })
-      if (!r.ok) {
-        const j = await r.json().catch(() => null)
-        throw new Error(j?.message ? (Array.isArray(j.message) ? j.message.join(" ") : j.message) : `HTTP ${r.status}`)
-      }
-      setDados(await r.json())
-      avisarTarefasAtualizadas()
+      if (!r.ok) throw new Error(await mensagemDoErro(r, "Não foi possível concluir a ação"))
+      fluxo.definir((await r.json()) as EtapasFluxoResposta)
       onAtualizado?.()
+      carregarExtras()
       toast.success(ok)
+      return null
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      setErroAcao(msg)
+      toast.error(msg)
+      return msg
     } finally {
-      setEnviando(false)
+      setOcupado(false)
     }
   }
+
+  if (!dados?.etapas?.length) {
+    return fluxo.erro ? (
+      <p role="alert" className="text-sm text-red-800">Fluxo da fase interna indisponível: {fluxo.erro}</p>
+    ) : null
+  }
   const aprovacao = dados.aprovacao_demanda
+  const passos = todosOsPassos(dados)
+
+  const aprovarDemanda = async () => {
+    const obs = await pedirTexto({
+      titulo: "Aprovar a demanda",
+      mensagem: "A aprovação da demanda dá início ao processo de compra: as etapas seguintes passam a poder andar. Fica registrada no histórico com o seu nome.",
+      rotulo: "Observação (opcional)",
+      confirmarRotulo: "Aprovar a demanda",
+    })
+    if (obs === null) return
+    await acao("demanda/aprovar", obs ? { observacao: obs } : {}, "Demanda aprovada.")
+  }
+
+  const concluir = async (p: PassoFluxo, a: AcaoConcluir) => {
+    const texto = await pedirTexto({
+      titulo: `${a.rotulo} — ${p.titulo}`,
+      mensagem:
+        a.tipo === "REGISTRO"
+          ? "Esta etapa conclui com o despacho registrado no processo."
+          : "Confirme que a etapa foi conferida depois da etapa que voltou. Ela volta a contar como concluída.",
+      rotulo: a.pedido,
+      placeholder: a.tipo === "REGISTRO" ? "Ex.: Autorizo o início do processo de contratação." : "Ex.: Conferido — o TR continua compatível com o ETP revisto.",
+      obrigatorio: true,
+      minimo: 10,
+      confirmarRotulo: a.rotulo,
+    })
+    if (texto === null) return
+    await acao(`etapas/${p.passo}/concluir`, { texto }, a.tipo === "REGISTRO" ? "Despacho registrado." : "Revisão registrada.")
+  }
+
+  const voltar = async (p: PassoFluxo) => {
+    const afetadas = dependentesAfetados(p.passo, passos)
+    const desfazAprovacao = !!aprovacao?.exigida && aprovacao.aprovada && aprovacao.etapa === p.passo
+    const motivo = await pedirTexto({
+      titulo: `Voltar a etapa "${p.titulo}"`,
+      mensagem: [
+        "A etapa volta para ajuste. Nenhuma peça é apagada.",
+        afetadas.length
+          ? `As etapas que dependem dela e já estavam concluídas ficam "a revisar" até serem conferidas de novo: ${afetadas.map((x) => x.titulo).join(", ")}.`
+          : "Nenhuma etapa concluída depende dela.",
+        desfazAprovacao ? "A aprovação da demanda é desfeita e precisa ser dada de novo." : null,
+        "Enquanto houver etapa reaberta ou a revisar, a trava da lei segura a publicação.",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      rotulo: "Motivo (vai para o histórico do processo)",
+      obrigatorio: true,
+      minimo: 10,
+      confirmarRotulo: "Voltar a etapa",
+      destrutivo: true,
+    })
+    if (motivo === null) return
+    await acao(`etapas/${p.passo}/reabrir`, { motivo }, `Etapa "${p.titulo}" reaberta.`)
+  }
 
   const irParaPeca = (tipo: string | null) => {
     const el = tipo ? document.getElementById(`peca-${tipo}`) : null
@@ -183,26 +200,40 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
   }
 
   return (
-    <section id="fluxo-fase-interna" aria-label="Fluxo da fase interna" className="border rounded-md p-3 bg-white space-y-2 scroll-mt-4">
+    <section id="fluxo-fase-interna" aria-label="Fluxo da fase interna" className="border rounded-md p-3 bg-white space-y-3 scroll-mt-4 min-w-0">
+      {dialogo}
       <JuntarDocumentosDialog
         licitacaoId={licitacaoId}
         aberto={juntando}
         onFechar={() => setJuntando(false)}
-        onJuntado={() => { carregar(); onAtualizado?.() }}
+        onJuntado={() => { fluxo.recarregar(); carregarExtras(); onAtualizado?.() }}
       />
+      {dispensando && (
+        <DispensarParecerDialog
+          onFechar={() => setDispensando(false)}
+          onConfirmar={async (corpo) => {
+            const erro = await acao("parecer/dispensar", corpo, "Dispensa do parecer registrada (art. 53, §5º).")
+            if (!erro) setDispensando(false)
+            return erro
+          }}
+        />
+      )}
+
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h3 className="text-sm font-semibold text-gray-800">Fluxo da fase interna</h3>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-gray-600">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-gray-900">Fluxo da fase interna</h3>
+          <p className="text-xs text-gray-600">
             {dados.concluidas} de {dados.total} etapas concluídas · {dados.modo === "SIMPLES" ? "modo simples (tudo com o agente)" : "por setor"}
-          </span>
-          {externa?.pode_juntar !== false && (
-            <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setJuntando(true)}>
-              <FileStack className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> Juntar documentos feitos fora (vários PDFs)
-            </Button>
-          )}
+            {dados.modelo?.nome ? ` · fluxo: ${dados.modelo.nome}${dados.modelo.versao ? ` (versão ${dados.modelo.versao})` : ""}` : ""}
+          </p>
         </div>
+        {externa?.pode_juntar !== false && (
+          <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setJuntando(true)}>
+            <FileStack className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> Juntar documentos feitos fora (vários PDFs)
+          </Button>
+        )}
       </div>
+
       {externa && externa.pendencias.length > 0 && (
         <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-950" role="status">
           <b>Pendências da juntada dos documentos feitos fora:</b>
@@ -214,21 +245,31 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
           <button type="button" className="mt-1 text-blue-800 hover:underline" onClick={() => setJuntando(true)}>Juntar de novo →</button>
         </div>
       )}
+
+      {/* Início do processo de compra = aprovação da demanda (pedido do dono) */}
       {aprovacao?.exigida && !aprovacao.aprovada && (
-        <div className="rounded border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-950 flex items-start justify-between gap-2 flex-wrap" role="status">
-          <span>
-            <b>A demanda aguarda aprovação</b> ({aprovacao.aprovador.rotulo}). As etapas seguintes só abrem depois dela.
-          </span>
+        <div className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2.5 flex items-start justify-between gap-3 flex-wrap" role="status">
+          <div className="min-w-0 text-sm text-amber-950">
+            <p className="font-semibold">Aguardando aprovação da demanda por {aprovacao.aprovador.rotulo}</p>
+            <p className="text-xs">A aprovação da demanda dá início ao processo de compra. As etapas que dependem dela só começam depois.</p>
+          </div>
           {aprovacao.pode_aprovar && (
-            <Button size="sm" className="h-7 text-[11px]" disabled={enviando} onClick={() => acao("demanda/aprovar", {}, "Demanda aprovada.")}>
+            <Button size="sm" disabled={ocupado} onClick={aprovarDemanda}>
+              {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="w-4 h-4 mr-1" aria-hidden="true" />}
               Aprovar a demanda
             </Button>
           )}
         </div>
       )}
-      <p className="text-xs text-gray-600">
-        A ordem é sugestão: qualquer peça pode ser feita ou anexada antes. A etapa conta quando a peça está pronta (feita aqui, anexada, assinada ou &quot;não se aplica&quot;).
-      </p>
+      {aprovacao?.exigida && aprovacao.aprovada && aprovacao.registro && (
+        <p className="flex items-center gap-1.5 text-xs text-green-900">
+          <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+          Demanda aprovada
+          {aprovacao.registro.por_nome ? ` por ${aprovacao.registro.por_nome}` : ""}
+          {aprovacao.registro.em ? ` em ${fmtBrasilia(aprovacao.registro.em)}` : ""}
+          {aprovacao.registro.origem && ORIGEM_APROVACAO[aprovacao.registro.origem] ? ` (${ORIGEM_APROVACAO[aprovacao.registro.origem]})` : ""}
+        </p>
+      )}
 
       {conformidade?.aplicavel && (
         <div
@@ -257,113 +298,20 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
         </div>
       )}
 
-      <ol className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-        {dados.etapas.map((e) => {
-          const ehAtual = e.etapa === atual
-          const passoPrincipal = e.passos.find((p) => p.tarefa?.status === "ABERTA") ?? e.passos[0]
-          const tarefa = passoPrincipal?.tarefa
-          const responsavel = tarefa && tarefa.status === "ABERTA" ? tarefa.responsavel.rotulo : passoPrincipal?.responsavel_previsto.rotulo
-          const expandido = aberto === e.etapa
-          return (
-            <li key={e.etapa} className={`rounded border px-2 py-1.5 text-xs ${ehAtual ? "border-orange-400 bg-orange-50" : "bg-slate-50"}`}>
-              <button
-                type="button"
-                className="w-full text-left"
-                aria-expanded={expandido}
-                onClick={() => setAberto(expandido ? null : e.etapa)}
-              >
-                <div className="flex items-center gap-1.5">
-                  <IconeSituacao s={e.situacao} />
-                  <span className="font-mono text-[11px] text-gray-500">{String(e.numero).padStart(2, "0")}</span>
-                  <span className="font-medium text-gray-900 flex-1">{e.titulo}</span>
-                  {expandido ? <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" /> : <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />}
-                </div>
-                <div className="mt-0.5 pl-5 text-gray-700">
-                  {ROTULO_SITUACAO[e.situacao]}
-                  {e.nao_se_aplica && " (não se aplica)"}
-                  {tarefa?.status === "ABERTA" && (
-                    <span className={tarefa.atrasada ? " text-orange-800 font-semibold" : ""}> · {rotuloPrazo(tarefa)}</span>
-                  )}
-                </div>
-                {e.situacao !== "CONCLUIDA" && e.situacao !== "CANCELADA" && e.situacao !== "NAO_REALIZADA" && responsavel && (
-                  <div className="pl-5 text-gray-600">Responsável: {responsavel}</div>
-                )}
-              </button>
-              {e.passos.some((p) => telaDoPasso(p.passo)) && (
-                <div className="pl-5 mt-0.5">
-                  <Link className="text-blue-800 hover:underline" href={rotaDaTela(licitacaoId, telaDoPasso(e.passos.find((p) => telaDoPasso(p.passo))!.passo)!)}>
-                    Abrir a etapa →
-                  </Link>
-                </div>
-              )}
-              {expandido && (
-                <ul className="mt-1.5 pl-5 space-y-1 border-t pt-1.5">
-                  {e.passos.map((p) => (
-                    <li key={p.passo}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{TITULO_PASSO[p.passo] ?? p.titulo}</span>
-                        {telaDoPasso(p.passo) ? (
-                          <Link className="text-blue-800 hover:underline" href={rotaDaTela(licitacaoId, telaDoPasso(p.passo)!)}>
-                            {p.situacao === "CONCLUIDO" ? "abrir a tela" : "fazer ou anexar"}
-                          </Link>
-                        ) : (
-                          p.situacao !== "CONCLUIDO" &&
-                          p.passo !== "PUBLICACAO" && (
-                            <button type="button" className="text-blue-800 hover:underline" onClick={() => irParaPeca(p.peca_pendente)}>
-                              ir para a peça
-                            </button>
-                          )
-                        )}
-                      </div>
-                      <div className="text-gray-600">
-                        {p.pecas.map((x) => `${x.titulo}${x.pronta ? " ✓" : ""}`).join(" · ") || "Checklist de pré-publicação"}
-                      </div>
-                      {p.aguardando_aprovacao && <div className="text-amber-800">Pronta — aguarda a aprovação da demanda.</div>}
-                      {p.reaberta && <div className="text-amber-800">Reaberta{p.reaberta.por_nome ? ` por ${p.reaberta.por_nome}` : ""}: {p.reaberta.motivo}</div>}
-                      {p.a_revisar && <div className="text-amber-800">A revisar: {p.a_revisar.motivo}</div>}
-                      {p.conclusao === "REGISTRO" && p.registro && p.situacao === "CONCLUIDO" && (
-                        <div className="text-green-800">Despacho: {p.registro.texto}{p.registro.por_nome ? ` (${p.registro.por_nome})` : ""}</div>
-                      )}
-                      {p.conclusao === "REGISTRO" && p.situacao === "DISPONIVEL" && dados.permissoes?.conduzir && (
-                        <form
-                          className="mt-1 flex gap-1 items-start"
-                          onSubmit={(ev) => {
-                            ev.preventDefault()
-                            acao(`etapas/${p.passo}/concluir`, { texto: despacho[p.passo] ?? "" }, "Despacho registrado.")
-                          }}
-                        >
-                          <textarea
-                            aria-label={`Despacho de ${p.titulo}`}
-                            className="border rounded px-1.5 py-1 text-xs flex-1 min-h-[2.5rem]"
-                            placeholder="Ex.: Autorizo o início do processo de contratação."
-                            value={despacho[p.passo] ?? ""}
-                            onChange={(ev) => setDespacho((d) => ({ ...d, [p.passo]: ev.target.value }))}
-                          />
-                          <Button type="submit" size="sm" className="h-7 text-[11px]" disabled={enviando}>
-                            Registrar
-                          </Button>
-                        </form>
-                      )}
-                      {p.pendencias.length > 0 && p.situacao === "AGUARDANDO" && (
-                        <div className="text-gray-600">Depois de: {p.pendencias.map((d) => TITULO_PASSO[d] ?? d).join(", ")}</div>
-                      )}
-                      {p.bloqueio_portao?.length ? (
-                        <div className="text-[#9A4308]">Portão A — não conclui enquanto: {p.bloqueio_portao.join(" · ")}</div>
-                      ) : null}
-                      {p.prazo_dias_uteis ? <div className="text-gray-600">Prazo padrão: {p.prazo_dias_uteis} dias úteis</div> : null}
-                      {p.tarefa?.status === "CONCLUIDA" && (
-                        <div className="text-green-800">
-                          Concluída{p.tarefa.concluida_por_nome ? ` por ${p.tarefa.concluida_por_nome}` : ""} em {fmtDia(p.tarefa.concluida_em)}
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          )
-        })}
-      </ol>
+      {erroAcao && (
+        <p role="alert" className="flex items-start gap-1.5 rounded border border-red-200 bg-red-50 px-2.5 py-2 text-sm text-red-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{erroAcao}</span>
+        </p>
+      )}
+
+      <DesenhoFaseInterna
+        licitacaoId={licitacaoId}
+        dados={dados}
+        interna={interna}
+        ocupado={ocupado}
+        acoes={{ onConcluir: concluir, onVoltar: voltar, onIrParaPeca: irParaPeca, onDispensarParecer: () => setDispensando(true) }}
+      />
 
       {dados.historico.length > 0 && (
         <div>
@@ -374,7 +322,7 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
             <ul className="mt-1 space-y-0.5 text-xs text-gray-700 max-h-48 overflow-y-auto">
               {dados.historico.map((h, i) => (
                 <li key={i}>
-                  <span className="text-gray-500">{new Date(h.created_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</span> — {h.descricao}
+                  <span className="text-gray-500">{fmtBrasilia(h.created_at)}</span> — {h.descricao}
                   {h.usuario_nome ? ` (${h.usuario_nome})` : ""}
                 </li>
               ))}
@@ -383,5 +331,73 @@ export function FluxoFaseInterna({ licitacaoId, atualizacao, onAtualizado }: { l
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * PARECER DISPENSADO POR ATO (art. 53, §5º): número e data do ato da
+ * autoridade jurídica que define as hipóteses (obrigatórios; data não futura).
+ * O registro vira o "não se aplica" do parecer, citando o ato nos autos.
+ */
+function DispensarParecerDialog({
+  onFechar,
+  onConfirmar,
+}: {
+  onFechar: () => void
+  /** Resolve com a mensagem de erro do servidor, ou null quando registrou. */
+  onConfirmar: (corpo: { numero_ato: string; data_ato: string; hipotese?: string }) => Promise<string | null>
+}) {
+  const [numero, setNumero] = useState("")
+  const [data, setData] = useState("")
+  const [hipotese, setHipotese] = useState("")
+  const [erro, setErro] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
+
+  const confirmar = async () => {
+    if (!numero.trim()) return setErro("Informe o número do ato do jurídico.")
+    if (!data) return setErro("Informe a data do ato.")
+    if (data > hojeBrasilia()) return setErro("A data do ato não pode ser futura.")
+    setErro(null)
+    setEnviando(true)
+    const e = await onConfirmar({ numero_ato: numero.trim(), data_ato: data, ...(hipotese.trim() ? { hipotese: hipotese.trim() } : {}) })
+    setEnviando(false)
+    if (e) setErro(e)
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onFechar() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Dispensar o parecer jurídico</DialogTitle>
+          <DialogDescription>
+            Só nas hipóteses definidas em ato da autoridade jurídica (Lei 14.133/2021, art. 53, §5º). O ato é citado nos autos, no termo de justificativas.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <div className="flex-1 min-w-[10rem]">
+              <Label htmlFor="ato-numero">Nº do ato *</Label>
+              <Input id="ato-numero" className="mt-1" value={numero} placeholder="Ex.: Portaria 12/2025" onChange={(e) => setNumero(e.target.value)} />
+            </div>
+            <div>
+              <Label htmlFor="ato-data">Data do ato *</Label>
+              <Input id="ato-data" type="date" className="mt-1 w-44" max={hojeBrasilia()} value={data} onChange={(e) => setData(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <Label htmlFor="ato-hipotese">Hipótese do ato (opcional)</Label>
+            <Textarea id="ato-hipotese" className="mt-1" rows={2} value={hipotese} placeholder="Ex.: contratação direta de baixo valor com minuta padronizada" onChange={(e) => setHipotese(e.target.value)} />
+          </div>
+          {erro && <p role="alert" className="text-sm text-red-700">{erro}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onFechar}>Cancelar</Button>
+          <Button onClick={confirmar} disabled={enviando}>
+            {enviando && <Loader2 className="w-4 h-4 mr-1 animate-spin" aria-hidden="true" />}
+            Registrar a dispensa
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

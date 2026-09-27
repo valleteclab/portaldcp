@@ -16,6 +16,7 @@ import { EtapaDispensa } from "./EtapaDispensa"
 import { ConsumoLimiteDispensa } from "./ConsumoLimiteDispensa"
 import { PecasFaseInterna } from "./PecasFaseInterna"
 import { FluxoFaseInterna } from "./FluxoFaseInterna"
+import type { EtapasFluxo } from "./useEtapasFluxo"
 import { PublicacaoEdital, MODALIDADES_COMPETITIVAS } from "./PublicacaoEdital"
 import { SessaoPublicaCard } from "./SessaoPublicaCard"
 import {
@@ -46,6 +47,7 @@ export function AreaEtapaAtual({
   onCancelarPublicacao,
   onRegistrarResultadoExterno,
   onAtualizado,
+  fluxo,
 }: {
   dados: ProcessoCompleto
   conferencia: ConferenciaPrePublicacao | null
@@ -57,6 +59,8 @@ export function AreaEtapaAtual({
   onCancelarPublicacao: () => void
   onRegistrarResultadoExterno: (() => void) | null
   onAtualizado: () => void
+  /** Etapas da fase interna (lidas uma vez pela tela do processo). */
+  fluxo: EtapasFluxo
 }) {
   const l = dados.licitacao
   const { checklist } = dados
@@ -114,7 +118,7 @@ export function AreaEtapaAtual({
             onAtualizado={onAtualizado}
           />
           {dispensa && <ConsumoLimiteDispensa licitacaoId={id} atualizacao={dados} />}
-          {interna && <FluxoFaseInterna licitacaoId={id} atualizacao={dados} onAtualizado={onAtualizado} />}
+          {interna && <FluxoFaseInterna licitacaoId={id} atualizacao={dados} fluxo={fluxo} interna={interna && ativa} onAtualizado={onAtualizado} />}
           {interna && (
             <PecasFaseInterna licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} />
           )}

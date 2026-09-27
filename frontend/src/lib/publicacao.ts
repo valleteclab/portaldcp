@@ -9,6 +9,7 @@
  */
 
 import { API_URL, authFetch } from "@/lib/api"
+import { textoDaTrava } from "@/lib/fase-interna/travas"
 
 export const FUSO_BRASILIA = "America/Sao_Paulo"
 
@@ -22,8 +23,9 @@ export interface ErroBackend {
 export async function lerErro(res: Response, padrao = "Não foi possível concluir a operação"): Promise<ErroBackend> {
   const j = await res.json().catch(() => null)
   const msg = Array.isArray(j?.message) ? j.message.join("; ") : j?.message
-  const pendencias: string[] = Array.isArray(j?.pendencias) ? j.pendencias.filter(Boolean).map(String) : []
-  return { mensagem: msg || `${padrao} (HTTP ${res.status})`, pendencias }
+  // "Portão A/B/C" do servidor aparece como "Trava da lei — <ato>"
+  const pendencias: string[] = Array.isArray(j?.pendencias) ? j.pendencias.filter(Boolean).map((p: unknown) => textoDaTrava(String(p))) : []
+  return { mensagem: textoDaTrava(msg || `${padrao} (HTTP ${res.status})`), pendencias }
 }
 
 /** Erro de rede/exceção como ErroBackend. */

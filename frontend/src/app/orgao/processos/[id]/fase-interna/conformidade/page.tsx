@@ -36,6 +36,8 @@ import { VisorDosAutos, type PecaAberta, type PecaDosAutos } from "@/components/
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
 import { erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
+import { TRAVAS_DA_LEI, textoDaTrava } from "@/lib/fase-interna/travas"
+import { AjudaTravaDaLei } from "@/components/fase-interna/fluxo/AjudaTravaDaLei"
 
 interface Evidencia {
   documento_id: string | null
@@ -276,7 +278,7 @@ export default function ConformidadePage() {
       )}
       {!d.aplicavel && d.motivo && (
         <div className="rounded-lg border bg-slate-50 px-4 py-2.5 text-sm text-gray-800" role="status">
-          {d.motivo}
+          {textoDaTrava(d.motivo)}
         </div>
       )}
 
@@ -389,8 +391,8 @@ export default function ConformidadePage() {
               <div className="mt-2 space-y-3">
                 {(["A", "B", "C"] as const).map((p) => (
                   <div key={p}>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-                      Portão {p} — {p === "A" ? "limite e fracionamento (pesquisa)" : p === "B" ? "art. 72 (autorização)" : "antes de publicar"}
+                    <p className="text-xs font-semibold text-gray-700">
+                      {TRAVAS_DA_LEI[p].rotulo} <AjudaTravaDaLei destaque={p} />
                     </p>
                     <ul className="divide-y">
                       {(regrasPorPortao[p] ?? []).map((r) => (
@@ -398,7 +400,7 @@ export default function ConformidadePage() {
                           <span className="w-24 shrink-0 font-mono text-xs text-gray-600 pt-0.5">{r.codigo}</span>
                           <span className="flex-1 min-w-0">
                             {r.descricao}
-                            {r.motivo && r.situacao !== "APROVADA" && <span className="block text-xs text-gray-500">{r.motivo}</span>}
+                            {r.motivo && r.situacao !== "APROVADA" && <span className="block text-xs text-gray-500">{textoDaTrava(r.motivo)}</span>}
                           </span>
                           <span className={`text-xs shrink-0 ${SITUACAO_REGRA[r.situacao]?.cls ?? ""}`}>{SITUACAO_REGRA[r.situacao]?.texto ?? r.situacao}</span>
                         </li>
@@ -547,7 +549,7 @@ export default function ConformidadePage() {
                     ? "Bloqueios e atenções que exigem justificativa impedem a publicação."
                     : !divulgacao.aviso
                       ? "Gere o aviso antes de publicar."
-                      : "Publicar pratica o ato PUBLICAR (portão C, itens, aviso e prazo conferidos de novo) e envia o aviso ao PNCP."}
+                      : "Publicar pratica o ato PUBLICAR (trava da lei de publicar, itens, aviso e prazo conferidos de novo) e envia o aviso ao PNCP."}
                 </p>
               </>
             ) : d.publicar.pode ? (
