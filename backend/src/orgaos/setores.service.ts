@@ -6,6 +6,7 @@ import { Orgao } from './entities/orgao.entity';
 import { Requisicao } from '../almoxarifado/entities/requisicao.entity';
 import { CreateSetorDto } from './dto/create-setor.dto';
 import { UpdateSetorDto } from './dto/update-setor.dto';
+import { erroDoSuperior } from './hierarquia-setores';
 
 @Injectable()
 export class SetoresService {
@@ -57,11 +58,14 @@ export class SetoresService {
     }
 
     const chefe = await this.chefeValido(orgaoId, dto.chefe_usuario_id);
+    const superior = await this.superiorValido(orgaoId, null, dto.setor_superior_id);
     const setor = this.setorRepository.create({
       orgao_id: orgaoId,
       codigo,
       nome: dto.nome,
       chefe_usuario_id: chefe,
+      setor_superior_id: superior,
+      eh_unidade_superior: dto.eh_unidade_superior === true,
     });
     return this.setorRepository.save(setor);
   }
@@ -84,6 +88,9 @@ export class SetoresService {
     if (dto.chefe_usuario_id !== undefined) {
       dto = { ...dto, chefe_usuario_id: await this.chefeValido(orgaoId, dto.chefe_usuario_id) };
     }
+    if (dto.setor_superior_id !== undefined) {
+      dto = { ...dto, setor_superior_id: await this.superiorValido(orgaoId, id, dto.setor_superior_id) };
+    }
     Object.assign(setor, dto);
     return this.setorRepository.save(setor);
   }
@@ -99,10 +106,31 @@ export class SetoresService {
     return u.id;
   }
 
+  /**
+   * Setor superior: do MESMO órgão, não ele mesmo e sem ciclo (o superior não
+   * pode estar abaixo do setor). Vazio/null → topo da árvore.
+   */
+  private async superiorValido(orgaoId: string, setorId: string | null, superiorId: string | null | undefined): Promise<string | null> {
+    if (!superiorId) return null;
+    const setores = await this.setorRepository.find({ where: { orgao_id: orgaoId }, select: ['id', 'setor_superior_id'] });
+    const erro = erroDoSuperior(setores, setorId, superiorId);
+    if (erro) throw new HttpException(erro, HttpStatus.BAD_REQUEST);
+    return superiorId;
+  }
+
   async delete(orgaoId: string, id: string): Promise<void> {
     const setor = await this.findById(id);
     if (setor.orgao_id !== orgaoId) {
       throw new HttpException('Setor não pertence a este órgão', HttpStatus.FORBIDDEN);
+    }
+
+    // Hierarquia: nenhum setor fica apontando para um superior apagado
+    const abaixo = await this.setorRepository.count({ where: { orgao_id: orgaoId, setor_superior_id: id } });
+    if (abaixo > 0) {
+      throw new HttpException(
+        `Não é possível excluir: ${abaixo} setor(es) estão abaixo deste. Troque o setor superior deles antes.`,
+        HttpStatus.CONFLICT,
+      );
     }
 
     // Verificar se o setor está em uso em requisições (setor_solicitante ou codigo_setor)

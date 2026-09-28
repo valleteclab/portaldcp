@@ -1,4 +1,4 @@
-import { IsString, IsUUID, MaxLength, MinLength, IsOptional } from 'class-validator';
+import { IsBoolean, IsString, IsUUID, MaxLength, MinLength, IsOptional } from 'class-validator';
 
 export class CreateSetorDto {
   @IsOptional()
@@ -19,4 +19,14 @@ export class CreateSetorDto {
   @IsOptional()
   @IsUUID()
   chefe_usuario_id?: string | null;
+
+  /** Setor superior (mesmo órgão, sem ciclo). `null` = topo da árvore. */
+  @IsOptional()
+  @IsUUID()
+  setor_superior_id?: string | null;
+
+  /** Secretaria / unidade gestora (a "pasta" da cadeia de aprovação). */
+  @IsOptional()
+  @IsBoolean()
+  eh_unidade_superior?: boolean;
 }

@@ -35,6 +35,22 @@ export class Setor {
   @Column({ type: 'uuid', nullable: true })
   chefe_usuario_id: string | null;
 
+  /**
+   * Setor superior (hierarquia) — do MESMO órgão, sem ciclos (validado no
+   * serviço). Nulo = topo da árvore. Usado pela cadeia de aprovação
+   * ("chefe da secretaria requisitante" sobe a hierarquia).
+   */
+  @Column({ type: 'uuid', nullable: true })
+  setor_superior_id: string | null;
+
+  /**
+   * Marca a SECRETARIA / unidade gestora (ex.: "Secretaria de Saúde"). A
+   * secretaria de um setor é a marcada mais próxima subindo a árvore; sem
+   * marca no caminho, o topo. Ver `hierarquia-setores.ts`.
+   */
+  @Column({ type: 'boolean', default: false })
+  eh_unidade_superior: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 
