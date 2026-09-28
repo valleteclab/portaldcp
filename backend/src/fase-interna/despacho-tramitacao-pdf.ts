@@ -1,6 +1,7 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from 'pdf-lib';
 import { dataPorExtenso, quebrarLinhas, textoSeguroPdf } from '../licitacoes/autos/autos-regras';
 import { dataBrasilia, dataHoraBrasilia } from './tramitacao-regras';
+import { localDoOrgao } from './textos-documento';
 
 /**
  * DESPACHO DE TRAMITAÇÃO EM PDF (espinha da tramitação — F2): a folha que
@@ -110,7 +111,8 @@ export async function gerarPdfDespacho(d: DadosDespachoPdf): Promise<Buffer> {
   y -= 10;
   paragrafo(d.despacho, 11, fonte, PRETO, 16);
 
-  const local = [d.cidade, d.uf].filter(Boolean).join('/');
+  // Município do cadastro do órgão ("A definir" do cadastro incompleto = sem cidade: só a data)
+  const local = localDoOrgao({ cidade: d.cidade, uf: d.uf });
   paragrafo(`${local ? `${local}, ` : ''}${dataPorExtenso(d.ocorrido_em)}.`, 10.5, fonte, PRETO, 26);
   paragrafo(d.enviado_por, 10.5, negrito, PRETO, 0);
   if (d.cargo) paragrafo(d.cargo, 9.5, fonte, CINZA, 0);

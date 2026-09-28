@@ -1,10 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, degrees, rgb } from 'pdf-lib';
 import * as fs from 'fs';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Licitacao } from './entities/licitacao.entity';
 import { GeradorDocumentoService } from '../fase-interna/gerador-documento.service';
 import { ConformidadeService } from '../fase-interna/conformidade/conformidade.service';
@@ -28,6 +28,22 @@ import {
   rotuloFaixa,
   textoSeguroPdf,
 } from './autos/autos-regras';
+import {
+  ItemDaSequencia,
+  REGIME_CRONOLOGICO,
+  REGIME_LEGADO,
+  ROTULO_ORIGEM_JUNTADA,
+  RegimeAutos,
+  anotacaoSubstitui,
+  anotacaoSubstituida,
+  rotuloFolhas,
+  sequenciaDeFolhas,
+} from './autos/juntadas-regras';
+import { regimeDosAutos } from '../fase-interna/folhas-autos';
+import { ItemJuntavel, JuntadaAutosService, caminhoFisicoDeReferencia } from '../fase-interna/juntada-autos.service';
+import { localDoOrgao } from '../fase-interna/textos-documento';
+import { TarefasService } from '../fase-interna/tarefas/tarefas.service';
+import { ehFaseInterna } from './transicoes/fases';
 
 /**
  * ============================================================================
@@ -35,6 +51,25 @@ import {
  * Entrega 6. Evolução do compilador que existia (não é outro).
  * ============================================================================
  *
+ * REGRA ATUAL (decisão do dono de 27/09/2026 — "como no papel"; Lei nº
+ * 9.784/1999, art. 22, §4º): regime CRONOLÓGICO. Os autos seguem a ORDEM DE
+ * JUNTADA do livro de juntadas (`juntadas_autos`): cada documento na folha
+ * atribuída quando foi juntado — a mesma da tela, nunca renumerada. Despachos
+ * de tramitação e de etapa ficam intercalados na posição em que foram dados;
+ * versões substituídas continuam nas folhas originais, anotadas
+ * ("Substituída pela versão N — fl. X"); folha sem documento sai com certidão
+ * e é explicada no índice. Capa, termo de abertura (com a autuação — o
+ * despacho nº 1 da tramitação) e índice abrem os autos sem folha; o termo de
+ * encerramento fecha, também sem folha. A montagem NÃO grava nada nas peças
+ * (a impressão não muda por gerar — os autos não saem "desatualizados").
+ * Documentos da fase externa e os termos (justificativas, registro das
+ * publicações) são juntados quando os autos são pedidos.
+ *
+ * REGIME LEGADO (`autos_processo.regime = LOGICO_LEGADO`, só processos já
+ * publicados antes da regra — migração de boot): a montagem abaixo, na ordem
+ * lógica, sem mudança — os autos que já saíram não são refeitos.
+ *
+ * Regime legado:
  *  - CAPA (órgão, PA, dispensa/licitação, objeto, interessado, data), TERMO
  *    DE ABERTURA, ÍNDICE (peça, folhas, data do documento, origem, signatários,
  *    "substitui a versão X"), as PEÇAS na ORDEM LÓGICA dos autos
@@ -94,6 +129,8 @@ export interface EntradaIndice {
   folhas: string;
   folha_inicial: number;
   folha_final: number;
+  /** Data da juntada (regime cronológico). */
+  juntado_em?: string | null;
   data_documento: string | null;
   origem: string;
   signatarios: string[];
@@ -103,11 +140,24 @@ export interface EntradaIndice {
   tramitacao_id?: string | null;
   /** Despacho de etapa de registro (F3): id do despacho (folhas gravadas nele). */
   despacho_etapa_id?: string | null;
+  /** Regime cronológico: a juntada do livro. */
+  juntada_id?: string | null;
+  /** Juntada substituída por outra (continua nos autos, anotada). */
+  substituida_por?: { versao: number | null; folha_inicial: number; folha_final: number } | null;
+  /** Juntada que substitui outra ("Substitui a fl. Y"). */
+  substitui?: { folha_inicial: number; folha_final: number } | null;
+  /** Folha(s) sem documento (juntada cancelada/dado antigo) — a numeração não é refeita. */
+  sem_documento?: boolean;
 }
 
 export interface MetaAutos {
+  /** Regime da montagem (CRONOLOGICO ou LOGICO_LEGADO). */
+  regime?: RegimeAutos;
   hash: string;
+  /** Folhas NUMERADAS (carimbo "Fl."). */
   folhas: number;
+  /** Páginas do PDF (folhas + capa, termo de abertura, índice e encerramento sem folha, no regime cronológico). */
+  paginas?: number;
   gerado_em: string;
   duracao_ms: number;
   indice: EntradaIndice[];
@@ -188,7 +238,26 @@ export class ProcessoPdfService {
     private readonly geradorDocumentoService: GeradorDocumentoService,
     private readonly licitacoesService: LicitacoesService,
     private readonly conformidade: ConformidadeService,
-  ) {}
+    private readonly juntada: JuntadaAutosService,
+    @Optional() tarefas?: TarefasService,
+  ) {
+    // Processo já publicado: o aviso publicado, a ata, os documentos da fase externa e o termo de
+    // justificativas são juntados na sincronização (logo depois do ato), na ordem em que aconteceram.
+    // O registro das publicações — que muda a cada envio ao PNCP — só quando os autos são pedidos.
+    tarefas?.registrarAntesDeSincronizar((id) => this.juntarNaSincronizacao(id), { porUltimo: true });
+  }
+
+  private async juntarNaSincronizacao(licitacaoId: string): Promise<void> {
+    if (!this.juntada.estaLiberada()) return;
+    const [l] = await this.dataSource.query(`SELECT fase::text AS fase FROM licitacoes WHERE id::text = $1`, [licitacaoId]).catch(() => []);
+    if (!l || ehFaseInterna(l.fase) || (await regimeDosAutos(this.dataSource, licitacaoId)) !== REGIME_CRONOLOGICO) return;
+    const lic = await this.carregarLicitacao(licitacaoId);
+    const externos = await this.itensExternos(lic);
+    await this.juntada.juntarPendentes(
+      licitacaoId,
+      externos.itens.filter((i) => i.dados.vaga !== 'registro-publicacoes'),
+    );
+  }
 
   // ==========================================================================
   // API do serviço
@@ -203,7 +272,8 @@ export class ProcessoPdfService {
   /** Caminho do PDF dos autos atualizado (do cache; se não houver, monta agora pela fila). */
   async obterArquivo(licitacaoId: string): Promise<{ caminho: string; meta: MetaAutos; nome: string }> {
     const lic = await this.carregarLicitacao(licitacaoId);
-    const plano = await this.planejar(lic);
+    // Baixar os autos é pedi-los: o que está pronto e ainda não foi juntado é juntado agora
+    const plano = await this.planejar(lic, { juntar: true });
     let meta = this.lerMeta(licitacaoId, plano.hash);
     if (!meta) meta = await this.agendar(lic, plano, null);
     return { caminho: this.caminhoPdf(licitacaoId, plano.hash), meta, nome: `autos-${String(lic.numero_processo || licitacaoId).replace(/[^\w.-]+/g, '-')}.pdf` };
@@ -231,7 +301,9 @@ export class ProcessoPdfService {
    */
   async solicitar(licitacaoId: string, solicitante: { usuario_id: string | null; orgao_id: string | null }): Promise<SituacaoAutos> {
     const lic = await this.carregarLicitacao(licitacaoId);
-    const plano = await this.planejar(lic);
+    // Juntadas pendentes ANTES de calcular a impressão: a montagem não grava nada,
+    // então a situação logo depois de gerar é PRONTO (não "desatualizado")
+    const plano = await this.planejar(lic, { juntar: true });
     if (!this.lerMeta(licitacaoId, plano.hash)) {
       void this.agendar(lic, plano, solicitante).catch(() => undefined);
     }
@@ -283,7 +355,7 @@ export class ProcessoPdfService {
   /** Coloca a montagem na fila única (coalescida por processo e impressão). */
   private agendar(
     lic: Licitacao & { orgao?: any },
-    plano: { hash: string; entradas: EntradaAutos[]; extras: ExtrasAutos },
+    plano: PlanoAutos,
     solicitante: { usuario_id: string | null; orgao_id: string | null } | null,
   ): Promise<MetaAutos> {
     const atual = this.emAndamento.get(lic.id);
@@ -294,7 +366,7 @@ export class ProcessoPdfService {
       .then(async () => {
         const pronta = this.lerMeta(lic.id, plano.hash);
         if (pronta) return pronta;
-        const meta = await this.montar(lic, plano);
+        const meta = plano.regime === REGIME_LEGADO ? await this.montarLegado(lic, plano) : await this.montarCronologico(lic, plano);
         this.ultimoErro.delete(lic.id);
         // A montagem só fica PRONTA (o .json da impressão) DEPOIS das folhas
         // gravadas nas peças e do aviso a quem pediu: quem vê "PRONTO" vê tudo.
@@ -363,7 +435,21 @@ export class ProcessoPdfService {
     return null;
   }
 
-  private async planejar(lic: Licitacao & { orgao?: any }): Promise<{ hash: string; entradas: EntradaAutos[]; extras: ExtrasAutos }> {
+  /**
+   * O que entra nos autos e a impressão (cache). `juntar`: antes, junta o que
+   * está pronto e ainda não foi juntado (pedido/baixa dos autos — nunca na
+   * leitura da situação).
+   */
+  private async planejar(lic: Licitacao & { orgao?: any }, opcoes: { juntar?: boolean } = {}): Promise<PlanoAutos> {
+    const regime = await regimeDosAutos(this.dataSource, lic.id);
+    if (regime === REGIME_LEGADO) return { regime: REGIME_LEGADO, ...(await this.planejarLegado(lic)) };
+    const externos = await this.itensExternos(lic);
+    if (opcoes.juntar) await this.juntada.juntarPendentes(lic.id, externos.itens);
+    return this.planejarCronologico(lic, externos);
+  }
+
+  /** REGIME LEGADO (processo publicado antes de 27/09/2026): ordem lógica, folhas do PDF — sem mudança. */
+  private async planejarLegado(lic: Licitacao & { orgao?: any }): Promise<{ hash: string; entradas: EntradaAutos[]; extras: ExtrasAutos }> {
     const id = lic.id;
     const entradas: EntradaAutos[] = [];
     const ausentes: string[] = [];
@@ -657,6 +743,393 @@ export class ProcessoPdfService {
     return { hash, entradas: ordenadas, extras };
   }
 
+  // ==========================================================================
+  // REGIME CRONOLÓGICO — plano (o livro de juntadas + o que falta juntar)
+  // ==========================================================================
+
+  /**
+   * Documentos que entram nos autos sem passar pela fase interna (juntados
+   * quando os autos são pedidos): termo de justificativas, aviso publicado,
+   * registro das publicações, ata da dispensa, documentos da fase externa e
+   * termos de contrato. Nenhum PDF é gerado aqui (a fonte é preguiçosa).
+   */
+  private async itensExternos(lic: Licitacao & { orgao?: any }): Promise<{ itens: ItemJuntavel[]; ausentes: string[] }> {
+    const id = lic.id;
+    const itens: ItemJuntavel[] = [];
+    const ausentes: string[] = [];
+    const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
+    const data = (v: unknown) => (v ? new Date(v as any) : null);
+
+    // ── Termo de justificativas (achados justificados — E4 — e peças "não se aplica")
+    const dispensadas: any[] = await this.dataSource.query(
+      `SELECT tipo::text AS tipo, titulo, descricao, aprovador_nome, dados_estruturados->>'justificativa_nao_se_aplica' AS justificativa, updated_at
+         FROM documentos_fase_interna
+        WHERE licitacao_id::text = $1 AND versao_atual = true AND (dados_estruturados->>'nao_se_aplica')::boolean IS TRUE
+        ORDER BY created_at ASC`,
+      [id],
+    );
+    const naoSeAplica = dispensadas.map((d) => ({
+      titulo: TITULO_DOCUMENTO[d.tipo as keyof typeof TITULO_DOCUMENTO] ?? d.titulo ?? d.tipo,
+      justificativa: String(d.justificativa ?? d.descricao ?? '').trim(),
+      por: d.aprovador_nome ?? null,
+    }));
+    const justificativas = await this.conformidade.justificativasParaAutos(id).catch(() => [] as any[]);
+    if (justificativas.length || naoSeAplica.length) {
+      const datas = [...justificativas.map((j: any) => data(j.justificado_em)), ...dispensadas.map((d) => data(d.updated_at))].filter(Boolean) as Date[];
+      itens.push({
+        dados: {
+          natureza: 'TERMO',
+          vaga: 'termo-justificativas',
+          chave: 'TERMO_JUSTIFICATIVAS',
+          titulo: 'Termo de justificativas (conformidade e peças dispensadas)',
+          origem: 'TERMO',
+          conteudo: `just:${sha([justificativas.map((j: any) => [j.regra, j.justificativa, j.justificado_em]), naoSeAplica])}`,
+          signatarios: [],
+          observacao: `${justificativas.length} achado(s) justificado(s) · ${naoSeAplica.length} peça(s) "não se aplica"`,
+        },
+        momento: datas.length ? new Date(Math.max(...datas.map((d) => d.getTime()))) : null,
+        fonte: { tipo: 'GERAR', gerar: () => this.pdfTermoJustificativas(lic, justificativas, naoSeAplica) },
+      });
+    }
+
+    // ── Publicação: aviso/edital publicado + registro das publicações
+    const l: any = lic;
+    const publicado = !['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA'].includes(String(lic.fase));
+    if (publicado) {
+      const [aviso] = await this.dataSource.query(
+        `SELECT id::text AS id, tipo::text AS tipo, versao, caminho_arquivo, hash_arquivo, data_publicacao, created_at
+           FROM documentos_licitacao
+          WHERE licitacao_id::text = $1 AND tipo::text IN ('AVISO_LICITACAO','EDITAL','EDITAL_RETIFICADO') AND status::text = 'PUBLICADO'
+          ORDER BY versao DESC, created_at DESC LIMIT 1`,
+        [id],
+      );
+      const arqAviso = aviso ? caminhoFisicoDeReferencia(aviso.caminho_arquivo) : null;
+      if (aviso && arqAviso) {
+        itens.push({
+          dados: {
+            natureza: 'DOCUMENTO',
+            vaga: 'aviso-publicado',
+            chave: 'AVISO_PUBLICADO',
+            titulo: aviso.tipo === 'AVISO_LICITACAO' ? `Aviso de contratação direta publicado (v${aviso.versao})` : `Edital publicado (v${aviso.versao})`,
+            origem: 'DOCUMENTO',
+            versao: aviso.versao != null ? Number(aviso.versao) : null,
+            conteudo: `aviso:${aviso.id}:${aviso.hash_arquivo ?? aviso.caminho_arquivo}`,
+            data_documento: data(aviso.data_publicacao),
+            signatarios: [],
+          },
+          momento: data(aviso.data_publicacao) ?? data(aviso.created_at),
+          fonte: { tipo: 'COPIAR', caminho: arqAviso },
+        });
+      } else {
+        ausentes.push('Aviso/edital publicado (arquivo não encontrado)');
+      }
+      const pncp: any[] = await this.dataSource.query(
+        `SELECT tipo::text AS tipo, numero_controle_pncp, COALESCE(enviado_em, updated_at) AS em
+           FROM pncp_sync WHERE licitacao_id::text = $1 AND status::text = 'ENVIADO' ORDER BY created_at ASC`,
+        [id],
+      );
+      const dos: any[] = await this.dataSource.query(
+        `SELECT numero_peca, dados_estruturados->'_diario_oficial' AS d, versao FROM documentos_fase_interna
+          WHERE licitacao_id::text = $1 AND tipo::text = 'PDO' AND versao_atual = true`,
+        [id],
+      );
+      const link = (await estadoCompraPncp(this.dataSource.manager, [id]).catch(() => new Map())).get(id)?.link_pncp ?? l.link_pncp ?? null;
+      itens.push({
+        dados: {
+          natureza: 'TERMO',
+          vaga: 'registro-publicacoes',
+          chave: 'REGISTRO_PUBLICACOES',
+          titulo: 'Registro das publicações (PNCP, Diário Oficial e sítio oficial)',
+          origem: 'TERMO',
+          conteudo: `pub:${sha([l.data_divulgacao_oficial, l.meio_divulgacao_oficial, l.referencia_divulgacao_oficial, pncp.map((p) => [p.tipo, p.numero_controle_pncp]), dos, link])}`,
+          data_documento: data(l.data_divulgacao_oficial),
+          signatarios: [],
+          observacao: l.meio_divulgacao_oficial ? `Divulgação oficial: ${l.meio_divulgacao_oficial === 'DIARIO_OFICIAL' ? 'Diário Oficial' : 'PNCP'}` : null,
+        },
+        momento: data(l.data_divulgacao_oficial),
+        fonte: { tipo: 'GERAR', gerar: () => this.pdfRegistroPublicacoes(lic, pncp, dos, link) },
+      });
+    }
+
+    // ── Fase externa: ata da dispensa, documentos do processo, contratos
+    if (String(lic.modalidade) === 'DISPENSA_ELETRONICA' && l.data_adjudicacao) {
+      const [{ n_lances, n_eventos }] = await this.dataSource.query(
+        `SELECT (SELECT COUNT(*)::int FROM lances WHERE licitacao_id::text = $1) AS n_lances,
+                (SELECT COUNT(*)::int FROM eventos_sessao e JOIN sessoes_disputa s ON s.id = e.sessao_id WHERE s.licitacao_id::text = $1) AS n_eventos`,
+        [id],
+      );
+      itens.push({
+        dados: {
+          natureza: 'DOCUMENTO',
+          vaga: 'ata-sessao-dispensa',
+          chave: 'ATA_SESSAO',
+          titulo: 'Ata da sessão da dispensa eletrônica',
+          origem: 'GERADA',
+          conteudo: `ata:${sha([l.data_adjudicacao, l.data_homologacao, n_lances, n_eventos])}`,
+          data_documento: data(l.data_adjudicacao),
+          signatarios: [],
+        },
+        momento: data(l.data_adjudicacao),
+        fonte: { tipo: 'GERAR', gerar: () => this.licitacoesService.gerarAtaDispensa(id, true) },
+      });
+    }
+    const docsExternos: any[] = publicado
+      ? await this.dataSource.query(
+          `SELECT id::text AS id, tipo::text AS tipo, titulo, versao, caminho_arquivo, hash_arquivo, data_documento, created_at
+             FROM documentos_licitacao
+            WHERE licitacao_id::text = $1 AND tipo::text = ANY($2::text[]) AND status::text NOT IN ('RASCUNHO','SUBSTITUIDO','REVOGADO')
+            ORDER BY created_at ASC`,
+          [id, TIPOS_DOC_FASE_EXTERNA],
+        )
+      : [];
+    for (const d of docsExternos) {
+      const arq = caminhoFisicoDeReferencia(d.caminho_arquivo);
+      if (!arq || !arq.toLowerCase().endsWith('.pdf')) continue;
+      itens.push({
+        dados: {
+          natureza: 'DOCUMENTO',
+          vaga: `doc-licitacao:${d.id}`,
+          chave: d.tipo,
+          titulo: d.titulo || TITULO_DOC_EXTERNO[d.tipo] || d.tipo,
+          origem: 'DOCUMENTO',
+          versao: d.versao != null ? Number(d.versao) : null,
+          conteudo: `doc:${d.id}:${d.hash_arquivo ?? d.caminho_arquivo}`,
+          data_documento: data(d.data_documento),
+          signatarios: [],
+          observacao: Number(d.versao) > 1 ? `versão ${Number(d.versao)}` : null,
+        },
+        momento: data(d.data_documento) ?? data(d.created_at),
+        fonte: { tipo: 'COPIAR', caminho: arq },
+      });
+    }
+    const contratos: any[] = await this.dataSource.query(
+      `SELECT c.id::text AS id, c.numero_contrato, c.arquivo_contrato, c.data_assinatura, c.updated_at, da.status AS assinatura_status
+         FROM contratos c LEFT JOIN documentos_assinatura da ON da.id = c.documento_assinatura_id
+        WHERE c.licitacao_id::text = $1 ORDER BY c.numero_contrato ASC`,
+      [id],
+    );
+    for (const c of contratos) {
+      const arq = c.arquivo_contrato
+        ? caminhoFisicoDeReferencia(c.arquivo_contrato) ?? (fs.existsSync(path.join(this.uploadDir, c.arquivo_contrato)) ? path.join(this.uploadDir, c.arquivo_contrato) : null)
+        : null;
+      if (!arq) {
+        ausentes.push(`Termo do contrato ${c.numero_contrato} (${c.arquivo_contrato ? 'arquivo não encontrado' : 'não gerado'})`);
+        continue;
+      }
+      itens.push({
+        dados: {
+          natureza: 'DOCUMENTO',
+          vaga: `contrato:${c.id}`,
+          chave: 'CONTRATO',
+          titulo: `Termo de contrato ${c.numero_contrato}${c.assinatura_status === 'CONCLUIDO' ? ' (assinado eletronicamente)' : ''}`,
+          origem: 'DOCUMENTO',
+          conteudo: `contrato:${c.id}:${c.arquivo_contrato}:${c.assinatura_status ?? ''}`,
+          data_documento: data(c.data_assinatura),
+          signatarios: [],
+        },
+        momento: data(c.data_assinatura) ?? data(c.updated_at),
+        fonte: { tipo: 'COPIAR', caminho: arq },
+      });
+    }
+    return { itens, ausentes };
+  }
+
+  /** Autuação: a posse inicial da tramitação (despacho nº 1, sem folha) — vai no termo de abertura. */
+  private async autuacao(lic: Licitacao): Promise<Autuacao | null> {
+    const [t] = await this.dataSource
+      .query(
+        `SELECT despacho, data_envio, de_usuario_nome, para_setor_nome, para_usuario_nome
+           FROM tramitacoes_processo
+          WHERE licitacao_id::text = $1 AND (posse_inicial = true OR (sequencia = 1 AND despacho_arquivo IS NULL))
+          ORDER BY sequencia ASC LIMIT 1`,
+        [lic.id],
+      )
+      .catch(() => [] as any[]);
+    if (!t?.despacho) return null;
+    return {
+      despacho: String(t.despacho),
+      em: new Date(t.data_envio),
+      por: t.de_usuario_nome || 'Sistema (autuação)',
+      para: [t.para_setor_nome, t.para_usuario_nome].filter(Boolean).join(' · ') || null,
+    };
+  }
+
+  private async planejarCronologico(lic: Licitacao & { orgao?: any }, externos: { itens: ItemJuntavel[]; ausentes: string[] }): Promise<PlanoAutos> {
+    const juntadas = (await this.juntada.juntadas(lic.id)) as LinhaJuntada[];
+    const pendentes = await this.juntada.pendencias(lic.id, externos.itens);
+    const extras: ExtrasCronologico = {
+      ausentes: externos.ausentes,
+      interessado: await this.interessado(lic),
+      autuacao: await this.autuacao(lic),
+      local: localDoOrgao(lic.orgao),
+    };
+    const iso = (d: unknown) => (d ? new Date(d as any).toISOString() : null);
+    const hash = impressaoDosAutos({
+      regime: REGIME_CRONOLOGICO,
+      processo: [lic.numero_processo, lic.numero_edital, lic.objeto, lic.modalidade, (lic as any).created_at, lic.orgao?.nome, extras.interessado, extras.local],
+      autuacao: extras.autuacao ? [extras.autuacao.despacho, iso(extras.autuacao.em), extras.autuacao.por] : null,
+      juntadas: juntadas.map((j) => [
+        j.id,
+        j.folha_inicial,
+        j.folha_final,
+        j.conteudo,
+        j.arquivo,
+        j.hash_arquivo,
+        j.titulo,
+        j.signatarios,
+        j.observacao,
+        iso(j.juntado_em),
+        j.substituida_por_id,
+        iso(j.cancelada_em),
+      ]),
+      pendentes: pendentes.map((p) => [p.dados.vaga, p.dados.conteudo]),
+      ausentes: externos.ausentes,
+    });
+    return { regime: REGIME_CRONOLOGICO, hash, juntadas, pendentes, extras };
+  }
+
+  // ==========================================================================
+  // REGIME CRONOLÓGICO — montagem (nada é gravado nas peças)
+  // ==========================================================================
+
+  private entradaDoIndice(j: LinhaJuntada, porId: Map<string, LinhaJuntada>, substituiu: Map<string, LinhaJuntada>): EntradaIndice {
+    const nova = j.substituida_por_id ? porId.get(j.substituida_por_id) ?? null : null;
+    const anterior = substituiu.get(j.id) ?? null;
+    const obs = [
+      j.observacao,
+      j.data_documento ? `documento de ${fmtDia(j.data_documento)}` : null,
+      `juntado em ${fmtDataHora(j.juntado_em)}`,
+      anterior ? anotacaoSubstitui(anterior) : null,
+      j.substituida_por_id ? anotacaoSubstituida(nova ? { versao: nova.versao, folha_inicial: nova.folha_inicial, folha_final: nova.folha_final, origem: nova.origem } : null) : null,
+    ].filter(Boolean);
+    return {
+      titulo: j.titulo,
+      folhas: rotuloFaixa(j),
+      folha_inicial: j.folha_inicial,
+      folha_final: j.folha_final,
+      juntado_em: new Date(j.juntado_em).toISOString(),
+      data_documento: j.data_documento ? new Date(j.data_documento).toISOString() : null,
+      origem: ROTULO_ORIGEM_JUNTADA[j.origem] ?? String(j.origem),
+      signatarios: Array.isArray(j.signatarios) ? j.signatarios : [],
+      observacao: obs.join(' · ') || null,
+      documento_id: j.documento_id,
+      tramitacao_id: j.tramitacao_id,
+      despacho_etapa_id: j.despacho_etapa_id,
+      juntada_id: j.id,
+      substituida_por: j.substituida_por_id ? (nova ? { versao: nova.versao, folha_inicial: nova.folha_inicial, folha_final: nova.folha_final } : { versao: null, folha_inicial: 0, folha_final: 0 }) : null,
+      substitui: anterior ? { folha_inicial: anterior.folha_inicial, folha_final: anterior.folha_final } : null,
+    };
+  }
+
+  private entradaSemDocumento(it: Extract<ItemDaSequencia<LinhaJuntada>, { tipo: 'SEM_DOCUMENTO' }>): EntradaIndice {
+    const c = it.cancelada;
+    return {
+      titulo: c ? `Folha sem documento — juntada cancelada (${c.titulo})` : 'Folha sem documento',
+      folhas: rotuloFaixa(it),
+      folha_inicial: it.folha_inicial,
+      folha_final: it.folha_final,
+      juntado_em: null,
+      data_documento: null,
+      origem: ROTULO_ORIGEM_JUNTADA.TERMO,
+      signatarios: [],
+      observacao: c
+        ? `Juntada cancelada em ${fmtDataHora(c.cancelada_em)}${c.motivo_cancelamento ? ` — ${c.motivo_cancelamento}` : ''}; a numeração não é refeita.`
+        : 'Sem documento juntado nesta folha; a numeração não é refeita (Lei nº 9.784/1999, art. 22, §4º).',
+      documento_id: null,
+      sem_documento: true,
+    };
+  }
+
+  private async montarCronologico(lic: Licitacao & { orgao?: any }, plano: Extract<PlanoAutos, { regime: 'CRONOLOGICO' }>): Promise<MetaAutos> {
+    const t0 = Date.now();
+    const ausentes = [...plano.extras.ausentes, ...plano.pendentes.map((p) => `${p.dados.titulo} (pronto, ainda não juntado)`)];
+    const { itens, total, conflitos } = sequenciaDeFolhas(plano.juntadas);
+    for (const c of conflitos) ausentes.push(`${c.titulo} (${rotuloFolhas(c.folha_inicial, c.folha_final)} em conflito com outra juntada)`);
+    const porId = new Map(plano.juntadas.map((j) => [j.id, j]));
+    const substituiu = new Map<string, LinhaJuntada>();
+    for (const j of plano.juntadas) if (j.substituida_por_id) substituiu.set(j.substituida_por_id, j);
+    const indice: EntradaIndice[] = itens.map((it) => (it.tipo === 'JUNTADA' ? this.entradaDoIndice(it.juntada, porId, substituiu) : this.entradaSemDocumento(it)));
+    const folhasIndice = paginasDoIndice(indice.length + 1);
+
+    const merged = await PDFDocument.create();
+    merged.setTitle(textoSeguroPdf(`Autos do Processo ${lic.numero_processo ?? ''}`));
+    merged.setProducer('Portal DCP');
+    const fonte = await merged.embedFont(StandardFonts.Helvetica);
+    const negrito = await merged.embedFont(StandardFonts.HelveticaBold);
+
+    // Autuação: capa, termo de abertura e índice — sem folha (as folhas começam na 1ª juntada)
+    this.paginaCapa(merged, lic, plano.extras.interessado, total, fonte, negrito, 'sem folha');
+    this.paginaTermoAberturaCronologico(merged, lic, plano.extras, fonte, negrito);
+    this.paginasIndiceCronologico(merged, lic, indice, folhasIndice, fonte, negrito);
+
+    let paginasJuntadas = 0;
+    for (const it of itens) {
+      const faixa = it.folha_final - it.folha_inicial + 1;
+      if (it.tipo === 'SEM_DOCUMENTO') {
+        const e = this.entradaSemDocumento(it);
+        for (let f = it.folha_inicial; f <= it.folha_final; f++) {
+          this.carimbar(this.paginaAviso(merged, 'FOLHA SEM DOCUMENTO', [e.titulo, e.observacao ?? ''], fonte, negrito), f, negrito);
+        }
+        continue;
+      }
+      const j = it.juntada;
+      const nova = j.substituida_por_id ? porId.get(j.substituida_por_id) ?? null : null;
+      const anotacao = j.substituida_por_id
+        ? anotacaoSubstituida(nova ? { versao: nova.versao, folha_inicial: nova.folha_inicial, folha_final: nova.folha_final, origem: nova.origem } : null)
+        : null;
+      const anterior = substituiu.get(j.id);
+      let copiadas = 0;
+      try {
+        const caminho = caminhoFisicoDeReferencia(j.arquivo);
+        if (!caminho) throw new Error('arquivo não encontrado');
+        const origem = await PDFDocument.load(await fs.promises.readFile(caminho), { ignoreEncryption: true, updateMetadata: false });
+        const indices = origem.getPageIndices().slice(0, faixa);
+        if (origem.getPageCount() > faixa) ausentes.push(`${j.titulo}: páginas além das ${faixa} juntadas não integram os autos`);
+        const paginas = await merged.copyPages(origem, indices);
+        paginas.forEach((pg, i) => {
+          const p = merged.addPage(pg);
+          const folha = j.folha_inicial + i;
+          this.carimbar(p, folha, negrito);
+          if (anotacao) this.anotar(p, anotacao, negrito, 1);
+          if (anterior && i === 0) this.anotar(p, anotacaoSubstitui(anterior), fonte, anotacao ? 2 : 1);
+          copiadas++;
+        });
+      } catch (err: any) {
+        this.logger.warn(`[autos] "${j.titulo}" (fls. ${j.folha_inicial}–${j.folha_final}) indisponível: ${err?.message ?? err}`);
+        ausentes.push(`${j.titulo} (${rotuloFolhas(j.folha_inicial, j.folha_final)} — arquivo indisponível nesta montagem)`);
+      }
+      for (let f = j.folha_inicial + copiadas; f <= j.folha_final; f++) {
+        const texto = copiadas
+          ? `Continuação de "${j.titulo}" (${rotuloFolhas(j.folha_inicial, j.folha_final)}): o documento juntado tem ${copiadas} página(s).`
+          : `"${j.titulo}", juntado em ${fmtDataHora(j.juntado_em)} às ${rotuloFolhas(j.folha_inicial, j.folha_final)}: arquivo indisponível nesta montagem.`;
+        const p = this.paginaAviso(merged, copiadas ? 'FOLHA SEM CONTEÚDO' : 'DOCUMENTO INDISPONÍVEL', [texto], fonte, negrito);
+        this.carimbar(p, f, negrito);
+        if (anotacao) this.anotar(p, anotacao, negrito, 1);
+      }
+      paginasJuntadas += faixa;
+    }
+    this.paginaTermoEncerramentoCronologico(merged, lic, plano, total, indice, ausentes, fonte, negrito);
+
+    const bytes = await merged.save({ objectsPerTick: 50 });
+    fs.mkdirSync(this.pasta(lic.id), { recursive: true });
+    const destino = this.caminhoPdf(lic.id, plano.hash);
+    await fs.promises.writeFile(`${destino}.parcial`, bytes);
+    await fs.promises.rename(`${destino}.parcial`, destino);
+    const meta: MetaAutos = {
+      regime: REGIME_CRONOLOGICO,
+      hash: plano.hash,
+      folhas: total,
+      paginas: merged.getPageCount(),
+      gerado_em: new Date().toISOString(),
+      duracao_ms: Date.now() - t0,
+      indice,
+      ausentes,
+    };
+    await this.limparAntigos(lic.id, plano.hash);
+    this.logger.log(`[autos] Processo ${lic.numero_processo}: ${plano.juntadas.length} juntada(s), ${total} folha(s) (${paginasJuntadas} de documentos), ${ausentes.length} ausente(s), ${meta.duracao_ms} ms`);
+    return meta;
+  }
+
   private signatariosDe(d: any): string[] {
     const ass = Array.isArray(d.assinaturas) ? d.assinaturas : [];
     if (ass.length) return ass.map((a: any) => [a.assinante_nome, a.assinante_cargo].filter(Boolean).join(' — ')).filter(Boolean);
@@ -683,7 +1156,7 @@ export class ProcessoPdfService {
   // Montagem (peça a peça, na fila)
   // ==========================================================================
 
-  private async montar(lic: Licitacao & { orgao?: any }, plano: { hash: string; entradas: EntradaAutos[]; extras: ExtrasAutos }): Promise<MetaAutos> {
+  private async montarLegado(lic: Licitacao & { orgao?: any }, plano: { hash: string; entradas: EntradaAutos[]; extras: ExtrasAutos }): Promise<MetaAutos> {
     const t0 = Date.now();
     const ausentes = [...plano.extras.ausentes];
     const tmp = path.join(this.pasta(lic.id), `tmp-${randomUUID()}`);
@@ -695,8 +1168,9 @@ export class ProcessoPdfService {
         try {
           let caminho: string;
           if (e.fonte.tipo === 'ARQUIVO') caminho = e.fonte.caminho;
-          // Montar os autos só materializa o PDF: não é a emissão da peça (não mexe no registro de emissão)
-          else if (e.fonte.tipo === 'GERAR_PECA') caminho = (await this.geradorDocumentoService.gerarPdf(e.fonte.documento_id, undefined, { registrarEmissao: false })).caminho;
+          // Montar os autos só materializa o PDF: não é a emissão e não grava nada na peça
+          // (gravar disparava as rotinas da peça e os autos saíam "desatualizados" logo depois)
+          else if (e.fonte.tipo === 'GERAR_PECA') caminho = (await this.geradorDocumentoService.materializarPdf(e.fonte.documento_id, path.join(tmp, `${prontas.length}-${e.chave}.pdf`))).caminho;
           else {
             caminho = path.join(tmp, `${prontas.length}-${e.chave}.pdf`);
             fs.writeFileSync(caminho, await e.fonte.gerar());
@@ -755,7 +1229,7 @@ export class ProcessoPdfService {
       const destino = this.caminhoPdf(lic.id, plano.hash);
       await fs.promises.writeFile(`${destino}.parcial`, bytes);
       await fs.promises.rename(`${destino}.parcial`, destino);
-      const meta: MetaAutos = { hash: plano.hash, folhas: total, gerado_em: new Date().toISOString(), duracao_ms: Date.now() - t0, indice, ausentes };
+      const meta: MetaAutos = { regime: REGIME_LEGADO, hash: plano.hash, folhas: total, paginas: total, gerado_em: new Date().toISOString(), duracao_ms: Date.now() - t0, indice, ausentes };
       // o .json (que marca PRONTO) é gravado por quem agendou, depois do aviso
       await this.limparAntigos(lic.id, plano.hash);
       await this.gravarFolhasNasPecas(indice);
@@ -852,7 +1326,7 @@ export class ProcessoPdfService {
     return ROTULO_MODALIDADE[String(lic.modalidade)] ?? String(lic.modalidade || '').replaceAll('_', ' ');
   }
 
-  private paginaCapa(doc: PDFDocument, lic: Licitacao & { orgao?: any }, interessado: string, total: number, fonte: PDFFont, negrito: PDFFont): PDFPage {
+  private paginaCapa(doc: PDFDocument, lic: Licitacao & { orgao?: any }, interessado: string, total: number, fonte: PDFFont, negrito: PDFFont, semFolha?: 'sem folha'): PDFPage {
     const pg = doc.addPage(A4);
     const [, h] = A4;
     const w = this.escritor(pg, fonte, negrito);
@@ -868,7 +1342,15 @@ export class ProcessoPdfService {
     y -= 14;
     pg.drawText('AUTUAÇÃO', { x: 70, y, size: 10, font: negrito, color: AZUL });
     pg.drawText(textoSeguroPdf(fmtDia((lic as any).created_at)), { x: 70, y: y - 18, size: 11, font: fonte });
-    w.centro(`Autos com ${total} folhas numeradas — montados pelo Portal DCP em ${fmtDataHora(new Date())}`, 100, 9, false, CINZA);
+    w.centro(
+      semFolha
+        ? `Autos com ${total} folhas numeradas, na ordem de juntada — montados pelo Portal DCP em ${fmtDataHora(new Date())}`
+        : `Autos com ${total} folhas numeradas — montados pelo Portal DCP em ${fmtDataHora(new Date())}`,
+      100,
+      semFolha ? 8 : 9,
+      false,
+      CINZA,
+    );
     w.centro('Lei nº 14.133/2021', 80, 10, true);
     return pg;
   }
@@ -978,6 +1460,172 @@ export class ProcessoPdfService {
     return pg;
   }
 
+  // ==========================================================================
+  // Desenho do regime cronológico: anotações, avisos, termos e índice
+  // ==========================================================================
+
+  /** Anotação discreta abaixo do carimbo ("Substituída pela versão 2 — fl. 9"; "Substitui a fl. 5"). */
+  private anotar(pg: PDFPage, texto: string, fonte: PDFFont, linha = 1) {
+    const t = textoSeguroPdf(texto);
+    const tamanho = 7.5;
+    const largura = fonte.widthOfTextAtSize(t, tamanho);
+    const pos = posicaoDoCarimbo(pg.getCropBox(), pg.getRotation().angle, largura, tamanho, 18 + 11 * linha);
+    pg.drawText(t, { x: pos.x, y: pos.y, size: tamanho, font: fonte, color: rgb(0.55, 0.1, 0.1), rotate: degrees(pos.angulo) });
+  }
+
+  /** Folha com uma certidão curta (folha sem documento, documento indisponível). */
+  private paginaAviso(doc: PDFDocument, titulo: string, linhas: string[], fonte: PDFFont, negrito: PDFFont): PDFPage {
+    const pg = doc.addPage(A4);
+    const [, h] = A4;
+    const w = this.escritor(pg, fonte, negrito);
+    w.centro(titulo, h - 200, 14, true);
+    let y = h - 240;
+    for (const l of linhas.filter(Boolean)) y = w.paragrafo(l, 90, y, A4[0] - 180, 10.5) - 8;
+    w.centro('Certidão dos autos — Portal DCP', y - 20, 8.5, false, CINZA);
+    return pg;
+  }
+
+  private paginaTermoAberturaCronologico(doc: PDFDocument, lic: Licitacao & { orgao?: any }, extras: ExtrasCronologico, fonte: PDFFont, negrito: PDFFont): PDFPage {
+    const pg = doc.addPage(A4);
+    const [, h] = A4;
+    const largura = A4[0] - 160;
+    const w = this.escritor(pg, fonte, negrito);
+    w.centro('TERMO DE ABERTURA', h - 110, 15, true);
+    const autuacao = (lic as any).created_at ? new Date((lic as any).created_at) : new Date();
+    let y = w.paragrafo(
+      `Aos ${dataPorExtenso(autuacao)}, autuei o presente Processo Administrativo nº ${lic.numero_processo ?? '—'}, referente à ${this.rotuloModalidade(lic)} nº ${
+        lic.numero_edital || '(a atribuir)'
+      }, cujo objeto é ${String(lic.objeto || '—')}.`,
+      80,
+      h - 160,
+      largura,
+      11.5,
+    );
+    y = w.paragrafo(
+      'As folhas destes autos são numeradas na ordem cronológica de juntada, a partir da folha 000001 (Lei nº 9.784/1999, art. 22, §4º). Esta capa, este termo e o índice não recebem número de folha. Nenhuma folha é retirada: a versão substituída permanece na folha original, com a anotação da versão que a substituiu.',
+      80,
+      y - 8,
+      largura,
+      10,
+      false,
+      CINZA,
+    );
+    if (extras.autuacao) {
+      const a = extras.autuacao;
+      y -= 18;
+      pg.drawText(textoSeguroPdf('DESPACHO DE AUTUAÇÃO (despacho nº 1 da tramitação)'), { x: 80, y, size: 10, font: negrito, color: AZUL });
+      y = w.paragrafo(a.despacho, 80, y - 20, largura, 11.5);
+      y = w.paragrafo(`${extras.local ? `${extras.local}, ` : ''}${dataPorExtenso(a.em)}.`, 80, y - 10, largura, 11);
+      y = w.paragrafo(a.por, 80, y - 14, largura, 11, true);
+      w.paragrafo(
+        `Registrado em ${fmtDataHora(a.em)} (horário de Brasília) por ${a.por}${a.para ? `; o processo foi encaminhado a ${a.para}` : ''}. Posse inicial do processo, sem folha própria: a autuação é este termo.`,
+        80,
+        y - 10,
+        largura,
+        8.5,
+        false,
+        CINZA,
+      );
+    } else {
+      w.paragrafo(`${extras.local ? `${extras.local}, ` : ''}${dataPorExtenso(autuacao)}.`, 80, y - 18, largura, 11);
+    }
+    w.centro('Setor de Licitações / Agente de contratação', 90, 9, false, CINZA);
+    return pg;
+  }
+
+  private paginasIndiceCronologico(doc: PDFDocument, lic: Licitacao, indice: EntradaIndice[], folhasIndice: number, fonte: PDFFont, negrito: PDFFont): PDFPage[] {
+    const linhas: EntradaIndice[] = [
+      ...indice,
+      { titulo: 'Termo de encerramento (sem folha)', folhas: '—', folha_inicial: 0, folha_final: 0, juntado_em: null, data_documento: null, origem: ROTULO_ORIGEM_JUNTADA.TERMO, signatarios: [], observacao: null, documento_id: null },
+    ];
+    const paginas: PDFPage[] = [];
+    const [largura, h] = A4;
+    const col = { folhas: 40, peca: 88, juntada: 318, origem: 372, sign: 452 };
+    const corta = (t: string, max: number, f: PDFFont, size = 8) => {
+      let s = textoSeguroPdf(t);
+      while (s.length > 1 && f.widthOfTextAtSize(s, size) > max) s = s.slice(0, -2) + '…';
+      return s;
+    };
+    for (let p = 0; p < folhasIndice; p++) {
+      const pg = doc.addPage(A4);
+      paginas.push(pg);
+      const w = this.escritor(pg, fonte, negrito);
+      w.centro(`ÍNDICE DOS AUTOS — Processo ${lic.numero_processo ?? ''}${folhasIndice > 1 ? ` (${p + 1}/${folhasIndice})` : ''}`, h - 56, 12, true);
+      w.centro('Na ordem das folhas (ordem cronológica de juntada)', h - 72, 8.5, false, CINZA);
+      let y = h - 96;
+      const cab = (t: string, x: number) => pg.drawText(textoSeguroPdf(t), { x, y, size: 8, font: negrito, color: AZUL });
+      cab('Folhas', col.folhas);
+      cab('Documento', col.peca);
+      cab('Juntada', col.juntada);
+      cab('Origem', col.origem);
+      cab('Signatários', col.sign);
+      y -= 6;
+      pg.drawLine({ start: { x: 40, y }, end: { x: largura - 40, y }, thickness: 0.5, color: CINZA });
+      y -= 12;
+      for (const e of linhas.slice(p * LINHAS_INDICE_POR_PAGINA, (p + 1) * LINHAS_INDICE_POR_PAGINA)) {
+        const cor = e.substituida_por || e.sem_documento ? CINZA : rgb(0, 0, 0);
+        pg.drawText(textoSeguroPdf(e.folhas), { x: col.folhas, y, size: 8, font: negrito, color: cor });
+        pg.drawText(corta(`${e.titulo}${e.substituida_por ? ' (substituída)' : ''}`, col.juntada - col.peca - 6, fonte), { x: col.peca, y, size: 8, font: fonte, color: cor });
+        pg.drawText(e.juntado_em ? fmtDia(e.juntado_em) : '—', { x: col.juntada, y, size: 8, font: fonte, color: cor });
+        pg.drawText(corta(e.origem, col.sign - col.origem - 4, fonte), { x: col.origem, y, size: 8, font: fonte, color: cor });
+        pg.drawText(corta(e.signatarios.join('; ') || '—', largura - 40 - col.sign, fonte), { x: col.sign, y, size: 8, font: fonte, color: cor });
+        if (e.observacao) pg.drawText(corta(e.observacao, largura - 40 - col.peca, fonte, 7), { x: col.peca, y: y - 9, size: 7, font: fonte, color: CINZA });
+        y -= 26;
+      }
+    }
+    return paginas;
+  }
+
+  private paginaTermoEncerramentoCronologico(
+    doc: PDFDocument,
+    lic: Licitacao,
+    plano: Extract<PlanoAutos, { regime: 'CRONOLOGICO' }>,
+    total: number,
+    indice: EntradaIndice[],
+    ausentes: string[],
+    fonte: PDFFont,
+    negrito: PDFFont,
+  ): PDFPage {
+    const pg = doc.addPage(A4);
+    const [, h] = A4;
+    const largura = A4[0] - 160;
+    const w = this.escritor(pg, fonte, negrito);
+    w.centro('TERMO DE ENCERRAMENTO', h - 110, 15, true);
+    const faixa = total ? `de ${carimboDeFolha(1).replace('Fl. ', '')} a ${carimboDeFolha(total).replace('Fl. ', '')}` : 'sem folhas';
+    let y = w.paragrafo(
+      `Em ${dataPorExtenso(new Date())}${plano.extras.local ? `, em ${plano.extras.local}` : ''}, encerro os presentes autos do Processo Administrativo nº ${lic.numero_processo ?? '—'} (${this.rotuloModalidade(lic)} nº ${
+        lic.numero_edital || '(a atribuir)'
+      }), com ${total} (${total === 1 ? 'uma' : 'total de'}) folhas numeradas ${faixa}, na ordem cronológica de juntada, precedidas da capa, do termo de abertura e do índice, sem numeração de folha.`,
+      80,
+      h - 160,
+      largura,
+      11.5,
+    );
+    const substituidas = indice.filter((e) => e.substituida_por).length;
+    if (substituidas) {
+      y = w.paragrafo(
+        `${substituidas} documento(s) substituído(s) por versão posterior permanece(m) nos autos, nas folhas originais, com a anotação da versão que o(s) substituiu.`,
+        80,
+        y - 8,
+        largura,
+        10,
+      );
+    }
+    const semDoc = indice.filter((e) => e.sem_documento);
+    if (semDoc.length) {
+      y = w.paragrafo(`Folhas sem documento (a numeração não é refeita): ${semDoc.map((e) => `${e.folhas} — ${e.observacao ?? ''}`).join('; ')}`, 80, y - 8, largura, 10);
+    }
+    if (ausentes.length) {
+      y -= 14;
+      pg.drawText(textoSeguroPdf('Observações desta montagem:'), { x: 80, y, size: 9, font: negrito, color: rgb(0.5, 0.3, 0) });
+      y -= 14;
+      for (const a of ausentes.slice(0, 15)) y = w.paragrafo(`• ${a}`, 86, y, largura - 10, 8.5, false, CINZA);
+    }
+    w.centro(`Impressão das juntadas (SHA-256): ${plano.hash.slice(0, 32)}`, 90, 8, false, CINZA);
+    w.centro('Setor de Licitações / Agente de contratação', 70, 9, false, CINZA);
+    return pg;
+  }
+
   /** Termo de justificativas: achados ATENÇÃO justificados (E4) e peças "não se aplica" (art. 72). */
   private async pdfTermoJustificativas(
     lic: Licitacao,
@@ -1080,6 +1728,52 @@ export class ProcessoPdfService {
 interface ExtrasAutos {
   ausentes: string[];
   interessado: string;
+}
+
+/** Autuação (despacho nº 1 da tramitação — posse inicial, sem folha): vai no termo de abertura. */
+interface Autuacao {
+  despacho: string;
+  em: Date;
+  por: string;
+  para: string | null;
+}
+
+interface ExtrasCronologico extends ExtrasAutos {
+  autuacao: Autuacao | null;
+  local: string;
+}
+
+type PlanoAutos =
+  | { regime: 'LOGICO_LEGADO'; hash: string; entradas: EntradaAutos[]; extras: ExtrasAutos }
+  | { regime: 'CRONOLOGICO'; hash: string; juntadas: LinhaJuntada[]; pendentes: ItemJuntavel[]; extras: ExtrasCronologico };
+
+/** Linha do livro de juntadas (`JuntadaAutosService.juntadas`). */
+interface LinhaJuntada {
+  id: string;
+  folha_inicial: number;
+  folha_final: number;
+  paginas: number;
+  natureza: string;
+  vaga: string;
+  chave: string;
+  titulo: string;
+  origem: keyof typeof ROTULO_ORIGEM_JUNTADA;
+  versao: number | null;
+  documento_id: string | null;
+  tramitacao_id: string | null;
+  despacho_etapa_id: string | null;
+  conteudo: string;
+  arquivo: string | null;
+  hash_arquivo: string | null;
+  data_documento: Date | null;
+  signatarios: string[] | null;
+  observacao: string | null;
+  juntado_em: Date;
+  juntado_por_nome: string | null;
+  substituida_por_id: string | null;
+  substituida_em: Date | null;
+  cancelada_em: Date | null;
+  motivo_cancelamento: string | null;
 }
 
 export type { FaixaDeFolhas };

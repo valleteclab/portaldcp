@@ -14,11 +14,12 @@
  *  Textos: "Dispensa eletrônica" (nunca DISPENSA_ELETRONICA), o NOME do agente,
  *      o despacho sem "A definir" (cadastro do órgão sem município), "12 meses"
  *      (nunca "12.0000 MES").
- *  Autos: capa, termo de abertura, índice, ordem lógica das peças (DFD, TR,
- *      pesquisa e certidão, reserva, autorização, designação anexada, relatório,
- *      minutas, parecer, termo de justificativas), carimbo "Fl." contínuo em
- *      todas as folhas, o PDF anexado com as páginas originais, só a versão
- *      vigente de cada peça.
+ *  Autos (regra de 27/09/2026 — ordem cronológica de juntada): capa, termo de
+ *      abertura e índice sem folha; as peças (DFD, TR, pesquisa e certidão,
+ *      reserva, autorização, designação anexada, relatório, minutas, parecer,
+ *      termo de justificativas) na ordem de juntada, cada uma na folha da tela;
+ *      carimbo "Fl." contínuo; o PDF anexado com as páginas originais; as
+ *      versões substituídas do TR mantidas e anotadas.
  *  Isolamento: o PUT do processo só pelo órgão dono (outro órgão, fornecedor e
  *      anônimo recusados; nada gravado).
  */
@@ -410,12 +411,12 @@ describe('Fase interna — correções da homologação (documentos, versões, E
       expect(r.parecer).toMatchObject({ status: 'ASSINADO' });
     });
 
-    it('AUTOS: capa, abertura, índice, ordem lógica, carimbo contínuo, anexo com as páginas originais, só a versão vigente, sem defeitos de texto', async () => {
+    it('AUTOS: capa, abertura e índice sem folha, ordem de juntada, carimbo contínuo, anexo com as páginas originais, versões mantidas, sem defeitos de texto', async () => {
       await esperar();
       let meta: any;
       const limite = Date.now() + 120_000;
-      // (as revisões em segundo plano do parecer recém-assinado podem mudar a
-      // impressão: pede de novo, como o botão "Gerar autos")
+      // (as revisões em segundo plano do parecer recém-assinado podem juntar algo
+      // novo: pede de novo, como o botão "Gerar autos")
       do {
         await http().post(`/api/licitacoes/${lic.id}/processo-pdf/gerar`).set(bearer(agente.token)).expect(201);
         do {
@@ -428,34 +429,44 @@ describe('Fase interna — correções da homologação (documentos, versões, E
       const pdf = await PDFDocument.load(r.body as Buffer);
       const paginas = ((await paginasDoPdf(r.body as Buffer)) ?? []).map((t) => t.replace(/\s+/g, ' '));
       expect(paginas.length).toBe(pdf.getPageCount());
-      expect(paginas.length).toBe(meta.folhas);
+      // capa, termo de abertura e índice (sem folha) + as folhas + termo de encerramento (sem folha)
+      const pre = paginas.length - meta.folhas - 1;
+      expect(pre).toBeGreaterThanOrEqual(3);
+      const daFolha = (f: number) => paginas[pre + f - 1];
       // carimbo "Fl. 000001…" em TODAS as folhas, sem pular
-      paginas.forEach((t, i) => expect(t).toContain(carimboDeFolha(i + 1)));
-      // nenhuma folha em branco (o rodapé do mapa da pesquisa abria páginas vazias)
+      for (let f = 1; f <= meta.folhas; f++) expect(daFolha(f)).toContain(carimboDeFolha(f));
+      // nenhuma página em branco (o rodapé do mapa da pesquisa abria páginas vazias)
       paginas.forEach((t, i) => {
-        // sem o carimbo e sem o rodapé ("Pesquisa de Preços — … — Página N de T"), sobra o conteúdo da folha
+        // sem o carimbo, as anotações e o rodapé ("Pesquisa de Preços — … — Página N de T"), sobra o conteúdo da página
         const resto = t
-          .replace(carimboDeFolha(i + 1), '')
+          .replace(/Fl\. \d{6}/g, '')
+          .replace(/Substituída pela [^—]+— fls?\. [\d–]+/g, '')
+          .replace(/Substitui as? fls?\. [\d–]+/g, '')
           .replace(/Pesquisa de Preços\s+—\s+\S+\s+—\s+Página \d+ de \d+/g, '')
           .replace(/Página \d+ de \d+/g, '')
           .trim();
-        expect({ folha: i + 1, conteudo: resto.length > 15 ? 'ok' : resto }).toEqual({ folha: i + 1, conteudo: 'ok' });
+        expect({ pagina: i + 1, conteudo: resto.length > 15 ? 'ok' : resto }).toEqual({ pagina: i + 1, conteudo: 'ok' });
       });
       expect(paginas[0]).toMatch(/AUTOS DO PROCESSO ADMINISTRATIVO/);
       expect(paginas[0]).toMatch(/Dispensa Eletrônica/);
       expect(paginas[1]).toMatch(/TERMO DE ABERTURA/);
       expect(paginas[2]).toMatch(/ÍNDICE DOS AUTOS/);
       expect(paginas[paginas.length - 1]).toMatch(/TERMO DE ENCERRAMENTO/);
-      paginas.forEach((t, i) => semDefeitosDeTexto(t, `autos, folha ${i + 1}`));
+      paginas.forEach((t, i) => semDefeitosDeTexto(t, `autos, página ${i + 1}`));
 
-      // ordem lógica pelo índice (folhas crescentes) — DFD, TR, pesquisa, certidão, reserva, autorização, designação, relatório, minutas, parecer, justificativas
+      // índice: na ordem das folhas (contínuas), cada documento com a data de JUNTADA, em ordem cronológica
       const idx: any[] = meta.indice;
-      const folha = (re: RegExp) => {
-        const e = idx.find((x) => re.test(x.titulo));
+      expect(idx[0].folha_inicial).toBe(1);
+      for (let i = 1; i < idx.length; i++) expect(idx[i].folha_inicial).toBe(idx[i - 1].folha_final + 1);
+      expect(idx.every((e) => !!e.juntado_em)).toBe(true);
+      const datas = idx.map((e) => Date.parse(e.juntado_em));
+      expect(datas).toEqual([...datas].sort((a, b) => a - b));
+      const vigente = (re: RegExp) => {
+        const e = idx.find((x) => re.test(x.titulo) && !x.substituida_por);
         expect({ peça: String(re), achou: !!e }).toEqual({ peça: String(re), achou: true });
         return e;
       };
-      const ordem = [
+      for (const re of [
         /Formalização da Demanda/,
         /Termo de Referência/,
         /Pesquisa de Preços/i,
@@ -468,25 +479,38 @@ describe('Fase interna — correções da homologação (documentos, versões, E
         /[Mm]inuta do contrato/,
         /Parecer/,
         /TERMO DE JUSTIFICATIVAS|Termo de justificativas/,
-      ].map(folha);
-      const inicios = ordem.map((e) => e.folha_inicial);
-      expect(inicios).toEqual([...inicios].sort((a, b) => a - b));
-      // só a versão vigente: o TR entra uma vez, a v3, que "substitui a versão 2"
-      expect(idx.filter((x) => /Termo de Referência/.test(x.titulo))).toHaveLength(1);
-      expect(folha(/Termo de Referência/).observacao).toMatch(/substitui a versão 2/);
-      const tr = folha(/Termo de Referência/);
-      const textoTr = paginas.slice(tr.folha_inicial - 1, tr.folha_final).join(' ');
+      ])
+        vigente(re);
+      // a folha da tela é a do índice (peças vigentes)
+      const pecas = await sql(
+        `SELECT id::text AS id, tipo::text AS tipo, folha_inicial, folha_final FROM documentos_fase_interna WHERE licitacao_id = $1 AND versao_atual AND folha_inicial IS NOT NULL`,
+        [lic.id],
+      );
+      for (const p of pecas) {
+        const e = idx.find((x) => x.documento_id === p.id && !x.substituida_por);
+        expect({ peca: p.tipo, folhas: [e?.folha_inicial, e?.folha_final] }).toEqual({ peca: p.tipo, folhas: [p.folha_inicial, p.folha_final] });
+      }
+      // versões do TR: a v3 vigente cita a que substitui; as anteriores continuam nos autos, anotadas
+      const trs = idx.filter((x) => /Termo de Referência/.test(x.titulo));
+      expect(trs.length).toBeGreaterThanOrEqual(2);
+      const tr = vigente(/Termo de Referência/);
+      expect(tr.substitui).toBeTruthy();
+      expect(tr.observacao).toMatch(/Substitui a/);
+      for (const antigo of trs.filter((x) => x.substituida_por)) {
+        expect(daFolha(antigo.folha_inicial)).toMatch(/Substituída pela versão \d+/);
+      }
+      const textoTr = paginas.slice(pre + tr.folha_inicial - 1, pre + tr.folha_final).join(' ');
       expect(textoTr).toMatch(/Itens da contratação/);
       expect(textoTr).toMatch(/Implantação em até 30 dias/);
       expect(textoTr).toMatch(/R\$\s?22\.600,00/);
       // o PDF anexado entra com as páginas originais, em sequência
-      const dp = folha(/Designação/i);
+      const dp = vigente(/Designação/i);
       expect(dp.folha_final - dp.folha_inicial).toBe(1);
-      expect(paginas[dp.folha_inicial - 1]).toMatch(/PORTARIAANEXA PAGINA 1 DE 2/);
-      expect(paginas[dp.folha_inicial]).toMatch(/PORTARIAANEXA PAGINA 2 DE 2/);
+      expect(daFolha(dp.folha_inicial)).toMatch(/PORTARIAANEXA PAGINA 1 DE 2/);
+      expect(daFolha(dp.folha_final)).toMatch(/PORTARIAANEXA PAGINA 2 DE 2/);
       // termo de justificativas com as peças "não se aplica" (ETP e riscos)
-      const just = folha(/TERMO DE JUSTIFICATIVAS|Termo de justificativas/);
-      expect(paginas.slice(just.folha_inicial - 1, just.folha_final).join(' ')).toMatch(/Peça ETP dispensada/);
+      const just = vigente(/TERMO DE JUSTIFICATIVAS|Termo de justificativas/);
+      expect(paginas.slice(pre + just.folha_inicial - 1, pre + just.folha_final).join(' ')).toMatch(/Peça ETP dispensada/);
     });
   });
 });

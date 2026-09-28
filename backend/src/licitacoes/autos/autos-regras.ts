@@ -5,7 +5,14 @@ import { createHash } from 'crypto';
  * AUTOS DO PROCESSO EM PDF — regras puras (fase interna, Entrega 6)
  * ============================================================================
  *
- * Os autos reais (PA 139/2025 da Câmara de LEM, 184 folhas) são montados NO
+ * ATENÇÃO (27/09/2026): a regra de hoje é a ORDEM CRONOLÓGICA DE JUNTADA, com a
+ * folha da juntada definitiva — ver `juntadas-regras.ts`. O que segue (ordem
+ * lógica, folhas reescritas pelo PDF, `ordenarPecasDosAutos`,
+ * `intercalarDespachos`) vale só para o REGIME LEGADO: processos já
+ * publicados antes da mudança, cujos autos não são refeitos. Carimbo, índice,
+ * data por extenso e texto seguro são comuns aos dois regimes.
+ *
+ * Regra anterior — os autos reais (PA 139/2025 da Câmara de LEM, 184 folhas) são montados NO
  * FIM, na ORDEM LÓGICA das peças — não na ordem das datas (o ETP é de 14/11, o
  * DFD de 10/12 e vem antes). Cada folha leva o carimbo "Fl. 000123" no canto
  * superior direito, numeração contínua do termo de abertura ao termo de

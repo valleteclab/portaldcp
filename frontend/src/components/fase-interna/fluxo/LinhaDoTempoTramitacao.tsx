@@ -34,6 +34,8 @@ export interface EventoTramitacao {
   lancado_em: string | null
   lancado_por: { id: string | null; nome: string | null } | null
   folha: { folha_inicial: number | null; folha_final: number | null; url: string } | null
+  /** Ato sem folha própria nos autos (posse inicial → "Termo de abertura (autuação)"). */
+  nos_autos?: string | null
 }
 
 const nome = (p: Pessoa) => (p.setor_nome && p.usuario_nome ? `${p.setor_nome} (${p.usuario_nome})` : p.setor_nome || p.usuario_nome || "—")
@@ -121,6 +123,7 @@ export function LinhaDoTempoTramitacao({ licitacaoId, atualizacao }: { licitacao
                     Ver despacho{folha ? ` (${folha})` : ""}
                   </button>
                 )}
+                {!ev.folha && ev.nos_autos && <p className="text-[11px] text-gray-600">Nos autos: {ev.nos_autos}</p>}
               </li>
             )
           })}
