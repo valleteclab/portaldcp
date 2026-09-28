@@ -174,6 +174,8 @@ export class LicitacoesController {
     @Body() body: { observacao?: string }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
+    // Ato do processo inteiro: só quem conduz (agente, criador sem agente, administrador ou login do órgão)
+    await this.licitacoesService.exigirQuemConduz(ator, id, 'concluir a etapa');
     return await this.licitacoesService.avancarFase(id, body?.observacao, atorTransicaoDe(ator), ator);
   }
 
@@ -186,6 +188,7 @@ export class LicitacoesController {
     @Body() body: { motivo: string }
   ): Promise<Licitacao> {
     await this.dono(ator, id);
+    await this.licitacoesService.exigirQuemConduz(ator, id, 'retornar a etapa');
     return await this.licitacoesService.retrocederFase(id, body?.motivo, atorTransicaoDe(ator));
   }
 

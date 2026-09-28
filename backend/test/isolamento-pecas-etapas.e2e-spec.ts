@@ -18,6 +18,8 @@
  *     o agente exclui; a autoridade revoga.
  *  F. Autoridade do processo = signatário da autorização configurado (Paulo).
  *  G. Isolamento entre órgãos: outro órgão 403/404, fornecedor 403.
+ *  H. Atos de decisão do processo inteiro (concluir a etapa, conformidade,
+ *     disputa, portaria, rascunho da IA): quem não conduz nem responde → 403.
  */
 import {
   AppE2E,
@@ -345,6 +347,64 @@ describe('Isolamento das peças por etapa (homologação multiusuário)', () => 
     it('é o signatário da autorização configurado (Paulo), não o responsável do cadastro do órgão', async () => {
       const pc = (await http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(A.token)).expect(200)).body;
       expect(pc.licitacao.autoridade).toMatchObject({ nome: 'Paulo Presidente', cargo: 'Presidente da Câmara', origem: 'CONFIGURACAO' });
+    });
+  });
+
+  describe('H. atos de decisão: só quem conduz o processo ou responde pela etapa', () => {
+    let lic3: LicitacaoFixture;
+    const anexarPortaria = (token: string) =>
+      http()
+        .post('/api/fase-interna/orgao/portarias')
+        .set(bearer(token))
+        .field('numero_peca', 'Portaria 012/2026')
+        .field('data_documento', hoje())
+        .attach('arquivo', pdfDeTeste('Portaria de designacao'), { filename: 'portaria.pdf', contentType: 'application/pdf' });
+
+    beforeAll(async () => {
+      lic3 = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      await sql(`UPDATE licitacoes SET pregoeiro_id = $2 WHERE id = $1`, [lic3.id, ana.id]);
+      await tarefas().aguardarPendentes();
+    });
+
+    it('Caio (Contabilidade) não conclui a etapa, não revisa/justifica a conformidade nem escolhe a disputa (403); Ana (agente) passa', async () => {
+      const r = await http().put(`/api/fase-interna/${lic3.id}/avancar`).set(bearer(caio.token));
+      expect(r.status).toBe(403);
+      expect(r.body.message).toMatch(/Só quem conduz o processo/);
+      expect((await http().put(`/api/licitacoes/${lic3.id}/avancar-fase`).set(bearer(caio.token)).send({})).status).toBe(403);
+      expect((await http().put(`/api/licitacoes/${lic3.id}/retroceder-fase`).set(bearer(caio.token)).send({ motivo: 'Tentativa de Caio.' })).status).toBe(403);
+      expect((await http().post(`/api/fase-interna/${lic3.id}/conformidade/revisar`).set(bearer(caio.token))).status).toBe(403);
+      const justificar = (token: string) =>
+        http().post(`/api/fase-interna/${lic3.id}/conformidade/achados/${lic3.id}/justificar`).set(bearer(token)).send({ justificativa: 'Justificativa suficientemente longa para o teste.' });
+      expect((await justificar(caio.token)).status).toBe(403);
+      expect((await http().put(`/api/fase-interna/${lic3.id}/modo-disputa`).set(bearer(caio.token)).send({ com_lances: false })).status).toBe(403);
+      // Quem conduz: o guard passa e a regra do ato responde (pendências 400; achado inexistente 404)
+      const av = await http().put(`/api/fase-interna/${lic3.id}/avancar`).set(bearer(ana.token));
+      expect(av.status).toBe(400);
+      expect(await http().post(`/api/fase-interna/${lic3.id}/conformidade/revisar`).set(bearer(ana.token))).toMatchObject({ status: 201 });
+      expect((await justificar(ana.token)).status).toBe(404);
+      expect((await http().put(`/api/fase-interna/${lic3.id}/modo-disputa`).set(bearer(ana.token)).send({ com_lances: false })).status).toBe(200);
+      expect((await http().put(`/api/fase-interna/${lic3.id}/modo-disputa`).set(bearer(admin.token)).send({ com_lances: true })).status).toBe(200);
+    });
+
+    it('portaria do órgão: Carlos (apoio) 403, o administrador do órgão 201; juntada ao processo: Caio 403, Ana (agente) 201', async () => {
+      expect((await anexarPortaria(carlos.token)).status).toBe(403);
+      expect((await anexarPortaria(admin.token)).status).toBe(201);
+      const caioJunta = await http().post(`/api/fase-interna/${lic3.id}/portaria-designacao`).set(bearer(caio.token)).send({});
+      expect(caioJunta.status).toBe(403);
+      expect(caioJunta.body.codigo).toBe('NAO_RESPONSAVEL');
+      expect((await http().post(`/api/fase-interna/${lic3.id}/portaria-designacao`).set(bearer(ana.token)).send({})).status).toBe(201);
+    });
+
+    it('rascunho da IA: quem não responde pela etapa da peça não gera (403) nem descarta (403); quem responde descarta', async () => {
+      expect((await http().post(`/api/fase-interna/${lic3.id}/rascunho-ia/gerar`).set(bearer(caio.token)).send({ peca: 'DFD' })).status).toBe(403);
+      // Rascunho gravado direto (a IA não está configurada no teste): a etapa do DFD é da requisitante
+      const [r] = await sql(
+        `INSERT INTO rascunhos_ia_fase_interna (licitacao_id, orgao_id, peca, etapa, status, disparo, origem_rascunho, secoes) VALUES ($1, $2, 'DFD', 'DFD', 'GERADO', 'MANUAL', 'IA', '{"demanda":"<p>x</p>"}') RETURNING id::text AS id`,
+        [lic3.id, A.id],
+      );
+      const descartar = (token: string) => http().post(`/api/fase-interna/${lic3.id}/rascunho-ia/${r.id}/descartar`).set(bearer(token)).send({});
+      expect((await descartar(caio.token)).status).toBe(403);
+      expect((await descartar(rita.token)).status).toBe(201);
     });
   });
 

@@ -152,7 +152,12 @@ export class TelasAnaliseDecisaoController {
     return this.parecer.emitir(id, body ?? {}, ator, await this.autor(ator), { ip, userAgent: ua });
   }
 
-  /** Pede o parecer da fase externa (depois da sessão, antes da adjudicação) — tarefa da Procuradoria. */
+  /**
+   * Pede o parecer da fase externa (depois da sessão, antes da adjudicação) —
+   * tarefa da Procuradoria. Fora da fase interna o `passo` não se avalia
+   * (não há etapa em curso), por isso `condutor`: só quem conduz o processo pede.
+   */
+  @TrabalhoNaEtapa({ condutor: 'pedir o parecer da fase externa' })
   @Post(':licitacaoId/parecer/fase-externa/solicitar')
   async solicitarFaseExterna(@Param('licitacaoId') id: string, @AtorAtual() ator: Ator) {
     return this.parecer.solicitarFaseExterna(id, await this.autor(ator));

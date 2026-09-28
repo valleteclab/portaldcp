@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ForbiddenException,
   UseGuards,
   NotFoundException,
   Res,
@@ -195,6 +196,17 @@ export class FaseInternaController {
     return ator.orgaoId!;
   }
 
+  /**
+   * Documento do ÓRGÃO (vale para todos os processos do exercício): só o
+   * administrador do órgão, o login do órgão ou o administrador da plataforma
+   * (o papel vem do cadastro, como no `PermissaoEtapaService.perfil`).
+   */
+  private async exigirAdministracaoDoOrgao(ator: Ator, orgaoId: string, acao: string) {
+    if (ator.admin || ator.tipo === 'ORGAO') return;
+    const perfil = await this.permissaoEtapa.perfil(ator, orgaoId);
+    if (!perfil.privilegiado) throw new ForbiddenException(`Só o administrador do órgão ou o login do órgão pode ${acao}.`);
+  }
+
   /** Portarias do órgão do token (?todas=true inclui versões substituídas). */
   @Get('orgao/portarias')
   async listarPortarias(@AtorAtual() ator: Ator, @Query('orgao_id') orgaoId?: string, @Query('todas') todas?: string) {
@@ -210,7 +222,9 @@ export class FaseInternaController {
     @AtorAtual() ator: Ator,
     @Query('orgao_id') orgaoId?: string,
   ) {
-    return this.pecas.anexarPortaria(this.orgaoDoAtor(ator, orgaoId), arquivo, body ?? {}, ator);
+    const orgao = this.orgaoDoAtor(ator, orgaoId);
+    await this.exigirAdministracaoDoOrgao(ator, orgao, 'cadastrar a portaria de designação do órgão');
+    return this.pecas.anexarPortaria(orgao, arquivo, body ?? {}, ator);
   }
 
   @Get('orgao/portarias/:id/arquivo')
@@ -220,6 +234,7 @@ export class FaseInternaController {
   }
 
   /** Junta ao processo a portaria vigente do órgão (peça DP). Corpo opcional: { portaria_id }. */
+  @TrabalhoNaEtapa({ tipo: 'DP', acao: 'juntar a portaria de designação' })
   @Post(':licitacaoId/portaria-designacao')
   async vincularPortaria(
     @Param('licitacaoId') licitacaoId: string,
@@ -488,6 +503,8 @@ export class FaseInternaController {
    */
   @Put(':licitacaoId/avancar')
   async avancarFaseInterna(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    // Ato do processo inteiro: só quem conduz (agente, criador sem agente, administrador ou login do órgão)
+    await this.permissaoEtapa.exigirCondutor(licitacaoId, ator, 'concluir a etapa da fase interna');
     return this.faseInternaService.avancarFaseInterna(licitacaoId, atorTransicaoDe(ator));
   }
 

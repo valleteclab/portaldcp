@@ -1,4 +1,4 @@
-import { EntradaPermissao, PerfilTrabalho, avaliarPermissaoEtapa, ehResponsavelPelaEtapa } from './permissao-etapa';
+import { EntradaPermissao, PerfilTrabalho, avaliarPermissaoEtapa, ehCondutor, ehResponsavelPelaEtapa } from './permissao-etapa';
 
 /**
  * ISOLAMENTO DAS PEÇAS — casos do relatório da homologação multiusuário
@@ -110,5 +110,17 @@ describe('quem responde pela etapa', () => {
     // sem tramitação (nenhuma posse registrada): só a responsabilidade conta
     expect(avaliarPermissaoEtapa(entrada({ posse: null }), carlos).pode).toBe(true);
     expect(avaliarPermissaoEtapa(entrada({ posse: null }), caio).pode).toBe(false);
+  });
+
+  it('quem conduz o processo (atos do processo inteiro e peça fora do modelo): agente, criador sem agente, privilegiado', () => {
+    expect(ehCondutor(ana, { agente: 'ana', criador: null })).toBe(true);
+    expect(ehCondutor(carlos, { agente: 'ana', criador: null })).toBe(false);
+    // sem agente designado, quem criou o processo conduz
+    expect(ehCondutor(carlos, { agente: null, criador: 'carlos' })).toBe(true);
+    expect(ehCondutor(caio, { agente: null, criador: 'carlos' })).toBe(false);
+    // administrador/login do órgão sempre; login do órgão não tem usuário
+    expect(ehCondutor(admin, { agente: 'ana', criador: null })).toBe(true);
+    expect(ehCondutor({ ...admin, usuario_id: null }, { agente: null, criador: null })).toBe(true);
+    expect(ehCondutor({ ...carlos, usuario_id: null }, { agente: null, criador: null })).toBe(false);
   });
 });
