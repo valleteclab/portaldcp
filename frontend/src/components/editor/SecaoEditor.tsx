@@ -106,7 +106,9 @@ export function SecaoEditor({ value, onChange, placeholder, readOnly = false }: 
     if (!editor || initializedRef.current) return
     initializedRef.current = true
     if (value && value !== '<p></p>') {
-      editor.commands.setContent(value)
+      // Tiptap 3: setContent emite "update" por padrão — carregar o texto salvo não é
+      // edição (homologação: o TR gerado voltava a "Rascunho" só de abrir a tela)
+      editor.commands.setContent(value, { emitUpdate: false })
     }
   }, [editor, value])
 

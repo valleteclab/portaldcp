@@ -102,6 +102,19 @@ export function PecasFaseInterna({
 
   const naoSeAplica = async (tipo: string, titulo: string, desfazer: boolean) => {
     let corpo: Record<string, unknown> = { desfazer: true }
+    if (desfazer) {
+      // Desfazer "não se aplica" de etapa concluída é voltar a etapa: motivo obrigatório (homologação)
+      const m = await pedirTexto({
+        titulo: `Desfazer "não se aplica" — ${titulo}`,
+        mensagem: "A peça volta a ficar em elaboração. Se a etapa já estava concluída, as que dependem dela ficam \"a revisar\". O motivo vai para o histórico do processo.",
+        rotulo: "Motivo",
+        obrigatorio: true,
+        minimo: 10,
+        confirmarRotulo: "Desfazer e reabrir",
+      })
+      if (!m) return
+      corpo = { desfazer: true, motivo: m.trim() }
+    }
     if (!desfazer) {
       const j = await pedirTexto({
         titulo: `"${titulo}" não se aplica`,

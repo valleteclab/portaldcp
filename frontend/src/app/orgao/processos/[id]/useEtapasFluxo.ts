@@ -23,7 +23,7 @@ export function useEtapasFluxo(licitacaoId: string, ativo: boolean, atualizacao:
     if (!ativo || !licitacaoId) return
     const vale = ultima()
     // Estado só muda depois da resposta (nunca no mesmo tique do efeito)
-    await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/etapas`)
+    await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/etapas`, { cache: "no-store" })
       .then(async (r) => {
         if (!vale()) return
         if (!r.ok) {

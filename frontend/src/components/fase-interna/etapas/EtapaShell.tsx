@@ -7,13 +7,20 @@
  * órgão o ativou) com a situação vinda de
  * GET /api/fase-interna/:id/etapas. As etapas com tela própria viram link;
  * as demais levam ao quadro "Fluxo da fase interna" do processo.
+ * Homologação: o "Voltar" da etapa (reabrir com motivo; dependentes "a
+ * revisar") fica aqui mesmo, no topo da tela, para quem conduz o processo ou
+ * responde pela etapa — não só no quadro do processo.
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, CheckCircle2, ChevronRight, Circle, CircleDashed, Clock } from "lucide-react"
+import { toast } from "sonner"
+import { ArrowLeft, CheckCircle2, ChevronRight, Circle, CircleDashed, Clock, Loader2, Undo2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
+import { dependentesAfetados, type PassoFluxo } from "@/lib/fase-interna/visao-fluxo"
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
-import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, rotaDaTela, type TelaEtapa } from "@/lib/fase-interna/telas"
+import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, rotaDaTela, type TelaEtapa } from "@/lib/fase-interna/telas"
 
 interface LicitacaoCabecalho {
   id: string
@@ -24,7 +31,7 @@ interface LicitacaoCabecalho {
 }
 
 interface EtapasResposta {
-  etapas: Array<{ etapa: string; situacao: string; passos: Array<{ passo: string; situacao: string }> }>
+  etapas: Array<{ etapa: string; situacao: string; passos: Array<PassoFluxo & { pode_reabrir?: boolean }> }>
 }
 
 const ROTULO_SIT: Record<string, string> = {
@@ -64,6 +71,9 @@ export function EtapaShell({
 }) {
   const [lic, setLic] = useState<LicitacaoCabecalho | null>(null)
   const [situacoes, setSituacoes] = useState<Record<string, string>>({})
+  const [passos, setPassos] = useState<Array<PassoFluxo & { pode_reabrir?: boolean }>>([])
+  const [voltando, setVoltando] = useState(false)
+  const { pedirTexto, dialogo } = useDialogoConfirmacao()
   const ultima = useRef(criarUltimaCarga())
 
   useEffect(() => {
@@ -82,6 +92,7 @@ export function EtapaShell({
       const mapa: Record<string, string> = {}
       for (const e of j.etapas || []) for (const p of e.passos || []) mapa[p.passo] = p.situacao
       setSituacoes(mapa)
+      setPassos((j.etapas || []).flatMap((e) => e.passos || []))
       avisarTarefasAtualizadas()
     } catch {
       /* barra sem situação */
@@ -102,8 +113,49 @@ export function EtapaShell({
   // Mudança vinda de outro quadro, ou volta à aba: recarrega a barra
   useEffect(() => aoAtualizarFaseInterna(licitacaoId, carregarEtapas), [licitacaoId, carregarEtapas])
 
+  // VOLTAR ESTA ETAPA (reabrir com motivo) — o servidor diz quem pode (pode_reabrir) e confere de novo
+  const passoDaTela = ETAPAS_DA_BARRA.find((e) => e.tela === tela)?.passo ?? null
+  const esta = passoDaTela ? passos.find((p) => p.passo === passoDaTela) ?? null : null
+  const voltar = async () => {
+    if (!esta) return
+    const afetadas = dependentesAfetados(esta.passo, passos)
+    const motivo = await pedirTexto({
+      titulo: `Voltar a etapa "${esta.titulo}"`,
+      mensagem: [
+        "A etapa volta para ajuste. Nenhuma peça é apagada.",
+        afetadas.length
+          ? `As etapas que dependem dela e já estavam concluídas ficam "a revisar": ${afetadas.map((x) => x.titulo).join(", ")}.`
+          : "Nenhuma etapa concluída depende dela.",
+        "Enquanto houver etapa reaberta ou a revisar, a trava da lei segura a publicação.",
+      ].join("\n\n"),
+      rotulo: "Motivo (vai para o histórico do processo)",
+      obrigatorio: true,
+      minimo: 10,
+      confirmarRotulo: "Voltar a etapa",
+      destrutivo: true,
+    })
+    if (motivo === null) return
+    setVoltando(true)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/etapas/${esta.passo}/reabrir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo }),
+      })
+      if (!r.ok) throw new Error(await erroDaApi(r))
+      toast.success(`Etapa "${esta.titulo}" reaberta.${afetadas.length ? ` A revisar: ${afetadas.map((x) => x.titulo).join(", ")}.` : ""}`)
+      await carregarEtapas()
+      avisarFaseInternaAtualizada(licitacaoId)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setVoltando(false)
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-0 sm:px-2 py-4 space-y-4">
+      {dialogo}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <Link href={`/orgao/processos/${licitacaoId}`} className="inline-flex items-center gap-1.5 text-sm text-blue-800 hover:underline">
           <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Voltar ao processo
@@ -154,8 +206,29 @@ export function EtapaShell({
           <h1 className="text-xl font-semibold text-gray-900">{titulo}</h1>
           {subtitulo && <div className="text-sm text-gray-600 mt-0.5">{subtitulo}</div>}
         </div>
-        {acoes && <div className="flex items-center gap-2 flex-wrap">{acoes}</div>}
+        {(acoes || esta?.pode_reabrir) && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {acoes}
+            {esta?.pode_reabrir && (
+              <Button
+                variant="outline"
+                className="text-amber-900 border-amber-300 hover:bg-amber-50"
+                onClick={voltar}
+                disabled={voltando}
+                title="Reabre esta etapa com motivo; as que dependem dela e já estavam concluídas ficam a revisar"
+              >
+                {voltando ? <Loader2 className="w-4 h-4 mr-1 animate-spin" aria-hidden="true" /> : <Undo2 className="w-4 h-4 mr-1" aria-hidden="true" />} Voltar esta etapa
+              </Button>
+            )}
+          </div>
+        )}
       </header>
+      {esta?.situacao === "A_REVISAR" && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="status">
+          Esta etapa está <b>a revisar</b>
+          {esta.a_revisar?.motivo ? `: ${esta.a_revisar.motivo}` : ""}. Confira a peça — alterá-la (ou confirmar no quadro do processo) encerra a revisão.
+        </p>
+      )}
 
       {children}
     </div>

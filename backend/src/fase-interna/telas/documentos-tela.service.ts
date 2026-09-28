@@ -429,9 +429,18 @@ export class DocumentosTelaService {
     const tipo = String(tipoParam || '').toUpperCase();
     if (!TIPOS_GERAVEIS.has(tipo)) throw new BadRequestException('Geração pela tela disponível para DFD, ETP e TR.');
     const t = tipo as TipoDocumentoFaseInterna;
-    const atual = await this.docAtual(licitacaoId, t);
-    if (atual && (atual.origem !== OrigemDocumento.INTERNO || atual.status === StatusDocumento.ASSINADO || atual.status === StatusDocumento.AGUARDANDO_ASSINATURA)) {
-      throw new ConflictException('A versão atual foi anexada ou está em assinatura. Para refazer aqui, edite uma seção (abre uma versão nova).');
+    let atual = await this.docAtual(licitacaoId, t);
+    if (atual && (atual.status === StatusDocumento.ASSINADO || atual.status === StatusDocumento.AGUARDANDO_ASSINATURA)) {
+      throw new ConflictException('A versão atual está assinada ou em assinatura. Para refazer aqui, edite uma seção (abre uma versão nova).');
+    }
+    // Homologação E5: a versão vigente é o PDF anexado, mas o conteúdo da última versão feita
+    // no sistema continua como BASE — "Gerar" abre a versão nova a partir dele (o anexo vira histórico)
+    if (atual && atual.origem !== OrigemDocumento.INTERNO) {
+      const nova = await this.faseInterna.novaVersaoSeFinalizada(atual);
+      if (nova) {
+        if (autor.id) Object.assign(nova, { criado_por_id: autor.id, criado_por_nome: autor.nome ?? undefined });
+        atual = await this.docRepo.save(nova);
+      }
     }
     if (atual?.dados_estruturados?.nao_se_aplica) throw new ConflictException('A peça está marcada como "não se aplica" — desfaça antes de gerar.');
     // GERAR DE NOVO = VERSÃO NOVA (homologação E3): a versão já gerada (com PDF)
@@ -516,7 +525,9 @@ export class DocumentosTelaService {
       this.docAtual(licitacaoId, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA),
       this.docAtual(licitacaoId, TipoDocumentoFaseInterna.TERMO_REFERENCIA),
     ]);
-    const secoes = this.secoesDe(etp);
+    // E5: com o ETP anexado, as seções da última versão feita aqui continuam como base
+    const baseEtp = etp ? await this.faseInterna.baseEditavel(etp) : null;
+    const secoes = this.secoesDe(baseEtp ?? etp);
     const justificativaMarca = etp?.dados_estruturados?._marca?.justificativa ?? null;
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
     const linha = (tipo: string) => instrucao.itens.find((i) => i.tipo === tipo);
@@ -524,7 +535,13 @@ export class DocumentosTelaService {
     return {
       licitacao: { id: lic.id, numero_processo: lic.numero_processo, objeto: lic.objeto, modalidade: lic.modalidade, fase: lic.fase, fase_interna: ehFaseInterna(lic.fase) },
       contratacao_direta: instrucao.contratacao_direta,
-      etp: { peca: this.resumoPeca(etp), secoes, edicoes: etp?.dados_estruturados?._edicoes ?? {}, justificativa_marca: justificativaMarca },
+      etp: {
+        peca: this.resumoPeca(etp),
+        secoes,
+        edicoes: (baseEtp ?? etp)?.dados_estruturados?._edicoes ?? {},
+        justificativa_marca: justificativaMarca,
+        base: baseEtp && etp && baseEtp.id !== etp.id ? { documento_id: baseEtp.id, versao: baseEtp.versao } : null,
+      },
       instrucao: { etp: linha('ETP') ?? null, riscos: linha('AR') ?? null },
       incisos: situacaoDosIncisos(secoes),
       obrigatorios_vazios: incisosObrigatoriosVazios(secoes),
@@ -646,11 +663,24 @@ export class DocumentosTelaService {
     const reserva = await this.orcamento.resumoParaTr(licitacaoId);
     const seed = await this.derivacao.montarSeed(licitacaoId, 'TR');
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
+    // E5: com o TR anexado (PDF feito fora), as seções da última versão feita aqui continuam como base
+    const base = tr ? await this.faseInterna.baseEditavel(tr) : null;
+    const secoes = this.secoesDe(base ?? tr);
+    const derivaveis = Object.keys(seed.secoes);
+    const temTexto = (v: unknown) => typeof v === 'string' && v.replace(/<[^>]+>/g, '').trim().length > 0;
     return {
       licitacao: { id: lic.id, numero_processo: lic.numero_processo, objeto: lic.objeto, modalidade: lic.modalidade, fase: lic.fase, fase_interna: ehFaseInterna(lic.fase) },
       contratacao_direta: instrucao.contratacao_direta,
       instrucao: instrucao.itens.find((i) => i.tipo === 'TR') ?? null,
-      tr: { peca: this.resumoPeca(tr), secoes: this.secoesDe(tr) },
+      tr: {
+        peca: this.resumoPeca(tr),
+        secoes,
+        base: base && tr && base.id !== tr.id ? { documento_id: base.id, versao: base.versao, registrada_por: base.criado_por_nome ?? base.dados_estruturados?._emitido?.por_nome ?? null } : null,
+      },
+      // O que ainda falta (seções obrigatórias do art. 6º, XXIII, sem texto e que o sistema não completa sozinho)
+      obrigatorias_faltando: this.secoesDoModelo('TR')
+        .filter((m) => m.obrigatorio && !temTexto(secoes[m.id]) && !derivaveis.includes(m.id))
+        .map((m) => ({ id: m.id, titulo: String(m.titulo).replace(/\s*\*$/, '') })),
       // Mesma regra da instrução: pronto = emitido (gerado/anexado/assinado) ou "não se aplica"
       etp: { peca: this.resumoPeca(etp), pronto: ['OK', 'NAO_SE_APLICA'].includes(instrucao.itens.find((i) => i.tipo === 'ETP')?.status ?? '') },
       itens,

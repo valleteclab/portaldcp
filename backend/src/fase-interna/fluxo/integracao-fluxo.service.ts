@@ -73,7 +73,8 @@ export class IntegracaoFluxoService {
       await this.posseInicial(r);
       return;
     }
-    const sugestao = sugerirEnvio(r.passos, r.destinos, r.posse);
+    const possiveis = await this.tarefas.destinosPossiveisDoProcesso(r.lic.orgao_id, r.modelo, r.config.modo, r.condutor_id, r.destinos);
+    const sugestao = sugerirEnvio(r.passos, r.destinos, r.posse, possiveis);
     if (sugestao.pendentes_do_detentor.length || !sugestao.destinos.length) {
       await this.tarefas.cancelarTarefaPorChave(
         r.lic.id,
@@ -254,10 +255,11 @@ export class IntegracaoFluxoService {
     const condutor = await this.tarefas.condutorDoProcesso(licitacaoId);
     const posse = await this.tarefas.posseAtual(licitacaoId);
     const destinos = await this.tarefas.destinosDoProcesso(lic.orgao_id, modelo, config.modo, condutor);
-    const s = sugerirEnvio(passos, destinos, posse);
+    const possiveis = await this.tarefas.destinosPossiveisDoProcesso(lic.orgao_id, modelo, config.modo, condutor, destinos);
+    const s = sugerirEnvio(passos, destinos, posse, possiveis);
     const com = await this.tramitacao.comQuemEsta(licitacaoId);
     return {
-      destinos: s.destinos.map((d) => ({ setor_id: d.setor_id, usuario_id: d.usuario_id, rotulo: d.rotulo, etapas: d.etapas, principal: d.principal })),
+      destinos: s.destinos.map((d) => ({ setor_id: d.setor_id, usuario_id: d.usuario_id, rotulo: d.rotulo, etapas: d.etapas, principal: d.principal, depois_de: d.depois_de ?? null })),
       despacho_sugerido: s.despacho_sugerido,
       finalidade: s.finalidade,
       pode_enviar: permissao.pode,

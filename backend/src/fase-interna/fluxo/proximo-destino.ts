@@ -79,11 +79,15 @@ function destinoDoSetor(id: string, ctx: ContextoDestino): DestinoEtapa | null {
 /**
  * Papel → destino pelos usuários ATIVOS que têm o papel: uma pessoa só → o
  * setor dela (ou ela, sem lotação); várias, todas no mesmo setor → o setor;
- * espalhadas ou ninguém → não há destino único (null).
+ * espalhadas ou ninguém → não há destino único (null). Quem tem o papel mas
+ * não tem lotação (ex.: o administrador com todos os papéis) não desempata
+ * contra quem tem setor: vale o setor dos lotados.
  */
 export function destinoDoPapel(papel: string, ctx: ContextoDestino): DestinoEtapa | null {
-  const com = ctx.usuarios.filter((u) => u.papeis.includes(papel));
-  if (!com.length) return null;
+  const todos = ctx.usuarios.filter((u) => u.papeis.includes(papel));
+  if (!todos.length) return null;
+  const lotados = todos.filter((u) => !!u.setor_id);
+  const com = lotados.length && lotados.length < todos.length ? lotados : todos;
   if (com.length === 1) {
     const u = com[0];
     return u.setor_id ? destinoDoSetor(u.setor_id, ctx) ?? destinoDaPessoa(u) : destinoDaPessoa(u);
@@ -118,6 +122,25 @@ export function destinoDaEtapa(r: ResponsavelDoModelo | null | undefined, ctx: C
   }
   if (!d && simples && condutor) d = destinoDaPessoa(condutor);
   return d;
+}
+
+/**
+ * DESTINOS POSSÍVEIS de um papel espalhado (sem destino único): um por setor
+ * dos que têm o papel (ou a pessoa, sem lotação). A sugestão de envio usa
+ * para não deixar o usuário sem nada — ex.: o agente também tem o papel
+ * Jurídico: tirando quem está com o processo, sobra a Procuradoria.
+ */
+export function destinosPossiveisDoPapel(papel: string, ctx: ContextoDestino): DestinoEtapa[] {
+  const saida: DestinoEtapa[] = [];
+  const vistos = new Set<string>();
+  for (const u of ctx.usuarios.filter((x) => x.papeis.includes(papel))) {
+    const d = u.setor_id ? destinoDoSetor(u.setor_id, ctx) ?? destinoDaPessoa(u) : destinoDaPessoa(u);
+    const k = `${d.setor_id ?? ''}|${d.setor_id ? '' : d.usuario_id ?? ''}`;
+    if (vistos.has(k)) continue;
+    vistos.add(k);
+    saida.push(d);
+  }
+  return saida;
 }
 
 /** Mesmo setor e mesma pessoa. */
@@ -183,6 +206,12 @@ export interface DestinoSugerido extends DestinoEtapa {
   /** [codigo, nome] das etapas que esperam por este destino. */
   etapas: Array<[string, string]>;
   principal: boolean;
+  /**
+   * Destino ANTECIPADO: as etapas dele só dependem das que ainda estão com
+   * quem tem o processo (ex.: parecer depois das minutas) — vale depois de
+   * concluí-las. [codigo, nome] do que falta a quem está com o processo.
+   */
+  depois_de?: Array<[string, string]>;
 }
 
 export interface SugestaoEnvio {
@@ -219,23 +248,55 @@ export const chaveDoDestino = (d: Pick<DestinoEtapa, 'setor_id' | 'usuario_id'>)
  * modelo); a primeira é a principal. Sem posse, todas as etapas a fazer
  * contam. A finalidade e o despacho sugerido saem dos nomes das etapas.
  */
-export function sugerirEnvio(passos: PassoParaEnvio[], destinos: Record<string, DestinoEtapa | null>, posse: Posse | null | undefined): SugestaoEnvio {
+export function sugerirEnvio(
+  passos: PassoParaEnvio[],
+  destinos: Record<string, DestinoEtapa | null>,
+  posse: Posse | null | undefined,
+  /** Destinos possíveis das etapas sem destino único (papel espalhado) — `destinosPossiveisDoPapel`. */
+  possiveis: Record<string, DestinoEtapa[]> = {},
+): SugestaoEnvio {
   const aFazer = passos.filter(passoParaFazer);
   const doDetentor = posse ? aFazer.filter((p) => etapaComODetentor(p.passo, destinos[p.passo], posse)) : [];
   const grupos = new Map<string, DestinoSugerido>();
   const semDestino: Array<[string, string]> = [];
+  /** Destinos da etapa: o do modelo; sem ele, os possíveis do papel que não são quem está com o processo. */
+  const destinosDe = (codigo: string): DestinoEtapa[] => {
+    const d = destinos[codigo];
+    if (d && (d.setor_id || d.usuario_id)) return [d];
+    return (possiveis[codigo] ?? []).filter((x) => !posse || (!mesmoDestino(x, posse) && !(x.setor_id && x.setor_id === posse.setor_id) && !(x.usuario_id && x.usuario_id === posse.usuario_id)));
+  };
+  const agrupar = (p: PassoParaEnvio, d: DestinoEtapa, depoisDe?: Array<[string, string]>) => {
+    const k = chaveDoDestino(d);
+    const g = grupos.get(k) ?? { ...d, etapas: [], principal: false, ...(depoisDe?.length ? { depois_de: depoisDe } : {}) };
+    g.etapas.push([p.passo, p.titulo]);
+    grupos.set(k, g);
+  };
   for (const p of aFazer) {
     if (doDetentor.includes(p)) continue;
-    const d = destinos[p.passo];
-    if (!d || (!d.setor_id && !d.usuario_id)) {
+    const ds = destinosDe(p.passo);
+    if (!ds.length) {
       semDestino.push([p.passo, p.titulo]);
       continue;
     }
-    if (posse && mesmoDestino(d, posse)) continue;
-    const k = chaveDoDestino(d);
-    const g = grupos.get(k) ?? { ...d, etapas: [], principal: false };
-    g.etapas.push([p.passo, p.titulo]);
-    grupos.set(k, g);
+    for (const d of ds) {
+      if (posse && mesmoDestino(d, posse)) continue;
+      agrupar(p, d);
+    }
+  }
+  // Nada disponível em outro setor, mas quem tem o processo ainda trabalha: a etapa SEGUINTE
+  // (só depende das dele — ex.: o parecer, irmã das minutas na etapa 7) já aparece como o
+  // próximo destino, "depois de concluir" as dele. Nunca dispara envio automático.
+  if (!grupos.size && posse && doDetentor.length) {
+    const doDetentorCod = new Set(doDetentor.map((p) => p.passo));
+    for (const p of passos) {
+      if (p.situacao !== 'AGUARDANDO' || !p.pendencias.length || !p.pendencias.every((x) => doDetentorCod.has(x))) continue;
+      if (etapaComODetentor(p.passo, destinos[p.passo], posse)) continue;
+      const depoisDe = doDetentor.filter((x) => p.pendencias.includes(x.passo)).map((x) => [x.passo, x.titulo] as [string, string]);
+      for (const d of destinosDe(p.passo)) {
+        if (mesmoDestino(d, posse)) continue;
+        agrupar(p, d, depoisDe);
+      }
+    }
   }
   const lista = [...grupos.values()];
   if (lista.length) lista[0].principal = true;
@@ -275,7 +336,7 @@ export function acaoNaConclusao(
   if (!posse) return { tipo: 'NADA', motivo: 'Sem posse registrada.' };
   if (!concluidasAgora.length) return { tipo: 'NADA', motivo: 'Nenhuma etapa concluiu agora.' };
   if (sugestao.pendentes_do_detentor.length) return { tipo: 'NADA', motivo: 'Quem está com o processo ainda tem etapa a fazer.' };
-  const destino = sugestao.destinos.find((d) => d.principal);
+  const destino = sugestao.destinos.find((d) => d.principal && !d.depois_de?.length);
   if (!destino) return { tipo: 'NADA', motivo: 'Nenhuma etapa disponível em outro setor.' };
   const base = { destino, finalidade: sugestao.finalidade, despacho: sugestao.despacho_sugerido };
   return modo === 'POR_SETOR' ? { tipo: 'TAREFA_ENVIAR', ...base } : { tipo: 'ENVIAR_AUTOMATICO', ...base };

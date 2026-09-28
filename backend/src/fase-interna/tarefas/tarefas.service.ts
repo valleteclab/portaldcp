@@ -38,7 +38,7 @@ import {
 } from './etapas-fase-interna';
 import { Tarefa } from './tarefa.entity';
 import { definirAgendadorDeTarefas } from './aviso-tarefas';
-import { DestinoEtapa, Posse, destinoDaEtapa, responsavelNaPosse } from '../fluxo/proximo-destino';
+import { DestinoEtapa, Posse, destinoDaEtapa, destinosPossiveisDoPapel, responsavelNaPosse } from '../fluxo/proximo-destino';
 import {
   JANELA_AVISO_DUPLICADO_MIN,
   Responsavel,
@@ -639,6 +639,30 @@ export class TarefasService {
    * resolvido pelos usuários ativos do órgão) — `destinoDaEtapa`.
    */
   async destinosDoProcesso(orgaoId: string, modelo: Pick<ModeloFluxo, 'etapas'>, modo: string, condutorId: string | null): Promise<Record<string, DestinoEtapa | null>> {
+    const ctx = await this.contextoDeDestino(orgaoId, modo, condutorId);
+    return Object.fromEntries(modelo.etapas.map((e) => [e.codigo, destinoDaEtapa(e.responsavel, ctx)]));
+  }
+
+  /**
+   * DESTINOS POSSÍVEIS das etapas SEM destino único (responsável = papel que
+   * mais de um setor tem): um por setor/pessoa com o papel. A sugestão de
+   * envio tira quem está com o processo e oferece os demais (homologação:
+   * "o fluxo não sugeriu o Jurídico").
+   */
+  async destinosPossiveisDoProcesso(
+    orgaoId: string,
+    modelo: Pick<ModeloFluxo, 'etapas'>,
+    modo: string,
+    condutorId: string | null,
+    destinos: Record<string, DestinoEtapa | null>,
+  ): Promise<Record<string, DestinoEtapa[]>> {
+    const semDestino = modelo.etapas.filter((e) => !destinos[e.codigo] && e.responsavel?.papel);
+    if (!semDestino.length) return {};
+    const ctx = await this.contextoDeDestino(orgaoId, modo, condutorId);
+    return Object.fromEntries(semDestino.map((e) => [e.codigo, destinosPossiveisDoPapel(e.responsavel.papel as string, ctx)]));
+  }
+
+  private async contextoDeDestino(orgaoId: string, modo: string, condutorId: string | null) {
     const usuarios: any[] = await this.ds.query(
       `SELECT u.id::text AS id, u.nome, u.setor_id::text AS setor_id, s.nome AS setor_nome, u.papeis_fase_interna AS papeis
          FROM usuarios u LEFT JOIN setores s ON s.id = u.setor_id
@@ -646,14 +670,13 @@ export class TarefasService {
       [orgaoId],
     );
     const setores: Array<{ id: string; nome: string }> = await this.ds.query(`SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1`, [orgaoId]);
-    const ctx = {
+    return {
       modo,
       condutor_id: condutorId,
       papel_do_condutor: PapelFaseInterna.AGENTE_CONTRATACAO,
       usuarios: usuarios.map((u) => ({ id: u.id, nome: u.nome || 'Usuário', setor_id: u.setor_id ?? null, setor_nome: u.setor_nome ?? null, papeis: Array.isArray(u.papeis) ? u.papeis : [] })),
       setores,
     };
-    return Object.fromEntries(modelo.etapas.map((e) => [e.codigo, destinoDaEtapa(e.responsavel, ctx)]));
   }
 
   /**
@@ -674,9 +697,9 @@ export class TarefasService {
       tipo_peca?: string | null;
       documento_id?: string | null;
       /** Entrega 3B: diligência do parecer (origem DILIGENCIA) e devolução da autorização; Entrega 4: achado da conformidade. */
-      origem?: 'SISTEMA' | 'DILIGENCIA' | 'ACHADO' | 'APROVACAO' | 'TRAMITACAO';
+      origem?: 'SISTEMA' | 'DILIGENCIA' | 'ACHADO' | 'APROVACAO' | 'TRAMITACAO' | 'ASSINATURA';
       origem_id?: string | null;
-      tipo?: 'PECA' | 'DILIGENCIA' | 'ACHADO' | 'OUTRO';
+      tipo?: 'PECA' | 'DILIGENCIA' | 'ACHADO' | 'ASSINATURA' | 'OUTRO';
       /** Responsável explícito (ex.: o agente do processo); sem ele, o do passo. */
       responsavel?: Responsavel | null;
       /** F3: prazo próprio em dias úteis (sem ele, o do passo no modelo); null = sem prazo. */
@@ -1467,6 +1490,14 @@ export class TarefasService {
     return r?.role === 'ADMIN' || (!!r?.pregoeiro_id && r.pregoeiro_id === ator.usuarioId);
   }
 
+  /** O ator (usuário do órgão) é o responsável da etapa no modelo (pessoa, papel ou setor)? */
+  async ehResponsavelDaEtapa(ator: Ator, orgaoId: string, r: { papel: string | null; setor_id: string | null; usuario_id: string | null } | null | undefined): Promise<boolean> {
+    if (!r || ator.tipo !== 'USUARIO' || !ator.usuarioId) return false;
+    if (r.usuario_id) return r.usuario_id === ator.usuarioId;
+    const [u] = await this.ds.query(`SELECT papeis_fase_interna AS papeis, setor_id::text AS setor_id FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2`, [ator.usuarioId, orgaoId]);
+    return (!!r.papel && Array.isArray(u?.papeis) && u.papeis.includes(r.papel)) || (!!r.setor_id && u?.setor_id === r.setor_id);
+  }
+
   /** O ator aprova a demanda deste processo pelo modelo? */
   async podeAprovarDemanda(ator: Ator, licitacaoId: string, modelo: ModeloFluxo): Promise<boolean> {
     if (ator.admin || ator.tipo === 'ORGAO') return true;
@@ -1507,6 +1538,7 @@ export class TarefasService {
       return this.rotuloResponsavel({ responsavel_papel: resp.papel, responsavel_setor_nome: resp.setor_id ? await this.nomeDoSetor(resp.setor_id) : null });
     };
 
+    const conduzAqui = ator ? await this.podeConduzirProcesso(ator, licitacaoId) : false;
     const saida: any[] = [];
     for (const e of etapas) {
       const passos: any[] = [];
@@ -1517,6 +1549,14 @@ export class TarefasService {
         passos.push({
           ...p,
           codigo: p.passo,
+          // "Voltar" na tela da etapa: quem conduz ou o responsável pela etapa (o servidor confere de novo)
+          pode_reabrir:
+            !!ator &&
+            FASES_INTERNAS.includes(lic.fase) &&
+            (p.situacao === 'CONCLUIDO' || p.situacao === 'A_REVISAR') &&
+            p.conclusao !== 'DIVULGACAO' &&
+            (conduzAqui ||
+              (config.modo === 'POR_SETOR' && (await this.ehResponsavelDaEtapa(ator, lic.orgao_id, fluxo.modelo.etapas.find((x) => x.codigo === p.passo)?.responsavel)))),
           tarefa: tarefa ? this.paraTela(tarefa, perfilNeutro, agora) : null,
           responsavel_previsto: { ...previsto, rotulo: await nomeResp(previsto) },
           prazo_dias_uteis: prazos[p.passo] ?? null,

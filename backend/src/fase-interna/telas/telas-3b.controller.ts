@@ -104,6 +104,15 @@ export class TelasAnaliseDecisaoController {
     return this.parecer.salvar(id, body ?? {}, ator, await this.autor(ator));
   }
 
+  /**
+   * Diligências da peça (tela da etapa): ?tipo=TR — abertas (e as últimas
+   * sanadas), quem abriu, versão nova pronta e se o usuário pode sanar.
+   */
+  @Get(':licitacaoId/diligencias')
+  diligenciasDaPeca(@Param('licitacaoId') id: string, @Query('tipo') tipo: string, @AtorAtual() ator: Ator) {
+    return this.parecer.diligenciasDaPeca(id, tipo, ator);
+  }
+
   /** { fase, tipo_alvo, descricao, item_roteiro?, folha?, trecho? }. */
   @Post(':licitacaoId/parecer/diligencias')
   async abrirDiligencia(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {

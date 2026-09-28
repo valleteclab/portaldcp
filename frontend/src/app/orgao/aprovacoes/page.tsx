@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao';
 import { CaixaDocumentosAprovacao } from '@/components/fase-interna/CaixaDocumentosAprovacao';
+import { CaixaAssinaturas, carregarAssinaturasPendentes } from '@/components/fase-interna/CaixaAssinaturas';
 import {
   Loader2,
   CheckCircle,
@@ -301,6 +302,15 @@ export default function CentralAprovacoesPage() {
   const [medicoes, setMedicoes] = useState<MedicaoPendente[]>([]);
   const [ordensServico, setOrdensServico] = useState<OSPendente[]>([]);
 
+  // Assinaturas (homologação E1): quantas esperam o usuário do login — badge da aba
+  const [assinaturasPendentes, setAssinaturasPendentes] = useState(0);
+  useEffect(() => {
+    carregarAssinaturasPendentes()
+      .then((r) => setAssinaturasPendentes(r?.itens.length ?? 0))
+      .finally(() => marcarCarregada('assinaturas'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // UI State
   const [loadingContratos, setLoadingContratos] = useState(false);
   const [loadingRequisicoes, setLoadingRequisicoes] = useState(false);
@@ -409,7 +419,7 @@ export default function CentralAprovacoesPage() {
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     if (!tabParam) return;
-    const tabsPermitidas = new Set(['contratos', 'demandas', 'documentos', 'requisicoes', 'medicoes', 'ordens-servico']);
+    const tabsPermitidas = new Set(['contratos', 'demandas', 'documentos', 'assinaturas', 'requisicoes', 'medicoes', 'ordens-servico']);
     if (tabsPermitidas.has(tabParam)) {
       setActiveTab(tabParam);
     }
@@ -1014,6 +1024,7 @@ export default function CentralAprovacoesPage() {
     { valor: 'contratos', visivel: podeLiberarContratos, pendentes: contratos.length },
     { valor: 'demandas', visivel: podeAprovarDemandas, pendentes: pendentesPlanejamento },
     { valor: 'documentos', visivel: true, pendentes: pendentesDocumentos },
+    { valor: 'assinaturas', visivel: true, pendentes: assinaturasPendentes },
     { valor: 'requisicoes', visivel: podeAprovarRequisicoes, pendentes: requisicoes.length },
     { valor: 'medicoes', visivel: true, pendentes: medicoes.length },
     { valor: 'ordens-servico', visivel: true, pendentes: ordensServico.length },
@@ -1221,6 +1232,13 @@ export default function CentralAprovacoesPage() {
               <Badge className="ml-1 bg-sky-700 text-white text-xs px-1.5 py-0">{pendentesDocumentos}</Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="assinaturas" className="flex items-center gap-2">
+            <PenLine className="h-4 w-4" />
+            Assinaturas
+            {assinaturasPendentes > 0 && (
+              <Badge className="ml-1 bg-violet-600 text-white text-xs px-1.5 py-0">{assinaturasPendentes}</Badge>
+            )}
+          </TabsTrigger>
           {podeAprovarRequisicoes && (
             <TabsTrigger value="requisicoes" className="flex items-center gap-2">
               <ClipboardList className="h-4 w-4" />
@@ -1249,6 +1267,11 @@ export default function CentralAprovacoesPage() {
         {/* ============ TAB DOCUMENTOS DO PROCESSO (fluxos de aprovação) ==== */}
         <TabsContent value="documentos" className="space-y-4">
           <CaixaDocumentosAprovacao onContagem={setPendentesDocumentos} />
+        </TabsContent>
+
+        {/* ============ TAB ASSINATURAS (o que o usuário do login assina) ==== */}
+        <TabsContent value="assinaturas" className="space-y-4">
+          <CaixaAssinaturas processoDestacado={searchParams.get('processo')} onContagem={setAssinaturasPendentes} />
         </TabsContent>
 
         {/* ============ TAB DEMANDAS E DFD (planejamento) ============ */}

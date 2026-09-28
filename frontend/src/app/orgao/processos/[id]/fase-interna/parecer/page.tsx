@@ -31,7 +31,7 @@ import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaix
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { VisorDosAutos, type PecaAberta } from "@/components/fase-interna/etapas/VisorDosAutos"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
-import { erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
+import { erroDaApi, fmtDia, rotaDaTela, telaDoTipo } from "@/lib/fase-interna/telas"
 import { FASES_INTERNAS } from "@/lib/licitacao-rotulos"
 
 interface Peca {
@@ -308,7 +308,8 @@ export default function ParecerPage() {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,44rem)_1fr]">
+      {/* Homologação: o roteiro ficava espremido ao lado do visor (44rem fixos) — agora metade/metade no xl e empilhado abaixo */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         {/* AUTOS (visor comum — Entrega 4 o reaproveita na conformidade) */}
         <VisorDosAutos autos={d.autos} aberta={aberta} onAbrir={setAberta} />
 
@@ -318,11 +319,11 @@ export default function ParecerPage() {
             <h2 className="px-4 pt-3 pb-2 font-serif text-xl font-semibold text-gray-900">Roteiro de análise</h2>
             <ul>
               {d.roteiro.map((i) => (
-                <li key={i.id} className="flex gap-3 px-4 py-2.5 border-t items-start">
-                  <span className="w-24 shrink-0 font-mono text-xs text-gray-600 pt-0.5">{i.ref}</span>
+                <li key={i.id} className="flex flex-wrap gap-x-3 gap-y-1.5 px-4 py-2.5 border-t items-start">
+                  <span className="w-20 shrink-0 font-mono text-xs text-gray-600 pt-0.5 break-words">{i.ref}</span>
                   <button
                     type="button"
-                    className="flex-1 min-w-0 text-left text-sm hover:underline"
+                    className="flex-1 min-w-[12rem] text-left text-sm hover:underline"
                     onClick={() => {
                       const tipo = i.tipos.find((t) => d.autos.some((p) => p.tipo === t))
                       if (tipo) setAberta({ tipo, folha: d.autos.find((p) => p.tipo === tipo)?.folha_inicial ?? null, trecho: null })
@@ -334,7 +335,7 @@ export default function ParecerPage() {
                   </button>
                   <span className={`text-xs font-semibold rounded-full px-2.5 py-1 shrink-0 ${COR[i.situacao]?.cls ?? ""}`}>{COR[i.situacao]?.texto ?? i.situacao}</span>
                   {d.pode_emitir && d.disponivel && (
-                    <div className="shrink-0 flex flex-col gap-1">
+                    <div className="shrink-0 flex flex-row sm:flex-col items-center sm:items-stretch gap-1">
                       <select
                         aria-label={`Situação de ${i.ref}`}
                         className="h-7 text-xs border rounded px-1"
@@ -403,7 +404,13 @@ export default function ParecerPage() {
                         Cancelar
                       </Button>
                     )}
-                    <Link className="text-xs text-blue-800 hover:underline self-center" href={`/orgao/processos/${id}#peca-${x.tipo_alvo}`}>abrir a peça no processo</Link>
+                    {/* A tela da peça também mostra a diligência e o "Sanar" (homologação) */}
+                    <Link
+                      className="text-xs text-blue-800 hover:underline self-center"
+                      href={telaDoTipo(x.tipo_alvo) ? rotaDaTela(id, telaDoTipo(x.tipo_alvo)!) : `/orgao/processos/${id}#peca-${x.tipo_alvo}`}
+                    >
+                      abrir a peça
+                    </Link>
                   </div>
                 </li>
               ))}

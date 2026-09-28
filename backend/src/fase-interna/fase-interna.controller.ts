@@ -14,6 +14,8 @@ import {
   UseGuards,
   NotFoundException,
   Res,
+  Ip,
+  Headers,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import * as fs from 'fs';
@@ -33,7 +35,7 @@ import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 import { Public } from '../auth/public.decorator';
 import { AtorAtual } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
-import { DonoFaseInternaGuard, DonoPor } from './dono-fase-interna.guard';
+import { DonoFaseInternaGuard, DonoModo, DonoPor } from './dono-fase-interna.guard';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { licitacaoEhPublica } from '../licitacoes/licitacao-visao.util';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
@@ -42,6 +44,7 @@ import { AuditLogService } from './audit-log.service';
 import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 import { JuntadaPecasService } from './juntada-pecas.service';
 import { AprovacaoPecasService } from './aprovacao-pecas.service';
+import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 
 /**
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
@@ -66,6 +69,7 @@ export class FaseInternaController {
     private readonly auditLog: AuditLogService,
     private readonly juntada: JuntadaPecasService,
     private readonly aprovacaoPecas: AprovacaoPecasService,
+    private readonly fluxoProcesso: FluxoProcessoService,
   ) {}
 
   private enviarPdf(res: Response, arq: { caminho: string; nome: string }) {
@@ -129,8 +133,27 @@ export class FaseInternaController {
   }
 
   @Get(':licitacaoId/documentos/:tipo/assinatura')
-  async situacaoAssinatura(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string) {
-    return this.pecas.situacaoAssinatura(licitacaoId, tipo);
+  async situacaoAssinatura(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string, @AtorAtual() ator: Ator) {
+    return this.pecas.situacaoAssinatura(licitacaoId, tipo, ator);
+  }
+
+  /**
+   * "Assinar" na tela da peça (homologação E1): só o signatário designado,
+   * com o próprio login (403 para os demais); processo de outro órgão → 404.
+   * A tarefa "Assinar <peça>" dele conclui; a última assinatura deixa a peça
+   * ASSINADA.
+   */
+  @Post(':licitacaoId/documentos/:tipo/assinar')
+  @DonoModo('leitura')
+  async assinarPeca(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('tipo') tipo: string,
+    @AtorAtual() ator: Ator,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    const r = await this.pecas.assinarComoSignatario(licitacaoId, String(tipo || '').toUpperCase(), ator, { ip, userAgent });
+    return { documento_id: r.documento.id, tipo: r.documento.tipo, versao: r.documento.versao, status: r.documento.status, concluida: r.concluida };
   }
 
   /**
@@ -403,9 +426,14 @@ export class FaseInternaController {
     body: {
       justificativa?: string;
       desfazer?: boolean;
+      /** Desfazer: motivo (obrigatório quando a etapa estava concluída — vira a reabertura da etapa). */
+      motivo?: string;
     },
     @AtorAtual() ator: Ator,
   ) {
+    // Homologação (passo 6): desfazer o "não se aplica" de etapa concluída é VOLTAR a etapa —
+    // motivo obrigatório e as dependentes concluídas ficam "a revisar"
+    if (body?.desfazer) await this.fluxoProcesso.reabrirParaDesfazerNaoSeAplica(licitacaoId, String(tipo), body?.motivo, ator);
     // Autor sempre do JWT (Entrega 2 — antes vinha do corpo): é quem "cumpriu"
     // a peça na conclusão automática da tarefa.
     const id = ator.usuarioId ?? ator.orgaoId ?? ator.id;

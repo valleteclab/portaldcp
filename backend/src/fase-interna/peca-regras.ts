@@ -204,3 +204,23 @@ export function pecaProntaPelaRegraAnterior(doc: {
   }
   return Boolean(dados && typeof dados === 'object' && Object.keys(dados).length > 0);
 }
+
+/** Seções (conteúdo) da peça feita no sistema — sem as chaves internas (`_…`) nem o "não se aplica". */
+export function conteudoEditavel(dados: unknown): Record<string, any> {
+  if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return {};
+  const r: Record<string, any> = {};
+  for (const [k, v] of Object.entries(dados as Record<string, any>)) {
+    if (k.startsWith('_') || k === 'nao_se_aplica' || k === 'justificativa_nao_se_aplica') continue;
+    if (typeof v === 'string' ? v.replace(/<[^>]+>/g, '').trim() : v != null) r[k] = v;
+  }
+  return r;
+}
+
+/** O texto salvo da seção é o mesmo (ignorando só espaços nas pontas e o parágrafo vazio)? */
+export function mesmoTextoDaSecao(antes: unknown, depois: unknown): boolean {
+  const n = (v: unknown) => {
+    const t = typeof v === 'string' ? v.trim() : '';
+    return t === '<p></p>' ? '' : t;
+  };
+  return typeof antes === 'string' && n(antes) === n(depois);
+}
