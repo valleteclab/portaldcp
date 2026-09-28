@@ -137,9 +137,9 @@ describe('Fase interna — Entrega 1 (base)', () => {
     });
 
     it('anexo válido: IMPORTADO/ARQUIVO, SHA-256, data da peça + data do envio, folhas, e conta no checklist', async () => {
-      // DFD e despacho gerados antes já estão juntados: o anexo recebe a folha seguinte
+      // o DFD gerado antes já está juntado (a autorização vem depois — ordem do fluxo): o anexo recebe a folha seguinte
       antes = await ultimaFolhaJuntada(lic);
-      expect(antes).toBeGreaterThanOrEqual(2);
+      expect(antes).toBeGreaterThanOrEqual(1);
       const pdf = pdfDeTeste('Mapa de precos feito fora');
       const r = await anexar(lic, 'PP', A.token, { data_documento: '2026-01-15', numero_peca: 'Mapa 012/2026', observacao: 'Pesquisa feita pelo Setor de Compras' }, pdf, 'mapa.pdf');
       expect(r.status).toBe(201);

@@ -143,19 +143,20 @@ export class FluxoProcessoService {
    * permissão da reabertura (403) e deixa as dependentes concluídas "a
    * revisar". Etapa ainda não concluída: nada a reabrir (o desfazer segue).
    */
-  async reabrirParaDesfazerNaoSeAplica(licitacaoId: string, tipo: string, motivo: unknown, ator: Ator): Promise<void> {
+  /** Devolve `true` quando a etapa estava concluída e foi reaberta (o "voltar"); `false` quando não era o caso. */
+  async reabrirParaDesfazerNaoSeAplica(licitacaoId: string, tipo: string, motivo: unknown, ator: Ator): Promise<boolean> {
     const lic = await this.processo(licitacaoId);
     const [doc] = await this.ds.query(
       `SELECT id, aprovador_id FROM documentos_fase_interna WHERE licitacao_id::text = $1 AND tipo::text = $2 AND versao_atual = true
           AND (dados_estruturados->>'nao_se_aplica')::boolean IS TRUE LIMIT 1`,
       [licitacaoId, tipo],
     );
-    if (!doc) return;
+    if (!doc) return false;
     const ctx = await this.contexto(licitacaoId);
     const etapa = ctx.modelo.etapas.find((e) => e.tipos_peca.includes(tipo));
-    if (!etapa) return;
+    if (!etapa) return false;
     const passo = passosDasEtapas(await this.tarefas.etapasCalculadas(licitacaoId, lic)).find((p) => p.passo === etapa.codigo);
-    if (!passo || (passo.situacao !== 'CONCLUIDO' && passo.situacao !== 'A_REVISAR')) return;
+    if (!passo || (passo.situacao !== 'CONCLUIDO' && passo.situacao !== 'A_REVISAR')) return false;
     const texto = String(motivo ?? '').trim();
     if (texto.length < 10) {
       throw new BadRequestException(
@@ -168,6 +169,7 @@ export class FluxoProcessoService {
       throw new ForbiddenException('Só quem conduz o processo, o responsável pela etapa ou quem marcou o "não se aplica" o desfaz depois de a etapa concluir.');
     }
     await this.reabrir(licitacaoId, etapa.codigo, { motivo: `Desfeito o "não se aplica": ${texto}` }, ator, { permissaoConferida: true });
+    return true;
   }
 
   // ==========================================================================

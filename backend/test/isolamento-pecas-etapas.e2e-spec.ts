@@ -219,6 +219,19 @@ describe('Isolamento das peças por etapa (homologação multiusuário)', () => 
       expect(passo(et, 'PESQUISA').situacao).toBe('CONCLUIDO');
     });
 
+    it('"não se aplica" na etapa de Compras: Caio não marca (403 do isolamento) nem desfaz a etapa concluída (403 da regra do "voltar")', async () => {
+      const marcar = await naoSeAplica(lic, 'AR', caio.token);
+      expect(marcar.status).toBe(403);
+      const desfazer = await http()
+        .post(`/api/fase-interna/${lic.id}/instrucao/ETP/nao-se-aplica`)
+        .set(bearer(caio.token))
+        .send({ desfazer: true, motivo: 'Tentativa de quem não responde pela etapa.' });
+      expect(desfazer.status).toBe(403);
+      expect(desfazer.body.message).toMatch(/quem conduz o processo, o responsável pela etapa ou quem marcou/);
+      const [etp] = await sql(`SELECT (dados_estruturados->>'nao_se_aplica')::boolean AS nsa FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo = 'ETP' AND versao_atual`, [lic.id]);
+      expect(etp.nsa).toBe(true);
+    });
+
     it('a reserva é da Contabilidade: Carlos não emite (403); com o processo na CONTABILIDADE, Caio anexa', async () => {
       expect((await anexar(lic, 'DO', carlos.token)).status).toBe(403);
       await tramitar(lic, S.CONTAB);

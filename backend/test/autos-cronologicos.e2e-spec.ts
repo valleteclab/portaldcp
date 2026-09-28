@@ -19,6 +19,12 @@
  *     (registro no processo); processo já publicado fica na regra anterior
  *     (sem mudar folha nenhuma); a migração é idempotente.
  *  D. Isolamento: a linha do tempo e os autos só para o órgão dono.
+ *
+ * As peças seguem a ORDEM DO FLUXO (frente A — isolamento das peças por
+ * etapa): a demanda aprovada antes das outras peças; as etapas de que as
+ * minutas dependem (ETP, pesquisa, reserva) cumpridas antes do relatório do
+ * agente; as minutas antes do parecer. Quem junta é o administrador do órgão
+ * (pode trabalhar fora da posse, com registro no histórico).
  */
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import {
@@ -79,11 +85,32 @@ describe('Autos em ordem cronológica de juntada', () => {
   const anexar = (l: { id: string }, tipo: string, arquivo: Buffer, numero = `${tipo} 001/2026`) =>
     http()
       .post(`/api/fase-interna/${l.id}/documentos/${tipo}/anexo`)
-      .set(bearer(agente.token))
+      .set(bearer(admin.token))
       .field('data_documento', diaBrasilia())
       .field('numero_peca', numero)
       .field('signatarios', JSON.stringify([{ nome: 'Rita Requisitante', cargo: 'Diretora' }]))
       .attach('arquivo', arquivo, { filename: `${tipo}.pdf`, contentType: 'application/pdf' });
+  const aprovarDemanda = async (l: { id: string }) => {
+    await esperar();
+    const et = (await http().get(`/api/fase-interna/${l.id}/etapas`).set(bearer(A.token)).expect(200)).body;
+    if (!et.aprovacao_demanda?.pode_aprovar) return; // sem aprovação exigida ou já aprovada
+    const r = await http().post(`/api/fase-interna/${l.id}/demanda/aprovar`).set(bearer(A.token)).send({});
+    expect({ status: r.status, erro: r.status === 201 ? null : r.body?.message }).toEqual({ status: 201, erro: null });
+    await esperar();
+  };
+  /** Anexa (1 folha cada) as peças ainda não prontas da etapa, na ordem do fluxo; devolve as faixas juntadas. */
+  const cumprirEtapaComAnexos = async (l: { id: string }, passo: string): Promise<Array<[number, number]>> => {
+    const et = (await http().get(`/api/fase-interna/${l.id}/etapas`).set(bearer(A.token)).expect(200)).body;
+    const p = (et.etapas ?? []).flatMap((e: any) => e.passos ?? []).find((x: any) => x.passo === passo);
+    const faixas: Array<[number, number]> = [];
+    for (const peca of (p?.pecas ?? []).filter((x: any) => !x.pronta)) {
+      const r = await anexar(l, peca.tipo, await pdfPaginas(`PECA${peca.tipo}CRONO`, 1));
+      expect({ tipo: peca.tipo, status: r.status, erro: r.status === 201 ? null : r.body?.message }).toEqual({ tipo: peca.tipo, status: 201, erro: null });
+      faixas.push([r.body.folha_inicial, r.body.folha_final]);
+      await esperar();
+    }
+    return faixas;
+  };
   const tramitar = (l: { id: string }, corpo: any) => http().post(`/api/fase-interna/${l.id}/tramitar`).set(bearer(admin.token)).send(corpo);
   const gerarAutos = async (l: { id: string }, token = agente.token) => {
     const g = await http().post(`/api/licitacoes/${l.id}/processo-pdf/gerar`).set(bearer(token));
@@ -130,6 +157,9 @@ describe('Autos em ordem cronológica de juntada', () => {
   // ==========================================================================
   describe('A. juntadas intercaladas: ordem de juntada, folhas da tela, versões e despachos', () => {
     const tela: Record<string, [number, number]> = {};
+    /** Peças das etapas de que as minutas dependem e as demais minutas (na ordem do fluxo). */
+    let antesDoRag: Array<[number, number]> = [];
+    let depoisDoRag: Array<[number, number]> = [];
     let autuacao: { de_usuario_nome: string; despacho: string };
     let autos: Awaited<ReturnType<typeof gerarAutos>>;
     const daFolha = (f: number) => autos.paginas[autos.pre + f - 1];
@@ -147,6 +177,8 @@ describe('Autos em ordem cronológica de juntada', () => {
       tela.DFD = [r.body.folha_inicial, r.body.folha_final];
       expect(tela.DFD).toEqual([1, 2]);
       await esperar();
+      // a demanda aprovada (quando o modelo a exige): as outras peças podem começar (a aprovação não junta folha)
+      await aprovarDemanda(lic);
 
       r = await tramitar(lic, { para_setor_id: sCompras, despacho: 'Encaminhe-se a Compras para o termo de referência.' });
       expect({ status: r.status, erro: r.status === 201 ? null : r.body?.message }).toEqual({ status: 201, erro: null });
@@ -164,16 +196,25 @@ describe('Autos em ordem cronológica de juntada', () => {
       expect(r.body.versao).toBe(2);
       await esperar();
 
+      // as etapas de que as minutas dependem (ordem do fluxo): cada juntada na folha seguinte
+      for (const passo of ['ETP', 'PESQUISA', 'RESERVA']) antesDoRag.push(...(await cumprirEtapaComAnexos(lic, passo)));
+      expect(antesDoRag.length).toBeGreaterThanOrEqual(3);
+      antesDoRag.forEach((f, i) => expect(f[0]).toBe((i ? antesDoRag[i - 1][1] : tela.TR2[1]) + 1));
+
       // peça GERADA no sistema: juntada quando fica pronta (sincronização, depois do commit)
-      expect((await http().post(`/api/fase-interna/${lic.id}/minutas/RAG/gerar`).set(bearer(agente.token))).status).toBe(201);
+      const g = await http().post(`/api/fase-interna/${lic.id}/minutas/RAG/gerar`).set(bearer(admin.token));
+      expect({ status: g.status, erro: g.status === 201 ? null : g.body?.message }).toEqual({ status: 201, erro: null });
       await esperar();
       const [rag] = await sql(`SELECT folha_inicial, folha_final FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'RAG' AND versao_atual`, [lic.id]);
-      expect(rag.folha_inicial).toBe(7);
+      expect(rag.folha_inicial).toBe(antesDoRag[antesDoRag.length - 1][1] + 1);
       tela.RAG = [rag.folha_inicial, rag.folha_final];
+      // as demais minutas: o parecer vem depois delas (art. 53)
+      depoisDoRag = await cumprirEtapaComAnexos(lic, 'MINUTAS');
+      const ultimaAntesDoParecer = depoisDoRag.length ? depoisDoRag[depoisDoRag.length - 1][1] : tela.RAG[1];
 
       r = await tramitar(lic, { para_setor_id: sJuridico, despacho: 'Ao Jurídico, para o parecer.' });
       tela.D2 = [r.body.folha_inicial, r.body.folha_final];
-      expect(tela.D2[0]).toBe(tela.RAG[1] + 1);
+      expect(tela.D2[0]).toBe(ultimaAntesDoParecer + 1);
       await esperar();
 
       r = await anexar(lic, 'PJ', await pdfPaginas('PARECERCRONO', 3), 'Parecer 010/2026');
@@ -222,7 +263,7 @@ describe('Autos em ordem cronológica de juntada', () => {
 
     it('o índice: ordem das folhas, data de JUNTADA em todas, substituída marcada; as folhas batem com a tela', async () => {
       const idx = autos.meta.indice as any[];
-      expect(idx.map((e) => [e.folha_inicial, e.folha_final])).toEqual([tela.DFD, tela.D1, tela.TR1, tela.TR2, tela.RAG, tela.D2, tela.PJ]);
+      expect(idx.map((e) => [e.folha_inicial, e.folha_final])).toEqual([tela.DFD, tela.D1, tela.TR1, tela.TR2, ...antesDoRag, tela.RAG, ...depoisDoRag, tela.D2, tela.PJ]);
       expect(idx.every((e) => e.juntado_em && !Number.isNaN(Date.parse(e.juntado_em)))).toBe(true);
       const datas = idx.map((e) => Date.parse(e.juntado_em));
       expect(datas).toEqual([...datas].sort((a, b) => a - b));
@@ -281,6 +322,7 @@ describe('Autos em ordem cronológica de juntada', () => {
     it('processo na FASE INTERNA com folhas da regra anterior: recalculadas pela ordem de juntada, com registro', async () => {
       interna = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       expect((await anexar(interna, 'DFD', await pdfPaginas('MIGDFD', 2))).status).toBe(201);
+      await aprovarDemanda(interna);
       const t = (await tramitar(interna, { para_setor_id: sCompras, despacho: 'A Compras.' }).expect(201)).body;
       expect((await anexar(interna, 'ETP', await pdfPaginas('MIGETP', 1))).status).toBe(201);
       await esperar();

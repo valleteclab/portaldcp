@@ -46,6 +46,7 @@ import { JuntadaPecasService } from './juntada-pecas.service';
 import { AprovacaoPecasService } from './aprovacao-pecas.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
+import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
 
 /**
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
@@ -71,6 +72,7 @@ export class FaseInternaController {
     private readonly juntada: JuntadaPecasService,
     private readonly aprovacaoPecas: AprovacaoPecasService,
     private readonly fluxoProcesso: FluxoProcessoService,
+    private readonly permissaoEtapa: PermissaoEtapaService,
   ) {}
 
   private enviarPdf(res: Response, arq: { caminho: string; nome: string }) {
@@ -427,7 +429,6 @@ export class FaseInternaController {
     return this.faseInternaService.getInstrucao(licitacaoId);
   }
 
-  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'marcar "não se aplica"' })
   @Post(':licitacaoId/instrucao/:tipo/nao-se-aplica')
   async marcarNaoSeAplica(
     @Param('licitacaoId') licitacaoId: string,
@@ -443,7 +444,13 @@ export class FaseInternaController {
   ) {
     // Homologação (passo 6): desfazer o "não se aplica" de etapa concluída é VOLTAR a etapa —
     // motivo obrigatório e as dependentes concluídas ficam "a revisar"
-    if (body?.desfazer) await this.fluxoProcesso.reabrirParaDesfazerNaoSeAplica(licitacaoId, String(tipo), body?.motivo, ator);
+    // Isolamento das peças (frente A): marcar — ou desfazer com a etapa ainda aberta — é trabalho na
+    // etapa (responsável, etapa podendo começar, posse no modo por setor). Desfazer com a etapa
+    // concluída é VOLTAR a etapa: vale a regra do "voltar" (quem conduz, o responsável ou quem marcou).
+    const voltou = body?.desfazer
+      ? await this.fluxoProcesso.reabrirParaDesfazerNaoSeAplica(licitacaoId, String(tipo), body?.motivo, ator)
+      : false;
+    if (!voltou) await this.permissaoEtapa.exigirPodeTrabalhar(licitacaoId, { passo: null, tipo: String(tipo) }, ator, body?.desfazer ? 'desfazer "não se aplica"' : 'marcar "não se aplica"');
     // Autor sempre do JWT (Entrega 2 — antes vinha do corpo): é quem "cumpriu"
     // a peça na conclusão automática da tarefa.
     const id = ator.usuarioId ?? ator.orgaoId ?? ator.id;
