@@ -8,18 +8,21 @@
  *    e "Concluídas".
  *  - Cada tarefa leva direto à peça/etapa na tela do processo.
  *  - Atrasadas em destaque; coluna "Prazos da semana".
+ *  - Fora dos processos, no topo de "Para mim": "Montar o DFD — N demanda(s)
+ *    aprovada(s) aguardando" para quem monta o DFD (some quando todas entram num DFD).
  * Fonte: GET /api/tarefas?aba=…; POST /api/tarefas/:id/assumir | /reatribuir.
  */
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Hand, Loader2, RefreshCw, UserRoundCog } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Hand, Loader2, RefreshCw, UserRoundCog } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas, fmtDia, fmtDiaCurto, publicarContagemTarefas, rotuloPrazo, type CaixaTarefas as Caixa, type TarefaTela } from "@/lib/tarefas"
+import type { PendenciaCaixa } from "@/lib/demandas/pendencia-dfd"
 
 type Aba = "para-mim" | "aguardando" | "concluidas"
 
@@ -136,14 +139,17 @@ export function CaixaTarefas() {
             <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-slate-500" aria-label="Carregando" /></div>
           ) : erro ? (
             <p className="text-sm text-red-700 py-6">Não foi possível carregar as tarefas: {erro}</p>
-          ) : !dados?.tarefas.length ? (
+          ) : !dados?.tarefas.length && !dados?.pendencias?.length ? (
             <div className="rounded-lg border bg-white p-8 text-center text-sm text-slate-600">
               <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-700" aria-hidden="true" />
               {aba === "para-mim" ? "Nenhuma tarefa aberta para você." : aba === "aguardando" ? "Nada aguardando outras pessoas." : "Nenhuma tarefa concluída ainda."}
             </div>
           ) : (
             <ul className="space-y-2">
-              {dados.tarefas.map((t) => (
+              {(dados?.pendencias ?? []).map((p) => (
+                <ItemPendencia key={p.chave} p={p} />
+              ))}
+              {(dados?.tarefas ?? []).map((t) => (
                 <ItemTarefa
                   key={t.id}
                   t={t}
@@ -190,6 +196,32 @@ export function CaixaTarefas() {
         }}
       />
     </div>
+  )
+}
+
+/** Pendência fora dos processos (ex.: montar o DFD com as demandas aprovadas). */
+function ItemPendencia({ p }: { p: PendenciaCaixa }) {
+  return (
+    <li className="rounded-lg border border-indigo-200 bg-white p-3 flex gap-3">
+      <div className="w-1 rounded-full shrink-0 bg-indigo-600" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-800">Planejamento</span>
+          <span className="font-medium text-slate-900">{p.titulo}</span>
+        </div>
+        <p className="text-sm text-slate-700">{p.descricao}</p>
+        {p.por_ano.length > 1 && (
+          <p className="text-xs text-slate-600 mt-0.5">Por exercício: {p.por_ano.map((a) => `${a.ano} (${a.n})`).join(", ")}</p>
+        )}
+      </div>
+      <div className="flex items-start shrink-0">
+        <Button asChild size="sm">
+          <Link href={p.destino}>
+            <ClipboardCheck className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> Montar o DFD <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
+          </Link>
+        </Button>
+      </div>
+    </li>
   )
 }
 

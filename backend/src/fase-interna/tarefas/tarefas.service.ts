@@ -21,6 +21,7 @@ import { FaseInternaService } from '../fase-interna.service';
 import { ConfiguracaoFaseInterna } from './configuracao-fase-interna.entity';
 import { ConfigFaseInternaEfetiva, configEfetiva, papelValido, validarConfiguracao, validarSignatariosAutorizacao } from './configuracao-fase-interna';
 import { ContextoFluxoProcesso, CondutorDoProcesso, ModeloFluxoService } from '../fluxo/modelo-fluxo.service';
+import { PendenciaDfdService } from '../fluxo/pendencia-dfd.service';
 import { ModeloFluxo, niveisDoGrafo } from '../fluxo/modelo-fluxo';
 import {
   BloqueiosDePortao,
@@ -215,6 +216,8 @@ export class TarefasService {
     private readonly auditLog: AuditLogService,
     private readonly modeloFluxo: ModeloFluxoService,
     @Optional() private readonly notificacoes?: NotificacoesService,
+    // Demanda aprovada → pendência "Montar o DFD" na caixa "Para mim" de quem monta o DFD
+    @Optional() private readonly pendenciaDfd?: PendenciaDfdService,
   ) {
     definirAgendadorDeTarefas((id) => this.agendar(id));
   }
@@ -1248,7 +1251,7 @@ export class TarefasService {
       );
       return r;
     };
-    const [cMim, cOutros] = await Promise.all([contar(paraMim), contar(aguardando)]);
+    const [cMim, cOutros, pendenciaDfd] = await Promise.all([contar(paraMim), contar(aguardando), this.pendenciaDoDfd(ator, p.orgaoId)]);
 
     // Prazos da semana: tarefas visíveis que vencem nos próximos 7 dias + sessões públicas
     const semana = new Date(agora.getTime() + 7 * 86_400_000);
@@ -1280,24 +1283,32 @@ export class TarefasService {
     return {
       aba,
       tarefas,
-      contagem: { para_mim: cMim.n, atrasadas: cMim.atrasadas, aguardando: cOutros.n },
+      // Fora dos processos: "Montar o DFD — N demanda(s) aprovada(s) aguardando" (quem monta o DFD; some sozinha)
+      pendencias: aba === 'para-mim' && pendenciaDfd ? [pendenciaDfd] : [],
+      contagem: { para_mim: cMim.n + (pendenciaDfd ? 1 : 0), atrasadas: cMim.atrasadas, aguardando: cOutros.n },
       prazos_semana: prazosSemana,
       perfil: { usuario_id: p.usuarioId, papeis: p.papeis, setor_id: p.setorId, orgao: p.orgao, admin: p.adminOrgao },
     };
   }
 
-  /** Contagem para o badge do menu. */
+  /** Pendência "Montar o DFD" de quem consulta (derivada das demandas aprovadas livres do órgão). */
+  private async pendenciaDoDfd(ator: Ator, orgaoId: string) {
+    return (await this.pendenciaDfd?.pendenciaDaCaixa(ator, orgaoId)) ?? null;
+  }
+
+  /** Contagem para o badge do menu (as tarefas abertas para mim + a pendência do DFD). */
   async contagem(ator: Ator, orgaoInformado?: string) {
     await this.aguardarPendentes();
     const p = await this.perfil(ator, orgaoInformado);
     const f = this.filtroParaMim(p, 2);
+    const pendenciaDfd = await this.pendenciaDoDfd(ator, p.orgaoId);
     const [r] = await this.ds.query(
       `SELECT COUNT(*)::int AS para_mim, COUNT(*) FILTER (WHERE t.prazo < now())::int AS atrasadas
          FROM tarefas t JOIN licitacoes l ON l.id = t.licitacao_id
         WHERE t.orgao_id::text = $1 AND t.status = 'ABERTA' AND ${f.sql}`,
       [p.orgaoId, ...f.params],
     );
-    return r;
+    return { para_mim: Number(r?.para_mim ?? 0) + (pendenciaDfd ? 1 : 0), atrasadas: Number(r?.atrasadas ?? 0) };
   }
 
   private rotuloResponsavel(t: any): string {

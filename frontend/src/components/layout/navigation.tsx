@@ -46,6 +46,7 @@ import { useModulosOrgao, ModuloSistema } from "@/hooks/useModulosOrgao"
 import { NotificacoesBadge } from "@/components/NotificacoesBadge"
 import { API_URL, getAssetUrl } from "@/lib/api"
 import { atualizarContagemTarefas, useContagemTarefas } from "@/lib/tarefas"
+import { carregarPendenciaDfd } from "@/lib/demandas/pendencia-dfd"
 
 interface SidebarProps {
   userType: 'fornecedor' | 'orgao'
@@ -92,6 +93,19 @@ export function Sidebar({ userType }: SidebarProps) {
     if (userType !== 'orgao') return
     void atualizarContagemTarefas()
   }, [userType, pathname])
+  // "DFD consolidado (N)": demandas aprovadas aguardando o DFD — o número só vem para quem monta o DFD
+  const [dfdLivres, setDfdLivres] = useState(0)
+  const demandasAtivo = !modulosLoading && temAcesso(ModuloSistema.DEMANDAS)
+  useEffect(() => {
+    if (userType !== 'orgao' || !demandasAtivo) return
+    let vivo = true
+    void carregarPendenciaDfd().then((p) => {
+      if (vivo) setDfdLivres(p?.pode_montar ? p.demandas_livres : 0)
+    })
+    return () => {
+      vivo = false
+    }
+  }, [userType, pathname, demandasAtivo])
 
   useEffect(() => {
     if (userType === 'orgao') {
@@ -323,6 +337,15 @@ export function Sidebar({ userType }: SidebarProps) {
                 >
                   <Icon className="h-5 w-5" />
                   <span className="flex-1">{link.label}</span>
+                  {link.href === '/orgao/demandas/consolidacao' && userType === 'orgao' && dfdLivres > 0 && (
+                    <span
+                      className="min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center bg-indigo-500 text-white"
+                      aria-label={`${dfdLivres} demanda(s) aprovada(s) aguardando o DFD`}
+                      title="Demandas aprovadas aguardando o DFD"
+                    >
+                      {dfdLivres}
+                    </span>
+                  )}
                   {link.href === '/orgao/fase-interna' && tarefas && tarefas.para_mim > 0 && (
                     <span
                       className={`min-w-5 h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center ${tarefas.atrasadas > 0 ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'}`}

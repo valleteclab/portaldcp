@@ -5,6 +5,7 @@
  */
 import { useSyncExternalStore } from "react"
 import { API_URL, authFetch } from "@/lib/api"
+import type { PendenciaCaixa } from "@/lib/demandas/pendencia-dfd"
 
 export interface TarefaTela {
   id: string
@@ -36,6 +37,8 @@ export interface TarefaTela {
 export interface CaixaTarefas {
   aba: string
   tarefas: TarefaTela[]
+  /** Fora dos processos (aba Para mim): "Montar o DFD — N demanda(s) aprovada(s) aguardando" (some sozinha). */
+  pendencias?: PendenciaCaixa[]
   contagem: { para_mim: number; atrasadas: number; aguardando: number }
   prazos_semana: Array<{ data: string; titulo: string; licitacao_id: string; tarefa_id: string | null; atrasada: boolean }>
 }

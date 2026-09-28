@@ -36,6 +36,7 @@ import { API_URL, authFetch, formatarDataBR } from '@/lib/api'
 import { toast } from 'sonner'
 import { COR_STATUS_DFD, type Parecido, AlertaParecidos, GuiaDfd, formatarMoeda } from '@/components/demandas/dfd-comum'
 import { ordemDaLista, proximaAcaoDfd, rotaDoDfd, type PermissoesGeraisDfd } from '@/lib/demandas/proxima-acao-dfd'
+import { anoDoLink } from '@/lib/demandas/pendencia-dfd'
 
 interface ItemDemanda {
   id: string
@@ -124,6 +125,18 @@ function DfdConsolidadoContent() {
   const router = useRouter()
   const anoAtual = new Date().getFullYear()
   const [ano, setAno] = useState(anoAtual)
+  // O aviso "demanda aprovada — monte o DFD" e a pendência em Minhas tarefas trazem o exercício no link (?ano=)
+  const [anoDoAviso, setAnoDoAviso] = useState<number | null>(null)
+  useEffect(() => {
+    const a = anoDoLink(window.location.search)
+    if (!a) return
+    setAnoDoAviso(a)
+    setAno(a)
+  }, [])
+  const anosDoSeletor = useMemo(
+    () => [...new Set([...Array.from({ length: 6 }, (_, i) => anoAtual - 1 + i), ...(anoDoAviso ? [anoDoAviso] : [])])].sort((a, b) => a - b),
+    [anoAtual, anoDoAviso],
+  )
   const [demandas, setDemandas] = useState<Demanda[]>([])
   const [dfds, setDfds] = useState<DfdResumo[]>([])
   const [antigas, setAntigas] = useState<ContratacaoFutura[]>([])
@@ -328,7 +341,7 @@ function DfdConsolidadoContent() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Array.from({ length: 6 }, (_, i) => anoAtual - 1 + i).map((a) => (
+              {anosDoSeletor.map((a) => (
                 <SelectItem key={a} value={String(a)}>{a}</SelectItem>
               ))}
             </SelectContent>

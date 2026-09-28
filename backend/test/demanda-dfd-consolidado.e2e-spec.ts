@@ -28,6 +28,7 @@ import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { MigracaoDfdBootService } from '../src/demandas/dfd/migracao-dfd-boot.service';
 import { TarefasService } from '../src/fase-interna/tarefas/tarefas.service';
+import { anoDeBrasilia } from '../src/fase-interna/fluxo/pendencia-dfd';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const ANO = 2036;
@@ -57,11 +58,11 @@ describe('Demanda → DFD consolidado → processo', () => {
   const sql = (q: string, p: unknown[] = []) => ctx.dataSource.query(q, p);
   const tarefas = () => ctx.app.get(TarefasService);
 
-  async function criarDemanda(u: { token: string }, unidade: string, objeto: string, itens: any[], data?: string): Promise<string> {
+  async function criarDemanda(u: { token: string }, unidade: string, objeto: string, itens: any[], data?: string, ano = ANO): Promise<string> {
     const d = await http()
       .post('/api/demandas')
       .set(bearer(u.token))
-      .send({ ano_referencia: ANO, unidade_requisitante: unidade, descricao_sucinta_objeto: objeto, observacoes: `Justificativa de ${unidade}`, data_desejada_contratacao: data })
+      .send({ ano_referencia: ano, unidade_requisitante: unidade, descricao_sucinta_objeto: objeto, observacoes: `Justificativa de ${unidade}`, data_desejada_contratacao: data })
       .expect(201);
     for (const i of itens) await http().post(`/api/demandas/${d.body.id}/itens`).set(bearer(u.token)).send(i).expect(201);
     return d.body.id;
@@ -584,6 +585,172 @@ describe('Demanda → DFD consolidado → processo', () => {
       const r2 = (await http().get(`/api/fase-interna/${lic.id}/dfd`).set(bearer(A.token)).expect(200)).body;
       expect(r2.campos).toMatchObject({ unidade_requisitante_id: setorCom, responsavel_id: carla.id });
       await tarefas().aguardarPendentes();
+    });
+  });
+
+  // ==========================================================================
+  describe('8. demanda aprovada → quem monta o DFD é avisado e tem a pendência "Montar o DFD"', () => {
+    const ANO_ATUAL = anoDeBrasilia();
+    const LINK = '/orgao/demandas/consolidacao';
+    let C: OrgaoFixture;
+    let D: OrgaoFixture;
+    let reqC: UsuarioOrgaoFixture; // requisitante (sem papel)
+    let aprovC: UsuarioOrgaoFixture; // aprova demandas
+    let planC: UsuarioOrgaoFixture; // papel PLANEJAMENTO (com telefone: WhatsApp)
+    let adminC: UsuarioOrgaoFixture; // administrador do órgão (monta o DFD por padrão) e também aprova
+    let reqPlanC: UsuarioOrgaoFixture; // pede demandas E monta o DFD
+    let planD: UsuarioOrgaoFixture; // planejamento de OUTRO órgão
+    const e1: string[] = [];
+    let dfdParcial: string;
+    let dfdResto: string;
+
+    const avisos = (usuarioId: string) =>
+      sql(
+        `SELECT id::text AS id, titulo, mensagem, link, metadata, usuario_telefone, lida, entidade_id, orgao_id::text AS orgao_id
+           FROM notificacoes WHERE usuario_id::text = $1 AND entidade_tipo = 'DFD_PENDENTE' ORDER BY created_at, id`,
+        [usuarioId],
+      );
+    const lerTudo = (usuarioId: string) => sql(`UPDATE notificacoes SET lida = true WHERE usuario_id::text = $1`, [usuarioId]);
+    const caixa = async (u: { token: string }) => (await http().get('/api/tarefas?aba=para-mim').set(bearer(u.token)).expect(200)).body;
+    const contagem = async (u: { token: string }) => (await http().get('/api/tarefas/contagem').set(bearer(u.token)).expect(200)).body;
+    const menu = async (u: { token: string }) => (await http().get('/api/dfds-consolidados/pendencia').set(bearer(u.token)).expect(200)).body;
+    const aprovada = async (quem: { token: string }, aprovador: { token: string }, unidade: string, objeto: string) => {
+      const id = await criarDemanda(quem, unidade, objeto, [toner(2)], undefined, ANO_ATUAL);
+      await http().patch(`/api/demandas/${id}/enviar`).set(bearer(quem.token)).expect(200);
+      await http().patch(`/api/demandas/${id}/aprovar`).set(bearer(aprovador.token)).expect(200);
+      return id;
+    };
+
+    beforeAll(async () => {
+      C = await criarOrgao(ctx, { nome: 'Câmara Aviso (C)' });
+      D = await criarOrgao(ctx, { nome: 'Câmara Aviso (D)' });
+      reqC = await criarUsuarioOrgao(ctx, C, { role: RoleUsuario.EQUIPE_APOIO, nome: 'Rui Requisitante C' });
+      aprovC = await criarUsuarioOrgao(ctx, C, { role: RoleUsuario.EQUIPE_APOIO, nome: 'Ana Aprovadora C' });
+      planC = await criarUsuarioOrgao(ctx, C, { role: RoleUsuario.PREGOEIRO, nome: 'Pedro Planejamento C' });
+      adminC = await criarUsuarioOrgao(ctx, C, { role: RoleUsuario.ADMIN, nome: 'Adm C' });
+      reqPlanC = await criarUsuarioOrgao(ctx, C, { role: RoleUsuario.EQUIPE_APOIO, nome: 'Rosa Requisitante e Planejamento C' });
+      planD = await criarUsuarioOrgao(ctx, D, { role: RoleUsuario.PREGOEIRO, nome: 'Planejamento D' });
+      await sql(`UPDATE usuarios SET pode_aprovar_demandas = true WHERE id::text = ANY($1::text[])`, [[aprovC.id, adminC.id]]);
+      await sql(`UPDATE usuarios SET papeis_fase_interna = '["PLANEJAMENTO"]'::jsonb, telefone = '77999990001' WHERE id = $1`, [planC.id]);
+      await sql(`UPDATE usuarios SET papeis_fase_interna = '["PLANEJAMENTO"]'::jsonb WHERE id::text = ANY($1::text[])`, [[reqPlanC.id, planD.id]]);
+    });
+
+    it('aprovou: quem monta o DFD (papel e administrador) recebe sino, e-mail e WhatsApp com o link da consolidação; o aprovador não', async () => {
+      e1.push(await aprovada(reqC, aprovC, 'Administração', 'Cadeiras para o plenário'));
+      const [p] = await avisos(planC.id);
+      expect(p).toMatchObject({
+        orgao_id: C.id,
+        titulo: 'Demanda aprovada — monte o DFD',
+        mensagem: 'Demanda aprovada: Cadeiras para o plenário (Administração) — pronta para entrar num DFD. Há 1 demanda aprovada aguardando o DFD.',
+        link: LINK,
+        usuario_telefone: '77999990001',
+        entidade_id: e1[0],
+      });
+      expect(p.metadata.whatsapp_url).toMatch(/^https?:\/\/[^/]+\/orgao\/demandas\/consolidacao$/);
+      expect(await avisos(adminC.id)).toHaveLength(1);
+      expect(await avisos(reqPlanC.id)).toHaveLength(1);
+      expect(await avisos(aprovC.id)).toHaveLength(0);
+      // quem pediu (sem papel de planejamento) continua recebendo o "aprovada" de sempre — e só ele
+      expect(await avisos(reqC.id)).toHaveLength(0);
+      const r = await sql(`SELECT usuario_id::text AS u FROM notificacoes WHERE entidade_id = $1 AND tipo::text = 'DEMANDA_APROVADA'`, [e1[0]]);
+      expect(r.map((x: any) => x.u)).toEqual([reqC.id]);
+    });
+
+    it('"Minhas tarefas" (Para mim) e o contador do menu: "Montar o DFD — N" só para quem monta o DFD', async () => {
+      const cx = await caixa(planC);
+      expect(cx.pendencias).toEqual([
+        expect.objectContaining({ chave: 'dfd:montar', titulo: 'Montar o DFD — 1 demanda aprovada aguardando', quantidade: 1, destino: LINK }),
+      ]);
+      expect(cx.contagem.para_mim).toBe(1);
+      expect(await contagem(planC)).toEqual({ para_mim: 1, atrasadas: 0 });
+      expect(await menu(planC)).toMatchObject({ pode_montar: true, demandas_livres: 1, destino: LINK });
+      // login do órgão também monta
+      expect((await caixa(C)).pendencias).toHaveLength(1);
+      // requisitante e aprovador: nada
+      for (const u of [reqC, aprovC]) {
+        const c = await caixa(u);
+        expect(c.pendencias).toEqual([]);
+        expect(c.contagem.para_mim).toBe(0);
+        expect(await contagem(u)).toEqual({ para_mim: 0, atrasadas: 0 });
+        expect(await menu(u)).toMatchObject({ pode_montar: false, demandas_livres: 0 });
+      }
+      // outras abas não repetem a pendência
+      expect((await http().get('/api/tarefas?aba=aguardando').set(bearer(planC.token)).expect(200)).body.pendencias).toEqual([]);
+    });
+
+    it('aprovações em sequência: um aviso só por pessoa, com o total atualizado (sem outro e-mail/WhatsApp); lido, o próximo é novo', async () => {
+      e1.push(await aprovada(reqC, aprovC, 'Administração', 'Toner da secretaria'));
+      const lista = await avisos(planC.id);
+      expect(lista).toHaveLength(1);
+      expect(lista[0]).toMatchObject({ lida: false, entidade_id: e1[1] });
+      expect(lista[0].mensagem).toMatch(/^Demanda aprovada: Toner da secretaria \(Administração\) — .*Há 2 demandas aprovadas aguardando o DFD\.$/);
+      expect(lista[0].metadata.demandas_livres).toBe(2);
+      // leu: a próxima aprovação avisa de novo
+      await lerTudo(planC.id);
+      e1.push(await aprovada(reqC, aprovC, 'Administração', 'Papel A4'));
+      const depois = await avisos(planC.id);
+      expect(depois).toHaveLength(2);
+      expect(depois[1]).toMatchObject({ lida: false, entidade_id: e1[2] });
+      expect(depois[1].mensagem).toMatch(/Há 3 demandas aprovadas/);
+      expect((await caixa(planC)).pendencias[0].titulo).toBe('Montar o DFD — 3 demandas aprovadas aguardando');
+    });
+
+    it('quem pediu e também monta o DFD recebe UM aviso só; quem aprovou (e monta) não recebe o próprio aviso', async () => {
+      await lerTudo(reqPlanC.id);
+      await lerTudo(adminC.id);
+      e1.push(await aprovada(reqPlanC, adminC, 'Planejamento', 'Cartuchos'));
+      const doPedido = await sql(`SELECT tipo::text AS tipo, entidade_tipo FROM notificacoes WHERE usuario_id::text = $1 AND entidade_id = $2`, [reqPlanC.id, e1[3]]);
+      expect(doPedido).toEqual([{ tipo: 'SISTEMA', entidade_tipo: 'DFD_PENDENTE' }]);
+      expect((await avisos(reqPlanC.id)).filter((a: any) => !a.lida)).toHaveLength(1);
+      expect((await avisos(adminC.id)).filter((a: any) => !a.lida)).toHaveLength(0);
+      // o planejamento (aviso não lido, dentro da janela) teve o total atualizado
+      const ult = (await avisos(planC.id)).pop();
+      expect(ult).toMatchObject({ entidade_id: e1[3] });
+      expect(ult.mensagem).toMatch(/Há 4 demandas aprovadas/);
+    });
+
+    it('montar o DFD: a pendência acompanha o total e some quando todas entram num DFD (cancelar o DFD a traz de volta)', async () => {
+      dfdParcial = (await http().post('/api/dfds-consolidados').set(bearer(planC.token)).send({ demanda_ids: [e1[0], e1[1]] }).expect(201)).body.id;
+      expect((await caixa(planC)).pendencias[0]).toMatchObject({ titulo: 'Montar o DFD — 2 demandas aprovadas aguardando', quantidade: 2 });
+      expect((await menu(planC)).demandas_livres).toBe(2);
+      dfdResto = (await http().post('/api/dfds-consolidados').set(bearer(planC.token)).send({ demanda_ids: [e1[2], e1[3]] }).expect(201)).body.id;
+      const cx = await caixa(planC);
+      expect(cx.pendencias).toEqual([]);
+      expect(cx.contagem.para_mim).toBe(0);
+      expect(await contagem(planC)).toEqual({ para_mim: 0, atrasadas: 0 });
+      expect(await menu(planC)).toMatchObject({ pode_montar: true, demandas_livres: 0, destino: null });
+      // uma pendência por órgão e pessoa (derivada): nada gravado em `tarefas`
+      expect((await sql(`SELECT count(*)::int AS n FROM tarefas WHERE orgao_id::text = $1`, [C.id]))[0].n).toBe(0);
+      // desfeito o DFD, as demandas voltam a ficar livres e a pendência volta
+      await http().post(`/api/dfds-consolidados/${dfdResto}/cancelar`).set(bearer(planC.token)).send({ motivo: 'Separar por classe' }).expect(201);
+      expect((await caixa(planC)).pendencias[0]).toMatchObject({ quantidade: 2 });
+      expect(dfdParcial).toBeTruthy();
+    });
+
+    it('isolamento: aviso e pendência nunca vão para outro órgão', async () => {
+      expect(await avisos(planD.id)).toHaveLength(0);
+      expect((await caixa(planD)).pendencias).toEqual([]);
+      expect(await menu(planD)).toMatchObject({ pode_montar: true, demandas_livres: 0 });
+      // ?orgao_id= de outro órgão é ignorado (órgão sempre do token)
+      expect((await http().get(`/api/dfds-consolidados/pendencia?orgao_id=${C.id}`).set(bearer(planD.token)).expect(200)).body.demandas_livres).toBe(0);
+      expect((await http().get(`/api/tarefas?aba=para-mim&orgao_id=${C.id}`).set(bearer(planD.token)).expect(200)).body.pendencias).toEqual([]);
+      const vazou = await sql(
+        `SELECT count(*)::int AS n FROM notificacoes n JOIN usuarios u ON u.id::text = n.usuario_id::text
+          WHERE n.entidade_tipo = 'DFD_PENDENTE' AND u.orgao_id::text <> n.orgao_id::text`,
+      );
+      expect(vazou[0].n).toBe(0);
+      // D aprova a sua: só o planejamento de D é avisado; C não recebe nada novo
+      const antesC = (await avisos(planC.id)).length;
+      const dD = await aprovada(D, D, 'Secretaria D', 'Mesas');
+      const [aD] = await avisos(planD.id);
+      expect(aD).toMatchObject({ orgao_id: D.id, entidade_id: dD, link: LINK });
+      expect(aD.mensagem).toMatch(/Há 1 demanda aprovada/);
+      expect(await avisos(planC.id)).toHaveLength(antesC);
+      expect((await caixa(planC)).pendencias[0].quantidade).toBe(2);
+      expect((await caixa(planD)).pendencias[0].quantidade).toBe(1);
+      // anônimo e fornecedor: fora
+      await http().get('/api/dfds-consolidados/pendencia').expect(401);
+      await http().get('/api/dfds-consolidados/pendencia').set(bearer(F.token)).expect(403);
     });
   });
 });

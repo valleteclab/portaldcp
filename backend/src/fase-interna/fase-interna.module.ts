@@ -39,6 +39,7 @@ import { ConformidadeService } from './conformidade/conformidade.service';
 import { ConformidadeController } from './conformidade/conformidade.controller';
 import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, PlanejamentoFluxoOrgao, RequisitoLegalFluxo, TravaAtoFluxo } from './fluxo/modelo-fluxo.entities';
 import { PlanejamentoFluxoService } from './fluxo/planejamento-fluxo.service';
+import { PendenciaDfdService } from './fluxo/pendencia-dfd.service';
 import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
 import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
@@ -179,6 +180,8 @@ import {
     // Isolamento das peças por etapa (homologação multiusuário): ponto único do TrabalhoNaEtapaGuard
     PermissaoEtapaService,
     PlanejamentoFluxoService,
+    // Demanda aprovada → aviso e pendência "Montar o DFD" para quem monta o DFD
+    PendenciaDfdService,
     FluxoProcessoService,
     IntegracaoFluxoService,
     DespachoEtapaService,
@@ -252,6 +255,7 @@ import {
     ConformidadeService,
     ModeloFluxoService,
     PlanejamentoFluxoService,
+    PendenciaDfdService,
     IntegracaoFluxoService,
     JuntadaAutosService,
   ],

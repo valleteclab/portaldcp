@@ -8,6 +8,7 @@ import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import type { Ator } from '../auth/acesso/ator';
 import { PlanejamentoFluxoService } from '../fase-interna/fluxo/planejamento-fluxo.service';
+import { PendenciaDfdService } from '../fase-interna/fluxo/pendencia-dfd.service';
 import { rotuloRegra } from '../fase-interna/fluxo/planejamento-fluxo';
 import { DfdConsolidadoService } from './dfd/dfd-consolidado.service';
 import { EscopoDemandas, condicaoSqlDoEscopo, demandaNoEscopo, veTodasAsDemandas } from './visibilidade-demandas';
@@ -30,6 +31,8 @@ export class DemandasService {
     private planejamento: PlanejamentoFluxoService,
     // DFD consolidado: a demanda juntada num DFD fica travada
     private dfds: DfdConsolidadoService,
+    // Demanda aprovada → aviso e pendência "Montar o DFD" para quem monta o DFD (unidade de planejamento)
+    private pendenciaDfd: PendenciaDfdService,
   ) {}
 
   // ==================== DONO (checagem de órgão no controller) ====================
@@ -449,6 +452,10 @@ export class DemandasService {
 
     delete (demanda as any).dfd;
     const salva = await this.demandaRepository.save(demanda);
+    // Quem monta o DFD (Configurações › Fluxo) é avisado: a demanda está pronta para entrar num DFD.
+    // Quem pediu e também monta o DFD recebe só esse aviso (um aviso por pessoa).
+    const planejamento = await this.pendenciaDfd.avisarDemandaAprovada(salva, autor.id);
+    if (planejamento.requisitanteIncluido) return salva;
     await this.notificarRequisitante(
       salva,
       TipoNotificacao.DEMANDA_APROVADA,
