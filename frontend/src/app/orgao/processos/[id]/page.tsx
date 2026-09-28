@@ -10,7 +10,7 @@
  * conferencia-publicacao, divulgacao) — a tela só mostra.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { API_URL, authFetch } from "@/lib/api"
@@ -21,6 +21,7 @@ import { aoAtualizarFaseInterna } from "@/lib/fase-interna/telas"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { AbasProcesso, type AbaProcesso } from "./AbasProcesso"
 import { AreaEtapaAtual } from "./AreaEtapaAtual"
+import { AvisoProcessoAberto } from "./AvisoProcessoAberto"
 import { BarraEtapas } from "./BarraEtapas"
 import { CabecalhoProcesso } from "./CabecalhoProcesso"
 import { useCancelarPublicacao } from "./CancelarPublicacao"
@@ -228,6 +229,11 @@ export default function ProcessoPage() {
     <div className="max-w-7xl mx-auto px-0 py-4 sm:px-2 sm:py-6 space-y-5 min-w-0">
       {dialogo}
       {cancelamento.dialogo}
+
+      {/* Logo depois de "Abrir processo" no DFD consolidado: aberto, com quem está e o próximo passo */}
+      <Suspense fallback={null}>
+        <AvisoProcessoAberto licitacaoId={id} numeroProcesso={l.numero_processo} etapas={fluxo.dados} />
+      </Suspense>
 
       {/* 1. Divulgação oficial (PNCP — arts. 54 e 174): aviso não publicado = prazo não iniciado */}
       {l.fase === "AGUARDANDO_DIVULGACAO" && (
