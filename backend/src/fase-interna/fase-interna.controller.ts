@@ -248,11 +248,11 @@ export class FaseInternaController {
     );
     if (!String(body.descricao ?? '').trim()) return doc;
     const gerada = await this.pecas.gerarDocumentoDaPecaCriada(doc.id, ator);
-    // Etapa com "aprovação interna": a peça gerada vai para o fluxo do órgão. A varredura da fila do
-    // processo pode ter enviado antes desta avaliação (ela então devolve false): a resposta relê a peça
-    // sempre, para não devolver o status de antes do envio.
-    await this.aprovacaoPecas.avaliarPeca(gerada.id);
-    return (await this.faseInternaService.getDocumento(gerada.id).catch(() => null)) ?? gerada;
+    // Etapa com "aprovação interna": a peça gerada vai para o fluxo do órgão
+    if (await this.aprovacaoPecas.avaliarPeca(gerada.id)) {
+      return (await this.faseInternaService.getDocumento(gerada.id).catch(() => null)) ?? gerada;
+    }
+    return gerada;
   }
 
   @Post('importar-processo')

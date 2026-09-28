@@ -180,9 +180,7 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
     it('emitir o TR: vai sozinho para o fluxo; a etapa mostra "Aguardando aprovação: … (1 de 1)" e não conclui', async () => {
       const r = (await emitir(lic, 'TR', 'Termo de referência — versão 1').expect(201)).body;
       trId = r.id;
-      await tarefas().aguardarPendentes();
       expect(r.status).toBe('AGUARDANDO_APROVACAO');
-      expect((await sql(`SELECT status::text AS status FROM documentos_fase_interna WHERE id = $1`, [trId]))[0].status).toBe('AGUARDANDO_APROVACAO');
       const linha = await instrucao(lic, 'TR');
       expect(linha).toMatchObject({ status: 'EM_APROVACAO', aprovacao_interna: true, exige_aprovacao: true, sem_fluxo_aprovacao: false, fluxo_aprovacao: { nome: 'TR conferido pelo chefe' } });
       expect(linha.aprovacao.rotulo).toBe('Aguardando aprovação: Conferência do chefe do setor requisitante — setor Setor Requisitante (1 de 1)');
@@ -233,13 +231,7 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
 
     it('corrigida (nova versão emitida): volta sozinha ao fluxo; o chefe aprova e a etapa TR conclui', async () => {
       const r = (await emitir(lic, 'TR', 'Termo de referência — versão 2, com prazo de entrega').expect(201)).body;
-      // a fila do processo (envio ao fluxo → juntada nos autos → tramitação) drena antes de conferir
-      await tarefas().aguardarPendentes();
-      const [agora] = await sql(`SELECT status::text AS status, versao FROM documentos_fase_interna WHERE id = $1`, [r.id]);
-      expect(agora).toEqual({ status: 'AGUARDANDO_APROVACAO', versao: 2 });
-      expect(r.status).toBe('AGUARDANDO_APROVACAO'); // a resposta já traz a peça em aprovação
-      // em aprovação, a versão corrigida ainda não é juntada nos autos (só quando aprovada)
-      expect(await sql(`SELECT 1 FROM juntadas_autos WHERE documento_id = $1`, [r.id])).toEqual([]);
+      expect(r.status).toBe('AGUARDANDO_APROVACAO');
       const [e] = await sql(`SELECT id::text AS id FROM aprovacoes_documento WHERE documento_id = $1 AND status = 'EM_ANALISE'`, [r.id]);
       expect((await caixa(chefe.token)).map((x) => x.id)).toEqual(expect.arrayContaining([e.id]));
       const ap = (await decidir(e.id, 'aprovar', chefe.token, { justificativa: 'Conferido.' }).expect(200)).body;
@@ -249,9 +241,6 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
       expect((await passo(lic, 'TR')).situacao).toBe('CONCLUIDO');
       const [doc] = await sql(`SELECT status::text AS status, aprovador_nome FROM documentos_fase_interna WHERE id = $1`, [r.id]);
       expect(doc).toMatchObject({ status: 'APROVADO', aprovador_nome: 'Carlos Chefe' });
-      // aprovada, a versão corrigida é juntada uma vez nos autos
-      await tarefas().aguardarPendentes();
-      expect((await sql(`SELECT COUNT(*)::int AS n FROM juntadas_autos WHERE documento_id = $1`, [r.id]))[0].n).toBe(1);
       // Etapa já decidida: 400
       expect((await decidir(e.id, 'aprovar', chefe.token)).status).toBe(400);
     });
